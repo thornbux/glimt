@@ -82,6 +82,9 @@ pub(crate) struct Dialogs {
     /// dialog is open does not change it.
     folder_target: Option<PathBuf>,
     confirm_folder: bool,
+    /// The collection file whose move to the trash is being confirmed. It is kept from when
+    /// Move Collection to Trash asked, so the answer acts on that collection.
+    confirm_collection: Option<PathBuf>,
     /// Answer from an open file dialog (zenity or kdialog).
     file_dialog: Option<Pick>,
     file_dialog_rx: Receiving<Option<PathBuf>>,
@@ -140,6 +143,11 @@ impl Dialogs {
         let name = file.file_stem().unwrap_or_default().to_string_lossy();
         self.prompt = Some((Prompt::RenameCollection, name.into_owned()));
         self.folder_target = Some(file.to_path_buf());
+    }
+
+    /// Asks whether to move the collection `file` to the trash.
+    pub(crate) fn ask_trash_collection(&mut self, file: &Path) {
+        self.confirm_collection = Some(file.to_path_buf());
     }
 
     /// Asks whether to move the folder `dir` to the trash.
@@ -755,6 +763,36 @@ impl crate::App {
         }
     }
 
+    /// Asks before a collection's file goes to the trash, as before a folder. Its images stay.
+    pub(crate) fn confirm_collection_dialog(&mut self, ctx: &egui::Context) {
+        let Some(file) = self.dialogs.confirm_collection.clone() else {
+            return;
+        };
+        // A collection is shown by its name without ".gqv".
+        let name = file.file_stem().unwrap_or_default().to_string_lossy();
+        let question = tf!(
+            "Move the collection \"{name}\" to the trash? Its images stay where they are.",
+            name
+        );
+        let mut trash = false;
+        let modal = egui::Modal::new(egui::Id::unique("confirm-collection")).show(ctx, |ui| {
+            ui.label(question.as_str());
+            ui.horizontal(|ui| {
+                trash = ui.button(tr("Move to Trash (Enter)")).clicked()
+                    || ui.input(|i| i.key_pressed(egui::Key::Enter));
+                if ui.button(tr("Cancel (Esc)")).clicked() {
+                    ui.close();
+                }
+            });
+        });
+        if trash || modal.should_close() {
+            self.dialogs.confirm_collection = None;
+        }
+        if trash {
+            self.trash_collection(ctx, file);
+        }
+    }
+
     /// Returns whether Preferences or a modal dialog is open. The keys then go there, not to
     /// the shortcuts.
     pub(crate) fn dialog_open(&self) -> bool {
@@ -765,6 +803,7 @@ impl crate::App {
     /// is the one list of them, and Preferences leaves Esc to it.
     pub(crate) fn modal_open(&self) -> bool {
         self.dialogs.confirm_delete.is_some()
+            || self.dialogs.confirm_collection.is_some()
             || self.dialogs.confirm_folder
             || self.dialogs.prompt.is_some()
             || self.folder.asks_login()

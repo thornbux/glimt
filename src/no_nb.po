@@ -2795,3 +2795,7 @@ msgstr "bare JPEG-filer kan lagre retningen"
 #: src/metadata/xmp.rs
 msgid "the image was moved, renamed or deleted meanwhile"
 msgstr "bildet ble flyttet, fikk nytt navn eller ble slettet i mellomtiden"
+
+#: src/ui/dialogs.rs
+msgid "Move the collection \"{name}\" to the trash? Its images stay where they are."
+msgstr "Flytte samlingen «{name}» til papirkurven? Bildene blir der de er."

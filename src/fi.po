@@ -2784,3 +2784,7 @@ msgstr "vain JPEG-tiedostot voivat tallentaa suunnan"
 #: src/metadata/xmp.rs
 msgid "the image was moved, renamed or deleted meanwhile"
 msgstr "kuva siirrettiin, nimettiin uudelleen tai poistettiin sillä välin"
+
+#: src/ui/dialogs.rs
+msgid "Move the collection \"{name}\" to the trash? Its images stay where they are."
+msgstr "Siirretäänkö kokoelma ”{name}” roskakoriin? Sen kuvat jäävät paikoilleen."

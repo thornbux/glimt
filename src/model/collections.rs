@@ -99,12 +99,10 @@ impl crate::App {
         self.save_collection_order();
     }
 
-    /// The open collection's file to the trash, through gio in the background; the images stay,
-    /// and the window shows the shown image's folder.
-    pub(crate) fn trash_collection(&mut self, ctx: &egui::Context) {
-        let Some(file) = self.folder.collection().map(Path::to_path_buf) else {
-            return;
-        };
+    /// Moves the collection's file `file` to the trash, in the background. The images stay. When
+    /// the window still shows that collection, it shows the shown image's folder after.
+    pub(crate) fn trash_collection(&mut self, ctx: &egui::Context, file: PathBuf) {
+        let shown = self.folder.collection() == Some(file.as_path());
         if !self.background(ctx, vec![file.clone()], move || {
             let name = file
                 .file_stem()
@@ -117,7 +115,8 @@ impl crate::App {
                     Err(err) => tf!("Could not trash {name}: {err}", name, err),
                 },
             )
-        }) {
+        }) || !shown
+        {
             return;
         }
         let folder = (!self.list.files().is_empty())
@@ -565,6 +564,22 @@ mod tests {
         let told = |app: &crate::App| app.notice.as_deref().is_some_and(|n| n.contains("trip"));
         assert!(crate::support::test_support::settle(&mut app, &ctx, told));
         assert_eq!(super::load(&file).unwrap(), [a]);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// Move Collection to Trash asks first, as a folder's move to the trash does, and the
+    /// question names the collection it asked about.
+    #[test]
+    fn trashing_a_collection_asks_first() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-gqv-ask-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("trip.gqv");
+        std::fs::write(&file, "#GQview collection\n#end\n").unwrap();
+        let (mut app, ctx) = crate::support::test_support::app_on(&dir);
+        app.open(&ctx, file.clone());
+        app.run(&ctx, crate::ui::actions::Action::TrashCollection);
+        assert!(app.dialog_open());
+        assert!(file.is_file());
         std::fs::remove_dir_all(dir).unwrap();
     }
 

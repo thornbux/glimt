@@ -2784,3 +2784,7 @@ msgstr "alleen JPEG-bestanden kunnen de oriëntatie opslaan"
 #: src/metadata/xmp.rs
 msgid "the image was moved, renamed or deleted meanwhile"
 msgstr "de afbeelding is intussen verplaatst, hernoemd of verwijderd"
+
+#: src/ui/dialogs.rs
+msgid "Move the collection \"{name}\" to the trash? Its images stay where they are."
+msgstr "De verzameling “{name}” naar de prullenbak verplaatsen? De afbeeldingen blijven waar ze zijn."

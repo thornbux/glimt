@@ -2795,3 +2795,7 @@ msgstr "tylko pliki JPEG mogą zapisać orientację"
 #: src/metadata/xmp.rs
 msgid "the image was moved, renamed or deleted meanwhile"
 msgstr "obraz został w międzyczasie przeniesiony, przemianowany lub usunięty"
+
+#: src/ui/dialogs.rs
+msgid "Move the collection \"{name}\" to the trash? Its images stay where they are."
+msgstr "Przenieść kolekcję «{name}» do kosza? Jej obrazy zostaną na miejscu."

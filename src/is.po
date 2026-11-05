@@ -2784,3 +2784,7 @@ msgstr "aðeins JPEG-skrár geta geymt stefnuna"
 #: src/metadata/xmp.rs
 msgid "the image was moved, renamed or deleted meanwhile"
 msgstr "myndin var færð, endurnefnd eða henni eytt á meðan"
+
+#: src/ui/dialogs.rs
+msgid "Move the collection \"{name}\" to the trash? Its images stay where they are."
+msgstr "Færa safnið „{name}“ í ruslið? Myndirnar í því verða áfram þar sem þær eru."

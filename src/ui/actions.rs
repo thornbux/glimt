@@ -850,7 +850,11 @@ impl crate::App {
                     self.dialogs.ask_rename_collection(&file);
                 }
             }
-            Action::TrashCollection => self.trash_collection(ctx),
+            Action::TrashCollection => {
+                if let Some(file) = self.folder.collection().map(|f| f.to_path_buf()) {
+                    self.dialogs.ask_trash_collection(&file);
+                }
+            }
             Action::MoveEarlier | Action::MoveLater | Action::MoveFirst | Action::MoveLast => {
                 let picked: HashSet<usize> = self.targets().into_iter().collect();
                 let order = collections::moved(self.list.files().len(), &picked, action);

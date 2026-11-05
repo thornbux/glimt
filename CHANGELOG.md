@@ -139,6 +139,10 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 - Counts and sizes are written as each language writes numbers (1.200 Dateien, 2,3 MB, 1 200 filer),
   no longer in the English form in every translation.
+### Changed
+
+- Move Collection to Trash asks before the collection's file goes to the trash, as Move Folder to
+  Trash does.
 
 ## [0.57.0] - 2026-11-05
 
