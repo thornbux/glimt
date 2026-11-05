@@ -5,6 +5,10 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- Finishing a Rename Many of many files cut short by a crash no longer takes minutes.
+
 ## [0.57.0] - 2026-11-05
 
 ### Fixed
