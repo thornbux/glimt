@@ -115,6 +115,9 @@ pub(crate) struct Info {
     /// Keywords, comment, alt text and extended description in the EXIF panel; saved when a field
     /// loses the focus, or another image is shown.
     meta: Option<MetaEdit>,
+    /// The panel is to be read again once the sidecar writer has written what it was given
+    /// (`read_info_again`). Read at once, it could read the file before the writer reached it.
+    reread_after_write: bool,
     /// Alt+K: put the focus in the keywords field when the panel shows next.
     focus_keywords: bool,
     /// The keyword tree (Geeqie's), as paths "Places|Norway|Oslo", sorted; in the EXIF panel.
@@ -133,6 +136,7 @@ impl Info {
             exif_asked: None,
             exif: None,
             exif_all: Vec::new(),
+            reread_after_write: false,
             exif_window: false,
             meta: None,
             focus_keywords: false,
@@ -174,6 +178,7 @@ impl crate::App {
 
     /// Ask the EXIF reader for the shown image (once per image) and take what has arrived.
     pub(crate) fn want_exif(&mut self, ctx: &egui::Context) {
+        self.reread_when_written();
         let path = self.path(self.list.cur());
         if self.info.exif_asked.as_ref() != Some(&path) {
             let _ = self.info.exif_jobs.send(path.clone());
@@ -428,20 +433,32 @@ impl crate::App {
         );
     }
 
+    /// Reads the shown image's EXIF, keywords, comment and alt text again, after something else
+    /// changed them, such as a plugin. An edit in the panel that is not saved yet is saved
+    /// first, so it is not lost. While the sidecar writer still writes, the panel is read again
+    /// only once it is done (`want_exif`): read at once, it could show the file as it was before
+    /// the edit, and a later edit would then save the edit away again.
+    pub(crate) fn read_info_again(&mut self, ctx: &egui::Context) {
+        self.save_meta(ctx);
+        self.info.reread_after_write = true;
+        self.reread_when_written();
+    }
+
+    /// Lets the panel read the shown image again, when `read_info_again` asked for it and the
+    /// sidecar writer has written everything it was given.
+    fn reread_when_written(&mut self) {
+        if self.info.reread_after_write && !self.work.writes_keywords() {
+            self.info.reread_after_write = false;
+            self.info.meta = None;
+            self.info.exif = None;
+            self.info.exif_asked = None;
+        }
+    }
+
     /// Save the keywords, comment, alt text and extended description being edited, if they changed:
     /// in the thread that writes this window's sidecars, which closing waits for, not in the
     /// window's, as a sidecar on a slow share would hold the window up for its read, write and
     /// sync. The fields show what was saved at once; a failure is told.
-    /// Reads the shown image's EXIF, keywords, comment and alt text again, after something else
-    /// changed them, such as a plugin. An edit in the panel that is not saved yet is saved
-    /// first, so it is not lost.
-    pub(crate) fn read_info_again(&mut self, ctx: &egui::Context) {
-        self.save_meta(ctx);
-        self.info.meta = None;
-        self.info.exif = None;
-        self.info.exif_asked = None;
-    }
-
     pub(crate) fn save_meta(&mut self, ctx: &egui::Context) {
         let Some(edit) = &mut self.info.meta else {
             return;
@@ -695,6 +712,31 @@ mod tests {
         app.files_changed(&ctx, std::slice::from_ref(&file));
         read_panel(&mut app, &ctx);
         assert_eq!(app.info.meta.as_ref().unwrap().saved.keywords, ["beach"]);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// An edit not saved yet when a plugin changes the shown file is saved, and the panel keeps
+    /// showing it until the writer has written it, then reads the file again with it in.
+    #[test]
+    fn a_reread_waits_for_the_panels_own_save() {
+        let name = format!("glimt-test-reread-save-{}", std::process::id());
+        let dir = std::env::temp_dir().join(name);
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("a.png");
+        image::RgbImage::new(4, 4).save(&file).unwrap();
+        let (mut app, ctx) = app_on(&dir);
+        read_panel(&mut app, &ctx);
+        app.info.meta.as_mut().unwrap().keywords = "sea".into();
+        app.files_changed(&ctx, std::slice::from_ref(&file));
+        if app.work.writes_keywords() {
+            assert!(app.info.meta.is_some(), "read again before the save landed");
+        }
+        let written = |a: &crate::App| !a.work.writes_keywords();
+        assert!(crate::support::test_support::settle(
+            &mut app, &ctx, written
+        ));
+        read_panel(&mut app, &ctx);
+        assert_eq!(app.info.meta.as_ref().unwrap().saved.keywords, ["sea"]);
         std::fs::remove_dir_all(&dir).unwrap();
     }
 }
