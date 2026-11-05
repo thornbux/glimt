@@ -201,6 +201,7 @@ impl crate::App {
             open = !self.prefs.query.trim().is_empty();
             self.prefs.query.clear();
         }
+        let mut keys_drawn = false;
         egui::Window::new(tr("Preferences"))
             .open(&mut open)
             .resizable(false)
@@ -243,6 +244,7 @@ impl crate::App {
                             &keys.header_response,
                             tr("Keyboard shortcuts"),
                         );
+                        keys_drawn = keys.body_returned.is_some();
                     }
                     if shown[2] {
                         section(ui, theme::icon::IMAGE, tr(IMAGE[0]));
@@ -293,6 +295,11 @@ impl crate::App {
                 });
             });
         self.prefs.open = open;
+        // A key is chosen only while its row is drawn. Closing the window or the header ends
+        // the choosing, so a key pressed later in another field is not taken for the action.
+        if !keys_drawn {
+            self.prefs.capturing = None;
+        }
     }
 
     /// Preferences: the look, first where it is found (also under View → Theme): the theme,
@@ -1320,5 +1327,40 @@ mod tests {
             });
             assert_eq!(ctx.input(super::pressed_key), Some((key, actions::CTRL)));
         }
+    }
+
+    /// Choosing a key ends when its row is no longer drawn: with the Keyboard shortcuts header
+    /// closed, and with Preferences closed.
+    #[test]
+    fn choosing_a_key_ends_with_its_row() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-capture-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let (mut app, ctx) = app_on(&dir);
+        let mut time = 0.0;
+        let mut frame = |app: &mut crate::App| {
+            time += 0.1;
+            let input = eframe::egui::RawInput {
+                time: Some(time),
+                ..Default::default()
+            };
+            let _ = ctx.run_ui(input, |ui| app.preferences_window(ui.ctx()));
+        };
+        // The header starts closed.
+        app.prefs.open = true;
+        app.prefs.capturing = Some(Action::Next);
+        frame(&mut app);
+        assert_eq!(app.prefs.capturing, None);
+        // A search for the action opens the header, so its row is drawn and the choosing stays.
+        app.prefs.query = "next image".into();
+        app.prefs.capturing = Some(Action::Next);
+        frame(&mut app);
+        assert_eq!(app.prefs.capturing, Some(Action::Next));
+        // A closed window fades out first, drawing its rows a few frames more.
+        app.prefs.open = false;
+        for _ in 0..30 {
+            frame(&mut app);
+        }
+        assert_eq!(app.prefs.capturing, None);
+        std::fs::remove_dir_all(dir).unwrap();
     }
 }

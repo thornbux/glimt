@@ -80,6 +80,9 @@ and versions follow [Semantic Versioning](https://semver.org/).
   first part of a RAW where it can; %dimensions% in a print caption shows the photo's size too.
 - Save This Frame and Save as PDF suggest a file beside the image, also in a collection, several
   folders or with subfolders, where they suggested one in / or in the top folder.
+- Choosing a key in Preferences ends when the Keyboard shortcuts header or Preferences is closed.
+  Before, Esc stopped closing Preferences, and a key pressed later in another field became the
+  action's key.
 
 ## [0.57.0] - 2026-11-05
 
