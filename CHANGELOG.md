@@ -50,6 +50,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 - Printing a contact sheet of slow images (videos, HEIC, RAWs on a share) to a printer is no longer
   cut off as "No answer from the print server".
 - Finishing a Rename Many of many files cut short by a crash no longer takes minutes.
+- clippy's message for Command::new names host_command for the user's own programs, which
+  external::command cannot reach in a Flatpak.
 
 ## [0.57.0] - 2026-11-05
 
