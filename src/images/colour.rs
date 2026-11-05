@@ -334,17 +334,20 @@ pub fn colour_source(path: &Path) -> String {
     use moxcms::{ColorProfile, ProfileText};
     let c = COLOUR.read().unwrap_or_else(|e| e.into_inner());
     let input = c.input.as_ref().map_or("sRGB".to_owned(), name_of);
-    let dec = crate::images::decode::image_reader(path)
-        .ok()
-        .and_then(|r| r.into_decoder().ok());
-    let own = dec.and_then(|mut d| {
-        if let Some(icc) = d.icc_profile().ok().flatten() {
-            let p = ColorProfile::new_from_slice(&icc).ok()?;
-            return Some(format!("{}, in the file", name_of(&p)));
+    // The profile as the view reads it, also from a JPEG XL, which the image crate cannot open.
+    let own = match crate::images::decode::icc_profile(path) {
+        Some(icc) => ColorProfile::new_from_slice(&icc)
+            .ok()
+            .map(|p| format!("{}, in the file", name_of(&p))),
+        None => {
+            let dec = crate::images::decode::image_reader(path)
+                .ok()
+                .and_then(|r| r.into_decoder().ok());
+            let exif = dec.and_then(|mut d| d.exif_metadata().ok().flatten());
+            (exif.is_some_and(|e| exif::adobe_rgb(&e)))
+                .then(|| "Adobe RGB, from its EXIF".to_owned())
         }
-        let exif = d.exif_metadata().ok().flatten()?;
-        exif::adobe_rgb(&exif).then(|| "Adobe RGB, from its EXIF".to_owned())
-    });
+    };
     fn name_of(p: &ColorProfile) -> String {
         match &p.description {
             Some(ProfileText::PlainString(s)) => s.clone(),

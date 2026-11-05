@@ -5,6 +5,10 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- The info panel names a JPEG XL's own colour profile instead of saying it is taken as sRGB.
+
 ## [0.57.0] - 2026-11-05
 
 ### Fixed

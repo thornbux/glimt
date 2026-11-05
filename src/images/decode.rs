@@ -435,6 +435,24 @@ pub fn small(path: &Path, max: [u32; 2], rotate: bool) -> Result<Small, String> 
     Ok((shrink(img, max)?, icc, size))
 }
 
+/// Returns the ICC profile inside `path`, read by the same decoder the view reads it with, or
+/// `None` when it has none. The info panel names it.
+pub fn icc_profile(path: &Path) -> Option<Vec<u8>> {
+    #[cfg(feature = "jxl")]
+    if has_ext(path, crate::model::listing::JXL_EXTS) {
+        let file = std::io::BufReader::new(open(path).ok()?);
+        let mut dec = jxl_oxide::integration::JxlDecoder::new(file).ok()?;
+        return dec.icc_profile().ok().flatten();
+    }
+    image_reader(path)
+        .ok()?
+        .into_decoder()
+        .ok()?
+        .icc_profile()
+        .ok()
+        .flatten()
+}
+
 /// The whole image (a preview frame for videos), turned upright by EXIF if `rotate`, and its
 /// ICC profile if it has one.
 pub fn load_icc(
@@ -1732,6 +1750,28 @@ mod tests {
         f.set_len(10).unwrap();
         assert_eq!(super::read_limited(&file).unwrap().len(), 10);
         std::fs::remove_file(file).unwrap();
+    }
+
+    /// The profile inside a file is found for the info panel, and a file without one has none.
+    #[test]
+    fn finds_the_profile_inside() {
+        use image::ImageEncoder;
+        let dir = std::env::temp_dir().join(format!("glimt-test-icc-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let (with, without) = (dir.join("with.png"), dir.join("without.png"));
+        let mut out = Vec::new();
+        let mut enc = image::codecs::png::PngEncoder::new(&mut out);
+        enc.set_icc_profile(super::ADOBE_RGB.to_vec()).unwrap();
+        enc.write_image(&[0u8; 2 * 2 * 3], 2, 2, image::ExtendedColorType::Rgb8)
+            .unwrap();
+        std::fs::write(&with, out).unwrap();
+        image::RgbImage::new(2, 2).save(&without).unwrap();
+        assert_eq!(
+            super::icc_profile(&with).as_deref(),
+            Some(&super::ADOBE_RGB[..])
+        );
+        assert_eq!(super::icc_profile(&without), None);
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]
