@@ -100,6 +100,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
   delete) closes only that dialog, not Preferences with it.
 - In the Flatpak, Undo of a move to the trash finds the host's trash also where the host has its own
   XDG_DATA_HOME.
+- A message from work in the background (a wallpaper set, Open With, the video player, a missing
+  file dialog) shows at once, not only after the mouse moves.
 
 ## [0.57.0] - 2026-11-05
 
