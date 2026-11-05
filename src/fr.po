@@ -2154,6 +2154,10 @@ msgid "Nothing to undo"
 msgstr "Rien à annuler"
 
 #: src/files/file_ops.rs
+msgid "another file has taken its place"
+msgstr "un autre fichier a pris sa place"
+
+#: src/files/file_ops.rs
 msgid "Undo failed ({count}): {first}"
 msgstr "Échec de l'annulation ({count}) : {first}"
 

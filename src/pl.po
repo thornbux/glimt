@@ -2165,6 +2165,10 @@ msgid "Nothing to undo"
 msgstr "Nie ma czego cofnąć"
 
 #: src/files/file_ops.rs
+msgid "another file has taken its place"
+msgstr "jego miejsce zajął inny plik"
+
+#: src/files/file_ops.rs
 msgid "Undo failed ({count}): {first}"
 msgstr "Cofanie nie powiodło się ({count}): {first}"
 

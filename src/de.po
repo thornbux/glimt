@@ -2154,6 +2154,10 @@ msgid "Nothing to undo"
 msgstr "Nichts rückgängig zu machen"
 
 #: src/files/file_ops.rs
+msgid "another file has taken its place"
+msgstr "eine andere Datei hat ihren Platz eingenommen"
+
+#: src/files/file_ops.rs
 msgid "Undo failed ({count}): {first}"
 msgstr "Rückgängig fehlgeschlagen ({count}): {first}"
 

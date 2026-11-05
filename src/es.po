@@ -2154,6 +2154,10 @@ msgid "Nothing to undo"
 msgstr "Nada que deshacer"
 
 #: src/files/file_ops.rs
+msgid "another file has taken its place"
+msgstr "otro archivo ha ocupado su lugar"
+
+#: src/files/file_ops.rs
 msgid "Undo failed ({count}): {first}"
 msgstr "Error al deshacer ({count}): {first}"
 

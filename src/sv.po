@@ -2154,6 +2154,10 @@ msgid "Nothing to undo"
 msgstr "Inget att ångra"
 
 #: src/files/file_ops.rs
+msgid "another file has taken its place"
+msgstr "en annan fil har tagit dess plats"
+
+#: src/files/file_ops.rs
 msgid "Undo failed ({count}): {first}"
 msgstr "Ångra misslyckades ({count}): {first}"
 
