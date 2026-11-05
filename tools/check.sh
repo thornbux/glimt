@@ -1,0 +1,52 @@
+#!/bin/bash
+# The checks before a commit (AGENTS.md) in Docker, for a computer without cargo, or for several
+# worktrees at once:
+#
+#   tools/check.sh                 cargo fmt, then clippy and the tests, without and with every
+#                                  feature, in --profile quick; exits nonzero when one fails
+#   tools/check.sh 'COMMANDS'      other cargo commands in the same container, such as
+#                                  'cargo test --profile quick NAME'
+#
+# The image (rust:1 with mold, which links in a fraction of the time, and sccache, which keeps
+# the crates' builds for every worktree) is built once as glimt-check. Each checkout has a target
+# folder of its own in the volume glimt-target, so worktrees do not wait for each other's lock.
+# At most one check per 5 GB of Docker's memory runs at once; the others wait their turn.
+# cargo fmt changes the files in place: the checkout is mounted, not copied.
+set -u
+cd "$(dirname "$0")/.." || exit 2
+here=$(pwd)
+name=$(basename "$here")-$(printf %s "$here" | cksum | cut -d' ' -f1)
+if ! docker image inspect glimt-check >/dev/null 2>&1; then
+    docker build -q -t glimt-check - >/dev/null <<'DOCKERFILE' || exit 2
+FROM rust:1
+RUN apt-get update && apt-get install -y --no-install-recommends mold sccache \
+    && rm -rf /var/lib/apt/lists/* && rustup component add rustfmt clippy
+DOCKERFILE
+fi
+# A turn among the others: a folder made is a slot taken, and it goes when this ends.
+gb=$(($(docker info --format '{{.MemTotal}}') / 1073741824))
+slots=$((gb / 5 < 1 ? 1 : gb / 5))
+locks=$HOME/.cache/glimt-check-slots
+mkdir -p "$locks"
+slot=""
+while [ -z "$slot" ]; do
+    for s in $(seq 1 $slots); do
+        if mkdir "$locks/$s" 2>/dev/null; then slot=$s; break; fi
+    done
+    [ -z "$slot" ] && sleep 10
+done
+trap 'rmdir "$locks/$slot"' EXIT
+checks='r=0
+step() { echo "-- $*"; "$@" || { echo "FAIL: $*"; r=1; }; }
+step cargo fmt
+step cargo clippy -q --profile quick --all-targets -- -D warnings
+step cargo test -q --profile quick
+step cargo clippy -q --profile quick --all-targets --all-features -- -D warnings
+step cargo test -q --profile quick --all-features
+[ $r = 0 ] && echo "every check passed"
+exit $r'
+docker run --rm -v "$here":/s -w /s \
+    -v glimt-target:/target -v glimt-cargo:/usr/local/cargo/registry -v glimt-sccache:/sccache \
+    -e CARGO_TARGET_DIR=/target/$name -e RUSTC_WRAPPER=sccache -e SCCACHE_DIR=/sccache \
+    -e RUSTFLAGS="-C link-arg=-fuse-ld=mold" -e HOME=/tmp \
+    glimt-check bash -c "${1:-$checks}"

@@ -133,6 +133,7 @@ holds only its `mod` lines, and a new module goes into the folder of what it doe
 | `examples/decoders/` | Decoder plugins: desktop files and their scripts |
 | `examples/plugins/` | Plugins (describe a photo with a local model, read the alt text aloud), and `test-model.py`, a stand-in model |
 | `flatpak/` | The Flatpak manifest, and `cargo-sources.json`: the crates it builds from without the network |
+| `tools/check.sh` | Runs the checks before a commit in Docker, with mold and sccache, a few at a time |
 | `tools/sbom.py` | Writes `sbom.cdx.json` and `THIRD-PARTY-LICENSES.txt` |
 | `tools/flatpak-sources.py` | Writes `flatpak/cargo-sources.json` from `Cargo.lock` |
 | `tools/flathub-manifest.py` | Writes the Flathub repository's manifest and `cargo-sources.json` for a release tag |
@@ -296,10 +297,10 @@ should fix.
 
 ```sh
 cargo fmt
-cargo clippy --release --all-targets -- -D warnings
-cargo test --release
-cargo clippy --release --all-targets --all-features -- -D warnings
-cargo test --release --all-features
+cargo clippy --profile quick --all-targets -- -D warnings
+cargo test --profile quick
+cargo clippy --profile quick --all-targets --all-features -- -D warnings
+cargo test --profile quick --all-features
 python3 tools/sbom.py        # keeps sbom.cdx.json and THIRD-PARTY-LICENSES.txt in step with Cargo.lock
 python3 tools/flatpak-sources.py  # and flatpak/cargo-sources.json, the Flatpak's crates
 ```
@@ -314,7 +315,12 @@ python3 tools/flatpak-sources.py  # and flatpak/cargo-sources.json, the Flatpak'
   section in `tools/release-tests/tests.sh` that fails on the release before it. A fix without
   one is not finished; 0.37–0.38 showed that a fix nobody checked is the next release's
   regression.
-- Use `--release` for tests too; a separate debug build doubles the space in `target/`.
+- Use `--profile quick` (Cargo.toml) for clippy and tests: it is optimised as the release, so
+  the tests' timings hold, but builds in many parts and incrementally, so a small change builds
+  in a fraction of the time. A debug build besides would double the space in `target/`.
+- `tools/check.sh` runs the five checks above in Docker (`rust:1` with mold and sccache), for a
+  computer without cargo or to run several worktrees at once. CI runs them too on every push to
+  any branch, so a branch is checked there without a local build.
 - A release: the version in `Cargo.toml` and in the header of `docs/glimt.1`, a section in
   `CHANGELOG.md`, a `<release>` line in `assets/io.github.thornbux.Glimt.metainfo.xml`, and a
   tag `vX.Y.Z` on `main` (the release workflow checks each). New command-line options go in the man page too.
