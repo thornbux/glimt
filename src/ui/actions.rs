@@ -1348,89 +1348,53 @@ pub fn shortcut_text(ctx: &egui::Context, action: Action) -> Option<String> {
 mod tests {
     use super::Action;
 
-    /// Every action, for the tests that run each one. Kept whole by `all_lists_every_action`.
+    /// Every action, in name order, for the tests that run each one. Kept whole by
+    /// `all_lists_every_action`.
     const ALL: &[Action] = &[
-        Action::OpenFile,
-        Action::OpenFolder,
-        Action::OpenFolders,
-        Action::OpenRecursive,
-        Action::NewFolder,
-        Action::Rename,
-        Action::Copy,
-        Action::Move,
-        Action::OpenWith,
-        Action::SetWallpaper,
-        Action::Play,
-        Action::Delete,
-        Action::DeletePermanently,
-        Action::Undo,
-        Action::CloseWindow,
-        Action::Quit,
-        Action::First,
-        Action::Prev,
-        Action::Next,
-        Action::Last,
+        Action::About,
+        Action::AboveEachOther,
+        Action::Animate,
         Action::Back,
-        Action::Forward,
-        Action::Home,
-        Action::Up,
-        Action::SelectAll,
-        Action::SelectNone,
-        Action::InvertSelection,
+        Action::BackUp,
+        Action::CheckImages,
+        Action::CloseWindow,
+        Action::Compare,
+        Action::Copy,
+        Action::CopyFiles,
+        Action::CopyImage,
         Action::CopyPath,
         Action::CopyPathUnquoted,
-        Action::CopyImage,
-        Action::CopyFiles,
-        Action::Preferences,
-        Action::ExifRotate,
-        Action::ViewFilter,
-        Action::RotateCw,
-        Action::RotateCcw,
-        Action::Rotate180,
-        Action::Mirror,
-        Action::Flip,
-        Action::SaveOrientation,
         Action::Crop,
-        Action::SaveAs,
-        Action::ZoomIn,
-        Action::ZoomOut,
-        Action::Zoom1To1,
-        Action::ZoomFit,
-        Action::FitWidth,
-        Action::FitHeight,
+        Action::Delete,
+        Action::DeletePermanently,
+        Action::Escape,
+        Action::ExifPanel,
+        Action::ExifRotate,
+        Action::ExifWindow,
+        Action::ExportFrames,
+        Action::Faster,
+        Action::FindDuplicates,
+        Action::First,
         Action::FitFill,
+        Action::FitHeight,
+        Action::FitWidth,
+        Action::Flip,
+        Action::FocusSearch,
+        Action::FolderTree,
+        Action::Forward,
         Action::FullScreen,
+        Action::Help,
+        Action::HiddenFiles,
         Action::HideTools,
-        Action::Overlay,
         Action::Histogram,
         Action::HistogramLog,
-        Action::Compare,
-        Action::OneImage,
-        Action::AboveEachOther,
-        Action::NextLayout,
-        Action::PaneLeft,
-        Action::PaneRight,
-        Action::PaneUp,
-        Action::PaneDown,
-        Action::Animate,
-        Action::Subfolders,
-        Action::HiddenFiles,
-        Action::NewCollection,
-        Action::OpenCollection,
+        Action::Home,
+        Action::Icons,
         Action::ImportLightroom,
-        Action::RemoveFromCollection,
-        Action::RenameCollection,
-        Action::TrashCollection,
-        Action::MoveEarlier,
-        Action::MoveLater,
-        Action::MoveFirst,
-        Action::MoveLast,
-        Action::FindDuplicates,
-        Action::CheckImages,
-        Action::BackUp,
-        Action::FocusSearch,
-        Action::NextPage,
-        Action::PrevPage,
+        Action::InvertSelection,
+        Action::KeyboardMap,
+        Action::Keywords,
+        Action::Last,
         #[cfg(feature = "marks")]
         Action::Mark1,
         #[cfg(feature = "marks")]
@@ -1443,18 +1407,42 @@ mod tests {
         Action::Mark5,
         #[cfg(feature = "marks")]
         Action::Mark6,
-        #[cfg(feature = "marks")]
-        Action::SelectMark1,
-        #[cfg(feature = "marks")]
-        Action::SelectMark2,
-        #[cfg(feature = "marks")]
-        Action::SelectMark3,
-        #[cfg(feature = "marks")]
-        Action::SelectMark4,
-        #[cfg(feature = "marks")]
-        Action::SelectMark5,
-        #[cfg(feature = "marks")]
-        Action::SelectMark6,
+        Action::Mirror,
+        Action::Move,
+        Action::MoveEarlier,
+        Action::MoveFirst,
+        Action::MoveLast,
+        Action::MoveLater,
+        Action::NewCollection,
+        Action::NewFolder,
+        Action::NewWindow,
+        Action::Next,
+        Action::NextLayout,
+        Action::NextPage,
+        Action::OneImage,
+        Action::OpenCollection,
+        Action::OpenFile,
+        Action::OpenFolder,
+        Action::OpenFolders,
+        Action::OpenRecursive,
+        Action::OpenWith,
+        Action::Overlay,
+        Action::PanView,
+        Action::PaneDown,
+        Action::PaneLeft,
+        Action::PaneRight,
+        Action::PaneUp,
+        Action::PathBar,
+        Action::Pause,
+        Action::Play,
+        Action::Preferences,
+        Action::Prev,
+        Action::PrevPage,
+        Action::Print,
+        Action::Projector,
+        Action::ProjectorPointer,
+        Action::Quit,
+        Action::RandomOrder,
         #[cfg(feature = "marks")]
         Action::Rate0,
         #[cfg(feature = "marks")]
@@ -1467,52 +1455,73 @@ mod tests {
         Action::Rate4,
         #[cfg(feature = "marks")]
         Action::Rate5,
-        Action::Icons,
-        Action::Toolbar,
-        Action::PathBar,
-        Action::Thumbnails,
-        Action::ExifPanel,
-        Action::ExifWindow,
-        Action::Keywords,
-        Action::SortManager,
-        Action::PanView,
-        Action::FolderTree,
         Action::Refresh,
-        Action::Slideshow,
-        Action::Pause,
-        Action::RandomOrder,
-        Action::Faster,
-        Action::Slower,
-        Action::Escape,
-        Action::NewWindow,
-        Action::WindowTitle,
-        Action::Projector,
-        Action::ProjectorPointer,
-        Action::Print,
+        Action::RemoveFromCollection,
+        Action::Rename,
+        Action::RenameCollection,
+        Action::Rotate180,
+        Action::RotateCcw,
+        Action::RotateCw,
+        Action::SaveAs,
         Action::SaveFrame,
-        Action::ExportFrames,
-        Action::Help,
+        Action::SaveOrientation,
+        Action::SelectAll,
+        #[cfg(feature = "marks")]
+        Action::SelectMark1,
+        #[cfg(feature = "marks")]
+        Action::SelectMark2,
+        #[cfg(feature = "marks")]
+        Action::SelectMark3,
+        #[cfg(feature = "marks")]
+        Action::SelectMark4,
+        #[cfg(feature = "marks")]
+        Action::SelectMark5,
+        #[cfg(feature = "marks")]
+        Action::SelectMark6,
+        Action::SelectNone,
+        Action::SetWallpaper,
         Action::Shortcuts,
-        Action::KeyboardMap,
-        Action::About,
+        Action::Slideshow,
+        Action::Slower,
+        Action::SortManager,
+        Action::Subfolders,
+        Action::Thumbnails,
+        Action::Toolbar,
+        Action::TrashCollection,
+        Action::Undo,
+        Action::Up,
+        Action::ViewFilter,
+        Action::WindowTitle,
+        Action::Zoom1To1,
+        Action::ZoomFit,
+        Action::ZoomIn,
+        Action::ZoomOut,
     ];
 
-    /// `ALL` names every variant of `Action`, so a new action is run by the test below too.
+    /// `ALL` names every variant of `Action`, in name order, so a new action is run by the test
+    /// below too. A variant behind the marks feature counts only in a build with it.
     #[test]
     fn all_lists_every_action() {
         let src = include_str!("actions.rs");
         let start = src.find("pub enum Action {").unwrap();
         let body = &src[start..start + src[start..].find("\n}\n").unwrap()];
-        let variants = (body.lines().skip(1))
-            .map(str::trim)
-            .filter(|l| l.starts_with(|c: char| c.is_ascii_uppercase()))
-            .count();
-        let marks = if cfg!(feature = "marks") { 0 } else { 18 };
-        assert_eq!(
-            ALL.len() + marks,
-            variants,
-            "a variant of Action is missing from ALL"
-        );
+        let (mut variants, mut marks_only) = (Vec::new(), false);
+        for line in body.lines().skip(1).map(str::trim) {
+            if line == "#[cfg(feature = \"marks\")]" {
+                marks_only = true;
+            } else if line.starts_with(|c: char| c.is_ascii_uppercase()) {
+                let name = line.split([',', ' ', '(', '{']).next().unwrap();
+                if !marks_only || cfg!(feature = "marks") {
+                    variants.push(name.to_owned());
+                }
+                marks_only = false;
+            }
+        }
+        let listed: Vec<String> = ALL.iter().map(|a| format!("{a:?}")).collect();
+        let missing: Vec<&String> = variants.iter().filter(|v| !listed.contains(v)).collect();
+        assert!(missing.is_empty(), "ALL lacks {missing:?}");
+        assert_eq!(listed.len(), variants.len(), "ALL names an action twice");
+        assert!(listed.is_sorted(), "ALL is not in name order");
     }
 
     /// Every action run in an empty folder does nothing harmful: none panics on a list with no
