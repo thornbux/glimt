@@ -5,6 +5,11 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- With the Pan view open, a delete or a move out of the list no longer makes it read the date of
+  every file again.
+
 ## [0.57.0] - 2026-11-05
 
 ### Fixed

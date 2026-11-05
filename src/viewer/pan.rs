@@ -117,6 +117,29 @@ impl Pan {
             }
         });
     }
+
+    /// Follows the list from version `old` to `version`, made without the sorted places
+    /// `removed`. The days keep their images at the new places, so a delete does not make the
+    /// view read every file's date again. Days of another version, or days still being read,
+    /// are left alone, and they are made again as before.
+    pub(crate) fn follow(&mut self, removed: &[usize], old: usize, version: usize) {
+        if self.days_rx.is_some() {
+            return;
+        }
+        let Some((days, made)) = self.days.as_mut().filter(|d| d.1 == old) else {
+            return;
+        };
+        for day in days.iter_mut() {
+            day.1.retain(|i| removed.binary_search(i).is_err());
+            for i in &mut day.1 {
+                *i -= removed.partition_point(|r| r < i);
+            }
+        }
+        days.retain(|d| !d.1.is_empty());
+        *made = version;
+        self.months = months(days);
+        (self.columns, self.jump) = (0, None);
+    }
 }
 
 impl Drop for Pan {
@@ -620,6 +643,43 @@ fn days_in_month(y: i32, m: u32) -> u32 {
 mod tests {
     use super::*;
     use std::sync::atomic::AtomicUsize;
+
+    /// A delete keeps the days of the files left, at their new places, and a day left empty
+    /// goes. Days of another version of the list are not touched.
+    #[test]
+    fn the_days_follow_a_delete() {
+        let mut pan = Pan::default();
+        let days = vec![
+            ("2024-01-01".into(), vec![0, 2]),
+            ("2024-01-02".into(), vec![1]),
+        ];
+        pan.days = Some((days, 5));
+        pan.follow(&[1], 5, 6);
+        assert_eq!(pan.days, Some((vec![("2024-01-01".into(), vec![0, 1])], 6)));
+        pan.follow(&[0], 5, 7);
+        assert_eq!(pan.days.as_ref().map(|d| d.1), Some(6));
+    }
+
+    /// A delete in the window keeps Pan view's days for the new list, so they are not read
+    /// again for every file.
+    #[test]
+    fn a_delete_keeps_the_days() {
+        let name = format!("glimt-test-pan-delete-{}", std::process::id());
+        let dir = std::env::temp_dir().join(name);
+        std::fs::create_dir_all(&dir).unwrap();
+        let (mut app, ctx) = crate::support::test_support::app_on(&dir);
+        app.list
+            .set_files((0..3).map(|i| format!("{i}.png").into()).collect());
+        let mut pan = Pan::default();
+        let days = vec![("2024-01-01".into(), vec![0, 1, 2])];
+        pan.days = Some((days, app.list.version()));
+        app.pan_window = Some(pan);
+        app.remove_indices(&ctx, &[1]);
+        let pan = app.pan_window.as_ref().unwrap();
+        let days = vec![("2024-01-01".into(), vec![0, 1])];
+        assert_eq!(pan.days, Some((days, app.list.version())));
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
 
     /// Stopped, nothing more is read: every file after gets no value.
     #[test]
