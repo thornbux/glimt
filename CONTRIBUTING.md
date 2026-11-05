@@ -18,17 +18,10 @@ In short:
 
 1. Fork the repository and make a branch.
 2. Keep to one feature or fix per commit and per pull request.
-3. Before committing, run:
-
-   ```sh
-   cargo fmt
-   cargo clippy --release --all-targets -- -D warnings
-   cargo test --release
-   cargo clippy --release --all-targets --all-features -- -D warnings
-   cargo test --release --all-features
-   ```
-
-4. Open a pull request. CI runs the same checks.
+3. Before committing, run the checks in AGENTS.md, under "Before every commit". CI runs the
+   same checks. A new text in the interface is translated into every language in the same
+   commit, or the tests fail.
+4. Open a pull request.
 
 Code, comments, commit messages and the user interface are in English.
 

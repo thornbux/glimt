@@ -110,6 +110,10 @@ and versions follow [Semantic Versioning](https://semver.org/).
 - A test checks that the man page has an entry for every start option and remote command.
 - A test checks that `full` holds every optional feature and that README's feature table lists each.
 - A test checks that the .deb, .rpm, tar.gz, AppImage and Flatpak install the same files.
+### Changed
+
+- CONTRIBUTING.md and the pull request template point at AGENTS.md's checks instead of an incomplete
+  copy.
 
 ## [0.57.0] - 2026-11-05
 
