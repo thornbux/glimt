@@ -5,6 +5,11 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- Save This Frame and Save as PDF suggest a file beside the image, also in a collection, several
+  folders or with subfolders, where they suggested one in / or in the top folder.
+
 ## [0.57.0] - 2026-11-05
 
 ### Fixed
