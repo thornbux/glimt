@@ -81,8 +81,10 @@ pub(crate) struct Deleted {
     pub(crate) folder_made: Option<PathBuf>,
 }
 
-/// A file's (device, inode), which stays the same through a rename on one disk.
-pub(crate) type FileId = (u64, u64);
+/// A file's (device, inode, size, modification time in seconds and nanoseconds). The inode
+/// stays the same through a rename on one disk. FAT, exFAT and FUSE without use_ino may give the
+/// same file another inode later, so there the size and time tell the file instead.
+pub(crate) type FileId = (u64, u64, u64, (i64, i64));
 
 /// A file moved, `(from, to, id)`, as Undo moves it back. The id is the file's at `to`, or
 /// `None` once Glimt itself wrote the file anew there (a turn saved), which gives it a new id.
@@ -90,7 +92,7 @@ pub(crate) type Moved = (PathBuf, PathBuf, Option<FileId>);
 
 /// What Edit → Undo puts back. It is the last files or folder moved to the trash, the last
 /// files moved `(from, to, id)`, or the last files renamed (old names, new names). The id is
-/// the moved file's (device, inode), so an Undo leaves alone a file put at `to` after the move.
+/// the moved file's `FileId`, so an Undo leaves alone a file put at `to` after the move.
 pub(crate) enum Undo {
     Trash(Thrown),
     Move(Vec<Moved>),
@@ -614,14 +616,15 @@ impl crate::App {
                 let _ = tx.send(e);
                 Vec::new()
             });
+            let (sides_gone, sidecars_left): (Vec<PathBuf>, Vec<PathBuf>) =
+                (sides.into_iter()).partition(|s| std::fs::symlink_metadata(s).is_err());
             let undo = (trash && !gone.is_empty()).then(|| {
                 Undo::Trash(Thrown {
                     files: gone.clone(),
                     // Only the sidecars that are gone count, because a sidecar gio could not
-                    // move is still there.
-                    sidecars: (sides.into_iter())
-                        .filter(|s| std::fs::symlink_metadata(s).is_err())
-                        .collect(),
+                    // move is still there. Those are kept apart, as they are still the files'.
+                    sidecars: sides_gone,
+                    sidecars_left,
                     since,
                     marks: Vec::new(),
                     collection: collection.zip(Some(removed)),
@@ -675,6 +678,7 @@ impl crate::App {
             // The moves are handled before their sources are taken for deleted files, so the
             // marks go along first.
             self.paths_moved(moved, copied);
+            self.written_anew(&changed);
             self.files_changed(ctx, &changed);
             self.files_changed(ctx, &overwritten);
             self.forget_names(&gone);
@@ -1069,13 +1073,6 @@ impl crate::App {
         if paths.is_empty() {
             return;
         }
-        // A file written anew by Glimt has a new id, but it is still the file Undo moves back.
-        if let Some(Undo::Move(pairs)) = &mut self.work.undo {
-            let written: HashSet<&PathBuf> = paths.iter().collect();
-            (pairs.iter_mut())
-                .filter(|(_, to, _)| written.contains(to))
-                .for_each(|(_, _, id)| *id = None);
-        }
         for path in paths {
             if self.is_file(self.list.cur(), path) {
                 self.viewing.drop_turn();
@@ -1087,6 +1084,29 @@ impl crate::App {
         // Their size changed, so the status bar and the list read it again.
         self.status.forget_size();
         self.refill();
+    }
+
+    /// Keeps `paths` as the files an Undo of a move moves back, although Glimt wrote them anew
+    /// in place (a turn saved, a plugin's change) and so gave them new ids. A file written over
+    /// by another image (Save As, Save This Frame) is not one of them, so it does not come here.
+    pub(crate) fn written_anew(&mut self, paths: &[PathBuf]) {
+        if let Some(Undo::Move(pairs)) = &mut self.work.undo {
+            let written: HashSet<&PathBuf> = paths.iter().collect();
+            // A folder opened through a link spells the same file otherwise, so a pair of the
+            // same file name is compared by its real path too. Only those few are looked up.
+            let names: HashSet<&std::ffi::OsStr> =
+                paths.iter().filter_map(|p| p.file_name()).collect();
+            let real: HashSet<PathBuf> =
+                paths.iter().filter_map(|p| p.canonicalize().ok()).collect();
+            let same = |to: &PathBuf| {
+                written.contains(to)
+                    || (to.file_name().is_some_and(|n| names.contains(n))
+                        && to.canonicalize().is_ok_and(|t| real.contains(&t)))
+            };
+            (pairs.iter_mut())
+                .filter(|(_, to, _)| same(to))
+                .for_each(|(_, _, id)| *id = None);
+        }
     }
 
     /// Forgets what Glimt keeps of `paths` by their names: their decoded images, thumbnails, size
@@ -1186,6 +1206,7 @@ impl crate::App {
                 Undo::Trash(Thrown {
                     files: gone.clone(),
                     sidecars: Vec::new(),
+                    sidecars_left: Vec::new(),
                     since,
                     marks: Vec::new(),
                     collection: collection.zip(Some(removed)),
@@ -1277,6 +1298,7 @@ impl crate::App {
                     Undo::Trash(Thrown {
                         files: left,
                         sidecars: thrown.sidecars,
+                        sidecars_left: thrown.sidecars_left,
                         since: thrown.since,
                         marks: kept,
                         collection: (thrown.collection).map(|(file, removed)| {
@@ -1747,7 +1769,7 @@ fn move_back(pairs: Vec<Moved>) -> (Vec<(PathBuf, PathBuf)>, Vec<String>) {
     for (from, to, id) in pairs {
         let _held = xmp::held(&to);
         // Another program may have put another file at `to` since the move.
-        if id.is_some_and(|id| file_id(&to) != Some(id)) {
+        if id.is_some_and(|id| !file_id(&to).is_some_and(|now| same_id(id, now))) {
             let other = tr("another file has taken its place");
             errors.push(format!("{}: {other}", to.display()));
             continue;
@@ -1774,10 +1796,17 @@ fn moved((from, to): &(PathBuf, PathBuf)) -> Moved {
     (from.clone(), to.clone(), file_id(to))
 }
 
-/// Returns the (device, inode) of the file or link at `path`, or `None` when nothing is there.
+/// Returns the id of the file or link at `path`, or `None` when nothing is there.
 fn file_id(path: &Path) -> Option<FileId> {
     use std::os::unix::fs::MetadataExt;
-    (std::fs::symlink_metadata(path).ok()).map(|m| (m.dev(), m.ino()))
+    (std::fs::symlink_metadata(path).ok())
+        .map(|m| (m.dev(), m.ino(), m.len(), (m.mtime(), m.mtime_nsec())))
+}
+
+/// Whether ids `a` and `b` are of the same file. It is so on the same device when the inode is
+/// the same, or when the size and modification time are, as an inode may change on FAT.
+fn same_id(a: FileId, b: FileId) -> bool {
+    a.0 == b.0 && (a.1 == b.1 || (a.2, a.3) == (b.2, b.3))
 }
 
 /// Checks that every name in the way of a rename is one of the files being renamed, under a
@@ -1793,7 +1822,7 @@ fn ours_but_case(
     let id = file_id;
     let folded = |p: &Path| p.to_string_lossy().to_lowercase();
     // It is built once, so a rename of 20,000 files on a card does not compare every pair.
-    let ours: HashSet<(String, (u64, u64))> = from
+    let ours: HashSet<(String, FileId)> = from
         .iter()
         .filter_map(|f| Some((folded(f), id(f)?)))
         .collect();
@@ -2383,9 +2412,94 @@ mod tests {
         let saved = dir.join("sub/b.png");
         std::fs::copy(&saved, dir.join("sub/new")).unwrap();
         std::fs::rename(dir.join("sub/new"), &saved).unwrap();
-        app.files_changed(&ctx, std::slice::from_ref(&saved));
+        app.written_anew(std::slice::from_ref(&saved));
         app.undo(&ctx);
         assert!(settle(&mut app, &ctx, |app| !app.working() && b.exists()));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// Undo of a move still moves back the moved file when the file system gave it another
+    /// inode since, as FAT and exFAT do once the kernel let go of it.
+    #[test]
+    fn undo_of_a_move_takes_a_new_inode_of_the_same_file() {
+        let dir =
+            std::env::temp_dir().join(format!("glimt-test-undo-inode-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join("sub")).unwrap();
+        let a = dir.join("a.png");
+        image::RgbImage::new(2, 2).save(&a).unwrap();
+        let (mut app, ctx) = app_on(&dir);
+        app.transfer(&ctx, vec![a.clone()], dir.join("sub"), false);
+        assert!(settle(&mut app, &ctx, |app| app.work.undo.is_some()
+            && !app.working()));
+        // A copy with the same size and time in its place stands for the inode that changed.
+        let moved = dir.join("sub/a.png");
+        let time = std::fs::metadata(&moved).unwrap().modified().unwrap();
+        std::fs::copy(&moved, dir.join("sub/new")).unwrap();
+        let copy = std::fs::File::options()
+            .write(true)
+            .open(dir.join("sub/new"))
+            .unwrap();
+        copy.set_modified(time).unwrap();
+        std::fs::rename(dir.join("sub/new"), &moved).unwrap();
+        app.undo(&ctx);
+        assert!(settle(&mut app, &ctx, |app| !app.working() && a.exists()));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A turn saved through another spelling of the moved file's path, as in a folder opened
+    /// through a link, still keeps that file as the one Undo moves back.
+    #[test]
+    fn undo_of_a_move_follows_a_turn_saved_through_a_link() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-undo-link-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join("real/sub")).unwrap();
+        std::os::unix::fs::symlink(dir.join("real"), dir.join("link")).unwrap();
+        let a = dir.join("real/a.png");
+        image::RgbImage::new(2, 2).save(&a).unwrap();
+        let (mut app, ctx) = app_on(&dir.join("real"));
+        app.transfer(&ctx, vec![a.clone()], dir.join("real/sub"), false);
+        assert!(settle(&mut app, &ctx, |app| app.work.undo.is_some()
+            && !app.working()));
+        // The turn is saved as a new file put in the old one's place, under the link's name.
+        let saved = dir.join("link/sub/a.png");
+        std::fs::copy(&saved, dir.join("real/sub/new")).unwrap();
+        std::fs::rename(dir.join("real/sub/new"), &saved).unwrap();
+        app.written_anew(std::slice::from_ref(&saved));
+        app.undo(&ctx);
+        assert!(settle(&mut app, &ctx, |app| !app.working() && a.exists()));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// Undo of a move leaves alone the moved file once Save As wrote another image over it,
+    /// because that image is not the file that was moved.
+    #[test]
+    fn undo_of_a_move_leaves_another_image_saved_over_it() {
+        let dir =
+            std::env::temp_dir().join(format!("glimt-test-undo-saved-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join("sub")).unwrap();
+        let a = dir.join("a.png");
+        image::RgbImage::new(2, 2).save(&a).unwrap();
+        let (mut app, ctx) = app_on(&dir);
+        app.transfer(&ctx, vec![a.clone()], dir.join("sub"), false);
+        assert!(settle(&mut app, &ctx, |app| app.work.undo.is_some()
+            && !app.working()));
+        // Save As writes another image beside sub/a.png and renames it over, then tells so.
+        let moved = dir.join("sub/a.png");
+        image::RgbImage::new(3, 3)
+            .save(dir.join("sub/new.png"))
+            .unwrap();
+        std::fs::rename(dir.join("sub/new.png"), &moved).unwrap();
+        let over = super::Deleted {
+            overwritten: vec![moved.clone()],
+            ..Default::default()
+        };
+        app.work.deleted_tx.send(over).unwrap();
+        app.receive_deleted(&ctx);
+        app.undo(&ctx);
+        let refused =
+            |app: &crate::App| (app.notice.as_deref()).is_some_and(|n| n.contains("Undo failed"));
+        assert!(settle(&mut app, &ctx, |app| !app.working() && refused(app)));
+        assert!(!a.exists(), "the other image was moved back as a.png");
+        assert!(moved.exists());
         std::fs::remove_dir_all(dir).unwrap();
     }
 
@@ -2402,6 +2516,7 @@ mod tests {
         app.work.undo = Some(super::Undo::Trash(crate::files::trash::Thrown {
             files: vec![a.clone()],
             sidecars: Vec::new(),
+            sidecars_left: Vec::new(),
             since: std::time::SystemTime::now(),
             marks: Vec::new(),
             collection: None,
@@ -2432,6 +2547,7 @@ mod tests {
         app.work.undo = Some(super::Undo::Trash(crate::files::trash::Thrown {
             files: vec![a.clone(), b.clone()],
             sidecars: Vec::new(),
+            sidecars_left: Vec::new(),
             since: std::time::SystemTime::now(),
             marks: vec![(a.clone(), (1, 3))],
             collection: Some((gqv.clone(), vec![(0, a.clone())])),

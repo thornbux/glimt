@@ -18,6 +18,9 @@ use std::path::{Path, PathBuf};
 pub(crate) struct Thrown {
     pub(crate) files: Vec<PathBuf>,
     pub(crate) sidecars: Vec<PathBuf>,
+    /// The files' sidecars that the move could not take to the trash. They stay beside the
+    /// files' names, and Undo puts each file back beside its own.
+    pub(crate) sidecars_left: Vec<PathBuf>,
     pub(crate) since: std::time::SystemTime,
     pub(crate) marks: Vec<(PathBuf, (u8, u8))>,
     pub(crate) collection: Option<(PathBuf, Vec<(usize, PathBuf)>)>,
@@ -81,10 +84,12 @@ pub(crate) fn restore(
     };
     // A file that cannot come back is told, and left to be undone again with its sidecar.
     let (mut found, mut error): (Vec<Trashed>, Option<String>) = (Vec::new(), None);
+    let left: HashSet<&PathBuf> = thrown.sidecars_left.iter().collect();
     for path in &thrown.files {
         // The rule of Copy, Move and Rename: a sidecar alone at the name (written by another
         // program, or synced in) takes it too, as the file would come back with its keywords.
-        if let Some(at) = crate::files::file_ops::taken(path, &HashSet::new()) {
+        // The file's own sidecar, which the move could not take along, is no other file's.
+        if let Some(at) = crate::files::file_ops::taken(path, &left) {
             error.get_or_insert(tf!("{name} exists already", name = at.display()));
             continue;
         }
@@ -470,6 +475,7 @@ mod tests {
         let thrown = |files: &[&str], sidecars: &[&str]| super::Thrown {
             files: files.iter().map(|f| photos.join(f)).collect(),
             sidecars: sidecars.iter().map(|f| photos.join(f)).collect(),
+            sidecars_left: Vec::new(),
             since: now - Duration::from_secs(1),
             marks: Vec::new(),
             collection: None,
@@ -561,6 +567,18 @@ mod tests {
         assert_eq!((back, error), (vec![photos.join("IMG_0006.jpg")], None));
         let got = std::fs::read_to_string(photos.join("IMG_0006.jpg")).unwrap();
         assert_eq!(got, "other");
+        // A sidecar alone at the name holds its file back, unless it is the file's own, which
+        // the move could not take to the trash. Then the file comes back beside it.
+        trashed("IMG_0008.jpg", "IMG_0008.jpg", now);
+        std::fs::write(photos.join("IMG_0008.jpg.xmp"), "own").unwrap();
+        let alone = super::restore(&thrown(&["IMG_0008.jpg"], &[]), dirs);
+        assert!(alone.0.is_empty() && alone.1.is_some());
+        let own = super::Thrown {
+            sidecars_left: vec![photos.join("IMG_0008.jpg.xmp")],
+            ..thrown(&["IMG_0008.jpg"], &[])
+        };
+        let (back, error) = super::restore(&own, dirs);
+        assert_eq!((back, error), (vec![photos.join("IMG_0008.jpg")], None));
         std::fs::remove_dir_all(dir).unwrap();
     }
 
@@ -593,6 +611,7 @@ mod tests {
         let thrown = super::Thrown {
             files: vec![x.join("a.jpg"), y.join("b.jpg")],
             sidecars: vec![x.join("a.jpg.xmp")],
+            sidecars_left: Vec::new(),
             since: now - std::time::Duration::from_secs(1),
             marks: Vec::new(),
             collection: None,
@@ -630,6 +649,7 @@ mod tests {
         let thrown = super::Thrown {
             files: vec![x.join("a.jpg")],
             sidecars: vec![x.join("a.jpg.xmp")],
+            sidecars_left: Vec::new(),
             since: now - std::time::Duration::from_secs(1),
             marks: Vec::new(),
             collection: None,
