@@ -57,9 +57,10 @@ fn unlink_linked(from: &Path, to: &Path) -> std::io::Result<()> {
 /// Glimt does, which some shares, cloud folders and phones cannot. The system's own words follow
 /// in brackets, and the kind stays, so callers still match on it.
 fn plain(e: std::io::Error) -> std::io::Error {
-    // EPERM, EXDEV, ENOSYS and EOPNOTSUPP: what such file systems answer to a rename.
+    // EXDEV, ENOSYS and EOPNOTSUPP: what such file systems answer to a rename. Not EPERM, which
+    // a folder with the sticky bit or a file made immutable gives on any file system.
     match e.raw_os_error() {
-        Some(1 | 18 | 38 | 95) => std::io::Error::new(
+        Some(18 | 38 | 95) => std::io::Error::new(
             e.kind(),
             crate::tf!(
                 "the file system here does not allow this rename, as on some shares, cloud folders and phones ({e})",
@@ -434,15 +435,18 @@ mod tests {
     /// them, and keeps its kind. Another error, such as a permission denied, stays as it was.
     #[test]
     fn tells_a_rename_the_file_system_cannot_do_in_plain_words() {
-        for errno in [1, 18, 38, 95] {
+        for errno in [18, 38, 95] {
             let raw = std::io::Error::from_raw_os_error(errno);
             let told = super::plain(std::io::Error::from_raw_os_error(errno));
             assert_eq!(told.kind(), raw.kind());
             let text = told.to_string();
             assert!(text.contains("does not allow this rename") && text.contains(&raw.to_string()));
         }
-        let denied = super::plain(std::io::Error::from_raw_os_error(13));
-        assert_eq!(denied.raw_os_error(), Some(13));
+        // Permission denied, and EPERM, which a sticky folder or an immutable file gives.
+        for errno in [13, 1] {
+            let denied = super::plain(std::io::Error::from_raw_os_error(errno));
+            assert_eq!(denied.raw_os_error(), Some(errno));
+        }
     }
 
     /// A replace whose write fails never runs the step before the rename, so Save As over a file
