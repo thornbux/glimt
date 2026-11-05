@@ -5,6 +5,11 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- The release tests click file rows, the print dialog's page text and the toolbar by their text
+  instead of at fixed places.
+
 ## [0.57.0] - 2026-11-05
 
 ### Fixed

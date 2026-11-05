@@ -1300,6 +1300,8 @@ impl crate::App {
                         ui.selectable_label(marked, format!("{name}   {marks}"))
                     }
                 };
+                // The release tests click a row by its file's name.
+                let row = noted(&row, &self.name(i));
                 if let Some(i) = self.row_clicked(ctx, &row, i) {
                     *go_to = Some(i);
                 }

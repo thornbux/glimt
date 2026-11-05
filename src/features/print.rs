@@ -1076,8 +1076,8 @@ fn print_texts(ui: &mut egui::Ui, c: &mut Config) {
     let numbers = tr("%page% is the page's number, %pages% how many there are");
     ui.horizontal(|ui| {
         ui.label(tr("Top of each page:"));
-        ui.add(egui::TextEdit::singleline(&mut c.print_header).desired_width(260.0))
-            .on_hover_text(numbers);
+        let header = ui.add(egui::TextEdit::singleline(&mut c.print_header).desired_width(260.0));
+        crate::support::test_hooks::noted(&header, tr("Top of each page:")).on_hover_text(numbers);
     });
     ui.horizontal(|ui| {
         ui.label(tr("Bottom of each page:"));
