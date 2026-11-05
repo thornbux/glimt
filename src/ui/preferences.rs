@@ -194,7 +194,7 @@ impl crate::App {
         // Esc closes Preferences (shortcuts are off while it is open), unless a dialog on top
         // of it is the one Esc is meant for; a search in its field is cleared first.
         if open
-            && !self.dialogs.asks_about_files()
+            && !self.modal_open()
             && self.prefs.capturing.is_none()
             && ctx.input(|i| i.key_pressed(egui::Key::Escape))
         {
@@ -1296,6 +1296,11 @@ mod tests {
         app.prefs.query = "  ".into();
         escape(&mut app);
         assert!(!app.prefs.open && app.prefs.query.is_empty());
+        // A dialog on top of Preferences takes the Esc, and Preferences stays open.
+        app.prefs.show();
+        app.dialogs.ask_trash_folder(&dir);
+        escape(&mut app);
+        assert!(app.prefs.open);
         std::fs::remove_dir_all(dir).unwrap();
     }
 

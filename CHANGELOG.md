@@ -96,6 +96,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 - An SVG that claims a huge size no longer takes hundreds of megabytes: it is drawn at the size it
   is shown.
 - Add to Collection no longer holds up the window while it writes a large collection.
+- Esc in a dialog shown over Preferences (a share's login, an interrupted Rename Many, a folder
+  delete) closes only that dialog, not Preferences with it.
 
 ## [0.57.0] - 2026-11-05
 
