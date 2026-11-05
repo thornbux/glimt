@@ -89,6 +89,7 @@ and versions follow [Semantic Versioning](https://semver.org/).
   pane as the other arrow does.
 - In a build without video, Enter no longer runs Play Video, which did nothing there.
 - A kiosk whose quit is held back no longer lets every other action through.
+- The info panel names a JPEG XL's own colour profile instead of saying it is taken as sRGB.
 
 ## [0.57.0] - 2026-11-05
 
