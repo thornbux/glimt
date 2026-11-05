@@ -9,6 +9,11 @@ const DEST: &str = "org.freedesktop.portal.Desktop";
 
 const PATH: &str = "/org/freedesktop/portal/desktop";
 
+/// How long a request waits for the portal's answer. The user may sit in a dialog for long,
+/// but a portal backend that died after the call never answers, and the work waiting on it holds
+/// the busy pointer and keeps the window from closing.
+const ANSWER_LIMIT: std::time::Duration = std::time::Duration::from_secs(30 * 60);
+
 type Results = HashMap<String, OwnedValue>;
 
 /// `method` of the portal `interface` called with `body`, whose options carry `token` as their
@@ -28,6 +33,7 @@ where
     let sender = conn.unique_name().ok_or("no D-Bus name")?;
     let sender = sender.trim_start_matches(':').replace('.', "_");
     let path = format!("{PATH}/request/{sender}/{token}");
+    let handle = path.clone();
     let rule = zbus::MatchRule::builder()
         .msg_type(zbus::message::Type::Signal)
         .interface("org.freedesktop.portal.Request")
@@ -38,10 +44,13 @@ where
     let mut responses = MessageIterator::for_match_rule(rule, conn, Some(1)).map_err(e)?;
     conn.call_method(Some(DEST), PATH, Some(interface), method, body)
         .map_err(e)?;
-    let message = responses
-        .next()
-        .ok_or("no answer from the portal")?
-        .map_err(e)?;
+    let Some(message) = within(ANSWER_LIMIT, move || responses.next()) else {
+        // The dialog, if one is still open, goes too, so it cannot act after the time is up.
+        let request = Some("org.freedesktop.portal.Request");
+        let _ = conn.call_method(Some(DEST), handle.as_str(), request, "Close", &());
+        return Err("no answer from the portal".into());
+    };
+    let message = message.ok_or("no answer from the portal")?.map_err(e)?;
     let (code, results): (u32, Results) = message.body().deserialize().map_err(e)?;
     // 0 done, 1 cancelled, 2 failed.
     match code {
@@ -49,6 +58,17 @@ where
         1 => Ok(None),
         _ => Err(format!("{interface}.{method} failed")),
     }
+}
+
+/// Runs `wait` in a thread of its own. Returns what it gives, or `None` when it takes longer
+/// than `limit`; then the thread is left waiting, as a blocking call cannot be cut short.
+fn within<T: Send + 'static>(
+    limit: std::time::Duration,
+    wait: impl FnOnce() -> T + Send + 'static,
+) -> Option<T> {
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || tx.send(wait()));
+    rx.recv_timeout(limit).ok()
 }
 
 /// A token for a request, new for each.
@@ -186,4 +206,16 @@ pub fn open_with(path: &std::path::Path) -> Result<bool, String> {
         &body,
     )
     .map(|r| r.is_some())
+}
+
+#[cfg(test)]
+mod tests {
+    /// A wait for a portal's answer ends at its limit, also when the answer never comes.
+    #[test]
+    fn a_wait_for_an_answer_ends() {
+        let (_keep, never) = std::sync::mpsc::channel::<()>();
+        let limit = std::time::Duration::from_millis(100);
+        assert_eq!(super::within(limit, move || never.recv().ok()), None);
+        assert_eq!(super::within(limit, || 7), Some(7));
+    }
 }
