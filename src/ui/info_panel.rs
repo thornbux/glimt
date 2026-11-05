@@ -506,11 +506,18 @@ impl crate::App {
 
     /// Add `keywords` to every selected file, in the background.
     pub(crate) fn add_keywords(&mut self, ctx: &egui::Context, keywords: Vec<String>) {
-        // The shown image's own edit first; it is read again afterwards, with the added ones.
+        // The shown image's own edit is saved first. The panel then shows the added keywords at
+        // once, as tag_files does. When it read them back from the file instead, it could read
+        // the file before the writer reached it, and a later edit saved them away again.
         self.save_meta(ctx);
-        self.info.meta = None;
-        self.info.exif_asked = None;
-        let paths: Vec<PathBuf> = self.targets().iter().map(|&i| self.path(i)).collect();
+        let targets = self.targets();
+        if targets.contains(&self.list.cur())
+            && let Some(edit) = &mut self.info.meta
+        {
+            xmp::add_to(&mut edit.saved.keywords, &keywords);
+            edit.keywords = edit.saved.keywords_text();
+        }
+        let paths: Vec<PathBuf> = targets.iter().map(|&i| self.path(i)).collect();
         let n = paths.len();
         // Through the sidecar writer, with keywords ticked and stars: in the order asked.
         self.write_sidecars(
@@ -620,4 +627,38 @@ pub(crate) fn spawn_exif_reader(
         }
     });
     (exif_jobs, exif_rx)
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::support::test_support::{app_on, settle};
+
+    /// Keywords added to the selection show in the panel at once, and they stay after the
+    /// writer is done, so a later edit in the panel keeps them.
+    #[test]
+    fn added_keywords_show_in_the_panel_at_once() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-add-kw-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        image::RgbImage::new(4, 4).save(dir.join("a.png")).unwrap();
+        let (mut app, ctx) = app_on(&dir);
+        // The panel asks in each frame it is drawn, and takes the answer then.
+        for _ in 0..500 {
+            app.want_exif(&ctx);
+            if app.info.meta.is_some() {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        app.add_keywords(&ctx, vec!["beach".into()]);
+        let shown = |app: &crate::App| {
+            let edit = app.info.meta.as_ref().unwrap();
+            edit.saved.keywords == ["beach"] && edit.keywords.contains("beach")
+        };
+        assert!(shown(&app));
+        let written =
+            |_: &crate::App| crate::metadata::xmp::read(&dir.join("a.png")).keywords == ["beach"];
+        assert!(settle(&mut app, &ctx, written));
+        assert!(shown(&app));
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
 }
