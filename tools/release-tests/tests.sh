@@ -1612,7 +1612,9 @@ for v in new old; do
     menu ".*"; sleep 3
     shot search-mode-$v-1
     view() { convert /t/out/search-mode-$v-$1.png -crop 1280x60+0+60 +repage rgb:- | md5sum; }
-    same=$([ "$(view 0)" = "$(view 1)" ] && echo yes)
+    # Both screenshots taken: of two missing ones the empty strips would be the same too.
+    same=$([ -s /t/out/search-mode-$v-0.png ] && [ -s /t/out/search-mode-$v-1.png ] \
+        && [ "$(view 0)" = "$(view 1)" ] && echo yes)
     mode=$(grep -o '^fuzzy_search=.*' $XDG_CONFIG_HOME/glimt/config)
     # A pattern fuzzy search finds nothing with: a class of two letters at the start.
     click 120 284; key ctrl+a; xdotool type '^[bc]'; sleep 2
