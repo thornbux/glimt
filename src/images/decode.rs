@@ -741,24 +741,7 @@ pub fn read_limited(path: impl AsRef<Path>) -> std::io::Result<Vec<u8>> {
 /// `ELOOP` when it is one. The open itself refuses the link (O_NOFOLLOW), so a link swapped in
 /// after a look at the name is never read through.
 pub(crate) fn read_unlinked(path: &Path) -> std::io::Result<Vec<u8>> {
-    // Linux gives the flag another value on these processors than on x86 and the rest.
-    #[cfg(any(
-        target_arch = "aarch64",
-        target_arch = "arm",
-        target_arch = "powerpc",
-        target_arch = "powerpc64",
-        target_arch = "m68k"
-    ))]
-    const O_NOFOLLOW: i32 = 0o100000;
-    #[cfg(not(any(
-        target_arch = "aarch64",
-        target_arch = "arm",
-        target_arch = "powerpc",
-        target_arch = "powerpc64",
-        target_arch = "m68k"
-    )))]
-    const O_NOFOLLOW: i32 = 0o400000;
-    read_opened(opened(path, O_NOFOLLOW)?)
+    read_opened(opened(path, libc::O_NOFOLLOW)?)
 }
 
 /// The whole of a file opened by `open_file`, up to `MAX_DECODE` bytes.

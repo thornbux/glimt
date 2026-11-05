@@ -1303,6 +1303,7 @@ dependencies = [
  "image",
  "jpeg-decoder",
  "jxl-oxide",
+ "libc",
  "moxcms",
  "png",
  "regex",
