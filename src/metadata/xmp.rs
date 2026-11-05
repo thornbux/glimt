@@ -189,12 +189,15 @@ fn own_sidecar_text(path: &Path) -> Option<String> {
 /// none or when it is a link, and an error when one is there that cannot be read (no
 /// permission, a folder), which a writer must not write over. A sidecar that is a link is not
 /// the photo's own, because a downloaded folder could point it at another file of the user's,
-/// whose contents would then show for this photo or be copied with it.
+/// whose contents would then show for this photo or be copied with it. The link is refused by
+/// the open itself, so one swapped in after a look at the name is not read through either.
 pub(crate) fn own_sidecar(path: &Path) -> std::io::Result<Option<Vec<u8>>> {
-    let side = sidecar(path);
-    match linked(&side) {
-        true => Ok(None),
-        false => crate::files::file_io::read_or_none(&side),
+    const ELOOP: i32 = 40;
+    match crate::images::decode::read_unlinked(&sidecar(path)) {
+        Ok(bytes) => Ok(Some(bytes)),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(e) if e.raw_os_error() == Some(ELOOP) => Ok(None),
+        Err(e) => Err(e),
     }
 }
 
@@ -1322,6 +1325,40 @@ mod tests {
         follow(&a, &dir.join("d.png"), false).unwrap();
         assert!(linked(&sidecar(&dir.join("d.png"))), "moved as itself");
         assert_eq!(std::fs::read_to_string(&secret).unwrap(), "PRIVATE KEY");
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// A link swapped in at a sidecar's name, again and again while it is read, is never read
+    /// through. The old look at the name and the read after it were two steps, so a link put
+    /// there between them showed another file of the user's as the photo's keywords.
+    #[test]
+    fn a_link_swapped_in_is_not_read_through() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-swapped-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let (secret, photo) = (dir.join("key"), dir.join("a.jpg"));
+        let (file, link) = (dir.join("file"), dir.join("link"));
+        std::fs::write(&secret, "PRIVATE KEY").unwrap();
+        let stop = std::sync::atomic::AtomicBool::new(false);
+        let read_through = std::thread::scope(|s| {
+            s.spawn(|| {
+                while !stop.load(std::sync::atomic::Ordering::Relaxed) {
+                    std::fs::write(&file, "own").unwrap();
+                    std::fs::rename(&file, sidecar(&photo)).unwrap();
+                    std::os::unix::fs::symlink(&secret, &link).unwrap();
+                    std::fs::rename(&link, sidecar(&photo)).unwrap();
+                }
+            });
+            let start = std::time::Instant::now();
+            let mut found = false;
+            while !found && start.elapsed() < std::time::Duration::from_secs(2) {
+                found = own_sidecar(&photo)
+                    .unwrap()
+                    .is_some_and(|b| b == b"PRIVATE KEY");
+            }
+            stop.store(true, std::sync::atomic::Ordering::Relaxed);
+            found
+        });
+        assert!(!read_through, "read through a link swapped in");
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
