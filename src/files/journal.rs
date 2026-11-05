@@ -121,8 +121,12 @@ pub fn interrupted(dir: &Path) -> Vec<CutShort> {
             // A pipe or a link planted in the state folder is no plan, and opening a pipe would
             // hold the start for good. It reads no more than a decode would.
             e.file_type().ok().filter(|t| t.is_file())?;
-            let file = crate::images::decode::open(e.path()).ok()?;
-            free(&file).then_some(())?;
+            // A plan another window was finishing is skipped. That window deletes the plan
+            // before it lets go of the lock, so a file opened just before then is no longer linked.
+            let file = crate::images::decode::open(e.path())
+                .ok()
+                .filter(free)
+                .filter(linked)?;
             let mut bytes = Vec::new();
             #[allow(clippy::disallowed_methods)] // bounded by take, and only a file
             let read = (&file)
@@ -523,7 +527,15 @@ mod tests {
         );
         drop(running);
         assert!(std::fs::read_dir(&plans).unwrap().next().is_none());
-        // Cut short after two steps, both files are under hidden names.
+        // A plan finished while another window waits for its lock is not taken for one cut short.
+        let finishing = super::begin(&plans, &moves).unwrap();
+        let ends = std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_millis(30));
+            drop(finishing);
+        });
+        assert!(super::interrupted(&plans).is_empty());
+        ends.join().unwrap();
+        // Cut short after two steps: both files under hidden names.
         std::fs::write(p(".tmp-0"), "a").unwrap();
         std::fs::write(p(".tmp-1"), "b").unwrap();
         let mut cut = super::begin(&plans, &moves).unwrap();

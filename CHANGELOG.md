@@ -5,6 +5,11 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- A window opened just as another one finished a Rename Many no longer offers to put right renames
+  that were already done.
+
 ## [0.57.0] - 2026-11-05
 
 ### Fixed
