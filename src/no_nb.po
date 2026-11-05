@@ -1269,8 +1269,8 @@ msgid "Separated by commas"
 msgstr "Skilt med komma"
 
 #: src/main.rs
-msgid "set on"
-msgstr "satt på"
+msgid "{tag} set on {count}"
+msgstr "{tag} satt på {count}"
 
 #: src/main.rs
 msgid "Setting keywords"
@@ -1313,8 +1313,8 @@ msgid "Stopped: {done} of {total}"
 msgstr "Stoppet: {done} av {total}"
 
 #: src/main.rs
-msgid "taken off"
-msgstr "tatt av"
+msgid "{tag} taken off {count}"
+msgstr "{tag} tatt av {count}"
 
 #: src/main.rs
 msgid "Taking keywords off"
@@ -2375,3 +2375,7 @@ msgstr "{done} av {total}"
 #: src/ui/accessibility.rs
 msgid "not among the matches"
 msgstr "ikke blant treffene"
+
+#: src/ui/info_panel.rs
+msgid "EXIF: {name}"
+msgstr "EXIF: {name}"

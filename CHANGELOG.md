@@ -83,6 +83,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 - Choosing a key in Preferences ends when the Keyboard shortcuts header or Preferences is closed.
   Before, Esc stopped closing Preferences, and a key pressed later in another field became the
   action's key.
+- The notice after a keyword is set on or taken off several files is one sentence each language can
+  word in its own order, and the EXIF window's title is translated.
 
 ## [0.57.0] - 2026-11-05
 

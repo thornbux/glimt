@@ -405,9 +405,9 @@ impl crate::App {
             edit.keywords = edit.saved.keywords_text();
         }
         let paths: Vec<PathBuf> = targets.iter().map(|&i| self.path(i)).collect();
-        let (doing, verb) = match on {
-            true => (tr("Setting keywords"), tr("set on")),
-            false => (tr("Taking keywords off"), tr("taken off")),
+        let doing = match on {
+            true => tr("Setting keywords"),
+            false => tr("Taking keywords off"),
         };
         let (n, written) = (paths.len(), tag.clone());
         self.write_sidecars(
@@ -421,7 +421,11 @@ impl crate::App {
                     count = count(failed, "file")
                 )),
                 _ if job.stopped() => Some(job.stopped_text()),
-                _ if n > 1 => Some(format!("{tag} {verb} {count}", count = count(n, "file"))),
+                // One sentence, so each language can put the words in its own order.
+                _ if n > 1 => Some(match on {
+                    true => tf!("{tag} set on {count}", tag, count = count(n, "file")),
+                    false => tf!("{tag} taken off {count}", tag, count = count(n, "file")),
+                }),
                 _ => None,
             },
         );
@@ -561,7 +565,7 @@ impl crate::App {
         if self.info.exif_window && !self.list.files().is_empty() {
             self.want_exif(ctx);
             let mut open = true;
-            let title = format!("EXIF: {}", self.name(self.list.cur()));
+            let title = tf!("EXIF: {name}", name = self.name(self.list.cur()));
             egui::Window::new(title)
                 .id(egui::Id::unique("exif window"))
                 .open(&mut open)
