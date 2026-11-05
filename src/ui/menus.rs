@@ -9,6 +9,7 @@ use crate::images::colour::{
 };
 use crate::support::lang::tr;
 use crate::support::test_hooks::noted;
+use crate::support::threads::{Receiving, Took};
 use crate::ui::actions::{Action, shortcut_text};
 use crate::ui::dialogs::Prompt;
 use crate::{features::plugins, files::config, files::external, model::collections, tf, ui::theme};
@@ -22,22 +23,63 @@ use std::time::Instant;
 /// Where the popup IDs of the menu bar's menus are kept, for `scroll_menu` and `close_menus`.
 pub(crate) const BAR_MENUS: &str = "menu bar menus";
 
+/// Open With's applications: each one's name and desktop file.
+type Apps = Vec<(String, PathBuf)>;
+
 /// Open With's programs for each file type, read in the background.
+#[derive(Default)]
 pub(crate) struct OpenWith {
-    /// "Open With" applications by file extension, found once per extension.
-    /// `None` while `apps_for` runs in the background.
-    apps: HashMap<String, Option<Vec<(String, PathBuf)>>>,
-    tx: mpsc::Sender<(String, Vec<(String, PathBuf)>)>,
-    rx: mpsc::Receiver<(String, Vec<(String, PathBuf)>)>,
+    /// The applications by file extension, or by the whole path for a file without one. An
+    /// entry is asked for once in the background, and then kept with the time it came.
+    apps: HashMap<String, Answer>,
 }
 
-impl Default for OpenWith {
-    fn default() -> Self {
-        let (tx, rx) = mpsc::channel();
-        OpenWith {
-            apps: HashMap::new(),
-            tx,
-            rx,
+/// One entry of `OpenWith`: the question still running, or its answer and when it came.
+enum Answer {
+    Asking(Receiving<Apps>),
+    Found(Apps, Instant),
+}
+
+impl OpenWith {
+    /// How long an empty answer is kept. gio may have timed out on a sleeping share, or the
+    /// thread may have panicked, so the question is asked again after this.
+    const RETRY: std::time::Duration = std::time::Duration::from_secs(60);
+
+    /// Finds the applications for the file type `key` with `ask`, in a thread of its own the
+    /// first time. Returns `None` while that thread runs.
+    fn apps(
+        &mut self,
+        key: &str,
+        ask: impl FnOnce() -> Apps + Send + 'static,
+        ctx: &egui::Context,
+    ) -> Option<&Apps> {
+        let stale = match self.apps.get(key) {
+            None => true,
+            Some(Answer::Asking(_)) => false,
+            Some(Answer::Found(apps, at)) => apps.is_empty() && at.elapsed() >= Self::RETRY,
+        };
+        if stale {
+            let (tx, rx) = mpsc::channel();
+            let ctx = ctx.clone();
+            std::thread::spawn(move || {
+                let _ = tx.send(ask());
+                ctx.request_repaint();
+            });
+            self.apps
+                .insert(key.to_owned(), Answer::Asking(Receiving::of(rx)));
+        }
+        let entry = self.apps.get_mut(key)?;
+        if let Answer::Asking(rx) = entry {
+            // A thread that panicked counts as an empty answer, which is asked again later.
+            match rx.take() {
+                Took::Nothing => return None,
+                Took::Answer(apps) => *entry = Answer::Found(apps, Instant::now()),
+                Took::Gone => *entry = Answer::Found(Vec::new(), Instant::now()),
+            }
+        }
+        match entry {
+            Answer::Found(apps, _) => Some(apps),
+            Answer::Asking(_) => None,
         }
     }
 }
@@ -559,19 +601,14 @@ impl crate::App {
         scroll_menu(ui, iconed(ui, theme::icon::APP, tr("Open With")), |ui| {
             // The menu keeps the width of its first frame, "…": names must not wrap to it.
             ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Extend);
-            for (ext, apps) in self.open_with.rx.try_iter() {
-                self.open_with.apps.insert(ext, Some(apps));
-            }
+            // Files without an extension share no type, so each is asked about on its own.
+            let key = match ext.is_empty() {
+                true => path.to_string_lossy().into_owned(),
+                false => ext,
+            };
             // apps_for runs gio twice: in the background, so the menu never stalls.
-            let apps = self.open_with.apps.entry(ext.clone()).or_insert_with(|| {
-                let (tx, ctx) = (self.open_with.tx.clone(), ui.ctx().clone());
-                std::thread::spawn(move || {
-                    let _ = tx.send((ext, apps_for(&path)));
-                    ctx.request_repaint();
-                });
-                None
-            });
-            let Some(apps) = apps else {
+            let ask = move || apps_for(&path);
+            let Some(apps) = self.open_with.apps(&key, ask, ui.ctx()) else {
                 ui.label("…");
                 return;
             };
@@ -956,5 +993,40 @@ pub(crate) fn tool_button(
     let response = ui.add(button).on_hover_text(tip);
     if noted(&response, action.label()).clicked() {
         *act = Some(action);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Waits for `open_with`'s answer for `key`, asking with `ask` if it asks again.
+    fn answer(open_with: &mut OpenWith, key: &str, ask: fn() -> Apps) -> Apps {
+        let ctx = egui::Context::default();
+        for _ in 0..2000 {
+            if let Some(apps) = open_with.apps(key, ask, &ctx) {
+                return apps.clone();
+            }
+            std::thread::sleep(std::time::Duration::from_millis(1));
+        }
+        panic!("no answer for {key}");
+    }
+
+    #[test]
+    fn open_with_asks_again_after_a_panic_or_an_empty_answer() {
+        let one = || vec![("Viewer".to_owned(), PathBuf::from("viewer.desktop"))];
+        let mut open_with = OpenWith::default();
+        // A thread that panicked gives an empty answer, not "…" for good.
+        assert!(answer(&mut open_with, "jpg", || panic!("gio broke")).is_empty());
+        // Within RETRY the empty answer stands.
+        assert!(answer(&mut open_with, "jpg", one).is_empty());
+        // After it, the type is asked about again.
+        let old = Instant::now() - OpenWith::RETRY;
+        open_with
+            .apps
+            .insert("jpg".into(), Answer::Found(Vec::new(), old));
+        assert_eq!(answer(&mut open_with, "jpg", one), one());
+        // A found application is kept, and not asked about again.
+        assert_eq!(answer(&mut open_with, "jpg", Vec::new), one());
     }
 }

@@ -393,7 +393,9 @@ impl Listing {
                 .filter_map(|p| Some(p.strip_prefix("/").ok()?.as_os_str().to_owned()))
                 .collect();
         }
-        files.retain(|f| self.dir.join(f).exists());
+        let sizes = keep_found(&mut files, |f| {
+            Some(self.dir.join(f).metadata().ok()?.len())
+        });
         if sort {
             // Sorted by name with Case on, sort_files keeps the order as listed. For a folder
             // that is name order, but a collection has its own, so it is put in name order here.
@@ -406,9 +408,6 @@ impl Listing {
         if self.shuffled {
             shuffle(&mut files);
         }
-        let sizes: Vec<u64> = (files.iter())
-            .filter_map(|f| Some(self.dir.join(f).metadata().ok()?.len()))
-            .collect();
         if self.tx.send((Vec::new(), files)).is_ok() {
             self.ctx.request_repaint();
             send_sizes(sizes.into_iter(), self.size_tx, &self.ctx);
@@ -1223,6 +1222,18 @@ impl crate::App {
     }
 }
 
+/// Keeps the `files` that `size` finds, and returns their sizes in the order kept. `size` is
+/// called once for each file, because a collection of 500,000 entries on a share would
+/// otherwise take a second system call for each.
+fn keep_found(
+    files: &mut Vec<OsString>,
+    mut size: impl FnMut(&OsString) -> Option<u64>,
+) -> Vec<u64> {
+    let mut sizes = Vec::new();
+    files.retain(|f| size(f).map(|n| sizes.push(n)).is_some());
+    sizes
+}
+
 /// Sends sizes as partial sums of 10,000 files, so the status bar fills in gradually. It stops
 /// when the receiver is gone. The closed channel tells the window that the sum is complete.
 pub(crate) fn send_sizes(
@@ -1521,5 +1532,18 @@ mod tests {
         assert_eq!(app.folder.collection, Some(here.join("show.m3u")));
         assert_eq!(app.list.files().len(), 1);
         std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A collection's entries are looked at with one call each: those found are kept with
+    /// their sizes, and those gone leave the list.
+    #[test]
+    fn a_collection_is_checked_with_one_call_per_entry() {
+        let mut files: Vec<std::ffi::OsString> = vec!["a.jpg".into(), "gone.jpg".into()];
+        let mut calls = 0;
+        let sizes = super::keep_found(&mut files, |f| {
+            calls += 1;
+            (f != "gone.jpg").then_some(7)
+        });
+        assert_eq!((files, sizes, calls), (vec!["a.jpg".into()], vec![7], 2));
     }
 }

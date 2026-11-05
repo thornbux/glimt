@@ -2792,3 +2792,7 @@ msgstr "kuva siirrettiin, nimettiin uudelleen tai poistettiin sillä välin"
 #: src/ui/dialogs.rs
 msgid "Move the collection \"{name}\" to the trash? Its images stay where they are."
 msgstr "Siirretäänkö kokoelma ”{name}” roskakoriin? Sen kuvat jäävät paikoilleen."
+
+#: src/files/file_io.rs
+msgid "the file system here does not allow this rename, as on some shares, cloud folders and phones ({e})"
+msgstr "tämä tiedostojärjestelmä ei salli tätä uudelleennimeämistä, kuten jotkin jaetut kansiot, pilvikansiot ja puhelimet ({e})"

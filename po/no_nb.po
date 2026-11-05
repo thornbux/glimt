@@ -2803,3 +2803,7 @@ msgstr "bildet ble flyttet, fikk nytt navn eller ble slettet i mellomtiden"
 #: src/ui/dialogs.rs
 msgid "Move the collection \"{name}\" to the trash? Its images stay where they are."
 msgstr "Flytte samlingen «{name}» til papirkurven? Bildene blir der de er."
+
+#: src/files/file_io.rs
+msgid "the file system here does not allow this rename, as on some shares, cloud folders and phones ({e})"
+msgstr "filsystemet her tillater ikke denne omdøpingen, slik som på enkelte delte mapper, skymapper og telefoner ({e})"

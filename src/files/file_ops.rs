@@ -1680,7 +1680,7 @@ pub(crate) fn rename_files(from: Vec<PathBuf>, to: Vec<PathBuf>, job: &Job) -> R
     let mut in_the_way = to.iter().filter_map(|t| taken(t, &sources)).peekable();
     let case_only = in_the_way.peek().is_some();
     if case_only {
-        ours_but_case(&from, in_the_way)?;
+        ours_but_case(&from, in_the_way, names_in)?;
     }
     let swap = case_only || to.iter().any(|t| sources.contains(t));
     // The temporary name is next to the file, because in a collection the files are in
@@ -1822,11 +1822,14 @@ fn same_id(a: FileId, b: FileId) -> bool {
 /// name that differs only in case. On a file system that ignores case (FAT and exFAT on a camera
 /// card), IMG.JPG is also found as img.jpg. Such a name is freed by the step through hidden
 /// names. A hard link under another name is the same file too, but a name of its own, which a
-/// rename must not take away. Returns the error to tell for the first other name. `from` holds
-/// the sidecars being renamed too, so their names count as ours.
+/// rename must not take away. On a disk that keeps case, img.jpg and IMG.JPG can be two links of
+/// one file, so a name counts as ours only when `listed` (the names in its folder) does not hold
+/// it as it is written. Returns the error to tell for the first other name. `from` holds the
+/// sidecars being renamed too, so their names count as ours.
 fn ours_but_case(
     from: &[PathBuf],
     in_the_way: impl Iterator<Item = PathBuf>,
+    listed: impl Fn(&Path) -> Option<HashSet<OsString>>,
 ) -> Result<(), String> {
     let id = file_id;
     let folded = |p: &Path| p.to_string_lossy().to_lowercase();
@@ -1835,8 +1838,16 @@ fn ours_but_case(
         .iter()
         .filter_map(|f| Some((folded(f), id(f)?)))
         .collect();
+    // Each folder is read once, and only on this rare path. One that cannot be read counts as
+    // listing every name, so nothing is taken for ours that might not be.
+    let mut folders: HashMap<PathBuf, Option<HashSet<OsString>>> = HashMap::new();
     for at in in_the_way {
-        if !id(&at).is_some_and(|i| ours.contains(&(folded(&at), i))) {
+        let dir = at.parent().unwrap_or(Path::new("")).to_owned();
+        let names = folders.entry(dir).or_insert_with_key(|d| listed(d));
+        let own_name = names
+            .as_ref()
+            .is_none_or(|n| at.file_name().is_none_or(|f| n.contains(f)));
+        if own_name || !id(&at).is_some_and(|i| ours.contains(&(folded(&at), i))) {
             return Err(tf!(
                 "{name} exists already; nothing renamed",
                 name = at.display()
@@ -1844,6 +1855,12 @@ fn ours_but_case(
         }
     }
     Ok(())
+}
+
+/// Returns the names in the folder `dir`, or `None` when it cannot be read.
+fn names_in(dir: &Path) -> Option<HashSet<OsString>> {
+    let entries = std::fs::read_dir(dir).ok()?;
+    Some(entries.flatten().map(|e| e.file_name()).collect())
 }
 
 /// The thread for this window's sidecar writes, so keywords, comments, stars and imports land
@@ -1942,14 +1959,21 @@ mod tests {
         super::rename_files(vec![p("f.jpg")], vec![p("g.jpg")], &job).unwrap();
         assert!(std::fs::symlink_metadata(p("f.jpg.xmp")).is_err());
         assert!(crate::metadata::xmp::linked(&p("g.jpg.xmp")));
-        // A new name that is the file itself, as G.JPG is g.jpg on a camera card, is not taken:
-        // the rename goes through hidden names. A hard link of that name stands in for the card
-        // here, and the file ends with one name and its sidecar.
+        // A new name that is the file itself, as G.JPG is g.jpg on a camera card, is not taken,
+        // because the card's folder lists only g.jpg. A hard link of that name stands in for
+        // the card here, with the listing a card gives.
         std::fs::hard_link(p("g.jpg"), p("G.JPG")).unwrap();
-        super::rename_files(vec![p("g.jpg")], vec![p("G.JPG")], &job).unwrap();
-        assert!(!p("g.jpg").exists() && read("G.JPG") == "f");
-        assert!(crate::metadata::xmp::linked(&p("G.JPG.xmp")));
-        super::rename_files(vec![p("G.JPG")], vec![p("g.jpg")], &job).unwrap();
+        let card = |_: &std::path::Path| {
+            Some(std::collections::HashSet::from([std::ffi::OsString::from(
+                "g.jpg",
+            )]))
+        };
+        assert!(super::ours_but_case(&[p("g.jpg")], [p("G.JPG")].into_iter(), card).is_ok());
+        // On a disk that keeps case, the folder lists both, so G.JPG is a name of its own: the
+        // rename is refused, and both names stay.
+        assert!(super::rename_files(vec![p("g.jpg")], vec![p("G.JPG")], &job).is_err());
+        assert!(read("g.jpg") == "f" && read("G.JPG") == "f");
+        std::fs::remove_file(p("G.JPG")).unwrap();
         // A hard link under another name is a name of its own: renaming onto it is refused,
         // and both names stay.
         std::fs::hard_link(p("g.jpg"), p("h.jpg")).unwrap();
