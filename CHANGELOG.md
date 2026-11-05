@@ -5,6 +5,34 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.59.0] - 2026-11-05
+
+### Fixed
+
+- Undo of a move leaves a file alone that another program put where the moved file was, and tells
+  so, instead of moving that file back under the old name.
+- Undo from the trash no longer puts a photo back where a sidecar of its name has appeared since
+  (written by another program, or synced in), which gave the photo that sidecar's keywords and
+  left its own in the trash.
+- Putting Rename Many right after a crash keeps its plan when a file cannot be looked at (a share
+  that answers with an I/O error), instead of deleting the plan while files still have hidden
+  names.
+- Printing and Open With in the Flatpak stop waiting for a desktop portal that never answers after
+  30 minutes, so the window can close.
+- An empty or relative `$XDG_RUNTIME_DIR` is ignored, so the remote-control sockets and sidecar
+  locks no longer go into `./glimt` of the current folder.
+- Renaming a file, moving one file, Save As and Crop no longer look at the disk on the window's
+  thread to tell whether a folder was renamed, which could hang the window on a share that stopped
+  answering.
+- The info panel waits only for the sidecar writes of the shown file before reading it again: a
+  long job on other files no longer holds back a plugin's new description, and an image shown
+  again while its own save is still queued is read once that save is written.
+
+### Changed
+
+- The release tests run a commit from before 0.58.0 again, and each section starts in the same
+  working folder and without the variables an earlier section set.
+
 ## [0.58.0] - 2026-11-05
 
 ### Fixed
@@ -2561,7 +2589,8 @@ The first release. Glimt is not 1.0 yet: it is in daily use, but expect rough ed
 - Remote control from the command line: `glimt --remote` and `--remote-all`.
 - Remembers the folder, window size and position.
 
-[Unreleased]: https://github.com/thornbux/glimt/compare/v0.58.0...HEAD
+[Unreleased]: https://github.com/thornbux/glimt/compare/v0.59.0...HEAD
+[0.59.0]: https://github.com/thornbux/glimt/compare/v0.58.0...v0.59.0
 [0.58.0]: https://github.com/thornbux/glimt/compare/v0.57.0...v0.58.0
 [0.57.0]: https://github.com/thornbux/glimt/compare/v0.56.0...v0.57.0
 [0.56.0]: https://github.com/thornbux/glimt/compare/v0.55.0...v0.56.0
