@@ -40,10 +40,12 @@ if [ "$(id -u)" = 0 ]; then
             continue
         fi
         echo "-- building $v"
-        # With the click hook of the tests; the last release may be from before it had one.
+        # With the click hook of the tests. Only the last release may be from before it had one:
+        # NEW without it would turn every click by text into a failure, so its errors are shown.
         (cd /t/$v && export CARGO_TARGET_DIR=/work-target/release-tests-$v \
-            && { cargo build -q --release --locked --features full,test-hooks 2>/dev/null \
-                 || cargo build -q --release --locked --features full; }) || exit 1
+            && if [ $v = new ]; then cargo build -q --release --locked --features full,test-hooks
+               else cargo build -q --release --locked --features full,test-hooks 2>/dev/null \
+                   || cargo build -q --release --locked --features full; fi) || exit 1
         cp /work-target/release-tests-$v/release/glimt /opt/glimt-$v
         if [ $v = old ] && [ -n "$OLD_COMMIT" ]; then
             # Only the latest: a release a run is past is not needed again.
@@ -147,21 +149,23 @@ start() {
 key() { xdotool windowfocus $WIN 2>/dev/null; xdotool key "$@" 2>/dev/null; sleep 0.6; }
 # A click on each text in turn (a menu, then its item), by the text, not by a place that every
 # change to the look would move: the test-hooks build's `--remote where` says where the text
-# was drawn, and xdotool clicks there. The last release may lack the hook: a note then.
+# was drawn, and xdotool clicks there. A text NEW does not show fails, as every check after it
+# would test nothing. The last release may lack the text or the hook, so for it this is a note.
 menu() {
-    for label in "$@"; do
-        at=$(remote where "$label" 2>/dev/null | tr -d '\0')
-        case $at in
-            [0-9]*) xdotool mousemove ${at% *} ${at#* } click 1 2>/dev/null ;;
-            *) note "$V: $label is not on the screen (or no hook)" ;;
-        esac
-        sleep 0.5
-    done
+    for label in "$@"; do click_text 1 "$label"; sleep 0.5; done
 }
 # A right click on the text, as menu() clicks.
-rclick() {
-    at=$(remote where "$1" 2>/dev/null | tr -d '\0')
-    case $at in [0-9]*) xdotool mousemove ${at% *} ${at#* } click 3 2>/dev/null ;; *) note "$V: $1 is not on the screen" ;; esac
+rclick() { click_text 3 "$1"; }
+# where LABEL: where the text was drawn, as x y, or nothing when it is not on the screen.
+where() { remote where "$1" 2>/dev/null | tr -d '\0'; }
+# click_text BUTTON LABEL: the click of menu() and rclick().
+click_text() {
+    local at
+    at=$(where "$2")
+    case $at in
+        [0-9]*) xdotool mousemove ${at% *} ${at#* } click $1 2>/dev/null ;;
+        *) if [ "$V" = new ]; then fail "new: $2 is not on the screen"; else note "old: $2 is not on the screen (or no hook)"; fi ;;
+    esac
 }
 click() { xdotool mousemove $1 $2 click 1 2>/dev/null; sleep ${3:-1}; }
 # Closing waits for what is being written (a turned image, the settings): so does this, up to
@@ -2779,12 +2783,16 @@ for v in new old; do
     config
     start $d/show.m3u
     sleep 2
-    # File → Move Collection to Trash where 0.30.0 has it; without it, Find Duplicates is there.
-    click 20 11
-    click 93 564 2
+    # Neither is in the File menu for a plain list. Open File is there, so the menu is open.
+    menu File
+    opened=$(where "Open File…" | grep -c .)
+    absent="$(where "Move Collection to Trash")$(where "Rename Collection…")"
+    key Escape
     quit
     got="$(cat $d/show.m3u 2>/dev/null | tr '\n' ' ')"
-    if [ $v = new ]; then expect "the list as it was" "$got" "#EXTM3U a.jpg "
+    if [ $v = new ]; then expect "the File menu open" "$opened" 1
+        expect "neither item in the menu" "$absent" ""
+        expect "the list as it was" "$got" "#EXTM3U a.jpg "
     else note "old: '$got'"; fi
 done
 as_version new

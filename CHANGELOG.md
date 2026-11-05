@@ -7,6 +7,9 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- The release tests fail when NEW does not show a text they click (a renamed label or a build
+  without the test hooks), instead of carrying on with a note, and NEW is never built without the
+  test hooks.
 - Three release checks (a collection moved to the trash, a copy closed twice, a long error) passed
   when their action never ran; each now needs to see the action happen.
 - run.sh and the screenshots' run.sh take tests.sh, samples.txt and shots.sh from the commit they
