@@ -620,7 +620,7 @@ impl crate::App {
                         .output();
                     match out {
                         Ok(o) if o.status.success() => {}
-                        Ok(o) => drop(tx.send(String::from_utf8_lossy(&o.stderr).trim().into())),
+                        Ok(o) => drop(tx.send(external::failure("gio", &o))),
                         Err(e) => drop(tx.send(format!("gio: {e}"))),
                     }
                 });
@@ -642,7 +642,8 @@ impl crate::App {
                 #[allow(clippy::disallowed_methods)]
                 // the player stays open as long as it plays: its own thread
                 let out = cmd.arg(&path).stdout(std::process::Stdio::null()).output();
-                out.map_err(|e| format!("{name}: {e}"))
+                out.map(|o| (o.status.success(), external::failure(name, &o)))
+                    .map_err(|e| format!("{name}: {e}"))
             };
             let out = if words.is_empty() {
                 // gio is part of glib; xdg-open covers systems without it. In a Flatpak both
@@ -663,9 +664,8 @@ impl crate::App {
                 run(&name, player)
             };
             match out {
-                Ok(o) if o.status.success() => {}
-                Ok(o) => drop(tx.send(String::from_utf8_lossy(&o.stderr).trim().into())),
-                Err(e) => drop(tx.send(e)),
+                Ok((true, _)) => {}
+                Ok((false, told)) | Err(told) => drop(tx.send(told)),
             }
         });
     }
