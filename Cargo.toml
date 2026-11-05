@@ -67,6 +67,14 @@ portals = ["dep:zbus"]
 # Every optional feature: cargo build --release --features full (same as --all-features).
 full = ["video", "heic", "avif", "jxl", "svg", "marks", "accessibility", "portals"]
 
+# The checks before a commit (AGENTS.md, tools/check.sh, CI): optimised as the release, so the
+# tests' timings hold, but built in many parts and incrementally, which takes a fraction of the
+# time after a small change. The release itself is built with --release, as before.
+[profile.quick]
+inherits = "release"
+incremental = true
+codegen-units = 256
+
 # The .deb package (cargo deb), built by the release workflow.
 [package.metadata.deb]
 maintainer = "Hans-Henry Jakobsen <53930032+thornbux@users.noreply.github.com>"
