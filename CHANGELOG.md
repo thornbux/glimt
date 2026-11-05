@@ -9,6 +9,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 - With the Pan view open, a delete or a move out of the list no longer makes it read the date of
   every file again.
+- Deleting images while the Pan view still reads the days of a large folder no longer starts the
+  reading over.
 
 ## [0.57.0] - 2026-11-05
 
