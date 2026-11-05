@@ -115,10 +115,11 @@ pub(crate) struct Info {
     /// Keywords, comment, alt text and extended description in the EXIF panel; saved when a field
     /// loses the focus, or another image is shown.
     meta: Option<MetaEdit>,
-    /// The file whose panel is to be read again once the sidecar writer has written what it was
-    /// given (`read_info_again`). Read at once, it could read the file before the writer reached
-    /// it. The panel's fields cannot be edited meanwhile, as they show the file as it was.
-    reread_after_write: Option<PathBuf>,
+    /// The file whose panel is to be read once the sidecar jobs that write it are over
+    /// (`read_info_again`, or an image shown while its own save waits in the writer). Read at
+    /// once, it could read the file before the writer reached it. The panel's fields cannot be
+    /// edited meanwhile, as they show the file as it was.
+    reread_after_write: Option<(PathBuf, Vec<std::sync::Weak<crate::files::file_ops::Job>>)>,
     /// Alt+K: put the focus in the keywords field when the panel shows next.
     focus_keywords: bool,
     /// The keyword tree (Geeqie's), as paths "Places|Norway|Oslo", sorted; in the EXIF panel.
@@ -181,7 +182,17 @@ impl crate::App {
     pub(crate) fn want_exif(&mut self, ctx: &egui::Context) {
         self.reread_when_written();
         let path = self.path(self.list.cur());
-        if self.info.exif_asked.as_ref() != Some(&path) {
+        // An image shown again while its own save still waits behind a long job (a Lightroom
+        // import) is read once the save is written, or the panel would show it without the save.
+        if self.info.exif_asked.as_ref() != Some(&path) && self.info.reread_after_write.is_none() {
+            let writes = self.work.writes_of(&path);
+            if !writes.is_empty() {
+                // The wait ends by forgetting the panel, so the image before keeps its edit.
+                self.save_meta(ctx);
+                self.info.reread_after_write = Some((path.clone(), writes));
+            }
+        }
+        if self.info.exif_asked.as_ref() != Some(&path) && self.info.reread_after_write.is_none() {
             let _ = self.info.exif_jobs.send(path.clone());
             self.info.exif_asked = Some(path);
         }
@@ -444,25 +455,27 @@ impl crate::App {
 
     /// Reads the shown image's EXIF, keywords, comment and alt text again, after something else
     /// changed them, such as a plugin. An edit in the panel that is not saved yet is saved
-    /// first, so it is not lost. While the sidecar writer still writes, the panel is read again
-    /// only once it is done (`want_exif`): read at once, it could show the file as it was before
-    /// the edit, and a later edit would then save the edit away again.
+    /// first, so it is not lost. While a sidecar job still writes the file, the panel is read
+    /// again only once that job is over (`want_exif`): read at once, it could show the file as
+    /// it was before the edit, and a later edit would then save the edit away again.
     pub(crate) fn read_info_again(&mut self, ctx: &egui::Context) {
         self.save_meta(ctx);
-        self.info.reread_after_write = Some(self.path(self.list.cur()));
+        let path = self.path(self.list.cur());
+        let writes = self.work.writes_of(&path);
+        self.info.reread_after_write = Some((path, writes));
         self.reread_when_written();
     }
 
-    /// Lets the panel read the shown image again, when `read_info_again` asked for it and the
-    /// sidecar writer has written everything it was given.
+    /// Lets the panel read the shown image again, when it waits for the sidecar jobs that write
+    /// it and they are over. Jobs of other files do not hold it up.
     /// Another image shown meanwhile is read for itself, so its edit is never dropped by this.
     fn reread_when_written(&mut self) {
-        let Some(file) = &self.info.reread_after_write else {
+        let Some((file, writes)) = &self.info.reread_after_write else {
             return;
         };
         if *file != self.path(self.list.cur()) {
             self.info.reread_after_write = None;
-        } else if !self.work.writes_keywords() {
+        } else if writes.iter().all(|w| w.strong_count() <= 1) {
             self.info.reread_after_write = None;
             self.info.meta = None;
             self.info.exif = None;
@@ -776,6 +789,54 @@ mod tests {
         app.want_exif(&ctx);
         assert!(app.info.reread_after_write.is_none());
         drop(other);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// The panel waits only for the sidecar jobs that write the shown file: a long job of
+    /// other files does not hold up its reread, and an image shown again while a job still
+    /// writes it is read once that job is over.
+    #[test]
+    fn the_panel_waits_only_for_writes_of_its_file() {
+        let name = format!("glimt-test-reread-own-{}", std::process::id());
+        let dir = std::env::temp_dir().join(name);
+        std::fs::create_dir_all(&dir).unwrap();
+        let (a, b) = (dir.join("a.png"), dir.join("b.png"));
+        image::RgbImage::new(4, 4).save(&a).unwrap();
+        image::RgbImage::new(4, 4).save(&b).unwrap();
+        let (mut app, ctx) = app_on(&dir);
+        assert!(crate::support::test_support::settle(&mut app, &ctx, |a| !a
+            .folder
+            .is_listing()));
+        app.go(&ctx, 0);
+        read_panel(&mut app, &ctx);
+        let other = app.start_job_of("Other", 1, true, vec![b.clone()]).unwrap();
+        app.files_changed(&ctx, std::slice::from_ref(&a));
+        app.want_exif(&ctx);
+        assert!(
+            app.info.reread_after_write.is_none(),
+            "it waits for b.png's job"
+        );
+        drop(other);
+        let writing = app
+            .start_job_of("Saving", 1, true, vec![a.clone()])
+            .unwrap();
+        app.go(&ctx, 1);
+        app.want_exif(&ctx);
+        assert!(
+            app.info.reread_after_write.is_none(),
+            "b.png waits for a.png's job"
+        );
+        app.go(&ctx, 0);
+        app.want_exif(&ctx);
+        assert!(
+            app.info.reread_after_write.is_some(),
+            "a.png is read before its save"
+        );
+        assert_ne!(app.info.exif_asked.as_ref(), Some(&a));
+        drop(writing);
+        app.want_exif(&ctx);
+        assert!(app.info.reread_after_write.is_none());
+        assert_eq!(app.info.exif_asked.as_ref(), Some(&a));
         std::fs::remove_dir_all(&dir).unwrap();
     }
 }

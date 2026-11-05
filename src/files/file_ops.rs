@@ -260,6 +260,18 @@ impl Work {
         (self.jobs.iter()).any(|j| j.sidecars && Arc::strong_count(j) > 1)
     }
 
+    /// Returns the running jobs that write the sidecar of `file`, or of a folder it is in. Each
+    /// is over once `Weak::strong_count` is 1 or less, as only `jobs` holds it then. The jobs
+    /// are looked through once here, so a wait for them does not go through a Lightroom
+    /// import's 100,000 files in every frame.
+    pub(crate) fn writes_of(&self, file: &Path) -> Vec<std::sync::Weak<Job>> {
+        (self.jobs.iter())
+            .filter(|j| j.sidecars && Arc::strong_count(j) > 1)
+            .filter(|j| j.touches.iter().any(|t| file.starts_with(t)))
+            .map(Arc::downgrade)
+            .collect()
+    }
+
     /// The first job running, for the status bar, and how many run.
     pub(crate) fn jobs_shown(&self) -> Option<(&Job, usize)> {
         Some((self.jobs.first()?, self.jobs.len()))
