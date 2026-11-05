@@ -285,8 +285,8 @@ pub fn replace_name_with(
 }
 
 /// Writes `bytes` to `path` beside it and renames it, through a link to the file it points to.
-/// Glimt's own files, a turned image and a collection's file are written so. A name the user
-/// chose for a new file goes through `replace_name`, which never follows a link.
+/// Glimt's own files and a turned image are written so. A name the user chose for a new file,
+/// and a collection's file, go through `replace_name`, which never follows a link.
 fn replace(path: &Path, bytes: impl AsRef<[u8]>, existing: bool) -> std::io::Result<()> {
     use std::io::Write;
     let write = |f: &mut std::fs::File| f.write_all(bytes.as_ref());
