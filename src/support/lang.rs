@@ -137,6 +137,23 @@ pub fn tr(en: &'static str) -> &'static str {
     }
 }
 
+/// Returns the group separator and the decimal mark of the language in use, for numbers such
+/// as "1.200 Dateien" and "2,3 MB".
+pub fn number_marks() -> (&'static str, &'static str) {
+    let current = CURRENT.read().unwrap_or_else(|e| e.into_inner());
+    marks_of((*current).map_or("en", |t| t.code))
+}
+
+/// Returns the group separator and decimal mark of the language `code`. Most languages here
+/// group with a no-break space or a full stop and write a decimal comma.
+fn marks_of(code: &str) -> (&'static str, &'static str) {
+    match code {
+        "en" => (",", "."),
+        "da" | "de" | "es" | "is" | "it" | "nl" => (".", ","),
+        _ => ("\u{a0}", ","),
+    }
+}
+
 /// The form of `noun` for `n` of it: "image" or "images", or the translation's form.
 pub fn plural(noun: &'static str, n: usize) -> std::borrow::Cow<'static, str> {
     let current = CURRENT.read().unwrap_or_else(|e| e.into_inner());
@@ -280,6 +297,17 @@ fn unquote(s: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    /// Every language has its own marks for numbers, and English keeps its comma and point.
+    #[test]
+    fn numbers_take_the_language_marks() {
+        assert_eq!(super::marks_of("en"), (",", "."));
+        assert_eq!(super::marks_of("de"), (".", ","));
+        assert_eq!(super::marks_of("no_nb"), ("\u{a0}", ","));
+        for l in super::LANGUAGES {
+            assert_ne!(super::marks_of(l.0), (",", "."), "{}", l.0);
+        }
+    }
+
     /// Entries, plurals, continued strings and escapes read; the header, fuzzy and empty ones
     /// left out.
     #[test]

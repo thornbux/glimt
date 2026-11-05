@@ -5,6 +5,11 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- Counts and sizes are written as each language writes numbers (1.200 Dateien, 2,3 MB, 1 200 filer),
+  no longer in the English form in every translation.
+
 ## [0.57.0] - 2026-11-05
 
 ### Fixed
