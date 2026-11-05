@@ -780,16 +780,16 @@ impl crate::App {
         collection: bool,
     ) -> Option<Action> {
         ctx.input_mut(|i| {
-            // egui-winit turns Ctrl+C into a Copy event instead of a key press.
+            // egui-winit turns plain Ctrl+C and Ctrl+X, and the keyboard's own Copy and Cut
+            // keys, into Copy and Cut events instead of key presses. With Shift or Alt held
+            // they come as ordinary keys.
             let all = shortcuts();
-            let copies = i.events.len();
-            i.events.retain(|e| !matches!(e, egui::Event::Copy));
-            if i.events.len() < copies {
-                // Whatever has Ctrl+C: Copy, unless the user gave the key to another action. Ctrl+
-                // Shift+C comes as the same event: Copy Image to Clipboard.
-                let held = if i.modifiers.shift { CTRL_SHIFT } else { CTRL };
+            if let Some(key) = i.events.iter().find_map(clipboard_key) {
+                i.events.retain(|e| clipboard_key(e).is_none());
+                // The event means Ctrl+C or Ctrl+X even when no modifier is held, as it is for
+                // the Copy key. It runs Copy, unless the user gave the key to another action.
                 return (all.iter())
-                    .find(|s| same_keys(s, &(s.0, held, egui::Key::C)))
+                    .find(|s| same_keys(s, &(s.0, CTRL, key)))
                     .map(|s| s.0);
             }
             all.iter()
@@ -1310,6 +1310,16 @@ pub fn shortcut_text(ctx: &egui::Context, action: Action) -> Option<String> {
     Some(ctx.format_shortcut(&egui::KeyboardShortcut::new(mods, key)))
 }
 
+/// Returns the key of a Copy or Cut event (C or X), which egui-winit sends for Ctrl+C and
+/// Ctrl+X instead of a key press, or `None` for any other event.
+pub(crate) fn clipboard_key(e: &egui::Event) -> Option<egui::Key> {
+    match e {
+        egui::Event::Copy => Some(egui::Key::C),
+        egui::Event::Cut => Some(egui::Key::X),
+        _ => None,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     /// Every action's name is in the translations: it reaches tr through `english`, where the
@@ -1399,24 +1409,40 @@ mod tests {
         super::OWN_KEYS.write().unwrap().clear();
     }
 
-    /// egui-winit sends Ctrl+C, with or without Shift, as a Copy event: Copy to a folder, or
-    /// with Shift the image to the clipboard.
+    /// Plain Ctrl+C comes from egui-winit as a Copy event, and so does the Copy key with no
+    /// modifier held. Both copy to a folder. Ctrl+Shift+C comes as an ordinary key, and it
+    /// copies the image to the clipboard.
     #[test]
-    fn copy_event_with_shift_copies_the_image() {
+    fn copy_keys_run_what_egui_sends_them_as() {
         use eframe::egui;
-        let pressed = |shift| {
+        let pressed = |modifiers: egui::Modifiers, event: egui::Event| {
             let ctx = egui::Context::default();
-            let modifiers = egui::Modifiers {
-                shift,
-                ..super::CTRL
-            };
             ctx.begin_pass(egui::RawInput {
-                events: vec![egui::Event::ModifiersChanged(modifiers), egui::Event::Copy],
+                events: vec![egui::Event::ModifiersChanged(modifiers), event],
                 ..Default::default()
             });
             crate::App::shortcut(&ctx, true, false)
         };
-        assert_eq!(pressed(false), Some(super::Action::Copy));
-        assert_eq!(pressed(true), Some(super::Action::CopyImage));
+        let key = |modifiers| egui::Event::Key {
+            key: egui::Key::C,
+            physical_key: Some(egui::Key::C),
+            pressed: true,
+            repeat: false,
+            modifiers,
+        };
+        assert_eq!(
+            pressed(super::CTRL, egui::Event::Copy),
+            Some(super::Action::Copy)
+        );
+        assert_eq!(
+            pressed(egui::Modifiers::NONE, egui::Event::Copy),
+            Some(super::Action::Copy)
+        );
+        // The Cut key is Ctrl+X, which no action has by default, not X (Zoom to Fit).
+        assert_eq!(pressed(egui::Modifiers::NONE, egui::Event::Cut), None);
+        assert_eq!(
+            pressed(super::CTRL_SHIFT, key(super::CTRL_SHIFT)),
+            Some(super::Action::CopyImage)
+        );
     }
 }
