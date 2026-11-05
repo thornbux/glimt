@@ -1110,7 +1110,7 @@ fn found(query: &str, texts: &[&'static str], more: &[&str]) -> bool {
 fn key_actions() -> Vec<Action> {
     let mut actions: Vec<Action> = Vec::new();
     for s in SHORTCUTS {
-        if !actions.contains(&s.0) && (s.0 != Action::Play || cfg!(feature = "video")) {
+        if !actions.contains(&s.0) && s.0.in_build() {
             actions.push(s.0);
         }
     }

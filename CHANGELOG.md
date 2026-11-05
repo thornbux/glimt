@@ -87,6 +87,7 @@ and versions follow [Semantic Versioning](https://semver.org/).
   word in its own order, and the EXIF window's title is translated.
 - Alt+Right in Two Above Each Other (and Alt+Down in Two Side by Side) no longer goes to the other
   pane as the other arrow does.
+- In a build without video, Enter no longer runs Play Video, which did nothing there.
 
 ## [0.57.0] - 2026-11-05
 
