@@ -192,11 +192,10 @@ fn own_sidecar_text(path: &Path) -> Option<String> {
 /// whose contents would then show for this photo or be copied with it. The link is refused by
 /// the open itself, so one swapped in after a look at the name is not read through either.
 pub(crate) fn own_sidecar(path: &Path) -> std::io::Result<Option<Vec<u8>>> {
-    const ELOOP: i32 = 40;
     match crate::images::decode::read_unlinked(&sidecar(path)) {
         Ok(bytes) => Ok(Some(bytes)),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
-        Err(e) if e.raw_os_error() == Some(ELOOP) => Ok(None),
+        Err(e) if e.raw_os_error() == Some(libc::ELOOP) => Ok(None),
         Err(e) => Err(e),
     }
 }
