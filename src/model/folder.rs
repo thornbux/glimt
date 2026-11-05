@@ -1057,13 +1057,15 @@ impl crate::App {
         // A new List means every place held in the old one goes with it, whatever field holds
         // it. Only what is carried over by name above comes back.
         self.list = List::after(&self.list, files);
+        // The shown file is set before anything refills the list, because with Compare on a
+        // refill at place 0 would drop the decode of the image shown.
+        let cur = found.unwrap_or(0);
+        self.list.set_cur(cur);
         self.exif_follow_list();
-        self.selection_changed(ctx);
         let panes = (panes.iter())
             .filter_map(|n| self.list.files().iter().position(|f| f == n))
             .collect();
         self.list.set_panes(panes);
-        let cur = found.unwrap_or(0);
         // One pass over the list for a handful of textures.
         let mut kept = Vec::new();
         for (i, name) in self.list.files().iter().enumerate() {
@@ -1084,9 +1086,12 @@ impl crate::App {
                 self.list.ask_decode((cur, full), job);
             }
         }
+        // The search runs first, after the slots are carried over, because with Compare on the
+        // selection refills, and the compared image and the neighbours are counted among the
+        // matches, not in the whole folder.
         self.update_search(ctx);
+        self.selection_changed(ctx);
         if still {
-            self.list.set_cur(cur);
             self.refill();
             self.title(ctx);
             return;
@@ -1107,22 +1112,27 @@ impl crate::App {
         } else {
             self.leave_image(ctx);
         }
+        let version = self.list.version();
+        // The next remaining file after the shown one, or the last. It is set in the list before
+        // anything reads it, because with Compare on a refill at the old place would drop the
+        // decode of the image shown.
+        let cur = self.list.cur() - removed.partition_point(|&r| r < self.list.cur());
         // The panes' places belong to other files now, so they are filled again from the list
         // as it is.
-        let version = self.list.version();
         self.list.remove(removed);
+        self.list
+            .set_cur(cur.min(self.list.files().len().saturating_sub(1)));
+        // The search runs first, because with Compare on the selection refills, and the compared
+        // image and the neighbours are counted among the matches, not in the whole folder.
+        self.update_search(ctx);
         self.list_changed(ctx);
         if let Some(pan) = &mut self.pan_window {
             pan.follow(removed, version, self.list.version());
         }
-        self.update_search(ctx);
-        // The next remaining file after the shown one (or the last).
-        let cur = self.list.cur() - removed.partition_point(|&r| r < self.list.cur());
         if self.list.files().is_empty() {
-            self.list.set_cur(0);
             self.title(ctx);
         } else {
-            self.go(ctx, cur.min(self.list.files().len() - 1));
+            self.go(ctx, self.list.cur());
         }
     }
 
@@ -1216,6 +1226,45 @@ pub(crate) fn total_size(paths: &[PathBuf]) -> u64 {
 #[cfg(test)]
 mod tests {
     use crate::support::test_support::{app_on, contract_folder, settle};
+
+    /// With Compare on and a search, a delete of other files or a refresh keeps the decodes of
+    /// the shown image and of the compared match. The list was refilled before the shown file's
+    /// new place was set and before its search ran, and each dropped one of them.
+    #[test]
+    fn a_delete_in_compare_keeps_the_shown_decode() {
+        let name = format!("glimt-test-remove-cmp-{}", std::process::id());
+        let dir = std::env::temp_dir().join(name);
+        std::fs::create_dir_all(&dir).unwrap();
+        for k in 0..12 {
+            image::RgbImage::new(4, 4)
+                .save(dir.join(format!("{k:02}.png")))
+                .unwrap();
+        }
+        let (mut app, ctx) = app_on(&dir);
+        app.go(&ctx, 5);
+        app.compare = true;
+        app.search.set_query("re:0[59]");
+        app.update_search(&ctx);
+        app.refill();
+        let both = |a: &crate::App, x, y| {
+            a.list.slots().contains_key(&x) && a.list.slots().contains_key(&y)
+        };
+        assert!(settle(&mut app, &ctx, |a| both(a, 5, 9)));
+        app.remove_indices(&ctx, &[0]);
+        assert_eq!((app.list.cur(), app.compare_other()), (4, Some(8)));
+        assert!(both(&app, 4, 8));
+        // A refresh that finds a new file first moves both one place on, and keeps them too.
+        image::RgbImage::new(4, 4)
+            .save(dir.join("00a.png"))
+            .unwrap();
+        let mut files = app.list.files().to_vec();
+        files.insert(0, "00a.png".into());
+        let shown = app.list.files().get(app.list.cur()).cloned();
+        app.replace_files(&ctx, files, shown);
+        assert_eq!((app.list.cur(), app.compare_other()), (5, Some(9)));
+        assert!(both(&app, 5, 9));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
 
     /// A refresh of a collection that started before a rename landed (auto refresh saw the
     /// folder change first) loses neither the image in the list nor its entry in the file.
