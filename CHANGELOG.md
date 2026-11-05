@@ -5,6 +5,11 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- In the Flatpak, Undo of a move to the trash finds the host's trash also where the host has its own
+  XDG_DATA_HOME.
+
 ## [0.57.0] - 2026-11-05
 
 ### Fixed
