@@ -5,6 +5,13 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- With Compare on, deleting or moving other files no longer throws away the shown image's
+  decode, which made it be decoded again.
+- With Compare on and a search, a delete or a refresh no longer blanks the compared image until
+  it is decoded again.
+
 ## [0.57.0] - 2026-11-05
 
 ### Fixed
