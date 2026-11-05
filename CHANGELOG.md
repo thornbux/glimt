@@ -7,42 +7,39 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
-- A video or plugin-decoded file whose thumbnail timed out on a slow share, or failed with an
-  I/O error, is tried again later instead of keeping the no-thumbnail icon for good.
-- With a screen reader, an image a search hides is read as not among the matches, not as a dash
-  of the number of matches. Its place is read in the chosen language.
-- A Preferences search for an action that is not built in no longer lists every keyboard
-  shortcut.
-- Preferences → Keyboard shortcuts can give an action Ctrl+C or Ctrl+X, which before left the
-  row waiting for a key. A key given to Ctrl+X runs, and the keyboard's own Copy key runs Copy.
+- A video or plugin-decoded file whose thumbnail timed out on a slow share, or failed with an I/O
+  error, is tried again later instead of keeping the no-thumbnail icon for good.
+- With a screen reader, an image a search hides is read as not among the matches, not as a dash of
+  the number of matches. Its place is read in the chosen language.
+- A Preferences search for an action that is not built in no longer lists every keyboard shortcut.
+- Preferences → Keyboard shortcuts can give an action Ctrl+C or Ctrl+X, which before left the row
+  waiting for a key. A key given to Ctrl+X runs, and the keyboard's own Copy key runs Copy.
 - With the Pan view open, a delete or a move out of the list no longer makes it read the date of
   every file again.
 - Deleting images while the Pan view still reads the days of a large folder no longer starts the
   reading over.
 - Deleting or moving other files no longer resets the shown image's zoom and turn, nor saves its
   turn early with Save Orientation on.
-- Next on the last image, Previous on the first, a click on the shown image's own row or pane,
-  a slideshow of one image, opening the file already shown and turning Random order on or off
-  no longer reset the image's zoom, page and turn, or write the turn into the file at once.
-- With Compare on, deleting or moving other files no longer throws away the shown image's
-  decode, which made it be decoded again.
-- With Compare on and a search, a delete or a refresh no longer blanks the compared image until
-  it is decoded again.
+- Next on the last image, Previous on the first, a click on the shown image's own row or pane, a
+  slideshow of one image, opening the file already shown and turning Random order on or off no
+  longer reset the image's zoom, page and turn, or write the turn into the file at once.
+- With Compare on, deleting or moving other files no longer throws away the shown image's decode,
+  which made it be decoded again.
+- With Compare on and a search, a delete or a refresh no longer blanks the compared image until it
+  is decoded again.
 - A Lightroom catalog sqlite3 cannot read is told by its reason alone, without part of the query.
-- Keywords added to many selected files show in the info panel at once. Before, the panel could
-  read the shown file before its keywords were written, and a later edit there took them off
-  again.
+- Keywords added to many selected files show in the info panel at once. Before, the panel could read
+  the shown file before its keywords were written, and a later edit there took them off again.
 - After a plugin changes the shown photo (describing it, say), the info panel shows its new
-  keywords, comment and alt text, and the screen reader reads them, not only after another
-  photo and back. Before, an edit in the panel could save the old ones over the plugin's.
+  keywords, comment and alt text, and the screen reader reads them, not only after another photo and
+  back. Before, an edit in the panel could save the old ones over the plugin's.
 - A plugin that starts a program in the background (an editor, xdg-open) no longer counts as
   running, holding its files, until that program closes.
-- A delete, move or rename of files a plugin is still working on waits until the plugin ends,
-  as for every other file operation.
+- A delete, move or rename of files a plugin is still working on waits until the plugin ends, as for
+  every other file operation.
 - The delete, Rename Many and New Collection dialogs keep naming the files they asked about when the
   list changes while they are open, and New Collection adds those files, not the selection of the
   moment.
-
 - New Folder and Rename Collection act on the folder or collection they asked about, also when a
   script opened another one while the dialog was open.
 - A window opened just as another one finished a Rename Many no longer offers to put right renames
@@ -104,64 +101,42 @@ and versions follow [Semantic Versioning](https://semver.org/).
   file dialog) shows at once, not only after the mouse moves.
 - A file renamed or moved in a collection, or renamed in place, leaves the search's matches it no
   longer fits and joins those it now fits.
+- The EXIF panel, the sort menu, the Types menu, theme and filter names, the CPU and memory levels,
+  several Preferences texts, dialogs and notices now show in the chosen language; a test fails on a
+  new text left untranslated.
 
 ### Changed
 
 - A test checks that the man page has an entry for every start option and remote command.
 - A test checks that `full` holds every optional feature and that README's feature table lists each.
 - A test checks that the .deb, .rpm, tar.gz, AppImage and Flatpak install the same files.
-### Changed
-
 - CONTRIBUTING.md and the pull request template point at AGENTS.md's checks instead of an incomplete
   copy.
-### Changed
-
 - CI, the release workflow and the release tests no longer install graphics development packages,
   which the build does not need.
-### Changed
-
 - Moving files to the trash has one function, trash::trash, so no caller can skip the Flatpak's
   fallback for a file the portal refuses.
-### Changed
-
 - Opening a file of the folder already shown (File → Open File, a drop, --remote open, Back) goes to
   it at once, without reading the folder, its thumbnails and its EXIF index again.
-- The EXIF panel, the sort menu, the Types menu, theme and filter names, the CPU and memory
-  levels, several Preferences texts, dialogs and notices now show in the chosen language; a test
-  fails on a new text left untranslated.
-### Changed
-
 - The toolbar's Refresh and Show Thumbnails buttons show the same icons as their menu items.
-### Changed
-
 - Temporary files left by a crash are hidden (.glimt-tmp-*), so a file manager no longer shows them.
-### Changed
-
 - Counts and sizes are written as each language writes numbers (1.200 Dateien, 2,3 MB, 1 200 filer),
   no longer in the English form in every translation.
-### Changed
-
 - Move Collection to Trash asks before the collection's file goes to the trash, as Move Folder to
   Trash does.
-### Changed
-
 - The release tests click file rows, the print dialog's page text and the toolbar by their text
   instead of at fixed places.
-### Changed
-
 - Every button, selectable row and radio button is drawn through a menus helper (button,
-  icon_button, button_enabled, small_button, selectable, choice, radio, radio_choice) that names
-  it for the release tests, and clippy refuses egui's own elsewhere, so the folder list's rows,
-  Check Images' broken files and the choices in Preferences, Print and Save As can be clicked by
-  their text too.
-### Changed
-
+  icon_button, button_enabled, small_button, selectable, choice, radio, radio_choice) that names it
+  for the release tests, and clippy refuses egui's own elsewhere, so the folder list's rows, Check
+  Images' broken files and the choices in Preferences, Print and Save As can be clicked by their
+  text too.
 - A whole selection is set through set_selection, which also tells what follows it: the title, the
   range's end and the size in the status bar.
 - Whether Glimt runs in a Flatpak is asked one way, external::in_flatpak, also in a build without
   the portals, and the host's folders one way, config::host_xdg_dir.
-- An operation edits the open collection only through collections::edit_told, which keeps the plain-
-  list rule and the message for a collection gone.
+- An operation edits the open collection only through collections::edit_told, which keeps the
+  plain-list rule and the message for a collection gone.
 - Every sidecar is read through xmp::own_sidecar, which skips a link.
 - The user's own keys and the animation limit have one setter each, and a source test keeps every
   process-wide copy of a setting written only by its setter.
@@ -171,11 +146,6 @@ and versions follow [Semantic Versioning](https://semver.org/).
   clippy refuses the image crate's own from_decoder.
 - A panic in a worker is caught in one place, threads::caught, and a source test refuses a second
   way.
-
-### Fixed
-
-- In the Flatpak, Undo of a move to the trash finds the host's trash also where the host has its own
-  XDG_DATA_HOME.
 
 ## [0.57.0] - 2026-11-05
 
