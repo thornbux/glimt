@@ -11,6 +11,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
   I/O error, is tried again later instead of keeping the no-thumbnail icon for good.
 - With a screen reader, an image a search hides is read as not among the matches, not as a dash
   of the number of matches. Its place is read in the chosen language.
+- A Preferences search for an action that is not built in no longer lists every keyboard
+  shortcut.
 
 ## [0.57.0] - 2026-11-05
 
