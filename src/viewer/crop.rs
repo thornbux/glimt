@@ -195,6 +195,48 @@ fn part_pixels(part: egui::Rect, [w, h]: [usize; 2]) -> [u32; 4] {
 mod tests {
     use eframe::egui;
 
+    /// Enter saves the part being chosen, but not while a text field has the focus, because
+    /// the Enter then belongs to the field.
+    #[test]
+    fn enter_in_a_text_field_does_not_save_the_crop() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-crop-keys-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let (mut app, ctx) = crate::support::test_support::app_on(&dir);
+        let crop = super::Crop {
+            path: dir.join("a.png"),
+            how: app.shown_copy(),
+            anchor: egui::Pos2::ZERO,
+            part: None,
+        };
+        app.viewing.start_crop(crop);
+        let enter = |app: &mut crate::App, typing: bool| {
+            let input = egui::RawInput {
+                events: vec![egui::Event::Key {
+                    key: egui::Key::Enter,
+                    physical_key: None,
+                    pressed: true,
+                    repeat: false,
+                    modifiers: Default::default(),
+                }],
+                ..Default::default()
+            };
+            let _ = ctx.run_ui(input, |ui| {
+                let field = egui::Id::unique("a text field");
+                match typing {
+                    true => ui.memory_mut(|m| m.request_focus(field)),
+                    false => ui.memory_mut(|m| m.surrender_focus(field)),
+                }
+                app.read_keys(ui.ctx());
+            });
+        };
+        enter(&mut app, true);
+        assert!(app.viewing.is_cropping());
+        // Without the field, Enter takes the crop to save it (here a crop of nothing).
+        enter(&mut app, false);
+        assert!(!app.viewing.is_cropping());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
     /// A part in whole pixels, inside the image and never empty.
     #[test]
     fn rounds_the_part_to_pixels() {

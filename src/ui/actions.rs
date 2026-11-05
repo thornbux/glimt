@@ -1170,11 +1170,19 @@ impl crate::App {
 
     /// The action of the key pressed this frame, if any; the arrow keys move a zoomed image first.
     pub(crate) fn read_keys(&mut self, ctx: &egui::Context) -> Option<Action> {
-        // Choosing a part to crop: Enter saves it, Escape stops; read first, as for the pan view.
+        // Shortcuts go to the dialogs while one is open, and to the text field while one has
+        // the focus (the toolbar's folder path).
+        let typing = ctx
+            .memory(|m| m.focused())
+            .is_some_and(|f| Some(f) != self.image_id);
+        // Choosing a part to crop: Escape stops, read first, as for the pan view. Enter saves
+        // it, but not while a text field has the focus, because the Enter belongs to the field.
         if self.viewing.is_cropping() && !self.dialog_open() {
             if ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape)) {
                 self.viewing.stop_crop();
-            } else if ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Enter)) {
+            } else if !typing
+                && ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Enter))
+            {
                 self.save_crop(ctx);
             }
         }
@@ -1194,11 +1202,6 @@ impl crate::App {
         {
             check.stop();
         }
-        // Shortcuts go to the dialogs while one is open.
-        // ... and to the text field while one has focus (the toolbar's folder path).
-        let typing = ctx
-            .memory(|m| m.focused())
-            .is_some_and(|f| Some(f) != self.image_id);
         // A zoomed image larger than the window: the arrow keys move it, as in Geeqie; along a
         // side where it fits they still browse.
         if !self.dialog_open() && !typing && !self.zoom.is_fitted() {

@@ -5,6 +5,10 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- Enter in a text field, such as the toolbar's folder path, no longer saves a crop being chosen.
+
 ## [0.57.0] - 2026-11-05
 
 ### Fixed
