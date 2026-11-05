@@ -95,6 +95,7 @@ and versions follow [Semantic Versioning](https://semver.org/).
   still.
 - An SVG that claims a huge size no longer takes hundreds of megabytes: it is drawn at the size it
   is shown.
+- Add to Collection no longer holds up the window while it writes a large collection.
 
 ## [0.57.0] - 2026-11-05
 

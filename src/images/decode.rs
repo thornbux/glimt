@@ -1877,6 +1877,7 @@ mod tests {
         );
         assert_eq!(super::icc_profile(&without), None);
         std::fs::remove_dir_all(dir).unwrap();
+    }
 
     /// An SVG that claims a huge size is drawn at the size it is shown, not at 8192 pixels and
     /// shrunk, and its own size is still told. Its alpha is straight, so red stays red.

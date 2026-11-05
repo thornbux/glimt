@@ -450,7 +450,7 @@ impl crate::App {
             |ui| {
                 for (name, file) in collections::list() {
                     if noted(&ui.button(iconed(ui, theme::icon::STACK, &name)), &name).clicked() {
-                        self.add_to_collection(&file);
+                        self.add_to_collection(ui.ctx(), &file);
                     }
                 }
                 menu_item(ui, list_act, Action::NewCollection);

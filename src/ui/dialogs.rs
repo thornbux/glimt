@@ -446,7 +446,7 @@ impl crate::App {
             };
             self.list.select(found.into_iter().collect());
             return match collections::new_file(text) {
-                Ok(file) => self.add_to_collection(&file),
+                Ok(file) => self.add_to_collection(ctx, &file),
                 Err(e) => self.notice = Some(e),
             };
         }
