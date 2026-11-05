@@ -734,10 +734,21 @@ pub fn read_text(path: impl AsRef<Path>) -> std::io::Result<String> {
 /// through a link. This is the one way Glimt reads a file whole, whoever wrote it, and clippy
 /// (clippy.toml) refuses every other read.
 pub fn read_limited(path: impl AsRef<Path>) -> std::io::Result<Vec<u8>> {
+    read_opened(open_file(path.as_ref())?)
+}
+
+/// `read_limited` of `path` when it is no link. Returns an error whose `raw_os_error` is
+/// `ELOOP` when it is one. The open itself refuses the link (O_NOFOLLOW), so a link swapped in
+/// after a look at the name is never read through.
+pub(crate) fn read_unlinked(path: &Path) -> std::io::Result<Vec<u8>> {
+    read_opened(opened(path, libc::O_NOFOLLOW)?)
+}
+
+/// The whole of a file opened by `open_file`, up to `MAX_DECODE` bytes.
+fn read_opened((file, meta): (std::fs::File, std::fs::Metadata)) -> std::io::Result<Vec<u8>> {
     use std::io::Read;
     let too_large =
         || std::io::Error::other(format!("file too large ({})", human_size(MAX_DECODE)));
-    let (file, meta) = open_file(path.as_ref())?;
     // The size is looked at first, so a large file is not read at all. `take` is for a file
     // that grows meanwhile.
     if meta.len() > MAX_DECODE {
@@ -756,11 +767,16 @@ pub fn read_limited(path: impl AsRef<Path>) -> std::io::Result<Vec<u8>> {
 /// (O_NONBLOCK, which a file does not heed), and what is open is looked at rather than the
 /// name, because a pipe put there between a look and an open would block that open.
 pub(crate) fn open_file(path: &Path) -> std::io::Result<(std::fs::File, std::fs::Metadata)> {
+    opened(path, 0)
+}
+
+/// `open_file` with the open's `flags` added.
+fn opened(path: &Path, flags: i32) -> std::io::Result<(std::fs::File, std::fs::Metadata)> {
     use std::os::unix::fs::OpenOptionsExt;
     const O_NONBLOCK: i32 = 0o4000;
     #[allow(clippy::disallowed_methods)] // the one opening of a file to read it whole
     let file = (std::fs::OpenOptions::new().read(true))
-        .custom_flags(O_NONBLOCK)
+        .custom_flags(O_NONBLOCK | flags)
         .open(path)?;
     let meta = file.metadata()?;
     if !meta.is_file() {

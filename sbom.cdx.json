@@ -8291,6 +8291,7 @@
     "pkg:cargo/image@0.25.10",
     "pkg:cargo/jpeg-decoder@0.3.2",
     "pkg:cargo/jxl-oxide@0.12.6",
+    "pkg:cargo/libc@0.2.190",
     "pkg:cargo/moxcms@0.8.1",
     "pkg:cargo/png@0.18.1",
     "pkg:cargo/regex@1.13.1",
