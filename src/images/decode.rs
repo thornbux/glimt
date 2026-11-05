@@ -923,6 +923,38 @@ pub(crate) fn open(path: impl AsRef<Path>) -> std::io::Result<std::fs::File> {
     open_file(path.as_ref()).map(|(file, _)| file)
 }
 
+/// Returns an image's width and height as stored, read from its header where it can be: a
+/// JPEG's from its first part, a camera RAW's from the preview it is shown by (its own header
+/// gives the size of a small thumbnail), others from the decoder's header. An EXIF orientation
+/// is not applied, so a photo turned upright reports the size the camera wrote. Returns `None`
+/// for a file whose size cannot be read without decoding it (HEIC, AVIF, SVG, video).
+pub fn dimensions(path: &Path) -> Option<(u32, u32)> {
+    if crate::model::listing::is_jpeg(path)
+        && let Some(size) = jpeg_head_size(path)
+    {
+        return Some(size);
+    }
+    if has_ext(path, raw::EXTS) {
+        // The head first, as for a thumbnail. Find Duplicates over a folder of 50 MB RAWs then
+        // reads the whole of one only when its first part has no preview.
+        if let Some(p) = raw::preview(&read_head(path, 8 << 20).ok()?) {
+            return raw::jpeg_size(p);
+        }
+        let data = read_limited(path).ok()?;
+        return raw::jpeg_size(raw::preview(&data)?);
+    }
+    image_reader(path).ok()?.into_dimensions().ok()
+}
+
+/// Returns a JPEG's width and height from its first 256 KB, where its frame header is, because
+/// the decoder would read the whole file. Returns `None` if it is not there, so the decoder is
+/// asked after all.
+fn jpeg_head_size(path: &Path) -> Option<(u32, u32)> {
+    let head = read_head(path, 1 << 18).ok()?;
+    head.starts_with(&[0xff, 0xd8])
+        .then(|| raw::jpeg_size(&head))?
+}
+
 /// An image crate reader on `path`, opened with `open` (no pipe or device). Its format is
 /// guessed from the file's first bytes, and from the extension when they say nothing, as
 /// `image::ImageReader::open` and `with_guessed_format` do. Clippy refuses `open`, because the
@@ -1745,6 +1777,36 @@ mod tests {
         f.set_len(10).unwrap();
         assert_eq!(super::read_limited(&file).unwrap().len(), 10);
         std::fs::remove_file(file).unwrap();
+    }
+
+    /// A JPEG's size comes from its frame header, width first. A camera RAW's size is its
+    /// preview's, not that of the small thumbnail its TIFF header describes, else a folder of
+    /// NEFs would be one group of the same dimensions in Find Duplicates. It is read from the
+    /// head of the file, so one of 8 GB, too large to read whole, still has a size.
+    #[test]
+    fn reads_dimensions_from_headers() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-dims-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let jpeg = dir.join("e.jpg");
+        image::RgbImage::new(40, 20).save(&jpeg).unwrap();
+        assert_eq!(super::dimensions(&jpeg), Some((40, 20)));
+        let encoded = |w, h, format| {
+            let mut bytes = Vec::new();
+            (image::RgbImage::new(w, h))
+                .write_to(&mut std::io::Cursor::new(&mut bytes), format)
+                .unwrap();
+            bytes
+        };
+        let mut nef = encoded(16, 12, image::ImageFormat::Tiff);
+        nef.extend(encoded(64, 48, image::ImageFormat::Jpeg));
+        let raw = dir.join("f.nef");
+        std::fs::write(&raw, nef).unwrap();
+        assert_eq!(super::dimensions(&raw), Some((64, 48)));
+        #[allow(clippy::disallowed_methods)] // a test's own file, made sparse
+        let file = std::fs::File::options().write(true).open(&raw).unwrap();
+        file.set_len(8 << 30).unwrap();
+        assert_eq!(super::dimensions(&raw), Some((64, 48)));
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]

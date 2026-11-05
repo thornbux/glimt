@@ -75,6 +75,9 @@ and versions follow [Semantic Versioning](https://semver.org/).
   where it showed an empty notice.
 - A damaged video or HEIC shows ffmpeg's last error line, not up to 64 KB of its errors over the
   image and in Check Images.
+- Find Duplicates by dimensions groups camera RAW files by the size of the photo, not of the small
+  thumbnail in their header, which put a whole folder of NEFs in one group, and it reads only the
+  first part of a RAW where it can; %dimensions% in a print caption shows the photo's size too.
 
 ## [0.57.0] - 2026-11-05
 

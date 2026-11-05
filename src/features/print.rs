@@ -607,12 +607,7 @@ pub fn caption(
         "path" => path.display().to_string(),
         "position" => format!("{}/{n}", k + 1),
         "dimensions" => (size.map(|[w, h]| (w as u32, h as u32)))
-            .or_else(|| {
-                crate::images::decode::image_reader(path)
-                    .ok()?
-                    .into_dimensions()
-                    .ok()
-            })
+            .or_else(|| crate::images::decode::dimensions(path))
             .map(|(w, h)| format!("{w} × {h}"))
             .unwrap_or_default(),
         "File size" => std::fs::metadata(path)

@@ -352,17 +352,7 @@ pub fn find(
                 .collect()
         }
         By::Dimensions => {
-            let dims = parallel(&paths, p, |path| {
-                if crate::model::listing::is_jpeg(path)
-                    && let Some(size) = jpeg_size(path)
-                {
-                    return Some(size);
-                }
-                crate::images::decode::image_reader(path)
-                    .ok()?
-                    .into_dimensions()
-                    .ok()
-            });
+            let dims = parallel(&paths, p, crate::images::decode::dimensions);
             groups(paths, dims)
         }
         By::Similar(percent) => {
@@ -381,14 +371,6 @@ pub fn find(
     }
     groups.sort_by(|a, b| b.len().cmp(&a.len()).then_with(|| a.cmp(b)));
     groups
-}
-
-/// A JPEG's width and height from its first 256 KB, where its frame header is: the decoder
-/// would read the whole file. `None` if it is not there, so the decoder is asked after all.
-fn jpeg_size(path: &Path) -> Option<(u32, u32)> {
-    let head = crate::images::decode::read_head(path, 1 << 18).ok()?;
-    head.starts_with(&[0xff, 0xd8])
-        .then(|| crate::images::raw::jpeg_size(&head))?
 }
 
 fn size(path: &Path) -> Option<u64> {
@@ -948,10 +930,6 @@ mod tests {
         std::os::unix::fs::symlink(&dir, &folder).unwrap();
         let twice = vec![a.clone(), folder.join("a.png"), d.clone()];
         assert!(find(twice, By::Checksum, false, false, &p).is_empty());
-        // A JPEG's size from its frame header: width first.
-        let jpeg = dir.join("e.jpg");
-        image::RgbImage::new(40, 20).save(&jpeg).unwrap();
-        assert_eq!(jpeg_size(&jpeg), Some((40, 20)));
         std::fs::remove_dir_all(&dir).unwrap();
     }
 }
