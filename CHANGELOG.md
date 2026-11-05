@@ -90,6 +90,7 @@ and versions follow [Semantic Versioning](https://semver.org/).
 - In a build without video, Enter no longer runs Play Video, which did nothing there.
 - A kiosk whose quit is held back no longer lets every other action through.
 - The info panel names a JPEG XL's own colour profile instead of saying it is taken as sRGB.
+- Open With in the Flatpak no longer hangs on a pipe named in a collection or on the command line.
 
 ## [0.57.0] - 2026-11-05
 

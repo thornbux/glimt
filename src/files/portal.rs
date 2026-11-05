@@ -173,9 +173,9 @@ pub fn inhibit_idle(reason: &str) -> Result<std::sync::mpsc::Sender<()>, String>
 /// Waits for the choice: false when the user cancelled.
 pub fn open_with(path: &std::path::Path) -> Result<bool, String> {
     let conn = Connection::session().map_err(|e| e.to_string())?;
-    // Only for its descriptor, which says which file: the portal opens it itself.
-    #[allow(clippy::disallowed_methods)]
-    let file = std::fs::File::open(path).map_err(|e| e.to_string())?;
+    // Only for its descriptor, which says which file: the portal opens it itself. It is
+    // opened as every file is, so a pipe named in a collection is refused rather than waited on.
+    let file = crate::images::decode::open(path).map_err(|e| e.to_string())?;
     let token = token();
     let options = HashMap::from([
         ("handle_token", Value::from(token.as_str())),
