@@ -13,6 +13,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
   of the number of matches. Its place is read in the chosen language.
 - A Preferences search for an action that is not built in no longer lists every keyboard
   shortcut.
+- Preferences → Keyboard shortcuts can give an action Ctrl+C or Ctrl+X, which before left the
+  row waiting for a key. A key given to Ctrl+X runs, and the keyboard's own Copy key runs Copy.
 
 ## [0.57.0] - 2026-11-05
 

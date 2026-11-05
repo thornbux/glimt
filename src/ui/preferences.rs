@@ -905,32 +905,7 @@ impl crate::App {
     /// key press) or reset to Geeqie's.
     pub(crate) fn key_settings(&mut self, ui: &mut egui::Ui, query: &str) {
         if let Some(action) = self.prefs.capturing {
-            let pressed = ui.input(|i| {
-                use egui::Key as K;
-                i.events.iter().find_map(|e| match e {
-                    // A modifier on its own is not the key; wait for the one pressed with it.
-                    egui::Event::Key {
-                        key,
-                        pressed: true,
-                        modifiers,
-                        ..
-                    } if !matches!(
-                        key,
-                        K::ShiftLeft
-                            | K::ShiftRight
-                            | K::ControlLeft
-                            | K::ControlRight
-                            | K::AltLeft
-                            | K::AltRight
-                            | K::SuperLeft
-                            | K::SuperRight
-                    ) =>
-                    {
-                        Some((*key, *modifiers))
-                    }
-                    _ => None,
-                })
-            });
+            let pressed = ui.input(pressed_key);
             if let Some((key, mods)) = pressed {
                 self.prefs.capturing = None;
                 if key != egui::Key::Escape {
@@ -1057,6 +1032,37 @@ impl crate::App {
         });
         changed
     }
+}
+
+/// Returns the key pressed this frame with its modifiers, for a key being chosen, or `None`
+/// while none is. A modifier on its own is not the key, so the one pressed with it is waited
+/// for. Ctrl+C and Ctrl+X count as keys too, though egui-winit sends them as Copy and Cut
+/// events. Those events mean Ctrl+C and Ctrl+X even from the Copy and Cut keys, with no
+/// modifier held, as `App::shortcut` reads them.
+fn pressed_key(i: &egui::InputState) -> Option<(egui::Key, egui::Modifiers)> {
+    use egui::Key as K;
+    i.events.iter().find_map(|e| match e {
+        egui::Event::Key {
+            key,
+            pressed: true,
+            modifiers,
+            ..
+        } if !matches!(
+            key,
+            K::ShiftLeft
+                | K::ShiftRight
+                | K::ControlLeft
+                | K::ControlRight
+                | K::AltLeft
+                | K::AltRight
+                | K::SuperLeft
+                | K::SuperRight
+        ) =>
+        {
+            Some((*key, *modifiers))
+        }
+        e => actions::clipboard_key(e).map(|key| (key, actions::CTRL)),
+    })
 }
 
 /// A section of Preferences: its icon in the accent colour and its title, over a line.
@@ -1294,6 +1300,25 @@ mod tests {
         for s in SHORTCUTS.iter().filter(|s| !listed.contains(&s.0)) {
             let query = s.0.english().to_lowercase();
             assert!(!super::sections_shown(&query)[1], "{query}");
+        }
+    }
+
+    /// Ctrl+C and Ctrl+X can be chosen as keys, though egui-winit sends them as Copy and Cut
+    /// events instead of key presses. The Copy and Cut keys send the same events with no
+    /// modifier held, and they are chosen as Ctrl+C and Ctrl+X, as `App::shortcut` reads them.
+    #[test]
+    fn ctrl_c_and_ctrl_x_can_be_chosen() {
+        for (held, event, key) in [
+            (actions::CTRL, egui::Event::Copy, egui::Key::C),
+            (actions::CTRL, egui::Event::Cut, egui::Key::X),
+            (egui::Modifiers::NONE, egui::Event::Copy, egui::Key::C),
+        ] {
+            let ctx = egui::Context::default();
+            ctx.begin_pass(egui::RawInput {
+                events: vec![egui::Event::ModifiersChanged(held), event],
+                ..Default::default()
+            });
+            assert_eq!(ctx.input(super::pressed_key), Some((key, actions::CTRL)));
         }
     }
 }
