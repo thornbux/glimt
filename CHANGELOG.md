@@ -85,6 +85,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
   action's key.
 - The notice after a keyword is set on or taken off several files is one sentence each language can
   word in its own order, and the EXIF window's title is translated.
+- Alt+Right in Two Above Each Other (and Alt+Down in Two Side by Side) no longer goes to the other
+  pane as the other arrow does.
 
 ## [0.57.0] - 2026-11-05
 
