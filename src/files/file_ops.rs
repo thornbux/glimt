@@ -675,6 +675,7 @@ impl crate::App {
             // The moves are handled before their sources are taken for deleted files, so the
             // marks go along first.
             self.paths_moved(moved, copied);
+            self.written_anew(&changed);
             self.files_changed(ctx, &changed);
             self.files_changed(ctx, &overwritten);
             self.forget_names(&gone);
@@ -1069,13 +1070,6 @@ impl crate::App {
         if paths.is_empty() {
             return;
         }
-        // A file written anew by Glimt has a new id, but it is still the file Undo moves back.
-        if let Some(Undo::Move(pairs)) = &mut self.work.undo {
-            let written: HashSet<&PathBuf> = paths.iter().collect();
-            (pairs.iter_mut())
-                .filter(|(_, to, _)| written.contains(to))
-                .for_each(|(_, _, id)| *id = None);
-        }
         for path in paths {
             if self.is_file(self.list.cur(), path) {
                 self.viewing.drop_turn();
@@ -1087,6 +1081,18 @@ impl crate::App {
         // Their size changed, so the status bar and the list read it again.
         self.status.forget_size();
         self.refill();
+    }
+
+    /// Keeps `paths` as the files an Undo of a move moves back, although Glimt wrote them anew
+    /// in place (a turn saved, a plugin's change) and so gave them new ids. A file written over
+    /// by another image (Save As, Save This Frame) is not one of them, so it does not come here.
+    pub(crate) fn written_anew(&mut self, paths: &[PathBuf]) {
+        if let Some(Undo::Move(pairs)) = &mut self.work.undo {
+            let written: HashSet<&PathBuf> = paths.iter().collect();
+            (pairs.iter_mut())
+                .filter(|(_, to, _)| written.contains(to))
+                .for_each(|(_, _, id)| *id = None);
+        }
     }
 
     /// Forgets what Glimt keeps of `paths` by their names: their decoded images, thumbnails, size
@@ -2383,9 +2389,43 @@ mod tests {
         let saved = dir.join("sub/b.png");
         std::fs::copy(&saved, dir.join("sub/new")).unwrap();
         std::fs::rename(dir.join("sub/new"), &saved).unwrap();
-        app.files_changed(&ctx, std::slice::from_ref(&saved));
+        app.written_anew(std::slice::from_ref(&saved));
         app.undo(&ctx);
         assert!(settle(&mut app, &ctx, |app| !app.working() && b.exists()));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// Undo of a move leaves alone the moved file once Save As wrote another image over it,
+    /// because that image is not the file that was moved.
+    #[test]
+    fn undo_of_a_move_leaves_another_image_saved_over_it() {
+        let dir =
+            std::env::temp_dir().join(format!("glimt-test-undo-saved-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join("sub")).unwrap();
+        let a = dir.join("a.png");
+        image::RgbImage::new(2, 2).save(&a).unwrap();
+        let (mut app, ctx) = app_on(&dir);
+        app.transfer(&ctx, vec![a.clone()], dir.join("sub"), false);
+        assert!(settle(&mut app, &ctx, |app| app.work.undo.is_some()
+            && !app.working()));
+        // Save As writes another image beside sub/a.png and renames it over, then tells so.
+        let moved = dir.join("sub/a.png");
+        image::RgbImage::new(3, 3)
+            .save(dir.join("sub/new.png"))
+            .unwrap();
+        std::fs::rename(dir.join("sub/new.png"), &moved).unwrap();
+        let over = super::Deleted {
+            overwritten: vec![moved.clone()],
+            ..Default::default()
+        };
+        app.work.deleted_tx.send(over).unwrap();
+        app.receive_deleted(&ctx);
+        app.undo(&ctx);
+        let refused =
+            |app: &crate::App| (app.notice.as_deref()).is_some_and(|n| n.contains("Undo failed"));
+        assert!(settle(&mut app, &ctx, |app| !app.working() && refused(app)));
+        assert!(!a.exists(), "the other image was moved back as a.png");
+        assert!(moved.exists());
         std::fs::remove_dir_all(dir).unwrap();
     }
 
