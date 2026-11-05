@@ -5,6 +5,12 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- Find Duplicates by dimensions groups camera RAW files by the size of the photo, not of the small
+  thumbnail in their header, which put a whole folder of NEFs in one group, and it reads only the
+  first part of a RAW where it can; %dimensions% in a print caption shows the photo's size too.
+
 ## [0.57.0] - 2026-11-05
 
 ### Fixed
