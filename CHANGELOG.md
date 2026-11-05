@@ -52,6 +52,17 @@ and versions follow [Semantic Versioning](https://semver.org/).
 - Finishing a Rename Many of many files cut short by a crash no longer takes minutes.
 - clippy's message for Command::new names host_command for the user's own programs, which
   external::command cannot reach in a Flatpak.
+- The release tests fail when NEW does not show a text they click (a renamed label or a build
+  without the test hooks), instead of carrying on with a note, and NEW is never built without the
+  test hooks.
+- Three release checks (a collection moved to the trash, a copy closed twice, a long error) passed
+  when their action never ran; each now needs to see the action happen.
+- run.sh and the screenshots' run.sh take tests.sh, samples.txt and shots.sh from the commit they
+  test, not from the working tree.
+- The release tests' kiosk, --lock-settings, Crop and printing checks that expect nothing to happen
+  each show in their own section that the keys reach the window.
+- The release tests' summary counted no failure of cargo audit, so an audit failing alone ended in
+  "0 checks failed".
 
 ## [0.57.0] - 2026-11-05
 

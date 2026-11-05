@@ -11,7 +11,8 @@ work=${XDG_CACHE_HOME:-$HOME/.cache}/glimt-screenshots
 rm -rf "$work"
 mkdir -p "$work/new" "$work/out"
 git archive "$new" | tar -xm -C "$work/new"
-cp tools/release-tests/tests.sh tools/screenshots/shots.sh "$work/"
+# The tests of NEW as committed, not the working tree's, so a run checks that commit only.
+cp "$work/new/tools/release-tests/tests.sh" "$work/new/tools/screenshots/shots.sh" "$work/"
 docker run --rm --shm-size=1g -e SHOTS=1 -v "$work:/t" \
     -v glimt-target:/work-target -v glimt-cargo:/usr/local/cargo/registry \
     rust:1 bash /t/tests.sh

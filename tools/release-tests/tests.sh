@@ -40,10 +40,12 @@ if [ "$(id -u)" = 0 ]; then
             continue
         fi
         echo "-- building $v"
-        # With the click hook of the tests; the last release may be from before it had one.
+        # With the click hook of the tests. Only the last release may be from before it had one:
+        # NEW without it would turn every click by text into a failure, so its errors are shown.
         (cd /t/$v && export CARGO_TARGET_DIR=/work-target/release-tests-$v \
-            && { cargo build -q --release --locked --features full,test-hooks 2>/dev/null \
-                 || cargo build -q --release --locked --features full; }) || exit 1
+            && if [ $v = new ]; then cargo build -q --release --locked --features full,test-hooks
+               else cargo build -q --release --locked --features full,test-hooks 2>/dev/null \
+                   || cargo build -q --release --locked --features full; fi) || exit 1
         cp /work-target/release-tests-$v/release/glimt /opt/glimt-$v
         if [ $v = old ] && [ -n "$OLD_COMMIT" ]; then
             # Only the latest: a release a run is past is not needed again.
@@ -147,21 +149,23 @@ start() {
 key() { xdotool windowfocus $WIN 2>/dev/null; xdotool key "$@" 2>/dev/null; sleep 0.6; }
 # A click on each text in turn (a menu, then its item), by the text, not by a place that every
 # change to the look would move: the test-hooks build's `--remote where` says where the text
-# was drawn, and xdotool clicks there. The last release may lack the hook: a note then.
+# was drawn, and xdotool clicks there. A text NEW does not show fails, as every check after it
+# would test nothing. The last release may lack the text or the hook, so for it this is a note.
 menu() {
-    for label in "$@"; do
-        at=$(remote where "$label" 2>/dev/null | tr -d '\0')
-        case $at in
-            [0-9]*) xdotool mousemove ${at% *} ${at#* } click 1 2>/dev/null ;;
-            *) note "$V: $label is not on the screen (or no hook)" ;;
-        esac
-        sleep 0.5
-    done
+    for label in "$@"; do click_text 1 "$label"; sleep 0.5; done
 }
 # A right click on the text, as menu() clicks.
-rclick() {
-    at=$(remote where "$1" 2>/dev/null | tr -d '\0')
-    case $at in [0-9]*) xdotool mousemove ${at% *} ${at#* } click 3 2>/dev/null ;; *) note "$V: $1 is not on the screen" ;; esac
+rclick() { click_text 3 "$1"; }
+# where LABEL: where the text was drawn, as x y, or nothing when it is not on the screen.
+where() { remote where "$1" 2>/dev/null | tr -d '\0'; }
+# click_text BUTTON LABEL: the click of menu() and rclick().
+click_text() {
+    local at
+    at=$(where "$2")
+    case $at in
+        [0-9]*) xdotool mousemove ${at% *} ${at#* } click $1 2>/dev/null ;;
+        *) if [ "$V" = new ]; then fail "new: $2 is not on the screen"; else note "old: $2 is not on the screen (or no hook)"; fi ;;
+    esac
 }
 click() { xdotool mousemove $1 $2 click 1 2>/dev/null; sleep ${3:-1}; }
 # Closing waits for what is being written (a turned image, the settings): so does this, up to
@@ -231,6 +235,11 @@ keys_arrive() {
 # Glimt's processor time over three seconds, in ticks of 1/100 s: near 0 when it waits.
 cpu() { awk '{print $14 + $15}' /proc/$GPID/stat; }
 busy() { local a=$(cpu); sleep 3; echo $(($(cpu) - a)); }
+# A part of the shown image chosen for Crop (Shift+C): a drag from 800,200 to 1200,600.
+crop_part() {
+    xdotool mousemove 800 200 mousedown 1; sleep 0.3; xdotool mousemove 1000 400; sleep 0.3
+    xdotool mousemove 1200 600; sleep 0.3; xdotool mouseup 1; sleep 0.5
+}
 
 cd /tmp
 
@@ -890,7 +899,7 @@ for v in new old; do
     rm -rf $d    # 6 GB
     if [ $v = new ]; then
         expect "no hidden half copy, every copy whole" "$parts $([ $copied = $whole ] && echo whole)" "0 whole"
-        expect "stopped before all 240" "$([ $copied -lt 240 ] && echo yes)" yes
+        expect "copied some, stopped before all 240" "$([ $copied -ge 1 ] && [ $copied -lt 240 ] && echo yes)" yes
     else note "old: $parts hidden, $copied copied, $whole whole"; fi
 done
 as_version new
@@ -1587,9 +1596,12 @@ for v in new old; do
     sleep 3
     shot long-error-$v
     quit
-    # The image area starts at x=240: no text in its first 10 pixels.
+    # The image area starts at x=240. Its first 10 pixels have no text, while the place where
+    # the error's lines start has some, so the error was drawn.
     edge=$(convert /t/out/long-error-$v.png -crop 10x400+241+200 -format "%[fx:int(255*maxima.r)]" info:)
-    if [ $v = new ]; then expect "nothing at the image area's edge" "$([ $edge -lt 40 ] && echo none)" none
+    lines=$(convert /t/out/long-error-$v.png -crop 100x100+270+370 -format "%[fx:int(255*maxima.r)]" info:)
+    if [ $v = new ]; then expect "the error drawn where its lines start" "$([ $lines -ge 100 ] && echo text)" text
+        expect "nothing at the image area's edge" "$([ $edge -lt 40 ] && echo none)" none
     else note "old, at the edge: $edge"; fi
 done
 as_version new
@@ -2077,15 +2089,19 @@ for v in new old; do
     as_version $v
     d=/tmp/kiosk-keys-$v
     mkdir -p $d
-    for f in a b; do convert -size 64x64 xc:red $d/$f.png; done
+    for f in a b c; do convert -size 64x64 xc:red $d/$f.png; done
     config delay=5
     start --kiosk $d
     sleep 2
+    # The control: End, which a kiosk allows, reaches it. A settings file the keys never
+    # reached would also be as it was.
+    key End; arrived=$(remote current 2>/dev/null | tr -d '\0')
     key ctrl+equal; key r; key i; sleep 1    # faster, random order, overlay
     timeout 30 $BIN --remote-all quit >/dev/null 2>&1; sleep 1
     quit
     got=$(grep -c 'delay=5$' $XDG_CONFIG_HOME/glimt/config)
-    if [ $v = new ]; then expect "the delay as it was" "$got" 1
+    if [ $v = new ]; then expect "a key reaches the kiosk (the control)" "$arrived" $d/c.png
+        expect "the delay as it was" "$got" 1
     else note "old: $(grep -E '^(delay|random|overlay)=' $XDG_CONFIG_HOME/glimt/config | tr '\n' ' ')"; fi
 done
 as_version new
@@ -2445,18 +2461,22 @@ for v in new old; do
     as_version $v
     d=/tmp/lock-new-window-$v
     mkdir -p $d
-    for f in a b; do convert -size 64x64 xc:red $d/$f.png; done
+    for f in a b c; do convert -size 64x64 xc:red $d/$f.png; done
     config delay=5
     start --lock-settings $d
     sleep 2
     key ctrl+n; sleep 3                   # a new window: Faster pressed there
     other=$(xdotool search --name Glimt 2>/dev/null | grep -vx "$WIN" | tail -1)
     [ $v = new ] && expect "a second window opened" "$([ -n "$other" ] && echo yes)" yes
+    # The control: End reaches the new window, whose title then names c.png, not the first one.
+    xdotool windowfocus $other key End 2>/dev/null; sleep 1
+    arrived="$(xdotool getwindowname $WIN 2>/dev/null) | $(xdotool getwindowname $other 2>/dev/null)"
     xdotool windowfocus $other key ctrl+equal 2>/dev/null; sleep 1
     timeout 30 $BIN --remote-all quit >/dev/null 2>&1; sleep 1
     quit
     got=$(grep -c 'delay=5$' $XDG_CONFIG_HOME/glimt/config)
-    if [ $v = new ]; then expect "the delay as it was" "$got" 1
+    if [ $v = new ]; then expect "a key reaches the second window (the control)" "$arrived" "a.png - Glimt | c.png - Glimt"
+        expect "the delay as it was" "$got" 1
     else note "old: $(grep '^delay=' $XDG_CONFIG_HOME/glimt/config)"; fi
 done
 as_version new
@@ -2763,12 +2783,16 @@ for v in new old; do
     config
     start $d/show.m3u
     sleep 2
-    # File → Move Collection to Trash where 0.30.0 has it; without it, Find Duplicates is there.
-    click 20 11
-    click 93 564 2
+    # Neither is in the File menu for a plain list. Open File is there, so the menu is open.
+    menu File
+    opened=$(where "Open File…" | grep -c .)
+    absent="$(where "Move Collection to Trash")$(where "Rename Collection…")"
+    key Escape
     quit
     got="$(cat $d/show.m3u 2>/dev/null | tr '\n' ' ')"
-    if [ $v = new ]; then expect "the list as it was" "$got" "#EXTM3U a.jpg "
+    if [ $v = new ]; then expect "the File menu open" "$opened" 1
+        expect "neither item in the menu" "$absent" ""
+        expect "the list as it was" "$got" "#EXTM3U a.jpg "
     else note "old: '$got'"; fi
 done
 as_version new
@@ -2864,7 +2888,7 @@ menu File "Move Collection to Trash"; sleep 2
 shot collection-trashed
 quit
 expect "renamed in its folder" "$renamed" "New.gqv "
-expect "the collection in the trash" "$(ls $c; ls $H/.local/share/Trash/files)" "New.gqv"
+expect "the collection in the trash" "$(ls $c | wc -l) $(ls $H/.local/share/Trash/files)" "0 New.gqv"
 expect "its image stays" "$(ls $d)" "a.jpg"
 echo "-- Ctrl+Z: a file back from the trash, a renamed one back to its old name"
 for v in new old; do
@@ -3009,13 +3033,12 @@ for v in new old; do
     start $d
     sleep 2
     # The right half, inside the image (the view fills 1040 wide around x 760).
-    drag() { xdotool mousemove $1 $2 mousedown 1; sleep 0.3; xdotool mousemove $3 $4; sleep 0.3; xdotool mousemove $5 $6; sleep 0.3; xdotool mouseup 1; sleep 0.5; }
     key shift+c; sleep 0.5
-    drag 800 200 1000 400 1200 600
+    crop_part
     key Escape
     [ $v = new ] && after_esc=$(ls $d | tr '\n' ' ')
     key shift+c; sleep 0.5
-    drag 800 200 1000 400 1200 600
+    crop_part
     key Return
     until_file $d/a-cropped.png 5
     [ $v = new ] && { files=$(ls $d | tr '\n' ' '); same=$([ "$(md5sum <$d/a.png)" = "$sum" ] && echo yes); }
@@ -3044,16 +3067,18 @@ for v in new old; do
     start $d/a.png
     sleep 2
     key shift+c; sleep 0.5
-    xdotool mousemove 800 200 mousedown 1; sleep 0.3; xdotool mousemove 1000 400; sleep 0.3
-    xdotool mousemove 1200 600; sleep 0.3; xdotool mouseup 1; sleep 0.5
+    crop_part
     shot crop-gone-chosen-$v
     # Another program deletes a.png; the folder is read again, b.png is shown in its place.
     rm $d/a.png
     until_current $d/b.png
     key Return; sleep 2
     files=$(ls $d | tr '\n' ' ')
+    # The control: a crop of b.png chosen now is saved by Enter.
+    key shift+c; sleep 0.5; crop_part; key Return; until_file $d/b-cropped.png 5
     quit
     if [ $v = new ]; then expect "nothing saved for b.png" "$files" "b.png "
+        expect "a crop chosen on b.png saved (the control)" "$(ls $d | grep -c cropped)" 1
     else note "old: $files"; fi
 done
 as_version new
@@ -3068,13 +3093,15 @@ for v in new old; do
     start $d/a.png
     sleep 2
     key shift+c; sleep 0.5
-    xdotool mousemove 800 200 mousedown 1; sleep 0.3; xdotool mousemove 1000 400; sleep 0.3
-    xdotool mousemove 1200 600; sleep 0.3; xdotool mouseup 1; sleep 0.5
+    crop_part
     key alt+x; sleep 1
     key Return; sleep 2
     files=$(ls $d | tr '\n' ' ')
+    # The control: a crop chosen after the change is saved by Enter.
+    key shift+c; sleep 0.5; crop_part; key Return; until_file $d/a-cropped.png 5
     quit
     if [ $v = new ]; then expect "nothing saved after Auto Rotate changed" "$files" "a.png "
+        expect "a crop chosen after it saved (the control)" "$(ls $d | grep -c cropped)" 1
     else note "old: $files"; fi
 done
 as_version new
@@ -3195,14 +3222,19 @@ for v in new old; do
     as_version $v
     rm -rf $d && mkdir -p $d
     echo "not a picture" >$d/a.jpg
+    convert -size 64x64 xc:red $d/b.jpg
     echo "keep" >$d/out.pdf
     config
     start $d/a.jpg
     sleep 2
     answer $d/out.pdf; key ctrl+p; sleep 1; key Return; sleep 4
+    # The control: b.jpg, which can be read, is printed by the same keys.
+    key Right; answer $d/b.pdf; key ctrl+p; sleep 1; key Return
+    until_ok "pdfinfo $d/b.pdf" 30
     quit
     got=$(cat $d/out.pdf | head -c 4)
     if [ $v = new ]; then expect "out.pdf untouched" "$got" "keep"
+        expect "b.jpg printed (the control)" "$(pdfinfo $d/b.pdf 2>/dev/null | awk '/^Pages:/ {print $2}')" 1
     else note "old: $got"; fi
 done
 as_version new
