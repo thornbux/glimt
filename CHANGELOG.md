@@ -5,6 +5,11 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- CI, the release workflow and the release tests no longer install graphics development packages,
+  which the build does not need.
+
 ## [0.57.0] - 2026-11-05
 
 ### Fixed

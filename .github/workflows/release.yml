@@ -57,8 +57,6 @@ jobs:
             { echo "::error::$TAG is not on main"; exit 1; }
           echo "TAG=$TAG" >> "$GITHUB_ENV"
           echo "VERSION=$VERSION" >> "$GITHUB_ENV"
-      - name: System libraries for the window (Wayland, X11, OpenGL)
-        run: sudo apt-get update && sudo apt-get install -y libxkbcommon-dev libwayland-dev libgl1-mesa-dev
       - uses: dtolnay/rust-toolchain@686976e191b89faba57d3206551f0f330d8cb249 # stable, 2026-10-09
         with:
           toolchain: stable
