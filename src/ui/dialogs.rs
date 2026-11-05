@@ -50,8 +50,9 @@ pub(crate) enum Pick {
 /// What the one-line text dialog is asking for.
 #[derive(Clone, Copy)]
 pub(crate) enum Prompt {
+    /// A new folder in the folder in `Dialogs::folder_target`.
     NewFolder,
-    /// Rename the folder in `App::folder_target`.
+    /// Rename the folder in `Dialogs::folder_target`.
     RenameFolder,
     /// Rename the shown image.
     Rename,
@@ -59,7 +60,7 @@ pub(crate) enum Prompt {
     RenameMany,
     /// A new collection with the selected files.
     NewCollection,
-    /// A new name for the open collection.
+    /// A new name for the collection file in `Dialogs::folder_target`.
     RenameCollection,
     /// Save the look shown as a theme file of this name.
     SaveTheme,
@@ -75,7 +76,10 @@ pub(crate) struct Dialogs {
     prompt: Option<(Prompt, String)>,
     /// The delete confirmation is open: `Some(true)` = move to trash, `Some(false)` = permanently.
     confirm_delete: Option<bool>,
-    /// The folder a folder's context menu acts on: to rename, or, with `confirm_folder`, to trash.
+    /// What a folder or collection dialog acts on, kept from when it asked: the folder to rename
+    /// or, with `confirm_folder`, to trash, the folder New Folder makes its folder in, or the
+    /// collection file to rename. A script that opens another folder or collection while the
+    /// dialog is open does not change it.
     folder_target: Option<PathBuf>,
     confirm_folder: bool,
     /// Answer from an open file dialog (zenity or kdialog).
@@ -117,6 +121,19 @@ impl Dialogs {
         let name = dir.file_name().unwrap_or_default().to_string_lossy();
         self.prompt = Some((Prompt::RenameFolder, name.into_owned()));
         self.folder_target = Some(dir.to_path_buf());
+    }
+
+    /// Asks for the name of a new folder in the folder `dir`.
+    pub(crate) fn ask_new_folder(&mut self, dir: &Path) {
+        self.prompt = Some((Prompt::NewFolder, String::new()));
+        self.folder_target = Some(dir.to_path_buf());
+    }
+
+    /// Asks for a new name for the collection `file`.
+    pub(crate) fn ask_rename_collection(&mut self, file: &Path) {
+        let name = file.file_stem().unwrap_or_default().to_string_lossy();
+        self.prompt = Some((Prompt::RenameCollection, name.into_owned()));
+        self.folder_target = Some(file.to_path_buf());
     }
 
     /// Asks whether to move the folder `dir` to the trash.
@@ -390,6 +407,22 @@ impl crate::App {
         }
     }
 
+    /// Renames the collection Rename Collection asked about to `text`.
+    fn rename_collection(&mut self, ctx: &egui::Context, text: &str) {
+        let Some(old) = self.dialogs.take_folder() else {
+            return;
+        };
+        match collections::rename(&old, text) {
+            // The window follows only when it still shows the collection it asked about.
+            Ok(new) if self.folder.collection() == Some(old.as_path()) => {
+                self.folder.collection_renamed(new);
+                self.title(ctx);
+            }
+            Ok(_) => {}
+            Err(e) => self.notice = Some(e),
+        }
+    }
+
     /// The text dialog was answered with `text`.
     pub(crate) fn answer_prompt(&mut self, ctx: &egui::Context, prompt: Prompt, text: &str) {
         if let Prompt::WindowTitle = prompt {
@@ -402,17 +435,7 @@ impl crate::App {
             };
         }
         if let Prompt::RenameCollection = prompt {
-            let Some(old) = self.folder.collection().map(Path::to_path_buf) else {
-                return;
-            };
-            match collections::rename(&old, text) {
-                Ok(new) => {
-                    self.folder.collection_renamed(new);
-                    self.title(ctx);
-                }
-                Err(e) => self.notice = Some(e),
-            }
-            return;
+            return self.rename_collection(ctx, text);
         }
         if text.is_empty() || text.contains('/') || text == "." || text == ".." {
             self.notice = Some(tf!("Not a valid name: \"{text}\"", text));
@@ -473,6 +496,10 @@ impl crate::App {
             Prompt::Rename if !self.list.files().is_empty() => {
                 self.path(self.list.cur()).with_file_name(text)
             }
+            Prompt::NewFolder => match self.dialogs.take_folder() {
+                Some(dir) => dir.join(text),
+                None => return,
+            },
             _ => self.folder.dir().join(text),
         };
         match prompt {

@@ -839,9 +839,8 @@ impl crate::App {
                 self.notice = Some(tr("A plain list is not renamed or trashed by Glimt").into());
             }
             Action::RenameCollection => {
-                if let Some(name) = self.folder.collection().and_then(|f| f.file_stem()) {
-                    let name = name.to_string_lossy().into_owned();
-                    self.dialogs.ask(Prompt::RenameCollection, name);
+                if let Some(file) = self.folder.collection().map(|f| f.to_path_buf()) {
+                    self.dialogs.ask_rename_collection(&file);
                 }
             }
             Action::TrashCollection => self.trash_collection(ctx),
@@ -994,7 +993,10 @@ impl crate::App {
                 self.notice =
                     Some(tr("New Folder makes a folder in the folder shown: open one").into());
             }
-            Action::NewFolder => self.dialogs.ask(Prompt::NewFolder, String::new()),
+            Action::NewFolder => {
+                let dir = self.folder.dir().to_path_buf();
+                self.dialogs.ask_new_folder(&dir);
+            }
             Action::Print if !self.list.files().is_empty() => self.open_print(ctx),
             Action::SaveFrame if self.frame_count() > 1 => {
                 let k = self.shown_frame();
