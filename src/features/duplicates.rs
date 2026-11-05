@@ -293,8 +293,7 @@ impl crate::App {
         let checked = (0..self.list.files().len())
             .filter(|&i| dups.checked.contains(&self.path(i)))
             .collect();
-        self.list.select(checked);
-        self.selection_changed(ctx);
+        self.set_selection(ctx, checked);
         // With none selected the delete takes the shown image: only when the list still has
         // every checked file, else it would be another one, or too few.
         if self.list.selected().len() == dups.checked.len() {

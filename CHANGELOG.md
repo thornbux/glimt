@@ -7,6 +7,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
+- A whole selection is set through set_selection, which also tells what follows it: the title, the
+  range's end and the size in the status bar.
 - Whether Glimt runs in a Flatpak is asked one way, external::in_flatpak, also in a build without
   the portals, and the host's folders one way, config::host_xdg_dir.
 - An operation edits the open collection only through collections::edit_told, which keeps the plain-

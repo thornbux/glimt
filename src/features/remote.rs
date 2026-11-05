@@ -300,9 +300,8 @@ impl crate::App {
             .collect();
         if let Some(&first) = found.first() {
             self.go(ctx, first);
-            self.list.select(found);
             self.list.set_anchor(None);
-            self.selection_changed(ctx);
+            self.set_selection(ctx, found);
         }
         missing
     }

@@ -1012,8 +1012,7 @@ impl crate::App {
             .filter(|(_, f)| names.contains(*f))
             .map(|(i, _)| i)
             .collect();
-        self.list.select(places);
-        self.selection_changed(ctx);
+        self.set_selection(ctx, places);
     }
 
     /// Replaces the file list and goes to `shown` (otherwise the first image). Textures are

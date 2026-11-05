@@ -115,8 +115,7 @@ impl crate::App {
                 .filter(|(_, f)| self.broken_files.contains(*f))
                 .map(|(i, _)| i)
                 .collect();
-            self.list.select(broken);
-            self.selection_changed(ctx);
+            self.set_selection(ctx, broken);
         }
         if open {
             self.check = Some(check);

@@ -931,20 +931,17 @@ impl crate::App {
             }
             // Select All and Invert act on the files the list shows: the matches while searching.
             Action::SelectAll => {
-                self.list.select(self.shown_files().into_iter().collect());
-                self.selection_changed(ctx);
+                self.set_selection(ctx, self.shown_files().into_iter().collect());
             }
             Action::SelectNone => {
-                self.list.clear_selection();
-                self.selection_changed(ctx);
+                self.set_selection(ctx, Default::default());
             }
             Action::InvertSelection => {
                 let shown = self.shown_files().into_iter();
                 let inverted = shown
                     .filter(|i| !self.list.selected().contains(i))
                     .collect();
-                self.list.select(inverted);
-                self.selection_changed(ctx);
+                self.set_selection(ctx, inverted);
             }
             Action::CopyPath | Action::CopyPathUnquoted => self.copy_paths(ctx, action),
             // Decoded at full size in the background; egui hands it to the clipboard.
@@ -1112,9 +1109,8 @@ impl crate::App {
             let picked = (self.shown_files().into_iter())
                 .filter(|&i| names.contains(self.list.files()[i].as_os_str()))
                 .collect();
-            self.list.select(picked);
             self.list.set_anchor(None);
-            self.selection_changed(ctx);
+            self.set_selection(ctx, picked);
             return;
         }
         let paths: Vec<PathBuf> = self.targets().iter().map(|&i| self.path(i)).collect();

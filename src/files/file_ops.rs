@@ -940,8 +940,7 @@ impl crate::App {
         if let Err(e) = result {
             self.notice = Some(e);
         }
-        self.list.clear_selection();
-        self.selection_changed(ctx);
+        self.set_selection(ctx, Default::default());
         // The files are found by their old names, because the list may have changed while they
         // were renamed. When nothing was renamed, the names stay.
         // A rename that was itself an undo is not undone again, so Ctrl+Z twice does not give

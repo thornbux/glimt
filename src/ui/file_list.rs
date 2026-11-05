@@ -1549,10 +1549,8 @@ impl crate::App {
                 self.select_range(anchor, i);
                 self.selection_changed(ctx);
             } else {
-                self.list.clear_selection();
-                self.status.selected_size = None;
-                self.status.selected_rx = Receiving::none();
                 self.list.set_anchor(None);
+                self.set_selection(ctx, Default::default());
                 go_to = Some(i);
             }
         }
