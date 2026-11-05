@@ -807,6 +807,27 @@ impl crate::App {
 mod tests {
     use crate::support::test_support::app_on;
 
+    /// New Collection selects the files it asked about through set_selection, so what follows
+    /// a selection (a Shift range's end ends) happens too, not the selection alone.
+    #[test]
+    fn new_collection_selects_what_it_asked_about() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-new-col-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let (mut app, ctx) = app_on(&dir);
+        app.list
+            .set_files(["a.png", "b.png", "c.png"].map(Into::into).to_vec());
+        app.list.select([0, 1].into());
+        app.run(&ctx, crate::ui::actions::Action::NewCollection);
+        app.list.set_range_end(Some(2));
+        app.answer_prompt(&ctx, super::Prompt::NewCollection, "trip");
+        assert_eq!(
+            app.list.selected().iter().copied().collect::<Vec<_>>(),
+            [0, 1]
+        );
+        assert_eq!(app.list.range_end(), None);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
     /// The delete dialog names the files it asked about, also after the selection changed
     /// while it was open, and its answer acts on those files.
     #[test]
