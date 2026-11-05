@@ -49,6 +49,7 @@ and versions follow [Semantic Versioning](https://semver.org/).
   that were already done.
 - Printing a contact sheet of slow images (videos, HEIC, RAWs on a share) to a printer is no longer
   cut off as "No answer from the print server".
+- Finishing a Rename Many of many files cut short by a crash no longer takes minutes.
 
 ## [0.57.0] - 2026-11-05
 

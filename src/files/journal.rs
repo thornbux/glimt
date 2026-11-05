@@ -4,6 +4,7 @@
 //! window is still carrying out is left alone.
 
 use crate::images::save::same_file;
+use std::collections::HashMap;
 use std::ffi::OsStr;
 use std::fs::File;
 use std::io::{Read, Write};
@@ -210,15 +211,25 @@ fn steps<'a>(steps: impl Iterator<Item = (&'a Path, &'a Path)>) -> (usize, usize
 pub fn pairs(moves: &[(PathBuf, PathBuf)]) -> Vec<(PathBuf, PathBuf)> {
     // A file's own name is never the hidden name an earlier step gave another file. Its chain
     // runs forward through the later steps only, because a swap's steps lead round in a ring.
-    let starts =
-        (moves.iter().enumerate()).filter(|(k, (a, _))| !moves[..*k].iter().any(|(_, b)| b == a));
+    // Both are looked up in maps, so a swap of 100,000 files is followed in one pass.
+    let mut first_to: HashMap<&Path, usize> = HashMap::new();
+    let mut steps_from: HashMap<&Path, Vec<usize>> = HashMap::new();
+    for (k, (a, b)) in moves.iter().enumerate() {
+        first_to.entry(b).or_insert(k);
+        steps_from.entry(a).or_default().push(k);
+    }
+    let starts = (moves.iter().enumerate())
+        .filter(|(k, (a, _))| first_to.get(a.as_path()).is_none_or(|first| first >= k));
     starts
         .map(|(k, (a, b))| {
             let (mut at, mut end): (usize, &Path) = (k, b);
-            while let Some((n, (_, next))) =
-                (moves.iter().enumerate()).find(|(n, (from, _))| *n > at && from == end)
-            {
-                (at, end) = (n, next);
+            // The first step after `at` that takes the file on from `end`.
+            let next = |at: usize, end: &Path| {
+                let ks = steps_from.get(end)?;
+                ks.get(ks.partition_point(|&n| n <= at)).copied()
+            };
+            while let Some(n) = next(at, end) {
+                (at, end) = (n, &moves[n].1);
             }
             (a.clone(), end.to_path_buf())
         })
@@ -667,6 +678,20 @@ mod tests {
             vec![(p("a"), p("b")), (p("b"), p("a"))]
         );
         assert_eq!(super::pairs(&[(p("c"), p("d"))]), vec![(p("c"), p("d"))]);
+        // A swap of 40,000 files is followed in a moment, not in minutes.
+        let n = 20_000;
+        let mut moves = Vec::new();
+        for k in 0..n {
+            moves.push((p(&format!("a{k}")), p(&format!(".t{k}"))));
+            moves.push((p(&format!("b{k}")), p(&format!("a{k}"))));
+        }
+        moves.extend((0..n).map(|k| (p(&format!(".t{k}")), p(&format!("b{k}")))));
+        let start = std::time::Instant::now();
+        let pairs = super::pairs(&moves);
+        assert!(start.elapsed() < std::time::Duration::from_secs(5));
+        assert_eq!(pairs.len(), 2 * n);
+        assert_eq!(pairs[0], (p("a0"), p("b0")));
+        assert_eq!(pairs[1], (p("b0"), p("a0")));
     }
 
     /// The failing path and the recovery share one undo. Two steps of a swap are done and then
