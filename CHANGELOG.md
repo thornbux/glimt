@@ -7,6 +7,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- Deleting or moving other files no longer resets the shown image's zoom and turn, nor saves its
+  turn early with Save Orientation on.
 - Next on the last image, Previous on the first, a click on the shown image's own row or pane,
   a slideshow of one image, opening the file already shown and turning Random order on or off
   no longer reset the image's zoom, page and turn, or write the turn into the file at once.
