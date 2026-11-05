@@ -12,6 +12,7 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
+- A test checks that the man page has an entry for every start option and remote command.
 - A test checks that `full` holds every optional feature and that README's feature table lists each.
 - A test checks that the .deb, .rpm, tar.gz, AppImage and Flatpak install the same files.
 
