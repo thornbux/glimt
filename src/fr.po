@@ -2356,3 +2356,11 @@ msgstr "Impression annulée"
 
 msgid "Choose Application…"
 msgstr "Choisir une application…"
+
+#: src/ui/accessibility.rs
+msgid "{done} of {total}"
+msgstr "{done} sur {total}"
+
+#: src/ui/accessibility.rs
+msgid "not among the matches"
+msgstr "absent des résultats"
