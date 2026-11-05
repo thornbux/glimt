@@ -5,6 +5,12 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- After a plugin changes the shown photo (describing it, say), the info panel shows its new
+  keywords, comment and alt text, and the screen reader reads them, not only after another
+  photo and back. Before, an edit in the panel could save the old ones over the plugin's.
+
 ## [0.57.0] - 2026-11-05
 
 ### Fixed

@@ -144,11 +144,6 @@ impl Info {
         }
     }
 
-    /// The EXIF of the shown image is read again, as its file changed.
-    pub(crate) fn forget_exif(&mut self) {
-        self.exif = None;
-    }
-
     /// The EXIF panel's row `label` of `path`, when that is the file read.
     pub(crate) fn exif_row(&self, path: &Path, label: &str) -> Option<&str> {
         let (_, rows) = self.exif.as_ref().filter(|e| e.0 == path)?;
@@ -436,6 +431,16 @@ impl crate::App {
     /// in the thread that writes this window's sidecars, which closing waits for, not in the
     /// window's, as a sidecar on a slow share would hold the window up for its read, write and
     /// sync. The fields show what was saved at once; a failure is told.
+    /// Reads the shown image's EXIF, keywords, comment and alt text again, after something else
+    /// changed them, such as a plugin. An edit in the panel that is not saved yet is saved
+    /// first, so it is not lost.
+    pub(crate) fn read_info_again(&mut self, ctx: &egui::Context) {
+        self.save_meta(ctx);
+        self.info.meta = None;
+        self.info.exif = None;
+        self.info.exif_asked = None;
+    }
+
     pub(crate) fn save_meta(&mut self, ctx: &egui::Context) {
         let Some(edit) = &mut self.info.meta else {
             return;
@@ -507,9 +512,7 @@ impl crate::App {
     /// Add `keywords` to every selected file, in the background.
     pub(crate) fn add_keywords(&mut self, ctx: &egui::Context, keywords: Vec<String>) {
         // The shown image's own edit first; it is read again afterwards, with the added ones.
-        self.save_meta(ctx);
-        self.info.meta = None;
-        self.info.exif_asked = None;
+        self.read_info_again(ctx);
         let paths: Vec<PathBuf> = self.targets().iter().map(|&i| self.path(i)).collect();
         let n = paths.len();
         // Through the sidecar writer, with keywords ticked and stars: in the order asked.
@@ -620,4 +623,39 @@ pub(crate) fn spawn_exif_reader(
         }
     });
     (exif_jobs, exif_rx)
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::support::test_support::app_on;
+
+    /// Waits for the info panel to read the shown file, as it does in each frame it is drawn.
+    fn read_panel(app: &mut crate::App, ctx: &eframe::egui::Context) {
+        for _ in 0..500 {
+            app.want_exif(ctx);
+            if app.info.meta.is_some() {
+                return;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        panic!("the panel never read the file");
+    }
+
+    /// When something else changes the shown file, such as a plugin that describes it, the
+    /// panel shows its new keywords, not those it read before.
+    #[test]
+    fn a_changed_shown_file_is_read_again_in_the_info_panel() {
+        let dir =
+            std::env::temp_dir().join(format!("glimt-test-info-again-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("a.png");
+        image::RgbImage::new(4, 4).save(&file).unwrap();
+        let (mut app, ctx) = app_on(&dir);
+        read_panel(&mut app, &ctx);
+        crate::metadata::xmp::add_keywords(&file, &["beach".into()]).unwrap();
+        app.files_changed(&ctx, std::slice::from_ref(&file));
+        read_panel(&mut app, &ctx);
+        assert_eq!(app.info.meta.as_ref().unwrap().saved.keywords, ["beach"]);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
 }

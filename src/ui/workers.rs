@@ -93,7 +93,7 @@ impl crate::App {
             match result {
                 Ok(()) => {
                     self.window.turn_saved();
-                    self.files_changed(&[path]);
+                    self.files_changed(ctx, &[path]);
                 }
                 Err(e) => self.notice = Some(tf!("Could not save the orientation: {e}", e)),
             }
