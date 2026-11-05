@@ -7,6 +7,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- Open With and the video player no longer keep a thread and everything the opened application
+  prints on its errors for as long as it stays open.
 - A video player or Open With program that fails without printing why now shows its exit status,
   where it showed an empty notice.
 

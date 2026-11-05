@@ -607,19 +607,12 @@ impl crate::App {
             if let Some(desktop) = chosen {
                 let files: Vec<PathBuf> = self.targets().iter().map(|&i| self.path(i)).collect();
                 let tx = self.notices_tx.clone();
+                // The chosen application may stay open, so it is waited for in a thread of its own.
                 std::thread::spawn(move || {
-                    #[allow(clippy::disallowed_methods)]
-                    // the chosen application may stay open: its own thread
-                    let out = external::host_command("gio")
-                        .arg("launch")
-                        .arg(&desktop)
-                        .args(&files)
-                        .stdout(std::process::Stdio::null())
-                        .output();
-                    match out {
-                        Ok(o) if o.status.success() => {}
-                        Ok(o) => drop(tx.send(external::failure("gio", &o))),
-                        Err(e) => drop(tx.send(format!("gio: {e}"))),
+                    let mut gio = external::host_command("gio");
+                    gio.arg("launch").arg(&desktop).args(&files);
+                    if let Err(told) = external::run_telling("gio", gio) {
+                        let _ = tx.send(told);
                     }
                 });
             }
@@ -635,13 +628,10 @@ impl crate::App {
         let (path, tx) = (self.path(self.list.cur()), self.notices_tx.clone());
         let mut words = plugins::words(player);
         std::thread::spawn(move || {
+            // The player stays open as long as it plays, waited for in this thread.
             let run = |name: &str, mut cmd: std::process::Command| {
-                // Only its errors are read: a program that prints for hours is not kept.
-                #[allow(clippy::disallowed_methods)]
-                // the player stays open as long as it plays: its own thread
-                let out = cmd.arg(&path).stdout(std::process::Stdio::null()).output();
-                out.map(|o| (o.status.success(), external::failure(name, &o)))
-                    .map_err(|e| format!("{name}: {e}"))
+                cmd.arg(&path);
+                external::run_telling(name, cmd)
             };
             let out = if words.is_empty() {
                 // gio is part of glib; xdg-open covers systems without it. In a Flatpak both
@@ -661,9 +651,8 @@ impl crate::App {
                 player.args(&words);
                 run(&name, player)
             };
-            match out {
-                Ok((true, _)) => {}
-                Ok((false, told)) | Err(told) => drop(tx.send(told)),
+            if let Err(told) = out {
+                let _ = tx.send(told);
             }
         });
     }
