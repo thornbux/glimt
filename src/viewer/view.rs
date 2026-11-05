@@ -828,8 +828,8 @@ impl crate::App {
             label => self
                 .info
                 .exif_row(&path, label)
-                .unwrap_or_default()
-                .to_owned(),
+                .map(|value| crate::metadata::exif::shown(label, value).to_owned())
+                .unwrap_or_default(),
         });
         if text.is_empty() {
             return;
@@ -1368,9 +1368,10 @@ impl crate::App {
                 }
                 .to_owned()
             } else if let Some(e) = self.list.decode_errors().get(&self.list.cur()) {
-                format!(
-                    "Could not open {}:\n{e}",
-                    self.path(self.list.cur()).display()
+                crate::tf!(
+                    "Could not open {name}:\n{e}",
+                    name = self.path(self.list.cur()).display(),
+                    e
                 )
             } else {
                 String::new()

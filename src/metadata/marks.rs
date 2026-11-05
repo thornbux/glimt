@@ -294,7 +294,11 @@ fn write(file: &Path, changes: &[Edit]) {
         None => drop(known().remove(file)),
     }
     if let Err(e) = result {
-        crate::files::file_io::save_failed(format!("Could not save {}: {e}", file.display()));
+        crate::files::file_io::save_failed(crate::tf!(
+            "Could not save {name}: {e}",
+            name = file.display(),
+            e
+        ));
     }
 }
 

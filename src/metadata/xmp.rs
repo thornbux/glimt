@@ -369,7 +369,9 @@ fn update(
     // When the image was moved, renamed or deleted while this waited, no sidecar of its old
     // name is made, and it does not count as done.
     if std::fs::symlink_metadata(path).is_err() {
-        return Err("the image was moved, renamed or deleted meanwhile".into());
+        return Err(
+            crate::support::lang::tr("the image was moved, renamed or deleted meanwhile").into(),
+        );
     }
     let side = sidecar(path);
     // A link is not written through, because a downloaded folder may point IMG.jpg.xmp at

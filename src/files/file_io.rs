@@ -302,7 +302,7 @@ fn replace(path: &Path, bytes: impl AsRef<[u8]>, existing: bool) -> std::io::Res
         true => Ok(()),
         false => Err(std::io::Error::new(
             std::io::ErrorKind::NotFound,
-            "the file was moved, renamed or deleted meanwhile",
+            crate::support::lang::tr("the file was moved, renamed or deleted meanwhile"),
         )),
     };
     // shortcut: `there` is looked at just before the rename, not in the same step; a file that
@@ -400,7 +400,11 @@ pub fn new_beside(tmp: &Path, path: &Path) -> std::io::Result<std::fs::File> {
 pub fn write_atomic(path: &Path, bytes: impl AsRef<[u8]>) {
     let _ = std::fs::create_dir_all(path.parent().unwrap_or(Path::new(".")));
     if let Err(e) = replace_file(path, bytes) {
-        save_failed(format!("Could not save {}: {e}", path.display()));
+        save_failed(crate::tf!(
+            "Could not save {name}: {e}",
+            name = path.display(),
+            e
+        ));
     }
 }
 

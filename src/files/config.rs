@@ -564,7 +564,11 @@ impl Config {
                 // A file that cannot be read is not written over, because every setting would
                 // be lost.
                 if let Err(e) = edit_shared(&p, merge) {
-                    save_failed(format!("Could not save {}: {e}", p.display()));
+                    save_failed(crate::tf!(
+                        "Could not save {name}: {e}",
+                        name = p.display(),
+                        e
+                    ));
                 }
             });
         }

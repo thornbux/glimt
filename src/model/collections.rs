@@ -264,7 +264,7 @@ fn valid(name: &str) -> Result<&str, String> {
 pub fn new_file(name: &str) -> Result<PathBuf, String> {
     let name = valid(name)?;
     let file = dir()
-        .ok_or("no data folder ($HOME is not set)")?
+        .ok_or(tr("no data folder ($HOME is not set)"))?
         .join(format!("{name}.gqv"));
     match file.exists() {
         true => Err(tf!("There is a collection called \"{name}\" already", name)),
@@ -287,7 +287,7 @@ pub fn rename(file: &Path, name: &str) -> Result<PathBuf, String> {
         Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
             Err(tf!("There is a collection called \"{name}\" already", name))
         }
-        Err(e) => Err(format!("Could not rename the collection: {e}")),
+        Err(e) => Err(tf!("Could not rename the collection: {e}", e)),
     }
 }
 

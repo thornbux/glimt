@@ -401,41 +401,6 @@ msgstr[1] "bilder"
     /// gets first: a language that lacks one would show it in English.
     #[test]
     fn every_language_has_every_text() {
-        // Every text the code puts through tr or tf! is in the catalogue, so in every language:
-        // "Renaming" in the status bar showed in English in all eleven.
-        let nb = super::parse(include_str!("../no_nb.po"));
-        let mut lacking = Vec::new();
-        for (path, text) in crate::support::source_rules::sources() {
-            if !path.ends_with(".rs") {
-                continue;
-            }
-            let code = text.split("\n#[cfg(test)]\nmod tests").next().unwrap();
-            // Joined: rustfmt puts a long text on the line after `tr(`.
-            let code: Vec<&str> = (code.lines())
-                .filter(|l| !l.trim_start().starts_with("//"))
-                .collect();
-            let code = code.join("\n");
-            for call in ["tr(", "tf!("] {
-                for (at, _) in code.match_indices(call) {
-                    // Not the end of another name (`attr(`).
-                    let before = code[..at].chars().next_back();
-                    if before.is_some_and(|c| c.is_alphanumeric() || c == '_') {
-                        continue;
-                    }
-                    let Some(rest) = code[at + call.len()..].trim_start().strip_prefix('"') else {
-                        continue;
-                    };
-                    // Without escapes: the texts written as they are in the .po file.
-                    if let Some(end) = rest.find('"').filter(|&e| !rest[..e].contains('\\')) {
-                        let msgid = &rest[..end];
-                        if !nb.texts.contains_key(msgid) && !nb.plurals.contains_key(msgid) {
-                            lacking.push(format!("{path}: {msgid}"));
-                        }
-                    }
-                }
-            }
-        }
-        assert!(lacking.is_empty(), "not in no_nb.po: {lacking:?}");
         let nb = super::parse(include_str!("../no_nb.po"));
         for (code, _, _, po) in super::LANGUAGES {
             let t = super::parse(po);
@@ -457,6 +422,254 @@ msgstr[1] "bilder"
                 );
             }
         }
+    }
+
+    /// Every text the window shows goes through tr, tf! or plural: a literal handed straight to
+    /// a widget, or one that starts with a capital and has two words, is translated where it
+    /// stands, or is a text of no_nb.po in a table (a const or static) translated where it is
+    /// shown, or stays English for a reason below. Each literal in tr, tf! or plural is a text
+    /// of no_nb.po, so the translation test above finds it in every language.
+    #[test]
+    fn every_text_shown_is_translated() {
+        // (file, the literals or the item they are in ("" for the whole file), why English).
+        const ENGLISH: &[(&str, &[&str], &str)] = &[
+            ("ui/help.rs", &[""], "the Help Manual stays English"),
+            (
+                "features/remote.rs",
+                &[""],
+                "--remote's commands and answers stay English",
+            ),
+            (
+                "support/source_rules.rs",
+                &[""],
+                "tests of the source; their texts are for developers",
+            ),
+            (
+                "cli.rs",
+                &["pub(crate) const START_OPTIONS"],
+                "--help stays English",
+            ),
+            (
+                "ui/actions.rs",
+                &["pub fn english("],
+                "the actions' names, which label translates",
+            ),
+            (
+                "images/colour.rs",
+                &["Adobe RGB", "Display P3"],
+                "names of colour profiles",
+            ),
+            (
+                "support/lang.rs",
+                &["Norsk bokmål"],
+                "each language is named in itself",
+            ),
+            (
+                "images/decode.rs",
+                &["SVG "],
+                "what is wrong in a file, as the system's errors",
+            ),
+            (
+                "metadata/exif.rs",
+                &["EXIF block too large"],
+                "what is wrong in a file",
+            ),
+            (
+                "metadata/exif.rs",
+                &["Focal length", "Exposure bias"],
+                "keys, translated where shown",
+            ),
+            (
+                "ui/info_panel.rs",
+                &["File size", "Colour profile"],
+                "keys, translated where shown",
+            ),
+            (
+                "features/print.rs",
+                &["File size"],
+                "the caption template's field, as in the panel",
+            ),
+            (
+                "viewer/pan.rs",
+                &["No date"],
+                "a key, translated where shown",
+            ),
+            (
+                "files/external.rs",
+                &["Registered applications"],
+                "read in gio's output",
+            ),
+            (
+                "images/thumbs.rs",
+                &[
+                    "No such file",
+                    "Permission denied",
+                    "Input/output error",
+                    "Transport endpoint",
+                    "Host is down",
+                ],
+                "read in programs' errors",
+            ),
+            (
+                "metadata/lightroom.rs",
+                &["SELECT ", "FROM "],
+                "SQL for sqlite3",
+            ),
+            ("features/print.rs", &["BT /F "], "PDF operators"),
+            (
+                "viewer/view.rs",
+                &["Glimt Projector"],
+                "the window title the release tests look for",
+            ),
+            (
+                "ui/window.rs",
+                &["Glimt full screen"],
+                "the reason given to the screen saver",
+            ),
+        ];
+        let shown_by = [
+            ".label(",
+            ".button(",
+            ".small_button(",
+            ".checkbox(",
+            ".radio(",
+            ".radio_value(",
+            ".selectable_label(",
+            ".selectable_value(",
+            ".menu_button(",
+            ".heading(",
+            ".weak(",
+            ".strong(",
+            ".small(",
+            ".link(",
+            ".on_hover_text(",
+            ".on_disabled_hover_text(",
+            ".hint_text(",
+            ".selected_text(",
+            ".text(",
+            "Window::new(",
+            "Button::new(",
+            "button(",
+            "selectable(",
+            "choice(",
+            "radio(",
+            "radio_choice(",
+            "RichText::new(",
+            "ProgressBar::new(",
+        ];
+        // Words, not a {value} or a %field% of a template.
+        let words = |t: &str| {
+            (t.split_whitespace())
+                .filter(|w| w.chars().any(char::is_alphabetic) && !w.contains(['{', '%']))
+                .count()
+        };
+        let called = |before: &str, calls: &[&str]| {
+            calls.iter().any(|c| {
+                // A method on anything, a function not as the end of a longer name.
+                before.ends_with(c)
+                    && (c.starts_with('.')
+                        || !(before[..before.len() - c.len()])
+                            .ends_with(|ch: char| ch.is_alphanumeric() || ch == '_'))
+            })
+        };
+        /// Finds the call that the literal at `at` is an argument of, wherever it stands among
+        /// the arguments. Quotes are skipped over, so parentheses in an earlier argument's text
+        /// do not count. Returns the code up to the call's opening parenthesis, or "" when the
+        /// literal is in no call of its statement.
+        fn enclosing(code: &str, at: usize) -> &str {
+            let (mut depth, mut quoted) = (0, false);
+            let b = code.as_bytes();
+            for i in (0..at).rev() {
+                match b[i] {
+                    b'"' if i == 0 || b[i - 1] != b'\\' => quoted = !quoted,
+                    _ if quoted => {}
+                    b')' | b']' => depth += 1,
+                    b'(' | b'[' if depth > 0 => depth -= 1,
+                    b'(' => return &code[..=i],
+                    b';' | b'{' | b'}' if depth == 0 => return "",
+                    _ => {}
+                }
+            }
+            ""
+        }
+        // A one-word label after other arguments, one of them with a parenthesis in its text.
+        let sample = r#"x.y(); choice(ui, &mut c, f("("), "Calendar")"#;
+        let at = sample.find("\"Calendar").unwrap();
+        assert!(called(enclosing(sample, at), &shown_by));
+        // An item's lines: from its first line to the one that closes it, the next one no
+        // deeper, or that line alone when it ends in ;.
+        let item = |code: &str, start: usize| {
+            let first = code[start..].find('\n').map_or(code.len(), |n| start + n);
+            let depth = start - code[..start].rfind('\n').map_or(0, |n| n + 1);
+            if code[start..first].ends_with(';') {
+                return start..first;
+            }
+            let mut at = first + 1;
+            while at < code.len() {
+                let end = code[at..].find('\n').map_or(code.len(), |n| at + n);
+                let line = &code[at..end];
+                if !line.trim().is_empty() && line.len() - line.trim_start().len() <= depth {
+                    return start..end;
+                }
+                at = end + 1;
+            }
+            start..code.len()
+        };
+        let nb = super::parse(include_str!("../no_nb.po"));
+        let msgid = |t: &str| nb.texts.contains_key(t) || nb.plurals.contains_key(t);
+        let mut wrong = Vec::new();
+        for (file, text) in crate::support::source_rules::rust_sources() {
+            let code = text.split("\n#[cfg(test)]\nmod tests").next().unwrap();
+            let mut tables = Vec::new();
+            for (at, _) in code.match_indices('\n') {
+                let line = code[at + 1..]
+                    .trim_start_matches("pub(crate) ")
+                    .trim_start_matches("pub ");
+                if line.starts_with("const ") || line.starts_with("static ") {
+                    tables.push(item(code, at + 1));
+                }
+            }
+            let mut english = Vec::new();
+            for (_, marks, _) in ENGLISH.iter().filter(|e| e.0 == file) {
+                for mark in *marks {
+                    let is_item = mark.starts_with("const ") || mark.starts_with("pub");
+                    match code.find(mark).filter(|_| is_item) {
+                        Some(start) => english.push(Err(item(code, start))),
+                        None => english.push(Ok(*mark)),
+                    }
+                }
+            }
+            for (at, text) in crate::support::source_rules::literals(code) {
+                let before = code[..at].trim_end();
+                let line = code[..at].matches('\n').count() + 1;
+                if called(before, &["tr(", "tf!(", "plural("]) {
+                    if !msgid(&text) {
+                        wrong.push(format!("{file}:{line}: not in no_nb.po: {text:?}"));
+                    }
+                    continue;
+                }
+                let shown = (text.starts_with(char::is_uppercase) && words(&text) >= 2)
+                    || (called(enclosing(code, at), &shown_by) && words(&text) >= 1);
+                let table = tables.iter().any(|r| r.contains(&at)) && msgid(&text);
+                let terminal = called(
+                    before,
+                    &["println!(", "eprintln!(", "print!(", "eprint!(", "panic!("],
+                );
+                let kept = english.iter().any(|e| match e {
+                    Ok(start) => text.starts_with(start),
+                    Err(range) => range.contains(&at),
+                });
+                if shown && !table && !terminal && !kept {
+                    wrong.push(format!("{file}:{line}: not translated: {text:?}"));
+                }
+            }
+        }
+        wrong.sort();
+        assert!(
+            wrong.is_empty(),
+            "put these in tr(\"…\") or tf!(\"…\"):\n{}",
+            wrong.join("\n")
+        );
     }
 
     /// `.po` files broken in thousands of ways: read without a panic.

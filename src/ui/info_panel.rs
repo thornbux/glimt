@@ -229,7 +229,7 @@ impl crate::App {
                         // The old rows stay until the new ones arrive, so the panel does not
                         // flicker.
                         for (label, value) in self.info.exif.iter().flat_map(|e| &e.1) {
-                            ui.weak(*label);
+                            ui.weak(tr(label));
                             // The place opens on a map in the browser.
                             if *label == "GPS" {
                                 let link = ui.link(value).on_hover_text(tr("Show on OpenStreetMap"));
@@ -241,7 +241,7 @@ impl crate::App {
                                     ));
                                 }
                             } else {
-                                ui.label(value);
+                                ui.label(exif::shown(label, value));
                             }
                             ui.end_row();
                         }
@@ -580,7 +580,7 @@ impl crate::App {
                         .num_columns(3)
                         .show(ui, |ui| {
                             for (group, name, value) in &self.info.exif_all {
-                                ui.weak(*group);
+                                ui.weak(tr(group));
                                 ui.label(name);
                                 ui.label(value);
                                 ui.end_row();

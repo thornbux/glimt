@@ -2368,3 +2368,419 @@ msgstr "niet bij de resultaten"
 #: src/ui/info_panel.rs
 msgid "EXIF: {name}"
 msgstr "EXIF: {name}"
+
+#: src/metadata/exif.rs
+msgid "Camera"
+msgstr "Camera"
+
+#: src/metadata/exif.rs
+msgid "Lens"
+msgstr "Lens"
+
+#: src/metadata/exif.rs
+msgid "Taken"
+msgstr "Gemaakt"
+
+#: src/metadata/exif.rs
+msgid "Exposure"
+msgstr "Belichting"
+
+#: src/metadata/exif.rs
+msgid "Aperture"
+msgstr "Diafragma"
+
+#: src/metadata/exif.rs
+msgid "Focal length"
+msgstr "Brandpuntsafstand"
+
+#: src/metadata/exif.rs
+msgid "Exposure bias"
+msgstr "Belichtingscorrectie"
+
+#: src/metadata/exif.rs
+msgid "Flash"
+msgstr "Flitser"
+
+#: src/metadata/exif.rs
+msgid "Fired"
+msgstr "Afgegaan"
+
+#: src/metadata/exif.rs
+msgid "No"
+msgstr "Nee"
+
+#: src/ui/info_panel.rs
+msgid "File size"
+msgstr "Bestandsgrootte"
+
+#: src/ui/info_panel.rs
+msgid "Colour profile"
+msgstr "Kleurprofiel"
+
+#: src/images/colour.rs
+msgid "{name}, in the file"
+msgstr "{name}, in het bestand"
+
+#: src/images/colour.rs
+msgid "Adobe RGB, from its EXIF"
+msgstr "Adobe RGB, uit de EXIF"
+
+#: src/images/colour.rs
+msgid "unnamed"
+msgstr "naamloos"
+
+#: src/images/colour.rs
+msgid "{own}; {input} used instead"
+msgstr "{own}; in plaats daarvan {input}"
+
+#: src/images/colour.rs
+msgid "none: taken as {input}"
+msgstr "geen: aangenomen als {input}"
+
+#: src/model/listing.rs
+msgid "Sort by name"
+msgstr "Sorteren op naam"
+
+#: src/model/listing.rs
+msgid "Sort by number"
+msgstr "Sorteren op nummer"
+
+#: src/model/listing.rs
+msgid "Sort by date"
+msgstr "Sorteren op datum"
+
+#: src/model/listing.rs
+msgid "Sort by file creation date"
+msgstr "Sorteren op aanmaakdatum van het bestand"
+
+#: src/model/listing.rs
+msgid "Sort by EXIF date original"
+msgstr "Sorteren op EXIF-opnamedatum"
+
+#: src/model/listing.rs
+msgid "Sort by EXIF date digitized"
+msgstr "Sorteren op EXIF-digitaliseringsdatum"
+
+#: src/model/listing.rs
+msgid "Sort by size"
+msgstr "Sorteren op grootte"
+
+#: src/model/listing.rs
+msgid "Sort by extension"
+msgstr "Sorteren op extensie"
+
+#: src/ui/file_list.rs
+msgid "All types"
+msgstr "Alle typen"
+
+#: src/ui/file_list.rs
+msgid "No types"
+msgstr "Geen typen"
+
+#: src/ui/theme.rs
+msgid "Desktop"
+msgstr "Bureaublad"
+
+#: src/ui/theme.rs
+msgid "Light"
+msgstr "Licht"
+
+#: src/ui/theme.rs
+msgid "Dark"
+msgstr "Donker"
+
+#: src/ui/theme.rs
+msgid "High Contrast"
+msgstr "Hoog contrast"
+
+#: src/ui/theme.rs
+msgid "Contrast"
+msgstr "Contrast"
+
+#: src/images/colour.rs
+msgid "Greyscale"
+msgstr "Grijstinten"
+
+#: src/images/colour.rs
+msgid "Inverted"
+msgstr "Omgekeerd"
+
+#: src/images/colour.rs
+msgid "More Contrast"
+msgstr "Meer contrast"
+
+#: src/images/colour.rs
+msgid "Perceptual"
+msgstr "Perceptueel"
+
+#: src/images/colour.rs
+msgid "Relative colorimetric"
+msgstr "Relatief colorimetrisch"
+
+#: src/images/colour.rs
+msgid "Saturation"
+msgstr "Verzadiging"
+
+#: src/images/colour.rs
+msgid "Absolute colorimetric"
+msgstr "Absoluut colorimetrisch"
+
+#: src/files/config.rs
+msgid "Power saving"
+msgstr "Energiebesparing"
+
+#: src/files/config.rs
+msgid "Balanced"
+msgstr "Gebalanceerd"
+
+#: src/files/config.rs
+msgid "Full"
+msgstr "Volledig"
+
+#: src/files/config.rs
+msgid "Fewer cores at once: thumbnails one at a time, searches and Find Duplicates on two cores. Slower in large folders, kinder to a laptop battery."
+msgstr "Minder kernen tegelijk: één miniatuur tegelijk, zoeken en Duplicaten zoeken op twee kernen. Trager in grote mappen, zuiniger met de accu van een laptop."
+
+#: src/files/config.rs
+msgid "Two thumbnails at once; searches and Find Duplicates on every core."
+msgstr "Twee miniaturen tegelijk; zoeken en Duplicaten zoeken op alle kernen."
+
+#: src/files/config.rs
+msgid "Every core: thumbnails and searches as fast as the machine allows."
+msgstr "Alle kernen: miniaturen en zoeken zo snel als de computer toelaat."
+
+#: src/files/config.rs
+msgid "Low"
+msgstr "Laag"
+
+#: src/files/config.rs
+msgid "High"
+msgstr "Hoog"
+
+#: src/files/config.rs
+msgid "Least memory: one image decoded at a time, one preloaded on each side. Slow storage (SMB, NFS, USB) makes browsing wait for each file."
+msgstr "Minste geheugen: één afbeelding tegelijk gedecodeerd, één vooraf geladen aan elke kant. Trage opslag (SMB, NFS, USB) laat het bladeren op elk bestand wachten."
+
+#: src/files/config.rs
+msgid "The default: four images decoded at once, two preloaded on each side."
+msgstr "De standaard: vier afbeeldingen tegelijk gedecodeerd, twee vooraf geladen aan elke kant."
+
+#: src/files/config.rs
+msgid "Fastest browsing: eight images decoded at once, five preloaded on each side; hides the wait of slow storage (SMB, NFS) best."
+msgstr "Snelste bladeren: acht afbeeldingen tegelijk gedecodeerd, vijf vooraf geladen aan elke kant; verbergt het wachten op trage opslag (SMB, NFS) het best."
+
+#: src/files/config.rs
+msgid "Short"
+msgstr "Kort"
+
+#: src/files/config.rs
+msgid "Long"
+msgstr "Lang"
+
+#: src/ui/preferences.rs
+msgid "{name}, from the desktop"
+msgstr "{name}, van het bureaublad"
+
+#: src/ui/preferences.rs
+msgid "none, sRGB"
+msgstr "geen, sRGB"
+
+#: src/ui/preferences.rs
+msgid "Fields: %name%, %path%, %position%, %dimensions%, %marks%, %keywords%, %comment%, and each label of the EXIF panel, such as %Camera% or %ISO%. A | starts a part, left out when its fields are empty."
+msgstr "Velden: %name%, %path%, %position%, %dimensions%, %marks%, %keywords%, %comment% en elk label van het EXIF-paneel met de Engelse naam, zoals %Camera% of %ISO%. Een | begint een deel, dat wordt weggelaten als de velden ervan leeg zijn."
+
+#: src/ui/preferences.rs
+msgid "Window title \"Glimt - image name\" (off: \"image name - Glimt\")"
+msgstr "Venstertitel “Glimt - afbeeldingsnaam” (uit: “afbeeldingsnaam - Glimt”)"
+
+#: src/ui/preferences.rs
+msgid "A command line, such as mpv --fs; a path with spaces goes in \"quotes\""
+msgstr "Een opdrachtregel, zoals mpv --fs; een pad met spaties komt tussen \"aanhalingstekens\""
+
+#: src/ui/dialogs.rs
+msgid "New folder name:"
+msgstr "Naam van de nieuwe map:"
+
+#: src/ui/dialogs.rs
+msgid "Name of the new theme:"
+msgstr "Naam van het nieuwe thema:"
+
+#: src/ui/dialogs.rs
+msgid "New name of the collection:"
+msgstr "Nieuwe naam van de verzameling:"
+
+#: src/ui/dialogs.rs
+msgid "New file name:"
+msgstr "Nieuwe bestandsnaam:"
+
+#: src/ui/dialogs.rs
+msgid "A crash or a power cut stopped it in {folder}. Some files may have their new names, some their old ones, and some hidden temporary names ({steps} to put right)."
+msgstr "Een crash of stroomstoring heeft het in {folder} gestopt. Sommige bestanden hebben misschien hun nieuwe naam, sommige hun oude en sommige een verborgen tijdelijke naam ({steps} te herstellen)."
+
+#: src/ui/dialogs.rs
+msgid "no home folder"
+msgstr "geen thuismap"
+
+#: src/ui/window.rs
+msgid "Glimt closes when the file operations are done; close again to stop them"
+msgstr "Glimt sluit wanneer de bestandsbewerkingen klaar zijn; sluit nogmaals om ze te stoppen"
+
+#: src/ui/window.rs
+msgid "Stopping after the files at hand; close once more to end at once"
+msgstr "Stopt na de bestanden die bezig zijn; sluit nog eens om meteen te stoppen"
+
+#: src/features/check.rs
+msgid "Opens each of the {count} in the list, as the viewer would, and lists those that cannot be: broken files, files cut off in copying, and files that are no image. They are marked in the list too."
+msgstr "Opent elk van de {count} in de lijst, zoals de viewer dat zou doen, en toont de bestanden die niet te openen zijn: kapotte bestanden, bij het kopiëren afgekapte bestanden en bestanden die geen afbeelding zijn. Ze worden ook in de lijst gemarkeerd."
+
+#: src/features/check.rs
+msgid "None broken."
+msgstr "Geen kapotte."
+
+#: src/main.rs
+msgid "Settings file: {first}{more}"
+msgstr "Instellingenbestand: {first}{more}"
+
+#: src/ui/accessibility.rs
+msgid ", could not be shown: {e}"
+msgstr ", kon niet worden getoond: {e}"
+
+#: src/ui/accessibility.rs
+msgid ", keywords: {keywords}"
+msgstr ", trefwoorden: {keywords}"
+
+#: src/files/config.rs
+msgid "Could not save {name}: {e}"
+msgstr "Kon {name} niet opslaan: {e}"
+
+#: src/files/backup.rs
+msgid "{folder} is not a folder"
+msgstr "{folder} is geen map"
+
+#: src/files/backup.rs
+msgid "Nothing to back up: Glimt has no settings, marks or collections here"
+msgstr "Niets om te back-uppen: Glimt heeft hier geen instellingen, markeringen of verzamelingen"
+
+#: src/files/backup.rs
+msgid "A backup cannot go inside {folder}, which it copies"
+msgstr "Een back-up kan niet in {folder} staan, dat hij kopieert"
+
+#: src/files/backup.rs
+msgid "Glimt's data backed up to {folder}: {files}"
+msgstr "Gegevens van Glimt geback-upt naar {folder}: {files}"
+
+#: src/files/backup.rs
+msgid "The backup to {folder} is not whole: {e}"
+msgstr "De back-up naar {folder} is niet volledig: {e}"
+
+#: src/files/file_io.rs
+msgid "the file was moved, renamed or deleted meanwhile"
+msgstr "het bestand is intussen verplaatst, hernoemd of verwijderd"
+
+#: src/files/external.rs
+msgid "HEIC and AVIF need ffprobe (ffmpeg): {e}"
+msgstr "HEIC en AVIF hebben ffprobe (ffmpeg) nodig: {e}"
+
+#: src/files/external.rs
+msgid "video, HEIC and AVIF need ffmpeg: {e}"
+msgstr "video, HEIC en AVIF hebben ffmpeg nodig: {e}"
+
+#: src/files/external.rs
+msgid "Could not mount {uri}: not an address"
+msgstr "Kon {uri} niet koppelen: geen adres"
+
+#: src/files/external.rs
+msgid "Could not run gio: {e}"
+msgstr "Kon gio niet uitvoeren: {e}"
+
+#: src/files/external.rs
+msgid "Could not mount {uri}: wrong user name or password"
+msgstr "Kon {uri} niet koppelen: verkeerde gebruikersnaam of wachtwoord"
+
+#: src/files/external.rs
+msgid "Could not mount {uri}: {err}{hint}"
+msgstr "Kon {uri} niet koppelen: {err}{hint}"
+
+#: src/files/external.rs
+msgid " (the name {host} is not found)"
+msgstr " (de naam {host} is niet gevonden)"
+
+#: src/files/external.rs
+msgid " (the name {host} is not found; try {host}.local or its IP address)"
+msgstr " (de naam {host} is niet gevonden; probeer {host}.local of het IP-adres)"
+
+#: src/files/file_ops.rs
+msgid "No such frame"
+msgstr "Zo'n frame bestaat niet"
+
+#: src/files/file_ops.rs
+msgid "choose another name: the image itself is not changed"
+msgstr "kies een andere naam: de afbeelding zelf wordt niet gewijzigd"
+
+#: src/metadata/lightroom.rs
+msgid "Imported from Lightroom: {done}"
+msgstr "Geïmporteerd uit Lightroom: {done}"
+
+#: src/metadata/lightroom.rs
+msgid "; not saved: {names}"
+msgstr "; niet opgeslagen: {names}"
+
+#: src/metadata/lightroom.rs
+msgid " (no data folder: $HOME is not set)"
+msgstr " (geen gegevensmap: $HOME is niet ingesteld)"
+
+#: src/metadata/lightroom.rs
+msgid "Collections are added to Glimt's, keywords to the keyword tree and stars to the marks. Smart collections are left out."
+msgstr "Verzamelingen worden toegevoegd aan die van Glimt, trefwoorden aan de trefwoordenboom en sterren aan de markeringen. Slimme verzamelingen worden overgeslagen."
+
+#: src/metadata/lightroom.rs
+msgid "{names} and {n} more"
+msgstr "{names} en nog {n}"
+
+#: src/metadata/lightroom.rs
+msgid "The keywords of each image, into its XMP sidecar ({count}); those it has stay"
+msgstr "De trefwoorden van elke afbeelding, in het XMP-bijbestand ({count}); die erin staan blijven"
+
+#: src/metadata/lightroom.rs
+msgid "1 image has"
+msgstr "1 afbeelding heeft"
+
+#: src/model/collections.rs
+msgid "no data folder ($HOME is not set)"
+msgstr "geen gegevensmap ($HOME is niet ingesteld)"
+
+#: src/model/collections.rs
+msgid "Could not rename the collection: {e}"
+msgstr "Kon de verzameling niet hernoemen: {e}"
+
+#: src/viewer/view.rs
+msgid "Could not open {name}:\n{e}"
+msgstr "Kon {name} niet openen:\n{e}"
+
+#: src/images/save.rs
+msgid "only JPEG, PNG and WebP can store the rotation"
+msgstr "alleen JPEG, PNG en WebP kunnen de draaiing opslaan"
+
+#: src/images/save.rs
+msgid "animated images are not turned"
+msgstr "geanimeerde afbeeldingen worden niet gedraaid"
+
+#: src/images/save.rs
+msgid "animated images are not saved as a copy"
+msgstr "geanimeerde afbeeldingen worden niet als kopie opgeslagen"
+
+#: src/images/save.rs
+msgid "the part is outside the image"
+msgstr "het deel valt buiten de afbeelding"
+
+#: src/images/save.rs
+msgid "a lossy WebP needs ffmpeg to be saved: {e}"
+msgstr "een lossy WebP heeft ffmpeg nodig om te worden opgeslagen: {e}"
+
+#: src/metadata/exif.rs
+msgid "only JPEG files can store the orientation"
+msgstr "alleen JPEG-bestanden kunnen de oriëntatie opslaan"
+
+#: src/metadata/xmp.rs
+msgid "the image was moved, renamed or deleted meanwhile"
+msgstr "de afbeelding is intussen verplaatst, hernoemd of verwijderd"

@@ -1423,7 +1423,7 @@ impl crate::App {
             // refuses it. The check is made here in the background, because a file on a share
             // that stalls would hold the window.
             if only.is_some() && crate::images::save::same_file(&path, &to) {
-                let e = "choose another name: the image itself is not changed";
+                let e = tr("choose another name: the image itself is not changed");
                 return Some(tf!("Could not save the image: {e}", e));
             }
             // The name's own bytes, also when they are not UTF-8.
@@ -1473,7 +1473,7 @@ impl crate::App {
                 });
             }
             Some(match (saved, only) {
-                (Ok(0), _) => "No such frame".to_owned(),
+                (Ok(0), _) => tr("No such frame").to_owned(),
                 (Ok(_), Some(_)) => tf!("Saved {file}", file = to.display()),
                 (Ok(n), None) => tf!(
                     "{frames} saved in {folder}",

@@ -3,6 +3,7 @@
 
 use crate::files::config::xdg_dir;
 use crate::support::format::{count, local_time};
+use crate::support::lang::tr;
 use std::path::{Path, PathBuf};
 
 /// Glimt's own folders, to back up, with their names in a backup: its settings, keyword tree,
@@ -46,18 +47,23 @@ pub fn copy_tree(from: &Path, to: &Path) -> std::io::Result<usize> {
 pub(crate) fn back_up_to(dir: &Path) -> Result<String, String> {
     // A mistyped or unmounted folder is not made: the backup would land where no one looks.
     if !dir.is_dir() {
-        return Err(format!("{} is not a folder", dir.display()));
+        return Err(crate::tf!(
+            "{folder} is not a folder",
+            folder = dir.display()
+        ));
     }
     let own = own_folders();
     if own.is_empty() {
-        return Err("Nothing to back up: Glimt has no settings, marks or collections here".into());
+        return Err(
+            tr("Nothing to back up: Glimt has no settings, marks or collections here").into(),
+        );
     }
     // Inside one of the folders it copies, the backup would copy itself until paths are too long.
     let real = |p: &Path| p.canonicalize().unwrap_or_else(|_| p.to_owned());
     if let Some((_, inside)) = own.iter().find(|(_, d)| real(dir).starts_with(real(d))) {
-        return Err(format!(
-            "A backup cannot go inside {}, which it copies",
-            inside.display()
+        return Err(crate::tf!(
+            "A backup cannot go inside {folder}, which it copies",
+            folder = inside.display()
         ));
     }
     let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH);
@@ -79,12 +85,16 @@ pub(crate) fn back_up_to(dir: &Path) -> Result<String, String> {
     // Not the plan of a Rename Many running now: restored later, it would rename files again.
     let _ = std::fs::remove_dir_all(to.join("state/renames"));
     match copied {
-        Ok(n) => Ok(format!(
-            "Glimt's data backed up to {}: {}",
-            to.display(),
-            count(n, "file")
+        Ok(n) => Ok(crate::tf!(
+            "Glimt's data backed up to {folder}: {files}",
+            folder = to.display(),
+            files = count(n, "file")
         )),
-        Err(e) => Err(format!("The backup to {} is not whole: {e}", to.display())),
+        Err(e) => Err(crate::tf!(
+            "The backup to {folder} is not whole: {e}",
+            folder = to.display(),
+            e
+        )),
     }
 }
 

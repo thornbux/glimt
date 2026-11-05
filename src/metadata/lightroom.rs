@@ -278,10 +278,10 @@ impl crate::App {
                             ui.end_row();
                         }
                     });
-                    ui.weak(
+                    ui.weak(tr(
                         "Collections are added to Glimt's, keywords to the keyword tree and \
                          stars to the marks. Smart collections are left out.",
-                    );
+                    ));
                     ui.horizontal(|ui| {
                         next =
                             crate::support::test_hooks::noted(&ui.button(tr("Next")), tr("Next"))
@@ -301,7 +301,8 @@ impl crate::App {
                     if !plan.existing.is_empty() {
                         let mut names = plan.existing[..plan.existing.len().min(5)].join(", ");
                         if plan.existing.len() > 5 {
-                            names += &format!(" and {} more", plan.existing.len() - 5);
+                            let n = plan.existing.len() - 5;
+                            names = tf!("{names} and {n} more", names, n);
                         }
                         ui.label(tf!(
                             "There already, so they get only the images they lack: {names}.",
@@ -309,10 +310,10 @@ impl crate::App {
                         ));
                     }
                     if !plan.image_keywords.is_empty() {
-                        let what = format!(
-                            "The keywords of each image, into its XMP sidecar ({}); those it \
-                             has stay",
-                            count(plan.image_keywords.len(), "image")
+                        let what = tf!(
+                            "The keywords of each image, into its XMP sidecar ({count}); those \
+                             it has stay",
+                            count = count(plan.image_keywords.len(), "image")
                         );
                         ui.checkbox(&mut self.config.lightroom_keywords, what);
                     }
@@ -320,7 +321,7 @@ impl crate::App {
                         ui.label(tf!(
                             "{n} other stars in Glimt:",
                             n = match plan.differ {
-                                1 => "1 image has".to_owned(),
+                                1 => tr("1 image has").to_owned(),
                                 n => tf!("{count} have", count = count(n, "image")),
                             }
                         ));
@@ -461,12 +462,12 @@ impl crate::App {
                 .map(|(name, _)| name.as_str())
                 .collect();
             done.insert(0, count(all.len() - failed.len(), "collection"));
-            let mut msg = format!("Imported from Lightroom: {}", done.join(", "));
+            let mut msg = tf!("Imported from Lightroom: {done}", done = done.join(", "));
             if !failed.is_empty() {
-                msg += &format!("; not saved: {}", failed.join(", "));
+                msg += &tf!("; not saved: {names}", names = failed.join(", "));
             }
             if dir.is_none() && !all.is_empty() {
-                msg += " (no data folder: $HOME is not set)";
+                msg += tr(" (no data folder: $HOME is not set)");
             }
             Some(msg)
         });

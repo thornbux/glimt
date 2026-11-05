@@ -4,6 +4,7 @@
 
 use crate::files::config::Config;
 use crate::metadata::exif;
+use crate::support::lang::tr;
 use eframe::egui;
 use image::ImageDecoder;
 use std::collections::HashMap;
@@ -338,14 +339,14 @@ pub fn colour_source(path: &Path) -> String {
     let own = match crate::images::decode::icc_profile(path) {
         Some(icc) => ColorProfile::new_from_slice(&icc)
             .ok()
-            .map(|p| format!("{}, in the file", name_of(&p))),
+            .map(|p| crate::tf!("{name}, in the file", name = name_of(&p))),
         None => {
             let dec = crate::images::decode::image_reader(path)
                 .ok()
                 .and_then(|r| r.into_decoder().ok());
             let exif = dec.and_then(|mut d| d.exif_metadata().ok().flatten());
             (exif.is_some_and(|e| exif::adobe_rgb(&e)))
-                .then(|| "Adobe RGB, from its EXIF".to_owned())
+                .then(|| tr("Adobe RGB, from its EXIF").to_owned())
         }
     };
     fn name_of(p: &ColorProfile) -> String {
@@ -355,13 +356,13 @@ pub fn colour_source(path: &Path) -> String {
                 l.first().map_or(String::new(), |s| s.value.clone())
             }
             Some(ProfileText::Description(d)) => d.ascii_string.clone(),
-            None => "unnamed".to_owned(),
+            None => tr("unnamed").to_owned(),
         }
     }
     match own {
         Some(own) if c.own => own,
-        Some(own) => format!("{own}; {input} used instead"),
-        None => format!("none: taken as {input}"),
+        Some(own) => crate::tf!("{own}; {input} used instead", own, input),
+        None => crate::tf!("none: taken as {input}", input),
     }
 }
 

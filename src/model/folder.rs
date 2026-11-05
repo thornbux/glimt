@@ -576,9 +576,10 @@ impl crate::App {
                 (config::recent_text(&all), ())
             };
             if let Err(e) = crate::files::file_io::edit_shared(&file, add) {
-                crate::files::file_io::save_failed(format!(
-                    "Could not save {}: {e}",
-                    file.display()
+                crate::files::file_io::save_failed(tf!(
+                    "Could not save {name}: {e}",
+                    name = file.display(),
+                    e
                 ));
             }
         });

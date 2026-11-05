@@ -2368,3 +2368,419 @@ msgstr "ekki meðal niðurstaðna"
 #: src/ui/info_panel.rs
 msgid "EXIF: {name}"
 msgstr "EXIF: {name}"
+
+#: src/metadata/exif.rs
+msgid "Camera"
+msgstr "Myndavél"
+
+#: src/metadata/exif.rs
+msgid "Lens"
+msgstr "Linsa"
+
+#: src/metadata/exif.rs
+msgid "Taken"
+msgstr "Tekin"
+
+#: src/metadata/exif.rs
+msgid "Exposure"
+msgstr "Lýsing"
+
+#: src/metadata/exif.rs
+msgid "Aperture"
+msgstr "Ljósop"
+
+#: src/metadata/exif.rs
+msgid "Focal length"
+msgstr "Brennivídd"
+
+#: src/metadata/exif.rs
+msgid "Exposure bias"
+msgstr "Lýsingarleiðrétting"
+
+#: src/metadata/exif.rs
+msgid "Flash"
+msgstr "Flass"
+
+#: src/metadata/exif.rs
+msgid "Fired"
+msgstr "Kviknaði"
+
+#: src/metadata/exif.rs
+msgid "No"
+msgstr "Nei"
+
+#: src/ui/info_panel.rs
+msgid "File size"
+msgstr "Skráarstærð"
+
+#: src/ui/info_panel.rs
+msgid "Colour profile"
+msgstr "Litasnið"
+
+#: src/images/colour.rs
+msgid "{name}, in the file"
+msgstr "{name}, í skránni"
+
+#: src/images/colour.rs
+msgid "Adobe RGB, from its EXIF"
+msgstr "Adobe RGB, úr EXIF"
+
+#: src/images/colour.rs
+msgid "unnamed"
+msgstr "nafnlaust"
+
+#: src/images/colour.rs
+msgid "{own}; {input} used instead"
+msgstr "{own}; {input} notað í staðinn"
+
+#: src/images/colour.rs
+msgid "none: taken as {input}"
+msgstr "ekkert: túlkað sem {input}"
+
+#: src/model/listing.rs
+msgid "Sort by name"
+msgstr "Raða eftir heiti"
+
+#: src/model/listing.rs
+msgid "Sort by number"
+msgstr "Raða eftir númeri"
+
+#: src/model/listing.rs
+msgid "Sort by date"
+msgstr "Raða eftir dagsetningu"
+
+#: src/model/listing.rs
+msgid "Sort by file creation date"
+msgstr "Raða eftir stofndegi skrárinnar"
+
+#: src/model/listing.rs
+msgid "Sort by EXIF date original"
+msgstr "Raða eftir EXIF-tökudegi"
+
+#: src/model/listing.rs
+msgid "Sort by EXIF date digitized"
+msgstr "Raða eftir EXIF-stafvæðingardegi"
+
+#: src/model/listing.rs
+msgid "Sort by size"
+msgstr "Raða eftir stærð"
+
+#: src/model/listing.rs
+msgid "Sort by extension"
+msgstr "Raða eftir skráarendingu"
+
+#: src/ui/file_list.rs
+msgid "All types"
+msgstr "Allar tegundir"
+
+#: src/ui/file_list.rs
+msgid "No types"
+msgstr "Engar tegundir"
+
+#: src/ui/theme.rs
+msgid "Desktop"
+msgstr "Skjáborð"
+
+#: src/ui/theme.rs
+msgid "Light"
+msgstr "Ljóst"
+
+#: src/ui/theme.rs
+msgid "Dark"
+msgstr "Dökkt"
+
+#: src/ui/theme.rs
+msgid "High Contrast"
+msgstr "Mikil birtuskil"
+
+#: src/ui/theme.rs
+msgid "Contrast"
+msgstr "Birtuskil"
+
+#: src/images/colour.rs
+msgid "Greyscale"
+msgstr "Grátóna"
+
+#: src/images/colour.rs
+msgid "Inverted"
+msgstr "Umsnúið"
+
+#: src/images/colour.rs
+msgid "More Contrast"
+msgstr "Meiri birtuskil"
+
+#: src/images/colour.rs
+msgid "Perceptual"
+msgstr "Skynjunarleg"
+
+#: src/images/colour.rs
+msgid "Relative colorimetric"
+msgstr "Hlutfallsleg litmæling"
+
+#: src/images/colour.rs
+msgid "Saturation"
+msgstr "Litmettun"
+
+#: src/images/colour.rs
+msgid "Absolute colorimetric"
+msgstr "Algild litmæling"
+
+#: src/files/config.rs
+msgid "Power saving"
+msgstr "Orkusparnaður"
+
+#: src/files/config.rs
+msgid "Balanced"
+msgstr "Jafnvægi"
+
+#: src/files/config.rs
+msgid "Full"
+msgstr "Fullt"
+
+#: src/files/config.rs
+msgid "Fewer cores at once: thumbnails one at a time, searches and Find Duplicates on two cores. Slower in large folders, kinder to a laptop battery."
+msgstr "Færri kjarnar í einu: ein smámynd í einu, leitir og Finna tvítök á tveimur kjörnum. Hægara í stórum möppum, fer betur með rafhlöðu fartölvu."
+
+#: src/files/config.rs
+msgid "Two thumbnails at once; searches and Find Duplicates on every core."
+msgstr "Tvær smámyndir í einu; leitir og Finna tvítök á öllum kjörnum."
+
+#: src/files/config.rs
+msgid "Every core: thumbnails and searches as fast as the machine allows."
+msgstr "Allir kjarnar: smámyndir og leitir eins hratt og tölvan leyfir."
+
+#: src/files/config.rs
+msgid "Low"
+msgstr "Lítil"
+
+#: src/files/config.rs
+msgid "High"
+msgstr "Mikil"
+
+#: src/files/config.rs
+msgid "Least memory: one image decoded at a time, one preloaded on each side. Slow storage (SMB, NFS, USB) makes browsing wait for each file."
+msgstr "Minnst minni: ein mynd afkóðuð í einu, einni forhlaðið hvoru megin. Hæg geymsla (SMB, NFS, USB) lætur flettingu bíða eftir hverri skrá."
+
+#: src/files/config.rs
+msgid "The default: four images decoded at once, two preloaded on each side."
+msgstr "Sjálfgefið: fjórar myndir afkóðaðar í einu, tveimur forhlaðið hvoru megin."
+
+#: src/files/config.rs
+msgid "Fastest browsing: eight images decoded at once, five preloaded on each side; hides the wait of slow storage (SMB, NFS) best."
+msgstr "Hraðasta fletting: átta myndir afkóðaðar í einu, fimm forhlaðið hvoru megin; felur best biðina eftir hægri geymslu (SMB, NFS)."
+
+#: src/files/config.rs
+msgid "Short"
+msgstr "Stutt"
+
+#: src/files/config.rs
+msgid "Long"
+msgstr "Langt"
+
+#: src/ui/preferences.rs
+msgid "{name}, from the desktop"
+msgstr "{name}, frá skjáborðinu"
+
+#: src/ui/preferences.rs
+msgid "none, sRGB"
+msgstr "ekkert, sRGB"
+
+#: src/ui/preferences.rs
+msgid "Fields: %name%, %path%, %position%, %dimensions%, %marks%, %keywords%, %comment%, and each label of the EXIF panel, such as %Camera% or %ISO%. A | starts a part, left out when its fields are empty."
+msgstr "Reitir: %name%, %path%, %position%, %dimensions%, %marks%, %keywords%, %comment% og hvert heiti í EXIF-spjaldinu á ensku, til dæmis %Camera% eða %ISO%. | byrjar hluta, sem er sleppt þegar reitir hans eru tómir."
+
+#: src/ui/preferences.rs
+msgid "Window title \"Glimt - image name\" (off: \"image name - Glimt\")"
+msgstr "Gluggatitill „Glimt - heiti myndar“ (af: „heiti myndar - Glimt“)"
+
+#: src/ui/preferences.rs
+msgid "A command line, such as mpv --fs; a path with spaces goes in \"quotes\""
+msgstr "Skipanalína, til dæmis mpv --fs; slóð með bilum fer innan \"gæsalappa\""
+
+#: src/ui/dialogs.rs
+msgid "New folder name:"
+msgstr "Heiti nýrrar möppu:"
+
+#: src/ui/dialogs.rs
+msgid "Name of the new theme:"
+msgstr "Heiti nýja þemans:"
+
+#: src/ui/dialogs.rs
+msgid "New name of the collection:"
+msgstr "Nýtt heiti safnsins:"
+
+#: src/ui/dialogs.rs
+msgid "New file name:"
+msgstr "Nýtt skráarheiti:"
+
+#: src/ui/dialogs.rs
+msgid "A crash or a power cut stopped it in {folder}. Some files may have their new names, some their old ones, and some hidden temporary names ({steps} to put right)."
+msgstr "Hrun eða rafmagnsleysi stöðvaði það í {folder}. Sumar skrár kunna að hafa fengið nýju heitin, sumar hafa gömlu heitin og sumar falin bráðabirgðaheiti ({steps} til að laga)."
+
+#: src/ui/dialogs.rs
+msgid "no home folder"
+msgstr "engin heimamappa"
+
+#: src/ui/window.rs
+msgid "Glimt closes when the file operations are done; close again to stop them"
+msgstr "Glimt lokast þegar skráaaðgerðum er lokið; lokaðu aftur til að stöðva þær"
+
+#: src/ui/window.rs
+msgid "Stopping after the files at hand; close once more to end at once"
+msgstr "Stöðvast eftir skrárnar sem eru í vinnslu; lokaðu einu sinni enn til að hætta strax"
+
+#: src/features/check.rs
+msgid "Opens each of the {count} in the list, as the viewer would, and lists those that cannot be: broken files, files cut off in copying, and files that are no image. They are marked in the list too."
+msgstr "Opnar hverja af {count} í listanum, eins og skoðarinn myndi gera, og listar þær sem ekki er hægt að opna: skemmdar skrár, skrár sem styttust við afritun og skrár sem eru ekki myndir. Þær eru líka merktar í listanum."
+
+#: src/features/check.rs
+msgid "None broken."
+msgstr "Engar skemmdar."
+
+#: src/main.rs
+msgid "Settings file: {first}{more}"
+msgstr "Stillingaskrá: {first}{more}"
+
+#: src/ui/accessibility.rs
+msgid ", could not be shown: {e}"
+msgstr ", ekki hægt að sýna: {e}"
+
+#: src/ui/accessibility.rs
+msgid ", keywords: {keywords}"
+msgstr ", efnisorð: {keywords}"
+
+#: src/files/config.rs
+msgid "Could not save {name}: {e}"
+msgstr "Gat ekki vistað {name}: {e}"
+
+#: src/files/backup.rs
+msgid "{folder} is not a folder"
+msgstr "{folder} er ekki mappa"
+
+#: src/files/backup.rs
+msgid "Nothing to back up: Glimt has no settings, marks or collections here"
+msgstr "Ekkert til að afrita: Glimt hefur hér engar stillingar, merkingar eða söfn"
+
+#: src/files/backup.rs
+msgid "A backup cannot go inside {folder}, which it copies"
+msgstr "Afrit getur ekki farið inn í {folder}, sem það afritar"
+
+#: src/files/backup.rs
+msgid "Glimt's data backed up to {folder}: {files}"
+msgstr "Afrit af gögnum Glimt tekið í {folder}: {files}"
+
+#: src/files/backup.rs
+msgid "The backup to {folder} is not whole: {e}"
+msgstr "Afritið í {folder} er ekki heilt: {e}"
+
+#: src/files/file_io.rs
+msgid "the file was moved, renamed or deleted meanwhile"
+msgstr "skráin var færð, endurnefnd eða henni eytt á meðan"
+
+#: src/files/external.rs
+msgid "HEIC and AVIF need ffprobe (ffmpeg): {e}"
+msgstr "HEIC og AVIF þurfa ffprobe (ffmpeg): {e}"
+
+#: src/files/external.rs
+msgid "video, HEIC and AVIF need ffmpeg: {e}"
+msgstr "myndskeið, HEIC og AVIF þurfa ffmpeg: {e}"
+
+#: src/files/external.rs
+msgid "Could not mount {uri}: not an address"
+msgstr "Gat ekki tengt {uri}: ekki vistfang"
+
+#: src/files/external.rs
+msgid "Could not run gio: {e}"
+msgstr "Gat ekki keyrt gio: {e}"
+
+#: src/files/external.rs
+msgid "Could not mount {uri}: wrong user name or password"
+msgstr "Gat ekki tengt {uri}: rangt notandanafn eða lykilorð"
+
+#: src/files/external.rs
+msgid "Could not mount {uri}: {err}{hint}"
+msgstr "Gat ekki tengt {uri}: {err}{hint}"
+
+#: src/files/external.rs
+msgid " (the name {host} is not found)"
+msgstr " (heitið {host} finnst ekki)"
+
+#: src/files/external.rs
+msgid " (the name {host} is not found; try {host}.local or its IP address)"
+msgstr " (heitið {host} finnst ekki; prófaðu {host}.local eða IP-vistfang þess)"
+
+#: src/files/file_ops.rs
+msgid "No such frame"
+msgstr "Enginn slíkur rammi"
+
+#: src/files/file_ops.rs
+msgid "choose another name: the image itself is not changed"
+msgstr "veldu annað heiti: myndinni sjálfri er ekki breytt"
+
+#: src/metadata/lightroom.rs
+msgid "Imported from Lightroom: {done}"
+msgstr "Flutt inn úr Lightroom: {done}"
+
+#: src/metadata/lightroom.rs
+msgid "; not saved: {names}"
+msgstr "; ekki vistað: {names}"
+
+#: src/metadata/lightroom.rs
+msgid " (no data folder: $HOME is not set)"
+msgstr " (engin gagnamappa: $HOME er ekki stillt)"
+
+#: src/metadata/lightroom.rs
+msgid "Collections are added to Glimt's, keywords to the keyword tree and stars to the marks. Smart collections are left out."
+msgstr "Söfnum er bætt við söfn Glimt, efnisorðum við efnisorðatréð og stjörnum við merkingarnar. Snjallsöfnum er sleppt."
+
+#: src/metadata/lightroom.rs
+msgid "{names} and {n} more"
+msgstr "{names} og {n} í viðbót"
+
+#: src/metadata/lightroom.rs
+msgid "The keywords of each image, into its XMP sidecar ({count}); those it has stay"
+msgstr "Efnisorð hverrar myndar, í XMP-hliðarskrá hennar ({count}); þau sem fyrir eru haldast"
+
+#: src/metadata/lightroom.rs
+msgid "1 image has"
+msgstr "1 mynd hefur"
+
+#: src/model/collections.rs
+msgid "no data folder ($HOME is not set)"
+msgstr "engin gagnamappa ($HOME er ekki stillt)"
+
+#: src/model/collections.rs
+msgid "Could not rename the collection: {e}"
+msgstr "Gat ekki endurnefnt safnið: {e}"
+
+#: src/viewer/view.rs
+msgid "Could not open {name}:\n{e}"
+msgstr "Gat ekki opnað {name}:\n{e}"
+
+#: src/images/save.rs
+msgid "only JPEG, PNG and WebP can store the rotation"
+msgstr "aðeins JPEG, PNG og WebP geta geymt snúninginn"
+
+#: src/images/save.rs
+msgid "animated images are not turned"
+msgstr "hreyfimyndum er ekki snúið"
+
+#: src/images/save.rs
+msgid "animated images are not saved as a copy"
+msgstr "hreyfimyndir eru ekki vistaðar sem afrit"
+
+#: src/images/save.rs
+msgid "the part is outside the image"
+msgstr "hlutinn er utan myndarinnar"
+
+#: src/images/save.rs
+msgid "a lossy WebP needs ffmpeg to be saved: {e}"
+msgstr "WebP með tapi þarf ffmpeg til að vistast: {e}"
+
+#: src/metadata/exif.rs
+msgid "only JPEG files can store the orientation"
+msgstr "aðeins JPEG-skrár geta geymt stefnuna"
+
+#: src/metadata/xmp.rs
+msgid "the image was moved, renamed or deleted meanwhile"
+msgstr "myndin var færð, endurnefnd eða henni eytt á meðan"

@@ -66,12 +66,13 @@ impl crate::App {
                 "Light" => theme::icon::SUN,
                 "Desktop" => theme::icon::MONITOR,
                 "Nord" => theme::icon::SNOWFLAKE,
-                "High Contrast" => theme::icon::HALF,
+                theme::HIGH_CONTRAST => theme::icon::HALF,
                 "Contrast" => theme::icon::HALF_TILT,
                 _ => theme::icon::BRUSH,
             };
             // Chosen again too, so a theme file just edited shows.
-            let radio = ui.radio(self.config.theme == name, iconed(ui, icon, &name));
+            let shown = theme::shown_name(&name);
+            let radio = ui.radio(self.config.theme == name, iconed(ui, icon, shown));
             if noted(&radio, &name).clicked() {
                 self.config.theme = name;
                 self.config.save();

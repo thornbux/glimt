@@ -126,6 +126,9 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 - Opening a file of the folder already shown (File → Open File, a drop, --remote open, Back) goes to
   it at once, without reading the folder, its thumbnails and its EXIF index again.
+- The EXIF panel, the sort menu, the Types menu, theme and filter names, the CPU and memory
+  levels, several Preferences texts, dialogs and notices now show in the chosen language; a test
+  fails on a new text left untranslated.
 
 ## [0.57.0] - 2026-11-05
 

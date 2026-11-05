@@ -52,6 +52,7 @@ const IMAGE: &[&str] = &[
     "Auto rotate images using EXIF (Alt+X)",
     "Brightness",
     "Default",
+    "Fields: %name%, %path%, %position%, %dimensions%, %marks%, %keywords%, %comment%, and each label of the EXIF panel, such as %Camera% or %ISO%. A | starts a part, left out when its fields are empty.",
     "Enlarge small images to fit the window",
     "Hide the pointer in full screen when the mouse is still",
     "Histogram (K):",
@@ -122,6 +123,8 @@ const COLOUR: &[&str] = &[
     "Screen profile:",
     "Use the desktop's screen profile",
     "Use the image's own profile",
+    "none, sRGB",
+    "{name}, from the desktop",
 ];
 
 const MEMORY: &[&str] = &[
@@ -141,6 +144,7 @@ const MEMORY: &[&str] = &[
 
 const VIDEO: &[&str] = &[
     "Video",
+    "A command line, such as mpv --fs; a path with spaces goes in \"quotes\"",
     "Player (Enter):",
     "Previews need ffmpeg",
     "Show videos in the file list",
@@ -156,6 +160,7 @@ const START: &[&str] = &[
     "Listen for glimt --remote commands (after restart)",
     "Remember the window size and position",
     "Start in the last used folder",
+    "Window title \"Glimt - image name\" (off: \"image name - Glimt\")",
 ];
 
 /// The Preferences window: open or not, its search, and the action whose key is being chosen.
@@ -310,11 +315,12 @@ impl crate::App {
         ui.horizontal(|ui| {
             let mut chosen = false;
             egui::ComboBox::from_id_salt("theme")
-                .selected_text(self.config.theme.clone())
+                .selected_text(theme::shown_name(&self.config.theme))
                 .show_ui(ui, |ui| {
                     for name in theme::names() {
                         let c = &mut self.config.theme;
-                        chosen |= ui.selectable_value(c, name.clone(), name).clicked();
+                        let shown = theme::shown_name(&name);
+                        chosen |= ui.selectable_value(c, name.clone(), shown).clicked();
                     }
                 });
             ui.label(tr("Theme"));
@@ -421,7 +427,7 @@ impl crate::App {
             ui.label(tr("Fade to the next image:"));
             for (k, (_, label, _)) in FADES.iter().enumerate() {
                 changed |= ui
-                    .radio_value(&mut self.config.fade, k, *label)
+                    .radio_value(&mut self.config.fade, k, tr(label))
                     .on_hover_text(tr("Not with CPU use Power saving"))
                     .changed();
             }
@@ -607,7 +613,11 @@ impl crate::App {
             ui.label(tr("Memory use:"));
             for l in &MEMORY_LEVELS {
                 let on = level.is_some_and(|m| m.name == l.name);
-                if ui.radio(on, l.name).on_hover_text(l.hover).clicked() {
+                if ui
+                    .radio(on, tr(l.name))
+                    .on_hover_text(tr(l.hover))
+                    .clicked()
+                {
                     chosen = Some(*l);
                 }
             }
@@ -663,8 +673,8 @@ impl crate::App {
             ui.label(tr("CPU use:"));
             for (k, (name, hover)) in CPU_LEVELS.iter().enumerate() {
                 if ui
-                    .radio(self.config.cpu_use == k, *name)
-                    .on_hover_text(*hover)
+                    .radio(self.config.cpu_use == k, tr(name))
+                    .on_hover_text(tr(hover))
                     .clicked()
                 {
                     self.config.cpu_use = k;
@@ -719,12 +729,12 @@ impl crate::App {
                 ui.label(tr("Screen profile:"));
                 if let Some(path) = from_desktop {
                     let name = Path::new(&path).file_name().unwrap_or_default();
-                    let name = format!("{}, from the desktop", name.to_string_lossy());
+                    let name = tf!("{name}, from the desktop", name = name.to_string_lossy());
                     ui.label(name).on_hover_text(path);
                     return;
                 }
                 let file = Path::new(&self.config.screen_profile).file_name();
-                let name = file.map_or("none, sRGB".into(), |n| n.to_string_lossy());
+                let name = file.map_or(tr("none, sRGB").into(), |n| n.to_string_lossy());
                 ui.label(name).on_hover_text(&self.config.screen_profile);
                 if ui.button(tr("Choose…")).clicked() {
                     self.pick(&ui.ctx().clone(), false, Pick::ScreenProfile);
@@ -736,7 +746,7 @@ impl crate::App {
             ui.label(tr("Rendering intent:"));
             let current = self.config.rendering_intent.clone();
             for (value, label, _) in INTENTS {
-                if ui.radio(current == value, label).clicked() && current != value {
+                if ui.radio(current == value, tr(label)).clicked() && current != value {
                     self.set_rendering_intent(value.to_owned());
                 }
             }
@@ -846,11 +856,11 @@ impl crate::App {
             c.osd_template = text.replace('\n', "\\n");
             changed = true;
         }
-        ui.weak(
+        ui.weak(tr(
             "Fields: %name%, %path%, %position%, %dimensions%, %marks%, %keywords%, %comment%, \
              and each label of the EXIF panel, such as %Camera% or %ISO%. A | starts a part, \
              left out when its fields are empty.",
-        );
+        ));
         if ui.button(tr("Default")).clicked() {
             c.osd_template = OSD_TEMPLATE.to_owned();
             changed = true;
@@ -878,7 +888,7 @@ impl crate::App {
         changed |= ui.checkbox(&mut c.remote_control, remote).changed();
         let inhibit = tr("Keep the screen saver off in full screen");
         changed |= ui.checkbox(&mut c.inhibit_screensaver, inhibit).changed();
-        let order = "Window title \"Glimt - image name\" (off: \"image name - Glimt\")";
+        let order = tr("Window title \"Glimt - image name\" (off: \"image name - Glimt\")");
         if ui.checkbox(&mut c.app_name_first, order).changed() {
             changed = true;
             self.title(ctx);
@@ -1034,7 +1044,8 @@ impl crate::App {
             ui.label(tr("Player (Enter):"));
             let player = egui::TextEdit::singleline(&mut self.config.video_player)
                 .hint_text(tr("default application"));
-            let hint = "A command line, such as mpv --fs; a path with spaces goes in \"quotes\"";
+            let hint =
+                tr("A command line, such as mpv --fs; a path with spaces goes in \"quotes\"");
             changed |= ui.add(player).on_hover_text(hint).changed();
         });
         changed
@@ -1122,9 +1133,11 @@ fn key_actions() -> Vec<Action> {
 /// video and start.
 fn sections_shown(query: &str) -> [bool; 10] {
     let shows = |texts: &[&'static str], more: &[&str]| found(query, texts, more);
+    // The search finds a level by its English name and by the name shown.
     let levels = |l: &config::MemoryLevel| [l.name, l.hover];
     let levels: Vec<&str> = (MEMORY_LEVELS.iter().flat_map(levels))
         .chain(CPU_LEVELS.iter().flat_map(|l| [l.0, l.1]))
+        .flat_map(|t| [t, tr(t)])
         .collect();
     // These are only the actions the section lists. A search for one that is not built in
     // would find none of its rows, and the section would then show every action.
@@ -1151,28 +1164,11 @@ mod tests {
 
     use super::*;
 
-    /// The texts of a string literal at the start of `rest`, after its `"`, as Rust reads it.
-    fn literal(rest: &str) -> String {
-        let (mut out, mut chars) = (String::new(), rest.chars().peekable());
-        while let Some(c) = chars.next() {
-            match c {
-                '"' => break,
-                '\\' => match chars.next() {
-                    Some('\n') => while chars.next_if(|c| c.is_whitespace()).is_some() {},
-                    Some('n') => out.push('\n'),
-                    Some(c) => out.push(c),
-                    None => {}
-                },
-                c => out.push(c),
-            }
-        }
-        out
-    }
-
     /// The `tr("…")` texts of `code`, and of the settings methods it calls (theirs, not
     /// what those do: `self.list` is not a setting).
     fn texts(code: &str, out: &mut Vec<String>) {
         let sources = [include_str!("preferences.rs"), include_str!("menus.rs")];
+        let literals = crate::support::source_rules::literals(code);
         // tf!'s templates too: the search matches their words, not the values put in. Not the
         // notices a setting's button sends, which are not on the window.
         for call in ["tr(", "tf!("] {
@@ -1183,8 +1179,10 @@ mod tests {
                 if named || before.ends_with("send(") || before.ends_with("notice = Some(") {
                     continue;
                 }
-                if let Some(rest) = code[at + call.len()..].trim_start().strip_prefix('"') {
-                    out.push(literal(rest));
+                let after = at + call.len();
+                let quote = code.len() - code[after..].trim_start().len();
+                if let Some((_, text)) = literals.iter().find(|l| l.0 == quote) {
+                    out.push(text.clone());
                 }
             }
         }
