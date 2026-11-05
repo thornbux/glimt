@@ -5,6 +5,11 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- A Preferences search for an action that is not built in no longer lists every keyboard
+  shortcut.
+
 ## [0.57.0] - 2026-11-05
 
 ### Fixed

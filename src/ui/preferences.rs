@@ -969,12 +969,7 @@ impl crate::App {
             }
         }
         let all = shortcuts();
-        let mut actions: Vec<Action> = Vec::new();
-        for s in SHORTCUTS {
-            if !actions.contains(&s.0) && (s.0 != Action::Play || cfg!(feature = "video")) {
-                actions.push(s.0);
-            }
-        }
+        let mut actions = key_actions();
         // Those a search finds, or all when it finds none (it found the section's own words).
         let has = |a: &Action| found(query, &[], &[a.english(), a.label()]);
         if actions.iter().any(has) {
@@ -1097,6 +1092,18 @@ fn found(query: &str, texts: &[&'static str], more: &[&str]) -> bool {
     query.split_whitespace().all(|w| all.contains(w))
 }
 
+/// Returns the actions the keyboard section lists: each one with a key, once, when it is built
+/// in. The section's rows and its search both read this list.
+fn key_actions() -> Vec<Action> {
+    let mut actions: Vec<Action> = Vec::new();
+    for s in SHORTCUTS {
+        if !actions.contains(&s.0) && (s.0 != Action::Play || cfg!(feature = "video")) {
+            actions.push(s.0);
+        }
+    }
+    actions
+}
+
 /// Which sections of Preferences have a text the search `query` (lower case) finds, in the
 /// order they show: the look, keys, image, slideshow, file list, deleting, colour, memory,
 /// video and start.
@@ -1106,8 +1113,11 @@ fn sections_shown(query: &str) -> [bool; 10] {
     let levels: Vec<&str> = (MEMORY_LEVELS.iter().flat_map(levels))
         .chain(CPU_LEVELS.iter().flat_map(|l| [l.0, l.1]))
         .collect();
-    let names = |s: &(Action, _, _)| [s.0.english(), s.0.label()];
-    let actions: Vec<&str> = SHORTCUTS.iter().flat_map(names).collect();
+    // These are only the actions the section lists. A search for one that is not built in
+    // would find none of its rows, and the section would then show every action.
+    let actions: Vec<&str> = (key_actions().iter())
+        .flat_map(|a| [a.english(), a.label()])
+        .collect();
     [
         shows(LOOK, &[]),
         shows(KEYBOARD, &actions),
@@ -1274,5 +1284,16 @@ mod tests {
         escape(&mut app);
         assert!(!app.prefs.open && app.prefs.query.is_empty());
         std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A search for an action that is not built in, such as Play Video without video, does
+    /// not open the keyboard section, which would then list every action.
+    #[test]
+    fn the_search_finds_only_listed_actions() {
+        let listed = super::key_actions();
+        for s in SHORTCUTS.iter().filter(|s| !listed.contains(&s.0)) {
+            let query = s.0.english().to_lowercase();
+            assert!(!super::sections_shown(&query)[1], "{query}");
+        }
     }
 }
