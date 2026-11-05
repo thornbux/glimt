@@ -5,6 +5,11 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- The notice after a keyword is set on or taken off several files is one sentence each language can
+  word in its own order, and the EXIF window's title is translated.
+
 ## [0.57.0] - 2026-11-05
 
 ### Fixed

@@ -1137,8 +1137,8 @@ msgid "Separated by commas"
 msgstr "Åtskilda med kommatecken"
 
 #: src/main.rs
-msgid "set on"
-msgstr "satt på"
+msgid "{tag} set on {count}"
+msgstr "{tag} satt på {count}"
 
 #: src/main.rs
 msgid "Setting keywords"
@@ -1181,8 +1181,8 @@ msgid "Stopped: {done} of {total}"
 msgstr "Stoppad: {done} av {total}"
 
 #: src/main.rs
-msgid "taken off"
-msgstr "borttaget"
+msgid "{tag} taken off {count}"
+msgstr "{tag} borttaget från {count}"
 
 #: src/main.rs
 msgid "Taking keywords off"
@@ -2356,3 +2356,7 @@ msgstr "Utskriften avbröts"
 
 msgid "Choose Application…"
 msgstr "Välj program …"
+
+#: src/ui/info_panel.rs
+msgid "EXIF: {name}"
+msgstr "EXIF: {name}"

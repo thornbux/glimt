@@ -1137,8 +1137,8 @@ msgid "Separated by commas"
 msgstr "Séparés par des virgules"
 
 #: src/main.rs
-msgid "set on"
-msgstr "ajouté"
+msgid "{tag} set on {count}"
+msgstr "{tag} ajouté à {count}"
 
 #: src/main.rs
 msgid "Setting keywords"
@@ -1181,8 +1181,8 @@ msgid "Stopped: {done} of {total}"
 msgstr "Arrêté : {done} sur {total}"
 
 #: src/main.rs
-msgid "taken off"
-msgstr "retiré"
+msgid "{tag} taken off {count}"
+msgstr "{tag} retiré de {count}"
 
 #: src/main.rs
 msgid "Taking keywords off"
@@ -2356,3 +2356,7 @@ msgstr "Impression annulée"
 
 msgid "Choose Application…"
 msgstr "Choisir une application…"
+
+#: src/ui/info_panel.rs
+msgid "EXIF: {name}"
+msgstr "EXIF: {name}"
