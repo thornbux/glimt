@@ -1099,18 +1099,17 @@ impl crate::App {
         // go() clears the notice for a new image. A new list is not one, and a notice is often
         // why the list was read again.
         let notice = self.notice.take();
-        self.go(ctx, cur);
+        self.show(ctx, cur);
         self.notice = notice;
     }
 
     /// Remove the (sorted) indices from the list in one pass and shift index-based state
     /// accordingly. Neighbours' textures are kept, so the next image shows without decoding again.
     pub(crate) fn remove_indices(&mut self, ctx: &egui::Context, removed: &[usize]) {
-        if removed.binary_search(&self.list.cur()).is_ok() {
+        let gone = removed.binary_search(&self.list.cur()).is_ok();
+        if gone {
             // The shown image is gone, and all that belonged to it.
             self.viewing = Viewing::default();
-        } else {
-            self.leave_image(ctx);
         }
         let version = self.list.version();
         // The next remaining file after the shown one, or the last. It is set in the list before
@@ -1129,10 +1128,12 @@ impl crate::App {
         if let Some(pan) = &mut self.pan_window {
             pan.follow(removed, version, self.list.version());
         }
-        if self.list.files().is_empty() {
-            self.title(ctx);
+        if gone && !self.list.files().is_empty() {
+            self.show(ctx, self.list.cur());
         } else {
-            self.go(ctx, self.list.cur());
+            // The shown image stays, so it keeps its zoom, turn and page, as in replace_files.
+            self.refill();
+            self.title(ctx);
         }
     }
 
@@ -1226,6 +1227,33 @@ pub(crate) fn total_size(paths: &[PathBuf]) -> u64 {
 #[cfg(test)]
 mod tests {
     use crate::support::test_support::{app_on, contract_folder, settle};
+
+    /// Other files taken out of the list leave the shown image as it was. Its turn not saved
+    /// yet and its zoom stay, also when it moves up to another place.
+    #[test]
+    fn removing_other_files_keeps_the_shown_image_as_it_is() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-remove-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        for name in ["a.png", "b.png", "c.png"] {
+            image::RgbImage::new(4, 4).save(dir.join(name)).unwrap();
+        }
+        let (mut app, ctx) = app_on(&dir);
+        (app.config.save_orientation, app.config.keep_zoom) = (false, false);
+        app.go(&ctx, 2);
+        app.viewing.turn((1, false), dir.join("c.png"));
+        app.zoom.one_to_one();
+        app.remove_indices(&ctx, &[0]);
+        assert_eq!(app.list.files(), ["b.png", "c.png"]);
+        assert_eq!(app.list.cur(), 1);
+        assert_eq!(
+            (app.viewing.orient(), app.zoom.is_fitted()),
+            ((1, false), false)
+        );
+        // When the shown image itself is taken out, the next one shows afresh.
+        app.remove_indices(&ctx, &[1]);
+        assert_eq!((app.list.cur(), app.viewing.orient()), (0, (0, false)));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
 
     /// With Compare on and a search, a delete of other files or a refresh keeps the decodes of
     /// the shown image and of the compared match. The list was refilled before the shown file's

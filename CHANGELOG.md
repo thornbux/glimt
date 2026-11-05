@@ -19,6 +19,11 @@ and versions follow [Semantic Versioning](https://semver.org/).
   every file again.
 - Deleting images while the Pan view still reads the days of a large folder no longer starts the
   reading over.
+- Deleting or moving other files no longer resets the shown image's zoom and turn, nor saves its
+  turn early with Save Orientation on.
+- Next on the last image, Previous on the first, a click on the shown image's own row or pane,
+  a slideshow of one image, opening the file already shown and turning Random order on or off
+  no longer reset the image's zoom, page and turn, or write the turn into the file at once.
 - With Compare on, deleting or moving other files no longer throws away the shown image's
   decode, which made it be decoded again.
 - With Compare on and a search, a delete or a refresh no longer blanks the compared image until

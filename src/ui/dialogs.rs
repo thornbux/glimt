@@ -457,8 +457,7 @@ impl crate::App {
                 return;
             };
             match prompt {
-                Prompt::Rename if found[0] != self.list.cur() => self.go(ctx, found[0]),
-                Prompt::Rename => {}
+                Prompt::Rename => self.go(ctx, found[0]),
                 _ => self.list.select(found.into_iter().collect()),
             }
         }
