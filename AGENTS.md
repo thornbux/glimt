@@ -98,7 +98,8 @@ holds only its `mod` lines, and a new module goes into the folder of what it doe
 | `src/features/print.rs` | Printing: a PDF of the images, sent to `lp` or saved, and the print dialog |
 | `src/features/remote.rs` | `--remote`, `--remote-all` and `--name`: a socket for each Glimt in `$XDG_RUNTIME_DIR/glimt`, `COMMANDS`, the sender (`client`) and the listener |
 | `src/images.rs` | **The images/ folder:** from a file to pixels and back: decoding, RAW, colour, video, decoder plugins, thumbnails and saving |
-| `src/images/decode.rs` | An image file to pixels at the size shown: scaled JPEG, SVG, animations, the histogram; `read_limited`, `read_text` and `read_head`, the one way a file is read whole |
+| `src/images/decode.rs` | An image file to pixels at the size shown: scaled JPEG, animations, the histogram; `read_limited`, `read_text` and `read_head`, the one way a file is read whole |
+| `src/images/svg.rs` | SVG and SVGZ through resvg (feature `svg`): `load`, with limits on the text unpacked, the pictures linked and entities that grow |
 | `src/images/decoder_plugins.rs` | Decoder plugins: programs in `glimt/decoders` that turn other formats into images |
 | `src/images/colour.rs` | Colour management: ICC profiles, the screen profile (also from colord), rendering intent |
 | `src/images/save.rs` | Saving a turned image with its EXIF and XMP, also lossy WebP; copies of the shown image (`CopyAs`, `copy_bytes`, `shown_image`) and `land`, the one way a copy and its sidecar are saved |

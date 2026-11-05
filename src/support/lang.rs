@@ -493,7 +493,7 @@ msgstr[1] "bilder"
                 "each language is named in itself",
             ),
             (
-                "images/decode.rs",
+                "images/svg.rs",
                 &["SVG "],
                 "what is wrong in a file, as the system's errors",
             ),

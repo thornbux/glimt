@@ -146,6 +146,7 @@ and versions follow [Semantic Versioning](https://semver.org/).
   clippy refuses the image crate's own from_decoder.
 - A panic in a worker is caught in one place, threads::caught, and a source test refuses a second
   way.
+- SVG has a module of its own (svg.rs), with its limits and their tests.
 
 ## [0.57.0] - 2026-11-05
 

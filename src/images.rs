@@ -6,6 +6,8 @@ pub(crate) mod decode;
 pub(crate) mod decoder_plugins;
 pub(crate) mod raw;
 pub(crate) mod save;
+#[cfg(feature = "svg")]
+pub(crate) mod svg;
 pub(crate) mod thumbs;
 #[cfg(feature = "video")]
 pub(crate) mod video;
