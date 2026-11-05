@@ -204,7 +204,15 @@ impl List {
     /// Gives the file at place `i` the name `name`, because it was renamed or moved within the
     /// list.
     pub(crate) fn rename(&mut self, i: usize, name: OsString) {
-        self.files[i] = name;
+        if let Some(file) = self.files.get_mut(i) {
+            *file = name;
+        }
+    }
+
+    /// Marks the list as another, because names in it changed in place. What was made for the
+    /// old names (the matches, Pan view's days) is then made again.
+    pub(crate) fn renamed_in_place(&mut self) {
+        self.version += 1;
     }
 
     /// Forgets the files, because another folder opens, where a file of the same name is

@@ -717,15 +717,16 @@ impl crate::App {
             self.viewing.turned_file_moved(to);
         }
         if !copied && self.folder.collection().is_some() {
-            let mut any = false;
-            for i in 0..self.list.files().len() {
-                if let Some(to) = new_place(&self.path(i), &moved)
-                    && let Ok(rel) = to.strip_prefix(self.folder.dir())
-                {
-                    self.list.rename(i, rel.as_os_str().to_owned());
-                    any = true;
-                }
-            }
+            let renamed: Vec<(usize, OsString)> = (0..self.list.files().len())
+                .filter_map(|i| {
+                    let to = new_place(&self.path(i), &moved)?;
+                    let rel = to.strip_prefix(self.folder.dir()).ok()?;
+                    Some((i, rel.as_os_str().to_owned()))
+                })
+                .collect();
+            let any = !renamed.is_empty();
+            let ctx = self.ctx.clone();
+            self.rename_in_list(&ctx, renamed);
             let follow = |all: &mut Vec<PathBuf>| {
                 for p in all {
                     if let Some(to) = new_place(p, &moved) {
@@ -980,8 +981,8 @@ impl crate::App {
             && self.is_file(self.list.cur(), &job.from[k])
             && let Ok(rel) = job.to[k].strip_prefix(self.folder.dir())
         {
-            self.list
-                .rename(self.list.cur(), rel.as_os_str().to_owned());
+            let cur = self.list.cur();
+            self.rename_in_list(ctx, vec![(cur, rel.as_os_str().to_owned())]);
         }
         self.list(ctx)
     }

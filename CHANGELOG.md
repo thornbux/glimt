@@ -5,6 +5,11 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- A file renamed or moved in a collection, or renamed in place, leaves the search's matches it no
+  longer fits and joins those it now fits.
+
 ## [0.57.0] - 2026-11-05
 
 ### Fixed
