@@ -701,9 +701,6 @@ mod tests {
         assert_eq!(pairs[1], (p("b0"), p("a0")));
     }
 
-    /// The failing path and the recovery share one undo. Two steps of a swap are done and then
-    /// undone, last first. One of them put back by hand already is left out, and not counted as
-    /// stuck.
     /// A step whose old name cannot be looked at counts as left, not as gone, so the plan is
     /// kept. Here the error is "not a folder"; on a share it is EIO.
     #[test]
@@ -720,6 +717,9 @@ mod tests {
         std::fs::remove_dir_all(dir).unwrap();
     }
 
+    /// The failing path and the recovery share one undo. Two steps of a swap are done and then
+    /// undone, last first. One of them put back by hand already is left out, and not counted as
+    /// stuck.
     #[test]
     fn undoes_the_steps_done() {
         let dir = std::env::temp_dir().join(format!("glimt-test-undo-{}", std::process::id()));
