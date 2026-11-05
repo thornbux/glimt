@@ -28,6 +28,7 @@ and versions follow [Semantic Versioning](https://semver.org/).
   decode, which made it be decoded again.
 - With Compare on and a search, a delete or a refresh no longer blanks the compared image until
   it is decoded again.
+- A Lightroom catalog sqlite3 cannot read is told by its reason alone, without part of the query.
 
 ## [0.57.0] - 2026-11-05
 
