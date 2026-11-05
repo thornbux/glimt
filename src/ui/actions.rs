@@ -1596,7 +1596,7 @@ mod tests {
         let src = include_str!("actions.rs");
         let start = src.find("pub fn english(").unwrap();
         let body = &src[start..start + src[start..].find("\n    }\n").unwrap()];
-        let po = include_str!("../no_nb.po");
+        let po = include_str!("../../po/no_nb.po");
         let lacking: Vec<&str> = (body.split("=> \"").skip(1))
             .map(|rest| &rest[..rest.find('"').unwrap()])
             .filter(|name| name.chars().any(char::is_alphabetic))

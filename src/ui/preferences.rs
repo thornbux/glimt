@@ -1204,7 +1204,7 @@ mod tests {
                 wrong.push(format!("{}: {shown:#?}", list[0]));
             }
             // The titles go through tr from the lists, which the translation test cannot see.
-            if !include_str!("../no_nb.po").contains(&format!("msgid \"{}\"\n", list[0])) {
+            if !include_str!("../../po/no_nb.po").contains(&format!("msgid \"{}\"\n", list[0])) {
                 wrong.push(format!("{} is not translated", list[0]));
             }
         }

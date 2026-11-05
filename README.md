@@ -120,7 +120,7 @@ The images in the screenshots are generated for the purpose.
 - Screen readers (Orca): menus, lists and each image read out, with its alt text.
 - The interface in English, Danish, Dutch, Finnish, French, German, Icelandic, Italian,
   Norwegian bokmål, Polish, Spanish and Swedish, by the system's language or chosen in
-  Preferences. More are welcome as merge requests: a gettext file like `src/sv.po`.
+  Preferences. More are welcome as merge requests: a gettext file like `po/sv.po`.
 
 ## Supported formats
 

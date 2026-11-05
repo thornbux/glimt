@@ -1,6 +1,6 @@
 //! The interface in the user's language. The English texts are the keys: `tr("Open File…")`,
 //! `tf!("Could not save {name}: {e}", name, e)` for texts with values, and `plural` for
-//! `count`'s nouns. A translation is a gettext `.po` file built in (`src/no_nb.po` …); a text it
+//! `count`'s nouns. A translation is a gettext `.po` file built in (`po/no_nb.po` …); a text it
 //! lacks shows in English, mixed with the translated ones, as in Geeqie. The language follows
 //! `$LANGUAGE`, `$LC_ALL`, `$LC_MESSAGES` and `$LANG`, unless the `language` setting names one.
 //! Command-line output, `--remote` and the Help Manual stay English.
@@ -25,22 +25,22 @@ macro_rules! tf {
 /// The translations built in: code (the setting), name in its own language, the language codes
 /// of `$LANG` it is for, and its `.po` file. Each has every text of `no_nb.po`.
 pub const LANGUAGES: &[(&str, &str, &[&str], &str)] = &[
-    ("da", "Dansk", &["da"], include_str!("../da.po")),
-    ("de", "Deutsch", &["de"], include_str!("../de.po")),
-    ("es", "Español", &["es"], include_str!("../es.po")),
-    ("fr", "Français", &["fr"], include_str!("../fr.po")),
-    ("is", "Íslenska", &["is"], include_str!("../is.po")),
-    ("it", "Italiano", &["it"], include_str!("../it.po")),
-    ("nl", "Nederlands", &["nl"], include_str!("../nl.po")),
+    ("da", "Dansk", &["da"], include_str!("../../po/da.po")),
+    ("de", "Deutsch", &["de"], include_str!("../../po/de.po")),
+    ("es", "Español", &["es"], include_str!("../../po/es.po")),
+    ("fr", "Français", &["fr"], include_str!("../../po/fr.po")),
+    ("is", "Íslenska", &["is"], include_str!("../../po/is.po")),
+    ("it", "Italiano", &["it"], include_str!("../../po/it.po")),
+    ("nl", "Nederlands", &["nl"], include_str!("../../po/nl.po")),
     (
         "no_nb",
         "Norsk bokmål",
         &["nb", "no"],
-        include_str!("../no_nb.po"),
+        include_str!("../../po/no_nb.po"),
     ),
-    ("pl", "Polski", &["pl"], include_str!("../pl.po")),
-    ("fi", "Suomi", &["fi"], include_str!("../fi.po")),
-    ("sv", "Svenska", &["sv"], include_str!("../sv.po")),
+    ("pl", "Polski", &["pl"], include_str!("../../po/pl.po")),
+    ("fi", "Suomi", &["fi"], include_str!("../../po/fi.po")),
+    ("sv", "Svenska", &["sv"], include_str!("../../po/sv.po")),
 ];
 
 /// The translation in use; `None` for English.
@@ -429,7 +429,7 @@ msgstr[1] "bilder"
     /// gets first: a language that lacks one would show it in English.
     #[test]
     fn every_language_has_every_text() {
-        let nb = super::parse(include_str!("../no_nb.po"));
+        let nb = super::parse(include_str!("../../po/no_nb.po"));
         for (code, _, _, po) in super::LANGUAGES {
             let t = super::parse(po);
             let lacks: Vec<&String> = (nb.texts.keys())
@@ -644,7 +644,7 @@ msgstr[1] "bilder"
             }
             start..code.len()
         };
-        let nb = super::parse(include_str!("../no_nb.po"));
+        let nb = super::parse(include_str!("../../po/no_nb.po"));
         let msgid = |t: &str| nb.texts.contains_key(t) || nb.plurals.contains_key(t);
         let mut wrong = Vec::new();
         for (file, text) in crate::support::source_rules::rust_sources() {
