@@ -1712,14 +1712,17 @@ fn left_by_trash(paths: &[PathBuf]) -> Option<(String, Vec<PathBuf>)> {
 /// Returns a notice when a name of `to` has a character that the FAT or exFAT file system of its
 /// folder refuses, before anything is renamed. Returns `None` when every name is allowed where it
 /// goes. `mount_type` gives a folder's file system. Only the folder of a name with such a
-/// character is looked up.
+/// character is looked up, and each folder once, because this runs in the window's thread and
+/// every lookup reads the mount table.
 fn refused_on_fat(to: &[PathBuf], mount_type: impl Fn(&Path) -> Option<String>) -> Option<String> {
+    let mut kinds: HashMap<&Path, Option<String>> = HashMap::new();
     to.iter().find_map(|path| {
         let name = path.file_name()?.to_string_lossy();
         if !name.contains(NOT_ON_FAT) {
             return None;
         }
-        let kind = mount_type(path.parent()?)?;
+        let dir = path.parent()?;
+        let kind = kinds.entry(dir).or_insert_with(|| mount_type(dir)).clone()?;
         matches!(kind.as_str(), "vfat" | "msdos" | "exfat").then(|| {
             tf!(
                 "\"{name}\": a {kind} file system, as on a camera card, allows none of : ? * \" < > | \\ in a name. Nothing was renamed.",
@@ -2006,6 +2009,15 @@ mod tests {
         };
         assert!(super::refused_on_fat(&to(&["a.jpg", "b c.jpg"]), counted).is_none());
         assert_eq!(looked.get(), 0);
+        // A Rename Many to times of day on ext4 looks the folder up once, not once a name.
+        let times: Vec<String> = (0..1000).map(|i| format!("12:{i}.jpg")).collect();
+        let times: Vec<&str> = times.iter().map(String::as_str).collect();
+        let on_ext4 = |_: &Path| {
+            looked.set(looked.get() + 1);
+            Some("ext4".to_owned())
+        };
+        assert!(super::refused_on_fat(&to(&times), on_ext4).is_none());
+        assert_eq!(looked.get(), 1);
     }
 
     /// Entries taken out of a collection go back to their places, also when some are there again.
