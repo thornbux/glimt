@@ -281,7 +281,12 @@ impl crate::App {
                 Ok(o) if !o.status.success() => None,
                 Ok(mut o) => {
                     o.stdout.pop_if(|b| *b == b'\n');
-                    Some(PathBuf::from(std::ffi::OsString::from_vec(o.stdout)))
+                    let path = PathBuf::from(std::ffi::OsString::from_vec(o.stdout));
+                    Some(if folder && !several {
+                        resolved(path)
+                    } else {
+                        path
+                    })
                 }
             };
             let _ = tx.send(picked);
@@ -857,6 +862,15 @@ impl crate::App {
     }
 }
 
+/// Returns `dir`, a folder the file dialog answered with, through its links. Copy To, Move To
+/// and the sort folders then find a camera card reached through a link (`~/card` →
+/// `/media/u/CARD`) by its mount, which is looked up by the path as text. This runs in the
+/// dialog's thread, because a link into a share that stopped answering would hold the window.
+/// Returns `dir` as it is when it cannot be resolved.
+fn resolved(dir: PathBuf) -> PathBuf {
+    dir.canonicalize().unwrap_or(dir)
+}
+
 /// Returns a warning for Rename Many's preview when `name`, the first new name, has a
 /// character that the FAT or exFAT file system `fat` of its folder refuses. Returns `None` when
 /// the folder is on another file system, or when the name is allowed there.
@@ -1020,6 +1034,21 @@ mod tests {
         app.open(&ctx, list);
         let start = app.dialog_start(&super::Pick::SaveFrame(image.clone(), 2));
         assert_eq!(start, images.join("a-frame-3.png"));
+        std::fs::remove_dir_all(d).unwrap();
+    }
+
+    /// A folder picked through a link is the folder it points to, so that the mount lookup,
+    /// which reads the path as text, finds the card the folder is on. A path that cannot be
+    /// resolved stays as it was.
+    #[test]
+    fn a_folder_picked_through_a_link_is_the_one_it_points_to() {
+        let d = std::env::temp_dir().join(format!("glimt-test-picked-{}", std::process::id()));
+        let card = d.join("media/CARD");
+        std::fs::create_dir_all(&card).unwrap();
+        std::os::unix::fs::symlink(&card, d.join("card")).unwrap();
+        let card = card.canonicalize().unwrap();
+        assert_eq!(super::resolved(d.join("card")), card);
+        assert_eq!(super::resolved(d.join("gone")), d.join("gone"));
         std::fs::remove_dir_all(d).unwrap();
     }
 }

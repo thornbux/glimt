@@ -148,12 +148,16 @@ fn mount_type_in(
     // Each step goes one mount further down, so a table that loops ends too.
     for _ in 0..mounts.len() {
         // Backwards, so that of two at the same place the later one is the first found.
-        let Some(next) = (mounts.iter().rev())
-            .filter(|m| on(m, under) && path.starts_with(&m.at))
-            .min_by_key(|m| m.at.as_os_str().len())
-        else {
+        let mut here = (mounts.iter().rev()).filter(|m| on(m, under) && path.starts_with(&m.at));
+        let Some(next) = here.clone().min_by_key(|m| m.at.as_os_str().len()) else {
             break;
         };
+        // A chroot shows several top mounts when they are on mounts outside it. Which of them a
+        // path reaches depends on whether each was mounted before the chroot was made, which
+        // the table does not tell, so the type is not known.
+        if under.is_none() && here.any(|m| m.at != next.at) {
+            return None;
+        }
         under = Some(next.id);
         found = Some(next);
     }
@@ -636,6 +640,25 @@ mod tests {
         );
         assert!(super::is_remote("fuse.rclone") && super::is_remote("cifs"));
         assert!(!super::is_remote("fuseblk") && !super::is_remote("vfat"));
+    }
+
+    /// In a chroot, the top mounts are those whose parents are outside it. One that alone
+    /// starts a path holds it. Where several at different places start it, the one the path
+    /// reaches is not known, and neither is a path that no top mount starts.
+    #[test]
+    fn a_chroot_with_several_top_mounts_answers_only_what_it_knows() {
+        let mounts = b"30 20 0:60 / / rw - tmpfs tmpfs rw\n\
+            31 20 0:5 / /proc rw - proc proc rw\n\
+            32 30 8:17 / /card rw - vfat /dev/sdb1 rw\n";
+        let none = |_: &[u8]| None;
+        let kind = |m: &[u8], p: &str| super::mount_type_in(m, std::path::Path::new(p), none);
+        assert_eq!(kind(mounts, "/proc/1/status"), None);
+        assert_eq!(kind(mounts, "/card/a.jpg").as_deref(), Some("vfat"));
+        assert_eq!(kind(mounts, "/home/a.jpg").as_deref(), Some("tmpfs"));
+        let no_root = b"31 20 0:5 / /proc rw - proc proc rw\n\
+            33 20 0:6 / /dev rw - devtmpfs udev rw\n";
+        assert_eq!(kind(no_root, "/proc/1").as_deref(), Some("proc"));
+        assert_eq!(kind(no_root, "/home/a.jpg"), None);
     }
 
     /// A replace whose write fails never runs the step before the rename, so Save As over a file

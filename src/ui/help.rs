@@ -132,7 +132,8 @@ const MANUAL: &[(&str, &str)] = &[
          that the new name is free, and a rename the file system refuses names its type. A camera \
          card (FAT or exFAT) allows none of : ? * \" < > | \\ in a name: Rename, Rename Many, \
          Copy, Move and Rename Folder say so before they start, and Rename Many's preview warns \
-         of it.\n\n\
+         of it. An exFAT card mounted through FUSE (fuseblk) is known only where udev's data can \
+         be read, so not in the Flatpak: there the card's own error tells.\n\n\
          Several folders show as one list:\n\n\
          - glimt ~/Holiday ~/Family\n\
          - File → Open Several Folders…\n\

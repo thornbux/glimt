@@ -1793,7 +1793,11 @@ pub(crate) fn fat_type(dir: &Path) -> Option<String> {
     fs_type(dir).filter(|kind| is_fat(kind))
 }
 
-/// Returns whether `kind`, a type of file system from `mount_type`, is FAT or exFAT.
+/// Returns whether `kind`, a type of file system from `mount_type`, is FAT or exFAT. An exFAT
+/// card through FUSE is "fuseblk" where udev's data cannot be read, as in a container or the
+/// Flatpak, and so is NTFS through ntfs-3g, which allows : ? * and the others. A fuseblk mount
+/// is not taken as FAT, so that no name is refused on NTFS. On such a card the copy or rename
+/// fails at that file with the system's error instead, as before 0.63.0.
 fn is_fat(kind: &str) -> bool {
     matches!(kind, "vfat" | "msdos" | "exfat")
 }
@@ -1834,19 +1838,17 @@ fn not_renamed((name, kind): (String, String)) -> String {
 
 /// Returns a notice when a file of `paths` has a name that the FAT or exFAT file system of
 /// `dest` refuses, so that a copy (`keep`) or a move into it refuses all before it starts.
-/// Returns `None` when every name is allowed there. Only the names with such a character are
-/// joined to `dest`, so a copy of thousands of plain names makes no new paths.
+/// Returns `None` when every name is allowed there. Every file goes into the one folder, so the
+/// first name with such a character decides, and the names after it are not looked at.
 fn refused_transfer(
     paths: &[PathBuf],
     dest: &Path,
     keep: bool,
     mount_type: impl Fn(&Path) -> Option<String>,
 ) -> Option<String> {
-    let odd: Vec<PathBuf> = (paths.iter().filter_map(|p| p.file_name()))
-        .filter(|n| n.to_string_lossy().contains(NOT_ON_FAT))
-        .map(|n| dest.join(n))
-        .collect();
-    let (name, kind) = refused_on_fat(&odd, mount_type)?;
+    let odd = (paths.iter().filter_map(|p| p.file_name()))
+        .find(|n| n.to_string_lossy().contains(NOT_ON_FAT))?;
+    let (name, kind) = refused_on_fat(&[dest.join(odd)], mount_type)?;
     Some(match keep {
         true => tf!(
             "\"{name}\": a {kind} file system, as on a camera card, allows none of : ? * \" < > | \\ in a name. Nothing was copied.",
@@ -2148,6 +2150,26 @@ mod tests {
         };
         assert!(super::refused_on_fat(&to(&times), on_ext4).is_none());
         assert_eq!(looked.get(), 1);
+    }
+
+    /// A Copy To of 200,000 files with a ':' at the end of every long name stops at the first
+    /// name, because one folder takes them all. It once joined every name to the folder in the
+    /// window's thread first, which took 170 ms where 50 ms are allowed here.
+    #[test]
+    fn a_copy_of_many_refused_names_looks_at_the_first() {
+        use std::path::{Path, PathBuf};
+        let long = "a".repeat(240);
+        let paths: Vec<PathBuf> = (0..200_000)
+            .map(|i| PathBuf::from(format!("/photos/{long}{i}:")))
+            .collect();
+        let on_ext4 = |_: &Path| Some("ext4".to_owned());
+        let start = std::time::Instant::now();
+        assert!(super::refused_transfer(&paths, Path::new("/card"), true, on_ext4).is_none());
+        let took = start.elapsed();
+        assert!(took < std::time::Duration::from_millis(50), "{took:?}");
+        let on_vfat = |_: &Path| Some("vfat".to_owned());
+        let told = super::refused_transfer(&paths, Path::new("/card"), true, on_vfat).unwrap();
+        assert!(told.contains(&format!("{long}0:")), "{told}");
     }
 
     /// A Copy To or Move To onto a FAT card, where one file's name has a character the card
