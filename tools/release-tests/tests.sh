@@ -317,6 +317,7 @@ for v in new old; do
         exiftool -q -q -overwrite_original "-ICC_Profile<=$adobe" a.webp
         convert -size 20x20 xc:white z.png
         want="$(exiftool -s3 -ProfileDescription a.webp)"
+        [ -n "$want" ] || fail "exiftool wrote no ICC profile into a.webp"
         cd /tmp
         config save_orientation=true color_management=$cm
         start $d
