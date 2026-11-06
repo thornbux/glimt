@@ -5,6 +5,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.64.0] - 2026-11-06
+
 ### Fixed
 
 - Copy To, Move To and the sort folders' buttons onto a camera card reached through a link
@@ -14,6 +16,12 @@ and versions follow [Semantic Versioning](https://semver.org/).
   shown as it was picked.
 - A Copy To or Move To of many files with a name a camera card refuses stops at the first such
   name, instead of first making a path of every one in the window's thread.
+
+### Changed
+
+- `tools/check.sh --clean` removes the build folders of checkouts that are gone, which had
+  filled the disk of the release tests' Docker.
+- Dependabot leaves zbus at 5 until AccessKit takes zbus 6, so the full build has one copy.
 
 ## [0.63.0] - 2026-11-06
 
@@ -2717,7 +2725,8 @@ The first release. Glimt is not 1.0 yet: it is in daily use, but expect rough ed
 - Remote control from the command line: `glimt --remote` and `--remote-all`.
 - Remembers the folder, window size and position.
 
-[Unreleased]: https://github.com/thornbux/glimt/compare/v0.63.0...HEAD
+[Unreleased]: https://github.com/thornbux/glimt/compare/v0.64.0...HEAD
+[0.64.0]: https://github.com/thornbux/glimt/compare/v0.63.0...v0.64.0
 [0.63.0]: https://github.com/thornbux/glimt/compare/v0.62.0...v0.63.0
 [0.62.0]: https://github.com/thornbux/glimt/compare/v0.61.0...v0.62.0
 [0.61.0]: https://github.com/thornbux/glimt/compare/v0.60.0...v0.61.0
