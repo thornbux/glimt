@@ -36,8 +36,12 @@ jobs:
         with:
           toolchain: stable
       # Edition 2024 resolves by rust-version, so no crate newer than Rust 1.95 builds is taken.
+      # cargo's own exit status decides the step; grep finding nothing (a week without updates)
+      # does not fail it.
       - name: cargo update
-        run: cargo update --color never 2>&1 | grep -E '^ +(Updating|Adding|Removing) ' | tee updated.txt
+        run: |
+          cargo update --color never 2>cargo.txt || { cat cargo.txt; exit 1; }
+          grep -E '^ +(Updating|Adding|Removing) ' cargo.txt | tee updated.txt || true
       - name: The files that follow Cargo.lock
         run: python3 tools/sbom.py && python3 tools/flatpak-sources.py
       - name: The Flatpak image's digest
