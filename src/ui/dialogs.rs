@@ -876,7 +876,8 @@ impl crate::App {
 
     /// Returns whether `key`, Enter or Esc, gives the default answer of what is open, and takes
     /// the key when it does. Only a new press answers, not the repeat of a key held down. It
-    /// answers only while no widget has the keyboard focus, nor had it as the last frame ended.
+    /// answers only while no widget has the keyboard focus, nor had it as the last frame ended,
+    /// and only without Ctrl or Alt, which leave the key to the user's own shortcuts.
     /// A button with the focus then answers with its own click, as egui clicks it on Enter. A
     /// text field keeps its keys too: egui takes its focus away at the start of the frame Esc
     /// is pressed in, so only the last frame's focus shows that Esc was meant for the field.
@@ -897,7 +898,8 @@ impl crate::App {
         }
         ctx.input_mut(|i| {
             let new = |e: &egui::Event| {
-                matches!(e, egui::Event::Key { key: k, pressed: true, repeat: false, .. } if *k == key)
+                matches!(e, egui::Event::Key { key: k, pressed: true, repeat: false, modifiers, .. }
+                    if *k == key && !modifiers.ctrl && !modifiers.alt && !modifiers.command)
             };
             let at = i.events.iter().position(new);
             at.map(|at| i.events.remove(at)).is_some()
@@ -1109,6 +1111,40 @@ mod tests {
         esc(true);
         assert!(!esc(false), "Esc that left a text field answered");
         assert!(esc(false), "Esc with nothing focused did not answer");
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// Enter with Ctrl or Alt is no answer, and stays for the user's own shortcut on it. The
+    /// crop and the grid's Enter read only a key without them before.
+    #[test]
+    fn enter_with_ctrl_or_alt_is_no_answer() {
+        let dir =
+            std::env::temp_dir().join(format!("glimt-test-ctrl-enter-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let (app, ctx) = app_on(&dir);
+        let enter = |modifiers: egui::Modifiers| {
+            let event = |pressed| egui::Event::Key {
+                key: egui::Key::Enter,
+                physical_key: None,
+                pressed,
+                repeat: false,
+                modifiers,
+            };
+            let input = egui::RawInput {
+                events: vec![event(true), event(false)],
+                ..Default::default()
+            };
+            let mut answered = false;
+            let _ = ctx.run_ui(input, |ui| {
+                answered = app.answers(ui.ctx(), egui::Key::Enter);
+                app.note_focus(ui.ctx());
+            });
+            answered
+        };
+        assert!(!enter(egui::Modifiers::CTRL), "Ctrl+Enter answered");
+        assert!(!enter(egui::Modifiers::ALT), "Alt+Enter answered");
+        assert!(enter(egui::Modifiers::SHIFT), "Shift+Enter did not answer");
+        assert!(enter(egui::Modifiers::NONE), "Enter did not answer");
         std::fs::remove_dir_all(dir).unwrap();
     }
 

@@ -263,6 +263,27 @@ mod tests {
         std::fs::remove_dir_all(dir).unwrap();
     }
 
+    /// Esc (or Q) back to the grid from an image opened from it ends a crop of that image.
+    /// Before, the crop stayed behind the grid, and the next Enter there saved the part.
+    #[test]
+    fn going_back_to_the_grid_ends_a_crop() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-crop-esc-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let (mut app, ctx) = crate::support::test_support::app_on(&dir);
+        app.run(&ctx, crate::ui::actions::Action::ThumbnailGrid);
+        app.panel.open_from_grid();
+        let crop = super::Crop {
+            path: dir.join("a.png"),
+            how: app.shown_copy(),
+            anchor: egui::Pos2::ZERO,
+            part: None,
+        };
+        app.viewing.start_crop(crop);
+        app.run(&ctx, crate::ui::actions::Action::Escape);
+        assert!(app.panel.area_grid_shown() && !app.viewing.is_cropping());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
     /// A part in whole pixels, inside the image and never empty.
     #[test]
     fn rounds_the_part_to_pixels() {
