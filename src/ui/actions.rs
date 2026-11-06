@@ -1585,8 +1585,9 @@ mod tests {
         assert!(listed.is_sorted(), "ALL is not in name order");
     }
 
-    /// Every action run in an empty folder does nothing harmful: none panics on a list with no
-    /// file. A new action that reads the shown file without a guard fails here.
+    /// Every action run in an empty folder does nothing harmful, and nor does the frame drawn
+    /// after it: none panics on a list with no file. A new action, view or window that reads
+    /// the shown file without a guard fails here.
     #[test]
     fn every_action_is_safe_in_an_empty_folder() {
         // Those that open a file dialog or start a program of the desktop are left out, because
@@ -1608,12 +1609,70 @@ mod tests {
         // View → Filter and colour management are the process's. They are held from the colour
         // tests while changed, and put back.
         let held = (crate::images::colour::COLOUR_TEST.lock()).unwrap_or_else(|e| e.into_inner());
-        for &action in ALL.iter().filter(|a| !OPENS_SOMETHING.contains(a)) {
-            app.run(&ctx, action);
+        // A frame is drawn after each action, so every view and window it opens is drawn with
+        // no file to show. The second round turns the toggles off again, so each view is also
+        // drawn without the others.
+        let frame =
+            |app: &mut crate::App| drop(ctx.run_ui(Default::default(), |ui| app.frame_ui(ui)));
+        for _ in 0..2 {
+            for &action in ALL.iter().filter(|a| !OPENS_SOMETHING.contains(a)) {
+                app.run(&ctx, action);
+                frame(&mut app);
+            }
         }
         crate::images::colour::VIEW_FILTER.store(0, std::sync::atomic::Ordering::Relaxed);
         crate::images::colour::COLOR_MANAGEMENT.store(true, std::sync::atomic::Ordering::Relaxed);
         drop(held);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// Each view and window opened on the only file is drawn again after that file is gone,
+    /// with the list then empty. The projector once read the shown image's name there and
+    /// panicked on the next frame.
+    #[test]
+    fn every_view_draws_after_the_last_file_goes() {
+        use crate::support::test_support::{app_on, settle};
+        const OPENS_A_VIEW: &[Action] = &[
+            Action::Projector,
+            Action::ThumbnailGrid,
+            Action::PanView,
+            Action::ExifWindow,
+            Action::Keywords,
+            Action::NextLayout,
+            Action::Overlay,
+            Action::Histogram,
+            Action::Slideshow,
+            Action::Crop,
+            Action::SaveAs,
+            Action::Print,
+            Action::FindDuplicates,
+            Action::CheckImages,
+            Action::Preferences,
+            Action::Help,
+            Action::FullScreen,
+            Action::HideTools,
+        ];
+        let dir = std::env::temp_dir().join(format!("glimt-test-gone-{}", std::process::id()));
+        for &action in OPENS_A_VIEW {
+            std::fs::create_dir_all(&dir).unwrap();
+            image::RgbImage::new(4, 4).save(dir.join("a.png")).unwrap();
+            let (mut app, ctx) = app_on(&dir);
+            let frame = |app: &mut crate::App| {
+                drop(ctx.run_ui(Default::default(), |ui| app.frame_ui(ui)));
+            };
+            // Crop and Save As start from the image decoded for the view, which a frame asks
+            // for.
+            frame(&mut app);
+            assert!(settle(&mut app, &ctx, |app| !app.list.slots().is_empty()));
+            app.run(&ctx, action);
+            frame(&mut app);
+            std::fs::remove_dir_all(&dir).unwrap();
+            std::fs::create_dir_all(&dir).unwrap();
+            app.run(&ctx, Action::Refresh);
+            assert!(settle(&mut app, &ctx, |app| app.list.files().is_empty()));
+            frame(&mut app);
+            frame(&mut app);
+        }
         std::fs::remove_dir_all(dir).unwrap();
     }
 
