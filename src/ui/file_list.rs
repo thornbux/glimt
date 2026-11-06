@@ -236,9 +236,12 @@ impl Panel {
 
     /// One column until the icon grid, drawn later in the frame, says how many it has. The
     /// scroll asked for so far is made by the lists this frame draws, and then it is done.
-    pub(crate) fn start_frame(&mut self) {
+    /// When the frame draws no list (`lists` is false in full screen or with the file list
+    /// hidden), the scroll waits for the first frame that draws one. The list then shows the
+    /// image shown when it comes back.
+    pub(crate) fn start_frame(&mut self, lists: bool) {
         self.grid_cols = 1;
-        self.scroll_now = std::mem::take(&mut self.scroll_to_cur);
+        self.scroll_now = lists && std::mem::take(&mut self.scroll_to_cur);
     }
 
     /// Sets how far Previous and Next move, a row of the icon grid for ↑ and ↓, and otherwise
@@ -1852,18 +1855,28 @@ mod tests {
     #[test]
     fn a_scroll_reaches_every_list_of_one_frame() {
         let mut panel = Panel::default();
-        panel.start_frame();
+        panel.start_frame(true);
         assert!(
             panel.scrolls(),
             "the first frame scrolls to the first image"
         );
-        panel.start_frame();
+        panel.start_frame(true);
         assert!(!panel.scrolls());
         panel.scroll_to_current();
         assert!(panel.scrolls());
-        panel.start_frame();
+        panel.start_frame(true);
         assert!(panel.scrolls());
-        panel.start_frame();
+        panel.start_frame(true);
+        assert!(!panel.scrolls());
+        // Frames without a list (the list hidden, full screen) keep the scroll for the first
+        // frame that draws one again.
+        panel.scroll_to_current();
+        panel.start_frame(false);
+        panel.start_frame(false);
+        assert_eq!(panel.grid_cols, 1);
+        panel.start_frame(true);
+        assert!(panel.scrolls(), "the list scrolls once it is drawn again");
+        panel.start_frame(true);
         assert!(!panel.scrolls());
     }
 
