@@ -869,6 +869,18 @@ fn copies_of_settings_have_one_writer() {
             ],
         ),
     ];
+    let wrong = outside_their_homes(WRITERS);
+    assert!(
+        wrong.is_empty(),
+        "a copy of a setting written by hand:\n{}",
+        wrong.join("\n")
+    );
+}
+
+/// Returns each place outside the tests where a text of `homes` is written in code outside the
+/// functions it is allowed in, as "file:line (text)". A function named "" allows the whole
+/// file, and the text's own definition is allowed anywhere.
+fn outside_their_homes(homes: &[(&str, &[(&str, &str)])]) -> Vec<String> {
     let mut wrong = Vec::new();
     for (file, text) in rust_sources() {
         let lines = code_lines(&text);
@@ -878,17 +890,42 @@ fn copies_of_settings_have_one_writer() {
             if let Some(rest) = qualifiers_off(line.trim_start()).strip_prefix("fn ") {
                 function = rest.split(['(', '<']).next().unwrap_or("").to_owned();
             }
-            for (write, setters) in WRITERS {
-                let at_home = setters.iter().any(|(f, s)| file == *f && function == *s);
-                if line.contains(write) && !at_home {
-                    wrong.push(format!("{file}:{} ({write} outside its setter)", i + 1));
+            for (call, allowed) in homes {
+                let at_home =
+                    (allowed.iter()).any(|(f, s)| file == *f && (s.is_empty() || function == *s));
+                let defined = line.contains(&format!("fn {call}"));
+                if line.contains(call) && !at_home && !defined {
+                    wrong.push(format!("{file}:{} ({call})", i + 1));
                 }
             }
         }
     }
+    wrong
+}
+
+/// A file Glimt writes from an image (a turn saved, a crop, a copy, their sidecars) takes the
+/// image's metadata only through `save::derived_metadata` and `save::derived_xmp`, which say
+/// what such a file keeps. The EXIF thumbnail was cleared there, but the XMP's thumbnail and a
+/// PNG's Photoshop resources were copied as they were, because each kind was decided apart.
+#[test]
+fn derived_files_take_metadata_in_one_place() {
+    const HOMES: &[(&str, &[(&str, &str)])] = &[
+        ("set_upright(", &[("images/save.rs", "derived_metadata")]),
+        ("set_xmp_orientation(", &[("images/save.rs", "derived_xmp")]),
+        ("set_exif_metadata(", &[("images/save.rs", "encode")]),
+        (
+            "own_sidecar(",
+            &[
+                ("metadata/xmp.rs", ""),
+                ("images/save.rs", "land"),
+                ("images/save.rs", "derive_sidecar"),
+            ],
+        ),
+    ];
+    let wrong = outside_their_homes(HOMES);
     assert!(
         wrong.is_empty(),
-        "a copy of a setting written by hand:\n{}",
+        "metadata copied to a derived file around save::derived_metadata or derived_xmp:\n{}",
         wrong.join("\n")
     );
 }

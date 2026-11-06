@@ -8,6 +8,35 @@ use crate::support::lang::tr;
 use image::ImageDecoder;
 use std::path::Path;
 
+/// The XMP properties a file written with new pixels drops, because they show or measure the
+/// pixels as they were. A thumbnail (xmp:Thumbnails, its JPEG in xmpGImg:image) of a crop shows
+/// the whole frame, and of a turn the old way up. The pixel sizes are wrong after a crop or a
+/// quarter turn, and readers take the image's own. Old Photoshop wrote "xap" for "xmp".
+/// shortcut: these prefixes are the ones Adobe's tools write; match by namespace if another
+/// writer's thumbnails are found.
+const DROPPED_XMP: [&str; 8] = [
+    "xmp:Thumbnails",
+    "xap:Thumbnails",
+    "xmpGImg:image",
+    "xapGImg:image",
+    "tiff:ImageWidth",
+    "tiff:ImageLength",
+    "exif:PixelXDimension",
+    "exif:PixelYDimension",
+];
+
+/// The keys of a PNG's text chunks that a file written with new pixels drops. The first three
+/// are ImageMagick's copies of the EXIF and XMP, with the old orientation, which exiv2 (Geeqie,
+/// digiKam) reads, so the turned file would be turned again there. The last is Photoshop's
+/// resources, which may hold a thumbnail of the whole frame. Its IPTC keywords are kept in
+/// ImageMagick's "Raw profile type iptc" beside it.
+const DROPPED_PNG_TEXT: [&[u8]; 4] = [
+    b"Raw profile type exif",
+    b"Raw profile type APP1",
+    b"Raw profile type xmp",
+    b"Raw profile type 8bim",
+];
+
 /// How a copy of an image is made (Edit → Crop, File → Save As). It is made as the view shows
 /// it (turned by `turns` and `mirrored`, by EXIF with `rotate`, and the page `page` of a TIFF),
 /// as a part of it, smaller, and in a format. `App::shown_copy` makes it from the view, for
@@ -79,6 +108,21 @@ enum Kind {
 /// whether the stored orientation turned the image a quarter, with Auto Rotate.
 type Metadata = (Option<Vec<u8>>, Option<Vec<u8>>, bool);
 
+/// How a file Glimt writes came from the image it was made from, which decides what it keeps of
+/// that image's metadata. Every writer of such a file goes through `derived_metadata`,
+/// `derived_xmp` and `png_with_chunks`, the one place that says it. The keywords, comment, alt
+/// text, stars, camera, date and place are kept in every case.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub(crate) enum Derived {
+    /// The same pixels with another orientation, as a JPEG's turn is saved. Only the
+    /// orientation changes.
+    Oriented(u8),
+    /// Pixels written anew as the view showed them: a PNG or WebP turned, a crop, a copy. The
+    /// orientation is 1, and what showed or measured the old pixels is dropped (`DROPPED_XMP`,
+    /// `DROPPED_PNG_TEXT`, and in EXIF the thumbnail, with the pixel sizes set anew).
+    Pixels,
+}
+
 /// Saves the view's rotation in a PNG or WebP, which have no orientation field to set. The
 /// pixels are turned, and the file is written again with its ICC profile, EXIF block and XMP
 /// (keywords, comment, and alt text other programs wrote into it). PNG and lossless WebP lose
@@ -91,6 +135,7 @@ pub fn save_rotated(
     mirrored: bool,
     webp_quality: u8,
 ) -> Result<(), String> {
+    let named = path;
     // Through a symlink, the new file is renamed over the file it points to, not over the link.
     let path = &std::fs::canonicalize(path).map_err(|e| e.to_string())?;
     let png = has_ext(path, &["png"]);
@@ -104,11 +149,12 @@ pub fn save_rotated(
         true => Kind::Png,
         false => Kind::WebP(webp_lossless(path) == Some(false)),
     };
-    let (exif, xmp, stored_quarter) = upright_metadata(path, rotate)?;
     let (img, icc) = load_icc(path, rotate)?;
     let img = turned(img, turns, mirrored);
+    let (exif, xmp, stored_quarter) = derived_metadata(path, rotate, (img.width(), img.height()))?;
     let quarter = (turns % 2 == 1) != stored_quarter;
     let out = encode(path, img, icc, exif, xmp, kind, quarter, webp_quality)?;
+    derive_sidecar(named, Derived::Pixels)?;
     crate::files::file_io::replace_existing(path, out).map_err(|e| e.to_string())
 }
 
@@ -126,11 +172,11 @@ pub fn copy_bytes(path: &Path, how: &CopyAs) -> Result<(Vec<u8>, Format), String
         Format::WebP => Kind::WebP(false),
         Format::WebPLossy => Kind::WebP(true),
     };
+    let (img, icc) = pixels(path, how)?;
     let (exif, xmp, _) = match how.strip {
         true => (None, None, false),
-        false => upright_metadata(path, how.rotate)?,
+        false => derived_metadata(path, how.rotate, (img.width(), img.height()))?,
     };
-    let (img, icc) = pixels(path, how)?;
     // A PNG's other chunks hold as they were, because a DPI is no different for a part. They
     // are dropped when stripped, because the text chunks may say where and by whom.
     let from = if how.strip { Path::new("") } else { path };
@@ -291,7 +337,8 @@ pub(crate) fn land(
         }
     }
     match source {
-        Some(xmp) => crate::files::file_io::create_file(&side, xmp).map_err(named),
+        Some(xmp) => crate::files::file_io::create_file(&side, derived_xmp(&xmp, Derived::Pixels))
+            .map_err(named),
         None => Ok(()),
     }
 }
@@ -354,7 +401,9 @@ fn animated(path: &Path) -> Result<bool, String> {
     })
 }
 
-fn upright_metadata(path: &Path, rotate: bool) -> Result<Metadata, String> {
+/// Reads the EXIF block and XMP of `path` and makes them what a file of new pixels of `size`
+/// keeps of them (`Derived::Pixels`).
+fn derived_metadata(path: &Path, rotate: bool, size: (u32, u32)) -> Result<Metadata, String> {
     let (mut exif, mut xmp, stored) = crate::images::decode::image_reader(path)
         .ok()
         .and_then(|r| r.into_decoder().ok())
@@ -365,13 +414,106 @@ fn upright_metadata(path: &Path, rotate: bool) -> Result<Metadata, String> {
         })
         .unwrap_or_default();
     if let Some(exif) = &mut exif {
-        exif::set_upright(exif)?;
+        exif::set_upright(exif, size)?;
     }
     if let Some(xmp) = &mut xmp {
-        exif::set_xmp_orientation(xmp, 1);
+        *xmp = derived_xmp(xmp, Derived::Pixels);
     }
     let quarter = rotate && stored.is_some_and(crate::images::decode::quarter_turn);
     Ok((exif, xmp, quarter))
+}
+
+/// Makes the XMP packet `xmp` what a file derived from its image as `how` says keeps of it,
+/// whether it was inside the image or in its sidecar. Its orientation is set, and for new
+/// pixels the properties of `DROPPED_XMP` are left out.
+pub(crate) fn derived_xmp(xmp: &[u8], how: Derived) -> Vec<u8> {
+    let mut out = xmp.to_vec();
+    match how {
+        Derived::Oriented(value) => exif::set_xmp_orientation(&mut out, value),
+        Derived::Pixels => {
+            exif::set_xmp_orientation(&mut out, 1);
+            for name in DROPPED_XMP {
+                out = without(&out, name.as_bytes());
+            }
+        }
+    }
+    out
+}
+
+/// Makes the sidecar of `path`, whose image is being written anew as `how` says, say what the
+/// image will. Otherwise a program that reads the sidecar first (digiKam) turns the photo back
+/// by its old orientation. It is called before the image is written: a sidecar that cannot be
+/// written then leaves the image as it was, and the next save writes the same orientation to
+/// an image that failed after it. Only a sidecar of its own, readable as text and with
+/// something to change, is written, under its lock (`xmp::update_sidecar`). A link or one that
+/// cannot be read is left alone, as the panel leaves it. The sidecar is the one of the name the
+/// list shows, which is the one Glimt's panel reads, also for a link to a photo.
+pub(crate) fn derive_sidecar(path: &Path, how: Derived) -> Result<(), String> {
+    let old = crate::metadata::xmp::own_sidecar(path).ok().flatten();
+    let text = old.filter(|x| std::str::from_utf8(x).is_ok());
+    if text.is_none_or(|x| derived_xmp(&x, how) == x) {
+        return Ok(());
+    }
+    crate::metadata::xmp::update_sidecar(path, true, |x| {
+        String::from_utf8(derived_xmp(x.as_bytes(), how)).ok()
+    })
+}
+
+/// Leaves the property `name` out of `xmp`, written as an attribute (` name="…"`) or as an
+/// element (`<name …>…</name>` or `<name …/>`). A property that is cut off is left as it is.
+fn without(xmp: &[u8], name: &[u8]) -> Vec<u8> {
+    let find = |hay: &[u8], what: &[u8]| hay.windows(what.len()).position(|w| w == what);
+    let mut out = xmp.to_vec();
+    let mut from = 0;
+    while let Some(at) = find(&out[from..], name).map(|i| from + i) {
+        let end = at + name.len();
+        let before = at.checked_sub(1).map(|i| out[i]);
+        let after = out.get(end).copied();
+        let cut = match before {
+            // An element: up to its own "/>", or else to its end tag.
+            Some(b'<')
+                if after.is_some_and(|c| c == b'>' || c == b'/' || c.is_ascii_whitespace()) =>
+            {
+                let close = find(&out[end..], b">").map(|i| end + i);
+                match close {
+                    Some(gt) if out[gt - 1] == b'/' => Some((at - 1, gt + 1)),
+                    Some(gt) => {
+                        let tag = [&b"</"[..], name, b">"].concat();
+                        find(&out[gt..], &tag).map(|i| (at - 1, gt + i + tag.len()))
+                    }
+                    None => None,
+                }
+            }
+            // An attribute: its name, "=" and the quoted value, with the blank before it.
+            Some(c) if c.is_ascii_whitespace() => {
+                let mut i = end;
+                let skip = |i: &mut usize| {
+                    while out.get(*i).is_some_and(u8::is_ascii_whitespace) {
+                        *i += 1;
+                    }
+                };
+                skip(&mut i);
+                let eq = out.get(i) == Some(&b'=');
+                i += 1;
+                skip(&mut i);
+                match out.get(i).copied() {
+                    Some(q @ (b'"' | b'\'')) if eq => {
+                        find(&out[i + 1..], &[q]).map(|j| (at - 1, i + 1 + j + 1))
+                    }
+                    _ => None,
+                }
+            }
+            _ => None,
+        };
+        match cut {
+            Some((start, stop)) => {
+                out.drain(start..stop);
+                from = start;
+            }
+            None => from = end,
+        }
+    }
+    out
 }
 
 /// `img` turned as the view turns it, mirrored first and then turned clockwise `turns`
@@ -527,7 +669,7 @@ fn png_with_xmp(png: &[u8], xmp: &[u8]) -> Result<Vec<u8>, String> {
 /// The PNG `new` with the chunks of `old` that still hold for its pixels put after its header.
 /// They are text, physical size, time and colour space. The profile, EXIF and XMP are not
 /// taken, because they are written anew, nor what depends on how the pixels are stored
-/// (palette, transparency, bit depth).
+/// (palette, transparency, bit depth), nor the text of `DROPPED_PNG_TEXT`.
 fn png_with_chunks(new: &[u8], old: &[u8], quarter: bool) -> Vec<u8> {
     const KEPT: [&[u8; 4]; 8] = [
         b"tEXt", b"zTXt", b"iTXt", b"pHYs", b"tIME", b"gAMA", b"cHRM", b"sRGB",
@@ -544,15 +686,8 @@ fn png_with_chunks(new: &[u8], old: &[u8], quarter: bool) -> Vec<u8> {
         };
         let name = &chunk[4..8];
         let xmp = name == b"iTXt" && chunk[8..].starts_with(b"XML:com.adobe.xmp\0");
-        // These are ImageMagick's copies of the EXIF and XMP, with the old orientation, which
-        // exiv2 (Geeqie, digiKam) reads, so the turned file would be turned again there.
-        let old_profile = [
-            &b"Raw profile type exif"[..],
-            b"Raw profile type APP1",
-            b"Raw profile type xmp",
-        ]
-        .iter()
-        .any(|key| matches!(name, b"tEXt" | b"zTXt" | b"iTXt") && chunk[8..].starts_with(key));
+        let old_profile = (DROPPED_PNG_TEXT.iter())
+            .any(|key| matches!(name, b"tEXt" | b"zTXt" | b"iTXt") && chunk[8..].starts_with(key));
         if name == b"pHYs" && swapped && len == 9 {
             let body = [&b"pHYs"[..], &chunk[12..16], &chunk[8..12], &chunk[16..17]].concat();
             kept.extend(9u32.to_be_bytes());
@@ -1169,6 +1304,98 @@ mod tests {
             b"caf\xe9-cropped.png"
         );
         std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// An XMP packet as Photoshop or Bridge writes one, with keywords, a thumbnail of the whole
+    /// frame, the pixel sizes as attributes and an orientation.
+    const BRIDGE_XMP: &str = "<x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><rdf:RDF>\
+        <rdf:Description tiff:Orientation=\"6\" tiff:ImageWidth=\"8\" \
+        exif:PixelYDimension='8'><dc:subject><rdf:Bag><rdf:li>beach</rdf:li></rdf:Bag>\
+        </dc:subject><xmp:Thumbnails><rdf:Alt><rdf:li rdf:parseType=\"Resource\">\
+        <xmpGImg:image>/9j/WHOLEFRAME</xmpGImg:image></rdf:li></rdf:Alt></xmp:Thumbnails>\
+        <xap:Thumbnails/></rdf:Description></rdf:RDF></x:xmpmeta>";
+
+    /// A crop keeps no picture of the whole frame: not in its XMP (xmp:Thumbnails), nor in its
+    /// sidecar's, nor in a PNG's Photoshop resources ("Raw profile type 8bim"). It keeps the
+    /// keywords and a PNG's comment, and its sidecar's orientation is upright as its pixels.
+    /// The XMP's thumbnail was copied as it was, so a face cropped out and shared still had
+    /// the whole photo inside.
+    #[test]
+    fn a_crop_keeps_no_picture_of_the_whole_frame() {
+        let dir = std::env::temp_dir().join(format!("glimt-crop-thumb-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("a.png");
+        let mut png = super::png_with_xmp(&black_png(8, 8), BRIDGE_XMP.as_bytes()).unwrap();
+        png.splice(
+            33..33,
+            png_chunk(b"tEXt", b"Raw profile type 8bim\0WHOLEFRAME"),
+        );
+        png.splice(33..33, png_chunk(b"tEXt", b"Comment\0hello"));
+        std::fs::write(&file, &png).unwrap();
+        std::fs::write(crate::metadata::xmp::sidecar(&file), BRIDGE_XMP).unwrap();
+        let how = super::CopyAs {
+            page: 0,
+            rotate: false,
+            turns: 0,
+            mirrored: false,
+            crop: Some([0, 0, 4, 4]),
+            long_side: None,
+            format: None,
+            jpeg_quality: 90,
+            webp_quality: 90,
+            strip: false,
+        };
+        let new = super::save_cropped(&file, &how).unwrap();
+        let has =
+            |bytes: &[u8], what: &str| bytes.windows(what.len()).any(|w| w == what.as_bytes());
+        let copy = std::fs::read(&new).unwrap();
+        let side = std::fs::read(crate::metadata::xmp::sidecar(&new)).unwrap();
+        for bytes in [&copy, &side] {
+            assert!(!has(bytes, "WHOLEFRAME") && !has(bytes, "Thumbnails"));
+            assert!(!has(bytes, "ImageWidth") && !has(bytes, "PixelYDimension"));
+            assert!(has(bytes, "<rdf:li>beach</rdf:li>"));
+        }
+        assert!(has(&copy, "hello"));
+        assert!(has(&side, "tiff:Orientation=\"1\""));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A turn saved sets the orientation in the photo's sidecar too, so digiKam, which reads
+    /// the sidecar first, shows it turned as Glimt does. A JPEG's sidecar gets the new EXIF
+    /// orientation, and a PNG turned in its pixels gets 1 and loses the old thumbnail. Before,
+    /// only the XMP inside a JPEG was set, and the sidecar turned the photo back.
+    #[test]
+    fn a_turn_saved_sets_its_sidecar() {
+        let dir = std::env::temp_dir().join(format!("glimt-turn-side-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let has = |path: &std::path::Path, what: &str| {
+            let side = std::fs::read(crate::metadata::xmp::sidecar(path)).unwrap();
+            side.windows(what.len()).any(|w| w == what.as_bytes())
+        };
+        let jpeg = dir.join("a.jpg");
+        image::RgbImage::new(8, 4).save(&jpeg).unwrap();
+        let side = BRIDGE_XMP.replace("Orientation=\"6\"", "Orientation=\"1\"");
+        std::fs::write(crate::metadata::xmp::sidecar(&jpeg), side).unwrap();
+        crate::metadata::exif::write_orientation(&jpeg, 1, false, true).unwrap();
+        assert!(has(&jpeg, "tiff:Orientation=\"6\""));
+        assert!(has(&jpeg, "<rdf:li>beach</rdf:li>"));
+        let png = dir.join("b.png");
+        std::fs::write(&png, black_png(8, 4)).unwrap();
+        std::fs::write(crate::metadata::xmp::sidecar(&png), BRIDGE_XMP).unwrap();
+        super::save_rotated(&png, true, 1, false, 90).unwrap();
+        assert_eq!(image::image_dimensions(&png).unwrap(), (4, 8));
+        assert!(has(&png, "tiff:Orientation=\"1\""));
+        assert!(!has(&png, "WHOLEFRAME") && has(&png, "<rdf:li>beach</rdf:li>"));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// XMP packets broken in thousands of ways are made a derived file's without a panic or a
+    /// loop.
+    #[test]
+    fn survives_broken_xmp_derived() {
+        for bytes in crate::support::test_support::broken(BRIDGE_XMP.as_bytes()) {
+            super::derived_xmp(&bytes, super::Derived::Pixels);
+        }
     }
 
     /// A copy gets the sidecar of what it was made from, or none. It never gets the one of a
