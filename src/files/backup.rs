@@ -2,6 +2,7 @@
 //! stars, collections, plugins and decoders, copied into a new folder.
 
 use crate::files::config::xdg_dir;
+use crate::images::save::file_id;
 use crate::support::format::{count, local_time};
 use crate::support::lang::tr;
 use std::path::{Path, PathBuf};
@@ -21,21 +22,49 @@ pub fn own_folders() -> Vec<(&'static str, PathBuf)> {
     .collect()
 }
 
-/// Copy the folder `from` with everything in it to `to`, made; how many files. A link to a file
-/// is copied as the file it points to. A link to a folder, or one that leads nowhere, is left
-/// out, because a link to a folder above it was copied inside itself until the path was too long.
-#[allow(clippy::disallowed_methods)] // copies into a backup folder made new for it
+/// Copies the folder `from` with everything in it to `to`, made. Returns how many files were
+/// copied. A link is copied as the file or folder it points to, so a themes folder that is a
+/// link into a dotfiles repository is backed up too. A link that leads nowhere is left out.
 pub fn copy_tree(from: &Path, to: &Path) -> std::io::Result<usize> {
+    std::fs::create_dir_all(to)?;
+    let mut above = Vec::from_iter(file_id(from));
+    copy_into(from, to, &ids_above(to), &mut above)
+}
+
+/// Copies what is in `from` to `to`, made. `target` holds the folders the copy goes into, and
+/// `above` the folders being copied that hold `from`, by (device, inode).
+#[allow(clippy::disallowed_methods)] // copies into a backup folder made new for it
+fn copy_into(
+    from: &Path,
+    to: &Path,
+    target: &[(u64, u64)],
+    above: &mut Vec<(u64, u64)>,
+) -> std::io::Result<usize> {
     std::fs::create_dir_all(to)?;
     let mut files = 0;
     for entry in std::fs::read_dir(from)? {
         let entry = entry?;
-        let (source, target) = (entry.path(), to.join(entry.file_name()));
-        if entry.file_type()?.is_dir() {
-            files += copy_tree(&source, &target)?;
+        let (source, dest) = (entry.path(), to.join(entry.file_name()));
+        if source.is_dir() {
+            let Some(id) = file_id(&source) else { continue };
+            // A link to a folder that holds the backup would copy the backup into itself.
+            if target.contains(&id) {
+                return Err(std::io::Error::other(crate::tf!(
+                    "A backup cannot go inside {folder}, which it copies",
+                    folder = source.display()
+                )));
+            }
+            // A link back up to a folder being copied would copy it inside itself forever.
+            if above.contains(&id) {
+                continue;
+            }
+            above.push(id);
+            let copied = copy_into(&source, &dest, target, above);
+            above.pop();
+            files += copied?;
         } else if source.is_file() {
             // Named, as the files after it are not copied.
-            std::fs::copy(&source, &target)
+            std::fs::copy(&source, &dest)
                 .map_err(|e| std::io::Error::new(e.kind(), format!("{}: {e}", source.display())))?;
             files += 1;
         }
@@ -60,8 +89,9 @@ pub(crate) fn back_up_to(dir: &Path) -> Result<String, String> {
         );
     }
     // Inside one of the folders it copies, the backup would copy itself until paths are too long.
-    let real = |p: &Path| p.canonicalize().unwrap_or_else(|_| p.to_owned());
-    if let Some((_, inside)) = own.iter().find(|(_, d)| real(dir).starts_with(real(d))) {
+    let target = ids_above(dir);
+    let inside_own = |d: &Path| file_id(d).is_some_and(|id| target.contains(&id));
+    if let Some((_, inside)) = own.iter().find(|(_, d)| inside_own(d)) {
         return Err(crate::tf!(
             "A backup cannot go inside {folder}, which it copies",
             folder = inside.display()
@@ -99,10 +129,20 @@ pub(crate) fn back_up_to(dir: &Path) -> Result<String, String> {
     }
 }
 
+/// Returns the folders that hold `path`, itself among them, by (device, inode): those above it
+/// as it is written, and those above the place it really is when a link leads there.
+fn ids_above(path: &Path) -> Vec<(u64, u64)> {
+    let written = std::path::absolute(path).unwrap_or_else(|_| path.to_owned());
+    let real = path.canonicalize().unwrap_or_else(|_| written.clone());
+    (written.ancestors().chain(real.ancestors()))
+        .filter_map(file_id)
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
-    /// A backup copy: every file of the tree, at the same place below the new folder, and no
-    /// folder through a link.
+    /// A backup copy: every file of the tree, at the same place below the new folder, a folder
+    /// through a link too, but never a folder above it again.
     #[test]
     fn copies_a_tree() {
         let dir = std::env::temp_dir().join(format!("glimt-test-tree-{}", std::process::id()));
@@ -118,13 +158,22 @@ mod tests {
             ("theme=Dark".into(), "#GQview".into())
         );
         assert!(dir.join("to/collections/sub/b.gqv").is_file());
-        // A link to a file is copied as its file, and a link to a folder above it is left out.
+        // A link to a file is copied as its file, a link to a folder outside as its folder, and
+        // a link to a folder above it is left out.
         std::os::unix::fs::symlink(&from, from.join("collections/sub/up")).unwrap();
         std::os::unix::fs::symlink("../a.gqv", from.join("collections/sub/a.gqv")).unwrap();
         let _ = std::fs::remove_dir_all(dir.join("to"));
         assert_eq!(super::copy_tree(&from, &dir.join("to")).unwrap(), 4);
         assert!(dir.join("to/collections/sub/a.gqv").is_file());
         assert!(!dir.join("to/collections/sub/up").exists());
+        std::fs::create_dir_all(dir.join("dotfiles/themes")).unwrap();
+        std::fs::write(dir.join("dotfiles/themes/my.theme"), "").unwrap();
+        std::os::unix::fs::symlink(dir.join("dotfiles/themes"), from.join("themes")).unwrap();
+        let _ = std::fs::remove_dir_all(dir.join("to"));
+        assert_eq!(super::copy_tree(&from, &dir.join("to")).unwrap(), 5);
+        assert!(dir.join("to/themes/my.theme").is_file());
+        // A backup into the folder a link leads to would copy itself, and is refused.
+        assert!(super::copy_tree(&from, &dir.join("dotfiles/themes/backup")).is_err());
         std::fs::remove_dir_all(dir).unwrap();
     }
 }

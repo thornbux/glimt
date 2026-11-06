@@ -445,6 +445,9 @@ const MANUAL: &[(&str, &str)] = &[
          - dimensions\n\
          - how alike they look (95, 90 or 85%, from the thumbnails).\n\n\
          Turn on Include Subfolders first to search a whole tree.\n\n\
+         Each file is compared once. Two names of one file, by a hard link or a path through a \
+         link or a bind mount, are no duplicates of each other: trashing one would free no space, \
+         or lose the only copy.\n\n\
          The groups found are listed; click a name to show it, check the ones to remove (or check \
          all but the first of each group) and move them to the trash.",
     ),
@@ -546,7 +549,8 @@ const MANUAL: &[(&str, &str)] = &[
          A photo without one whose EXIF says Adobe RGB, as from a camera set to it, is taken as \
          Adobe RGB; other images without one as sRGB, or the profile chosen there for them (Adobe \
          RGB, Display P3 or a file). Use the image's own profile off takes that one for every \
-         image.\n\n\
+         image. Thumbnails follow neither of these two: they show each image in its own \
+         colours, as other programs show them, with images without a profile as sRGB.\n\n\
          The EXIF panel (Ctrl+K) says which profile an image is shown from. The rendering intent \
          there decides how colours the target cannot show are brought in; only profiles with \
          tables for each intent (LUT profiles) tell them apart.\n\n\
@@ -771,8 +775,10 @@ const DIFFERENCES: &[(&str, &str, &str)] = &[
     ),
     (
         "Find Duplicates (D)",
-        "Compares the images in the list; checked files go to the trash",
-        "Files and folders dropped on its window; more methods, two sets, results to a collection",
+        "Compares the images in the list, hard links of one file as one file; checked files go \
+         to the trash",
+        "Files and folders dropped on its window; more methods, two sets, results to a \
+         collection; hard links of one file are duplicates",
     ),
     (
         "Layouts (View → Layout)",
