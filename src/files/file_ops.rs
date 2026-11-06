@@ -473,7 +473,10 @@ impl crate::App {
         // Otherwise a step would find its file gone, and its undo could not put the others
         // back.
         let renaming = self.work.renaming.is_some();
-        let busy = !saving && !writing && !renaming && self.touched(paths);
+        // A list just opened shows the names in its file until they are checked to be files.
+        // A folder named there was moved to the trash as one of its entries.
+        let reading = self.list.unchecked() && self.folder.is_listing();
+        let busy = !saving && !writing && !renaming && (reading || self.touched(paths));
         if saving {
             self.notice = Some(tr("Still saving a rotation: try again in a moment").into());
         } else if writing {
@@ -2135,6 +2138,27 @@ pub(crate) fn new_place(path: &Path, moved: &HashMap<&Path, &Path>) -> Option<Pa
 #[cfg(test)]
 mod tests {
     use crate::support::test_support::{app_on, contract_folder, settle};
+
+    /// Nothing is deleted while a list is read, as its entries are not yet checked to be files
+    /// then. A folder named in the list was moved to the trash as one of its entries.
+    #[test]
+    fn nothing_is_deleted_while_a_list_is_read() {
+        let d = std::env::temp_dir().join(format!("glimt-test-list-read-{}", std::process::id()));
+        std::fs::create_dir_all(d.join("sub")).unwrap();
+        image::RgbImage::new(2, 2).save(d.join("a.png")).unwrap();
+        std::fs::write(d.join("show.m3u"), "sub\na.png\n").unwrap();
+        let (mut app, ctx) = app_on(&d);
+        app.open_collection(&ctx, d.join("show.m3u"));
+        assert!(app.folder.is_listing() && app.list.files().len() == 2);
+        // Random order puts the same names in a new list, which let them be deleted.
+        app.shuffle_list(&ctx, true);
+        let sub = (app.list.files().iter()).position(|f| std::path::Path::new(f).ends_with("sub"));
+        app.delete_now(&ctx, false, vec![sub.unwrap()]);
+        assert!(app.notice.is_some() && app.list.files().len() == 2);
+        assert!(settle(&mut app, &ctx, |a| !a.folder.is_listing()));
+        assert_eq!(app.list.files().len(), 1);
+        std::fs::remove_dir_all(d).unwrap();
+    }
 
     /// A name with a character that FAT refuses is refused before anything is renamed on a FAT
     /// or exFAT folder, and allowed on another file system. Only the folder of such a name is
