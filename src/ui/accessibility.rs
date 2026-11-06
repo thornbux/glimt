@@ -90,6 +90,7 @@ impl App {
 #[cfg(test)]
 mod tests {
     use crate::support::test_support::app_on;
+    use eframe::egui;
 
     /// The place read out is the row among the matches, and a shown image the search hides is
     /// said to be outside them, not "– of 3".
@@ -105,6 +106,29 @@ mod tests {
         assert_eq!(app.spoken_place(), "not among the matches");
         app.list.set_cur(2);
         assert_eq!(app.spoken_place(), "2 of 3");
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// The grid in the image area reads out the image shown, as the image does, so a move in it
+    /// with the arrows is heard, and each of its cells says which file it is.
+    #[test]
+    fn the_grid_in_the_image_area_speaks() {
+        let name = format!("glimt-test-speak-grid-{}", std::process::id());
+        let dir = std::env::temp_dir().join(name);
+        std::fs::create_dir_all(&dir).unwrap();
+        let (mut app, ctx) = app_on(&dir);
+        (app.list).set_files(["a.png", "b.png", "c.png"].map(Into::into).to_vec());
+        app.panel.toggle_area_grid();
+        ctx.enable_accesskit();
+        let mut nodes = Vec::new();
+        for _ in 0..2 {
+            let out = ctx.run_ui(Default::default(), |ui| app.area_grid(&ctx, ui));
+            let update = out.platform_output.accesskit_update.map(|u| u.nodes);
+            nodes.extend(update.into_iter().flatten().map(|(_, n)| n));
+        }
+        let said = |role, text| (nodes.iter()).any(|n| n.role() == role && n.label() == Some(text));
+        assert!(said(egui::Role::Image, "a.png, 1 of 3"));
+        assert!(said(egui::Role::ListItem, "b.png"));
         std::fs::remove_dir_all(&dir).unwrap();
     }
 }

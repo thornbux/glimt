@@ -208,6 +208,18 @@ quit() {
     wait $GPID 2>/dev/null
 }
 shot() { import -window root /t/out/$1.png; }
+# A shot of a screen at rest: shots 0.5 s apart until two are the same, up to 10 seconds, as
+# thumbnails come late. A check that the screen changed compares with this, not with any shot.
+settled() {
+    shot $1
+    for i in $(seq 20); do
+        sleep 0.5; shot $1-next
+        [ "$(compare -metric AE /t/out/$1.png /t/out/$1-next.png null: 2>&1 | cut -d' ' -f1)" = 0 ] \
+            && break
+        mv /t/out/$1-next.png /t/out/$1.png
+    done
+    rm -f /t/out/$1-next.png
+}
 # Waits for a state instead of a fixed pause, which a loaded machine (six parts at once)
 # outruns: until the command succeeds, up to $2 seconds (10), in steps of 0.1 s; false when
 # the time is up, and the check after it then says what is wrong.
@@ -769,6 +781,88 @@ for v in new old; do
         expect "Enter shows the image: ↓ moves one" "$one" $((row + 1))
         expect "Esc goes back to the grid: ↓ moves a row" "$back" $((one + cols))
     else note "old: ↓ went to f$row, then f$one, f$back"; fi
+done
+
+section "the grid in the image area (G) with thumbnails and details on: the side panel has names"
+for v in new old; do
+    as_version $v
+    d=/tmp/grid-names-$v
+    mkdir -p $d
+    for c in a b c; do convert -size 300x200 xc:red $d/$c.jpg; done
+    config thumbnails=true file_details=true
+    start $d
+    key g; sleep 2
+    shot grid-names-$v
+    quit
+    # The side panel below the toolbar, left of the grid: red only where a thumbnail is drawn.
+    reds=$(convert /t/out/grid-names-$v.png -crop 235x700+0+100 +repage \
+        -fx '(r>0.5&&g<0.3&&b<0.3)' -format '%[fx:int(mean*w*h)]' info:)
+    if [ $v = new ]; then expect "no thumbnails over the side panel's names" "$reds" 0
+    else note "old: $reds red pixels in the side panel"; fi
+done
+
+section "View → Thumbnails in Image Area: ticked while the grid shows, not on an image opened from it"
+for v in new old; do
+    as_version $v
+    d=/tmp/grid-tick-$v
+    mkdir -p $d
+    for c in a b c; do convert -size 300x200 xc:red $d/$c.jpg; done
+    config
+    start $d
+    key g; sleep 1
+    menu View; sleep 1
+    at_grid=$(where "Thumbnails in Image Area")
+    shot grid-tick-grid-$v
+    menu View; key Return; sleep 1        # the menu closed, then an image opened from the grid
+    menu View; sleep 1
+    at_image=$(where "Thumbnails in Image Area")
+    shot grid-tick-image-$v
+    quit
+    # A ticked row is filled with the accent (blue, 53 132 228): count it along the row.
+    ticked() {
+        [ -n "$2" ] || { echo "not shown"; return; }
+        local n
+        n=$(convert /t/out/$1.png -crop 300x1+$(( ${2% *} - 150 ))+${2#* } +repage \
+            -fx '(b>0.7&&r<0.4)' -format '%[fx:int(mean*w*h)]' info:)
+        [ "$n" -gt 100 ] && echo ticked || echo -
+    }
+    grid=$(ticked grid-tick-grid-$v "$at_grid"); image=$(ticked grid-tick-image-$v "$at_image")
+    if [ $v = new ]; then
+        expect "ticked while the grid shows" "$grid" ticked
+        expect "not ticked on an image opened from the grid" "$image" -
+    else note "old: $grid with the grid, $image on an image opened from it"; fi
+done
+
+section "Ctrl+ and Shift+double-click in the grid in the image area (G): open the file clicked"
+for v in new old; do
+    as_version $v
+    d=/tmp/grid-ctrl-open-$v
+    mkdir -p $d
+    for c in a b c; do convert -size 300x200 xc:red $d/$c.jpg; done
+    config
+    start $d
+    key g; sleep 1
+    # The grid is drawn after the side panel, so where names its cells.
+    at=$(where c.jpg)
+    if [ -n "$at" ]; then
+        xdotool mousemove ${at% *} ${at#* } keydown ctrl click --repeat 2 --delay 100 1 \
+            keyup ctrl 2>/dev/null
+        sleep 1
+    fi
+    current=$(remote current 2>/dev/null | tr -d '\0')
+    key Escape; sleep 1                    # back to the grid; Shift+double-click on b
+    at=$(where b.jpg)
+    if [ -n "$at" ]; then
+        xdotool mousemove ${at% *} ${at#* } keydown shift click --repeat 2 --delay 100 1 \
+            keyup shift 2>/dev/null
+        sleep 1
+    fi
+    shifted=$(remote current 2>/dev/null | tr -d '\0')
+    quit
+    if [ $v = new ]; then
+        expect "Ctrl: the file double-clicked is shown" "$current" "$d/c.jpg"
+        expect "Shift: the file double-clicked is shown" "$shifted" "$d/b.jpg"
+    else note "old: $current shown after Ctrl, $shifted after Shift"; fi
 done
 
 section "--remote select while Delete asks: the answer deletes the file it asked about only"
@@ -2066,8 +2160,8 @@ for v in new old; do
     printf '#GQview collection\n"%s/a.jpg"\n"%s/b.jpg"\n"%s/c.jpg"\n' $d $d $d >$d/show.gqv
     config
     start $d/show.gqv
-    key g; sleep 2
-    shot grid-notice-before-$v
+    key g
+    settled grid-notice-before-$v
     key ctrl+f; sleep 1                    # New Folder in a collection: a notice, no dialog
     shot grid-notice-after-$v
     quit
@@ -2076,7 +2170,7 @@ for v in new old; do
     if [ $v = new ]; then
         if [ "${changed%.*}" -gt 500 ] 2>/dev/null; then pass "the notice shows ($changed pixels)"
         else fail "the notice shows: $changed pixels changed"; fi
-    else note "old: $changed pixels changed (no grid)"; fi
+    else note "old: $changed pixels changed"; fi
 done
 
 section "a rectangle dragged while the folder changes: the selection keeps its files"

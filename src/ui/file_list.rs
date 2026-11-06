@@ -182,6 +182,9 @@ pub(crate) struct Panel {
     row_step: isize,
     /// Scroll the file list to the current image on the next frame.
     scroll_to_cur: bool,
+    /// The scroll asked for before this frame, which every list drawn in it makes: the side
+    /// panel and the grid in the image area both, and neither while the list is hidden.
+    scroll_now: bool,
     /// View → Thumbnails in Image Area (G): whether the image area shows the files as a grid.
     area_grid: AreaGrid,
 }
@@ -205,6 +208,7 @@ impl Default for Panel {
             grid_cols: 1,
             row_step: 1,
             scroll_to_cur: true,
+            scroll_now: false,
             area_grid: AreaGrid::Off,
         }
     }
@@ -230,20 +234,24 @@ impl Panel {
         self.scroll_to_cur = true;
     }
 
-    /// A scroll asked for while the list is hidden is dropped.
-    pub(crate) fn drop_scroll(&mut self) {
-        self.scroll_to_cur = false;
-    }
-
-    /// One column until the icon grid, drawn later in the frame, says how many it has.
+    /// One column until the icon grid, drawn later in the frame, says how many it has. The
+    /// scroll asked for so far is made by the lists this frame draws, and then it is done.
     pub(crate) fn start_frame(&mut self) {
         self.grid_cols = 1;
+        self.scroll_now = std::mem::take(&mut self.scroll_to_cur);
     }
 
     /// Sets how far Previous and Next move, a row of the icon grid for ↑ and ↓, and otherwise
     /// one image.
     pub(crate) fn set_row_step(&mut self, vertical: bool) {
         self.row_step = if vertical { self.grid_cols as isize } else { 1 };
+    }
+
+    /// Whether the lists drawn now scroll to the shown image. A scroll asked for while this
+    /// frame draws is made at once, and again in the next frame for the lists drawn before it
+    /// was asked.
+    fn scrolls(&self) -> bool {
+        self.scroll_now || self.scroll_to_cur
     }
 
     pub(crate) fn row_step(&self) -> isize {
@@ -613,16 +621,20 @@ impl crate::App {
         self.thumbs.textures.retain(|name, _| keep.contains(name));
     }
 
-    /// A file list row with a thumbnail. Returns true when clicked.
+    /// A file list row, with a thumbnail when `thumbs` is set. The list that draws it decides
+    /// that, not the setting, as the side panel has names while the grid in the image area
+    /// shows.
     pub(crate) fn file_row(
         &mut self,
         ui: &mut egui::Ui,
         i: usize,
         height: f32,
         marked: bool,
+        thumbs: bool,
     ) -> egui::Response {
         let size = egui::vec2(ui.available_width(), height);
         let (rect, response) = ui.allocate_exact_size(size, egui::Sense::click());
+        speak_item(&response, marked, &self.name(i));
         let visuals = ui.visuals();
         if marked || response.hovered() {
             let fill = if marked {
@@ -637,7 +649,6 @@ impl crate::App {
         } else {
             visuals.text_color()
         };
-        let thumbs = self.config.thumbnails;
         let frame = egui::Rect::from_min_size(
             rect.min + egui::vec2(2.0, 2.0),
             if thumbs {
@@ -721,6 +732,8 @@ impl crate::App {
         marked: bool,
     ) -> egui::Response {
         let response = ui.interact(rect, ui.scope_id().with(("cell", i)), egui::Sense::click());
+        let name = self.name(i).into_owned();
+        speak_item(&response, marked, &name);
         let visuals = ui.visuals();
         if marked || response.hovered() {
             let fill = if marked {
@@ -738,7 +751,6 @@ impl crate::App {
         let frame = egui::Rect::from_min_size(rect.min + egui::vec2(4.0, 4.0), self.thumb());
         self.paint_thumb(ui, i, frame);
         let font = egui::TextStyle::Small.resolve(ui.style());
-        let name = self.name(i).into_owned();
         let mut job = egui::text::LayoutJob::simple_singleline(name, font, color);
         job.wrap = egui::text::TextWrapping::truncate_at_width(self.cell().x - 6.0);
         let galley = ui.painter().layout_job(job);
@@ -860,7 +872,9 @@ impl crate::App {
                     .rect_stroke(frame.expand(2.0), 3.0, stroke, egui::StrokeKind::Outside);
             }
             let id = ui.scope_id().with(("strip", i));
-            if ui.interact(frame, id, egui::Sense::click()).clicked() {
+            let response = ui.interact(frame, id, egui::Sense::click());
+            speak_item(&response, i == self.list.cur(), &self.name(i));
+            if response.clicked() {
                 clicked = Some(i);
             }
         }
@@ -1194,12 +1208,14 @@ impl crate::App {
     /// files below. Returns what a click there asked for.
     pub(crate) fn side_panel(&mut self, ctx: &egui::Context, ui: &mut egui::Ui) {
         let (mut open_dir, mut go_to, mut list_act) = (None, None, None);
-        // Room for a name next to the size and date columns, and the thumbnail before it.
-        let thumb = if self.config.thumbnails {
-            self.thumb().x + 10.0
+        // The grid in the image area has the thumbnails, so the list has names.
+        let form = if self.panel.area_grid_on() {
+            [false, false]
         } else {
-            0.0
+            [self.config.icons, self.config.thumbnails]
         };
+        // Room for a name next to the size and date columns, and the thumbnail before it.
+        let thumb = if form[1] { self.thumb().x + 10.0 } else { 0.0 };
         let min = if self.config.file_details {
             DETAILS_WIDTH + 140.0 + thumb
         } else {
@@ -1226,18 +1242,8 @@ impl crate::App {
                 if self.config.search_bar {
                     self.search_field(ui);
                 }
-                // The grid in the image area has the thumbnails, so the list has names.
-                let form = if self.panel.area_grid_on() {
-                    [false, false]
-                } else {
-                    [self.config.icons, self.config.thumbnails]
-                };
                 self.file_list(ctx, ui, &mut go_to, &mut list_act, form);
             });
-        // The grid in the image area, drawn after, scrolls to the shown image too.
-        if !self.panel.area_grid_shown() {
-            self.panel.drop_scroll();
-        }
         if let Some(d) = open_dir {
             self.visit(ctx, d);
         } else if let Some(i) = go_to {
@@ -1255,17 +1261,26 @@ impl crate::App {
         let (mut go_to, mut list_act) = (None, None);
         let opened = egui::CentralPanel::default()
             .show(ui, |ui| {
+                // The grid takes the image's place for a screen reader too. The image shown is
+                // read out as the arrows move in the grid, as it is over the image.
+                #[cfg(feature = "accessibility")]
+                {
+                    let id = ui.scope_id().with("grid");
+                    let response = ui.interact(ui.max_rect(), id, egui::Sense::click());
+                    self.speak_image(ui, &response);
+                }
                 let opened = self.file_list(ctx, ui, &mut go_to, &mut list_act, [true, true]);
                 // A failed copy or delete says so here too, as over the image.
                 self.paint_notice(ui, ui.max_rect());
                 opened
             })
             .inner;
-        self.panel.drop_scroll();
-        if let Some(i) = go_to {
+        // A double-click opens the file clicked, also with Ctrl or Shift, whose clicks change
+        // the selection and go to no file.
+        if let Some(i) = opened.or(go_to) {
             self.go(ctx, i);
         }
-        if opened {
+        if opened.is_some() {
             self.panel.open_from_grid();
         }
         if let Some(action) = list_act {
@@ -1309,6 +1324,7 @@ impl crate::App {
     }
 
     /// The file list (names, details, thumbnails or icons), drawn only where it is visible.
+    /// Returns the file double-clicked, if any.
     pub(crate) fn file_list(
         &mut self,
         ctx: &egui::Context,
@@ -1316,7 +1332,7 @@ impl crate::App {
         go_to: &mut Option<usize>,
         list_act: &mut Option<Action>,
         [icons, thumbs]: [bool; 2],
-    ) -> bool {
+    ) -> Option<usize> {
         // The rows shown are the search matches, or all files.
         let count = self
             .list
@@ -1328,7 +1344,7 @@ impl crate::App {
         };
         // Only visible rows are drawn, so the list is as fast with 10 files as with 300,000.
         let thumbs = thumbs || icons;
-        let mut opened = false;
+        let mut opened = None;
         let row_h = if icons {
             self.cell().y
         } else if thumbs {
@@ -1348,7 +1364,7 @@ impl crate::App {
         let mut area = egui::ScrollArea::vertical()
             .id_salt("files")
             .auto_shrink(false);
-        if self.panel.scroll_to_cur
+        if self.panel.scrolls()
             && let Some(row) = row_of(self.list.cur(), self.list.matches()).map(|r| r / cols)
         {
             // Scroll only when the current image is out of view, and centre it.
@@ -1398,7 +1414,7 @@ impl crate::App {
                     cells.push((i, cell));
                     self.file_cell(ui, i, cell, marked)
                 } else if thumbs || self.config.file_details {
-                    self.file_row(ui, i, row_h, marked)
+                    self.file_row(ui, i, row_h, marked, thumbs)
                 } else {
                     let name = self.name(i);
                     let marks = self.mark_text(i);
@@ -1413,7 +1429,7 @@ impl crate::App {
                 if let Some(i) = self.row_clicked(ctx, &row, i) {
                     *go_to = Some(i);
                 }
-                opened |= row.double_clicked();
+                opened = row.double_clicked().then_some(i).or(opened);
                 row.context_menu(|ui| self.file_menu(ui, list_act));
                 if self.folder.collection().is_some() {
                     self.drag_row(ui, &row, i, icons, pointer);
@@ -1810,6 +1826,13 @@ pub(crate) fn thumbs_to_keep<'a>(
         .collect()
 }
 
+/// Tells a screen reader what a file's row or cell is: an item of the list with the file's name,
+/// and whether it is selected. The rows of names get this from egui's own widget.
+pub(crate) fn speak_item(response: &egui::Response, marked: bool, name: &str) {
+    response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::ListItem, true, name));
+    (response.ctx).accesskit_node_builder(response.id, |node| node.set_selected(marked));
+}
+
 /// The places along a row or column of items `size` long, one every `step`, that the span
 /// `lo..hi` (from the first item's start) overlaps.
 pub(crate) fn touched(lo: f32, hi: f32, step: f32, size: f32) -> std::ops::Range<usize> {
@@ -1819,6 +1842,28 @@ pub(crate) fn touched(lo: f32, hi: f32, step: f32, size: f32) -> std::ops::Range
 
 #[cfg(test)]
 mod tests {
+    use super::Panel;
+
+    /// A scroll to the shown image is made by every list of the frame after it was asked, the
+    /// side panel and the grid both, and then it is done. One asked while a frame draws is made
+    /// in that frame and in the next, so the lists drawn before it get it too.
+    #[test]
+    fn a_scroll_reaches_every_list_of_one_frame() {
+        let mut panel = Panel::default();
+        panel.start_frame();
+        assert!(
+            panel.scrolls(),
+            "the first frame scrolls to the first image"
+        );
+        panel.start_frame();
+        assert!(!panel.scrolls());
+        panel.scroll_to_current();
+        assert!(panel.scrolls());
+        panel.start_frame();
+        assert!(panel.scrolls());
+        panel.start_frame();
+        assert!(!panel.scrolls());
+    }
 
     /// G shows the grid in the image area and Enter an image from it. Esc goes back to the
     /// grid, G from there too, and a second G hides the grid. Esc without the grid keeps it off.

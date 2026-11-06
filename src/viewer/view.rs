@@ -900,6 +900,8 @@ impl crate::App {
                     }
                 }
                 let response = ui.allocate_rect(area, egui::Sense::click());
+                let name = self.name(self.list.cur());
+                response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Image, true, &name));
                 if f || response.double_clicked() || (esc && full) {
                     pctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(!full));
                 }
@@ -1216,10 +1218,10 @@ impl crate::App {
                 self.paint_pane(ui, *rect, i, self.zoom.level, Some(k + 1)),
             ));
             // A click makes it the shown image, in the first pane.
-            if ui
-                .interact(*rect, ui.scope_id().with(("pane", k)), egui::Sense::click())
-                .clicked()
-            {
+            let pane = ui.interact(*rect, ui.scope_id().with(("pane", k)), egui::Sense::click());
+            let name = self.name(i);
+            pane.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Image, true, &name));
+            if pane.clicked() {
                 clicked_pane = Some(i);
             }
         }
@@ -1847,6 +1849,8 @@ pub(crate) fn play_button(ui: &egui::Ui, area: egui::Rect) -> bool {
     let shade = egui::Color32::from_black_alpha(150);
     let button = egui::Rect::from_center_size(area.center(), egui::vec2(96.0, 96.0));
     let play = ui.interact(button, ui.scope_id().with("play"), egui::Sense::click());
+    let text = tr("Video: Enter or click to play");
+    play.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, text));
     let p = ui.painter();
     p.circle_filled(button.center(), 48.0, shade);
     let c = button.center();
@@ -1861,7 +1865,7 @@ pub(crate) fn play_button(ui: &egui::Ui, area: egui::Rect) -> bool {
         egui::Stroke::NONE,
     ));
     let label = p.layout_no_wrap(
-        tr("Video: Enter or click to play").into(),
+        text.into(),
         egui::FontId::proportional(16.0),
         egui::Color32::WHITE,
     );
