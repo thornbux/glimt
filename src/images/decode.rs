@@ -1501,10 +1501,15 @@ mod tests {
         let file =
             std::env::temp_dir().join(format!("glimt-test-claims-{}.jpg", std::process::id()));
         std::fs::write(&file, &jpeg).unwrap();
-        assert!(super::decode(&file, [16384, 16384], false, 0).is_err());
-        assert!(super::small(&file, [16384, 16384], false).is_err());
+        // Each error must be the size refused. A header with no pixels after it fails in the
+        // decoder too, for the missing data, so an error alone would pass without `fits`.
+        let refused = |e: Option<String>| e.is_some_and(|e| e.starts_with("image too large"));
+        assert!(refused(
+            super::decode(&file, [16384, 16384], false, 0).err()
+        ));
+        assert!(refused(super::small(&file, [16384, 16384], false).err()));
         std::fs::remove_file(&file).unwrap();
-        assert!(super::from_memory(b"P6\n40000 40000\n255\n").is_err());
+        assert!(refused(super::from_memory(b"P6\n40000 40000\n255\n").err()));
         assert!(super::too_large_animation((40000, 40000)));
     }
 
