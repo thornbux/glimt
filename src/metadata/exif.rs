@@ -525,7 +525,7 @@ pub fn set_xmp_orientation(xmp: &mut [u8], value: u8) {
 /// header: no program finds an orientation in it to turn the pixels again. Also clears the EXIF
 /// thumbnail (IFD1), which a copy must not keep: of a crop it shows the whole frame, so every
 /// copy goes through here, upright or not. The pixel sizes the block has are set to `size`,
-/// the copy's own. This is what `save::Derived::Pixels` keeps of EXIF.
+/// the copy's own. This is what `save::Derived::Turned` and `Copy` keep of EXIF.
 pub fn set_upright(block: &mut [u8], size: (u32, u32)) -> Result<(), String> {
     let Some((t, ifd0, exif, _)) = ifds(block) else {
         return Ok(());

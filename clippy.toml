@@ -28,6 +28,7 @@ disallowed-methods = [
     { path = "image::ImageReader::no_limits", reason = "decode::from_decoder: a decode keeps its limits, and `fits` first" },
     { path = "image::Limits::no_limits", reason = "decode::from_decoder: a decode keeps its limits, and `fits` first" },
     { path = "image::ImageDecoder::read_image", reason = "decode::from_decoder: `fits` first, as a header may claim gigabytes" },
+    { path = "image::ImageDecoder::read_image_boxed", reason = "decode::from_decoder: `fits` first, as a header may claim gigabytes" },
     { path = "tiff::decoder::Decoder::read_image", reason = "decode::tiff_page: `fits` first, as a header may claim gigabytes" },
     { path = "std::process::Child::wait", reason = "external::output_of or a Watchdog: never wait for good" },
     { path = "std::process::Child::wait_with_output", reason = "external::output_of or a Watchdog: never wait for good" },

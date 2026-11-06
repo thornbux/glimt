@@ -12,14 +12,9 @@ use std::path::Path;
 /// pixels as they were. A thumbnail (xmp:Thumbnails, its JPEG in xmpGImg:image) of a crop shows
 /// the whole frame, and of a turn the old way up. The pixel sizes are wrong after a crop or a
 /// quarter turn, and readers take the image's own. Old Photoshop wrote "xap" for "xmp".
-/// Lightroom's crop (crs:Crop…) and darktable's history, which holds its crop and flip, are
-/// set on the old frame, so Lightroom or darktable would crop a crop again, or crop a turned
-/// PNG in the wrong place. darktable reads Glimt's sidecar names (`name.ext.xmp`). A JPEG's
-/// turn (`Derived::Oriented`) keeps them, as its pixels stay and both programs take the
-/// orientation into account; dropping them there would lose the user's work for one field.
-/// shortcut: these prefixes are the ones Adobe's tools and darktable write; match by namespace
-/// if another writer's thumbnails or crop are found.
-const DROPPED_XMP: [&str; 21] = [
+/// shortcut: these prefixes are the ones Adobe's tools write; match by namespace if another
+/// writer's thumbnails are found.
+const DROPPED_XMP: [&str; 8] = [
     "xmp:Thumbnails",
     "xap:Thumbnails",
     "xmpGImg:image",
@@ -28,6 +23,17 @@ const DROPPED_XMP: [&str; 21] = [
     "tiff:ImageLength",
     "exif:PixelXDimension",
     "exif:PixelYDimension",
+];
+
+/// The XMP properties a copy (`Derived::Copy`) also drops: other programs' edits of the image it
+/// was made from. Lightroom's crop (crs:Crop…) and darktable's history, which holds its crop and
+/// flip, are set on the old frame, so Lightroom or darktable would crop a crop again. darktable
+/// reads Glimt's sidecar names (`name.ext.xmp`). The image itself keeps them when it is turned
+/// (`Derived::Oriented`, `Derived::Turned`): its sidecar may be the only copy of the user's
+/// darktable edits, and both programs keep their own history besides.
+/// shortcut: these prefixes are the ones Lightroom and darktable write; match by namespace if
+/// another program's crop is found.
+const DROPPED_FROM_COPIES: [&str; 13] = [
     "crs:HasCrop",
     "crs:CropTop",
     "crs:CropLeft",
@@ -135,10 +141,14 @@ pub(crate) enum Derived {
     /// The same pixels with another orientation, as a JPEG's turn is saved. Only the
     /// orientation changes.
     Oriented(u8),
-    /// Pixels written anew as the view showed them: a PNG or WebP turned, a crop, a copy. The
+    /// The image's own pixels written anew as the view showed them: a PNG or WebP turned. The
     /// orientation is 1, and what showed or measured the old pixels is dropped (`DROPPED_XMP`,
-    /// `DROPPED_PNG_TEXT`, and in EXIF the thumbnail, with the pixel sizes set anew).
-    Pixels,
+    /// `DROPPED_PNG_TEXT`, and in EXIF the thumbnail, with the pixel sizes set anew). Other
+    /// programs' edits of the image stay, as they do on a JPEG's turn.
+    Turned,
+    /// A new file made from the image: a crop or a copy (Save As). It drops what `Turned` drops,
+    /// and other programs' edits of the image it came from (`DROPPED_FROM_COPIES`).
+    Copy,
 }
 
 /// Saves the view's rotation in a PNG or WebP, which have no orientation field to set. The
@@ -171,10 +181,11 @@ pub fn save_rotated(
     };
     let (img, icc) = load_icc(path, rotate)?;
     let img = turned(img, turns, mirrored);
-    let (exif, xmp, stored_quarter) = derived_metadata(path, rotate, (img.width(), img.height()))?;
+    let size = (img.width(), img.height());
+    let (exif, xmp, stored_quarter) = derived_metadata(path, rotate, size, Derived::Turned)?;
     let quarter = (turns % 2 == 1) != stored_quarter;
     let out = encode(path, img, icc, exif, xmp, kind, quarter, webp_quality)?;
-    replace_with_sidecar(path, named, out, Derived::Pixels)
+    replace_with_sidecar(path, named, out, Derived::Turned)
 }
 
 /// Replaces the image at `real` with `out` and makes the sidecar of `named`, the name the list
@@ -210,7 +221,7 @@ pub fn copy_bytes(path: &Path, how: &CopyAs) -> Result<(Vec<u8>, Format), String
     let (img, icc) = pixels(path, how)?;
     let (exif, xmp, _) = match how.strip {
         true => (None, None, false),
-        false => derived_metadata(path, how.rotate, (img.width(), img.height()))?,
+        false => derived_metadata(path, how.rotate, (img.width(), img.height()), Derived::Copy)?,
     };
     // A PNG's other chunks hold as they were, because a DPI is no different for a part. They
     // are dropped when stripped, because the text chunks may say where and by whom.
@@ -372,7 +383,7 @@ pub(crate) fn land(
         }
     }
     match source {
-        Some(xmp) => crate::files::file_io::create_file(&side, derived_xmp(&xmp, Derived::Pixels))
+        Some(xmp) => crate::files::file_io::create_file(&side, derived_xmp(&xmp, Derived::Copy))
             .map_err(named),
         None => Ok(()),
     }
@@ -441,8 +452,13 @@ fn animated(path: &Path) -> Result<bool, String> {
 }
 
 /// Reads the EXIF block and XMP of `path` and makes them what a file of new pixels of `size`
-/// keeps of them (`Derived::Pixels`).
-fn derived_metadata(path: &Path, rotate: bool, size: (u32, u32)) -> Result<Metadata, String> {
+/// keeps of them, as the image turned or as a copy (`how`).
+fn derived_metadata(
+    path: &Path,
+    rotate: bool,
+    size: (u32, u32),
+    how: Derived,
+) -> Result<Metadata, String> {
     let (mut exif, mut xmp, stored) = crate::images::decode::image_reader(path)
         .ok()
         .and_then(|r| r.into_decoder().ok())
@@ -456,22 +472,23 @@ fn derived_metadata(path: &Path, rotate: bool, size: (u32, u32)) -> Result<Metad
         exif::set_upright(exif, size)?;
     }
     if let Some(xmp) = &mut xmp {
-        *xmp = derived_xmp(xmp, Derived::Pixels);
+        *xmp = derived_xmp(xmp, how);
     }
     let quarter = rotate && stored.is_some_and(crate::images::decode::quarter_turn);
     Ok((exif, xmp, quarter))
 }
 
 /// Makes the XMP packet `xmp` what a file derived from its image as `how` says keeps of it,
-/// whether it was inside the image or in its sidecar. Its orientation is set, and for new
-/// pixels the properties of `DROPPED_XMP` are left out.
+/// whether it was inside the image or in its sidecar. Its orientation is set, for new pixels
+/// the properties of `DROPPED_XMP` are left out, and for a copy those of `DROPPED_FROM_COPIES`.
 pub(crate) fn derived_xmp(xmp: &[u8], how: Derived) -> Vec<u8> {
     let mut out = xmp.to_vec();
     match how {
         Derived::Oriented(value) => exif::set_xmp_orientation(&mut out, value),
-        Derived::Pixels => {
+        Derived::Turned | Derived::Copy => {
             exif::set_xmp_orientation(&mut out, 1);
-            for name in DROPPED_XMP {
+            let copy = (how == Derived::Copy).then_some(&DROPPED_FROM_COPIES[..]);
+            for name in DROPPED_XMP.iter().chain(copy.unwrap_or_default()) {
                 out = without(&out, name.as_bytes());
             }
         }
@@ -1456,11 +1473,11 @@ mod tests {
         std::fs::remove_dir_all(dir).unwrap();
     }
 
-    /// New pixels drop Lightroom's crop and darktable's history, which were set on the old
-    /// frame, and keep the rest of the develop settings. A JPEG's turn keeps both. Before, a crop
-    /// of a photo cropped in Lightroom or darktable was cropped again there.
+    /// A copy drops Lightroom's crop and darktable's history, which were set on the old frame,
+    /// and keeps the rest of the develop settings. Before, a crop of a photo cropped in Lightroom
+    /// or darktable was cropped again there. The image itself keeps them when it is turned.
     #[test]
-    fn new_pixels_drop_other_programs_crop() {
+    fn a_copy_drops_other_programs_crop_and_the_image_keeps_it() {
         let xmp = b"<rdf:Description crs:Exposure2012=\"+0.50\" crs:HasCrop=\"True\" \
             crs:CropTop=\"0.1\" crs:CropLeft=\"0.2\" crs:CropBottom=\"0.9\" \
             crs:CropRight=\"0.8\" crs:CropAngle=\"0\" darktable:history_end=\"2\">\
@@ -1468,17 +1485,21 @@ mod tests {
             <darktable:history><rdf:Seq><rdf:li darktable:operation=\"crop\"/></rdf:Seq>\
             </darktable:history></rdf:Description>";
         let has = |x: &[u8], what: &str| x.windows(what.len()).any(|w| w == what.as_bytes());
-        let pixels = super::derived_xmp(xmp, super::Derived::Pixels);
+        let copy = super::derived_xmp(xmp, super::Derived::Copy);
         for gone in ["crs:HasCrop", "crs:Crop", "darktable:"] {
             assert!(
-                !has(&pixels, gone),
+                !has(&copy, gone),
                 "{gone}: {}",
-                String::from_utf8_lossy(&pixels)
+                String::from_utf8_lossy(&copy)
             );
         }
-        assert!(has(&pixels, "crs:Exposure2012=\"+0.50\""));
-        let turned = super::derived_xmp(xmp, super::Derived::Oriented(6));
-        assert!(has(&turned, "crs:CropTop") && has(&turned, "darktable:operation=\"crop\""));
+        assert!(has(&copy, "crs:Exposure2012=\"+0.50\""));
+        // The image's own edits stay when it is turned, a JPEG by its orientation and a PNG or
+        // WebP by its pixels. A turned PNG lost the whole darktable history of its sidecar.
+        for how in [super::Derived::Oriented(6), super::Derived::Turned] {
+            let turned = super::derived_xmp(xmp, how);
+            assert!(has(&turned, "crs:CropTop") && has(&turned, "darktable:operation=\"crop\""));
+        }
     }
 
     /// XMP packets broken in thousands of ways are made a derived file's without a panic or a
@@ -1486,7 +1507,7 @@ mod tests {
     #[test]
     fn survives_broken_xmp_derived() {
         for bytes in crate::support::test_support::broken(BRIDGE_XMP.as_bytes()) {
-            super::derived_xmp(&bytes, super::Derived::Pixels);
+            super::derived_xmp(&bytes, super::Derived::Copy);
         }
     }
 

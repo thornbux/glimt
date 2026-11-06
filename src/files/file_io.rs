@@ -478,8 +478,11 @@ fn replace(
     }
     #[allow(clippy::disallowed_methods)] // replaces on purpose: the one writer of a file again
     write_beside(&tmp_path(path), path, write, |tmp| {
+        // `before` may take a while (a sidecar written under its lock), so the file is looked
+        // at again after it: one deleted meanwhile must not come back under its old name.
         there()
             .and_then(|_| before())
+            .and_then(|_| there())
             .and_then(|_| std::fs::rename(tmp, path).map_err(|e| plain(e, path)))
     })
 }
@@ -898,6 +901,25 @@ mod tests {
         super::flush();
         assert!(done.load(Relaxed));
         assert!(t.elapsed() < std::time::Duration::from_secs(4));
+    }
+
+    /// A file deleted while the step before the rename runs (a sidecar written under its lock)
+    /// stays deleted. Before, the new version was renamed in under its old name.
+    #[test]
+    fn a_file_gone_during_the_step_before_stays_gone() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-gone-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("a.png");
+        std::fs::write(&file, b"old").unwrap();
+        let gone = || std::fs::remove_file(&file);
+        assert!(super::replace_existing(&file, b"new", gone).is_err());
+        assert!(!file.exists());
+        assert_eq!(
+            std::fs::read_dir(&dir).unwrap().count(),
+            0,
+            "a temporary file was left"
+        );
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     /// A read-only file, or one of another user, is not replaced by a saved turn, a sidecar or
