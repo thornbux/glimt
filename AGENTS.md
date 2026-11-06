@@ -272,11 +272,13 @@ of that part. The exceptions are the tables of one arm per action (`Action::engl
   `clippy.toml` (`disallowed-methods`) refuses the raw calls, so `cargo clippy` fails on a
   bypass:
   - read a file whole with `decode::read_limited` / `read_text` (a size cap, no pipe or device);
-  - write with `file_io::replace_file`, `create_file` or `write_atomic` (whole or not at all,
-    never through a link), a file of the user's that may be a link from a download (a copy
-    saved over one, a sidecar) with `replace_name`, which replaces the link itself, and a file
-    the windows share with `file_io::edit_shared` (lock, read, change and write as one; clippy
-    refuses `file_lock` elsewhere);
+  - write whole or not at all: a new file with `file_io::create_file`, a file of the user's
+    (a copy saved over one, a sidecar) with `replace_name`, which replaces a link at the name
+    itself and refuses a read-only file, Glimt's own files with `replace_file` or
+    `write_atomic`, which write through a link to its target, and a file the windows share with
+    `file_io::edit_shared` (lock, read, change and write as one; clippy refuses `file_lock`
+    elsewhere). `source_rules::only_glimts_own_files_are_written_through_links` lists where
+    `replace_file` and its writers are used;
   - rename with `file_io::rename_never_over` (never over a file), move or copy with `put_file`;
   - start Glimt's own program with `external::command` or `stoppable_command` (in a Flatpak's
     sandbox), the user's with `host_command` or `stoppable_host_command` (on the host), and

@@ -394,8 +394,6 @@ impl crate::App {
     /// Files whose EXIF contains every word, or that a regular expression after "re:" finds, in
     /// list order. The first such search in a folder reads the EXIF of all files in the
     /// background (the busy pointer shows meanwhile) and finds nothing until that is done.
-    /// shortcut: files added after the index was built do not match until the folder is
-    /// reopened; add them to the index as the list grows if that is missed.
     pub(crate) fn exif_matches(&mut self, ctx: &egui::Context, words: &str) -> Vec<usize> {
         let re = match words.strip_prefix("re:").map(|p| regex(p, false)) {
             Some(Err(e)) => {

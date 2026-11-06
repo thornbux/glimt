@@ -71,7 +71,8 @@ accessibility = ["eframe/accesskit"]
 # saver in full screen, and Open With in the desktop's application chooser, where CUPS's lp,
 # the session's inhibitors and the host's applications are not.
 portals = ["dep:zbus", "dep:futures-lite", "dep:serde"]
-# Every optional feature: cargo build --release --features full (same as --all-features).
+# Every optional feature: cargo build --release --features full. --all-features is this and
+# test-hooks, which only the release tests build.
 full = ["video", "heic", "avif", "jxl", "svg", "marks", "accessibility", "portals"]
 
 # The checks before a commit (AGENTS.md, tools/check.sh, CI): optimised as the release, so the

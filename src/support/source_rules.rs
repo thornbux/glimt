@@ -869,30 +869,32 @@ fn panics_are_caught_in_one_place() {
 /// A decoded image is turned by its EXIF orientation only after it is shrunk to the size shown
 /// (`decode::shrunk_upright`), or where the whole image is wanted. A thumbnail of a 50 MP 16-bit
 /// TIFF with orientation 6 turned whole held two full buffers in each thumbnail thread.
+/// `decode::load_icc` turns the whole image, so it is watched too: a new path that called it and
+/// shrank after would turn the whole image as well.
 #[test]
 fn images_are_turned_after_they_shrink() {
-    // Each place that may turn, and why: the scaled JPEG is at its scaled size already, and the
-    // others are for a whole image (Save As, a turned save, a RAW preview shown near its size).
-    let allowed = [
-        "images/decode.rs shrunk_upright",
-        "images/decode.rs scaled",
-        "images/decode.rs load_icc",
-        "images/raw.rs load_data",
+    // The scaled JPEG is at its scaled size already, and the others are for a whole image (Save
+    // As, a turned save, an exported frame, a RAW preview shown near its size).
+    const HOMES: &[(&str, &[(&str, &str)])] = &[
+        (
+            "apply_orientation(",
+            &[
+                ("images/decode.rs", "shrunk_upright"),
+                ("images/decode.rs", "scaled"),
+                ("images/decode.rs", "load_icc"),
+                ("images/raw.rs", "load_data"),
+            ],
+        ),
+        (
+            "load_icc(",
+            &[
+                ("images/decode.rs", "each_frame"),
+                ("images/save.rs", "save_rotated"),
+                ("images/save.rs", "pixels"),
+            ],
+        ),
     ];
-    let mut wrong = Vec::new();
-    for (file, text) in rust_sources() {
-        let lines = code_lines(&text);
-        let mut function = "";
-        for (i, line) in lines[..tests_start(&lines)].iter().enumerate() {
-            if let Some(name) = function_name(line) {
-                function = name;
-            }
-            let place = format!("{file} {function}");
-            if line.contains("apply_orientation(") && !allowed.contains(&place.as_str()) {
-                wrong.push(format!("{file}:{} in {function}", i + 1));
-            }
-        }
-    }
+    let wrong = outside_their_homes(HOMES);
     assert!(
         wrong.is_empty(),
         "an image turned before it is shrunk (use decode::shrunk_upright):\n{}",
@@ -1037,6 +1039,44 @@ fn an_image_and_its_sidecar_change_together() {
     );
 }
 
+/// Only Glimt's own files are written with `file_io::replace_file` and the writers built on it
+/// (`write_atomic`, `edit_shared`). They write through a link to the file it points to, as a
+/// settings file kept in a repository is a link, and do not refuse a read-only file. A file of
+/// the user's goes through `replace_name`, which replaces a link itself and refuses a read-only
+/// file, or `replace_existing` for an image written again. Before, clippy's reasons sent every
+/// write to `replace_file`, so a new writer of a user's file could follow a planted link or
+/// write over a photo made read-only.
+#[test]
+fn only_glimts_own_files_are_written_through_links() {
+    const HOMES: &[(&str, &[(&str, &str)])] = &[
+        (
+            "replace_file(",
+            &[
+                ("files/file_io.rs", "edit_shared"),
+                ("files/file_io.rs", "write_atomic"),
+                ("features/remote.rs", "mark_focused"),
+            ],
+        ),
+        ("write_atomic(", &[("main.rs", "on_exit")]),
+        (
+            "edit_shared(",
+            &[
+                ("files/config.rs", "save"),
+                ("metadata/marks.rs", "write"),
+                ("model/folder.rs", "remember_recent"),
+                ("ui/file_list.rs", "change_sort_folders"),
+                ("ui/info_panel.rs", "change_keyword_tree"),
+            ],
+        ),
+    ];
+    let wrong = outside_their_homes(HOMES);
+    assert!(
+        wrong.is_empty(),
+        "replace_file used for a file that may be the user's (use file_io::replace_name):\n{}",
+        wrong.join("\n")
+    );
+}
+
 /// The view's colour settings (Preferences' profiles, colour management on or off and the view
 /// filter) reach only what is shown. Everything Glimt writes or hands to other programs (the
 /// shared thumbnail cache, a print, the clipboard, an exported frame) goes through
@@ -1044,35 +1084,22 @@ fn an_image_and_its_sidecar_change_together() {
 /// shared cache and of prints.
 #[test]
 fn view_colours_stay_in_the_view() {
-    const FOR_THE_VIEW: &[&str] = &[
-        "to_display(",
-        "COLOUR.read(",
-        "COLOR_MANAGEMENT.load(",
-        "VIEW_FILTER.load(",
-    ];
+    // The view decodes and animates what is shown, and the thumbnail workers turn a cached
+    // sRGB thumbnail into the screen's colours to show it. colour.rs keeps the settings.
     const SHOWN: &[(&str, &str)] = &[
+        ("images/colour.rs", ""),
         ("images/decode.rs", "decode"),
         ("images/decode.rs", "animation"),
         ("ui/workers.rs", "spawn_thumbnailers"),
     ];
-    let mut wrong = Vec::new();
-    for (file, text) in rust_sources() {
-        if file == "images/colour.rs" {
-            continue;
-        }
-        let lines = code_lines(&text);
-        let end = tests_start(&lines);
-        let mut function = String::new();
-        for (i, line) in lines[..end].iter().enumerate() {
-            if let Some(name) = function_name(line) {
-                function = name.to_owned();
-            }
-            let shown = SHOWN.iter().any(|(f, s)| file == *f && function == *s);
-            if FOR_THE_VIEW.iter().any(|t| line.contains(t)) && !shown {
-                wrong.push(format!("{file}:{} in {function}", i + 1));
-            }
-        }
-    }
+    let homes = [
+        "to_display(",
+        "COLOUR.read(",
+        "COLOR_MANAGEMENT.load(",
+        "VIEW_FILTER.load(",
+    ]
+    .map(|text| (text, SHOWN));
+    let wrong = outside_their_homes(&homes);
     assert!(
         wrong.is_empty(),
         "the view's colour settings used outside the view (use colour::to_srgb):\n{}",
@@ -1331,18 +1358,51 @@ fn the_list_is_drawn_in_the_form_its_caller_asks() {
 /// Every widget drawn by hand that takes a click tells a screen reader what it is: a row or
 /// cell of the list through `speak_item`, the image through `speak_image`, and the others with
 /// `widget_info`. egui's own widgets do this themselves, but a widget drawn by hand says
-/// nothing, and Orca was silent in the grid in the image area.
+/// nothing, and Orca was silent in the grid in the image area. The widget's response is bound
+/// with `let`, and a later line of the same function speaks about that name, so another
+/// widget's `widget_info` close by does not count, and one far below does.
 #[test]
 fn every_clickable_widget_drawn_by_hand_speaks() {
+    let names = |line: &str, name: &str| {
+        (line.match_indices(name)).any(|(at, _)| {
+            let word = |c: char| c.is_alphanumeric() || c == '_';
+            !line[..at].chars().next_back().is_some_and(word)
+                && !line[at + name.len()..].chars().next().is_some_and(word)
+        })
+    };
     let mut wrong = Vec::new();
     for (file, text) in rust_sources() {
         let lines = code_lines(&text);
         let end = tests_start(&lines);
         for (i, line) in lines[..end].iter().enumerate() {
-            let near = &lines[i..(i + 4).min(end)];
-            let speaks =
-                || (near.iter()).any(|l| l.contains("speak_") || l.contains("widget_info"));
-            if takes_a_click(line) && !speaks() {
+            if !takes_a_click(line) {
+                continue;
+            }
+            // The statement's first line, as rustfmt may break a long one, and the last name
+            // its `let` binds: `response` in `let (rect, response) = …`. The line before it
+            // ends another statement or block, or is blank (a comment, as code_lines blanks
+            // comments), or is an attribute.
+            let ends =
+                |l: &str| l.trim().is_empty() || l.trim_end().ends_with([';', '{', '}', ']']);
+            let start = ((0..=i).rev())
+                .take_while(|&k| k == i || !ends(&lines[k]))
+                .last()
+                .unwrap_or(i);
+            let bound = (lines[start].trim_start().strip_prefix("let "))
+                .and_then(|l| l.split(['=', ':']).next())
+                .and_then(|l| {
+                    l.trim()
+                        .trim_end_matches(')')
+                        .rsplit([',', '(', ' '])
+                        .next()
+                })
+                .filter(|name| !name.is_empty());
+            let speaks = bound.is_some_and(|name| {
+                (lines[i + 1..end].iter())
+                    .take_while(|l| function_name(l).is_none())
+                    .any(|l| (l.contains("speak_") || l.contains("widget_info")) && names(l, name))
+            });
+            if !speaks {
                 wrong.push(format!("{file}:{}", i + 1));
             }
         }
