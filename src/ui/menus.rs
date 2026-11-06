@@ -435,7 +435,9 @@ impl crate::App {
         menu_toggle(ui, act, c.show_hidden, Action::HiddenFiles);
         menu_toggle(ui, act, c.thumbnails, Action::Thumbnails);
         menu_toggle(ui, act, c.icons, Action::Icons);
-        let grid = self.panel.area_grid_on();
+        // Ticked only while the grid shows: from an image opened from it, the item goes back to
+        // the grid, as G and Esc do.
+        let grid = self.panel.area_grid_shown();
         menu_toggle(ui, act, grid, Action::ThumbnailGrid);
         menu_toggle(ui, act, c.exif_panel, Action::ExifPanel);
         menu_toggle(ui, act, c.sort_manager, Action::SortManager);

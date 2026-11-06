@@ -789,6 +789,38 @@ for v in new old; do
     else note "old: $reds red pixels in the side panel"; fi
 done
 
+section "View → Thumbnails in Image Area: ticked while the grid shows, not on an image opened from it"
+for v in new old; do
+    as_version $v
+    d=/tmp/grid-tick-$v
+    mkdir -p $d
+    for c in a b c; do convert -size 300x200 xc:red $d/$c.jpg; done
+    config
+    start $d
+    key g; sleep 1
+    menu View; sleep 1
+    at_grid=$(where "Thumbnails in Image Area")
+    shot grid-tick-grid-$v
+    menu View; key Return; sleep 1        # the menu closed, then an image opened from the grid
+    menu View; sleep 1
+    at_image=$(where "Thumbnails in Image Area")
+    shot grid-tick-image-$v
+    quit
+    # A ticked row is filled with the accent (blue, 53 132 228): count it along the row.
+    ticked() {
+        [ -n "$2" ] || { echo "not shown"; return; }
+        local n
+        n=$(convert /t/out/$1.png -crop 300x1+$(( ${2% *} - 150 ))+${2#* } +repage \
+            -fx '(b>0.7&&r<0.4)' -format '%[fx:int(mean*w*h)]' info:)
+        [ "$n" -gt 100 ] && echo ticked || echo -
+    }
+    grid=$(ticked grid-tick-grid-$v "$at_grid"); image=$(ticked grid-tick-image-$v "$at_image")
+    if [ $v = new ]; then
+        expect "ticked while the grid shows" "$grid" ticked
+        expect "not ticked on an image opened from the grid" "$image" -
+    else note "old: $grid with the grid, $image on an image opened from it"; fi
+done
+
 section "--remote select while Delete asks: the answer deletes the file it asked about only"
 for v in new old; do
     as_version $v
