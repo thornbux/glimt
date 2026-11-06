@@ -352,13 +352,26 @@ pub(crate) fn lock_slot(side: &Path) -> u64 {
 
 /// Changes the sidecar of `path` with `change`, or a new, empty sidecar unless `only_if_there`,
 /// in which case a file without a sidecar keeps having none. It is written to a temporary file
-/// first, so a crash never leaves half a sidecar.
+/// first, so a crash never leaves half a sidecar. The stars are written with it; a turn holds the
+/// lock on after the change, so it takes the lock itself (`update_held`).
+#[cfg(any(feature = "marks", test))]
 pub fn update_sidecar(
     path: &Path,
     only_if_there: bool,
     change: impl FnOnce(&str) -> Option<String>,
 ) -> Result<(), String> {
     let _held = held(path);
+    update(path, only_if_there, change)
+}
+
+/// Changes the sidecar of `path` as `update_sidecar` does, with its lock already taken by the
+/// caller, who holds it on after the change (`save::replace_with_sidecar`).
+pub(crate) fn update_held(
+    _held: &Held,
+    path: &Path,
+    only_if_there: bool,
+    change: impl FnOnce(&str) -> Option<String>,
+) -> Result<(), String> {
     update(path, only_if_there, change)
 }
 

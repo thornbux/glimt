@@ -241,8 +241,27 @@ pub(crate) fn replace_with_sidecar(
     out: Vec<u8>,
     how: Derived,
 ) -> Result<(), String> {
-    let sidecar = || derive_sidecar(named, how).map_err(std::io::Error::other);
-    crate::files::file_io::replace_existing(real, out, sidecar).map_err(|e| e.to_string())
+    replace_holding_sidecar(real, named, out, |held| derive_sidecar(held, named, how))
+}
+
+/// Replaces the image at `real` with `out` after `step` changed the sidecar of `named`. The
+/// sidecar's lock (`xmp::held`) is held from the step until the image has its new name. A move
+/// in another window holds the same lock, so it moves the image and its sidecar together, both
+/// before the step or both after the image is replaced. Before, the lock was let go after the
+/// step, and a rename in that moment took the changed sidecar to the new name while the image,
+/// found gone, was left as it was.
+fn replace_holding_sidecar(
+    real: &Path,
+    named: &Path,
+    out: Vec<u8>,
+    step: impl FnOnce(&crate::metadata::xmp::Held) -> Result<(), String>,
+) -> Result<(), String> {
+    let held = std::cell::OnceCell::new();
+    let before = || {
+        let held = held.get_or_init(|| crate::metadata::xmp::held(named));
+        step(held).map_err(std::io::Error::other)
+    };
+    crate::files::file_io::replace_existing(real, out, before).map_err(|e| e.to_string())
 }
 
 /// The copy of `path` that `how` asks for, encoded, and its format. It has its profile, and
@@ -560,17 +579,20 @@ pub(crate) fn derived_xmp(xmp: &[u8], how: Derived) -> Vec<u8> {
 /// by its old orientation. It is called after the new image is written whole and before it
 /// takes the name (`replace_with_sidecar`): a sidecar that cannot be written then leaves the
 /// image as it was, and a failed image write leaves the sidecar. Only a sidecar of its own,
-/// readable as text and with something to change, is written, under its lock
-/// (`xmp::update_sidecar`). A link or one that cannot be read is left alone, as the panel leaves
-/// it. The sidecar is the one of the name the list shows, which is the one Glimt's panel reads,
-/// also for a link to a photo.
-fn derive_sidecar(path: &Path, how: Derived) -> Result<(), String> {
+/// readable as text and with something to change, is written, under its lock `held`. A link or
+/// one that cannot be read is left alone, as the panel leaves it. The sidecar is the one of the
+/// name the list shows, which is the one Glimt's panel reads, also for a link to a photo.
+fn derive_sidecar(
+    held: &crate::metadata::xmp::Held,
+    path: &Path,
+    how: Derived,
+) -> Result<(), String> {
     let old = crate::metadata::xmp::own_sidecar(path).ok().flatten();
     let text = old.filter(|x| std::str::from_utf8(x).is_ok());
     if text.is_none_or(|x| derived_xmp(&x, how) == x) {
         return Ok(());
     }
-    crate::metadata::xmp::update_sidecar(path, true, |x| {
+    crate::metadata::xmp::update_held(held, path, true, |x| {
         String::from_utf8(derived_xmp(x.as_bytes(), how)).ok()
     })
 }
@@ -2007,6 +2029,47 @@ mod tests {
         assert_eq!(key(&a), key(&link));
         assert_eq!(super::key_of(&a, (1, 7)), super::key_of(&b, (1, 7)));
         assert!(super::same_file(&a, &link) && !super::same_file(&a, &b));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A move in another window that comes during a turn's sidecar step waits until the image
+    /// has its new name, so the turned image and its changed sidecar move together. Before, the
+    /// sidecar's lock was let go after the step: the move took the changed sidecar along, and
+    /// the image, found gone, was not turned.
+    #[test]
+    fn a_move_during_the_sidecar_step_waits_for_the_image() {
+        use crate::metadata::xmp::{held, sidecar, update_held};
+        let dir = std::env::temp_dir().join(format!("glimt-test-side-move-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let (a, b) = (dir.join("a.png"), dir.join("b.png"));
+        std::fs::write(&a, "old").unwrap();
+        std::fs::write(sidecar(&a), "old side").unwrap();
+        let (go, went) = std::sync::mpsc::channel::<()>();
+        let (done, moved) = std::sync::mpsc::channel();
+        let mover = {
+            let (a, b) = (a.clone(), b.clone());
+            // Another window moves the image and then its sidecar, under the sidecar's lock, as
+            // Glimt's moves do.
+            std::thread::spawn(move || {
+                went.recv().unwrap();
+                let _held = held(&a);
+                std::fs::rename(&a, &b).unwrap();
+                std::fs::rename(sidecar(&a), sidecar(&b)).unwrap();
+                done.send(()).unwrap();
+            })
+        };
+        let step = |held: &crate::metadata::xmp::Held| {
+            update_held(held, &a, true, |_| Some("new side".into()))?;
+            go.send(()).unwrap();
+            // A move that is not held back lands now, before the image is looked at again.
+            let _ = moved.recv_timeout(std::time::Duration::from_millis(200));
+            Ok(())
+        };
+        let replaced = super::replace_holding_sidecar(&a, &a, b"new".to_vec(), step);
+        mover.join().unwrap();
+        assert!(replaced.is_ok(), "{replaced:?}");
+        assert_eq!(std::fs::read_to_string(&b).unwrap(), "new");
+        assert_eq!(std::fs::read_to_string(sidecar(&b)).unwrap(), "new side");
         std::fs::remove_dir_all(dir).unwrap();
     }
 }
