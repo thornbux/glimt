@@ -613,7 +613,7 @@ const MANUAL: &[(&str, &str)] = &[
 const DIFFERENCES: &[(&str, &str, &str)] = &[
     (
         "Language",
-        "English and ten more (Danish, German, French, Polish …), by LANG or chosen in \
+        "English and eleven more (Danish, German, French, Polish …), by LANG or chosen in \
          Preferences; the manual in English",
         "Some 40 languages by LANG only",
     ),
@@ -1220,4 +1220,27 @@ fn logo(ctx: &egui::Context) -> Option<egui::TextureHandle> {
     let logo = ctx.load_texture("glimt-logo", pixels, egui::TextureOptions::LINEAR);
     ctx.data_mut(|d| d.insert_temp(id, logo.clone()));
     Some(logo)
+}
+
+#[cfg(test)]
+mod tests {
+    /// The Language row of DIFFERENCES names as many languages besides English as Glimt has, so
+    /// the row keeps up when a translation is added.
+    #[test]
+    fn the_language_row_counts_the_languages() {
+        const WORDS: [&str; 16] = [
+            "no", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten",
+            "eleven", "twelve", "thirteen", "fourteen", "fifteen",
+        ];
+        let more = WORDS[crate::support::lang::LANGUAGES.len()];
+        let row = super::DIFFERENCES
+            .iter()
+            .find(|r| r.0 == "Language")
+            .unwrap();
+        assert!(
+            row.1.starts_with(&format!("English and {more} more")),
+            "{}",
+            row.1
+        );
+    }
 }

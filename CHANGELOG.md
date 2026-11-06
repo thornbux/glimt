@@ -5,6 +5,11 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- The Help Manual's table of differences from Geeqie says English and eleven more languages,
+  not ten.
+
 ## [0.61.0] - 2026-11-06
 
 ### Fixed
