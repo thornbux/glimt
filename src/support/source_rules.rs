@@ -1000,24 +1000,46 @@ fn copies_of_settings_have_one_writer() {
 fn outside_their_homes(homes: &[(&str, &[(&str, &str)])]) -> Vec<String> {
     let mut wrong = Vec::new();
     for (file, text) in rust_sources() {
-        let lines = code_lines(&text);
-        let end = tests_start(&lines);
-        let mut function = String::new();
-        for (i, line) in lines[..end].iter().enumerate() {
-            if let Some(name) = function_name(line) {
-                function = name.to_owned();
-            }
-            for (call, allowed) in homes {
-                let at_home =
-                    (allowed.iter()).any(|(f, s)| file == *f && (s.is_empty() || function == *s));
-                let defined = line.contains(&format!("fn {call}"));
-                if line.contains(call) && !at_home && !defined {
-                    wrong.push(format!("{file}:{} ({call})", i + 1));
-                }
+        wrong.extend(outside_homes_in(&file, &text, homes));
+    }
+    wrong
+}
+
+/// Returns the places in `text`, the source of `file`, that `outside_their_homes` reports.
+fn outside_homes_in(file: &str, text: &str, homes: &[(&str, &[(&str, &str)])]) -> Vec<String> {
+    let mut wrong = Vec::new();
+    let lines = code_lines(text);
+    let end = tests_start(&lines);
+    let mut function = String::new();
+    for (i, line) in lines[..end].iter().enumerate() {
+        // A top-level line starts a new item, so a static after a home is not in the home.
+        if line.starts_with(|c: char| c.is_alphabetic()) {
+            function.clear();
+        }
+        if let Some(name) = function_name(line) {
+            function = name.to_owned();
+        }
+        for (call, allowed) in homes {
+            let at_home =
+                (allowed.iter()).any(|(f, s)| file == *f && (s.is_empty() || function == *s));
+            let defined = line.contains(&format!("fn {call}"));
+            if line.contains(call) && !at_home && !defined {
+                wrong.push(format!("{file}:{} ({call})", i + 1));
             }
         }
     }
     wrong
+}
+
+/// A home ends at the next top-level item. Before, a static or const after a home function
+/// counted as inside it, so a call there passed unseen.
+#[test]
+fn a_home_ends_at_the_next_top_level_item() {
+    const HOMES: &[(&str, &[(&str, &str)])] = &[("risky(", &[("a.rs", "home")])];
+    let text = "fn home() {\n    risky();\n}\nstatic X: u8 = risky();\nconst Y: u8 = risky();\n\
+        impl A {\n    fn home() {\n        risky();\n    }\n}\n";
+    let wrong = outside_homes_in("a.rs", text, HOMES);
+    assert_eq!(wrong, ["a.rs:4 (risky()", "a.rs:5 (risky()"]);
 }
 
 /// A file Glimt writes from an image (a turn saved, a crop, a copy, their sidecars) takes the
@@ -1031,21 +1053,16 @@ fn outside_their_homes(homes: &[(&str, &[(&str, &str)])]) -> Vec<String> {
 /// chunk alone. The orientation an image is turned upright by is read through
 /// `exif::stored_orientation`, so the view and a turned or copied file take the one the panel
 /// shows. The view once took the decoder's alone and showed a PNG with its orientation in a
-/// text chunk unturned. The Adobe RGB checks of the view and the colour line read the decoder's
-/// own, as a second opening of every PNG shown would slow the view, and a RAW's preview is a
-/// JPEG.
+/// text chunk unturned. The view's Adobe RGB check takes the same block as its orientation, and
+/// the colour line reads it through `decoded` too, so a PNG with its ColorSpace only in a text
+/// chunk is shown and named as Adobe RGB. A RAW's preview is a JPEG, read on its own.
 #[test]
 fn derived_files_take_metadata_in_one_place() {
     const HOMES: &[(&str, &[(&str, &str)])] = &[
         ("set_upright(", &[("images/save.rs", "derived_metadata")]),
         (
             ".exif_metadata()",
-            &[
-                ("metadata/exif.rs", "decoded"),
-                ("images/raw.rs", "exif"),
-                ("images/decode.rs", "load_unturned"),
-                ("images/colour.rs", "colour_source"),
-            ],
+            &[("metadata/exif.rs", "decoded"), ("images/raw.rs", "exif")],
         ),
         (
             "xmp_metadata(",
