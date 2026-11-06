@@ -784,14 +784,15 @@ pub fn decoded(path: &Path, dec: &mut impl image::ImageDecoder) -> Option<Vec<u8
 }
 
 /// Reads the orientation that the image `dec` decodes from `path` is turned upright by. It is
-/// the decoder's own, or for a PNG the one in the EXIF block `decoded` reads, also from a text
-/// chunk. It is the one reader of it, so the view, a turned or copied file and the info panel
-/// agree. Before, the view took the decoder's alone, and showed a PNG with its orientation in
-/// a text chunk unturned while the panel said "Rotate 90 CW". It is asked only with Auto
-/// Rotate on, because for a PNG without an eXIf chunk it opens the file a second time.
+/// the decoder's own, or else the one in the EXIF block `decoded` reads, as the info panel
+/// reads it. It is the one reader of it, so the view, a turned or copied file and the info
+/// panel agree. The decoder finds none in a PNG's text chunk, nor in an EXIF block that starts
+/// with "Exif\0\0", as some programs write a WebP's. Before, such a photo was shown unturned
+/// while the panel said "Rotate 90 CW". It is asked only with Auto Rotate on, because for a
+/// PNG without an eXIf chunk it opens the file a second time.
 pub fn stored_orientation(path: &Path, dec: &mut impl image::ImageDecoder) -> Orientation {
     let own = dec.orientation().unwrap_or(Orientation::NoTransforms);
-    if own != Orientation::NoTransforms || !crate::model::listing::has_ext(path, &["png"]) {
+    if own != Orientation::NoTransforms {
         return own;
     }
     decoded(path, dec)

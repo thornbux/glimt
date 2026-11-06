@@ -1224,6 +1224,29 @@ mod tests {
         std::fs::remove_dir_all(dir).unwrap();
     }
 
+    /// A WebP whose EXIF chunk starts with "Exif\0\0", as some programs write it, is shown
+    /// turned by its orientation. The image crate finds no orientation in such a chunk, so the
+    /// view showed it unturned while the info panel said "Rotate 90 CW".
+    #[test]
+    fn a_webp_is_turned_by_a_prefixed_exif_chunk() {
+        use image::ImageEncoder;
+        let dir = std::env::temp_dir().join(format!("glimt-test-webpturn-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("a.webp");
+        let out = std::fs::File::create(&file).unwrap();
+        let mut enc = image::codecs::webp::WebPEncoder::new_lossless(out);
+        let exif = [
+            b"Exif\0\0".as_slice(),
+            crate::support::test_support::CANON_EXIF,
+        ]
+        .concat();
+        enc.set_exif_metadata(exif).unwrap();
+        image::RgbImage::new(8, 4).write_with_encoder(enc).unwrap();
+        let size = |rotate| super::decode(&file, [100, 100], rotate, 0).unwrap().1;
+        assert_eq!((size(true), size(false)), ([4, 8], [8, 4]));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
     /// A small GIF of many tiny frames keeps 1,000 of them, not one texture each.
     #[test]
     fn keeps_a_thousand_frames() {
