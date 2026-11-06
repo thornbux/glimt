@@ -2794,5 +2794,5 @@ msgid "Move the collection \"{name}\" to the trash? Its images stay where they a
 msgstr "De verzameling “{name}” naar de prullenbak verplaatsen? De afbeeldingen blijven waar ze zijn."
 
 #: src/files/file_io.rs
-msgid "the file system here does not allow this rename, as on some shares, cloud folders and phones ({e})"
-msgstr "het bestandssysteem hier staat deze naamswijziging niet toe, zoals op sommige gedeelde mappen, cloudmappen en telefoons ({e})"
+msgid "the file system here ({kind}) does not allow this rename, as on some shares, cloud folders and phones ({e})"
+msgstr "het bestandssysteem hier ({kind}) staat deze naamswijziging niet toe, zoals op sommige gedeelde mappen, cloudmappen en telefoons ({e})"

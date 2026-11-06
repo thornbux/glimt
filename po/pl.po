@@ -2805,5 +2805,5 @@ msgid "Move the collection \"{name}\" to the trash? Its images stay where they a
 msgstr "Przenieść kolekcję «{name}» do kosza? Jej obrazy zostaną na miejscu."
 
 #: src/files/file_io.rs
-msgid "the file system here does not allow this rename, as on some shares, cloud folders and phones ({e})"
-msgstr "system plików w tym miejscu nie pozwala na tę zmianę nazwy, jak na niektórych udziałach sieciowych, w folderach w chmurze i na telefonach ({e})"
+msgid "the file system here ({kind}) does not allow this rename, as on some shares, cloud folders and phones ({e})"
+msgstr "system plików w tym miejscu ({kind}) nie pozwala na tę zmianę nazwy, jak na niektórych udziałach sieciowych, w folderach w chmurze i na telefonach ({e})"

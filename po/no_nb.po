@@ -2805,5 +2805,5 @@ msgid "Move the collection \"{name}\" to the trash? Its images stay where they a
 msgstr "Flytte samlingen «{name}» til papirkurven? Bildene blir der de er."
 
 #: src/files/file_io.rs
-msgid "the file system here does not allow this rename, as on some shares, cloud folders and phones ({e})"
-msgstr "filsystemet her tillater ikke denne omdøpingen, slik som på enkelte delte mapper, skymapper og telefoner ({e})"
+msgid "the file system here ({kind}) does not allow this rename, as on some shares, cloud folders and phones ({e})"
+msgstr "filsystemet her ({kind}) tillater ikke denne omdøpingen, slik som på enkelte delte mapper, skymapper og telefoner ({e})"

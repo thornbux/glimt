@@ -33,7 +33,10 @@ pub(crate) fn rename_never_over(from: &Path, to: &Path) -> std::io::Result<()> {
             Ok(()) => unlink_linked(from, to),
             Err(e) if matches!(e.kind(), AlreadyExists | CrossesDevices) => Err(e),
             Err(_) if to.exists() => Err(AlreadyExists.into()),
-            Err(_) => std::fs::rename(from, to).map_err(plain),
+            // shortcut: a file that another program puts at `to` between the look and the
+            // rename is written over. rclone, s3fs and MTP offer no way to rename without that
+            // race; do more if one of them gains RENAME_NOREPLACE or hard links.
+            Err(_) => std::fs::rename(from, to).map_err(|e| plain(e, to)),
         },
         done => done,
     }
@@ -53,22 +56,80 @@ fn unlink_linked(from: &Path, to: &Path) -> std::io::Result<()> {
     }
 }
 
-/// Returns `e` told in plain words when it says that the file system cannot rename a file as
-/// Glimt does, which some shares, cloud folders and phones cannot. The system's own words follow
-/// in brackets, and the kind stays, so callers still match on it.
-fn plain(e: std::io::Error) -> std::io::Error {
-    // EXDEV, ENOSYS and EOPNOTSUPP: what such file systems answer to a rename. Not EPERM, which
-    // a folder with the sticky bit or a file made immutable gives on any file system.
+/// Returns `e` told in plain words when it says that the file system cannot rename a file to
+/// `to` as Glimt does, which some shares, cloud folders and phones cannot. The words name the
+/// type of the mount (fuse.rclone, cifs …), and the system's own words follow in brackets. The
+/// kind stays, so callers still match on it.
+fn plain(e: std::io::Error, to: &Path) -> std::io::Error {
+    // EXDEV, ENOSYS and EOPNOTSUPP are what such file systems answer to a rename. EPERM is not
+    // among them, because a folder with the sticky bit or a file made immutable gives it on any
+    // file system.
     match e.raw_os_error() {
-        Some(18 | 38 | 95) => std::io::Error::new(
-            e.kind(),
-            crate::tf!(
-                "the file system here does not allow this rename, as on some shares, cloud folders and phones ({e})",
-                e
-            ),
-        ),
+        Some(18 | 38 | 95) => {
+            let kind = mount_type(to.parent().unwrap_or(to)).unwrap_or_else(|| "?".into());
+            std::io::Error::new(
+                e.kind(),
+                crate::tf!(
+                    "the file system here ({kind}) does not allow this rename, as on some shares, cloud folders and phones ({e})",
+                    kind,
+                    e
+                ),
+            )
+        }
         _ => e,
     }
+}
+
+/// Returns the type of the file system that `path` is on, as /proc/self/mounts names it: vfat,
+/// cifs, nfs4, fuse.rclone, fuse.gvfsd-fuse and so on. Returns `None` when that cannot be read.
+/// The path is taken as it is, not with its links resolved, as that would wait on a share that
+/// does not answer.
+pub(crate) fn mount_type(path: &Path) -> Option<String> {
+    let mounts = crate::images::decode::read_limited("/proc/self/mounts").ok()?;
+    mount_type_in(&String::from_utf8_lossy(&mounts), path)
+}
+
+/// Returns the type of the mount in `mounts`, the text of /proc/self/mounts, that holds `path`.
+/// That is the last mount whose mount point is the longest start of the path, as a later mount
+/// hides an earlier one at the same place.
+fn mount_type_in(mounts: &str, path: &Path) -> Option<String> {
+    let mut found: Option<(usize, &str)> = None;
+    for line in mounts.lines() {
+        let mut fields = line.split(' ').skip(1);
+        let (Some(at), Some(kind)) = (fields.next(), fields.next()) else {
+            continue;
+        };
+        let at = unescape_mount(at);
+        let len = at.as_os_str().len();
+        if path.starts_with(&at) && found.is_none_or(|(longest, _)| len >= longest) {
+            found = Some((len, kind));
+        }
+    }
+    found.map(|(_, kind)| kind.to_owned())
+}
+
+/// Returns the mount point `at` of /proc/self/mounts as a path. The kernel writes a space, a tab,
+/// a line break and a backslash in it as a backslash and three octal digits.
+fn unescape_mount(at: &str) -> PathBuf {
+    use std::os::unix::ffi::OsStringExt;
+    let (bytes, mut out, mut i) = (at.as_bytes(), Vec::new(), 0);
+    while i < bytes.len() {
+        match bytes.get(i..i + 4) {
+            Some([b'\\', digits @ ..]) if digits.iter().all(|d| (b'0'..=b'7').contains(d)) => {
+                out.push(
+                    digits
+                        .iter()
+                        .fold(0u8, |n, d| n.wrapping_mul(8) + (d - b'0')),
+                );
+                i += 4;
+            }
+            _ => {
+                out.push(bytes[i]);
+                i += 1;
+            }
+        }
+    }
+    PathBuf::from(std::ffi::OsString::from_vec(out))
 }
 
 /// Give `from` the name `to` in one step, never over a file there: renameat2 with
@@ -298,7 +359,8 @@ pub fn replace_name_with(
     before: impl FnOnce() -> std::io::Result<()>,
 ) -> std::io::Result<()> {
     #[allow(clippy::disallowed_methods)] // replaces on purpose, the name and never a link's target
-    let land = |tmp: &Path| before().and_then(|_| std::fs::rename(tmp, path).map_err(plain));
+    let land =
+        |tmp: &Path| before().and_then(|_| std::fs::rename(tmp, path).map_err(|e| plain(e, path)));
     write_beside(&tmp_path(path), path, write, land)
 }
 
@@ -322,7 +384,7 @@ fn replace(path: &Path, bytes: impl AsRef<[u8]>, existing: bool) -> std::io::Res
     there()?;
     #[allow(clippy::disallowed_methods)] // replaces on purpose: the one writer of a file again
     write_beside(&tmp_path(path), path, write, |tmp| {
-        there().and_then(|_| std::fs::rename(tmp, path).map_err(plain))
+        there().and_then(|_| std::fs::rename(tmp, path).map_err(|e| plain(e, path)))
     })
 }
 
@@ -435,18 +497,42 @@ mod tests {
     /// them, and keeps its kind. Another error, such as a permission denied, stays as it was.
     #[test]
     fn tells_a_rename_the_file_system_cannot_do_in_plain_words() {
+        let to = std::env::temp_dir().join("b.jpg");
+        let kind = super::mount_type(&std::env::temp_dir()).unwrap();
         for errno in [18, 38, 95] {
             let raw = std::io::Error::from_raw_os_error(errno);
-            let told = super::plain(std::io::Error::from_raw_os_error(errno));
+            let told = super::plain(std::io::Error::from_raw_os_error(errno), &to);
             assert_eq!(told.kind(), raw.kind());
             let text = told.to_string();
             assert!(text.contains("does not allow this rename") && text.contains(&raw.to_string()));
+            assert!(text.contains(&format!("({kind})")), "{text}");
         }
         // Permission denied, and EPERM, which a sticky folder or an immutable file gives.
         for errno in [13, 1] {
-            let denied = super::plain(std::io::Error::from_raw_os_error(errno));
+            let denied = super::plain(std::io::Error::from_raw_os_error(errno), &to);
             assert_eq!(denied.raw_os_error(), Some(errno));
         }
+    }
+
+    /// The mount that holds a path is the longest mount point that starts it, the later one
+    /// where two are at the same place, and a mount point with a space in it is read as the
+    /// kernel writes it. A mount point that only starts with the same letters does not hold it.
+    #[test]
+    fn finds_the_mount_that_holds_a_path() {
+        let mounts = "/dev/sda1 / ext4 rw 0 0\n\
+            gvfsd-fuse /run/user/1000/gvfs fuse.gvfsd-fuse rw 0 0\n\
+            /dev/sdb1 /media/me/CARD\\040ONE vfat rw 0 0\n\
+            remote: /mnt/cloud fuse.rclone rw 0 0\n\
+            //nas/photos /mnt/cloud cifs rw 0 0\n\
+            broken\n";
+        let kind = |p: &str| super::mount_type_in(mounts, std::path::Path::new(p));
+        assert_eq!(kind("/home/me/a.jpg").as_deref(), Some("ext4"));
+        let gvfs = "/run/user/1000/gvfs/sftp:host=nas/a.jpg";
+        assert_eq!(kind(gvfs).as_deref(), Some("fuse.gvfsd-fuse"));
+        assert_eq!(kind("/media/me/CARD ONE/DCIM").as_deref(), Some("vfat"));
+        assert_eq!(kind("/media/me/CARD").as_deref(), Some("ext4"));
+        assert_eq!(kind("/mnt/cloud/a.jpg").as_deref(), Some("cifs"));
+        assert_eq!(kind("/mnt/cloudy").as_deref(), Some("ext4"));
     }
 
     /// A replace whose write fails never runs the step before the rename, so Save As over a file

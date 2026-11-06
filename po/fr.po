@@ -2794,5 +2794,5 @@ msgid "Move the collection \"{name}\" to the trash? Its images stay where they a
 msgstr "Mettre la collection « {name} » à la corbeille ? Ses images restent où elles sont."
 
 #: src/files/file_io.rs
-msgid "the file system here does not allow this rename, as on some shares, cloud folders and phones ({e})"
-msgstr "le système de fichiers ici ne permet pas ce renommage, comme sur certains partages, dossiers cloud et téléphones ({e})"
+msgid "the file system here ({kind}) does not allow this rename, as on some shares, cloud folders and phones ({e})"
+msgstr "le système de fichiers ici ({kind}) ne permet pas ce renommage, comme sur certains partages, dossiers cloud et téléphones ({e})"
