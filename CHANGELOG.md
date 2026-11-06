@@ -5,6 +5,67 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.66.0] - 2026-11-06
+
+A release of fixes from a full audit of 0.65.0, each class of finding fixed in one place, with a
+test or a check of the source that fails when new code opens the class again.
+
+### Fixed
+
+- Saving a turn, a sidecar, a collection, Save As or Print to File no longer replaces a
+  read-only file; it says "the file is read-only", as Geeqie refuses it. A turn refused that
+  way, or on a full disk, leaves the photo's sidecar as it was, and a sidecar that cannot be
+  written is named in the error.
+- Saving a rotation also sets the orientation in the photo's `.xmp` sidecar, so digiKam shows
+  it turned the same way.
+- A crop or Save As copy no longer keeps a thumbnail of the whole photo in its XMP, its sidecar
+  or a PNG's Photoshop resources, nor Lightroom's crop or darktable's history, which made those
+  programs crop it again. Its sidecar's orientation and pixel sizes match the copy. A photo
+  turned in place keeps its own edits.
+- Thumbnails in the shared cache, prints, Copy Image and exported frames are in the image's own
+  colours whatever the colour settings are. Colour management off, or a profile chosen for
+  images without one, changed what other programs got.
+- A very large JPEG zoomed in on a large screen is refused instead of being decoded at half
+  size into gigabytes of memory, as the other formats already were, and so is a TIFF page that
+  claims more than the limit.
+- Thumbnails and the print of a turned photo shrink it before turning it, so a large TIFF with
+  an EXIF orientation no longer holds two full copies at once.
+- Copy Image in the file list's right-click menu copied the shown image, not the file
+  right-clicked; it is no longer in that menu (Edit → Copy Image copies the shown image). Open
+  With there lists the applications for the selected files, which it opens, not for the shown
+  image.
+- A Ctrl+ or Shift+double-click in the grid in the image area opens the image clicked, not the
+  one shown before.
+- With Thumbnails and File Details on, the grid in the image area no longer draws thumbnails
+  over the side panel's names.
+- View → Thumbnails in Image Area is no longer ticked on an image opened from the grid, where
+  choosing it goes back to the grid.
+- A screen reader hears the grid in the image area as it hears the image, and the names of the
+  grid's cells, the filmstrip, the file list's rows with thumbnails or details, the pan view's
+  days, the panes of a layout, the projector's image and a video's play button.
+- Glimt no longer crashes when the projector is open on an empty folder, or when the last image
+  is deleted while it is open.
+- Rename, Rename Folder and Rename Collection answered with the name unchanged no longer rename
+  a file whose name is not UTF-8 or starts with a space.
+- A slideshow that changes one pane at a time goes on from its last image after the list is
+  read again, instead of starting from the top.
+- Undo from the trash puts back every file it can, also after one that cannot come back.
+- Find Duplicates no longer counts one file reached through a bind mount as its own duplicate,
+  and Include Subfolders does not read a folder mounted inside itself again.
+- The backup copies a settings, themes or collections folder that is a link (such as one kept
+  in a dotfiles repository), and never a folder into itself.
+- A folder opened while a collection was still being checked allows file operations at once,
+  and a list whose listing broke allows none until it is read whole.
+
+### Changed
+
+- Find Duplicates takes hard links of one file as one file: deleting one frees no space. The
+  Help Manual and Differences from Geeqie say so.
+- Thumbnails show each image in its own colours, not with the profile chosen for images without
+  one; the Help Manual says so.
+- AGENTS.md: findings are fixed by their class, at the root, right the first time; an action
+  names what it acts on; a new way to show the list has a checklist.
+
 ## [0.65.1] - 2026-11-06
 
 ### Fixed
@@ -2756,7 +2817,8 @@ The first release. Glimt is not 1.0 yet: it is in daily use, but expect rough ed
 - Remote control from the command line: `glimt --remote` and `--remote-all`.
 - Remembers the folder, window size and position.
 
-[Unreleased]: https://github.com/thornbux/glimt/compare/v0.65.1...HEAD
+[Unreleased]: https://github.com/thornbux/glimt/compare/v0.66.0...HEAD
+[0.66.0]: https://github.com/thornbux/glimt/compare/v0.65.1...v0.66.0
 [0.65.1]: https://github.com/thornbux/glimt/compare/v0.65.0...v0.65.1
 [0.65.0]: https://github.com/thornbux/glimt/compare/v0.64.0...v0.65.0
 [0.64.0]: https://github.com/thornbux/glimt/compare/v0.63.0...v0.64.0
