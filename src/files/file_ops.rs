@@ -30,12 +30,11 @@ use std::time::Instant;
 /// The characters that FAT and exFAT refuse in a name, as on a camera card.
 pub(crate) const NOT_ON_FAT: [char; 8] = [':', '?', '*', '"', '<', '>', '|', '\\'];
 
-// The file system that a test gives every folder, on its thread. No test can mount a FAT card,
-// and the tests run side by side, so one test's card is not another's.
+// The file systems that tests give their folders, as (folder, type), with `test_mount`. No test
+// can mount a FAT card. Each test names a folder of its own, so the tests can run side by side,
+// and a job's thread sees the same folders as the test that started it.
 #[cfg(test)]
-thread_local! {
-    pub(crate) static TEST_MOUNT: std::cell::RefCell<Option<String>> = const { std::cell::RefCell::new(None) };
-}
+static TEST_MOUNTS: std::sync::Mutex<Vec<(PathBuf, String)>> = std::sync::Mutex::new(Vec::new());
 
 /// A Rename Many running in the background. It holds the list as it was (`App::files_gen`),
 /// the files renamed with their new names, and which of them was shown.
@@ -873,13 +872,6 @@ impl crate::App {
         // A copy changes none of the files it reads, but it holds them: a Rename Many that ran
         // meanwhile could hand it one photo with another photo's sidecar, and a move or delete
         // could take a file away halfway.
-        // A camera card refuses some characters. Saying so before the job starts names the
-        // reason, where a copy that failed halfway would leave some files on the card and give
-        // only the system's error for the others.
-        if let Some(refused) = refused_transfer(&paths, &dest, keep, fs_type) {
-            self.notice = Some(refused);
-            return;
-        }
         let touches = paths.clone();
         let doing = tr(if keep { "Copying" } else { "Moving" });
         let Some(job) = self.start_job(doing, paths.len(), touches) else {
@@ -902,12 +894,19 @@ impl crate::App {
             || (self.folder.recursive() && dest.starts_with(self.folder.dir()));
         let pointer = Working::new(&self.busy);
         std::thread::spawn(move || {
-            if !keep && same_dir {
+            // A camera card refuses some characters. Saying so before anything is copied names
+            // the reason, where a copy that failed halfway would leave some files on the card
+            // and give only the system's error for the others. The folder is looked up through
+            // its links (`~/card` → `/media/u/CARD`), here, because a link into a share that
+            // stopped answering would hold the window.
+            let real = dest.canonicalize().unwrap_or_else(|_| dest.clone());
+            let refused = refused_transfer(&paths, &real, keep, fs_type);
+            if !keep && same_dir && refused.is_none() {
                 let _ = freed_tx.send(total_size(&paths));
             }
             let (mut errors, mut put) = (Vec::new(), Vec::new());
             for path in &paths {
-                if job.stopped() {
+                if job.stopped() || refused.is_some() {
                     break;
                 }
                 let target = dest.join(path.file_name().unwrap_or_default());
@@ -936,7 +935,10 @@ impl crate::App {
                 true => Vec::new(),
                 false => put.iter().map(|(from, _)| from.clone()).collect(),
             };
-            if let Some(first) = errors.first() {
+            let failed = !errors.is_empty() || job.stopped() || refused.is_some();
+            if let Some(text) = refused {
+                let _ = tx.send(text);
+            } else if let Some(first) = errors.first() {
                 let verb = tr(if keep { "Copy" } else { "Move" });
                 let _ = tx.send(tf!(
                     "{verb} failed ({count}): {first}",
@@ -954,15 +956,15 @@ impl crate::App {
                 let _ = tx.send(text);
             }
             // A move takes the files out of `deleting`. The folder is read again for files that
-            // joined it, or that failed to go or were not reached after Stop. A copy to another
-            // folder does not change the list.
-            let relist = (listed || !keep) && (listed || !errors.is_empty() || job.stopped());
+            // joined it, or that failed to go, were refused or were not reached after Stop. A
+            // copy to another folder does not change the list.
+            let relist = (listed || !keep) && (listed || failed);
             let undo =
                 (!keep && !put.is_empty()).then(|| Undo::Move(put.iter().map(moved).collect()));
             let _ = deleted_tx.send(Deleted {
                 paths: if keep { Vec::new() } else { paths },
                 gone,
-                failed: !errors.is_empty() || job.stopped(),
+                failed,
                 moved: put,
                 copied: keep,
                 relist,
@@ -1778,13 +1780,26 @@ fn left_by_trash(
 }
 
 /// Returns the type of the file system that `dir` is on, as `file_io::mount_type` does. A test
-/// can set it instead, because no test can mount a FAT card.
+/// gives its folder a type with `test_mount` instead, because no test can mount a FAT card.
 fn fs_type(dir: &Path) -> Option<String> {
     #[cfg(test)]
-    if let Some(kind) = TEST_MOUNT.with_borrow(Clone::clone) {
-        return Some(kind);
+    {
+        let mounts = TEST_MOUNTS.lock().unwrap();
+        let kind = mounts.iter().find(|(at, _)| dir.starts_with(at));
+        if let Some((_, kind)) = kind {
+            return Some(kind.clone());
+        }
     }
     crate::files::file_io::mount_type(dir)
+}
+
+/// Gives `dir` and the folders below it the file system `kind` in a test, as if a card were
+/// mounted there. With `kind` as `None`, the folder is on its real file system again.
+#[cfg(test)]
+pub(crate) fn test_mount(dir: &Path, kind: Option<&str>) {
+    let mut mounts = TEST_MOUNTS.lock().unwrap();
+    mounts.retain(|(at, _)| at != dir);
+    mounts.extend(kind.map(|kind| (dir.to_path_buf(), kind.to_owned())));
 }
 
 /// Returns the type of the file system that `dir` is on when it is FAT or exFAT, as on a camera
@@ -1806,7 +1821,8 @@ fn is_fat(kind: &str) -> bool {
 /// refuses, before anything is renamed, copied or moved. Returns that name with the type of its
 /// file system, or `None` when every name is allowed where it goes. `mount_type` gives a
 /// folder's file system. Only the folder of a name with such a character is looked up, and each
-/// folder once, because this runs in the window's thread and every lookup reads the mount table.
+/// folder once, because a rename runs this in the window's thread and every lookup reads the
+/// mount table.
 fn refused_on_fat(
     to: &[PathBuf],
     mount_type: impl Fn(&Path) -> Option<String>,
@@ -1837,7 +1853,7 @@ fn not_renamed((name, kind): (String, String)) -> String {
 }
 
 /// Returns a notice when a file of `paths` has a name that the FAT or exFAT file system of
-/// `dest` refuses, so that a copy (`keep`) or a move into it refuses all before it starts.
+/// `dest` refuses, so that a copy (`keep`) or a move into it refuses all before the first file.
 /// Returns `None` when every name is allowed there. Every file goes into the one folder, so the
 /// first name with such a character decides, and the names after it are not looked at.
 fn refused_transfer(
@@ -2173,7 +2189,7 @@ mod tests {
     }
 
     /// A Copy To or Move To onto a FAT card, where one file's name has a character the card
-    /// refuses, says so before the job starts and leaves every file where it was. On another
+    /// refuses, says so, copies or moves nothing and leaves every file in the list. On another
     /// file system the same copy goes ahead.
     #[test]
     fn a_copy_or_move_onto_fat_with_a_refused_name_starts_nothing() {
@@ -2183,26 +2199,58 @@ mod tests {
             image::RgbImage::new(2, 2).save(d.join(f)).unwrap();
         }
         let (mut app, ctx) = app_on(&d);
+        let listed = |a: &crate::App| a.list.files().len() == 2;
+        assert!(settle(&mut app, &ctx, listed));
         let files = vec![d.join("a.png"), d.join("12:30.png")];
-        super::TEST_MOUNT.set(Some("vfat".into()));
+        let card = d.join("card").canonicalize().unwrap();
+        super::test_mount(&card, Some("vfat"));
         for keep in [true, false] {
             app.notice = None;
             app.transfer(&ctx, files.clone(), d.join("card"), keep);
+            assert!(settle(&mut app, &ctx, |a| a.notice.is_some() && !a.working()));
             let told = app.notice.clone().unwrap_or_default();
             assert!(
                 told.contains("\"12:30.png\"") && told.contains("vfat"),
                 "{told}"
             );
-            assert!(settle(&mut app, &ctx, |a| !a.working()));
             assert!(!d.join("card/a.png").exists() && d.join("a.png").exists());
+            assert!(settle(&mut app, &ctx, listed));
         }
-        super::TEST_MOUNT.set(Some("ext4".into()));
+        super::test_mount(&card, Some("ext4"));
         app.transfer(&ctx, files, d.join("card"), true);
         assert!(settle(&mut app, &ctx, |_| d
             .join("card/12:30.png")
             .exists()));
         assert!(settle(&mut app, &ctx, |a| !a.working()));
-        super::TEST_MOUNT.set(None);
+        super::test_mount(&card, None);
+        std::fs::remove_dir_all(d).unwrap();
+    }
+
+    /// A Copy To or a sort folder given as a link to a FAT card (`~/card` → `/media/u/CARD`),
+    /// where one file's name has a character the card refuses, copies nothing. The mount is
+    /// looked up by the folder the link points to, as 0.63.0 looked it up by the link's own
+    /// path and copied the other files.
+    #[test]
+    fn a_copy_through_a_link_to_fat_with_a_refused_name_copies_nothing() {
+        let d = std::env::temp_dir().join(format!("glimt-test-fat-link-{}", std::process::id()));
+        std::fs::create_dir_all(d.join("media/CARD")).unwrap();
+        std::os::unix::fs::symlink(d.join("media/CARD"), d.join("card")).unwrap();
+        for f in ["a.png", "12:30.png"] {
+            image::RgbImage::new(2, 2).save(d.join(f)).unwrap();
+        }
+        let (mut app, ctx) = app_on(&d);
+        let card = d.join("media/CARD").canonicalize().unwrap();
+        super::test_mount(&card, Some("vfat"));
+        let files = vec![d.join("a.png"), d.join("12:30.png")];
+        app.transfer(&ctx, files, d.join("card"), true);
+        assert!(settle(&mut app, &ctx, |a| a.notice.is_some() && !a.working()));
+        super::test_mount(&card, None);
+        let told = app.notice.clone().unwrap_or_default();
+        assert!(
+            told.contains("\"12:30.png\"") && told.contains("vfat"),
+            "{told}"
+        );
+        assert!(!card.join("a.png").exists() && !card.join("12:30.png").exists());
         std::fs::remove_dir_all(d).unwrap();
     }
 
@@ -2213,10 +2261,10 @@ mod tests {
         let d = std::env::temp_dir().join(format!("glimt-test-fat-dir-{}", std::process::id()));
         std::fs::create_dir_all(d.join("sub")).unwrap();
         let (mut app, ctx) = app_on(&d);
-        super::TEST_MOUNT.set(Some("exfat".into()));
+        super::test_mount(&d, Some("exfat"));
         app.dialogs.act_on_folder(d.join("sub"));
         app.rename_folder(&ctx, "12:30");
-        super::TEST_MOUNT.set(None);
+        super::test_mount(&d, None);
         let told = app.notice.clone().unwrap_or_default();
         assert!(
             told.contains("\"12:30\"") && told.contains("exfat"),
