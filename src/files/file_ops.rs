@@ -777,9 +777,9 @@ impl crate::App {
 
     /// Asks whether to delete `files` for good, which the trash refused on a network or cloud
     /// mount of type `kind`. gio has no trash there, and a trash in the home folder would mean
-    /// a download of each file. It asks only about files of the folder shown, by their names in
-    /// the list. A notice tells of the others, which are left as they are, because another
-    /// folder was opened before the question.
+    /// a download of each file. It asks only about files the list shows, by their names there.
+    /// A notice tells of the others, which are left as they are: another folder was opened
+    /// before the question, or the file is in a subfolder the list does not show.
     fn ask_delete_instead(&mut self, kind: String, files: &[PathBuf]) {
         // Only files the list shows are asked about: a subfolder's file strips the folder's
         // prefix too, but is not in the list with Include Subfolders off.
@@ -2952,10 +2952,11 @@ mod tests {
     }
 
     /// The files the trash refused on a network or cloud mount are asked about, to delete them
-    /// for good instead, when they are in the folder shown. Files of another folder are not,
-    /// because their names could be other files' in this list, and a notice tells that they
-    /// are still there. The question waits until the folder is read again, because the delete
-    /// took the files out of the list. A file refused twice is asked about once.
+    /// for good instead, when the list shows them. Files of another folder, or of a subfolder
+    /// the list does not show, are not, because their names could be other files' in this
+    /// list, and a notice tells that nothing was deleted. The question waits until the folder
+    /// is read again, because the delete took the files out of the list. A file refused twice
+    /// is asked about once.
     #[test]
     fn asks_to_delete_for_good_what_the_trash_refused_on_a_network_mount() {
         use std::path::PathBuf;
