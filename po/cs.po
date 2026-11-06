@@ -2339,6 +2339,10 @@ msgstr "Pole: %name%, %path%, %folder% a %app%. Znak | začíná část, která 
 msgid "Set Window Title…"
 msgstr "Nastavit název okna…"
 
+#: src/ui/actions.rs
+msgid "Show File Names Under Thumbnails"
+msgstr "Zobrazit názvy souborů pod náhledy"
+
 #: src/main.rs
 msgid "Title of this window (%name%, %path%, %folder%, %app%; empty: as in Preferences):"
 msgstr "Název tohoto okna (%name%, %path%, %folder%, %app%; prázdné: jako v Předvolbách):"

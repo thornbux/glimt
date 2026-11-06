@@ -2328,6 +2328,10 @@ msgstr "Pola: %name%, %path%, %folder% i %app%. Znak | zaczyna część, pomijan
 msgid "Set Window Title…"
 msgstr "Ustaw tytuł okna…"
 
+#: src/ui/actions.rs
+msgid "Show File Names Under Thumbnails"
+msgstr "Pokaż nazwy plików pod miniaturami"
+
 #: src/main.rs
 msgid "Title of this window (%name%, %path%, %folder%, %app%; empty: as in Preferences):"
 msgstr "Tytuł tego okna (%name%, %path%, %folder%, %app%; puste: jak w Preferencjach):"

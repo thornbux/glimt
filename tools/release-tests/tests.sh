@@ -868,6 +868,35 @@ for v in new old; do
     else note "old: $small, then $large red pixels; saved $saved"; fi
 done
 
+section "View → Show File Names Under Thumbnails off: no names under the grid's thumbnails"
+for v in new old; do
+    as_version $v
+    d=/tmp/grid-bare-$v
+    mkdir -p $d
+    for c in a b c d e f; do convert -size 300x200 xc:red $d/$c.jpg; done
+    config
+    start $d
+    key g
+    # The pointer off the grid, where no cell is lit and no name pops up over the thumbnails.
+    xdotool mousemove 1270 790
+    settled grid-bare-on-$v
+    menu View "Show File Names Under Thumbnails"; sleep 1
+    xdotool mousemove 1270 790
+    settled grid-bare-off-$v
+    saved=$(grep -c '^grid_names=false$' $XDG_CONFIG_HOME/glimt/config)
+    quit
+    # The names are light grey on the dark theme: grey pixels brighter than any background.
+    # The thumbnails are red and the chosen cell blue, so neither counts.
+    text_in() { matching $1 1000x640+260+110 '(r>0.4&&abs(r-g)<0.1&&abs(r-b)<0.1)'; }
+    on=$(text_in grid-bare-on-$v); off=$(text_in grid-bare-off-$v)
+    if [ $v = new ]; then
+        if [ "$on" -gt 100 ]; then pass "names under the thumbnails at first ($on pixels)"
+        else fail "names under the thumbnails at first: $on pixels"; fi
+        expect "no names once turned off" "$off" 0
+        expect "turned off and saved" "$saved" 1
+    else note "old: $on, then $off pixels of text; saved $saved"; fi
+done
+
 section "Ctrl+ and Shift+double-click in the grid in the image area (G): open the file clicked"
 for v in new old; do
     as_version $v

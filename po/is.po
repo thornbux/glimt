@@ -2317,6 +2317,10 @@ msgstr "Reitir: %name%, %path%, %folder% og %app%. | byrjar hluta, sem er sleppt
 msgid "Set Window Title…"
 msgstr "Setja gluggatitil…"
 
+#: src/ui/actions.rs
+msgid "Show File Names Under Thumbnails"
+msgstr "Sýna skráarheiti undir smámyndum"
+
 #: src/main.rs
 msgid "Title of this window (%name%, %path%, %folder%, %app%; empty: as in Preferences):"
 msgstr "Titill þessa glugga (%name%, %path%, %folder%, %app%; tómt: eins og í kjörstillingum):"

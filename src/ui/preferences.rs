@@ -97,6 +97,7 @@ const FILE_LIST: &[&str] = &[
     "Show marks and stars in the file list",
     "Show the EXIF panel (Ctrl+K; reads a little from each image shown)",
     "Show the file list as icons (Ctrl+I)",
+    "Show File Names Under Thumbnails",
     "Show thumbnails in the file list (T)",
     "Small",
     "Thumbnail size:",
@@ -547,6 +548,8 @@ impl crate::App {
         });
         let c = &mut self.config;
         changed |= checkbox(ui, &mut c.icons, tr("Show the file list as icons (Ctrl+I)")).changed();
+        let names = tr("Show File Names Under Thumbnails");
+        changed |= checkbox(ui, &mut c.grid_names, names).changed();
         changed |= checkbox(
             ui,
             &mut c.folder_tree,

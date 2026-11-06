@@ -442,6 +442,7 @@ impl crate::App {
         let size = iconed(ui, theme::icon::SIZE, tr("Thumbnail Size"));
         submenu(ui, size, |ui| self.thumb_size_setting(ui));
         let c = &self.config;
+        menu_toggle(ui, act, c.grid_names, Action::GridNames);
         menu_toggle(ui, act, c.exif_panel, Action::ExifPanel);
         menu_toggle(ui, act, c.sort_manager, Action::SortManager);
         menu_toggle(ui, act, self.info.exif_window_open(), Action::ExifWindow);

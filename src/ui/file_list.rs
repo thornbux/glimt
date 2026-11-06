@@ -34,6 +34,9 @@ pub(crate) const THUMBS: [egui::Vec2; 3] = [
 /// What a cell of the thumbnail grid adds to the thumbnail, which has its name below.
 pub(crate) const CELL_EXTRA: egui::Vec2 = egui::vec2(8.0, 26.0);
 
+/// What a cell adds to the thumbnail without the name: the same margin all round.
+const CELL_EXTRA_NO_NAME: egui::Vec2 = egui::vec2(8.0, 8.0);
+
 /// Whether thumbnails come from the freedesktop "large" cache, for big ones or a scaled
 /// screen. The workers read it.
 pub(crate) static LARGE_THUMBS: AtomicBool = AtomicBool::new(false);
@@ -548,15 +551,30 @@ impl crate::App {
         self.thumbs.pending.clear();
     }
 
-    /// The size of a cell of the icon grid, the thumbnail with its name below.
+    /// The size of a cell of a grid, the thumbnail with its name below, or without the name
+    /// when View → Show File Names Under Thumbnails is off. Every grid shows the names or none,
+    /// so the setting is read here and not passed by each view as its form.
     pub(crate) fn cell(&self) -> egui::Vec2 {
-        self.thumb() + CELL_EXTRA
+        let extra = if self.config.grid_names {
+            CELL_EXTRA
+        } else {
+            CELL_EXTRA_NO_NAME
+        };
+        self.thumb() + extra
     }
 
     pub(crate) fn set_thumb_size(&mut self, size: u8) {
         self.config.thumb_size = size;
         self.config.save();
         self.thumbs_changed();
+        self.panel.scroll_to_cur = true;
+    }
+
+    /// Shows the file names under the thumbnails of every grid, or none.
+    pub(crate) fn set_grid_names(&mut self, on: bool) {
+        self.config.grid_names = on;
+        self.config.save();
+        // The rows change height, so the shown image is scrolled to again.
         self.panel.scroll_to_cur = true;
     }
 
@@ -728,7 +746,8 @@ impl crate::App {
     }
 
     /// A cell of the thumbnail grid. It shows the thumbnail with the name below, cut off to
-    /// fit.
+    /// fit, unless the names are turned off. The name is still read to a screen reader and shown
+    /// when the pointer rests on the cell.
     pub(crate) fn file_cell(
         &mut self,
         ui: &mut egui::Ui,
@@ -755,15 +774,17 @@ impl crate::App {
         };
         let frame = egui::Rect::from_min_size(rect.min + egui::vec2(4.0, 4.0), self.thumb());
         self.paint_thumb(ui, i, frame);
-        let font = egui::TextStyle::Small.resolve(ui.style());
-        let mut job = egui::text::LayoutJob::simple_singleline(name, font, color);
-        job.wrap = egui::text::TextWrapping::truncate_at_width(self.cell().x - 6.0);
-        let galley = ui.painter().layout_job(job);
-        let at = egui::pos2(
-            rect.center().x - galley.size().x / 2.0,
-            frame.bottom() + 4.0,
-        );
-        ui.painter().galley(at, galley, color);
+        if self.config.grid_names {
+            let font = egui::TextStyle::Small.resolve(ui.style());
+            let mut job = egui::text::LayoutJob::simple_singleline(name, font, color);
+            job.wrap = egui::text::TextWrapping::truncate_at_width(self.cell().x - 6.0);
+            let galley = ui.painter().layout_job(job);
+            let at = egui::pos2(
+                rect.center().x - galley.size().x / 2.0,
+                frame.bottom() + 4.0,
+            );
+            ui.painter().galley(at, galley, color);
+        }
         // A file Check Images found broken gets the warning sign on the thumbnail's top left.
         if self.broken_files.contains(&self.list.files()[i]) {
             let size = egui::TextStyle::Body.resolve(ui.style()).size;
@@ -1901,6 +1922,24 @@ mod tests {
         assert!(app.panel.area_grid_shown());
         app.run(&ctx, ThumbnailGrid);
         assert!(!app.panel.area_grid_on());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// Without file names a cell of the grid is as wide, and shorter by the name's line, so more
+    /// rows fit. The toggle turns them off and on again.
+    #[test]
+    fn a_cell_without_its_name_is_shorter() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-names-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let (mut app, ctx) = crate::support::test_support::app_on(&dir);
+        let named = app.cell();
+        app.run(&ctx, crate::ui::actions::Action::GridNames);
+        let bare = app.cell();
+        assert_eq!(bare.x, named.x);
+        assert_eq!(bare.y, app.thumb().y + 8.0);
+        assert!(bare.y < named.y);
+        app.run(&ctx, crate::ui::actions::Action::GridNames);
+        assert_eq!(app.cell(), named);
         std::fs::remove_dir_all(dir).unwrap();
     }
 

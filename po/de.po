@@ -2317,6 +2317,10 @@ msgstr "Felder: %name%, %path%, %folder% und %app%. Ein | beginnt einen Teil, de
 msgid "Set Window Title…"
 msgstr "Fenstertitel festlegen …"
 
+#: src/ui/actions.rs
+msgid "Show File Names Under Thumbnails"
+msgstr "Dateinamen unter Vorschaubildern anzeigen"
+
 #: src/main.rs
 msgid "Title of this window (%name%, %path%, %folder%, %app%; empty: as in Preferences):"
 msgstr "Titel dieses Fensters (%name%, %path%, %folder%, %app%; leer: wie in den Einstellungen):"

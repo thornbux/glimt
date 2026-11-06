@@ -503,6 +503,9 @@ const MANUAL: &[(&str, &str)] = &[
         "What the window shows beside the image:\n\n\
          - T shows thumbnails, Small, Medium or Large in View → Thumbnail Size\n\
          - Ctrl+I shows the file list as a grid of icons (↑ and ↓ move a row)\n\
+         - View → Show File Names Under Thumbnails turns the names in the grids off, so more \
+         rows fit; a name still shows when the pointer rests on its thumbnail, and a screen \
+         reader still reads it\n\
          - G shows the files as a grid of thumbnails in the image area: the arrow keys move in \
          it, Enter or a double-click shows the image there, and Esc or G goes back to the grid\n\
          - Ctrl+T shows the folders as a tree\n\
@@ -666,6 +669,11 @@ const DIFFERENCES: &[(&str, &str, &str)] = &[
         "Thumbnail size",
         "Small, Medium or Large, in View → Thumbnail Size and in Preferences",
         "A width and height in Preferences only",
+    ),
+    (
+        "File names in the grid",
+        "View → Show File Names Under Thumbnails, also in Preferences; for every grid",
+        "Show filename text in the icon view's right-click menu",
     ),
     (
         "Arrow keys",

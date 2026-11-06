@@ -2338,6 +2338,10 @@ msgstr ""
 msgid "Set Window Title…"
 msgstr ""
 
+#: src/ui/actions.rs
+msgid "Show File Names Under Thumbnails"
+msgstr ""
+
 #: src/main.rs
 msgid "Title of this window (%name%, %path%, %folder%, %app%; empty: as in Preferences):"
 msgstr ""

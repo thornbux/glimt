@@ -2317,6 +2317,10 @@ msgstr "Felter: %name%, %path%, %folder% og %app%. En | starter en del, som udel
 msgid "Set Window Title…"
 msgstr "Angiv vinduestitel …"
 
+#: src/ui/actions.rs
+msgid "Show File Names Under Thumbnails"
+msgstr "Vis filnavne under miniaturer"
+
 #: src/main.rs
 msgid "Title of this window (%name%, %path%, %folder%, %app%; empty: as in Preferences):"
 msgstr "Titel på dette vindue (%name%, %path%, %folder%, %app%; tom: som i Indstillinger):"
