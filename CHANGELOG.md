@@ -5,6 +5,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.61.0] - 2026-11-06
+
 ### Fixed
 
 - A copy saved with Save As, Crop or Save This Frame to a slow share no longer holds up the
@@ -20,6 +22,11 @@ and versions follow [Semantic Versioning](https://semver.org/).
   they read from the open file on its standard input, so a link put in its place after a check is
   never read or written through. The describe plugin reads the sidecar again after the model has
   answered, so a keyword or stars Glimt wrote meanwhile are kept.
+- Every crate is at its newest compatible version, and a weekly pull request keeps them there:
+  `cargo update` with the files that follow `Cargo.lock`, checked by CI before it is merged.
+- `tools/check.sh` builds its image again when `rust:1` moves on, and its turns are kernel locks
+  that a killed check lets go of at once.
+- The release tests rename on a real FAT file system: a change of case and a swap.
 
 ## [0.60.0] - 2026-11-06
 
@@ -2650,7 +2657,8 @@ The first release. Glimt is not 1.0 yet: it is in daily use, but expect rough ed
 - Remote control from the command line: `glimt --remote` and `--remote-all`.
 - Remembers the folder, window size and position.
 
-[Unreleased]: https://github.com/thornbux/glimt/compare/v0.60.0...HEAD
+[Unreleased]: https://github.com/thornbux/glimt/compare/v0.61.0...HEAD
+[0.61.0]: https://github.com/thornbux/glimt/compare/v0.60.0...v0.61.0
 [0.60.0]: https://github.com/thornbux/glimt/compare/v0.59.0...v0.60.0
 [0.59.0]: https://github.com/thornbux/glimt/compare/v0.58.0...v0.59.0
 [0.58.0]: https://github.com/thornbux/glimt/compare/v0.57.0...v0.58.0
