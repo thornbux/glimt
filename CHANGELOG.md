@@ -5,6 +5,32 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.68.0] - 2026-11-06
+
+### Added
+
+- View → Thumbnail Size chooses Small, Medium or Large thumbnails from the window, not only in
+  Preferences.
+- View → Show File Names Under Thumbnails (also in Preferences) turns off the names in the grids
+  of thumbnails, so more rows fit; a name still shows when the pointer rests on it and is still
+  read by a screen reader.
+
+### Fixed
+
+- On a share that gives every file inode 0 (sshfs with `-o use_ino`), Find Duplicates no longer
+  keeps one file of the folder, the backup no longer takes every folder for one it copies, Save
+  As and Rename Many no longer take two files for one, and Undo of a move no longer moves back
+  another file put at the moved name since.
+- With Include Subfolders, a folder link whose real path cannot be worked out is not followed.
+- An animated GIF, WebP or APNG that claims a huge size gets no frames made.
+- A file operation refused after a folder's listing broke says the listing stopped, instead of
+  "try again in a moment".
+- A turn saved while another window renames the photo keeps the photo and its sidecar in step.
+- A collection row dragged from outside the selection lets go of the images a search held back.
+- Pan view lays its rows out again when the thumbnail size or the file names under them change.
+- Changing the file list's settings in Preferences keeps the shown image in view, as the menus
+  do.
+
 ## [0.67.0] - 2026-11-06
 
 The findings of a full audit of 0.66.0, fixed by class, each in one place with a check that
@@ -2886,7 +2912,8 @@ The first release. Glimt is not 1.0 yet: it is in daily use, but expect rough ed
 - Remote control from the command line: `glimt --remote` and `--remote-all`.
 - Remembers the folder, window size and position.
 
-[Unreleased]: https://github.com/thornbux/glimt/compare/v0.67.0...HEAD
+[Unreleased]: https://github.com/thornbux/glimt/compare/v0.68.0...HEAD
+[0.68.0]: https://github.com/thornbux/glimt/compare/v0.67.0...v0.68.0
 [0.67.0]: https://github.com/thornbux/glimt/compare/v0.66.1...v0.67.0
 [0.66.1]: https://github.com/thornbux/glimt/compare/v0.66.0...v0.66.1
 [0.66.0]: https://github.com/thornbux/glimt/compare/v0.65.1...v0.66.0
