@@ -1703,9 +1703,10 @@ mod tests {
             assert_eq!(action.target(), Target::Selection, "{name} in file_menu");
         }
         assert!(menu.contains("self.open_with_menu(ui)"));
+        let open_with = body("open_with_menu");
         assert!(
-            !body("open_with_menu").contains("list.cur()"),
-            "Open With asks about the shown file, not the selection"
+            open_with.contains("first_target()") && !open_with.contains("list.cur()"),
+            "Open With asks about the first selected file (first_target), not the shown one"
         );
     }
 

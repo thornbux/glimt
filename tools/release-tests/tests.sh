@@ -211,6 +211,7 @@ shot() { import -window root /t/out/$1.png; }
 # A shot of a screen at rest: shots 0.5 s apart until two are the same, up to 10 seconds, as
 # thumbnails come late. A check that the screen changed compares with this, not with any shot.
 settled() {
+    local i
     shot $1
     for i in $(seq 20); do
         sleep 0.5; shot $1-next
@@ -254,6 +255,13 @@ pixel() {
 }
 # differ NAME A B: a check that A and B are not the same.
 differ() { if [ "$2" != "$3" ]; then pass "$1"; else fail "$1: both '$2'"; fi; }
+# matching NAME GEOMETRY EXPR: how many pixels of the screenshot NAME within GEOMETRY make the
+# -fx expression EXPR true. ImageMagick 7's convert prints a line "list" before the answer
+# when -fx is used, and 6 does not, so only the last line is the count.
+matching() {
+    convert /t/out/$1.png -crop $2 +repage -fx "$3" -format '%[fx:int(mean*w*h)]' info: |
+        tail -1
+}
 # The red value, 0-255, at X,Y of a screenshot.
 red() { convert /t/out/$1.png -format "%[fx:int(255*p{$2,$3}.r)]" info:; }
 first_image() { grep -o 'first image: [0-9]* ms' /tmp/glimt.err; }
@@ -791,12 +799,12 @@ for v in new old; do
     for c in a b c; do convert -size 300x200 xc:red $d/$c.jpg; done
     config thumbnails=true file_details=true
     start $d
-    key g; sleep 2
-    shot grid-names-$v
+    key g
+    # Thumbnails come late under load: a shot before them would find no red and pass.
+    settled grid-names-$v
     quit
     # The side panel below the toolbar, left of the grid: red only where a thumbnail is drawn.
-    reds=$(convert /t/out/grid-names-$v.png -crop 235x700+0+100 +repage \
-        -fx '(r>0.5&&g<0.3&&b<0.3)' -format '%[fx:int(mean*w*h)]' info:)
+    reds=$(matching grid-names-$v 235x700+0+100 '(r>0.5&&g<0.3&&b<0.3)')
     if [ $v = new ]; then expect "no thumbnails over the side panel's names" "$reds" 0
     else note "old: $reds red pixels in the side panel"; fi
 done
@@ -822,8 +830,7 @@ for v in new old; do
     ticked() {
         [ -n "$2" ] || { echo "not shown"; return; }
         local n
-        n=$(convert /t/out/$1.png -crop 300x1+$(( ${2% *} - 150 ))+${2#* } +repage \
-            -fx '(b>0.7&&r<0.4)' -format '%[fx:int(mean*w*h)]' info:)
+        n=$(matching $1 300x1+$(( ${2% *} - 150 ))+${2#* } '(b>0.7&&r<0.4)')
         [ "$n" -gt 100 ] && echo ticked || echo -
     }
     grid=$(ticked grid-tick-grid-$v "$at_grid"); image=$(ticked grid-tick-image-$v "$at_image")
