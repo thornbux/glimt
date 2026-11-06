@@ -5,6 +5,11 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- A copy saved with Save As, Crop or Save This Frame to a slow share no longer holds up the
+  keywords, comments and stars written to other files meanwhile.
+
 ## [0.60.0] - 2026-11-06
 
 ### Fixed
