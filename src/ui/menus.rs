@@ -439,6 +439,9 @@ impl crate::App {
         // the grid, as G and Esc do.
         let grid = self.panel.area_grid_shown();
         menu_toggle(ui, act, grid, Action::ThumbnailGrid);
+        let size = iconed(ui, theme::icon::SIZE, tr("Thumbnail Size"));
+        submenu(ui, size, |ui| self.thumb_size_setting(ui));
+        let c = &self.config;
         menu_toggle(ui, act, c.exif_panel, Action::ExifPanel);
         menu_toggle(ui, act, c.sort_manager, Action::SortManager);
         menu_toggle(ui, act, self.info.exif_window_open(), Action::ExifWindow);

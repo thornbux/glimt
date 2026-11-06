@@ -543,12 +543,7 @@ impl crate::App {
         }
         ui.horizontal(|ui| {
             ui.label(tr("Thumbnail size:"));
-            let mut size = self.config.thumb_size;
-            for (n, name) in [(0, tr("Small")), (1, tr("Medium")), (2, tr("Large"))] {
-                if radio_choice(ui, &mut size, n, name).changed() {
-                    self.set_thumb_size(size);
-                }
-            }
+            self.thumb_size_setting(ui);
         });
         let c = &mut self.config;
         changed |= checkbox(ui, &mut c.icons, tr("Show the file list as icons (Ctrl+I)")).changed();
@@ -802,6 +797,18 @@ impl crate::App {
             }
         });
         changed
+    }
+
+    /// Draws the thumbnail sizes as radio buttons, and sets the size clicked. Preferences and
+    /// View → Thumbnail Size both show these, so the two always offer the same sizes. Its name
+    /// ends in _setting, so the search of Preferences finds the sizes.
+    pub(crate) fn thumb_size_setting(&mut self, ui: &mut egui::Ui) {
+        let mut size = self.config.thumb_size;
+        for (n, name) in [(0, tr("Small")), (1, tr("Medium")), (2, tr("Large"))] {
+            if radio_choice(ui, &mut size, n, name).changed() {
+                self.set_thumb_size(size);
+            }
+        }
     }
 
     /// Preferences → File list: the EXIF panel.

@@ -2827,3 +2827,7 @@ msgstr "“{name}”: een {kind}-bestandssysteem, zoals op de geheugenkaart van 
 #: src/ui/dialogs.rs
 msgid "A {kind} file system, as on a camera card, allows none of : ? * \" < > | \\ in a name."
 msgstr "Een {kind}-bestandssysteem, zoals op de geheugenkaart van een camera, staat geen van : ? * \" < > | \\ toe in een naam."
+
+#: src/ui/menus.rs
+msgid "Thumbnail Size"
+msgstr "Grootte van miniaturen"

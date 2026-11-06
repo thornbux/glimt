@@ -24,6 +24,7 @@ pub mod icon {
     pub const PALETTE: &str = "\u{e6c8}"; // palette
     pub const COLOUR: &str = "\u{e566}"; // drop-half
     pub const FILTER: &str = "\u{e434}"; // sliders-horizontal
+    pub const SIZE: &str = "\u{e0a2}"; // arrows-out
     pub const ZOOM: &str = "\u{e310}"; // magnifying-glass-plus
     pub const MOON: &str = "\u{e330}"; // moon
     pub const SUN: &str = "\u{e472}"; // sun

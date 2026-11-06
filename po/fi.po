@@ -2827,3 +2827,7 @@ msgstr "”{name}”: {kind}-tiedostojärjestelmä, kuten kameran muistikortilla
 #: src/ui/dialogs.rs
 msgid "A {kind} file system, as on a camera card, allows none of : ? * \" < > | \\ in a name."
 msgstr "{kind}-tiedostojärjestelmä, kuten kameran muistikortilla, ei salli nimessä mitään merkeistä : ? * \" < > | \\."
+
+#: src/ui/menus.rs
+msgid "Thumbnail Size"
+msgstr "Pienoiskuvien koko"

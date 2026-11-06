@@ -2838,3 +2838,7 @@ msgstr "«{name}»: system plików {kind}, jak na karcie pamięci aparatu, nie d
 #: src/ui/dialogs.rs
 msgid "A {kind} file system, as on a camera card, allows none of : ? * \" < > | \\ in a name."
 msgstr "System plików {kind}, jak na karcie pamięci aparatu, nie dopuszcza w nazwie żadnego ze znaków : ? * \" < > | \\."
+
+#: src/ui/menus.rs
+msgid "Thumbnail Size"
+msgstr "Rozmiar miniatur"

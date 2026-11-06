@@ -840,6 +840,34 @@ for v in new old; do
     else note "old: $grid with the grid, $image on an image opened from it"; fi
 done
 
+section "View → Thumbnail Size → Large: the grid's thumbnails larger, and the size saved"
+for v in new old; do
+    as_version $v
+    d=/tmp/grid-size-$v
+    mkdir -p $d
+    for c in a b c; do convert -size 300x200 xc:red $d/$c.jpg; done
+    config
+    start $d
+    key g
+    # The pointer off the grid, where no cell is lit and no name pops up over the thumbnails.
+    xdotool mousemove 1270 790
+    settled grid-size-small-$v
+    menu View "Thumbnail Size" Large; sleep 1
+    xdotool mousemove 1270 790
+    settled grid-size-large-$v
+    quit
+    # The grid in the image area, right of the side panel: red only where a thumbnail is.
+    red_in() { matching $1 1000x640+260+110 '(r>0.5&&g<0.3&&b<0.3)'; }
+    small=$(red_in grid-size-small-$v); large=$(red_in grid-size-large-$v)
+    saved=$(grep -c '^thumb_size=large$' $XDG_CONFIG_HOME/glimt/config)
+    if [ $v = new ]; then
+        if [ "$small" -gt 0 ] && [ "$large" -gt $((small * 2)) ]; then
+            pass "the thumbnails larger: $small, then $large red pixels"
+        else fail "the thumbnails larger: $small, then $large red pixels"; fi
+        expect "Large saved" "$saved" 1
+    else note "old: $small, then $large red pixels; saved $saved"; fi
+done
+
 section "Ctrl+ and Shift+double-click in the grid in the image area (G): open the file clicked"
 for v in new old; do
     as_version $v

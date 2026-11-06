@@ -2849,3 +2849,7 @@ msgstr "„{name}“: souborový systém {kind}, jako na paměťové kartě foto
 #: src/ui/dialogs.rs
 msgid "A {kind} file system, as on a camera card, allows none of : ? * \" < > | \\ in a name."
 msgstr "Souborový systém {kind}, jako na paměťové kartě fotoaparátu, nepovoluje v názvu žádný ze znaků : ? * \" < > | \\."
+
+#: src/ui/menus.rs
+msgid "Thumbnail Size"
+msgstr "Velikost náhledů"

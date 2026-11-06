@@ -2838,3 +2838,7 @@ msgstr "«{name}»: eit {kind}-filsystem, som på minnekortet i eit kamera, till
 #: src/ui/dialogs.rs
 msgid "A {kind} file system, as on a camera card, allows none of : ? * \" < > | \\ in a name."
 msgstr "Eit {kind}-filsystem, som på minnekortet i eit kamera, tillèt ingen av : ? * \" < > | \\ i eit namn."
+
+#: src/ui/menus.rs
+msgid "Thumbnail Size"
+msgstr "Storleik på miniatyrbilete"

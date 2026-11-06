@@ -2827,3 +2827,7 @@ msgstr "«{name}»: un sistema de archivos {kind}, como el de la tarjeta de una 
 #: src/ui/dialogs.rs
 msgid "A {kind} file system, as on a camera card, allows none of : ? * \" < > | \\ in a name."
 msgstr "Un sistema de archivos {kind}, como el de la tarjeta de una cámara, no admite ninguno de : ? * \" < > | \\ en un nombre."
+
+#: src/ui/menus.rs
+msgid "Thumbnail Size"
+msgstr "Tamaño de las miniaturas"

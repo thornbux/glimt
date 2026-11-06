@@ -501,7 +501,7 @@ const MANUAL: &[(&str, &str)] = &[
     (
         "Panels",
         "What the window shows beside the image:\n\n\
-         - T shows thumbnails (Small, Medium or Large in Preferences)\n\
+         - T shows thumbnails, Small, Medium or Large in View → Thumbnail Size\n\
          - Ctrl+I shows the file list as a grid of icons (↑ and ↓ move a row)\n\
          - G shows the files as a grid of thumbnails in the image area: the arrow keys move in \
          it, Enter or a double-click shows the image there, and Esc or G goes back to the grid\n\
@@ -661,6 +661,11 @@ const DIFFERENCES: &[(&str, &str, &str)] = &[
         "Random order",
         "R, the View menu and Preferences",
         "Only in Preferences",
+    ),
+    (
+        "Thumbnail size",
+        "Small, Medium or Large, in View → Thumbnail Size and in Preferences",
+        "A width and height in Preferences only",
     ),
     (
         "Arrow keys",
