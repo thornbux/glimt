@@ -39,6 +39,12 @@ pub const LANGUAGES: &[(&str, &str, &[&str], &str)] = &[
         include_str!("../../po/no_nb.po"),
     ),
     ("pl", "Polski", &["pl"], include_str!("../../po/pl.po")),
+    (
+        "pt_BR",
+        "Português (Brasil)",
+        &["pt"],
+        include_str!("../../po/pt_BR.po"),
+    ),
     ("fi", "Suomi", &["fi"], include_str!("../../po/fi.po")),
     ("sv", "Svenska", &["sv"], include_str!("../../po/sv.po")),
 ];
@@ -59,10 +65,11 @@ struct Table {
 }
 
 /// Which of a noun's forms goes with `n`, by the language's rule (its `.po`'s Plural-Forms):
-/// one and many in most; 0 also one in French; 21 one in Icelandic; one, few and many in Polish.
+/// one and many in most; 0 also one in French and Brazilian Portuguese; 21 one in Icelandic;
+/// one, few and many in Polish.
 fn plural_form(code: &str, n: usize) -> usize {
     match code {
-        "fr" => (n > 1) as usize,
+        "fr" | "pt_BR" => (n > 1) as usize,
         "is" => (n % 10 != 1 || n % 100 == 11) as usize,
         "pl" if n == 1 => 0,
         "pl" if (2..=4).contains(&(n % 10)) && !(12..=14).contains(&(n % 100)) => 1,
@@ -149,7 +156,7 @@ pub fn number_marks() -> (&'static str, &'static str) {
 fn marks_of(code: &str) -> (&'static str, &'static str) {
     match code {
         "en" => (",", "."),
-        "da" | "de" | "es" | "is" | "it" | "nl" => (".", ","),
+        "da" | "de" | "es" | "is" | "it" | "nl" | "pt_BR" => (".", ","),
         _ => ("\u{a0}", ","),
     }
 }
@@ -381,6 +388,7 @@ msgstr[1] "bilder"
         }
         assert_eq!(super::language("de_DE.UTF-8").as_deref(), Some("de"));
         assert_eq!(super::language("pl_PL.UTF-8").as_deref(), Some("pl"));
+        assert_eq!(super::language("pt_BR.UTF-8").as_deref(), Some("pt_BR"));
         for l in ["en_US.UTF-8", "C", "ru_RU.UTF-8", ""] {
             assert_eq!(super::language(l), None, "{l}");
         }
@@ -418,6 +426,7 @@ msgstr[1] "bilder"
         };
         assert_eq!(forms("de", &[0, 1, 2, 21]), [1, 0, 1, 1]);
         assert_eq!(forms("fr", &[0, 1, 2]), [0, 0, 1]);
+        assert_eq!(forms("pt_BR", &[0, 1, 2]), [0, 0, 1]);
         assert_eq!(forms("is", &[1, 2, 11, 21, 111]), [0, 1, 1, 0, 1]);
         assert_eq!(
             forms("pl", &[1, 2, 4, 5, 12, 22, 25, 112]),
@@ -506,7 +515,7 @@ msgstr[1] "bilder"
             ),
             (
                 "support/lang.rs",
-                &["Norsk bokmål"],
+                &["Norsk bokmål", "Português (Brasil)"],
                 "each language is named in itself",
             ),
             (
