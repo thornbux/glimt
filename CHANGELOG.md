@@ -5,6 +5,20 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.66.1] - 2026-11-06
+
+### Fixed
+
+- Enter on a focused Cancel in the questions before Delete, Delete Permanently, a folder or a
+  collection to the trash no longer deletes. Enter and Esc in dialogs, the crop, the pan view and
+  Check Images answer only when no button or text field has the keyboard focus, never as a key
+  held down repeats, and never with Ctrl or Alt.
+- Esc or Q back to the grid in the image area ends a crop of the image it leaves; the next
+  Enter in the grid saved the part as a copy.
+- A PNG whose EXIF is kept in a "Raw profile type exif" text chunk, as digiKam, GIMP and older
+  ImageMagick write it, keeps its date taken, camera and GPS when turned, cropped or saved as a
+  copy; the info panel and sorting by date read it too.
+
 ## [0.66.0] - 2026-11-06
 
 A release of fixes from a full audit of 0.65.0, each class of finding fixed in one place, with a
@@ -2817,7 +2831,8 @@ The first release. Glimt is not 1.0 yet: it is in daily use, but expect rough ed
 - Remote control from the command line: `glimt --remote` and `--remote-all`.
 - Remembers the folder, window size and position.
 
-[Unreleased]: https://github.com/thornbux/glimt/compare/v0.66.0...HEAD
+[Unreleased]: https://github.com/thornbux/glimt/compare/v0.66.1...HEAD
+[0.66.1]: https://github.com/thornbux/glimt/compare/v0.66.0...v0.66.1
 [0.66.0]: https://github.com/thornbux/glimt/compare/v0.65.1...v0.66.0
 [0.65.1]: https://github.com/thornbux/glimt/compare/v0.65.0...v0.65.1
 [0.65.0]: https://github.com/thornbux/glimt/compare/v0.64.0...v0.65.0
