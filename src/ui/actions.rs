@@ -101,6 +101,7 @@ pub const SHORTCUTS: &[(Action, egui::Modifiers, egui::Key)] = {
         (FullScreen, NONE, Key::F11),
         (HideTools, CTRL, Key::H),
         (Thumbnails, NONE, Key::T),
+        (ThumbnailGrid, NONE, Key::G),
         (Overlay, NONE, Key::I),
         (Histogram, NONE, Key::K),
         (HistogramLog, NONE, Key::J),
@@ -387,6 +388,7 @@ pub enum Action {
     Toolbar,
     PathBar,
     Thumbnails,
+    ThumbnailGrid,
     ExifPanel,
     ExifWindow,
     Keywords,
@@ -583,6 +585,7 @@ impl Action {
             Toolbar => "Show Toolbar",
             PathBar => "Show Folder Path",
             Thumbnails => "Show Thumbnails",
+            ThumbnailGrid => "Thumbnails in Image Area",
             ExifPanel => "Show EXIF Panel",
             SortManager => "Show Sort Manager",
             ExifWindow => "EXIF Window",
@@ -725,6 +728,7 @@ impl Action {
             Toolbar => "\u{eca0}",                          // toolbox
             PathBar => "\u{e89c}",                          // signpost
             Thumbnails => "\u{e836}",                       // images
+            ThumbnailGrid => "\u{e464}",                    // squares-four
             ExifPanel | About => "\u{e2ce}",                // info
             ExifWindow | SaveFrame => "\u{e10e}",           // camera
             Keywords => "\u{e478}",                         // tag
@@ -967,6 +971,7 @@ impl crate::App {
             Action::KeyboardMap => self.help = Some(help::Page::Keymap),
             Action::About => self.help = Some(help::Page::About),
             Action::Thumbnails => self.set_thumbnails(!self.config.thumbnails),
+            Action::ThumbnailGrid => self.panel.toggle_area_grid(),
             Action::SaveOrientation => self.save_orientation(ctx),
             Action::Crop => self.start_crop(),
             Action::SaveAs => self.start_save_as(),
@@ -1247,7 +1252,8 @@ impl crate::App {
         }
         // A zoomed image larger than the window: the arrow keys move it, as in Geeqie; along a
         // side where it fits they still browse.
-        if !self.dialog_open() && !typing && !self.zoom.is_fitted() {
+        if !self.dialog_open() && !typing && !self.zoom.is_fitted() && !self.panel.area_grid_shown()
+        {
             let step = 100.0;
             let max = self.zoom.pan_room();
             ctx.input_mut(|i| {
@@ -1263,6 +1269,14 @@ impl crate::App {
                     }
                 }
             });
+        }
+        // Enter in the grid in the image area shows the image there, read before Play takes it.
+        if self.panel.area_grid_shown()
+            && !self.dialog_open()
+            && !typing
+            && ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Enter))
+        {
+            self.panel.open_from_grid();
         }
         // In the icon grid ↑ and ↓ move a row; read before the shortcut takes the key.
         let vertical =
@@ -1517,6 +1531,7 @@ mod tests {
         Action::Slower,
         Action::SortManager,
         Action::Subfolders,
+        Action::ThumbnailGrid,
         Action::Thumbnails,
         Action::Toolbar,
         Action::TrashCollection,

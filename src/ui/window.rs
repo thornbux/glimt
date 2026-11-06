@@ -414,10 +414,11 @@ impl crate::App {
             && !self.dialog_open()
     }
 
-    /// Esc: as in Geeqie it never quits; it closes help, stops the slideshow and leaves full
-    /// screen.
+    /// Esc: as in Geeqie it never quits. It closes help, goes back to the grid from an image
+    /// opened from it, stops the slideshow and leaves full screen.
     pub(crate) fn escape(&mut self, ctx: &egui::Context, fullscreen: bool) {
         self.help = None;
+        self.panel.back_to_grid();
         if self.slideshow.is_running() {
             self.stop_slideshow(ctx);
         }

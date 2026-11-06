@@ -499,6 +499,8 @@ const MANUAL: &[(&str, &str)] = &[
         "What the window shows beside the image:\n\n\
          - T shows thumbnails (Small, Medium or Large in Preferences)\n\
          - Ctrl+I shows the file list as a grid of icons (↑ and ↓ move a row)\n\
+         - G shows the files as a grid of thumbnails in the image area: the arrow keys move in \
+         it, Enter or a double-click shows the image there, and Esc or G goes back to the grid\n\
          - Ctrl+T shows the folders as a tree\n\
          - View → Include Subfolders lists the images of every folder below (File → Open Folder \
          Recursive… opens a folder with it on)\n\
@@ -779,6 +781,12 @@ const DIFFERENCES: &[(&str, &str, &str)] = &[
         "Images as icons (Ctrl+I)",
         "Ctrl+I switches between list and icons",
         "Ctrl+I icons, Ctrl+L list",
+    ),
+    (
+        "Thumbnails in the image area (G)",
+        "A grid of thumbnails where the image is; Enter or a double-click shows the image there, \
+         Esc goes back to the grid",
+        "None",
     ),
     (
         "Search field",

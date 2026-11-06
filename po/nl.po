@@ -437,6 +437,10 @@ msgid "Show Thumbnails"
 msgstr "Miniaturen tonen"
 
 #: src/ui/actions.rs
+msgid "Thumbnails in Image Area"
+msgstr "Miniaturen in het afbeeldingsgebied"
+
+#: src/ui/actions.rs
 msgid "Show Toolbar"
 msgstr "Werkbalk tonen"
 

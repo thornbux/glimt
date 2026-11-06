@@ -437,6 +437,10 @@ msgid "Show Thumbnails"
 msgstr "Mostra miniature"
 
 #: src/ui/actions.rs
+msgid "Thumbnails in Image Area"
+msgstr "Miniature nell'area immagine"
+
+#: src/ui/actions.rs
 msgid "Show Toolbar"
 msgstr "Mostra la barra degli strumenti"
 
