@@ -205,17 +205,25 @@ pub fn built_in_format(path: &Path) -> bool {
 }
 
 /// `dir` and every folder below it, one at a time: (its path relative to `dir`, its folders,
-/// its images). A folder reached again through a link or a bind mount is read once.
+/// its images). A folder reached again through a link or a bind mount is read once. A link to a
+/// folder above `dir` is not followed: a downloaded folder with `up -> ../..` or `root -> /`
+/// would else list the whole home folder or disk, for Select All and Delete to act on.
 pub fn walk(
     dir: &Path,
     types: Types,
 ) -> impl Iterator<Item = (PathBuf, Vec<PathBuf>, Vec<OsString>)> {
-    let (dir, mut seen, mut todo) = (dir.to_path_buf(), HashSet::new(), vec![PathBuf::new()]);
+    let (dir, mut todo) = (dir.to_path_buf(), vec![PathBuf::new()]);
+    let mut seen: HashSet<Result<(u64, u64), PathBuf>> = HashSet::new();
+    let file_id = crate::images::save::file_id;
+    // The folders above `dir` count as read already. They are those of its real path, as a link
+    // in the tree leads to a real folder.
+    let real = real_dir(&dir);
+    seen.extend(real.ancestors().skip(1).filter_map(file_id).map(Ok));
     std::iter::from_fn(move || {
         loop {
             let rel = todo.pop()?;
             let full = dir.join(&rel);
-            if !seen.insert(crate::images::save::file_id(&full).ok_or_else(|| full.clone())) {
+            if !seen.insert(file_id(&full).ok_or_else(|| full.clone())) {
                 continue;
             }
             let (dirs, files) = list_folder(&full, types);
@@ -260,6 +268,17 @@ pub fn list_tree(
     // In name order, as list_folder gives a single folder; sort_files builds on that.
     out.sort_unstable();
     (own, out)
+}
+
+/// Returns `dir` in the form Glimt keeps and compares folders by: its real path, with its links
+/// followed and its `..` worked out, as other programs (the trash, `--remote select`'s client)
+/// record it too. Returns the path made absolute when it cannot be looked up.
+// shortcut: realpath looks at the disk, which holds the caller's thread on a share that stopped
+// answering; the window calls it once per folder opened or moved to, as `App::open` always did.
+pub fn real_dir(dir: &Path) -> PathBuf {
+    std::fs::canonicalize(dir)
+        .or_else(|_| std::path::absolute(dir))
+        .unwrap_or_else(|_| dir.to_path_buf())
 }
 
 /// Whether a folder entry is a file and whether a folder, from the entry's own type (no `stat`),
@@ -470,6 +489,37 @@ mod tests {
         assert_eq!(parts[1].last().unwrap(), "a/deep/1.jpg");
         assert_eq!(parts[2].last().unwrap(), "b/3.jpg");
         std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A link in the tree to a folder above it (`up -> ../..`, `root -> /`) is not followed: it
+    /// listed the folders around the tree, and from `/` the whole disk. A link to a folder
+    /// beside the tree still is.
+    #[test]
+    fn a_tree_does_not_follow_a_link_up() {
+        use std::os::unix::fs::symlink;
+        let base = std::env::temp_dir().join(format!("glimt-test-tree-up-{}", std::process::id()));
+        let tree = base.join("tree");
+        std::fs::create_dir_all(tree.join("sub")).unwrap();
+        std::fs::create_dir_all(base.join("beside")).unwrap();
+        for f in ["outside.jpg", "tree/a.jpg", "beside/b.jpg"] {
+            std::fs::write(base.join(f), "x").unwrap();
+        }
+        symlink("../..", tree.join("sub/up")).unwrap();
+        symlink(base.join("beside"), tree.join("sub/beside")).unwrap();
+        let types = super::Types {
+            images: true,
+            raw: true,
+            videos: true,
+            hidden: false,
+        };
+        let stop = std::sync::atomic::AtomicBool::new(false);
+        // Also when the tree is named through a link, as its real ancestors are what is seen.
+        symlink(&tree, base.join("named")).unwrap();
+        for top in [tree.clone(), base.join("named")] {
+            let (_, files) = super::list_tree(&top, types, &stop, |_| {}, |_| {});
+            assert_eq!(files, ["a.jpg", "sub/beside/b.jpg"], "{top:?}");
+        }
+        std::fs::remove_dir_all(base).unwrap();
     }
 
     #[test]
