@@ -1793,7 +1793,11 @@ pub(crate) fn fat_type(dir: &Path) -> Option<String> {
     fs_type(dir).filter(|kind| is_fat(kind))
 }
 
-/// Returns whether `kind`, a type of file system from `mount_type`, is FAT or exFAT.
+/// Returns whether `kind`, a type of file system from `mount_type`, is FAT or exFAT. An exFAT
+/// card through FUSE is "fuseblk" where udev's data cannot be read, as in a container or the
+/// Flatpak, and so is NTFS through ntfs-3g, which allows : ? * and the others. A fuseblk mount
+/// is not taken as FAT, so that no name is refused on NTFS. On such a card the copy or rename
+/// fails at that file with the system's error instead, as before 0.63.0.
 fn is_fat(kind: &str) -> bool {
     matches!(kind, "vfat" | "msdos" | "exfat")
 }

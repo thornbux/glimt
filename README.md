@@ -629,7 +629,9 @@ Glimt writes what goes wrong to the terminal: start it from one (`glimt ~/Pictur
   file system refuses names the mount's type (`fuse.rclone`, `cifs` …).
 - **A camera card** (FAT or exFAT) allows none of `: ? * " < > | \` in a name; Rename, Rename
   Many, Copy, Move and Rename Folder say so before they start, as with a pattern that puts a
-  time in the name, and Rename Many's preview warns of it.
+  time in the name, and Rename Many's preview warns of it. An exFAT card mounted through FUSE
+  (`fuseblk`, not the kernel's own exFAT) is known only where udev's data can be read, so not in
+  the Flatpak; there the card's own error ("Invalid argument") tells instead.
 - **Import Lightroom Catalog says sqlite3 is missing.** Install the `sqlite3` program; the
   Flatpak has its own. It must be 3.37 or newer (2021), which reads
   a catalog in its safe mode; RHEL 8 and other older systems have an older one.
