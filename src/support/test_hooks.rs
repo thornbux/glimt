@@ -42,7 +42,9 @@ pub(crate) fn noted(response: &egui::Response, text: &str) -> egui::Response {
     #[cfg(feature = "test-hooks")]
     note(
         text.trim_start_matches(|c: char| ('\u{e000}'..='\u{f8ff}').contains(&c) || c == ' '),
-        response.rect,
+        // The part that takes a click, so a row cut off at a scrolled list's edge is clicked
+        // where it shows, not in its middle under the edge.
+        response.interact_rect,
     );
     #[cfg(not(feature = "test-hooks"))]
     let _ = text;
