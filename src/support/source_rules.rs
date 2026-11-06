@@ -255,6 +255,33 @@ fn reads_literals() {
     assert_eq!(texts, ["a \"b\" c\né", "x \"y\" z", ""]);
 }
 
+/// The rules find a function at any indent, and a `Sense` that takes a click in every spelling.
+#[test]
+fn finds_functions_and_clicks() {
+    assert_eq!(
+        function_name("    pub(crate) fn turn<T>(x: T)"),
+        Some("turn")
+    );
+    assert_eq!(function_name("        fn inner() {"), Some("inner"));
+    assert_eq!(function_name("    let f = 1;"), None);
+    for click in [
+        "ui.interact(rect, id, egui::Sense::CLICK)",
+        "ui.allocate_rect(r, Sense::click())",
+        "ui.interact(r, id, egui::Sense::click_and_drag())",
+        "ui.interact(r, id, egui::Sense::all())",
+        "ui.interact(r, id, Sense::hover() | Sense::CLICK)",
+    ] {
+        assert!(takes_a_click(click), "{click}");
+    }
+    for none in [
+        "ui.interact(r, id, egui::Sense::hover())",
+        "Sense::DRAG",
+        "let s: Sense = x;",
+    ] {
+        assert!(!takes_a_click(none), "{none}");
+    }
+}
+
 /// `line` without what may stand before `fn`, `struct` and the like: a visibility, `unsafe`,
 /// `async`, and `const` or `extern "C"` when a function follows (a const fn is a function, not
 /// a constant).
@@ -278,6 +305,36 @@ fn qualifiers_off(line: &str) -> &str {
             return l;
         }
     }
+}
+
+/// Returns the name of the function that `line` starts, at any indent (a method, or a function
+/// inside another), or `None` when it starts none. Every rule that asks which function a line
+/// is in finds it here, so none of them misses an indented one.
+fn function_name(line: &str) -> Option<&str> {
+    let rest = qualifiers_off(line.trim_start()).strip_prefix("fn ")?;
+    rest.split(['(', '<']).next()
+}
+
+/// Whether `line` names a `Sense` that takes a click, in any of egui's spellings
+/// (`Sense::click()`, `Sense::CLICK`, `Sense::click_and_drag()`, `Sense::all()`, a union). Every
+/// spelling counts except the few that take no click, so a new one is caught, not missed.
+fn takes_a_click(line: &str) -> bool {
+    const NO_CLICK: &[&str] = &[
+        "hover",
+        "HOVER",
+        "drag",
+        "DRAG",
+        "focusable_noninteractive",
+        "FOCUSABLE",
+        "empty",
+    ];
+    line.match_indices("Sense::").any(|(at, sense)| {
+        let rest = &line[at + sense.len()..];
+        let name = rest
+            .split(|c: char| !c.is_alphanumeric() && c != '_')
+            .next();
+        !NO_CLICK.contains(&name.unwrap_or(""))
+    })
 }
 
 fn indent(line: &str) -> usize {
@@ -827,8 +884,8 @@ fn images_are_turned_after_they_shrink() {
         let lines = code_lines(&text);
         let mut function = "";
         for (i, line) in lines[..tests_start(&lines)].iter().enumerate() {
-            if let Some(rest) = qualifiers_off(line).strip_prefix("fn ") {
-                function = rest.split(['(', '<']).next().unwrap_or("");
+            if let Some(name) = function_name(line) {
+                function = name;
             }
             let place = format!("{file} {function}");
             if line.contains("apply_orientation(") && !allowed.contains(&place.as_str()) {
@@ -887,8 +944,8 @@ fn outside_their_homes(homes: &[(&str, &[(&str, &str)])]) -> Vec<String> {
         let end = tests_start(&lines);
         let mut function = String::new();
         for (i, line) in lines[..end].iter().enumerate() {
-            if let Some(rest) = qualifiers_off(line.trim_start()).strip_prefix("fn ") {
-                function = rest.split(['(', '<']).next().unwrap_or("").to_owned();
+            if let Some(name) = function_name(line) {
+                function = name.to_owned();
             }
             for (call, allowed) in homes {
                 let at_home =
@@ -957,8 +1014,8 @@ fn view_colours_stay_in_the_view() {
         let end = tests_start(&lines);
         let mut function = String::new();
         for (i, line) in lines[..end].iter().enumerate() {
-            if let Some(rest) = qualifiers_off(line.trim_start()).strip_prefix("fn ") {
-                function = rest.split(['(', '<']).next().unwrap_or("").to_owned();
+            if let Some(name) = function_name(line) {
+                function = name.to_owned();
             }
             let shown = SHOWN.iter().any(|(f, s)| file == *f && function == *s);
             if FOR_THE_VIEW.iter().any(|t| line.contains(t)) && !shown {
@@ -1024,8 +1081,8 @@ fn broken_inputs_are_fed_by_survives_broken_tests() {
         }
         let mut function = String::new();
         for (i, line) in code_lines(&text).iter().enumerate() {
-            if let Some(rest) = qualifiers_off(line.trim_start()).strip_prefix("fn ") {
-                function = rest.split(['(', '<']).next().unwrap_or("").to_owned();
+            if let Some(name) = function_name(line) {
+                function = name.to_owned();
             }
             let calls = line.match_indices("broken(").any(|(at, _)| {
                 let before = line[..at].chars().next_back();
@@ -1160,8 +1217,8 @@ fn the_list_is_drawn_in_the_form_its_caller_asks() {
     let mut function = String::new();
     let mut wrong = Vec::new();
     for (i, line) in lines[..end].iter().enumerate() {
-        if let Some(rest) = qualifiers_off(line.trim_start()).strip_prefix("fn ") {
-            function = rest.split(['(', '<']).next().unwrap_or("").to_owned();
+        if let Some(name) = function_name(line) {
+            function = name.to_owned();
         }
         let setting = ["config.thumbnails", "config.icons"]
             .iter()
@@ -1191,7 +1248,7 @@ fn every_clickable_widget_drawn_by_hand_speaks() {
             let near = &lines[i..(i + 4).min(end)];
             let speaks =
                 || (near.iter()).any(|l| l.contains("speak_") || l.contains("widget_info"));
-            if line.contains("Sense::click") && !speaks() {
+            if takes_a_click(line) && !speaks() {
                 wrong.push(format!("{file}:{}", i + 1));
             }
         }
