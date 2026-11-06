@@ -285,12 +285,14 @@ impl Panel {
         }
     }
 
-    /// Goes back to the grid from an image opened from it, as Esc does.
-    pub(crate) fn back_to_grid(&mut self) {
-        if self.area_grid == AreaGrid::Opened {
+    /// Goes back to the grid from an image opened from it, as Esc does. Returns whether it did.
+    pub(crate) fn back_to_grid(&mut self) -> bool {
+        let opened = self.area_grid == AreaGrid::Opened;
+        if opened {
             self.area_grid = AreaGrid::Shown;
             self.scroll_to_cur = true;
         }
+        opened
     }
 }
 

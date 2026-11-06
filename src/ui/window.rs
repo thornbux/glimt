@@ -418,7 +418,11 @@ impl crate::App {
     /// opened from it, stops the slideshow and leaves full screen.
     pub(crate) fn escape(&mut self, ctx: &egui::Context, fullscreen: bool) {
         self.help = None;
-        self.panel.back_to_grid();
+        // A crop belongs to the image shown, so it ends when the grid comes back over it.
+        // Otherwise the next Enter in the grid saved the part instead of opening an image.
+        if self.panel.back_to_grid() {
+            self.viewing.stop_crop();
+        }
         if self.slideshow.is_running() {
             self.stop_slideshow(ctx);
         }
