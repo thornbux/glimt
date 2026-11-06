@@ -2796,3 +2796,7 @@ msgstr "Flyt samlingen »{name}« til papirkurven? Billederne bliver, hvor de er
 #: src/files/file_io.rs
 msgid "the file system here ({kind}) does not allow this rename, as on some shares, cloud folders and phones ({e})"
 msgstr "filsystemet her ({kind}) tillader ikke denne omdøbning, som på visse delte mapper, skymapper og telefoner ({e})"
+
+#: src/files/file_ops.rs
+msgid "\"{name}\": a {kind} file system, as on a camera card, allows none of : ? * \" < > | \\ in a name. Nothing was renamed."
+msgstr "»{name}«: et {kind}-filsystem, som på hukommelseskortet i et kamera, tillader ingen af : ? * \" < > | \\ i et navn. Intet blev omdøbt."

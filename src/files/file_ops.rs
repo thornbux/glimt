@@ -27,6 +27,9 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, mpsc};
 use std::time::Instant;
 
+/// The characters that FAT and exFAT refuse in a name, as on a camera card.
+const NOT_ON_FAT: [char; 8] = [':', '?', '*', '"', '<', '>', '|', '\\'];
+
 /// A Rename Many running in the background. It holds the list as it was (`App::files_gen`),
 /// the files renamed with their new names, and which of them was shown.
 pub(crate) struct RenameJob {
@@ -935,6 +938,12 @@ impl crate::App {
         from: Vec<PathBuf>,
         to: Vec<PathBuf>,
     ) {
+        // A camera card refuses some characters. Saying so before the job starts names the
+        // reason, where a rename that fails halfway would only give the system's error.
+        if let Some(refused) = refused_on_fat(&to, crate::files::file_io::mount_type) {
+            self.notice = Some(refused);
+            return;
+        }
         // It is a job like every other writer. Closing waits for it, the status bar counts it,
         // and its Stop puts back the names done so far.
         let touches = from.iter().chain(&to).cloned().collect();
@@ -1652,6 +1661,27 @@ fn forget_in_collection(
     edit.map(|()| removed)
 }
 
+/// Returns a notice when a name of `to` has a character that the FAT or exFAT file system of its
+/// folder refuses, before anything is renamed. Returns `None` when every name is allowed where it
+/// goes. `mount_type` gives a folder's file system. Only the folder of a name with such a
+/// character is looked up.
+fn refused_on_fat(to: &[PathBuf], mount_type: impl Fn(&Path) -> Option<String>) -> Option<String> {
+    to.iter().find_map(|path| {
+        let name = path.file_name()?.to_string_lossy();
+        if !name.contains(NOT_ON_FAT) {
+            return None;
+        }
+        let kind = mount_type(path.parent()?)?;
+        matches!(kind.as_str(), "vfat" | "msdos" | "exfat").then(|| {
+            tf!(
+                "\"{name}\": a {kind} file system, as on a camera card, allows none of : ? * \" < > | \\ in a name. Nothing was renamed.",
+                name,
+                kind
+            )
+        })
+    })
+}
+
 /// The name in the way of a file going to `to`, if any. It is `to` itself, or a sidecar at the
 /// new name that belongs to another file, whether or not the file has one of its own. (The
 /// photo would show that file's keywords and stars, and leave its own behind.) `ours` are the
@@ -1902,6 +1932,33 @@ pub(crate) fn new_place(path: &Path, moved: &HashMap<&Path, &Path>) -> Option<Pa
 #[cfg(test)]
 mod tests {
     use crate::support::test_support::{app_on, contract_folder, settle};
+
+    /// A name with a character that FAT refuses is refused before anything is renamed on a FAT
+    /// or exFAT folder, and allowed on another file system. Only the folder of such a name is
+    /// looked up, so a rename to plain names reads no mount table.
+    #[test]
+    fn refuses_names_that_fat_does_not_allow_before_renaming() {
+        use std::path::{Path, PathBuf};
+        let to = |names: &[&str]| -> Vec<PathBuf> {
+            names.iter().map(|n| Path::new("/card").join(n)).collect()
+        };
+        let on = |kind: &'static str| move |_: &Path| Some(kind.to_owned());
+        let told = super::refused_on_fat(&to(&["a.jpg", "12:30.jpg"]), on("vfat")).unwrap();
+        assert!(
+            told.contains("\"12:30.jpg\"") && told.contains("vfat"),
+            "{told}"
+        );
+        assert!(super::refused_on_fat(&to(&["a?.jpg"]), on("exfat")).is_some());
+        assert!(super::refused_on_fat(&to(&["back\\slash.jpg"]), on("msdos")).is_some());
+        assert!(super::refused_on_fat(&to(&["12:30.jpg"]), on("ext4")).is_none());
+        let looked = std::cell::Cell::new(0);
+        let counted = |_: &Path| {
+            looked.set(looked.get() + 1);
+            Some("vfat".to_owned())
+        };
+        assert!(super::refused_on_fat(&to(&["a.jpg", "b c.jpg"]), counted).is_none());
+        assert_eq!(looked.get(), 0);
+    }
 
     /// Entries taken out of a collection go back to their places, also when some are there again.
     #[test]

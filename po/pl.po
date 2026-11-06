@@ -2807,3 +2807,7 @@ msgstr "Przenieść kolekcję «{name}» do kosza? Jej obrazy zostaną na miejsc
 #: src/files/file_io.rs
 msgid "the file system here ({kind}) does not allow this rename, as on some shares, cloud folders and phones ({e})"
 msgstr "system plików w tym miejscu ({kind}) nie pozwala na tę zmianę nazwy, jak na niektórych udziałach sieciowych, w folderach w chmurze i na telefonach ({e})"
+
+#: src/files/file_ops.rs
+msgid "\"{name}\": a {kind} file system, as on a camera card, allows none of : ? * \" < > | \\ in a name. Nothing was renamed."
+msgstr "«{name}»: system plików {kind}, jak na karcie pamięci aparatu, nie dopuszcza w nazwie żadnego ze znaków : ? * \" < > | \\. Nie zmieniono żadnej nazwy."

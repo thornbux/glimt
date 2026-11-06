@@ -2796,3 +2796,7 @@ msgstr "Siirretäänkö kokoelma ”{name}” roskakoriin? Sen kuvat jäävät p
 #: src/files/file_io.rs
 msgid "the file system here ({kind}) does not allow this rename, as on some shares, cloud folders and phones ({e})"
 msgstr "tämä tiedostojärjestelmä ({kind}) ei salli tätä uudelleennimeämistä, kuten jotkin jaetut kansiot, pilvikansiot ja puhelimet ({e})"
+
+#: src/files/file_ops.rs
+msgid "\"{name}\": a {kind} file system, as on a camera card, allows none of : ? * \" < > | \\ in a name. Nothing was renamed."
+msgstr "”{name}”: {kind}-tiedostojärjestelmä, kuten kameran muistikortilla, ei salli nimessä mitään merkeistä : ? * \" < > | \\. Mitään ei nimetty uudelleen."

@@ -2796,3 +2796,7 @@ msgstr "Spostare la raccolta «{name}» nel cestino? Le sue immagini restano dov
 #: src/files/file_io.rs
 msgid "the file system here ({kind}) does not allow this rename, as on some shares, cloud folders and phones ({e})"
 msgstr "il file system qui ({kind}) non consente questa ridenominazione, come su alcune cartelle condivise, cartelle cloud e telefoni ({e})"
+
+#: src/files/file_ops.rs
+msgid "\"{name}\": a {kind} file system, as on a camera card, allows none of : ? * \" < > | \\ in a name. Nothing was renamed."
+msgstr "«{name}»: un file system {kind}, come sulla scheda di una fotocamera, non consente nessuno di : ? * \" < > | \\ in un nome. Nessun file è stato rinominato."

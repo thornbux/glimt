@@ -2796,3 +2796,7 @@ msgstr "¿Mover la colección «{name}» a la papelera? Sus imágenes se quedan 
 #: src/files/file_io.rs
 msgid "the file system here ({kind}) does not allow this rename, as on some shares, cloud folders and phones ({e})"
 msgstr "el sistema de archivos de aquí ({kind}) no permite este cambio de nombre, como en algunas carpetas compartidas, carpetas en la nube y teléfonos ({e})"
+
+#: src/files/file_ops.rs
+msgid "\"{name}\": a {kind} file system, as on a camera card, allows none of : ? * \" < > | \\ in a name. Nothing was renamed."
+msgstr "«{name}»: un sistema de archivos {kind}, como el de la tarjeta de una cámara, no admite ninguno de : ? * \" < > | \\ en un nombre. No se ha cambiado ningún nombre."
