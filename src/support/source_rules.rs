@@ -906,11 +906,21 @@ fn outside_their_homes(homes: &[(&str, &[(&str, &str)])]) -> Vec<String> {
 /// A file Glimt writes from an image (a turn saved, a crop, a copy, their sidecars) takes the
 /// image's metadata only through `save::derived_metadata` and `save::derived_xmp`, which say
 /// what such a file keeps. The EXIF thumbnail was cleared there, but the XMP's thumbnail and a
-/// PNG's Photoshop resources were copied as they were, because each kind was decided apart.
+/// PNG's Photoshop resources were copied as they were, because each kind was decided apart. The
+/// readers that give an image's XMP as it is are watched too, because a copy written from one
+/// would skip what `derived_xmp` drops. The panel reads it in `xmp::embedded`.
 #[test]
 fn derived_files_take_metadata_in_one_place() {
     const HOMES: &[(&str, &[(&str, &str)])] = &[
         ("set_upright(", &[("images/save.rs", "derived_metadata")]),
+        (
+            "xmp_metadata(",
+            &[
+                ("images/save.rs", "derived_metadata"),
+                ("metadata/xmp.rs", "embedded"),
+            ],
+        ),
+        ("png_with_xmp(", &[("images/save.rs", "encode")]),
         ("set_xmp_orientation(", &[("images/save.rs", "derived_xmp")]),
         ("set_exif_metadata(", &[("images/save.rs", "encode")]),
         (
