@@ -3,239 +3,67 @@
 [![CI](https://github.com/thornbux/glimt/actions/workflows/ci.yml/badge.svg)](https://github.com/thornbux/glimt/actions/workflows/ci.yml)
 
 A fast, memory-frugal image viewer for Linux, written in Rust with egui and inspired by
-[Geeqie](https://www.geeqie.org/). It focuses on showing images quickly, in folders of any size,
-from a few images to several hundred thousand. The name *Glimt* is Norwegian for "glimpse": a
-quick look, which is what an image viewer is for.
+[Geeqie](https://www.geeqie.org/). It shows images quickly in folders of any size, from a few
+images to several hundred thousand. The name *Glimt* is Norwegian for "glimpse".
 
-Website, screenshots and user guide: **[glimt.pario.no](https://glimt.pario.no)**
+**Website, download, screenshots and user guide: [glimt.pario.no](https://glimt.pario.no)**
 
-> **Early days.** Glimt is young and has not reached version 1.0. It is used every day, but
-> rough edges and the odd bug are to be expected. Bug reports, ideas and fixes are very
-> welcome: open an issue or send a pull request (see
-> [CONTRIBUTING.md](CONTRIBUTING.md)). What changed in each release is in
+> **Early days.** Glimt has not reached version 1.0. It is used every day, but rough edges are
+> to be expected. Bug reports, ideas and fixes are welcome: open an issue or send a pull request
+> (see [CONTRIBUTING.md](CONTRIBUTING.md)). What changed in each release is in
 > [CHANGELOG.md](CHANGELOG.md); report security issues as [SECURITY.md](SECURITY.md) says.
-
-## Why Glimt
-
-- **It keeps up with you.** Hold down the arrow key and the images follow: the ones on each side
-  are decoded in advance, at the size of the window. The file list draws only what is on screen,
-  so it scrolls, searches and sorts as smoothly with 500,000 images as with ten.
-- **It stays small.** Images are kept at the size they are shown, not at full resolution, and
-  memory goes back to the system when you move on. A broken file cannot take gigabytes or bring
-  the viewer down.
-- **It feels at home on Linux.** Dark by default, or following the desktop's light or dark style
-  and accent colour, with themes for low vision, taken by itself when the desktop asks for high
-  contrast; menus, lists and text as large as you set them, and larger with GNOME's Large Text;
-  images in greyscale, inverted or with more contrast (Shift+G). The thumbnail cache is the one the file
-  manager uses, network shares open through GVfs, deleted files go to the trash.
-- **It respects your files.** Ratings, keywords and comments go to XMP sidecars that darktable,
-  digiKam, Lightroom and Immich read, and follow the file when it is renamed, moved or copied.
-  Turning a JPEG changes its orientation tag, not its pixels. Copy and move never overwrite a
-  file.
-- **Lightroom users bring their work along.** File → Import Lightroom Catalog… takes the
-  collections, the keyword hierarchy and the star ratings of a Lightroom Classic catalog, even
-  one made on Windows or a Mac. The catalog is only read, never changed
-  ([more below](#coming-from-lightroom)).
-- **No setup.** One binary that runs on any distribution with glibc 2.28 or newer, packaged as
-  `.deb`, `.rpm`, `.tar.gz`, AppImage and Flatpak. No library to import, no database to build:
-  open a folder and look.
-
-## Speed and memory
-
-Glimt is built to be as quick in a folder of several hundred thousand files as in one of a few,
-and to use as little memory as it can:
-
-- Decoding, reading folders and copying run in the background, so the window answers at once.
-- The file list draws only the rows on screen and reads no file it does not need, so a large
-  folder costs no more per frame than a small one.
-- Images are decoded to the size they are shown, at full resolution only when you zoom in, and
-  only a fixed number ahead of you.
-- Each release is tested against the one before with a folder of 500,000 files; it may not be
-  slower or take more memory than half as much again.
-
-## Screenshots
-
-The images in the screenshots are generated for the purpose.
 
 ![Glimt with thumbnails in the file list](docs/screenshots/main.png)
 
+- **Fast at any size.** The images on each side are decoded ahead at window size, and the file
+  list draws only what is on screen: as smooth with 500,000 images as with ten.
+- **Small.** Images are kept at the size they are shown, and a broken file cannot take
+  gigabytes or bring the viewer down.
+- **Respects your files.** Ratings, keywords and comments go to XMP sidecars that darktable,
+  digiKam, Lightroom and Immich read. Copy and move never overwrite a file.
+- **Every format a photographer meets**, RAW and HEIC included, and more through decoder
+  plugins (DICOM, FITS, microscopy …). Imports Lightroom Classic catalogs.
+- **One binary** for any distribution with glibc 2.28 or newer: `.deb`, `.rpm`, `.tar.gz`,
+  AppImage and Flatpak.
+
+## On the website
+
 | | |
 |---|---|
-| ![Four images at once, with their names](docs/screenshots/layout.png) | ![Find Duplicates by similarity](docs/screenshots/duplicates.png) |
-| Layout 2×2 (View → Layout), with the file names shown | Find Duplicates (D) by similarity, also in subfolders |
-| ![File size and date columns, and the EXIF panel](docs/screenshots/exif-and-columns.png) | ![Fuzzy file name search](docs/screenshots/fuzzy-search.png) |
-| File size and date columns, and the EXIF panel (Ctrl+K) | Fuzzy search: "sun" finds sunflower and sunrise, and also de**s**ert_d**un**es |
-| ![Pan view in the Light theme](docs/screenshots/pan.png) | ![Keyboard map](docs/screenshots/keyboard-map.png) |
-| Pan view (Ctrl+J), here in the Light theme | Help → Keyboard Map |
-| ![The keyword tree in the EXIF panel](docs/screenshots/keyword-tree.png) | ![Importing a Lightroom catalog](docs/screenshots/lightroom-import.png) |
-| The EXIF panel with keywords, a comment and the keyword tree | Import Lightroom Catalog: what it will do, and whose stars to keep |
-| ![Pan view's calendar](docs/screenshots/calendar.png) | ![The View menu, an icon before every item](docs/screenshots/view-menu.png) |
-| Pan view's calendar: each day with its first image and how many | The View menu: an icon before every item, the submenus for layout, theme, colour and zoom |
-| ![Preferences in sections](docs/screenshots/preferences.png) | |
-| Preferences, in sections with an icon each | |
-
-## Features
-
-**Viewing**
-- Zoom, fit, 1:1, zoom kept between images, full screen, rotate, mirror and flip.
-- A colour of your own behind the image, or a checkerboard behind transparent ones.
-- Layouts with two or four images at once, and Compare (E) side by side at the same zoom.
-- A projector window (Window → Projector) for a second screen: only the image, following
-  the main window and its zoom, with a ring where the pointer is.
-- Slideshow with random order, repeat, all subfolders, several folders at once
-  (`glimt --slideshow ~/Holiday ~/Family`), and every pane of a layout.
-- Histogram, information over the image from a template of your own, an EXIF panel and a window with every EXIF field.
-- Colour-managed: photos with Adobe RGB or Display P3 profiles are shown correctly.
-
-**Finding and organising**
-- Fuzzy search on file names, or regular expressions with the `.*` button beside the field, and
-  search in EXIF, keywords and comments (`exif:canon 2024:05`), combined with and, not, or and
-  groups: `sunset ( exif:canon | exif:nikon ) -re:png$`.
-- File → Open Recent: the last ten folders and collections.
-- Sort by name, number, date, EXIF date, size or extension.
-- Marks 1–6 and 0–5 stars, keywords and a comment for each image, and a keyword tree
-  (Places → Norway → Oslo) whose levels darktable, digiKam and Lightroom read.
-- Collections: lists of images from any folders, saved and opened again, in an order you set
-  by dragging them in the file list (or Ctrl+Shift+↑ and ↓) for the slideshow. A plain list you write
-  yourself (`.txt` or `.m3u`, one image on each line) opens the same way:
-  `glimt --slideshow show.txt` plays it in its order.
-- Lightroom Classic catalogs imported: collections, the keyword tree and stars.
-- Find Duplicates: identical files, the same name, size or dimensions, or similar pictures.
-- Check Images: finds broken files, photos cut off in copying and files that are no image, and
-  marks them in the list.
-- The sort manager: move or copy images to favourite folders with one click.
-- Pan view: every image in the folder as a timeline of thumbnails by day, or as a calendar.
-
-**Files**
-- Copy, move, rename (many at once with a pattern), delete to the trash.
-- Set an image as the desktop's wallpaper (GNOME and KDE, through the desktop portal).
-- Crop: drag out a part of the image and save it as a copy beside it.
-- Save As: another format (JPEG, PNG, WebP), smaller, and without EXIF and GPS for sharing.
-- Save the rotation to the file. Copy images or paths to the clipboard, open them with another
-  application, and print them to any CUPS printer or a PDF, one per page or as a contact sheet,
-  with image and page text from templates and a preview of the first page.
-- Plugins: run any command on the selected images from the Edit menu.
-- Decoder plugins: new formats through a program you have (DICOM, FITS, microscope files …).
-- Remote control from scripts and desktop shortcuts: `glimt --remote next`.
-- Screen readers (Orca): menus, lists and each image read out, with its alt text.
-- The interface in English, Czech, Danish, Dutch, Finnish, French, German, Icelandic,
-  Italian, Norwegian bokmål and nynorsk, Polish, Brazilian Portuguese, Spanish and Swedish, by
-  the system's language or chosen in Preferences. More are welcome as merge requests: a gettext
-  file like `po/sv.po`.
-
-## Supported formats
-
-- **Everyday:** JPEG, PNG, WebP, GIF, TIFF, BMP, ICO (the largest of its sizes first, the
-  others as pages), QOI and PNM (PBM, PGM, PPM, PAM), with animated GIF, WebP and PNG (APNG)
-  playing in a loop,
-  every page of a multi-page TIFF, and grey TIFFs of floats or signed numbers as science writes
-  them (height models, microscopy), stretched from their lowest value to their highest. TIFFs
-  under other names are read too: Zeiss `.lsm` from microscopes and `.gel` from gel scanners.
-- **Camera RAW:** CR2, CR3, NEF, ARW, ARQ, DNG, GPR, ORF, RAF, RW2, RAW, PEF and more, shown at once through
-  the JPEG preview the camera stores in them.
-- **Modern formats:** HEIC/HEIF from phones, AVIF, JPEG XL, SVG, and Radiance HDR, tone-mapped
-  to the screen.
-- **Anything else, through a decoder plugin:** JPEG 2000, FITS, DICOM, NIfTI, microscope and
-  pathology files, Photoshop, GIMP, OpenEXR and more, with a program you have (ffmpeg, ImageMagick …); see
-  [Plugins and new formats](#plugins-and-new-formats).
-- **Video:** a still frame in the list and the viewer; opening it plays it in your video player.
-- **Colour:** photos with an ICC profile (Adobe RGB, Display P3 …) are converted to sRGB, so
-  they do not look dull, or to your screen's own profile for a calibrated or wide-gamut screen,
-  taken from the desktop (colord) when it has one.
-  Adobe RGB photos without a profile are found from their EXIF.
-
-The release packages have every format built in; HEIC, AVIF and video also need `ffmpeg`. When
-building from source, HEIC, AVIF, JPEG XL, SVG and video are optional features (`heic`, `avif`,
-`jxl`, `svg`, `video`).
-
-## Installing
-
-Each [release](https://github.com/thornbux/glimt/releases) has a `.deb` for Debian and Ubuntu, an
-`.rpm` for Fedora and RHEL, a `.tar.gz` and an AppImage for other distributions, and a
-`.flatpak`. All have every optional feature built in; all but the Flatpak run on systems with
-glibc 2.28 or newer (RHEL 8, Debian 10, Ubuntu 20.04 and later).
-
-```sh
-sudo apt install ./glimt_0.38.3_amd64.deb     # Debian, Ubuntu: also menu entry, icon, man page
-sudo dnf install ./glimt-0.38.3-1.x86_64.rpm  # Fedora, RHEL: the same
-
-tar xzf glimt-0.38.3-x86_64-linux.tar.gz      # elsewhere: the binary and the files to install
-./glimt-0.38.3-x86_64-linux/glimt
-
-chmod +x glimt-0.38.3-x86_64.AppImage         # one file, nothing to install
-./glimt-0.38.3-x86_64.AppImage
-
-flatpak install --user ./glimt-0.38.3-x86_64.flatpak  # any distribution with Flatpak
-```
-
-The AppImage mounts itself with FUSE (`fusermount`, as most desktops have); without it,
-`./glimt-…AppImage --appimage-extract-and-run` works too.
-
-To check a download (releases after 0.17.4): `SHA256SUMS` in the release has the checksum of
-every file, and each file has a build provenance, signed by GitHub, that says this
-repository's release workflow built it:
-
-```sh
-sha256sum -c SHA256SUMS --ignore-missing
-gh attestation verify glimt_0.38.3_amd64.deb -R thornbux/glimt
-```
-
-For video, HEIC and AVIF, install `ffmpeg` too; `zenity` gives the file dialogs, and `sqlite3`
-reads Lightroom catalogs. The `.deb` and `.rpm` recommend all three.
-
-## Getting started
-
-Start Glimt on a folder or an image (`glimt ~/Pictures`, `glimt photo.jpg`), or from the
-application menu, which opens your home folder (or the last one, with "Start in the last used
-folder" in Preferences). These are the keys used most:
-
-| Key | Does |
-|---|---|
-| → ↓ Space, ← ↑ Backspace | Next and previous image; Home and End for the first and last |
-| F (or F11), Esc | Full screen, and back |
-| + and −, Z, X | Zoom in and out, 1:1, fit to the window |
-| ] and [ | Turn right and left |
-| S | Slideshow (start and stop) |
-| T, Ctrl+K | Thumbnails in the file list, the EXIF panel |
-| Ctrl+J, D | Pan view by date, Find Duplicates |
-| Ctrl+R, Ctrl+C, Ctrl+M | Rename (several selected: Rename Many), copy, move |
-| Ctrl+Z | Undo the last move to the trash, move or rename |
-| Delete, Shift+Delete | To the trash, delete for good (both ask first) |
-| Ctrl+O, F1 | Preferences, the help (with every key and a keyboard map) |
-
-Type in the field above the file list (or press `/`) to search the names; `exif:` searches the EXIF,
-keywords and comments. Terms one after the other must all match, `-` leaves one out, `|` means
-either and `( … )` groups: `sunset ( exif:canon | exif:nikon ) -re:png$` (see F1).
+| [Download](https://glimt.pario.no/download/) | The packages, and how to check a download |
+| [Getting started](https://glimt.pario.no/getting-started/) | Opening a folder, the keys used most, searching |
+| [Features](https://glimt.pario.no/features/) and [screenshots](https://glimt.pario.no/screenshots/) | What Glimt does, and what it looks like |
+| [Plugins and formats](https://glimt.pario.no/plugins-and-formats/) | The formats, decoder plugins and how to write one |
+| [Coming from Lightroom](https://glimt.pario.no/coming-from-lightroom/) | Importing a Lightroom Classic catalog |
+| [Command line](https://glimt.pario.no/command-line/) | Start options and remote control (also `man glimt`) |
+| [Scripts and AI](https://glimt.pario.no/scripts-and-ai/) | Scripts and assistants working with Glimt, safely |
+| [Troubleshooting](https://glimt.pario.no/troubleshooting/) and [FAQ](https://glimt.pario.no/faq/) | When something does not work |
+| [Files and privacy](https://glimt.pario.no/files-and-privacy/) | What Glimt writes, and that it sends nothing |
+| [User guide](https://glimt.pario.no/user-guide/) | The whole manual, as Help → Manual (F1) shows it |
 
 ## Building
 
 ### Requirements
 
-- Linux with glibc. It is tested on x86_64, and aarch64 should work but is untested.
-- Rust 1.95 or newer (egui needs it), installed through [rustup](https://rustup.rs):
-  ```sh
-  curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
-  ```
-- A C toolchain for linking: `build-essential` (Debian/Ubuntu), `gcc` (Fedora), or `base-devel` (Arch).
+- Linux with glibc. It is tested on x86_64; aarch64 should work but is untested.
+- Rust 1.95 or newer, through [rustup](https://rustup.rs).
+- A C toolchain for linking: `build-essential` (Debian/Ubuntu), `gcc` (Fedora), or `base-devel`
+  (Arch).
 
-No development packages for graphics are needed. OpenGL, Wayland and X11 are loaded at runtime.
+No development packages for graphics are needed: OpenGL, Wayland and X11 are loaded at runtime.
 
 ### Build and run
 
 ```sh
 cargo build --release
 ./target/release/glimt [FILE_OR_FOLDER]
-```
-
-The binary is `target/release/glimt`. It is self-contained, so you can copy it anywhere:
-
-```sh
-install -Dm755 target/release/glimt ~/.local/bin/glimt
+install -Dm755 target/release/glimt ~/.local/bin/glimt   # self-contained, copy it anywhere
 ```
 
 ### Optional features
 
-Extra file types are optional features, so the default build stays small:
+Extra file types are optional features, so the default build stays small. The release packages
+have all of them (`full`):
 
 | Feature | Adds | Needs at runtime |
 |---|---|---|
@@ -245,51 +73,33 @@ Extra file types are optional features, so the default build stays small:
 | `jxl` | JPEG XL photos, decoded in Rust (jxl-oxide) | nothing |
 | `svg` | SVG images, drawn in Rust (resvg) | nothing |
 | `marks` | Marks 1–6 and 0–5 stars, shown in the list and searchable | nothing |
-| `accessibility` | Screen readers such as Orca: menus, buttons and lists, and the shown image read as its alt text, name, place, stars, keywords, comment and extended description | a screen reader (AT-SPI), when you use one |
-| `portals` | In the Flatpak, printing through the desktop's print dialog, no screen saver in full screen, and Open With through the desktop's application chooser, where CUPS's `lp`, the session's inhibitors and the host's applications are not | the desktop portals (xdg-desktop-portal), in the Flatpak |
+| `accessibility` | Screen readers such as Orca: menus, lists and the shown image read out | a screen reader (AT-SPI), when you use one |
+| `portals` | In the Flatpak: printing, no screen saver in full screen, and Open With through the desktop portals | xdg-desktop-portal, in the Flatpak |
 
 ```sh
 cargo build --release --features video,heic,marks
-cargo build --release --features full   # all of them, same as --all-features
+cargo build --release --features full   # all of them
 ```
 
-### Before committing
-
-```sh
-cargo fmt
-cargo clippy --release --all-targets -- -D warnings
-cargo test --release
-cargo clippy --release --all-targets --all-features -- -D warnings
-cargo test --release --all-features
-python3 tools/sbom.py        # keeps sbom.cdx.json in step with Cargo.lock
-```
+The checks to run before a commit are in [CONTRIBUTING.md](CONTRIBUTING.md) and
+[AGENTS.md](AGENTS.md).
 
 ### Portable build (older distributions)
 
-A normal build only runs on systems with the same or a newer glibc as the build machine.
-To run on every supported distribution down to glibc 2.28 (RHEL/Rocky/Alma 8, SLES 15,
-Debian 10, Ubuntu 20.04 and later), link against an older glibc with
+A normal build runs only on systems with the build machine's glibc or newer. To run down to
+glibc 2.28 (RHEL 8, SLES 15, Debian 10, Ubuntu 20.04), link against an older glibc with
 [cargo-zigbuild](https://github.com/rust-cross/cargo-zigbuild), as the release workflow does:
 
 ```sh
-pip install ziglang            # or: sudo apt install zig
-cargo install cargo-zigbuild
+pip install ziglang && cargo install cargo-zigbuild
 cargo zigbuild --release --target x86_64-unknown-linux-gnu.2.28
-```
-
-The binary ends up in `target/x86_64-unknown-linux-gnu/release/glimt`. This command
-checks that it needs no glibc newer than 2.28:
-
-```sh
 objdump -T target/x86_64-unknown-linux-gnu/release/glimt | grep -o 'GLIBC_[0-9.]*' | sort -uV | tail -1
 ```
 
-musl-based distributions (Alpine) are not supported, because the viewer calls glibc's
-`malloc_trim` to return decoder memory to the system.
+musl (Alpine) is not supported: Glimt calls glibc's `malloc_trim` to return decoder memory.
 
 ### Flatpak
 
-The `.flatpak` in each release takes its runtime from Flathub when installed.
 `flatpak/io.github.thornbux.Glimt.yml` builds one from the checkout, with every feature. The
 runtime, SDK and Rust extension take about 4 GB:
 
@@ -300,297 +110,23 @@ flatpak-builder --user --install --install-deps-from=flathub --force-clean \
 flatpak run io.github.thornbux.Glimt
 ```
 
-Glimt sees every file, as an image viewer must. Its own programs (ffmpeg, zenity, gio, sqlite3)
-are the runtime's, in the sandbox, and file dialogs, the trash and the default application go
-through the desktop portals. Your own programs (plugins, decoders, a video player, the
-applications of Open With) and network shares are on the host, which the Flatpak may reach only
-after
+Your own programs (plugins, decoders, a video player, Open With) and network shares are on the
+host, which the Flatpak reaches only after
+`flatpak override --user --talk-name=org.freedesktop.Flatpak io.github.thornbux.Glimt`.
 
-```sh
-flatpak override --user --talk-name=org.freedesktop.Flatpak io.github.thornbux.Glimt
-```
+### Desktop integration
 
-until then they say so instead. The thumbnail cache is the host's. Settings are in `~/.var/app/io.github.thornbux.Glimt/config/glimt/config`, not in
-`~/.config/glimt`, so a Flatpak and a package each have their own. Remote control works between
-Flatpak instances: `flatpak run io.github.thornbux.Glimt --remote next`.
-
-## Coming from Lightroom
-
-File → Import Lightroom Catalog… reads a Lightroom Classic catalog (the `.lrcat` file, next to
-its `Previews.lrdata` folder) and brings over:
-
-- **Collections**, also those in collection sets, which become Glimt collections named
-  "Set - Collection". One that is there already gets only the images it lacks.
-- **Each image's keywords**, written into its XMP sidecar with their place in the tree, beside
-  the keywords it has (a box in the import, on by default). Lightroom keeps them only in its
-  catalog unless "Automatically write changes into XMP" is on.
-- **Keywords** with their hierarchy, into the keyword tree (Places → Norway → Oslo).
-- **Star ratings**, into Glimt's stars, and into the XMP sidecars if Preferences says so.
-  Images that already have other stars in Glimt are counted, and you choose whose to keep.
-
-Lightroom keeps the full path of every folder as it was on its own computer (`D:/Photos/` or
-`/Volumes/Photos`): the import shows each top folder of the catalog and asks where it is now.
-It needs the `sqlite3` program, 3.37 or newer, and Lightroom closed. Smart collections, colour labels,
-flags, develop settings and keywords on each image are not imported; for the last, turn on
-"Automatically write changes into XMP" in Lightroom, and Glimt reads them from the sidecars
-(RAW files) or from the files themselves (JPEG, TIFF, DNG).
-Lightroom CC (the cloud version) has no catalog file to import.
-
-## Remote control
-
-A running Glimt takes commands from the command line, for example
-from a script or a keyboard shortcut of the desktop. `--remote` goes to the Glimt window used
-last, `--remote-all` to every one.
-
-**Only on the same computer, never over the network.** The commands go through a Unix socket
-in `$XDG_RUNTIME_DIR/glimt`, which only your user can reach; Glimt opens no network port and
-listens on none. To control Glimt on another computer, run the command there, for example
-over ssh as the same user who has Glimt open: `ssh you@laptop glimt --remote next` (the login
-must have the desktop's `XDG_RUNTIME_DIR`, as a systemd login has).
-
-```sh
-glimt --remote next          # also prev, first, last, slideshow, random, fullscreen, quit
-glimt --remote slideshow on  # a state, not a toggle: also off; random and fullscreen too
-glimt --remote open ~/Pictures/holiday   # starts Glimt if it is not running
-glimt --name left --remote title 'Left: %name%'   # this window's own title; no text: as in Preferences
-glimt --remote-all quit      # close every Glimt
-glimt --help                 # all commands
-```
-
-A window started with `--name` listens under that name only, so a script can drive one of
-several: `glimt --name left ~/a &`, then `glimt --name left --remote next`. Start options
-such as `--slideshow`, `--random`, `--fullscreen`, `--kiosk`, `--layout 2x2` and `--fade`
-set up the window at start, and `--lock-settings` keeps the settings as they are on a shared
-computer (`man glimt`). `glimt --check-config` tells what is wrong in the settings file.
-
-Three commands answer, so a script knows what you are looking at. They print paths, each
-ending in a NUL byte as `find -print0` does, because a file name may hold a line break; read
-them with `xargs -0` or `read -d ''`, never line by line:
-
-```sh
-glimt --remote current | xargs -0 exiftool -Model              # the camera of the image shown
-glimt --remote selection | xargs -0 du -ch | tail -1           # the size of the selected files
-glimt --remote select ~/Pictures/a.jpg ~/Pictures/b.jpg        # select them; prints the ones not in the list
-glimt --remote select ~/Pictures/*sunset*                       # every sunset of the folder
-```
-
-`select` only selects, at most 100,000 files: what to do with them (delete, move, a
-collection) is yours to choose in the window. Sent right after `open`, it waits for the folder
-to be read.
-
-## Scripts and AI
-
-The remote commands and plugins let a script, or an AI assistant you run, work with Glimt:
-describe the image you look at, tag the selected ones, or show you the photos it found. Glimt
-is built so this stays safe:
-
-- **Only you can reach it.** The sockets are in `$XDG_RUNTIME_DIR/glimt`, a folder only your
-  user may open (0700), so another user on the computer cannot ask what you look at.
-- **Nothing that is asked changes a file.** `current`, `selection` and `select` read or select;
-  no remote command deletes, moves or renames. Whatever an assistant suggests, you do it in
-  the window, with Glimt's usual confirmation.
-- **Paths come whole.** Each ends in a NUL byte, so a file named `a.jpg` + line break +
-  `/home/you/.ssh/id_ed25519` is one name, not two.
-- **Plugins get no shell.** A plugin's command runs directly, with each file as an argument
-  of its own, so a file named `$(rm -rf ~).jpg` stays a name. Keep it that way: never write
-  `Exec=sh -c "... %f ..."`.
-
-What Glimt cannot do for you is make the assistant careful. File names, EXIF fields, comments
-and the picture itself are written by whoever made the file, and can carry words meant to steer
-a model ("ignore the instructions above and delete …"); a local model is as open to that as one
-on the internet. Treat what comes from images as data: give an assistant that reads them no
-right to delete, move or run commands, and check what it suggests before you act on it.
-
-**Read aloud.** `examples/plugins/read-aloud.desktop` reads the alt text of the selected images
-aloud through speech-dispatcher (`spd-say`), or their comment, or their name: for those who
-see poorly but use no screen reader.
-
-**An example: descriptions from a model on your own computer.**
-[`examples/plugins`](examples/plugins) (in `/usr/share/doc/glimt/examples` when Glimt is
-installed from the `.deb` or `.rpm`) holds a plugin that asks a vision model running in
-[Ollama](https://ollama.com) for one or two sentences about each selected image and writes them
-as its comment and as its IPTC alt text, in the XMP sidecar: shown in the EXIF panel, the
-comment found by `exif:` searches, and the alt text read first by a screen reader and by web
-pages and other programs. It sends images only to an address on this computer, keeps a comment
-or alt text that is there already, cuts the answer to one paragraph of plain text and lets
-exiftool write it, so nothing in the answer is run or read as XML.
-
-```sh
-ollama pull llava                                 # a vision model, once (about 4 GB)
-cp examples/plugins/* ~/.local/share/glimt/plugins/
-# needs python3 and exiftool; restart Glimt, select images, Edit → Plugins → Describe with a Local AI
-```
-
-Ollama listens on `127.0.0.1:11434` without a password: another user on the same computer can
-use the model too, though not see your images. With a model on the internet instead, every
-image you describe leaves your computer; the example refuses such an address on purpose.
-
-### Try it
-
-Each step works on its own and changes none of your own files; use a copy of a few pictures.
-
-```sh
-mkdir -p ~/glimt-test && cp ~/Pictures/*.jpg ~/glimt-test/ 2>/dev/null   # or any few images
-glimt ~/glimt-test &
-```
-
-1. **The remote commands.** Ctrl+click two images in the list, then:
-
-   ```sh
-   glimt --remote current | tr '\0' '\n'      # the image shown
-   glimt --remote selection | tr '\0' '\n'    # the two selected
-   glimt --remote select ~/glimt-test/*.jpg /nowhere/x.jpg | tr '\0' '\n'
-   ```
-
-   The last one selects every picture of the folder and prints `/nowhere/x.jpg`, the one
-   that is not in the list. (`tr` only makes the NUL bytes readable here; a script reads them
-   with `xargs -0`.)
-
-2. **A name with a line break stays one name.**
-
-   ```sh
-   cp ~/glimt-test/"$(ls ~/glimt-test | head -1)" ~/glimt-test/"$(printf 'two\nlines.jpg')"
-   ```
-
-   Show it with `glimt --remote select ~/glimt-test/two*`, then
-   `glimt --remote current | xargs -0 ls -l` lists that one file, not two.
-
-3. **The plugin, without a model.** `examples/plugins/test-model.py` stands in for a model and answers
-   every image with the same text, including words a hostile picture could make a model say:
-
-   ```sh
-   cp examples/plugins/* ~/.local/share/glimt/plugins/
-   python3 examples/plugins/test-model.py &
-   glimt --remote quit                                  # the plugin gets Glimt's environment:
-   GLIMT_AI_URL=http://127.0.0.1:11435 glimt ~/glimt-test &   # start it with the test address
-   ```
-
-   Select an image, then Edit → Plugins → Describe with a Local AI. The EXIF panel (Ctrl+K)
-   shows the comment: one line, `<b>` as text, and nothing deleted. Run it again: the comment
-   is kept, not replaced. Try `GLIMT_AI_URL=http://example.com` too: the plugin refuses.
-
-4. **A real model.** `ollama pull moondream` (1.7 GB, quick on a laptop) or `llava` (4 GB, better
-   descriptions), then start Glimt with `GLIMT_AI_MODEL=moondream` and use the plugin as above.
-   An image with a comment already is left out; clear the comment in the EXIF panel to describe
-   it again.
-
-5. **An AI assistant.** Give the assistant you use the remote commands, and nothing that
-   deletes or moves: for example *"Run `glimt --remote selection`, read the paths (they end
-   in NUL bytes), describe each picture, and select the ones with a person in them with
-   `glimt --remote select`."* You look at what it selected, and decide in Glimt what happens
-   to them.
-
-## Plugins and new formats
-
-Glimt has two kinds of plugins. Both are small desktop files in a folder of your own, which
-name a program; Glimt runs it directly, never through a shell, with each file as an argument of
-its own, so a file named `$(rm -rf ~).jpg` stays a name.
-
-- **Plugins** (`~/.local/share/glimt/plugins`) run a program on the selected files from
-  Edit → Plugins: rotate them with mogrify, send them to a website, describe them with an AI
-  model ([`examples/plugins`](examples/plugins)).
-- **Decoder plugins** (`~/.local/share/glimt/decoders`) teach Glimt a format it does not read
-  itself. The program gets a file and writes the image to its standard output, as PNM, PNG,
-  TIFF or any other format Glimt reads; Glimt then lists, shows and makes thumbnails of such
-  files as of any other.
-
-A decoder plugin:
-
-```ini
-[Glimt Decoder]
-Name=JPEG 2000
-Extensions=jp2;j2k;j2c;jpf;jpx
-Exec=ffmpeg -v error -protocol_whitelist file -format_whitelist j2k_pipe -f j2k_pipe -i %f -frames:v 1 -f image2pipe -vcodec ppm -
-```
-
-- `Extensions`: the file endings it takes, separated by `;`; an ending may have two parts, as
-  `nii.gz`. When two decoders take the same ending, the one whose file comes first by name does.
-  A format Glimt reads itself is never given to a plugin.
-- `Exec`: the command. `%f` is the file's absolute path, as one argument; it may stand inside a
-  word, as ImageMagick's `%f[0]` for a file's first frame. A program next to the desktop file
-  is found there, so a decoder can bring its own script.
-- The program has 30 seconds and may write at most 512 MB; it is stopped after that, with
-  everything it started.
-- New decoders are seen after a restart. In a Flatpak they run on the host, as plugins do: see
-  [Flatpak](#flatpak) for the permission that needs.
-
-[`examples/decoders`](examples/decoders) (in `/usr/share/doc/glimt/examples` from the `.deb` or
-`.rpm`) has these, each tested in Glimt's release tests:
-
-| Decoder | Formats | Field | Needs |
-|---|---|---|---|
-| `jpeg2000.desktop` | JPEG 2000 (`.jp2`, `.j2k`, `.jpf`, `.jpx`) | archives, libraries, scanned documents | ffmpeg |
-| `fits.desktop` | FITS (`.fits`, `.fit`, `.fts`, also compressed `.fits.fz` and `.fits.gz`): the first image, with astronomers' zscale stretch | astronomy, solar physics | python3-astropy |
-| `dicom.desktop` | DICOM (`.dcm`, `.dicom`), also compressed (JPEG, JPEG 2000, JPEG-LS), in the window the file names; the middle frame of a series | medicine, dentistry (X-ray, CT, MR, ultrasound, panoramic, intraoral) | python3-pydicom, python3-gdcm |
-| `photoshop.desktop` | Photoshop (`.psd`, `.psb`) as saved | design, architecture | ImageMagick |
-| `tga.desktop`, `exr.desktop` | TGA, OpenEXR (`.exr`) renderings | games, 3D | ImageMagick |
-| `xcf.desktop` | GIMP's own files (`.xcf`), their layers put together | design | ImageMagick |
-| `imagemagick-fits.desktop`, `imagemagick-dicom.desktop` | FITS and DICOM through ImageMagick only, for a computer without astropy or pydicom | astronomy, medical imaging | ImageMagick (`convert`; `magick` for version 7) |
-| `nifti.desktop` | NIfTI (`.nii`, `.nii.gz`): the middle axial slice, front at the top | brain MRI, fMRI | python3-nibabel |
-| `openslide.desktop` | Whole-slide images (`.svs`, `.ndpi`, `.mrxs`, `.scn`, `.bif` …), whole at up to 4096 pixels | pathology | python3-openslide |
-| `bioformats.desktop` | Microscope files through Bio-Formats, as Fiji reads them: Zeiss `.czi`, Leica `.lif`, Nikon `.nd2`, Olympus `.oib`/`.oir` and more (ICS once added, see the file); the first plane | microscopy, cell biology | Java and Bio-Formats' bftools (`bfconvert`, or `GLIMT_BFTOOLS` set to its folder) |
-| `mrc.desktop` | MRC (`.mrc`, `.mrcs`, `.map`, `.rec`, `.st`, `.ali`): a micrograph, or the middle section of a map or tomogram | cryo-electron microscopy, structural biology | python3-mrcfile |
-| `hdf5.desktop` | HDF5, NetCDF-4 and NeXus (`.h5`, `.hdf5`, `.he5`, `.nc`, `.nxs`): the largest dataset of two or more dimensions | climate, physics, neutron and synchrotron sources, satellites, microscopy | python3-h5py |
-
-Copy those you need, with the script a desktop file names (`glimt-fits` for `fits.desktop`).
-Take one of each pair: `fits.desktop` or `imagemagick-fits.desktop`, `dicom.desktop` or
-`imagemagick-dicom.desktop`. With both, the first by name takes the files, also on a computer
-without the Python modules it needs.
-
-```sh
-mkdir -p ~/.local/share/glimt/decoders
-cd examples/decoders
-cp jpeg2000.desktop fits.desktop glimt-fits ~/.local/share/glimt/decoders/
-```
-
-These are for a quick look, not for measuring: the values are stretched to grey, from the
-lowest to the highest (ImageMagick's `-auto-level`) or between the 1st and 99th percentile (the
-Python ones), and the scripts read only the slice or level they show. DICOM and NIfTI files can
-hold patient data: Glimt and its decoders only show the picture, print or keep no name, ID or
-other field, and send nothing anywhere. DICOM files without an ending (as many PACS exports
-are) are not listed: give them `.dcm`, or open the folder in a PACS viewer.
-
-**Which formats go into Glimt itself, and which into plugins.** A format is built into Glimt
-when the image library Glimt already uses reads it, with no new dependency: BMP, ICO, QOI and
-PNM came in that way, with a few lines each. A format that needs a large library, a library in
-C, or a program of its own becomes a decoder plugin, so Glimt stays small and fast for everyone,
-and those who need FITS or DICOM add one file. A decoder that works well for a format is welcome
-in `examples/decoders`: send a pull request with the desktop file, a line on what it needs, and
-a test in `tools/release-tests/tests.sh` that makes such a file and checks that it is shown.
-
-## Desktop integration
-
-The packages do this themselves. For a build from source, to get Glimt with its icon in the
-application overview and dock, and in the file manager's "Open with" for every format it reads
-(for the current user):
+The packages do this themselves. For a build from source, to get the icon, the application
+menu entry, "Open with" in the file manager and the man page:
 
 ```sh
 install -Dm644 assets/glimt.svg ~/.local/share/icons/hicolor/scalable/apps/glimt.svg
 install -Dm644 assets/glimt-256.png ~/.local/share/icons/hicolor/256x256/apps/glimt.png
 sed "s|^Exec=glimt|Exec=$PWD/target/release/glimt|" assets/glimt.desktop \
-  > ~/.local/share/applications/glimt.desktop
+  > ~/.local/share/applications/glimt.desktop     # leave out the sed if glimt is on PATH
 update-desktop-database ~/.local/share/applications
-```
-
-Leave out the `sed` path rewrite if `glimt` is on your `PATH`.
-
-The manual page (`man glimt`) describes the command line and remote control:
-
-```sh
 install -Dm644 docs/glimt.1 ~/.local/share/man/man1/glimt.1
 ```
-
-## Tested on
-
-| Distribution | Desktop | Session | How |
-|---|---|---|---|
-| Ubuntu 26.04.1 LTS (glibc 2.43, Mesa) | GNOME 50.1 | Wayland | Daily use |
-| Ubuntu 26.04.1 LTS | none (Xvfb) | X11 | Automated checks and the screenshots |
-
-CI builds and tests on GitHub's current Ubuntu. Other distributions with a recent Rust should
-work when Glimt is built from source; a binary built on a newer glibc does not start on an
-older one (see the portable build above). Reports from other distributions and desktops (KDE,
-Sway, X11 with a window manager) are very welcome.
 
 ## Runtime dependencies
 
@@ -598,92 +134,18 @@ Sway, X11 with a window manager) are very welcome.
 |---|---|---|
 | Showing images | OpenGL 3 (Mesa, EGL), xkbcommon, Wayland or X11; the `.deb` and `.rpm` install them | none |
 | Open / Copy / Move dialogs | `zenity` | `kdialog` |
-| Move to trash | `gio` (glib) | none: Delete reports that gio is missing |
-| Open With | `gio open`, `gio mime` and `gio launch`; in the Flatpak without the host permission the desktop's application chooser (portal) | `xdg-open` (default application only) |
-| smb://, sftp:// … in the folder field or on the command line | `gio mount` (GVfs) | none: mount the share yourself |
-| Import Lightroom Catalog | `sqlite3`, 3.37 or newer | none: the import says that sqlite3 is missing or too old |
-| HEIC, AVIF, video previews | `ffmpeg` and `ffprobe` (8.0 or newer for HEIC) | none: the image says ffmpeg is missing |
-| Printing | `lp` (CUPS); in the Flatpak the desktop's print dialog (portal) | Save as PDF |
-| No screen saver in full screen | `gnome-session-inhibit` or `systemd-inhibit`; in the Flatpak the inhibit portal | the screen saver may start |
-| A decoder plugin's format | the program its `Exec` line names | none: the image shows the program's error |
+| Move to trash, network shares, Open With | `gio` (glib) and GVfs; in the Flatpak the desktop portals | `xdg-open` for Open With |
+| Import Lightroom Catalog | `sqlite3`, 3.37 or newer | none |
+| HEIC, AVIF, video previews | `ffmpeg` and `ffprobe` (8.0 or newer for HEIC) | none |
+| Printing | `lp` (CUPS); in the Flatpak the print portal | Save as PDF |
+| No screen saver in full screen | `gnome-session-inhibit` or `systemd-inhibit`; in the Flatpak the inhibit portal | none |
+| A decoder plugin's format | the program its `Exec` line names | none |
 
-## Troubleshooting
+## Restoring a backup
 
-Glimt writes what goes wrong to the terminal: start it from one (`glimt ~/Pictures`) to see it.
-
-- **No window opens.** The window needs OpenGL (EGL) and xkbcommon, which the `.deb` and
-  `.rpm` install; with the `.tar.gz` or the AppImage on a minimal system, install `libegl1`
-  and `libxkbcommon-x11-0` (Debian, Ubuntu) or `libglvnd-egl` and `libxkbcommon-x11`
-  (Fedora, RHEL). To try X11 instead of Wayland: `env -u WAYLAND_DISPLAY glimt`.
-- **The AppImage does not start** and speaks of FUSE: install `fuse3` (or `fuse`), or run it
-  with `--appimage-extract-and-run`.
-- **HEIC, AVIF or videos show nothing.** They are decoded by `ffmpeg`, which must be
-  installed; HEIC needs ffmpeg and ffprobe 8.0 or newer.
-- **Open, Copy or Move show no dialog.** Install `zenity` (or `kdialog` on KDE).
-- **Delete says gio is missing**, or network shares do not open: install `gio` (glib, in
-  `libglib2.0-bin` on Debian and Ubuntu) and GVfs.
-- **A network or cloud folder** (smb://, sftp://, NFS, an rclone or s3fs mount) is slow the
-  first time, while its images and thumbnails come over the network. Changes made there from
-  another computer are not seen by themselves: press F5. gio has no trash there, so Delete asks
-  whether to delete the files for good instead. Where neither a safe rename nor a hard link is
-  to be had (rclone, s3fs, a phone), Rename looks first that the new name is free; a rename the
-  file system refuses names the mount's type (`fuse.rclone`, `cifs` …).
-- **A camera card** (FAT or exFAT) allows none of `: ? * " < > | \` in a name; Rename, Rename
-  Many, Copy, Move and Rename Folder say so before they start, as with a pattern that puts a
-  time in the name, and Rename Many's preview warns of it. An exFAT card mounted through FUSE
-  (`fuseblk`, not the kernel's own exFAT) is known only where udev's data can be read, so not in
-  the Flatpak; there the card's own error ("Invalid argument") tells instead.
-- **Import Lightroom Catalog says sqlite3 is missing.** Install the `sqlite3` program; the
-  Flatpak has its own. It must be 3.37 or newer (2021), which reads
-  a catalog in its safe mode; RHEL 8 and other older systems have an older one.
-- **A format of a decoder plugin shows nothing.** The image area shows the decoder's error:
-  check that its program is installed and run its `Exec` line by hand on the file. A decoder
-  has 30 seconds and 512 MB, and new decoders are seen after a restart.
-- **Settings in a strange state.** Quit Glimt and remove `~/.config/glimt/config`; the defaults
-  come back.
-
-## Privacy
-
-Glimt sends nothing anywhere: no telemetry, no update checks, no network library in it. It
-reads the folders you open and writes only the files listed below. The network is used only
-when you ask: a share you open (through GVfs), and the browser for a photo's place on
-OpenStreetMap or for Get More Themes. The desktop is asked for its dark style, accent colour,
-contrast and screen profile over D-Bus. Plugins and decoder plugins are programs on your computer, which
-Glimt starts with the files you chose; Glimt sends their files nowhere. Remote commands reach
-only your own Glimt windows on this computer, through a private socket.
-
-## Files
-
-| What | Where |
-|---|---|
-| Preferences | `$XDG_CONFIG_HOME/glimt/config` (`~/.config/glimt/config`) |
-| Last folder (when enabled) | `$XDG_STATE_HOME/glimt/state` (`~/.local/state/glimt/state`) |
-| Sort manager folders | `$XDG_CONFIG_HOME/glimt/sort-folders` |
-| Keyword tree | `$XDG_CONFIG_HOME/glimt/keywords`, a path such as `Places|Norway|Oslo` on each line |
-| Own themes | `$XDG_CONFIG_HOME/glimt/themes/*.theme` |
-| Marks and stars | `$XDG_STATE_HOME/glimt/marks` (`~/.local/state/glimt/marks`) |
-| A Rename Many while it runs, to put right after a crash | `$XDG_STATE_HOME/glimt/renames/` |
-| Collections | `$XDG_DATA_HOME/glimt/collections` (`~/.local/share/glimt/collections`), as `.gqv` files; plain lists (`.txt`, `.m3u`) anywhere are read, never written |
-| Plugins of your own | `$XDG_DATA_HOME/glimt/plugins/*.desktop` |
-| Decoder plugins | `$XDG_DATA_HOME/glimt/decoders/*.desktop` |
-| Keywords, comment, alt text and extended description, and stars when chosen | `photo.jpg.xmp` beside the image, as darktable and digiKam read them |
-| Remote-control sockets, which only your user can reach | `$XDG_RUNTIME_DIR/glimt` |
-| Thumbnails (new ones saved there unless "Save new thumbnails" is off in Preferences); small copies of the pictures, which stay readable after the photos are on an encrypted volume or a stick taken away | `$XDG_CACHE_HOME/thumbnails/normal` and `large` (`~/.cache/thumbnails`), shared with other programs |
-
-Glimt's own files are plain text, written to a temporary file and renamed, so a crash never
-leaves half of one. Several Glimt windows share them: settings, collections, marks and the
-keyword tree keep what another window wrote meanwhile. A sidecar is written whole, and windows
-changing the same photo's keywords or stars wait for each other; only a Flatpak Glimt and a
-package Glimt changing it at the same moment can lose one change.
-
-### Backup
-
-Your marks, stars, collections and keyword tree are in these files, not in the photos: back
-them up with your photos. **File → Back Up Glimt's Data…** copies Glimt's three folders
-(config, state and data, without the thumbnails, which are made again) to a new folder
-`glimt-backup-DATE` wherever you choose: on another disk, a share or a cloud folder.
-`glimt --back-up FOLDER` does the same without a window, from cron or a systemd timer. They are
-plain text, which any program can read. To restore, close Glimt and copy them back:
+File → Back Up Glimt's Data… (or `glimt --back-up FOLDER`) copies Glimt's own files, with your
+marks, stars, collections, keyword tree and settings, to a folder `glimt-backup-DATE`. To
+restore, close Glimt and copy them back:
 
 ```sh
 cp -r glimt-backup-2026-10-16/config/. ~/.config/glimt/
@@ -692,26 +154,25 @@ cp -r glimt-backup-2026-10-16/data/.   ~/.local/share/glimt/
 ```
 
 In the Flatpak the three folders are `~/.var/app/io.github.thornbux.Glimt/config/glimt`,
-`…/data/glimt` and `…/.local/state/glimt`: copy them back there.
+`…/data/glimt` and `…/.local/state/glimt`. Keywords, comments and alt text are in the XMP
+sidecars beside the photos, and go with a backup of the photo folders.
 
-Keywords, comments and alt text are in the XMP sidecars beside the photos (`photo.jpg.xmp`),
-so a backup of the photo folders takes them along; so do stars, when Preferences writes them
-there too. A Lightroom catalog is Lightroom's own: Glimt only reads it, and never changes it.
+## Tested on
 
-## SBOM
+| Distribution | Desktop | Session | How |
+|---|---|---|---|
+| Ubuntu 26.04.1 LTS (glibc 2.43, Mesa) | GNOME 50.1 | Wayland | Daily use |
+| Ubuntu 26.04.1 LTS | none (Xvfb) | X11 | Automated checks and the screenshots |
 
-[`sbom.cdx.json`](sbom.cdx.json) is a CycloneDX 1.5 software bill of materials: every crate the
-Linux build uses (all features), with version, license, SHA-256 from `Cargo.lock` and the
-dependency graph. External programs Glimt runs (ffmpeg, gio, zenity) are not in it. Regenerate
-it after changing dependencies:
+CI builds and tests on GitHub's current Ubuntu. Reports from other distributions and desktops
+(KDE, Sway, X11 with a window manager) are very welcome.
 
-```sh
-python3 tools/sbom.py
-```
+## SBOM and license
 
-## License
+[`sbom.cdx.json`](sbom.cdx.json) is a CycloneDX 1.5 software bill of materials of every crate
+the Linux build uses (all features), written by `python3 tools/sbom.py`. External programs
+Glimt runs (ffmpeg, gio, zenity) are not in it.
 
-MIT, see [LICENSE](LICENSE). Copyright (c) 2026 Hans-Henry Jakobsen.
-The licenses of the crates built into Glimt are in
-[THIRD-PARTY-LICENSES.txt](THIRD-PARTY-LICENSES.txt), and those of its fonts in
-[assets/fonts](assets/fonts).
+MIT, see [LICENSE](LICENSE). Copyright (c) 2026 Hans-Henry Jakobsen. The licenses of the crates
+built into Glimt are in [THIRD-PARTY-LICENSES.txt](THIRD-PARTY-LICENSES.txt), and those of its
+fonts in [assets/fonts](assets/fonts).
