@@ -1190,6 +1190,12 @@ else
     quit
     expect "a Copy To the card through a link with a name FAT refuses copies nothing" \
         "$(ls $card | grep -c '^a.jpg')" 0
+    # The control: a Copy To of a.jpg alone, the image shown, lands on the card, so a Copy To
+    # that copies nothing at all cannot pass the two checks above.
+    start $d/a.jpg
+    answer /tmp/card-link; key ctrl+c; sleep 2
+    quit
+    expect "a Copy To the card of a name FAT allows lands there" "$(ls $card | grep -c '^a.jpg$')" 1
 fi
 
 section "the usual operations on an rclone mount and on an sftp:// folder Glimt mounts with gio"
