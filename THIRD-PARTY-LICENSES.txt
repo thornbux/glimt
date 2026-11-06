@@ -615,6 +615,7 @@ signal-hook-registry 1.4.8 (LICENSE-APACHE)
 simplecss 0.2.2 (LICENSE-APACHE)
 smallvec 1.16.4 (LICENSE-APACHE)
 smol_str 0.2.2 (LICENSE-APACHE)
+socket2 0.6.5 (LICENSE-APACHE)
 svgtypes 0.16.2 (LICENSE-APACHE)
 ttf-parser 0.25.1 (LICENSE-APACHE)
 unicode-bidi 0.3.18 (LICENSE-APACHE)
@@ -2282,6 +2283,7 @@ find-msvc-tools 0.1.15 (LICENSE-MIT)
 jobserver 0.1.35 (LICENSE-MIT)
 pkg-config 0.3.34 (LICENSE-MIT)
 scoped-tls 1.0.1 (LICENSE-MIT)
+socket2 0.6.5 (LICENSE-MIT)
 ------------------------------------------------------------------------------
 
 Copyright (c) 2014 Alex Crichton
@@ -9439,8 +9441,11 @@ SOFTWARE.
 
 ==============================================================================
 zbus 5.19.0 (LICENSE)
+zbus 6.2.1 (LICENSE)
 zbus_macros 5.19.0 (LICENSE)
+zbus_macros 6.2.1 (LICENSE)
 zbus_names 4.3.5 (LICENSE)
+zbus_utils 6.1.0 (LICENSE)
 zbus_xml 5.2.1 (LICENSE)
 zvariant 5.15.1 (LICENSE)
 zvariant_derive 5.15.1 (LICENSE)
@@ -9793,6 +9798,42 @@ freely, subject to the following restrictions:
    misrepresented as being the original software.
 
 3. This notice may not be removed or altered from any source distribution.
+
+==============================================================================
+zruntime 0.2.2 (LICENSE)
+------------------------------------------------------------------------------
+
+Copyright (c) 2026 Zeeshan Ali Khan & zruntime contributors
+
+Permission is hereby granted, free of charge, to any
+person obtaining a copy of this software and associated
+documentation files (the "Software"), to deal in the
+Software without restriction, including without
+limitation the rights to use, copy, modify, merge,
+publish, distribute, sublicense, and/or sell copies of
+the Software, and to permit persons to whom the Software
+is furnished to do so, subject to the following
+conditions:
+
+The above copyright notice and this permission notice
+shall be included in all copies or substantial portions
+of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF
+ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED
+TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A
+PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT
+SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
+CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
+IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+DEALINGS IN THE SOFTWARE.
+
+The broadcast channel (`src/broadcast.rs`), its tests (`src/tests/broadcast.rs`) and its
+benchmark (`benches/broadcast.rs`) come from the async-broadcast crate
+(https://github.com/smol-rs/async-broadcast), under the license above and this notice:
+
+Copyright (c) 2020 Yoshua Wuyts, Stjepan Glavina & Zeeshan Ali Khan
 
 ==============================================================================
 zune-core 0.5.3 (LICENSE-MIT)

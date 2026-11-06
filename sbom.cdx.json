@@ -1,7 +1,7 @@
 {
  "bomFormat": "CycloneDX",
  "specVersion": "1.5",
- "serialNumber": "urn:uuid:5910639f-76a3-508d-9758-2426c398234e",
+ "serialNumber": "urn:uuid:f5a35d73-55fe-547b-8a7c-2d6ba40096e8",
  "version": 1,
  "metadata": {
   "tools": {
@@ -5485,6 +5485,31 @@
   },
   {
    "type": "library",
+   "bom-ref": "pkg:cargo/socket2@0.6.5",
+   "name": "socket2",
+   "version": "0.6.5",
+   "description": "Utilities for handling networking sockets with a maximal amount of configuration\npossible intended.",
+   "licenses": [
+    {
+     "expression": "MIT OR Apache-2.0"
+    }
+   ],
+   "purl": "pkg:cargo/socket2@0.6.5",
+   "hashes": [
+    {
+     "alg": "SHA-256",
+     "content": "c3d1e2c7f27f8d4cb10542a02c49005dbd6e93095799d6f3be745fae9f8fedd4"
+    }
+   ],
+   "externalReferences": [
+    {
+     "type": "vcs",
+     "url": "https://github.com/rust-lang/socket2"
+    }
+   ]
+  },
+  {
+   "type": "library",
    "bom-ref": "pkg:cargo/static_assertions@1.1.0",
    "name": "static_assertions",
    "version": "1.1.0",
@@ -7235,6 +7260,31 @@
   },
   {
    "type": "library",
+   "bom-ref": "pkg:cargo/zbus@6.2.1",
+   "name": "zbus",
+   "version": "6.2.1",
+   "description": "API for D-Bus communication and its wire format",
+   "licenses": [
+    {
+     "expression": "MIT"
+    }
+   ],
+   "purl": "pkg:cargo/zbus@6.2.1",
+   "hashes": [
+    {
+     "alg": "SHA-256",
+     "content": "0ddb2961d9587ef9f24ad14cde1c3bc4c5edc9f1525932a8cffdd5bd98886eb9"
+    }
+   ],
+   "externalReferences": [
+    {
+     "type": "vcs",
+     "url": "https://github.com/z-galaxy/zbus/"
+    }
+   ]
+  },
+  {
+   "type": "library",
    "bom-ref": "pkg:cargo/zbus_macros@5.19.0",
    "name": "zbus_macros",
    "version": "5.19.0",
@@ -7260,6 +7310,31 @@
   },
   {
    "type": "library",
+   "bom-ref": "pkg:cargo/zbus_macros@6.2.1",
+   "name": "zbus_macros",
+   "version": "6.2.1",
+   "description": "proc-macros for zbus",
+   "licenses": [
+    {
+     "expression": "MIT"
+    }
+   ],
+   "purl": "pkg:cargo/zbus_macros@6.2.1",
+   "hashes": [
+    {
+     "alg": "SHA-256",
+     "content": "083b38add47c340fc12ec560124fb1d9c23acb584f7021099f85ec6587a03c54"
+    }
+   ],
+   "externalReferences": [
+    {
+     "type": "vcs",
+     "url": "https://github.com/z-galaxy/zbus/"
+    }
+   ]
+  },
+  {
+   "type": "library",
    "bom-ref": "pkg:cargo/zbus_names@4.3.5",
    "name": "zbus_names",
    "version": "4.3.5",
@@ -7274,6 +7349,31 @@
     {
      "alg": "SHA-256",
      "content": "812a12be4ead7a59e18ea8f047d08add0066b73bc62fc1467066a2472ae088dd"
+    }
+   ],
+   "externalReferences": [
+    {
+     "type": "vcs",
+     "url": "https://github.com/z-galaxy/zbus/"
+    }
+   ]
+  },
+  {
+   "type": "library",
+   "bom-ref": "pkg:cargo/zbus_utils@6.1.0",
+   "name": "zbus_utils",
+   "version": "6.1.0",
+   "description": "Various utilities used by the zbus and zgvariant crates.",
+   "licenses": [
+    {
+     "expression": "MIT"
+    }
+   ],
+   "purl": "pkg:cargo/zbus_utils@6.1.0",
+   "hashes": [
+    {
+     "alg": "SHA-256",
+     "content": "af55e52da295311b368c45bcae221f020e28e97a2420360170ce389218e76ec7"
     }
    ],
    "externalReferences": [
@@ -7405,6 +7505,31 @@
     {
      "type": "vcs",
      "url": "https://github.com/trifectatechfoundation/zlib-rs"
+    }
+   ]
+  },
+  {
+   "type": "library",
+   "bom-ref": "pkg:cargo/zruntime@0.2.2",
+   "name": "zruntime",
+   "version": "0.2.2",
+   "description": "A simple single-threaded Rust async runtime",
+   "licenses": [
+    {
+     "expression": "MIT"
+    }
+   ],
+   "purl": "pkg:cargo/zruntime@0.2.2",
+   "hashes": [
+    {
+     "alg": "SHA-256",
+     "content": "23ef5ed7d628cdf0af82f93dfe03330a8e37383bf7422a1d3d6eb72326680be5"
+    }
+   ],
+   "externalReferences": [
+    {
+     "type": "vcs",
+     "url": "https://github.com/z-galaxy/zruntime"
     }
    ]
   },
@@ -8300,7 +8425,7 @@
     "pkg:cargo/serde@1.0.229",
     "pkg:cargo/tiff@0.11.3",
     "pkg:cargo/winit@0.30.13",
-    "pkg:cargo/zbus@5.19.0"
+    "pkg:cargo/zbus@6.2.1"
    ]
   },
   {
@@ -9134,6 +9259,12 @@
    ]
   },
   {
+   "ref": "pkg:cargo/socket2@0.6.5",
+   "dependsOn": [
+    "pkg:cargo/libc@0.2.191"
+   ]
+  },
+  {
    "ref": "pkg:cargo/static_assertions@1.1.0",
    "dependsOn": []
   },
@@ -9747,6 +9878,28 @@
    ]
   },
   {
+   "ref": "pkg:cargo/zbus@6.2.1",
+   "dependsOn": [
+    "pkg:cargo/async-trait@0.1.92",
+    "pkg:cargo/bitflags@2.13.2",
+    "pkg:cargo/endi@1.1.1",
+    "pkg:cargo/futures-core@0.3.34",
+    "pkg:cargo/hex@0.4.3",
+    "pkg:cargo/libc@0.2.191",
+    "pkg:cargo/ordered-stream@0.2.0",
+    "pkg:cargo/rustix@1.1.6",
+    "pkg:cargo/serde@1.0.229",
+    "pkg:cargo/serde_repr@0.1.21",
+    "pkg:cargo/socket2@0.6.5",
+    "pkg:cargo/uuid@1.29.0",
+    "pkg:cargo/winnow@1.0.5",
+    "pkg:cargo/zbus_macros@6.2.1",
+    "pkg:cargo/zbus_utils@6.1.0",
+    "pkg:cargo/zcheapstr@1.2.0",
+    "pkg:cargo/zruntime@0.2.2"
+   ]
+  },
+  {
    "ref": "pkg:cargo/zbus_macros@5.19.0",
    "dependsOn": [
     "pkg:cargo/proc-macro-crate@3.5.0",
@@ -9759,11 +9912,30 @@
    ]
   },
   {
+   "ref": "pkg:cargo/zbus_macros@6.2.1",
+   "dependsOn": [
+    "pkg:cargo/proc-macro2@1.0.107",
+    "pkg:cargo/quote@1.0.47",
+    "pkg:cargo/syn@3.0.9",
+    "pkg:cargo/zbus_utils@6.1.0"
+   ]
+  },
+  {
    "ref": "pkg:cargo/zbus_names@4.3.5",
    "dependsOn": [
     "pkg:cargo/serde@1.0.229",
     "pkg:cargo/winnow@1.0.5",
     "pkg:cargo/zvariant@5.15.1"
+   ]
+  },
+  {
+   "ref": "pkg:cargo/zbus_utils@6.1.0",
+   "dependsOn": [
+    "pkg:cargo/proc-macro2@1.0.107",
+    "pkg:cargo/quote@1.0.47",
+    "pkg:cargo/serde@1.0.229",
+    "pkg:cargo/syn@3.0.9",
+    "pkg:cargo/winnow@1.0.5"
    ]
   },
   {
@@ -9798,6 +9970,15 @@
   {
    "ref": "pkg:cargo/zlib-rs@0.6.8",
    "dependsOn": []
+  },
+  {
+   "ref": "pkg:cargo/zruntime@0.2.2",
+   "dependsOn": [
+    "pkg:cargo/futures-core@0.3.34",
+    "pkg:cargo/futures-io@0.3.34",
+    "pkg:cargo/rustix@1.1.6",
+    "pkg:cargo/socket2@0.6.5"
+   ]
   },
   {
    "ref": "pkg:cargo/zune-core@0.5.3",

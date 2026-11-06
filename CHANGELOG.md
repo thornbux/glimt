@@ -5,6 +5,10 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- The desktop portals are reached through zbus 6.
+
 ## [0.62.0] - 2026-11-06
 
 ### Fixed

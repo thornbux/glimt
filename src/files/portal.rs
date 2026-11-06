@@ -2,8 +2,8 @@
 //! of a dialog awaited. Used in the Flatpak, where Glimt reaches the printers through them.
 
 use std::collections::HashMap;
-use zbus::blocking::{Connection, MessageIterator};
-use zbus::zvariant::{OwnedValue, Value};
+use std::num::NonZeroUsize;
+use zbus::{Connection, MessageStream, OwnedVariant, Variant, block_on};
 
 const DEST: &str = "org.freedesktop.portal.Desktop";
 
@@ -14,7 +14,7 @@ const PATH: &str = "/org/freedesktop/portal/desktop";
 /// the busy pointer and keeps the window from closing.
 const ANSWER_LIMIT: std::time::Duration = std::time::Duration::from_secs(30 * 60);
 
-type Results = HashMap<String, OwnedValue>;
+type Results = HashMap<String, OwnedVariant>;
 
 /// `method` of the portal `interface` called with `body`, whose options carry `token` as their
 /// handle_token, and its request's Response awaited: the results, or `None` when the user
@@ -27,36 +27,44 @@ fn request<B>(
     body: &B,
 ) -> Result<Option<Results>, String>
 where
-    B: serde::Serialize + zbus::zvariant::DynamicType,
+    B: serde::Serialize + zbus::DynamicType,
 {
     let e = |e: zbus::Error| e.to_string();
     let sender = conn.unique_name().ok_or("no D-Bus name")?;
     let sender = sender.trim_start_matches(':').replace('.', "_");
     let handle = format!("{PATH}/request/{sender}/{token}");
-    // The portal's changes of owner are listened for before the Ping, so that a restart right
-    // after it is not missed.
-    let owners = MessageIterator::for_match_rule(owner_rule().map_err(e)?, conn, Some(4));
-    let mut owners = owners.map_err(e)?.into_inner();
-    // The portal's unique name is the sender of its answer to a Ping, which also starts it.
-    let peer = Some("org.freedesktop.DBus.Peer");
-    let pong = conn
-        .call_method(Some(DEST), PATH, peer, "Ping", &())
-        .map_err(e)?;
-    let owner = pong.header().sender().ok_or("no D-Bus name")?.to_string();
-    let rule = response_rule(&owner, &handle).map_err(e)?;
-    let responses = MessageIterator::for_match_rule(rule, conn, Some(1)).map_err(e)?;
-    let mut responses = responses.into_inner();
-    conn.call_method(Some(DEST), PATH, Some(interface), method, body)
-        .map_err(e)?;
+    let (mut responses, mut owners, owner) = block_on(async {
+        // The portal's changes of owner are listened for before the Ping, so that a restart
+        // right after it is not missed.
+        let rule = owner_rule().map_err(e)?;
+        let owners = MessageStream::for_match_rule(rule, conn, NonZeroUsize::new(4));
+        let owners = owners.await.map_err(e)?;
+        // The portal's unique name is the sender of its answer to a Ping, which also starts it.
+        let peer = Some("org.freedesktop.DBus.Peer");
+        let pong = conn.call_method(Some(DEST), PATH, peer, "Ping", &());
+        let pong = pong.await.map_err(e)?;
+        let owner = pong.header().sender().ok_or("no D-Bus name")?.to_string();
+        let rule = response_rule(&owner, &handle).map_err(e)?;
+        let responses = MessageStream::for_match_rule(rule, conn, NonZeroUsize::new(1));
+        let responses = responses.await.map_err(e)?;
+        let call = conn.call_method(Some(DEST), PATH, Some(interface), method, body);
+        call.await.map_err(e)?;
+        Ok::<_, String>((responses, owners, owner))
+    })?;
     let stop = || {
-        // The dialog, if one is still open, goes too, so it cannot act after the time is up.
-        let request = Some("org.freedesktop.portal.Request");
-        let _ = conn.call_method(Some(DEST), handle.as_str(), request, "Close", &());
-        // A closed request sends no Response. Closing the connection ends the wait for one.
-        let _ = conn.clone().close();
+        block_on(async {
+            // The dialog, if one is still open, goes too, so it cannot act after the time is up.
+            let request = Some("org.freedesktop.portal.Request");
+            let close = conn.call_method(Some(DEST), handle.as_str(), request, "Close", &());
+            let _ = close.await;
+            // A closed request sends no Response. Closing the connection ends the wait for one.
+            let _ = conn.clone().close().await;
+        })
     };
     // The Response, or an end to the wait when the portal that was asked has left the bus. A
     // portal that restarted has lost the request, and its new name is never trusted to answer.
+    // The connection runs on this thread's zbus runtime. While this thread waits outside
+    // block_on, zbus runs that runtime in a helper thread, which feeds the waiting thread.
     let wait = move || {
         let lost = |change: &zbus::Result<zbus::message::Message>| match change {
             Ok(change) => portal_lost(change, &owner),
@@ -82,24 +90,24 @@ where
 /// portal's unique name on the bus. The path is easy to guess, so another program on the bus
 /// could send a Response first. zbus checks the sender of a signal only by a unique name.
 fn response_rule<'a>(owner: &'a str, path: &'a str) -> zbus::Result<zbus::MatchRule<'a>> {
-    let rule = zbus::MatchRule::builder()
+    zbus::MatchRule::builder()
         .msg_type(zbus::message::Type::Signal)
-        .sender(owner)?
-        .interface("org.freedesktop.portal.Request")?
-        .member("Response")?
-        .path(path)?;
-    Ok(rule.build())
+        .sender(owner)
+        .interface("org.freedesktop.portal.Request")
+        .member("Response")
+        .path(path)
+        .build()
 }
 
 /// Returns the match rule for the bus's NameOwnerChanged signals about the portal's name.
 fn owner_rule() -> zbus::Result<zbus::MatchRule<'static>> {
-    let rule = zbus::MatchRule::builder()
+    zbus::MatchRule::builder()
         .msg_type(zbus::message::Type::Signal)
-        .sender("org.freedesktop.DBus")?
-        .interface("org.freedesktop.DBus")?
-        .member("NameOwnerChanged")?
-        .arg(0, DEST)?;
-    Ok(rule.build())
+        .sender("org.freedesktop.DBus")
+        .interface("org.freedesktop.DBus")
+        .member("NameOwnerChanged")
+        .arg(0, DEST)
+        .build()
 }
 
 /// Returns whether `change`, a NameOwnerChanged signal, says that the portal's name no longer
@@ -185,7 +193,7 @@ pub fn print(
     title: &str,
     write: impl FnOnce(&mut dyn std::io::Write) -> std::io::Result<()>,
 ) -> Result<Option<String>, String> {
-    let conn = Connection::session().map_err(|e| e.to_string())?;
+    let conn = block_on(Connection::session()).map_err(|e| e.to_string())?;
     const PRINT: &str = "org.freedesktop.portal.Print";
     // GtkPrintSettings, whose values are all strings.
     let duplex = match sides {
@@ -195,18 +203,18 @@ pub fn print(
     };
     let copies = copies.to_string();
     let settings = HashMap::from([
-        ("n-copies", Value::from(copies.as_str())),
-        ("duplex", Value::from(duplex)),
+        ("n-copies", Variant::from(copies.as_str())),
+        ("duplex", Variant::from(duplex)),
     ]);
     let ask = token();
-    let options = HashMap::from([("handle_token", Value::from(ask.as_str()))]);
-    let none: HashMap<&str, Value> = HashMap::new();
+    let options = HashMap::from([("handle_token", Variant::from(ask.as_str()))]);
+    let none: HashMap<&str, Variant> = HashMap::new();
     let body = ("", title, settings, none, options);
     let Some(chosen) = request(&conn, PRINT, "PreparePrint", &ask, &body)? else {
         return Ok(None);
     };
     let printer = (chosen.get("settings"))
-        .and_then(|s| HashMap::<String, OwnedValue>::try_from(s.try_clone().ok()?).ok())
+        .and_then(|s| HashMap::<String, OwnedVariant>::try_from(s.try_clone().ok()?).ok())
         .and_then(|s| String::try_from(s.get("printer")?.try_clone().ok()?).ok())
         // A backend that does not name it: the dialog, for the message.
         .filter(|p| !p.is_empty())
@@ -234,11 +242,11 @@ pub fn print(
     file.rewind().map_err(|e| e.to_string())?;
     let send = token();
     let options = HashMap::from([
-        ("handle_token", Value::from(send.as_str())),
-        ("token", Value::from(ticket)),
+        ("handle_token", Variant::from(send.as_str())),
+        ("token", Variant::from(ticket)),
     ]);
     use std::os::fd::AsFd;
-    let fd = zbus::zvariant::Fd::from(file.as_fd());
+    let fd = zbus::Fd::from(file.as_fd());
     let body = ("", title, fd, options);
     match request(&conn, PRINT, "Print", &send, &body)? {
         Some(_) => Ok(Some(printer)),
@@ -250,29 +258,25 @@ pub fn print(
 /// until the sender returned is dropped: the request is closed then.
 pub fn inhibit_idle(reason: &str) -> Result<std::sync::mpsc::Sender<()>, String> {
     let e = |e: zbus::Error| e.to_string();
-    let conn = Connection::session().map_err(e)?;
+    let conn = block_on(Connection::session()).map_err(e)?;
     let token = token();
     let options = HashMap::from([
-        ("handle_token", Value::from(token.as_str())),
-        ("reason", Value::from(reason)),
+        ("handle_token", Variant::from(token.as_str())),
+        ("reason", Variant::from(reason)),
     ]);
     // 8: idle.
     let body = ("", 8u32, options);
-    let reply = (conn.call_method(
-        Some(DEST),
-        PATH,
-        Some("org.freedesktop.portal.Inhibit"),
-        "Inhibit",
-        &body,
-    ))
-    .map_err(e)?;
-    let handle: zbus::zvariant::OwnedObjectPath = reply.body().deserialize().map_err(e)?;
+    let inhibit = Some("org.freedesktop.portal.Inhibit");
+    let reply = block_on(conn.call_method(Some(DEST), PATH, inhibit, "Inhibit", &body));
+    let reply = reply.map_err(e)?;
+    let handle: zbus::OwnedObjectPath = reply.body().deserialize().map_err(e)?;
     let (tx, rx) = std::sync::mpsc::channel::<()>();
     std::thread::spawn(move || {
         // Until the sender is dropped; the connection, and with it the inhibition, lives here.
         let _ = rx.recv();
         let request = Some("org.freedesktop.portal.Request");
-        let _ = conn.call_method(Some(DEST), handle.as_str(), request, "Close", &());
+        let close = conn.call_method(Some(DEST), handle.as_str(), request, "Close", &());
+        let _ = block_on(close);
     });
     Ok(tx)
 }
@@ -281,17 +285,17 @@ pub fn inhibit_idle(reason: &str) -> Result<std::sync::mpsc::Sender<()>, String>
 /// portal, asked to ask): Open With in the Flatpak, which cannot list the host's applications.
 /// Waits for the choice: false when the user cancelled.
 pub fn open_with(path: &std::path::Path) -> Result<bool, String> {
-    let conn = Connection::session().map_err(|e| e.to_string())?;
+    let conn = block_on(Connection::session()).map_err(|e| e.to_string())?;
     // Only for its descriptor, which says which file: the portal opens it itself. It is
     // opened as every file is, so a pipe named in a collection is refused rather than waited on.
     let file = crate::images::decode::open(path).map_err(|e| e.to_string())?;
     let token = token();
     let options = HashMap::from([
-        ("handle_token", Value::from(token.as_str())),
-        ("ask", Value::from(true)),
+        ("handle_token", Variant::from(token.as_str())),
+        ("ask", Variant::from(true)),
     ]);
     use std::os::fd::AsFd;
-    let body = ("", zbus::zvariant::Fd::from(file.as_fd()), options);
+    let body = ("", zbus::Fd::from(file.as_fd()), options);
     request(
         &conn,
         "org.freedesktop.portal.OpenURI",
@@ -312,7 +316,7 @@ mod tests {
         let from = |sender: &str| {
             let signal =
                 zbus::message::Message::signal(path, "org.freedesktop.portal.Request", "Response");
-            signal.unwrap().sender(sender).unwrap().build(&()).unwrap()
+            signal.sender(sender).build(&()).unwrap()
         };
         assert!(rule.matches(&from(":1.5")).unwrap());
         assert!(!rule.matches(&from(":1.6")).unwrap());
@@ -328,8 +332,7 @@ mod tests {
                 "org.freedesktop.DBus",
                 "NameOwnerChanged",
             );
-            let signal = signal.unwrap().sender(sender).unwrap();
-            signal.build(&(name, ":1.4", new)).unwrap()
+            signal.sender(sender).build(&(name, ":1.4", new)).unwrap()
         };
         let bus = "org.freedesktop.DBus";
         let portal = super::DEST;
