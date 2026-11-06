@@ -181,6 +181,11 @@ pub const SHORTCUTS: &[(Action, egui::Modifiers, egui::Key)] = {
 pub static OWN_KEYS: std::sync::RwLock<Vec<(Action, egui::Modifiers, egui::Key)>> =
     std::sync::RwLock::new(Vec::new());
 
+/// Held by the tests that set `OWN_KEYS`, and by every new window of a test, which sets them
+/// to its own settings' keys, as tests run at once.
+#[cfg(test)]
+pub static KEYS_TEST: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 /// The actions that act on the shown or selected files, and do nothing in an empty list. They
 /// are refused once, at the top of `run`, rather than by a guard in each arm, which a new
 /// action could leave out and then panic on `self.path(self.list.cur())` with no file.
@@ -1661,6 +1666,7 @@ mod tests {
         let keys: Keys = "Next=Ctrl+Shift+N;ZoomIn=Plus;Bogus=X;Prev=Hyper+P"
             .parse()
             .unwrap();
+        let _held = super::KEYS_TEST.lock().unwrap_or_else(|e| e.into_inner());
         // An action this build does not know, and a key it cannot read, are kept as they were.
         assert_eq!(
             keys.to_string(),
