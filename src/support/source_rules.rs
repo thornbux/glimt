@@ -1067,6 +1067,45 @@ fn view_colours_stay_in_the_view() {
     );
 }
 
+/// A dialog or window reads its Enter or Esc only through `App::answers`, which leaves the key to
+/// the widget with the keyboard focus. Read from the input as a whole, the key also answered
+/// while egui gave it to that widget: Shift+Delete, Tab to "Cancel" and Enter deleted the file
+/// for good. A text field's own Enter (`lost_focus()` on the same line) is the field's, and the
+/// shortcuts' table reads its keys in `read_keys` only while nothing has the focus. The places
+/// below own their key while a widget may have the focus.
+#[test]
+fn keys_answer_through_one_place() {
+    const READS: &[&str] = &["key_pressed(", "consume_key(", "Event::Key", "key_down("];
+    const OWNERS: &[(&str, &str)] = &[
+        // Esc in Preferences' search field clears the search first, and closes it after.
+        ("ui/preferences.rs", "preferences_window"),
+        // The projector's own window has no widget that takes the focus.
+        ("viewer/view.rs", "projector_window"),
+    ];
+    let mut wrong = Vec::new();
+    for (file, text) in rust_sources() {
+        let lines = code_lines(&text);
+        let end = tests_start(&lines);
+        let mut function = String::new();
+        for (i, line) in lines[..end].iter().enumerate() {
+            if let Some(name) = function_name(line) {
+                function = name.to_owned();
+            }
+            let key = line.contains("Key::Enter") || line.contains("Key::Escape");
+            let read = READS.iter().any(|r| line.contains(r));
+            let owner = OWNERS.iter().any(|(f, s)| file == *f && function == *s);
+            if key && read && !owner && !line.contains("lost_focus()") {
+                wrong.push(format!("{file}:{} in {function}", i + 1));
+            }
+        }
+    }
+    assert!(
+        wrong.is_empty(),
+        "Enter or Esc read from the whole input (use App::answers):\n{}",
+        wrong.join("\n")
+    );
+}
+
 /// Every module lives in the folder of what it does, so `src/` itself holds only main.rs, cli.rs
 /// and one file for each folder. A folder's file holds its `//!` doc and its `mod` lines and
 /// nothing else. A `pub use` there would let other files import a name through the folder, which

@@ -343,6 +343,7 @@ impl App {
         if self.window.has_projector() {
             self.projector_window(ctx);
         }
+        self.note_focus(ctx);
     }
 }
 
