@@ -414,8 +414,8 @@ pub fn write_orientation(
     let real = &std::fs::canonicalize(path).map_err(|e| e.to_string())?;
     let data = crate::images::decode::read_limited(real).map_err(|e| e.to_string())?;
     let (data, new) = oriented(data, turns, mirrored, rotate)?;
-    crate::images::save::derive_sidecar(path, crate::images::save::Derived::Oriented(new))?;
-    crate::files::file_io::replace_existing(real, data).map_err(|e| e.to_string())
+    let how = crate::images::save::Derived::Oriented(new);
+    crate::images::save::replace_with_sidecar(real, path, data, how)
 }
 
 /// The JPEG `data` with the view's rotation as its EXIF orientation, as `write_orientation`

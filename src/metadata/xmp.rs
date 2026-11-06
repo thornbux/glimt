@@ -401,7 +401,8 @@ fn update(
     let text = change(&old).ok_or("unreadable XMP sidecar")?;
     // A link put there since the look above is replaced, and the file it points to is left
     // alone.
-    crate::files::file_io::replace_name(&side, text).map_err(|e| e.to_string())
+    let named = |e: std::io::Error| format!("{}: {e}", side.display());
+    crate::files::file_io::replace_name(&side, text).map_err(named)
 }
 
 /// Returns the sidecar of `path` when there is one, as a name in the folder. A link counts, also
@@ -884,6 +885,26 @@ mod tests {
         assert_eq!(
             std::fs::read(sidecar(&file)).unwrap(),
             b"\xff\xfe not UTF-8"
+        );
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A read-only sidecar is refused with its own name in the error. Before, the bare "the
+    /// file is read-only" was shown against the image, which is not read-only.
+    #[test]
+    fn a_read_only_sidecar_is_named() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = std::env::temp_dir().join(format!("glimt-test-ro-xmp-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("a.jpg");
+        std::fs::write(&file, b"").unwrap();
+        std::fs::write(sidecar(&file), "<x:xmpmeta/>").unwrap();
+        let ro = std::fs::Permissions::from_mode(0o444);
+        std::fs::set_permissions(sidecar(&file), ro).unwrap();
+        let refused = update_sidecar(&file, true, |x| Some(format!("{x} "))).unwrap_err();
+        assert!(
+            refused.starts_with(&sidecar(&file).display().to_string()),
+            "{refused}"
         );
         std::fs::remove_dir_all(dir).unwrap();
     }
