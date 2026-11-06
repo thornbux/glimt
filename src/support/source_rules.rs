@@ -1358,18 +1358,51 @@ fn the_list_is_drawn_in_the_form_its_caller_asks() {
 /// Every widget drawn by hand that takes a click tells a screen reader what it is: a row or
 /// cell of the list through `speak_item`, the image through `speak_image`, and the others with
 /// `widget_info`. egui's own widgets do this themselves, but a widget drawn by hand says
-/// nothing, and Orca was silent in the grid in the image area.
+/// nothing, and Orca was silent in the grid in the image area. The widget's response is bound
+/// with `let`, and a later line of the same function speaks about that name, so another
+/// widget's `widget_info` close by does not count, and one far below does.
 #[test]
 fn every_clickable_widget_drawn_by_hand_speaks() {
+    let names = |line: &str, name: &str| {
+        (line.match_indices(name)).any(|(at, _)| {
+            let word = |c: char| c.is_alphanumeric() || c == '_';
+            !line[..at].chars().next_back().is_some_and(word)
+                && !line[at + name.len()..].chars().next().is_some_and(word)
+        })
+    };
     let mut wrong = Vec::new();
     for (file, text) in rust_sources() {
         let lines = code_lines(&text);
         let end = tests_start(&lines);
         for (i, line) in lines[..end].iter().enumerate() {
-            let near = &lines[i..(i + 4).min(end)];
-            let speaks =
-                || (near.iter()).any(|l| l.contains("speak_") || l.contains("widget_info"));
-            if takes_a_click(line) && !speaks() {
+            if !takes_a_click(line) {
+                continue;
+            }
+            // The statement's first line, as rustfmt may break a long one, and the last name
+            // its `let` binds: `response` in `let (rect, response) = …`. The line before it
+            // ends another statement or block, or is blank (a comment, as code_lines blanks
+            // comments), or is an attribute.
+            let ends =
+                |l: &str| l.trim().is_empty() || l.trim_end().ends_with([';', '{', '}', ']']);
+            let start = ((0..=i).rev())
+                .take_while(|&k| k == i || !ends(&lines[k]))
+                .last()
+                .unwrap_or(i);
+            let bound = (lines[start].trim_start().strip_prefix("let "))
+                .and_then(|l| l.split(['=', ':']).next())
+                .and_then(|l| {
+                    l.trim()
+                        .trim_end_matches(')')
+                        .rsplit([',', '(', ' '])
+                        .next()
+                })
+                .filter(|name| !name.is_empty());
+            let speaks = bound.is_some_and(|name| {
+                (lines[i + 1..end].iter())
+                    .take_while(|l| function_name(l).is_none())
+                    .any(|l| (l.contains("speak_") || l.contains("widget_info")) && names(l, name))
+            });
+            if !speaks {
                 wrong.push(format!("{file}:{}", i + 1));
             }
         }
