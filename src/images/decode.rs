@@ -301,12 +301,6 @@ fn tone_mapped(img: image::Rgb32FImage) -> image::DynamicImage {
     image::DynamicImage::ImageRgb8(image::RgbImage::from_raw(w, h, pixels).unwrap_or_default())
 }
 
-/// The whole image in sRGB.
-pub fn load(path: &Path, rotate: bool) -> Result<image::DynamicImage, String> {
-    let (img, icc) = load_icc(path, rotate)?;
-    Ok(to_srgb(img, icc.as_deref()))
-}
-
 /// The frames of a GIF, an animated WebP or an animated PNG (APNG), decoded as they are taken, and
 /// its size. Returns `None` for any other file, a still WebP or PNG among them.
 fn animated_frames(path: &Path) -> Option<(image::Frames<'static>, (u32, u32))> {
@@ -349,11 +343,11 @@ fn too_large_animation((w, h): (u32, u32)) -> bool {
     !fits(w, h, 8)
 }
 
-/// The frames of an animated GIF, WebP or PNG (APNG). Returns `None` for other files, which `load`
-/// decodes.
+/// The frames of an animated GIF, WebP or PNG (APNG). Returns `None` for other files, which
+/// `decode` decodes.
 pub fn animation(path: &Path, max: [u32; 2]) -> Option<(Frames, [usize; 2])> {
     let (frames, size) = animated_frames(path)?;
-    // One too large goes to `load`, which refuses it, instead of asking for gigabytes here.
+    // One too large is shown by `decode` as a still image, instead of asking for gigabytes here.
     if too_large_animation(size) {
         return None;
     }
@@ -392,7 +386,7 @@ pub fn each_frame(
     let mut done = 0;
     // Each frame is decoded once, as it is given, rather than all first to learn that the
     // image is animated. An animation too large for its frames may still have its first frame
-    // read alone, as a still image by `load`.
+    // read alone, as a still image by `load_icc`.
     let animated = animated_frames(path);
     if let Some((_, size)) = &animated
         && too_large_animation(*size)
@@ -416,7 +410,8 @@ pub fn each_frame(
     let pages = pages(path);
     for k in (0..pages).filter(|&k| wanted(k)) {
         let img = if k == 0 {
-            load(path, rotate)?
+            let (img, icc) = load_icc(path, rotate)?;
+            to_srgb(img, icc.as_deref())
         } else {
             page_of(path, k)?
         };

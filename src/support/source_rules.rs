@@ -869,30 +869,32 @@ fn panics_are_caught_in_one_place() {
 /// A decoded image is turned by its EXIF orientation only after it is shrunk to the size shown
 /// (`decode::shrunk_upright`), or where the whole image is wanted. A thumbnail of a 50 MP 16-bit
 /// TIFF with orientation 6 turned whole held two full buffers in each thumbnail thread.
+/// `decode::load_icc` turns the whole image, so it is watched too: a new path that called it and
+/// shrank after would turn the whole image as well.
 #[test]
 fn images_are_turned_after_they_shrink() {
-    // Each place that may turn, and why: the scaled JPEG is at its scaled size already, and the
-    // others are for a whole image (Save As, a turned save, a RAW preview shown near its size).
-    let allowed = [
-        "images/decode.rs shrunk_upright",
-        "images/decode.rs scaled",
-        "images/decode.rs load_icc",
-        "images/raw.rs load_data",
+    // The scaled JPEG is at its scaled size already, and the others are for a whole image (Save
+    // As, a turned save, an exported frame, a RAW preview shown near its size).
+    const HOMES: &[(&str, &[(&str, &str)])] = &[
+        (
+            "apply_orientation(",
+            &[
+                ("images/decode.rs", "shrunk_upright"),
+                ("images/decode.rs", "scaled"),
+                ("images/decode.rs", "load_icc"),
+                ("images/raw.rs", "load_data"),
+            ],
+        ),
+        (
+            "load_icc(",
+            &[
+                ("images/decode.rs", "each_frame"),
+                ("images/save.rs", "save_rotated"),
+                ("images/save.rs", "pixels"),
+            ],
+        ),
     ];
-    let mut wrong = Vec::new();
-    for (file, text) in rust_sources() {
-        let lines = code_lines(&text);
-        let mut function = "";
-        for (i, line) in lines[..tests_start(&lines)].iter().enumerate() {
-            if let Some(name) = function_name(line) {
-                function = name;
-            }
-            let place = format!("{file} {function}");
-            if line.contains("apply_orientation(") && !allowed.contains(&place.as_str()) {
-                wrong.push(format!("{file}:{} in {function}", i + 1));
-            }
-        }
-    }
+    let wrong = outside_their_homes(HOMES);
     assert!(
         wrong.is_empty(),
         "an image turned before it is shrunk (use decode::shrunk_upright):\n{}",
