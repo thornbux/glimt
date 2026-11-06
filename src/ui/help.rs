@@ -507,7 +507,9 @@ const MANUAL: &[(&str, &str)] = &[
          it, Enter or a double-click shows the image there, and Esc or G goes back to the grid\n\
          - Ctrl+T shows the folders as a tree\n\
          - View → Include Subfolders lists the images of every folder below (File → Open Folder \
-         Recursive… opens a folder with it on)\n\
+         Recursive… opens a folder with it on). A link to a folder is followed only when it \
+         leads to a folder inside the one opened, so a downloaded folder cannot bring in your \
+         other photos\n\
          - View → Show Hidden Files lists files and folders whose names start with a dot\n\
          - K shows a histogram (RGB, brightness, off) and J makes it logarithmic\n\
          - A stops and starts animations\n\
@@ -684,6 +686,12 @@ const DIFFERENCES: &[(&str, &str, &str)] = &[
         "Browsing in a slideshow",
         "The new image gets the full delay",
         "",
+    ),
+    (
+        "Include Subfolders",
+        "Follows a link to a folder only when it leads inside the folder opened, and reads each \
+         folder once",
+        "Follows every link to a folder",
     ),
     (
         "Small images",
