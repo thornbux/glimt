@@ -233,7 +233,7 @@ fn walk_by(
             let rel = todo.pop()?;
             let full = dir.join(&rel);
             let is_link = std::fs::symlink_metadata(&full).is_ok_and(|m| m.is_symlink());
-            if is_link && !real_dir(&full).starts_with(&real) {
+            if is_link && !followed(std::fs::canonicalize(&full), &real) {
                 continue;
             }
             if !seen.insert(key(&full)) {
@@ -250,6 +250,14 @@ fn walk_by(
             return Some((rel, dirs, files));
         }
     })
+}
+
+/// Whether the walk follows a link to a folder whose real path is `real`, into the tree whose
+/// real path is `top`. A link whose real path cannot be worked out is not followed. Made
+/// absolute instead, as `real_dir` does, it would always lie inside the tree, and a chain of
+/// short links to a folder whose real path is longer than realpath takes would lead anywhere.
+fn followed(real: std::io::Result<PathBuf>, top: &Path) -> bool {
+    real.is_ok_and(|real| real.starts_with(top))
 }
 
 /// The folders in `dir`, as `list_folder` gives them, and the images in it and every folder
@@ -583,6 +591,16 @@ mod tests {
             ["1.jpg", "a/2.jpg", "a/deep/3.jpg"].map(std::path::PathBuf::from)
         );
         std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A link to a folder is followed only when its real path is known and inside the tree.
+    #[test]
+    fn a_link_whose_real_path_is_unknown_is_not_followed() {
+        let top = std::path::Path::new("/home/a/pics");
+        let long = std::io::Error::from_raw_os_error(36);
+        assert!(!super::followed(Err(long), top));
+        assert!(super::followed(Ok(top.join("sub")), top));
+        assert!(!super::followed(Ok("/home/a".into()), top));
     }
 
     /// A path is compared by its folder's real path and its own name: `..` and the folder's
