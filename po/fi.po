@@ -2802,5 +2802,5 @@ msgid "\"{name}\": a {kind} file system, as on a camera card, allows none of : ?
 msgstr "”{name}”: {kind}-tiedostojärjestelmä, kuten kameran muistikortilla, ei salli nimessä mitään merkeistä : ? * \" < > | \\. Mitään ei nimetty uudelleen."
 
 #: src/ui/dialogs.rs
-msgid "The trash does not work in this folder, which is on a network or cloud mount ({kind})."
-msgstr "Roskakori ei toimi tässä kansiossa, joka on verkko- tai pilviliitoksessa ({kind})."
+msgid "The trash does not take files in this folder ({kind}), as on network and cloud folders."
+msgstr "Roskakori ei ota vastaan tiedostoja tässä kansiossa ({kind}), kuten verkko- ja pilvikansioissa."

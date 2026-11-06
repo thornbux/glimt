@@ -711,7 +711,7 @@ impl crate::App {
                 } else {
                     if let Some(kind) = &self.dialogs.trash_refused {
                         ui.label(tf!(
-                            "The trash does not work in this folder, which is on a network or cloud mount ({kind}).",
+                            "The trash does not take files in this folder ({kind}), as on network and cloud folders.",
                             kind
                         ));
                     }
