@@ -1213,7 +1213,7 @@ fn about(ui: &mut egui::Ui) {
                 }
             });
         });
-    egui::CollapsingHeader::new("License (MIT)").show(ui, |ui| {
+    egui::CollapsingHeader::new("Licence (MIT)").show(ui, |ui| {
         ui.label(include_str!("../../LICENSE"));
     });
 }
