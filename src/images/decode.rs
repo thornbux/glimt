@@ -546,14 +546,16 @@ fn load_unturned(path: &Path, rotate: bool, max: Option<[u32; 2]>) -> Result<Unt
         }
         dec => dec?,
     };
+    // One EXIF block, as the info panel reads it, gives both the turn and the colour space.
+    let exif = exif::decoded(path, &mut dec);
     let turn = match rotate {
-        true => exif::stored_orientation(path, &mut dec),
+        true => exif::stored_orientation(&mut dec, exif.as_deref()),
         false => upright,
     };
     // Without a profile, the EXIF may say Adobe RGB (a camera set to it).
     let icc = dec.icc_profile().ok().flatten().or_else(|| {
-        let exif = dec.exif_metadata().ok().flatten()?;
-        exif::adobe_rgb(&exif).then(|| ADOBE_RGB.clone())
+        let adobe = exif::adobe_rgb(exif.as_deref()?);
+        adobe.then(|| ADOBE_RGB.clone())
     });
     let mut img = from_decoder(dec)?;
     // Radiance HDR holds light as it was, far brighter than a screen, so it is brought into the
@@ -1221,6 +1223,31 @@ mod tests {
         assert_eq!((img.width(), img.height()), (4, 8));
         crate::images::save::save_rotated(&file, true, 1, false, 90).unwrap();
         assert_eq!(image::image_dimensions(&file).unwrap(), (8, 4));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A PNG whose EXIF, with ColorSpace Adobe RGB, is only in a text chunk is shown as Adobe
+    /// RGB, and the colour line names it so. Before, both read the eXIf chunk alone, while the
+    /// orientation came from the text chunk.
+    #[test]
+    fn a_png_is_adobe_rgb_by_the_exif_in_its_text() {
+        use crate::support::test_support::png_with_raw_profile;
+        let _held = crate::images::colour::COLOUR_TEST
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let dir = std::env::temp_dir().join(format!("glimt-test-pngadobe-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("a.png");
+        // IFD0 points to an EXIF IFD that holds ColorSpace 2.
+        let exif = b"MM\0*\0\0\0\x08\0\x01\x87\x69\0\x04\0\0\0\x01\0\0\0\x1a\0\0\0\0\
+            \0\x01\xa0\x01\0\x03\0\0\0\x01\0\x02\0\0\0\0\0\0";
+        png_with_raw_profile(&file, "zTXt", "Raw profile type exif", exif);
+        for rotate in [true, false] {
+            let (_, icc) = super::load_icc(&file, rotate).unwrap();
+            assert!(icc.as_ref() == Some(&*super::ADOBE_RGB), "rotate {rotate}");
+        }
+        let named = crate::images::colour::colour_source(&file);
+        assert!(named.contains("Adobe RGB"), "{named}");
         std::fs::remove_dir_all(dir).unwrap();
     }
 

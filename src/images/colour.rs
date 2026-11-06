@@ -6,7 +6,6 @@ use crate::files::config::Config;
 use crate::metadata::exif;
 use crate::support::lang::tr;
 use eframe::egui;
-use image::ImageDecoder;
 use std::collections::HashMap;
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
@@ -370,7 +369,8 @@ pub fn colour_source(path: &Path) -> String {
             let dec = crate::images::decode::image_reader(path)
                 .ok()
                 .and_then(|r| r.into_decoder().ok());
-            let exif = dec.and_then(|mut d| d.exif_metadata().ok().flatten());
+            // The block the view reads, so a PNG's text chunk counts too.
+            let exif = dec.and_then(|mut d| exif::decoded(path, &mut d));
             (exif.is_some_and(|e| exif::adobe_rgb(&e)))
                 .then(|| tr("Adobe RGB, from its EXIF").to_owned())
         }

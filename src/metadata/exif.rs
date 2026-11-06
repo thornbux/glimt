@@ -783,21 +783,19 @@ pub fn decoded(path: &Path, dec: &mut impl image::ImageDecoder) -> Option<Vec<u8
     (dec.exif_metadata().ok().flatten()).or_else(|| png().then(|| png_exif(path)).flatten()?)
 }
 
-/// Reads the orientation that the image `dec` decodes from `path` is turned upright by. It is
-/// the decoder's own, or else the one in the EXIF block `decoded` reads, as the info panel
-/// reads it. It is the one reader of it, so the view, a turned or copied file and the info
-/// panel agree. The decoder finds none in a PNG's text chunk, nor in an EXIF block that starts
-/// with "Exif\0\0", as some programs write a WebP's. Before, such a photo was shown unturned
-/// while the panel said "Rotate 90 CW". It is asked only with Auto Rotate on, because for a
-/// PNG without an eXIf chunk it opens the file a second time.
-pub fn stored_orientation(path: &Path, dec: &mut impl image::ImageDecoder) -> Orientation {
+/// Reads the orientation that the image `dec` decodes is turned upright by. It is the
+/// decoder's own, or else the one in `exif`, the EXIF block `decoded` read of it, as the info
+/// panel reads it. It is the one reader of it, so the view, a turned or copied file and the
+/// info panel agree. The decoder finds none in a PNG's text chunk, nor in an EXIF block that
+/// starts with "Exif\0\0", as some programs write a WebP's. Before, such a photo was shown
+/// unturned while the panel said "Rotate 90 CW". The caller reads `exif` once for this and
+/// its other uses, because for a PNG without an eXIf chunk `decoded` opens the file again.
+pub fn stored_orientation(dec: &mut impl image::ImageDecoder, exif: Option<&[u8]>) -> Orientation {
     let own = dec.orientation().unwrap_or(Orientation::NoTransforms);
     if own != Orientation::NoTransforms {
         return own;
     }
-    decoded(path, dec)
-        .and_then(|e| orientation(&e))
-        .unwrap_or(own)
+    exif.and_then(orientation).unwrap_or(own)
 }
 
 /// Reads the EXIF block of a PNG with the png crate: its eXIf chunk, or else the text chunk

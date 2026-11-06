@@ -506,7 +506,7 @@ fn derived_metadata(
         .and_then(|r| r.into_decoder().ok())
         .map(|mut d| {
             let exif = exif::decoded(path, &mut d);
-            let stored = rotate.then(|| exif::stored_orientation(path, &mut d));
+            let stored = rotate.then(|| exif::stored_orientation(&mut d, exif.as_deref()));
             (exif, d.xmp_metadata().ok().flatten(), stored)
         })
         .unwrap_or_default();

@@ -1008,21 +1008,16 @@ fn outside_their_homes(homes: &[(&str, &[(&str, &str)])]) -> Vec<String> {
 /// chunk alone. The orientation an image is turned upright by is read through
 /// `exif::stored_orientation`, so the view and a turned or copied file take the one the panel
 /// shows. The view once took the decoder's alone and showed a PNG with its orientation in a
-/// text chunk unturned. The Adobe RGB checks of the view and the colour line read the decoder's
-/// own, as a second opening of every PNG shown would slow the view, and a RAW's preview is a
-/// JPEG.
+/// text chunk unturned. The view's Adobe RGB check takes the same block as its orientation, and
+/// the colour line reads it through `decoded` too, so a PNG with its ColorSpace only in a text
+/// chunk is shown and named as Adobe RGB. A RAW's preview is a JPEG, read on its own.
 #[test]
 fn derived_files_take_metadata_in_one_place() {
     const HOMES: &[(&str, &[(&str, &str)])] = &[
         ("set_upright(", &[("images/save.rs", "derived_metadata")]),
         (
             ".exif_metadata()",
-            &[
-                ("metadata/exif.rs", "decoded"),
-                ("images/raw.rs", "exif"),
-                ("images/decode.rs", "load_unturned"),
-                ("images/colour.rs", "colour_source"),
-            ],
+            &[("metadata/exif.rs", "decoded"), ("images/raw.rs", "exif")],
         ),
         (
             "xmp_metadata(",
