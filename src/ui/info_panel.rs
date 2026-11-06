@@ -9,6 +9,7 @@ use crate::metadata::marks;
 use crate::metadata::xmp::Meta;
 use crate::support::format::{count, human_size, thousands};
 use crate::support::lang::tr;
+use crate::ui::dialogs::entered;
 use crate::{files::config, images::decode, metadata::exif, metadata::xmp, tf};
 use eframe::egui;
 use std::collections::HashSet;
@@ -360,7 +361,7 @@ impl crate::App {
             let field = egui::TextEdit::singleline(&mut self.info.new_keyword)
                 .hint_text(tr("Places|Norway|Oslo"))
                 .desired_width(ui.available_width());
-            let enter = ui.add(field).lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
+            let enter = entered(&ui.add(field));
             if (add || enter) && !self.info.new_keyword.trim().is_empty() {
                 let new = std::mem::take(&mut self.info.new_keyword);
                 self.change_keyword_tree(vec![new], None);

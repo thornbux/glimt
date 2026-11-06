@@ -444,7 +444,7 @@ impl crate::App {
             let modal = egui::Modal::new(egui::Id::unique("prompt")).show(ctx, |ui| {
                 ui.label(title);
                 let edit = ui.text_edit_singleline(&mut text);
-                let enter = edit.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
+                let enter = entered(&edit);
                 // Focus when the dialog opens (after reading Enter, which ends the focus).
                 if !enter && ui.memory(|m| m.focused().is_none()) {
                     edit.request_focus();
@@ -718,7 +718,7 @@ impl crate::App {
                     if login.password.is_empty() && ui.memory(|m| m.focused().is_none()) {
                         edit.request_focus();
                     }
-                    connect = edit.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
+                    connect = entered(&edit);
                     ui.end_row();
                 });
                 ui.horizontal(|ui| {
@@ -925,6 +925,12 @@ impl crate::App {
 /// Returns the key in egui's memory under which `note_focus` keeps the last frame's focus.
 fn focus_before() -> egui::Id {
     egui::Id::unique("glimt focus before this frame")
+}
+
+/// Returns whether Enter ended the typing in the text field `field` this frame. A field's own
+/// Enter is the one Enter read beside `App::answers`, as the field lets the focus go with it.
+pub(crate) fn entered(field: &egui::Response) -> bool {
+    field.lost_focus() && field.ctx.input(|i| i.key_pressed(egui::Key::Enter))
 }
 
 /// Returns a warning for Rename Many's preview when `name`, the first new name, has a
