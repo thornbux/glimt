@@ -1144,7 +1144,7 @@ key Return; sleep 2
 quit
 expect "renamed with the names swapped" "$(ls -A $d | tr '\n' ' ')" "11.jpg a2.jpg a23.jpg "
 
-section "Rename Many on a FAT card: a change of case and a swap, through the hidden names; a Copy To the card"
+section "Rename Many on a FAT card: a change of case and a swap, through the hidden names; a Copy To the card, also through a link"
 # A real vfat, where IMG_1.JPG and img_1.JPG are one name. A hard link on ext4 or a faked
 # listing (#47) cannot show what the kernel's FAT does, so without the mount this fails.
 card=/mnt/card
@@ -1182,6 +1182,14 @@ else
     key ctrl+a; answer $card; key ctrl+c; sleep 2; shot fat-copy
     quit
     expect "a Copy To the card with a name FAT refuses copies nothing" "$(ls $card | grep -c '^a.jpg')" 0
+    # The same through a link to the card, as ~/card → /media/u/CARD. 0.63.0 looked the mount
+    # up by the link's own path, so it copied a.jpg and then failed on 12:30.jpg.
+    ln -sfn $card /tmp/card-link
+    start $d
+    key ctrl+a; answer /tmp/card-link; key ctrl+c; sleep 2; shot fat-copy-link
+    quit
+    expect "a Copy To the card through a link with a name FAT refuses copies nothing" \
+        "$(ls $card | grep -c '^a.jpg')" 0
 fi
 
 section "the usual operations on an rclone mount and on an sftp:// folder Glimt mounts with gio"
