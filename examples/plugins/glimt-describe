@@ -158,9 +158,15 @@ def main(paths):
             continue
         if not text:
             continue
+        # The sidecar is read again, as Glimt may have written it while the model was thinking.
+        # Only that fresh copy is changed, so a keyword or stars added meanwhile are kept.
         # One argument each, so exiftool reads the text as no option. It writes the changed XMP
         # to its standard output ("-o -"), and the sidecar is replaced with that.
         try:
+            xmp = read_sidecar(sidecar) or seed(path)
+            fields = empty_fields(xmp)
+            if not fields:
+                continue
             replace(sidecar, exiftool(["-q", *[f"-{f}={text}" for f in fields], "-o", "-"], xmp))
         except OSError as e:
             failed += 1

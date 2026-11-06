@@ -16,8 +16,10 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
-- The example plugins open an image's XMP sidecar without following a link and give exiftool the
-  open file, so a link put in its place after a check is never read or written through.
+- The example plugins open an image's XMP sidecar without following a link and give exiftool what
+  they read from the open file on its standard input, so a link put in its place after a check is
+  never read or written through. The describe plugin reads the sidecar again after the model has
+  answered, so a keyword or stars Glimt wrote meanwhile are kept.
 
 ## [0.60.0] - 2026-11-06
 
