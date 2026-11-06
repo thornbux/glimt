@@ -1948,6 +1948,34 @@ for v in new old; do
     else note "old: $order"; fi
 done
 
+section "a collection put in order in the grid in the image area (G): c dropped before a"
+for v in new old; do
+    as_version $v
+    d=/tmp/grid-drag-$v
+    mkdir -p $d
+    for c in a b c; do convert -size 300x200 xc:red $d/$c.jpg; done
+    printf '#GQview collection\n"%s/a.jpg"\n"%s/b.jpg"\n"%s/c.jpg"\n' $d $d $d >$d/show.gqv
+    config
+    start $d/show.gqv
+    sleep 2
+    key g; sleep 1
+    # The grid is drawn after the side panel, so where names its cells.
+    from=$(where c.jpg); to=$(where a.jpg)
+    if [ -n "$from" ] && [ -n "$to" ]; then
+        x0=${from% *}; y0=${from#* }; x1=$(( ${to% *} - 30 )); y1=${to#* }
+        xdotool mousemove $x0 $y0; sleep 0.3; xdotool mousedown 1 2>/dev/null
+        for i in 1 2 3 4 5 6 7 8; do
+            xdotool mousemove $(( x0 + (x1 - x0) * i / 8 )) $(( y0 + (y1 - y0) * i / 8 ))
+            sleep 0.05
+        done
+        sleep 0.5; xdotool mouseup 1 2>/dev/null; sleep 1
+    fi
+    quit
+    order=$(grep -o '[abc]\.jpg' $d/show.gqv | tr '\n' ' ')
+    if [ $v = new ]; then expect "the grid's drop, saved" "$order" "c.jpg a.jpg b.jpg "
+    else note "old: $order (no grid)"; fi
+done
+
 section "a rectangle dragged while the folder changes: the selection keeps its files"
 for v in new old; do
     as_version $v

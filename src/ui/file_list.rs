@@ -1369,7 +1369,12 @@ impl crate::App {
             }
             let mut line = egui::Rect::NOTHING;
             let pointer = ctx.input(|i| i.pointer.interact_pos());
-            self.drag_scroll(ctx, ui, row_h, pointer);
+            // While the grid in the image area shows, it takes a drag in a collection. The side
+            // panel, drawn first, would otherwise clear its drop target and end the drag.
+            let drops = icons || !self.panel.area_grid_shown();
+            if drops {
+                self.drag_scroll(ctx, ui, row_h, pointer);
+            }
             let mut cells = Vec::new();
             for (k, i) in shown.into_iter().enumerate() {
                 let marked = i == self.list.cur() || self.list.selected().contains(&i);
@@ -1408,7 +1413,9 @@ impl crate::App {
             if icons {
                 self.drag_rubber_band(ui, &cells, row_h, first_row);
             }
-            self.drop_dragged(ctx);
+            if drops {
+                self.drop_dragged(ctx);
+            }
         });
         opened
     }
