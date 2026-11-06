@@ -441,14 +441,12 @@ impl crate::App {
             let first = (self.dialogs.asked_names().first()).map(|n| self.folder.dir().join(n));
             let fat = self.dialogs.fat.clone();
             let mut answer = None;
+            let mut field = None;
             let modal = egui::Modal::new(egui::Id::unique("prompt")).show(ctx, |ui| {
                 ui.label(title);
                 let edit = ui.text_edit_singleline(&mut text);
                 let enter = entered(&edit);
-                // Focus when the dialog opens (after reading Enter, which ends the focus).
-                if !enter && ui.memory(|m| m.focused().is_none()) {
-                    edit.request_focus();
-                }
+                field = Some(edit.id);
                 if let (Prompt::RenameMany, Some(first)) = (prompt, &first) {
                     let name = pattern_name(text.trim(), first, 1);
                     ui.weak(tf!("First: {name}", name = name.to_string_lossy()));
@@ -469,6 +467,7 @@ impl crate::App {
                 self.prompt_answered(ctx, prompt, &text);
             } else if !modal.should_close() {
                 self.dialogs.prompt = Some((prompt, text));
+                focus_on_open(ctx, field);
             }
         }
     }
@@ -702,6 +701,7 @@ impl crate::App {
     pub(crate) fn login_dialog(&mut self, ctx: &egui::Context) {
         if let Some(mut login) = self.folder.take_login() {
             let mut connect = false;
+            let mut password = None;
             let modal = egui::Modal::new(egui::Id::unique("login")).show(ctx, |ui| {
                 ui.label(tf!("Log in to {uri}", uri = login.uri));
                 egui::Grid::new("login fields").show(ui, |ui| {
@@ -718,8 +718,8 @@ impl crate::App {
                     ui.label(tr("Password:"));
                     let edit = ui.add_sized(size, field(&mut login.password).password(true));
                     // The password field first, as the rest has defaults.
-                    if login.password.is_empty() && ui.memory(|m| m.focused().is_none()) {
-                        edit.request_focus();
+                    if login.password.is_empty() {
+                        password = Some(edit.id);
                     }
                     connect = entered(&edit);
                     ui.end_row();
@@ -735,6 +735,7 @@ impl crate::App {
                 self.mount_as(ctx, login, true);
             } else if !modal.should_close() {
                 self.folder.ask_login(login);
+                focus_on_open(ctx, password);
             }
         }
     }
@@ -901,16 +902,31 @@ impl crate::App {
         })
     }
 
-    /// Returns whether a widget has the keyboard focus, or had it as the last frame ended, so
-    /// that the keys of this frame are its own. egui takes a text field's focus away at the
-    /// start of the frame Esc is pressed in, so only the last frame's focus shows that the Esc
-    /// left the field. The image area's focus does not count, because it holds the focus for a
-    /// screen reader. `answers` and the shortcuts in `read_keys` both ask here, so a key is
-    /// never the widget's for one of them and free for the other.
+    /// Returns whether a widget has the keyboard focus, so that the keys of this frame are its
+    /// own. egui takes a text field's focus away at the start of the frame Esc is pressed in,
+    /// and the field gives it up as it reads Enter, so for a frame with an Enter or Esc press
+    /// the focus the last frame ended with counts too. It counts only for those keys, and only
+    /// when egui says it held the focus then: a widget gone from the window keeps the focus
+    /// until egui notices at the end of a frame, and the next key would be lost to it. The
+    /// image area's focus does not count, because it holds the focus for a screen reader.
+    /// `answers` and the shortcuts in `read_keys` both ask here, so a key is never the
+    /// widget's for one of them and free for the other.
     pub(crate) fn focus_held(&self, ctx: &egui::Context) -> bool {
+        let left = |e: &egui::Event| {
+            matches!(
+                e,
+                egui::Event::Key {
+                    key: egui::Key::Enter | egui::Key::Escape,
+                    pressed: true,
+                    ..
+                }
+            )
+        };
         let before = ctx
             .data(|d| d.get_temp::<Option<egui::Id>>(focus_before()))
-            .flatten();
+            .flatten()
+            .filter(|&id| ctx.memory(|m| m.had_focus_last_frame(id)))
+            .filter(|_| ctx.input(|i| i.events.iter().any(left)));
         let now = ctx.memory(|m| m.focused());
         [before, now]
             .into_iter()
@@ -922,6 +938,17 @@ impl crate::App {
     pub(crate) fn note_focus(&self, ctx: &egui::Context) {
         let focused = ctx.memory(|m| m.focused());
         ctx.data_mut(|d| d.insert_temp(focus_before(), focused));
+    }
+}
+
+/// Gives the text field `field` of a dialog the keyboard focus while no widget has it, as the
+/// dialog opens. It is called only for a dialog that stays open: focus given in the frame it
+/// closes would stay on a field that is gone, and take the next key.
+fn focus_on_open(ctx: &egui::Context, field: Option<egui::Id>) {
+    if let Some(id) = field
+        && ctx.memory(|m| m.focused().is_none())
+    {
+        ctx.memory_mut(|m| m.request_focus(id));
     }
 }
 
@@ -1276,5 +1303,83 @@ mod tests {
         let start = app.dialog_start(&super::Pick::SaveFrame(image.clone(), 2));
         assert_eq!(start, images.join("a-frame-3.png"));
         std::fs::remove_dir_all(d).unwrap();
+    }
+
+    /// Draws one frame as the window does, with `key` pressed and let go in it, and `draw` for
+    /// the windows the test needs. Returns the action the keys ran.
+    fn frame(
+        app: &mut crate::App,
+        ctx: &egui::Context,
+        key: Option<egui::Key>,
+        mut draw: impl FnMut(&mut crate::App, &egui::Context),
+    ) -> Option<crate::ui::actions::Action> {
+        let event = |key, pressed| egui::Event::Key {
+            key,
+            physical_key: None,
+            pressed,
+            repeat: false,
+            modifiers: Default::default(),
+        };
+        let input = egui::RawInput {
+            events: key.map_or(vec![], |k| vec![event(k, true), event(k, false)]),
+            ..Default::default()
+        };
+        let mut action = None;
+        let _ = ctx.run_ui(input, |ui| {
+            action = app.read_keys(ui.ctx());
+            draw(app, ui.ctx());
+            app.note_focus(ui.ctx());
+        });
+        action
+    }
+
+    /// A key after the widget with the focus is gone runs its shortcut. The last frame's focus
+    /// counted for every key, and egui lets a widget gone keep the focus to the end of a frame,
+    /// so the first key after a dialog closed was lost.
+    #[test]
+    fn a_key_after_the_focused_widget_is_gone_runs() {
+        use crate::ui::actions::Action;
+        let dir =
+            std::env::temp_dir().join(format!("glimt-test-focus-gone-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let (mut app, ctx) = app_on(&dir);
+        let field = egui::Id::unique("a field that is drawn once");
+        frame(&mut app, &ctx, None, |_, ctx| {
+            ctx.memory_mut(|m| m.request_focus(field))
+        });
+        frame(&mut app, &ctx, None, |_, _| {});
+        let key = Some(egui::Key::ArrowRight);
+        assert_eq!(
+            frame(&mut app, &ctx, key, |_, _| {}),
+            Some(Action::Next),
+            "the key after the focused widget was gone did nothing"
+        );
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// Esc in the Rename prompt closes it, and the next key runs its shortcut. The prompt gave
+    /// its field the focus again in the frame it closed in, so the field took the next key.
+    #[test]
+    fn the_key_after_esc_closed_a_prompt_runs() {
+        use crate::ui::actions::Action;
+        let dir =
+            std::env::temp_dir().join(format!("glimt-test-prompt-esc-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        image::RgbImage::new(2, 2).save(dir.join("a.png")).unwrap();
+        let (mut app, ctx) = app_on(&dir);
+        let listed = |a: &crate::App| !a.list.files().is_empty();
+        assert!(crate::support::test_support::settle(&mut app, &ctx, listed));
+        app.run(&ctx, Action::Rename);
+        let prompt = |app: &mut crate::App, ctx: &egui::Context| app.prompt_dialog(ctx);
+        frame(&mut app, &ctx, None, prompt);
+        assert_eq!(frame(&mut app, &ctx, Some(egui::Key::Escape), prompt), None);
+        assert!(app.dialogs.prompt.is_none(), "Esc did not close the prompt");
+        let key = Some(egui::Key::ArrowRight);
+        assert_eq!(
+            frame(&mut app, &ctx, key, prompt),
+            Some(Action::Next),
+            "the key after Esc closed the prompt did nothing"
+        );
+        std::fs::remove_dir_all(dir).unwrap();
     }
 }

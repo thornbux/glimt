@@ -1167,6 +1167,9 @@ fn keys_answer_through_one_place() {
         // The one place that reads a dialog's key, and the one for a text field's Enter.
         ("ui/dialogs.rs", "answers"),
         ("ui/dialogs.rs", "entered"),
+        // Whether a widget has the keys, which looks back at the last frame's focus only for
+        // the Enter or Esc that took it away. It reads no key for an answer.
+        ("ui/dialogs.rs", "focus_held"),
         // The shortcuts' table, and the keyboard map in Help, which only draws the keys.
         ("ui/actions.rs", "SHORTCUTS"),
         ("ui/help.rs", "ROWS"),
