@@ -2794,5 +2794,13 @@ msgid "Move the collection \"{name}\" to the trash? Its images stay where they a
 msgstr "¿Mover la colección «{name}» a la papelera? Sus imágenes se quedan donde están."
 
 #: src/files/file_io.rs
-msgid "the file system here does not allow this rename, as on some shares, cloud folders and phones ({e})"
-msgstr "el sistema de archivos de aquí no permite este cambio de nombre, como en algunas carpetas compartidas, carpetas en la nube y teléfonos ({e})"
+msgid "the file system here ({kind}) does not allow this rename, as on some shares, cloud folders and phones ({e})"
+msgstr "el sistema de archivos de aquí ({kind}) no permite este cambio de nombre, como en algunas carpetas compartidas, carpetas en la nube y teléfonos ({e})"
+
+#: src/files/file_ops.rs
+msgid "\"{name}\": a {kind} file system, as on a camera card, allows none of : ? * \" < > | \\ in a name. Nothing was renamed."
+msgstr "«{name}»: un sistema de archivos {kind}, como el de la tarjeta de una cámara, no admite ninguno de : ? * \" < > | \\ en un nombre. No se ha cambiado ningún nombre."
+
+#: src/ui/dialogs.rs
+msgid "The trash does not work in this folder, which is on a network or cloud mount ({kind})."
+msgstr "La papelera no funciona en esta carpeta, que está en un montaje de red o en la nube ({kind})."

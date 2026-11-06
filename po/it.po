@@ -2794,5 +2794,13 @@ msgid "Move the collection \"{name}\" to the trash? Its images stay where they a
 msgstr "Spostare la raccolta «{name}» nel cestino? Le sue immagini restano dove sono."
 
 #: src/files/file_io.rs
-msgid "the file system here does not allow this rename, as on some shares, cloud folders and phones ({e})"
-msgstr "il file system qui non consente questa ridenominazione, come su alcune cartelle condivise, cartelle cloud e telefoni ({e})"
+msgid "the file system here ({kind}) does not allow this rename, as on some shares, cloud folders and phones ({e})"
+msgstr "il file system qui ({kind}) non consente questa ridenominazione, come su alcune cartelle condivise, cartelle cloud e telefoni ({e})"
+
+#: src/files/file_ops.rs
+msgid "\"{name}\": a {kind} file system, as on a camera card, allows none of : ? * \" < > | \\ in a name. Nothing was renamed."
+msgstr "«{name}»: un file system {kind}, come sulla scheda di una fotocamera, non consente nessuno di : ? * \" < > | \\ in un nome. Nessun file è stato rinominato."
+
+#: src/ui/dialogs.rs
+msgid "The trash does not work in this folder, which is on a network or cloud mount ({kind})."
+msgstr "Il cestino non funziona in questa cartella, che si trova su un montaggio di rete o cloud ({kind})."

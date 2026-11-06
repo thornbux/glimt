@@ -124,6 +124,14 @@ const MANUAL: &[(&str, &str)] = &[
          Network shares work too: type smb://server/share (or sftp://…) and Glimt mounts it with \
          gio, asking for user, domain and password if the share needs them (a password saved in \
          the keyring from Files is used without asking).\n\n\
+         A folder on another computer or in a cloud (a share, an rclone or s3fs mount) is slow the \
+         first time, while its images and their thumbnails come over the network. Glimt does not \
+         see changes made there from another computer by itself: press F5. The trash does not \
+         work there, so Delete asks whether to delete the files for good instead. Where the file \
+         system cannot rename a file in one safe step (rclone, s3fs, a phone), Glimt looks first \
+         that the new name is free, and a rename the file system refuses names its type. A camera \
+         card (FAT or exFAT) allows none of : ? * \" < > | \\ in a name, and Rename and Rename \
+         Many say so before renaming anything.\n\n\
          Several folders show as one list:\n\n\
          - glimt ~/Holiday ~/Family\n\
          - File → Open Several Folders…\n\

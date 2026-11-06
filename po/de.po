@@ -2794,5 +2794,13 @@ msgid "Move the collection \"{name}\" to the trash? Its images stay where they a
 msgstr "Die Sammlung »{name}« in den Papierkorb verschieben? Ihre Bilder bleiben, wo sie sind."
 
 #: src/files/file_io.rs
-msgid "the file system here does not allow this rename, as on some shares, cloud folders and phones ({e})"
-msgstr "das Dateisystem hier erlaubt diese Umbenennung nicht, wie auf manchen Freigaben, Cloud-Ordnern und Telefonen ({e})"
+msgid "the file system here ({kind}) does not allow this rename, as on some shares, cloud folders and phones ({e})"
+msgstr "das Dateisystem hier ({kind}) erlaubt diese Umbenennung nicht, wie auf manchen Freigaben, Cloud-Ordnern und Telefonen ({e})"
+
+#: src/files/file_ops.rs
+msgid "\"{name}\": a {kind} file system, as on a camera card, allows none of : ? * \" < > | \\ in a name. Nothing was renamed."
+msgstr "»{name}«: Ein {kind}-Dateisystem, wie auf der Speicherkarte einer Kamera, erlaubt keines der Zeichen : ? * \" < > | \\ in einem Namen. Nichts wurde umbenannt."
+
+#: src/ui/dialogs.rs
+msgid "The trash does not work in this folder, which is on a network or cloud mount ({kind})."
+msgstr "Der Papierkorb funktioniert in diesem Ordner nicht, der auf einem Netzwerk- oder Cloud-Laufwerk liegt ({kind})."

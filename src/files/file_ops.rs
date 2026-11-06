@@ -27,6 +27,9 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, mpsc};
 use std::time::Instant;
 
+/// The characters that FAT and exFAT refuse in a name, as on a camera card.
+const NOT_ON_FAT: [char; 8] = [':', '?', '*', '"', '<', '>', '|', '\\'];
+
 /// A Rename Many running in the background. It holds the list as it was (`App::files_gen`),
 /// the files renamed with their new names, and which of them was shown.
 pub(crate) struct RenameJob {
@@ -79,6 +82,9 @@ pub(crate) struct Deleted {
     /// A folder made by New Folder. The tree reads its parent again, and the list reads its
     /// folder again.
     pub(crate) folder_made: Option<PathBuf>,
+    /// The type of a network or cloud mount whose files the trash refused, and those files,
+    /// which are still there. The window asks whether to delete them for good instead.
+    pub(crate) untrashable: Option<(String, Vec<PathBuf>)>,
 }
 
 /// A file's (device, inode, size, modification time in seconds and nanoseconds). The inode
@@ -630,8 +636,10 @@ impl crate::App {
                     collection: collection.zip(Some(removed)),
                 })
             });
+            let refused = trash && !errors.is_empty() && !job.stopped();
             // Those not reached after Stop are still there, as after a failure.
             let _ = deleted_tx.send(Deleted {
+                untrashable: refused.then(|| left_by_trash(&paths)).flatten(),
                 paths,
                 gone,
                 failed: !errors.is_empty() || job.stopped(),
@@ -662,8 +670,12 @@ impl crate::App {
             overwritten,
             folder_renamed,
             folder_made,
+            untrashable,
         } in self.work.deleted_rx.try_iter().collect::<Vec<_>>()
         {
+            if let Some((kind, files)) = untrashable {
+                self.ask_delete_instead(kind, &files);
+            }
             if let Some((old, new)) = folder_renamed {
                 self.folder_renamed(ctx, old, new);
             }
@@ -724,6 +736,25 @@ impl crate::App {
                 self.folder.relist_later();
             }
         }
+    }
+
+    /// Asks whether to delete `files` for good, which the trash refused on a network or cloud
+    /// mount of type `kind`. gio has no trash there, and a trash in the home folder would mean
+    /// a download of each file. It asks only about files of the folder shown, by their names in
+    /// the list, and not over another dialog, which keeps the keys meant for it.
+    fn ask_delete_instead(&mut self, kind: String, files: &[PathBuf]) {
+        let dir = self.folder.dir();
+        let names: Option<Vec<OsString>> = (files.iter())
+            .map(|p| Some(p.strip_prefix(dir).ok()?.as_os_str().to_owned()))
+            .collect();
+        let Some(names) = names.filter(|n| !n.is_empty()) else {
+            return;
+        };
+        if self.dialog_open() {
+            return;
+        }
+        self.dialogs.asked_about(self.list_place(), names);
+        self.dialogs.confirm_delete_instead(kind);
     }
 
     /// Brings along what Glimt keeps about files or folders that were moved or renamed
@@ -935,6 +966,12 @@ impl crate::App {
         from: Vec<PathBuf>,
         to: Vec<PathBuf>,
     ) {
+        // A camera card refuses some characters. Saying so before the job starts names the
+        // reason, where a rename that fails halfway would only give the system's error.
+        if let Some(refused) = refused_on_fat(&to, crate::files::file_io::mount_type) {
+            self.notice = Some(refused);
+            return;
+        }
         // It is a job like every other writer. Closing waits for it, the status bar counts it,
         // and its Stop puts back the names done so far.
         let touches = from.iter().chain(&to).cloned().collect();
@@ -1652,6 +1689,47 @@ fn forget_in_collection(
     edit.map(|()| removed)
 }
 
+/// Returns the files of `paths` that are still there on a network or cloud mount, with the
+/// mount's type, after the trash refused them. Returns `None` when there are none, such as when
+/// the trash failed in a local folder that cannot be written. The mount table is read once for
+/// each folder.
+fn left_by_trash(paths: &[PathBuf]) -> Option<(String, Vec<PathBuf>)> {
+    use crate::files::file_io::{is_remote, mount_type};
+    let mut kinds: HashMap<PathBuf, Option<String>> = HashMap::new();
+    let mut remote = |p: &Path| {
+        let dir = p.parent()?.to_path_buf();
+        (kinds.entry(dir))
+            .or_insert_with_key(|dir| mount_type(dir).filter(|k| is_remote(k)))
+            .clone()
+    };
+    let left: Vec<PathBuf> = (paths.iter())
+        .filter(|p| std::fs::symlink_metadata(p).is_ok() && remote(p).is_some())
+        .cloned()
+        .collect();
+    Some((remote(left.first()?)?, left))
+}
+
+/// Returns a notice when a name of `to` has a character that the FAT or exFAT file system of its
+/// folder refuses, before anything is renamed. Returns `None` when every name is allowed where it
+/// goes. `mount_type` gives a folder's file system. Only the folder of a name with such a
+/// character is looked up.
+fn refused_on_fat(to: &[PathBuf], mount_type: impl Fn(&Path) -> Option<String>) -> Option<String> {
+    to.iter().find_map(|path| {
+        let name = path.file_name()?.to_string_lossy();
+        if !name.contains(NOT_ON_FAT) {
+            return None;
+        }
+        let kind = mount_type(path.parent()?)?;
+        matches!(kind.as_str(), "vfat" | "msdos" | "exfat").then(|| {
+            tf!(
+                "\"{name}\": a {kind} file system, as on a camera card, allows none of : ? * \" < > | \\ in a name. Nothing was renamed.",
+                name,
+                kind
+            )
+        })
+    })
+}
+
 /// The name in the way of a file going to `to`, if any. It is `to` itself, or a sidecar at the
 /// new name that belongs to another file, whether or not the file has one of its own. (The
 /// photo would show that file's keywords and stars, and leave its own behind.) `ours` are the
@@ -1902,6 +1980,33 @@ pub(crate) fn new_place(path: &Path, moved: &HashMap<&Path, &Path>) -> Option<Pa
 #[cfg(test)]
 mod tests {
     use crate::support::test_support::{app_on, contract_folder, settle};
+
+    /// A name with a character that FAT refuses is refused before anything is renamed on a FAT
+    /// or exFAT folder, and allowed on another file system. Only the folder of such a name is
+    /// looked up, so a rename to plain names reads no mount table.
+    #[test]
+    fn refuses_names_that_fat_does_not_allow_before_renaming() {
+        use std::path::{Path, PathBuf};
+        let to = |names: &[&str]| -> Vec<PathBuf> {
+            names.iter().map(|n| Path::new("/card").join(n)).collect()
+        };
+        let on = |kind: &'static str| move |_: &Path| Some(kind.to_owned());
+        let told = super::refused_on_fat(&to(&["a.jpg", "12:30.jpg"]), on("vfat")).unwrap();
+        assert!(
+            told.contains("\"12:30.jpg\"") && told.contains("vfat"),
+            "{told}"
+        );
+        assert!(super::refused_on_fat(&to(&["a?.jpg"]), on("exfat")).is_some());
+        assert!(super::refused_on_fat(&to(&["back\\slash.jpg"]), on("msdos")).is_some());
+        assert!(super::refused_on_fat(&to(&["12:30.jpg"]), on("ext4")).is_none());
+        let looked = std::cell::Cell::new(0);
+        let counted = |_: &Path| {
+            looked.set(looked.get() + 1);
+            Some("vfat".to_owned())
+        };
+        assert!(super::refused_on_fat(&to(&["a.jpg", "b c.jpg"]), counted).is_none());
+        assert_eq!(looked.get(), 0);
+    }
 
     /// Entries taken out of a collection go back to their places, also when some are there again.
     #[test]
@@ -2566,6 +2671,38 @@ mod tests {
         assert!(settle(&mut app, &ctx, |app| !app.working() && refused(app)));
         assert!(!a.exists(), "the other image was moved back as a.png");
         assert!(moved.exists());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// The files the trash refused on a network or cloud mount are asked about, to delete them
+    /// for good instead, when they are in the folder shown. Files of another folder are not,
+    /// because their names could be other files' in this list.
+    #[test]
+    fn asks_to_delete_for_good_what_the_trash_refused_on_a_network_mount() {
+        use std::path::PathBuf;
+        let dir =
+            std::env::temp_dir().join(format!("glimt-test-untrashable-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        image::RgbImage::new(2, 2).save(dir.join("a.png")).unwrap();
+        let (mut app, ctx) = app_on(&dir);
+        let refused = |files: Vec<PathBuf>| super::Deleted {
+            untrashable: Some(("fuse.rclone".into(), files)),
+            ..Default::default()
+        };
+        let elsewhere = refused(vec![PathBuf::from("/elsewhere/a.png")]);
+        app.work.deleted_tx.send(elsewhere).unwrap();
+        app.receive_deleted(&ctx);
+        assert!(!app.modal_open());
+        app.work
+            .deleted_tx
+            .send(refused(vec![dir.join("a.png")]))
+            .unwrap();
+        app.receive_deleted(&ctx);
+        assert!(app.modal_open());
+        assert_eq!(
+            app.dialogs.asked_names(),
+            [std::ffi::OsString::from("a.png")]
+        );
         std::fs::remove_dir_all(dir).unwrap();
     }
 

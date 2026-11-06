@@ -2805,5 +2805,13 @@ msgid "Move the collection \"{name}\" to the trash? Its images stay where they a
 msgstr "Flytte samlingen «{name}» til papirkurven? Bildene blir der de er."
 
 #: src/files/file_io.rs
-msgid "the file system here does not allow this rename, as on some shares, cloud folders and phones ({e})"
-msgstr "filsystemet her tillater ikke denne omdøpingen, slik som på enkelte delte mapper, skymapper og telefoner ({e})"
+msgid "the file system here ({kind}) does not allow this rename, as on some shares, cloud folders and phones ({e})"
+msgstr "filsystemet her ({kind}) tillater ikke denne omdøpingen, slik som på enkelte delte mapper, skymapper og telefoner ({e})"
+
+#: src/files/file_ops.rs
+msgid "\"{name}\": a {kind} file system, as on a camera card, allows none of : ? * \" < > | \\ in a name. Nothing was renamed."
+msgstr "«{name}»: et {kind}-filsystem, som på minnekortet i et kamera, tillater ingen av : ? * \" < > | \\ i et navn. Ingenting fikk nytt navn."
+
+#: src/ui/dialogs.rs
+msgid "The trash does not work in this folder, which is on a network or cloud mount ({kind})."
+msgstr "Papirkurven virker ikke i denne mappen, som ligger på en nettverks- eller skymontering ({kind})."
