@@ -101,7 +101,7 @@ fn read_cached(file: &Path, mtime: u64) -> Option<image::RgbaImage> {
             t.keyword == "Thumb::MTime" && t.text.trim().parse::<u64>().ok() == Some(mtime)
         });
     fresh.then_some(())?;
-    image::load_from_memory_with_format(&bytes, image::ImageFormat::Png)
+    crate::images::decode::from_memory(&bytes)
         .ok()
         .map(|i| i.into_rgba8())
 }

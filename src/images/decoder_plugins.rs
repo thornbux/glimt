@@ -68,7 +68,7 @@ impl Decoder {
             let last = crate::files::external::last_line(&err, "no image");
             return Err(format!("{}: {last}", self.name));
         }
-        image::load_from_memory(&image).map_err(|e| format!("{}: {e}", self.name))
+        crate::images::decode::from_memory(&image).map_err(|e| format!("{}: {e}", self.name))
     }
 }
 
