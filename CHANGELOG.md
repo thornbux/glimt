@@ -9,6 +9,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 - A folder mounted at a name that is not UTF-8 is known by its own file system, so a camera
   card or share there gets the same plain messages and questions as any other.
+- A folder mounted over another mount that was there before it, such as a share mounted at
+  `/mnt` after a card at `/mnt/card`, is known by the file system that is on top.
 
 ## [0.62.0] - 2026-11-06
 

@@ -19,6 +19,17 @@ pub static WRITING: std::sync::LazyLock<std::sync::Arc<std::sync::atomic::Atomic
 /// Work for a `serial` thread.
 pub type Work = Box<dyn FnOnce() + Send>;
 
+/// A line of /proc/self/mountinfo: one mount.
+struct Mount<'a> {
+    id: &'a [u8],
+    /// The id of the mount this one is on.
+    parent: &'a [u8],
+    /// Where it is mounted, as a path.
+    at: PathBuf,
+    /// Its file system's type, such as ext4, vfat or fuse.rclone.
+    kind: &'a [u8],
+}
+
 /// Rename `from` to `to`, never over a file or folder there, also one another window put there
 /// a moment ago: in one step where the file system can (RENAME_NOREPLACE); where it cannot (FAT,
 /// NTFS or exFAT through FUSE, some shares), a link, which never replaces a file, and then the
@@ -80,12 +91,12 @@ fn plain(e: std::io::Error, to: &Path) -> std::io::Error {
     }
 }
 
-/// Returns the type of the file system that `path` is on, as /proc/self/mounts names it: vfat,
-/// cifs, nfs4, fuse.rclone, fuse.gvfsd-fuse and so on. Returns `None` when that cannot be read.
-/// The path is taken as it is, not with its links resolved, as that would wait on a share that
-/// does not answer.
+/// Returns the type of the file system that `path` is on, as /proc/self/mountinfo names it:
+/// vfat, cifs, nfs4, fuse.rclone, fuse.gvfsd-fuse and so on. Returns `None` when that cannot be
+/// read. The path is taken as it is, not with its links resolved, as that would wait on a share
+/// that does not answer.
 pub(crate) fn mount_type(path: &Path) -> Option<String> {
-    let mounts = crate::images::decode::read_limited("/proc/self/mounts").ok()?;
+    let mounts = crate::images::decode::read_limited("/proc/self/mountinfo").ok()?;
     mount_type_in(&mounts, path)
 }
 
@@ -97,28 +108,57 @@ pub(crate) fn is_remote(kind: &str) -> bool {
     kind.starts_with("fuse.") || matches!(kind, "cifs" | "smb3" | "nfs" | "nfs4" | "9p")
 }
 
-/// Returns the type of the mount in `mounts`, the bytes of /proc/self/mounts, that holds `path`.
-/// That is the last mount whose mount point is the longest start of the path, as a later mount
-/// hides an earlier one at the same place. The text is read as bytes, because a mount point may
-/// have a name that is not UTF-8.
-fn mount_type_in(mounts: &[u8], path: &Path) -> Option<String> {
-    let mut found: Option<(usize, &[u8])> = None;
-    for line in mounts.split(|&b| b == b'\n') {
-        let mut fields = line.split(|&b| b == b' ').skip(1);
-        let (Some(at), Some(kind)) = (fields.next(), fields.next()) else {
-            continue;
+/// Returns the type of the mount in `mountinfo`, the bytes of /proc/self/mountinfo, that holds
+/// `path`. It goes down from the top mount through the mounts on each one, as the kernel walks
+/// a path. Of the mounts on one mount that start the path, the one with the shortest mount
+/// point hides the others, because a longer one could only have been put there before it. Of
+/// two at the same place, the later one is on top. The text is read as bytes, because a mount
+/// point may have a name that is not UTF-8.
+fn mount_type_in(mountinfo: &[u8], path: &Path) -> Option<String> {
+    let mounts: Vec<Mount> = (mountinfo.split(|&b| b == b'\n'))
+        .filter_map(mount_line)
+        .collect();
+    let ids: std::collections::HashSet<&[u8]> = mounts.iter().map(|m| m.id).collect();
+    // The top mounts are those whose parent is not in the table, or which are their own parent.
+    let on = |m: &Mount, under: Option<&[u8]>| match under {
+        Some(id) => m.parent == id && m.id != id,
+        None => !ids.contains(m.parent) || m.parent == m.id,
+    };
+    let (mut under, mut found) = (None, None);
+    // Each step goes one mount further down, so a table that loops ends too.
+    for _ in 0..mounts.len() {
+        // Backwards, so that of two at the same place the later one is the first found.
+        let Some(next) = (mounts.iter().rev())
+            .filter(|m| on(m, under) && path.starts_with(&m.at))
+            .min_by_key(|m| m.at.as_os_str().len())
+        else {
+            break;
         };
-        let at = unescape_mount(at);
-        let len = at.as_os_str().len();
-        if path.starts_with(&at) && found.is_none_or(|(longest, _)| len >= longest) {
-            found = Some((len, kind));
-        }
+        under = Some(next.id);
+        found = Some(next.kind);
     }
-    found.map(|(_, kind)| String::from_utf8_lossy(kind).into_owned())
+    found.map(|kind| String::from_utf8_lossy(kind).into_owned())
 }
 
-/// Returns the mount point `at` of /proc/self/mounts as a path. The kernel writes a space, a tab,
-/// a line break and a backslash in it as a backslash and three octal digits.
+/// Returns a line of /proc/self/mountinfo as a `Mount`. Returns `None` for a line that is not
+/// whole. The fields are the mount's id, its parent's id, the device, the folder of the file
+/// system that is mounted, the mount point and the mount's options. Optional fields follow,
+/// ended by a lone "-", and then the type.
+fn mount_line(line: &[u8]) -> Option<Mount<'_>> {
+    let mut fields = line.split(|&b| b == b' ');
+    let (id, parent) = (fields.next()?, fields.next()?);
+    let at = unescape_mount(fields.nth(2)?);
+    let kind = fields.skip_while(|f| *f != b"-").nth(1)?;
+    Some(Mount {
+        id,
+        parent,
+        at,
+        kind,
+    })
+}
+
+/// Returns the mount point `at` of /proc/self/mountinfo as a path. The kernel writes a space, a
+/// tab, a line break and a backslash in it as a backslash and three octal digits.
 fn unescape_mount(bytes: &[u8]) -> PathBuf {
     use std::os::unix::ffi::OsStringExt;
     let (mut out, mut i) = (Vec::new(), 0);
@@ -523,19 +563,25 @@ mod tests {
         }
     }
 
-    /// The mount that holds a path is the longest mount point that starts it, the later one
-    /// where two are at the same place, and a mount point with a space in it is read as the
-    /// kernel writes it. A mount point that only starts with the same letters does not hold it,
-    /// and one whose name is not UTF-8 is found too.
+    /// The mount that holds a path is the one the kernel finds going down through the mounts:
+    /// the later one where two are at the same place, and a mount added later at /mnt that hides
+    /// one at /mnt/card added before it. A mount point with a space in it is read as the kernel
+    /// writes it, and one whose name is not UTF-8 is found too. A mount point that only starts
+    /// with the same letters does not hold the path.
     #[test]
     fn finds_the_mount_that_holds_a_path() {
         use std::os::unix::ffi::OsStrExt;
-        let mounts = b"/dev/sda1 / ext4 rw 0 0\n\
-            /dev/sdc1 /media/me/K\xf8RT vfat rw 0 0\n\
-            gvfsd-fuse /run/user/1000/gvfs fuse.gvfsd-fuse rw 0 0\n\
-            /dev/sdb1 /media/me/CARD\\040ONE vfat rw 0 0\n\
-            remote: /mnt/cloud fuse.rclone rw 0 0\n\
-            //nas/photos /mnt/cloud cifs rw 0 0\n\
+        let mounts = b"1 0 8:1 / / rw - ext4 /dev/sda1 rw\n\
+            2 1 8:33 / /media/me/K\xf8RT rw shared:5 - vfat /dev/sdc1 rw\n\
+            3 1 0:50 / /run/user/1000/gvfs rw - fuse.gvfsd-fuse gvfsd-fuse rw\n\
+            4 1 8:17 / /media/me/CARD\\040ONE rw - vfat /dev/sdb1 rw\n\
+            5 1 0:51 / /mnt/cloud rw - fuse.rclone remote: rw\n\
+            6 5 0:52 / /mnt/cloud rw - cifs //nas/photos rw\n\
+            7 1 8:49 / /mnt/old/card rw - vfat /dev/sdd1 rw\n\
+            8 1 0:53 / /mnt/old rw - tmpfs tmpfs rw\n\
+            9 8 8:65 / /mnt/old/new rw - exfat /dev/sde1 rw\n\
+            10 11 8:81 / /srv/card rw - vfat /dev/sdf1 rw\n\
+            11 1 0:54 / /srv rw - tmpfs tmpfs rw\n\
             broken\n";
         let kind = |p: &str| super::mount_type_in(mounts, std::path::Path::new(p));
         assert_eq!(kind("/home/me/a.jpg").as_deref(), Some("ext4"));
@@ -545,6 +591,10 @@ mod tests {
         assert_eq!(kind("/media/me/CARD").as_deref(), Some("ext4"));
         assert_eq!(kind("/mnt/cloud/a.jpg").as_deref(), Some("cifs"));
         assert_eq!(kind("/mnt/cloudy").as_deref(), Some("ext4"));
+        assert_eq!(kind("/mnt/old/card/a.jpg").as_deref(), Some("tmpfs"));
+        assert_eq!(kind("/mnt/old/new/a.jpg").as_deref(), Some("exfat"));
+        // A mount moved onto another keeps its place in the table, before the one it is on.
+        assert_eq!(kind("/srv/card/a.jpg").as_deref(), Some("vfat"));
         let latin1 = std::path::Path::new(std::ffi::OsStr::from_bytes(b"/media/me/K\xf8RT/a.jpg"));
         assert_eq!(
             super::mount_type_in(mounts, latin1).as_deref(),
