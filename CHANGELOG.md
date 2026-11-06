@@ -5,6 +5,18 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.65.1] - 2026-11-06
+
+### Fixed
+
+- A lossy WebP turned and saved keeps its ICC profile and its colours. Its pixels went to sRGB
+  through the view's colour settings, so with colour management off a Display P3 or Adobe RGB
+  photo lost its profile and its colours for good, and with an input profile for images
+  without one each save shifted them further.
+- A list or collection keeps only files. A folder named in a downloaded `.gqv`, `.m3u` or
+  `.txt` was an entry, shown as a broken image, and deleting it moved the whole folder to the
+  trash. Until a list just opened has been checked, no file operation starts.
+
 ## [0.65.0] - 2026-11-06
 
 ### Added
@@ -2744,7 +2756,8 @@ The first release. Glimt is not 1.0 yet: it is in daily use, but expect rough ed
 - Remote control from the command line: `glimt --remote` and `--remote-all`.
 - Remembers the folder, window size and position.
 
-[Unreleased]: https://github.com/thornbux/glimt/compare/v0.65.0...HEAD
+[Unreleased]: https://github.com/thornbux/glimt/compare/v0.65.1...HEAD
+[0.65.1]: https://github.com/thornbux/glimt/compare/v0.65.0...v0.65.1
 [0.65.0]: https://github.com/thornbux/glimt/compare/v0.64.0...v0.65.0
 [0.64.0]: https://github.com/thornbux/glimt/compare/v0.63.0...v0.64.0
 [0.63.0]: https://github.com/thornbux/glimt/compare/v0.62.0...v0.63.0
