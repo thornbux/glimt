@@ -11,6 +11,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
   card or share there gets the same plain messages and questions as any other.
 - A folder mounted over another mount that was there before it, such as a share mounted at
   `/mnt` after a card at `/mnt/card`, is known by the file system that is on top.
+- Rename and Rename Many on an exFAT card mounted through exfat-fuse (`fuseblk`) say which
+  characters it refuses, as on a card the kernel mounts, when udev knows the card's file system.
 
 ## [0.62.0] - 2026-11-06
 

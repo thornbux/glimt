@@ -24,6 +24,8 @@ struct Mount<'a> {
     id: &'a [u8],
     /// The id of the mount this one is on.
     parent: &'a [u8],
+    /// The device's numbers, as major:minor.
+    dev: &'a [u8],
     /// Where it is mounted, as a path.
     at: PathBuf,
     /// Its file system's type, such as ext4, vfat or fuse.rclone.
@@ -94,10 +96,23 @@ fn plain(e: std::io::Error, to: &Path) -> std::io::Error {
 /// Returns the type of the file system that `path` is on, as /proc/self/mountinfo names it:
 /// vfat, cifs, nfs4, fuse.rclone, fuse.gvfsd-fuse and so on. Returns `None` when that cannot be
 /// read. The path is taken as it is, not with its links resolved, as that would wait on a share
-/// that does not answer.
+/// that does not answer. A disk through FUSE, such as exFAT through exfat-fuse or NTFS through
+/// ntfs-3g, is only "fuseblk" there, so its type is the one udev found on the disk when udev
+/// knows it (not in a container or a Flatpak without the devices).
 pub(crate) fn mount_type(path: &Path) -> Option<String> {
-    let mounts = crate::images::decode::read_limited("/proc/self/mountinfo").ok()?;
-    mount_type_in(&mounts, path)
+    use crate::images::decode::{read_limited, read_text};
+    let mounts = read_limited("/proc/self/mountinfo").ok()?;
+    mount_type_in(&mounts, path, |dev| {
+        let udev = read_text(format!("/run/udev/data/b{}", String::from_utf8_lossy(dev))).ok()?;
+        fs_type_in_udev(&udev)
+    })
+}
+
+/// Returns the file system's type in `udev`, a device's file in /run/udev/data, as blkid
+/// found it on the disk. Returns `None` when blkid found none.
+fn fs_type_in_udev(udev: &str) -> Option<String> {
+    let kind = udev.lines().find_map(|l| l.strip_prefix("E:ID_FS_TYPE="))?;
+    (!kind.is_empty()).then(|| kind.to_owned())
 }
 
 /// Returns whether a mount of type `kind` (from `mount_type`) is on another computer or in a
@@ -113,8 +128,13 @@ pub(crate) fn is_remote(kind: &str) -> bool {
 /// a path. Of the mounts on one mount that start the path, the one with the shortest mount
 /// point hides the others, because a longer one could only have been put there before it. Of
 /// two at the same place, the later one is on top. The text is read as bytes, because a mount
-/// point may have a name that is not UTF-8.
-fn mount_type_in(mountinfo: &[u8], path: &Path) -> Option<String> {
+/// point may have a name that is not UTF-8. `device_type` gives the type of a fuseblk mount's
+/// disk from its device's numbers.
+fn mount_type_in(
+    mountinfo: &[u8],
+    path: &Path,
+    device_type: impl Fn(&[u8]) -> Option<String>,
+) -> Option<String> {
     let mounts: Vec<Mount> = (mountinfo.split(|&b| b == b'\n'))
         .filter_map(mount_line)
         .collect();
@@ -135,9 +155,13 @@ fn mount_type_in(mountinfo: &[u8], path: &Path) -> Option<String> {
             break;
         };
         under = Some(next.id);
-        found = Some(next.kind);
+        found = Some(next);
     }
-    found.map(|kind| String::from_utf8_lossy(kind).into_owned())
+    let found = found?;
+    (found.kind == b"fuseblk")
+        .then(|| device_type(found.dev))
+        .flatten()
+        .or_else(|| Some(String::from_utf8_lossy(found.kind).into_owned()))
 }
 
 /// Returns a line of /proc/self/mountinfo as a `Mount`. Returns `None` for a line that is not
@@ -146,12 +170,13 @@ fn mount_type_in(mountinfo: &[u8], path: &Path) -> Option<String> {
 /// ended by a lone "-", and then the type.
 fn mount_line(line: &[u8]) -> Option<Mount<'_>> {
     let mut fields = line.split(|&b| b == b' ');
-    let (id, parent) = (fields.next()?, fields.next()?);
-    let at = unescape_mount(fields.nth(2)?);
+    let (id, parent, dev) = (fields.next()?, fields.next()?, fields.next()?);
+    let at = unescape_mount(fields.nth(1)?);
     let kind = fields.skip_while(|f| *f != b"-").nth(1)?;
     Some(Mount {
         id,
         parent,
+        dev,
         at,
         kind,
     })
@@ -582,8 +607,11 @@ mod tests {
             9 8 8:65 / /mnt/old/new rw - exfat /dev/sde1 rw\n\
             10 11 8:81 / /srv/card rw - vfat /dev/sdf1 rw\n\
             11 1 0:54 / /srv rw - tmpfs tmpfs rw\n\
+            12 1 8:97 / /media/me/EXFAT rw - fuseblk /dev/sdg1 rw,user_id=0\n\
+            13 1 8:113 / /media/me/NTFS rw - fuseblk /dev/sdh1 rw,user_id=0\n\
             broken\n";
-        let kind = |p: &str| super::mount_type_in(mounts, std::path::Path::new(p));
+        let udev = |dev: &[u8]| (dev == b"8:97").then(|| "exfat".to_owned());
+        let kind = |p: &str| super::mount_type_in(mounts, std::path::Path::new(p), udev);
         assert_eq!(kind("/home/me/a.jpg").as_deref(), Some("ext4"));
         let gvfs = "/run/user/1000/gvfs/sftp:host=nas/a.jpg";
         assert_eq!(kind(gvfs).as_deref(), Some("fuse.gvfsd-fuse"));
@@ -595,9 +623,15 @@ mod tests {
         assert_eq!(kind("/mnt/old/new/a.jpg").as_deref(), Some("exfat"));
         // A mount moved onto another keeps its place in the table, before the one it is on.
         assert_eq!(kind("/srv/card/a.jpg").as_deref(), Some("vfat"));
+        // exFAT through FUSE is known by the type udev found on its disk, when udev knows it.
+        assert_eq!(kind("/media/me/EXFAT/a.jpg").as_deref(), Some("exfat"));
+        assert_eq!(kind("/media/me/NTFS/a.jpg").as_deref(), Some("fuseblk"));
+        let udev_file = "S:disk/by-uuid/1234-ABCD\nE:ID_FS_USAGE=filesystem\nE:ID_FS_TYPE=exfat\n";
+        assert_eq!(super::fs_type_in_udev(udev_file).as_deref(), Some("exfat"));
+        assert_eq!(super::fs_type_in_udev("E:ID_FS_TYPE=\n"), None);
         let latin1 = std::path::Path::new(std::ffi::OsStr::from_bytes(b"/media/me/K\xf8RT/a.jpg"));
         assert_eq!(
-            super::mount_type_in(mounts, latin1).as_deref(),
+            super::mount_type_in(mounts, latin1, udev).as_deref(),
             Some("vfat")
         );
         assert!(super::is_remote("fuse.rclone") && super::is_remote("cifs"));
