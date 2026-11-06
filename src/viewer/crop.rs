@@ -22,11 +22,15 @@ pub struct Crop {
 }
 
 impl crate::App {
-    /// Whether `crop` is still of what is shown: the same file, and shown the same in every way
-    /// a copy takes from the view (turns, Auto Rotate, the page …), compared whole so a way
-    /// added later cannot be left out of the check, as Auto Rotate first was.
+    /// Whether `crop` is still of what is shown: the image area shows the image and not the
+    /// grid, the same file, and shown the same in every way a copy takes from the view (turns,
+    /// Auto Rotate, the page …), compared whole so a way added later cannot be left out of the
+    /// check, as Auto Rotate first was. A part behind the grid is never saved, whatever way the
+    /// grid came back.
     fn crop_shown(&self, crop: &Crop) -> bool {
-        self.is_file(self.list.cur(), &crop.path) && self.shown_copy() == crop.how
+        !self.panel.area_grid_shown()
+            && self.is_file(self.list.cur(), &crop.path)
+            && self.shown_copy() == crop.how
     }
 
     /// Edit → Crop: choose a part of the shown image. Not for a video, nor before the image
@@ -281,6 +285,26 @@ mod tests {
         app.viewing.start_crop(crop);
         app.run(&ctx, crate::ui::actions::Action::Escape);
         assert!(app.panel.area_grid_shown() && !app.viewing.is_cropping());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A crop is of what is shown only while the image area shows its image. Behind the grid
+    /// it is not, however the grid came back, so its part is never saved from there.
+    #[test]
+    fn a_crop_behind_the_grid_is_not_shown() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-crop-hid-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let (mut app, _ctx) = crate::support::test_support::app_on(&dir);
+        app.list.set_files(vec!["a.png".into()]);
+        let crop = super::Crop {
+            path: app.path(0),
+            how: app.shown_copy(),
+            anchor: egui::Pos2::ZERO,
+            part: None,
+        };
+        assert!(app.crop_shown(&crop));
+        app.panel.toggle_area_grid();
+        assert!(!app.crop_shown(&crop));
         std::fs::remove_dir_all(dir).unwrap();
     }
 

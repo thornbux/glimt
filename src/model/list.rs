@@ -71,7 +71,9 @@ pub(crate) struct List {
     /// memory in large folders, where the path would otherwise be repeated for every file.
     files: Vec<OsString>,
     cur: usize,
-    /// Selected files (Ctrl/Shift+click in the file list) that Delete acts on.
+    /// Selected files (Ctrl/Shift+click in the file list) that Delete acts on. They are always
+    /// files the list shows, so while searching they are matches only. No action then acts on
+    /// a file the search hides.
     selected: std::collections::BTreeSet<usize>,
     /// Where a Shift selection started (file index).
     anchor: Option<usize>,
@@ -87,6 +89,9 @@ pub(crate) struct List {
     /// was asked for in.
     decodes_pending: HashMap<(usize, bool), (u64, PathBuf, [u32; 2])>,
     matches: Option<Vec<usize>>,
+    /// Whether each file is among `matches`, by its place, so the selection can be kept to the
+    /// files shown in one step per selected file. Empty when there is no search.
+    is_match: Vec<bool>,
     /// Total size of the search matches, summed in the background like `total_size`.
     match_size: u64,
     /// A rectangle being dragged in the icon grid to select.
@@ -264,37 +269,46 @@ impl List {
         self.decodes_pending.clear();
     }
 
-    /// Selects the files at `places`, and nothing else.
-    pub(crate) fn select(&mut self, places: std::collections::BTreeSet<usize>) {
+    /// Returns whether the list shows the file at `i`. While searching, that is whether the
+    /// file is a match.
+    fn shows(&self, i: usize) -> bool {
+        self.matches.is_none() || self.is_match.get(i).copied().unwrap_or(false)
+    }
+
+    /// Selects those of the files at `places` that the list shows, and nothing else.
+    pub(crate) fn select(&mut self, mut places: std::collections::BTreeSet<usize>) {
+        places.retain(|&i| self.shows(i));
         self.selected = places;
     }
 
     /// Selects the file at `i` alone, and starts a Shift selection there.
     pub(crate) fn select_one(&mut self, i: usize) {
         self.selected.clear();
-        self.selected.insert(i);
+        self.set_selected(i, true);
         self.anchor = Some(i);
     }
 
     /// Selects the file at `i`, or takes it out of the selection when it was in it.
     pub(crate) fn toggle_selected(&mut self, i: usize) {
         if !self.selected.remove(&i) {
-            self.selected.insert(i);
+            self.set_selected(i, true);
         }
     }
 
-    /// Selects the file at `i` too when `on` is true, and takes it out of the selection
-    /// otherwise.
+    /// Selects the file at `i` too when `on` is true and the list shows it, and takes it out of
+    /// the selection otherwise.
     pub(crate) fn set_selected(&mut self, i: usize, on: bool) {
-        match on {
+        match on && self.shows(i) {
             true => self.selected.insert(i),
             false => self.selected.remove(&i),
         };
     }
 
-    /// Adds the files at `places` to the selection.
+    /// Adds those of the files at `places` that the list shows to the selection.
     pub(crate) fn add_to_selection(&mut self, places: impl IntoIterator<Item = usize>) {
-        self.selected.extend(places);
+        for i in places {
+            self.set_selected(i, true);
+        }
     }
 
     /// Selects nothing.
@@ -399,9 +413,25 @@ impl List {
         self.decode_errors.remove(&i);
     }
 
-    /// Sets the search matches, or `None` when there is no search.
-    pub(crate) fn set_matches(&mut self, matches: Option<Vec<usize>>) {
+    /// Sets the search matches, or `None` when there is no search, and takes the files the
+    /// search hides out of the selection, as Geeqie's filter does. Clearing the search does not
+    /// bring them back. Returns whether the selection changed.
+    pub(crate) fn set_matches(&mut self, matches: Option<Vec<usize>>) -> bool {
+        self.is_match.clear();
+        if let Some(m) = &matches {
+            self.is_match.resize(self.files.len(), false);
+            for &i in m {
+                self.is_match[i] = true;
+            }
+        }
         self.matches = matches;
+        let before = self.selected.len();
+        let is_match = &self.is_match;
+        if self.matches.is_some() {
+            self.selected
+                .retain(|&i| is_match.get(i).copied().unwrap_or(false));
+        }
+        self.selected.len() != before
     }
 
     /// Sets the total size of the search matches, as far as it is summed.
@@ -508,6 +538,7 @@ mod tests {
                 "the shown file's carried, the others reset",
             ),
             ("matches", "worked out again: update_search"),
+            ("is_match", "worked out again with the matches"),
             ("match_size", "worked out again: update_search"),
             ("rubber_band", "reset"),
             ("dragging", "reset"),

@@ -460,6 +460,20 @@ impl crate::App {
         Some(found)
     }
 
+    /// Selects the files `found` that a dialog asked about, for its answer to act on. Returns
+    /// false, with a notice, when the answer would act on other files. The selection holds
+    /// only files the list shows, so a file that a search hid since would leave it, or the
+    /// shown image would stand in for all of them.
+    pub(crate) fn select_asked(&mut self, ctx: &egui::Context, found: Vec<usize>) -> bool {
+        self.set_selection(ctx, found.iter().copied().collect());
+        if self.targets() == found {
+            return true;
+        }
+        self.notice =
+            Some(tr("The files asked about are no longer in the list: nothing was done").into());
+        false
+    }
+
     /// Whether no file of `paths`, or in a folder of them, is being saved turned or changed by
     /// another job or by background work, and no keywords are being written. Otherwise it shows
     /// a notice. A PNG or WebP that was deleted, moved or renamed meanwhile would come back when

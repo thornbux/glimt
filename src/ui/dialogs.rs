@@ -508,7 +508,9 @@ impl crate::App {
             let Some(found) = self.asked_targets() else {
                 return;
             };
-            self.set_selection(ctx, found.into_iter().collect());
+            if !self.select_asked(ctx, found) {
+                return;
+            }
             return match collections::new_file(text) {
                 Ok(file) => self.add_to_collection(ctx, &file),
                 Err(e) => self.notice = Some(e),
@@ -561,7 +563,8 @@ impl crate::App {
             };
             match prompt {
                 Prompt::Rename => self.go(ctx, found[0]),
-                _ => self.set_selection(ctx, found.into_iter().collect()),
+                _ if !self.select_asked(ctx, found) => return,
+                _ => {}
             }
         }
         if matches!(prompt, Prompt::Rename)
@@ -1215,6 +1218,17 @@ mod tests {
             [0, 1]
         );
         assert_eq!(app.list.range_end(), None);
+        // When a search hid one of the files meanwhile, the answer makes nothing, as it would
+        // act on the files left or on the shown image instead.
+        app.run(&ctx, crate::ui::actions::Action::NewCollection);
+        app.list.set_matches(Some(vec![1, 2]));
+        let other = format!("{name}-hidden");
+        app.notice = None;
+        app.answer_prompt(&ctx, super::Prompt::NewCollection, &other);
+        assert!(app.notice.is_some());
+        let dir_of = crate::model::collections::dir().unwrap();
+        assert!(!dir_of.join(format!("{other}.gqv")).exists());
+        app.list.set_matches(None);
         // The collection is written in the background, and removed once it is.
         let file = crate::model::collections::dir()
             .unwrap()
