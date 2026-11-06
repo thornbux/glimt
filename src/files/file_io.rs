@@ -86,7 +86,7 @@ fn plain(e: std::io::Error, to: &Path) -> std::io::Error {
 /// does not answer.
 pub(crate) fn mount_type(path: &Path) -> Option<String> {
     let mounts = crate::images::decode::read_limited("/proc/self/mounts").ok()?;
-    mount_type_in(&String::from_utf8_lossy(&mounts), path)
+    mount_type_in(&mounts, path)
 }
 
 /// Returns whether a mount of type `kind` (from `mount_type`) is on another computer or in a
@@ -97,13 +97,14 @@ pub(crate) fn is_remote(kind: &str) -> bool {
     kind.starts_with("fuse.") || matches!(kind, "cifs" | "smb3" | "nfs" | "nfs4" | "9p")
 }
 
-/// Returns the type of the mount in `mounts`, the text of /proc/self/mounts, that holds `path`.
+/// Returns the type of the mount in `mounts`, the bytes of /proc/self/mounts, that holds `path`.
 /// That is the last mount whose mount point is the longest start of the path, as a later mount
-/// hides an earlier one at the same place.
-fn mount_type_in(mounts: &str, path: &Path) -> Option<String> {
-    let mut found: Option<(usize, &str)> = None;
-    for line in mounts.lines() {
-        let mut fields = line.split(' ').skip(1);
+/// hides an earlier one at the same place. The text is read as bytes, because a mount point may
+/// have a name that is not UTF-8.
+fn mount_type_in(mounts: &[u8], path: &Path) -> Option<String> {
+    let mut found: Option<(usize, &[u8])> = None;
+    for line in mounts.split(|&b| b == b'\n') {
+        let mut fields = line.split(|&b| b == b' ').skip(1);
         let (Some(at), Some(kind)) = (fields.next(), fields.next()) else {
             continue;
         };
@@ -113,14 +114,14 @@ fn mount_type_in(mounts: &str, path: &Path) -> Option<String> {
             found = Some((len, kind));
         }
     }
-    found.map(|(_, kind)| kind.to_owned())
+    found.map(|(_, kind)| String::from_utf8_lossy(kind).into_owned())
 }
 
 /// Returns the mount point `at` of /proc/self/mounts as a path. The kernel writes a space, a tab,
 /// a line break and a backslash in it as a backslash and three octal digits.
-fn unescape_mount(at: &str) -> PathBuf {
+fn unescape_mount(bytes: &[u8]) -> PathBuf {
     use std::os::unix::ffi::OsStringExt;
-    let (bytes, mut out, mut i) = (at.as_bytes(), Vec::new(), 0);
+    let (mut out, mut i) = (Vec::new(), 0);
     while i < bytes.len() {
         match bytes.get(i..i + 4) {
             Some([b'\\', digits @ ..]) if digits.iter().all(|d| (b'0'..=b'7').contains(d)) => {
@@ -524,10 +525,13 @@ mod tests {
 
     /// The mount that holds a path is the longest mount point that starts it, the later one
     /// where two are at the same place, and a mount point with a space in it is read as the
-    /// kernel writes it. A mount point that only starts with the same letters does not hold it.
+    /// kernel writes it. A mount point that only starts with the same letters does not hold it,
+    /// and one whose name is not UTF-8 is found too.
     #[test]
     fn finds_the_mount_that_holds_a_path() {
-        let mounts = "/dev/sda1 / ext4 rw 0 0\n\
+        use std::os::unix::ffi::OsStrExt;
+        let mounts = b"/dev/sda1 / ext4 rw 0 0\n\
+            /dev/sdc1 /media/me/K\xf8RT vfat rw 0 0\n\
             gvfsd-fuse /run/user/1000/gvfs fuse.gvfsd-fuse rw 0 0\n\
             /dev/sdb1 /media/me/CARD\\040ONE vfat rw 0 0\n\
             remote: /mnt/cloud fuse.rclone rw 0 0\n\
@@ -541,6 +545,11 @@ mod tests {
         assert_eq!(kind("/media/me/CARD").as_deref(), Some("ext4"));
         assert_eq!(kind("/mnt/cloud/a.jpg").as_deref(), Some("cifs"));
         assert_eq!(kind("/mnt/cloudy").as_deref(), Some("ext4"));
+        let latin1 = std::path::Path::new(std::ffi::OsStr::from_bytes(b"/media/me/K\xf8RT/a.jpg"));
+        assert_eq!(
+            super::mount_type_in(mounts, latin1).as_deref(),
+            Some("vfat")
+        );
         assert!(super::is_remote("fuse.rclone") && super::is_remote("cifs"));
         assert!(!super::is_remote("fuseblk") && !super::is_remote("vfat"));
     }

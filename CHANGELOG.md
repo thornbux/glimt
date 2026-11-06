@@ -5,6 +5,11 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- A folder mounted at a name that is not UTF-8 is known by its own file system, so a camera
+  card or share there gets the same plain messages and questions as any other.
+
 ## [0.62.0] - 2026-11-06
 
 ### Fixed
