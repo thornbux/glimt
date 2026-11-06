@@ -2802,8 +2802,8 @@ msgid "\"{name}\": a {kind} file system, as on a camera card, allows none of : ?
 msgstr "« {name} » : un système de fichiers {kind}, comme sur la carte d'un appareil photo, n'accepte aucun de : ? * \" < > | \\ dans un nom. Rien n'a été renommé."
 
 #: src/files/file_ops.rs
-msgid "The trash refused {count} ({kind}). They are still there, because another folder is open now."
-msgstr "La corbeille a refusé {count} ({kind}). Ils sont toujours là, car un autre dossier est ouvert maintenant."
+msgid "The trash refused {count} ({kind}). Nothing was deleted, because another folder is open now."
+msgstr "La corbeille a refusé {count} ({kind}). Rien n'a été supprimé, car un autre dossier est ouvert maintenant."
 
 #: src/ui/dialogs.rs
 msgid "The trash does not take files in this folder ({kind}), as on network and cloud folders."

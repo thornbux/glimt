@@ -2802,8 +2802,8 @@ msgid "\"{name}\": a {kind} file system, as on a camera card, allows none of : ?
 msgstr "»{name}«: et {kind}-filsystem, som på hukommelseskortet i et kamera, tillader ingen af : ? * \" < > | \\ i et navn. Intet blev omdøbt."
 
 #: src/files/file_ops.rs
-msgid "The trash refused {count} ({kind}). They are still there, because another folder is open now."
-msgstr "Papirkurven tog ikke imod {count} ({kind}). De ligger der stadig, fordi en anden mappe er åben nu."
+msgid "The trash refused {count} ({kind}). Nothing was deleted, because another folder is open now."
+msgstr "Papirkurven tog ikke imod {count} ({kind}). Intet blev slettet, fordi en anden mappe er åben nu."
 
 #: src/ui/dialogs.rs
 msgid "The trash does not take files in this folder ({kind}), as on network and cloud folders."

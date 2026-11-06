@@ -2813,8 +2813,8 @@ msgid "\"{name}\": a {kind} file system, as on a camera card, allows none of : ?
 msgstr "«{name}»: system plików {kind}, jak na karcie pamięci aparatu, nie dopuszcza w nazwie żadnego ze znaków : ? * \" < > | \\. Nie zmieniono żadnej nazwy."
 
 #: src/files/file_ops.rs
-msgid "The trash refused {count} ({kind}). They are still there, because another folder is open now."
-msgstr "Kosz odrzucił {count} ({kind}). Nadal są na miejscu, bo teraz otwarty jest inny folder."
+msgid "The trash refused {count} ({kind}). Nothing was deleted, because another folder is open now."
+msgstr "Kosz odrzucił {count} ({kind}). Nic nie zostało usunięte, bo teraz otwarty jest inny folder."
 
 #: src/ui/dialogs.rs
 msgid "The trash does not take files in this folder ({kind}), as on network and cloud folders."

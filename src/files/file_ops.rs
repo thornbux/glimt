@@ -781,14 +781,18 @@ impl crate::App {
     /// the list. A notice tells of the others, which are left as they are, because another
     /// folder was opened before the question.
     fn ask_delete_instead(&mut self, kind: String, files: &[PathBuf]) {
+        // Only files the list shows are asked about: a subfolder's file strips the folder's
+        // prefix too, but is not in the list with Include Subfolders off.
         let dir = self.folder.dir();
+        let shown: HashSet<&OsString> = self.list.files().iter().collect();
         let names: Vec<OsString> = (files.iter())
             .filter_map(|p| Some(p.strip_prefix(dir).ok()?.as_os_str().to_owned()))
+            .filter(|name| shown.contains(name))
             .collect();
         let left = files.len() - names.len();
         if left > 0 {
             self.notice = Some(tf!(
-                "The trash refused {count} ({kind}). They are still there, because another folder is open now.",
+                "The trash refused {count} ({kind}). Nothing was deleted, because another folder is open now.",
                 count = count(left, "file"),
                 kind
             ));
@@ -2964,16 +2968,20 @@ mod tests {
             untrashable: Some(("fuse.rclone".into(), files)),
             ..Default::default()
         };
-        // A refusal comes with the delete failed, which has the folder read again.
+        // A refusal comes with the delete failed, which has the folder read again. A file of
+        // another folder, and one of a subfolder the list does not show, are told, not asked.
         let elsewhere = super::Deleted {
             failed: true,
-            ..refused(vec![PathBuf::from("/elsewhere/a.png")])
+            ..refused(vec![
+                PathBuf::from("/elsewhere/a.png"),
+                dir.join("sub/b.png"),
+            ])
         };
         app.work.deleted_tx.send(elsewhere).unwrap();
         assert!(settle(&mut app, &ctx, |app| app.notice.is_some()));
         assert!(!app.modal_open());
         let told = app.notice.take().unwrap();
-        assert!(told.contains("1 file (fuse.rclone)"), "{told}");
+        assert!(told.contains("2 files (fuse.rclone)"), "{told}");
         // The delete takes the file out of the list as it starts, as `delete_now` does.
         app.work.deleting.insert("a.png".into());
         app.remove_indices(&ctx, &[0]);
