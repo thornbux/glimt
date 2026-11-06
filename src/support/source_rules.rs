@@ -1039,6 +1039,44 @@ fn an_image_and_its_sidecar_change_together() {
     );
 }
 
+/// Only Glimt's own files are written with `file_io::replace_file` and the writers built on it
+/// (`write_atomic`, `edit_shared`). They write through a link to the file it points to, as a
+/// settings file kept in a repository is a link, and do not refuse a read-only file. A file of
+/// the user's goes through `replace_name`, which replaces a link itself and refuses a read-only
+/// file, or `replace_existing` for an image written again. Before, clippy's reasons sent every
+/// write to `replace_file`, so a new writer of a user's file could follow a planted link or
+/// write over a photo made read-only.
+#[test]
+fn only_glimts_own_files_are_written_through_links() {
+    const HOMES: &[(&str, &[(&str, &str)])] = &[
+        (
+            "replace_file(",
+            &[
+                ("files/file_io.rs", "edit_shared"),
+                ("files/file_io.rs", "write_atomic"),
+                ("features/remote.rs", "mark_focused"),
+            ],
+        ),
+        ("write_atomic(", &[("main.rs", "on_exit")]),
+        (
+            "edit_shared(",
+            &[
+                ("files/config.rs", "save"),
+                ("metadata/marks.rs", "write"),
+                ("model/folder.rs", "remember_recent"),
+                ("ui/file_list.rs", "change_sort_folders"),
+                ("ui/info_panel.rs", "change_keyword_tree"),
+            ],
+        ),
+    ];
+    let wrong = outside_their_homes(HOMES);
+    assert!(
+        wrong.is_empty(),
+        "replace_file used for a file that may be the user's (use file_io::replace_name):\n{}",
+        wrong.join("\n")
+    );
+}
+
 /// The view's colour settings (Preferences' profiles, colour management on or off and the view
 /// filter) reach only what is shown. Everything Glimt writes or hands to other programs (the
 /// shared thumbnail cache, a print, the clipboard, an exported frame) goes through
