@@ -8,9 +8,10 @@ on:
   pull_request:
 
 # A new push to a branch makes its earlier run moot. A push and its pull request share the group
-# by the branch's name, so the branch is not checked twice at once.
+# by the repository and the branch's name, so the branch is not checked twice at once, and a
+# fork's pull request from its own main does not cancel a run of ours.
 concurrency:
-  group: ci-${{ github.head_ref || github.ref_name }}
+  group: ci-${{ github.event.pull_request.head.repo.full_name || github.repository }}-${{ github.head_ref || github.ref_name }}
   cancel-in-progress: true
 
 # Reads the code only; actions from others are pinned to a commit, as in release.yml.

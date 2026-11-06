@@ -36,33 +36,14 @@ DOCKERFILE
     fi
     mkdir -p "$HOME/.cache" && touch "$stamp"
 fi
-# A turn among the others: a folder made is a slot taken, and it goes when this ends. It holds
-# the taker's process id, so a slot left by a check that was killed is taken over.
+# A turn among the others: each slot is a file locked by the docker command that runs the
+# checks. The kernel lets go of the lock when that process ends, however it ends, so no slot is
+# left taken by a check that was killed, and two waiting checks cannot both take the same slot.
 mem=$(docker info --format '{{.MemTotal}}' 2>/dev/null)
 gb=$((${mem:-0} / 1073741824))
 slots=$((gb / 5 < 1 ? 1 : gb / 5))
-locks=$HOME/.cache/glimt-check-slots
+locks=$HOME/.cache/glimt-check-locks
 mkdir -p "$locks"
-slot=""
-told=""
-while [ -z "$slot" ]; do
-    for s in $(seq 1 $slots); do
-        owner=$(cat "$locks/$s/pid" 2>/dev/null)
-        if [ -n "$owner" ] && ! kill -0 "$owner" 2>/dev/null; then
-            rm -rf "$locks/$s"
-        fi
-        if mkdir "$locks/$s" 2>/dev/null; then
-            echo $$ >"$locks/$s/pid"
-            slot=$s
-            break
-        fi
-    done
-    if [ -z "$slot" ]; then
-        [ -z "$told" ] && echo "waiting for one of $slots checks running in $locks to end" && told=1
-        sleep 10
-    fi
-done
-trap 'rm -rf "$locks/$slot"' EXIT
 checks='r=0
 step() { echo "-- $*"; "$@" || { echo "FAIL: $*"; r=1; }; }
 step cargo fmt
@@ -73,6 +54,18 @@ step cargo test -q --locked --profile quick --all-features
 [ $r = 0 ] && echo "every check passed"
 exit $r'
 # --init passes Ctrl+C on to cargo, which bash as the container's first process would not.
+# Perl takes the lock, because macOS has no flock command; $^F keeps its file open across exec.
+perl -e 'use Fcntl ":flock"; $^F = 255; $| = 1;
+    my ($dir, $slots) = splice @ARGV, 0, 2; my $told;
+    while (1) {
+        for my $s (1 .. $slots) {
+            open(my $f, ">", "$dir/$s") or die "$dir/$s: $!\n";
+            if (flock($f, LOCK_EX | LOCK_NB)) { exec @ARGV; die "$ARGV[0]: $!\n" }
+            close $f;
+        }
+        print "waiting for one of $slots checks running in $dir to end\n" unless $told++;
+        sleep 10;
+    }' "$locks" "$slots" \
 docker run --rm --init -v "$here":/s -w /s \
     -v glimt-target:/target -v glimt-cargo:/usr/local/cargo/registry -v glimt-sccache:/sccache \
     -e "CARGO_TARGET_DIR=/target/$name" -e RUSTC_WRAPPER=sccache -e SCCACHE_DIR=/sccache \
