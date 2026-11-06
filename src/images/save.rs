@@ -461,9 +461,15 @@ pub(crate) fn same_file(a: &Path, b: &Path) -> bool {
 /// comparison of two files or folders by who they are goes through it. Returns `None` when the
 /// file cannot be looked up.
 pub(crate) fn file_key(path: &Path) -> Option<FileKey> {
+    Some(meta_key(path, &std::fs::metadata(path).ok()?))
+}
+
+/// Returns the key of `path` from its metadata `meta`, which the caller looked up itself, for
+/// example without following a link. The inode is read here and in no other place, so no
+/// comparison can take inode 0 for one file (`source_rules::files_are_told_apart_by_one_key`).
+pub(crate) fn meta_key(path: &Path, meta: &std::fs::Metadata) -> FileKey {
     use std::os::unix::fs::MetadataExt;
-    let meta = std::fs::metadata(path).ok()?;
-    Some(key_of(path, (meta.dev(), meta.ino())))
+    key_of(path, (meta.dev(), meta.ino()))
 }
 
 /// Returns the key of `path` from its device and inode, `id`. The pair is the same however the

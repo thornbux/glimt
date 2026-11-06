@@ -93,10 +93,12 @@ pub(crate) struct Deleted {
     pub(crate) untrashable: Option<(String, Vec<PathBuf>)>,
 }
 
-/// A file's (device, inode, size, modification time in seconds and nanoseconds). The inode
+/// A file's (device and inode, size, modification time in seconds and nanoseconds). The inode
 /// stays the same through a rename on one disk. FAT, exFAT and FUSE without use_ino may give the
-/// same file another inode later, so there the size and time tell the file instead.
-pub(crate) type FileId = (u64, u64, u64, (i64, i64));
+/// same file another inode later, so there the size and time tell the file instead. The device
+/// and inode are `None` where the file system gives every file inode 0 (`save::meta_key`), and
+/// then only the size and time tell the file.
+pub(crate) type FileId = (Option<(u64, u64)>, u64, (i64, i64));
 
 /// A file moved, `(from, to, id)`, as Undo moves it back. The id is the file's at `to`, or
 /// `None` once Glimt itself wrote the file anew there (a turn saved), which gives it a new id.
@@ -2064,14 +2066,21 @@ fn moved((from, to): &(PathBuf, PathBuf)) -> Moved {
 /// Returns the id of the file or link at `path`, or `None` when nothing is there.
 fn file_id(path: &Path) -> Option<FileId> {
     use std::os::unix::fs::MetadataExt;
-    (std::fs::symlink_metadata(path).ok())
-        .map(|m| (m.dev(), m.ino(), m.len(), (m.mtime(), m.mtime_nsec())))
+    let m = std::fs::symlink_metadata(path).ok()?;
+    let key = crate::images::save::meta_key(path, &m).ok();
+    Some((key, m.len(), (m.mtime(), m.mtime_nsec())))
 }
 
 /// Whether ids `a` and `b` are of the same file. It is so on the same device when the inode is
-/// the same, or when the size and modification time are, as an inode may change on FAT.
+/// the same, or when the size and modification time are, as an inode may change on FAT. Where
+/// the file system gives no inode, only the size and modification time can say it.
 fn same_id(a: FileId, b: FileId) -> bool {
-    a.0 == b.0 && (a.1 == b.1 || (a.2, a.3) == (b.2, b.3))
+    let stamp = (a.1, a.2) == (b.1, b.2);
+    match (a.0, b.0) {
+        (Some(x), Some(y)) => x.0 == y.0 && (x.1 == y.1 || stamp),
+        (None, None) => stamp,
+        _ => false,
+    }
 }
 
 /// Checks that every name in the way of a rename is one of the files being renamed, under a
@@ -3006,6 +3015,34 @@ mod tests {
         app.undo(&ctx);
         assert!(settle(&mut app, &ctx, |app| !app.working() && a.exists()));
         std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// Where the file system gives every file inode 0 (sshfs with `-o use_ino`), Undo of a move
+    /// tells the moved file from another put at its name by the size and time alone. Before, the
+    /// inodes 0 were equal, so any file there was taken for the moved one and moved back.
+    #[test]
+    fn undo_of_a_move_tells_files_without_inodes_apart() {
+        // `file_id` gives no device and inode where `save::meta_key` gives a path for inode 0.
+        assert!(crate::images::save::key_of(std::path::Path::new("/a"), (1, 0)).is_err());
+        let (moved, other) = ((None, 1, (5, 0)), (None, 7, (9, 0)));
+        assert!(
+            !super::same_id(moved, other),
+            "another file was taken for the moved one"
+        );
+        assert!(super::same_id(moved, moved));
+        // An inode that changed (FAT) still leaves the size and time to tell the file.
+        assert!(super::same_id(
+            (Some((1, 2)), 1, (5, 0)),
+            (Some((1, 3)), 1, (5, 0))
+        ));
+        assert!(!super::same_id(
+            (Some((1, 2)), 1, (5, 0)),
+            (Some((1, 3)), 7, (9, 0))
+        ));
+        assert!(!super::same_id(
+            (Some((1, 2)), 1, (5, 0)),
+            (Some((2, 2)), 1, (5, 0))
+        ));
     }
 
     /// A turn saved through another spelling of the moved file's path, as in a folder opened

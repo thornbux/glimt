@@ -71,10 +71,13 @@ impl crate::App {
         let shown = self.list.files().get(self.list.cur()).cloned();
         // The images moved stay selected when they were, and so do the selected images that
         // the search holds back. A row dragged from outside the selection takes the selection's
-        // place, as a click on it would, so the held-back images are let go with the rest.
+        // place, as a click on it would, so the held-back images are let go with the rest. That
+        // is so also when only held-back images were selected. With nothing selected at all, the
+        // moved images stay unselected.
         let selected = self.list.selected();
-        let moved = picked.iter().filter(|_| !selected.is_empty());
-        let replaced = !selected.is_empty() && !picked.iter().all(|i| selected.contains(i));
+        let any = !selected.is_empty() || !self.list.held_back().is_empty();
+        let replaced = any && !picked.iter().all(|i| selected.contains(i));
+        let moved = picked.iter().filter(|_| !selected.is_empty() || replaced);
         let held = self.list.held_back().iter().filter(|_| !replaced);
         let names: HashSet<OsString> = (moved.chain(held))
             .map(|&i| self.list.files()[i].clone())
@@ -540,7 +543,8 @@ pub(crate) fn dropped(n: usize, picked: &HashSet<usize>, to: usize) -> Vec<usize
 mod tests {
     /// A collection's row dragged from outside the selection is selected alone afterwards, as a
     /// click on it would leave it. The selected images that the search held back stayed
-    /// selected with it, though the rest of the selection was let go.
+    /// selected with it, though the rest of the selection was let go. When only held-back
+    /// images were selected, they stayed, and the dragged row was not selected.
     #[test]
     fn a_row_dragged_from_outside_the_selection_lets_the_held_back_go() {
         use std::collections::{BTreeSet, HashSet};
@@ -549,23 +553,25 @@ mod tests {
         let gqv = (["a", "b", "c"].iter())
             .map(|n| format!("\"{}\"\n", d.join(format!("{n}.png")).display()))
             .collect::<String>();
-        std::fs::write(d.join("col.gqv"), format!("#GQview collection\n{gqv}")).unwrap();
-        let (mut app, ctx) = crate::support::test_support::app_on(&d.join("col.gqv"));
-        assert_eq!(app.list.files().len(), 3);
-        app.list.select(BTreeSet::from([0, 1]));
-        app.list.set_matches(Some(vec![1, 2]));
-        assert_eq!(app.list.held_back(), &BTreeSet::from([0]));
-        let picked = HashSet::from([2]);
-        let order = super::dropped(3, &picked, 0);
-        app.move_in_collection(&ctx, picked, order);
-        let names: Vec<_> = (app.list.selected_and_held().into_iter())
-            .map(|i| app.list.files()[i].clone())
-            .collect();
-        assert_eq!(names.len(), 1);
-        assert!(
-            std::path::Path::new(&names[0]).ends_with("c.png"),
-            "{names:?}"
-        );
+        for first in [BTreeSet::from([0, 1]), BTreeSet::from([0])] {
+            std::fs::write(d.join("col.gqv"), format!("#GQview collection\n{gqv}")).unwrap();
+            let (mut app, ctx) = crate::support::test_support::app_on(&d.join("col.gqv"));
+            assert_eq!(app.list.files().len(), 3);
+            app.list.select(first);
+            app.list.set_matches(Some(vec![1, 2]));
+            assert_eq!(app.list.held_back(), &BTreeSet::from([0]));
+            let picked = HashSet::from([2]);
+            let order = super::dropped(3, &picked, 0);
+            app.move_in_collection(&ctx, picked, order);
+            let names: Vec<_> = (app.list.selected_and_held().into_iter())
+                .map(|i| app.list.files()[i].clone())
+                .collect();
+            assert_eq!(names.len(), 1, "{names:?}");
+            assert!(
+                std::path::Path::new(&names[0]).ends_with("c.png"),
+                "{names:?}"
+            );
+        }
         std::fs::remove_dir_all(d).unwrap();
     }
 
