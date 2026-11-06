@@ -18,6 +18,9 @@ and versions follow [Semantic Versioning](https://semver.org/).
 - Files the trash refused on a network or cloud folder, when another folder was opened before
   the question to delete them for good, are named in a notice that says they are still there,
   instead of being dropped without a word.
+- The question to delete for good what the trash refused opens also in a folder that keeps
+  changing, such as a sync folder taking in uploads with auto refresh on. It waited for the
+  folder to be still before.
 
 ## [0.62.0] - 2026-11-06
 

@@ -68,6 +68,9 @@ pub(crate) struct Folder {
     /// Whether the folder changed while a listing was running. It is listed again when the
     /// listing is done.
     relist: bool,
+    /// How many whole listings were taken since the start. Work that waits for the folder to be
+    /// read again waits for this to grow.
+    listings: u64,
     /// The generation of the folder watcher. Opening another folder ends the old thread.
     watching: Arc<AtomicUsize>,
     /// The watcher saw the folder change.
@@ -124,6 +127,7 @@ impl Folder {
             went_to: None,
             listing_stop: Arc::default(),
             relist: false,
+            listings: 0,
             watching: Arc::new(AtomicUsize::new(0)),
             changed_tx,
             changed_rx,
@@ -234,6 +238,12 @@ impl Folder {
     /// Whether the folder is to be read again.
     pub(crate) fn wants_relist(&self) -> bool {
         self.relist
+    }
+
+    /// Returns how many whole listings were taken since the start, so a later count means the
+    /// list was read again since.
+    pub(crate) fn listings(&self) -> u64 {
+        self.listings
     }
 
     /// Whether the folder watcher saw the folder change since this was last asked.
@@ -914,6 +924,7 @@ impl crate::App {
         };
         self.folder.subdirs_rx.clear();
         self.folder.part_rx.clear();
+        self.folder.listings += 1;
         // Several folders shown together are listed as "/" with no subfolders, which are not
         // the tree's.
         if self.folder.collection.is_none() && self.folder.folders.is_empty() {

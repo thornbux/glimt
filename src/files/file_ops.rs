@@ -215,9 +215,10 @@ pub(crate) struct Work {
     /// so they can be put right. They are read in the background.
     cut_short_rx: Receiving<Vec<journal::CutShort>>,
     /// The type of the mount and the files the trash refused there, to ask about once the
-    /// folder is read again. The files left the list when the delete started, and only the new
-    /// listing brings them back.
-    untrashable: Option<(String, Vec<PathBuf>)>,
+    /// folder is read again, and the count of listings (`Folder::listings`) when they came.
+    /// The files left the list when the delete started, and only a newer listing brings them
+    /// back.
+    untrashable: Option<(String, Vec<PathBuf>, u64)>,
     /// Our own clipboard for file lists, kept so it can serve them (X11).
     clipboard: Option<arboard::Clipboard>,
     /// An image decoded for the clipboard. egui takes it only during a frame.
@@ -681,9 +682,13 @@ impl crate::App {
         } in self.work.deleted_rx.try_iter().collect::<Vec<_>>()
         {
             if let Some((kind, files)) = untrashable {
+                let now = self.folder.listings();
                 match &mut self.work.untrashable {
-                    Some((_, held)) => held.extend(files),
-                    none => *none = Some((kind, files)),
+                    Some((_, held, since)) => {
+                        held.extend(files);
+                        *since = now;
+                    }
+                    none => *none = Some((kind, files, now)),
                 }
             }
             if let Some((old, new)) = folder_renamed {
@@ -746,12 +751,14 @@ impl crate::App {
                 self.folder.relist_later();
             }
         }
-        // The question waits for the listing that brings the files back, and for any other
-        // dialog to close, which keeps the keys meant for it.
-        if !self.folder.wants_relist()
-            && !self.folder.is_listing()
-            && !self.dialog_open()
-            && let Some((kind, files)) = self.work.untrashable.take()
+        // The question waits for a listing taken after the refusal came, which brings the files
+        // back, and for any other dialog to close, which keeps the keys meant for it. It does
+        // not wait for the folder to be still, because a folder that changes all the time, such
+        // as a sync folder taking in uploads with auto refresh on, never is.
+        let listed = self.folder.listings();
+        if !self.dialog_open()
+            && (self.work.untrashable.as_ref()).is_some_and(|(_, _, since)| listed > *since)
+            && let Some((kind, files, _)) = self.work.untrashable.take()
         {
             self.ask_delete_instead(kind, &files);
         }
@@ -2714,6 +2721,38 @@ mod tests {
         std::fs::remove_dir_all(dir).unwrap();
     }
 
+    /// The question about what the trash refused opens after the first listing taken after the
+    /// refusal, also in a folder that changes all the time and is read again and again.
+    #[test]
+    fn asks_about_what_the_trash_refused_in_a_folder_that_keeps_changing() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-busy-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        image::RgbImage::new(2, 2).save(dir.join("a.png")).unwrap();
+        let (mut app, ctx) = app_on(&dir);
+        app.work.deleting.insert("a.png".into());
+        app.remove_indices(&ctx, &[0]);
+        let refused = super::Deleted {
+            paths: vec![dir.join("a.png")],
+            failed: true,
+            untrashable: Some(("fuse.rclone".into(), vec![dir.join("a.png")])),
+            ..Default::default()
+        };
+        app.work.deleted_tx.send(refused).unwrap();
+        let asked = (0..250).any(|_| {
+            app.poll_background(&ctx);
+            // Auto refresh sees a change in every frame, as in a sync folder taking uploads.
+            app.folder.relist_later();
+            let open = app.modal_open();
+            if !open {
+                std::thread::sleep(std::time::Duration::from_millis(20));
+            }
+            open
+        });
+        assert!(asked);
+        assert_eq!(app.asked_targets(), Some(vec![0]));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
     /// Of the files the trash refused, only those still there on a network or cloud mount are
     /// left to ask about, with that mount's type. A file that went after all and a file of a
     /// local folder are not. Each folder's mount is looked up once.
@@ -2779,7 +2818,11 @@ mod tests {
             untrashable: Some(("fuse.rclone".into(), files)),
             ..Default::default()
         };
-        let elsewhere = refused(vec![PathBuf::from("/elsewhere/a.png")]);
+        // A refusal comes with the delete failed, which has the folder read again.
+        let elsewhere = super::Deleted {
+            failed: true,
+            ..refused(vec![PathBuf::from("/elsewhere/a.png")])
+        };
         app.work.deleted_tx.send(elsewhere).unwrap();
         assert!(settle(&mut app, &ctx, |app| app.notice.is_some()));
         assert!(!app.modal_open());
