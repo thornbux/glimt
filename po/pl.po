@@ -2811,3 +2811,7 @@ msgstr "system plików w tym miejscu ({kind}) nie pozwala na tę zmianę nazwy, 
 #: src/files/file_ops.rs
 msgid "\"{name}\": a {kind} file system, as on a camera card, allows none of : ? * \" < > | \\ in a name. Nothing was renamed."
 msgstr "«{name}»: system plików {kind}, jak na karcie pamięci aparatu, nie dopuszcza w nazwie żadnego ze znaków : ? * \" < > | \\. Nie zmieniono żadnej nazwy."
+
+#: src/ui/dialogs.rs
+msgid "The trash does not work in this folder, which is on a network or cloud mount ({kind})."
+msgstr "Kosz nie działa w tym folderze, który znajduje się w zasobie sieciowym lub w chmurze ({kind})."

@@ -2800,3 +2800,7 @@ msgstr "het bestandssysteem hier ({kind}) staat deze naamswijziging niet toe, zo
 #: src/files/file_ops.rs
 msgid "\"{name}\": a {kind} file system, as on a camera card, allows none of : ? * \" < > | \\ in a name. Nothing was renamed."
 msgstr "“{name}”: een {kind}-bestandssysteem, zoals op de geheugenkaart van een camera, staat geen van : ? * \" < > | \\ toe in een naam. Er is niets hernoemd."
+
+#: src/ui/dialogs.rs
+msgid "The trash does not work in this folder, which is on a network or cloud mount ({kind})."
+msgstr "De prullenbak werkt niet in deze map, die op een netwerk- of cloudkoppeling staat ({kind})."

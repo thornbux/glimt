@@ -89,6 +89,12 @@ pub(crate) fn mount_type(path: &Path) -> Option<String> {
     mount_type_in(&String::from_utf8_lossy(&mounts), path)
 }
 
+/// Returns whether a mount of type `kind` (from `mount_type`) is on another computer or in a
+/// cloud, through FUSE, SMB or NFS. A fuseblk mount (NTFS or exFAT on a local disk) is not.
+pub(crate) fn is_remote(kind: &str) -> bool {
+    kind.starts_with("fuse.") || matches!(kind, "cifs" | "smb3" | "nfs" | "nfs4" | "9p")
+}
+
 /// Returns the type of the mount in `mounts`, the text of /proc/self/mounts, that holds `path`.
 /// That is the last mount whose mount point is the longest start of the path, as a later mount
 /// hides an earlier one at the same place.
@@ -533,6 +539,8 @@ mod tests {
         assert_eq!(kind("/media/me/CARD").as_deref(), Some("ext4"));
         assert_eq!(kind("/mnt/cloud/a.jpg").as_deref(), Some("cifs"));
         assert_eq!(kind("/mnt/cloudy").as_deref(), Some("ext4"));
+        assert!(super::is_remote("fuse.rclone") && super::is_remote("cifs"));
+        assert!(!super::is_remote("fuseblk") && !super::is_remote("vfat"));
     }
 
     /// A replace whose write fails never runs the step before the rename, so Save As over a file

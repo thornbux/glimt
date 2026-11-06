@@ -1205,16 +1205,17 @@ on_mount() {
     key ctrl+z; until_file $d/r.jpg 20; sleep 1
     expect "$name: the move undone" "$(ls $d | tr '\n' ' ')" "b.jpg c.jpg r.jpg r.jpg.xmp sub "
     # Neither has a trash gio can use: rclone answers it with an input/output error, gvfsd-fuse
-    # with "Operation not supported". The file stays, and the window says why.
+    # with "Operation not supported". Glimt asks whether to delete the file for good instead.
     key Home; key ctrl+d; sleep 4; shot fs-$name-trash
-    expect "$name: the trash refused, the file kept" "$(ls $d | tr '\n' ' ')" \
-        "b.jpg c.jpg r.jpg r.jpg.xmp sub "
+    menu "Delete (Enter)"; until_gone $d/b.jpg 20; sleep 1
+    expect "$name: the trash refused, deleted for good when asked" "$(ls $d | tr '\n' ' ')" \
+        "c.jpg r.jpg r.jpg.xmp sub "
     key ctrl+a; key ctrl+r; sleep 1; key ctrl+a
     xdotool type --delay 30 'n_#'; sleep 0.4
-    key Return; until_file $d/n_3.jpg 20; sleep 2; shot fs-$name-rename-many
+    key Return; until_file $d/n_2.jpg 20; sleep 2; shot fs-$name-rename-many
     quit
     expect "$name: Rename Many with the sidecar" "$(ls $d | tr '\n' ' ')" \
-        "n_1.jpg n_2.jpg n_3.jpg n_3.jpg.xmp sub "
+        "n_1.jpg n_2.jpg n_2.jpg.xmp sub "
     note "$name: $(grep -c . $XDG_STATE_HOME/glimt/marks 2>/dev/null) stars kept in marks"
 }
 mkdir -p /tmp/rclone-back /tmp/rclone

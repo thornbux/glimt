@@ -82,6 +82,9 @@ pub(crate) struct Deleted {
     /// A folder made by New Folder. The tree reads its parent again, and the list reads its
     /// folder again.
     pub(crate) folder_made: Option<PathBuf>,
+    /// The type of a network or cloud mount whose files the trash refused, and those files,
+    /// which are still there. The window asks whether to delete them for good instead.
+    pub(crate) untrashable: Option<(String, Vec<PathBuf>)>,
 }
 
 /// A file's (device, inode, size, modification time in seconds and nanoseconds). The inode
@@ -633,8 +636,10 @@ impl crate::App {
                     collection: collection.zip(Some(removed)),
                 })
             });
+            let refused = trash && !errors.is_empty() && !job.stopped();
             // Those not reached after Stop are still there, as after a failure.
             let _ = deleted_tx.send(Deleted {
+                untrashable: refused.then(|| left_by_trash(&paths)).flatten(),
                 paths,
                 gone,
                 failed: !errors.is_empty() || job.stopped(),
@@ -665,8 +670,12 @@ impl crate::App {
             overwritten,
             folder_renamed,
             folder_made,
+            untrashable,
         } in self.work.deleted_rx.try_iter().collect::<Vec<_>>()
         {
+            if let Some((kind, files)) = untrashable {
+                self.ask_delete_instead(kind, &files);
+            }
             if let Some((old, new)) = folder_renamed {
                 self.folder_renamed(ctx, old, new);
             }
@@ -727,6 +736,25 @@ impl crate::App {
                 self.folder.relist_later();
             }
         }
+    }
+
+    /// Asks whether to delete `files` for good, which the trash refused on a network or cloud
+    /// mount of type `kind`. gio has no trash there, and a trash in the home folder would mean
+    /// a download of each file. It asks only about files of the folder shown, by their names in
+    /// the list, and not over another dialog, which keeps the keys meant for it.
+    fn ask_delete_instead(&mut self, kind: String, files: &[PathBuf]) {
+        let dir = self.folder.dir();
+        let names: Option<Vec<OsString>> = (files.iter())
+            .map(|p| Some(p.strip_prefix(dir).ok()?.as_os_str().to_owned()))
+            .collect();
+        let Some(names) = names.filter(|n| !n.is_empty()) else {
+            return;
+        };
+        if self.dialog_open() {
+            return;
+        }
+        self.dialogs.asked_about(self.list_place(), names);
+        self.dialogs.confirm_delete_instead(kind);
     }
 
     /// Brings along what Glimt keeps about files or folders that were moved or renamed
@@ -1659,6 +1687,26 @@ fn forget_in_collection(
         });
     });
     edit.map(|()| removed)
+}
+
+/// Returns the files of `paths` that are still there on a network or cloud mount, with the
+/// mount's type, after the trash refused them. Returns `None` when there are none, such as when
+/// the trash failed in a local folder that cannot be written. The mount table is read once for
+/// each folder.
+fn left_by_trash(paths: &[PathBuf]) -> Option<(String, Vec<PathBuf>)> {
+    use crate::files::file_io::{is_remote, mount_type};
+    let mut kinds: HashMap<PathBuf, Option<String>> = HashMap::new();
+    let mut remote = |p: &Path| {
+        let dir = p.parent()?.to_path_buf();
+        (kinds.entry(dir))
+            .or_insert_with_key(|dir| mount_type(dir).filter(|k| is_remote(k)))
+            .clone()
+    };
+    let left: Vec<PathBuf> = (paths.iter())
+        .filter(|p| std::fs::symlink_metadata(p).is_ok() && remote(p).is_some())
+        .cloned()
+        .collect();
+    Some((remote(left.first()?)?, left))
 }
 
 /// Returns a notice when a name of `to` has a character that the FAT or exFAT file system of its
@@ -2623,6 +2671,38 @@ mod tests {
         assert!(settle(&mut app, &ctx, |app| !app.working() && refused(app)));
         assert!(!a.exists(), "the other image was moved back as a.png");
         assert!(moved.exists());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// The files the trash refused on a network or cloud mount are asked about, to delete them
+    /// for good instead, when they are in the folder shown. Files of another folder are not,
+    /// because their names could be other files' in this list.
+    #[test]
+    fn asks_to_delete_for_good_what_the_trash_refused_on_a_network_mount() {
+        use std::path::PathBuf;
+        let dir =
+            std::env::temp_dir().join(format!("glimt-test-untrashable-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        image::RgbImage::new(2, 2).save(dir.join("a.png")).unwrap();
+        let (mut app, ctx) = app_on(&dir);
+        let refused = |files: Vec<PathBuf>| super::Deleted {
+            untrashable: Some(("fuse.rclone".into(), files)),
+            ..Default::default()
+        };
+        let elsewhere = refused(vec![PathBuf::from("/elsewhere/a.png")]);
+        app.work.deleted_tx.send(elsewhere).unwrap();
+        app.receive_deleted(&ctx);
+        assert!(!app.modal_open());
+        app.work
+            .deleted_tx
+            .send(refused(vec![dir.join("a.png")]))
+            .unwrap();
+        app.receive_deleted(&ctx);
+        assert!(app.modal_open());
+        assert_eq!(
+            app.dialogs.asked_names(),
+            [std::ffi::OsString::from("a.png")]
+        );
         std::fs::remove_dir_all(dir).unwrap();
     }
 

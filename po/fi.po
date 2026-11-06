@@ -2800,3 +2800,7 @@ msgstr "tämä tiedostojärjestelmä ({kind}) ei salli tätä uudelleennimeämis
 #: src/files/file_ops.rs
 msgid "\"{name}\": a {kind} file system, as on a camera card, allows none of : ? * \" < > | \\ in a name. Nothing was renamed."
 msgstr "”{name}”: {kind}-tiedostojärjestelmä, kuten kameran muistikortilla, ei salli nimessä mitään merkeistä : ? * \" < > | \\. Mitään ei nimetty uudelleen."
+
+#: src/ui/dialogs.rs
+msgid "The trash does not work in this folder, which is on a network or cloud mount ({kind})."
+msgstr "Roskakori ei toimi tässä kansiossa, joka on verkko- tai pilviliitoksessa ({kind})."

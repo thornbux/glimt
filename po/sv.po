@@ -2800,3 +2800,7 @@ msgstr "filsystemet här ({kind}) tillåter inte det här namnbytet, som på vis
 #: src/files/file_ops.rs
 msgid "\"{name}\": a {kind} file system, as on a camera card, allows none of : ? * \" < > | \\ in a name. Nothing was renamed."
 msgstr "”{name}”: ett {kind}-filsystem, som på minneskortet i en kamera, tillåter inget av : ? * \" < > | \\ i ett namn. Inget bytte namn."
+
+#: src/ui/dialogs.rs
+msgid "The trash does not work in this folder, which is on a network or cloud mount ({kind})."
+msgstr "Papperskorgen fungerar inte i den här mappen, som ligger på en nätverks- eller molnmontering ({kind})."

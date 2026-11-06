@@ -2800,3 +2800,7 @@ msgstr "filsystemet her ({kind}) tillader ikke denne omdøbning, som på visse d
 #: src/files/file_ops.rs
 msgid "\"{name}\": a {kind} file system, as on a camera card, allows none of : ? * \" < > | \\ in a name. Nothing was renamed."
 msgstr "»{name}«: et {kind}-filsystem, som på hukommelseskortet i et kamera, tillader ingen af : ? * \" < > | \\ i et navn. Intet blev omdøbt."
+
+#: src/ui/dialogs.rs
+msgid "The trash does not work in this folder, which is on a network or cloud mount ({kind})."
+msgstr "Papirkurven virker ikke i denne mappe, som ligger på en netværks- eller skymontering ({kind})."

@@ -75,6 +75,9 @@ pub(crate) struct Dialogs {
     prompt: Option<(Prompt, String)>,
     /// The delete confirmation is open: `Some(true)` = move to trash, `Some(false)` = permanently.
     confirm_delete: Option<bool>,
+    /// The type of the network or cloud mount whose files the trash refused, when the delete
+    /// for good asked about is instead of a move to the trash.
+    trash_refused: Option<String>,
     /// What a folder or collection dialog acts on, kept from when it asked: the folder to rename
     /// or, with `confirm_folder`, to trash, the folder New Folder makes its folder in, or the
     /// collection file to rename. A script that opens another folder or collection while the
@@ -102,6 +105,14 @@ impl Dialogs {
     /// Asks whether to delete the files: to the trash when `trash`, else for good.
     pub(crate) fn confirm_delete(&mut self, trash: bool) {
         self.confirm_delete = Some(trash);
+        self.trash_refused = None;
+    }
+
+    /// Asks whether to delete the files for good, because the trash refused them on a network
+    /// or cloud mount of type `kind`.
+    pub(crate) fn confirm_delete_instead(&mut self, kind: String) {
+        self.confirm_delete = Some(false);
+        self.trash_refused = Some(kind);
     }
 
     /// Whether Rename or a delete is asking about the files on screen.
@@ -698,6 +709,12 @@ impl crate::App {
                 if trash {
                     ui.label(tf!("Move {what} to the trash?", what));
                 } else {
+                    if let Some(kind) = &self.dialogs.trash_refused {
+                        ui.label(tf!(
+                            "The trash does not work in this folder, which is on a network or cloud mount ({kind}).",
+                            kind
+                        ));
+                    }
                     ui.label(tf!("Permanently delete {what}?", what));
                     ui.weak(tr("This cannot be undone."));
                 }

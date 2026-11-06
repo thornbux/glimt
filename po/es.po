@@ -2800,3 +2800,7 @@ msgstr "el sistema de archivos de aquí ({kind}) no permite este cambio de nombr
 #: src/files/file_ops.rs
 msgid "\"{name}\": a {kind} file system, as on a camera card, allows none of : ? * \" < > | \\ in a name. Nothing was renamed."
 msgstr "«{name}»: un sistema de archivos {kind}, como el de la tarjeta de una cámara, no admite ninguno de : ? * \" < > | \\ en un nombre. No se ha cambiado ningún nombre."
+
+#: src/ui/dialogs.rs
+msgid "The trash does not work in this folder, which is on a network or cloud mount ({kind})."
+msgstr "La papelera no funciona en esta carpeta, que está en un montaje de red o en la nube ({kind})."

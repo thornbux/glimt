@@ -2800,3 +2800,7 @@ msgstr "il file system qui ({kind}) non consente questa ridenominazione, come su
 #: src/files/file_ops.rs
 msgid "\"{name}\": a {kind} file system, as on a camera card, allows none of : ? * \" < > | \\ in a name. Nothing was renamed."
 msgstr "«{name}»: un file system {kind}, come sulla scheda di una fotocamera, non consente nessuno di : ? * \" < > | \\ in un nome. Nessun file è stato rinominato."
+
+#: src/ui/dialogs.rs
+msgid "The trash does not work in this folder, which is on a network or cloud mount ({kind})."
+msgstr "Il cestino non funziona in questa cartella, che si trova su un montaggio di rete o cloud ({kind})."
