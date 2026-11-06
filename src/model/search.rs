@@ -222,7 +222,8 @@ impl crate::App {
         self.status.forget_place();
         self.search.error = None;
         let matches = self.search_matches(ctx, query);
-        // The files the search hides leave the selection, so an action acts on what is shown.
+        // The files the search hides are held back from the selection, so an action acts on what
+        // is shown, and those it shows again come back.
         if self.list.set_matches(matches) {
             self.selection_changed(ctx);
         }
@@ -772,6 +773,7 @@ pub fn exif_index(
 #[cfg(test)]
 mod tests {
     use crate::support::test_support::app_on;
+    use crate::ui::actions::Action;
 
     /// The selection holds only files the list shows. A search takes the files it hides out of
     /// it, so a file action acts on what is on screen and not on a hidden file, and no way of
@@ -798,12 +800,62 @@ mod tests {
         app.list.select_one(1);
         assert!(app.list.selected().is_empty());
         app.list.add_to_selection([2, 3]);
-        // A hidden file does not come back when the search is cleared, as in Geeqie.
+        // A file the search hides is held back, and is selected again when it is shown again.
         app.search.set_query("beach2");
         app.update_search(&ctx);
+        assert_eq!(app.list.selected(), &[3].into());
+        assert_eq!(app.targets(), [3]);
         app.search.set_query("");
         app.update_search(&ctx);
-        assert_eq!(app.list.selected(), &[3].into());
+        assert_eq!(app.list.selected(), &[2, 3].into());
+        // Select None, a plain click and Select All let go of the held-back files too.
+        let ways: [fn(&mut crate::App, &eframe::egui::Context); 3] = [
+            |a, c| a.run(c, Action::SelectNone),
+            |a, _| a.list.select_one(3),
+            |a, c| a.run(c, Action::SelectAll),
+        ];
+        for select in ways {
+            app.list.select([1, 3].into());
+            app.search.set_query("beach2");
+            app.update_search(&ctx);
+            select(&mut app, &ctx);
+            app.search.set_query("");
+            app.update_search(&ctx);
+            assert!(!app.list.selected().contains(&1));
+        }
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// A query on its way to the one meant finds nothing for a moment: `re:` before `re:IMG`,
+    /// a pattern not yet closed, a typo, or `exif:` while its index is read. The selection
+    /// comes back once the query shows its files again, so an action after acts on all of them.
+    #[test]
+    fn a_query_typed_letter_by_letter_keeps_the_selection() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-typed-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let (mut app, ctx) = app_on(&dir);
+        let names = ["IMG_1.jpg", "IMG_2.jpg", "other.jpg"];
+        app.list.set_files(names.iter().map(Into::into).collect());
+        let typed = |app: &mut crate::App, steps: &[&str]| {
+            app.list.select([0, 1].into());
+            for q in steps {
+                app.search.set_query(q);
+                app.update_search(&ctx);
+            }
+            app.list.selected().clone()
+        };
+        assert_eq!(typed(&mut app, &["re:", "re:I", "re:IMG"]), [0, 1].into());
+        assert_eq!(typed(&mut app, &["re:(", "re:(IMG)"]), [0, 1].into());
+        assert_eq!(typed(&mut app, &["imx", "im", "img"]), [0, 1].into());
+        app.config.fuzzy_search = false;
+        assert_eq!(typed(&mut app, &["IMG(", "IMG(_)"]), [0, 1].into());
+        app.config.fuzzy_search = true;
+        // The EXIF index is read in the background, and finds nothing until it is there.
+        assert!(typed(&mut app, &["exi", "exif:canon"]).is_empty());
+        assert_eq!(app.targets(), [app.list.cur()]);
+        assert_eq!(typed(&mut app, &["exif:canon", ""]), [0, 1].into());
+        let read = |a: &crate::App| a.search.exif_index.is_some();
+        assert!(crate::support::test_support::settle(&mut app, &ctx, read));
         std::fs::remove_dir_all(&dir).unwrap();
     }
 

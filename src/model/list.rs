@@ -75,6 +75,10 @@ pub(crate) struct List {
     /// files the list shows, so while searching they are matches only. No action then acts on
     /// a file the search hides.
     selected: std::collections::BTreeSet<usize>,
+    /// The selected files that the search hides. They are held back from `selected`, so no
+    /// action acts on them, and they come back when the search shows them again. A query typed
+    /// letter by letter (`re:` before `re:IMG`) would otherwise lose them for good.
+    held_back: std::collections::BTreeSet<usize>,
     /// Where a Shift selection started (file index).
     anchor: Option<usize>,
     /// Where the Shift selection made by the keys last ended (file index), while nothing else
@@ -128,6 +132,17 @@ impl List {
     /// The selected files, by their places in the list.
     pub(crate) fn selected(&self) -> &std::collections::BTreeSet<usize> {
         &self.selected
+    }
+
+    /// The selected files that the search hides, held back until it shows them again.
+    pub(crate) fn held_back(&self) -> &std::collections::BTreeSet<usize> {
+        &self.held_back
+    }
+
+    /// The selected files and those the search holds back, which a new list selects again by
+    /// name and a rectangle drawn with Ctrl adds to.
+    pub(crate) fn selected_and_held(&self) -> std::collections::BTreeSet<usize> {
+        self.selected.union(&self.held_back).copied().collect()
     }
 
     /// Where the Shift selection made by the keys last ended.
@@ -263,6 +278,7 @@ impl List {
     pub(crate) fn places_changed(&mut self) {
         self.version += 1;
         self.selected.clear();
+        self.held_back.clear();
         self.anchor = None;
         self.rubber_band = None;
         self.dragging = None;
@@ -275,15 +291,15 @@ impl List {
         self.matches.is_none() || self.is_match.get(i).copied().unwrap_or(false)
     }
 
-    /// Selects those of the files at `places` that the list shows, and nothing else.
-    pub(crate) fn select(&mut self, mut places: std::collections::BTreeSet<usize>) {
-        places.retain(|&i| self.shows(i));
-        self.selected = places;
+    /// Selects the files at `places` and nothing else. Those that the search hides are held
+    /// back until it shows them.
+    pub(crate) fn select(&mut self, places: std::collections::BTreeSet<usize>) {
+        (self.selected, self.held_back) = places.into_iter().partition(|&i| self.shows(i));
     }
 
     /// Selects the file at `i` alone, and starts a Shift selection there.
     pub(crate) fn select_one(&mut self, i: usize) {
-        self.selected.clear();
+        self.clear_selection();
         self.set_selected(i, true);
         self.anchor = Some(i);
     }
@@ -311,9 +327,10 @@ impl List {
         }
     }
 
-    /// Selects nothing.
+    /// Selects nothing, also among the files the search hides.
     pub(crate) fn clear_selection(&mut self) {
         self.selected.clear();
+        self.held_back.clear();
     }
 
     /// Starts a Shift selection at `i`, or at nothing.
@@ -413,9 +430,9 @@ impl List {
         self.decode_errors.remove(&i);
     }
 
-    /// Sets the search matches, or `None` when there is no search, and takes the files the
-    /// search hides out of the selection, as Geeqie's filter does. Clearing the search does not
-    /// bring them back. Returns whether the selection changed.
+    /// Sets the search matches, or `None` when there is no search. The selected files that the
+    /// search hides are held back, and those it shows again are selected again. Returns whether
+    /// the selection changed.
     pub(crate) fn set_matches(&mut self, matches: Option<Vec<usize>>) -> bool {
         self.is_match.clear();
         if let Some(m) = &matches {
@@ -425,13 +442,22 @@ impl List {
             }
         }
         self.matches = matches;
-        let before = self.selected.len();
-        let is_match = &self.is_match;
-        if self.matches.is_some() {
-            self.selected
-                .retain(|&i| is_match.get(i).copied().unwrap_or(false));
+        // One step per selected file, not per file, as this runs at every letter typed.
+        let hidden: Vec<usize> = (self.selected.iter().copied())
+            .filter(|&i| !self.shows(i))
+            .collect();
+        let shown: Vec<usize> = (self.held_back.iter().copied())
+            .filter(|&i| self.shows(i))
+            .collect();
+        for &i in &hidden {
+            self.selected.remove(&i);
+            self.held_back.insert(i);
         }
-        self.selected.len() != before
+        for &i in &shown {
+            self.held_back.remove(&i);
+            self.selected.insert(i);
+        }
+        !hidden.is_empty() || !shown.is_empty()
     }
 
     /// Sets the total size of the search matches, as far as it is summed.
@@ -527,6 +553,10 @@ mod tests {
             (
                 "selected",
                 "carried by name by the callers that keep it (reselect)",
+            ),
+            (
+                "held_back",
+                "carried by name with the selection (selected_and_held)",
             ),
             ("anchor", "reset"),
             ("range_end", "reset"),

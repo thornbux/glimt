@@ -1546,7 +1546,7 @@ impl crate::App {
             && (self.folder.collection().is_none() || !cells.iter().any(|c| c.1.contains(p)))
         {
             let before = if add {
-                self.list.selected().clone()
+                self.list.selected_and_held()
             } else {
                 Default::default()
             };
