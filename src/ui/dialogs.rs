@@ -15,6 +15,11 @@ use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc;
 
+/// How long the question to delete for good what the trash refused is on screen before Enter
+/// answers it. It opens by itself, when the folder has been read again, so an Enter pressed for
+/// something else at that moment must not delete files for good unseen.
+const ENTER_AFTER: f64 = 0.5;
+
 /// What a file dialog (zenity or kdialog) was opened for.
 pub(crate) enum Pick {
     Open,
@@ -78,6 +83,8 @@ pub(crate) struct Dialogs {
     /// The type of the network or cloud mount whose files the trash refused, when the delete
     /// for good asked about is instead of a move to the trash.
     trash_refused: Option<String>,
+    /// When the delete dialog was first drawn, in egui's input time.
+    delete_shown: Option<f64>,
     /// What a folder or collection dialog acts on, kept from when it asked: the folder to rename
     /// or, with `confirm_folder`, to trash, the folder New Folder makes its folder in, or the
     /// collection file to rename. A script that opens another folder or collection while the
@@ -106,6 +113,7 @@ impl Dialogs {
     pub(crate) fn confirm_delete(&mut self, trash: bool) {
         self.confirm_delete = Some(trash);
         self.trash_refused = None;
+        self.delete_shown = None;
     }
 
     /// Asks whether to delete the files for good, because the trash refused them on a network
@@ -113,6 +121,7 @@ impl Dialogs {
     pub(crate) fn confirm_delete_instead(&mut self, kind: String) {
         self.confirm_delete = Some(false);
         self.trash_refused = Some(kind);
+        self.delete_shown = None;
     }
 
     /// Whether Rename or a delete is asking about the files on screen.
@@ -705,6 +714,9 @@ impl crate::App {
         if let Some(trash) = self.dialogs.confirm_delete {
             let what = self.delete_what();
             let mut delete = false;
+            let now = ctx.input(|i| i.time);
+            let shown = *self.dialogs.delete_shown.get_or_insert(now);
+            let enter_answers = self.dialogs.trash_refused.is_none() || now - shown >= ENTER_AFTER;
             let modal = egui::Modal::new(egui::Id::unique("confirm-delete")).show(ctx, |ui| {
                 if trash {
                     ui.label(tf!("Move {what} to the trash?", what));
@@ -720,12 +732,16 @@ impl crate::App {
                 }
                 ui.horizontal(|ui| {
                     delete = crate::ui::menus::button(ui, tr("Delete (Enter)")).clicked()
-                        || ui.input(|i| i.key_pressed(egui::Key::Enter));
+                        || enter_answers && ui.input(|i| i.key_pressed(egui::Key::Enter));
                     if crate::ui::menus::button(ui, tr("Cancel (Esc)")).clicked() {
                         ui.close();
                     }
                 });
             });
+            if !enter_answers {
+                // The frame that lets Enter answer comes without another event.
+                ctx.request_repaint_after(std::time::Duration::from_secs_f64(ENTER_AFTER));
+            }
             if delete {
                 self.dialogs.confirm_delete = None;
                 if let Some(targets) = self.asked_targets() {
@@ -823,6 +839,47 @@ impl crate::App {
 #[cfg(test)]
 mod tests {
     use crate::support::test_support::app_on;
+    use eframe::egui;
+
+    /// The question to delete for good what the trash refused opens by itself, so an Enter in
+    /// its first moment, meant for something else, does not answer it. Enter answers it once it
+    /// has been on screen for a moment.
+    #[test]
+    fn an_enter_as_the_trash_refused_question_opens_does_not_delete() {
+        let dir =
+            std::env::temp_dir().join(format!("glimt-test-enter-after-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let (mut app, ctx) = app_on(&dir);
+        // Only whether the dialog answers is tested here: what it then deletes is
+        // file_ops.rs's `asks_to_delete_for_good_what_the_trash_refused_on_a_network_mount`.
+        app.dialogs.asked_about(0, vec!["a.png".into()]);
+        app.dialogs.confirm_delete_instead("fuse.rclone".into());
+        let enter_at = |app: &mut crate::App, time: f64| {
+            let input = egui::RawInput {
+                time: Some(time),
+                events: vec![egui::Event::Key {
+                    key: egui::Key::Enter,
+                    physical_key: None,
+                    pressed: true,
+                    repeat: false,
+                    modifiers: Default::default(),
+                }],
+                ..Default::default()
+            };
+            let _ = ctx.run_ui(input, |ui| app.confirm_delete_dialog(ui.ctx()));
+        };
+        enter_at(&mut app, 10.0);
+        assert!(
+            app.dialogs.confirm_delete.is_some(),
+            "the first Enter answered"
+        );
+        enter_at(&mut app, 10.0 + super::ENTER_AFTER);
+        assert!(
+            app.dialogs.confirm_delete.is_none(),
+            "a later Enter did not answer"
+        );
+        std::fs::remove_dir_all(dir).unwrap();
+    }
 
     /// New Collection selects the files it asked about through set_selection, so what follows
     /// a selection (a Shift range's end ends) happens too, not the selection alone.
