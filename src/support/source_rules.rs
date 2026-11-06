@@ -1044,35 +1044,22 @@ fn an_image_and_its_sidecar_change_together() {
 /// shared cache and of prints.
 #[test]
 fn view_colours_stay_in_the_view() {
-    const FOR_THE_VIEW: &[&str] = &[
-        "to_display(",
-        "COLOUR.read(",
-        "COLOR_MANAGEMENT.load(",
-        "VIEW_FILTER.load(",
-    ];
+    // The view decodes and animates what is shown, and the thumbnail workers turn a cached
+    // sRGB thumbnail into the screen's colours to show it. colour.rs keeps the settings.
     const SHOWN: &[(&str, &str)] = &[
+        ("images/colour.rs", ""),
         ("images/decode.rs", "decode"),
         ("images/decode.rs", "animation"),
         ("ui/workers.rs", "spawn_thumbnailers"),
     ];
-    let mut wrong = Vec::new();
-    for (file, text) in rust_sources() {
-        if file == "images/colour.rs" {
-            continue;
-        }
-        let lines = code_lines(&text);
-        let end = tests_start(&lines);
-        let mut function = String::new();
-        for (i, line) in lines[..end].iter().enumerate() {
-            if let Some(name) = function_name(line) {
-                function = name.to_owned();
-            }
-            let shown = SHOWN.iter().any(|(f, s)| file == *f && function == *s);
-            if FOR_THE_VIEW.iter().any(|t| line.contains(t)) && !shown {
-                wrong.push(format!("{file}:{} in {function}", i + 1));
-            }
-        }
-    }
+    let homes = [
+        "to_display(",
+        "COLOUR.read(",
+        "COLOR_MANAGEMENT.load(",
+        "VIEW_FILTER.load(",
+    ]
+    .map(|text| (text, SHOWN));
+    let wrong = outside_their_homes(&homes);
     assert!(
         wrong.is_empty(),
         "the view's colour settings used outside the view (use colour::to_srgb):\n{}",
