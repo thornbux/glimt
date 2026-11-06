@@ -299,6 +299,11 @@ impl App {
         // The icon grid sets the row step again in the file list, and the next frame's ↑ and ↓
         // read it.
         self.panel.start_frame();
+        // A drag's drop target is set again by the row under the pointer, in whichever list,
+        // so a drag let go elsewhere ends where it is.
+        if let Some(to) = self.list.drag_target_mut() {
+            *to = None;
+        }
         self.preferences_window(ctx);
         self.prompt_dialog(ctx);
         self.print_dialog(ctx);

@@ -2001,6 +2001,34 @@ for v in new old; do
     else note "old: $order"; fi
 done
 
+section "a drag in the side panel let go on the grid's empty space (G): the order stays"
+for v in new old; do
+    as_version $v
+    d=/tmp/grid-away-$v
+    mkdir -p $d
+    for c in a b c; do convert -size 300x200 xc:red $d/$c.jpg; done
+    printf '#GQview collection\n"%s/a.jpg"\n"%s/b.jpg"\n"%s/c.jpg"\n' $d $d $d >$d/show.gqv
+    # Names without thumbnails: the side panel's rows are where they are with the grid on.
+    config thumbnails=false
+    start $d/show.gqv
+    sleep 2
+    from=$(where a.jpg); to=$(where c.jpg)
+    key g; sleep 1
+    cell=$(where a.jpg)
+    if [ -n "$from" ] && [ -n "$to" ] && [ -n "$cell" ]; then
+        x=${from% *}; y0=${from#* }; y1=$(( ${to#* } + 6 ))
+        xdotool mousemove $x $y0; sleep 0.3; xdotool mousedown 1 2>/dev/null
+        for i in 1 2 3 4 5 6 7 8; do xdotool mousemove $x $(( y0 + (y1 - y0) * i / 8 )); sleep 0.05; done
+        sleep 0.5
+        # The line is below c; then over the grid below its only row, let go in the same move.
+        xdotool mousemove ${cell% *} $(( ${cell#* } + 250 )) mouseup 1 2>/dev/null; sleep 1
+    fi
+    quit
+    order=$(grep -o '[abc]\.jpg' $d/show.gqv | tr '\n' ' ')
+    if [ $v = new ]; then expect "a drag let go off every row ends" "$order" "a.jpg b.jpg c.jpg "
+    else note "old: $order (no grid)"; fi
+done
+
 section "a notice in the grid in the image area (G): shown over the thumbnails"
 for v in new old; do
     as_version $v
