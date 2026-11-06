@@ -307,6 +307,33 @@ for rotate in true false; do
     done
 done
 
+section "a turned lossy WebP keeps its ICC profile and pixels, also with colour management off"
+for v in new old; do
+    as_version $v
+    for cm in true false; do
+        d=/tmp/turned-icc-$v-$cm
+        mkdir -p $d && cd $d
+        convert -size 200x100 xc:'rgb(60,160,60)' -quality 90 a.webp
+        exiftool -q -q -overwrite_original "-ICC_Profile<=$adobe" a.webp
+        convert -size 20x20 xc:white z.png
+        want="$(exiftool -s3 -ProfileDescription a.webp)"
+        cd /tmp
+        config save_orientation=true color_management=$cm
+        start $d
+        key bracketright; key space
+        sleep 6
+        quit
+        # The red of 60 rounds to 3 in twenties. Converted from Adobe RGB to sRGB it is about 0.
+        got="$(identify -format '%wx%h' $d/a.webp) \
+$(convert $d/a.webp -format '%[fx:int(p{50,100}.r*255/20+0.5)]' info:) \
+$(exiftool -s3 -ProfileDescription $d/a.webp)"
+        if [ $v = new ]; then
+            expect "colour management $cm: turned, its profile kept, green as it was" \
+                "$got" "100x200 3 $want"
+        else note "old, colour management $cm: $got"; fi
+    done
+done
+
 section "saves at once: a.png and a.webp of 6000x4000, turned one after the other"
 d=/tmp/at-once
 mkdir -p $d && cd $d

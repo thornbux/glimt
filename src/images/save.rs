@@ -1,7 +1,6 @@
 //! Saving a turned image. The pixels are turned, the EXIF is kept with orientation 1, and the
 //! XMP is kept, all in the same format. (A lossy WebP gets them back in RIFF chunks.)
 
-use crate::images::colour::to_srgb;
 use crate::images::decode::load_icc;
 use crate::metadata::exif;
 use crate::model::listing::has_ext;
@@ -83,9 +82,8 @@ type Metadata = (Option<Vec<u8>>, Option<Vec<u8>>, bool);
 /// Saves the view's rotation in a PNG or WebP, which have no orientation field to set. The
 /// pixels are turned, and the file is written again with its ICC profile, EXIF block and XMP
 /// (keywords, comment, and alt text other programs wrote into it). PNG and lossless WebP lose
-/// nothing. A lossy WebP is encoded again by ffmpeg at `webp_quality`, in sRGB because ffmpeg
-/// drops the profile, and it gets its EXIF block back afterwards. The new file replaces the old
-/// in one rename.
+/// nothing. A lossy WebP is encoded again by ffmpeg at `webp_quality`, and gets its ICC profile,
+/// EXIF block and XMP back afterwards. The new file replaces the old in one rename.
 pub fn save_rotated(
     path: &Path,
     rotate: bool,
@@ -406,9 +404,13 @@ fn encode(
     use image::ImageEncoder;
     let (width, height) = (img.width(), img.height());
     if let Kind::WebP(true) = kind {
-        // ffmpeg hands the WebP over in memory, in sRGB as it drops the profile.
-        let img = to_srgb(img, icc.as_deref());
+        // ffmpeg drops the profile, so it is put back. The pixels are never converted to sRGB
+        // here: that followed the view's colour settings, so with colour management off a
+        // Display P3 file lost its profile and kept its P3 pixels.
         let mut webp = lossy_webp(&img, webp_quality)?;
+        if let Some(icc) = &icc {
+            webp = webp_with_chunk(&webp, b"ICCP", icc, width, height)?;
+        }
         if let Some(exif) = &exif {
             webp = webp_with_chunk(&webp, b"EXIF", exif, width, height)?;
         }
@@ -648,9 +650,9 @@ pub fn lossy_webp(img: &image::DynamicImage, quality: u8) -> Result<Vec<u8>, Str
     }
 }
 
-/// `webp` with an EXIF or XMP chunk (`name`), at the end where the format puts them, EXIF
-/// before XMP, and its flag set in the extended format's VP8X header, which is made for a
-/// simple file.
+/// `webp` with an ICCP, EXIF or XMP chunk (`name`), and its flag set in the extended format's
+/// VP8X header, which is made for a simple file. The format puts the ICC profile before the
+/// image's data and EXIF and XMP at the end, EXIF before XMP.
 pub fn webp_with_chunk(
     webp: &[u8],
     name: &[u8; 4],
@@ -658,7 +660,11 @@ pub fn webp_with_chunk(
     width: u32,
     height: u32,
 ) -> Result<Vec<u8>, String> {
-    let flag = if name == b"EXIF" { 0x08 } else { 0x04 };
+    let flag = match name {
+        b"ICCP" => 0x20,
+        b"EXIF" => 0x08,
+        _ => 0x04,
+    };
     if !webp.starts_with(b"RIFF") || webp.get(8..12) != Some(&b"WEBP"[..]) {
         return Err("not a WebP file".into());
     }
@@ -668,22 +674,30 @@ pub fn webp_with_chunk(
     // extended header must say it too, or viewers show it opaque.
     let alpha = chunks.starts_with(b"VP8L") && chunks.get(12).is_some_and(|b| b & 0x10 != 0);
     let flag = if alpha { flag | 0x10 } else { flag };
-    if chunks.starts_with(b"VP8X") {
-        out.extend(chunks);
+    let rest = if chunks.starts_with(b"VP8X") {
+        out.extend(chunks.get(..18).ok_or("cut off")?);
         *out.get_mut(20).ok_or("cut off")? |= flag;
+        &chunks[18..]
     } else {
         out.extend(b"VP8X\x0a\0\0\0");
         out.extend([flag, 0, 0, 0]);
         out.extend(&width.saturating_sub(1).to_le_bytes()[..3]);
         out.extend(&height.saturating_sub(1).to_le_bytes()[..3]);
-        out.extend(chunks);
-    }
-    out.extend(name);
-    out.extend((data.len() as u32).to_le_bytes());
-    out.extend(data);
+        chunks
+    };
+    let mut chunk = name.to_vec();
+    chunk.extend((data.len() as u32).to_le_bytes());
+    chunk.extend(data);
     // Chunks have an even length.
     if data.len() % 2 == 1 {
-        out.push(0);
+        chunk.push(0);
+    }
+    if name == b"ICCP" {
+        out.extend(chunk);
+        out.extend(rest);
+    } else {
+        out.extend(rest);
+        out.extend(chunk);
     }
     let size = (out.len() - 8) as u32;
     out[4..8].copy_from_slice(&size.to_le_bytes());
@@ -988,6 +1002,15 @@ mod tests {
         assert_eq!(with[20], 0x18);
         let dec = image::codecs::webp::WebPDecoder::new(std::io::Cursor::new(with)).unwrap();
         assert!(dec.color_type().has_alpha());
+        // An ICC profile goes before the image's data, also after EXIF was added, and is read
+        // back. A turned lossy WebP lost it, as ffmpeg drops it.
+        let icc = moxcms::ColorProfile::new_display_p3().encode().unwrap();
+        let with = super::webp_with_chunk(&webp, b"EXIF", exif, 5, 3).unwrap();
+        let with = super::webp_with_chunk(&with, b"ICCP", &icc, 5, 3).unwrap();
+        assert_eq!((&with[30..34], with[20]), (&b"ICCP"[..], 0x38));
+        let mut dec = image::codecs::webp::WebPDecoder::new(std::io::Cursor::new(with)).unwrap();
+        assert_eq!(dec.icc_profile().unwrap(), Some(icc));
+        assert_eq!(dec.exif_metadata().unwrap().as_deref(), Some(&exif[..]));
         // A PNG with XMP in an iTXt chunk, read back by the png decoder, which checks its CRC.
         let mut png = Vec::new();
         image::codecs::png::PngEncoder::new(&mut png)
