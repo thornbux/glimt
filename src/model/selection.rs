@@ -297,6 +297,15 @@ impl crate::App {
         }
     }
 
+    /// The first of `targets()`, without copying a selection that may hold every file.
+    pub(crate) fn first_target(&self) -> usize {
+        self.list
+            .selected()
+            .first()
+            .copied()
+            .unwrap_or(self.list.cur())
+    }
+
     /// First, Previous, Next and Last, along the list as shown (the search matches while
     /// searching); with Shift the selection runs from where it started to the new image, as in a
     /// file manager, and moving without Shift clears it.

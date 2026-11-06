@@ -181,52 +181,6 @@ pub const SHORTCUTS: &[(Action, egui::Modifiers, egui::Key)] = {
 pub static OWN_KEYS: std::sync::RwLock<Vec<(Action, egui::Modifiers, egui::Key)>> =
     std::sync::RwLock::new(Vec::new());
 
-/// The actions that act on the shown or selected files, and do nothing in an empty list. They
-/// are refused once, at the top of `run`, rather than by a guard in each arm, which a new
-/// action could leave out and then panic on `self.path(self.list.cur())` with no file.
-pub(crate) const NEEDS_A_FILE: &[Action] = &[
-    Action::NewCollection,
-    Action::Copy,
-    Action::Move,
-    Action::SetWallpaper,
-    Action::CopyPath,
-    Action::CopyPathUnquoted,
-    Action::CopyImage,
-    Action::CopyFiles,
-    Action::Print,
-    Action::RemoveFromCollection,
-    Action::SaveAs,
-    Action::RotateCw,
-    Action::RotateCcw,
-    Action::Rotate180,
-    Action::Mirror,
-    Action::Flip,
-    #[cfg(feature = "marks")]
-    Action::Mark1,
-    #[cfg(feature = "marks")]
-    Action::Mark2,
-    #[cfg(feature = "marks")]
-    Action::Mark3,
-    #[cfg(feature = "marks")]
-    Action::Mark4,
-    #[cfg(feature = "marks")]
-    Action::Mark5,
-    #[cfg(feature = "marks")]
-    Action::Mark6,
-    #[cfg(feature = "marks")]
-    Action::Rate0,
-    #[cfg(feature = "marks")]
-    Action::Rate1,
-    #[cfg(feature = "marks")]
-    Action::Rate2,
-    #[cfg(feature = "marks")]
-    Action::Rate3,
-    #[cfg(feature = "marks")]
-    Action::Rate4,
-    #[cfg(feature = "marks")]
-    Action::Rate5,
-];
-
 /// The actions a kiosk allows: showing and browsing, not changing files, settings or the
 /// window.
 pub(crate) const KIOSK_ACTIONS: &[Action] = &[
@@ -750,6 +704,54 @@ impl Action {
             KeyboardMap => "\u{e31a}",                      // map-trifold
         }
     }
+
+    /// What the action acts on: the selection, the shown image or no file. A new action names
+    /// its target here, and a menu about the selection offers only actions that act on it.
+    pub(crate) fn target(self) -> Target {
+        use Action::*;
+        match self {
+            Rename | Copy | Move | Delete | DeletePermanently | CopyPath | CopyPathUnquoted
+            | CopyFiles | NewCollection | RemoveFromCollection | MoveEarlier | MoveLater
+            | MoveFirst | MoveLast | Print => Target::Selection,
+            #[cfg(feature = "marks")]
+            Mark1 | Mark2 | Mark3 | Mark4 | Mark5 | Mark6 | Rate0 | Rate1 | Rate2 | Rate3
+            | Rate4 | Rate5 => Target::Selection,
+            OpenWith | SetWallpaper | Play | CopyImage | RotateCw | RotateCcw | Rotate180
+            | Mirror | Flip | SaveOrientation | Crop | SaveAs | SaveFrame | ExportFrames => {
+                Target::Shown
+            }
+            OpenFile | OpenFolder | OpenFolders | OpenRecursive | NewFolder | Undo
+            | CloseWindow | Quit | First | Prev | Next | Last | Back | Forward | Home | Up
+            | SelectAll | SelectNone | InvertSelection | Preferences | ExifRotate | ViewFilter
+            | ZoomIn | ZoomOut | Zoom1To1 | ZoomFit | FitWidth | FitHeight | FitFill
+            | FullScreen | HideTools | Overlay | Histogram | HistogramLog | Compare | OneImage
+            | AboveEachOther | NextLayout | PaneLeft | PaneRight | PaneUp | PaneDown | Animate
+            | Subfolders | HiddenFiles | OpenCollection | ImportLightroom | RenameCollection
+            | TrashCollection | FindDuplicates | CheckImages | BackUp | FocusSearch | NextPage
+            | PrevPage | Icons | Toolbar | PathBar | Thumbnails | ThumbnailGrid | ExifPanel
+            | ExifWindow | Keywords | SortManager | PanView | FolderTree | Refresh | Slideshow
+            | Pause | RandomOrder | Faster | Slower | Escape | NewWindow | WindowTitle
+            | Projector | ProjectorPointer | Help | Shortcuts | KeyboardMap | About => {
+                Target::NoFile
+            }
+            #[cfg(feature = "marks")]
+            SelectMark1 | SelectMark2 | SelectMark3 | SelectMark4 | SelectMark5 | SelectMark6 => {
+                Target::NoFile
+            }
+        }
+    }
+}
+
+/// What an action acts on. It decides which actions a menu about the selection, such as the
+/// file list's right-click menu, may offer, and which actions do nothing in an empty list.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub(crate) enum Target {
+    /// The selected files, or the shown image when none is selected (`App::targets`).
+    Selection,
+    /// The image shown, even while other files are selected.
+    Shown,
+    /// No file: the view, the window, the settings, the selection itself, or something to open.
+    NoFile,
 }
 
 /// A shortcut: the action, and the modifiers and key that run it.
@@ -871,7 +873,10 @@ impl crate::App {
         if !self.window.allows(action) {
             return;
         }
-        if self.list.files().is_empty() && NEEDS_A_FILE.contains(&action) {
+        // An action on a file does nothing in an empty list. It is refused here, once, rather than
+        // by a guard in each arm, which a new action could leave out and then panic on
+        // `self.path(self.list.cur())` with no file.
+        if self.list.files().is_empty() && action.target() != Target::NoFile {
             if action == Action::NewCollection {
                 self.notice = Some(tr("No images for a collection here").into());
             }
@@ -1396,7 +1401,7 @@ pub(crate) fn clipboard_key(e: &egui::Event) -> Option<egui::Key> {
 
 #[cfg(test)]
 mod tests {
-    use super::Action;
+    use super::{Action, Target};
 
     /// Every action, in name order, for the tests that run each one. Kept whole by
     /// `all_lists_every_action`.
@@ -1605,6 +1610,39 @@ mod tests {
         crate::images::colour::COLOR_MANAGEMENT.store(true, std::sync::atomic::Ordering::Relaxed);
         drop(held);
         std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// The file list's right-click menu acts on the row right-clicked, which it selects. Every
+    /// action it offers acts on the selection, and its Open With submenu asks about no other
+    /// file. Copy Image there once copied the shown image instead of the file right-clicked.
+    #[test]
+    fn the_file_menu_acts_on_the_selection() {
+        let src = include_str!("menus.rs");
+        let body = |name: &str| {
+            let start = src.find(&format!("fn {name}(")).unwrap();
+            &src[start..start + src[start..].find("\n    }\n").unwrap()]
+        };
+        let menu = body("file_menu");
+        let named: Vec<&str> = (menu.split("Action::").skip(1))
+            .map(|rest| {
+                rest.split(|c: char| !c.is_ascii_alphanumeric())
+                    .next()
+                    .unwrap()
+            })
+            .collect();
+        assert!(
+            named.len() >= 8,
+            "file_menu names its actions as Action::Name"
+        );
+        for name in named {
+            let action = ALL.iter().find(|a| format!("{a:?}") == name).unwrap();
+            assert_eq!(action.target(), Target::Selection, "{name} in file_menu");
+        }
+        assert!(menu.contains("self.open_with_menu(ui)"));
+        assert!(
+            !body("open_with_menu").contains("list.cur()"),
+            "Open With asks about the shown file, not the selection"
+        );
     }
 
     /// Every action's name is in the translations: it reaches tr through `english`, where the

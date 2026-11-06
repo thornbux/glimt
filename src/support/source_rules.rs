@@ -483,6 +483,7 @@ fn functions_stay_short() {
     const TABLES: &[(&str, &str)] = &[
         ("ui/actions.rs", "english"),
         ("ui/actions.rs", "icon"),
+        ("ui/actions.rs", "target"),
         ("ui/actions.rs", "run"),
     ];
     let mut wrong = Vec::new();
