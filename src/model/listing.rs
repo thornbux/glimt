@@ -205,7 +205,7 @@ pub fn built_in_format(path: &Path) -> bool {
 }
 
 /// `dir` and every folder below it, one at a time: (its path relative to `dir`, its folders,
-/// its images). A folder reached again through a link is read once.
+/// its images). A folder reached again through a link or a bind mount is read once.
 pub fn walk(
     dir: &Path,
     types: Types,
@@ -215,7 +215,7 @@ pub fn walk(
         loop {
             let rel = todo.pop()?;
             let full = dir.join(&rel);
-            if !seen.insert(full.canonicalize().unwrap_or_else(|_| full.clone())) {
+            if !seen.insert(crate::images::save::file_id(&full).ok_or_else(|| full.clone())) {
                 continue;
             }
             let (dirs, files) = list_folder(&full, types);

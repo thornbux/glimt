@@ -300,11 +300,15 @@ pub(crate) fn land(
 /// never saved over the image it is made from (Save As, Save This Frame), and Rename Many's
 /// repair tells a step done from one not done by it.
 pub(crate) fn same_file(a: &Path, b: &Path) -> bool {
+    matches!((file_id(a), file_id(b)), (Some(x), Some(y)) if x == y)
+}
+
+/// Returns what tells the file at `path` from every other: its device and inode. It is the
+/// same however the file is reached, through a link, a hard link or a bind mount, where its
+/// real path (`canonicalize`) differs. Returns `None` when the file cannot be looked up.
+pub(crate) fn file_id(path: &Path) -> Option<(u64, u64)> {
     use std::os::unix::fs::MetadataExt;
-    match (std::fs::metadata(a), std::fs::metadata(b)) {
-        (Ok(x), Ok(y)) => (x.dev(), x.ino()) == (y.dev(), y.ino()),
-        _ => false,
-    }
+    std::fs::metadata(path).ok().map(|m| (m.dev(), m.ino()))
 }
 
 /// File → Save As. It saves the copy `how` asks for as `to`, which the file dialog let replace
