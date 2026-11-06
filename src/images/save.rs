@@ -12,9 +12,14 @@ use std::path::Path;
 /// pixels as they were. A thumbnail (xmp:Thumbnails, its JPEG in xmpGImg:image) of a crop shows
 /// the whole frame, and of a turn the old way up. The pixel sizes are wrong after a crop or a
 /// quarter turn, and readers take the image's own. Old Photoshop wrote "xap" for "xmp".
-/// shortcut: these prefixes are the ones Adobe's tools write; match by namespace if another
-/// writer's thumbnails are found.
-const DROPPED_XMP: [&str; 8] = [
+/// Lightroom's crop (crs:Crop…) and darktable's history, which holds its crop and flip, are
+/// set on the old frame, so Lightroom or darktable would crop a crop again, or crop a turned
+/// PNG in the wrong place. darktable reads Glimt's sidecar names (`name.ext.xmp`). A JPEG's
+/// turn (`Derived::Oriented`) keeps them, as its pixels stay and both programs take the
+/// orientation into account; dropping them there would lose the user's work for one field.
+/// shortcut: these prefixes are the ones Adobe's tools and darktable write; match by namespace
+/// if another writer's thumbnails or crop are found.
+const DROPPED_XMP: [&str; 21] = [
     "xmp:Thumbnails",
     "xap:Thumbnails",
     "xmpGImg:image",
@@ -23,6 +28,19 @@ const DROPPED_XMP: [&str; 8] = [
     "tiff:ImageLength",
     "exif:PixelXDimension",
     "exif:PixelYDimension",
+    "crs:HasCrop",
+    "crs:CropTop",
+    "crs:CropLeft",
+    "crs:CropBottom",
+    "crs:CropRight",
+    "crs:CropAngle",
+    "crs:CropConstrainToWarp",
+    "crs:CropWidth",
+    "crs:CropHeight",
+    "crs:CropUnit",
+    "darktable:history",
+    "darktable:history_end",
+    "darktable:masks_history",
 ];
 
 /// The keys of a PNG's text chunks that a file written with new pixels drops. The first three
@@ -1436,6 +1454,31 @@ mod tests {
             assert_eq!(now, side, "{}", file.display());
         }
         std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// New pixels drop Lightroom's crop and darktable's history, which were set on the old
+    /// frame, and keep the rest of the develop settings. A JPEG's turn keeps both. Before, a crop
+    /// of a photo cropped in Lightroom or darktable was cropped again there.
+    #[test]
+    fn new_pixels_drop_other_programs_crop() {
+        let xmp = b"<rdf:Description crs:Exposure2012=\"+0.50\" crs:HasCrop=\"True\" \
+            crs:CropTop=\"0.1\" crs:CropLeft=\"0.2\" crs:CropBottom=\"0.9\" \
+            crs:CropRight=\"0.8\" crs:CropAngle=\"0\" darktable:history_end=\"2\">\
+            <darktable:masks_history><rdf:Seq/></darktable:masks_history>\
+            <darktable:history><rdf:Seq><rdf:li darktable:operation=\"crop\"/></rdf:Seq>\
+            </darktable:history></rdf:Description>";
+        let has = |x: &[u8], what: &str| x.windows(what.len()).any(|w| w == what.as_bytes());
+        let pixels = super::derived_xmp(xmp, super::Derived::Pixels);
+        for gone in ["crs:HasCrop", "crs:Crop", "darktable:"] {
+            assert!(
+                !has(&pixels, gone),
+                "{gone}: {}",
+                String::from_utf8_lossy(&pixels)
+            );
+        }
+        assert!(has(&pixels, "crs:Exposure2012=\"+0.50\""));
+        let turned = super::derived_xmp(xmp, super::Derived::Oriented(6));
+        assert!(has(&turned, "crs:CropTop") && has(&turned, "darktable:operation=\"crop\""));
     }
 
     /// XMP packets broken in thousands of ways are made a derived file's without a panic or a
