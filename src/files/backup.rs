@@ -21,8 +21,9 @@ pub fn own_folders() -> Vec<(&'static str, PathBuf)> {
     .collect()
 }
 
-/// Copy the folder `from` with everything in it to `to`, made; how many files. Links are
-/// copied as the files they point to; one that leads nowhere is left out.
+/// Copy the folder `from` with everything in it to `to`, made; how many files. A link to a file
+/// is copied as the file it points to. A link to a folder, or one that leads nowhere, is left
+/// out, because a link to a folder above it was copied inside itself until the path was too long.
 #[allow(clippy::disallowed_methods)] // copies into a backup folder made new for it
 pub fn copy_tree(from: &Path, to: &Path) -> std::io::Result<usize> {
     std::fs::create_dir_all(to)?;
@@ -30,7 +31,7 @@ pub fn copy_tree(from: &Path, to: &Path) -> std::io::Result<usize> {
     for entry in std::fs::read_dir(from)? {
         let entry = entry?;
         let (source, target) = (entry.path(), to.join(entry.file_name()));
-        if source.is_dir() {
+        if entry.file_type()?.is_dir() {
             files += copy_tree(&source, &target)?;
         } else if source.is_file() {
             // Named, as the files after it are not copied.
@@ -100,7 +101,8 @@ pub(crate) fn back_up_to(dir: &Path) -> Result<String, String> {
 
 #[cfg(test)]
 mod tests {
-    /// A backup copy: every file of the tree, at the same place below the new folder.
+    /// A backup copy: every file of the tree, at the same place below the new folder, and no
+    /// folder through a link.
     #[test]
     fn copies_a_tree() {
         let dir = std::env::temp_dir().join(format!("glimt-test-tree-{}", std::process::id()));
@@ -116,6 +118,13 @@ mod tests {
             ("theme=Dark".into(), "#GQview".into())
         );
         assert!(dir.join("to/collections/sub/b.gqv").is_file());
+        // A link to a file is copied as its file, and a link to a folder above it is left out.
+        std::os::unix::fs::symlink(&from, from.join("collections/sub/up")).unwrap();
+        std::os::unix::fs::symlink("../a.gqv", from.join("collections/sub/a.gqv")).unwrap();
+        let _ = std::fs::remove_dir_all(dir.join("to"));
+        assert_eq!(super::copy_tree(&from, &dir.join("to")).unwrap(), 4);
+        assert!(dir.join("to/collections/sub/a.gqv").is_file());
+        assert!(!dir.join("to/collections/sub/up").exists());
         std::fs::remove_dir_all(dir).unwrap();
     }
 }
