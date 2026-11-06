@@ -859,6 +859,49 @@ fn copies_of_settings_have_one_writer() {
     );
 }
 
+/// The view's colour settings (Preferences' profiles, colour management on or off and the view
+/// filter) reach only what is shown. Everything Glimt writes or hands to other programs (the
+/// shared thumbnail cache, a print, the clipboard, an exported frame) goes through
+/// `colour::to_srgb`, which reads none of them. Before, the settings changed the colours of the
+/// shared cache and of prints.
+#[test]
+fn view_colours_stay_in_the_view() {
+    const FOR_THE_VIEW: &[&str] = &[
+        "to_display(",
+        "COLOUR.read(",
+        "COLOR_MANAGEMENT.load(",
+        "VIEW_FILTER.load(",
+    ];
+    const SHOWN: &[(&str, &str)] = &[
+        ("images/decode.rs", "decode"),
+        ("images/decode.rs", "animation"),
+        ("ui/workers.rs", "spawn_thumbnailers"),
+    ];
+    let mut wrong = Vec::new();
+    for (file, text) in rust_sources() {
+        if file == "images/colour.rs" {
+            continue;
+        }
+        let lines = code_lines(&text);
+        let end = tests_start(&lines);
+        let mut function = String::new();
+        for (i, line) in lines[..end].iter().enumerate() {
+            if let Some(rest) = qualifiers_off(line.trim_start()).strip_prefix("fn ") {
+                function = rest.split(['(', '<']).next().unwrap_or("").to_owned();
+            }
+            let shown = SHOWN.iter().any(|(f, s)| file == *f && function == *s);
+            if FOR_THE_VIEW.iter().any(|t| line.contains(t)) && !shown {
+                wrong.push(format!("{file}:{} in {function}", i + 1));
+            }
+        }
+    }
+    assert!(
+        wrong.is_empty(),
+        "the view's colour settings used outside the view (use colour::to_srgb):\n{}",
+        wrong.join("\n")
+    );
+}
+
 /// Every module lives in the folder of what it does, so `src/` itself holds only main.rs, cli.rs
 /// and one file for each folder. A folder's file holds its `//!` doc and its `mod` lines and
 /// nothing else. A `pub use` there would let other files import a name through the folder, which

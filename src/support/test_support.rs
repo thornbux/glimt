@@ -14,16 +14,19 @@ pub(crate) fn app_on(dir: &std::path::Path) -> (crate::App, eframe::egui::Contex
         save_thumbnails: false,
         desktop_profile: false,
         remember_dir: false,
+        // English, not the system's language: other tests read the texts and numbers it sets.
+        language: "en".into(),
         ..Default::default()
     };
     let start = crate::cli::Start::default();
     // A new window sets the colour settings, which also empties the transforms a colour
-    // test running beside it was looking at.
+    // test running beside it was looking at. It also sets the own keys a keys test is using.
     let held = crate::images::colour::COLOUR_TEST
         .lock()
         .unwrap_or_else(|e| e.into_inner());
+    let keys = (crate::ui::actions::KEYS_TEST.lock()).unwrap_or_else(|e| e.into_inner());
     let mut app = crate::App::with(&ctx, config, &[], Some(dir.into()), start);
-    drop(held);
+    drop((keys, held));
     app.receive_listing(&ctx, std::time::Duration::from_secs(5));
     (app, ctx)
 }
@@ -105,4 +108,19 @@ pub(crate) fn broken(seed: &[u8]) -> impl Iterator<Item = Vec<u8>> + '_ {
         }
         v
     })
+}
+
+#[cfg(test)]
+mod tests {
+    /// A test's window speaks English whatever the system's language. With LANG=de_DE it took
+    /// German, and a test of the sizes beside it read "850,0 kB".
+    #[test]
+    fn a_window_for_a_test_speaks_english() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-english-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let (app, _) = super::app_on(&dir);
+        assert_eq!(crate::support::lang::tr("Open Folder"), "Open Folder");
+        assert_eq!(app.config.language, "en");
+        std::fs::remove_dir_all(dir).unwrap();
+    }
 }

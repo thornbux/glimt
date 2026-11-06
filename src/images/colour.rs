@@ -34,6 +34,20 @@ pub static COLOUR: std::sync::LazyLock<std::sync::RwLock<Colour>> =
         })
     });
 
+/// The colour settings for what Glimt writes or hands to other programs: the image's own
+/// profile to sRGB, untagged images left as sRGB, and the perceptual intent. They never change,
+/// so the shared thumbnail cache, a print, the clipboard and an exported frame get the same
+/// colours whatever the view is set to. Their transforms are kept apart from the view's, so a
+/// change in Preferences does not make them again.
+static FOR_FILES: std::sync::LazyLock<Colour> = std::sync::LazyLock::new(|| Colour {
+    screen: None,
+    screen_path: String::new(),
+    input: None,
+    own: true,
+    intent: moxcms::RenderingIntent::Perceptual,
+    transforms: Arc::default(),
+});
+
 /// Until when images for the screen wait for the desktop's screen profile at start, so the first
 /// ones are not shown in sRGB and then again in the screen's colours; `None`: no waiting.
 pub static SCREEN_WAIT: (Mutex<Option<Instant>>, std::sync::Condvar) =
@@ -117,17 +131,20 @@ thread_local! {
     static READING: std::cell::Cell<Option<fn()>> = const { std::cell::Cell::new(None) };
 }
 
-/// Colours from the image's own ICC profile (Adobe RGB, Display P3 …), or from the profile set
-/// for images without one, converted to sRGB: what the screen is taken to show without a screen
-/// profile, and what files and the shared thumbnail cache get. Without it such photos look dull.
-/// Done after scaling down, where it costs a few milliseconds.
+/// Converts the image from its own ICC profile (Adobe RGB, Display P3 …, or Adobe RGB that its
+/// EXIF names, which arrives as `icc`) to sRGB, as the file says. An image without a profile is
+/// sRGB and stays as it is. This is for everything that leaves Glimt: files, the shared
+/// thumbnail cache, prints and the clipboard. It reads none of the view's colour settings, so
+/// Preferences never change what other programs get. Without it such photos look dull. It is
+/// done after scaling down, where it costs a few milliseconds.
 pub fn to_srgb(img: image::DynamicImage, icc: Option<&[u8]>) -> image::DynamicImage {
-    convert(img, icc, false, false)
+    converted(&FOR_FILES, img, icc, false, false)
 }
 
 /// The image as the screen is to get it: from its profile straight to the screen profile, so
-/// that colours outside sRGB which the screen has are kept; without a screen profile as
-/// `to_srgb`. For what is shown, not for files or the shared thumbnail cache.
+/// that colours outside sRGB which the screen has are kept; without a screen profile to sRGB.
+/// It follows the colour settings of Preferences and the view filter, so it is for what is
+/// shown only, never for files or the shared thumbnail cache (`to_srgb`).
 pub fn to_display(img: image::DynamicImage, icc: Option<&[u8]>) -> image::DynamicImage {
     filter(
         convert(img, icc, true, false),
@@ -170,9 +187,10 @@ fn filter(img: image::DynamicImage, f: usize) -> image::DynamicImage {
 }
 
 /// The pixels of `img` from `icc` (when it counts, else the input profile or sRGB; sRGB with
-/// `srgb`) to the screen profile with `screen`, else to sRGB. Unchanged when both are sRGB, with
-/// colour management off, or for a profile that does not fit (CMYK, grey).
-pub fn convert(
+/// `srgb`) to the screen profile with `screen`, else to sRGB, by the settings of Preferences.
+/// Unchanged when both are sRGB, with colour management off, or for a profile that does not fit
+/// (CMYK, grey).
+fn convert(
     img: image::DynamicImage,
     icc: Option<&[u8]>,
     screen: bool,
@@ -188,6 +206,17 @@ pub fn convert(
     // long to parse, and with the lock held a change in Preferences would wait for it, and every
     // other decoding thread would wait behind that change.
     let c = COLOUR.read().unwrap_or_else(|e| e.into_inner()).clone();
+    converted(&c, img, icc, screen, srgb)
+}
+
+/// The pixels of `img` as `convert` says, by the colour settings `c`.
+fn converted(
+    c: &Colour,
+    img: image::DynamicImage,
+    icc: Option<&[u8]>,
+    screen: bool,
+    srgb: bool,
+) -> image::DynamicImage {
     let icc = icc.filter(|_| c.own);
     let screen = screen && c.screen.is_some();
     let from = match icc {
@@ -210,7 +239,7 @@ pub fn convert(
     let t = cached.unwrap_or_else(|| {
         // The transform is made without the cache locked. A large or crafted profile can take
         // long to parse, and the other decoding threads should not wait for it.
-        let t = make_transform(&c, icc, from, screen);
+        let t = make_transform(c, icc, from, screen);
         let mut transforms = c.transforms.lock().unwrap_or_else(|e| e.into_inner());
         // The cache keeps a transform for each profile the images have. Profiles that differ
         // only in the date written into them (exports of one editor) count as others, so a few
@@ -598,22 +627,22 @@ mod tests {
                 image::Rgba([60, 160, 60, 255]),
             ))
         };
-        assert_ne!(super::to_srgb(grey(), None), grey());
+        assert_ne!(super::to_display(grey(), None), grey());
         // A thumbnail is sRGB already: not taken as Adobe RGB a second time.
         assert_eq!(super::srgb_to_display(grey()), grey());
         // The image's own profile left out: the input profile for all, here sRGB.
         super::set_input("srgb").unwrap();
         super::set_colour(|c| c.own = false);
         let adobe = moxcms::ColorProfile::new_adobe_rgb().encode().unwrap();
-        assert_eq!(super::to_srgb(grey(), Some(&adobe)), grey());
+        assert_eq!(super::to_display(grey(), Some(&adobe)), grey());
         super::set_colour(|c| c.own = true);
-        assert_ne!(super::to_srgb(grey(), Some(&adobe)), grey());
+        assert_ne!(super::to_display(grey(), Some(&adobe)), grey());
         assert!(super::set_input(&junk).is_err());
         // A profile that cannot be read: left as it is.
-        assert_eq!(super::to_srgb(grey(), Some(b"junk")), grey());
+        assert_eq!(super::to_display(grey(), Some(b"junk")), grey());
         // The image's own profile is sRGB: no transform kept for it, the pixels as they are.
         let own_srgb = moxcms::ColorProfile::new_srgb().encode().unwrap();
-        assert_eq!(super::to_srgb(grey(), Some(&own_srgb)), grey());
+        assert_eq!(super::to_display(grey(), Some(&own_srgb)), grey());
         let key = {
             use std::hash::{Hash, Hasher};
             let mut h = std::hash::DefaultHasher::new();
@@ -630,7 +659,7 @@ mod tests {
         for day in 0..100u8 {
             let mut dated = adobe.clone();
             dated[30] = day;
-            super::to_srgb(grey(), Some(&dated));
+            super::to_display(grey(), Some(&dated));
         }
         let c = super::COLOUR.read().unwrap();
         assert!(c.transforms.lock().unwrap().len() <= 64);
@@ -682,7 +711,7 @@ mod tests {
         };
         let shown = |intent| {
             super::set_intent(intent);
-            *super::to_srgb(red(), None).into_rgba8().get_pixel(0, 0)
+            *super::to_display(red(), None).into_rgba8().get_pixel(0, 0)
         };
         let perceptual = shown("perceptual");
         assert_ne!(perceptual, red().into_rgba8()[(0, 0)]);
@@ -690,6 +719,40 @@ mod tests {
         assert_eq!(shown("saturation"), perceptual);
         super::set_input("srgb").unwrap();
         super::set_intent("perceptual");
+    }
+
+    /// What Glimt hands out is in the colours the file says, whatever the view's settings are:
+    /// colour management off, an input profile, the image's own profile left out and another
+    /// intent change nothing. Before, they reached the shared thumbnail cache and prints.
+    #[test]
+    fn hands_out_the_files_colours_whatever_the_view() {
+        use std::sync::atomic::Ordering;
+        let _held = super::COLOUR_TEST.lock().unwrap_or_else(|e| e.into_inner());
+        let grey = || {
+            image::DynamicImage::from(image::RgbaImage::from_pixel(
+                1,
+                1,
+                image::Rgba([60, 160, 60, 255]),
+            ))
+        };
+        let p3 = moxcms::ColorProfile::new_display_p3().encode().unwrap();
+        let tagged = super::to_srgb(grey(), Some(&p3));
+        assert_ne!(tagged, grey());
+        super::COLOR_MANAGEMENT.store(false, Ordering::Relaxed);
+        let off = super::to_srgb(grey(), Some(&p3));
+        super::COLOR_MANAGEMENT.store(true, Ordering::Relaxed);
+        super::set_input("adobe").unwrap();
+        super::set_colour(|c| c.own = false);
+        super::set_intent("relative");
+        let set = (
+            super::to_srgb(grey(), Some(&p3)),
+            super::to_srgb(grey(), None),
+        );
+        super::set_input("srgb").unwrap();
+        super::set_colour(|c| c.own = true);
+        super::set_intent("perceptual");
+        assert_eq!(off, tagged);
+        assert_eq!(set, (tagged, grey()));
     }
 
     /// Returns whether `free` comes true within two seconds. Other tests' threads take the
