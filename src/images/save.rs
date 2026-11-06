@@ -129,7 +129,8 @@ enum Kind {
 /// The EXIF block (camera, date, place) and XMP of `path`, for pixels written as the view
 /// showed them. Their orientation is set upright, also with Auto Rotate off, where the view did
 /// not turn them by it, because otherwise other programs would turn them again. The flag says
-/// whether the stored orientation turned the image a quarter, with Auto Rotate.
+/// whether the written pixels lie a quarter turn from the stored ones, so that a PNG's DPI
+/// across and down is swapped (`png_with_chunks`).
 type Metadata = (Option<Vec<u8>>, Option<Vec<u8>>, bool);
 
 /// How a file Glimt writes came from the image it was made from, which decides what it keeps of
@@ -182,8 +183,7 @@ pub fn save_rotated(
     let (img, icc) = load_icc(path, rotate)?;
     let img = turned(img, turns, mirrored);
     let size = (img.width(), img.height());
-    let (exif, xmp, stored_quarter) = derived_metadata(path, rotate, size, Derived::Turned)?;
-    let quarter = (turns % 2 == 1) != stored_quarter;
+    let (exif, xmp, quarter) = derived_metadata(path, rotate, turns, size, Derived::Turned)?;
     let out = encode(path, img, icc, exif, xmp, kind, quarter, webp_quality)?;
     replace_with_sidecar(path, named, out, Derived::Turned)
 }
@@ -219,14 +219,15 @@ pub fn copy_bytes(path: &Path, how: &CopyAs) -> Result<(Vec<u8>, Format), String
         Format::WebPLossy => Kind::WebP(true),
     };
     let (img, icc) = pixels(path, how)?;
-    let (exif, xmp, _) = match how.strip {
+    let size = (img.width(), img.height());
+    let (exif, xmp, quarter) = match how.strip {
         true => (None, None, false),
-        false => derived_metadata(path, how.rotate, (img.width(), img.height()), Derived::Copy)?,
+        false => derived_metadata(path, how.rotate, how.turns, size, Derived::Copy)?,
     };
     // A PNG's other chunks hold as they were, because a DPI is no different for a part. They
     // are dropped when stripped, because the text chunks may say where and by whom.
     let from = if how.strip { Path::new("") } else { path };
-    let out = encode(from, img, icc, exif, xmp, kind, false, how.webp_quality)?;
+    let out = encode(from, img, icc, exif, xmp, kind, quarter, how.webp_quality)?;
     Ok((out, format))
 }
 
@@ -452,10 +453,14 @@ fn animated(path: &Path) -> Result<bool, String> {
 }
 
 /// Reads the EXIF block and XMP of `path` and makes them what a file of new pixels of `size`
-/// keeps of them, as the image turned or as a copy (`how`).
+/// keeps of them, as the image turned or as a copy (`how`). The pixels are the stored ones
+/// turned upright by EXIF with Auto Rotate (`rotate`) and then `turns` quarters by the view.
+/// Both writers take the quarter flag from here, because a copy once passed none, and a PNG
+/// copied a quarter turned kept its DPI across and down unswapped.
 fn derived_metadata(
     path: &Path,
     rotate: bool,
+    turns: u8,
     size: (u32, u32),
     how: Derived,
 ) -> Result<Metadata, String> {
@@ -474,8 +479,8 @@ fn derived_metadata(
     if let Some(xmp) = &mut xmp {
         *xmp = derived_xmp(xmp, how);
     }
-    let quarter = rotate && stored.is_some_and(crate::images::decode::quarter_turn);
-    Ok((exif, xmp, quarter))
+    let stored_quarter = rotate && stored.is_some_and(crate::images::decode::quarter_turn);
+    Ok((exif, xmp, (turns % 2 == 1) != stored_quarter))
 }
 
 /// Makes the XMP packet `xmp` what a file derived from its image as `how` says keeps of it,
@@ -991,6 +996,49 @@ mod tests {
         let at = out.windows(4).position(|w| w == b"pHYs").unwrap();
         assert_eq!(&out[at + 4..at + 13], &[0, 0, 0, 98, 0, 0, 0, 204, 1]);
         image::codecs::png::PngDecoder::new(std::io::Cursor::new(&out)).unwrap();
+    }
+
+    /// A PNG of 204×98 dpi written a quarter turned, in place or as a copy, has its DPI across
+    /// and down swapped, so it prints as it did. Before, a copy kept them as they were and
+    /// printed stretched, because only the turn in place passed the flag.
+    #[test]
+    fn a_quarter_turn_swaps_the_dpi_of_every_png_written() {
+        let dir = std::env::temp_dir().join(format!("glimt-dpi-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("a.png");
+        let wide = black_png(3, 2);
+        let make = || {
+            let mut png = wide[..33].to_vec();
+            png.extend(png_chunk(b"pHYs", &[0, 0, 0, 204, 0, 0, 0, 98, 1]));
+            png.extend(&wide[33..]);
+            std::fs::write(&file, png).unwrap();
+        };
+        let dpi = |path: &std::path::Path| {
+            let out = std::fs::read(path).unwrap();
+            let at = out.windows(4).position(|w| w == b"pHYs").unwrap();
+            out[at + 4..at + 13].to_vec()
+        };
+        let swapped = [0, 0, 0, 98, 0, 0, 0, 204, 1];
+        let how = |turns| super::CopyAs {
+            page: 0,
+            rotate: true,
+            turns,
+            mirrored: false,
+            crop: None,
+            long_side: None,
+            format: Some(super::Format::Png),
+            jpeg_quality: 90,
+            webp_quality: 90,
+            strip: false,
+        };
+        make();
+        let copy = super::save_as(&file, &how(1), &dir.join("b.png")).unwrap();
+        assert_eq!(dpi(&copy), swapped);
+        let copy = super::save_as(&file, &how(2), &dir.join("c.png")).unwrap();
+        assert_eq!(dpi(&copy), [0, 0, 0, 204, 0, 0, 0, 98, 1]);
+        super::save_rotated(&file, true, 1, false, 90).unwrap();
+        assert_eq!(dpi(&file), swapped);
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     /// A turned PNG given the chunks of a broken one keeps what it can read of them, without a
