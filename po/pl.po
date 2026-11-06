@@ -2328,6 +2328,10 @@ msgstr "Pola: %name%, %path%, %folder% i %app%. Znak | zaczyna część, pomijan
 msgid "Set Window Title…"
 msgstr "Ustaw tytuł okna…"
 
+#: src/ui/actions.rs
+msgid "Show File Names Under Thumbnails"
+msgstr "Pokaż nazwy plików pod miniaturami"
+
 #: src/main.rs
 msgid "Title of this window (%name%, %path%, %folder%, %app%; empty: as in Preferences):"
 msgstr "Tytuł tego okna (%name%, %path%, %folder%, %app%; puste: jak w Preferencjach):"
@@ -2838,3 +2842,7 @@ msgstr "«{name}»: system plików {kind}, jak na karcie pamięci aparatu, nie d
 #: src/ui/dialogs.rs
 msgid "A {kind} file system, as on a camera card, allows none of : ? * \" < > | \\ in a name."
 msgstr "System plików {kind}, jak na karcie pamięci aparatu, nie dopuszcza w nazwie żadnego ze znaków : ? * \" < > | \\."
+
+#: src/ui/menus.rs
+msgid "Thumbnail Size"
+msgstr "Rozmiar miniatur"

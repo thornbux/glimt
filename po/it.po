@@ -2317,6 +2317,10 @@ msgstr "Campi: %name%, %path%, %folder% e %app%. Una | inizia una parte, omessa 
 msgid "Set Window Title…"
 msgstr "Imposta titolo della finestra…"
 
+#: src/ui/actions.rs
+msgid "Show File Names Under Thumbnails"
+msgstr "Mostra nomi dei file sotto le miniature"
+
 #: src/main.rs
 msgid "Title of this window (%name%, %path%, %folder%, %app%; empty: as in Preferences):"
 msgstr "Titolo di questa finestra (%name%, %path%, %folder%, %app%; vuoto: come nelle Preferenze):"
@@ -2827,3 +2831,7 @@ msgstr "«{name}»: un file system {kind}, come sulla scheda di una fotocamera, 
 #: src/ui/dialogs.rs
 msgid "A {kind} file system, as on a camera card, allows none of : ? * \" < > | \\ in a name."
 msgstr "Un file system {kind}, come sulla scheda di una fotocamera, non consente nessuno di : ? * \" < > | \\ in un nome."
+
+#: src/ui/menus.rs
+msgid "Thumbnail Size"
+msgstr "Dimensione delle miniature"

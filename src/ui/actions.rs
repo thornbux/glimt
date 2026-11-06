@@ -348,6 +348,7 @@ pub enum Action {
     PathBar,
     Thumbnails,
     ThumbnailGrid,
+    GridNames,
     ExifPanel,
     ExifWindow,
     Keywords,
@@ -545,6 +546,7 @@ impl Action {
             PathBar => "Show Folder Path",
             Thumbnails => "Show Thumbnails",
             ThumbnailGrid => "Thumbnails in Image Area",
+            GridNames => "Show File Names Under Thumbnails",
             ExifPanel => "Show EXIF Panel",
             SortManager => "Show Sort Manager",
             ExifWindow => "EXIF Window",
@@ -626,7 +628,7 @@ impl Action {
             FitFill => "\u{e0a2}",                          // arrows-out
             FullScreen => "\u{e0a6}",                       // arrows-out-simple
             HideTools => "\u{ec24}",                        // sidebar-simple
-            Overlay => "\u{e1a8}",                          // subtitles
+            Overlay | GridNames => "\u{e1a8}",              // subtitles
             Histogram => "\u{e150}",                        // chart-bar
             HistogramLog => "\u{ebe4}",                     // function
             Compare => "\u{e546}",                          // columns
@@ -733,12 +735,11 @@ impl Action {
             | AboveEachOther | NextLayout | PaneLeft | PaneRight | PaneUp | PaneDown | Animate
             | Subfolders | HiddenFiles | OpenCollection | ImportLightroom | RenameCollection
             | TrashCollection | FindDuplicates | CheckImages | BackUp | FocusSearch | NextPage
-            | PrevPage | Icons | Toolbar | PathBar | Thumbnails | ThumbnailGrid | ExifPanel
-            | ExifWindow | Keywords | SortManager | PanView | FolderTree | Refresh | Slideshow
-            | Pause | RandomOrder | Faster | Slower | Escape | NewWindow | WindowTitle
-            | Projector | ProjectorPointer | Help | Shortcuts | KeyboardMap | About => {
-                Target::NoFile
-            }
+            | PrevPage | Icons | Toolbar | PathBar | Thumbnails | ThumbnailGrid | GridNames
+            | ExifPanel | ExifWindow | Keywords | SortManager | PanView | FolderTree | Refresh
+            | Slideshow | Pause | RandomOrder | Faster | Slower | Escape | NewWindow
+            | WindowTitle | Projector | ProjectorPointer | Help | Shortcuts | KeyboardMap
+            | About => Target::NoFile,
             #[cfg(feature = "marks")]
             SelectMark1 | SelectMark2 | SelectMark3 | SelectMark4 | SelectMark5 | SelectMark6 => {
                 Target::NoFile
@@ -981,6 +982,7 @@ impl crate::App {
             Action::KeyboardMap => self.help = Some(help::Page::Keymap),
             Action::About => self.help = Some(help::Page::About),
             Action::Thumbnails => self.set_thumbnails(!self.config.thumbnails),
+            Action::GridNames => self.set_grid_names(!self.config.grid_names),
             Action::ThumbnailGrid => {
                 // A part chosen for Crop is of the image, and Enter in the grid opens an image.
                 self.viewing.stop_crop();
@@ -1437,6 +1439,7 @@ mod tests {
         Action::FolderTree,
         Action::Forward,
         Action::FullScreen,
+        Action::GridNames,
         Action::Help,
         Action::HiddenFiles,
         Action::HideTools,

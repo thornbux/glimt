@@ -2317,6 +2317,10 @@ msgstr "Kentät: %name%, %path%, %folder% ja %app%. | aloittaa osan, joka jätet
 msgid "Set Window Title…"
 msgstr "Aseta ikkunan otsikko…"
 
+#: src/ui/actions.rs
+msgid "Show File Names Under Thumbnails"
+msgstr "Näytä tiedostonimet pienoiskuvien alla"
+
 #: src/main.rs
 msgid "Title of this window (%name%, %path%, %folder%, %app%; empty: as in Preferences):"
 msgstr "Tämän ikkunan otsikko (%name%, %path%, %folder%, %app%; tyhjä: kuten asetuksissa):"
@@ -2827,3 +2831,7 @@ msgstr "”{name}”: {kind}-tiedostojärjestelmä, kuten kameran muistikortilla
 #: src/ui/dialogs.rs
 msgid "A {kind} file system, as on a camera card, allows none of : ? * \" < > | \\ in a name."
 msgstr "{kind}-tiedostojärjestelmä, kuten kameran muistikortilla, ei salli nimessä mitään merkeistä : ? * \" < > | \\."
+
+#: src/ui/menus.rs
+msgid "Thumbnail Size"
+msgstr "Pienoiskuvien koko"

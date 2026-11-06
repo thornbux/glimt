@@ -2328,6 +2328,10 @@ msgstr "Campos: %name%, %path%, %folder% e %app%. Uma | inicia uma parte, omitid
 msgid "Set Window Title…"
 msgstr "Definir título da janela…"
 
+#: src/ui/actions.rs
+msgid "Show File Names Under Thumbnails"
+msgstr "Mostrar nomes de arquivos sob as miniaturas"
+
 #: src/main.rs
 msgid "Title of this window (%name%, %path%, %folder%, %app%; empty: as in Preferences):"
 msgstr "Título desta janela (%name%, %path%, %folder%, %app%; vazio: como nas Preferências):"
@@ -2838,3 +2842,7 @@ msgstr "“{name}”: um sistema de arquivos {kind}, como o de um cartão de câ
 #: src/ui/dialogs.rs
 msgid "A {kind} file system, as on a camera card, allows none of : ? * \" < > | \\ in a name."
 msgstr "Um sistema de arquivos {kind}, como o de um cartão de câmera, não permite nenhum de : ? * \" < > | \\ em um nome."
+
+#: src/ui/menus.rs
+msgid "Thumbnail Size"
+msgstr "Tamanho das miniaturas"

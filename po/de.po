@@ -2317,6 +2317,10 @@ msgstr "Felder: %name%, %path%, %folder% und %app%. Ein | beginnt einen Teil, de
 msgid "Set Window Title…"
 msgstr "Fenstertitel festlegen …"
 
+#: src/ui/actions.rs
+msgid "Show File Names Under Thumbnails"
+msgstr "Dateinamen unter Vorschaubildern anzeigen"
+
 #: src/main.rs
 msgid "Title of this window (%name%, %path%, %folder%, %app%; empty: as in Preferences):"
 msgstr "Titel dieses Fensters (%name%, %path%, %folder%, %app%; leer: wie in den Einstellungen):"
@@ -2827,3 +2831,7 @@ msgstr "»{name}«: Ein {kind}-Dateisystem, wie auf der Speicherkarte einer Kame
 #: src/ui/dialogs.rs
 msgid "A {kind} file system, as on a camera card, allows none of : ? * \" < > | \\ in a name."
 msgstr "Ein {kind}-Dateisystem, wie auf der Speicherkarte einer Kamera, erlaubt keines der Zeichen : ? * \" < > | \\ in einem Namen."
+
+#: src/ui/menus.rs
+msgid "Thumbnail Size"
+msgstr "Vorschaugröße"

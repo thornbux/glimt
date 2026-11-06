@@ -2338,6 +2338,10 @@ msgstr ""
 msgid "Set Window Title…"
 msgstr ""
 
+#: src/ui/actions.rs
+msgid "Show File Names Under Thumbnails"
+msgstr ""
+
 #: src/main.rs
 msgid "Title of this window (%name%, %path%, %folder%, %app%; empty: as in Preferences):"
 msgstr ""
@@ -2847,4 +2851,8 @@ msgstr ""
 
 #: src/ui/dialogs.rs
 msgid "A {kind} file system, as on a camera card, allows none of : ? * \" < > | \\ in a name."
+msgstr ""
+
+#: src/ui/menus.rs
+msgid "Thumbnail Size"
 msgstr ""

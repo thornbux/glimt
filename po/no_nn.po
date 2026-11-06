@@ -2328,6 +2328,10 @@ msgstr "Felt: %name%, %path%, %folder% og %app%. Ein | startar ein del, som blir
 msgid "Set Window Title…"
 msgstr "Set vindaugstittel …"
 
+#: src/ui/actions.rs
+msgid "Show File Names Under Thumbnails"
+msgstr "Vis filnamn under miniatyrbilete"
+
 #: src/main.rs
 msgid "Title of this window (%name%, %path%, %folder%, %app%; empty: as in Preferences):"
 msgstr "Tittel på dette vindauget (%name%, %path%, %folder%, %app%; tom: som i Innstillingar):"
@@ -2838,3 +2842,7 @@ msgstr "«{name}»: eit {kind}-filsystem, som på minnekortet i eit kamera, till
 #: src/ui/dialogs.rs
 msgid "A {kind} file system, as on a camera card, allows none of : ? * \" < > | \\ in a name."
 msgstr "Eit {kind}-filsystem, som på minnekortet i eit kamera, tillèt ingen av : ? * \" < > | \\ i eit namn."
+
+#: src/ui/menus.rs
+msgid "Thumbnail Size"
+msgstr "Storleik på miniatyrbilete"

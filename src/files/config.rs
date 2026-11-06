@@ -383,6 +383,9 @@ config! {
     /// The thumbnail size: small (96×72), medium (128×96) or large (192×144, from the
     /// freedesktop "large" cache), as an index.
     thumb_size: u8 = 0,
+    /// The file name under each thumbnail of a grid: the icon grid, the grid in the image area
+    /// and pan view. Without it the cells are shorter, so more rows fit.
+    grid_names: bool = true,
     /// The file list as a grid of thumbnails (Ctrl+I) instead of rows.
     icons: bool = false,
     /// Colour behind the image (sRGB).
@@ -920,6 +923,17 @@ mod tests {
             super::sort_folders_from(b"/a b\n/caf\xe9\n\n"),
             [std::path::PathBuf::from("/a b"), latin.into()]
         );
+    }
+
+    /// File names in the grids are on by default, and off stays off through a save and a read.
+    #[test]
+    fn keeps_grid_names_off() {
+        use super::Config;
+        assert!(Config::default().grid_names);
+        let off = Config::parse("grid_names=false\n");
+        assert!(!off.grid_names);
+        assert!(off.to_text().contains("\ngrid_names=false\n"));
+        assert!(!Config::parse(&off.to_text()).grid_names);
     }
 
     #[test]

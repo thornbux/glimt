@@ -2339,6 +2339,10 @@ msgstr "Pole: %name%, %path%, %folder% a %app%. Znak | začíná část, která 
 msgid "Set Window Title…"
 msgstr "Nastavit název okna…"
 
+#: src/ui/actions.rs
+msgid "Show File Names Under Thumbnails"
+msgstr "Zobrazit názvy souborů pod náhledy"
+
 #: src/main.rs
 msgid "Title of this window (%name%, %path%, %folder%, %app%; empty: as in Preferences):"
 msgstr "Název tohoto okna (%name%, %path%, %folder%, %app%; prázdné: jako v Předvolbách):"
@@ -2849,3 +2853,7 @@ msgstr "„{name}“: souborový systém {kind}, jako na paměťové kartě foto
 #: src/ui/dialogs.rs
 msgid "A {kind} file system, as on a camera card, allows none of : ? * \" < > | \\ in a name."
 msgstr "Souborový systém {kind}, jako na paměťové kartě fotoaparátu, nepovoluje v názvu žádný ze znaků : ? * \" < > | \\."
+
+#: src/ui/menus.rs
+msgid "Thumbnail Size"
+msgstr "Velikost náhledů"
