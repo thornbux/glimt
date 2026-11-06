@@ -593,7 +593,8 @@ fn turned(img: image::DynamicImage, turns: u8, mirrored: bool) -> image::Dynamic
 /// `img` encoded as `kind` with the profile, EXIF and XMP. A PNG keeps the other chunks of
 /// `path` (`quarter` says it was turned a quarter since). It is encoded in memory, because an
 /// encoder that owns its file flushes it on drop, where a full disk would go unnoticed and a
-/// cut-off file would replace the photo.
+/// cut-off file would replace the photo. The pixels and the profile are made to fit `kind`
+/// first (`fitted`), so every derived file is written from pixels its format holds.
 #[allow(clippy::too_many_arguments)]
 fn encode(
     path: &Path,
@@ -606,6 +607,7 @@ fn encode(
     webp_quality: u8,
 ) -> Result<Vec<u8>, String> {
     use image::ImageEncoder;
+    let (img, icc) = fitted(img, icc, kind);
     let (width, height) = (img.width(), img.height());
     if let Kind::WebP(true) = kind {
         // ffmpeg drops the profile, so it is put back. The pixels are never converted to sRGB
@@ -640,8 +642,6 @@ fn encode(
             if let Some(icc) = icc {
                 let _ = enc.set_icc_profile(icc);
             }
-            // JPEG has no alpha, nor more than 8 bits.
-            let img = image::DynamicImage::from(img.into_rgb8());
             match exif.map(|e| enc.set_exif_metadata(e)) {
                 Some(Err(e)) => Err(image::ImageError::Unsupported(e)),
                 _ => img.write_with_encoder(enc),
@@ -652,12 +652,6 @@ fn encode(
             if let Some(icc) = icc {
                 let _ = enc.set_icc_profile(icc);
             }
-            // The WebP encoder takes 8-bit RGB or RGBA.
-            let img = if img.color().has_alpha() {
-                image::DynamicImage::from(img.into_rgba8())
-            } else {
-                image::DynamicImage::from(img.into_rgb8())
-            };
             match exif.map(|e| enc.set_exif_metadata(e)) {
                 Some(Err(e)) => Err(image::ImageError::Unsupported(e)),
                 _ => img.write_with_encoder(enc),
@@ -682,6 +676,38 @@ fn encode(
         };
     }
     Ok(out)
+}
+
+/// Makes `img` pixels that `kind` writes, and keeps `icc` only where it describes them. A JPEG
+/// holds 8-bit grey or RGB, a WebP 8-bit RGB or RGBA, and a PNG no floats, so a 32-bit float
+/// TIFF is written in 16 bits. Before, a PNG copy of such a TIFF failed. A profile is kept only
+/// when its colour space, in bytes 16 to 20 of its header, is the pixels' own, grey or RGB.
+/// Before, a grey JPEG's Gray profile went with RGB pixels, and a CMYK JPEG's profile with the
+/// RGB it is decoded to, so other programs showed the copy in wrong colours.
+fn fitted(
+    img: image::DynamicImage,
+    icc: Option<Vec<u8>>,
+    kind: Kind,
+) -> (image::DynamicImage, Option<Vec<u8>>) {
+    use image::DynamicImage as D;
+    let colour = img.color();
+    let img = match kind {
+        Kind::Jpeg(_) if !colour.has_color() => D::from(img.into_luma8()),
+        Kind::Jpeg(_) => D::from(img.into_rgb8()),
+        Kind::WebP(_) if colour.has_alpha() => D::from(img.into_rgba8()),
+        Kind::WebP(_) => D::from(img.into_rgb8()),
+        Kind::Png => match img {
+            D::ImageRgb32F(_) => D::from(img.into_rgb16()),
+            D::ImageRgba32F(_) => D::from(img.into_rgba16()),
+            img => img,
+        },
+    };
+    let space: &[u8] = if img.color().has_color() {
+        b"RGB "
+    } else {
+        b"GRAY"
+    };
+    (img, icc.filter(|p| p.get(16..20) == Some(space)))
 }
 
 /// Puts `xmp` into `jpeg` in an APP1 segment of Adobe's name, right after the start (SOI).
@@ -1039,6 +1065,94 @@ mod tests {
         super::save_rotated(&file, true, 1, false, 90).unwrap();
         assert_eq!(dpi(&file), swapped);
         std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A derived file is written from pixels its format holds: a float image as a 16-bit PNG,
+    /// and grey as a grey JPEG. Before, a PNG of a 32-bit float TIFF failed to be written.
+    #[test]
+    fn a_derived_file_has_pixels_its_format_holds() {
+        use image::ImageDecoder;
+        let write = |img: image::DynamicImage, kind| {
+            let out = super::encode(
+                std::path::Path::new(""),
+                img,
+                None,
+                None,
+                None,
+                kind,
+                false,
+                90,
+            );
+            let out = out.unwrap();
+            let reader = image::ImageReader::new(std::io::Cursor::new(out));
+            reader
+                .with_guessed_format()
+                .unwrap()
+                .into_decoder()
+                .unwrap()
+                .color_type()
+        };
+        let float = image::Rgb32FImage::from_pixel(2, 2, image::Rgb([0.5, 0.25, 1.0]));
+        assert_eq!(
+            write(float.into(), super::Kind::Png),
+            image::ColorType::Rgb16
+        );
+        let float = image::Rgba32FImage::from_pixel(2, 2, image::Rgba([0.5, 0.25, 1.0, 1.0]));
+        assert_eq!(
+            write(float.into(), super::Kind::Png),
+            image::ColorType::Rgba16
+        );
+        let grey = image::GrayImage::from_pixel(2, 2, image::Luma([90]));
+        assert_eq!(
+            write(grey.into(), super::Kind::Jpeg(90)),
+            image::ColorType::L8
+        );
+    }
+
+    /// A derived file has the image's profile only where it describes the pixels written: a
+    /// Gray profile with grey pixels, an RGB one with RGB pixels, and a CMYK one with neither.
+    /// Before, a grey JPEG copied as a WebP, or a CMYK JPEG decoded to RGB, kept a profile of
+    /// other pixels, which other programs showed in wrong colours.
+    #[test]
+    fn a_derived_file_has_a_profile_only_for_its_pixels() {
+        use image::ImageDecoder;
+        let rgb = moxcms::ColorProfile::new_display_p3().encode().unwrap();
+        let other = |space: &[u8; 4]| {
+            let mut p = rgb.clone();
+            p[16..20].copy_from_slice(space);
+            p
+        };
+        let (gray, cmyk) = (other(b"GRAY"), other(b"CMYK"));
+        let profile = |img: image::DynamicImage, icc: &Vec<u8>, kind| {
+            let out = super::encode(
+                std::path::Path::new(""),
+                img,
+                Some(icc.clone()),
+                None,
+                None,
+                kind,
+                false,
+                90,
+            );
+            let reader = image::ImageReader::new(std::io::Cursor::new(out.unwrap()));
+            let mut dec = reader
+                .with_guessed_format()
+                .unwrap()
+                .into_decoder()
+                .unwrap();
+            dec.icc_profile().unwrap()
+        };
+        let grey = || image::DynamicImage::from(image::GrayImage::new(2, 2));
+        let colour = || image::DynamicImage::from(image::RgbImage::new(2, 2));
+        use super::Kind::{Jpeg, Png, WebP};
+        for kind in [Jpeg(90), Png] {
+            assert_eq!(profile(grey(), &gray, kind), Some(gray.clone()));
+            assert_eq!(profile(colour(), &gray, kind), None);
+            assert_eq!(profile(colour(), &rgb, kind), Some(rgb.clone()));
+            assert_eq!(profile(colour(), &cmyk, kind), None);
+        }
+        assert_eq!(profile(grey(), &gray, WebP(false)), None);
+        assert_eq!(profile(grey(), &rgb, WebP(false)), Some(rgb.clone()));
     }
 
     /// A turned PNG given the chunks of a broken one keeps what it can read of them, without a
