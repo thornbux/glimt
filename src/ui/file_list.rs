@@ -1372,10 +1372,16 @@ impl crate::App {
             }
             let mut line = egui::Rect::NOTHING;
             let pointer = ctx.input(|i| i.pointer.interact_pos());
-            // While the grid in the image area shows, it takes a drag in a collection. The side
-            // panel, drawn first, would otherwise clear its drop target and end the drag.
-            let drops = icons || !self.panel.area_grid_shown();
-            if drops {
+            // While the grid in the image area shows, the side panel and the grid both take a
+            // drag in a collection. Each clears the drop target and scrolls only while the
+            // pointer is not over the other, which sets the target.
+            let clip = ui.clip_rect();
+            let mine = match pointer {
+                Some(p) if self.panel.area_grid_shown() && icons => p.x >= clip.left(),
+                Some(p) if self.panel.area_grid_shown() => p.x <= clip.right(),
+                _ => true,
+            };
+            if mine {
                 self.drag_scroll(ctx, ui, row_h, pointer);
             }
             let mut cells = Vec::new();
@@ -1416,9 +1422,7 @@ impl crate::App {
             if icons {
                 self.drag_rubber_band(ui, &cells, row_h, first_row);
             }
-            if drops {
-                self.drop_dragged(ctx);
-            }
+            self.drop_dragged(ctx);
         });
         opened
     }
