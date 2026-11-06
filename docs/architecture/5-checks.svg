@@ -36,7 +36,7 @@
       <text x="32" y="208">fs::read → read_limited</text>
       <text x="32" y="224">File::open → decode::open</text>
       <text x="32" y="248" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif" font-weight="700">Writing, renaming, copying</text>
-      <text x="32" y="266">fs::write → replace_file</text>
+      <text x="32" y="266">fs::write → replace_name</text>
       <text x="32" y="282">File::create → create_file</text>
       <text x="32" y="298">fs::rename → rename_never_over</text>
       <text x="32" y="314">fs::copy → put_file</text>
@@ -158,6 +158,10 @@
       <text x="957" y="514" font-weight="700">Known vulnerabilities</text>
       <text x="957" y="532">cargo audit in release.yml,</text>
       <text x="957" y="548">and weekly in audit.yml</text>
+      <text x="957" y="574" font-weight="700">Fix the root (AGENTS.md)</text>
+      <text x="957" y="592">findings grouped by what lets</text>
+      <text x="957" y="608">them happen; each class fixed</text>
+      <text x="957" y="624">once, with a check to keep it shut</text>
     </g>
   </g>
 </svg>
