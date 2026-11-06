@@ -29,6 +29,7 @@ disallowed-methods = [
     { path = "image::Limits::no_limits", reason = "decode::from_decoder: a decode keeps its limits, and `fits` first" },
     { path = "image::ImageDecoder::read_image", reason = "decode::from_decoder: `fits` first, as a header may claim gigabytes" },
     { path = "image::ImageDecoder::read_image_boxed", reason = "decode::from_decoder: `fits` first, as a header may claim gigabytes" },
+    { path = "image::AnimationDecoder::into_frames", reason = "decode::animated_frames: `too_large_animation` first, as every frame is a whole canvas" },
     { path = "tiff::decoder::Decoder::read_image", reason = "decode::tiff_page: `fits` first, as a header may claim gigabytes" },
     { path = "std::process::Child::wait", reason = "external::output_of or a Watchdog: never wait for good" },
     { path = "std::process::Child::wait_with_output", reason = "external::output_of or a Watchdog: never wait for good" },
