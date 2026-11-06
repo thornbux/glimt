@@ -207,7 +207,9 @@ of that part. The exceptions are the tables of one arm per action (`Action::engl
 - **An action:** add a variant to `Action`, its menu label in `Action::label`, a key in
   `SHORTCUTS` if Geeqie has one (put Shift/Ctrl+Shift combinations before the plain key: egui
   ignores an extra Shift when matching), handle it in `App::run`, and add it to a menu with
-  `menu_item`/`menu_toggle`.
+  `menu_item`/`menu_toggle`. Name what it acts on in `Action::target`: the selection (`App::targets`), the
+  shown image, or no file. A menu about the selection, such as the file list's right-click menu
+  (`file_menu`), offers only actions on the selection.
 - **A setting:** one line `name: Type = default` in `config!`; values are read with `FromStr`
   and written with `Display`. Add a checkbox in Preferences, and clamp ranges in
   `Config::parse`. Settings stay in `Config` even when their feature is not built in, so saving

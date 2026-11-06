@@ -486,7 +486,6 @@ impl crate::App {
             Action::Copy,
             Action::Move,
             Action::CopyPath,
-            Action::CopyImage,
             Action::CopyFiles,
         ] {
             menu_item(ui, list_act, action);
@@ -590,16 +589,18 @@ impl crate::App {
         });
     }
 
-    /// "Open With" submenu: the applications registered for the shown file's type; the chosen
-    /// one opens the selected files (or the shown one).
+    /// The Open With submenu. It lists the applications registered for the type of the first
+    /// selected file, or of the shown one, and the chosen one opens the selected files (or the
+    /// shown one). The right-click menu selects the file it was opened on, so it is that type.
     pub(crate) fn open_with_menu(&mut self, ui: &mut egui::Ui) {
-        let Some(name) = self.list.files().get(self.list.cur()) else {
+        let first = self.first_target();
+        let Some(name) = self.list.files().get(first) else {
             return;
         };
         let ext = Path::new(name)
             .extension()
             .map_or(String::new(), |e| e.to_string_lossy().to_lowercase());
-        let path = self.path(self.list.cur());
+        let path = self.path(first);
         scroll_menu(ui, iconed(ui, theme::icon::APP, tr("Open With")), |ui| {
             // The menu keeps the width of its first frame, "…": names must not wrap to it.
             ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Extend);
