@@ -102,6 +102,10 @@ pub(crate) struct List {
     /// Goes up whenever the file list changes, so what was worked out from its indices can tell
     /// that it is old, also when the list kept its length (another order).
     version: usize,
+    /// The entries are the names in a list's file, not yet checked to be files, so no file
+    /// operation may start. A new `List` keeps it, because a shuffle or a move in the
+    /// collection puts the same names in another order. The whole listing clears it.
+    unchecked: bool,
 }
 
 impl List {
@@ -187,13 +191,25 @@ impl List {
     }
 
     /// A new list of `files`. Nothing of the list before is in it but its version, which goes
-    /// up, so what was worked out from the old places can tell that it is old.
+    /// up, so what was worked out from the old places can tell that it is old, and whether its
+    /// entries are still unchecked.
     pub(crate) fn after(old: &List, files: Vec<OsString>) -> List {
         List {
             files,
             version: old.version + 1,
+            unchecked: old.unchecked,
             ..Default::default()
         }
+    }
+
+    /// Whether the entries are a list's names not yet checked to be files.
+    pub(crate) fn unchecked(&self) -> bool {
+        self.unchecked
+    }
+
+    /// Marks the entries as a list's names not yet checked to be files, or as checked.
+    pub(crate) fn set_unchecked(&mut self, unchecked: bool) {
+        self.unchecked = unchecked;
     }
 
     /// Shows the image at place `i`.

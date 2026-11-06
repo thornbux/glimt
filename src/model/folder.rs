@@ -403,9 +403,9 @@ impl Listing {
                 .filter_map(|p| Some(p.strip_prefix("/").ok()?.as_os_str().to_owned()))
                 .collect();
         }
-        // Only files, as `listing::kind` keeps in a folder. A folder or `/` named in a
-        // downloaded list was kept, shown as broken, and Delete sent the whole folder to the
-        // trash.
+        // A list keeps only files, as `listing::kind` does in a folder. A folder or `/` named
+        // in a downloaded list was kept, shown as broken, and Delete sent the whole folder to
+        // the trash. Until this listing has come, `none_saving` holds every file operation back.
         let sizes = keep_found(&mut files, |f| {
             let meta = self.dir.join(f).metadata().ok()?;
             meta.is_file().then_some(meta.len())
@@ -698,6 +698,7 @@ impl crate::App {
         self.folder.folders.clear();
         let first = files.first().cloned();
         self.replace_files(ctx, files, first);
+        self.list.set_unchecked(true);
         self.list(ctx);
         self.title(ctx);
     }
@@ -936,6 +937,7 @@ impl crate::App {
         }
         self.folder.subdirs = dirs;
         self.take_files(ctx, files, true);
+        self.list.set_unchecked(false);
         let c = &self.config;
         self.folder.listed_as = (self.folder.collection.is_none()
             && self.folder.folders.is_empty()
