@@ -872,6 +872,12 @@ impl crate::App {
         // A copy changes none of the files it reads, but it holds them: a Rename Many that ran
         // meanwhile could hand it one photo with another photo's sidecar, and a move or delete
         // could take a file away halfway.
+        // Checked before the files leave the list, so a refused move keeps the view. A link is
+        // followed in the job instead, as that could hold the window on a stalled share.
+        if let Some(text) = refused_transfer(&paths, &dest, keep, fs_type) {
+            self.notice = Some(text);
+            return;
+        }
         let touches = paths.clone();
         let doing = tr(if keep { "Copying" } else { "Moving" });
         let Some(job) = self.start_job(doing, paths.len(), touches) else {
@@ -2207,6 +2213,8 @@ mod tests {
         for keep in [true, false] {
             app.notice = None;
             app.transfer(&ctx, files.clone(), d.join("card"), keep);
+            // Refused before the files left the list, so the view stays where it was.
+            assert!(listed(&app), "the refused files left the list");
             assert!(settle(&mut app, &ctx, |a| a.notice.is_some() && !a.working()));
             let told = app.notice.clone().unwrap_or_default();
             assert!(
