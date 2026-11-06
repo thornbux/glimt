@@ -211,15 +211,17 @@ mod tests {
             part: None,
         };
         app.viewing.start_crop(crop);
+        // Enter is pressed and let go in one frame, so the next press is not a repeat.
         let enter = |app: &mut crate::App, typing: bool| {
+            let event = |pressed| egui::Event::Key {
+                key: egui::Key::Enter,
+                physical_key: None,
+                pressed,
+                repeat: false,
+                modifiers: Default::default(),
+            };
             let input = egui::RawInput {
-                events: vec![egui::Event::Key {
-                    key: egui::Key::Enter,
-                    physical_key: None,
-                    pressed: true,
-                    repeat: false,
-                    modifiers: Default::default(),
-                }],
+                events: vec![event(true), event(false)],
                 ..Default::default()
             };
             let _ = ctx.run_ui(input, |ui| {

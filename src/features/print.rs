@@ -237,7 +237,7 @@ impl crate::App {
             let mut go = false;
             // Enter in a text field (the page text, the template) ends the typing, not the
             // dialog, because it would send the job to the printer with every copy.
-            let typing = ctx.memory(|m| m.focused().is_some());
+            let enter = self.answers(ctx, egui::Key::Enter);
             let modal = egui::Modal::new(egui::Id::unique("print")).show(ctx, |ui| {
                 let n = dialog.paths.len();
                 ui.strong(match n {
@@ -257,7 +257,6 @@ impl crate::App {
                     } else {
                         tr("Print (Enter)")
                     };
-                    let enter = !typing && ui.input(|i| i.key_pressed(egui::Key::Enter));
                     go = crate::ui::menus::button(ui, label).clicked() || enter;
                     if crate::ui::menus::button(ui, tr("Cancel (Esc)")).clicked() {
                         ui.close();

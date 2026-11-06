@@ -1237,29 +1237,26 @@ impl crate::App {
         let typing = ctx
             .memory(|m| m.focused())
             .is_some_and(|f| Some(f) != self.image_id);
-        // Choosing a part to crop: Escape stops, read first, as for the pan view. Enter saves
-        // it, but not while a text field has the focus, because the Enter belongs to the field.
+        // Choosing a part to crop: Escape stops and Enter saves it. Both are read before the
+        // shortcuts could take them, and neither while a widget has the focus, because the key
+        // belongs to the widget then.
         if self.viewing.is_cropping() && !self.dialog_open() {
-            if ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape)) {
+            if self.answers(ctx, egui::Key::Escape) {
                 self.viewing.stop_crop();
-            } else if !typing
-                && ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Enter))
-            {
+            } else if self.answers(ctx, egui::Key::Enter) {
                 self.save_crop(ctx);
             }
         }
-        // Escape closes the pan view: read first, before a text field with the focus or the
-        // shortcuts could take the key, and nothing else is done with it then.
-        if self.pan_window.is_some()
-            && !self.dialog_open()
-            && ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape))
+        // Escape closes the pan view. It is read before the shortcuts, and nothing else is done
+        // with it then.
+        if self.pan_window.is_some() && !self.dialog_open() && self.answers(ctx, egui::Key::Escape)
         {
             self.pan_window = None;
         }
         // And the Check Images window: a check still running is stopped with it.
         if self.check.is_some()
             && !self.dialog_open()
-            && ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape))
+            && self.answers(ctx, egui::Key::Escape)
             && let Some(Some(check)) = self.check.take()
         {
             check.stop();
@@ -1287,8 +1284,7 @@ impl crate::App {
         // Enter in the grid in the image area shows the image there, read before Play takes it.
         if self.panel.area_grid_shown()
             && !self.dialog_open()
-            && !typing
-            && ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Enter))
+            && self.answers(ctx, egui::Key::Enter)
         {
             self.panel.open_from_grid();
         }

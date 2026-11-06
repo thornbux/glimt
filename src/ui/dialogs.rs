@@ -754,6 +754,7 @@ impl crate::App {
             let now = ctx.input(|i| i.time);
             let shown = *self.dialogs.delete_shown.get_or_insert(now);
             let enter_answers = self.dialogs.trash_refused.is_none() || now - shown >= ENTER_AFTER;
+            let enter = enter_answers && self.answers(ctx, egui::Key::Enter);
             let modal = egui::Modal::new(egui::Id::unique("confirm-delete")).show(ctx, |ui| {
                 if trash {
                     ui.label(tf!("Move {what} to the trash?", what));
@@ -767,14 +768,8 @@ impl crate::App {
                     ui.label(tf!("Permanently delete {what}?", what));
                     ui.weak(tr("This cannot be undone."));
                 }
-                // Only a new press answers, not a repeat of an Enter held since before the
-                // question opened by itself.
-                let pressed = |e: &egui::Event| {
-                    matches!(e, egui::Event::Key { key: egui::Key::Enter, pressed: true, repeat: false, .. })
-                };
                 ui.horizontal(|ui| {
-                    delete = crate::ui::menus::button(ui, tr("Delete (Enter)")).clicked()
-                        || enter_answers && ui.input(|i| i.events.iter().any(pressed));
+                    delete = crate::ui::menus::button(ui, tr("Delete (Enter)")).clicked() || enter;
                     if crate::ui::menus::button(ui, tr("Cancel (Esc)")).clicked() {
                         ui.close();
                     }
@@ -804,6 +799,7 @@ impl crate::App {
                 .to_string_lossy()
                 .into_owned();
             let mut trash = false;
+            let enter = self.answers(ctx, egui::Key::Enter);
             let modal = egui::Modal::new(egui::Id::unique("confirm-folder")).show(ctx, |ui| {
                 ui.label(tf!(
                     "Move the folder \"{name}\" and all in it to the trash?",
@@ -811,7 +807,7 @@ impl crate::App {
                 ));
                 ui.horizontal(|ui| {
                     trash = crate::ui::menus::button(ui, tr("Move to Trash (Enter)")).clicked()
-                        || ui.input(|i| i.key_pressed(egui::Key::Enter));
+                        || enter;
                     if crate::ui::menus::button(ui, tr("Cancel (Esc)")).clicked() {
                         ui.close();
                     }
@@ -839,11 +835,12 @@ impl crate::App {
             name
         );
         let mut trash = false;
+        let enter = self.answers(ctx, egui::Key::Enter);
         let modal = egui::Modal::new(egui::Id::unique("confirm-collection")).show(ctx, |ui| {
             ui.label(question.as_str());
             ui.horizontal(|ui| {
-                trash = crate::ui::menus::button(ui, tr("Move to Trash (Enter)")).clicked()
-                    || ui.input(|i| i.key_pressed(egui::Key::Enter));
+                trash =
+                    crate::ui::menus::button(ui, tr("Move to Trash (Enter)")).clicked() || enter;
                 if crate::ui::menus::button(ui, tr("Cancel (Esc)")).clicked() {
                     ui.close();
                 }
@@ -876,6 +873,47 @@ impl crate::App {
             || self.save_as.is_some()
             || !self.work.cut_short().is_empty()
     }
+
+    /// Returns whether `key`, Enter or Esc, gives the default answer of what is open, and takes
+    /// the key when it does. Only a new press answers, not the repeat of a key held down. It
+    /// answers only while no widget has the keyboard focus, nor had it as the last frame ended.
+    /// A button with the focus then answers with its own click, as egui clicks it on Enter. A
+    /// text field keeps its keys too: egui takes its focus away at the start of the frame Esc
+    /// is pressed in, so only the last frame's focus shows that Esc was meant for the field.
+    /// The image area's focus does not count, because it holds the focus for a screen reader.
+    /// Every dialog and window reads its Enter or Esc here, never from the input as a whole
+    /// (`source_rules::keys_answer_through_one_place`).
+    pub(crate) fn answers(&self, ctx: &egui::Context, key: egui::Key) -> bool {
+        let before = ctx
+            .data(|d| d.get_temp::<Option<egui::Id>>(focus_before()))
+            .flatten();
+        let now = ctx.memory(|m| m.focused());
+        if [before, now]
+            .into_iter()
+            .flatten()
+            .any(|f| Some(f) != self.image_id)
+        {
+            return false;
+        }
+        ctx.input_mut(|i| {
+            let new = |e: &egui::Event| {
+                matches!(e, egui::Event::Key { key: k, pressed: true, repeat: false, .. } if *k == key)
+            };
+            let at = i.events.iter().position(new);
+            at.map(|at| i.events.remove(at)).is_some()
+        })
+    }
+
+    /// Notes the widget with the keyboard focus as the frame ends, for `answers` in the next.
+    pub(crate) fn note_focus(&self, ctx: &egui::Context) {
+        let focused = ctx.memory(|m| m.focused());
+        ctx.data_mut(|d| d.insert_temp(focus_before(), focused));
+    }
+}
+
+/// Returns the key in egui's memory under which `note_focus` keeps the last frame's focus.
+fn focus_before() -> egui::Id {
+    egui::Id::unique("glimt focus before this frame")
 }
 
 /// Returns a warning for Rename Many's preview when `name`, the first new name, has a
@@ -972,6 +1010,105 @@ mod tests {
             app.dialogs.confirm_delete.is_none(),
             "a later Enter did not answer"
         );
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// Enter on the button with the keyboard focus answers with that button. With Tab moved to
+    /// "Cancel", Enter cancels and deletes nothing. Before, the dialog also read the Enter from
+    /// the whole input and deleted the file for good. Enter with no focus still deletes.
+    #[test]
+    fn enter_on_a_focused_cancel_deletes_nothing() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-focus-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        image::RgbImage::new(2, 2).save(dir.join("a.png")).unwrap();
+        let (mut app, ctx) = app_on(&dir);
+        let listed = |a: &crate::App| !a.list.files().is_empty();
+        assert!(crate::support::test_support::settle(&mut app, &ctx, listed));
+        // Each key is pressed and let go in one frame. None is a frame without a key.
+        let press = |app: &mut crate::App, key: Option<egui::Key>| {
+            let event = |key, pressed| egui::Event::Key {
+                key,
+                physical_key: None,
+                pressed,
+                repeat: false,
+                modifiers: Default::default(),
+            };
+            let input = egui::RawInput {
+                events: key.map_or(vec![], |k| vec![event(k, true), event(k, false)]),
+                ..Default::default()
+            };
+            let _ = ctx.run_ui(input, |ui| {
+                app.confirm_delete_dialog(ui.ctx());
+                app.note_focus(ui.ctx());
+            });
+        };
+        let done = |a: &crate::App| !a.working_besides_image();
+        app.run(&ctx, crate::ui::actions::Action::DeletePermanently);
+        // The dialog is drawn once, then Tab moves to "Delete" and to "Cancel".
+        for key in [
+            None,
+            Some(egui::Key::Tab),
+            Some(egui::Key::Tab),
+            Some(egui::Key::Enter),
+        ] {
+            press(&mut app, key);
+        }
+        assert!(
+            app.dialogs.confirm_delete.is_none(),
+            "Cancel did not answer"
+        );
+        assert!(crate::support::test_support::settle(&mut app, &ctx, done));
+        assert!(
+            dir.join("a.png").exists(),
+            "Enter on Cancel deleted the file"
+        );
+        // The focus goes with the button once the dialog is no longer drawn.
+        press(&mut app, None);
+        press(&mut app, None);
+        app.run(&ctx, crate::ui::actions::Action::DeletePermanently);
+        press(&mut app, Some(egui::Key::Enter));
+        assert!(crate::support::test_support::settle(&mut app, &ctx, done));
+        assert!(
+            !dir.join("a.png").exists(),
+            "Enter with no focus did not delete"
+        );
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// Esc in a text field only leaves the field. egui takes the field's focus away before the
+    /// frame starts, so the window under it (Check Images, a crop, the pan view) was closed too.
+    /// The next Esc, with nothing focused, answers.
+    #[test]
+    fn esc_in_a_text_field_only_leaves_it() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-esc-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let (app, ctx) = app_on(&dir);
+        let field = egui::Id::unique("a text field");
+        let esc = |focus: bool| {
+            let event = |pressed| egui::Event::Key {
+                key: egui::Key::Escape,
+                physical_key: None,
+                pressed,
+                repeat: false,
+                modifiers: Default::default(),
+            };
+            let input = egui::RawInput {
+                events: vec![event(true), event(false)],
+                ..Default::default()
+            };
+            let mut answered = false;
+            let _ = ctx.run_ui(input, |ui| {
+                answered = app.answers(ui.ctx(), egui::Key::Escape);
+                if focus {
+                    ui.memory_mut(|m| m.request_focus(field));
+                }
+                app.note_focus(ui.ctx());
+            });
+            answered
+        };
+        esc(true);
+        assert!(!esc(false), "Esc that left a text field answered");
+        assert!(esc(false), "Esc with nothing focused did not answer");
         std::fs::remove_dir_all(dir).unwrap();
     }
 
