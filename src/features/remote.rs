@@ -514,16 +514,8 @@ pub fn client(
         let mut sent = Vec::new();
         for p in paths {
             // The path is made as the window has its folder, with links followed, because
-            // ~/Pictures may be one. The file's own link is not followed, because the list shows
-            // it under its own name.
-            let p = std::path::Path::new(p);
-            let folder = (p.parent()).filter(|f| !f.as_os_str().is_empty());
-            let real = std::fs::canonicalize(folder.unwrap_or(std::path::Path::new("."))).ok();
-            let p = (real
-                .zip(p.file_name())
-                .map(|(folder, name)| folder.join(name)))
-            .or_else(|| std::path::absolute(p).ok())
-            .unwrap_or_else(|| p.into());
+            // ~/Pictures may be one.
+            let p = crate::model::listing::real_path(std::path::Path::new(p));
             match p.to_str().filter(|t| !t.contains('\n')) {
                 Some(text) => sent.push(text.to_owned()),
                 None => {

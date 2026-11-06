@@ -546,8 +546,9 @@ impl crate::App {
                 Some(path),
             )
         };
-        // Canonical path once here, so ⬆ .. and "remember folder" need no system calls later.
-        let dir = dir.canonicalize().unwrap_or(dir);
+        // The real path once here, so ⬆ .. and "remember folder" need no system calls later, and
+        // marks, stars and `--remote select` find the files whichever way the folder was named.
+        let dir = listing::real_dir(&dir);
         // A given file is shown at once. The folder is listed in the background, and the list
         // is merged in afterwards.
         let shown = file
@@ -716,11 +717,14 @@ impl crate::App {
         let first = paths.first().cloned();
         let mut folders: Vec<PathBuf> = Vec::new();
         for p in paths {
-            let p = std::path::absolute(&p).unwrap_or(p);
-            let dir = if p.is_dir() {
-                p
-            } else {
-                p.parent().map_or(p.clone(), Path::to_path_buf)
+            // Each folder by its real path, as `open` takes one, so the list names a file as it
+            // does when its folder is opened alone: marks and stars are kept by that name.
+            let dir = match p.is_dir() {
+                true => listing::real_dir(&p),
+                false => {
+                    let real = listing::real_path(&p);
+                    real.parent().map_or(real.clone(), Path::to_path_buf)
+                }
             };
             if !folders.contains(&dir) {
                 folders.push(dir);
@@ -1052,7 +1056,7 @@ impl crate::App {
             && !folder.is_listing()
             && folder.recursive == self.config.show_subfolders;
         let parent = path.parent().filter(|_| as_listed)?;
-        if parent.canonicalize().ok()? != folder.dir {
+        if listing::real_dir(parent) != folder.dir {
             return None;
         }
         let name = path.file_name()?;
@@ -1480,6 +1484,37 @@ mod tests {
         assert!(settle(&mut app, &ctx, |app| !app.folder.is_listing()));
         assert_eq!(names(&app), ["b.png"]);
         std::fs::remove_dir_all(d).unwrap();
+    }
+
+    /// Several folders opened, one of them through a link, list its files by their real path,
+    /// as when that folder is opened alone: marks and stars are kept by that name, and
+    /// `--remote select`, whose client follows the links, finds them.
+    #[test]
+    fn several_folders_through_a_link_are_listed_by_their_real_paths() {
+        let dir =
+            std::env::temp_dir().join(format!("glimt-test-folders-link-{}", std::process::id()));
+        for sub in ["a", "b"] {
+            std::fs::create_dir_all(dir.join(sub)).unwrap();
+            image::RgbImage::new(4, 4)
+                .save(dir.join(sub).join("x.png"))
+                .unwrap();
+        }
+        std::os::unix::fs::symlink(dir.join("a"), dir.join("link")).unwrap();
+        let (mut app, ctx) = app_on(&dir);
+        app.open_folders(&ctx, vec![dir.join("link"), dir.join("b/x.png")]);
+        assert!(settle(&mut app, &ctx, |a| a.list.files().len() == 2));
+        let real = dir.canonicalize().unwrap();
+        let want: Vec<std::path::PathBuf> = vec![real.join("a/x.png"), real.join("b/x.png")];
+        let mut got: Vec<std::path::PathBuf> = (0..2).map(|i| app.path(i)).collect();
+        got.sort();
+        assert_eq!(got, want);
+        let link = crate::model::listing::real_path(&dir.join("link/x.png"));
+        let missing = app.remote_select(&ctx, &format!("select {}\0", link.display()));
+        assert!(missing.is_empty(), "{}", String::from_utf8_lossy(&missing));
+        // The same folder named twice, once through the link, is one folder.
+        app.open_folders(&ctx, vec![dir.join("link"), dir.join("a")]);
+        assert!(app.folder.folders.is_empty() && app.folder.dir == real.join("a"));
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     /// A refresh of a collection that started before a rename landed (auto refresh saw the

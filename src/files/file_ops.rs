@@ -887,8 +887,11 @@ impl crate::App {
         dest: PathBuf,
         keep: bool,
     ) {
-        // Checked before the files leave the list, so a refused move keeps the view. A link is
-        // followed in the job instead, as that could hold the window on a stalled share.
+        // The folder by its real path (`~/card` → `/media/u/CARD`, `CARD/..` → `/media/u`), so
+        // that its file system is the one the files go to, and a move into the folder shown
+        // through a link is seen as one. It is checked before the files leave the list, so a
+        // refused move keeps the view.
+        let dest = crate::model::listing::real_dir(&dest);
         if let Some(text) = refused_transfer(&paths, &dest, keep, fs_type) {
             self.notice = Some(text);
             return;
@@ -918,19 +921,12 @@ impl crate::App {
             || (self.folder.recursive() && dest.starts_with(self.folder.dir()));
         let pointer = Working::new(&self.busy);
         std::thread::spawn(move || {
-            // A camera card refuses some characters. Saying so before anything is copied names
-            // the reason, where a copy that failed halfway would leave some files on the card
-            // and give only the system's error for the others. The folder is looked up through
-            // its links (`~/card` → `/media/u/CARD`), here, because a link into a share that
-            // stopped answering would hold the window.
-            let real = dest.canonicalize().unwrap_or_else(|_| dest.clone());
-            let refused = refused_transfer(&paths, &real, keep, fs_type);
-            if !keep && same_dir && refused.is_none() {
+            if !keep && same_dir {
                 let _ = freed_tx.send(total_size(&paths));
             }
             let (mut errors, mut put) = (Vec::new(), Vec::new());
             for path in &paths {
-                if job.stopped() || refused.is_some() {
+                if job.stopped() {
                     break;
                 }
                 let target = dest.join(path.file_name().unwrap_or_default());
@@ -959,10 +955,8 @@ impl crate::App {
                 true => Vec::new(),
                 false => put.iter().map(|(from, _)| from.clone()).collect(),
             };
-            let failed = !errors.is_empty() || job.stopped() || refused.is_some();
-            if let Some(text) = refused {
-                let _ = tx.send(text);
-            } else if let Some(first) = errors.first() {
+            let failed = !errors.is_empty() || job.stopped();
+            if let Some(first) = errors.first() {
                 let verb = tr(if keep { "Copy" } else { "Move" });
                 let _ = tx.send(tf!(
                     "{verb} failed ({count}): {first}",
@@ -2297,10 +2291,12 @@ mod tests {
         std::fs::remove_dir_all(d).unwrap();
     }
 
-    /// A Copy To or a sort folder given as a link to a FAT card (`~/card` → `/media/u/CARD`),
-    /// where one file's name has a character the card refuses, copies nothing. The mount is
-    /// looked up by the folder the link points to, as 0.63.0 looked it up by the link's own
-    /// path and copied the other files.
+    /// A Copy To, Move To or a sort folder given as a link to a FAT card (`~/card` →
+    /// `/media/u/CARD`), where one file's name has a character the card refuses, copies or
+    /// moves nothing, and the files stay in the list. The mount is looked up by the folder the
+    /// link points to, as 0.63.0 looked it up by the link's own path and copied the other files,
+    /// and 0.66.1 took the files off the list until the folder was read again. A folder named
+    /// with `..` (`CARD/..`) is the one above the card, not on it.
     #[test]
     fn a_copy_through_a_link_to_fat_with_a_refused_name_copies_nothing() {
         let d = std::env::temp_dir().join(format!("glimt-test-fat-link-{}", std::process::id()));
@@ -2310,18 +2306,27 @@ mod tests {
             image::RgbImage::new(2, 2).save(d.join(f)).unwrap();
         }
         let (mut app, ctx) = app_on(&d);
+        let listed = |a: &crate::App| a.list.files().len() == 2;
+        assert!(settle(&mut app, &ctx, listed));
         let card = d.join("media/CARD").canonicalize().unwrap();
         super::test_mount(&card, Some("vfat"));
         let files = vec![d.join("a.png"), d.join("12:30.png")];
-        app.transfer(&ctx, files, d.join("card"), true);
-        assert!(settle(&mut app, &ctx, |a| a.notice.is_some() && !a.working()));
+        for keep in [true, false] {
+            app.notice = None;
+            app.transfer(&ctx, files.clone(), d.join("card"), keep);
+            assert!(listed(&app), "the refused files left the list");
+            assert!(settle(&mut app, &ctx, |a| a.notice.is_some() && !a.working()));
+            let told = app.notice.clone().unwrap_or_default();
+            assert!(
+                told.contains("\"12:30.png\"") && told.contains("vfat"),
+                "{told}"
+            );
+            assert!(!card.join("a.png").exists() && !card.join("12:30.png").exists());
+        }
+        app.transfer(&ctx, files, d.join("media/CARD/.."), true);
+        assert!(settle(&mut app, &ctx, |a| !a.working()));
         super::test_mount(&card, None);
-        let told = app.notice.clone().unwrap_or_default();
-        assert!(
-            told.contains("\"12:30.png\"") && told.contains("vfat"),
-            "{told}"
-        );
-        assert!(!card.join("a.png").exists() && !card.join("12:30.png").exists());
+        assert!(d.join("media/12:30.png").exists(), "{:?}", app.notice);
         std::fs::remove_dir_all(d).unwrap();
     }
 

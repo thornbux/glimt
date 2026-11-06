@@ -68,17 +68,30 @@ pub(crate) fn restore(
     let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH);
     let until = now.map_or(0, |d| d.as_secs()) as i64 + 3660;
     let until = crate::support::format::local_time(until).replacen(' ', "T", 1);
+    // A file is looked up as the list named it, and by its real path. The home trash keeps the
+    // path as it was given, but gio records one in a trash at the top of a file system by its
+    // real path, from the real top: an entry of a collection spelled through a link to another
+    // disk is there only by its real path. Found either way, it comes back as the list named it.
     let mut find = |path: &Path| {
         let mut first: Option<Trashed> = None;
-        for (dir, top) in dirs_of(path) {
-            let all = (trashes.entry(dir.clone())).or_insert_with(|| {
-                let all = read_trash(&dir, &top).into_iter();
-                first_of_each(all.filter(|t| t.date >= since && t.date <= until), rank)
-            });
-            if let Some(t) = all.get(path)
-                && first.as_ref().is_none_or(|f| rank(t) < rank(f))
-            {
-                first = Some(t.clone());
+        let real = crate::model::listing::real_path(path);
+        for at in [Some(path), Some(real.as_path()).filter(|r| *r != path)]
+            .into_iter()
+            .flatten()
+        {
+            for (dir, top) in dirs_of(at) {
+                let all = (trashes.entry(dir.clone())).or_insert_with(|| {
+                    let all = read_trash(&dir, &top).into_iter();
+                    first_of_each(all.filter(|t| t.date >= since && t.date <= until), rank)
+                });
+                if let Some(t) = all.get(at)
+                    && first.as_ref().is_none_or(|f| rank(t) < rank(f))
+                {
+                    first = Some(Trashed {
+                        from: path.to_path_buf(),
+                        ..t.clone()
+                    });
+                }
             }
         }
         first
@@ -763,6 +776,51 @@ mod tests {
         assert!(trash.join("files/a.jpg").exists() && trash.join("files/a.jpg.xmp").exists());
         let stranger = std::fs::read_to_string(x.join("a.jpg.xmp")).unwrap();
         assert_eq!(stranger, "stranger");
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A file named through a link to another disk (a collection's entry `~/link/a.jpg` with
+    /// `~/link` → `/media/disk/photos`) goes to that disk's trash, where gio records it by its
+    /// real path from the disk's top. Undo finds it there, with its sidecar, and puts it back
+    /// under the name the list gave it.
+    #[test]
+    fn restores_a_file_named_through_a_link_to_another_disk() {
+        let dir =
+            std::env::temp_dir().join(format!("glimt-test-restore-link-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join("disk/photos")).unwrap();
+        let disk = dir.join("disk").canonicalize().unwrap();
+        let trash = disk.join(".Trash-1000");
+        for d in [trash.join("files"), trash.join("info")] {
+            std::fs::create_dir_all(d).unwrap();
+        }
+        std::os::unix::fs::symlink(disk.join("photos"), dir.join("link")).unwrap();
+        let secs = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH);
+        let date = crate::support::format::local_time(secs.unwrap().as_secs() as i64);
+        for name in ["a.jpg", "a.jpg.xmp"] {
+            std::fs::write(trash.join("files").join(name), name).unwrap();
+            let info = format!(
+                "[Trash Info]\nPath=photos/{name}\nDeletionDate={}\n",
+                date.replacen(' ', "T", 1)
+            );
+            std::fs::write(trash.join("info").join(format!("{name}.trashinfo")), info).unwrap();
+        }
+        // As trash_dirs gives them: the disk's trash only for a path on the disk itself.
+        let dirs = |p: &std::path::Path| match p.starts_with(&disk) {
+            true => vec![(trash.clone(), disk.clone())],
+            false => Vec::new(),
+        };
+        let file = dir.join("link/a.jpg");
+        let thrown = super::Thrown {
+            files: vec![file.clone()],
+            sidecars: vec![dir.join("link/a.jpg.xmp")],
+            sidecars_left: Vec::new(),
+            since: std::time::SystemTime::now() - std::time::Duration::from_secs(1),
+            marks: Vec::new(),
+            collection: None,
+        };
+        let (back, error) = super::restore(&thrown, dirs);
+        assert_eq!((back, error), (vec![file], None));
+        assert!(disk.join("photos/a.jpg").exists() && disk.join("photos/a.jpg.xmp").exists());
         std::fs::remove_dir_all(dir).unwrap();
     }
 }
