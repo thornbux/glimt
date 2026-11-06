@@ -1,0 +1,173 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 820" width="1200" height="820" role="img" aria-label="Glimt's source layout: main.rs holds struct App and the frame; the modules of model, viewer, ui and features add methods to App; images, metadata and files are mostly free functions they call; support is used by all. App's fields are private-field structs, one per part, each from the module whose code uses it.">
+  <title>How Glimt's source is laid out</title>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#1f2328"/>
+    </marker>
+  </defs>
+  <rect x="0" y="0" width="1200" height="820" fill="#ffffff"/>
+  <g font-family="system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif" fill="#1f2328">
+    <text x="20" y="34" font-size="20" font-weight="700">How Glimt's source is laid out</text>
+    <text x="20" y="56" font-size="13" fill="#57606a">src/ holds main.rs, cli.rs and eight folders. The window's code is spread over modules as impl crate::App blocks; the lower folders are mostly free functions.</text>
+
+    <!-- Band A: main.rs and cli.rs -->
+    <rect x="20" y="76" width="470" height="80" rx="6" fill="#ffffff" stroke="#1f2328" stroke-width="1.5"/>
+    <text x="34" y="100" font-size="15" font-weight="700" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace">main.rs</text>
+    <text x="34" y="121" font-size="13">struct App: the window's state, one field per part (right)</text>
+    <text x="34" y="141" font-size="13">frame_ui (one frame) · eframe::App::ui · on_exit · main()</text>
+
+    <rect x="510" y="76" width="280" height="80" rx="6" fill="#ffffff" stroke="#1f2328" stroke-width="1.5"/>
+    <text x="524" y="100" font-size="15" font-weight="700" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace">cli.rs</text>
+    <text x="524" y="121" font-size="13">Start, START_OPTIONS: the options</text>
+    <text x="524" y="141" font-size="13">answered: --help, --version, …</text>
+
+    <line x1="255" y1="156" x2="255" y2="190" stroke="#1f2328" stroke-width="1.5" marker-end="url(#arrow)"/>
+    <text x="265" y="178" font-size="12" fill="#57606a">calls the methods the modules below add to App</text>
+
+    <!-- Band B: the window's parts -->
+    <rect x="20" y="192" width="770" height="290" rx="8" fill="#f6f8fa" stroke="#d0d7de"/>
+    <text x="34" y="214" font-size="13" font-weight="700">The window's parts: most files here add methods to App, in one impl crate::App block each</text>
+
+    <rect x="28" y="224" width="184" height="248" rx="6" fill="#e8f0fe" stroke="#3b6fd8" stroke-width="1.5"/>
+    <text x="40" y="248" font-size="15" font-weight="700" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" fill="#1d4ea8">model/</text>
+    <text x="40" y="268" font-size="12" fill="#57606a">What is open: the list,</text>
+    <text x="40" y="284" font-size="12" fill="#57606a">folders, search</text>
+    <g font-size="12" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace">
+      <text x="40" y="310">list.rs</text>
+      <text x="40" y="325">folder.rs</text>
+      <text x="40" y="340">selection.rs</text>
+      <text x="40" y="355">listing.rs</text>
+      <text x="40" y="370">collections.rs</text>
+      <text x="40" y="385">search.rs</text>
+    </g>
+
+    <rect x="220" y="224" width="184" height="248" rx="6" fill="#e6f4ea" stroke="#2e8b57" stroke-width="1.5"/>
+    <text x="232" y="248" font-size="15" font-weight="700" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" fill="#1e6b40">viewer/</text>
+    <text x="232" y="268" font-size="12" fill="#57606a">The image shown,</text>
+    <text x="232" y="284" font-size="12" fill="#57606a">slideshow, pan, crop</text>
+    <g font-size="12" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace">
+      <text x="232" y="310">view.rs</text>
+      <text x="232" y="325">slideshow.rs</text>
+      <text x="232" y="340">pan.rs</text>
+      <text x="232" y="355">crop.rs</text>
+      <text x="232" y="370">save_as.rs</text>
+    </g>
+
+    <rect x="412" y="224" width="184" height="248" rx="6" fill="#fef3e2" stroke="#d08a1a" stroke-width="1.5"/>
+    <text x="424" y="248" font-size="15" font-weight="700" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" fill="#9a6200">ui/</text>
+    <text x="424" y="268" font-size="12" fill="#57606a">The window: actions,</text>
+    <text x="424" y="284" font-size="12" fill="#57606a">menus, panels, dialogs</text>
+    <g font-size="12" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace">
+      <text x="424" y="310">actions.rs</text>
+      <text x="424" y="325">menus.rs</text>
+      <text x="424" y="340">file_list.rs</text>
+      <text x="424" y="355">info_panel.rs</text>
+      <text x="424" y="370">dialogs.rs</text>
+      <text x="424" y="385">preferences.rs</text>
+      <text x="424" y="400">workers.rs</text>
+      <text x="424" y="415">window.rs</text>
+      <text x="424" y="430">theme.rs</text>
+      <text x="424" y="445">help.rs</text>
+      <text x="424" y="460">accessibility.rs</text>
+    </g>
+
+    <rect x="604" y="224" width="178" height="248" rx="6" fill="#f3e8fd" stroke="#8e44ad" stroke-width="1.5"/>
+    <text x="616" y="248" font-size="15" font-weight="700" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" fill="#6c2a8c">features/</text>
+    <text x="616" y="268" font-size="12" fill="#57606a">Features with a window</text>
+    <text x="616" y="284" font-size="12" fill="#57606a">or a job of their own</text>
+    <g font-size="12" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace">
+      <text x="616" y="310">duplicates.rs</text>
+      <text x="616" y="325">check.rs</text>
+      <text x="616" y="340">print.rs</text>
+      <text x="616" y="355">plugins.rs</text>
+      <text x="616" y="370">remote.rs</text>
+    </g>
+
+    <line x1="405" y1="482" x2="405" y2="516" stroke="#1f2328" stroke-width="1.5" marker-end="url(#arrow)"/>
+    <text x="415" y="504" font-size="12" fill="#57606a">call: decode, save, read and write metadata, change files</text>
+
+    <!-- Band C: images, metadata, files -->
+    <rect x="20" y="518" width="770" height="196" rx="8" fill="#f6f8fa" stroke="#d0d7de"/>
+    <text x="34" y="540" font-size="13" font-weight="700">From a file to pixels and back: mostly free functions</text>
+    <text x="780" y="540" font-size="12" fill="#57606a" text-anchor="end">* also holds an impl crate::App block</text>
+
+    <rect x="28" y="550" width="246" height="154" rx="6" fill="#e0f5f5" stroke="#138a8a" stroke-width="1.5"/>
+    <text x="40" y="574" font-size="15" font-weight="700" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" fill="#0d6b6b">images/</text>
+    <text x="40" y="594" font-size="12" fill="#57606a">A file to pixels and back: decode,</text>
+    <text x="40" y="610" font-size="12" fill="#57606a">colour, thumbnails, save</text>
+    <g font-size="12" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace">
+      <text x="40" y="636">decode.rs</text><text x="178" y="636">colour.rs</text>
+      <text x="40" y="652">save.rs</text><text x="178" y="652">raw.rs</text>
+      <text x="40" y="668">thumbs.rs</text><text x="178" y="668">svg.rs</text>
+      <text x="40" y="684">decoder_plugins.rs</text><text x="178" y="684">video.rs</text>
+    </g>
+
+    <rect x="284" y="550" width="246" height="154" rx="6" fill="#fdeaea" stroke="#c0392b" stroke-width="1.5"/>
+    <text x="296" y="574" font-size="15" font-weight="700" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" fill="#9b2c20">metadata/</text>
+    <text x="296" y="594" font-size="12" fill="#57606a">What is said about an image:</text>
+    <text x="296" y="610" font-size="12" fill="#57606a">EXIF, XMP sidecars, marks, stars</text>
+    <g font-size="12" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace">
+      <text x="296" y="636">exif.rs</text><text x="420" y="636">xmp.rs</text>
+      <text x="296" y="652">marks.rs</text><text x="420" y="652">lightroom.rs*</text>
+    </g>
+
+    <rect x="540" y="550" width="242" height="154" rx="6" fill="#f1f1e4" stroke="#7a7a2a" stroke-width="1.5"/>
+    <text x="552" y="574" font-size="15" font-weight="700" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" fill="#5c5c1c">files/</text>
+    <text x="552" y="594" font-size="12" fill="#57606a">How files change on disk: jobs,</text>
+    <text x="552" y="610" font-size="12" fill="#57606a">one function per disk action</text>
+    <g font-size="12" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace">
+      <text x="552" y="636">file_ops.rs*</text><text x="668" y="636">file_io.rs</text>
+      <text x="552" y="652">trash.rs</text><text x="668" y="652">journal.rs</text>
+      <text x="552" y="668">config.rs</text><text x="668" y="668">backup.rs</text>
+      <text x="552" y="684">external.rs</text><text x="668" y="684">portal.rs</text>
+    </g>
+
+    <!-- Band D: support -->
+    <rect x="20" y="730" width="770" height="74" rx="6" fill="#eeeeee" stroke="#666666" stroke-width="1.5"/>
+    <text x="34" y="753" font-size="15" font-weight="700" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" fill="#444444">support/</text>
+    <text x="118" y="753" font-size="13" fill="#57606a">what the rest is built on, used by every folder above</text>
+    <text x="34" y="775" font-size="12">threads.rs: Receiving&lt;T&gt;, Took, Working · format.rs: human_size, count · lang.rs: tr, tf!</text>
+    <text x="34" y="793" font-size="12">source_rules.rs: tests of the source itself · test_support.rs: app_on, broken · test_hooks.rs</text>
+
+    <!-- Right panel: App's parts -->
+    <rect x="810" y="76" width="370" height="728" rx="8" fill="#ffffff" stroke="#1f2328" stroke-width="1.5"/>
+    <text x="826" y="101" font-size="15" font-weight="700">App's parts</text>
+    <text x="826" y="121" font-size="12" fill="#57606a">fields of struct App in main.rs, and their types;</text>
+    <text x="826" y="137" font-size="12" fill="#57606a">the colour is the folder that defines the type</text>
+    <g font-size="12" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace">
+      <rect x="826" y="157" width="10" height="10" fill="#7a7a2a"/><text x="844" y="166">config</text><text x="940" y="166">files::config::Config</text>
+      <rect x="826" y="176" width="10" height="10" fill="#3b6fd8"/><text x="844" y="185">folder</text><text x="940" y="185">model::folder::Folder</text>
+      <rect x="826" y="195" width="10" height="10" fill="#3b6fd8"/><text x="844" y="204">list</text><text x="940" y="204">model::list::List</text>
+      <rect x="826" y="214" width="10" height="10" fill="#3b6fd8"/><text x="844" y="223">search</text><text x="940" y="223">model::search::Search</text>
+      <rect x="826" y="233" width="10" height="10" fill="#7a7a2a"/><text x="844" y="242">work</text><text x="940" y="242">files::file_ops::Work</text>
+      <rect x="826" y="252" width="10" height="10" fill="#c0392b"/><text x="844" y="261">marks</text><text x="940" y="261">metadata::marks::Marks</text>
+      <rect x="826" y="271" width="10" height="10" fill="#2e8b57"/><text x="844" y="280">decoding</text><text x="940" y="280">viewer::view::Decoding</text>
+      <rect x="826" y="290" width="10" height="10" fill="#2e8b57"/><text x="844" y="299">viewing</text><text x="940" y="299">viewer::view::Viewing</text>
+      <rect x="826" y="309" width="10" height="10" fill="#2e8b57"/><text x="844" y="318">zoom</text><text x="940" y="318">viewer::view::Zoom</text>
+      <rect x="826" y="328" width="10" height="10" fill="#2e8b57"/><text x="844" y="337">slideshow</text><text x="940" y="337">viewer::slideshow::Slideshow</text>
+      <rect x="826" y="347" width="10" height="10" fill="#d08a1a"/><text x="844" y="356">panel</text><text x="940" y="356">ui::file_list::Panel</text>
+      <rect x="826" y="366" width="10" height="10" fill="#d08a1a"/><text x="844" y="375">tree</text><text x="940" y="375">ui::file_list::Tree</text>
+      <rect x="826" y="385" width="10" height="10" fill="#d08a1a"/><text x="844" y="394">thumbs</text><text x="940" y="394">ui::file_list::Thumbs</text>
+      <rect x="826" y="404" width="10" height="10" fill="#d08a1a"/><text x="844" y="413">status</text><text x="940" y="413">ui::file_list::StatusBar</text>
+      <rect x="826" y="423" width="10" height="10" fill="#d08a1a"/><text x="844" y="432">window</text><text x="940" y="432">ui::window::Window</text>
+      <rect x="826" y="442" width="10" height="10" fill="#d08a1a"/><text x="844" y="451">info</text><text x="940" y="451">ui::info_panel::Info</text>
+      <rect x="826" y="461" width="10" height="10" fill="#d08a1a"/><text x="844" y="470">dialogs</text><text x="940" y="470">ui::dialogs::Dialogs</text>
+      <rect x="826" y="480" width="10" height="10" fill="#d08a1a"/><text x="844" y="489">prefs</text><text x="940" y="489">ui::preferences::Prefs</text>
+      <rect x="826" y="499" width="10" height="10" fill="#8e44ad"/><text x="844" y="508">remote</text><text x="940" y="508">features::remote::Listener</text>
+      <text x="844" y="527" fill="#57606a">…</text><text x="940" y="527" fill="#57606a">and a few more</text>
+    </g>
+    <line x1="826" y1="545" x2="1164" y2="545" stroke="#d0d7de"/>
+    <text x="826" y="568" font-size="12">Each part's fields are private. Other modules call</text>
+    <text x="826" y="584" font-size="12">its methods, named for what they do:</text>
+    <text x="842" y="604" font-size="12" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace">self.slideshow.toggle_pause()</text>
+    <text x="842" y="620" font-size="12" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace">self.panel.is_hidden()</text>
+    <text x="826" y="648" font-size="12">Tests in source_rules.rs keep it so:</text>
+    <text x="842" y="668" font-size="12" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace">app_stays_small</text>
+    <text x="842" y="684" font-size="12" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace">parts_keep_their_fields</text>
+    <text x="842" y="700" font-size="12" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace">items_are_in_order</text>
+    <text x="826" y="728" font-size="12">State that means "this file" (an index) lives</text>
+    <text x="826" y="744" font-size="12">in List. A new listing is a new List, so such</text>
+    <text x="826" y="760" font-size="12">state cannot outlive the list it was made for;</text>
+    <text x="826" y="776" font-size="12">what follows a file is carried over by name.</text>
+  </g>
+</svg>
