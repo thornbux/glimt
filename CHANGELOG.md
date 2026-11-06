@@ -21,6 +21,7 @@ and versions follow [Semantic Versioning](https://semver.org/).
 - The question to delete for good what the trash refused opens also in a folder that keeps
   changing, such as a sync folder taking in uploads with auto refresh on. It waited for the
   folder to be still before.
+- A file the trash refused twice is counted once in the question to delete it for good.
 
 ## [0.62.0] - 2026-11-06
 

@@ -684,8 +684,12 @@ impl crate::App {
             if let Some((kind, files)) = untrashable {
                 let now = self.folder.listings();
                 match &mut self.work.untrashable {
+                    // The question names the mount of the first refusal. A file refused twice
+                    // is asked about once.
                     Some((_, held, since)) => {
                         held.extend(files);
+                        held.sort_unstable();
+                        held.dedup();
                         *since = now;
                     }
                     none => *none = Some((kind, files, now)),
@@ -2805,7 +2809,7 @@ mod tests {
     /// for good instead, when they are in the folder shown. Files of another folder are not,
     /// because their names could be other files' in this list, and a notice tells that they
     /// are still there. The question waits until the folder is read again, because the delete
-    /// took the files out of the list.
+    /// took the files out of the list. A file refused twice is asked about once.
     #[test]
     fn asks_to_delete_for_good_what_the_trash_refused_on_a_network_mount() {
         use std::path::PathBuf;
@@ -2837,7 +2841,13 @@ mod tests {
             ..refused(vec![dir.join("a.png")])
         };
         app.work.deleted_tx.send(failed).unwrap();
+        // The same file refused again, by a second Delete, is counted once.
+        app.work
+            .deleted_tx
+            .send(refused(vec![dir.join("a.png")]))
+            .unwrap();
         assert!(settle(&mut app, &ctx, |app| app.modal_open()));
+        assert_eq!(app.dialogs.asked_names(), ["a.png"]);
         assert_eq!(app.asked_targets(), Some(vec![0]));
         std::fs::remove_dir_all(dir).unwrap();
     }
