@@ -6,6 +6,7 @@
 #                                  feature, in --profile quick; exits nonzero when one fails
 #   tools/check.sh 'COMMANDS'      other cargo commands in the same container, such as
 #                                  'cargo test --profile quick NAME'
+#   tools/check.sh --clean         removes the build folders of checkouts that are gone
 #
 # The image (rust:1 with mold, which links in a fraction of the time, and sccache, which keeps
 # the crates' builds for every worktree) is built as glimt-check, and again when rust:1 moves on.
@@ -16,7 +17,25 @@
 set -u
 cd "$(dirname "$0")/.." || exit 2
 here=$(pwd)
-name=$(basename "$here")-$(printf %s "$here" | cksum | cut -d' ' -f1)
+folder() { printf '%s-%s' "$(basename "$1")" "$(printf %s "$1" | cksum | cut -d' ' -f1)"; }
+name=$(folder "$here")
+# Each checkout's build folder stays in glimt-target when its worktree is removed, 1.5 to 4.5 GB
+# each, until the disk is full. --clean keeps those of the worktrees git still knows and
+# run.sh's own, and removes the rest.
+if [ "${1:-}" = --clean ]; then
+    keep="release-tests-new release-tests-old"
+    while IFS= read -r tree; do
+        keep="$keep $(folder "$tree")"
+    done < <(git worktree list --porcelain | sed -n 's/^worktree //p')
+    exec docker run --rm -v glimt-target:/target -w /target glimt-check sh -c '
+        for d in *; do
+            [ -d "$d" ] || continue
+            case " $1 " in *" $d "*) continue ;; esac
+            echo "removing $d ($(du -sh "$d" | cut -f1))"
+            rm -rf "$d"
+        done
+        df -h /target | tail -1' sh "$keep"
+fi
 # The image is checked against rust:1 once a day, and built again when rust:1 has moved on, so
 # its clippy keeps up with CI's stable. Without the network the image there is used.
 stamp=$HOME/.cache/glimt-check-pulled
