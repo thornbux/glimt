@@ -50,6 +50,9 @@ pub(crate) struct Folder {
     together: Option<Vec<PathBuf>>,
     /// The folder listing in the background, as (subfolders, images).
     listing_rx: Receiving<(Vec<PathBuf>, Vec<OsString>)>,
+    /// The list's version when the listing that runs started. A collection's listing works
+    /// from the list or file as they were then.
+    listing_version: usize,
     /// The subfolders of a folder listed with its tree. They are sent at once, because the
     /// tree may take long.
     subdirs_rx: Receiving<Vec<PathBuf>>,
@@ -120,6 +123,7 @@ impl Folder {
             folders: Vec::new(),
             together: None,
             listing_rx: Receiving::none(),
+            listing_version: 0,
             subdirs_rx: Receiving::none(),
             part_rx: Receiving::none(),
             list_parts: false,
@@ -878,6 +882,7 @@ impl crate::App {
             }
         });
         self.folder.listing_rx = Receiving::of(rx);
+        self.folder.listing_version = self.list.version();
         self.status.sum_folder(size_rx);
         self.folder.relist = false;
     }
@@ -930,6 +935,13 @@ impl crate::App {
             }
             Took::Nothing => return,
         };
+        // A collection's listing works from the list (or its file) as it was when it started.
+        // An image moved or taken out of the list since would be put back by it, so the list
+        // as it is now is read instead. This holds for every edit, because each one changes
+        // the list's version.
+        if self.folder.collection.is_some() && self.list.version() != self.folder.listing_version {
+            return self.list(ctx);
+        }
         self.folder.subdirs_rx.clear();
         self.folder.part_rx.clear();
         self.folder.listings += 1;
@@ -1431,6 +1443,43 @@ mod tests {
         assert_eq!((app.list.cur(), app.list.version()), (1, version));
         assert!(!app.folder.is_listing());
         std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// An image moved or taken out of a collection while it is read stays so when the listing
+    /// comes. Before, the listing put back the list it had copied when it started, and in a
+    /// plain list a removal was lost for good.
+    #[test]
+    fn a_collection_edited_while_it_is_read_keeps_the_edit() {
+        let d = contract_folder("collection-edit");
+        let txt = d.join("list.txt");
+        let text = format!(
+            "{}\n{}\n",
+            d.join("a.png").display(),
+            d.join("b.png").display()
+        );
+        std::fs::write(&txt, text).unwrap();
+        let (mut app, ctx) = app_on(&txt);
+        let names = |app: &crate::App| -> Vec<String> {
+            (app.list.files().iter())
+                .map(|f| {
+                    std::path::Path::new(f)
+                        .file_name()
+                        .unwrap()
+                        .to_string_lossy()
+                        .into()
+                })
+                .collect()
+        };
+        assert_eq!(names(&app), ["a.png", "b.png"]);
+        app.list(&ctx);
+        app.run(&ctx, crate::ui::actions::Action::MoveLast);
+        assert!(settle(&mut app, &ctx, |app| !app.folder.is_listing()));
+        assert_eq!(names(&app), ["b.png", "a.png"]);
+        app.list(&ctx);
+        app.remove_from_collection(&ctx);
+        assert!(settle(&mut app, &ctx, |app| !app.folder.is_listing()));
+        assert_eq!(names(&app), ["b.png"]);
+        std::fs::remove_dir_all(d).unwrap();
     }
 
     /// A refresh of a collection that started before a rename landed (auto refresh saw the
