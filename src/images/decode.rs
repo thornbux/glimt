@@ -211,7 +211,15 @@ pub fn tiff_page(path: &Path, page: usize) -> Result<image::DynamicImage, String
     dec.seek_to_image(page).map_err(|e| e.to_string())?;
     let (w, h) = dec.dimensions().map_err(|e| e.to_string())?;
     let color = dec.colortype().map_err(|e| e.to_string())?;
-    let img = match (color, dec.read_image().map_err(|e| e.to_string())?) {
+    // The tiff crate allocates the page whole, as its header claims, so the page must fit first.
+    let bytes = u64::from(color.bit_depth()).div_ceil(8) * u64::from(color.num_samples());
+    if !fits(w, h, bytes) {
+        let claimed = (u64::from(w) * u64::from(h)).saturating_mul(bytes);
+        return Err(format!("image too large ({})", human_size(claimed)));
+    }
+    #[allow(clippy::disallowed_methods)] // the one place, after `fits`
+    let data = dec.read_image().map_err(|e| e.to_string())?;
+    let img = match (color, data) {
         (C::Gray(8), R::U8(v)) => image::GrayImage::from_raw(w, h, v).map(D::ImageLuma8),
         (C::GrayA(8), R::U8(v)) => image::GrayAlphaImage::from_raw(w, h, v).map(D::ImageLumaA8),
         (C::RGB(8), R::U8(v)) => image::RgbImage::from_raw(w, h, v).map(D::ImageRgb8),
@@ -1510,6 +1518,29 @@ mod tests {
         assert!(refused(super::small(&file, [16384, 16384], false).err()));
         std::fs::remove_file(&file).unwrap();
         assert!(refused(super::from_memory(b"P6\n40000 40000\n255\n").err()));
+        // A grey TIFF page of 40000×40000, read by the tiff crate for its later pages.
+        let mut tiff = b"II*\0\x08\0\0\0\x09\0".to_vec();
+        for (tag, kind, value) in [
+            (256u16, 4u16, 40000u32),
+            (257, 4, 40000),
+            (258, 3, 8),
+            (259, 3, 1),
+            (262, 3, 1),
+            (273, 4, 122),
+            (277, 3, 1),
+            (278, 4, 40000),
+            (279, 4, 0),
+        ] {
+            tiff.extend(tag.to_le_bytes());
+            tiff.extend(kind.to_le_bytes());
+            tiff.extend(1u32.to_le_bytes());
+            tiff.extend(value.to_le_bytes());
+        }
+        tiff.extend([0; 4]);
+        let tif = file.with_extension("tif");
+        std::fs::write(&tif, &tiff).unwrap();
+        assert!(refused(super::tiff_page(&tif, 0).err()));
+        std::fs::remove_file(&tif).unwrap();
         assert!(super::too_large_animation((40000, 40000)));
     }
 
