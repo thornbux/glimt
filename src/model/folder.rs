@@ -664,6 +664,9 @@ impl crate::App {
         self.slideshow.take_whole_shuffle();
         self.thumbs.forget_all();
         self.search.forget_exif_index();
+        // A list's entries not yet checked are the old list's. A folder opened now is listed
+        // whole, and open_collection marks its own entries again.
+        self.list.set_unchecked(false);
     }
 
     /// Show the collection in `file` as the list.

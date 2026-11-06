@@ -104,7 +104,8 @@ pub(crate) struct List {
     version: usize,
     /// The entries are the names in a list's file, not yet checked to be files, so no file
     /// operation may start. A new `List` keeps it, because a shuffle or a move in the
-    /// collection puts the same names in another order. The whole listing clears it.
+    /// collection puts the same names in another order. The whole listing clears it, and so
+    /// does another folder opened.
     unchecked: bool,
 }
 
