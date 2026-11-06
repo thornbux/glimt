@@ -549,7 +549,8 @@ const MANUAL: &[(&str, &str)] = &[
          A photo without one whose EXIF says Adobe RGB, as from a camera set to it, is taken as \
          Adobe RGB; other images without one as sRGB, or the profile chosen there for them (Adobe \
          RGB, Display P3 or a file). Use the image's own profile off takes that one for every \
-         image.\n\n\
+         image. Thumbnails follow neither of these two: they show each image in its own \
+         colours, as other programs show them, with images without a profile as sRGB.\n\n\
          The EXIF panel (Ctrl+K) says which profile an image is shown from. The rendering intent \
          there decides how colours the target cannot show are brought in; only profiles with \
          tables for each intent (LUT profiles) tell them apart.\n\n\
