@@ -559,7 +559,7 @@ autocfg 1.5.1 (LICENSE-APACHE)
 base64 0.23.1 (LICENSE-APACHE)
 bitflags 2.13.2 (LICENSE-APACHE)
 blocking 1.7.0 (LICENSE-APACHE)
-cc 1.11.0 (LICENSE-APACHE)
+cc 1.11.1 (LICENSE-APACHE)
 cfg-if 1.0.5 (LICENSE-APACHE)
 concurrent-queue 2.5.0 (LICENSE-APACHE)
 crossbeam-utils 0.8.23 (LICENSE-APACHE)
@@ -2276,7 +2276,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 
 ==============================================================================
-cc 1.11.0 (LICENSE-MIT)
+cc 1.11.1 (LICENSE-MIT)
 cfg-if 1.0.5 (LICENSE-MIT)
 find-msvc-tools 0.1.15 (LICENSE-MIT)
 jobserver 0.1.35 (LICENSE-MIT)

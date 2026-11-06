@@ -1,7 +1,7 @@
 {
  "bomFormat": "CycloneDX",
  "specVersion": "1.5",
- "serialNumber": "urn:uuid:c81a3be8-30d4-51f4-b04a-abf7a86da46f",
+ "serialNumber": "urn:uuid:5910639f-76a3-508d-9758-2426c398234e",
  "version": 1,
  "metadata": {
   "tools": {
@@ -1135,20 +1135,20 @@
   },
   {
    "type": "library",
-   "bom-ref": "pkg:cargo/cc@1.11.0",
+   "bom-ref": "pkg:cargo/cc@1.11.1",
    "name": "cc",
-   "version": "1.11.0",
+   "version": "1.11.1",
    "description": "A build-time dependency for Cargo build scripts to assist in invoking the native\nC compiler to compile native C code into a static archive to be linked into Rust\ncode.",
    "licenses": [
     {
      "expression": "MIT OR Apache-2.0"
     }
    ],
-   "purl": "pkg:cargo/cc@1.11.0",
+   "purl": "pkg:cargo/cc@1.11.1",
    "hashes": [
     {
      "alg": "SHA-256",
-     "content": "375989decec1a0fa424442bed520fa12ede43a48475ce8c7417d2c69b32b5f6b"
+     "content": "4ff2a8126fff0f8c839080d619675a585e61720bb12d2baceae45769fd66f155"
     }
    ],
    "externalReferences": [
@@ -7871,7 +7871,7 @@
    ]
   },
   {
-   "ref": "pkg:cargo/cc@1.11.0",
+   "ref": "pkg:cargo/cc@1.11.1",
    "dependsOn": [
     "pkg:cargo/find-msvc-tools@0.1.15",
     "pkg:cargo/jobserver@0.1.35",
@@ -9401,7 +9401,7 @@
   {
    "ref": "pkg:cargo/wayland-backend@0.3.17",
    "dependsOn": [
-    "pkg:cargo/cc@1.11.0",
+    "pkg:cargo/cc@1.11.1",
     "pkg:cargo/downcast-rs@1.2.1",
     "pkg:cargo/rustix@1.1.6",
     "pkg:cargo/scoped-tls@1.0.1",
