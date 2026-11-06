@@ -1005,8 +1005,12 @@ fn outside_their_homes(homes: &[(&str, &[(&str, &str)])]) -> Vec<String> {
 /// would skip what `derived_xmp` drops. The panel reads it in `xmp::embedded`. The EXIF block
 /// is read through `exif::decoded`, which also sees a PNG's EXIF in a text chunk. Before, a
 /// turned or copied PNG lost EXIF that only such a chunk held, because the save read the eXIf
-/// chunk alone. The Adobe RGB checks of the view and the colour line read the decoder's own, as
-/// a second opening of every PNG shown would slow the view, and a RAW's preview is a JPEG.
+/// chunk alone. The orientation an image is turned upright by is read through
+/// `exif::stored_orientation`, so the view and a turned or copied file take the one the panel
+/// shows. The view once took the decoder's alone and showed a PNG with its orientation in a
+/// text chunk unturned. The Adobe RGB checks of the view and the colour line read the decoder's
+/// own, as a second opening of every PNG shown would slow the view, and a RAW's preview is a
+/// JPEG.
 #[test]
 fn derived_files_take_metadata_in_one_place() {
     const HOMES: &[(&str, &[(&str, &str)])] = &[
@@ -1025,6 +1029,13 @@ fn derived_files_take_metadata_in_one_place() {
             &[
                 ("images/save.rs", "derived_metadata"),
                 ("metadata/xmp.rs", "embedded"),
+            ],
+        ),
+        (
+            ".orientation()",
+            &[
+                ("metadata/exif.rs", "stored_orientation"),
+                ("images/raw.rs", "unturned"),
             ],
         ),
         ("png_with_xmp(", &[("images/save.rs", "encode")]),

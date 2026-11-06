@@ -546,16 +546,16 @@ fn load_unturned(path: &Path, rotate: bool, max: Option<[u32; 2]>) -> Result<Unt
         }
         dec => dec?,
     };
-    let orientation = dec
-        .orientation()
-        .unwrap_or(image::metadata::Orientation::NoTransforms);
+    let turn = match rotate {
+        true => exif::stored_orientation(path, &mut dec),
+        false => upright,
+    };
     // Without a profile, the EXIF may say Adobe RGB (a camera set to it).
     let icc = dec.icc_profile().ok().flatten().or_else(|| {
         let exif = dec.exif_metadata().ok().flatten()?;
         exif::adobe_rgb(&exif).then(|| ADOBE_RGB.clone())
     });
     let mut img = from_decoder(dec)?;
-    let turn = if rotate { orientation } else { upright };
     // Radiance HDR holds light as it was, far brighter than a screen, so it is brought into the
     // screen's range.
     if has_ext(path, &["hdr"]) {
@@ -1203,6 +1203,27 @@ mod tests {
         }
         std::fs::remove_dir_all(dir).unwrap();
     }
+    /// A PNG whose orientation is only in its EXIF text chunk is shown turned by it, as the
+    /// info panel reads it, and a turn saved starts from what the view showed. Before, the view
+    /// took the eXIf chunk alone, so it showed the photo unturned while the panel said "Rotate
+    /// 90 CW", and a quarter turn saved made it lie down.
+    #[test]
+    fn a_png_is_turned_by_the_orientation_in_its_text() {
+        use crate::support::test_support::{CANON_EXIF, png_with_raw_profile};
+        let dir = std::env::temp_dir().join(format!("glimt-test-pngturn-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("a.png");
+        // 8×4 pixels with orientation 6.
+        png_with_raw_profile(&file, "zTXt", "Raw profile type exif", CANON_EXIF);
+        let size = |rotate| super::decode(&file, [100, 100], rotate, 0).unwrap().1;
+        assert_eq!((size(true), size(false)), ([4, 8], [8, 4]));
+        let (img, _) = super::load_icc(&file, true).unwrap();
+        assert_eq!((img.width(), img.height()), (4, 8));
+        crate::images::save::save_rotated(&file, true, 1, false, 90).unwrap();
+        assert_eq!(image::image_dimensions(&file).unwrap(), (8, 4));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
     /// A small GIF of many tiny frames keeps 1,000 of them, not one texture each.
     #[test]
     fn keeps_a_thousand_frames() {
