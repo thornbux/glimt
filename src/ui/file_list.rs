@@ -1838,6 +1838,22 @@ mod tests {
         std::fs::remove_dir_all(dir).unwrap();
     }
 
+    /// A slideshow started from the grid in the image area shows the images, and Esc, which
+    /// stops it, goes back to the grid.
+    #[test]
+    fn a_slideshow_from_the_grid_shows_the_images() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-area-show-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let (mut app, ctx) = crate::support::test_support::app_on(&dir);
+        use crate::ui::actions::Action::{Escape, Slideshow, ThumbnailGrid};
+        app.run(&ctx, ThumbnailGrid);
+        app.run(&ctx, Slideshow);
+        assert!(app.panel.area_grid_on() && !app.panel.area_grid_shown());
+        app.run(&ctx, Escape);
+        assert!(app.panel.area_grid_shown() && !app.slideshow.is_running());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
     /// With cells 100 high every 110, a band from 50 to 230 touches rows 0, 1 and 2. One in the
     /// gap from 101 to 109 touches none, and one above the grid none.
     #[test]

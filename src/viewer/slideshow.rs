@@ -186,6 +186,9 @@ impl crate::App {
 
     /// Start the slideshow: with the subfolders when set, shuffled for random order.
     pub(crate) fn start_slideshow(&mut self, ctx: &egui::Context) {
+        // A slideshow shows images, so one started from the grid in the image area opens the
+        // image shown, and Esc goes back to the grid.
+        self.panel.open_from_grid();
         if self.config.slideshow_subfolders {
             // The images of the subfolders too, listed in the background; random order
             // shuffles them all together.
