@@ -21,7 +21,7 @@ if [ "$(id -u)" = 0 ]; then
     apt-get update -qq >/dev/null
     apt-get install -y -qq xvfb xdotool x11-utils xclip imagemagick libimage-exiftool-perl ffmpeg \
         poppler-utils libglib2.0-bin colord-data python3 procps libgl1-mesa-dri libegl1 libgl1 \
-        libxkbcommon-x11-0 libxcursor1 libxrandr2 libxi6 libx11-xcb1 sqlite3 python3-nibabel python3-h5py python3-openslide python3-mrcfile python3-astropy python3-pydicom python3-gdcm libgdcm-tools default-jre-headless unzip dosfstools >/dev/null || { echo "FAIL installing the tools"; exit 1; }
+        libxkbcommon-x11-0 libxcursor1 libxrandr2 libxi6 libx11-xcb1 sqlite3 python3-nibabel python3-h5py python3-openslide python3-mrcfile python3-astropy python3-pydicom python3-gdcm libgdcm-tools default-jre-headless unzip dosfstools rclone fuse3 gvfs gvfs-fuse gvfs-backends openssh-server dbus >/dev/null || { echo "FAIL installing the tools"; exit 1; }
     # Bio-Formats for its decoder is no Debian package: its release, checked against the hash
     # it had when added.
     curl -sfL -o /tmp/bftools.zip \
@@ -70,6 +70,14 @@ if [ "$(id -u)" = 0 ]; then
                 2>/dev/null && break
             sleep 1
         done
+    fi
+    # The sftp:// folder of the check of network folders: an sshd on localhost that lets the
+    # tester in with a key. ssh finds its keys in the home folder of /etc/passwd, not in $HOME.
+    if grep -q '^fuse=[y]es' "${SCRIPT:-/t/tests.sh}"; then
+        mkdir -p /run/sshd && ssh-keygen -A >/dev/null && /usr/sbin/sshd
+        su tester -c 'mkdir -p ~/.ssh && ssh-keygen -q -t ed25519 -N "" -f ~/.ssh/id_ed25519 \
+            && cp ~/.ssh/id_ed25519.pub ~/.ssh/authorized_keys \
+            && ssh-keyscan -H localhost >~/.ssh/known_hosts 2>/dev/null'
     fi
     # -noreset: an X server starts over when its last client closes, and refuses every client
     # that comes in that moment. Each check starts and quits Glimt, so a window now and then got
@@ -1165,6 +1173,72 @@ else
     expect "each image and its sidecar kept, under its new name" \
         "$(for n in 1 2 3; do held $card/img_$n.JPG 2>/dev/null; done)" "$want"
 fi
+
+section "the usual operations on an rclone mount and on an sftp:// folder Glimt mounts with gio"
+# Network and cloud folders through FUSE (#30). rclone with its local backend has neither
+# RENAME_NOREPLACE nor hard links, so a rename there is the fallback that looks first. gvfsd-fuse,
+# where Glimt's own smb:// and sftp:// folders are, has RENAME_NOREPLACE but no hard links. Both
+# need /dev/fuse, which run.sh gives this part with --privileged.
+fuse=yes
+# on_mount NAME DIR [START LOCAL]: Rename, stars, a keyword, Move and its Undo, the trash, and
+# Rename Many in DIR, which START (default DIR) opens. The pictures are made in LOCAL
+# (default DIR), the folder on the server, as DIR is there only once Glimt has mounted it.
+on_mount() {
+    local name=$1 d=$2 at=${4:-$2}
+    mkdir -p $at/sub
+    for f in a b c; do convert -size 64x64 xc:red $at/$f.jpg; done
+    printf 'Animals\n' >$XDG_CONFIG_HOME/glimt/keywords
+    config confirm_trash=false confirm_delete=false xmp_stars=true exif_panel=true
+    start ${3:-$d}
+    until_current $d/a.jpg 30
+    key ctrl+r; key ctrl+a; xdotool type --delay 30 r.jpg; key Return
+    until_file $d/r.jpg 20; shot fs-$name-rename
+    expect "$name: Rename" "$(ls $d | tr '\n' ' ')" "b.jpg c.jpg r.jpg sub "
+    key alt+3; until_file $d/r.jpg.xmp 20
+    expect "$name: stars in the sidecar" "$(grep -c 'Rating="3"\|Rating>3<' $d/r.jpg.xmp 2>/dev/null)" 1
+    for x in $(seq 1100 4 1240); do xdotool mousemove $x 500; done; sleep 1
+    menu Animals; sleep 3
+    expect "$name: a keyword in the sidecar" "$(grep -c '<rdf:li>Animals</rdf:li>' $d/r.jpg.xmp 2>/dev/null)" 2
+    xdotool mousemove 800 400
+    answer $d/sub; key ctrl+m; until_file $d/sub/r.jpg 20; sleep 1; shot fs-$name-move
+    expect "$name: Move with its sidecar" "$(ls $d/sub | tr '\n' ' ')" "r.jpg r.jpg.xmp "
+    key ctrl+z; until_file $d/r.jpg 20; sleep 1
+    expect "$name: the move undone" "$(ls $d | tr '\n' ' ')" "b.jpg c.jpg r.jpg r.jpg.xmp sub "
+    # Neither has a trash gio can use: rclone answers it with an input/output error, gvfsd-fuse
+    # with "Operation not supported". The file stays, and the window says why.
+    key Home; key ctrl+d; sleep 4; shot fs-$name-trash
+    expect "$name: the trash refused, the file kept" "$(ls $d | tr '\n' ' ')" \
+        "b.jpg c.jpg r.jpg r.jpg.xmp sub "
+    key ctrl+a; key ctrl+r; sleep 1; key ctrl+a
+    xdotool type --delay 30 'n_#'; sleep 0.4
+    key Return; until_file $d/n_3.jpg 20; sleep 2; shot fs-$name-rename-many
+    quit
+    expect "$name: Rename Many with the sidecar" "$(ls $d | tr '\n' ' ')" \
+        "n_1.jpg n_2.jpg n_3.jpg n_3.jpg.xmp sub "
+    note "$name: $(grep -c . $XDG_STATE_HOME/glimt/marks 2>/dev/null) stars kept in marks"
+}
+mkdir -p /tmp/rclone-back /tmp/rclone
+rclone mount --daemon /tmp/rclone-back /tmp/rclone 2>/dev/null
+if ! grep -q " /tmp/rclone fuse.rclone " /proc/mounts; then
+    fail "no rclone mount: run.sh's containers need --privileged for /dev/fuse"
+else
+    on_mount rclone /tmp/rclone/photos
+    fusermount3 -u /tmp/rclone
+fi
+# gio needs a session bus. gvfsd-fuse, which the bus starts, mounts under this XDG_RUNTIME_DIR.
+bus=$(dbus-daemon --session --fork --print-address=1 --print-pid=1 --nopidfile)
+export DBUS_SESSION_BUS_ADDRESS=$(echo "$bus" | head -1)
+if ! timeout 20 ssh -o BatchMode=yes localhost true; then
+    fail "no sshd on localhost for the sftp:// folder"
+else
+    on_mount sftp "$XDG_RUNTIME_DIR/gvfs/sftp:host=localhost$HOME/sftp/photos" \
+        "sftp://localhost$HOME/sftp/photos" $HOME/sftp/photos
+fi
+grep fuse /proc/mounts | sed 's/^/     /'
+gio mount -u "sftp://localhost/" 2>/dev/null
+fusermount3 -u $XDG_RUNTIME_DIR/gvfs 2>/dev/null
+kill $(echo "$bus" | tail -1) 2>/dev/null
+unset DBUS_SESSION_BUS_ADDRESS
 
 section "Rename Many with Include Subfolders: the view stays on the folder and its subfolders"
 for v in new old; do
