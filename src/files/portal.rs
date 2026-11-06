@@ -33,6 +33,10 @@ where
     let sender = conn.unique_name().ok_or("no D-Bus name")?;
     let sender = sender.trim_start_matches(':').replace('.', "_");
     let handle = format!("{PATH}/request/{sender}/{token}");
+    // The portal's changes of owner are listened for before the Ping, so that a restart right
+    // after it is not missed.
+    let owners = MessageIterator::for_match_rule(owner_rule().map_err(e)?, conn, Some(4));
+    let mut owners = owners.map_err(e)?.into_inner();
     // The portal's unique name is the sender of its answer to a Ping, which also starts it.
     let peer = Some("org.freedesktop.DBus.Peer");
     let pong = conn
@@ -40,7 +44,8 @@ where
         .map_err(e)?;
     let owner = pong.header().sender().ok_or("no D-Bus name")?.to_string();
     let rule = response_rule(&owner, &handle).map_err(e)?;
-    let mut responses = MessageIterator::for_match_rule(rule, conn, Some(1)).map_err(e)?;
+    let responses = MessageIterator::for_match_rule(rule, conn, Some(1)).map_err(e)?;
+    let mut responses = responses.into_inner();
     conn.call_method(Some(DEST), PATH, Some(interface), method, body)
         .map_err(e)?;
     let stop = || {
@@ -50,9 +55,27 @@ where
         // A closed request sends no Response. Closing the connection ends the wait for one.
         let _ = conn.clone().close();
     };
-    let Some(message) = within(ANSWER_LIMIT, move || responses.next(), stop) else {
+    // The Response, or an end to the wait when the portal that was asked has left the bus. A
+    // portal that restarted has lost the request, and its new name is never trusted to answer.
+    let wait = move || {
+        use std::task::Poll;
+        use zbus::export::futures_core::Stream;
+        // A blocking iterator waits on one stream only. zbus's own block_on, which its
+        // iterators use, waits here on both streams at once, without a thread for each.
+        zbus::block_on(std::future::poll_fn(|cx| {
+            while let Poll::Ready(change) = std::pin::Pin::new(&mut owners).poll_next(cx) {
+                match change {
+                    Some(Ok(change)) if !portal_lost(&change, &owner) => continue,
+                    _ => return Poll::Ready(Err(())),
+                }
+            }
+            std::pin::Pin::new(&mut responses).poll_next(cx).map(Ok)
+        }))
+    };
+    let Some(message) = within(ANSWER_LIMIT, wait, stop) else {
         return Err("no answer from the portal".into());
     };
+    let message = message.map_err(|()| "the portal restarted and lost the request")?;
     let message = message.ok_or("no answer from the portal")?.map_err(e)?;
     let (code, results): (u32, Results) = message.body().deserialize().map_err(e)?;
     // 0 done, 1 cancelled, 2 failed.
@@ -74,6 +97,33 @@ fn response_rule<'a>(owner: &'a str, path: &'a str) -> zbus::Result<zbus::MatchR
         .member("Response")?
         .path(path)?;
     Ok(rule.build())
+}
+
+/// Returns the match rule for the bus's NameOwnerChanged signals about the portal's name.
+fn owner_rule() -> zbus::Result<zbus::MatchRule<'static>> {
+    let rule = zbus::MatchRule::builder()
+        .msg_type(zbus::message::Type::Signal)
+        .sender("org.freedesktop.DBus")?
+        .interface("org.freedesktop.DBus")?
+        .member("NameOwnerChanged")?
+        .arg(0, DEST)?;
+    Ok(rule.build())
+}
+
+/// Returns whether `change`, a NameOwnerChanged signal, says that the portal's name no longer
+/// belongs to `owner`, the portal that was asked. The portal's own start by the Ping gives the
+/// name to `owner`, so it does not count. A signal that another program sent straight to Glimt
+/// does not count either, as the bus itself is the sender of the real ones.
+fn portal_lost(change: &zbus::message::Message, owner: &str) -> bool {
+    let header = change.header();
+    let from_bus = header
+        .sender()
+        .is_some_and(|s| s.as_str() == "org.freedesktop.DBus");
+    let body = change.body();
+    let Ok((name, _, new)) = body.deserialize::<(&str, &str, &str)>() else {
+        return false;
+    };
+    from_bus && name == DEST && new != owner
 }
 
 /// Runs `wait` in a thread of its own. Returns what it gives, or `None` when it takes longer
@@ -245,6 +295,34 @@ mod tests {
         };
         assert!(rule.matches(&from(":1.5")).unwrap());
         assert!(!rule.matches(&from(":1.6")).unwrap());
+    }
+
+    /// A portal that restarted or left the bus ends the wait for its answer, while its own start
+    /// and a signal that another program forged do not.
+    #[test]
+    fn a_portal_that_restarts_ends_the_wait() {
+        let change = |sender: &str, name: &str, new: &str| {
+            let signal = zbus::message::Message::signal(
+                "/org/freedesktop/DBus",
+                "org.freedesktop.DBus",
+                "NameOwnerChanged",
+            );
+            let signal = signal.unwrap().sender(sender).unwrap();
+            signal.build(&(name, ":1.4", new)).unwrap()
+        };
+        let bus = "org.freedesktop.DBus";
+        let portal = super::DEST;
+        assert!(super::portal_lost(&change(bus, portal, ":1.9"), ":1.5"));
+        assert!(super::portal_lost(&change(bus, portal, ""), ":1.5"));
+        assert!(!super::portal_lost(&change(bus, portal, ":1.5"), ":1.5"));
+        assert!(!super::portal_lost(
+            &change(bus, "org.example.Other", ""),
+            ":1.5"
+        ));
+        assert!(!super::portal_lost(&change(":1.6", portal, ""), ":1.5"));
+        let rule = super::owner_rule().unwrap();
+        assert!(rule.matches(&change(bus, portal, "")).unwrap());
+        assert!(!rule.matches(&change(bus, "org.example.Other", "")).unwrap());
     }
 
     /// A wait for a portal's answer ends at its limit, also when the answer never comes, and

@@ -11,6 +11,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
   keywords, comments and stars written to other files meanwhile.
 - A change in Preferences no longer waits for an image with a large colour profile being decoded,
   nor makes every other image being decoded wait behind it.
+- Printing and Open With in the Flatpak end with a message when the desktop portal restarts
+  while its dialog is open, instead of waiting 30 minutes for an answer that never comes.
 
 ## [0.60.0] - 2026-11-06
 
