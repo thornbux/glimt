@@ -22,7 +22,9 @@ import base64
 import ipaddress
 import json
 import os
+import stat
 import subprocess
+import tempfile
 import sys
 import urllib.parse
 import urllib.request
@@ -35,6 +37,8 @@ PROMPT = (
 )
 MAX_BYTES = 40 << 20  # a larger file is left out: the model gets a whole copy of it
 MAX_TEXT = 500
+# A sidecar that has no XMP yet starts as this empty packet, which exiftool can write into.
+EMPTY_XMP = b'<x:xmpmeta xmlns:x="adobe:ns:meta/"></x:xmpmeta>\n'
 
 
 def local(url):
@@ -70,25 +74,61 @@ def describe(path):
 FIELDS = ["XMP-dc:Description", "XMP-iptcCore:AltTextAccessibility"]
 
 
-def seed(path, sidecar):
-    """Starts a sidecar that is not there yet with the image's own XMP. Glimt reads the keywords
-    and the comment from the sidecar once it has a description, so the image's own must be in it,
-    and a description the image has already is then kept. An image without XMP gets no sidecar
-    here, and exiftool's complaint about it is left unsaid."""
-    if not os.path.exists(sidecar):
-        subprocess.run(["exiftool", "-q", "-tagsfromfile", path, "-xmp:all", sidecar], capture_output=True)
+def read_sidecar(sidecar):
+    """Reads the sidecar. Returns b"" when there is none. Raises OSError when it is a link or
+    not a file.
+
+    A sidecar that is a link is not the image's own: a downloaded folder could point it at any
+    file of the user's, which would then be read and written. The file is opened without
+    following a link and read from what was opened, so a link put there after a check is never
+    followed. Glimt leaves such a sidecar alone too.
+    """
+    try:
+        fd = os.open(sidecar, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    except FileNotFoundError:
+        return b""
+    with os.fdopen(fd, "rb") as f:
+        if not stat.S_ISREG(os.fstat(fd).st_mode):
+            raise OSError("not a file")
+        return f.read(MAX_BYTES)
 
 
-def empty_fields(sidecar):
-    """The fields of FIELDS the sidecar has no text in."""
-    if not os.path.exists(sidecar):
-        return FIELDS
-    empty = []
-    for field in FIELDS:
-        out = subprocess.run(["exiftool", "-s3", f"-{field}", sidecar], capture_output=True, text=True)
-        if not out.stdout.strip():
-            empty.append(field)
-    return empty
+def exiftool(args, given):
+    """Runs exiftool on the XMP `given` on its standard input ("-"). Returns what it printed."""
+    out = subprocess.run(["exiftool", *args, "-"], input=given, capture_output=True)
+    if out.returncode != 0:
+        raise OSError(out.stderr.decode(errors="replace").strip())
+    return out.stdout
+
+
+def seed(path):
+    """The XMP a new sidecar starts with: the image's own. Glimt reads the keywords and the
+    comment from the sidecar once it has a description, so the image's own must be in it, and a
+    description the image has already is then kept. An image without XMP starts empty."""
+    out = subprocess.run(["exiftool", "-xmp", "-b", path], capture_output=True)
+    return out.stdout or EMPTY_XMP
+
+
+def empty_fields(xmp):
+    """The fields of FIELDS the XMP has no text in."""
+    return [f for f in FIELDS if not exiftool(["-s3", f"-{f}"], xmp).strip()]
+
+
+def replace(sidecar, data):
+    """Writes `data` as the sidecar, whole or not at all. The new file is made under a name of
+    its own and renamed over the sidecar, which replaces a link put there rather than follow it."""
+    fd, temp = tempfile.mkstemp(dir=os.path.dirname(sidecar), prefix=".glimt-describe-")
+    # mkstemp makes the file readable by its owner only; a sidecar gets the usual permissions.
+    umask = os.umask(0)
+    os.umask(umask)
+    try:
+        os.fchmod(fd, 0o666 & ~umask)
+        with os.fdopen(fd, "wb") as f:
+            f.write(data)
+        os.replace(temp, sidecar)
+    except OSError:
+        os.unlink(temp)
+        raise
 
 
 def main(paths):
@@ -101,13 +141,12 @@ def main(paths):
             print(f"{path}: not a file, or larger than {MAX_BYTES >> 20} MB: left out", file=sys.stderr)
             continue
         sidecar = path + ".xmp"
-        # A sidecar that is a link is not the image's own: a downloaded folder could point it at
-        # any file of the user's, which would then be read and written. Glimt leaves one alone too.
-        if os.path.islink(sidecar):
-            print(f"{sidecar}: is a link: left alone", file=sys.stderr)
+        try:
+            xmp = read_sidecar(sidecar) or seed(path)
+            fields = empty_fields(xmp)
+        except OSError as e:
+            print(f"{sidecar}: {e.strerror or e}: left alone", file=sys.stderr)
             continue
-        seed(path, sidecar)
-        fields = empty_fields(sidecar)
         if not fields:
             print(f"{path}: has a comment and an alt text already: kept", file=sys.stderr)
             continue
@@ -119,16 +158,13 @@ def main(paths):
             continue
         if not text:
             continue
-        # One argument each, and the path absolute (it starts with /), so exiftool reads neither
-        # the name nor the text as an option.
-        written = subprocess.run(
-            ["exiftool", "-q", "-overwrite_original", *[f"-{f}={text}" for f in fields], sidecar],
-            capture_output=True,
-            text=True,
-        )
-        if written.returncode != 0:
+        # One argument each, so exiftool reads the text as no option. It writes the changed XMP
+        # to its standard output ("-o -"), and the sidecar is replaced with that.
+        try:
+            replace(sidecar, exiftool(["-q", *[f"-{f}={text}" for f in fields], "-o", "-"], xmp))
+        except OSError as e:
             failed += 1
-            print(f"{path}: {written.stderr.strip()}", file=sys.stderr)
+            print(f"{path}: {e}", file=sys.stderr)
     sys.exit(1 if failed else 0)
 
 
