@@ -58,11 +58,19 @@ if [ "$(id -u)" = 0 ]; then
     useradd -m tester
     chmod 777 /t/out
     # A FAT file system, as on a camera card, for the check of case-only renames. Mounting it
-    # needs a loop device, which run.sh's containers get with --privileged. Without one, that
-    # check fails and says so.
-    truncate -s 16M /opt/card.img && mkfs.vfat -n CARD /opt/card.img >/dev/null \
-        && mkdir -p /mnt/card \
-        && mount -o loop,uid=$(id -u tester),gid=$(id -g tester) /opt/card.img /mnt/card 2>/dev/null
+    # needs a loop device, which run.sh gives only the part with that check, with --privileged.
+    # Without one, that check fails and says so. The pattern does not match its own line.
+    # Containers started at the same moment can take the same free loop device, and the one
+    # that loses fails, so the mount is tried again a few times.
+    if grep -q '^card=/mnt/[c]ard' "${SCRIPT:-/t/tests.sh}" \
+        && truncate -s 16M /opt/card.img && mkfs.vfat -n CARD /opt/card.img >/dev/null \
+        && mkdir -p /mnt/card; then
+        for try in 1 2 3 4 5; do
+            mount -o loop,uid=$(id -u tester),gid=$(id -g tester) /opt/card.img /mnt/card \
+                2>/dev/null && break
+            sleep 1
+        done
+    fi
     # -noreset: an X server starts over when its last client closes, and refuses every client
     # that comes in that moment. Each check starts and quits Glimt, so a window now and then got
     # XOpenDisplayFailed.
