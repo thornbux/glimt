@@ -32,6 +32,8 @@ impl crate::App {
     /// Edit → Crop: choose a part of the shown image. Not for a video, nor before the image
     /// is decoded.
     pub(crate) fn start_crop(&mut self) {
+        // The part is chosen over the image, so a crop from the grid in the image area opens it.
+        self.panel.open_from_grid();
         let cur = self.list.cur();
         #[cfg(feature = "video")]
         if (self.list.files().get(cur)).is_some_and(|f| is_video(Path::new(f))) {
@@ -238,7 +240,7 @@ mod tests {
     }
 
     /// G for the grid in the image area ends a crop, so the Enter that opens an image from the
-    /// grid never saves a part chosen before.
+    /// grid never saves a part chosen before. Crop chosen in the grid opens the image.
     #[test]
     fn the_grid_ends_a_crop() {
         let dir = std::env::temp_dir().join(format!("glimt-test-crop-grid-{}", std::process::id()));
@@ -253,6 +255,9 @@ mod tests {
         app.viewing.start_crop(crop);
         app.run(&ctx, crate::ui::actions::Action::ThumbnailGrid);
         assert!(!app.viewing.is_cropping());
+        // And Crop chosen in the grid opens the image, where the part is chosen.
+        app.start_crop();
+        assert!(app.panel.area_grid_on() && !app.panel.area_grid_shown());
         std::fs::remove_dir_all(dir).unwrap();
     }
 
