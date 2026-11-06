@@ -214,15 +214,19 @@ pub fn walk(
     dir: &Path,
     types: Types,
 ) -> impl Iterator<Item = (PathBuf, Vec<PathBuf>, Vec<OsString>)> {
-    walk_by(dir, types, crate::images::save::file_key)
+    walk_by(dir, types, crate::images::save::file_key, |p| {
+        std::fs::canonicalize(p)
+    })
 }
 
-/// Walks the tree as `walk` does, with `file_key` telling the folders apart, so a test can give
-/// the keys a file system without unique inodes has.
+/// Walks the tree as `walk` does, with `file_key` telling the folders apart and `canonical`
+/// giving a link's real path, so a test can give the keys a file system without unique inodes
+/// has, and a real path that cannot be worked out.
 fn walk_by(
     dir: &Path,
     types: Types,
     file_key: impl Fn(&Path) -> Option<FileKey>,
+    canonical: impl Fn(&Path) -> std::io::Result<PathBuf>,
 ) -> impl Iterator<Item = (PathBuf, Vec<PathBuf>, Vec<OsString>)> {
     let (dir, mut todo) = (dir.to_path_buf(), vec![PathBuf::new()]);
     let mut seen: HashSet<FileKey> = HashSet::new();
@@ -233,7 +237,7 @@ fn walk_by(
             let rel = todo.pop()?;
             let full = dir.join(&rel);
             let is_link = std::fs::symlink_metadata(&full).is_ok_and(|m| m.is_symlink());
-            if is_link && !followed(std::fs::canonicalize(&full), &real) {
+            if is_link && !followed(canonical(&full), &real) {
                 continue;
             }
             if !seen.insert(key(&full)) {
@@ -580,11 +584,11 @@ mod tests {
             videos: true,
             hidden: false,
         };
-        let mut files: Vec<std::path::PathBuf> = super::walk_by(&dir, types, |p| {
-            Some(crate::images::save::key_of(p, (1, 0)))
-        })
-        .flat_map(|(rel, _, files)| files.into_iter().map(move |f| rel.join(f)))
-        .collect();
+        let key = |p: &std::path::Path| Some(crate::images::save::key_of(p, (1, 0)));
+        let real = |p: &std::path::Path| std::fs::canonicalize(p);
+        let mut files: Vec<std::path::PathBuf> = super::walk_by(&dir, types, key, real)
+            .flat_map(|(rel, _, files)| files.into_iter().map(move |f| rel.join(f)))
+            .collect();
         files.sort();
         assert_eq!(
             files,
@@ -594,13 +598,35 @@ mod tests {
     }
 
     /// A link to a folder is followed only when its real path is known and inside the tree.
+    /// The walk itself is checked, with a link whose real path is too long to work out: taken
+    /// from `real_dir`, which makes such a path absolute instead, it was followed.
     #[test]
     fn a_link_whose_real_path_is_unknown_is_not_followed() {
         let top = std::path::Path::new("/home/a/pics");
-        let long = std::io::Error::from_raw_os_error(36);
-        assert!(!super::followed(Err(long), top));
         assert!(super::followed(Ok(top.join("sub")), top));
         assert!(!super::followed(Ok("/home/a".into()), top));
+        let dir = std::env::temp_dir().join(format!("glimt-test-walk-long-{}", std::process::id()));
+        // The folder is hidden, so it is reached only through the link.
+        std::fs::create_dir_all(dir.join(".in")).unwrap();
+        std::fs::write(dir.join(".in/b.jpg"), "x").unwrap();
+        std::fs::write(dir.join("a.jpg"), "x").unwrap();
+        std::os::unix::fs::symlink(".in", dir.join("long")).unwrap();
+        let types = super::Types {
+            images: true,
+            raw: true,
+            videos: true,
+            hidden: false,
+        };
+        let real = |p: &std::path::Path| match p.ends_with("long") {
+            true => Err(std::io::Error::from_raw_os_error(36)),
+            false => std::fs::canonicalize(p),
+        };
+        let files: Vec<std::path::PathBuf> =
+            super::walk_by(&dir, types, crate::images::save::file_key, real)
+                .flat_map(|(rel, _, files)| files.into_iter().map(move |f| rel.join(f)))
+                .collect();
+        assert_eq!(files, [std::path::PathBuf::from("a.jpg")]);
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     /// A path is compared by its folder's real path and its own name: `..` and the folder's
