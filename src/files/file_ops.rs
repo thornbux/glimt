@@ -222,9 +222,10 @@ pub(crate) struct Work {
     /// so they can be put right. They are read in the background.
     cut_short_rx: Receiving<Vec<journal::CutShort>>,
     /// The type of the mount and the files the trash refused there, to ask about once the
-    /// folder is read again. The files left the list when the delete started, and only the new
-    /// listing brings them back.
-    untrashable: Option<(String, Vec<PathBuf>)>,
+    /// folder is read again, and the count of listings (`Folder::listings`) when they came.
+    /// The files left the list when the delete started, and only a newer listing brings them
+    /// back.
+    untrashable: Option<(String, Vec<PathBuf>, u64)>,
     /// Our own clipboard for file lists, kept so it can serve them (X11).
     clipboard: Option<arboard::Clipboard>,
     /// An image decoded for the clipboard. egui takes it only during a frame.
@@ -651,7 +652,9 @@ impl crate::App {
             let refused = trash && !errors.is_empty() && !job.stopped();
             // Those not reached after Stop are still there, as after a failure.
             let _ = deleted_tx.send(Deleted {
-                untrashable: refused.then(|| left_by_trash(&paths)).flatten(),
+                untrashable: refused
+                    .then(|| left_by_trash(&paths, crate::files::file_io::mount_type))
+                    .flatten(),
                 paths,
                 gone,
                 failed: !errors.is_empty() || job.stopped(),
@@ -686,9 +689,17 @@ impl crate::App {
         } in self.work.deleted_rx.try_iter().collect::<Vec<_>>()
         {
             if let Some((kind, files)) = untrashable {
+                let now = self.folder.listings();
                 match &mut self.work.untrashable {
-                    Some((_, held)) => held.extend(files),
-                    none => *none = Some((kind, files)),
+                    // The question names the mount of the first refusal. A file refused twice
+                    // is asked about once.
+                    Some((_, held, since)) => {
+                        held.extend(files);
+                        held.sort_unstable();
+                        held.dedup();
+                        *since = now;
+                    }
+                    none => *none = Some((kind, files, now)),
                 }
             }
             if let Some((old, new)) = folder_renamed {
@@ -751,12 +762,14 @@ impl crate::App {
                 self.folder.relist_later();
             }
         }
-        // The question waits for the listing that brings the files back, and for any other
-        // dialog to close, which keeps the keys meant for it.
-        if !self.folder.wants_relist()
-            && !self.folder.is_listing()
-            && !self.dialog_open()
-            && let Some((kind, files)) = self.work.untrashable.take()
+        // The question waits for a listing taken after the refusal came, which brings the files
+        // back, and for any other dialog to close, which keeps the keys meant for it. It does
+        // not wait for the folder to be still, because a folder that changes all the time, such
+        // as a sync folder taking in uploads with auto refresh on, never is.
+        let listed = self.folder.listings();
+        if !self.dialog_open()
+            && (self.work.untrashable.as_ref()).is_some_and(|(_, _, since)| listed > *since)
+            && let Some((kind, files, _)) = self.work.untrashable.take()
         {
             self.ask_delete_instead(kind, &files);
         }
@@ -765,15 +778,24 @@ impl crate::App {
     /// Asks whether to delete `files` for good, which the trash refused on a network or cloud
     /// mount of type `kind`. gio has no trash there, and a trash in the home folder would mean
     /// a download of each file. It asks only about files of the folder shown, by their names in
-    /// the list.
+    /// the list. A notice tells of the others, which are left as they are, because another
+    /// folder was opened before the question.
     fn ask_delete_instead(&mut self, kind: String, files: &[PathBuf]) {
         let dir = self.folder.dir();
-        let names: Option<Vec<OsString>> = (files.iter())
-            .map(|p| Some(p.strip_prefix(dir).ok()?.as_os_str().to_owned()))
+        let names: Vec<OsString> = (files.iter())
+            .filter_map(|p| Some(p.strip_prefix(dir).ok()?.as_os_str().to_owned()))
             .collect();
-        let Some(names) = names.filter(|n| !n.is_empty()) else {
+        let left = files.len() - names.len();
+        if left > 0 {
+            self.notice = Some(tf!(
+                "The trash refused {count} ({kind}). They are still there, because another folder is open now.",
+                count = count(left, "file"),
+                kind
+            ));
+        }
+        if names.is_empty() {
             return;
-        };
+        }
         self.dialogs.asked_about(self.list_place(), names);
         self.dialogs.confirm_delete_instead(kind);
     }
@@ -1730,10 +1752,13 @@ fn forget_in_collection(
 
 /// Returns the files of `paths` that are still there on a network or cloud mount, with the
 /// mount's type, after the trash refused them. Returns `None` when there are none, such as when
-/// the trash failed in a local folder that cannot be written. The mount table is read once for
-/// each folder.
-fn left_by_trash(paths: &[PathBuf]) -> Option<(String, Vec<PathBuf>)> {
-    use crate::files::file_io::{is_remote, mount_type};
+/// the trash failed in a local folder that cannot be written. `mount_type` gives a folder's file
+/// system, and it is asked once for each folder.
+fn left_by_trash(
+    paths: &[PathBuf],
+    mount_type: impl Fn(&Path) -> Option<String>,
+) -> Option<(String, Vec<PathBuf>)> {
+    use crate::files::file_io::is_remote;
     let mut kinds: HashMap<PathBuf, Option<String>> = HashMap::new();
     let mut remote = |p: &Path| {
         let dir = p.parent()?.to_path_buf();
@@ -2842,10 +2867,91 @@ mod tests {
         std::fs::remove_dir_all(dir).unwrap();
     }
 
+    /// The question about what the trash refused opens after the first listing taken after the
+    /// refusal, also in a folder that changes all the time and is read again and again.
+    #[test]
+    fn asks_about_what_the_trash_refused_in_a_folder_that_keeps_changing() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-busy-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        image::RgbImage::new(2, 2).save(dir.join("a.png")).unwrap();
+        let (mut app, ctx) = app_on(&dir);
+        app.work.deleting.insert("a.png".into());
+        app.remove_indices(&ctx, &[0]);
+        let refused = super::Deleted {
+            paths: vec![dir.join("a.png")],
+            failed: true,
+            untrashable: Some(("fuse.rclone".into(), vec![dir.join("a.png")])),
+            ..Default::default()
+        };
+        app.work.deleted_tx.send(refused).unwrap();
+        let asked = (0..250).any(|_| {
+            app.poll_background(&ctx);
+            // Auto refresh sees a change in every frame, as in a sync folder taking uploads.
+            app.folder.relist_later();
+            let open = app.modal_open();
+            if !open {
+                std::thread::sleep(std::time::Duration::from_millis(20));
+            }
+            open
+        });
+        assert!(asked);
+        assert_eq!(app.asked_targets(), Some(vec![0]));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// Of the files the trash refused, only those still there on a network or cloud mount are
+    /// left to ask about, with that mount's type. A file that went after all and a file of a
+    /// local folder are not. Each folder's mount is looked up once.
+    #[test]
+    fn leaves_to_ask_about_only_files_still_on_a_network_mount() {
+        use std::path::{Path, PathBuf};
+        let dir = std::env::temp_dir().join(format!("glimt-test-left-{}", std::process::id()));
+        let (cloud, local) = (dir.join("cloud"), dir.join("local"));
+        std::fs::create_dir_all(&cloud).unwrap();
+        std::fs::create_dir_all(&local).unwrap();
+        for file in [
+            cloud.join("a.png"),
+            cloud.join("b.png"),
+            local.join("c.png"),
+        ] {
+            crate::files::file_io::create_file(&file, "").unwrap();
+        }
+        let looked = std::cell::Cell::new(0);
+        let mount_type = |folder: &Path| {
+            looked.set(looked.get() + 1);
+            Some(
+                if folder == cloud {
+                    "fuse.rclone"
+                } else {
+                    "ext4"
+                }
+                .to_owned(),
+            )
+        };
+        let paths: Vec<PathBuf> = ["a.png", "gone.png", "b.png"]
+            .map(|n| cloud.join(n))
+            .into_iter()
+            .chain([local.join("c.png")])
+            .collect();
+        let left = super::left_by_trash(&paths, mount_type);
+        let kind = "fuse.rclone".to_owned();
+        assert_eq!(
+            left,
+            Some((kind, vec![cloud.join("a.png"), cloud.join("b.png")]))
+        );
+        assert_eq!(looked.get(), 2);
+        assert_eq!(
+            super::left_by_trash(&[local.join("c.png")], mount_type),
+            None
+        );
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
     /// The files the trash refused on a network or cloud mount are asked about, to delete them
     /// for good instead, when they are in the folder shown. Files of another folder are not,
-    /// because their names could be other files' in this list. The question waits until the
-    /// folder is read again, because the delete took the files out of the list.
+    /// because their names could be other files' in this list, and a notice tells that they
+    /// are still there. The question waits until the folder is read again, because the delete
+    /// took the files out of the list. A file refused twice is asked about once.
     #[test]
     fn asks_to_delete_for_good_what_the_trash_refused_on_a_network_mount() {
         use std::path::PathBuf;
@@ -2858,10 +2964,16 @@ mod tests {
             untrashable: Some(("fuse.rclone".into(), files)),
             ..Default::default()
         };
-        let elsewhere = refused(vec![PathBuf::from("/elsewhere/a.png")]);
+        // A refusal comes with the delete failed, which has the folder read again.
+        let elsewhere = super::Deleted {
+            failed: true,
+            ..refused(vec![PathBuf::from("/elsewhere/a.png")])
+        };
         app.work.deleted_tx.send(elsewhere).unwrap();
-        app.receive_deleted(&ctx);
+        assert!(settle(&mut app, &ctx, |app| app.notice.is_some()));
         assert!(!app.modal_open());
+        let told = app.notice.take().unwrap();
+        assert!(told.contains("1 file (fuse.rclone)"), "{told}");
         // The delete takes the file out of the list as it starts, as `delete_now` does.
         app.work.deleting.insert("a.png".into());
         app.remove_indices(&ctx, &[0]);
@@ -2871,7 +2983,13 @@ mod tests {
             ..refused(vec![dir.join("a.png")])
         };
         app.work.deleted_tx.send(failed).unwrap();
+        // The same file refused again, by a second Delete, is counted once.
+        app.work
+            .deleted_tx
+            .send(refused(vec![dir.join("a.png")]))
+            .unwrap();
         assert!(settle(&mut app, &ctx, |app| app.modal_open()));
+        assert_eq!(app.dialogs.asked_names(), ["a.png"]);
         assert_eq!(app.asked_targets(), Some(vec![0]));
         std::fs::remove_dir_all(dir).unwrap();
     }

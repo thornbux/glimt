@@ -13,6 +13,21 @@ and versions follow [Semantic Versioning](https://semver.org/).
 - Renaming a folder on a camera card to a name with one of those characters says so before
   trying, instead of giving only "Invalid argument".
 - Rename Many's preview of the first new name warns when a camera card would refuse it.
+- A folder mounted at a name that is not UTF-8 is known by its own file system, so a camera
+  card or share there gets the same plain messages and questions as any other.
+- A folder mounted over another mount that was there before it, such as a share mounted at
+  `/mnt` after a card at `/mnt/card`, is known by the file system that is on top.
+- Rename and Rename Many on an exFAT card mounted through exfat-fuse (`fuseblk`) say which
+  characters it refuses, as on a card the kernel mounts, when udev knows the card's file system.
+- An Enter held down no longer answers the question to delete for good what the trash refused:
+  only a new press of Enter does.
+- Files the trash refused on a network or cloud folder, when another folder was opened before
+  the question to delete them for good, are named in a notice that says they are still there,
+  instead of being dropped without a word.
+- The question to delete for good what the trash refused opens also in a folder that keeps
+  changing, such as a sync folder taking in uploads with auto refresh on. It waited for the
+  folder to be still before.
+- A file the trash refused twice is counted once in the question to delete it for good.
 
 ## [0.62.0] - 2026-11-06
 

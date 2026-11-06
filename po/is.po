@@ -2801,6 +2801,10 @@ msgstr "skráakerfið hér ({kind}) leyfir ekki þessa nafnbreytingu, eins og á
 msgid "\"{name}\": a {kind} file system, as on a camera card, allows none of : ? * \" < > | \\ in a name. Nothing was renamed."
 msgstr "„{name}“: {kind}-skráakerfi, eins og á minniskorti myndavélar, leyfir ekkert af : ? * \" < > | \\ í heiti. Engu var gefið nýtt heiti."
 
+#: src/files/file_ops.rs
+msgid "The trash refused {count} ({kind}). They are still there, because another folder is open now."
+msgstr "Ruslið tók ekki við þessum skrám ({kind}): {count}. Þær eru enn á sínum stað, því önnur mappa er opin núna."
+
 #: src/ui/dialogs.rs
 msgid "The trash does not take files in this folder ({kind}), as on network and cloud folders."
 msgstr "Ruslið tekur ekki við skrám í þessari möppu ({kind}), eins og í net- og skýjamöppum."
