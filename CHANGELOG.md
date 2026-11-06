@@ -14,6 +14,11 @@ and versions follow [Semantic Versioning](https://semver.org/).
 - Printing and Open With in the Flatpak end with a message when the desktop portal restarts
   while its dialog is open, instead of waiting 30 minutes for an answer that never comes.
 
+### Changed
+
+- The example plugins open an image's XMP sidecar without following a link and give exiftool the
+  open file, so a link put in its place after a check is never read or written through.
+
 ## [0.60.0] - 2026-11-06
 
 ### Fixed

@@ -760,9 +760,13 @@ mod tests {
         super::wait_for_screen();
         let waited = start.elapsed().as_millis();
         assert!((35..1000).contains(&waited), "{waited} ms");
+        assert!(super::SCREEN_WAIT.0.lock().unwrap().is_none());
+        // A second wait of its own would take at least the 40 ms above. The bound leaves room
+        // for a busy machine running the tests in parallel, where 5 ms was too tight.
         let start = std::time::Instant::now();
         super::wait_for_screen();
-        assert!(start.elapsed().as_millis() < 5);
+        let again = start.elapsed().as_millis();
+        assert!(again < 30, "{again} ms");
     }
 
     /// What gdbus prints for colord: the first object or file, and nothing for an empty list.

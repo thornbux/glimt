@@ -247,7 +247,7 @@ impl crate::App {
                             ui.weak(tr(label));
                             // The place opens on a map in the browser.
                             if *label == "GPS" {
-                                let link = ui.link(value).on_hover_text(tr("Show on OpenStreetMap"));
+                                let link = crate::ui::menus::link(ui, value).on_hover_text(tr("Show on OpenStreetMap"));
                                 if link.clicked()
                                     && let Some((lat, lon)) = value.split_once(", ")
                                 {

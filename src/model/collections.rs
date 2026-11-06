@@ -4,7 +4,7 @@
 
 use crate::support::lang::tr;
 use crate::ui::actions::Action;
-use crate::ui::menus::{icon_button, iconed, menu_item, scroll_menu};
+use crate::ui::menus::{icon_button, iconed, menu_item, scroll_menu, submenu};
 use crate::{tf, ui::theme};
 use eframe::egui;
 use std::collections::HashSet;
@@ -174,7 +174,8 @@ impl crate::App {
                 menu_item(ui, act, Action::RenameCollection);
                 menu_item(ui, act, Action::TrashCollection);
             }
-            ui.menu_button(
+            submenu(
+                ui,
                 iconed(ui, theme::icon::MOVE_IN, tr("Move in Collection")),
                 |ui| {
                     for action in [

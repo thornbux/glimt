@@ -1177,7 +1177,10 @@ fn about(ui: &mut egui::Ui) {
                         "https://github.com/thornbux/glimt/blob/main/LICENSE",
                     ),
                 ] {
-                    if ui.link(text).on_hover_text(url).clicked() {
+                    if crate::ui::menus::link(ui, text)
+                        .on_hover_text(url)
+                        .clicked()
+                    {
                         crate::files::external::open_url(url);
                     }
                 }

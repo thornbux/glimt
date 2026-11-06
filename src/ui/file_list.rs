@@ -10,7 +10,7 @@ use crate::support::lang::tr;
 use crate::support::threads::{Receiving, Took};
 use crate::ui::actions::Action;
 use crate::ui::dialogs::Pick;
-use crate::ui::menus::{checkbox, radio_choice, scroll_menu, selectable};
+use crate::ui::menus::{checkbox, radio_choice, scroll_menu, selectable, submenu};
 use crate::ui::workers::spawn_thumbnailers;
 use crate::viewer::view::{broken_mark, pane_map};
 use crate::{files::config, model::collections, tf, ui::theme};
@@ -1074,7 +1074,7 @@ impl crate::App {
             _ => on.join(", "),
         };
         let mut changed = false;
-        ui.menu_button(format!("{title} {}", theme::icon::CARET_DOWN), |ui| {
+        submenu(ui, format!("{title} {}", theme::icon::CARET_DOWN), |ui| {
             for (label, on) in all {
                 changed |= checkbox(ui, on, label).changed();
             }

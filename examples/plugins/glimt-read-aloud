@@ -10,25 +10,38 @@ Needs: spd-say (speech-dispatcher) and exiftool. GLIMT_SPEAK_LANGUAGE sets the l
 """
 
 import os
+import stat
 import subprocess
 import sys
 
 FIELDS = ["XMP-iptcCore:AltTextAccessibility", "XMP-dc:Description"]
+MAX_SIDECAR = 4 << 20
+
+
+def sidecar_bytes(sidecar):
+    """Reads the sidecar. Returns b"" when there is none, or when it is a link or not a file.
+
+    A sidecar that is a link is not the image's own: a downloaded folder could point it at any
+    file of the user's, which would then be read aloud. The file is opened without following a
+    link and read from what was opened, so a link put there after a check is never followed.
+    Glimt does not read such a sidecar either.
+    """
+    try:
+        fd = os.open(sidecar, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    except OSError:
+        return b""
+    with os.fdopen(fd, "rb") as f:
+        return f.read(MAX_SIDECAR) if stat.S_ISREG(os.fstat(fd).st_mode) else b""
 
 
 def text_of(path):
     """What to say for the image at `path`."""
-    sidecar = path + ".xmp"
-    for source in (sidecar, path):
-        if not os.path.exists(source):
-            continue
-        # A sidecar that is a link is not the image's own: a downloaded folder could point it at
-        # any file of the user's, which would then be read aloud. Glimt does not read one either.
-        if source == sidecar and os.path.islink(source):
-            continue
+    xmp = sidecar_bytes(path + ".xmp")
+    # exiftool reads the sidecar from its standard input ("-"), never by its name.
+    for source, given in ([("-", xmp)] if xmp else []) + [(path, None)]:
         for field in FIELDS:
-            out = subprocess.run(["exiftool", "-s3", f"-{field}", source], capture_output=True, text=True)
-            text = " ".join(out.stdout.split())
+            out = subprocess.run(["exiftool", "-s3", f"-{field}", source], input=given, capture_output=True)
+            text = " ".join(out.stdout.decode(errors="replace").split())
             if text:
                 return text
     return os.path.basename(path)
