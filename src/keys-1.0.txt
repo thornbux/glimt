@@ -123,3 +123,5 @@ ZoomOut
 Undo
 Crop
 SaveAs
+# Added in 0.65.0
+ThumbnailGrid

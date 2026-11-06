@@ -437,6 +437,10 @@ msgid "Show Thumbnails"
 msgstr "Vorschaubilder anzeigen"
 
 #: src/ui/actions.rs
+msgid "Thumbnails in Image Area"
+msgstr "Vorschaubilder im Bildbereich"
+
+#: src/ui/actions.rs
 msgid "Show Toolbar"
 msgstr "Werkzeugleiste anzeigen"
 

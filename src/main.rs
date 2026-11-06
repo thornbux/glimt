@@ -318,10 +318,10 @@ impl App {
         if !bare {
             self.status_bar(ctx, ui);
         }
-        if bare {
+        if bare && !self.panel.area_grid_shown() {
             // A scroll to the shown image asked for while the list is hidden is dropped.
             self.panel.drop_scroll();
-        } else {
+        } else if !bare {
             self.side_panel(ctx, ui);
         }
         if !bare && self.config.sort_manager {
@@ -333,7 +333,11 @@ impl App {
             // The panel was hidden while a field had the focus, so the field never lost it.
             self.save_meta(ui.ctx());
         }
-        self.image_area(ctx, ui, fullscreen, bare);
+        if self.panel.area_grid_shown() {
+            self.area_grid(ctx, ui);
+        } else {
+            self.image_area(ctx, ui, fullscreen, bare);
+        }
         if self.window.has_projector() {
             self.projector_window(ctx);
         }

@@ -719,6 +719,30 @@ break.jpg")"
     else note "old: current '$current', folder $mode"; fi
 done
 
+section "thumbnails in the image area (G): ↓ moves a row, Enter shows the image, Esc the grid"
+for v in new old; do
+    as_version $v
+    d=/tmp/area-grid-$v
+    mkdir -p $d
+    convert -size 300x200 xc:red /tmp/area-grid.jpg
+    for i in $(seq -w 1 40); do ln -f /tmp/area-grid.jpg $d/f$i.jpg; done
+    config auto_refresh=false
+    start $d/f01.jpg
+    n() { remote current | tr -d '\0' | sed 's/.*f0*\([0-9]*\)\.jpg/\1/'; }
+    key g; key Down; row=$(n)
+    key Return; key Down; one=$(n)
+    key Escape; key Down; back=$(n)
+    quit
+    # The grid's row is its columns; the old release has no grid, and ↓ moves one image.
+    cols=$((row - 1))
+    if [ $v = new ]; then
+        if [ "$cols" -gt 1 ]; then pass "↓ in the grid moves a row ($cols)"
+        else fail "↓ in the grid moves a row: went to f$row"; fi
+        expect "Enter shows the image: ↓ moves one" "$one" $((row + 1))
+        expect "Esc goes back to the grid: ↓ moves a row" "$back" $((one + cols))
+    else note "old: ↓ went to f$row, then f$one, f$back"; fi
+done
+
 section "--remote select while Delete asks: the answer deletes the file it asked about only"
 for v in new old; do
     as_version $v

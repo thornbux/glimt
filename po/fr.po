@@ -437,6 +437,10 @@ msgid "Show Thumbnails"
 msgstr "Afficher les vignettes"
 
 #: src/ui/actions.rs
+msgid "Thumbnails in Image Area"
+msgstr "Vignettes dans la zone d'image"
+
+#: src/ui/actions.rs
 msgid "Show Toolbar"
 msgstr "Afficher la barre d'outils"
 

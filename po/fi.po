@@ -437,6 +437,10 @@ msgid "Show Thumbnails"
 msgstr "Näytä pienoiskuvat"
 
 #: src/ui/actions.rs
+msgid "Thumbnails in Image Area"
+msgstr "Pienoiskuvat kuva-alueella"
+
+#: src/ui/actions.rs
 msgid "Show Toolbar"
 msgstr "Näytä työkalupalkki"
 

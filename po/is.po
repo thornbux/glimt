@@ -437,6 +437,10 @@ msgid "Show Thumbnails"
 msgstr "Sýna smámyndir"
 
 #: src/ui/actions.rs
+msgid "Thumbnails in Image Area"
+msgstr "Smámyndir á myndsvæðinu"
+
+#: src/ui/actions.rs
 msgid "Show Toolbar"
 msgstr "Sýna verkfærastiku"
 

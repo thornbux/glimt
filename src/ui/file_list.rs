@@ -182,6 +182,20 @@ pub(crate) struct Panel {
     row_step: isize,
     /// Scroll the file list to the current image on the next frame.
     scroll_to_cur: bool,
+    /// View → Thumbnails in Image Area (G): whether the image area shows the files as a grid.
+    area_grid: AreaGrid,
+}
+
+/// What the image area shows with View → Thumbnails in Image Area.
+#[derive(Clone, Copy, Default, PartialEq, Debug)]
+enum AreaGrid {
+    /// The image, as without the grid.
+    #[default]
+    Off,
+    /// The grid of thumbnails.
+    Shown,
+    /// An image opened from the grid with Enter or a double-click. Esc goes back to the grid.
+    Opened,
 }
 
 impl Default for Panel {
@@ -191,6 +205,7 @@ impl Default for Panel {
             grid_cols: 1,
             row_step: 1,
             scroll_to_cur: true,
+            area_grid: AreaGrid::Off,
         }
     }
 }
@@ -233,6 +248,41 @@ impl Panel {
 
     pub(crate) fn row_step(&self) -> isize {
         self.row_step
+    }
+
+    /// View → Thumbnails in Image Area. It shows the grid, and hides it again, but from an image
+    /// opened from the grid it goes back to the grid, as Esc does.
+    pub(crate) fn toggle_area_grid(&mut self) {
+        self.area_grid = match self.area_grid {
+            AreaGrid::Shown => AreaGrid::Off,
+            AreaGrid::Off | AreaGrid::Opened => AreaGrid::Shown,
+        };
+        self.scroll_to_cur = true;
+    }
+
+    /// Whether the image area shows the grid of thumbnails instead of the image.
+    pub(crate) fn area_grid_shown(&self) -> bool {
+        self.area_grid == AreaGrid::Shown
+    }
+
+    /// Whether the grid is on, shown or behind an image opened from it.
+    pub(crate) fn area_grid_on(&self) -> bool {
+        self.area_grid != AreaGrid::Off
+    }
+
+    /// Shows the image in place of the grid, after Enter or a double-click in it.
+    pub(crate) fn open_from_grid(&mut self) {
+        if self.area_grid == AreaGrid::Shown {
+            self.area_grid = AreaGrid::Opened;
+        }
+    }
+
+    /// Goes back to the grid from an image opened from it, as Esc does.
+    pub(crate) fn back_to_grid(&mut self) {
+        if self.area_grid == AreaGrid::Opened {
+            self.area_grid = AreaGrid::Shown;
+            self.scroll_to_cur = true;
+        }
     }
 }
 
@@ -1176,13 +1226,44 @@ impl crate::App {
                 if self.config.search_bar {
                     self.search_field(ui);
                 }
-                self.file_list(ctx, ui, &mut go_to, &mut list_act);
+                // The grid in the image area has the thumbnails, so the list has names.
+                let form = if self.panel.area_grid_on() {
+                    [false, false]
+                } else {
+                    [self.config.icons, self.config.thumbnails]
+                };
+                self.file_list(ctx, ui, &mut go_to, &mut list_act, form);
             });
-        self.panel.scroll_to_cur = false;
+        // The grid in the image area, drawn after, scrolls to the shown image too.
+        if !self.panel.area_grid_shown() {
+            self.panel.drop_scroll();
+        }
         if let Some(d) = open_dir {
             self.visit(ctx, d);
         } else if let Some(i) = go_to {
             self.go(ctx, i);
+        }
+        if let Some(action) = list_act {
+            self.run(ctx, action);
+        }
+    }
+
+    /// View → Thumbnails in Image Area: the files as a grid of thumbnails where the image is.
+    /// The arrow keys move in it as in the icon grid, and Enter or a double-click shows the
+    /// image there.
+    pub(crate) fn area_grid(&mut self, ctx: &egui::Context, ui: &mut egui::Ui) {
+        let (mut go_to, mut list_act) = (None, None);
+        let opened = egui::CentralPanel::default()
+            .show(ui, |ui| {
+                self.file_list(ctx, ui, &mut go_to, &mut list_act, [true, true])
+            })
+            .inner;
+        self.panel.drop_scroll();
+        if let Some(i) = go_to {
+            self.go(ctx, i);
+        }
+        if opened {
+            self.panel.open_from_grid();
         }
         if let Some(action) = list_act {
             self.run(ctx, action);
@@ -1231,7 +1312,8 @@ impl crate::App {
         ui: &mut egui::Ui,
         go_to: &mut Option<usize>,
         list_act: &mut Option<Action>,
-    ) {
+        [icons, thumbs]: [bool; 2],
+    ) -> bool {
         // The rows shown are the search matches, or all files.
         let count = self
             .list
@@ -1242,8 +1324,8 @@ impl crate::App {
             None => Some(i),
         };
         // Only visible rows are drawn, so the list is as fast with 10 files as with 300,000.
-        let icons = self.config.icons;
-        let thumbs = self.config.thumbnails || icons;
+        let thumbs = thumbs || icons;
+        let mut opened = false;
         let row_h = if icons {
             self.cell().y
         } else if thumbs {
@@ -1317,6 +1399,7 @@ impl crate::App {
                 if let Some(i) = self.row_clicked(ctx, &row, i) {
                     *go_to = Some(i);
                 }
+                opened |= row.double_clicked();
                 row.context_menu(|ui| self.file_menu(ui, list_act));
                 if self.folder.collection().is_some() {
                     self.drag_row(ui, &row, i, icons, pointer);
@@ -1327,6 +1410,7 @@ impl crate::App {
             }
             self.drop_dragged(ctx);
         });
+        opened
     }
 
     /// Keeps the thumbnails of the list's `rows` shown, and some around them, being made while
@@ -1719,6 +1803,30 @@ pub(crate) fn touched(lo: f32, hi: f32, step: f32, size: f32) -> std::ops::Range
 
 #[cfg(test)]
 mod tests {
+
+    /// G shows the grid in the image area and Enter an image from it. Esc goes back to the
+    /// grid, G from there too, and a second G hides the grid. Esc without the grid keeps it off.
+    #[test]
+    fn the_image_area_grid_opens_and_goes_back() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-area-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let (mut app, ctx) = crate::support::test_support::app_on(&dir);
+        use crate::ui::actions::Action::{Escape, ThumbnailGrid};
+        app.run(&ctx, Escape);
+        assert!(!app.panel.area_grid_on());
+        app.run(&ctx, ThumbnailGrid);
+        assert!(app.panel.area_grid_shown());
+        app.panel.open_from_grid();
+        assert!(app.panel.area_grid_on() && !app.panel.area_grid_shown());
+        app.run(&ctx, Escape);
+        assert!(app.panel.area_grid_shown());
+        app.panel.open_from_grid();
+        app.run(&ctx, ThumbnailGrid);
+        assert!(app.panel.area_grid_shown());
+        app.run(&ctx, ThumbnailGrid);
+        assert!(!app.panel.area_grid_on());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
 
     /// With cells 100 high every 110, a band from 50 to 230 touches rows 0, 1 and 2. One in the
     /// gap from 101 to 109 touches none, and one above the grid none.
