@@ -2696,6 +2696,9 @@ msgstr "O backup em {folder} não está completo: {e}"
 msgid "the file was moved, renamed or deleted meanwhile"
 msgstr "o arquivo foi movido, renomeado ou excluído nesse meio-tempo"
 
+msgid "the file is read-only"
+msgstr "o arquivo é somente leitura"
+
 #: src/files/external.rs
 msgid "HEIC and AVIF need ffprobe (ffmpeg): {e}"
 msgstr "HEIC e AVIF requerem o ffprobe (ffmpeg): {e}"

@@ -19,7 +19,8 @@ pub static MAX_ANIMATION: AtomicUsize = AtomicUsize::new(128 << 20);
 /// Frames of an animation kept at most, whatever their size.
 const MAX_FRAMES: usize = 1000;
 
-/// image's default limit (`Limits::max_alloc`).
+/// image's default limit (`Limits::max_alloc`). Pixels are measured against it only by `fits`;
+/// elsewhere it caps the bytes read from a file or a program.
 pub const MAX_DECODE: u64 = 512 << 20;
 
 pub struct Decoded {
@@ -106,13 +107,7 @@ pub fn decode(
             } else {
                 load_unturned(path, rotate, to_box)?
             };
-            // The image is shrunk first and then turned, because a 100 MP photo with
-            // orientation 6 turned whole would need a second 400 MB buffer for a moment.
-            let quarter = quarter_turn(turn);
-            let [w, h] = [img.width() as usize, img.height() as usize];
-            let orig = size.unwrap_or(if quarter { [h, w] } else { [w, h] });
-            let mut img = shrink(img, if quarter { [max[1], max[0]] } else { max })?;
-            img.apply_orientation(turn);
+            let (img, orig) = shrunk_upright(img, turn, size, max)?;
             (img, icc, orig)
         }
     };
@@ -181,7 +176,7 @@ fn ico_size(path: &Path, k: usize) -> Result<image::DynamicImage, String> {
     file.take(u64::from(len).min(1 << 26))
         .read_to_end(&mut one)
         .map_err(|e| e.to_string())?;
-    image::load_from_memory_with_format(&one, image::ImageFormat::Ico).map_err(|e| e.to_string())
+    from_memory(&one)
 }
 
 /// The number of pages (images) in a TIFF file. It reads only their directories.
@@ -343,7 +338,7 @@ fn animated_frames(path: &Path) -> Option<(image::Frames<'static>, (u32, u32))> 
 /// image's limit, and the decoder keeps the last one while it makes the next, so two of them
 /// must fit.
 fn too_large_animation((w, h): (u32, u32)) -> bool {
-    u64::from(w) * u64::from(h) * 8 > MAX_DECODE
+    !fits(w, h, 8)
 }
 
 /// The frames of an animated GIF, WebP or PNG (APNG). Returns `None` for other files, which `load`
@@ -425,13 +420,14 @@ pub fn each_frame(
 
 /// An image no larger than `max`, with its ICC profile and its upright size before it was
 /// shrunk. A JPEG is decoded at a fraction, and other images whole (HEIC, AVIF and video frames
-/// at `max` from ffmpeg) and shrunk after. This is the one way for thumbnails, the print and its
-/// preview. The view (`decode`) has its own, which shrinks before it turns.
+/// at `max` from ffmpeg) and shrunk after, then turned (`shrunk_upright`), as the view does.
+/// This is the one way for thumbnails, the print and its preview.
 pub fn small(path: &Path, max: [u32; 2], rotate: bool) -> Result<Small, String> {
     let (img, icc, size) = match scaled_jpeg(path, max, rotate) {
         Some(found) => found,
         None => {
-            let (img, icc, size) = load_for(path, rotate, Some(max))?;
+            let (img, icc, turn, size) = load_unturned(path, rotate, Some(max))?;
+            let (img, size) = shrunk_upright(img, turn, size, max)?;
             (img, icc, size)
         }
     };
@@ -462,24 +458,33 @@ pub fn load_icc(
     path: &Path,
     rotate: bool,
 ) -> Result<(image::DynamicImage, Option<Vec<u8>>), String> {
-    let (img, icc, _) = load_for(path, rotate, None)?;
+    let (mut img, icc, turn, _) = load_unturned(path, rotate, None)?;
+    // The whole image is wanted (Save As, a copy, a turned save), so it is turned whole.
+    img.apply_orientation(turn);
     Ok((img, icc))
 }
 
-/// As `load_icc`, for a thumbnail no larger than `max`, with the image's real size, upright.
-/// HEIC, AVIF and video frames come at that size from ffmpeg, while other formats are shrunk
-/// after.
-pub fn load_for(path: &Path, rotate: bool, max: Option<[u32; 2]>) -> Result<Small, String> {
-    let (mut img, icc, turn, size) = load_unturned(path, rotate, max)?;
+/// `img` shrunk to fit `max` once it is turned by `turn`, and then turned, with its upright
+/// size (`size` where it came smaller than it is). It is shrunk first, because a 100 MP photo
+/// with orientation 6 turned whole would need a second 400 MB buffer for a moment. It is the
+/// one way the view and the thumbnails turn a decoded image.
+fn shrunk_upright(
+    img: image::DynamicImage,
+    turn: Orientation,
+    size: Option<[usize; 2]>,
+    max: [u32; 2],
+) -> Result<(image::DynamicImage, [usize; 2]), String> {
+    let quarter = quarter_turn(turn);
+    let [w, h] = [img.width() as usize, img.height() as usize];
+    let orig = size.unwrap_or(if quarter { [h, w] } else { [w, h] });
+    let mut img = shrink(img, if quarter { [max[1], max[0]] } else { max })?;
     img.apply_orientation(turn);
-    let size = size.unwrap_or([img.width() as usize, img.height() as usize]);
-    Ok((img, icc, size))
+    Ok((img, orig))
 }
 
-/// As `load_for`, but the EXIF turn the image crate reads is returned rather than done, so the
-/// view shrinks first and turns the small image, not a copy of the whole one. Other formats come
-/// upright already (their turn is `NoTransforms`). The size is given only where the image came
-/// smaller than it is (ffmpeg's formats at `max`).
+/// The image at `path` with its ICC profile, and the EXIF turn returned rather than done, so a
+/// caller that shrinks it turns the small image, not a copy of the whole one. The size is given
+/// only where the image came smaller than it is (ffmpeg's formats and SVG at `max`).
 fn load_unturned(path: &Path, rotate: bool, max: Option<[u32; 2]>) -> Result<Unturned, String> {
     let upright = Orientation::NoTransforms;
     // Only ffmpeg's formats and SVG take `max`, so without them it has no use.
@@ -491,7 +496,8 @@ fn load_unturned(path: &Path, rotate: bool, max: Option<[u32; 2]>) -> Result<Unt
         return Ok((img, None, upright, size));
     }
     if has_ext(path, raw::EXTS) {
-        return Ok((raw::load(path, rotate)?, None, upright, None));
+        let (img, turn) = raw::unturned(&read_limited(path).map_err(|e| e.to_string())?)?;
+        return Ok((img, None, if rotate { turn } else { upright }, None));
     }
     #[cfg(any(feature = "heic", feature = "avif"))]
     if crate::files::external::is_heif(path) {
@@ -626,14 +632,13 @@ pub fn scaled(
     if !matches!(info.pixel_format, PixelFormat::RGB24 | PixelFormat::L8) {
         return None;
     }
-    // A progressive JPEG keeps a coefficient (2 bytes) of every pixel and channel at full size
-    // while it decodes, and jpeg-decoder does not limit that. A file of a few KB that claims
-    // 65535×65535 would ask for 25 GB, so image's decoder, which has the limit, takes it
-    // instead.
-    let coefficients = u64::from(info.width) * u64::from(info.height) * 2;
-    if info.coding_process == jpeg_decoder::CodingProcess::DctProgressive
-        && coefficients * info.pixel_format.pixel_bytes() as u64 > MAX_DECODE
-    {
+    // jpeg-decoder has no limit of its own. A progressive JPEG keeps a coefficient (2 bytes) of
+    // every pixel and channel at full size while it decodes, so a file of a few KB that claims
+    // 65535×65535 would ask for 25 GB. Any JPEG that does not fit goes to image's decoder,
+    // which refuses it.
+    let bytes = info.pixel_format.pixel_bytes() as u64;
+    let progressive = info.coding_process == jpeg_decoder::CodingProcess::DctProgressive;
+    if progressive && !fits(info.width.into(), info.height.into(), 2 * bytes) {
         return None;
     }
     let orientation = (orientation.or_else(|| dec.exif_data().and_then(exif::orientation)))
@@ -653,6 +658,12 @@ pub fn scaled(
     // jpeg-decoder takes the smallest of 1/8, 1/4, 1/2 and 1/1 at least this large.
     let (want_w, want_h) = ((w * scale).ceil() as u16, (h * scale).ceil() as u16);
     let (sw, sh) = dec.scale(want_w, want_h).ok()?;
+    // A baseline JPEG is decoded at the scaled size, into a plane for each channel and then the
+    // pixels, so twice the pixels' bytes. 40000×40000 shown at 1/2 would take 2.4 GB.
+    if !fits(sw.into(), sh.into(), 2 * bytes) {
+        return None;
+    }
+    #[allow(clippy::disallowed_methods)] // the one place, after `fits`
     let pixels = dec.decode().ok()?;
     let (sw, sh) = (sw as u32, sh as u32);
     let mut img: image::DynamicImage = match info.pixel_format {
@@ -673,16 +684,40 @@ pub fn set_animation_limit(mb: usize) {
     MAX_ANIMATION.store(mb << 20, Ordering::Relaxed);
 }
 
+/// Whether a picture of `w`×`h` with `bytes` bytes for each pixel fits in what one decode may
+/// allocate (`MAX_DECODE`). Every decoder asks it before it allocates from a size the file
+/// claims, so a header of a few bytes that claims gigabytes is refused, not allocated.
+pub fn fits(w: u32, h: u32, bytes: u64) -> bool {
+    (u64::from(w) * u64::from(h)).saturating_mul(bytes) <= MAX_DECODE
+}
+
 /// Decodes the image `dec` reads, after the size limit that `ImageReader` applies. The image
 /// crate's own `from_decoder` allocates whatever the header claims, so a few bytes that claim
 /// a huge image would make Glimt allocate gigabytes, which aborts the process. This is the one
 /// way a decoder made directly is decoded; clippy refuses the image crate's.
 pub fn from_decoder(dec: impl ImageDecoder) -> Result<image::DynamicImage, String> {
-    match dec.total_bytes() {
-        n if n > MAX_DECODE => Err(format!("image too large ({})", human_size(n))),
-        #[allow(clippy::disallowed_methods)] // the one place, after the size limit
-        _ => image::DynamicImage::from_decoder(dec).map_err(|e| e.to_string()),
+    let (w, h) = dec.dimensions();
+    if !fits(w, h, dec.color_type().bytes_per_pixel().into()) {
+        return Err(format!(
+            "image too large ({})",
+            human_size(dec.total_bytes())
+        ));
     }
+    #[allow(clippy::disallowed_methods)] // the one place, after `fits`
+    image::DynamicImage::from_decoder(dec).map_err(|e| e.to_string())
+}
+
+/// Decodes an image held in memory, of the format its bytes tell, after `fits`. It is the one
+/// way bytes are decoded (a decoder plugin's or ffmpeg's output, an ICO's image, a cached
+/// thumbnail). Clippy refuses the image crate's `load_from_memory`.
+pub fn from_memory(bytes: &[u8]) -> Result<image::DynamicImage, String> {
+    let reader = image::ImageReader::new(std::io::Cursor::new(bytes)).with_guessed_format();
+    from_decoder(
+        reader
+            .map_err(|e| e.to_string())?
+            .into_decoder()
+            .map_err(|e| e.to_string())?,
+    )
 }
 
 /// Whether Glimt can show `path`, for Check Images. The file is decoded small, as for the list's
@@ -1445,6 +1480,32 @@ mod tests {
             )
         );
         std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A header that claims 40000×40000 is refused by every way a file is decoded, before
+    /// anything of that size is allocated: the JPEG scaled to 1/2 for a view zoomed on a large
+    /// screen, the image crate, an animation, and the bytes of a decoder plugin or ffmpeg.
+    #[test]
+    fn refuses_a_header_that_claims_too_much() {
+        let mut jpeg = Vec::new();
+        image::RgbImage::new(16, 16)
+            .write_to(
+                &mut std::io::Cursor::new(&mut jpeg),
+                image::ImageFormat::Jpeg,
+            )
+            .unwrap();
+        // The baseline frame header holds the height and then the width, 40000 being 0x9C40.
+        let sof = jpeg.windows(2).position(|w| w == [0xFF, 0xC0]).unwrap();
+        jpeg[sof + 5..sof + 9].copy_from_slice(&[0x9C, 0x40, 0x9C, 0x40]);
+        assert!(super::scaled(&jpeg, [16384, 16384], false, None).is_none());
+        let file =
+            std::env::temp_dir().join(format!("glimt-test-claims-{}.jpg", std::process::id()));
+        std::fs::write(&file, &jpeg).unwrap();
+        assert!(super::decode(&file, [16384, 16384], false, 0).is_err());
+        assert!(super::small(&file, [16384, 16384], false).is_err());
+        std::fs::remove_file(&file).unwrap();
+        assert!(super::from_memory(b"P6\n40000 40000\n255\n").is_err());
+        assert!(super::too_large_animation((40000, 40000)));
     }
 
     /// A file larger than Glimt decodes is refused before it is read whole, so a sparse one of

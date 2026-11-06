@@ -2685,6 +2685,9 @@ msgstr "Afritið í {folder} er ekki heilt: {e}"
 msgid "the file was moved, renamed or deleted meanwhile"
 msgstr "skráin var færð, endurnefnd eða henni eytt á meðan"
 
+msgid "the file is read-only"
+msgstr "skráin er skrifvarin"
+
 #: src/files/external.rs
 msgid "HEIC and AVIF need ffprobe (ffmpeg): {e}"
 msgstr "HEIC og AVIF þurfa ffprobe (ffmpeg): {e}"

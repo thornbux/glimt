@@ -13,16 +13,22 @@ pub const EXTS: &[&str] = &[
     "arq", "gpr", "raw",
 ];
 
-/// The preview, turned upright if `rotate`.
-pub fn load(path: &Path, rotate: bool) -> Result<image::DynamicImage, String> {
-    load_data(
-        &crate::images::decode::read_limited(path).map_err(|e| e.to_string())?,
-        rotate,
-    )
+/// The preview of a RAW file read already, turned upright if `rotate`.
+pub fn load_data(data: &[u8], rotate: bool) -> Result<image::DynamicImage, String> {
+    let (mut img, orientation) = unturned(data)?;
+    // It is wanted whole, near the size it is shown (`decode::scaled_jpeg`), so it is turned
+    // whole.
+    if rotate {
+        img.apply_orientation(orientation);
+    }
+    Ok(img)
 }
 
-/// `load` of a RAW file read already.
-pub fn load_data(data: &[u8], rotate: bool) -> Result<image::DynamicImage, String> {
+/// The preview of a RAW file read already, with the EXIF turn still to do, so that a caller
+/// that shrinks it turns the small image.
+pub fn unturned(
+    data: &[u8],
+) -> Result<(image::DynamicImage, image::metadata::Orientation), String> {
     let jpeg = preview(data).ok_or("no preview image in the RAW file")?;
     let mut dec = image::codecs::jpeg::JpegDecoder::new(std::io::Cursor::new(jpeg))
         .map_err(|e| e.to_string())?;
@@ -30,11 +36,7 @@ pub fn load_data(data: &[u8], rotate: bool) -> Result<image::DynamicImage, Strin
     let orientation = crate::metadata::exif::orientation(data)
         .or_else(|| dec.orientation().ok())
         .unwrap_or(image::metadata::Orientation::NoTransforms);
-    let mut img = crate::images::decode::from_decoder(dec)?;
-    if rotate {
-        img.apply_orientation(orientation);
-    }
-    Ok(img)
+    Ok((crate::images::decode::from_decoder(dec)?, orientation))
 }
 
 /// The EXIF block: the file itself if it is TIFF-based (its header is enough), else the one
@@ -186,7 +188,8 @@ mod tests {
             ["a.arq", "b.gpr", "c.raw"].map(std::ffi::OsString::from)
         );
         for name in listed {
-            let img = super::load(&dir.join(name), true).unwrap();
+            let data = crate::images::decode::read_limited(dir.join(name)).unwrap();
+            let img = super::load_data(&data, true).unwrap();
             assert_eq!((img.width(), img.height()), (60, 40));
         }
         std::fs::remove_dir_all(dir).unwrap();

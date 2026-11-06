@@ -1233,7 +1233,9 @@ fn logo(ctx: &egui::Context) -> Option<egui::TextureHandle> {
     if let Some(logo) = ctx.data(|d| d.get_temp::<egui::TextureHandle>(id)) {
         return Some(logo);
     }
-    let img = image::load_from_memory(crate::LOGO).ok()?.into_rgba8();
+    let img = crate::images::decode::from_memory(crate::LOGO)
+        .ok()?
+        .into_rgba8();
     let size = [img.width() as usize, img.height() as usize];
     let pixels = egui::ColorImage::from_rgba_unmultiplied(size, img.as_raw());
     let logo = ctx.load_texture("glimt-logo", pixels, egui::TextureOptions::LINEAR);

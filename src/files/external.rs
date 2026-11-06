@@ -444,7 +444,7 @@ pub fn ffmpeg_ppm(
     if !ok || frame.is_empty() {
         return Err(last_line(&err, "no frame"));
     }
-    image::load_from_memory_with_format(&frame, image::ImageFormat::Pnm).map_err(|e| e.to_string())
+    crate::images::decode::from_memory(&frame)
 }
 
 #[cfg(feature = "video")]

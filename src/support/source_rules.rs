@@ -809,6 +809,40 @@ fn panics_are_caught_in_one_place() {
     );
 }
 
+/// A decoded image is turned by its EXIF orientation only after it is shrunk to the size shown
+/// (`decode::shrunk_upright`), or where the whole image is wanted. A thumbnail of a 50 MP 16-bit
+/// TIFF with orientation 6 turned whole held two full buffers in each thumbnail thread.
+#[test]
+fn images_are_turned_after_they_shrink() {
+    // Each place that may turn, and why: the scaled JPEG is at its scaled size already, and the
+    // others are for a whole image (Save As, a turned save, a RAW preview shown near its size).
+    let allowed = [
+        "images/decode.rs shrunk_upright",
+        "images/decode.rs scaled",
+        "images/decode.rs load_icc",
+        "images/raw.rs load_data",
+    ];
+    let mut wrong = Vec::new();
+    for (file, text) in rust_sources() {
+        let lines = code_lines(&text);
+        let mut function = "";
+        for (i, line) in lines[..tests_start(&lines)].iter().enumerate() {
+            if let Some(rest) = qualifiers_off(line).strip_prefix("fn ") {
+                function = rest.split(['(', '<']).next().unwrap_or("");
+            }
+            let place = format!("{file} {function}");
+            if line.contains("apply_orientation(") && !allowed.contains(&place.as_str()) {
+                wrong.push(format!("{file}:{} in {function}", i + 1));
+            }
+        }
+    }
+    assert!(
+        wrong.is_empty(),
+        "an image turned before it is shrunk (use decode::shrunk_upright):\n{}",
+        wrong.join("\n")
+    );
+}
+
 /// A process-wide copy of a setting is written only by its setter, so no place that changes the
 /// setting can leave the copy behind. A setting saved but not in effect until a restart was
 /// fixed three times for the user's own keys.

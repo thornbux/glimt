@@ -436,6 +436,7 @@ pub fn replace_name_with(
     write: impl FnOnce(&mut std::fs::File) -> std::io::Result<()>,
     before: impl FnOnce() -> std::io::Result<()>,
 ) -> std::io::Result<()> {
+    writable(path)?;
     #[allow(clippy::disallowed_methods)] // replaces on purpose, the name and never a link's target
     let land =
         |tmp: &Path| before().and_then(|_| std::fs::rename(tmp, path).map_err(|e| plain(e, path)));
@@ -460,10 +461,37 @@ fn replace(path: &Path, bytes: impl AsRef<[u8]>, existing: bool) -> std::io::Res
     // shortcut: `there` is looked at just before the rename, not in the same step; a file that
     // goes in those microseconds comes back. renameat2 with RENAME_EXCHANGE if that is ever seen.
     there()?;
+    if existing {
+        writable(path)?;
+    }
     #[allow(clippy::disallowed_methods)] // replaces on purpose: the one writer of a file again
     write_beside(&tmp_path(path), path, write, |tmp| {
         there().and_then(|_| std::fs::rename(tmp, path).map_err(|e| plain(e, path)))
     })
+}
+
+/// Refuses to replace the file at `path` when this user may not write it: a photo made
+/// read-only (0444), or another user's file. A replace renames a new file over the old one,
+/// which needs only the folder's write bit, so without this check a read-only file would be
+/// written over, where Geeqie, which writes in place, fails. A file without a write bit is
+/// refused also for root, who may write any file, as its owner marked it so. A link at the name
+/// passes, because the link itself is replaced, and so does a name that is not there yet.
+/// Glimt's own files (`replace_file`) are not asked, as before.
+fn writable(path: &Path) -> std::io::Result<()> {
+    use std::os::unix::ffi::OsStrExt;
+    let Some(meta) = std::fs::symlink_metadata(path).ok().filter(|m| m.is_file()) else {
+        return Ok(());
+    };
+    let name = std::ffi::CString::new(path.as_os_str().as_bytes())?;
+    // SAFETY: `name` is a C string that lives through the call, and access only reads it.
+    let allowed = unsafe { libc::access(name.as_ptr(), libc::W_OK) } == 0;
+    match allowed && !meta.permissions().readonly() {
+        true => Ok(()),
+        false => Err(std::io::Error::new(
+            std::io::ErrorKind::PermissionDenied,
+            crate::support::lang::tr("the file is read-only"),
+        )),
+    }
 }
 
 /// A file written whole at `tmp` beside `path` (`new_beside`), on disk, and then given its name
@@ -855,6 +883,37 @@ mod tests {
         super::flush();
         assert!(done.load(Relaxed));
         assert!(t.elapsed() < std::time::Duration::from_secs(4));
+    }
+
+    /// A read-only file, or one of another user, is not replaced by a saved turn, a sidecar or
+    /// Save As, though the folder may be written. A link at the name is still replaced, and the
+    /// read-only file it points to is left alone.
+    #[test]
+    fn a_read_only_file_is_not_replaced() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = std::env::temp_dir().join(format!("glimt-test-ro-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("a.jpg");
+        std::fs::write(&file, "old").unwrap();
+        std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o444)).unwrap();
+        for result in [
+            super::replace_existing(&file, "new"),
+            super::replace_name(&file, "new"),
+        ] {
+            let refused = result.unwrap_err().kind();
+            assert_eq!(refused, std::io::ErrorKind::PermissionDenied);
+        }
+        assert_eq!(std::fs::read_to_string(&file).unwrap(), "old");
+        assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 1, "no tmp left");
+        let link = dir.join("b.jpg");
+        std::os::unix::fs::symlink(&file, &link).unwrap();
+        super::replace_name(&link, "new").unwrap();
+        assert_eq!(std::fs::read_to_string(&file).unwrap(), "old");
+        assert_eq!(std::fs::read_to_string(&link).unwrap(), "new");
+        // Glimt's own files take a change as before.
+        super::replace_file(&file, "own").unwrap();
+        assert_eq!(std::fs::read_to_string(&file).unwrap(), "own");
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     /// A file deleted (or moved) while its new version was being made is not made again under

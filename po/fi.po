@@ -2685,6 +2685,9 @@ msgstr "Varmuuskopio kansioon {folder} ei ole täydellinen: {e}"
 msgid "the file was moved, renamed or deleted meanwhile"
 msgstr "tiedosto siirrettiin, nimettiin uudelleen tai poistettiin sillä välin"
 
+msgid "the file is read-only"
+msgstr "tiedosto on kirjoitussuojattu"
+
 #: src/files/external.rs
 msgid "HEIC and AVIF need ffprobe (ffmpeg): {e}"
 msgstr "HEIC ja AVIF vaativat ffproben (ffmpeg): {e}"

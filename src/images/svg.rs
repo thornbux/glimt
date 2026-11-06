@@ -1,7 +1,7 @@
 //! SVG and SVGZ through resvg (feature `svg`), with limits on what a file may make it do: the
 //! text unpacked, the pictures it links to, and entities that grow into gigabytes.
 
-use crate::images::decode::{MAX_DECODE, read_limited};
+use crate::images::decode::read_limited;
 use std::path::Path;
 
 /// usvg's own ways to fetch the pictures an SVG shows, with Glimt's limits first. A linked
@@ -17,7 +17,8 @@ fn svg_images() -> resvg::usvg::ImageHrefResolver<'static> {
     let fits = move |data: &[u8]| {
         let reader = image::ImageReader::new(std::io::Cursor::new(data)).with_guessed_format();
         let decoded = match reader.ok().and_then(|r| r.into_dimensions().ok()) {
-            Some((w, h)) => u64::from(w).saturating_mul(u64::from(h)).saturating_mul(4),
+            Some((w, h)) if !crate::images::decode::fits(w, h, 4) => return false,
+            Some((w, h)) => u64::from(w) * u64::from(h) * 4,
             // Data that image does not read as a picture, such as an SVG, goes to usvg, which
             // reads it with these limits. But usvg unpacks a gzipped one (svgz) without a limit.
             None if data.starts_with(&[0x1f, 0x8b]) => return false,
@@ -29,7 +30,7 @@ fn svg_images() -> resvg::usvg::ImageHrefResolver<'static> {
             spent.0.saturating_add(decoded),
             spent.1.saturating_add(data.len() as u64),
         );
-        let ok = decoded <= MAX_DECODE && pixels <= 1 << 30 && bytes <= 256 << 20;
+        let ok = pixels <= 1 << 30 && bytes <= 256 << 20;
         if ok {
             *spent = (pixels, bytes);
         }
