@@ -8,9 +8,10 @@ and versions follow [Semantic Versioning](https://semver.org/).
 ### Fixed
 
 - Copy To, Move To and the sort folders' buttons onto a camera card reached through a link
-  (`~/card` → `/media/u/CARD`) say which characters the card refuses before copying anything,
-  as they do for the card's own folder. A folder picked in the file dialog is now resolved
-  through its links.
+  (`~/card` → `/media/u/CARD`) say which characters the card refuses and copy or move nothing,
+  as they do for the card's own folder, also with a sort folder saved before. The link is
+  followed in the job's background thread before the first file, and the folder is kept and
+  shown as it was picked.
 - A Copy To or Move To of many files with a name a camera card refuses stops at the first such
   name, instead of first making a path of every one in the window's thread.
 
