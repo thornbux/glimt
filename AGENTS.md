@@ -294,6 +294,24 @@ third of them fixes of fixes, none reported by a user.
 An audit or review ranks each finding against this bar and says why; one it cannot place is
 should fix.
 
+### Fix the root, once, and right the first time
+
+Findings come in classes, and a class fixed one symptom at a time comes back. After an audit
+or review, the findings are grouped by what lets them happen before anything is fixed: a rule
+held in two places, a way in that goes around the one function for it, a setting of the view
+that reaches what is written to a file, an action that does not say which file it acts on, a
+new view of the list that misses what every view needs. Each class is then fixed where it
+starts, in the one shared place, with a test or a `source_rules` check that fails when new
+code opens the class again. The branches of a release follow the classes, not the findings.
+New features are built the same way: what they share with the rest goes through the shared
+place from the start.
+
+A fix is right the first time when it closes every way in. Before the change, list each path
+that reaches the code it guards (its callers, the actions and `--remote` commands that end
+there, the background threads and the moments between a start and its answer) and check the
+fix against each. 0.65.1's list that named a folder took three audit rounds, because the
+first fix closed one way in and the next two were found by the audits.
+
 ## Releases: two tracks
 
 - **A minor release (X.Y.0)** gathers new features and structural work: one or two features at
