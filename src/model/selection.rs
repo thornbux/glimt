@@ -14,8 +14,11 @@ impl crate::App {
     // ---- Moving through the list, and the selection ----
 
     /// Image `i`'s name as shown: relative to the folder, or in a collection the file name.
+    /// Returns an empty text when there is no image `i`. Every caller only shows the name, and a
+    /// frame drawn while the list is empty (an empty folder, the last file just deleted) asks
+    /// for the shown image's name too.
     pub(crate) fn name(&self, i: usize) -> std::borrow::Cow<'_, str> {
-        self.name_shown(&self.list.files()[i])
+        (self.list.files().get(i)).map_or("".into(), |name| self.name_shown(name))
     }
 
     /// Returns how the list shows `name`, an entry of the list's files.
