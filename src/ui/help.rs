@@ -572,8 +572,9 @@ const MANUAL: &[(&str, &str)] = &[
          with every word typed show, in English or in the language shown, and Keyboard shortcuts \
          only the actions it finds. Esc clears it, and closes Preferences when it is empty.\n\n\
          Language: the interface in English, Danish, Dutch, Finnish, French, German, Icelandic, \
-         Italian, Norwegian bokmål, Polish, Spanish or Swedish, by the system's language (LANG) \
-         or as chosen; a text not translated shows in English, and this manual stays English. \
+         Italian, Norwegian bokmål, Polish, Brazilian Portuguese, Spanish or Swedish, by the \
+         system's language (LANG) or as chosen; a text not translated shows in English, and this \
+         manual stays English. \
          Under Keyboard shortcuts, Change gives an action the next key you press; \
          Reset gives it Geeqie's keys back.\n\n\
          Memory use at the top sets several at once:\n\n\
@@ -623,7 +624,7 @@ const MANUAL: &[(&str, &str)] = &[
 const DIFFERENCES: &[(&str, &str, &str)] = &[
     (
         "Language",
-        "English and eleven more (Danish, German, French, Polish …), by LANG or chosen in \
+        "English and twelve more (Danish, German, French, Polish …), by LANG or chosen in \
          Preferences; the manual in English",
         "Some 40 languages by LANG only",
     ),
