@@ -240,8 +240,11 @@ pub(crate) fn land(
 ) -> std::io::Result<()> {
     // The lock of the copy's sidecar is held, as every writer of a sidecar holds it. A keyword
     // written to the replaced file from another window then waits, rather than landing between
-    // the old sidecar's removal and the new one's creation.
-    let _held = crate::metadata::xmp::held(new);
+    // the old sidecar's removal and the new one's creation. The image is written beside its name
+    // before the lock is taken, because that is the slow part on a share, and other sidecars of
+    // the lock's slot would wait for it. The lock is taken before the image takes its name and is
+    // held until the copy's sidecar is in place.
+    let mut held = None;
     // The sidecar is read before the copy is written, so one that cannot be read leaves no copy
     // behind. A sidecar that is a link counts as none, because what it points to (a private key)
     // is not the photo's.
@@ -264,11 +267,28 @@ pub(crate) fn land(
         // own keywords and stars. A link there is replaced, not the file it points to.
         true => {
             use std::io::Write;
-            crate::files::file_io::replace_name_with(new, |f| f.write_all(out), remove_side)?;
+            crate::files::file_io::replace_name_with(
+                new,
+                |f| f.write_all(out),
+                || {
+                    held = Some(crate::metadata::xmp::held(new));
+                    remove_side()
+                },
+            )?;
         }
         // A file of that name is not touched, nor its sidecar, because the copy is refused first.
         false => {
-            crate::files::file_io::create_file(new, out)?;
+            use std::io::Write;
+            let tmp = crate::files::file_io::tmp_path(new);
+            crate::files::file_io::write_beside(
+                &tmp,
+                new,
+                |f| f.write_all(out),
+                |tmp| {
+                    held = Some(crate::metadata::xmp::held(new));
+                    crate::files::file_io::rename_never_over(tmp, new)
+                },
+            )?;
             remove_side()?;
         }
     }
@@ -1240,7 +1260,9 @@ mod tests {
 
     /// A copy waits while the lock of its sidecar is held, as a keyword written from another
     /// window holds it. Without the wait, that keyword's sidecar could land between the old
-    /// sidecar's removal and the copy's, and the copy failed after its image was written.
+    /// sidecar's removal and the copy's, and the copy failed after its image was written. The
+    /// image itself is written beside its name meanwhile, so a slow share does not hold the lock
+    /// for the whole write.
     #[test]
     fn a_copy_waits_for_its_sidecar_lock() {
         let dir = std::env::temp_dir().join(format!("glimt-copy-held-{}", std::process::id()));
@@ -1253,12 +1275,24 @@ mod tests {
             let (a, b) = (a.clone(), b.clone());
             std::thread::spawn(move || super::land(&a, &b, b"x", false, false))
         };
-        std::thread::sleep(std::time::Duration::from_millis(300));
+        let written = || {
+            (std::fs::read_dir(&dir).unwrap().flatten()).any(|e| {
+                e.file_name().to_string_lossy().starts_with(".glimt-tmp-")
+                    && e.metadata().is_ok_and(|m| m.len() == 1)
+            })
+        };
+        let start = std::time::Instant::now();
+        while !written() && start.elapsed() < std::time::Duration::from_secs(10) {
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        assert!(written(), "the image waited for the sidecar's lock");
+        std::thread::sleep(std::time::Duration::from_millis(100));
         assert!(!b.exists(), "saved while the sidecar was held");
         drop(held);
         saver.join().unwrap().unwrap();
         let side = std::fs::read_to_string(crate::metadata::xmp::sidecar(&b)).unwrap();
         assert_eq!(side, "a's");
+        assert_eq!(std::fs::read(&b).unwrap(), b"x");
         std::fs::remove_dir_all(dir).unwrap();
     }
 

@@ -30,7 +30,7 @@ pub static COLOUR: std::sync::LazyLock<std::sync::RwLock<Colour>> =
             input: None,
             own: true,
             intent: moxcms::RenderingIntent::Perceptual,
-            transforms: Mutex::default(),
+            transforms: Arc::default(),
         })
     });
 
@@ -85,6 +85,7 @@ pub static ADOBE_RGB: std::sync::LazyLock<Vec<u8>> = std::sync::LazyLock::new(||
 });
 
 /// The colour settings of Preferences, for the decoding threads.
+#[derive(Clone)]
 pub struct Colour {
     /// `None`: the screen is taken to be sRGB.
     pub screen: Option<moxcms::ColorProfile>,
@@ -99,7 +100,7 @@ pub struct Colour {
     /// Made once for each source and target: some profiles cost more to make a transform from
     /// than the transform itself. By (source, to the screen): 0 is sRGB, 1 the input profile,
     /// the rest a hash of the image's profile.
-    pub transforms: Mutex<Transforms>,
+    pub transforms: Arc<Mutex<Transforms>>,
 }
 
 /// Colour transforms by (source, to the screen); `None` where none can be made.
@@ -183,7 +184,10 @@ pub fn convert(
     if screen {
         wait_for_screen();
     }
-    let c = COLOUR.read().unwrap_or_else(|e| e.into_inner());
+    // The settings are copied and their lock let go at once. A large or crafted profile can take
+    // long to parse, and with the lock held a change in Preferences would wait for it, and every
+    // other decoding thread would wait behind that change.
+    let c = COLOUR.read().unwrap_or_else(|e| e.into_inner()).clone();
     let icc = icc.filter(|_| c.own);
     let screen = screen && c.screen.is_some();
     let from = match icc {
@@ -217,7 +221,6 @@ pub fn convert(
         transforms.insert(key, t.clone());
         t
     });
-    drop(c);
     match t {
         Some(t) => transformed(&*t, img),
         None => img,
@@ -254,7 +257,7 @@ pub fn like_srgb(profile: &moxcms::ColorProfile) -> bool {
 pub fn set_colour(change: impl FnOnce(&mut Colour)) {
     let mut c = COLOUR.write().unwrap_or_else(|e| e.into_inner());
     change(&mut c);
-    c.transforms = Mutex::default();
+    c.transforms = Arc::default();
 }
 
 /// The screen profile in `path` (empty: none, sRGB). A file that is not an RGB profile is an
@@ -702,8 +705,8 @@ mod tests {
         true
     }
 
-    /// The transform cache is free while an image's profile is parsed, so that a slow one holds
-    /// up no other decoding thread.
+    /// The transform cache and the colour settings are free while an image's profile is parsed,
+    /// so that a slow one holds up no other decoding thread and no change in Preferences.
     #[test]
     fn parses_a_profile_with_the_cache_free() {
         use std::sync::atomic::{AtomicBool, Ordering};
@@ -712,6 +715,10 @@ mod tests {
             assert!(
                 soon(|| c.transforms.try_lock().is_ok()),
                 "the cache is locked"
+            );
+            assert!(
+                soon(|| super::COLOUR.try_write().is_ok()),
+                "the settings are locked"
             );
             PARSED.store(true, Ordering::Relaxed);
         }
