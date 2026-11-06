@@ -12,6 +12,11 @@ updates:
       # copy. Remove when image moves to moxcms 0.9.
       - dependency-name: moxcms
         versions: [">= 0.9"]
+      # The same for AccessKit (eframe's screen reader support), which still takes zbus 5: zbus 6
+      # for the portals would be a second copy in the full build. The branch fix-zbus6 has the
+      # move ready. Remove when accesskit_unix moves to zbus 6.
+      - dependency-name: zbus
+        versions: [">= 6"]
       # The same: in Cargo.toml for a feature of the version image or eframe already use, so a
       # minor or major step of their own would add a second copy. They move with image and eframe.
       - dependency-name: png
