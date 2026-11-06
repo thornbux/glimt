@@ -916,7 +916,8 @@ impl crate::App {
         let deleted_tx = self.work.deleted_tx.clone();
         let same_dir = paths.first().and_then(|p| p.parent()) == Some(self.folder.dir());
         // When the files go into the folder, or into one below it in the list with subfolders,
-        // they join the list.
+        // they join the list. Both paths are real, as `listing::walk` lists a folder reached
+        // through a link only when its real path is inside the folder's.
         let listed = dest == self.folder.dir()
             || (self.folder.recursive() && dest.starts_with(self.folder.dir()));
         let pointer = Working::new(&self.busy);
@@ -2327,6 +2328,45 @@ mod tests {
         assert!(settle(&mut app, &ctx, |a| !a.working()));
         super::test_mount(&card, None);
         assert!(d.join("media/12:30.png").exists(), "{:?}", app.notice);
+        std::fs::remove_dir_all(d).unwrap();
+    }
+
+    /// With subfolders and no auto refresh, a move into a link in the tree follows the rule the
+    /// list is read by. Into a link to a folder inside the tree, the file stays in the list. Into
+    /// a link to a folder outside it, the file leaves the list and is not listed again, as the
+    /// tree does not follow that link.
+    #[test]
+    fn a_move_into_a_link_in_the_tree_follows_the_listing() {
+        let d = std::env::temp_dir().join(format!("glimt-test-move-link-{}", std::process::id()));
+        std::fs::create_dir_all(d.join("tree/inner")).unwrap();
+        std::fs::create_dir_all(d.join("beside")).unwrap();
+        for f in ["a.png", "b.png"] {
+            image::RgbImage::new(2, 2)
+                .save(d.join("tree").join(f))
+                .unwrap();
+        }
+        std::os::unix::fs::symlink("inner", d.join("tree/in")).unwrap();
+        std::os::unix::fs::symlink("../beside", d.join("tree/out")).unwrap();
+        let tree = d.join("tree").canonicalize().unwrap();
+        let (mut app, ctx) = app_on(&tree);
+        app.config.auto_refresh = false;
+        app.set_subfolders(&ctx, true);
+        let names = |a: &crate::App| -> Vec<String> {
+            let files = a.list.files().iter();
+            let mut names: Vec<String> = files.map(|f| f.to_string_lossy().into_owned()).collect();
+            names.sort();
+            names
+        };
+        assert!(settle(&mut app, &ctx, |a| names(a) == ["a.png", "b.png"]));
+        app.transfer(&ctx, vec![tree.join("a.png")], tree.join("in"), false);
+        assert!(settle(&mut app, &ctx, |a| !a.working()
+            && names(a) == ["b.png", "in/a.png"]));
+        app.transfer(&ctx, vec![tree.join("b.png")], tree.join("out"), false);
+        assert!(settle(&mut app, &ctx, |a| !a.working() && names(a) == ["in/a.png"]));
+        assert!(d.join("beside/b.png").exists());
+        app.refresh(&ctx);
+        assert!(settle(&mut app, &ctx, |a| !a.folder.is_listing() && !a.working()));
+        assert_eq!(names(&app), ["in/a.png"]);
         std::fs::remove_dir_all(d).unwrap();
     }
 
