@@ -208,6 +208,18 @@ quit() {
     wait $GPID 2>/dev/null
 }
 shot() { import -window root /t/out/$1.png; }
+# A shot of a screen at rest: shots 0.5 s apart until two are the same, up to 10 seconds, as
+# thumbnails come late. A check that the screen changed compares with this, not with any shot.
+settled() {
+    shot $1
+    for i in $(seq 20); do
+        sleep 0.5; shot $1-next
+        [ "$(compare -metric AE /t/out/$1.png /t/out/$1-next.png null: 2>&1 | cut -d' ' -f1)" = 0 ] \
+            && break
+        mv /t/out/$1-next.png /t/out/$1.png
+    done
+    rm -f /t/out/$1-next.png
+}
 # Waits for a state instead of a fixed pause, which a loaded machine (six parts at once)
 # outruns: until the command succeeds, up to $2 seconds (10), in steps of 0.1 s; false when
 # the time is up, and the check after it then says what is wrong.
@@ -2116,8 +2128,8 @@ for v in new old; do
     printf '#GQview collection\n"%s/a.jpg"\n"%s/b.jpg"\n"%s/c.jpg"\n' $d $d $d >$d/show.gqv
     config
     start $d/show.gqv
-    key g; sleep 2
-    shot grid-notice-before-$v
+    key g
+    settled grid-notice-before-$v
     key ctrl+f; sleep 1                    # New Folder in a collection: a notice, no dialog
     shot grid-notice-after-$v
     quit
@@ -2126,7 +2138,7 @@ for v in new old; do
     if [ $v = new ]; then
         if [ "${changed%.*}" -gt 500 ] 2>/dev/null; then pass "the notice shows ($changed pixels)"
         else fail "the notice shows: $changed pixels changed"; fi
-    else note "old: $changed pixels changed (no grid)"; fi
+    else note "old: $changed pixels changed"; fi
 done
 
 section "a rectangle dragged while the folder changes: the selection keeps its files"
