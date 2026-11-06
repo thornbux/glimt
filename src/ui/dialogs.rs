@@ -885,15 +885,7 @@ impl crate::App {
     /// Every dialog and window reads its Enter or Esc here, never from the input as a whole
     /// (`source_rules::keys_answer_through_one_place`).
     pub(crate) fn answers(&self, ctx: &egui::Context, key: egui::Key) -> bool {
-        let before = ctx
-            .data(|d| d.get_temp::<Option<egui::Id>>(focus_before()))
-            .flatten();
-        let now = ctx.memory(|m| m.focused());
-        if [before, now]
-            .into_iter()
-            .flatten()
-            .any(|f| Some(f) != self.image_id)
-        {
+        if self.focus_held(ctx) {
             return false;
         }
         ctx.input_mut(|i| {
@@ -904,6 +896,23 @@ impl crate::App {
             let at = i.events.iter().position(new);
             at.map(|at| i.events.remove(at)).is_some()
         })
+    }
+
+    /// Returns whether a widget has the keyboard focus, or had it as the last frame ended, so
+    /// that the keys of this frame are its own. egui takes a text field's focus away at the
+    /// start of the frame Esc is pressed in, so only the last frame's focus shows that the Esc
+    /// left the field. The image area's focus does not count, because it holds the focus for a
+    /// screen reader. `answers` and the shortcuts in `read_keys` both ask here, so a key is
+    /// never the widget's for one of them and free for the other.
+    pub(crate) fn focus_held(&self, ctx: &egui::Context) -> bool {
+        let before = ctx
+            .data(|d| d.get_temp::<Option<egui::Id>>(focus_before()))
+            .flatten();
+        let now = ctx.memory(|m| m.focused());
+        [before, now]
+            .into_iter()
+            .flatten()
+            .any(|f| Some(f) != self.image_id)
     }
 
     /// Notes the widget with the keyboard focus as the frame ends, for `answers` in the next.

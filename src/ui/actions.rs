@@ -1232,11 +1232,9 @@ impl crate::App {
 
     /// The action of the key pressed this frame, if any; the arrow keys move a zoomed image first.
     pub(crate) fn read_keys(&mut self, ctx: &egui::Context) -> Option<Action> {
-        // Shortcuts go to the dialogs while one is open, and to the text field while one has
-        // the focus (the toolbar's folder path).
-        let typing = ctx
-            .memory(|m| m.focused())
-            .is_some_and(|f| Some(f) != self.image_id);
+        // Shortcuts go to the dialogs while one is open, and to the widget with the focus (the
+        // toolbar's folder path), also in the frame Esc takes the focus from it.
+        let typing = self.focus_held(ctx);
         // Choosing a part to crop: Escape stops and Enter saves it. Both are read before the
         // shortcuts could take them, and neither while a widget has the focus, because the key
         // belongs to the widget then.
@@ -1832,5 +1830,51 @@ mod tests {
             pressed(super::CTRL_SHIFT, key(super::CTRL_SHIFT)),
             Some(super::Action::CopyImage)
         );
+    }
+
+    /// Esc in a text field only leaves the field, and runs no shortcut. egui takes the field's
+    /// focus away at the start of the frame Esc is pressed in, so the shortcuts' Esc also left
+    /// full screen, stopped the slideshow or went back to the grid. The next Esc runs it.
+    #[test]
+    fn esc_in_a_text_field_runs_no_shortcut() {
+        use eframe::egui;
+        let dir = std::env::temp_dir().join(format!("glimt-test-esc-keys-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let (mut app, ctx) = crate::support::test_support::app_on(&dir);
+        let field = egui::Id::unique("a text field");
+        let mut esc = |focus: bool| {
+            let event = |pressed| egui::Event::Key {
+                key: egui::Key::Escape,
+                physical_key: None,
+                pressed,
+                repeat: false,
+                modifiers: Default::default(),
+            };
+            let input = egui::RawInput {
+                events: vec![event(true), event(false)],
+                ..Default::default()
+            };
+            let mut action = None;
+            let _ = ctx.run_ui(input, |ui| {
+                action = app.read_keys(ui.ctx());
+                if focus {
+                    ui.memory_mut(|m| m.request_focus(field));
+                }
+                app.note_focus(ui.ctx());
+            });
+            action
+        };
+        esc(true);
+        assert_eq!(
+            esc(false),
+            None,
+            "Esc that left a text field ran a shortcut"
+        );
+        assert_eq!(
+            esc(false),
+            Some(Action::Escape),
+            "Esc with nothing focused did nothing"
+        );
+        std::fs::remove_dir_all(dir).unwrap();
     }
 }
