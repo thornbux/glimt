@@ -1,0 +1,2848 @@
+# Glimt's interface in Czech. The English text is the msgid; a text left out, or
+# with an empty msgstr, shows in English.
+msgid ""
+msgstr ""
+"Project-Id-Version: Glimt\n"
+"Language: cs\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Plural-Forms: nplurals=3; plural=(n==1 ? 0 : (n>=2 && n<=4) ? 1 : 2);\n"
+
+#: src/ui/accessibility.rs
+msgid "No images"
+msgstr "Žádné obrázky"
+
+#: src/ui/actions.rs
+msgid "About Glimt"
+msgstr "O aplikaci Glimt"
+
+#: src/ui/actions.rs
+msgid "Auto Rotate Using EXIF"
+msgstr "Automaticky otáčet podle EXIF"
+
+#: src/ui/actions.rs
+msgid "Back"
+msgstr "Zpět"
+
+#: src/ui/actions.rs
+msgid "Back Up Glimt's Data…"
+msgstr "Zálohovat data Glimtu…"
+
+#: src/ui/actions.rs
+msgid "Check Images…"
+msgstr "Zkontrolovat obrázky…"
+
+#: src/ui/actions.rs
+msgid "Close Window"
+msgstr "Zavřít okno"
+
+#: src/ui/actions.rs
+msgid "Compare Side by Side"
+msgstr "Porovnat vedle sebe"
+
+#: src/ui/actions.rs
+msgid "Copy Files to Clipboard"
+msgstr "Kopírovat soubory do schránky"
+
+#: src/ui/actions.rs
+msgid "Copy Image to Clipboard"
+msgstr "Kopírovat obrázek do schránky"
+
+#: src/ui/actions.rs
+msgid "Copy Path (Unquoted)"
+msgstr "Kopírovat cestu (bez uvozovek)"
+
+#: src/ui/actions.rs
+msgid "Copy Path to Clipboard"
+msgstr "Kopírovat cestu do schránky"
+
+#: src/ui/actions.rs
+msgid "Copy…"
+msgstr "Kopírovat…"
+
+#: src/ui/actions.rs
+msgid "Delete Permanently…"
+msgstr "Trvale smazat…"
+
+#: src/ui/actions.rs
+msgid "Delete…"
+msgstr "Smazat…"
+
+#: src/ui/actions.rs
+msgid "EXIF Window"
+msgstr "Okno EXIF"
+
+#: src/ui/actions.rs
+msgid "Export Frames…"
+msgstr "Exportovat snímky…"
+
+#: src/ui/actions.rs
+msgid "Faster"
+msgstr "Rychleji"
+
+#: src/ui/actions.rs
+msgid "Fill the View"
+msgstr "Vyplnit zobrazení"
+
+#: src/ui/actions.rs
+msgid "Find Duplicates…"
+msgstr "Najít duplicity…"
+
+#: src/ui/actions.rs
+msgid "First Image"
+msgstr "První obrázek"
+
+#: src/ui/actions.rs
+msgid "Fit the Height"
+msgstr "Přizpůsobit výšce"
+
+#: src/ui/actions.rs
+msgid "Fit the Width"
+msgstr "Přizpůsobit šířce"
+
+#: src/ui/actions.rs
+msgid "Flip"
+msgstr "Převrátit"
+
+#: src/ui/actions.rs
+msgid "Forward"
+msgstr "Vpřed"
+
+#: src/ui/actions.rs
+msgid "Full Screen"
+msgstr "Celá obrazovka"
+
+#: src/ui/actions.rs
+msgid "Help Manual"
+msgstr "Příručka"
+
+#: src/ui/actions.rs
+msgid "Hide File List"
+msgstr "Skrýt seznam souborů"
+
+#: src/ui/actions.rs
+msgid "Histogram: Off, RGB, Brightness"
+msgstr "Histogram: vypnuto, RGB, jas"
+
+#: src/ui/actions.rs
+msgid "Home"
+msgstr "Domů"
+
+#: src/ui/actions.rs
+msgid "Import Lightroom Catalog…"
+msgstr "Importovat katalog Lightroomu…"
+
+#: src/ui/actions.rs
+msgid "Include Subfolders"
+msgstr "Včetně podsložek"
+
+#: src/ui/actions.rs
+msgid "Invert Selection"
+msgstr "Obrátit výběr"
+
+#: src/ui/actions.rs
+msgid "Keyboard Map"
+msgstr "Mapa klávesnice"
+
+#: src/ui/actions.rs
+msgid "Keyboard Shortcuts"
+msgstr "Klávesové zkratky"
+
+#: src/ui/actions.rs
+msgid "Keywords and Comment"
+msgstr "Klíčová slova a komentář"
+
+#: src/ui/actions.rs
+msgid "Last Image"
+msgstr "Poslední obrázek"
+
+#: src/ui/actions.rs
+msgid "Logarithmic Histogram"
+msgstr "Logaritmický histogram"
+
+#: src/ui/actions.rs
+msgid "Mark 1"
+msgstr "Značka 1"
+
+#: src/ui/actions.rs
+msgid "Mark 2"
+msgstr "Značka 2"
+
+#: src/ui/actions.rs
+msgid "Mark 3"
+msgstr "Značka 3"
+
+#: src/ui/actions.rs
+msgid "Mark 4"
+msgstr "Značka 4"
+
+#: src/ui/actions.rs
+msgid "Mark 5"
+msgstr "Značka 5"
+
+#: src/ui/actions.rs
+msgid "Mark 6"
+msgstr "Značka 6"
+
+#: src/ui/actions.rs
+msgid "Mirror"
+msgstr "Zrcadlit"
+
+#: src/ui/actions.rs
+msgid "Move Collection to Trash"
+msgstr "Přesunout kolekci do koše"
+
+#: src/ui/actions.rs
+msgid "Move Earlier in Collection"
+msgstr "Posunout v kolekci dopředu"
+
+#: src/ui/actions.rs
+msgid "Move Later in Collection"
+msgstr "Posunout v kolekci dozadu"
+
+#: src/ui/actions.rs
+msgid "Move to End of Collection"
+msgstr "Přesunout na konec kolekce"
+
+#: src/ui/actions.rs
+msgid "Move to Start of Collection"
+msgstr "Přesunout na začátek kolekce"
+
+#: src/ui/actions.rs
+msgid "Move…"
+msgstr "Přesunout…"
+
+#: src/ui/actions.rs
+msgid "New Collection…"
+msgstr "Nová kolekce…"
+
+#: src/ui/actions.rs
+msgid "New Folder…"
+msgstr "Nová složka…"
+
+#: src/ui/actions.rs
+msgid "New Window"
+msgstr "Nové okno"
+
+#: src/ui/actions.rs
+msgid "Next Filter"
+msgstr "Další filtr"
+
+#: src/ui/actions.rs
+msgid "Next Image"
+msgstr "Další obrázek"
+
+#: src/ui/actions.rs
+msgid "Next Layout"
+msgstr "Další rozvržení"
+
+#: src/ui/actions.rs
+msgid "Next Page"
+msgstr "Další stránka"
+
+#: src/ui/actions.rs
+msgid "No Stars"
+msgstr "Bez hvězdiček"
+
+#: src/ui/actions.rs
+msgid "One Image"
+msgstr "Jeden obrázek"
+
+#: src/ui/actions.rs
+msgid "Open Collection…"
+msgstr "Otevřít kolekci…"
+
+#: src/ui/actions.rs
+msgid "Open File…"
+msgstr "Otevřít soubor…"
+
+#: src/ui/actions.rs
+msgid "Open Folder Recursive…"
+msgstr "Otevřít složku i s podsložkami…"
+
+#: src/ui/actions.rs
+msgid "Open Folder…"
+msgstr "Otevřít složku…"
+
+#: src/ui/actions.rs
+msgid "Open Several Folders…"
+msgstr "Otevřít několik složek…"
+
+#: src/ui/actions.rs
+msgid "Open With Default App"
+msgstr "Otevřít ve výchozí aplikaci"
+
+#: src/ui/actions.rs
+msgid "Pan View"
+msgstr "Přehledové zobrazení"
+
+#: src/ui/actions.rs
+msgid "Pane Above"
+msgstr "Podokno nad"
+
+#: src/ui/actions.rs
+msgid "Pane Below"
+msgstr "Podokno pod"
+
+#: src/ui/actions.rs
+msgid "Pane to the Left"
+msgstr "Podokno vlevo"
+
+#: src/ui/actions.rs
+msgid "Pane to the Right"
+msgstr "Podokno vpravo"
+
+#: src/ui/actions.rs
+msgid "Pause Slideshow"
+msgstr "Pozastavit prezentaci"
+
+#: src/ui/actions.rs
+msgid "Play Animations"
+msgstr "Přehrávat animace"
+
+#: src/ui/actions.rs
+msgid "Play Video"
+msgstr "Přehrát video"
+
+#: src/ui/actions.rs
+msgid "Preferences…"
+msgstr "Předvolby…"
+
+#: src/ui/actions.rs
+msgid "Previous Image"
+msgstr "Předchozí obrázek"
+
+#: src/ui/actions.rs
+msgid "Previous Page"
+msgstr "Předchozí stránka"
+
+#: src/ui/actions.rs
+msgid "Print…"
+msgstr "Tisk…"
+
+#: src/ui/actions.rs
+msgid "Projector"
+msgstr "Projektor"
+
+#: src/ui/actions.rs
+msgid "Quit"
+msgstr "Ukončit"
+
+#: src/ui/actions.rs
+msgid "Random Order"
+msgstr "Náhodné pořadí"
+
+#: src/ui/actions.rs
+msgid "Refresh"
+msgstr "Obnovit"
+
+#: src/ui/actions.rs
+msgid "Remove from Collection"
+msgstr "Odebrat z kolekce"
+
+#: src/ui/actions.rs
+msgid "Rename Collection…"
+msgstr "Přejmenovat kolekci…"
+
+#: src/ui/actions.rs
+msgid "Rename…"
+msgstr "Přejmenovat…"
+
+#: src/ui/actions.rs
+msgid "Rotate 180°"
+msgstr "Otočit o 180°"
+
+#: src/ui/actions.rs
+msgid "Rotate Clockwise"
+msgstr "Otočit po směru hodinových ručiček"
+
+#: src/ui/actions.rs
+msgid "Rotate Counterclockwise"
+msgstr "Otočit proti směru hodinových ručiček"
+
+#: src/ui/actions.rs
+msgid "Save Orientation to File"
+msgstr "Uložit orientaci do souboru"
+
+#: src/ui/actions.rs
+msgid "Crop…"
+msgstr "Oříznout…"
+
+#: src/ui/actions.rs
+msgid "Save As…"
+msgstr "Uložit jako…"
+
+#: src/ui/actions.rs
+msgid "Save This Frame…"
+msgstr "Uložit tento snímek…"
+
+#: src/ui/actions.rs
+msgid "Search File Names"
+msgstr "Hledat v názvech souborů"
+
+#: src/ui/actions.rs
+msgid "Select All"
+msgstr "Vybrat vše"
+
+#: src/ui/actions.rs
+msgid "Select Mark 1"
+msgstr "Vybrat značku 1"
+
+#: src/ui/actions.rs
+msgid "Select Mark 2"
+msgstr "Vybrat značku 2"
+
+#: src/ui/actions.rs
+msgid "Select Mark 3"
+msgstr "Vybrat značku 3"
+
+#: src/ui/actions.rs
+msgid "Select Mark 4"
+msgstr "Vybrat značku 4"
+
+#: src/ui/actions.rs
+msgid "Select Mark 5"
+msgstr "Vybrat značku 5"
+
+#: src/ui/actions.rs
+msgid "Select Mark 6"
+msgstr "Vybrat značku 6"
+
+#: src/ui/actions.rs
+msgid "Select None"
+msgstr "Zrušit výběr"
+
+#: src/ui/actions.rs
+msgid "Set as Wallpaper"
+msgstr "Nastavit jako pozadí plochy"
+
+#: src/ui/actions.rs
+msgid "Show EXIF Panel"
+msgstr "Zobrazit panel EXIF"
+
+#: src/ui/actions.rs
+msgid "Show Folder Path"
+msgstr "Zobrazit cestu ke složce"
+
+#: src/ui/actions.rs
+msgid "Show Folder Tree"
+msgstr "Zobrazit strom složek"
+
+#: src/ui/actions.rs
+msgid "Show Hidden Files"
+msgstr "Zobrazit skryté soubory"
+
+#: src/ui/actions.rs
+msgid "Show Image Info in Full Screen"
+msgstr "Zobrazit informace o obrázku na celé obrazovce"
+
+#: src/ui/actions.rs
+msgid "Show Sort Manager"
+msgstr "Zobrazit správce třídění"
+
+#: src/ui/actions.rs
+msgid "Show the Pointer on the Projector"
+msgstr "Zobrazit ukazatel na projektoru"
+
+#: src/ui/actions.rs
+msgid "Show Thumbnails"
+msgstr "Zobrazit náhledy"
+
+#: src/ui/actions.rs
+msgid "Thumbnails in Image Area"
+msgstr "Miniatury v oblasti obrázku"
+
+#: src/ui/actions.rs
+msgid "Show Toolbar"
+msgstr "Zobrazit nástrojovou lištu"
+
+#: src/ui/actions.rs
+msgid "Slower"
+msgstr "Pomaleji"
+
+#: src/ui/actions.rs
+msgid "Start/Stop Slideshow"
+msgstr "Spustit/zastavit prezentaci"
+
+#: src/ui/actions.rs
+msgid "Stop Slideshow, Leave Full Screen"
+msgstr "Zastavit prezentaci, opustit celou obrazovku"
+
+#: src/ui/actions.rs
+msgid "Two Above Each Other"
+msgstr "Dva nad sebou"
+
+#: src/ui/actions.rs
+msgid "Undo"
+msgstr "Vrátit zpět"
+
+#: src/ui/actions.rs
+msgid "Up"
+msgstr "Nahoru"
+
+#: src/ui/actions.rs
+msgid "View Images as Icons"
+msgstr "Zobrazit obrázky jako ikony"
+
+#: src/ui/actions.rs
+msgid "Zoom 1:1"
+msgstr "Přiblížení 1:1"
+
+#: src/ui/actions.rs
+msgid "Zoom In"
+msgstr "Přiblížit"
+
+#: src/ui/actions.rs
+msgid "Zoom Out"
+msgstr "Oddálit"
+
+#: src/ui/actions.rs
+msgid "Zoom to Fit"
+msgstr "Přizpůsobit oknu"
+
+#: src/model/collections.rs
+msgid "Not a valid collection name: \"{name}\""
+msgstr "Neplatný název kolekce: „{name}“"
+
+#: src/model/collections.rs
+msgid "There is a collection called \"{name}\" already"
+msgstr "Kolekce s názvem „{name}“ už existuje"
+
+#: src/viewer/crop.rs
+msgid "A video is not cropped"
+msgstr "Video se neořezává"
+
+#: src/viewer/crop.rs
+msgid "Drag over the image to choose the part to keep"
+msgstr "Tažením přes obrázek vyberte část, která se zachová"
+
+#: src/viewer/crop.rs
+msgid "Save Copy (Enter)"
+msgstr "Uložit kopii (Enter)"
+
+#: src/viewer/crop.rs
+msgid "Could not crop the image: {e}"
+msgstr "Obrázek nelze oříznout: {e}"
+
+#: src/viewer/save_as.rs
+msgid "A video is not saved as an image"
+msgstr "Video se neukládá jako obrázek"
+
+#: src/viewer/save_as.rs
+msgid "Format:"
+msgstr "Formát:"
+
+#: src/viewer/save_as.rs
+msgid "As the original ({format})"
+msgstr "Jako originál ({format})"
+
+#: src/viewer/save_as.rs
+msgid "WebP, lossless"
+msgstr "WebP, bezeztrátový"
+
+#: src/viewer/save_as.rs
+msgid "WebP, lossy"
+msgstr "WebP, ztrátový"
+
+#: src/viewer/save_as.rs
+msgid "Size:"
+msgstr "Velikost:"
+
+#: src/viewer/save_as.rs
+msgid "Original ({w} × {h})"
+msgstr "Původní ({w} × {h})"
+
+#: src/viewer/save_as.rs
+msgid "Longest side"
+msgstr "Delší strana"
+
+#: src/viewer/save_as.rs
+msgid "Percent"
+msgstr "Procenta"
+
+#: src/viewer/save_as.rs
+msgid "Saved {w} × {h}; never enlarged"
+msgstr "Uloží se {w} × {h}; nikdy se nezvětšuje"
+
+#: src/viewer/save_as.rs
+msgid "Quality:"
+msgstr "Kvalita:"
+
+#: src/viewer/save_as.rs
+msgid "Remove EXIF and GPS (camera, date, place), XMP and the sidecar"
+msgstr "Odstranit EXIF a GPS (fotoaparát, datum, místo), XMP a doprovodný soubor"
+
+#: src/viewer/save_as.rs
+msgid "Save…"
+msgstr "Uložit…"
+
+#: src/viewer/save_as.rs
+msgid "Could not save the image: {e}"
+msgstr "Obrázek nelze uložit: {e}"
+
+#: src/features/duplicates.rs
+msgid "Among the {count} in the list, compare by"
+msgstr "V seznamu ({count}) porovnat podle"
+
+#: src/features/duplicates.rs
+msgid "Check all but the first of each group"
+msgstr "Zaškrtnout ve skupině vše kromě prvního"
+
+#: src/features/duplicates.rs
+msgid "Checksum (identical files)"
+msgstr "Kontrolní součet (shodné soubory)"
+
+#: src/features/duplicates.rs
+msgid "Comparing… {done} of {total}"
+msgstr "Porovnávání… {done} z {total}"
+
+#: src/features/duplicates.rs
+msgid "Find"
+msgstr "Najít"
+
+#: src/features/duplicates.rs
+msgid "Find Duplicates"
+msgstr "Najít duplicity"
+
+#: src/features/duplicates.rs
+msgid "Group {n} ({files})"
+msgstr "Skupina {n} ({files})"
+
+#: src/features/duplicates.rs
+msgid "Include Subfolders in the View menu searches the folders below too."
+msgstr "Volba Včetně podsložek v nabídce Zobrazit prohledá i složky pod touto."
+
+#: src/features/duplicates.rs
+msgid "Move {n} checked to trash…"
+msgstr "Přesunout zaškrtnuté ({n}) do koše…"
+
+#: src/features/duplicates.rs
+msgid "Name"
+msgstr "Název"
+
+#: src/features/duplicates.rs
+msgid "Similarity (90%)"
+msgstr "Podobnost (90 %)"
+
+#: src/features/duplicates.rs
+msgid "Similarity (high, 95%)"
+msgstr "Podobnost (vysoká, 95 %)"
+
+#: src/features/duplicates.rs
+msgid "Similarity (low, 85%)"
+msgstr "Podobnost (nízká, 85 %)"
+
+#: src/features/duplicates.rs
+msgid "Size"
+msgstr "Velikost"
+
+#: src/features/duplicates.rs
+msgid "Stop"
+msgstr "Zastavit"
+
+#: src/features/duplicates.rs
+msgid "The checked files are no longer all in the list"
+msgstr "Zaškrtnuté soubory už nejsou všechny v seznamu"
+
+#: src/features/duplicates.rs
+msgid "Uncheck all"
+msgstr "Zrušit všechna zaškrtnutí"
+
+#: src/features/duplicates.rs
+msgid "{groups}, {files}, among {images}"
+msgstr "{groups}, {files}, prohledáno: {images}"
+
+#: src/files/file_ops.rs
+msgid "Backing up"
+msgstr "Zálohování"
+
+#: src/files/file_ops.rs
+msgid "Copy"
+msgstr "Kopírovat"
+
+#: src/files/file_ops.rs
+msgid "Copying"
+msgstr "Kopírování"
+
+#: src/files/file_ops.rs
+msgid "Could not make {folder}"
+msgstr "Nelze vytvořit {folder}"
+
+#: src/files/file_ops.rs
+msgid "Could not rename {f} to {t}: {e}; nothing renamed"
+msgstr "Nelze přejmenovat {f} na {t}: {e}; nic nebylo přejmenováno"
+
+#: src/files/file_ops.rs
+msgid "Could not save the frames: {e}"
+msgstr "Snímky nelze uložit: {e}"
+
+#: src/files/file_ops.rs
+msgid "Delete failed ({count}): {first}"
+msgstr "Mazání selhalo ({count}): {first}"
+
+#: src/files/file_ops.rs
+msgid "Deleting"
+msgstr "Mazání"
+
+#: src/files/file_ops.rs
+msgid "Renaming"
+msgstr "Přejmenování"
+
+#: src/files/file_ops.rs
+msgid "Exporting"
+msgstr "Export"
+
+#: src/files/file_ops.rs
+msgid "Nothing to undo"
+msgstr "Není co vrátit zpět"
+
+#: src/files/file_ops.rs
+msgid "another file has taken its place"
+msgstr "jeho místo zaujal jiný soubor"
+
+#: src/files/file_ops.rs
+msgid "Undo failed ({count}): {first}"
+msgstr "Vrácení zpět selhalo ({count}): {first}"
+
+#: src/files/file_ops.rs
+msgid "Undo failed: {e}"
+msgstr "Vrácení zpět selhalo: {e}"
+
+#: src/files/file_ops.rs
+msgid "gio trash (from glib): {e}"
+msgstr "gio trash (z glib): {e}"
+
+#: src/files/file_ops.rs
+msgid "Move"
+msgstr "Přesunout"
+
+#: src/files/file_ops.rs
+msgid "Moving"
+msgstr "Přesouvání"
+
+#: src/files/file_ops.rs
+msgid "Saved {file}"
+msgstr "Uloženo: {file}"
+
+#: src/files/file_ops.rs
+msgid "Saved; it shows when Auto Rotate Using EXIF is on"
+msgstr "Uloženo; projeví se, když je zapnuto Automaticky otáčet podle EXIF"
+
+#: src/files/file_ops.rs
+msgid "Still saving a rotation: try again in a moment"
+msgstr "Ještě se ukládá otočení: zkuste to za chvíli znovu"
+
+#: src/files/file_ops.rs
+msgid "The files asked about are no longer in the list: nothing was done"
+msgstr "Soubory, o které šlo, už nejsou v seznamu: nic se nestalo"
+
+#: src/files/file_ops.rs
+msgid "The pattern gives several files the same name; add # for a number"
+msgstr "Vzor dává několika souborům stejné jméno; přidejte # pro číslo"
+
+#: src/files/file_ops.rs
+msgid "Writing the sidecars stopped at a file that broke it"
+msgstr "Zápis doprovodných souborů se zastavil u souboru, který ho narušil"
+
+#: src/files/file_ops.rs
+msgid "{count} back from the trash"
+msgstr "Vráceno z koše: {count}"
+
+#: src/files/file_ops.rs
+msgid "{count} deleted"
+msgstr "Smazáno: {count}"
+
+#: src/files/file_ops.rs
+msgid "{count} moved to the trash"
+msgstr "Přesunuto do koše: {count}"
+
+#: src/files/file_ops.rs
+msgid "{files} moved back"
+msgstr "Přesunuto zpět: {files}"
+
+#: src/files/file_ops.rs
+msgid "{frames} saved in {folder}"
+msgstr "Uloženo do {folder}: {frames}"
+
+#: src/files/file_ops.rs
+msgid "{name} exists already"
+msgstr "{name} už existuje"
+
+#: src/files/file_ops.rs
+msgid "{name} exists already; nothing renamed"
+msgstr "{name} už existuje; nic nebylo přejmenováno"
+
+#: src/files/trash.rs
+msgid "{name} is not in the trash"
+msgstr "{name} není v koši"
+
+#: src/files/file_ops.rs
+msgid "{verb} failed ({count}): {first}"
+msgstr "Operace {verb} selhala ({count}): {first}"
+
+#: src/metadata/lightroom.rs
+msgid "Cancel (Esc)"
+msgstr "Zrušit (Esc)"
+
+#: src/metadata/lightroom.rs
+msgid "Import"
+msgstr "Importovat"
+
+#: src/metadata/lightroom.rs
+msgid "Import from Lightroom"
+msgstr "Import z Lightroomu"
+
+#: src/metadata/lightroom.rs
+msgid "Importing"
+msgstr "Importování"
+
+#: src/metadata/lightroom.rs
+msgid "Keep Glimt's stars"
+msgstr "Ponechat hvězdičky Glimtu"
+
+#: src/metadata/lightroom.rs
+msgid "Lightroom has the catalog open: close Lightroom first"
+msgstr "Lightroom má katalog otevřený: nejprve Lightroom zavřete"
+
+#: src/metadata/lightroom.rs
+msgid "Lightroom's stars or keywords not written to the sidecars of {count}"
+msgstr "Hvězdičky nebo klíčová slova z Lightroomu se nezapsala do doprovodných souborů pro {count}"
+
+#: src/metadata/lightroom.rs
+msgid "Next"
+msgstr "Další"
+
+#: src/metadata/lightroom.rs
+msgid "Not a Lightroom Classic catalog Glimt can read: {why}"
+msgstr "Toto není katalog Lightroom Classic, který Glimt umí přečíst: {why}"
+
+#: src/metadata/lightroom.rs
+msgid "Reading a Lightroom catalog needs the sqlite3 program"
+msgstr "Ke čtení katalogu Lightroomu je potřeba program sqlite3"
+
+#: src/metadata/lightroom.rs
+msgid "Take Lightroom's stars"
+msgstr "Převzít hvězdičky Lightroomu"
+
+#: src/metadata/lightroom.rs
+msgid "the keywords of {count}"
+msgstr "klíčová slova pro {count}"
+
+#: src/metadata/lightroom.rs
+msgid "the stars of {count}"
+msgstr "hvězdičky pro {count}"
+
+#: src/metadata/lightroom.rs
+msgid "There already, so they get only the images they lack: {names}."
+msgstr "Už existují, takže dostanou jen obrázky, které jim chybí: {names}."
+
+#: src/metadata/lightroom.rs
+msgid "Where the catalog's folders are now (empty: left out):"
+msgstr "Kde jsou složky katalogu nyní (prázdné: vynechat):"
+
+#: src/metadata/lightroom.rs
+msgid "{collections}, {keywords} and the stars of {images}."
+msgstr "{collections}, {keywords} a hvězdičky pro {images}."
+
+#: src/metadata/lightroom.rs
+msgid "{count} have"
+msgstr "{count}"
+
+#: src/metadata/lightroom.rs
+msgid "{needs}, which is not installed"
+msgstr "{needs}, který není nainstalován"
+
+#: src/metadata/lightroom.rs
+msgid "{n} other stars in Glimt:"
+msgstr "Jiné hvězdičky v Glimtu – {n}:"
+
+#: src/main.rs
+msgid ", and {n} more"
+msgstr ", a další ({n})"
+
+#: src/main.rs
+msgid "; and {n} more (glimt --check-config)"
+msgstr "; a další ({n}) (glimt --check-config)"
+
+#: src/main.rs
+msgid "A file dialog is open already"
+msgstr "Dialog pro výběr souboru už je otevřený"
+
+#: src/main.rs
+msgid "A plain list is not renamed or trashed by Glimt"
+msgstr "Prostý seznam Glimt nepřejmenovává ani nevyhazuje do koše"
+
+#: src/main.rs
+msgid "Add"
+msgstr "Přidat"
+
+#: src/main.rs
+msgid "Add the keywords to the {n} selected"
+msgstr "Přidat klíčová slova k vybraným ({n})"
+
+#: src/main.rs
+msgid "Add This Folder"
+msgstr "Přidat tuto složku"
+
+#: src/main.rs
+msgid "Add this image's keywords to the tree"
+msgstr "Přidat klíčová slova tohoto obrázku do stromu"
+
+#: src/main.rs
+msgid "Add to Collection"
+msgstr "Přidat do kolekce"
+
+#: src/main.rs
+msgid "Adding keywords"
+msgstr "Přidávání klíčových slov"
+
+#: src/main.rs
+msgid "Add…"
+msgstr "Přidat…"
+
+#: src/main.rs
+msgid "All Images Change Together"
+msgstr "Všechny obrázky se mění společně"
+
+#: src/main.rs
+msgid "Alt text"
+msgstr "Alternativní text"
+
+#: src/main.rs
+msgid "Ascending"
+msgstr "Vzestupně"
+
+#: src/main.rs
+msgid "Case"
+msgstr "Velikost písmen"
+
+#: src/main.rs
+msgid "Check"
+msgstr "Zkontrolovat"
+
+#: src/main.rs
+msgid "Check Images"
+msgstr "Kontrola obrázků"
+
+#: src/main.rs
+msgid "Clear Recent"
+msgstr "Vymazat nedávné"
+
+#: src/main.rs
+msgid "Collections"
+msgstr "Kolekce"
+
+#: src/main.rs
+msgid "Colour Management"
+msgstr "Správa barev"
+
+#: src/main.rs
+msgid "Comment"
+msgstr "Komentář"
+
+#: src/main.rs
+msgid "Connect (Enter)"
+msgstr "Připojit (Enter)"
+
+#: src/main.rs
+msgid "Connecting to {uri}…"
+msgstr "Připojování k {uri}…"
+
+#: src/main.rs
+msgid "Could not copy the image: {e}"
+msgstr "Obrázek nelze zkopírovat: {e}"
+
+#: src/main.rs
+msgid "Could not copy to the clipboard: {e}"
+msgstr "Nelze kopírovat do schránky: {e}"
+
+#: src/main.rs
+msgid "Could not open a new window: {e}"
+msgstr "Nové okno nelze otevřít: {e}"
+
+#: src/main.rs
+msgid "Could not read the keyword tree: {e}"
+msgstr "Strom klíčových slov nelze přečíst: {e}"
+
+#: src/main.rs
+msgid "Could not save the keyword tree: {e}"
+msgstr "Strom klíčových slov nelze uložit: {e}"
+
+#: src/main.rs
+msgid "Could not read the sort manager's folders: {e}"
+msgstr "Složky správce třídění nelze přečíst: {e}"
+
+#: src/main.rs
+msgid "Could not save the alt text: {e}"
+msgstr "Alternativní text nelze uložit: {e}"
+
+#: src/main.rs
+msgid "Could not save the collection: {e}"
+msgstr "Kolekci nelze uložit: {e}"
+
+#: src/main.rs
+msgid "Could not save the keywords: {e}"
+msgstr "Klíčová slova nelze uložit: {e}"
+
+#: src/main.rs
+msgid "Could not save the orientation: {e}"
+msgstr "Orientaci nelze uložit: {e}"
+
+#: src/main.rs
+msgid "Could not save the sort manager's folders: no home folder"
+msgstr "Složky správce třídění nelze uložit: chybí domovská složka"
+
+#: src/main.rs
+msgid "Could not save the sort manager's folders: {e}"
+msgstr "Složky správce třídění nelze uložit: {e}"
+
+#: src/main.rs
+msgid "Could not save the theme: {e}"
+msgstr "Motiv nelze uložit: {e}"
+
+#: src/main.rs
+msgid "Could not set the wallpaper: {e}"
+msgstr "Pozadí plochy nelze nastavit: {e}"
+
+#: src/main.rs
+msgid "Could not trash {name} (gio is needed): {e}"
+msgstr "{name} nelze vyhodit do koše (je potřeba gio): {e}"
+
+#: src/main.rs
+msgid "Could not trash {name}: {err}"
+msgstr "{name} nelze vyhodit do koše: {err}"
+
+#: src/main.rs
+msgid "Delete (Enter)"
+msgstr "Smazat (Enter)"
+
+#: src/main.rs
+msgid "Desktop files there, as Geeqie's, show in this menu after a restart"
+msgstr "Soubory .desktop v ní, stejné jako u Geeqie, se po restartu objeví v této nabídce"
+
+#: src/main.rs
+msgid "Dimensions"
+msgstr "Rozměry"
+
+#: src/main.rs
+msgid "Domain:"
+msgstr "Doména:"
+
+#: src/main.rs
+msgid "Each file keeps its own keywords and gets these too"
+msgstr "Každý soubor si ponechá svá klíčová slova a dostane i tato"
+
+#: src/main.rs
+msgid "Edit"
+msgstr "Upravit"
+
+#: src/main.rs
+msgid "Extended description"
+msgstr "Rozšířený popis"
+
+#: src/main.rs
+msgid "File"
+msgstr "Soubor"
+
+#: src/main.rs
+msgid "Filter"
+msgstr "Filtr"
+
+#: src/main.rs
+msgid "Finish the renaming"
+msgstr "Dokončit přejmenování"
+
+#: src/main.rs
+msgid "First: {name}"
+msgstr "První: {name}"
+
+#: src/main.rs
+msgid "Get More Themes…"
+msgstr "Získat další motivy…"
+
+#: src/main.rs
+msgid "Glimt ({n})"
+msgstr "Glimt ({n})"
+
+#: src/main.rs
+msgid "Go"
+msgstr "Přejít"
+
+#: src/main.rs
+msgid "Help"
+msgstr "Nápověda"
+
+#: src/main.rs
+msgid "Images"
+msgstr "Obrázky"
+
+#: src/main.rs
+msgid "Keyword tree"
+msgstr "Strom klíčových slov"
+
+#: src/main.rs
+msgid "Keywords"
+msgstr "Klíčová slova"
+
+#: src/main.rs
+msgid "Keywords added to {count}"
+msgstr "Klíčová slova přidána pro {count}"
+
+#: src/main.rs
+msgid "Keywords could not be saved for {count}"
+msgstr "Klíčová slova nelze uložit pro {count}"
+
+#: src/main.rs
+msgid "Later"
+msgstr "Později"
+
+#: src/main.rs
+msgid "Layout"
+msgstr "Rozvržení"
+
+#: src/main.rs
+msgid "Log in to {uri}"
+msgstr "Přihlásit se k {uri}"
+
+#: src/main.rs
+msgid "Marks and Stars"
+msgstr "Značky a hvězdičky"
+
+#: src/main.rs
+msgid "Move Folder to Trash…"
+msgstr "Přesunout složku do koše…"
+
+#: src/main.rs
+msgid "Move in Collection"
+msgstr "Přesunout v kolekci"
+
+#: src/main.rs
+msgid "Move the folder \"{name}\" and all in it to the trash?"
+msgstr "Přesunout složku „{name}“ a vše v ní do koše?"
+
+#: src/main.rs
+msgid "Move to Trash (Enter)"
+msgstr "Přesunout do koše (Enter)"
+
+#: src/main.rs
+msgid "Move {what} to the trash?"
+msgstr "Přesunout {what} do koše?"
+
+#: src/main.rs
+msgid "Name of a new collection with {count}:"
+msgstr "Název nové kolekce ({count}):"
+
+#: src/main.rs
+msgid "New Folder makes a folder in the folder shown: open one"
+msgstr "Nová složka vytvoří složku v zobrazené složce: nejprve nějakou otevřete"
+
+#: src/main.rs
+msgid "New names for {count} (* = old name, # = number, ### = 001):"
+msgstr "Nová jména pro {count} (* = staré jméno, # = číslo, ### = 001):"
+
+#: src/main.rs
+msgid "No applications found"
+msgstr "Nebyly nalezeny žádné aplikace"
+
+#: src/main.rs
+msgid "No collections yet"
+msgstr "Zatím žádné kolekce"
+
+#: src/main.rs
+msgid "No EXIF data"
+msgstr "Žádná data EXIF"
+
+#: src/main.rs
+msgid "No file dialog (install zenity or kdialog): {e}"
+msgstr "Chybí dialog pro výběr souboru (nainstalujte zenity nebo kdialog): {e}"
+
+#: src/main.rs
+msgid "No images for a collection here"
+msgstr "Zde nejsou žádné obrázky pro kolekci"
+
+#: src/main.rs
+msgid "No images in folder"
+msgstr "Ve složce nejsou žádné obrázky"
+
+#: src/main.rs
+msgid "No plugins"
+msgstr "Žádné zásuvné moduly"
+
+#: src/main.rs
+msgid "No such folder: {folder}"
+msgstr "Taková složka neexistuje: {folder}"
+
+#: src/main.rs
+msgid "Not a valid name: \"{text}\""
+msgstr "Neplatný název: „{text}“"
+
+#: src/main.rs
+msgid "Nothing opened yet"
+msgstr "Zatím nic neotevřeno"
+
+#: src/main.rs
+msgid "OK (Enter)"
+msgstr "OK (Enter)"
+
+#: src/main.rs
+msgid "One Image at a Time"
+msgstr "Jeden obrázek najednou"
+
+#: src/main.rs
+msgid "Only the images of a collection can be moved"
+msgstr "Přesouvat lze jen obrázky kolekce"
+
+#: src/main.rs
+msgid "Open Recent"
+msgstr "Otevřít nedávné"
+
+#: src/main.rs
+msgid "Open the Plugins Folder"
+msgstr "Otevřít složku zásuvných modulů"
+
+#: src/main.rs
+msgid "Open Themes Folder"
+msgstr "Otevřít složku motivů"
+
+#: src/main.rs
+msgid "Open With"
+msgstr "Otevřít pomocí"
+
+#: src/main.rs
+msgid "Orientation"
+msgstr "Orientace"
+
+#: src/main.rs
+msgid "Password:"
+msgstr "Heslo:"
+
+#: src/main.rs
+msgid "Permanently delete {what}?"
+msgstr "Trvale smazat {what}?"
+
+#: src/main.rs
+msgid "Places|Norway|Oslo"
+msgstr "Místa|Česko|Praha"
+
+#: src/main.rs
+msgid "Plugins"
+msgstr "Zásuvné moduly"
+
+#: src/main.rs
+msgid "Put the old names back"
+msgstr "Vrátit původní jména"
+
+#: src/main.rs
+msgid "Random order is on: R turns it off to move images"
+msgstr "Je zapnuto náhodné pořadí: R ho vypne, aby šlo obrázky přesouvat"
+
+#: src/main.rs
+msgid "Reading folder…"
+msgstr "Čtení složky…"
+
+#: src/main.rs
+msgid "Remove"
+msgstr "Odebrat"
+
+#: src/main.rs
+msgid "Remove from the tree"
+msgstr "Odebrat ze stromu"
+
+#: src/main.rs
+msgid "Rename Folder…"
+msgstr "Přejmenovat složku…"
+
+#: src/main.rs
+msgid "Rename Many is still renaming"
+msgstr "Hromadné přejmenování stále probíhá"
+
+#: src/main.rs
+msgid "Rename Many was cut short"
+msgstr "Hromadné přejmenování bylo přerušeno"
+
+#: src/main.rs
+msgid "Save as Theme…"
+msgstr "Uložit jako motiv…"
+
+#: src/main.rs
+msgid "Select"
+msgstr "Vybrat"
+
+#: src/main.rs
+msgid "Select Them"
+msgstr "Vybrat je"
+
+#: src/main.rs
+msgid "Separated by commas"
+msgstr "Oddělené čárkami"
+
+#: src/main.rs
+msgid "{tag} set on {count}"
+msgstr "{tag}: nastaveno pro {count}"
+
+#: src/main.rs
+msgid "Setting keywords"
+msgstr "Nastavování klíčových slov"
+
+#: src/main.rs
+msgid "Show File Names"
+msgstr "Zobrazit názvy souborů"
+
+#: src/main.rs
+msgid "Show on OpenStreetMap"
+msgstr "Zobrazit v OpenStreetMap"
+
+#: src/main.rs
+msgid "Show Together with These Images"
+msgstr "Zobrazit spolu s těmito obrázky"
+
+#: src/main.rs
+msgid "Slideshow in this layout:"
+msgstr "Prezentace v tomto rozvržení:"
+
+#: src/main.rs
+msgid "Sort Manager"
+msgstr "Správce třídění"
+
+#: src/main.rs
+msgid "Start Slideshow"
+msgstr "Spustit prezentaci"
+
+#: src/main.rs
+msgid "Still saving the last rotation of this file"
+msgstr "Ještě se ukládá poslední otočení tohoto souboru"
+
+#: src/main.rs
+msgid "Stop Slideshow"
+msgstr "Zastavit prezentaci"
+
+#: src/files/file_ops.rs
+msgid "Stopped: {done} of {total}"
+msgstr "Zastaveno: {done} z {total}"
+
+#: src/main.rs
+msgid "{tag} taken off {count}"
+msgstr "{tag}: odebráno pro {count}"
+
+#: src/main.rs
+msgid "Taking keywords off"
+msgstr "Odebírání klíčových slov"
+
+#: src/main.rs
+msgid "Tell upper and lower case apart"
+msgstr "Rozlišovat velká a malá písmena"
+
+msgid "Search file names (3+ letters), re: pattern, or exif: camera, date …"
+msgstr "Hledat v názvech souborů (3+ písmena), re: vzor nebo exif: fotoaparát, datum…"
+
+msgid "Filter file names by pattern, or exif: camera, date …"
+msgstr "Filtrovat názvy souborů podle vzoru nebo exif: fotoaparát, datum…"
+
+#: src/main.rs
+msgid "Regular expression instead of fuzzy search"
+msgstr "Regulární výraz místo přibližného hledání"
+
+#: src/main.rs
+msgid "The collection {file} is gone (renamed or removed in another window): not saved"
+msgstr "Kolekce {file} zmizela (přejmenována nebo odstraněna v jiném okně): neuloženo"
+
+#: src/main.rs
+msgid "The keyword could not be saved for {count}"
+msgstr "Klíčové slovo nelze uložit pro {count}"
+
+#: src/main.rs
+msgid "The pane these details are of: the one under the pointer"
+msgstr "Podokno, jehož údaje se zobrazují: to pod ukazatelem"
+
+#: src/main.rs
+msgid "The settings are locked (--lock-settings)"
+msgstr "Nastavení jsou uzamčena (--lock-settings)"
+
+#: src/main.rs
+msgid "The stars could not be written to the XMP sidecar of {count}"
+msgstr "Hvězdičky nelze zapsat do doprovodného souboru XMP pro {count}"
+
+#: src/main.rs
+msgid "Theme"
+msgstr "Motiv"
+
+#: src/main.rs
+msgid "This cannot be undone."
+msgstr "Tuto akci nelze vrátit zpět."
+
+#: src/main.rs
+msgid "User:"
+msgstr "Uživatel:"
+
+#: src/main.rs
+msgid "Video: Enter or click to play"
+msgstr "Video: přehrajete klávesou Enter nebo kliknutím"
+
+#: src/main.rs
+msgid "Videos"
+msgstr "Videa"
+
+#: src/main.rs
+msgid "View"
+msgstr "Zobrazit"
+
+#: src/main.rs
+msgid "What the picture shows, for someone who cannot see it"
+msgstr "Co obrázek zobrazuje, pro někoho, kdo ho nevidí"
+
+#: src/main.rs
+msgid "Window"
+msgstr "Okno"
+
+#: src/main.rs
+msgid "Writing stars"
+msgstr "Zápis hvězdiček"
+
+#: src/main.rs
+msgid "Zoom"
+msgstr "Přiblížení"
+
+#: src/main.rs
+msgid "{doing} {done} of {total}…{more}"
+msgstr "{doing} {done} z {total}…{more}"
+
+#: src/main.rs
+msgid "{name} is gone"
+msgstr "{name} už neexistuje"
+
+#: src/main.rs
+msgid "{n} added to the collection \"{name}\""
+msgstr "Do kolekce „{name}“ přidáno: {n}"
+
+#: src/main.rs
+msgid "{n} broken:"
+msgstr "Poškozené ({n}):"
+
+#: src/main.rs
+msgid "{text} is a built-in theme: choose another name"
+msgstr "{text} je vestavěný motiv: zvolte jiný název"
+
+#: src/main.rs LAYOUTS
+msgid "Four (2 × 2)"
+msgstr "Čtyři (2 × 2)"
+
+#: src/main.rs LAYOUTS
+msgid "Two Side by Side"
+msgstr "Dva vedle sebe"
+
+#: src/viewer/pan.rs
+msgid "April"
+msgstr "Duben"
+
+#: src/viewer/pan.rs
+msgid "August"
+msgstr "Srpen"
+
+#: src/viewer/pan.rs
+msgid "Calendar"
+msgstr "Kalendář"
+
+#: src/viewer/pan.rs
+msgid "December"
+msgstr "Prosinec"
+
+#: src/viewer/pan.rs
+msgid "EXIF date"
+msgstr "Datum EXIF"
+
+#: src/viewer/pan.rs
+msgid "February"
+msgstr "Únor"
+
+#: src/viewer/pan.rs
+msgid "January"
+msgstr "Leden"
+
+#: src/viewer/pan.rs
+msgid "July"
+msgstr "Červenec"
+
+#: src/viewer/pan.rs
+msgid "June"
+msgstr "Červen"
+
+#: src/viewer/pan.rs
+msgid "March"
+msgstr "Březen"
+
+#: src/viewer/pan.rs
+msgid "May"
+msgstr "Květen"
+
+#: src/viewer/pan.rs
+msgid "No date"
+msgstr "Bez data"
+
+#: src/viewer/pan.rs
+msgid "November"
+msgstr "Listopad"
+
+#: src/viewer/pan.rs
+msgid "October"
+msgstr "Říjen"
+
+#: src/viewer/pan.rs
+msgid "September"
+msgstr "Září"
+
+#: src/viewer/pan.rs
+msgid "Timeline"
+msgstr "Časová osa"
+
+#: src/viewer/pan.rs
+msgid "{images} on {days}"
+msgstr "{images}, {days}"
+
+#: src/ui/preferences.rs
+msgid "Also write stars to XMP sidecars (photo.jpg.xmp), for darktable and digiKam"
+msgstr "Zapisovat hvězdičky i do doprovodných souborů XMP (foto.jpg.xmp) pro darktable a digiKam"
+
+#: src/ui/preferences.rs
+msgid "Auto rotate images using EXIF (Alt+X)"
+msgstr "Automaticky otáčet obrázky podle EXIF (Alt+X)"
+
+#: src/ui/preferences.rs
+msgid "Automatic (system language)"
+msgstr "Automaticky (jazyk systému)"
+
+#: src/ui/preferences.rs
+msgid "Background behind the image"
+msgstr "Pozadí za obrázkem"
+
+#: src/ui/preferences.rs
+msgid "Checkerboard behind transparent images"
+msgstr "Šachovnice za průhlednými obrázky"
+
+#: src/ui/preferences.rs
+msgid "Black"
+msgstr "Černé"
+
+#: src/ui/preferences.rs
+msgid "Brightness"
+msgstr "Jas"
+
+#: src/ui/preferences.rs
+msgid "Change"
+msgstr "Změnit"
+
+#: src/ui/preferences.rs
+msgid "Choose…"
+msgstr "Vybrat…"
+
+#: src/ui/preferences.rs
+msgid "Colour management"
+msgstr "Správa barev"
+
+#: src/ui/preferences.rs
+msgid "Confirm move file to Trash"
+msgstr "Potvrzovat přesun souboru do koše"
+
+#: src/ui/preferences.rs
+msgid "Confirm permanent file delete"
+msgstr "Potvrzovat trvalé smazání souboru"
+
+#: src/ui/preferences.rs
+msgid "CPU use:"
+msgstr "Využití CPU:"
+
+#: src/ui/preferences.rs
+msgid "Custom"
+msgstr "Vlastní"
+
+#: src/ui/preferences.rs
+msgid "Decoding threads and one malloc arena take effect after a restart."
+msgstr "Vlákna dekódování a jedna oblast malloc se projeví po restartu."
+
+#: src/ui/preferences.rs
+msgid "Default"
+msgstr "Výchozí"
+
+#: src/ui/preferences.rs
+msgid "Keep a list of recent folders (File → Open Recent)"
+msgstr "Uchovávat seznam nedávných složek (Soubor → Otevřít nedávné)"
+
+#: src/ui/preferences.rs
+msgid "default application"
+msgstr "výchozí aplikace"
+
+#: src/ui/preferences.rs
+msgid "Details"
+msgstr "Podrobnosti"
+
+#: src/ui/preferences.rs
+msgid "Enable Delete key"
+msgstr "Povolit klávesu Delete"
+
+#: src/ui/preferences.rs
+msgid "Enlarge small images to fit the window"
+msgstr "Zvětšovat malé obrázky na velikost okna"
+
+#: src/ui/preferences.rs
+msgid "Fade to the next image:"
+msgstr "Prolínání do dalšího obrázku:"
+
+#: src/ui/preferences.rs
+msgid "From colord, which GNOME and KDE set"
+msgstr "Z colord, který nastavuje GNOME a KDE"
+
+#: src/ui/preferences.rs
+msgid "Fuzzy, best matches first (like fzf)"
+msgstr "Přibližné, nejlepší shody první (jako fzf)"
+
+#: src/ui/preferences.rs
+msgid "High Contrast when the desktop asks for high contrast"
+msgstr "Vysoký kontrast, když si ho pracovní prostředí vyžádá"
+
+#: src/ui/preferences.rs
+msgid "Histogram (K):"
+msgstr "Histogram (K):"
+
+#: src/ui/preferences.rs
+msgid "Image info template:"
+msgstr "Šablona informací o obrázku:"
+
+#: src/ui/preferences.rs
+msgid "images decoded at once"
+msgstr "obrázků dekódovaných najednou"
+
+#: src/ui/preferences.rs
+msgid "images on each side"
+msgstr "obrázků na každou stranu"
+
+#: src/ui/preferences.rs
+msgid "Images without a profile:"
+msgstr "Obrázky bez profilu:"
+
+#: src/ui/preferences.rs
+msgid "In ~/.cache/thumbnails; kept for disks that are not plugged in"
+msgstr "V ~/.cache/thumbnails; zachovány pro disky, které nejsou připojené"
+
+#: src/ui/preferences.rs
+msgid "Include the images in subfolders"
+msgstr "Zahrnout obrázky v podsložkách"
+
+#: src/ui/preferences.rs
+msgid "Include the images in subfolders in the file list"
+msgstr "Zahrnout obrázky v podsložkách do seznamu souborů"
+
+#: src/ui/preferences.rs
+msgid "Keep the screen saver off in full screen"
+msgstr "Na celé obrazovce nespouštět spořič obrazovky"
+
+#: src/ui/preferences.rs
+msgid "Keep zoom and position when changing image"
+msgstr "Při změně obrázku zachovat přiblížení a polohu"
+
+#: src/ui/preferences.rs
+msgid "Keyboard shortcuts"
+msgstr "Klávesové zkratky"
+
+#: src/ui/preferences.rs
+msgid "Language"
+msgstr "Jazyk"
+
+#: src/ui/preferences.rs
+msgid "Large"
+msgstr "Velké"
+
+#: src/ui/preferences.rs
+msgid "Larger still when the desktop's text is (GNOME's Large Text)"
+msgstr "Ještě větší, když je větší text pracovního prostředí (Velký text v GNOME)"
+
+#: src/ui/preferences.rs
+msgid "Listen for glimt --remote commands (after restart)"
+msgstr "Naslouchat příkazům glimt --remote (po restartu)"
+
+#: src/ui/preferences.rs
+msgid "Logarithmic (J)"
+msgstr "Logaritmický (J)"
+
+#: src/ui/preferences.rs
+msgid "MB at most for an animation's frames"
+msgstr "MB nejvýše pro snímky animace"
+
+#: src/ui/preferences.rs
+msgid "Medium"
+msgstr "Střední"
+
+#: src/ui/preferences.rs
+msgid "Memory use:"
+msgstr "Využití paměti:"
+
+#: src/ui/preferences.rs
+msgid "Mouse wheel zooms (off: next/previous image, Ctrl+wheel zooms)"
+msgstr "Kolečko myši přibližuje (vypnuto: další/předchozí obrázek, Ctrl+kolečko přibližuje)"
+
+#: src/ui/preferences.rs
+msgid "None"
+msgstr "Žádné"
+
+#: src/ui/preferences.rs
+msgid "Not with CPU use Power saving"
+msgstr "Ne s využitím CPU Úspora energie"
+
+#: src/ui/preferences.rs
+msgid "Off"
+msgstr "Vypnuto"
+
+#: src/ui/preferences.rs
+msgid "One malloc arena: much less memory, decoding up to ~8 % slower"
+msgstr "Jedna oblast malloc: mnohem méně paměti, dekódování až o ~8 % pomalejší"
+
+#: src/ui/preferences.rs
+msgid "Play animated GIF and WebP (A)"
+msgstr "Přehrávat animované GIF a WebP (A)"
+
+#: src/ui/preferences.rs
+msgid "Player (Enter):"
+msgstr "Přehrávač (Enter):"
+
+#: src/ui/preferences.rs
+msgid "Preferences"
+msgstr "Předvolby"
+
+#: src/ui/preferences.rs
+msgid "Preload next and previous images:"
+msgstr "Přednačítat další a předchozí obrázky:"
+
+#: src/ui/preferences.rs
+msgid "Press a key (Esc cancels)"
+msgstr "Stiskněte klávesu (Esc ruší)"
+
+#: src/ui/preferences.rs
+msgid "Profile file…"
+msgstr "Soubor profilu…"
+
+#: src/ui/preferences.rs
+msgid "quality when a lossy WebP is saved again"
+msgstr "kvalita při opětovném uložení ztrátového WebP"
+
+#: src/ui/preferences.rs
+msgid "quality of a cropped JPEG (Edit → Crop)"
+msgstr "kvalita oříznutého JPEG (Upravit → Oříznout)"
+
+#: src/ui/preferences.rs
+msgid "Random order"
+msgstr "Náhodné pořadí"
+
+#: src/ui/preferences.rs
+msgid "Refresh the folder when files change"
+msgstr "Obnovit složku, když se soubory změní"
+
+#: src/ui/preferences.rs
+msgid "Regular expression, in list order (like Geeqie's file filter)"
+msgstr "Regulární výraz, v pořadí seznamu (jako filtr souborů v Geeqie)"
+
+#: src/ui/preferences.rs
+msgid "Remember the window size and position"
+msgstr "Pamatovat si velikost a polohu okna"
+
+#: src/ui/preferences.rs
+msgid "Remove thumbnails of deleted files"
+msgstr "Odstranit náhledy smazaných souborů"
+
+#: src/ui/preferences.rs
+msgid "Removed {removed} of {seen} thumbnails"
+msgstr "Odstraněno {removed} z {seen} náhledů"
+
+#: src/ui/preferences.rs
+msgid "Rendering intent:"
+msgstr "Účel vykreslování:"
+
+#: src/ui/preferences.rs
+msgid "Repeat: start again after the last image"
+msgstr "Opakovat: po posledním obrázku začít znovu"
+
+#: src/ui/preferences.rs
+msgid "Reset"
+msgstr "Obnovit výchozí"
+
+#: src/ui/preferences.rs
+msgid "Save new thumbnails to ~/.cache/thumbnails (shared with other programs)"
+msgstr "Ukládat nové náhledy do ~/.cache/thumbnails (sdílené s jinými programy)"
+
+#: src/ui/preferences.rs
+msgid "Save rotation to the file when changing image (JPEG; PNG and WebP are saved again)"
+msgstr "Při změně obrázku uložit otočení do souboru (JPEG; PNG a WebP se uloží znovu)"
+
+#: src/ui/preferences.rs
+msgid "Screen profile:"
+msgstr "Profil obrazovky:"
+
+#: src/ui/preferences.rs
+msgid "Search field above the file list:"
+msgstr "Vyhledávací pole nad seznamem souborů:"
+
+#: src/ui/preferences.rs
+msgid "seconds per image"
+msgstr "sekund na obrázek"
+
+#: src/ui/preferences.rs
+msgid "Show file size and date in the file list"
+msgstr "Zobrazit velikost a datum souboru v seznamu souborů"
+
+#: src/ui/preferences.rs
+msgid "Show folders as a tree (Ctrl+T)"
+msgstr "Zobrazit složky jako strom (Ctrl+T)"
+
+#: src/ui/preferences.rs
+msgid "Show image info in full screen (I)"
+msgstr "Zobrazit informace o obrázku na celé obrazovce (I)"
+
+#: src/ui/preferences.rs
+msgid "Show marks and stars in the file list"
+msgstr "Zobrazit značky a hvězdičky v seznamu souborů"
+
+#: src/ui/preferences.rs
+msgid "Show the EXIF panel (Ctrl+K; reads a little from each image shown)"
+msgstr "Zobrazit panel EXIF (Ctrl+K; z každého zobrazeného obrázku trochu čte)"
+
+#: src/ui/preferences.rs
+msgid "Show the file list as icons (Ctrl+I)"
+msgstr "Zobrazit seznam souborů jako ikony (Ctrl+I)"
+
+#: src/ui/preferences.rs
+msgid "Show the file name search"
+msgstr "Zobrazit hledání v názvech souborů"
+
+#: src/ui/preferences.rs
+msgid "Show the folder path"
+msgstr "Zobrazit cestu ke složce"
+
+#: src/ui/preferences.rs
+msgid "Show the toolbar"
+msgstr "Zobrazit nástrojovou lištu"
+
+#: src/ui/preferences.rs
+msgid "Show thumbnails in the file list (T)"
+msgstr "Zobrazit náhledy v seznamu souborů (T)"
+
+#: src/ui/preferences.rs
+msgid "Show videos in the file list"
+msgstr "Zobrazit videa v seznamu souborů"
+
+#: src/ui/preferences.rs
+msgid "size of the menus, lists and text"
+msgstr "velikost nabídek, seznamů a textu"
+
+#: src/ui/preferences.rs
+msgid "Small"
+msgstr "Malé"
+
+#: src/ui/preferences.rs
+msgid "Start in the last used folder"
+msgstr "Začínat v naposledy použité složce"
+
+#: src/ui/preferences.rs
+msgid "Thumbnail size:"
+msgstr "Velikost náhledů:"
+
+#: src/ui/preferences.rs
+msgid "Toolbar icons:"
+msgstr "Ikony nástrojové lišty:"
+
+#: src/ui/preferences.rs
+msgid "Up to ≈ {mb} MB, each image at most {w}×{h}"
+msgstr "Až ≈ {mb} MB, každý obrázek nejvýše {w}×{h}"
+
+#: src/ui/preferences.rs
+msgid "Use no trash at all (Delete deletes permanently)"
+msgstr "Nepoužívat koš vůbec (Delete maže trvale)"
+
+#: src/ui/preferences.rs
+msgid "Use the desktop's screen profile"
+msgstr "Použít profil obrazovky z pracovního prostředí"
+
+#: src/ui/preferences.rs
+msgid "Use the image's own profile"
+msgstr "Použít vlastní profil obrázku"
+
+#: src/ui/preferences.rs
+msgid "{keys} was the key of {others} too: now of {label} only"
+msgstr "{keys} byla klávesa i pro {others}: nyní jen pro {label}"
+
+#: src/features/print.rs
+msgid "Copies:"
+msgstr "Kopie:"
+
+#: src/features/print.rs
+msgid "Images per page:"
+msgstr "Obrázků na stránku:"
+
+#: src/features/print.rs
+msgid "No image could be read: nothing printed"
+msgstr "Žádný obrázek nelze přečíst: nic se nevytisklo"
+
+#: src/features/print.rs
+msgid "No printers found"
+msgstr "Nebyly nalezeny žádné tiskárny"
+
+#: src/features/print.rs
+msgid "Paper:"
+msgstr "Papír:"
+
+#: src/features/print.rs
+msgid "PDF file"
+msgstr "Soubor PDF"
+
+#: src/features/print.rs
+msgid "Print (Enter)"
+msgstr "Tisk (Enter)"
+
+#: src/features/print.rs
+msgid "Print {count}"
+msgstr "Vytisknout {count}"
+
+#: src/features/print.rs
+msgid "Printer:"
+msgstr "Tiskárna:"
+
+#: src/features/print.rs
+msgid "Printing failed: {e}"
+msgstr "Tisk selhal: {e}"
+
+#: src/features/print.rs
+msgid "Save PDF… (Enter)"
+msgstr "Uložit PDF… (Enter)"
+
+#: src/features/print.rs
+msgid "{images} on {pages}"
+msgstr "{images}, {pages}"
+
+#: src/features/print.rs
+msgid "{msg}; {f} could not be read"
+msgstr "{msg}; {f} nelze přečíst"
+
+#: src/features/print.rs
+msgid "{what} saved in {file}"
+msgstr "Uloženo do {file}: {what}"
+
+#: src/features/print.rs
+msgid "{what} sent to {printer}"
+msgstr "Odesláno na {printer}: {what}"
+
+#. count(): one, few and many
+msgid "collection"
+msgid_plural "collections"
+msgstr[0] "kolekce"
+msgstr[1] "kolekce"
+msgstr[2] "kolekcí"
+
+#. count(): one, few and many
+msgid "day"
+msgid_plural "days"
+msgstr[0] "den"
+msgstr[1] "dny"
+msgstr[2] "dní"
+
+#. count(): one, few and many
+msgid "error"
+msgid_plural "errors"
+msgstr[0] "chyba"
+msgstr[1] "chyby"
+msgstr[2] "chyb"
+
+#. count(): one, few and many
+msgid "file"
+msgid_plural "files"
+msgstr[0] "soubor"
+msgstr[1] "soubory"
+msgstr[2] "souborů"
+
+#. count(): one, few and many
+msgid "frame"
+msgid_plural "frames"
+msgstr[0] "snímek"
+msgstr[1] "snímky"
+msgstr[2] "snímků"
+
+#. count(): one, few and many
+msgid "group"
+msgid_plural "groups"
+msgstr[0] "skupina"
+msgstr[1] "skupiny"
+msgstr[2] "skupin"
+
+#. count(): one, few and many
+msgid "image"
+msgid_plural "images"
+msgstr[0] "obrázek"
+msgstr[1] "obrázky"
+msgstr[2] "obrázků"
+
+#. count(): one, few and many
+msgid "keyword"
+msgid_plural "keywords"
+msgstr[0] "klíčové slovo"
+msgstr[1] "klíčová slova"
+msgstr[2] "klíčových slov"
+
+#. count(): one, few and many
+msgid "page"
+msgid_plural "pages"
+msgstr[0] "stránka"
+msgstr[1] "stránky"
+msgstr[2] "stránek"
+
+#. count(): one, few and many
+msgid "star"
+msgid_plural "stars"
+msgstr[0] "hvězdička"
+msgstr[1] "hvězdičky"
+msgstr[2] "hvězdiček"
+
+#. count(): one, few and many
+msgid "step"
+msgid_plural "steps"
+msgstr[0] "krok"
+msgstr[1] "kroky"
+msgstr[2] "kroků"
+
+#: src/features/print.rs
+msgid "Orientation:"
+msgstr "Orientace:"
+
+#: src/features/print.rs
+msgid "Automatic"
+msgstr "Automaticky"
+
+#: src/features/print.rs
+msgid "Portrait"
+msgstr "Na výšku"
+
+#: src/features/print.rs
+msgid "Landscape"
+msgstr "Na šířku"
+
+#: src/features/print.rs
+msgid "Margin (mm):"
+msgstr "Okraj (mm):"
+
+#: src/features/print.rs
+msgid "Image size (%):"
+msgstr "Velikost obrázku (%):"
+
+#: src/features/print.rs
+msgid "Fill each box, cutting the image to it"
+msgstr "Vyplnit každé pole, obrázek se podle něj ořízne"
+
+#: src/features/print.rs
+msgid "Text under each image:"
+msgstr "Text pod každým obrázkem:"
+
+#: src/features/print.rs
+msgid "As the full screen info: %name%, %path%, %position%, %dimensions%, %File size%, %Taken%, %Camera%, %keywords%, %comment% …"
+msgstr "Jako informace na celé obrazovce: %name%, %path%, %position%, %dimensions%, %File size%, %Taken%, %Camera%, %keywords%, %comment%…"
+
+#: src/features/print.rs
+msgid "%page% is the page's number, %pages% how many there are"
+msgstr "%page% je číslo stránky, %pages% jejich počet"
+
+#: src/features/print.rs
+msgid "Top of each page:"
+msgstr "Nahoře na každé stránce:"
+
+#: src/features/print.rs
+msgid "Bottom of each page:"
+msgstr "Dole na každé stránce:"
+
+#: src/features/print.rs
+msgid "Both sides of the paper"
+msgstr "Oboustranně"
+
+#: src/features/print.rs
+msgid "Print the image"
+msgstr "Vytisknout obrázek"
+
+#: src/features/print.rs
+msgid "{files} copied to {folder}"
+msgstr "Zkopírováno do {folder}: {files}"
+
+#: src/features/print.rs
+msgid "{files} moved to {folder}"
+msgstr "Přesunuto do {folder}: {files}"
+
+#: src/features/print.rs
+msgid "Could not move the folder to the trash: {e}"
+msgstr "Složku nelze přesunout do koše: {e}"
+
+#: src/features/print.rs
+msgid "calculating…"
+msgstr "počítá se…"
+
+#: src/features/print.rs
+msgid "Open Folder"
+msgstr "Otevřít složku"
+
+#: src/features/print.rs
+msgid "Open File"
+msgstr "Otevřít soubor"
+
+#: src/features/print.rs
+msgid "Open Folders (Ctrl+click for several)"
+msgstr "Otevřít složky (Ctrl+kliknutí pro více)"
+
+#: src/features/print.rs
+msgid "Open Folder with Its Subfolders"
+msgstr "Otevřít složku i s podsložkami"
+
+#: src/features/print.rs
+msgid "Open Collection"
+msgstr "Otevřít kolekci"
+
+#: src/features/print.rs
+msgid "Copy to Folder"
+msgstr "Kopírovat do složky"
+
+#: src/features/print.rs
+msgid "Move to Folder"
+msgstr "Přesunout do složky"
+
+#: src/features/print.rs
+msgid "Save as PDF"
+msgstr "Uložit jako PDF"
+
+#: src/main.rs
+msgid "Save As"
+msgstr "Uložit jako"
+
+#: src/features/print.rs
+msgid "Add to the Sort Manager"
+msgstr "Přidat do správce třídění"
+
+#: src/features/print.rs
+msgid "Screen Profile"
+msgstr "Profil obrazovky"
+
+#: src/features/print.rs
+msgid "Profile of Images Without One"
+msgstr "Profil obrázků bez profilu"
+
+#: src/features/print.rs
+msgid "Import Lightroom Catalog"
+msgstr "Importovat katalog Lightroomu"
+
+#: src/features/print.rs
+msgid "Back Up Glimt's Data To"
+msgstr "Zálohovat data Glimtu do"
+
+#: src/features/print.rs
+msgid "Save This Frame as PNG"
+msgstr "Uložit tento snímek jako PNG"
+
+#: src/features/print.rs
+msgid "Export Every Frame To"
+msgstr "Exportovat všechny snímky do"
+
+#: src/features/print.rs
+msgid "Collection {name} moved to the trash"
+msgstr "Kolekce {name} přesunuta do koše"
+
+#: src/features/print.rs
+msgid "Not a pattern: {e}"
+msgstr "Neplatný vzor: {e}"
+
+#: src/features/print.rs
+msgid "{text} exists already: choose another name"
+msgstr "{text} už existuje: zvolte jiný název"
+
+#: src/features/print.rs
+msgid "Saved as {file}: edit it, then choose it again"
+msgstr "Uloženo jako {file}: upravte ho a pak ho znovu vyberte"
+
+#: src/features/print.rs
+msgid "{files} given their old names back"
+msgstr "Vrácena původní jména: {files}"
+
+#: src/features/print.rs
+msgid "{files} renamed"
+msgstr "Přejmenováno: {files}"
+
+#: src/features/print.rs
+msgid "; {files} could not be, asked again at the next start"
+msgstr "; nepodařilo se: {files}, dotaz se zopakuje při příštím spuštění"
+
+#: src/features/print.rs
+msgid "{found} of {images} ({size})"
+msgstr "{found} / {images} ({size})"
+
+#: src/features/print.rs
+msgid ", {m} selected ({size})"
+msgstr ", vybráno {m} ({size})"
+
+#: src/features/print.rs
+msgid "{n} bytes"
+msgstr "{n} B"
+
+#: src/features/print.rs
+msgid " page {n}/{pages}"
+msgstr " stránka {n}/{pages}"
+
+#: src/features/print.rs
+msgid " frame {n}/{frames}"
+msgstr " snímek {n}/{frames}"
+
+#: src/files/file_ops.rs
+msgid "Could not rename {f} to {t}: {e}; not all names could be put back, Glimt offers to put them right at the next start"
+msgstr "Nelze přejmenovat {f} na {t}: {e}; ne všechna jména šlo vrátit, Glimt je nabídne opravit při příštím spuštění"
+
+#: src/viewer/pan.rs
+msgid "Mon"
+msgstr "Po"
+
+#: src/viewer/pan.rs
+msgid "Tue"
+msgstr "Út"
+
+#: src/viewer/pan.rs
+msgid "Wed"
+msgstr "St"
+
+#: src/viewer/pan.rs
+msgid "Thu"
+msgstr "Čt"
+
+#: src/viewer/pan.rs
+msgid "Fri"
+msgstr "Pá"
+
+#: src/viewer/pan.rs
+msgid "Sat"
+msgstr "So"
+
+#: src/viewer/pan.rs
+msgid "Sun"
+msgstr "Ne"
+
+#: src/files/file_ops.rs
+msgid "Still writing keywords: try again in a moment"
+msgstr "Ještě se zapisují klíčová slova: zkuste to za chvíli znovu"
+
+#: src/files/file_ops.rs
+msgid "Still working on these files: try again in a moment"
+msgstr "S těmito soubory se ještě pracuje: zkuste to za chvíli znovu"
+
+#: src/main.rs
+msgid "{what} stopped unexpectedly"
+msgstr "Neočekávaně se zastavilo: {what}"
+
+#: src/main.rs
+msgid "Connecting"
+msgstr "Připojování"
+
+#: src/main.rs
+msgid "Reading the Lightroom catalog"
+msgstr "Čtení katalogu Lightroomu"
+
+#: src/main.rs
+msgid "Looking for renames cut short"
+msgstr "Hledání přerušených přejmenování"
+
+#: src/main.rs
+msgid "The EXIF index"
+msgstr "Index EXIF"
+
+#: src/main.rs
+msgid "The Pan view's days"
+msgstr "Dny přehledového zobrazení"
+
+#: src/main.rs
+msgid "Rename Many"
+msgstr "Hromadné přejmenování"
+
+#: src/files/external.rs
+msgid "No answer from the server in a minute"
+msgstr "Server do minuty neodpověděl"
+
+#: src/metadata/lightroom.rs
+msgid "The catalog is too large to read"
+msgstr "Katalog je příliš velký na přečtení"
+
+#: src/files/file_ops.rs
+msgid "stopped"
+msgstr "zastaveno"
+
+#: src/main.rs
+msgid "Saving keywords"
+msgstr "Ukládání klíčových slov"
+
+#: src/main.rs
+msgid "Saving the alt text"
+msgstr "Ukládání alternativního textu"
+
+#: src/main.rs
+msgid "Reading the folder"
+msgstr "Čtení složky"
+
+#: src/features/print.rs
+msgid "No answer from the print server in two minutes"
+msgstr "Tiskový server do dvou minut neodpověděl"
+
+#: src/files/file_ops.rs
+msgid "Could not rename {f} to {t}: {e}; not all names could be put back, and no plan could be kept: the files under .glimt-rename-* names next to them are theirs"
+msgstr "Nelze přejmenovat {f} na {t}: {e}; ne všechna jména šlo vrátit a plán nešlo uložit: soubory s názvy .glimt-rename-* vedle nich patří k nim"
+
+#: src/ui/preferences.rs
+msgid "Look"
+msgstr "Vzhled"
+
+#: src/ui/preferences.rs
+msgid "Keyboard"
+msgstr "Klávesnice"
+
+#: src/ui/preferences.rs
+msgid "Image"
+msgstr "Obrázek"
+
+#: src/ui/preferences.rs
+msgid "Slideshow"
+msgstr "Prezentace"
+
+#: src/ui/preferences.rs
+msgid "File list"
+msgstr "Seznam souborů"
+
+#: src/ui/preferences.rs
+msgid "Memory and CPU"
+msgstr "Paměť a CPU"
+
+#: src/ui/preferences.rs
+msgid "Video"
+msgstr "Video"
+
+#: src/ui/preferences.rs
+msgid "Start and system"
+msgstr "Spuštění a systém"
+
+#: src/ui/preferences.rs
+msgid "Previews need ffmpeg"
+msgstr "Náhledy vyžadují ffmpeg"
+
+#: src/ui/preferences.rs
+msgid "S starts and stops, R random order, Ctrl+= faster, Ctrl+- slower"
+msgstr "S spouští a zastavuje, R náhodné pořadí, Ctrl+= rychleji, Ctrl+- pomaleji"
+
+#: src/ui/preferences.rs
+msgid "Custom window title (empty: as above):"
+msgstr "Vlastní název okna (prázdné: jako výše):"
+
+#: src/ui/preferences.rs
+msgid "Fields: %name%, %path%, %folder% and %app%. A | starts a part, left out when its fields are empty."
+msgstr "Pole: %name%, %path%, %folder% a %app%. Znak | začíná část, která se vynechá, když jsou její pole prázdná."
+
+#: src/ui/actions.rs
+msgid "Set Window Title…"
+msgstr "Nastavit název okna…"
+
+#: src/main.rs
+msgid "Title of this window (%name%, %path%, %folder%, %app%; empty: as in Preferences):"
+msgstr "Název tohoto okna (%name%, %path%, %folder%, %app%; prázdné: jako v Předvolbách):"
+
+#: src/metadata/xmp.rs
+msgid "{name} is a link: not written through"
+msgstr "{name} je odkaz: nezapisuje se přes něj"
+
+#: src/metadata/lightroom.rs
+msgid "Reading a Lightroom catalog needs sqlite3 3.37 or newer"
+msgstr "Ke čtení katalogu Lightroomu je potřeba sqlite3 3.37 nebo novější"
+
+#: src/ui/preferences.rs
+msgid "Copies of the pictures in your home folder: those of an encrypted volume or a stick stay readable there"
+msgstr "Kopie obrázků ve vaší domovské složce: ty ze šifrovaného svazku nebo z flash disku tam zůstanou čitelné"
+
+#: src/main.rs
+msgid "Stop {name}"
+msgstr "Zastavit {name}"
+
+#: src/files/file_ops.rs
+msgid "The rotation was not saved: other work is still changing the file"
+msgstr "Otočení nebylo uloženo: soubor ještě mění jiná práce"
+
+#: src/ui/preferences.rs
+msgid "Hide the pointer in full screen when the mouse is still"
+msgstr "Skrýt ukazatel na celé obrazovce, když se myš nehýbe"
+
+#: src/ui/preferences.rs
+msgid "Search the settings"
+msgstr "Hledat v nastavení"
+
+#: src/ui/preferences.rs
+msgid "No setting has these words"
+msgstr "Žádné nastavení neobsahuje tato slova"
+
+msgid "{program} runs outside the Flatpak, which needs: {how}"
+msgstr "{program} běží mimo Flatpak, což vyžaduje: {how}"
+
+msgid "System print dialog"
+msgstr "Systémový dialog tisku"
+
+msgid "Printing cancelled"
+msgstr "Tisk zrušen"
+
+msgid "Choose Application…"
+msgstr "Vybrat aplikaci…"
+
+#: src/ui/accessibility.rs
+msgid "{done} of {total}"
+msgstr "{done} z {total}"
+
+#: src/ui/accessibility.rs
+msgid "not among the matches"
+msgstr "není mezi shodami"
+
+#: src/ui/info_panel.rs
+msgid "EXIF: {name}"
+msgstr "EXIF: {name}"
+
+#: src/metadata/exif.rs
+msgid "Camera"
+msgstr "Fotoaparát"
+
+#: src/metadata/exif.rs
+msgid "Lens"
+msgstr "Objektiv"
+
+#: src/metadata/exif.rs
+msgid "Taken"
+msgstr "Pořízeno"
+
+#: src/metadata/exif.rs
+msgid "Exposure"
+msgstr "Expozice"
+
+#: src/metadata/exif.rs
+msgid "Aperture"
+msgstr "Clona"
+
+#: src/metadata/exif.rs
+msgid "Focal length"
+msgstr "Ohnisková vzdálenost"
+
+#: src/metadata/exif.rs
+msgid "Exposure bias"
+msgstr "Korekce expozice"
+
+#: src/metadata/exif.rs
+msgid "Flash"
+msgstr "Blesk"
+
+#: src/metadata/exif.rs
+msgid "Fired"
+msgstr "Odpálen"
+
+#: src/metadata/exif.rs
+msgid "No"
+msgstr "Ne"
+
+#: src/ui/info_panel.rs
+msgid "File size"
+msgstr "Velikost souboru"
+
+#: src/ui/info_panel.rs
+msgid "Colour profile"
+msgstr "Barevný profil"
+
+#: src/images/colour.rs
+msgid "{name}, in the file"
+msgstr "{name}, v souboru"
+
+#: src/images/colour.rs
+msgid "Adobe RGB, from its EXIF"
+msgstr "Adobe RGB, podle EXIF"
+
+#: src/images/colour.rs
+msgid "unnamed"
+msgstr "bez názvu"
+
+#: src/images/colour.rs
+msgid "{own}; {input} used instead"
+msgstr "{own}; místo něj použit {input}"
+
+#: src/images/colour.rs
+msgid "none: taken as {input}"
+msgstr "žádný: bráno jako {input}"
+
+#: src/model/listing.rs
+msgid "Sort by name"
+msgstr "Řadit podle názvu"
+
+#: src/model/listing.rs
+msgid "Sort by number"
+msgstr "Řadit podle čísla"
+
+#: src/model/listing.rs
+msgid "Sort by date"
+msgstr "Řadit podle data"
+
+#: src/model/listing.rs
+msgid "Sort by file creation date"
+msgstr "Řadit podle data vytvoření souboru"
+
+#: src/model/listing.rs
+msgid "Sort by EXIF date original"
+msgstr "Řadit podle data pořízení EXIF"
+
+#: src/model/listing.rs
+msgid "Sort by EXIF date digitized"
+msgstr "Řadit podle data digitalizace EXIF"
+
+#: src/model/listing.rs
+msgid "Sort by size"
+msgstr "Řadit podle velikosti"
+
+#: src/model/listing.rs
+msgid "Sort by extension"
+msgstr "Řadit podle přípony"
+
+#: src/ui/file_list.rs
+msgid "All types"
+msgstr "Všechny typy"
+
+#: src/ui/file_list.rs
+msgid "No types"
+msgstr "Žádné typy"
+
+#: src/ui/theme.rs
+msgid "Desktop"
+msgstr "Pracovní prostředí"
+
+#: src/ui/theme.rs
+msgid "Light"
+msgstr "Světlý"
+
+#: src/ui/theme.rs
+msgid "Dark"
+msgstr "Tmavý"
+
+#: src/ui/theme.rs
+msgid "High Contrast"
+msgstr "Vysoký kontrast"
+
+#: src/ui/theme.rs
+msgid "Contrast"
+msgstr "Kontrastní"
+
+#: src/images/colour.rs
+msgid "Greyscale"
+msgstr "Odstíny šedi"
+
+#: src/images/colour.rs
+msgid "Inverted"
+msgstr "Převrácené barvy"
+
+#: src/images/colour.rs
+msgid "More Contrast"
+msgstr "Vyšší kontrast"
+
+#: src/images/colour.rs
+msgid "Perceptual"
+msgstr "Perceptuální"
+
+#: src/images/colour.rs
+msgid "Relative colorimetric"
+msgstr "Relativní kolorimetrický"
+
+#: src/images/colour.rs
+msgid "Saturation"
+msgstr "Sytost"
+
+#: src/images/colour.rs
+msgid "Absolute colorimetric"
+msgstr "Absolutní kolorimetrický"
+
+#: src/files/config.rs
+msgid "Power saving"
+msgstr "Úspora energie"
+
+#: src/files/config.rs
+msgid "Balanced"
+msgstr "Vyvážené"
+
+#: src/files/config.rs
+msgid "Full"
+msgstr "Plné"
+
+#: src/files/config.rs
+msgid "Fewer cores at once: thumbnails one at a time, searches and Find Duplicates on two cores. Slower in large folders, kinder to a laptop battery."
+msgstr "Méně jader najednou: náhledy po jednom, hledání a Najít duplicity na dvou jádrech. Pomalejší ve velkých složkách, šetrnější k baterii notebooku."
+
+#: src/files/config.rs
+msgid "Two thumbnails at once; searches and Find Duplicates on every core."
+msgstr "Dva náhledy najednou; hledání a Najít duplicity na všech jádrech."
+
+#: src/files/config.rs
+msgid "Every core: thumbnails and searches as fast as the machine allows."
+msgstr "Všechna jádra: náhledy a hledání tak rychle, jak to počítač dovolí."
+
+#: src/files/config.rs
+msgid "Low"
+msgstr "Nízké"
+
+#: src/files/config.rs
+msgid "High"
+msgstr "Vysoké"
+
+#: src/files/config.rs
+msgid "Least memory: one image decoded at a time, one preloaded on each side. Slow storage (SMB, NFS, USB) makes browsing wait for each file."
+msgstr "Nejméně paměti: jeden obrázek dekódovaný najednou, jeden přednačtený na každou stranu. Pomalé úložiště (SMB, NFS, USB) nutí procházení čekat na každý soubor."
+
+#: src/files/config.rs
+msgid "The default: four images decoded at once, two preloaded on each side."
+msgstr "Výchozí: čtyři obrázky dekódované najednou, dva přednačtené na každou stranu."
+
+#: src/files/config.rs
+msgid "Fastest browsing: eight images decoded at once, five preloaded on each side; hides the wait of slow storage (SMB, NFS) best."
+msgstr "Nejrychlejší procházení: osm obrázků dekódovaných najednou, pět přednačtených na každou stranu; nejlépe skryje čekání na pomalé úložiště (SMB, NFS)."
+
+#: src/files/config.rs
+msgid "Short"
+msgstr "Krátké"
+
+#: src/files/config.rs
+msgid "Long"
+msgstr "Dlouhé"
+
+#: src/ui/preferences.rs
+msgid "{name}, from the desktop"
+msgstr "{name}, z pracovního prostředí"
+
+#: src/ui/preferences.rs
+msgid "none, sRGB"
+msgstr "žádný, sRGB"
+
+#: src/ui/preferences.rs
+msgid "Fields: %name%, %path%, %position%, %dimensions%, %marks%, %keywords%, %comment%, and each label of the EXIF panel, such as %Camera% or %ISO%. A | starts a part, left out when its fields are empty."
+msgstr "Pole: %name%, %path%, %position%, %dimensions%, %marks%, %keywords%, %comment% a každý popisek panelu EXIF podle svého anglického názvu, například %Camera% nebo %ISO%. Znak | začíná část, která se vynechá, když jsou její pole prázdná."
+
+#: src/ui/preferences.rs
+msgid "Window title \"Glimt - image name\" (off: \"image name - Glimt\")"
+msgstr "Název okna „Glimt - název obrázku“ (vypnuto: „název obrázku - Glimt“)"
+
+#: src/ui/preferences.rs
+msgid "A command line, such as mpv --fs; a path with spaces goes in \"quotes\""
+msgstr "Příkazový řádek, například mpv --fs; cesta s mezerami patří do \"uvozovek\""
+
+#: src/ui/dialogs.rs
+msgid "New folder name:"
+msgstr "Název nové složky:"
+
+#: src/ui/dialogs.rs
+msgid "Name of the new theme:"
+msgstr "Název nového motivu:"
+
+#: src/ui/dialogs.rs
+msgid "New name of the collection:"
+msgstr "Nový název kolekce:"
+
+#: src/ui/dialogs.rs
+msgid "New file name:"
+msgstr "Nový název souboru:"
+
+#: src/ui/dialogs.rs
+msgid "A crash or a power cut stopped it in {folder}. Some files may have their new names, some their old ones, and some hidden temporary names ({steps} to put right)."
+msgstr "Pád nebo výpadek proudu ho zastavil ve složce {folder}. Některé soubory mohou mít nová jména, některé stará a některé skrytá dočasná jména (kroků k nápravě: {steps})."
+
+#: src/ui/dialogs.rs
+msgid "no home folder"
+msgstr "chybí domovská složka"
+
+#: src/ui/window.rs
+msgid "Glimt closes when the file operations are done; close again to stop them"
+msgstr "Glimt se zavře, až budou souborové operace hotové; dalším zavřením je zastavíte"
+
+#: src/ui/window.rs
+msgid "Stopping after the files at hand; close once more to end at once"
+msgstr "Zastaví se po rozpracovaných souborech; dalším zavřením skončí okamžitě"
+
+#: src/features/check.rs
+msgid "Opens each of the {count} in the list, as the viewer would, and lists those that cannot be: broken files, files cut off in copying, and files that are no image. They are marked in the list too."
+msgstr "Otevře každý obrázek v seznamu ({count}) tak, jak by to udělal prohlížeč, a vypíše ty, které otevřít nelze: poškozené soubory, soubory useknuté při kopírování a soubory, které nejsou obrázky. Ty jsou označeny i v seznamu."
+
+#: src/features/check.rs
+msgid "None broken."
+msgstr "Žádné poškozené."
+
+#: src/main.rs
+msgid "Settings file: {first}{more}"
+msgstr "Soubor nastavení: {first}{more}"
+
+#: src/ui/accessibility.rs
+msgid ", could not be shown: {e}"
+msgstr ", nelze zobrazit: {e}"
+
+#: src/ui/accessibility.rs
+msgid ", keywords: {keywords}"
+msgstr ", klíčová slova: {keywords}"
+
+#: src/files/config.rs
+msgid "Could not save {name}: {e}"
+msgstr "{name} nelze uložit: {e}"
+
+#: src/files/backup.rs
+msgid "{folder} is not a folder"
+msgstr "{folder} není složka"
+
+#: src/files/backup.rs
+msgid "Nothing to back up: Glimt has no settings, marks or collections here"
+msgstr "Není co zálohovat: Glimt zde nemá žádná nastavení, značky ani kolekce"
+
+#: src/files/backup.rs
+msgid "A backup cannot go inside {folder}, which it copies"
+msgstr "Zálohu nelze uložit do složky {folder}, kterou kopíruje"
+
+#: src/files/backup.rs
+msgid "Glimt's data backed up to {folder}: {files}"
+msgstr "Data Glimtu zálohována do {folder}: {files}"
+
+#: src/files/backup.rs
+msgid "The backup to {folder} is not whole: {e}"
+msgstr "Záloha do {folder} není úplná: {e}"
+
+#: src/files/file_io.rs
+msgid "the file was moved, renamed or deleted meanwhile"
+msgstr "soubor byl mezitím přesunut, přejmenován nebo smazán"
+
+#: src/files/external.rs
+msgid "HEIC and AVIF need ffprobe (ffmpeg): {e}"
+msgstr "HEIC a AVIF vyžadují ffprobe (ffmpeg): {e}"
+
+#: src/files/external.rs
+msgid "video, HEIC and AVIF need ffmpeg: {e}"
+msgstr "video, HEIC a AVIF vyžadují ffmpeg: {e}"
+
+#: src/files/external.rs
+msgid "Could not mount {uri}: not an address"
+msgstr "{uri} nelze připojit: není to adresa"
+
+#: src/files/external.rs
+msgid "Could not run gio: {e}"
+msgstr "gio nelze spustit: {e}"
+
+#: src/files/external.rs
+msgid "Could not mount {uri}: wrong user name or password"
+msgstr "{uri} nelze připojit: chybné uživatelské jméno nebo heslo"
+
+#: src/files/external.rs
+msgid "Could not mount {uri}: {err}{hint}"
+msgstr "{uri} nelze připojit: {err}{hint}"
+
+#: src/files/external.rs
+msgid " (the name {host} is not found)"
+msgstr " (název {host} nebyl nalezen)"
+
+#: src/files/external.rs
+msgid " (the name {host} is not found; try {host}.local or its IP address)"
+msgstr " (název {host} nebyl nalezen; zkuste {host}.local nebo jeho IP adresu)"
+
+#: src/files/file_ops.rs
+msgid "No such frame"
+msgstr "Takový snímek neexistuje"
+
+#: src/files/file_ops.rs
+msgid "choose another name: the image itself is not changed"
+msgstr "zvolte jiný název: samotný obrázek se nemění"
+
+#: src/metadata/lightroom.rs
+msgid "Imported from Lightroom: {done}"
+msgstr "Importováno z Lightroomu: {done}"
+
+#: src/metadata/lightroom.rs
+msgid "; not saved: {names}"
+msgstr "; neuloženo: {names}"
+
+#: src/metadata/lightroom.rs
+msgid " (no data folder: $HOME is not set)"
+msgstr " (chybí datová složka: $HOME není nastaveno)"
+
+#: src/metadata/lightroom.rs
+msgid "Collections are added to Glimt's, keywords to the keyword tree and stars to the marks. Smart collections are left out."
+msgstr "Kolekce se přidají ke kolekcím Glimtu, klíčová slova do stromu klíčových slov a hvězdičky ke značkám. Chytré kolekce se vynechají."
+
+#: src/metadata/lightroom.rs
+msgid "{names} and {n} more"
+msgstr "{names} a další ({n})"
+
+#: src/metadata/lightroom.rs
+msgid "The keywords of each image, into its XMP sidecar ({count}); those it has stay"
+msgstr "Klíčová slova každého obrázku do jeho doprovodného souboru XMP ({count}); ta, která už má, zůstanou"
+
+#: src/metadata/lightroom.rs
+msgid "1 image has"
+msgstr "1 obrázek"
+
+#: src/model/collections.rs
+msgid "no data folder ($HOME is not set)"
+msgstr "chybí datová složka ($HOME není nastaveno)"
+
+#: src/model/collections.rs
+msgid "Could not rename the collection: {e}"
+msgstr "Kolekci nelze přejmenovat: {e}"
+
+#: src/viewer/view.rs
+msgid "Could not open {name}:\n{e}"
+msgstr "{name} nelze otevřít:\n{e}"
+
+#: src/images/save.rs
+msgid "only JPEG, PNG and WebP can store the rotation"
+msgstr "otočení umí uložit jen JPEG, PNG a WebP"
+
+#: src/images/save.rs
+msgid "animated images are not turned"
+msgstr "animované obrázky se neotáčejí"
+
+#: src/images/save.rs
+msgid "animated images are not saved as a copy"
+msgstr "animované obrázky se neukládají jako kopie"
+
+#: src/images/save.rs
+msgid "the part is outside the image"
+msgstr "vybraná část je mimo obrázek"
+
+#: src/images/save.rs
+msgid "a lossy WebP needs ffmpeg to be saved: {e}"
+msgstr "ztrátový WebP vyžaduje k uložení ffmpeg: {e}"
+
+#: src/metadata/exif.rs
+msgid "only JPEG files can store the orientation"
+msgstr "orientaci umí uložit jen soubory JPEG"
+
+#: src/metadata/xmp.rs
+msgid "the image was moved, renamed or deleted meanwhile"
+msgstr "obrázek byl mezitím přesunut, přejmenován nebo smazán"
+
+#: src/ui/dialogs.rs
+msgid "Move the collection \"{name}\" to the trash? Its images stay where they are."
+msgstr "Přesunout kolekci „{name}“ do koše? Její obrázky zůstanou, kde jsou."
+
+#: src/files/file_io.rs
+msgid "the file system here ({kind}) does not allow this rename, as on some shares, cloud folders and phones ({e})"
+msgstr "souborový systém zde ({kind}) toto přejmenování nepovoluje, stejně jako některá sdílení, cloudové složky a telefony ({e})"
+
+#: src/files/file_ops.rs
+msgid "\"{name}\": a {kind} file system, as on a camera card, allows none of : ? * \" < > | \\ in a name. Nothing was renamed."
+msgstr "„{name}“: souborový systém {kind}, jako na paměťové kartě fotoaparátu, nepovoluje v názvu žádný ze znaků : ? * \" < > | \\. Nic nebylo přejmenováno."
+
+#: src/files/file_ops.rs
+msgid "The trash refused {count} ({kind}). Nothing was deleted, because another folder is open now."
+msgstr "Koš odmítl {count} ({kind}). Nic nebylo smazáno, protože je nyní otevřená jiná složka."
+
+#: src/ui/dialogs.rs
+msgid "The trash does not take files in this folder ({kind}), as on network and cloud folders."
+msgstr "Koš nepřijímá soubory z této složky ({kind}), stejně jako u síťových a cloudových složek."
+
+#: src/files/file_ops.rs
+msgid "\"{name}\": a {kind} file system, as on a camera card, allows none of : ? * \" < > | \\ in a name. Nothing was copied."
+msgstr "„{name}“: souborový systém {kind}, jako na paměťové kartě fotoaparátu, nepovoluje v názvu žádný ze znaků : ? * \" < > | \\. Nic nebylo zkopírováno."
+
+#: src/files/file_ops.rs
+msgid "\"{name}\": a {kind} file system, as on a camera card, allows none of : ? * \" < > | \\ in a name. Nothing was moved."
+msgstr "„{name}“: souborový systém {kind}, jako na paměťové kartě fotoaparátu, nepovoluje v názvu žádný ze znaků : ? * \" < > | \\. Nic nebylo přesunuto."
+
+#: src/ui/dialogs.rs
+msgid "A {kind} file system, as on a camera card, allows none of : ? * \" < > | \\ in a name."
+msgstr "Souborový systém {kind}, jako na paměťové kartě fotoaparátu, nepovoluje v názvu žádný ze znaků : ? * \" < > | \\."

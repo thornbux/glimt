@@ -42,15 +42,16 @@ test; new ones go at the end of that file.
 English for everything in the repository: UI text, identifiers, comments, commit messages and
 documentation.
 
-The interface ships in thirteen languages: English and the translations in `po/*.po` (Danish,
-German, Spanish, Finnish, French, Icelandic, Italian, Dutch, Norwegian bokmål, Polish,
-Brazilian Portuguese and Swedish), listed in `lang::LANGUAGES`. **Every new UI text, `tr("…")` or `tf!("…")`, is
-translated into all of them in the same commit**: `po/no_nb.po` first, then the others.
+The interface ships in fourteen languages: English and the translations in `po/*.po` (Czech,
+Danish, German, Spanish, Finnish, French, Icelandic, Italian, Dutch, Norwegian bokmål, Polish,
+Brazilian Portuguese and Swedish), listed in `lang::LANGUAGES`. **Every new UI text, `tr("…")`
+or `tf!("…")`, is translated into all of them in the same commit**: `po/no_nb.po` first, then
+the others.
 `lang::tests::every_language_has_every_text` fails while one lacks a text of `no_nb.po`, and
 `translations_keep_placeholders` while a translation drops a `{name}`. Keep the key names as the
 menus show them (Ctrl, Shift, Enter, Esc, Delete), `%field%` template names unchanged, and only
 quotation marks Inter has (`«»`, `“”`, `„`, `”`). A noun of `count` has the forms its language's
-`plural_form` picks from: two in most, three in Polish (one, few, many).
+`plural_form` picks from: two in most, three in Polish and Czech (one, few, many).
 
 `po/glimt.pot` is the template for a new language: no_nb.po with every translation empty,
 written by `python3 tools/pot.py` (see *Before every commit*). `lang::tests::
