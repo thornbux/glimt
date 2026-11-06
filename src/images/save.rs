@@ -469,7 +469,7 @@ fn derived_metadata(
         .and_then(|r| r.into_decoder().ok())
         .map(|mut d| {
             let exif = exif::decoded(path, &mut d);
-            let stored = d.orientation().ok();
+            let stored = rotate.then(|| exif::stored_orientation(path, &mut d));
             (exif, d.xmp_metadata().ok().flatten(), stored)
         })
         .unwrap_or_default();
@@ -479,7 +479,7 @@ fn derived_metadata(
     if let Some(xmp) = &mut xmp {
         *xmp = derived_xmp(xmp, how);
     }
-    let stored_quarter = rotate && stored.is_some_and(crate::images::decode::quarter_turn);
+    let stored_quarter = stored.is_some_and(crate::images::decode::quarter_turn);
     Ok((exif, xmp, (turns % 2 == 1) != stored_quarter))
 }
 

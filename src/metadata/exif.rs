@@ -2,6 +2,7 @@
 //! fields a photographer looks at, every field for the EXIF window, the dates that sorting by
 //! EXIF date reads, and the orientation, which turning a JPEG writes.
 
+use image::metadata::Orientation;
 use std::path::Path;
 
 /// TIFF tags used in more than one place (the panel's own are named in `tag_name`).
@@ -758,6 +759,14 @@ fn raw(path: &Path) -> Option<Vec<u8>> {
     {
         return exif;
     }
+    // A PNG is read once, by the png crate, as the date sort and the search read every PNG of
+    // a folder. Through the image crate, one without an eXIf chunk was opened a second time for
+    // its text.
+    if crate::model::listing::has_ext(path, &["png"])
+        && let Some(exif) = png_exif(path)
+    {
+        return exif;
+    }
     let mut dec = crate::images::decode::image_reader(path)
         .ok()?
         .into_decoder()
@@ -771,19 +780,39 @@ fn raw(path: &Path) -> Option<Vec<u8>> {
 /// image crate decodes, so the panel, the date sort and a copy or turned file all see the same.
 pub fn decoded(path: &Path, dec: &mut impl image::ImageDecoder) -> Option<Vec<u8>> {
     let png = || crate::model::listing::has_ext(path, &["png"]);
-    (dec.exif_metadata().ok().flatten()).or_else(|| png().then(|| png_text(path)).flatten())
+    (dec.exif_metadata().ok().flatten()).or_else(|| png().then(|| png_exif(path)).flatten()?)
 }
 
-/// Reads the EXIF block a PNG keeps in a text chunk named "Raw profile type exif" or "Raw
-/// profile type APP1", plain, compressed (zTXt) or international (iTXt). Returns `None` when
-/// there is none or it cannot be read.
-fn png_text(path: &Path) -> Option<Vec<u8>> {
+/// Reads the orientation that the image `dec` decodes from `path` is turned upright by. It is
+/// the decoder's own, or for a PNG the one in the EXIF block `decoded` reads, also from a text
+/// chunk. It is the one reader of it, so the view, a turned or copied file and the info panel
+/// agree. Before, the view took the decoder's alone, and showed a PNG with its orientation in
+/// a text chunk unturned while the panel said "Rotate 90 CW". It is asked only with Auto
+/// Rotate on, because for a PNG without an eXIf chunk it opens the file a second time.
+pub fn stored_orientation(path: &Path, dec: &mut impl image::ImageDecoder) -> Orientation {
+    let own = dec.orientation().unwrap_or(Orientation::NoTransforms);
+    if own != Orientation::NoTransforms || !crate::model::listing::has_ext(path, &["png"]) {
+        return own;
+    }
+    decoded(path, dec)
+        .and_then(|e| orientation(&e))
+        .unwrap_or(own)
+}
+
+/// Reads the EXIF block of a PNG with the png crate: its eXIf chunk, or else the text chunk
+/// that exiv2 (digiKam, GIMP) and older ImageMagick write, named "Raw profile type exif" or
+/// "Raw profile type APP1", plain, compressed (zTXt) or international (iTXt). Returns
+/// `Some(None)` for a PNG without one, and `None` when the png crate cannot read the file.
+fn png_exif(path: &Path) -> Option<Option<Vec<u8>>> {
     // shortcut: only the text before the pixels is read, where exiv2 and ImageMagick put it;
     // read the chunks after IDAT too if a program is found that writes EXIF there.
     const KEYS: [&[u8]; 2] = [b"Raw profile type exif", b"Raw profile type APP1"];
     let file = std::io::BufReader::new(crate::images::decode::open(path).ok()?);
     let reader = png::Decoder::new(file).read_info().ok()?;
     let info = reader.info();
+    if let Some(exif) = &info.exif_metadata {
+        return Some(Some(exif.to_vec()));
+    }
     let key = |k: &String| KEYS.contains(&k.as_bytes());
     // Compressed text is unpacked with the png crate's limit of 2 MiB, as a block is 64 KB.
     let plain = (info.uncompressed_latin1_text.iter())
@@ -803,9 +832,11 @@ fn png_text(path: &Path) -> Option<Vec<u8>> {
             t.decompress_text().ok()?;
             t.get_text().ok()
         });
-    (plain.chain(zipped).chain(international))
-        .flatten()
-        .find_map(|text| raw_profile(&text))
+    Some(
+        (plain.chain(zipped).chain(international))
+            .flatten()
+            .find_map(|text| raw_profile(&text)),
+    )
 }
 
 /// Reads the EXIF block of an ImageMagick raw profile: a line with its type, a line with its
@@ -969,6 +1000,13 @@ mod tests {
             assert_eq!(raw(&file).as_deref(), Some(CANON_EXIF), "{chunk}");
             assert_eq!(date(&file, false).as_deref(), Some("2020:01:02 03:04:05"));
         }
+        // An eXIf chunk is read by the png crate too.
+        use image::ImageEncoder;
+        let exif = b"II*\0\x08\0\0\0\0\0\0\0";
+        let mut enc = image::codecs::png::PngEncoder::new(std::fs::File::create(&file).unwrap());
+        enc.set_exif_metadata(exif.to_vec()).unwrap();
+        image::RgbImage::new(2, 2).write_with_encoder(enc).unwrap();
+        assert_eq!(raw(&file).as_deref(), Some(&exif[..]));
         // Another key's text is not taken for EXIF.
         png_with_raw_profile(&file, "zTXt", "Raw profile type iptc", CANON_EXIF);
         assert_eq!(raw(&file), None);
