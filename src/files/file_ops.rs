@@ -760,15 +760,24 @@ impl crate::App {
     /// Asks whether to delete `files` for good, which the trash refused on a network or cloud
     /// mount of type `kind`. gio has no trash there, and a trash in the home folder would mean
     /// a download of each file. It asks only about files of the folder shown, by their names in
-    /// the list.
+    /// the list. A notice tells of the others, which are left as they are, because another
+    /// folder was opened before the question.
     fn ask_delete_instead(&mut self, kind: String, files: &[PathBuf]) {
         let dir = self.folder.dir();
-        let names: Option<Vec<OsString>> = (files.iter())
-            .map(|p| Some(p.strip_prefix(dir).ok()?.as_os_str().to_owned()))
+        let names: Vec<OsString> = (files.iter())
+            .filter_map(|p| Some(p.strip_prefix(dir).ok()?.as_os_str().to_owned()))
             .collect();
-        let Some(names) = names.filter(|n| !n.is_empty()) else {
+        let left = files.len() - names.len();
+        if left > 0 {
+            self.notice = Some(tf!(
+                "The trash refused {count} ({kind}). They are still there, because another folder is open now.",
+                count = count(left, "file"),
+                kind
+            ));
+        }
+        if names.is_empty() {
             return;
-        };
+        }
         self.dialogs.asked_about(self.list_place(), names);
         self.dialogs.confirm_delete_instead(kind);
     }
@@ -2755,8 +2764,9 @@ mod tests {
 
     /// The files the trash refused on a network or cloud mount are asked about, to delete them
     /// for good instead, when they are in the folder shown. Files of another folder are not,
-    /// because their names could be other files' in this list. The question waits until the
-    /// folder is read again, because the delete took the files out of the list.
+    /// because their names could be other files' in this list, and a notice tells that they
+    /// are still there. The question waits until the folder is read again, because the delete
+    /// took the files out of the list.
     #[test]
     fn asks_to_delete_for_good_what_the_trash_refused_on_a_network_mount() {
         use std::path::PathBuf;
@@ -2771,8 +2781,10 @@ mod tests {
         };
         let elsewhere = refused(vec![PathBuf::from("/elsewhere/a.png")]);
         app.work.deleted_tx.send(elsewhere).unwrap();
-        app.receive_deleted(&ctx);
+        assert!(settle(&mut app, &ctx, |app| app.notice.is_some()));
         assert!(!app.modal_open());
+        let told = app.notice.take().unwrap();
+        assert!(told.contains("1 file (fuse.rclone)"), "{told}");
         // The delete takes the file out of the list as it starts, as `delete_now` does.
         app.work.deleting.insert("a.png".into());
         app.remove_indices(&ctx, &[0]);

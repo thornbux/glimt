@@ -2812,6 +2812,10 @@ msgstr "filsystemet her ({kind}) tillater ikke denne omdøpingen, slik som på e
 msgid "\"{name}\": a {kind} file system, as on a camera card, allows none of : ? * \" < > | \\ in a name. Nothing was renamed."
 msgstr "«{name}»: et {kind}-filsystem, som på minnekortet i et kamera, tillater ingen av : ? * \" < > | \\ i et navn. Ingenting fikk nytt navn."
 
+#: src/files/file_ops.rs
+msgid "The trash refused {count} ({kind}). They are still there, because another folder is open now."
+msgstr "Papirkurven tok ikke imot {count} ({kind}). De ligger der fortsatt, fordi en annen mappe er åpen nå."
+
 #: src/ui/dialogs.rs
 msgid "The trash does not take files in this folder ({kind}), as on network and cloud folders."
 msgstr "Papirkurven tar ikke imot filer i denne mappen ({kind}), slik som i nettverks- og skymapper."

@@ -15,6 +15,9 @@ and versions follow [Semantic Versioning](https://semver.org/).
   characters it refuses, as on a card the kernel mounts, when udev knows the card's file system.
 - An Enter held down no longer answers the question to delete for good what the trash refused:
   only a new press of Enter does.
+- Files the trash refused on a network or cloud folder, when another folder was opened before
+  the question to delete them for good, are named in a notice that says they are still there,
+  instead of being dropped without a word.
 
 ## [0.62.0] - 2026-11-06
 

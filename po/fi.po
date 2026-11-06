@@ -2801,6 +2801,10 @@ msgstr "tämä tiedostojärjestelmä ({kind}) ei salli tätä uudelleennimeämis
 msgid "\"{name}\": a {kind} file system, as on a camera card, allows none of : ? * \" < > | \\ in a name. Nothing was renamed."
 msgstr "”{name}”: {kind}-tiedostojärjestelmä, kuten kameran muistikortilla, ei salli nimessä mitään merkeistä : ? * \" < > | \\. Mitään ei nimetty uudelleen."
 
+#: src/files/file_ops.rs
+msgid "The trash refused {count} ({kind}). They are still there, because another folder is open now."
+msgstr "Roskakori ei ottanut vastaan: {count} ({kind}). Ne ovat yhä paikallaan, koska nyt on auki toinen kansio."
+
 #: src/ui/dialogs.rs
 msgid "The trash does not take files in this folder ({kind}), as on network and cloud folders."
 msgstr "Roskakori ei ota vastaan tiedostoja tässä kansiossa ({kind}), kuten verkko- ja pilvikansioissa."

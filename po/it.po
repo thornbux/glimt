@@ -2801,6 +2801,10 @@ msgstr "il file system qui ({kind}) non consente questa ridenominazione, come su
 msgid "\"{name}\": a {kind} file system, as on a camera card, allows none of : ? * \" < > | \\ in a name. Nothing was renamed."
 msgstr "«{name}»: un file system {kind}, come sulla scheda di una fotocamera, non consente nessuno di : ? * \" < > | \\ in un nome. Nessun file è stato rinominato."
 
+#: src/files/file_ops.rs
+msgid "The trash refused {count} ({kind}). They are still there, because another folder is open now."
+msgstr "Il cestino ha rifiutato {count} ({kind}). Sono ancora lì, perché ora è aperta un'altra cartella."
+
 #: src/ui/dialogs.rs
 msgid "The trash does not take files in this folder ({kind}), as on network and cloud folders."
 msgstr "Il cestino non accetta file in questa cartella ({kind}), come nelle cartelle di rete e cloud."

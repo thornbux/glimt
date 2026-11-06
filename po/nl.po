@@ -2801,6 +2801,10 @@ msgstr "het bestandssysteem hier ({kind}) staat deze naamswijziging niet toe, zo
 msgid "\"{name}\": a {kind} file system, as on a camera card, allows none of : ? * \" < > | \\ in a name. Nothing was renamed."
 msgstr "“{name}”: een {kind}-bestandssysteem, zoals op de geheugenkaart van een camera, staat geen van : ? * \" < > | \\ toe in een naam. Er is niets hernoemd."
 
+#: src/files/file_ops.rs
+msgid "The trash refused {count} ({kind}). They are still there, because another folder is open now."
+msgstr "De prullenbak weigerde {count} ({kind}). Ze staan er nog, omdat nu een andere map open is."
+
 #: src/ui/dialogs.rs
 msgid "The trash does not take files in this folder ({kind}), as on network and cloud folders."
 msgstr "De prullenbak neemt geen bestanden aan in deze map ({kind}), zoals in netwerk- en cloudmappen."

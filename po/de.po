@@ -2801,6 +2801,10 @@ msgstr "das Dateisystem hier ({kind}) erlaubt diese Umbenennung nicht, wie auf m
 msgid "\"{name}\": a {kind} file system, as on a camera card, allows none of : ? * \" < > | \\ in a name. Nothing was renamed."
 msgstr "»{name}«: Ein {kind}-Dateisystem, wie auf der Speicherkarte einer Kamera, erlaubt keines der Zeichen : ? * \" < > | \\ in einem Namen. Nichts wurde umbenannt."
 
+#: src/files/file_ops.rs
+msgid "The trash refused {count} ({kind}). They are still there, because another folder is open now."
+msgstr "Der Papierkorb hat {count} nicht angenommen ({kind}). Sie sind noch da, weil jetzt ein anderer Ordner geöffnet ist."
+
 #: src/ui/dialogs.rs
 msgid "The trash does not take files in this folder ({kind}), as on network and cloud folders."
 msgstr "Der Papierkorb nimmt in diesem Ordner keine Dateien an ({kind}), wie in Netzwerk- und Cloud-Ordnern."
