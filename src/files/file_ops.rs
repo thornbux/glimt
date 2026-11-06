@@ -1215,6 +1215,11 @@ impl crate::App {
         if new == old {
             return;
         }
+        // A camera card refuses some characters, and its own error would not say which.
+        if let Some(refused) = refused_on_fat(std::slice::from_ref(&new), fs_type) {
+            self.notice = Some(not_renamed(refused));
+            return;
+        }
         // This runs in the background, because a folder on a share that stopped answering
         // would hold the window until the rename returns. What follows it comes back through
         // `deleted_tx`.
@@ -2136,6 +2141,27 @@ mod tests {
             .exists()));
         assert!(settle(&mut app, &ctx, |a| !a.working()));
         super::TEST_MOUNT.set(None);
+        std::fs::remove_dir_all(d).unwrap();
+    }
+
+    /// A folder on a FAT card renamed to a name with a character the card refuses stays as it
+    /// was, and the notice says why before anything is tried.
+    #[test]
+    fn a_folder_rename_on_fat_with_a_refused_name_is_told_first() {
+        let d = std::env::temp_dir().join(format!("glimt-test-fat-dir-{}", std::process::id()));
+        std::fs::create_dir_all(d.join("sub")).unwrap();
+        let (mut app, ctx) = app_on(&d);
+        super::TEST_MOUNT.set(Some("exfat".into()));
+        app.dialogs.act_on_folder(d.join("sub"));
+        app.rename_folder(&ctx, "12:30");
+        super::TEST_MOUNT.set(None);
+        let told = app.notice.clone().unwrap_or_default();
+        assert!(
+            told.contains("\"12:30\"") && told.contains("exfat"),
+            "{told}"
+        );
+        assert!(settle(&mut app, &ctx, |a| !a.working()));
+        assert!(d.join("sub").is_dir() && !d.join("12:30").exists());
         std::fs::remove_dir_all(d).unwrap();
     }
 

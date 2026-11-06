@@ -10,6 +10,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 - Copy To, Move To and a drag onto a camera card (FAT or exFAT) say which characters it refuses
   (`: ? * " < > | \`) before copying or moving anything, instead of copying the other files and
   failing on that one with "Invalid argument".
+- Renaming a folder on a camera card to a name with one of those characters says so before
+  trying, instead of giving only "Invalid argument".
 
 ## [0.62.0] - 2026-11-06
 
