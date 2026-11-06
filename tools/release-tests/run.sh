@@ -89,9 +89,11 @@ docker rm glimt-release-tests-$$ >/dev/null
 [ $status = 0 ] || { docker rmi $image >/dev/null 2>&1; echo "FAIL preparing the tests"; exit 1; }
 set +e
 # part: K. --privileged gives the container a loop device, for the FAT file system of a camera
-# card that tests.sh mounts.
+# card that tests.sh mounts. Only the part with that check gets it, as privileged containers
+# started at the same moment race for the loop devices.
 part() {
-    docker run --rm --privileged --shm-size=1g -e STEP=run -e SCRIPT=/t/part-$1.sh -e QUICK="${QUICK:-}" \
+    privileged=$(grep -q '^card=/mnt/card' "$work/part-$1.sh" && echo --privileged)
+    docker run --rm $privileged --shm-size=1g -e STEP=run -e SCRIPT=/t/part-$1.sh -e QUICK="${QUICK:-}" \
         -v "$work:/t" -v "$samples:/samples:ro" $image bash /t/tests.sh > "$work/part-$1.log" 2>&1
 }
 pids=""
