@@ -403,8 +403,12 @@ impl Listing {
                 .filter_map(|p| Some(p.strip_prefix("/").ok()?.as_os_str().to_owned()))
                 .collect();
         }
+        // Only files, as `listing::kind` keeps in a folder. A folder or `/` named in a
+        // downloaded list was kept, shown as broken, and Delete sent the whole folder to the
+        // trash.
         let sizes = keep_found(&mut files, |f| {
-            Some(self.dir.join(f).metadata().ok()?.len())
+            let meta = self.dir.join(f).metadata().ok()?;
+            meta.is_file().then_some(meta.len())
         });
         if sort {
             // Sorted by name with Case on, sort_files keeps the order as listed. For a folder
@@ -1542,6 +1546,22 @@ mod tests {
         let here = std::env::current_dir().unwrap().join(&dir);
         assert_eq!(app.folder.collection, Some(here.join("show.m3u")));
         assert_eq!(app.list.files().len(), 1);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A list that names a folder, its own folder, `..` or `/` lists only the files in it, so
+    /// no folder can be deleted as an entry of the list.
+    #[test]
+    fn a_list_keeps_only_files() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-list-dirs-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join("sub")).unwrap();
+        image::RgbImage::new(4, 4).save(dir.join("a.png")).unwrap();
+        std::fs::write(dir.join("show.m3u"), "sub\n.\n..\n/\na.png\n").unwrap();
+        let (app, _ctx) = app_on(&dir.join("show.m3u"));
+        let files: Vec<&std::path::Path> = (app.list.files().iter())
+            .map(std::path::Path::new)
+            .collect();
+        assert_eq!(files, [dir.join("a.png").strip_prefix("/").unwrap()]);
         std::fs::remove_dir_all(dir).unwrap();
     }
 
