@@ -8,20 +8,33 @@
 #                                  'cargo test --profile quick NAME'
 #
 # The image (rust:1 with mold, which links in a fraction of the time, and sccache, which keeps
-# the crates' builds for every worktree) is built once as glimt-check. Each checkout has a target
-# folder of its own in the volume glimt-target, so worktrees do not wait for each other's lock.
+# the crates' builds for every worktree) is built as glimt-check, and again when rust:1 moves on.
+# Each checkout has a target folder of its own in the volume glimt-target, so worktrees do not
+# wait for each other's lock.
 # At most one check per 5 GB of Docker's memory runs at once; the others wait their turn.
 # cargo fmt changes the files in place: the checkout is mounted, not copied.
 set -u
 cd "$(dirname "$0")/.." || exit 2
 here=$(pwd)
 name=$(basename "$here")-$(printf %s "$here" | cksum | cut -d' ' -f1)
-if ! docker image inspect glimt-check >/dev/null 2>&1; then
-    docker build -q -t glimt-check - >/dev/null <<'DOCKERFILE' || exit 2
+# The image is checked against rust:1 once a day, and built again when rust:1 has moved on, so
+# its clippy keeps up with CI's stable. Without the network the image there is used.
+stamp=$HOME/.cache/glimt-check-pulled
+image=$(docker image inspect glimt-check >/dev/null 2>&1 && echo yes)
+if [ -z "$image" ] || [ -z "$(find "$stamp" -mtime -1 2>/dev/null)" ]; then
+    docker pull -q rust:1 >/dev/null 2>&1
+    base=$(docker image inspect -f '{{.Id}}' rust:1 2>/dev/null)
+    built=$(docker image inspect -f '{{index .Config.Labels "glimt.base"}}' glimt-check 2>/dev/null)
+    if [ -z "$image" ] || { [ -n "$base" ] && [ "$base" != "$built" ]; }; then
+        echo "building glimt-check from rust:1"
+        docker build -q --label "glimt.base=$base" -t glimt-check - >/dev/null \
+            <<'DOCKERFILE' || exit 2
 FROM rust:1
 RUN apt-get update && apt-get install -y --no-install-recommends mold sccache \
     && rm -rf /var/lib/apt/lists/* && rustup component add rustfmt clippy
 DOCKERFILE
+    fi
+    mkdir -p "$HOME/.cache" && touch "$stamp"
 fi
 # A turn among the others: a folder made is a slot taken, and it goes when this ends. It holds
 # the taker's process id, so a slot left by a check that was killed is taken over.
