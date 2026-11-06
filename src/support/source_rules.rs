@@ -1033,3 +1033,31 @@ fn full_has_every_feature() {
     }
     assert!(wrong.is_empty(), "{}", wrong.join("\n"));
 }
+
+/// The file list is drawn in two places at once, the side panel and the grid in the image area,
+/// each in its own form. The functions that draw it take that form from `file_list`'s
+/// parameters, so a setting read there would draw the side panel as the grid, or the other way.
+#[test]
+fn the_list_is_drawn_in_the_form_its_caller_asks() {
+    const DRAWING: &[&str] = &["file_list", "file_row", "file_cell"];
+    let lines = code_lines(&source("ui/file_list.rs"));
+    let end = tests_start(&lines);
+    let mut function = String::new();
+    let mut wrong = Vec::new();
+    for (i, line) in lines[..end].iter().enumerate() {
+        if let Some(rest) = qualifiers_off(line.trim_start()).strip_prefix("fn ") {
+            function = rest.split(['(', '<']).next().unwrap_or("").to_owned();
+        }
+        let setting = ["config.thumbnails", "config.icons"]
+            .iter()
+            .any(|s| line.contains(s));
+        if setting && DRAWING.contains(&function.as_str()) {
+            wrong.push(format!("ui/file_list.rs:{} in {function}", i + 1));
+        }
+    }
+    assert!(
+        wrong.is_empty(),
+        "the list's form read from the settings, not from file_list's parameters:\n{}",
+        wrong.join("\n")
+    );
+}

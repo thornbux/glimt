@@ -613,13 +613,16 @@ impl crate::App {
         self.thumbs.textures.retain(|name, _| keep.contains(name));
     }
 
-    /// A file list row with a thumbnail. Returns true when clicked.
+    /// A file list row, with a thumbnail when `thumbs` is set. The list that draws it decides
+    /// that, not the setting, as the side panel has names while the grid in the image area
+    /// shows.
     pub(crate) fn file_row(
         &mut self,
         ui: &mut egui::Ui,
         i: usize,
         height: f32,
         marked: bool,
+        thumbs: bool,
     ) -> egui::Response {
         let size = egui::vec2(ui.available_width(), height);
         let (rect, response) = ui.allocate_exact_size(size, egui::Sense::click());
@@ -637,7 +640,6 @@ impl crate::App {
         } else {
             visuals.text_color()
         };
-        let thumbs = self.config.thumbnails;
         let frame = egui::Rect::from_min_size(
             rect.min + egui::vec2(2.0, 2.0),
             if thumbs {
@@ -1194,12 +1196,14 @@ impl crate::App {
     /// files below. Returns what a click there asked for.
     pub(crate) fn side_panel(&mut self, ctx: &egui::Context, ui: &mut egui::Ui) {
         let (mut open_dir, mut go_to, mut list_act) = (None, None, None);
-        // Room for a name next to the size and date columns, and the thumbnail before it.
-        let thumb = if self.config.thumbnails {
-            self.thumb().x + 10.0
+        // The grid in the image area has the thumbnails, so the list has names.
+        let form = if self.panel.area_grid_on() {
+            [false, false]
         } else {
-            0.0
+            [self.config.icons, self.config.thumbnails]
         };
+        // Room for a name next to the size and date columns, and the thumbnail before it.
+        let thumb = if form[1] { self.thumb().x + 10.0 } else { 0.0 };
         let min = if self.config.file_details {
             DETAILS_WIDTH + 140.0 + thumb
         } else {
@@ -1226,12 +1230,6 @@ impl crate::App {
                 if self.config.search_bar {
                     self.search_field(ui);
                 }
-                // The grid in the image area has the thumbnails, so the list has names.
-                let form = if self.panel.area_grid_on() {
-                    [false, false]
-                } else {
-                    [self.config.icons, self.config.thumbnails]
-                };
                 self.file_list(ctx, ui, &mut go_to, &mut list_act, form);
             });
         // The grid in the image area, drawn after, scrolls to the shown image too.
@@ -1398,7 +1396,7 @@ impl crate::App {
                     cells.push((i, cell));
                     self.file_cell(ui, i, cell, marked)
                 } else if thumbs || self.config.file_details {
-                    self.file_row(ui, i, row_h, marked)
+                    self.file_row(ui, i, row_h, marked, thumbs)
                 } else {
                     let name = self.name(i);
                     let marks = self.mark_text(i);

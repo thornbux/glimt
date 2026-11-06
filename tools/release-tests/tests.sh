@@ -771,6 +771,24 @@ for v in new old; do
     else note "old: ↓ went to f$row, then f$one, f$back"; fi
 done
 
+section "the grid in the image area (G) with thumbnails and details on: the side panel has names"
+for v in new old; do
+    as_version $v
+    d=/tmp/grid-names-$v
+    mkdir -p $d
+    for c in a b c; do convert -size 300x200 xc:red $d/$c.jpg; done
+    config thumbnails=true file_details=true
+    start $d
+    key g; sleep 2
+    shot grid-names-$v
+    quit
+    # The side panel below the toolbar, left of the grid: red only where a thumbnail is drawn.
+    reds=$(convert /t/out/grid-names-$v.png -crop 235x700+0+100 +repage \
+        -fx '(r>0.5&&g<0.3&&b<0.3)' -format '%[fx:int(mean*w*h)]' info:)
+    if [ $v = new ]; then expect "no thumbnails over the side panel's names" "$reds" 0
+    else note "old: $reds red pixels in the side panel"; fi
+done
+
 section "--remote select while Delete asks: the answer deletes the file it asked about only"
 for v in new old; do
     as_version $v
