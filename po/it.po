@@ -2799,7 +2799,7 @@ msgstr "il file system qui ({kind}) non consente questa ridenominazione, come su
 
 #: src/files/file_ops.rs
 msgid "\"{name}\": a {kind} file system, as on a camera card, allows none of : ? * \" < > | \\ in a name. Nothing was renamed."
-msgstr "«{name}»: un file system {kind}, come sulla scheda di una fotocamera, non consente nessuno di : ? * \" < > | \\ in un nome. Nessun file è stato rinominato."
+msgstr "«{name}»: un file system {kind}, come sulla scheda di una fotocamera, non consente nessuno di : ? * \" < > | \\ in un nome. Non è stato rinominato nulla."
 
 #: src/ui/dialogs.rs
 msgid "The trash does not take files in this folder ({kind}), as on network and cloud folders."
