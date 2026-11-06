@@ -930,6 +930,33 @@ fn derived_files_take_metadata_in_one_place() {
     );
 }
 
+/// An image written again and its sidecar change together, through `save::replace_with_sidecar`,
+/// which changes the sidecar only once the image's own write can no longer fail. Before, a turn
+/// saved changed the sidecar first, so a read-only image kept its pixels while its sidecar said
+/// it was turned.
+#[test]
+fn an_image_and_its_sidecar_change_together() {
+    const HOMES: &[(&str, &[(&str, &str)])] = &[
+        (
+            "derive_sidecar(",
+            &[("images/save.rs", "replace_with_sidecar")],
+        ),
+        (
+            "replace_existing(",
+            &[
+                ("files/file_io.rs", ""),
+                ("images/save.rs", "replace_with_sidecar"),
+            ],
+        ),
+    ];
+    let wrong = outside_their_homes(HOMES);
+    assert!(
+        wrong.is_empty(),
+        "an image or its sidecar written around save::replace_with_sidecar:\n{}",
+        wrong.join("\n")
+    );
+}
+
 /// The view's colour settings (Preferences' profiles, colour management on or off and the view
 /// filter) reach only what is shown. Everything Glimt writes or hands to other programs (the
 /// shared thumbnail cache, a print, the clipboard, an exported frame) goes through

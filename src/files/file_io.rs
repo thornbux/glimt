@@ -406,15 +406,22 @@ pub fn file_lock(path: &Path) -> Option<std::fs::File> {
 /// This Glimt's name is in it (in a Flatpak more than the process ID, which windows can share),
 /// so concurrent sessions never write to the same temporary file.
 pub fn replace_file(path: &Path, bytes: impl AsRef<[u8]>) -> std::io::Result<()> {
-    replace(path, bytes, false)
+    replace(path, bytes, false, || Ok(()))
 }
 
 /// `replace_file` for a file of the user's that must still be there: a turned image, whose
 /// save takes a while. Deleted, moved or renamed meanwhile, it is not made again under its old
 /// name by the save landing late; the save is refused instead. The one place this holds for
-/// every operation, whether or not it asked `none_saving` first.
-pub fn replace_existing(path: &Path, bytes: impl AsRef<[u8]>) -> std::io::Result<()> {
-    replace(path, bytes, true)
+/// every operation, whether or not it asked `none_saving` first. The step `before` runs after
+/// the file is found writable and still there and the new version is written whole, just
+/// before the rename. The image's sidecar is changed there, so a write that fails (a read-only
+/// file, a full disk) leaves the file and its sidecar as they were.
+pub fn replace_existing(
+    path: &Path,
+    bytes: impl AsRef<[u8]>,
+    before: impl FnOnce() -> std::io::Result<()>,
+) -> std::io::Result<()> {
+    replace(path, bytes, true, before)
 }
 
 /// Replaces the file named `path` with `bytes`, written whole beside it first. Unlike
@@ -446,7 +453,12 @@ pub fn replace_name_with(
 /// Writes `bytes` to `path` beside it and renames it, through a link to the file it points to.
 /// Glimt's own files and a turned image are written so. A name the user chose for a new file,
 /// and a collection's file, go through `replace_name`, which never follows a link.
-fn replace(path: &Path, bytes: impl AsRef<[u8]>, existing: bool) -> std::io::Result<()> {
+fn replace(
+    path: &Path,
+    bytes: impl AsRef<[u8]>,
+    existing: bool,
+    before: impl FnOnce() -> std::io::Result<()>,
+) -> std::io::Result<()> {
     use std::io::Write;
     let write = |f: &mut std::fs::File| f.write_all(bytes.as_ref());
     // Through a link (dotfiles kept in a repository), the file it points to: the link stays.
@@ -466,7 +478,9 @@ fn replace(path: &Path, bytes: impl AsRef<[u8]>, existing: bool) -> std::io::Res
     }
     #[allow(clippy::disallowed_methods)] // replaces on purpose: the one writer of a file again
     write_beside(&tmp_path(path), path, write, |tmp| {
-        there().and_then(|_| std::fs::rename(tmp, path).map_err(|e| plain(e, path)))
+        there()
+            .and_then(|_| before())
+            .and_then(|_| std::fs::rename(tmp, path).map_err(|e| plain(e, path)))
     })
 }
 
@@ -476,8 +490,9 @@ fn replace(path: &Path, bytes: impl AsRef<[u8]>, existing: bool) -> std::io::Res
 /// written over, where Geeqie, which writes in place, fails. A file without a write bit is
 /// refused also for root, who may write any file, as its owner marked it so. A link at the name
 /// passes, because the link itself is replaced, and so does a name that is not there yet.
-/// Glimt's own files (`replace_file`) are not asked, as before.
-fn writable(path: &Path) -> std::io::Result<()> {
+/// Glimt's own files (`replace_file`) are not asked, as before. A turn saved asks it first too,
+/// before the slow work of encoding the image.
+pub(crate) fn writable(path: &Path) -> std::io::Result<()> {
     use std::os::unix::ffi::OsStrExt;
     let Some(meta) = std::fs::symlink_metadata(path).ok().filter(|m| m.is_file()) else {
         return Ok(());
@@ -897,7 +912,7 @@ mod tests {
         std::fs::write(&file, "old").unwrap();
         std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o444)).unwrap();
         for result in [
-            super::replace_existing(&file, "new"),
+            super::replace_existing(&file, "new", || Ok(())),
             super::replace_name(&file, "new"),
         ] {
             let refused = result.unwrap_err().kind();
@@ -924,10 +939,10 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let file = dir.join("a.png");
         std::fs::write(&file, "old").unwrap();
-        assert!(super::replace_existing(&file, "new").is_ok());
+        assert!(super::replace_existing(&file, "new", || Ok(())).is_ok());
         assert_eq!(std::fs::read_to_string(&file).unwrap(), "new");
         std::fs::remove_file(&file).unwrap();
-        let late = super::replace_existing(&file, "late");
+        let late = super::replace_existing(&file, "late", || Ok(()));
         assert_eq!(late.unwrap_err().kind(), std::io::ErrorKind::NotFound);
         assert_eq!(
             std::fs::read_dir(&dir).unwrap().count(),

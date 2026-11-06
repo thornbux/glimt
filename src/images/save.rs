@@ -138,6 +138,8 @@ pub fn save_rotated(
     let named = path;
     // Through a symlink, the new file is renamed over the file it points to, not over the link.
     let path = &std::fs::canonicalize(path).map_err(|e| e.to_string())?;
+    // A read-only file is refused before the whole image is decoded and encoded for nothing.
+    crate::files::file_io::writable(path).map_err(|e| e.to_string())?;
     let png = has_ext(path, &["png"]);
     if !png && !has_ext(path, &["webp"]) {
         return Err(tr("only JPEG, PNG and WebP can store the rotation").into());
@@ -154,8 +156,23 @@ pub fn save_rotated(
     let (exif, xmp, stored_quarter) = derived_metadata(path, rotate, (img.width(), img.height()))?;
     let quarter = (turns % 2 == 1) != stored_quarter;
     let out = encode(path, img, icc, exif, xmp, kind, quarter, webp_quality)?;
-    derive_sidecar(named, Derived::Pixels)?;
-    crate::files::file_io::replace_existing(path, out).map_err(|e| e.to_string())
+    replace_with_sidecar(path, named, out, Derived::Pixels)
+}
+
+/// Replaces the image at `real` with `out` and makes the sidecar of `named`, the name the list
+/// shows, say what the new image does (`how`). The sidecar is changed only once the image's own
+/// write can no longer fail: the file is writable and still there and `out` is on disk beside
+/// it. Before, the sidecar was changed first, so a read-only image or a full disk left a
+/// sidecar that said the image was turned. This is the one way an image and its sidecar are
+/// written again together, for a JPEG's orientation and a PNG or WebP turned.
+pub(crate) fn replace_with_sidecar(
+    real: &Path,
+    named: &Path,
+    out: Vec<u8>,
+    how: Derived,
+) -> Result<(), String> {
+    let sidecar = || derive_sidecar(named, how).map_err(std::io::Error::other);
+    crate::files::file_io::replace_existing(real, out, sidecar).map_err(|e| e.to_string())
 }
 
 /// The copy of `path` that `how` asks for, encoded, and its format. It has its profile, and
@@ -446,13 +463,14 @@ pub(crate) fn derived_xmp(xmp: &[u8], how: Derived) -> Vec<u8> {
 
 /// Makes the sidecar of `path`, whose image is being written anew as `how` says, say what the
 /// image will. Otherwise a program that reads the sidecar first (digiKam) turns the photo back
-/// by its old orientation. It is called before the image is written: a sidecar that cannot be
-/// written then leaves the image as it was, and the next save writes the same orientation to
-/// an image that failed after it. Only a sidecar of its own, readable as text and with
-/// something to change, is written, under its lock (`xmp::update_sidecar`). A link or one that
-/// cannot be read is left alone, as the panel leaves it. The sidecar is the one of the name the
-/// list shows, which is the one Glimt's panel reads, also for a link to a photo.
-pub(crate) fn derive_sidecar(path: &Path, how: Derived) -> Result<(), String> {
+/// by its old orientation. It is called after the new image is written whole and before it
+/// takes the name (`replace_with_sidecar`): a sidecar that cannot be written then leaves the
+/// image as it was, and a failed image write leaves the sidecar. Only a sidecar of its own,
+/// readable as text and with something to change, is written, under its lock
+/// (`xmp::update_sidecar`). A link or one that cannot be read is left alone, as the panel leaves
+/// it. The sidecar is the one of the name the list shows, which is the one Glimt's panel reads,
+/// also for a link to a photo.
+fn derive_sidecar(path: &Path, how: Derived) -> Result<(), String> {
     let old = crate::metadata::xmp::own_sidecar(path).ok().flatten();
     let text = old.filter(|x| std::str::from_utf8(x).is_ok());
     if text.is_none_or(|x| derived_xmp(&x, how) == x) {
@@ -1390,6 +1408,33 @@ mod tests {
         assert_eq!(image::image_dimensions(&png).unwrap(), (4, 8));
         assert!(has(&png, "tiff:Orientation=\"1\""));
         assert!(!has(&png, "WHOLEFRAME") && has(&png, "<rdf:li>beach</rdf:li>"));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A turn saved to a read-only JPEG or PNG is refused, and its sidecar is left byte for
+    /// byte as it was. Before, the sidecar was changed before the image was refused, so it said
+    /// the JPEG was turned, and the PNG's lost its thumbnail and pixel sizes for good.
+    #[test]
+    fn a_refused_turn_leaves_its_sidecar() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = std::env::temp_dir().join(format!("glimt-turn-ro-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let (jpeg, png) = (dir.join("a.jpg"), dir.join("b.png"));
+        image::RgbImage::new(8, 4).save(&jpeg).unwrap();
+        std::fs::write(&png, black_png(8, 4)).unwrap();
+        let side = BRIDGE_XMP.replace("Orientation=\"6\"", "Orientation=\"1\"");
+        for file in [&jpeg, &png] {
+            std::fs::write(crate::metadata::xmp::sidecar(file), &side).unwrap();
+            std::fs::set_permissions(file, std::fs::Permissions::from_mode(0o444)).unwrap();
+        }
+        let image = std::fs::read(&jpeg).unwrap();
+        assert!(crate::metadata::exif::write_orientation(&jpeg, 1, false, true).is_err());
+        assert!(super::save_rotated(&png, true, 1, false, 90).is_err());
+        assert_eq!(std::fs::read(&jpeg).unwrap(), image);
+        for file in [&jpeg, &png] {
+            let now = std::fs::read_to_string(crate::metadata::xmp::sidecar(file)).unwrap();
+            assert_eq!(now, side, "{}", file.display());
+        }
         std::fs::remove_dir_all(dir).unwrap();
     }
 
