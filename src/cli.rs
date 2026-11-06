@@ -46,6 +46,10 @@ pub(crate) const START_OPTIONS: &[(&str, &str)] = &[
     ),
     ("-V, --version", "Print the version"),
     ("-h, --help", "Print this help"),
+    (
+        "--",
+        "Every argument after it is a file or folder, also one starting with -",
+    ),
 ];
 
 /// What the start options ask for.
@@ -62,6 +66,9 @@ pub(crate) struct Start {
     pub(crate) fade: Option<usize>,
     /// More folders after the first, to show together.
     pub(crate) more: Vec<PathBuf>,
+    /// Whether `--` ended the options. Every argument after it is then a file or folder, also
+    /// one named like an option or a command, such as `-h` or `--remote`.
+    pub(crate) files_only: bool,
 }
 
 impl Start {
@@ -104,6 +111,11 @@ impl Start {
                     start.name = Some(name.to_owned());
                     args.remove(0);
                 }
+                "--" => {
+                    start.files_only = true;
+                    args.remove(0);
+                    break;
+                }
                 "--help" | "-h" | "--version" | "-V" | "--remote" | "--remote-all"
                 | "--check-config" | "--back-up" => break,
                 a if a.starts_with("--") => return Err(format!("unknown option {a}")),
@@ -116,9 +128,10 @@ impl Start {
 }
 
 /// Answers the commands that need no window: --version, --check-config, --back-up and --help.
-/// Returns true when one of them was given, and Glimt has nothing more to do.
-pub(crate) fn answered(args_os: &[OsString]) -> bool {
-    let first = args_os.first().and_then(|a| a.to_str());
+/// Returns true when one of them was given, and Glimt has nothing more to do. After `--` the
+/// arguments are files, never a command.
+pub(crate) fn answered(start: &Start, args_os: &[OsString]) -> bool {
+    let first = (args_os.first().filter(|_| !start.files_only)).and_then(|a| a.to_str());
     match first {
         Some("--version" | "-V") => println!("glimt {}", env!("CARGO_PKG_VERSION")),
         Some("--check-config") => check_config(args_os.get(1).map(PathBuf::from)),
@@ -228,5 +241,28 @@ mod tests {
         assert!(Start::parse(args(&["--fade", "slow"])).is_err());
         let (_, rest) = Start::parse(args(&["--version"])).unwrap();
         assert_eq!(rest, args(&["--version"]));
+    }
+
+    /// After `--` every argument is a file or folder, also `-h` or one named like an option.
+    /// Before, `glimt -- -h` was an unknown option, and a file named `--x.jpg` or `-h` could not
+    /// be opened from the command line.
+    #[test]
+    fn files_follow_two_dashes() {
+        let args = |a: &[&str]| {
+            a.iter()
+                .map(Into::into)
+                .collect::<Vec<std::ffi::OsString>>()
+        };
+        let (s, rest) = Start::parse(args(&["--slideshow", "--", "-h", "--x.jpg"])).unwrap();
+        assert!(s.slideshow && s.files_only);
+        assert_eq!(rest, args(&["-h", "--x.jpg"]));
+        assert!(
+            !super::answered(&s, &rest),
+            "-h after -- was taken as --help"
+        );
+        let (s, rest) = Start::parse(args(&["--", "--remote", "next"])).unwrap();
+        assert!(s.files_only && !super::answered(&s, &rest));
+        assert_eq!(rest, args(&["--remote", "next"]));
+        assert!(!Start::parse(args(&["d"])).unwrap().0.files_only);
     }
 }
