@@ -133,6 +133,10 @@ enum Kind {
 /// across and down is swapped (`png_with_chunks`).
 type Metadata = (Option<Vec<u8>>, Option<Vec<u8>>, bool);
 
+/// What tells one file or folder from every other, as `file_key` gives it: its device and
+/// inode, or its real path where the file system gives every file inode 0.
+pub(crate) type FileKey = Result<(u64, u64), std::path::PathBuf>;
+
 /// How a file Glimt writes came from the image it was made from, which decides what it keeps of
 /// that image's metadata. Every writer of such a file goes through `derived_metadata`,
 /// `derived_xmp` and `png_with_chunks`, the one place that says it. The keywords, comment, alt
@@ -431,15 +435,28 @@ pub(crate) fn land(
 /// never saved over the image it is made from (Save As, Save This Frame), and Rename Many's
 /// repair tells a step done from one not done by it.
 pub(crate) fn same_file(a: &Path, b: &Path) -> bool {
-    matches!((file_id(a), file_id(b)), (Some(x), Some(y)) if x == y)
+    matches!((file_key(a), file_key(b)), (Some(x), Some(y)) if x == y)
 }
 
-/// Returns what tells the file at `path` from every other: its device and inode. It is the
-/// same however the file is reached, through a link, a hard link or a bind mount, where its
-/// real path (`canonicalize`) differs. Returns `None` when the file cannot be looked up.
-pub(crate) fn file_id(path: &Path) -> Option<(u64, u64)> {
+/// Returns what tells the file or folder at `path` from every other (`FileKey`). Every
+/// comparison of two files or folders by who they are goes through it. Returns `None` when the
+/// file cannot be looked up.
+pub(crate) fn file_key(path: &Path) -> Option<FileKey> {
     use std::os::unix::fs::MetadataExt;
-    std::fs::metadata(path).ok().map(|m| (m.dev(), m.ino()))
+    let meta = std::fs::metadata(path).ok()?;
+    Some(key_of(path, (meta.dev(), meta.ino())))
+}
+
+/// Returns the key of `path` from its device and inode, `id`. The pair is the same however the
+/// file is reached, through a link, a hard link or a bind mount, where its real path differs.
+/// But sshfs with `-o use_ino` and some other mounts give every file inode 0, so the pair
+/// would make all their files one, and the real path tells them apart instead. A test gives
+/// such ids through this function.
+pub(crate) fn key_of(path: &Path, id: (u64, u64)) -> FileKey {
+    match id.1 {
+        0 => Err(crate::model::listing::real_dir(path)),
+        _ => Ok(id),
+    }
 }
 
 /// File → Save As. It saves the copy `how` asks for as `to`, which the file dialog let replace
@@ -1971,6 +1988,25 @@ mod tests {
         };
         assert_eq!(pixel(&png), ((800, 1200), image::Rgb([255, 0, 0])));
         assert_eq!(pixel(&webp), ((800, 1200), image::Rgb([0, 0, 255])));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// On a file system that gives every file inode 0 (sshfs with `-o use_ino`), two files are
+    /// still told apart, and a link to a file is still that file. Told apart by device and inode
+    /// alone, Find Duplicates kept one file of the whole folder, and the tree walk one folder.
+    #[test]
+    fn files_without_unique_inodes_are_told_apart() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-key-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let (a, b, link) = (dir.join("a.jpg"), dir.join("b.jpg"), dir.join("link.jpg"));
+        std::fs::write(&a, "x").unwrap();
+        std::fs::write(&b, "x").unwrap();
+        std::os::unix::fs::symlink("a.jpg", &link).unwrap();
+        let key = |p: &std::path::Path| super::key_of(p, (1, 0));
+        assert_ne!(key(&a), key(&b));
+        assert_eq!(key(&a), key(&link));
+        assert_eq!(super::key_of(&a, (1, 7)), super::key_of(&b, (1, 7)));
+        assert!(super::same_file(&a, &link) && !super::same_file(&a, &b));
         std::fs::remove_dir_all(dir).unwrap();
     }
 }

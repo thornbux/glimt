@@ -317,11 +317,13 @@ pub fn find(
     // The same file reached twice, by a link to it, through a linked folder or through a bind
     // mount, would be its own "duplicate", and checked and trashed the only copy would go: each
     // file once. Hard links of one file are one file too, since trashing one frees nothing.
-    let ids = parallel(&paths, p, crate::images::save::file_id);
+    let ids = parallel(&paths, p, crate::images::save::file_key);
     let mut seen = std::collections::HashSet::new();
     let paths: Vec<PathBuf> = (paths.into_iter().zip(ids))
-        .filter(|(path, id)| seen.insert(id.ok_or_else(|| path.clone())))
-        .map(|(path, _)| path)
+        .filter_map(|(path, id)| {
+            seen.insert(id.unwrap_or_else(|| Err(path.clone())))
+                .then_some(path)
+        })
         .collect();
     let mut groups = match by {
         By::Name => {

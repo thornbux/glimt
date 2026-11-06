@@ -2,6 +2,7 @@
 //! of them, and sorting them (by name as numbers, date, size, EXIF date or shuffled).
 
 use crate::files::external::{is_heif, is_video};
+use crate::images::save::FileKey;
 use crate::{images::raw, metadata::exif};
 use std::collections::HashSet;
 use std::ffi::OsString;
@@ -213,24 +214,19 @@ pub fn walk(
     dir: &Path,
     types: Types,
 ) -> impl Iterator<Item = (PathBuf, Vec<PathBuf>, Vec<OsString>)> {
-    walk_by(dir, types, crate::images::save::file_id)
+    walk_by(dir, types, crate::images::save::file_key)
 }
 
-/// Walks the tree as `walk` does, with `file_id` telling the folders apart, so a test can give
-/// the ids a file system without unique inodes has.
+/// Walks the tree as `walk` does, with `file_key` telling the folders apart, so a test can give
+/// the keys a file system without unique inodes has.
 fn walk_by(
     dir: &Path,
     types: Types,
-    file_id: impl Fn(&Path) -> Option<(u64, u64)>,
+    file_key: impl Fn(&Path) -> Option<FileKey>,
 ) -> impl Iterator<Item = (PathBuf, Vec<PathBuf>, Vec<OsString>)> {
     let (dir, mut todo) = (dir.to_path_buf(), vec![PathBuf::new()]);
-    let mut seen: HashSet<Result<(u64, u64), PathBuf>> = HashSet::new();
-    // An inode of 0 is no id: sshfs with `-o use_ino` gives it to every folder, and the tree
-    // would end at the first one. The real path tells such folders apart instead.
-    let key = move |full: &Path| match file_id(full) {
-        Some(id) if id.1 != 0 => Ok(id),
-        _ => Err(real_dir(full)),
-    };
+    let mut seen: HashSet<FileKey> = HashSet::new();
+    let key = move |full: &Path| file_key(full).unwrap_or_else(|| Err(real_dir(full)));
     let real = real_dir(&dir);
     std::iter::from_fn(move || {
         loop {
@@ -576,9 +572,11 @@ mod tests {
             videos: true,
             hidden: false,
         };
-        let mut files: Vec<std::path::PathBuf> = super::walk_by(&dir, types, |_| Some((1, 0)))
-            .flat_map(|(rel, _, files)| files.into_iter().map(move |f| rel.join(f)))
-            .collect();
+        let mut files: Vec<std::path::PathBuf> = super::walk_by(&dir, types, |p| {
+            Some(crate::images::save::key_of(p, (1, 0)))
+        })
+        .flat_map(|(rel, _, files)| files.into_iter().map(move |f| rel.join(f)))
+        .collect();
         files.sort();
         assert_eq!(
             files,
