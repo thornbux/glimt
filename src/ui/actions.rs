@@ -971,7 +971,11 @@ impl crate::App {
             Action::KeyboardMap => self.help = Some(help::Page::Keymap),
             Action::About => self.help = Some(help::Page::About),
             Action::Thumbnails => self.set_thumbnails(!self.config.thumbnails),
-            Action::ThumbnailGrid => self.panel.toggle_area_grid(),
+            Action::ThumbnailGrid => {
+                // A part chosen for Crop is of the image, and Enter in the grid opens an image.
+                self.viewing.stop_crop();
+                self.panel.toggle_area_grid();
+            }
             Action::SaveOrientation => self.save_orientation(ctx),
             Action::Crop => self.start_crop(),
             Action::SaveAs => self.start_save_as(),
