@@ -2802,5 +2802,5 @@ msgid "\"{name}\": a {kind} file system, as on a camera card, allows none of : ?
 msgstr "„{name}“: {kind}-skráakerfi, eins og á minniskorti myndavélar, leyfir ekkert af : ? * \" < > | \\ í heiti. Engu var gefið nýtt heiti."
 
 #: src/ui/dialogs.rs
-msgid "The trash does not work in this folder, which is on a network or cloud mount ({kind})."
-msgstr "Ruslið virkar ekki í þessari möppu, sem er á net- eða skýjatengingu ({kind})."
+msgid "The trash does not take files in this folder ({kind}), as on network and cloud folders."
+msgstr "Ruslið tekur ekki við skrám í þessari möppu ({kind}), eins og í net- og skýjamöppum."

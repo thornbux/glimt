@@ -214,6 +214,10 @@ pub(crate) struct Work {
     /// The renames found cut short at the start, by a crash or a power cut during Rename Many,
     /// so they can be put right. They are read in the background.
     cut_short_rx: Receiving<Vec<journal::CutShort>>,
+    /// The type of the mount and the files the trash refused there, to ask about once the
+    /// folder is read again. The files left the list when the delete started, and only the new
+    /// listing brings them back.
+    untrashable: Option<(String, Vec<PathBuf>)>,
     /// Our own clipboard for file lists, kept so it can serve them (X11).
     clipboard: Option<arboard::Clipboard>,
     /// An image decoded for the clipboard. egui takes it only during a frame.
@@ -244,6 +248,7 @@ impl Work {
             undo: None,
             cut_short: Vec::new(),
             cut_short_rx: Receiving::of(cut_short_rx),
+            untrashable: None,
             clipboard: None,
             clip_rx: Receiving::none(),
         }
@@ -674,7 +679,10 @@ impl crate::App {
         } in self.work.deleted_rx.try_iter().collect::<Vec<_>>()
         {
             if let Some((kind, files)) = untrashable {
-                self.ask_delete_instead(kind, &files);
+                match &mut self.work.untrashable {
+                    Some((_, held)) => held.extend(files),
+                    none => *none = Some((kind, files)),
+                }
             }
             if let Some((old, new)) = folder_renamed {
                 self.folder_renamed(ctx, old, new);
@@ -736,12 +744,21 @@ impl crate::App {
                 self.folder.relist_later();
             }
         }
+        // The question waits for the listing that brings the files back, and for any other
+        // dialog to close, which keeps the keys meant for it.
+        if !self.folder.wants_relist()
+            && !self.folder.is_listing()
+            && !self.dialog_open()
+            && let Some((kind, files)) = self.work.untrashable.take()
+        {
+            self.ask_delete_instead(kind, &files);
+        }
     }
 
     /// Asks whether to delete `files` for good, which the trash refused on a network or cloud
     /// mount of type `kind`. gio has no trash there, and a trash in the home folder would mean
     /// a download of each file. It asks only about files of the folder shown, by their names in
-    /// the list, and not over another dialog, which keeps the keys meant for it.
+    /// the list.
     fn ask_delete_instead(&mut self, kind: String, files: &[PathBuf]) {
         let dir = self.folder.dir();
         let names: Option<Vec<OsString>> = (files.iter())
@@ -750,9 +767,6 @@ impl crate::App {
         let Some(names) = names.filter(|n| !n.is_empty()) else {
             return;
         };
-        if self.dialog_open() {
-            return;
-        }
         self.dialogs.asked_about(self.list_place(), names);
         self.dialogs.confirm_delete_instead(kind);
     }
@@ -1712,14 +1726,17 @@ fn left_by_trash(paths: &[PathBuf]) -> Option<(String, Vec<PathBuf>)> {
 /// Returns a notice when a name of `to` has a character that the FAT or exFAT file system of its
 /// folder refuses, before anything is renamed. Returns `None` when every name is allowed where it
 /// goes. `mount_type` gives a folder's file system. Only the folder of a name with such a
-/// character is looked up.
+/// character is looked up, and each folder once, because this runs in the window's thread and
+/// every lookup reads the mount table.
 fn refused_on_fat(to: &[PathBuf], mount_type: impl Fn(&Path) -> Option<String>) -> Option<String> {
+    let mut kinds: HashMap<&Path, Option<String>> = HashMap::new();
     to.iter().find_map(|path| {
         let name = path.file_name()?.to_string_lossy();
         if !name.contains(NOT_ON_FAT) {
             return None;
         }
-        let kind = mount_type(path.parent()?)?;
+        let dir = path.parent()?;
+        let kind = kinds.entry(dir).or_insert_with(|| mount_type(dir)).clone()?;
         matches!(kind.as_str(), "vfat" | "msdos" | "exfat").then(|| {
             tf!(
                 "\"{name}\": a {kind} file system, as on a camera card, allows none of : ? * \" < > | \\ in a name. Nothing was renamed.",
@@ -2006,6 +2023,15 @@ mod tests {
         };
         assert!(super::refused_on_fat(&to(&["a.jpg", "b c.jpg"]), counted).is_none());
         assert_eq!(looked.get(), 0);
+        // A Rename Many to times of day on ext4 looks the folder up once, not once a name.
+        let times: Vec<String> = (0..1000).map(|i| format!("12:{i}.jpg")).collect();
+        let times: Vec<&str> = times.iter().map(String::as_str).collect();
+        let on_ext4 = |_: &Path| {
+            looked.set(looked.get() + 1);
+            Some("ext4".to_owned())
+        };
+        assert!(super::refused_on_fat(&to(&times), on_ext4).is_none());
+        assert_eq!(looked.get(), 1);
     }
 
     /// Entries taken out of a collection go back to their places, also when some are there again.
@@ -2676,7 +2702,8 @@ mod tests {
 
     /// The files the trash refused on a network or cloud mount are asked about, to delete them
     /// for good instead, when they are in the folder shown. Files of another folder are not,
-    /// because their names could be other files' in this list.
+    /// because their names could be other files' in this list. The question waits until the
+    /// folder is read again, because the delete took the files out of the list.
     #[test]
     fn asks_to_delete_for_good_what_the_trash_refused_on_a_network_mount() {
         use std::path::PathBuf;
@@ -2693,16 +2720,17 @@ mod tests {
         app.work.deleted_tx.send(elsewhere).unwrap();
         app.receive_deleted(&ctx);
         assert!(!app.modal_open());
-        app.work
-            .deleted_tx
-            .send(refused(vec![dir.join("a.png")]))
-            .unwrap();
-        app.receive_deleted(&ctx);
-        assert!(app.modal_open());
-        assert_eq!(
-            app.dialogs.asked_names(),
-            [std::ffi::OsString::from("a.png")]
-        );
+        // The delete takes the file out of the list as it starts, as `delete_now` does.
+        app.work.deleting.insert("a.png".into());
+        app.remove_indices(&ctx, &[0]);
+        let failed = super::Deleted {
+            paths: vec![dir.join("a.png")],
+            failed: true,
+            ..refused(vec![dir.join("a.png")])
+        };
+        app.work.deleted_tx.send(failed).unwrap();
+        assert!(settle(&mut app, &ctx, |app| app.modal_open()));
+        assert_eq!(app.asked_targets(), Some(vec![0]));
         std::fs::remove_dir_all(dir).unwrap();
     }
 

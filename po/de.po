@@ -2802,5 +2802,5 @@ msgid "\"{name}\": a {kind} file system, as on a camera card, allows none of : ?
 msgstr "»{name}«: Ein {kind}-Dateisystem, wie auf der Speicherkarte einer Kamera, erlaubt keines der Zeichen : ? * \" < > | \\ in einem Namen. Nichts wurde umbenannt."
 
 #: src/ui/dialogs.rs
-msgid "The trash does not work in this folder, which is on a network or cloud mount ({kind})."
-msgstr "Der Papierkorb funktioniert in diesem Ordner nicht, der auf einem Netzwerk- oder Cloud-Laufwerk liegt ({kind})."
+msgid "The trash does not take files in this folder ({kind}), as on network and cloud folders."
+msgstr "Der Papierkorb nimmt in diesem Ordner keine Dateien an ({kind}), wie in Netzwerk- und Cloud-Ordnern."

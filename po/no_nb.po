@@ -2813,5 +2813,5 @@ msgid "\"{name}\": a {kind} file system, as on a camera card, allows none of : ?
 msgstr "«{name}»: et {kind}-filsystem, som på minnekortet i et kamera, tillater ingen av : ? * \" < > | \\ i et navn. Ingenting fikk nytt navn."
 
 #: src/ui/dialogs.rs
-msgid "The trash does not work in this folder, which is on a network or cloud mount ({kind})."
-msgstr "Papirkurven virker ikke i denne mappen, som ligger på en nettverks- eller skymontering ({kind})."
+msgid "The trash does not take files in this folder ({kind}), as on network and cloud folders."
+msgstr "Papirkurven tar ikke imot filer i denne mappen ({kind}), slik som i nettverks- og skymapper."

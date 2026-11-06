@@ -2802,5 +2802,5 @@ msgid "\"{name}\": a {kind} file system, as on a camera card, allows none of : ?
 msgstr "«{name}»: un sistema de archivos {kind}, como el de la tarjeta de una cámara, no admite ninguno de : ? * \" < > | \\ en un nombre. No se ha cambiado ningún nombre."
 
 #: src/ui/dialogs.rs
-msgid "The trash does not work in this folder, which is on a network or cloud mount ({kind})."
-msgstr "La papelera no funciona en esta carpeta, que está en un montaje de red o en la nube ({kind})."
+msgid "The trash does not take files in this folder ({kind}), as on network and cloud folders."
+msgstr "La papelera no acepta archivos en esta carpeta ({kind}), como en las carpetas de red y en la nube."

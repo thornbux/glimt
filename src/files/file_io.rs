@@ -91,6 +91,8 @@ pub(crate) fn mount_type(path: &Path) -> Option<String> {
 
 /// Returns whether a mount of type `kind` (from `mount_type`) is on another computer or in a
 /// cloud, through FUSE, SMB or NFS. A fuseblk mount (NTFS or exFAT on a local disk) is not.
+/// Every other FUSE mount counts, also a local one such as gocryptfs, so the delete dialog does
+/// not call the folder a network folder.
 pub(crate) fn is_remote(kind: &str) -> bool {
     kind.starts_with("fuse.") || matches!(kind, "cifs" | "smb3" | "nfs" | "nfs4" | "9p")
 }
