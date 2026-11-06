@@ -372,6 +372,9 @@ the large folder and the EXIF timings. Screenshots of the steps are in
   vulnerable crate, while warnings such as an unmaintained crate do not stop it. Between
   releases `.github/workflows/audit.yml` runs it every Monday and when `Cargo.lock` changes,
   and Dependabot (`.github/dependabot.yml`) proposes updates of the crates and pinned actions.
+  `.github/workflows/update.yml` opens a pull request every Tuesday with `cargo update` (the
+  crates Cargo.toml does not name too) and the files after Cargo.lock, starts CI on it, and says
+  when the Flatpak image's digest has moved.
 
 By hand: the Flatpak, with two windows (Ctrl+N), `--remote next` to the focused one,
 `--remote-all next` to both and `--remote-all quit`; Delete and Ctrl+Z (the trash portal), and of

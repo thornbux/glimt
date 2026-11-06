@@ -1,0 +1,83 @@
+# Every crate at its newest compatible version, once a week, as a pull request. Dependabot moves
+# only the crates named in Cargo.toml; this moves the ones they pull in too, and the files that
+# follow Cargo.lock (sbom.cdx.json, THIRD-PARTY-LICENSES.txt, flatpak/cargo-sources.json). It also
+# says when the Flatpak image pinned in release.yml has a newer digest, which it cannot change
+# itself: a workflow's token may not push a change to a workflow.
+#
+# A pull request opened with the workflow's token starts no other workflow, so this starts CI on
+# the branch itself (workflow_dispatch, which that token may do), and the pull request shows it.
+# The repository must allow GitHub Actions to create pull requests (Settings → Actions → General).
+name: Update
+
+on:
+  schedule:
+    - cron: "23 5 * * 2"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+  actions: write
+
+concurrency:
+  group: update
+  cancel-in-progress: false
+
+env:
+  BRANCH: weekly-update
+  GH_TOKEN: ${{ github.token }}
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: dtolnay/rust-toolchain@686976e191b89faba57d3206551f0f330d8cb249 # stable, 2026-10-09
+        with:
+          toolchain: stable
+      # Edition 2024 resolves by rust-version, so no crate newer than Rust 1.95 builds is taken.
+      - name: cargo update
+        run: cargo update --color never 2>&1 | grep -E '^ +(Updating|Adding|Removing) ' | tee updated.txt
+      - name: The files that follow Cargo.lock
+        run: python3 tools/sbom.py && python3 tools/flatpak-sources.py
+      - name: The Flatpak image's digest
+        run: |
+          pinned=$(grep -o 'flatpak-github-actions:freedesktop-[0-9.]*@sha256:[0-9a-f]*' \
+            .github/workflows/release.yml)
+          image=ghcr.io/flathub-infra/${pinned%@*}
+          newest=$(docker buildx imagetools inspect "$image" | awk '/^Digest:/ {print $2; exit}')
+          if [ -n "$newest" ] && [ "$newest" != "${pinned#*@}" ]; then
+            printf '%s\n' "The Flatpak image \`$image\` has a newer digest. In \`release.yml\`:" \
+              "" "\`\`\`" "$image@$newest" "\`\`\`" >flatpak.txt
+          fi
+      - name: A pull request when something changed
+        run: |
+          if git diff --quiet && [ ! -s flatpak.txt ]; then
+            echo "Everything is at its newest."
+            exit 0
+          fi
+          {
+            echo "The crates at their newest compatible versions, with sbom.cdx.json,"
+            echo "THIRD-PARTY-LICENSES.txt and flatpak/cargo-sources.json after them."
+            echo
+            if [ -s updated.txt ]; then
+              echo '```'; cat updated.txt; echo '```'
+            else
+              echo "No crate has a newer compatible version."
+            fi
+            if [ -s flatpak.txt ]; then echo; cat flatpak.txt; fi
+            echo
+            echo "CI runs on this branch from this workflow; the checks show below."
+          } >body.md
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch -C "$BRANCH"
+          git commit -q -a --allow-empty -m "cargo update: the newest compatible version of every crate"
+          git push -f origin "$BRANCH"
+          if gh pr view "$BRANCH" --json state -q .state 2>/dev/null | grep -q OPEN; then
+            gh pr edit "$BRANCH" --body-file body.md
+          else
+            gh pr create --head "$BRANCH" --base main \
+              --title "Weekly update: the newest compatible crates" --body-file body.md
+          fi
+          gh workflow run ci.yml --ref "$BRANCH"

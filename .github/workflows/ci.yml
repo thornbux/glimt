@@ -6,6 +6,8 @@ on:
   push:
     branches: ["**"]
   pull_request:
+  # update.yml starts it on its branch, as a push with the workflow's token starts nothing.
+  workflow_dispatch:
 
 # A new push to a branch makes its earlier run moot. A push and its pull request share the group
 # by the repository and the branch's name, so the branch is not checked twice at once, and a
