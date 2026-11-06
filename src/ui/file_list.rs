@@ -1255,7 +1255,10 @@ impl crate::App {
         let (mut go_to, mut list_act) = (None, None);
         let opened = egui::CentralPanel::default()
             .show(ui, |ui| {
-                self.file_list(ctx, ui, &mut go_to, &mut list_act, [true, true])
+                let opened = self.file_list(ctx, ui, &mut go_to, &mut list_act, [true, true]);
+                // A failed copy or delete says so here too, as over the image.
+                self.paint_notice(ui, ui.max_rect());
+                opened
             })
             .inner;
         self.panel.drop_scroll();

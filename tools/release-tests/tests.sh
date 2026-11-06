@@ -1976,6 +1976,28 @@ for v in new old; do
     else note "old: $order (no grid)"; fi
 done
 
+section "a notice in the grid in the image area (G): shown over the thumbnails"
+for v in new old; do
+    as_version $v
+    d=/tmp/grid-notice-$v
+    mkdir -p $d
+    for c in a b c; do convert -size 300x200 xc:red $d/$c.jpg; done
+    printf '#GQview collection\n"%s/a.jpg"\n"%s/b.jpg"\n"%s/c.jpg"\n' $d $d $d >$d/show.gqv
+    config
+    start $d/show.gqv
+    key g; sleep 2
+    shot grid-notice-before-$v
+    key ctrl+f; sleep 1                    # New Folder in a collection: a notice, no dialog
+    shot grid-notice-after-$v
+    quit
+    changed=$(compare -metric AE /t/out/grid-notice-before-$v.png \
+        /t/out/grid-notice-after-$v.png null: 2>&1 | cut -d' ' -f1)
+    if [ $v = new ]; then
+        if [ "${changed%.*}" -gt 500 ] 2>/dev/null; then pass "the notice shows ($changed pixels)"
+        else fail "the notice shows: $changed pixels changed"; fi
+    else note "old: $changed pixels changed (no grid)"; fi
+done
+
 section "a rectangle dragged while the folder changes: the selection keeps its files"
 for v in new old; do
     as_version $v
