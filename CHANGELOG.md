@@ -5,6 +5,25 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.65.0] - 2026-11-06
+
+### Added
+
+- View → Thumbnails in Image Area (G) shows the files as a grid of thumbnails where the image
+  is. The arrow keys move in it, ↑ and ↓ a row; Enter or a double-click shows the image there,
+  and Esc or G goes back to the grid. A slideshow started from it shows the images. While it is
+  on, the side panel lists the names. Geeqie has no such view.
+- The interface in Brazilian Portuguese, Czech and Norwegian Nynorsk: English and fourteen more
+  languages now.
+- `po/glimt.pot`, a template for a new translation, written by `tools/pot.py` and kept in step
+  by a test; CONTRIBUTING.md says how to send one.
+
+### Changed
+
+- Help → About's licence heading in British English, as the rest of the interface.
+- A locale given as a translation's own code, such as `LANGUAGE=no_nn`, picks that translation
+  before one of the same language.
+
 ## [0.64.0] - 2026-11-06
 
 ### Fixed
@@ -2725,7 +2744,8 @@ The first release. Glimt is not 1.0 yet: it is in daily use, but expect rough ed
 - Remote control from the command line: `glimt --remote` and `--remote-all`.
 - Remembers the folder, window size and position.
 
-[Unreleased]: https://github.com/thornbux/glimt/compare/v0.64.0...HEAD
+[Unreleased]: https://github.com/thornbux/glimt/compare/v0.65.0...HEAD
+[0.65.0]: https://github.com/thornbux/glimt/compare/v0.64.0...v0.65.0
 [0.64.0]: https://github.com/thornbux/glimt/compare/v0.63.0...v0.64.0
 [0.63.0]: https://github.com/thornbux/glimt/compare/v0.62.0...v0.63.0
 [0.62.0]: https://github.com/thornbux/glimt/compare/v0.61.0...v0.62.0
