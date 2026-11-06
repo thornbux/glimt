@@ -965,11 +965,24 @@ fn outside_their_homes(homes: &[(&str, &[(&str, &str)])]) -> Vec<String> {
 /// what such a file keeps. The EXIF thumbnail was cleared there, but the XMP's thumbnail and a
 /// PNG's Photoshop resources were copied as they were, because each kind was decided apart. The
 /// readers that give an image's XMP as it is are watched too, because a copy written from one
-/// would skip what `derived_xmp` drops. The panel reads it in `xmp::embedded`.
+/// would skip what `derived_xmp` drops. The panel reads it in `xmp::embedded`. The EXIF block
+/// is read through `exif::decoded`, which also sees a PNG's EXIF in a text chunk. Before, a
+/// turned or copied PNG lost EXIF that only such a chunk held, because the save read the eXIf
+/// chunk alone. The Adobe RGB checks of the view and the colour line read the decoder's own, as
+/// a second opening of every PNG shown would slow the view, and a RAW's preview is a JPEG.
 #[test]
 fn derived_files_take_metadata_in_one_place() {
     const HOMES: &[(&str, &[(&str, &str)])] = &[
         ("set_upright(", &[("images/save.rs", "derived_metadata")]),
+        (
+            ".exif_metadata()",
+            &[
+                ("metadata/exif.rs", "decoded"),
+                ("images/raw.rs", "exif"),
+                ("images/decode.rs", "load_unturned"),
+                ("images/colour.rs", "colour_source"),
+            ],
+        ),
         (
             "xmp_metadata(",
             &[
