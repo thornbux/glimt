@@ -139,7 +139,7 @@ holds only its `mod` lines, and a new module goes into the folder of what it doe
 | `po/` | The translations, one gettext `.po` file per language, built into the program (`lang::LANGUAGES`), and `glimt.pot`, the template for a new one |
 | `themes/` | The built-in themes |
 | `assets/` | Icons, the desktop and AppStream files, the fonts and their licenses |
-| `docs/` | The man page `glimt.1`, and `screenshots/` for README and the website |
+| `docs/` | The man page `glimt.1`, `screenshots/` for README and the website, and `architecture/`: diagrams of the code's layout, a frame and its threads, a folder to pixels, a change on disk and the checks (update them when what they name changes) |
 | `examples/decoders/` | Decoder plugins: desktop files and their scripts |
 | `examples/plugins/` | Plugins (describe a photo with a local model, read the alt text aloud), and `test-model.py`, a stand-in model |
 | `flatpak/` | The Flatpak manifest, and `cargo-sources.json`: the crates it builds from without the network |

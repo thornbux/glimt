@@ -82,7 +82,8 @@ cargo build --release --features full   # all of them
 ```
 
 The checks to run before a commit are in [CONTRIBUTING.md](CONTRIBUTING.md) and
-[AGENTS.md](AGENTS.md).
+[AGENTS.md](AGENTS.md). How the code is built, a frame and its threads, and how a change reaches
+the disk safely are drawn in [docs/architecture](docs/architecture/README.md).
 
 ### Portable build (older distributions)
 
