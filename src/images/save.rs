@@ -463,7 +463,7 @@ fn derived_metadata(
         .ok()
         .and_then(|r| r.into_decoder().ok())
         .map(|mut d| {
-            let exif = d.exif_metadata().ok().flatten();
+            let exif = exif::decoded(path, &mut d);
             let stored = d.orientation().ok();
             (exif, d.xmp_metadata().ok().flatten(), stored)
         })
@@ -1269,6 +1269,50 @@ mod tests {
         assert_eq!(colour(&new), ((8, 8), true));
         assert_eq!(std::fs::read(&file).unwrap(), before);
         assert!(super::save_cropped(&file, &how(0, [8, 0, 9, 8])).is_err());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A PNG whose EXIF is only in the text chunk exiv2 (digiKam, GIMP) and older ImageMagick
+    /// write keeps it when turned in place and when cropped: in an eXIf chunk, upright, and
+    /// without the old text chunk, which other programs would read the old way up. Before, the
+    /// chunk was dropped and nothing took its EXIF over, so the date taken and camera were lost.
+    #[test]
+    fn png_exif_in_text_is_kept() {
+        use crate::support::test_support::{CANON_EXIF, png_with_raw_profile};
+        use image::ImageDecoder;
+        let dir = std::env::temp_dir().join(format!("glimt-pngtext-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("a.png");
+        let kept = |path: &std::path::Path| {
+            let bytes = std::fs::read(path).unwrap();
+            assert!(!bytes.windows(16).any(|w| w == b"Raw profile type"));
+            let mut dec = image::ImageReader::open(path)
+                .unwrap()
+                .into_decoder()
+                .unwrap();
+            let exif = dec.exif_metadata().unwrap().expect("an eXIf chunk");
+            assert!(exif.windows(5).any(|w| w == b"Canon"));
+            assert!(exif.windows(19).any(|w| w == b"2020:01:02 03:04:05"));
+            let upright = image::metadata::Orientation::from_exif_chunk(&exif);
+            assert_eq!(upright, Some(image::metadata::Orientation::NoTransforms));
+        };
+        png_with_raw_profile(&file, "zTXt", "Raw profile type exif", CANON_EXIF);
+        super::save_rotated(&file, true, 1, false, 90).unwrap();
+        kept(&file);
+        png_with_raw_profile(&file, "tEXt", "Raw profile type APP1", CANON_EXIF);
+        let how = super::CopyAs {
+            page: 0,
+            rotate: true,
+            turns: 0,
+            mirrored: false,
+            crop: Some([0, 0, 4, 4]),
+            long_side: None,
+            format: None,
+            jpeg_quality: 92,
+            webp_quality: 90,
+            strip: false,
+        };
+        kept(&super::save_cropped(&file, &how).unwrap());
         std::fs::remove_dir_all(dir).unwrap();
     }
 

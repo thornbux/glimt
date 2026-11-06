@@ -728,7 +728,6 @@ fn add_orientation(
 }
 
 fn raw(path: &Path) -> Option<Vec<u8>> {
-    use image::ImageDecoder;
     if crate::model::listing::has_ext(path, crate::images::raw::EXTS) {
         return crate::images::raw::exif(path);
     }
@@ -736,7 +735,7 @@ fn raw(path: &Path) -> Option<Vec<u8>> {
     if crate::model::listing::has_ext(path, crate::model::listing::JXL_EXTS) {
         let file = std::io::BufReader::new(crate::images::decode::open(path).ok()?);
         let mut dec = jxl_oxide::integration::JxlDecoder::new(file).ok()?;
-        return dec.exif_metadata().ok().flatten();
+        return decoded(path, &mut dec);
     }
     // HEIC and AVIF keep the EXIF block as an item of its own, "Exif\0\0" and a TIFF header.
     // From the first MB, where it usually is, before the whole file; a MB of it at most.
@@ -759,13 +758,75 @@ fn raw(path: &Path) -> Option<Vec<u8>> {
     {
         return exif;
     }
-    crate::images::decode::image_reader(path)
+    let mut dec = crate::images::decode::image_reader(path)
         .ok()?
         .into_decoder()
-        .ok()?
-        .exif_metadata()
-        .ok()
+        .ok()?;
+    decoded(path, &mut dec)
+}
+
+/// Reads the EXIF block of `path` through `dec`, the image crate's decoder of it. A PNG keeps
+/// EXIF in an eXIf chunk, which the decoder reads, or in the text chunk that exiv2 (digiKam,
+/// GIMP) and older ImageMagick write (`png_text`). This is the one reader of an EXIF block the
+/// image crate decodes, so the panel, the date sort and a copy or turned file all see the same.
+pub fn decoded(path: &Path, dec: &mut impl image::ImageDecoder) -> Option<Vec<u8>> {
+    let png = || crate::model::listing::has_ext(path, &["png"]);
+    (dec.exif_metadata().ok().flatten()).or_else(|| png().then(|| png_text(path)).flatten())
+}
+
+/// Reads the EXIF block a PNG keeps in a text chunk named "Raw profile type exif" or "Raw
+/// profile type APP1", plain, compressed (zTXt) or international (iTXt). Returns `None` when
+/// there is none or it cannot be read.
+fn png_text(path: &Path) -> Option<Vec<u8>> {
+    // shortcut: only the text before the pixels is read, where exiv2 and ImageMagick put it;
+    // read the chunks after IDAT too if a program is found that writes EXIF there.
+    const KEYS: [&[u8]; 2] = [b"Raw profile type exif", b"Raw profile type APP1"];
+    let file = std::io::BufReader::new(crate::images::decode::open(path).ok()?);
+    let reader = png::Decoder::new(file).read_info().ok()?;
+    let info = reader.info();
+    let key = |k: &String| KEYS.contains(&k.as_bytes());
+    // Compressed text is unpacked with the png crate's limit of 2 MiB, as a block is 64 KB.
+    let plain = (info.uncompressed_latin1_text.iter())
+        .filter(|t| key(&t.keyword))
+        .map(|t| Some(t.text.clone()));
+    let zipped = (info.compressed_latin1_text.iter())
+        .filter(|t| key(&t.keyword))
+        .map(|t| {
+            let mut t = t.clone();
+            t.decompress_text().ok()?;
+            t.get_text().ok()
+        });
+    let international = (info.utf8_text.iter())
+        .filter(|t| key(&t.keyword))
+        .map(|t| {
+            let mut t = t.clone();
+            t.decompress_text().ok()?;
+            t.get_text().ok()
+        });
+    (plain.chain(zipped).chain(international))
         .flatten()
+        .find_map(|text| raw_profile(&text))
+}
+
+/// Reads the EXIF block of an ImageMagick raw profile: a line with its type, a line with its
+/// length in bytes, then the bytes in hex over several lines. exiv2 writes "Exif\0\0" before
+/// the TIFF header, and so may APP1, so the block starts at the TIFF header, as exiv2 reads it
+/// and as an eXIf chunk holds it. Returns `None` for a profile that is cut short, not hex, or
+/// without a TIFF header.
+fn raw_profile(text: &str) -> Option<Vec<u8>> {
+    let mut words = text.split_ascii_whitespace();
+    let _kind = words.next()?;
+    let len: usize = words.next()?.parse().ok()?;
+    let hex: Vec<u8> = words.flat_map(str::bytes).collect();
+    if len > hex.len() / 2 {
+        return None;
+    }
+    let digit = |b: u8| (b as char).to_digit(16);
+    let bytes = (hex[..len * 2].chunks(2))
+        .map(|pair| Some((digit(pair[0])? * 16 + digit(pair[1])?) as u8))
+        .collect::<Option<Vec<u8>>>()?;
+    let at = (bytes.windows(4)).position(|w| w == b"II*\0" || w == b"MM\0*")?;
+    Some(bytes[at..].to_vec())
 }
 
 /// The TIFF block with its IFD0, Exif and GPS directories.
@@ -886,6 +947,50 @@ mod tests {
         for bytes in crate::support::test_support::broken(seed) {
             std::fs::write(&file, &bytes).unwrap();
             let _ = super::raw(&file);
+        }
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A PNG's EXIF in the text chunk that exiv2 and ImageMagick write is read for the panel
+    /// and the date sort, in each kind of text chunk, with "Exif\0\0" before it or not.
+    #[test]
+    fn reads_exif_from_png_text() {
+        use crate::support::test_support::{CANON_EXIF, png_with_raw_profile};
+        let dir = std::env::temp_dir().join(format!("glimt-test-pngtext-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("a.png");
+        let prefixed = [&b"Exif\0\0"[..], CANON_EXIF].concat();
+        for (chunk, key, block) in [
+            ("tEXt", "Raw profile type exif", CANON_EXIF),
+            ("zTXt", "Raw profile type exif", &prefixed[..]),
+            ("iTXt", "Raw profile type APP1", &prefixed[..]),
+        ] {
+            png_with_raw_profile(&file, chunk, key, block);
+            assert_eq!(raw(&file).as_deref(), Some(CANON_EXIF), "{chunk}");
+            assert_eq!(date(&file, false).as_deref(), Some("2020:01:02 03:04:05"));
+        }
+        // Another key's text is not taken for EXIF.
+        png_with_raw_profile(&file, "zTXt", "Raw profile type iptc", CANON_EXIF);
+        assert_eq!(raw(&file), None);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A damaged PNG raw profile, and a damaged PNG around one, give an EXIF block or none,
+    /// never a panic.
+    #[test]
+    fn survives_broken_png_raw_profiles() {
+        use crate::support::test_support::{CANON_EXIF, broken, png_with_raw_profile};
+        let dir = std::env::temp_dir().join(format!("glimt-test-pngraw-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("a.png");
+        png_with_raw_profile(&file, "tEXt", "Raw profile type exif", CANON_EXIF);
+        let png = std::fs::read(&file).unwrap();
+        for bytes in broken(&png) {
+            std::fs::write(&file, &bytes).unwrap();
+            let _ = raw(&file);
+        }
+        for text in broken(b"\nexif\n      14\n4d4d002a00000008\n00000000aabb\n") {
+            let _ = raw_profile(&String::from_utf8_lossy(&text));
         }
         std::fs::remove_dir_all(dir).unwrap();
     }

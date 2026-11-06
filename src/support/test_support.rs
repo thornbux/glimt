@@ -1,7 +1,18 @@
 //! What tests start from. `app_on` makes an `App` on a folder without a window, `settle` runs
 //! its background work until a condition holds, and `contract_folder` makes the folder the file
 //! operations' contract works on. `broken` gives damaged forms of a good input for the parsers'
-//! `survives_broken_*` tests.
+//! `survives_broken_*` tests. `png_with_raw_profile` writes a PNG with its EXIF only in a text
+//! chunk.
+
+/// The EXIF block of a photo of a Canon taken on 2020:01:02 at 03:04:05, stored turned a
+/// quarter (orientation 6), big-endian.
+pub(crate) const CANON_EXIF: &[u8] = b"MM\0*\0\0\0\x08\0\x03\
+    \x01\x0f\0\x02\0\0\0\x06\0\0\0\x32\
+    \x01\x12\0\x03\0\0\0\x01\0\x06\0\0\
+    \x87\x69\0\x04\0\0\0\x01\0\0\0\x38\
+    \0\0\0\0Canon\0\0\x01\
+    \x90\x03\0\x02\0\0\0\x14\0\0\0\x4a\
+    \0\0\0\x002020:01:02 03:04:05\0";
 
 /// An `App` for a test, on folder `dir`, listed: its own settings, no remote control,
 /// nothing kept in the user's files (no recent list, thumbnails or last folder; marks are
@@ -108,6 +119,30 @@ pub(crate) fn broken(seed: &[u8]) -> impl Iterator<Item = Vec<u8>> + '_ {
         }
         v
     })
+}
+
+/// Writes a red 8×4 PNG at `path` with the EXIF `block` only in a text chunk named `key`, as
+/// ImageMagick and exiv2 write it: the type, the length and the bytes in hex lines. The chunk is
+/// tEXt, zTXt or iTXt as `chunk` says.
+pub(crate) fn png_with_raw_profile(path: &std::path::Path, chunk: &str, key: &str, block: &[u8]) {
+    let hex: Vec<String> = (block.chunks(36))
+        .map(|line| line.iter().map(|b| format!("{b:02x}")).collect())
+        .collect();
+    let text = format!("\nexif\n{:8}\n{}\n", block.len(), hex.join("\n"));
+    let file = std::io::BufWriter::new(std::fs::File::create(path).unwrap());
+    let mut enc = png::Encoder::new(file, 8, 4);
+    enc.set_color(png::ColorType::Rgb);
+    match chunk {
+        "tEXt" => enc.add_text_chunk(key.into(), text),
+        "zTXt" => enc.add_ztxt_chunk(key.into(), text),
+        _ => enc.add_itxt_chunk(key.into(), text),
+    }
+    .unwrap();
+    let pixels: Vec<u8> = [200, 30, 30].repeat(8 * 4);
+    enc.write_header()
+        .unwrap()
+        .write_image_data(&pixels)
+        .unwrap();
 }
 
 #[cfg(test)]
