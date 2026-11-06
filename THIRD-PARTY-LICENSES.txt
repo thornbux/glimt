@@ -3,11 +3,11 @@ crates it covers. Glimt's own license is in LICENSE.
 
 Crates that ship no license text, with the license they name:
 
-  accesskit 0.25.1: MIT OR Apache-2.0
-  accesskit_atspi_common 0.21.0: MIT OR Apache-2.0
-  accesskit_consumer 0.39.1: MIT OR Apache-2.0
-  accesskit_unix 0.24.0: MIT OR Apache-2.0
-  accesskit_winit 0.34.1: Apache-2.0
+  accesskit 0.25.2: MIT OR Apache-2.0
+  accesskit_atspi_common 0.21.1: MIT OR Apache-2.0
+  accesskit_consumer 0.39.2: MIT OR Apache-2.0
+  accesskit_unix 0.24.1: MIT OR Apache-2.0
+  accesskit_winit 0.34.2: Apache-2.0
   alloc-stdlib 0.2.4: BSD-3-Clause
   ecolor 0.37.0: MIT OR Apache-2.0
   eframe 0.37.0: MIT OR Apache-2.0
@@ -25,7 +25,7 @@ Crates that ship no license text, with the license they name:
 ==============================================================================
 ab_glyph 0.2.32 (LICENSE)
 ab_glyph_rasterizer 0.1.10 (LICENSE)
-arboard 3.6.1 (LICENSE-APACHE.txt)
+arboard 3.7.0 (LICENSE-APACHE.txt)
 color 0.3.3 (LICENSE-APACHE)
 fdeflate 0.3.7 (LICENSE-APACHE)
 fearless_simd 0.4.1 (LICENSE-APACHE)
@@ -456,9 +456,9 @@ limitations under the License.
 ==============================================================================
 adler2 2.0.1 (LICENSE-MIT)
 async-channel 2.5.0 (LICENSE-MIT)
-async-executor 1.14.0 (LICENSE-MIT)
+async-executor 1.14.1 (LICENSE-MIT)
 async-io 2.6.0 (LICENSE-MIT)
-async-lock 3.4.2 (LICENSE-MIT)
+async-lock 3.5.0 (LICENSE-MIT)
 async-process 2.5.0 (LICENSE-MIT)
 async-recursion 1.2.0 (LICENSE-MIT)
 async-signal 0.2.14 (LICENSE-MIT)
@@ -500,19 +500,19 @@ quote 1.0.47 (LICENSE-MIT)
 rustc-hash 1.1.0 (LICENSE-MIT)
 rustc-hash 2.1.3 (LICENSE-MIT)
 rustix 0.38.44 (LICENSE-MIT)
-rustix 1.1.5 (LICENSE-MIT)
+rustix 1.1.6 (LICENSE-MIT)
 serde 1.0.229 (LICENSE-MIT)
 serde_core 1.0.229 (LICENSE-MIT)
 serde_derive 1.0.229 (LICENSE-MIT)
 serde_repr 0.1.21 (LICENSE-MIT)
 smol_str 0.2.2 (LICENSE-MIT)
 syn 2.0.119 (LICENSE-MIT)
-syn 3.0.7 (LICENSE-MIT)
+syn 3.0.9 (LICENSE-MIT)
 thiserror-impl 1.0.69 (LICENSE-MIT)
 thiserror-impl 2.0.21 (LICENSE-MIT)
 thiserror 1.0.69 (LICENSE-MIT)
 thiserror 2.0.21 (LICENSE-MIT)
-unicode-ident 1.0.26 (LICENSE-MIT)
+unicode-ident 1.0.27 (LICENSE-MIT)
 x11-dl 2.21.0 (LICENSE-MIT)
 zbus-lockstep-macros 0.5.2 (LICENSE-MIT)
 zbus-lockstep 0.5.2 (LICENSE-MIT)
@@ -547,9 +547,9 @@ DEALINGS IN THE SOFTWARE.
 ahash 0.8.12 (LICENSE-APACHE)
 arrayvec 0.7.8 (LICENSE-APACHE)
 async-channel 2.5.0 (LICENSE-APACHE)
-async-executor 1.14.0 (LICENSE-APACHE)
+async-executor 1.14.1 (LICENSE-APACHE)
 async-io 2.6.0 (LICENSE-APACHE)
-async-lock 3.4.2 (LICENSE-APACHE)
+async-lock 3.5.0 (LICENSE-APACHE)
 async-process 2.5.0 (LICENSE-APACHE)
 async-recursion 1.2.0 (LICENSE-APACHE)
 async-signal 0.2.14 (LICENSE-APACHE)
@@ -559,19 +559,19 @@ autocfg 1.5.1 (LICENSE-APACHE)
 base64 0.23.1 (LICENSE-APACHE)
 bitflags 2.13.2 (LICENSE-APACHE)
 blocking 1.7.0 (LICENSE-APACHE)
-cc 1.7.0 (LICENSE-APACHE)
+cc 1.11.0 (LICENSE-APACHE)
 cfg-if 1.0.5 (LICENSE-APACHE)
 concurrent-queue 2.5.0 (LICENSE-APACHE)
 crossbeam-utils 0.8.23 (LICENSE-APACHE)
 data-url 0.3.2 (LICENSE-APACHE)
 either 1.19.0 (LICENSE-APACHE)
-equivalent 1.0.2 (LICENSE-APACHE)
+equivalent 1.0.3 (LICENSE-APACHE)
 errno 0.3.14 (LICENSE-APACHE)
 euclid 0.22.14 (LICENSE-APACHE)
 event-listener-strategy 0.5.4 (LICENSE-APACHE)
 event-listener 5.4.2 (LICENSE-APACHE)
 fastrand 2.5.0 (LICENSE-APACHE)
-find-msvc-tools 0.1.14 (LICENSE-APACHE)
+find-msvc-tools 0.1.15 (LICENSE-APACHE)
 fixedbitset 0.5.7 (LICENSE-APACHE)
 flate2 1.1.10 (LICENSE-APACHE)
 futures-lite 2.6.1 (LICENSE-APACHE)
@@ -587,7 +587,7 @@ jpeg-decoder 0.3.2 (LICENSE-APACHE)
 linux-raw-sys 0.12.1 (LICENSE-APACHE)
 linux-raw-sys 0.4.15 (LICENSE-APACHE)
 lock_api 0.4.14 (LICENSE-APACHE)
-log 0.4.34 (LICENSE-APACHE)
+log 0.4.35 (LICENSE-APACHE)
 num-traits 0.2.19 (LICENSE-APACHE)
 once_cell 1.21.4 (LICENSE-APACHE)
 ordered-stream 0.2.0 (LICENSE-APACHE)
@@ -605,27 +605,27 @@ regex-syntax 0.8.11 (LICENSE-APACHE)
 regex 1.13.1 (LICENSE-APACHE)
 renderdoc-sys 1.1.0 (LICENSE-APACHE)
 roxmltree 0.20.0 (LICENSE-APACHE)
-roxmltree 0.21.1 (LICENSE-APACHE)
+roxmltree 0.21.2 (LICENSE-APACHE)
 rustc-hash 1.1.0 (LICENSE-APACHE)
 rustix 0.38.44 (LICENSE-APACHE)
-rustix 1.1.5 (LICENSE-APACHE)
+rustix 1.1.6 (LICENSE-APACHE)
 scoped-tls 1.0.1 (LICENSE-APACHE)
 scopeguard 1.2.0 (LICENSE-APACHE)
 signal-hook-registry 1.4.8 (LICENSE-APACHE)
 simplecss 0.2.2 (LICENSE-APACHE)
-smallvec 1.16.3 (LICENSE-APACHE)
+smallvec 1.16.4 (LICENSE-APACHE)
 smol_str 0.2.2 (LICENSE-APACHE)
-svgtypes 0.16.1 (LICENSE-APACHE)
+svgtypes 0.16.2 (LICENSE-APACHE)
 ttf-parser 0.25.1 (LICENSE-APACHE)
 unicode-bidi 0.3.18 (LICENSE-APACHE)
-unicode-properties 0.1.4 (LICENSE-APACHE)
+unicode-properties 0.1.5 (LICENSE-APACHE)
 unicode-segmentation 1.13.3 (LICENSE-APACHE)
 unicode-vo 0.1.0 (LICENSE-APACHE)
-unicode-width 0.2.2 (LICENSE-APACHE)
-uuid 1.28.0 (LICENSE-APACHE)
+unicode-width 0.2.3 (LICENSE-APACHE)
+uuid 1.29.0 (LICENSE-APACHE)
 version_check 0.9.5 (LICENSE-APACHE)
 weezl 0.1.12 (LICENSE-APACHE)
-wl-clipboard-rs 0.9.4 (LICENSE-APACHE)
+wl-clipboard-rs 0.9.5 (LICENSE-APACHE)
 ------------------------------------------------------------------------------
 
 Apache License
@@ -916,7 +916,7 @@ Redistribution and use in source and binary forms, with or without modification,
 THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 ==============================================================================
-arboard 3.6.1 (LICENSE-MIT.txt)
+arboard 3.7.0 (LICENSE-MIT.txt)
 ------------------------------------------------------------------------------
 
 MIT License
@@ -1491,8 +1491,8 @@ jxl-oxide 0.12.6 (LICENSE-APACHE)
 jxl-render 0.12.4 (LICENSE-APACHE)
 jxl-threadpool 1.0.0 (LICENSE-APACHE)
 jxl-vardct 0.11.1 (LICENSE-APACHE)
-libc 0.2.190 (LICENSE-APACHE)
-litrs 1.0.0 (LICENSE-APACHE)
+libc 0.2.191 (LICENSE-APACHE)
+litrs 1.0.1 (LICENSE-APACHE)
 proc-macro2 1.0.107 (LICENSE-APACHE)
 quote 1.0.47 (LICENSE-APACHE)
 rustc-hash 2.1.3 (LICENSE-APACHE)
@@ -1501,12 +1501,12 @@ serde_core 1.0.229 (LICENSE-APACHE)
 serde_derive 1.0.229 (LICENSE-APACHE)
 serde_repr 0.1.21 (LICENSE-APACHE)
 syn 2.0.119 (LICENSE-APACHE)
-syn 3.0.7 (LICENSE-APACHE)
+syn 3.0.9 (LICENSE-APACHE)
 thiserror-impl 1.0.69 (LICENSE-APACHE)
 thiserror-impl 2.0.21 (LICENSE-APACHE)
 thiserror 1.0.69 (LICENSE-APACHE)
 thiserror 2.0.21 (LICENSE-APACHE)
-unicode-ident 1.0.26 (LICENSE-APACHE)
+unicode-ident 1.0.27 (LICENSE-APACHE)
 ------------------------------------------------------------------------------
 
 Apache License
@@ -2090,7 +2090,7 @@ DEALINGS IN THE SOFTWARE.
 
 ==============================================================================
 bitflags 2.13.2 (LICENSE-MIT)
-log 0.4.34 (LICENSE-MIT)
+log 0.4.35 (LICENSE-MIT)
 num-traits 0.2.19 (LICENSE-MIT)
 regex-automata 0.4.18 (LICENSE-MIT)
 regex-syntax 0.8.11 (LICENSE-MIT)
@@ -2276,9 +2276,9 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 
 ==============================================================================
-cc 1.7.0 (LICENSE-MIT)
+cc 1.11.0 (LICENSE-MIT)
 cfg-if 1.0.5 (LICENSE-MIT)
-find-msvc-tools 0.1.14 (LICENSE-MIT)
+find-msvc-tools 0.1.15 (LICENSE-MIT)
 jobserver 0.1.35 (LICENSE-MIT)
 pkg-config 0.3.34 (LICENSE-MIT)
 scoped-tls 1.0.1 (LICENSE-MIT)
@@ -2408,7 +2408,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 ==============================================================================
-crc32fast 1.5.2 (LICENSE-APACHE)
+crc32fast 1.5.4 (LICENSE-APACHE)
 dpi 0.1.2 (LICENSE)
 hex 0.4.3 (LICENSE-APACHE)
 quick-error 2.0.1 (LICENSE-APACHE)
@@ -2619,7 +2619,7 @@ Apache License
    limitations under the License.
 
 ==============================================================================
-crc32fast 1.5.2 (LICENSE-MIT)
+crc32fast 1.5.4 (LICENSE-MIT)
 ------------------------------------------------------------------------------
 
 MIT License
@@ -3405,7 +3405,7 @@ IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 
 ==============================================================================
-equivalent 1.0.2 (LICENSE-MIT)
+equivalent 1.0.3 (LICENSE-MIT)
 ------------------------------------------------------------------------------
 
 Copyright (c) 2016--2023
@@ -3913,7 +3913,7 @@ the following restrictions:
 3. This notice may not be removed or altered from any source distribution.
 
 ==============================================================================
-font-types 0.12.6 (LICENSE-APACHE)
+font-types 0.12.7 (LICENSE-APACHE)
 read-fonts 0.41.0 (LICENSE-APACHE)
 skrifa 0.44.0 (LICENSE-APACHE)
 ------------------------------------------------------------------------------
@@ -3987,7 +3987,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 
 ==============================================================================
-font-types 0.12.6 (LICENSE-MIT)
+font-types 0.12.7 (LICENSE-MIT)
 read-fonts 0.41.0 (LICENSE-MIT)
 skrifa 0.44.0 (LICENSE-MIT)
 ------------------------------------------------------------------------------
@@ -5070,7 +5070,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 ==============================================================================
-libc 0.2.190 (LICENSE-MIT)
+libc 0.2.191 (LICENSE-MIT)
 ------------------------------------------------------------------------------
 
 Copyright (c) The Rust Project Developers
@@ -5383,7 +5383,7 @@ Copyright notices are retained in src/* files where relevant.
 linux-raw-sys 0.12.1 (LICENSE-Apache-2.0_WITH_LLVM-exception)
 linux-raw-sys 0.4.15 (LICENSE-Apache-2.0_WITH_LLVM-exception)
 rustix 0.38.44 (LICENSE-Apache-2.0_WITH_LLVM-exception)
-rustix 1.1.5 (LICENSE-Apache-2.0_WITH_LLVM-exception)
+rustix 1.1.6 (LICENSE-Apache-2.0_WITH_LLVM-exception)
 ------------------------------------------------------------------------------
 
 Apache License
@@ -5606,7 +5606,7 @@ the License, but only in their entirety and only with respect to the Combined
 Software.
 
 ==============================================================================
-litrs 1.0.0 (LICENSE-MIT)
+litrs 1.0.1 (LICENSE-MIT)
 ------------------------------------------------------------------------------
 
 Copyright (c) 2020 Project Developers
@@ -5668,7 +5668,7 @@ IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 
 ==============================================================================
-memmap2 0.9.11 (LICENSE-APACHE)
+memmap2 0.9.12 (LICENSE-APACHE)
 ------------------------------------------------------------------------------
 
 Apache License
@@ -5874,7 +5874,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 
 ==============================================================================
-memmap2 0.9.11 (LICENSE-MIT)
+memmap2 0.9.12 (LICENSE-MIT)
 ------------------------------------------------------------------------------
 
 Copyright (c) 2020 Yevhenii Reizner
@@ -6638,7 +6638,7 @@ SOFTWARE.
 
 ==============================================================================
 roxmltree 0.20.0 (LICENSE-MIT)
-roxmltree 0.21.1 (LICENSE-MIT)
+roxmltree 0.21.2 (LICENSE-MIT)
 ------------------------------------------------------------------------------
 
 The MIT License (MIT)
@@ -7279,7 +7279,7 @@ the following restrictions:
  3. This notice may not be removed or altered from any source distribution.
 
 ==============================================================================
-smallvec 1.16.3 (LICENSE-MIT)
+smallvec 1.16.4 (LICENSE-MIT)
 ------------------------------------------------------------------------------
 
 Copyright (c) 2018 The Servo Project Developers
@@ -7383,7 +7383,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 
 ==============================================================================
-svgtypes 0.16.1 (LICENSE-MIT)
+svgtypes 0.16.2 (LICENSE-MIT)
 ttf-parser 0.25.1 (LICENSE-MIT)
 ------------------------------------------------------------------------------
 
@@ -7483,7 +7483,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 
 ==============================================================================
 toml_datetime 1.1.2+spec-1.1.0 (LICENSE-APACHE)
-toml_edit 0.25.17+spec-1.1.0 (LICENSE-APACHE)
+toml_edit 0.25.18+spec-1.1.0 (LICENSE-APACHE)
 toml_parser 1.1.5+spec-1.1.0 (LICENSE-APACHE)
 ------------------------------------------------------------------------------
 
@@ -7691,7 +7691,7 @@ Apache License
 
 ==============================================================================
 toml_datetime 1.1.2+spec-1.1.0 (LICENSE-MIT)
-toml_edit 0.25.17+spec-1.1.0 (LICENSE-MIT)
+toml_edit 0.25.18+spec-1.1.0 (LICENSE-MIT)
 toml_parser 1.1.5+spec-1.1.0 (LICENSE-MIT)
 ------------------------------------------------------------------------------
 
@@ -8269,9 +8269,9 @@ DEALINGS IN THE SOFTWARE.
 
 ==============================================================================
 unicode-bidi 0.3.18 (LICENSE-MIT)
-unicode-properties 0.1.4 (LICENSE-MIT)
+unicode-properties 0.1.5 (LICENSE-MIT)
 unicode-segmentation 1.13.3 (LICENSE-MIT)
-unicode-width 0.2.2 (LICENSE-MIT)
+unicode-width 0.2.3 (LICENSE-MIT)
 ------------------------------------------------------------------------------
 
 Copyright (c) 2015 The Rust Project Developers
@@ -8301,7 +8301,7 @@ IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 
 ==============================================================================
-unicode-ident 1.0.26 (LICENSE-UNICODE)
+unicode-ident 1.0.27 (LICENSE-UNICODE)
 ------------------------------------------------------------------------------
 
 UNICODE LICENSE V3
@@ -8345,7 +8345,51 @@ dealings in these Data Files or Software without prior written
 authorization of the copyright holder.
 
 ==============================================================================
-unicode-script 0.5.8 (LICENSE-APACHE)
+unicode-properties 0.1.5 (LICENSE-UNICODE)
+------------------------------------------------------------------------------
+
+UNICODE LICENSE V3
+
+COPYRIGHT AND PERMISSION NOTICE
+
+Copyright © 1991-2026 Unicode, Inc.
+
+NOTICE TO USER: Carefully read the following legal agreement. BY
+DOWNLOADING, INSTALLING, COPYING OR OTHERWISE USING DATA FILES, AND/OR
+SOFTWARE, YOU UNEQUIVOCALLY ACCEPT, AND AGREE TO BE BOUND BY, ALL OF THE
+TERMS AND CONDITIONS OF THIS AGREEMENT. IF YOU DO NOT AGREE, DO NOT
+DOWNLOAD, INSTALL, COPY, DISTRIBUTE OR USE THE DATA FILES OR SOFTWARE.
+
+Permission is hereby granted, free of charge, to any person obtaining a
+copy of data files and any associated documentation (the "Data Files") or
+software and any associated documentation (the "Software") to deal in the
+Data Files or Software without restriction, including without limitation
+the rights to use, copy, modify, merge, publish, distribute, and/or sell
+copies of the Data Files or Software, and to permit persons to whom the
+Data Files or Software are furnished to do so, provided that either (a)
+this copyright and permission notice appear with all copies of the Data
+Files or Software, or (b) this copyright and permission notice appear in
+associated Documentation.
+
+THE DATA FILES AND SOFTWARE ARE PROVIDED "AS IS", WITHOUT WARRANTY OF ANY
+KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT OF
+THIRD PARTY RIGHTS.
+
+IN NO EVENT SHALL THE COPYRIGHT HOLDER OR HOLDERS INCLUDED IN THIS NOTICE
+BE LIABLE FOR ANY CLAIM, OR ANY SPECIAL INDIRECT OR CONSEQUENTIAL DAMAGES,
+OR ANY DAMAGES WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS,
+WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION,
+ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THE DATA
+FILES OR SOFTWARE.
+
+Except as contained in this notice, the name of a copyright holder shall
+not be used in advertising or otherwise to promote the sale, use or other
+dealings in these Data Files or Software without prior written
+authorization of the copyright holder.
+
+==============================================================================
+unicode-script 0.5.9 (LICENSE-APACHE)
 ------------------------------------------------------------------------------
 
 Apache License
@@ -8551,7 +8595,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 
 ==============================================================================
-unicode-script 0.5.8 (LICENSE-MIT)
+unicode-script 0.5.9 (LICENSE-MIT)
 ------------------------------------------------------------------------------
 
 MIT License
@@ -8583,7 +8627,7 @@ IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 
 ==============================================================================
-uuid 1.28.0 (LICENSE-MIT)
+uuid 1.29.0 (LICENSE-MIT)
 ------------------------------------------------------------------------------
 
 Copyright (c) 2014 The Rust Project Developers
@@ -8960,7 +9004,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 ==============================================================================
-winnow 1.0.4 (LICENSE-MIT)
+winnow 1.0.5 (LICENSE-MIT)
 ------------------------------------------------------------------------------
 
 Permission is hereby granted, free of charge, to any person obtaining
@@ -8983,7 +9027,7 @@ OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 ==============================================================================
-wl-clipboard-rs 0.9.4 (LICENSE-MIT)
+wl-clipboard-rs 0.9.5 (LICENSE-MIT)
 ------------------------------------------------------------------------------
 
 Copyright (c) 2019 Ivan Molodetskikh
@@ -9396,10 +9440,10 @@ SOFTWARE.
 ==============================================================================
 zbus 5.19.0 (LICENSE)
 zbus_macros 5.19.0 (LICENSE)
-zbus_names 4.3.4 (LICENSE)
+zbus_names 4.3.5 (LICENSE)
 zbus_xml 5.2.1 (LICENSE)
-zvariant 5.15.0 (LICENSE)
-zvariant_derive 5.15.0 (LICENSE)
+zvariant 5.15.1 (LICENSE)
+zvariant_derive 5.15.1 (LICENSE)
 ------------------------------------------------------------------------------
 
 Copyright (c) 2024 Zeeshan Ali Khan & zbus contributors
@@ -9429,7 +9473,7 @@ IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 
 ==============================================================================
-zcheapstr 1.1.0 (LICENSE)
+zcheapstr 1.2.0 (LICENSE)
 ------------------------------------------------------------------------------
 
 Copyright (c) 2026 Zeeshan Ali Khan & zcheapstr contributors
@@ -9459,8 +9503,8 @@ IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 
 ==============================================================================
-zerocopy-derive 0.8.62 (LICENSE-APACHE)
-zerocopy 0.8.62 (LICENSE-APACHE)
+zerocopy-derive 0.8.63 (LICENSE-APACHE)
+zerocopy 0.8.63 (LICENSE-APACHE)
 ------------------------------------------------------------------------------
 
 Apache License
@@ -9666,8 +9710,8 @@ Apache License
    limitations under the License.
 
 ==============================================================================
-zerocopy-derive 0.8.62 (LICENSE-BSD)
-zerocopy 0.8.62 (LICENSE-BSD)
+zerocopy-derive 0.8.63 (LICENSE-BSD)
+zerocopy 0.8.63 (LICENSE-BSD)
 ------------------------------------------------------------------------------
 
 Copyright 2019 The Fuchsia Authors.
@@ -9696,8 +9740,8 @@ THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 ==============================================================================
-zerocopy-derive 0.8.62 (LICENSE-MIT)
-zerocopy 0.8.62 (LICENSE-MIT)
+zerocopy-derive 0.8.63 (LICENSE-MIT)
+zerocopy 0.8.63 (LICENSE-MIT)
 ------------------------------------------------------------------------------
 
 Copyright 2023 The Fuchsia Authors

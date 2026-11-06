@@ -1,7 +1,7 @@
 {
  "bomFormat": "CycloneDX",
  "specVersion": "1.5",
- "serialNumber": "urn:uuid:b326b6ba-fc09-57cb-8acf-47c6c808eeb4",
+ "serialNumber": "urn:uuid:70fb2cee-e367-5bc4-8541-e92aa34639c9",
  "version": 1,
  "metadata": {
   "tools": {
@@ -85,20 +85,20 @@
   },
   {
    "type": "library",
-   "bom-ref": "pkg:cargo/accesskit@0.25.1",
+   "bom-ref": "pkg:cargo/accesskit@0.25.2",
    "name": "accesskit",
-   "version": "0.25.1",
+   "version": "0.25.2",
    "description": "UI accessibility infrastructure across platforms",
    "licenses": [
     {
      "expression": "MIT OR Apache-2.0"
     }
    ],
-   "purl": "pkg:cargo/accesskit@0.25.1",
+   "purl": "pkg:cargo/accesskit@0.25.2",
    "hashes": [
     {
      "alg": "SHA-256",
-     "content": "ad442f58ee04714aaa0ba0a2768c1ea1935b29507bb22ddece8cbbc76db02932"
+     "content": "4e883d1d28c5fd5568c79ed2d2bd48d9f2fd3945c8974ed0f53690ceddb051be"
     }
    ],
    "externalReferences": [
@@ -110,20 +110,20 @@
   },
   {
    "type": "library",
-   "bom-ref": "pkg:cargo/accesskit_atspi_common@0.21.0",
+   "bom-ref": "pkg:cargo/accesskit_atspi_common@0.21.1",
    "name": "accesskit_atspi_common",
-   "version": "0.21.0",
+   "version": "0.21.1",
    "description": "AccessKit UI accessibility infrastructure: core AT-SPI translation layer",
    "licenses": [
     {
      "expression": "MIT OR Apache-2.0"
     }
    ],
-   "purl": "pkg:cargo/accesskit_atspi_common@0.21.0",
+   "purl": "pkg:cargo/accesskit_atspi_common@0.21.1",
    "hashes": [
     {
      "alg": "SHA-256",
-     "content": "52c182f9c282ac9c5638d876d551d15e5f7d397ec263349a0c6a2b61595dd5e4"
+     "content": "24f5baf62e34a4a6c30e3d697e4782f821a7337049c44c3b40576a27dfbb580d"
     }
    ],
    "externalReferences": [
@@ -135,20 +135,20 @@
   },
   {
    "type": "library",
-   "bom-ref": "pkg:cargo/accesskit_consumer@0.39.1",
+   "bom-ref": "pkg:cargo/accesskit_consumer@0.39.2",
    "name": "accesskit_consumer",
-   "version": "0.39.1",
+   "version": "0.39.2",
    "description": "AccessKit consumer library (internal)",
    "licenses": [
     {
      "expression": "MIT OR Apache-2.0"
     }
    ],
-   "purl": "pkg:cargo/accesskit_consumer@0.39.1",
+   "purl": "pkg:cargo/accesskit_consumer@0.39.2",
    "hashes": [
     {
      "alg": "SHA-256",
-     "content": "8a45e2bb300bea6d5f33a82c3e051c3ddc6f41c209750f68a0acbe991a284344"
+     "content": "f3da8f27636015191b2264ee1df681503170a632cafd832fdc1edfdd4e3a2fd3"
     }
    ],
    "externalReferences": [
@@ -160,20 +160,20 @@
   },
   {
    "type": "library",
-   "bom-ref": "pkg:cargo/accesskit_unix@0.24.0",
+   "bom-ref": "pkg:cargo/accesskit_unix@0.24.1",
    "name": "accesskit_unix",
-   "version": "0.24.0",
+   "version": "0.24.1",
    "description": "AccessKit UI accessibility infrastructure: Linux adapter",
    "licenses": [
     {
      "expression": "MIT OR Apache-2.0"
     }
    ],
-   "purl": "pkg:cargo/accesskit_unix@0.24.0",
+   "purl": "pkg:cargo/accesskit_unix@0.24.1",
    "hashes": [
     {
      "alg": "SHA-256",
-     "content": "202f24df034a7476d07b7f74284de84f6d62aabd858dbe7ee9cad3b7ad6f8f9d"
+     "content": "30d5192871228c54f1b0fb4a85cef000e11a3804f25d2165f14afa0daa67f3f6"
     }
    ],
    "externalReferences": [
@@ -185,20 +185,20 @@
   },
   {
    "type": "library",
-   "bom-ref": "pkg:cargo/accesskit_winit@0.34.1",
+   "bom-ref": "pkg:cargo/accesskit_winit@0.34.2",
    "name": "accesskit_winit",
-   "version": "0.34.1",
+   "version": "0.34.2",
    "description": "AccessKit UI accessibility infrastructure: winit adapter",
    "licenses": [
     {
      "expression": "Apache-2.0"
     }
    ],
-   "purl": "pkg:cargo/accesskit_winit@0.34.1",
+   "purl": "pkg:cargo/accesskit_winit@0.34.2",
    "hashes": [
     {
      "alg": "SHA-256",
-     "content": "ee96dd150375c05912d8a473f98c2fb155fb3234fac88292d396548a2460fa77"
+     "content": "cd4ab4437b520ff03088fbe48676a11e7d44a929535e64b31432c1073e48dbcc"
     }
    ],
    "externalReferences": [
@@ -335,20 +335,20 @@
   },
   {
    "type": "library",
-   "bom-ref": "pkg:cargo/arboard@3.6.1",
+   "bom-ref": "pkg:cargo/arboard@3.7.0",
    "name": "arboard",
-   "version": "3.6.1",
+   "version": "3.7.0",
    "description": "Image and text handling for the OS clipboard.",
    "licenses": [
     {
      "expression": "MIT OR Apache-2.0"
     }
    ],
-   "purl": "pkg:cargo/arboard@3.6.1",
+   "purl": "pkg:cargo/arboard@3.7.0",
    "hashes": [
     {
      "alg": "SHA-256",
-     "content": "0348a1c054491f4bfe6ab86a7b6ab1e44e45d899005de92f58b3df180b36ddaf"
+     "content": "aeb9553e62312c8756a5979254fc6d7da8bbeb5986a1e17037fab932f7037917"
     }
    ],
    "externalReferences": [
@@ -485,20 +485,20 @@
   },
   {
    "type": "library",
-   "bom-ref": "pkg:cargo/async-executor@1.14.0",
+   "bom-ref": "pkg:cargo/async-executor@1.14.1",
    "name": "async-executor",
-   "version": "1.14.0",
+   "version": "1.14.1",
    "description": "Async executor",
    "licenses": [
     {
      "expression": "Apache-2.0 OR MIT"
     }
    ],
-   "purl": "pkg:cargo/async-executor@1.14.0",
+   "purl": "pkg:cargo/async-executor@1.14.1",
    "hashes": [
     {
      "alg": "SHA-256",
-     "content": "c96bf972d85afc50bf5ab8fe2d54d1586b4e0b46c97c50a0c9e71e2f7bcd812a"
+     "content": "f426a31126c735126297bc5ea7a521263c9faff4f63ca415267ee625651c4f37"
     }
    ],
    "externalReferences": [
@@ -535,20 +535,20 @@
   },
   {
    "type": "library",
-   "bom-ref": "pkg:cargo/async-lock@3.4.2",
+   "bom-ref": "pkg:cargo/async-lock@3.5.0",
    "name": "async-lock",
-   "version": "3.4.2",
+   "version": "3.5.0",
    "description": "Async synchronization primitives",
    "licenses": [
     {
      "expression": "Apache-2.0 OR MIT"
     }
    ],
-   "purl": "pkg:cargo/async-lock@3.4.2",
+   "purl": "pkg:cargo/async-lock@3.5.0",
    "hashes": [
     {
      "alg": "SHA-256",
-     "content": "290f7f2596bd5b78a9fec8088ccd89180d7f9f55b94b0576823bbbdc72ee8311"
+     "content": "0876700b0d007ad25d5508865a4259c3af9af6d296bf663a0d586d0bc3369f6f"
     }
    ],
    "externalReferences": [
@@ -1135,20 +1135,20 @@
   },
   {
    "type": "library",
-   "bom-ref": "pkg:cargo/cc@1.7.0",
+   "bom-ref": "pkg:cargo/cc@1.11.0",
    "name": "cc",
-   "version": "1.7.0",
+   "version": "1.11.0",
    "description": "A build-time dependency for Cargo build scripts to assist in invoking the native\nC compiler to compile native C code into a static archive to be linked into Rust\ncode.",
    "licenses": [
     {
      "expression": "MIT OR Apache-2.0"
     }
    ],
-   "purl": "pkg:cargo/cc@1.7.0",
+   "purl": "pkg:cargo/cc@1.11.0",
    "hashes": [
     {
      "alg": "SHA-256",
-     "content": "50a649af8a827553c29fb0cb4bd4a6f1a0dd695bd3232b9bc98bd9c8a3ffbb8b"
+     "content": "375989decec1a0fa424442bed520fa12ede43a48475ce8c7417d2c69b32b5f6b"
     }
    ],
    "externalReferences": [
@@ -1310,20 +1310,20 @@
   },
   {
    "type": "library",
-   "bom-ref": "pkg:cargo/crc32fast@1.5.2",
+   "bom-ref": "pkg:cargo/crc32fast@1.5.4",
    "name": "crc32fast",
-   "version": "1.5.2",
+   "version": "1.5.4",
    "description": "Fast, SIMD-accelerated CRC32 (IEEE) checksum computation",
    "licenses": [
     {
      "expression": "MIT OR Apache-2.0"
     }
    ],
-   "purl": "pkg:cargo/crc32fast@1.5.2",
+   "purl": "pkg:cargo/crc32fast@1.5.4",
    "hashes": [
     {
      "alg": "SHA-256",
-     "content": "01a7799fd6b852db0e61728dde9a204c423b44d689dbd432522543614b490e78"
+     "content": "5f97d3416d5337d15c4b0d78c8c91df922ca143f57ec20e2d1c188333047ef04"
     }
    ],
    "externalReferences": [
@@ -1835,20 +1835,20 @@
   },
   {
    "type": "library",
-   "bom-ref": "pkg:cargo/equivalent@1.0.2",
+   "bom-ref": "pkg:cargo/equivalent@1.0.3",
    "name": "equivalent",
-   "version": "1.0.2",
+   "version": "1.0.3",
    "description": "Traits for key comparison in maps.",
    "licenses": [
     {
      "expression": "Apache-2.0 OR MIT"
     }
    ],
-   "purl": "pkg:cargo/equivalent@1.0.2",
+   "purl": "pkg:cargo/equivalent@1.0.3",
    "hashes": [
     {
      "alg": "SHA-256",
-     "content": "877a4ace8713b0bcf2a4e7eec82529c029f1d0619886d18145fea96c3ffe5c0f"
+     "content": "00d174d5400e5e8fd687ad1049e2f578285fa914201b1af7e8b112a4546bd826"
     }
    ],
    "externalReferences": [
@@ -2085,20 +2085,20 @@
   },
   {
    "type": "library",
-   "bom-ref": "pkg:cargo/find-msvc-tools@0.1.14",
+   "bom-ref": "pkg:cargo/find-msvc-tools@0.1.15",
    "name": "find-msvc-tools",
-   "version": "0.1.14",
+   "version": "0.1.15",
    "description": "Find windows-specific tools, read MSVC versions from the registry and from COM interfaces",
    "licenses": [
     {
      "expression": "MIT OR Apache-2.0"
     }
    ],
-   "purl": "pkg:cargo/find-msvc-tools@0.1.14",
+   "purl": "pkg:cargo/find-msvc-tools@0.1.15",
    "hashes": [
     {
      "alg": "SHA-256",
-     "content": "aedcfb3409746eddb02b9e19ebda1c3394f759a152e48ee875a0844d1b955484"
+     "content": "1c66915cc5391097de7a2b0b972e8505aa33c0df401fd3a6811dbdb32881ba48"
     }
    ],
    "externalReferences": [
@@ -2235,20 +2235,20 @@
   },
   {
    "type": "library",
-   "bom-ref": "pkg:cargo/font-types@0.12.6",
+   "bom-ref": "pkg:cargo/font-types@0.12.7",
    "name": "font-types",
-   "version": "0.12.6",
+   "version": "0.12.7",
    "description": "Scalar types used in fonts.",
    "licenses": [
     {
      "expression": "MIT OR Apache-2.0"
     }
    ],
-   "purl": "pkg:cargo/font-types@0.12.6",
+   "purl": "pkg:cargo/font-types@0.12.7",
    "hashes": [
     {
      "alg": "SHA-256",
-     "content": "6c92d9081c7ab3bd83ef1eecdfad090f3d966e3ce74106779664114cfe1a6274"
+     "content": "835ae9d781464a79026cde387f9cbc650c9a4909d7cf7e658b127e3c35d2f35d"
     }
    ],
    "externalReferences": [
@@ -3410,20 +3410,20 @@
   },
   {
    "type": "library",
-   "bom-ref": "pkg:cargo/libc@0.2.190",
+   "bom-ref": "pkg:cargo/libc@0.2.191",
    "name": "libc",
-   "version": "0.2.190",
+   "version": "0.2.191",
    "description": "Raw FFI bindings to platform libraries like libc.",
    "licenses": [
     {
      "expression": "MIT OR Apache-2.0"
     }
    ],
-   "purl": "pkg:cargo/libc@0.2.190",
+   "purl": "pkg:cargo/libc@0.2.191",
    "hashes": [
     {
      "alg": "SHA-256",
-     "content": "ce5d3ddc6d3fa000eb1536d85e147bfe31aacaba692ed6a876f95cb7c855be78"
+     "content": "65cd87c9a6d60536580b316ad985726104730a5151c99845f2490428ef91240a"
     }
    ],
    "externalReferences": [
@@ -3560,20 +3560,20 @@
   },
   {
    "type": "library",
-   "bom-ref": "pkg:cargo/litrs@1.0.0",
+   "bom-ref": "pkg:cargo/litrs@1.0.1",
    "name": "litrs",
-   "version": "1.0.0",
+   "version": "1.0.1",
    "description": "Parse and inspect Rust literals (i.e. tokens in the Rust programming language\nrepresenting fixed values). Particularly useful for proc macros, but can also\nbe used outside of a proc-macro context.",
    "licenses": [
     {
      "expression": "MIT OR Apache-2.0"
     }
    ],
-   "purl": "pkg:cargo/litrs@1.0.0",
+   "purl": "pkg:cargo/litrs@1.0.1",
    "hashes": [
     {
      "alg": "SHA-256",
-     "content": "11d3d7f243d5c5a8b9bb5d6dd2b1602c0cb0b9db1621bafc7ed66e35ff9fe092"
+     "content": "4744e383959f0db86ede514b809b1c53251889093803c05267acc7d4e7030d70"
     }
    ],
    "externalReferences": [
@@ -3610,20 +3610,20 @@
   },
   {
    "type": "library",
-   "bom-ref": "pkg:cargo/log@0.4.34",
+   "bom-ref": "pkg:cargo/log@0.4.35",
    "name": "log",
-   "version": "0.4.34",
+   "version": "0.4.35",
    "description": "A lightweight logging facade for Rust",
    "licenses": [
     {
      "expression": "MIT OR Apache-2.0"
     }
    ],
-   "purl": "pkg:cargo/log@0.4.34",
+   "purl": "pkg:cargo/log@0.4.35",
    "hashes": [
     {
      "alg": "SHA-256",
-     "content": "f9f8bd3e56ce4dfc153cf470fffbfa98c7620958b312ca5c3a4b8d5181fd13c6"
+     "content": "5d15f86d12da44cd8d4ec3c73984537eb7f4cadcb9776a575a0a8a05ca11005c"
     }
    ],
    "externalReferences": [
@@ -3660,20 +3660,20 @@
   },
   {
    "type": "library",
-   "bom-ref": "pkg:cargo/memmap2@0.9.11",
+   "bom-ref": "pkg:cargo/memmap2@0.9.12",
    "name": "memmap2",
-   "version": "0.9.11",
+   "version": "0.9.12",
    "description": "Cross-platform Rust API for memory-mapped file IO",
    "licenses": [
     {
      "expression": "MIT OR Apache-2.0"
     }
    ],
-   "purl": "pkg:cargo/memmap2@0.9.11",
+   "purl": "pkg:cargo/memmap2@0.9.12",
    "hashes": [
     {
      "alg": "SHA-256",
-     "content": "d1219ed1b7f229ee7104d281dd01d6802fe28bb6e95d292942c4daacdeb798c0"
+     "content": "6b0ca1155a9ecc25aa12e8313a119f32edf0255fea2f44839c4ac0a12b2ac157"
     }
    ],
    "externalReferences": [
@@ -4835,20 +4835,20 @@
   },
   {
    "type": "library",
-   "bom-ref": "pkg:cargo/roxmltree@0.21.1",
+   "bom-ref": "pkg:cargo/roxmltree@0.21.2",
    "name": "roxmltree",
-   "version": "0.21.1",
+   "version": "0.21.2",
    "description": "Represent an XML as a read-only tree.",
    "licenses": [
     {
      "expression": "MIT OR Apache-2.0"
     }
    ],
-   "purl": "pkg:cargo/roxmltree@0.21.1",
+   "purl": "pkg:cargo/roxmltree@0.21.2",
    "hashes": [
     {
      "alg": "SHA-256",
-     "content": "f1964b10c76125c36f8afe190065a4bf9a87bf324842c05701330bba9f1cacbb"
+     "content": "9da7f59328b09405b181fee1018925fad50f157afb43c0c0f5c522c256dd5907"
     }
    ],
    "externalReferences": [
@@ -4935,20 +4935,20 @@
   },
   {
    "type": "library",
-   "bom-ref": "pkg:cargo/rustix@1.1.5",
+   "bom-ref": "pkg:cargo/rustix@1.1.6",
    "name": "rustix",
-   "version": "1.1.5",
+   "version": "1.1.6",
    "description": "Safe Rust bindings to POSIX/Unix/Linux/Winsock-like syscalls",
    "licenses": [
     {
      "expression": "Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT"
     }
    ],
-   "purl": "pkg:cargo/rustix@1.1.5",
+   "purl": "pkg:cargo/rustix@1.1.6",
    "hashes": [
     {
      "alg": "SHA-256",
-     "content": "891efababe418670775f199f0d233d84843c227a0949a883ce15b37c78d6629d"
+     "content": "e5e76742e5294153d4dde1207dbec5bdd81eef6fabdc0d2118babadabfd858aa"
     }
    ],
    "externalReferences": [
@@ -5360,20 +5360,20 @@
   },
   {
    "type": "library",
-   "bom-ref": "pkg:cargo/smallvec@1.16.3",
+   "bom-ref": "pkg:cargo/smallvec@1.16.4",
    "name": "smallvec",
-   "version": "1.16.3",
+   "version": "1.16.4",
    "description": "'Small vector' optimization: store up to a small number of items on the stack",
    "licenses": [
     {
      "expression": "MIT OR Apache-2.0"
     }
    ],
-   "purl": "pkg:cargo/smallvec@1.16.3",
+   "purl": "pkg:cargo/smallvec@1.16.4",
    "hashes": [
     {
      "alg": "SHA-256",
-     "content": "5b3dc8af474f516a851ff4bd12db780f948b9250ad37211e4eec0bccea54e01b"
+     "content": "d0d5d4b1981b8bbbb7aed204cae5726d683d5d6ac7e74ec54122ea28f315e7c8"
     }
    ],
    "externalReferences": [
@@ -5535,20 +5535,20 @@
   },
   {
    "type": "library",
-   "bom-ref": "pkg:cargo/svgtypes@0.16.1",
+   "bom-ref": "pkg:cargo/svgtypes@0.16.2",
    "name": "svgtypes",
-   "version": "0.16.1",
+   "version": "0.16.2",
    "description": "SVG types parser.",
    "licenses": [
     {
      "expression": "Apache-2.0 OR MIT"
     }
    ],
-   "purl": "pkg:cargo/svgtypes@0.16.1",
+   "purl": "pkg:cargo/svgtypes@0.16.2",
    "hashes": [
     {
      "alg": "SHA-256",
-     "content": "695b5790b3131dafa99b3bbfd25a216edb3d216dad9ca208d4657bfb8f2abc3d"
+     "content": "9f12b12995e3638c70618c1facb1ce65302f6a6f706b675f07c58a5d7391120e"
     }
    ],
    "externalReferences": [
@@ -5585,20 +5585,20 @@
   },
   {
    "type": "library",
-   "bom-ref": "pkg:cargo/syn@3.0.7",
+   "bom-ref": "pkg:cargo/syn@3.0.9",
    "name": "syn",
-   "version": "3.0.7",
+   "version": "3.0.9",
    "description": "Parser for Rust source code",
    "licenses": [
     {
      "expression": "MIT OR Apache-2.0"
     }
    ],
-   "purl": "pkg:cargo/syn@3.0.7",
+   "purl": "pkg:cargo/syn@3.0.9",
    "hashes": [
     {
      "alg": "SHA-256",
-     "content": "d62a2e0561533f2ca2561d0cf27fd9fedb640a1bf2616ff5d5c80d99017faadc"
+     "content": "d78c8dee4c7bf0e14673097256fed6142ce9d3b85a408189d07482442145823b"
     }
    ],
    "externalReferences": [
@@ -5885,20 +5885,20 @@
   },
   {
    "type": "library",
-   "bom-ref": "pkg:cargo/toml_edit@0.25.17+spec-1.1.0",
+   "bom-ref": "pkg:cargo/toml_edit@0.25.18+spec-1.1.0",
    "name": "toml_edit",
-   "version": "0.25.17+spec-1.1.0",
+   "version": "0.25.18+spec-1.1.0",
    "description": "Yet another format-preserving TOML parser.",
    "licenses": [
     {
      "expression": "MIT OR Apache-2.0"
     }
    ],
-   "purl": "pkg:cargo/toml_edit@0.25.17+spec-1.1.0",
+   "purl": "pkg:cargo/toml_edit@0.25.18+spec-1.1.0",
    "hashes": [
     {
      "alg": "SHA-256",
-     "content": "e3641d5bbb5349a79e1020a242d251efbc546ad8048d133958323ce9c40a9c9c"
+     "content": "1ec6e78bd70db9420d8d212fa9dc97f116448a1ceff5d00eabb991d407e21396"
     }
    ],
    "externalReferences": [
@@ -6135,20 +6135,20 @@
   },
   {
    "type": "library",
-   "bom-ref": "pkg:cargo/unicode-ident@1.0.26",
+   "bom-ref": "pkg:cargo/unicode-ident@1.0.27",
    "name": "unicode-ident",
-   "version": "1.0.26",
+   "version": "1.0.27",
    "description": "Determine whether characters have the XID_Start or XID_Continue properties according to Unicode Standard Annex #31",
    "licenses": [
     {
      "expression": "(MIT OR Apache-2.0) AND Unicode-3.0"
     }
    ],
-   "purl": "pkg:cargo/unicode-ident@1.0.26",
+   "purl": "pkg:cargo/unicode-ident@1.0.27",
    "hashes": [
     {
      "alg": "SHA-256",
-     "content": "d245f478577f809a851594d02313b640fb437e0bb33866753cff937863096954"
+     "content": "a2c754d6c33795a1c324727428e5a7dedb5b06195f9890bdbcba760d3e246563"
     }
    ],
    "externalReferences": [
@@ -6160,20 +6160,20 @@
   },
   {
    "type": "library",
-   "bom-ref": "pkg:cargo/unicode-properties@0.1.4",
+   "bom-ref": "pkg:cargo/unicode-properties@0.1.5",
    "name": "unicode-properties",
-   "version": "0.1.4",
+   "version": "0.1.5",
    "description": "Query character Unicode properties according to\nUAX #44 and UTR #51.",
    "licenses": [
     {
-     "expression": "MIT OR Apache-2.0"
+     "expression": "(MIT OR Apache-2.0) AND Unicode-3.0"
     }
    ],
-   "purl": "pkg:cargo/unicode-properties@0.1.4",
+   "purl": "pkg:cargo/unicode-properties@0.1.5",
    "hashes": [
     {
      "alg": "SHA-256",
-     "content": "7df058c713841ad818f1dc5d3fd88063241cc61f49f5fbea4b951e8cf5a8d71d"
+     "content": "993ad287eb20e8ba755312801cfe1413e0f25d604075863acaddca10b04c1833"
     }
    ],
    "externalReferences": [
@@ -6185,20 +6185,20 @@
   },
   {
    "type": "library",
-   "bom-ref": "pkg:cargo/unicode-script@0.5.8",
+   "bom-ref": "pkg:cargo/unicode-script@0.5.9",
    "name": "unicode-script",
-   "version": "0.5.8",
+   "version": "0.5.9",
    "description": "This crate exposes the Unicode `Script` and `Script_Extension` properties from [UAX #24](http://www.unicode.org/reports/tr24/)",
    "licenses": [
     {
      "expression": "MIT OR Apache-2.0"
     }
    ],
-   "purl": "pkg:cargo/unicode-script@0.5.8",
+   "purl": "pkg:cargo/unicode-script@0.5.9",
    "hashes": [
     {
      "alg": "SHA-256",
-     "content": "383ad40bb927465ec0ce7720e033cb4ca06912855fc35db31b5755d0de75b1ee"
+     "content": "aa04c955db05429d464c74d495c1ee677e1866e783a4c3747f9c0cef7756cabf"
     }
    ],
    "externalReferences": [
@@ -6260,20 +6260,20 @@
   },
   {
    "type": "library",
-   "bom-ref": "pkg:cargo/unicode-width@0.2.2",
+   "bom-ref": "pkg:cargo/unicode-width@0.2.3",
    "name": "unicode-width",
-   "version": "0.2.2",
+   "version": "0.2.3",
    "description": "Determine displayed width of `char` and `str` types\naccording to Unicode Standard Annex #11 rules.",
    "licenses": [
     {
      "expression": "MIT OR Apache-2.0"
     }
    ],
-   "purl": "pkg:cargo/unicode-width@0.2.2",
+   "purl": "pkg:cargo/unicode-width@0.2.3",
    "hashes": [
     {
      "alg": "SHA-256",
-     "content": "b4ac048d71ede7ee76d585517add45da530660ef4390e49b098733c6e897f254"
+     "content": "ca718471876992059f251e33aafc334346ada08042b7661dd1fe313a9bced557"
     }
    ],
    "externalReferences": [
@@ -6310,20 +6310,20 @@
   },
   {
    "type": "library",
-   "bom-ref": "pkg:cargo/uuid@1.28.0",
+   "bom-ref": "pkg:cargo/uuid@1.29.0",
    "name": "uuid",
-   "version": "1.28.0",
+   "version": "1.29.0",
    "description": "A library to generate and parse UUIDs.",
    "licenses": [
     {
      "expression": "Apache-2.0 OR MIT"
     }
    ],
-   "purl": "pkg:cargo/uuid@1.28.0",
+   "purl": "pkg:cargo/uuid@1.29.0",
    "hashes": [
     {
      "alg": "SHA-256",
-     "content": "7cc1186384beb7dd8eedea376413fd654937285ea6c9cfbb928dc3043ea4b606"
+     "content": "4a0e2d11620c50695fe12bbbfde96b3477fe606e7284c22d505c12ce51214514"
     }
    ],
    "externalReferences": [
@@ -6910,20 +6910,20 @@
   },
   {
    "type": "library",
-   "bom-ref": "pkg:cargo/winnow@1.0.4",
+   "bom-ref": "pkg:cargo/winnow@1.0.5",
    "name": "winnow",
-   "version": "1.0.4",
+   "version": "1.0.5",
    "description": "A byte-oriented, zero-copy, parser combinators library",
    "licenses": [
     {
      "expression": "MIT"
     }
    ],
-   "purl": "pkg:cargo/winnow@1.0.4",
+   "purl": "pkg:cargo/winnow@1.0.5",
    "hashes": [
     {
      "alg": "SHA-256",
-     "content": "23b97319f7b8343df12cc98938e5c3eb436064524c8d2b4e30a1d3a36eecdf81"
+     "content": "8c3b93199df0ab874cdf0c6a94f0a0dc3423fe41f1cafb62b8bd7b1deb277aef"
     }
    ],
    "externalReferences": [
@@ -6935,20 +6935,20 @@
   },
   {
    "type": "library",
-   "bom-ref": "pkg:cargo/wl-clipboard-rs@0.9.4",
+   "bom-ref": "pkg:cargo/wl-clipboard-rs@0.9.5",
    "name": "wl-clipboard-rs",
-   "version": "0.9.4",
+   "version": "0.9.5",
    "description": "Access to the Wayland clipboard for terminal and other window-less applications.",
    "licenses": [
     {
      "expression": "MIT OR Apache-2.0"
     }
    ],
-   "purl": "pkg:cargo/wl-clipboard-rs@0.9.4",
+   "purl": "pkg:cargo/wl-clipboard-rs@0.9.5",
    "hashes": [
     {
      "alg": "SHA-256",
-     "content": "4d7888ccd4896447b2d14d3a9350a85df2aeb6f181e2e7a31349d104ac46cac1"
+     "content": "959c7ac3b8afde864f7a7448ac16f29b2b83350b7eccbf77fb781c3999aa6848"
     }
    ],
    "externalReferences": [
@@ -7260,20 +7260,20 @@
   },
   {
    "type": "library",
-   "bom-ref": "pkg:cargo/zbus_names@4.3.4",
+   "bom-ref": "pkg:cargo/zbus_names@4.3.5",
    "name": "zbus_names",
-   "version": "4.3.4",
-   "description": "A collection of D-Bus bus names types",
+   "version": "4.3.5",
+   "description": "A collection of D-Bus bus names types (deprecated: merged into zbus)",
    "licenses": [
     {
      "expression": "MIT"
     }
    ],
-   "purl": "pkg:cargo/zbus_names@4.3.4",
+   "purl": "pkg:cargo/zbus_names@4.3.5",
    "hashes": [
     {
      "alg": "SHA-256",
-     "content": "d8bf88b4a3ff53e883001e0e0115b297a9d53c31b9c1edd2bfdd853e3428624e"
+     "content": "812a12be4ead7a59e18ea8f047d08add0066b73bc62fc1467066a2472ae088dd"
     }
    ],
    "externalReferences": [
@@ -7310,20 +7310,20 @@
   },
   {
    "type": "library",
-   "bom-ref": "pkg:cargo/zcheapstr@1.1.0",
+   "bom-ref": "pkg:cargo/zcheapstr@1.2.0",
    "name": "zcheapstr",
-   "version": "1.1.0",
+   "version": "1.2.0",
    "description": "An immutable, cheaply cloneable string type with borrowed, static and shared variants",
    "licenses": [
     {
      "expression": "MIT"
     }
    ],
-   "purl": "pkg:cargo/zcheapstr@1.1.0",
+   "purl": "pkg:cargo/zcheapstr@1.2.0",
    "hashes": [
     {
      "alg": "SHA-256",
-     "content": "d1afec51604565183aeb5c54c20aeab286120d4e4460f7f76e3e8bb8c0d99473"
+     "content": "939f186d9ecebe044315a5cb6d6f78568bbc21152adc954d5a0c2f58bdbc9920"
     }
    ],
    "externalReferences": [
@@ -7335,20 +7335,20 @@
   },
   {
    "type": "library",
-   "bom-ref": "pkg:cargo/zerocopy-derive@0.8.62",
+   "bom-ref": "pkg:cargo/zerocopy-derive@0.8.63",
    "name": "zerocopy-derive",
-   "version": "0.8.62",
+   "version": "0.8.63",
    "description": "Custom derive for traits from the zerocopy crate",
    "licenses": [
     {
      "expression": "BSD-2-Clause OR Apache-2.0 OR MIT"
     }
    ],
-   "purl": "pkg:cargo/zerocopy-derive@0.8.62",
+   "purl": "pkg:cargo/zerocopy-derive@0.8.63",
    "hashes": [
     {
      "alg": "SHA-256",
-     "content": "5457206954b06561e2608c7e19cf58b1926586d999c246eebe4502f7e2039d1a"
+     "content": "863ad3ac83293fb4d740aedbfdc9240dd8d1a50c1099acd76ce80ce7c7230c7f"
     }
    ],
    "externalReferences": [
@@ -7360,20 +7360,20 @@
   },
   {
    "type": "library",
-   "bom-ref": "pkg:cargo/zerocopy@0.8.62",
+   "bom-ref": "pkg:cargo/zerocopy@0.8.63",
    "name": "zerocopy",
-   "version": "0.8.62",
+   "version": "0.8.63",
    "description": "Zerocopy makes zero-cost memory manipulation effortless. We write \"unsafe\" so you don't have to.",
    "licenses": [
     {
      "expression": "BSD-2-Clause OR Apache-2.0 OR MIT"
     }
    ],
-   "purl": "pkg:cargo/zerocopy@0.8.62",
+   "purl": "pkg:cargo/zerocopy@0.8.63",
    "hashes": [
     {
      "alg": "SHA-256",
-     "content": "86502bf56ac7c77571a32e2647bb2a15894565e981fb2a48d7bde2d91c965a9d"
+     "content": "e5fe1f8f1b06191a00962174c61aa5005e0bb391a6d80d07e24d115c01a92ed8"
     }
    ],
    "externalReferences": [
@@ -7460,20 +7460,20 @@
   },
   {
    "type": "library",
-   "bom-ref": "pkg:cargo/zvariant@5.15.0",
+   "bom-ref": "pkg:cargo/zvariant@5.15.1",
    "name": "zvariant",
-   "version": "5.15.0",
-   "description": "D-Bus & GVariant encoding & decoding",
+   "version": "5.15.1",
+   "description": "D-Bus & GVariant encoding & decoding (deprecated: merged into zbus)",
    "licenses": [
     {
      "expression": "MIT"
     }
    ],
-   "purl": "pkg:cargo/zvariant@5.15.0",
+   "purl": "pkg:cargo/zvariant@5.15.1",
    "hashes": [
     {
      "alg": "SHA-256",
-     "content": "c1d34c27cc6cdd1f458427519dd6b8612f7b7e3f7b9a0b2355d041dda9869147"
+     "content": "80bf6d6cd6a4b601acb64cfb8284cdc643fcfa75ef26ae3c46ec8aa4e8a1fbb7"
     }
    ],
    "externalReferences": [
@@ -7485,20 +7485,20 @@
   },
   {
    "type": "library",
-   "bom-ref": "pkg:cargo/zvariant_derive@5.15.0",
+   "bom-ref": "pkg:cargo/zvariant_derive@5.15.1",
    "name": "zvariant_derive",
-   "version": "5.15.0",
-   "description": "D-Bus & GVariant encoding & decoding",
+   "version": "5.15.1",
+   "description": "D-Bus & GVariant encoding & decoding (deprecated: merged into zbus)",
    "licenses": [
     {
      "expression": "MIT"
     }
    ],
-   "purl": "pkg:cargo/zvariant_derive@5.15.0",
+   "purl": "pkg:cargo/zvariant_derive@5.15.1",
    "hashes": [
     {
      "alg": "SHA-256",
-     "content": "864155e69b4352db0c7f374917bf45d1e0c8d17659c8b3dbf9795f3673f8c497"
+     "content": "ef2672456ba1cb54b5eaec136e63135b3c7495fb938e53b28a62e633496d486d"
     }
    ],
    "externalReferences": [
@@ -7547,36 +7547,36 @@
    "dependsOn": []
   },
   {
-   "ref": "pkg:cargo/accesskit@0.25.1",
+   "ref": "pkg:cargo/accesskit@0.25.2",
    "dependsOn": [
-    "pkg:cargo/uuid@1.28.0"
+    "pkg:cargo/uuid@1.29.0"
    ]
   },
   {
-   "ref": "pkg:cargo/accesskit_atspi_common@0.21.0",
+   "ref": "pkg:cargo/accesskit_atspi_common@0.21.1",
    "dependsOn": [
-    "pkg:cargo/accesskit@0.25.1",
-    "pkg:cargo/accesskit_consumer@0.39.1",
+    "pkg:cargo/accesskit@0.25.2",
+    "pkg:cargo/accesskit_consumer@0.39.2",
     "pkg:cargo/atspi-common@0.13.0",
     "pkg:cargo/phf@0.14.0",
     "pkg:cargo/serde@1.0.229",
-    "pkg:cargo/zvariant@5.15.0"
+    "pkg:cargo/zvariant@5.15.1"
    ]
   },
   {
-   "ref": "pkg:cargo/accesskit_consumer@0.39.1",
+   "ref": "pkg:cargo/accesskit_consumer@0.39.2",
    "dependsOn": [
-    "pkg:cargo/accesskit@0.25.1",
+    "pkg:cargo/accesskit@0.25.2",
     "pkg:cargo/hashbrown@0.17.1"
    ]
   },
   {
-   "ref": "pkg:cargo/accesskit_unix@0.24.0",
+   "ref": "pkg:cargo/accesskit_unix@0.24.1",
    "dependsOn": [
-    "pkg:cargo/accesskit@0.25.1",
-    "pkg:cargo/accesskit_atspi_common@0.21.0",
+    "pkg:cargo/accesskit@0.25.2",
+    "pkg:cargo/accesskit_atspi_common@0.21.1",
     "pkg:cargo/async-channel@2.5.0",
-    "pkg:cargo/async-executor@1.14.0",
+    "pkg:cargo/async-executor@1.14.1",
     "pkg:cargo/async-task@4.7.1",
     "pkg:cargo/atspi@0.29.0",
     "pkg:cargo/futures-lite@2.6.1",
@@ -7586,10 +7586,10 @@
    ]
   },
   {
-   "ref": "pkg:cargo/accesskit_winit@0.34.1",
+   "ref": "pkg:cargo/accesskit_winit@0.34.2",
    "dependsOn": [
-    "pkg:cargo/accesskit@0.25.1",
-    "pkg:cargo/accesskit_unix@0.24.0",
+    "pkg:cargo/accesskit@0.25.2",
+    "pkg:cargo/accesskit_unix@0.24.1",
     "pkg:cargo/raw-window-handle@0.6.2",
     "pkg:cargo/winit@0.30.13"
    ]
@@ -7605,7 +7605,7 @@
     "pkg:cargo/getrandom@0.3.4",
     "pkg:cargo/once_cell@1.21.4",
     "pkg:cargo/version_check@0.9.5",
-    "pkg:cargo/zerocopy@0.8.62"
+    "pkg:cargo/zerocopy@0.8.63"
    ]
   },
   {
@@ -7625,13 +7625,13 @@
    ]
   },
   {
-   "ref": "pkg:cargo/arboard@3.6.1",
+   "ref": "pkg:cargo/arboard@3.7.0",
    "dependsOn": [
     "pkg:cargo/image@0.25.10",
-    "pkg:cargo/log@0.4.34",
+    "pkg:cargo/log@0.4.35",
     "pkg:cargo/parking_lot@0.12.5",
     "pkg:cargo/percent-encoding@2.3.2",
-    "pkg:cargo/wl-clipboard-rs@0.9.4",
+    "pkg:cargo/wl-clipboard-rs@0.9.5",
     "pkg:cargo/x11rb@0.13.2"
    ]
   },
@@ -7666,7 +7666,7 @@
    ]
   },
   {
-   "ref": "pkg:cargo/async-executor@1.14.0",
+   "ref": "pkg:cargo/async-executor@1.14.1",
    "dependsOn": [
     "pkg:cargo/async-task@4.7.1",
     "pkg:cargo/concurrent-queue@2.5.0",
@@ -7686,12 +7686,12 @@
     "pkg:cargo/futures-lite@2.6.1",
     "pkg:cargo/parking@2.2.1",
     "pkg:cargo/polling@3.11.0",
-    "pkg:cargo/rustix@1.1.5",
+    "pkg:cargo/rustix@1.1.6",
     "pkg:cargo/slab@0.4.12"
    ]
   },
   {
-   "ref": "pkg:cargo/async-lock@3.4.2",
+   "ref": "pkg:cargo/async-lock@3.5.0",
    "dependsOn": [
     "pkg:cargo/event-listener-strategy@0.5.4",
     "pkg:cargo/event-listener@5.4.2",
@@ -7703,13 +7703,13 @@
    "dependsOn": [
     "pkg:cargo/async-channel@2.5.0",
     "pkg:cargo/async-io@2.6.0",
-    "pkg:cargo/async-lock@3.4.2",
+    "pkg:cargo/async-lock@3.5.0",
     "pkg:cargo/async-signal@0.2.14",
     "pkg:cargo/async-task@4.7.1",
     "pkg:cargo/cfg-if@1.0.5",
     "pkg:cargo/event-listener@5.4.2",
     "pkg:cargo/futures-lite@2.6.1",
-    "pkg:cargo/rustix@1.1.5"
+    "pkg:cargo/rustix@1.1.6"
    ]
   },
   {
@@ -7717,7 +7717,7 @@
    "dependsOn": [
     "pkg:cargo/proc-macro2@1.0.107",
     "pkg:cargo/quote@1.0.47",
-    "pkg:cargo/syn@3.0.7"
+    "pkg:cargo/syn@3.0.9"
    ]
   },
   {
@@ -7727,7 +7727,7 @@
     "pkg:cargo/cfg-if@1.0.5",
     "pkg:cargo/futures-core@0.3.34",
     "pkg:cargo/futures-io@0.3.34",
-    "pkg:cargo/rustix@1.1.5",
+    "pkg:cargo/rustix@1.1.6",
     "pkg:cargo/signal-hook-registry@1.4.8"
    ]
   },
@@ -7740,7 +7740,7 @@
    "dependsOn": [
     "pkg:cargo/proc-macro2@1.0.107",
     "pkg:cargo/quote@1.0.47",
-    "pkg:cargo/syn@3.0.7"
+    "pkg:cargo/syn@3.0.9"
    ]
   },
   {
@@ -7756,8 +7756,8 @@
     "pkg:cargo/zbus-lockstep-macros@0.5.2",
     "pkg:cargo/zbus-lockstep@0.5.2",
     "pkg:cargo/zbus@5.19.0",
-    "pkg:cargo/zbus_names@4.3.4",
-    "pkg:cargo/zvariant@5.15.0"
+    "pkg:cargo/zbus_names@4.3.5",
+    "pkg:cargo/zvariant@5.15.1"
    ]
   },
   {
@@ -7825,7 +7825,7 @@
    "dependsOn": [
     "pkg:cargo/proc-macro2@1.0.107",
     "pkg:cargo/quote@1.0.47",
-    "pkg:cargo/syn@3.0.7"
+    "pkg:cargo/syn@3.0.9"
    ]
   },
   {
@@ -7845,7 +7845,7 @@
    "ref": "pkg:cargo/calloop-wayland-source@0.4.1",
    "dependsOn": [
     "pkg:cargo/calloop@0.14.5",
-    "pkg:cargo/rustix@1.1.5",
+    "pkg:cargo/rustix@1.1.6",
     "pkg:cargo/wayland-backend@0.3.17",
     "pkg:cargo/wayland-client@0.31.15"
    ]
@@ -7854,7 +7854,7 @@
    "ref": "pkg:cargo/calloop@0.13.0",
    "dependsOn": [
     "pkg:cargo/bitflags@2.13.2",
-    "pkg:cargo/log@0.4.34",
+    "pkg:cargo/log@0.4.35",
     "pkg:cargo/polling@3.11.0",
     "pkg:cargo/rustix@0.38.44",
     "pkg:cargo/slab@0.4.12",
@@ -7866,16 +7866,16 @@
    "dependsOn": [
     "pkg:cargo/bitflags@2.13.2",
     "pkg:cargo/polling@3.11.0",
-    "pkg:cargo/rustix@1.1.5",
+    "pkg:cargo/rustix@1.1.6",
     "pkg:cargo/tracing@0.1.44"
    ]
   },
   {
-   "ref": "pkg:cargo/cc@1.7.0",
+   "ref": "pkg:cargo/cc@1.11.0",
    "dependsOn": [
-    "pkg:cargo/find-msvc-tools@0.1.14",
+    "pkg:cargo/find-msvc-tools@0.1.15",
     "pkg:cargo/jobserver@0.1.35",
-    "pkg:cargo/libc@0.2.190",
+    "pkg:cargo/libc@0.2.191",
     "pkg:cargo/shlex@2.0.1"
    ]
   },
@@ -7890,7 +7890,7 @@
   {
    "ref": "pkg:cargo/codespan-reporting@0.13.1",
    "dependsOn": [
-    "pkg:cargo/unicode-width@0.2.2"
+    "pkg:cargo/unicode-width@0.2.3"
    ]
   },
   {
@@ -7910,7 +7910,7 @@
    ]
   },
   {
-   "ref": "pkg:cargo/crc32fast@1.5.2",
+   "ref": "pkg:cargo/crc32fast@1.5.4",
    "dependsOn": [
     "pkg:cargo/cfg-if@1.0.5"
    ]
@@ -7936,7 +7936,7 @@
   {
    "ref": "pkg:cargo/document-features@0.2.12",
    "dependsOn": [
-    "pkg:cargo/litrs@1.0.0"
+    "pkg:cargo/litrs@1.0.1"
    ]
   },
   {
@@ -7967,7 +7967,7 @@
     "pkg:cargo/glutin-winit@0.5.0",
     "pkg:cargo/glutin@0.32.3",
     "pkg:cargo/image@0.25.10",
-    "pkg:cargo/log@0.4.34",
+    "pkg:cargo/log@0.4.35",
     "pkg:cargo/parking_lot@0.12.5",
     "pkg:cargo/profiling@1.0.18",
     "pkg:cargo/raw-window-handle@0.6.2",
@@ -7984,7 +7984,7 @@
     "pkg:cargo/document-features@0.2.12",
     "pkg:cargo/egui@0.37.0",
     "pkg:cargo/epaint@0.37.0",
-    "pkg:cargo/log@0.4.34",
+    "pkg:cargo/log@0.4.35",
     "pkg:cargo/profiling@1.0.18",
     "pkg:cargo/thiserror@2.0.21",
     "pkg:cargo/type-map@0.5.1",
@@ -7996,11 +7996,11 @@
   {
    "ref": "pkg:cargo/egui-winit@0.37.0",
    "dependsOn": [
-    "pkg:cargo/accesskit_winit@0.34.1",
-    "pkg:cargo/arboard@3.6.1",
+    "pkg:cargo/accesskit_winit@0.34.2",
+    "pkg:cargo/arboard@3.7.0",
     "pkg:cargo/bytemuck@1.25.2",
     "pkg:cargo/egui@0.37.0",
-    "pkg:cargo/log@0.4.34",
+    "pkg:cargo/log@0.4.35",
     "pkg:cargo/profiling@1.0.18",
     "pkg:cargo/raw-window-handle@0.6.2",
     "pkg:cargo/smithay-clipboard@0.7.3",
@@ -8011,16 +8011,16 @@
   {
    "ref": "pkg:cargo/egui@0.37.0",
    "dependsOn": [
-    "pkg:cargo/accesskit@0.25.1",
+    "pkg:cargo/accesskit@0.25.2",
     "pkg:cargo/ahash@0.8.12",
     "pkg:cargo/bitflags@2.13.2",
     "pkg:cargo/emath@0.37.0",
     "pkg:cargo/epaint@0.37.0",
     "pkg:cargo/itertools@0.15.0",
-    "pkg:cargo/log@0.4.34",
+    "pkg:cargo/log@0.4.35",
     "pkg:cargo/nohash-hasher@0.2.0",
     "pkg:cargo/profiling@1.0.18",
-    "pkg:cargo/smallvec@1.16.3",
+    "pkg:cargo/smallvec@1.16.4",
     "pkg:cargo/unicode-segmentation@1.13.3"
    ]
   },
@@ -8030,7 +8030,7 @@
     "pkg:cargo/bytemuck@1.25.2",
     "pkg:cargo/egui@0.37.0",
     "pkg:cargo/glow@0.17.0",
-    "pkg:cargo/log@0.4.34",
+    "pkg:cargo/log@0.4.35",
     "pkg:cargo/profiling@1.0.18",
     "pkg:cargo/winit@0.30.13"
    ]
@@ -8072,17 +8072,17 @@
     "pkg:cargo/ecolor@0.37.0",
     "pkg:cargo/emath@0.37.0",
     "pkg:cargo/epaint_default_fonts@0.37.0",
-    "pkg:cargo/font-types@0.12.6",
+    "pkg:cargo/font-types@0.12.7",
     "pkg:cargo/harfrust@0.12.0",
-    "pkg:cargo/log@0.4.34",
+    "pkg:cargo/log@0.4.35",
     "pkg:cargo/nohash-hasher@0.2.0",
     "pkg:cargo/parking_lot@0.12.5",
     "pkg:cargo/profiling@1.0.18",
     "pkg:cargo/self_cell@1.3.0",
     "pkg:cargo/skrifa@0.44.0",
-    "pkg:cargo/smallvec@1.16.3",
+    "pkg:cargo/smallvec@1.16.4",
     "pkg:cargo/unicode-general-category@1.1.0",
-    "pkg:cargo/unicode-properties@0.1.4",
+    "pkg:cargo/unicode-properties@0.1.5",
     "pkg:cargo/unicode-segmentation@1.13.3",
     "pkg:cargo/vello_cpu@0.2.0"
    ]
@@ -8092,13 +8092,13 @@
    "dependsOn": []
   },
   {
-   "ref": "pkg:cargo/equivalent@1.0.2",
+   "ref": "pkg:cargo/equivalent@1.0.3",
    "dependsOn": []
   },
   {
    "ref": "pkg:cargo/errno@0.3.14",
    "dependsOn": [
-    "pkg:cargo/libc@0.2.190"
+    "pkg:cargo/libc@0.2.191"
    ]
   },
   {
@@ -8151,7 +8151,7 @@
    "dependsOn": []
   },
   {
-   "ref": "pkg:cargo/find-msvc-tools@0.1.14",
+   "ref": "pkg:cargo/find-msvc-tools@0.1.15",
    "dependsOn": []
   },
   {
@@ -8161,7 +8161,7 @@
   {
    "ref": "pkg:cargo/flate2@1.1.10",
    "dependsOn": [
-    "pkg:cargo/crc32fast@1.5.2",
+    "pkg:cargo/crc32fast@1.5.4",
     "pkg:cargo/miniz_oxide@0.9.1",
     "pkg:cargo/zlib-rs@0.6.8"
    ]
@@ -8179,7 +8179,7 @@
    "dependsOn": []
   },
   {
-   "ref": "pkg:cargo/font-types@0.12.6",
+   "ref": "pkg:cargo/font-types@0.12.7",
    "dependsOn": [
     "pkg:cargo/bytemuck@1.25.2"
    ]
@@ -8194,8 +8194,8 @@
    "ref": "pkg:cargo/fontdb@0.24.0",
    "dependsOn": [
     "pkg:cargo/fontconfig-parser@0.5.8",
-    "pkg:cargo/log@0.4.34",
-    "pkg:cargo/memmap2@0.9.11",
+    "pkg:cargo/log@0.4.35",
+    "pkg:cargo/memmap2@0.9.12",
     "pkg:cargo/slotmap@1.1.1",
     "pkg:cargo/tinyvec@1.13.3"
    ]
@@ -8223,7 +8223,7 @@
    "dependsOn": [
     "pkg:cargo/proc-macro2@1.0.107",
     "pkg:cargo/quote@1.0.47",
-    "pkg:cargo/syn@3.0.7"
+    "pkg:cargo/syn@3.0.9"
    ]
   },
   {
@@ -8243,14 +8243,14 @@
   {
    "ref": "pkg:cargo/gethostname@1.1.0",
    "dependsOn": [
-    "pkg:cargo/rustix@1.1.5"
+    "pkg:cargo/rustix@1.1.6"
    ]
   },
   {
    "ref": "pkg:cargo/getrandom@0.3.4",
    "dependsOn": [
     "pkg:cargo/cfg-if@1.0.5",
-    "pkg:cargo/libc@0.2.190"
+    "pkg:cargo/libc@0.2.191"
    ]
   },
   {
@@ -8264,7 +8264,7 @@
    "ref": "pkg:cargo/gl_generator@0.14.0",
    "dependsOn": [
     "pkg:cargo/khronos_api@3.1.0",
-    "pkg:cargo/log@0.4.34",
+    "pkg:cargo/log@0.4.35",
     "pkg:cargo/xml-rs@0.8.29"
    ]
   },
@@ -8274,24 +8274,24 @@
     "pkg:cargo/bytemuck@1.25.2",
     "pkg:cargo/foldhash@0.2.0",
     "pkg:cargo/hashbrown@0.17.1",
-    "pkg:cargo/log@0.4.34",
+    "pkg:cargo/log@0.4.35",
     "pkg:cargo/peniko@0.6.1",
     "pkg:cargo/skrifa@0.44.0",
-    "pkg:cargo/smallvec@1.16.3",
+    "pkg:cargo/smallvec@1.16.4",
     "pkg:cargo/vello_common@0.2.0"
    ]
   },
   {
    "ref": "pkg:cargo/glimt@0.60.0",
    "dependsOn": [
-    "pkg:cargo/arboard@3.6.1",
+    "pkg:cargo/arboard@3.7.0",
     "pkg:cargo/eframe@0.37.0",
     "pkg:cargo/fast_image_resize@6.1.0",
     "pkg:cargo/flate2@1.1.10",
     "pkg:cargo/image@0.25.10",
     "pkg:cargo/jpeg-decoder@0.3.2",
     "pkg:cargo/jxl-oxide@0.12.6",
-    "pkg:cargo/libc@0.2.190",
+    "pkg:cargo/libc@0.2.191",
     "pkg:cargo/moxcms@0.8.1",
     "pkg:cargo/png@0.18.1",
     "pkg:cargo/regex@1.13.1",
@@ -8352,7 +8352,7 @@
    "dependsOn": [
     "pkg:cargo/cfg-if@1.0.5",
     "pkg:cargo/num-traits@0.2.19",
-    "pkg:cargo/zerocopy@0.8.62"
+    "pkg:cargo/zerocopy@0.8.63"
    ]
   },
   {
@@ -8361,7 +8361,7 @@
     "pkg:cargo/bitflags@2.13.2",
     "pkg:cargo/bytemuck@1.25.2",
     "pkg:cargo/read-fonts@0.41.0",
-    "pkg:cargo/smallvec@1.16.3"
+    "pkg:cargo/smallvec@1.16.4"
    ]
   },
   {
@@ -8411,7 +8411,7 @@
   {
    "ref": "pkg:cargo/indexmap@2.14.2",
    "dependsOn": [
-    "pkg:cargo/equivalent@1.0.2",
+    "pkg:cargo/equivalent@1.0.3",
     "pkg:cargo/hashbrown@0.17.1"
    ]
   },
@@ -8424,7 +8424,7 @@
   {
    "ref": "pkg:cargo/jobserver@0.1.35",
    "dependsOn": [
-    "pkg:cargo/libc@0.2.190"
+    "pkg:cargo/libc@0.2.191"
    ]
   },
   {
@@ -8580,11 +8580,11 @@
     "pkg:cargo/arrayvec@0.7.8",
     "pkg:cargo/euclid@0.22.14",
     "pkg:cargo/polycool@0.4.0",
-    "pkg:cargo/smallvec@1.16.3"
+    "pkg:cargo/smallvec@1.16.4"
    ]
   },
   {
-   "ref": "pkg:cargo/libc@0.2.190",
+   "ref": "pkg:cargo/libc@0.2.191",
    "dependsOn": []
   },
   {
@@ -8610,7 +8610,7 @@
    "dependsOn": []
   },
   {
-   "ref": "pkg:cargo/litrs@1.0.0",
+   "ref": "pkg:cargo/litrs@1.0.1",
    "dependsOn": []
   },
   {
@@ -8620,7 +8620,7 @@
    ]
   },
   {
-   "ref": "pkg:cargo/log@0.4.34",
+   "ref": "pkg:cargo/log@0.4.35",
    "dependsOn": []
   },
   {
@@ -8628,9 +8628,9 @@
    "dependsOn": []
   },
   {
-   "ref": "pkg:cargo/memmap2@0.9.11",
+   "ref": "pkg:cargo/memmap2@0.9.12",
    "dependsOn": [
-    "pkg:cargo/libc@0.2.190"
+    "pkg:cargo/libc@0.2.191"
    ]
   },
   {
@@ -8676,13 +8676,13 @@
     "pkg:cargo/hashbrown@0.17.1",
     "pkg:cargo/indexmap@2.14.2",
     "pkg:cargo/libm@0.2.16",
-    "pkg:cargo/log@0.4.34",
+    "pkg:cargo/log@0.4.35",
     "pkg:cargo/naga-types@30.0.1",
     "pkg:cargo/num-traits@0.2.19",
     "pkg:cargo/once_cell@1.21.4",
     "pkg:cargo/rustc-hash@1.1.0",
     "pkg:cargo/thiserror@2.0.21",
-    "pkg:cargo/unicode-ident@1.0.26"
+    "pkg:cargo/unicode-ident@1.0.27"
    ]
   },
   {
@@ -8716,7 +8716,7 @@
   {
    "ref": "pkg:cargo/os_pipe@1.2.3",
    "dependsOn": [
-    "pkg:cargo/libc@0.2.190"
+    "pkg:cargo/libc@0.2.191"
    ]
   },
   {
@@ -8740,8 +8740,8 @@
    "ref": "pkg:cargo/parking_lot_core@0.9.12",
    "dependsOn": [
     "pkg:cargo/cfg-if@1.0.5",
-    "pkg:cargo/libc@0.2.190",
-    "pkg:cargo/smallvec@1.16.3"
+    "pkg:cargo/libc@0.2.191",
+    "pkg:cargo/smallvec@1.16.4"
    ]
   },
   {
@@ -8751,7 +8751,7 @@
     "pkg:cargo/color@0.3.3",
     "pkg:cargo/kurbo@0.13.1",
     "pkg:cargo/linebender_resource_handle@0.1.1",
-    "pkg:cargo/smallvec@1.16.3"
+    "pkg:cargo/smallvec@1.16.4"
    ]
   },
   {
@@ -8821,7 +8821,7 @@
    "ref": "pkg:cargo/png@0.18.1",
    "dependsOn": [
     "pkg:cargo/bitflags@2.13.2",
-    "pkg:cargo/crc32fast@1.5.2",
+    "pkg:cargo/crc32fast@1.5.4",
     "pkg:cargo/fdeflate@0.3.7",
     "pkg:cargo/flate2@1.1.10",
     "pkg:cargo/miniz_oxide@0.8.9"
@@ -8831,7 +8831,7 @@
    "ref": "pkg:cargo/polling@3.11.0",
    "dependsOn": [
     "pkg:cargo/cfg-if@1.0.5",
-    "pkg:cargo/rustix@1.1.5"
+    "pkg:cargo/rustix@1.1.6"
    ]
   },
   {
@@ -8843,13 +8843,13 @@
   {
    "ref": "pkg:cargo/proc-macro-crate@3.5.0",
    "dependsOn": [
-    "pkg:cargo/toml_edit@0.25.17+spec-1.1.0"
+    "pkg:cargo/toml_edit@0.25.18+spec-1.1.0"
    ]
   },
   {
    "ref": "pkg:cargo/proc-macro2@1.0.107",
    "dependsOn": [
-    "pkg:cargo/unicode-ident@1.0.26"
+    "pkg:cargo/unicode-ident@1.0.27"
    ]
   },
   {
@@ -8890,7 +8890,7 @@
    "ref": "pkg:cargo/read-fonts@0.41.0",
    "dependsOn": [
     "pkg:cargo/bytemuck@1.25.2",
-    "pkg:cargo/font-types@0.12.6",
+    "pkg:cargo/font-types@0.12.7",
     "pkg:cargo/once_cell@1.21.4"
    ]
   },
@@ -8925,10 +8925,10 @@
     "pkg:cargo/bytemuck@1.25.2",
     "pkg:cargo/gif@0.14.2",
     "pkg:cargo/image-webp@0.2.4",
-    "pkg:cargo/log@0.4.34",
+    "pkg:cargo/log@0.4.35",
     "pkg:cargo/pico-args@0.5.0",
     "pkg:cargo/rgb@0.8.53",
-    "pkg:cargo/svgtypes@0.16.1",
+    "pkg:cargo/svgtypes@0.16.2",
     "pkg:cargo/tiny-skia@0.12.0",
     "pkg:cargo/usvg@0.49.0",
     "pkg:cargo/zune-jpeg@0.5.15"
@@ -8945,7 +8945,7 @@
    "dependsOn": []
   },
   {
-   "ref": "pkg:cargo/roxmltree@0.21.1",
+   "ref": "pkg:cargo/roxmltree@0.21.2",
    "dependsOn": [
     "pkg:cargo/memchr@2.8.3"
    ]
@@ -8963,16 +8963,16 @@
    "dependsOn": [
     "pkg:cargo/bitflags@2.13.2",
     "pkg:cargo/errno@0.3.14",
-    "pkg:cargo/libc@0.2.190",
+    "pkg:cargo/libc@0.2.191",
     "pkg:cargo/linux-raw-sys@0.4.15"
    ]
   },
   {
-   "ref": "pkg:cargo/rustix@1.1.5",
+   "ref": "pkg:cargo/rustix@1.1.6",
    "dependsOn": [
     "pkg:cargo/bitflags@2.13.2",
     "pkg:cargo/errno@0.3.14",
-    "pkg:cargo/libc@0.2.190",
+    "pkg:cargo/libc@0.2.191",
     "pkg:cargo/linux-raw-sys@0.12.1"
    ]
   },
@@ -8988,8 +8988,8 @@
    "ref": "pkg:cargo/sctk-adwaita@0.10.1",
    "dependsOn": [
     "pkg:cargo/ab_glyph@0.2.32",
-    "pkg:cargo/log@0.4.34",
-    "pkg:cargo/memmap2@0.9.11",
+    "pkg:cargo/log@0.4.35",
+    "pkg:cargo/memmap2@0.9.12",
     "pkg:cargo/smithay-client-toolkit@0.19.2",
     "pkg:cargo/tiny-skia@0.11.4"
    ]
@@ -9014,7 +9014,7 @@
    "dependsOn": [
     "pkg:cargo/proc-macro2@1.0.107",
     "pkg:cargo/quote@1.0.47",
-    "pkg:cargo/syn@3.0.7"
+    "pkg:cargo/syn@3.0.9"
    ]
   },
   {
@@ -9022,7 +9022,7 @@
    "dependsOn": [
     "pkg:cargo/proc-macro2@1.0.107",
     "pkg:cargo/quote@1.0.47",
-    "pkg:cargo/syn@3.0.7"
+    "pkg:cargo/syn@3.0.9"
    ]
   },
   {
@@ -9033,7 +9033,7 @@
    "ref": "pkg:cargo/signal-hook-registry@1.4.8",
    "dependsOn": [
     "pkg:cargo/errno@0.3.14",
-    "pkg:cargo/libc@0.2.190"
+    "pkg:cargo/libc@0.2.191"
    ]
   },
   {
@@ -9043,7 +9043,7 @@
   {
    "ref": "pkg:cargo/simplecss@0.2.2",
    "dependsOn": [
-    "pkg:cargo/log@0.4.34"
+    "pkg:cargo/log@0.4.35"
    ]
   },
   {
@@ -9068,7 +9068,7 @@
    ]
   },
   {
-   "ref": "pkg:cargo/smallvec@1.16.3",
+   "ref": "pkg:cargo/smallvec@1.16.4",
    "dependsOn": []
   },
   {
@@ -9078,9 +9078,9 @@
     "pkg:cargo/calloop-wayland-source@0.3.0",
     "pkg:cargo/calloop@0.13.0",
     "pkg:cargo/cursor-icon@1.2.0",
-    "pkg:cargo/libc@0.2.190",
-    "pkg:cargo/log@0.4.34",
-    "pkg:cargo/memmap2@0.9.11",
+    "pkg:cargo/libc@0.2.191",
+    "pkg:cargo/log@0.4.35",
+    "pkg:cargo/memmap2@0.9.12",
     "pkg:cargo/rustix@0.38.44",
     "pkg:cargo/thiserror@1.0.69",
     "pkg:cargo/wayland-backend@0.3.17",
@@ -9100,10 +9100,10 @@
     "pkg:cargo/calloop-wayland-source@0.4.1",
     "pkg:cargo/calloop@0.14.5",
     "pkg:cargo/cursor-icon@1.2.0",
-    "pkg:cargo/libc@0.2.190",
-    "pkg:cargo/log@0.4.34",
-    "pkg:cargo/memmap2@0.9.11",
-    "pkg:cargo/rustix@1.1.5",
+    "pkg:cargo/libc@0.2.191",
+    "pkg:cargo/log@0.4.35",
+    "pkg:cargo/memmap2@0.9.12",
+    "pkg:cargo/rustix@1.1.6",
     "pkg:cargo/thiserror@2.0.21",
     "pkg:cargo/wayland-backend@0.3.17",
     "pkg:cargo/wayland-client@0.31.15",
@@ -9120,7 +9120,7 @@
   {
    "ref": "pkg:cargo/smithay-clipboard@0.7.3",
    "dependsOn": [
-    "pkg:cargo/libc@0.2.190",
+    "pkg:cargo/libc@0.2.191",
     "pkg:cargo/smithay-client-toolkit@0.20.0",
     "pkg:cargo/wayland-backend@0.3.17"
    ]
@@ -9142,7 +9142,7 @@
    ]
   },
   {
-   "ref": "pkg:cargo/svgtypes@0.16.1",
+   "ref": "pkg:cargo/svgtypes@0.16.2",
    "dependsOn": [
     "pkg:cargo/kurbo@0.13.1",
     "pkg:cargo/siphasher@1.0.4"
@@ -9153,15 +9153,15 @@
    "dependsOn": [
     "pkg:cargo/proc-macro2@1.0.107",
     "pkg:cargo/quote@1.0.47",
-    "pkg:cargo/unicode-ident@1.0.26"
+    "pkg:cargo/unicode-ident@1.0.27"
    ]
   },
   {
-   "ref": "pkg:cargo/syn@3.0.7",
+   "ref": "pkg:cargo/syn@3.0.9",
    "dependsOn": [
     "pkg:cargo/proc-macro2@1.0.107",
     "pkg:cargo/quote@1.0.47",
-    "pkg:cargo/unicode-ident@1.0.26"
+    "pkg:cargo/unicode-ident@1.0.27"
    ]
   },
   {
@@ -9177,7 +9177,7 @@
    "dependsOn": [
     "pkg:cargo/proc-macro2@1.0.107",
     "pkg:cargo/quote@1.0.47",
-    "pkg:cargo/syn@3.0.7"
+    "pkg:cargo/syn@3.0.9"
    ]
   },
   {
@@ -9226,7 +9226,7 @@
     "pkg:cargo/arrayvec@0.7.8",
     "pkg:cargo/bytemuck@1.25.2",
     "pkg:cargo/cfg-if@1.0.5",
-    "pkg:cargo/log@0.4.34",
+    "pkg:cargo/log@0.4.35",
     "pkg:cargo/tiny-skia-path@0.11.4"
    ]
   },
@@ -9237,7 +9237,7 @@
     "pkg:cargo/arrayvec@0.7.8",
     "pkg:cargo/bytemuck@1.25.2",
     "pkg:cargo/cfg-if@1.0.5",
-    "pkg:cargo/log@0.4.34",
+    "pkg:cargo/log@0.4.35",
     "pkg:cargo/png@0.18.1",
     "pkg:cargo/tiny-skia-path@0.12.0"
    ]
@@ -9253,18 +9253,18 @@
    ]
   },
   {
-   "ref": "pkg:cargo/toml_edit@0.25.17+spec-1.1.0",
+   "ref": "pkg:cargo/toml_edit@0.25.18+spec-1.1.0",
    "dependsOn": [
     "pkg:cargo/indexmap@2.14.2",
     "pkg:cargo/toml_datetime@1.1.2+spec-1.1.0",
     "pkg:cargo/toml_parser@1.1.5+spec-1.1.0",
-    "pkg:cargo/winnow@1.0.4"
+    "pkg:cargo/winnow@1.0.5"
    ]
   },
   {
    "ref": "pkg:cargo/toml_parser@1.1.5+spec-1.1.0",
    "dependsOn": [
-    "pkg:cargo/winnow@1.0.4"
+    "pkg:cargo/winnow@1.0.5"
    ]
   },
   {
@@ -9284,7 +9284,7 @@
   {
    "ref": "pkg:cargo/tracing@0.1.44",
    "dependsOn": [
-    "pkg:cargo/log@0.4.34",
+    "pkg:cargo/log@0.4.35",
     "pkg:cargo/pin-project-lite@0.2.17",
     "pkg:cargo/tracing-attributes@0.1.31",
     "pkg:cargo/tracing-core@0.1.36"
@@ -9317,15 +9317,15 @@
    "dependsOn": []
   },
   {
-   "ref": "pkg:cargo/unicode-ident@1.0.26",
+   "ref": "pkg:cargo/unicode-ident@1.0.27",
    "dependsOn": []
   },
   {
-   "ref": "pkg:cargo/unicode-properties@0.1.4",
+   "ref": "pkg:cargo/unicode-properties@0.1.5",
    "dependsOn": []
   },
   {
-   "ref": "pkg:cargo/unicode-script@0.5.8",
+   "ref": "pkg:cargo/unicode-script@0.5.9",
    "dependsOn": []
   },
   {
@@ -9337,7 +9337,7 @@
    "dependsOn": []
   },
   {
-   "ref": "pkg:cargo/unicode-width@0.2.2",
+   "ref": "pkg:cargo/unicode-width@0.2.3",
    "dependsOn": []
   },
   {
@@ -9350,23 +9350,23 @@
     "pkg:cargo/harfrust@0.12.0",
     "pkg:cargo/imagesize@0.15.0",
     "pkg:cargo/kurbo@0.13.1",
-    "pkg:cargo/log@0.4.34",
+    "pkg:cargo/log@0.4.35",
     "pkg:cargo/pico-args@0.5.0",
-    "pkg:cargo/roxmltree@0.21.1",
+    "pkg:cargo/roxmltree@0.21.2",
     "pkg:cargo/simplecss@0.2.2",
     "pkg:cargo/siphasher@1.0.4",
     "pkg:cargo/skrifa@0.44.0",
     "pkg:cargo/strict-num@0.1.1",
-    "pkg:cargo/svgtypes@0.16.1",
+    "pkg:cargo/svgtypes@0.16.2",
     "pkg:cargo/tiny-skia-path@0.12.0",
     "pkg:cargo/unicode-bidi@0.3.18",
-    "pkg:cargo/unicode-script@0.5.8",
+    "pkg:cargo/unicode-script@0.5.9",
     "pkg:cargo/unicode-vo@0.1.0",
     "pkg:cargo/xmlwriter@0.1.0"
    ]
   },
   {
-   "ref": "pkg:cargo/uuid@1.28.0",
+   "ref": "pkg:cargo/uuid@1.29.0",
    "dependsOn": [
     "pkg:cargo/serde_core@1.0.229"
    ]
@@ -9377,9 +9377,9 @@
     "pkg:cargo/bytemuck@1.25.2",
     "pkg:cargo/fearless_simd@0.4.1",
     "pkg:cargo/guillotiere@0.7.0",
-    "pkg:cargo/log@0.4.34",
+    "pkg:cargo/log@0.4.35",
     "pkg:cargo/peniko@0.6.1",
-    "pkg:cargo/smallvec@1.16.3",
+    "pkg:cargo/smallvec@1.16.4",
     "pkg:cargo/thiserror@2.0.21"
    ]
   },
@@ -9399,11 +9399,11 @@
   {
    "ref": "pkg:cargo/wayland-backend@0.3.17",
    "dependsOn": [
-    "pkg:cargo/cc@1.7.0",
+    "pkg:cargo/cc@1.11.0",
     "pkg:cargo/downcast-rs@1.2.1",
-    "pkg:cargo/rustix@1.1.5",
+    "pkg:cargo/rustix@1.1.6",
     "pkg:cargo/scoped-tls@1.0.1",
-    "pkg:cargo/smallvec@1.16.3",
+    "pkg:cargo/smallvec@1.16.4",
     "pkg:cargo/wayland-sys@0.31.11"
    ]
   },
@@ -9411,7 +9411,7 @@
    "ref": "pkg:cargo/wayland-client@0.31.15",
    "dependsOn": [
     "pkg:cargo/bitflags@2.13.2",
-    "pkg:cargo/rustix@1.1.5",
+    "pkg:cargo/rustix@1.1.6",
     "pkg:cargo/wayland-backend@0.3.17",
     "pkg:cargo/wayland-scanner@0.31.11"
    ]
@@ -9427,7 +9427,7 @@
   {
    "ref": "pkg:cargo/wayland-cursor@0.31.14",
    "dependsOn": [
-    "pkg:cargo/rustix@1.1.5",
+    "pkg:cargo/rustix@1.1.6",
     "pkg:cargo/wayland-client@0.31.15",
     "pkg:cargo/xcursor@0.3.11"
    ]
@@ -9493,7 +9493,7 @@
    "ref": "pkg:cargo/wayland-sys@0.31.11",
    "dependsOn": [
     "pkg:cargo/dlib@0.5.3",
-    "pkg:cargo/log@0.4.34",
+    "pkg:cargo/log@0.4.35",
     "pkg:cargo/once_cell@1.21.4",
     "pkg:cargo/pkg-config@0.3.34"
    ]
@@ -9524,7 +9524,7 @@
     "pkg:cargo/document-features@0.2.12",
     "pkg:cargo/hashbrown@0.17.1",
     "pkg:cargo/indexmap@2.14.2",
-    "pkg:cargo/log@0.4.34",
+    "pkg:cargo/log@0.4.35",
     "pkg:cargo/naga-types@30.0.1",
     "pkg:cargo/naga@30.0.1",
     "pkg:cargo/once_cell@1.21.4",
@@ -9532,7 +9532,7 @@
     "pkg:cargo/profiling@1.0.18",
     "pkg:cargo/raw-window-handle@0.6.2",
     "pkg:cargo/rustc-hash@1.1.0",
-    "pkg:cargo/smallvec@1.16.3",
+    "pkg:cargo/smallvec@1.16.4",
     "pkg:cargo/thiserror@2.0.21",
     "pkg:cargo/wgpu-core-deps-windows-linux-android@30.0.1",
     "pkg:cargo/wgpu-hal@30.0.1",
@@ -9548,7 +9548,7 @@
     "pkg:cargo/cfg_aliases@0.2.2",
     "pkg:cargo/hashbrown@0.17.1",
     "pkg:cargo/libloading@0.8.9",
-    "pkg:cargo/log@0.4.34",
+    "pkg:cargo/log@0.4.35",
     "pkg:cargo/naga-types@30.0.1",
     "pkg:cargo/naga@30.0.1",
     "pkg:cargo/raw-window-handle@0.6.2",
@@ -9571,7 +9571,7 @@
    "dependsOn": [
     "pkg:cargo/bitflags@2.13.2",
     "pkg:cargo/bytemuck@1.25.2",
-    "pkg:cargo/log@0.4.34",
+    "pkg:cargo/log@0.4.35",
     "pkg:cargo/naga-types@30.0.1",
     "pkg:cargo/raw-window-handle@0.6.2",
     "pkg:cargo/static_assertions@1.1.0"
@@ -9587,10 +9587,10 @@
     "pkg:cargo/cfg_aliases@0.2.2",
     "pkg:cargo/document-features@0.2.12",
     "pkg:cargo/hashbrown@0.17.1",
-    "pkg:cargo/log@0.4.34",
+    "pkg:cargo/log@0.4.35",
     "pkg:cargo/profiling@1.0.18",
     "pkg:cargo/raw-window-handle@0.6.2",
-    "pkg:cargo/smallvec@1.16.3",
+    "pkg:cargo/smallvec@1.16.4",
     "pkg:cargo/static_assertions@1.1.0",
     "pkg:cargo/wgpu-core@30.0.1",
     "pkg:cargo/wgpu-hal@30.0.1",
@@ -9607,8 +9607,8 @@
     "pkg:cargo/cfg_aliases@0.2.2",
     "pkg:cargo/cursor-icon@1.2.0",
     "pkg:cargo/dpi@0.1.2",
-    "pkg:cargo/libc@0.2.190",
-    "pkg:cargo/memmap2@0.9.11",
+    "pkg:cargo/libc@0.2.191",
+    "pkg:cargo/memmap2@0.9.12",
     "pkg:cargo/percent-encoding@2.3.2",
     "pkg:cargo/raw-window-handle@0.6.2",
     "pkg:cargo/rustix@0.38.44",
@@ -9626,18 +9626,18 @@
    ]
   },
   {
-   "ref": "pkg:cargo/winnow@1.0.4",
+   "ref": "pkg:cargo/winnow@1.0.5",
    "dependsOn": [
     "pkg:cargo/memchr@2.8.3"
    ]
   },
   {
-   "ref": "pkg:cargo/wl-clipboard-rs@0.9.4",
+   "ref": "pkg:cargo/wl-clipboard-rs@0.9.5",
    "dependsOn": [
-    "pkg:cargo/libc@0.2.190",
-    "pkg:cargo/log@0.4.34",
+    "pkg:cargo/libc@0.2.191",
+    "pkg:cargo/log@0.4.35",
     "pkg:cargo/os_pipe@1.2.3",
-    "pkg:cargo/rustix@1.1.5",
+    "pkg:cargo/rustix@1.1.6",
     "pkg:cargo/thiserror@2.0.21",
     "pkg:cargo/tree_magic_mini@3.2.2",
     "pkg:cargo/wayland-backend@0.3.17",
@@ -9649,7 +9649,7 @@
   {
    "ref": "pkg:cargo/x11-dl@2.21.0",
    "dependsOn": [
-    "pkg:cargo/libc@0.2.190",
+    "pkg:cargo/libc@0.2.191",
     "pkg:cargo/once_cell@1.21.4",
     "pkg:cargo/pkg-config@0.3.34"
    ]
@@ -9663,10 +9663,10 @@
    "dependsOn": [
     "pkg:cargo/as-raw-xcb-connection@1.0.1",
     "pkg:cargo/gethostname@1.1.0",
-    "pkg:cargo/libc@0.2.190",
+    "pkg:cargo/libc@0.2.191",
     "pkg:cargo/libloading@0.8.9",
     "pkg:cargo/once_cell@1.21.4",
-    "pkg:cargo/rustix@1.1.5",
+    "pkg:cargo/rustix@1.1.6",
     "pkg:cargo/x11rb-protocol@0.13.2"
    ]
   },
@@ -9679,7 +9679,7 @@
    "dependsOn": [
     "pkg:cargo/bitflags@2.13.2",
     "pkg:cargo/dlib@0.5.3",
-    "pkg:cargo/log@0.4.34",
+    "pkg:cargo/log@0.4.35",
     "pkg:cargo/once_cell@1.21.4",
     "pkg:cargo/xkeysym@0.2.1"
    ]
@@ -9704,23 +9704,23 @@
     "pkg:cargo/syn@2.0.119",
     "pkg:cargo/zbus-lockstep@0.5.2",
     "pkg:cargo/zbus_xml@5.2.1",
-    "pkg:cargo/zvariant@5.15.0"
+    "pkg:cargo/zvariant@5.15.1"
    ]
   },
   {
    "ref": "pkg:cargo/zbus-lockstep@0.5.2",
    "dependsOn": [
     "pkg:cargo/zbus_xml@5.2.1",
-    "pkg:cargo/zvariant@5.15.0"
+    "pkg:cargo/zvariant@5.15.1"
    ]
   },
   {
    "ref": "pkg:cargo/zbus@5.19.0",
    "dependsOn": [
     "pkg:cargo/async-broadcast@0.7.2",
-    "pkg:cargo/async-executor@1.14.0",
+    "pkg:cargo/async-executor@1.14.1",
     "pkg:cargo/async-io@2.6.0",
-    "pkg:cargo/async-lock@3.4.2",
+    "pkg:cargo/async-lock@3.5.0",
     "pkg:cargo/async-process@2.5.0",
     "pkg:cargo/async-recursion@1.2.0",
     "pkg:cargo/async-task@4.7.1",
@@ -9731,17 +9731,17 @@
     "pkg:cargo/futures-core@0.3.34",
     "pkg:cargo/futures-lite@2.6.1",
     "pkg:cargo/hex@0.4.3",
-    "pkg:cargo/libc@0.2.190",
+    "pkg:cargo/libc@0.2.191",
     "pkg:cargo/ordered-stream@0.2.0",
-    "pkg:cargo/rustix@1.1.5",
+    "pkg:cargo/rustix@1.1.6",
     "pkg:cargo/serde@1.0.229",
     "pkg:cargo/serde_repr@0.1.21",
     "pkg:cargo/tracing@0.1.44",
-    "pkg:cargo/uuid@1.28.0",
-    "pkg:cargo/winnow@1.0.4",
+    "pkg:cargo/uuid@1.29.0",
+    "pkg:cargo/winnow@1.0.5",
     "pkg:cargo/zbus_macros@5.19.0",
-    "pkg:cargo/zbus_names@4.3.4",
-    "pkg:cargo/zvariant@5.15.0"
+    "pkg:cargo/zbus_names@4.3.5",
+    "pkg:cargo/zvariant@5.15.1"
    ]
   },
   {
@@ -9750,37 +9750,37 @@
     "pkg:cargo/proc-macro-crate@3.5.0",
     "pkg:cargo/proc-macro2@1.0.107",
     "pkg:cargo/quote@1.0.47",
-    "pkg:cargo/syn@3.0.7",
-    "pkg:cargo/zbus_names@4.3.4",
-    "pkg:cargo/zvariant@5.15.0",
+    "pkg:cargo/syn@3.0.9",
+    "pkg:cargo/zbus_names@4.3.5",
+    "pkg:cargo/zvariant@5.15.1",
     "pkg:cargo/zvariant_utils@4.2.0"
    ]
   },
   {
-   "ref": "pkg:cargo/zbus_names@4.3.4",
+   "ref": "pkg:cargo/zbus_names@4.3.5",
    "dependsOn": [
     "pkg:cargo/serde@1.0.229",
-    "pkg:cargo/winnow@1.0.4",
-    "pkg:cargo/zvariant@5.15.0"
+    "pkg:cargo/winnow@1.0.5",
+    "pkg:cargo/zvariant@5.15.1"
    ]
   },
   {
    "ref": "pkg:cargo/zbus_xml@5.2.1",
    "dependsOn": [
     "pkg:cargo/serde@1.0.229",
-    "pkg:cargo/winnow@1.0.4",
-    "pkg:cargo/zbus_names@4.3.4",
-    "pkg:cargo/zvariant@5.15.0"
+    "pkg:cargo/winnow@1.0.5",
+    "pkg:cargo/zbus_names@4.3.5",
+    "pkg:cargo/zvariant@5.15.1"
    ]
   },
   {
-   "ref": "pkg:cargo/zcheapstr@1.1.0",
+   "ref": "pkg:cargo/zcheapstr@1.2.0",
    "dependsOn": [
     "pkg:cargo/serde@1.0.229"
    ]
   },
   {
-   "ref": "pkg:cargo/zerocopy-derive@0.8.62",
+   "ref": "pkg:cargo/zerocopy-derive@0.8.63",
    "dependsOn": [
     "pkg:cargo/proc-macro2@1.0.107",
     "pkg:cargo/quote@1.0.47",
@@ -9788,9 +9788,9 @@
    ]
   },
   {
-   "ref": "pkg:cargo/zerocopy@0.8.62",
+   "ref": "pkg:cargo/zerocopy@0.8.63",
    "dependsOn": [
-    "pkg:cargo/zerocopy-derive@0.8.62"
+    "pkg:cargo/zerocopy-derive@0.8.63"
    ]
   },
   {
@@ -9808,24 +9808,24 @@
    ]
   },
   {
-   "ref": "pkg:cargo/zvariant@5.15.0",
+   "ref": "pkg:cargo/zvariant@5.15.1",
    "dependsOn": [
     "pkg:cargo/endi@1.1.1",
     "pkg:cargo/enumflags2@0.7.12",
     "pkg:cargo/serde@1.0.229",
-    "pkg:cargo/winnow@1.0.4",
-    "pkg:cargo/zcheapstr@1.1.0",
-    "pkg:cargo/zvariant_derive@5.15.0",
+    "pkg:cargo/winnow@1.0.5",
+    "pkg:cargo/zcheapstr@1.2.0",
+    "pkg:cargo/zvariant_derive@5.15.1",
     "pkg:cargo/zvariant_utils@4.2.0"
    ]
   },
   {
-   "ref": "pkg:cargo/zvariant_derive@5.15.0",
+   "ref": "pkg:cargo/zvariant_derive@5.15.1",
    "dependsOn": [
     "pkg:cargo/proc-macro-crate@3.5.0",
     "pkg:cargo/proc-macro2@1.0.107",
     "pkg:cargo/quote@1.0.47",
-    "pkg:cargo/syn@3.0.7",
+    "pkg:cargo/syn@3.0.9",
     "pkg:cargo/zvariant_utils@4.2.0"
    ]
   },
@@ -9835,8 +9835,8 @@
     "pkg:cargo/proc-macro2@1.0.107",
     "pkg:cargo/quote@1.0.47",
     "pkg:cargo/serde@1.0.229",
-    "pkg:cargo/syn@3.0.7",
-    "pkg:cargo/winnow@1.0.4"
+    "pkg:cargo/syn@3.0.9",
+    "pkg:cargo/winnow@1.0.5"
    ]
   }
  ]
