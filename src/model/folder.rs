@@ -1018,8 +1018,8 @@ impl crate::App {
         }
         let first = self.list.files().is_empty() && !whole;
         // A refresh keeps the selection, so Delete or Move after it still acts on what was
-        // picked.
-        let picked: HashSet<OsString> = (self.list.selected().iter())
+        // picked. The files that the search holds back stay selected too.
+        let picked: HashSet<OsString> = (self.list.selected_and_held().iter())
             .filter_map(|&i| self.list.files().get(i).cloned())
             .collect();
         self.replace_files(ctx, files, shown);
@@ -1339,6 +1339,31 @@ mod tests {
         app.replace_files(&ctx, files, shown);
         let last = &app.list.files()[app.list.last_slide()];
         assert_eq!(last, "d.png");
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A folder read again selects again by name the files a search holds back, so they come
+    /// back when the search is cleared, as they do without the new list.
+    #[test]
+    fn a_new_list_keeps_the_files_a_search_holds_back() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-held-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        for name in ["a.png", "b.png", "c.png"] {
+            image::RgbImage::new(4, 4).save(dir.join(name)).unwrap();
+        }
+        let (mut app, ctx) = app_on(&dir);
+        assert!(settle(&mut app, &ctx, |a| a.list.files().len() == 3));
+        app.set_selection(&ctx, [0, 1].into());
+        app.search.set_query("b.png");
+        app.update_search(&ctx);
+        assert_eq!(app.list.selected(), &[1].into());
+        let files = ["0.png", "a.png", "b.png", "c.png"]
+            .map(Into::into)
+            .to_vec();
+        app.take_files(&ctx, files, true);
+        app.search.set_query("");
+        app.update_search(&ctx);
+        assert_eq!(app.list.selected(), &[1, 2].into());
         std::fs::remove_dir_all(dir).unwrap();
     }
 

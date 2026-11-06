@@ -69,19 +69,18 @@ impl crate::App {
             return;
         }
         let shown = self.list.files().get(self.list.cur()).cloned();
-        let names: HashSet<OsString> = picked
-            .iter()
+        // The images moved stay selected when they were, and so do the selected images that
+        // the search holds back.
+        let moved = picked.iter().filter(|_| !self.list.selected().is_empty());
+        let names: HashSet<OsString> = (moved.chain(self.list.held_back()))
             .map(|&i| self.list.files()[i].clone())
             .collect();
         let files: Vec<OsString> = order
             .iter()
             .map(|&i| self.list.files()[i].clone())
             .collect();
-        let selected = !self.list.selected().is_empty();
         self.replace_files(ctx, files, shown);
-        if selected {
-            self.reselect(ctx, &names);
-        }
+        self.reselect(ctx, &names);
         self.save_collection_order();
     }
 
