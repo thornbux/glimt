@@ -2804,3 +2804,11 @@ msgstr "«{name}»: un sistema de archivos {kind}, como el de la tarjeta de una 
 #: src/ui/dialogs.rs
 msgid "The trash does not take files in this folder ({kind}), as on network and cloud folders."
 msgstr "La papelera no acepta archivos en esta carpeta ({kind}), como en las carpetas de red y en la nube."
+
+#: src/files/file_ops.rs
+msgid "\"{name}\": a {kind} file system, as on a camera card, allows none of : ? * \" < > | \\ in a name. Nothing was copied."
+msgstr "«{name}»: un sistema de archivos {kind}, como el de la tarjeta de una cámara, no admite ninguno de : ? * \" < > | \\ en un nombre. No se ha copiado nada."
+
+#: src/files/file_ops.rs
+msgid "\"{name}\": a {kind} file system, as on a camera card, allows none of : ? * \" < > | \\ in a name. Nothing was moved."
+msgstr "«{name}»: un sistema de archivos {kind}, como el de la tarjeta de una cámara, no admite ninguno de : ? * \" < > | \\ en un nombre. No se ha movido nada."

@@ -2815,3 +2815,11 @@ msgstr "«{name}»: system plików {kind}, jak na karcie pamięci aparatu, nie d
 #: src/ui/dialogs.rs
 msgid "The trash does not take files in this folder ({kind}), as on network and cloud folders."
 msgstr "Kosz nie przyjmuje plików w tym folderze ({kind}), tak jak w folderach sieciowych i w chmurze."
+
+#: src/files/file_ops.rs
+msgid "\"{name}\": a {kind} file system, as on a camera card, allows none of : ? * \" < > | \\ in a name. Nothing was copied."
+msgstr "«{name}»: system plików {kind}, jak na karcie pamięci aparatu, nie dopuszcza w nazwie żadnego ze znaków : ? * \" < > | \\. Nic nie zostało skopiowane."
+
+#: src/files/file_ops.rs
+msgid "\"{name}\": a {kind} file system, as on a camera card, allows none of : ? * \" < > | \\ in a name. Nothing was moved."
+msgstr "«{name}»: system plików {kind}, jak na karcie pamięci aparatu, nie dopuszcza w nazwie żadnego ze znaków : ? * \" < > | \\. Nic nie zostało przeniesione."

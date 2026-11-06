@@ -2804,3 +2804,11 @@ msgstr "«{name}»: un file system {kind}, come sulla scheda di una fotocamera, 
 #: src/ui/dialogs.rs
 msgid "The trash does not take files in this folder ({kind}), as on network and cloud folders."
 msgstr "Il cestino non accetta file in questa cartella ({kind}), come nelle cartelle di rete e cloud."
+
+#: src/files/file_ops.rs
+msgid "\"{name}\": a {kind} file system, as on a camera card, allows none of : ? * \" < > | \\ in a name. Nothing was copied."
+msgstr "«{name}»: un file system {kind}, come sulla scheda di una fotocamera, non consente nessuno di : ? * \" < > | \\ in un nome. Nessun file è stato copiato."
+
+#: src/files/file_ops.rs
+msgid "\"{name}\": a {kind} file system, as on a camera card, allows none of : ? * \" < > | \\ in a name. Nothing was moved."
+msgstr "«{name}»: un file system {kind}, come sulla scheda di una fotocamera, non consente nessuno di : ? * \" < > | \\ in un nome. Nessun file è stato spostato."
