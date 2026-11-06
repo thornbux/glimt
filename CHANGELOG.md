@@ -5,6 +5,21 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- Delete to the trash on a network or cloud folder (an rclone or s3fs mount, smb:// and sftp://
+  folders, cifs, NFS), where gio has no trash, asks whether to delete the files for good
+  instead of only showing gio's error.
+- A rename that a share, cloud folder or phone refuses names the type of its mount
+  (`fuse.rclone`, `fuse.gvfsd-fuse`, `cifs` …).
+- Rename and Rename Many on a camera card (FAT or exFAT) say which characters it refuses
+  (`: ? * " < > | \`) before renaming anything, instead of failing halfway with "Invalid
+  argument".
+- The Help Manual and README tell what to expect of network and cloud folders: slow the first
+  time, F5 for changes made from another computer, no trash, and the limits above.
+- The release tests rename, move, tag, delete and Rename Many on an rclone mount and in an
+  sftp:// folder that Glimt mounts with gio.
+
 ## [0.61.0] - 2026-11-06
 
 ### Fixed

@@ -621,6 +621,14 @@ Glimt writes what goes wrong to the terminal: start it from one (`glimt ~/Pictur
 - **Open, Copy or Move show no dialog.** Install `zenity` (or `kdialog` on KDE).
 - **Delete says gio is missing**, or network shares do not open: install `gio` (glib, in
   `libglib2.0-bin` on Debian and Ubuntu) and GVfs.
+- **A network or cloud folder** (smb://, sftp://, NFS, an rclone or s3fs mount) is slow the
+  first time, while its images and thumbnails come over the network. Changes made there from
+  another computer are not seen by themselves: press F5. gio has no trash there, so Delete asks
+  whether to delete the files for good instead. Where neither a safe rename nor a hard link is
+  to be had (rclone, s3fs, a phone), Rename looks first that the new name is free; a rename the
+  file system refuses names the mount's type (`fuse.rclone`, `cifs` …).
+- **A camera card** (FAT or exFAT) allows none of `: ? * " < > | \` in a name; Rename and
+  Rename Many say so before renaming, as with a pattern that puts a time in the name.
 - **Import Lightroom Catalog says sqlite3 is missing.** Install the `sqlite3` program; the
   Flatpak has its own. It must be 3.37 or newer (2021), which reads
   a catalog in its safe mode; RHEL 8 and other older systems have an older one.
