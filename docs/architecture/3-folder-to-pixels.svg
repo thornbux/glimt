@@ -1,0 +1,186 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 830" width="1200" height="830" role="img" aria-label="From a folder to pixels in Glimt. A listing thread reads the folder without a stat per file; replace_files makes a new List and carries the shown file, selection and decoded slots over by name. refill asks the decode workers for the shown image and its neighbours at the size of the view; decode shrinks and converts to the screen with to_display. Thumbnails come from the freedesktop cache or are made, converted with to_srgb for the cache. Every decode checks fits before it allocates.">
+  <title>From a folder to pixels</title>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#1f2328"/>
+    </marker>
+  </defs>
+  <rect x="0" y="0" width="1200" height="830" fill="#ffffff"/>
+  <g font-family="system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif" fill="#1f2328">
+    <text x="20" y="34" font-size="20" font-weight="700">From a folder to pixels</text>
+    <text x="20" y="56" font-size="13" fill="#57606a">Decoded to the size of the view, full resolution only when zoomed in, and a fixed number of neighbours on each side: little memory at any folder size.</text>
+
+    <!-- Lane 1 -->
+    <text x="30" y="86" font-size="14" font-weight="700">1. A folder becomes a List</text>
+    <g font-size="12">
+      <rect x="30" y="96" width="196" height="122" rx="6" fill="#e8f0fe" stroke="#3b6fd8" stroke-width="1.5"/>
+      <text x="42" y="117" font-size="13" font-weight="700" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace">open → list()</text>
+      <text x="42" y="137">File → Open, a folder</text>
+      <text x="42" y="153">dropped, the folder tree,</text>
+      <text x="42" y="169">or --remote open</text>
+      <text x="42" y="193" fill="#57606a">model/folder.rs</text>
+
+      <rect x="266" y="96" width="196" height="122" rx="6" fill="#e8f0fe" stroke="#3b6fd8" stroke-width="1.5"/>
+      <text x="278" y="117" font-size="13" font-weight="700" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace">list_folder</text>
+      <text x="278" y="137">read_dir with</text>
+      <text x="278" y="153">DirEntry::file_type,</text>
+      <text x="278" y="169">no stat per file;</text>
+      <text x="278" y="185">sort_files, natural_cmp</text>
+      <text x="278" y="207" fill="#57606a">in the listing thread</text>
+
+      <rect x="502" y="96" width="196" height="122" rx="6" fill="#e8f0fe" stroke="#3b6fd8" stroke-width="1.5"/>
+      <text x="514" y="117" font-size="13" font-weight="700" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace">receive_listing</text>
+      <text x="514" y="137">take_files: a tree comes</text>
+      <text x="514" y="153">in parts (the latest part);</text>
+      <text x="514" y="169">same names: list kept,</text>
+      <text x="514" y="185">else replace_files</text>
+      <text x="514" y="207" fill="#57606a">UI thread, next frame</text>
+
+      <rect x="738" y="96" width="196" height="122" rx="6" fill="#e8f0fe" stroke="#3b6fd8" stroke-width="1.5"/>
+      <text x="750" y="117" font-size="13" font-weight="700" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace">replace_files</text>
+      <text x="750" y="137" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace">List::after(&amp;old, files)</text>
+      <text x="750" y="153">a new List, version + 1;</text>
+      <text x="750" y="169">carried over by name: the</text>
+      <text x="750" y="185">shown file, the selection,</text>
+      <text x="750" y="201">decoded Slots, panes</text>
+
+      <rect x="974" y="96" width="196" height="122" rx="6" fill="#ffffff" stroke="#3b6fd8" stroke-width="2.5"/>
+      <text x="986" y="117" font-size="13" font-weight="700" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace">List</text>
+      <text x="1026" y="117" fill="#57606a">model/list.rs</text>
+      <text x="986" y="137">files: Vec&lt;OsString&gt;,</text>
+      <text x="986" y="153">names only, no paths;</text>
+      <text x="986" y="169">cur, selected, panes;</text>
+      <text x="986" y="185">slots: the decoded images</text>
+    </g>
+    <g font-size="12" fill="#57606a" text-anchor="middle">
+      <line x1="226" y1="157" x2="264" y2="157" stroke="#1f2328" stroke-width="1.5" marker-end="url(#arrow)"/>
+      <text x="246" y="150">spawn</text>
+      <line x1="462" y1="157" x2="500" y2="157" stroke="#1f2328" stroke-width="1.5" marker-end="url(#arrow)"/>
+      <text x="482" y="150">mpsc</text>
+      <line x1="698" y1="157" x2="736" y2="157" stroke="#1f2328" stroke-width="1.5" marker-end="url(#arrow)"/>
+      <line x1="934" y1="157" x2="972" y2="157" stroke="#1f2328" stroke-width="1.5" marker-end="url(#arrow)"/>
+    </g>
+
+    <!-- Lane 2 -->
+    <text x="30" y="268" font-size="14" font-weight="700">2. The shown image and its neighbours</text>
+    <g font-size="12">
+      <rect x="30" y="278" width="196" height="166" rx="6" fill="#e6f4ea" stroke="#2e8b57" stroke-width="1.5"/>
+      <text x="42" y="299" font-size="13" font-weight="700" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace">refill()</text>
+      <text x="42" y="319">the window to keep: the</text>
+      <text x="42" y="335">shown image (List::cur),</text>
+      <text x="42" y="351">the compared one, panes,</text>
+      <text x="42" y="367">then preload on each side</text>
+      <text x="42" y="391">keep_slots drops the rest</text>
+      <text x="42" y="425" fill="#57606a">viewer/view.rs</text>
+
+      <rect x="266" y="278" width="196" height="166" rx="6" fill="#e6f4ea" stroke="#2e8b57" stroke-width="1.5"/>
+      <text x="278" y="299" font-size="13" font-weight="700" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace">request(idx, full)</text>
+      <text x="278" y="319" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace">DecodeJob { idx, path,</text>
+      <text x="278" y="335" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace">  page, job, max }</text>
+      <text x="278" y="359">max = decode_box: the</text>
+      <text x="278" y="375">view's size, not the file's;</text>
+      <text x="278" y="391">full only when zoomed in</text>
+      <text x="278" y="425" fill="#57606a">sent to the decode workers</text>
+
+      <rect x="502" y="278" width="196" height="166" rx="6" fill="#e6f4ea" stroke="#2e8b57" stroke-width="1.5"/>
+      <text x="514" y="299" font-size="13" font-weight="700" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace">decode()</text>
+      <text x="514" y="319">skipped if not in keep;</text>
+      <text x="514" y="335">animation, or scaled_jpeg</text>
+      <text x="514" y="351">(1/2, 1/4 or 1/8 of a JPEG),</text>
+      <text x="514" y="367">or load_unturned: RAW</text>
+      <text x="514" y="383">preview, ffmpeg, SVG, JXL,</text>
+      <text x="514" y="399">decoder plugin, image crate</text>
+      <text x="514" y="423" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace">→ shrink → to_display</text>
+
+      <rect x="738" y="278" width="196" height="166" rx="6" fill="#e6f4ea" stroke="#2e8b57" stroke-width="1.5"/>
+      <text x="750" y="299" font-size="13" font-weight="700" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace">receive_decoded</text>
+      <text x="750" y="319">a texture is made, and a</text>
+      <text x="750" y="335" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace">Slot { tex, orig, hist }</text>
+      <text x="750" y="351">goes into List::slots;</text>
+      <text x="750" y="367">an answer to a job no</text>
+      <text x="750" y="383">longer pending is dropped</text>
+      <text x="750" y="425" fill="#57606a">UI thread, next frame</text>
+
+      <rect x="974" y="278" width="196" height="166" rx="6" fill="#e6f4ea" stroke="#2e8b57" stroke-width="1.5"/>
+      <text x="986" y="299" font-size="13" font-weight="700" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace">image_area</text>
+      <text x="986" y="319">paints the Slot, or the</text>
+      <text x="986" y="335">last image drawn until it</text>
+      <text x="986" y="351">comes; zoomed past what</text>
+      <text x="986" y="367">it covers, it asks again</text>
+      <text x="986" y="383">(decode_again_if_needed)</text>
+    </g>
+    <g font-size="12" fill="#57606a" text-anchor="middle">
+      <line x1="226" y1="361" x2="264" y2="361" stroke="#1f2328" stroke-width="1.5" marker-end="url(#arrow)"/>
+      <line x1="462" y1="361" x2="500" y2="361" stroke="#1f2328" stroke-width="1.5" marker-end="url(#arrow)"/>
+      <text x="482" y="354">jobs</text>
+      <line x1="698" y1="361" x2="736" y2="361" stroke="#1f2328" stroke-width="1.5" marker-end="url(#arrow)"/>
+      <text x="718" y="354">mpsc</text>
+      <line x1="934" y1="361" x2="972" y2="361" stroke="#1f2328" stroke-width="1.5" marker-end="url(#arrow)"/>
+    </g>
+    <!-- receive_decoded puts the Slot in the List -->
+    <polyline points="836,278 836,244 1072,244 1072,220" fill="none" stroke="#1f2328" stroke-width="1.5" marker-end="url(#arrow)"/>
+    <text x="846" y="238" font-size="12" fill="#57606a">Slot into List::slots</text>
+
+    <!-- Lane 3 -->
+    <text x="30" y="492" font-size="14" font-weight="700">3. Thumbnails in the file list and the icon grid</text>
+    <g font-size="12">
+      <rect x="30" y="502" width="196" height="122" rx="6" fill="#fef3e2" stroke="#d08a1a" stroke-width="1.5"/>
+      <text x="42" y="523" font-size="13" font-weight="700" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace">side_panel</text>
+      <text x="42" y="543">only the rows on screen</text>
+      <text x="42" y="559">(show_rows) ask;</text>
+      <text x="42" y="575">sync_thumb_source picks</text>
+      <text x="42" y="591">the size (THUMBS)</text>
+
+      <rect x="266" y="502" width="196" height="122" rx="6" fill="#fef3e2" stroke="#d08a1a" stroke-width="1.5"/>
+      <text x="278" y="523" font-size="13" font-weight="700" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace">Thumbs::ask</text>
+      <text x="278" y="543">(i, path, n) to the</text>
+      <text x="278" y="559">thumbnail workers, once</text>
+      <text x="278" y="575">per name while pending</text>
+
+      <rect x="502" y="502" width="432" height="122" rx="6" fill="#e0f5f5" stroke="#138a8a" stroke-width="1.5"/>
+      <text x="514" y="523" font-size="13" font-weight="700" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace">thumbs::thumbnail</text>
+      <text x="676" y="523" fill="#57606a">in a thumbnail worker (images/thumbs.rs)</text>
+      <text x="514" y="543">cache_file: the MD5 of the file's URI in ~/.cache/thumbnails;</text>
+      <text x="514" y="559">read_cached when it is newer than the file,</text>
+      <text x="514" y="575">else decode::small → to_srgb → write (when save_thumbnails is on)</text>
+      <text x="514" y="599">then srgb_to_display for this screen, and a ColorImage</text>
+
+      <rect x="974" y="502" width="196" height="122" rx="6" fill="#fef3e2" stroke="#d08a1a" stroke-width="1.5"/>
+      <text x="986" y="523" font-size="13" font-weight="700" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace">receive_thumbs</text>
+      <text x="986" y="543">textures kept by name in</text>
+      <text x="986" y="559">Thumbs; past MAX_THUMBS</text>
+      <text x="986" y="575">(600) those far from view</text>
+      <text x="986" y="591">are dropped</text>
+    </g>
+    <g font-size="12" fill="#57606a" text-anchor="middle">
+      <line x1="226" y1="563" x2="264" y2="563" stroke="#1f2328" stroke-width="1.5" marker-end="url(#arrow)"/>
+      <line x1="462" y1="563" x2="500" y2="563" stroke="#1f2328" stroke-width="1.5" marker-end="url(#arrow)"/>
+      <text x="482" y="556">jobs</text>
+      <line x1="934" y1="563" x2="972" y2="563" stroke="#1f2328" stroke-width="1.5" marker-end="url(#arrow)"/>
+      <text x="954" y="556">mpsc</text>
+    </g>
+
+    <!-- Bottom: limits and colour -->
+    <rect x="30" y="652" width="560" height="156" rx="6" fill="#f6f8fa" stroke="#57606a" stroke-width="1.5"/>
+    <text x="44" y="674" font-size="14" font-weight="700">Limits on every decode <tspan font-weight="400" font-size="12" fill="#57606a">images/decode.rs</tspan></text>
+    <g font-size="12">
+      <text x="44" y="696"><tspan font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace">fits(w, h, bytes)</tspan> ≤ MAX_DECODE before a decoder allocates from a size</text>
+      <text x="44" y="712">the file claims, so a header that claims gigabytes is refused.</text>
+      <text x="44" y="732"><tspan font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace">read_limited, read_text, open</tspan>: a size cap, and no pipe or device.</text>
+      <text x="44" y="752"><tspan font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace">from_decoder, from_memory</tspan>: the only ways into the image crate;</text>
+      <text x="44" y="768">clippy.toml refuses image::open, load_from_memory and the rest.</text>
+      <text x="44" y="788"><tspan font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace">survive</tspan>: a decoder that panics fails one image, not its worker thread.</text>
+    </g>
+
+    <rect x="610" y="652" width="560" height="156" rx="6" fill="#f6f8fa" stroke="#57606a" stroke-width="1.5"/>
+    <text x="624" y="674" font-size="14" font-weight="700">Two colour paths <tspan font-weight="400" font-size="12" fill="#57606a">images/colour.rs</tspan></text>
+    <g font-size="12">
+      <text x="624" y="696"><tspan font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace">to_display(img, icc)</tspan>: from the image's profile to the screen</text>
+      <text x="624" y="712">profile, with the view filter. Only for what is shown.</text>
+      <text x="624" y="732"><tspan font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace">to_srgb(img, icc)</tspan>: for what leaves Glimt: files, the shared</text>
+      <text x="624" y="748">thumbnail cache, prints, the clipboard. Preferences never change it.</text>
+      <text x="624" y="768"><tspan font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace">srgb_to_display</tspan>: a thumbnail, sRGB already, to the screen.</text>
+      <text x="624" y="788">The test view_colours_stay_in_the_view keeps the first out of files.</text>
+    </g>
+  </g>
+</svg>

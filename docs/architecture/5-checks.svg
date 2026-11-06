@@ -1,0 +1,163 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 660" width="1200" height="660" role="img" aria-label="How Glimt's codebase keeps itself in shape: cargo clippy with clippy.toml refuses raw disk, process and decoder calls in favour of one function each; source_rules.rs tests the layout and the one-place rules; unit tests check behaviour without a window, broken inputs, translations and frozen key names, in both builds; before a tag, audit rounds and the release tests in Docker compare against the last release.">
+  <title>How the codebase keeps itself in shape</title>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#1f2328"/>
+    </marker>
+  </defs>
+  <rect x="0" y="0" width="1200" height="660" fill="#ffffff"/>
+  <g font-family="system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif" fill="#1f2328">
+    <text x="20" y="34" font-size="20" font-weight="700">How the codebase keeps itself in shape</text>
+    <text x="20" y="56" font-size="13" fill="#57606a">The rules in AGENTS.md are checked by the build, not kept by memory. Every commit passes the first three in both builds; a tag also needs the fourth.</text>
+
+    <!-- Stage headers -->
+    <g font-size="13" font-weight="700" text-anchor="middle">
+      <rect x="20" y="76" width="280" height="36" rx="18" fill="#fef3e2" stroke="#d08a1a" stroke-width="1.5"/>
+      <text x="160" y="99">cargo clippy -D warnings</text>
+      <rect x="320" y="76" width="340" height="36" rx="18" fill="#e8f0fe" stroke="#3b6fd8" stroke-width="1.5"/>
+      <text x="490" y="99">cargo test: source_rules.rs</text>
+      <rect x="680" y="76" width="245" height="36" rx="18" fill="#e6f4ea" stroke="#2e8b57" stroke-width="1.5"/>
+      <text x="802" y="99">cargo test: behaviour</text>
+      <rect x="945" y="76" width="235" height="36" rx="18" fill="#f3e8fd" stroke="#8e44ad" stroke-width="1.5"/>
+      <text x="1062" y="99">Before a tag</text>
+    </g>
+    <g stroke="#1f2328" stroke-width="1.5">
+      <line x1="300" y1="94" x2="318" y2="94" marker-end="url(#arrow)"/>
+      <line x1="660" y1="94" x2="678" y2="94" marker-end="url(#arrow)"/>
+      <line x1="925" y1="94" x2="943" y2="94" marker-end="url(#arrow)"/>
+    </g>
+
+    <!-- Column 1: clippy.toml -->
+    <rect x="20" y="124" width="280" height="510" rx="6" fill="#ffffff" stroke="#d08a1a" stroke-width="1.5"/>
+    <text x="32" y="146" font-size="12" fill="#57606a">clippy.toml: disallowed-methods,</text>
+    <text x="32" y="162" font-size="12" fill="#57606a">each raw call with the one to take</text>
+    <g font-size="12" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace">
+      <text x="32" y="190" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif" font-weight="700">Reading a file</text>
+      <text x="32" y="208">fs::read → read_limited</text>
+      <text x="32" y="224">File::open → decode::open</text>
+      <text x="32" y="248" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif" font-weight="700">Writing, renaming, copying</text>
+      <text x="32" y="266">fs::write → replace_file</text>
+      <text x="32" y="282">File::create → create_file</text>
+      <text x="32" y="298">fs::rename → rename_never_over</text>
+      <text x="32" y="314">fs::copy → put_file</text>
+      <text x="32" y="338" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif" font-weight="700">Programs</text>
+      <text x="32" y="356">Command::new → command,</text>
+      <text x="32" y="372">               host_command</text>
+      <text x="32" y="388">Command::output → run_limited</text>
+      <text x="32" y="404">Child::wait → Watchdog</text>
+      <text x="32" y="428" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif" font-weight="700">Decoding (fits first)</text>
+      <text x="32" y="446">image::open → from_decoder</text>
+      <text x="32" y="462">load_from_memory → from_memory</text>
+      <text x="32" y="486" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif" font-weight="700">Widgets the release tests click</text>
+      <text x="32" y="504">Ui::button → menus::button</text>
+      <text x="32" y="520">Ui::checkbox → menus::checkbox</text>
+    </g>
+    <g font-size="12">
+      <text x="32" y="552">An exception gets</text>
+      <text x="32" y="568" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace">#[allow(clippy::disallowed_methods)]</text>
+      <text x="32" y="584">on the narrowest statement, its reason</text>
+      <text x="32" y="600">on the same line or the next.</text>
+    </g>
+
+    <!-- Column 2: source_rules -->
+    <rect x="320" y="124" width="340" height="510" rx="6" fill="#ffffff" stroke="#3b6fd8" stroke-width="1.5"/>
+    <text x="332" y="146" font-size="12" fill="#57606a">tests that read the source files themselves</text>
+    <g font-size="12">
+      <text x="332" y="174" font-weight="700">Layout</text>
+      <g font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace">
+        <text x="332" y="192">modules_live_in_their_folder</text>
+        <text x="332" y="208">agents_md_lists_every_module</text>
+        <text x="332" y="224">imports_name_where_defined</text>
+        <text x="332" y="240">tests_sit_beside_their_code</text>
+      </g>
+      <text x="332" y="266" font-weight="700">Within a file</text>
+      <g font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace">
+        <text x="332" y="284">items_are_in_order</text>
+        <text x="332" y="300">functions_stay_short <tspan font-family="system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif" fill="#57606a">(≤ 120 lines)</tspan></text>
+        <text x="332" y="316">comments_fit_the_width <tspan font-family="system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif" fill="#57606a">(100 cols)</tspan></text>
+      </g>
+      <text x="332" y="342" font-weight="700">App and its parts</text>
+      <g font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace">
+        <text x="332" y="360">app_stays_small</text>
+        <text x="332" y="376">parts_keep_their_fields</text>
+      </g>
+      <text x="332" y="402" font-weight="700">One place for each rule</text>
+      <g font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace">
+        <text x="332" y="420">an_image_and_its_sidecar_change_together</text>
+        <text x="332" y="436">derived_files_take_metadata_in_one_place</text>
+        <text x="332" y="452">view_colours_stay_in_the_view</text>
+        <text x="332" y="468">copies_of_settings_have_one_writer</text>
+        <text x="332" y="484">panics_are_caught_in_one_place</text>
+        <text x="332" y="500">broken_inputs_are_fed_by_</text>
+        <text x="332" y="516">    survives_broken_tests</text>
+      </g>
+      <text x="332" y="542" font-weight="700">Packages</text>
+      <g font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace">
+        <text x="332" y="560">packages_install_the_same_files</text>
+        <text x="332" y="576">full_has_every_feature</text>
+      </g>
+      <text x="332" y="604" fill="#57606a">A rule that is only written down is</text>
+      <text x="332" y="620" fill="#57606a">forgotten; one that fails a test is not.</text>
+    </g>
+
+    <!-- Column 3: behaviour -->
+    <rect x="680" y="124" width="245" height="510" rx="6" fill="#ffffff" stroke="#2e8b57" stroke-width="1.5"/>
+    <g font-size="12">
+      <text x="692" y="146" fill="#57606a">beside the code they test</text>
+      <text x="692" y="174" font-weight="700">The window without a window</text>
+      <text x="692" y="192" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace">test_support::app_on(dir)</text>
+      <text x="692" y="208">makes an App on a folder, listed,</text>
+      <text x="692" y="224">in milliseconds</text>
+      <text x="692" y="250" font-weight="700">File operations</text>
+      <text x="692" y="268" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace">file_operations_keep_</text>
+      <text x="692" y="284" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace">  their_contract</text>
+      <text x="692" y="300">the file, its sidecar, stars and</text>
+      <text x="692" y="316">collection entry after each one</text>
+      <text x="692" y="342" font-weight="700">Parsers</text>
+      <text x="692" y="360" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace">survives_broken_*</text>
+      <text x="692" y="376">2,000 damaged inputs per run</text>
+      <text x="692" y="392">(broken); five million every</text>
+      <text x="692" y="408">Sunday (parsers.yml)</text>
+      <text x="692" y="434" font-weight="700">Promises of 1.x</text>
+      <text x="692" y="452" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace">names_of_1_0_are_kept</text>
+      <text x="692" y="468">src/keys-1.0.txt pins the</text>
+      <text x="692" y="484">Action names of keys=</text>
+      <text x="692" y="510" font-weight="700">Fifteen languages</text>
+      <text x="692" y="528" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace">every_language_has_</text>
+      <text x="692" y="544" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace">  every_text</text>
+      <text x="692" y="572" fill="#57606a">Both builds: default and</text>
+      <text x="692" y="588" fill="#57606a">--all-features; CI on every push,</text>
+      <text x="692" y="604" fill="#57606a">or tools/check.sh in Docker</text>
+    </g>
+
+    <!-- Column 4: before a tag -->
+    <rect x="945" y="124" width="235" height="510" rx="6" fill="#ffffff" stroke="#8e44ad" stroke-width="1.5"/>
+    <g font-size="12">
+      <text x="957" y="146" fill="#57606a">on the commit that gets the tag</text>
+      <text x="957" y="174" font-weight="700">Audit rounds</text>
+      <text x="957" y="192">another agent or session reads</text>
+      <text x="957" y="208">the diff since the last tag,</text>
+      <text x="957" y="224">ranks each finding: must fix,</text>
+      <text x="957" y="240">should fix or hardening;</text>
+      <text x="957" y="256">fixed and audited again until</text>
+      <text x="957" y="272">a round finds nothing</text>
+      <text x="957" y="298" font-weight="700">Release tests</text>
+      <text x="957" y="316" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace">tools/release-tests/</text>
+      <text x="957" y="332" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace">run.sh</text>
+      <text x="1006" y="332">builds this commit</text>
+      <text x="957" y="348">and the last release in Docker;</text>
+      <text x="957" y="364" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace">tests.sh</text>
+      <text x="1022" y="364">runs both under Xvfb,</text>
+      <text x="957" y="380">clicks by text through</text>
+      <text x="957" y="396" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace">glimt --remote where</text>
+      <text x="957" y="412">(test-hooks build), and reads</text>
+      <text x="957" y="428">files and screenshot colours</text>
+      <text x="957" y="454" font-weight="700">Timings and memory</text>
+      <text x="957" y="472">first image and RssAnon of</text>
+      <text x="957" y="488">both versions at 500,000 files</text>
+      <text x="957" y="514" font-weight="700">Known vulnerabilities</text>
+      <text x="957" y="532">cargo audit in release.yml,</text>
+      <text x="957" y="548">and weekly in audit.yml</text>
+    </g>
+  </g>
+</svg>
