@@ -206,24 +206,41 @@ pub fn built_in_format(path: &Path) -> bool {
 
 /// `dir` and every folder below it, one at a time: (its path relative to `dir`, its folders,
 /// its images). A folder reached again through a link or a bind mount is read once. A link to a
-/// folder above `dir` is not followed: a downloaded folder with `up -> ../..` or `root -> /`
-/// would else list the whole home folder or disk, for Select All and Delete to act on.
+/// folder is followed only when the folder it leads to is inside `dir`'s real path. A downloaded
+/// folder with `up -> ../..`, `pics -> ~/Pictures` or `root -> /` would else list the user's
+/// own photos or the whole disk, for Select All and Delete to act on.
 pub fn walk(
     dir: &Path,
     types: Types,
 ) -> impl Iterator<Item = (PathBuf, Vec<PathBuf>, Vec<OsString>)> {
+    walk_by(dir, types, crate::images::save::file_id)
+}
+
+/// Walks the tree as `walk` does, with `file_id` telling the folders apart, so a test can give
+/// the ids a file system without unique inodes has.
+fn walk_by(
+    dir: &Path,
+    types: Types,
+    file_id: impl Fn(&Path) -> Option<(u64, u64)>,
+) -> impl Iterator<Item = (PathBuf, Vec<PathBuf>, Vec<OsString>)> {
     let (dir, mut todo) = (dir.to_path_buf(), vec![PathBuf::new()]);
     let mut seen: HashSet<Result<(u64, u64), PathBuf>> = HashSet::new();
-    let file_id = crate::images::save::file_id;
-    // The folders above `dir` count as read already. They are those of its real path, as a link
-    // in the tree leads to a real folder.
+    // An inode of 0 is no id: sshfs with `-o use_ino` gives it to every folder, and the tree
+    // would end at the first one. The real path tells such folders apart instead.
+    let key = move |full: &Path| match file_id(full) {
+        Some(id) if id.1 != 0 => Ok(id),
+        _ => Err(real_dir(full)),
+    };
     let real = real_dir(&dir);
-    seen.extend(real.ancestors().skip(1).filter_map(file_id).map(Ok));
     std::iter::from_fn(move || {
         loop {
             let rel = todo.pop()?;
             let full = dir.join(&rel);
-            if !seen.insert(file_id(&full).ok_or_else(|| full.clone())) {
+            let is_link = std::fs::symlink_metadata(&full).is_ok_and(|m| m.is_symlink());
+            if is_link && !real_dir(&full).starts_with(&real) {
+                continue;
+            }
+            if !seen.insert(key(&full)) {
                 continue;
             }
             let (dirs, files) = list_folder(&full, types);
@@ -502,21 +519,29 @@ mod tests {
         std::fs::remove_dir_all(dir).unwrap();
     }
 
-    /// A link in the tree to a folder above it (`up -> ../..`, `root -> /`) is not followed: it
-    /// listed the folders around the tree, and from `/` the whole disk. A link to a folder
-    /// beside the tree still is.
+    /// A link in the tree is followed only to a folder inside the tree. A link to a folder
+    /// above it (`up -> ../..`), beside it (`beside -> ../../beside`) or anywhere else is not:
+    /// it listed the folders around the tree, the user's own photos, or from `/` the whole disk.
     #[test]
-    fn a_tree_does_not_follow_a_link_up() {
+    fn a_tree_follows_a_link_only_inside_it() {
         use std::os::unix::fs::symlink;
         let base = std::env::temp_dir().join(format!("glimt-test-tree-up-{}", std::process::id()));
         let tree = base.join("tree");
         std::fs::create_dir_all(tree.join("sub")).unwrap();
+        std::fs::create_dir_all(tree.join(".inner")).unwrap();
         std::fs::create_dir_all(base.join("beside")).unwrap();
-        for f in ["outside.jpg", "tree/a.jpg", "beside/b.jpg"] {
+        for f in [
+            "outside.jpg",
+            "tree/a.jpg",
+            "beside/b.jpg",
+            "tree/.inner/c.jpg",
+        ] {
             std::fs::write(base.join(f), "x").unwrap();
         }
         symlink("../..", tree.join("sub/up")).unwrap();
-        symlink(base.join("beside"), tree.join("sub/beside")).unwrap();
+        symlink("../../beside", tree.join("sub/beside")).unwrap();
+        symlink(base.join("beside"), tree.join("sub/far")).unwrap();
+        symlink("../.inner", tree.join("sub/in")).unwrap();
         let types = super::Types {
             images: true,
             raw: true,
@@ -524,13 +549,42 @@ mod tests {
             hidden: false,
         };
         let stop = std::sync::atomic::AtomicBool::new(false);
-        // Also when the tree is named through a link, as its real ancestors are what is seen.
+        // Also when the tree is named through a link, as its real path is what counts.
         symlink(&tree, base.join("named")).unwrap();
         for top in [tree.clone(), base.join("named")] {
             let (_, files) = super::list_tree(&top, types, &stop, |_| {}, |_| {});
-            assert_eq!(files, ["a.jpg", "sub/beside/b.jpg"], "{top:?}");
+            // The hidden folder is not listed itself, so its image is seen only through the link.
+            assert_eq!(files, ["a.jpg", "sub/in/c.jpg"], "{top:?}");
         }
         std::fs::remove_dir_all(base).unwrap();
+    }
+
+    /// On a file system whose folders all have inode 0 (sshfs with `-o use_ino`), the whole
+    /// tree is listed, and a link back into it is still read once. Told apart by inode alone,
+    /// every folder below the one opened counted as read already, and the tree was cut short.
+    #[test]
+    fn a_tree_without_unique_inodes_is_listed_whole() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-tree-ino-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join("a/deep")).unwrap();
+        for f in ["1.jpg", "a/2.jpg", "a/deep/3.jpg"] {
+            std::fs::write(dir.join(f), "x").unwrap();
+        }
+        std::os::unix::fs::symlink("..", dir.join("a/again")).unwrap();
+        let types = super::Types {
+            images: true,
+            raw: true,
+            videos: true,
+            hidden: false,
+        };
+        let mut files: Vec<std::path::PathBuf> = super::walk_by(&dir, types, |_| Some((1, 0)))
+            .flat_map(|(rel, _, files)| files.into_iter().map(move |f| rel.join(f)))
+            .collect();
+        files.sort();
+        assert_eq!(
+            files,
+            ["1.jpg", "a/2.jpg", "a/deep/3.jpg"].map(std::path::PathBuf::from)
+        );
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     /// A path is compared by its folder's real path and its own name: `..` and the folder's
