@@ -182,6 +182,9 @@ pub(crate) struct Panel {
     row_step: isize,
     /// Scroll the file list to the current image on the next frame.
     scroll_to_cur: bool,
+    /// The scroll asked for before this frame, which every list drawn in it makes: the side
+    /// panel and the grid in the image area both, and neither while the list is hidden.
+    scroll_now: bool,
     /// View → Thumbnails in Image Area (G): whether the image area shows the files as a grid.
     area_grid: AreaGrid,
 }
@@ -205,6 +208,7 @@ impl Default for Panel {
             grid_cols: 1,
             row_step: 1,
             scroll_to_cur: true,
+            scroll_now: false,
             area_grid: AreaGrid::Off,
         }
     }
@@ -230,20 +234,24 @@ impl Panel {
         self.scroll_to_cur = true;
     }
 
-    /// A scroll asked for while the list is hidden is dropped.
-    pub(crate) fn drop_scroll(&mut self) {
-        self.scroll_to_cur = false;
-    }
-
-    /// One column until the icon grid, drawn later in the frame, says how many it has.
+    /// One column until the icon grid, drawn later in the frame, says how many it has. The
+    /// scroll asked for so far is made by the lists this frame draws, and then it is done.
     pub(crate) fn start_frame(&mut self) {
         self.grid_cols = 1;
+        self.scroll_now = std::mem::take(&mut self.scroll_to_cur);
     }
 
     /// Sets how far Previous and Next move, a row of the icon grid for ↑ and ↓, and otherwise
     /// one image.
     pub(crate) fn set_row_step(&mut self, vertical: bool) {
         self.row_step = if vertical { self.grid_cols as isize } else { 1 };
+    }
+
+    /// Whether the lists drawn now scroll to the shown image. A scroll asked for while this
+    /// frame draws is made at once, and again in the next frame for the lists drawn before it
+    /// was asked.
+    fn scrolls(&self) -> bool {
+        self.scroll_now || self.scroll_to_cur
     }
 
     pub(crate) fn row_step(&self) -> isize {
@@ -1236,10 +1244,6 @@ impl crate::App {
                 }
                 self.file_list(ctx, ui, &mut go_to, &mut list_act, form);
             });
-        // The grid in the image area, drawn after, scrolls to the shown image too.
-        if !self.panel.area_grid_shown() {
-            self.panel.drop_scroll();
-        }
         if let Some(d) = open_dir {
             self.visit(ctx, d);
         } else if let Some(i) = go_to {
@@ -1271,7 +1275,6 @@ impl crate::App {
                 opened
             })
             .inner;
-        self.panel.drop_scroll();
         if let Some(i) = go_to {
             self.go(ctx, i);
         }
@@ -1358,7 +1361,7 @@ impl crate::App {
         let mut area = egui::ScrollArea::vertical()
             .id_salt("files")
             .auto_shrink(false);
-        if self.panel.scroll_to_cur
+        if self.panel.scrolls()
             && let Some(row) = row_of(self.list.cur(), self.list.matches()).map(|r| r / cols)
         {
             // Scroll only when the current image is out of view, and centre it.
@@ -1836,6 +1839,28 @@ pub(crate) fn touched(lo: f32, hi: f32, step: f32, size: f32) -> std::ops::Range
 
 #[cfg(test)]
 mod tests {
+    use super::Panel;
+
+    /// A scroll to the shown image is made by every list of the frame after it was asked, the
+    /// side panel and the grid both, and then it is done. One asked while a frame draws is made
+    /// in that frame and in the next, so the lists drawn before it get it too.
+    #[test]
+    fn a_scroll_reaches_every_list_of_one_frame() {
+        let mut panel = Panel::default();
+        panel.start_frame();
+        assert!(
+            panel.scrolls(),
+            "the first frame scrolls to the first image"
+        );
+        panel.start_frame();
+        assert!(!panel.scrolls());
+        panel.scroll_to_current();
+        assert!(panel.scrolls());
+        panel.start_frame();
+        assert!(panel.scrolls());
+        panel.start_frame();
+        assert!(!panel.scrolls());
+    }
 
     /// G shows the grid in the image area and Enter an image from it. Esc goes back to the
     /// grid, G from there too, and a second G hides the grid. Esc without the grid keeps it off.

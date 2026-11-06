@@ -323,10 +323,7 @@ impl App {
         if !bare {
             self.status_bar(ctx, ui);
         }
-        if bare && !self.panel.area_grid_shown() {
-            // A scroll to the shown image asked for while the list is hidden is dropped.
-            self.panel.drop_scroll();
-        } else if !bare {
+        if !bare {
             self.side_panel(ctx, ui);
         }
         if !bare && self.config.sort_manager {
