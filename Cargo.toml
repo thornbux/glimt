@@ -43,6 +43,10 @@ flate2 = { version = "1.1.10", optional = true }
 # Optional: the desktop portals that pass a file or await a dialog (feature portals); already in
 # through AccessKit.
 zbus = { version = "5.19.0", default-features = false, features = ["async-io", "blocking-api"], optional = true }
+# The portals' waits on two streams at once, and the bound of a call's body: zbus uses both but
+# does not export them for others (already in through zbus).
+futures-lite = { version = "2.6.1", default-features = false, features = ["std"], optional = true }
+serde = { version = "1.0.229", optional = true }
 
 [features]
 # Video previews via the ffmpeg program and playing in an external player.
@@ -66,7 +70,7 @@ accessibility = ["eframe/accesskit"]
 # In the Flatpak, through the desktop portals: printing in the desktop's print dialog, no screen
 # saver in full screen, and Open With in the desktop's application chooser, where CUPS's lp,
 # the session's inhibitors and the host's applications are not.
-portals = ["dep:zbus"]
+portals = ["dep:zbus", "dep:futures-lite", "dep:serde"]
 # Every optional feature: cargo build --release --features full (same as --all-features).
 full = ["video", "heic", "avif", "jxl", "svg", "marks", "accessibility", "portals"]
 

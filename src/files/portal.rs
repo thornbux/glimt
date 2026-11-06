@@ -27,7 +27,7 @@ fn request<B>(
     body: &B,
 ) -> Result<Option<Results>, String>
 where
-    B: zbus::export::serde::Serialize + zbus::zvariant::DynamicType,
+    B: serde::Serialize + zbus::zvariant::DynamicType,
 {
     let e = |e: zbus::Error| e.to_string();
     let sender = conn.unique_name().ok_or("no D-Bus name")?;
@@ -58,11 +58,11 @@ where
     // The Response, or an end to the wait when the portal that was asked has left the bus. A
     // portal that restarted has lost the request, and its new name is never trusted to answer.
     let wait = move || {
+        use futures_lite::Stream;
         use std::task::Poll;
-        use zbus::export::futures_core::Stream;
-        // A blocking iterator waits on one stream only. zbus's own block_on, which its
-        // iterators use, waits here on both streams at once, without a thread for each.
-        zbus::block_on(std::future::poll_fn(|cx| {
+        // A blocking iterator waits on one stream only. block_on waits here on both streams at
+        // once, without a thread for each.
+        futures_lite::future::block_on(std::future::poll_fn(|cx| {
             while let Poll::Ready(change) = std::pin::Pin::new(&mut owners).poll_next(cx) {
                 match change {
                     Some(Ok(change)) if !portal_lost(&change, &owner) => continue,
