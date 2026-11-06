@@ -5,6 +5,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.62.0] - 2026-11-06
+
 ### Fixed
 
 - The Help Manual's table of differences from Geeqie says English and eleven more languages,
@@ -2679,7 +2681,8 @@ The first release. Glimt is not 1.0 yet: it is in daily use, but expect rough ed
 - Remote control from the command line: `glimt --remote` and `--remote-all`.
 - Remembers the folder, window size and position.
 
-[Unreleased]: https://github.com/thornbux/glimt/compare/v0.61.0...HEAD
+[Unreleased]: https://github.com/thornbux/glimt/compare/v0.62.0...HEAD
+[0.62.0]: https://github.com/thornbux/glimt/compare/v0.61.0...v0.62.0
 [0.61.0]: https://github.com/thornbux/glimt/compare/v0.60.0...v0.61.0
 [0.60.0]: https://github.com/thornbux/glimt/compare/v0.59.0...v0.60.0
 [0.59.0]: https://github.com/thornbux/glimt/compare/v0.58.0...v0.59.0
