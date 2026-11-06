@@ -561,7 +561,8 @@ const MANUAL: &[(&str, &str)] = &[
          The image itself is read as its alt text, its name and place in the list, its stars, \
          keywords, comment and extended description, again each time you browse: the image area \
          keeps the keyboard focus while nothing else has it, and the arrow keys and every shortcut \
-         still work there.\n\n\
+         still work there. The grid of thumbnails in the image area (G) reads out the chosen \
+         image the same way.\n\n\
          Tab moves to the panels and menus, and a ring in the accent colour shows where the \
          keyboard focus is; a click puts it away. Write the alt text yourself in the EXIF panel, \
          or let a plugin write it (see Plugins).",
