@@ -4,7 +4,7 @@
 use crate::features::print::{PrintJob, PrintTo};
 use crate::files::config::xdg_dir;
 use crate::files::external::{Login, command};
-use crate::files::file_ops::Deleted;
+use crate::files::file_ops::{Deleted, NOT_ON_FAT, fat_type};
 use crate::model::listing::pattern_name;
 use crate::support::format::count;
 use crate::support::lang::tr;
@@ -101,6 +101,10 @@ pub(crate) struct Dialogs {
     /// (`ask_about_targets`). The dialog names them, and its answer acts on them, wherever a
     /// refresh put them.
     asked_for: (u64, Vec<OsString>),
+    /// The type of the FAT or exFAT file system that Rename Many renames on, looked up once as
+    /// the dialog opens, so that its preview can warn without reading the mount table in every
+    /// frame. It is `None` on any other file system.
+    fat: Option<String>,
 }
 
 impl Dialogs {
@@ -188,6 +192,14 @@ impl Dialogs {
 }
 
 impl crate::App {
+    /// Asks for Rename Many's pattern for the files asked about. The file system of the first
+    /// file's folder is looked up here, once, for the preview of its new name.
+    pub(crate) fn ask_rename_many(&mut self) {
+        let first = (self.dialogs.asked_names().first()).map(|n| self.folder.dir().join(n));
+        self.dialogs.fat = first.as_deref().and_then(Path::parent).and_then(fat_type);
+        self.dialogs.ask(Prompt::RenameMany, "*_###".into());
+    }
+
     /// Run zenity's (or kdialog's) file dialog in its own thread so the window does not freeze.
     pub(crate) fn pick(&mut self, ctx: &egui::Context, folder: bool, purpose: Pick) {
         use std::os::unix::ffi::OsStringExt;
@@ -415,6 +427,7 @@ impl crate::App {
             };
             // The first new name, so the pattern can be checked before renaming.
             let first = (self.dialogs.asked_names().first()).map(|n| self.folder.dir().join(n));
+            let fat = self.dialogs.fat.clone();
             let mut answer = None;
             let modal = egui::Modal::new(egui::Id::unique("prompt")).show(ctx, |ui| {
                 ui.label(title);
@@ -427,6 +440,9 @@ impl crate::App {
                 if let (Prompt::RenameMany, Some(first)) = (prompt, &first) {
                     let name = pattern_name(text.trim(), first, 1);
                     ui.weak(tf!("First: {name}", name = name.to_string_lossy()));
+                    if let Some(warning) = fat_warning(&name, fat.as_deref()) {
+                        ui.colored_label(ui.visuals().warn_fg_color, warning);
+                    }
                 }
                 ui.horizontal(|ui| {
                     if crate::ui::menus::button(ui, tr("OK (Enter)")).clicked() || enter {
@@ -836,10 +852,49 @@ impl crate::App {
     }
 }
 
+/// Returns a warning for Rename Many's preview when `name`, the first new name, has a
+/// character that the FAT or exFAT file system `fat` of its folder refuses. Returns `None` when
+/// the folder is on another file system, or when the name is allowed there.
+fn fat_warning(name: &std::ffi::OsStr, fat: Option<&str>) -> Option<String> {
+    let kind = fat.filter(|_| name.to_string_lossy().contains(NOT_ON_FAT))?;
+    Some(tf!(
+        "A {kind} file system, as on a camera card, allows none of : ? * \" < > | \\ in a name.",
+        kind
+    ))
+}
+
 #[cfg(test)]
 mod tests {
     use crate::support::test_support::app_on;
     use eframe::egui;
+
+    /// Rename Many's preview warns when the first new name has a character that the camera card
+    /// of the files refuses. The card's file system is looked up once, as the dialog opens.
+    #[test]
+    fn rename_many_warns_of_what_fat_refuses() {
+        use crate::files::file_ops::TEST_MOUNT;
+        use std::ffi::OsStr;
+        let d = std::env::temp_dir().join(format!("glimt-test-fat-many-{}", std::process::id()));
+        std::fs::create_dir_all(&d).unwrap();
+        image::RgbImage::new(2, 2).save(d.join("a.png")).unwrap();
+        let (mut app, ctx) = app_on(&d);
+        let listed = |a: &crate::App| !a.list.files().is_empty();
+        assert!(crate::support::test_support::settle(&mut app, &ctx, listed));
+        app.ask_about_targets();
+        TEST_MOUNT.set(Some("ext4".into()));
+        app.ask_rename_many();
+        assert_eq!(app.dialogs.fat, None);
+        TEST_MOUNT.set(Some("vfat".into()));
+        app.ask_rename_many();
+        TEST_MOUNT.set(None);
+        let fat = app.dialogs.fat.as_deref();
+        assert_eq!(fat, Some("vfat"));
+        let told = super::fat_warning(OsStr::new("12:30_001.png"), fat).unwrap_or_default();
+        assert!(told.contains("vfat"), "{told}");
+        assert_eq!(super::fat_warning(OsStr::new("a_001.png"), fat), None);
+        assert_eq!(super::fat_warning(OsStr::new("12:30_001.png"), None), None);
+        std::fs::remove_dir_all(d).unwrap();
+    }
 
     /// The question to delete for good what the trash refused opens by itself, so an Enter in
     /// its first moment, meant for something else, does not answer it. Enter answers it once it

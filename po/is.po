@@ -2804,3 +2804,15 @@ msgstr "„{name}“: {kind}-skráakerfi, eins og á minniskorti myndavélar, le
 #: src/ui/dialogs.rs
 msgid "The trash does not take files in this folder ({kind}), as on network and cloud folders."
 msgstr "Ruslið tekur ekki við skrám í þessari möppu ({kind}), eins og í net- og skýjamöppum."
+
+#: src/files/file_ops.rs
+msgid "\"{name}\": a {kind} file system, as on a camera card, allows none of : ? * \" < > | \\ in a name. Nothing was copied."
+msgstr "„{name}“: {kind}-skráakerfi, eins og á minniskorti myndavélar, leyfir ekkert af : ? * \" < > | \\ í heiti. Ekkert var afritað."
+
+#: src/files/file_ops.rs
+msgid "\"{name}\": a {kind} file system, as on a camera card, allows none of : ? * \" < > | \\ in a name. Nothing was moved."
+msgstr "„{name}“: {kind}-skráakerfi, eins og á minniskorti myndavélar, leyfir ekkert af : ? * \" < > | \\ í heiti. Ekkert var fært."
+
+#: src/ui/dialogs.rs
+msgid "A {kind} file system, as on a camera card, allows none of : ? * \" < > | \\ in a name."
+msgstr "{kind}-skráakerfi, eins og á minniskorti myndavélar, leyfir ekkert af : ? * \" < > | \\ í heiti."

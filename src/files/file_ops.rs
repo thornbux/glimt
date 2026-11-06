@@ -28,7 +28,14 @@ use std::sync::{Arc, mpsc};
 use std::time::Instant;
 
 /// The characters that FAT and exFAT refuse in a name, as on a camera card.
-const NOT_ON_FAT: [char; 8] = [':', '?', '*', '"', '<', '>', '|', '\\'];
+pub(crate) const NOT_ON_FAT: [char; 8] = [':', '?', '*', '"', '<', '>', '|', '\\'];
+
+// The file system that a test gives every folder, on its thread. No test can mount a FAT card,
+// and the tests run side by side, so one test's card is not another's.
+#[cfg(test)]
+thread_local! {
+    pub(crate) static TEST_MOUNT: std::cell::RefCell<Option<String>> = const { std::cell::RefCell::new(None) };
+}
 
 /// A Rename Many running in the background. It holds the list as it was (`App::files_gen`),
 /// the files renamed with their new names, and which of them was shown.
@@ -840,6 +847,13 @@ impl crate::App {
         // A copy changes none of the files it reads, but it holds them: a Rename Many that ran
         // meanwhile could hand it one photo with another photo's sidecar, and a move or delete
         // could take a file away halfway.
+        // A camera card refuses some characters. Saying so before the job starts names the
+        // reason, where a copy that failed halfway would leave some files on the card and give
+        // only the system's error for the others.
+        if let Some(refused) = refused_transfer(&paths, &dest, keep, fs_type) {
+            self.notice = Some(refused);
+            return;
+        }
         let touches = paths.clone();
         let doing = tr(if keep { "Copying" } else { "Moving" });
         let Some(job) = self.start_job(doing, paths.len(), touches) else {
@@ -847,22 +861,7 @@ impl crate::App {
         };
         // In a collection, the entries follow the files that got there, in `receive_deleted`.
         if !keep && self.folder.collection().is_none() {
-            // A file moved out of its folder leaves the list at once, as when deleting. The
-            // names in the list are relative to the folder, also those in subfolders.
-            let names: HashSet<&std::ffi::OsStr> = paths
-                .iter()
-                .filter(|p| p.parent() != Some(dest.as_path()))
-                .filter_map(|p| p.strip_prefix(self.folder.dir()).ok())
-                .map(Path::as_os_str)
-                .collect();
-            // Kept out of a listing that is running, as files being deleted are.
-            self.work
-                .deleting
-                .extend(names.iter().map(|n| n.to_os_string()));
-            let gone: Vec<usize> = (0..self.list.files().len())
-                .filter(|&i| names.contains(self.list.files()[i].as_os_str()))
-                .collect();
-            self.remove_indices(ctx, &gone);
+            self.moving_out(ctx, &paths, &dest);
         }
         let (tx, freed_tx, ctx) = (
             self.notices_tx.clone(),
@@ -950,6 +949,27 @@ impl crate::App {
         });
     }
 
+    /// Takes the files of `paths` that a move takes out of the open folder off the list at once,
+    /// as a delete does, and keeps them out of a listing that is running.
+    fn moving_out(&mut self, ctx: &egui::Context, paths: &[PathBuf], dest: &Path) {
+        // A file moved out of its folder leaves the list at once, as when deleting. The
+        // names in the list are relative to the folder, also those in subfolders.
+        let names: HashSet<&std::ffi::OsStr> = paths
+            .iter()
+            .filter(|p| p.parent() != Some(dest))
+            .filter_map(|p| p.strip_prefix(self.folder.dir()).ok())
+            .map(Path::as_os_str)
+            .collect();
+        // Kept out of a listing that is running, as files being deleted are.
+        self.work
+            .deleting
+            .extend(names.iter().map(|n| n.to_os_string()));
+        let gone: Vec<usize> = (0..self.list.files().len())
+            .filter(|&i| names.contains(self.list.files()[i].as_os_str()))
+            .collect();
+        self.remove_indices(ctx, &gone);
+    }
+
     /// Renames the selected files by `pattern`, numbered in list order. Nothing is overwritten.
     /// If a new name is taken by a file outside the selection, nothing is renamed. When new
     /// names swap with old ones, the files go through temporary names.
@@ -982,8 +1002,8 @@ impl crate::App {
     ) {
         // A camera card refuses some characters. Saying so before the job starts names the
         // reason, where a rename that fails halfway would only give the system's error.
-        if let Some(refused) = refused_on_fat(&to, crate::files::file_io::mount_type) {
-            self.notice = Some(refused);
+        if let Some(refused) = refused_on_fat(&to, fs_type) {
+            self.notice = Some(not_renamed(refused));
             return;
         }
         // It is a job like every other writer. Closing waits for it, the status bar counts it,
@@ -1193,6 +1213,11 @@ impl crate::App {
         };
         let new = old.with_file_name(name);
         if new == old {
+            return;
+        }
+        // A camera card refuses some characters, and its own error would not say which.
+        if let Some(refused) = refused_on_fat(std::slice::from_ref(&new), fs_type) {
+            self.notice = Some(not_renamed(refused));
             return;
         }
         // This runs in the background, because a folder on a share that stopped answering
@@ -1723,12 +1748,36 @@ fn left_by_trash(paths: &[PathBuf]) -> Option<(String, Vec<PathBuf>)> {
     Some((remote(left.first()?)?, left))
 }
 
-/// Returns a notice when a name of `to` has a character that the FAT or exFAT file system of its
-/// folder refuses, before anything is renamed. Returns `None` when every name is allowed where it
-/// goes. `mount_type` gives a folder's file system. Only the folder of a name with such a
-/// character is looked up, and each folder once, because this runs in the window's thread and
-/// every lookup reads the mount table.
-fn refused_on_fat(to: &[PathBuf], mount_type: impl Fn(&Path) -> Option<String>) -> Option<String> {
+/// Returns the type of the file system that `dir` is on, as `file_io::mount_type` does. A test
+/// can set it instead, because no test can mount a FAT card.
+fn fs_type(dir: &Path) -> Option<String> {
+    #[cfg(test)]
+    if let Some(kind) = TEST_MOUNT.with_borrow(Clone::clone) {
+        return Some(kind);
+    }
+    crate::files::file_io::mount_type(dir)
+}
+
+/// Returns the type of the file system that `dir` is on when it is FAT or exFAT, as on a camera
+/// card. Returns `None` on any other file system.
+pub(crate) fn fat_type(dir: &Path) -> Option<String> {
+    fs_type(dir).filter(|kind| is_fat(kind))
+}
+
+/// Returns whether `kind`, a type of file system from `mount_type`, is FAT or exFAT.
+fn is_fat(kind: &str) -> bool {
+    matches!(kind, "vfat" | "msdos" | "exfat")
+}
+
+/// Finds a name of `to` with a character that the FAT or exFAT file system of its folder
+/// refuses, before anything is renamed, copied or moved. Returns that name with the type of its
+/// file system, or `None` when every name is allowed where it goes. `mount_type` gives a
+/// folder's file system. Only the folder of a name with such a character is looked up, and each
+/// folder once, because this runs in the window's thread and every lookup reads the mount table.
+fn refused_on_fat(
+    to: &[PathBuf],
+    mount_type: impl Fn(&Path) -> Option<String>,
+) -> Option<(String, String)> {
     let mut kinds: HashMap<&Path, Option<String>> = HashMap::new();
     to.iter().find_map(|path| {
         let name = path.file_name()?.to_string_lossy();
@@ -1736,14 +1785,50 @@ fn refused_on_fat(to: &[PathBuf], mount_type: impl Fn(&Path) -> Option<String>) 
             return None;
         }
         let dir = path.parent()?;
-        let kind = kinds.entry(dir).or_insert_with(|| mount_type(dir)).clone()?;
-        matches!(kind.as_str(), "vfat" | "msdos" | "exfat").then(|| {
-            tf!(
-                "\"{name}\": a {kind} file system, as on a camera card, allows none of : ? * \" < > | \\ in a name. Nothing was renamed.",
-                name,
-                kind
-            )
-        })
+        let kind = kinds
+            .entry(dir)
+            .or_insert_with(|| mount_type(dir))
+            .clone()?;
+        is_fat(&kind).then(|| (name.into_owned(), kind))
+    })
+}
+
+/// Returns the notice for a rename that `refused_on_fat` refused, naming the file and its file
+/// system.
+fn not_renamed((name, kind): (String, String)) -> String {
+    tf!(
+        "\"{name}\": a {kind} file system, as on a camera card, allows none of : ? * \" < > | \\ in a name. Nothing was renamed.",
+        name,
+        kind
+    )
+}
+
+/// Returns a notice when a file of `paths` has a name that the FAT or exFAT file system of
+/// `dest` refuses, so that a copy (`keep`) or a move into it refuses all before it starts.
+/// Returns `None` when every name is allowed there. Only the names with such a character are
+/// joined to `dest`, so a copy of thousands of plain names makes no new paths.
+fn refused_transfer(
+    paths: &[PathBuf],
+    dest: &Path,
+    keep: bool,
+    mount_type: impl Fn(&Path) -> Option<String>,
+) -> Option<String> {
+    let odd: Vec<PathBuf> = (paths.iter().filter_map(|p| p.file_name()))
+        .filter(|n| n.to_string_lossy().contains(NOT_ON_FAT))
+        .map(|n| dest.join(n))
+        .collect();
+    let (name, kind) = refused_on_fat(&odd, mount_type)?;
+    Some(match keep {
+        true => tf!(
+            "\"{name}\": a {kind} file system, as on a camera card, allows none of : ? * \" < > | \\ in a name. Nothing was copied.",
+            name,
+            kind
+        ),
+        false => tf!(
+            "\"{name}\": a {kind} file system, as on a camera card, allows none of : ? * \" < > | \\ in a name. Nothing was moved.",
+            name,
+            kind
+        ),
     })
 }
 
@@ -2009,6 +2094,8 @@ mod tests {
         };
         let on = |kind: &'static str| move |_: &Path| Some(kind.to_owned());
         let told = super::refused_on_fat(&to(&["a.jpg", "12:30.jpg"]), on("vfat")).unwrap();
+        assert_eq!(told, ("12:30.jpg".into(), "vfat".into()));
+        let told = super::not_renamed(told);
         assert!(
             told.contains("\"12:30.jpg\"") && told.contains("vfat"),
             "{told}"
@@ -2032,6 +2119,61 @@ mod tests {
         };
         assert!(super::refused_on_fat(&to(&times), on_ext4).is_none());
         assert_eq!(looked.get(), 1);
+    }
+
+    /// A Copy To or Move To onto a FAT card, where one file's name has a character the card
+    /// refuses, says so before the job starts and leaves every file where it was. On another
+    /// file system the same copy goes ahead.
+    #[test]
+    fn a_copy_or_move_onto_fat_with_a_refused_name_starts_nothing() {
+        let d = std::env::temp_dir().join(format!("glimt-test-fat-copy-{}", std::process::id()));
+        std::fs::create_dir_all(d.join("card")).unwrap();
+        for f in ["a.png", "12:30.png"] {
+            image::RgbImage::new(2, 2).save(d.join(f)).unwrap();
+        }
+        let (mut app, ctx) = app_on(&d);
+        let files = vec![d.join("a.png"), d.join("12:30.png")];
+        super::TEST_MOUNT.set(Some("vfat".into()));
+        for keep in [true, false] {
+            app.notice = None;
+            app.transfer(&ctx, files.clone(), d.join("card"), keep);
+            let told = app.notice.clone().unwrap_or_default();
+            assert!(
+                told.contains("\"12:30.png\"") && told.contains("vfat"),
+                "{told}"
+            );
+            assert!(settle(&mut app, &ctx, |a| !a.working()));
+            assert!(!d.join("card/a.png").exists() && d.join("a.png").exists());
+        }
+        super::TEST_MOUNT.set(Some("ext4".into()));
+        app.transfer(&ctx, files, d.join("card"), true);
+        assert!(settle(&mut app, &ctx, |_| d
+            .join("card/12:30.png")
+            .exists()));
+        assert!(settle(&mut app, &ctx, |a| !a.working()));
+        super::TEST_MOUNT.set(None);
+        std::fs::remove_dir_all(d).unwrap();
+    }
+
+    /// A folder on a FAT card renamed to a name with a character the card refuses stays as it
+    /// was, and the notice says why before anything is tried.
+    #[test]
+    fn a_folder_rename_on_fat_with_a_refused_name_is_told_first() {
+        let d = std::env::temp_dir().join(format!("glimt-test-fat-dir-{}", std::process::id()));
+        std::fs::create_dir_all(d.join("sub")).unwrap();
+        let (mut app, ctx) = app_on(&d);
+        super::TEST_MOUNT.set(Some("exfat".into()));
+        app.dialogs.act_on_folder(d.join("sub"));
+        app.rename_folder(&ctx, "12:30");
+        super::TEST_MOUNT.set(None);
+        let told = app.notice.clone().unwrap_or_default();
+        assert!(
+            told.contains("\"12:30\"") && told.contains("exfat"),
+            "{told}"
+        );
+        assert!(settle(&mut app, &ctx, |a| !a.working()));
+        assert!(d.join("sub").is_dir() && !d.join("12:30").exists());
+        std::fs::remove_dir_all(d).unwrap();
     }
 
     /// Entries taken out of a collection go back to their places, also when some are there again.

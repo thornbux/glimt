@@ -2804,3 +2804,15 @@ msgstr "”{name}”: {kind}-tiedostojärjestelmä, kuten kameran muistikortilla
 #: src/ui/dialogs.rs
 msgid "The trash does not take files in this folder ({kind}), as on network and cloud folders."
 msgstr "Roskakori ei ota vastaan tiedostoja tässä kansiossa ({kind}), kuten verkko- ja pilvikansioissa."
+
+#: src/files/file_ops.rs
+msgid "\"{name}\": a {kind} file system, as on a camera card, allows none of : ? * \" < > | \\ in a name. Nothing was copied."
+msgstr "”{name}”: {kind}-tiedostojärjestelmä, kuten kameran muistikortilla, ei salli nimessä mitään merkeistä : ? * \" < > | \\. Mitään ei kopioitu."
+
+#: src/files/file_ops.rs
+msgid "\"{name}\": a {kind} file system, as on a camera card, allows none of : ? * \" < > | \\ in a name. Nothing was moved."
+msgstr "”{name}”: {kind}-tiedostojärjestelmä, kuten kameran muistikortilla, ei salli nimessä mitään merkeistä : ? * \" < > | \\. Mitään ei siirretty."
+
+#: src/ui/dialogs.rs
+msgid "A {kind} file system, as on a camera card, allows none of : ? * \" < > | \\ in a name."
+msgstr "{kind}-tiedostojärjestelmä, kuten kameran muistikortilla, ei salli nimessä mitään merkeistä : ? * \" < > | \\."

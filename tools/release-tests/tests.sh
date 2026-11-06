@@ -1144,7 +1144,7 @@ key Return; sleep 2
 quit
 expect "renamed with the names swapped" "$(ls -A $d | tr '\n' ' ')" "11.jpg a2.jpg a23.jpg "
 
-section "Rename Many on a FAT card: a change of case and a swap, through the hidden names"
+section "Rename Many on a FAT card: a change of case and a swap, through the hidden names; a Copy To the card"
 # A real vfat, where IMG_1.JPG and img_1.JPG are one name. A hard link on ext4 or a faked
 # listing (#47) cannot show what the kernel's FAT does, so without the mount this fails.
 card=/mnt/card
@@ -1172,6 +1172,16 @@ else
         "img_1.JPG img_1.JPG.xmp img_2.JPG img_2.JPG.xmp img_3.JPG img_3.JPG.xmp "
     expect "each image and its sidecar kept, under its new name" \
         "$(for n in 1 2 3; do held $card/img_$n.JPG 2>/dev/null; done)" "$want"
+    # A Copy To the card of a file whose name FAT refuses copies nothing, and says why before
+    # it starts. 0.62.0 copied the others and then failed on that one with the system's error.
+    d=/tmp/fat-copy
+    rm -rf $d; mkdir -p $d
+    for f in a 12:30; do convert -size 64x64 xc:red "$d/$f.jpg"; done
+    config
+    start $d
+    key ctrl+a; answer $card; key ctrl+c; sleep 2; shot fat-copy
+    quit
+    expect "a Copy To the card with a name FAT refuses copies nothing" "$(ls $card | grep -c '^a.jpg')" 0
 fi
 
 section "the usual operations on an rclone mount and on an sftp:// folder Glimt mounts with gio"

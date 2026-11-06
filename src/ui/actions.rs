@@ -1054,7 +1054,7 @@ impl crate::App {
             Action::SaveFrame | Action::ExportFrames => {}
             Action::Rename if self.targets().len() > 1 => {
                 self.ask_about_targets();
-                self.dialogs.ask(Prompt::RenameMany, "*_###".into());
+                self.ask_rename_many();
             }
             Action::Rename => self.start_rename(ctx),
             // A separate process: windows share nothing but the config file.

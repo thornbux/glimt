@@ -2804,3 +2804,15 @@ msgstr "“{name}”: een {kind}-bestandssysteem, zoals op de geheugenkaart van 
 #: src/ui/dialogs.rs
 msgid "The trash does not take files in this folder ({kind}), as on network and cloud folders."
 msgstr "De prullenbak neemt geen bestanden aan in deze map ({kind}), zoals in netwerk- en cloudmappen."
+
+#: src/files/file_ops.rs
+msgid "\"{name}\": a {kind} file system, as on a camera card, allows none of : ? * \" < > | \\ in a name. Nothing was copied."
+msgstr "“{name}”: een {kind}-bestandssysteem, zoals op de geheugenkaart van een camera, staat geen van : ? * \" < > | \\ toe in een naam. Er is niets gekopieerd."
+
+#: src/files/file_ops.rs
+msgid "\"{name}\": a {kind} file system, as on a camera card, allows none of : ? * \" < > | \\ in a name. Nothing was moved."
+msgstr "“{name}”: een {kind}-bestandssysteem, zoals op de geheugenkaart van een camera, staat geen van : ? * \" < > | \\ toe in een naam. Er is niets verplaatst."
+
+#: src/ui/dialogs.rs
+msgid "A {kind} file system, as on a camera card, allows none of : ? * \" < > | \\ in a name."
+msgstr "Een {kind}-bestandssysteem, zoals op de geheugenkaart van een camera, staat geen van : ? * \" < > | \\ toe in een naam."

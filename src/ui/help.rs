@@ -130,8 +130,9 @@ const MANUAL: &[(&str, &str)] = &[
          work there, so Delete asks whether to delete the files for good instead. Where the file \
          system cannot rename a file in one safe step (rclone, s3fs, a phone), Glimt looks first \
          that the new name is free, and a rename the file system refuses names its type. A camera \
-         card (FAT or exFAT) allows none of : ? * \" < > | \\ in a name, and Rename and Rename \
-         Many say so before renaming anything.\n\n\
+         card (FAT or exFAT) allows none of : ? * \" < > | \\ in a name: Rename, Rename Many, \
+         Copy, Move and Rename Folder say so before they start, and Rename Many's preview warns \
+         of it.\n\n\
          Several folders show as one list:\n\n\
          - glimt ~/Holiday ~/Family\n\
          - File → Open Several Folders…\n\
