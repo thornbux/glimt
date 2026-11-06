@@ -28,13 +28,13 @@ use std::sync::{Arc, mpsc};
 use std::time::Instant;
 
 /// The characters that FAT and exFAT refuse in a name, as on a camera card.
-const NOT_ON_FAT: [char; 8] = [':', '?', '*', '"', '<', '>', '|', '\\'];
+pub(crate) const NOT_ON_FAT: [char; 8] = [':', '?', '*', '"', '<', '>', '|', '\\'];
 
 // The file system that a test gives every folder, on its thread. No test can mount a FAT card,
 // and the tests run side by side, so one test's card is not another's.
 #[cfg(test)]
 thread_local! {
-    static TEST_MOUNT: std::cell::RefCell<Option<String>> = const { std::cell::RefCell::new(None) };
+    pub(crate) static TEST_MOUNT: std::cell::RefCell<Option<String>> = const { std::cell::RefCell::new(None) };
 }
 
 /// A Rename Many running in the background. It holds the list as it was (`App::files_gen`),
@@ -1758,6 +1758,17 @@ fn fs_type(dir: &Path) -> Option<String> {
     crate::files::file_io::mount_type(dir)
 }
 
+/// Returns the type of the file system that `dir` is on when it is FAT or exFAT, as on a camera
+/// card. Returns `None` on any other file system.
+pub(crate) fn fat_type(dir: &Path) -> Option<String> {
+    fs_type(dir).filter(|kind| is_fat(kind))
+}
+
+/// Returns whether `kind`, a type of file system from `mount_type`, is FAT or exFAT.
+fn is_fat(kind: &str) -> bool {
+    matches!(kind, "vfat" | "msdos" | "exfat")
+}
+
 /// Finds a name of `to` with a character that the FAT or exFAT file system of its folder
 /// refuses, before anything is renamed, copied or moved. Returns that name with the type of its
 /// file system, or `None` when every name is allowed where it goes. `mount_type` gives a
@@ -1778,7 +1789,7 @@ fn refused_on_fat(
             .entry(dir)
             .or_insert_with(|| mount_type(dir))
             .clone()?;
-        matches!(kind.as_str(), "vfat" | "msdos" | "exfat").then(|| (name.into_owned(), kind))
+        is_fat(&kind).then(|| (name.into_owned(), kind))
     })
 }
 

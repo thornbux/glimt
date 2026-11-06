@@ -12,6 +12,7 @@ and versions follow [Semantic Versioning](https://semver.org/).
   failing on that one with "Invalid argument".
 - Renaming a folder on a camera card to a name with one of those characters says so before
   trying, instead of giving only "Invalid argument".
+- Rename Many's preview of the first new name warns when a camera card would refuse it.
 
 ## [0.62.0] - 2026-11-06
 
