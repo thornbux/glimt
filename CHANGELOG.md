@@ -5,6 +5,61 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.67.0] - 2026-11-06
+
+The findings of a full audit of 0.66.0, fixed by class, each in one place with a check that
+fails when new code opens the class again.
+
+### Added
+
+- `--` on the command line ends the options, so a file named like an option (`-h`, `--x.jpg`)
+  opens: `glimt -- -h`.
+- Diagrams of how Glimt is built in `docs/architecture/`: the code's layout, a frame and its
+  threads, from a folder to pixels, a change on disk, and the checks.
+
+### Fixed
+
+- A search no longer loses the selection while a query is typed (`re:`, `exif:` while its index
+  is read, an unfinished pattern, a typo). The files a search hides are held back, never acted
+  on, and selected again when the search shows them.
+- Moving or removing images in a collection right after it opens is no longer undone when its
+  listing finishes, and an image taken out of a plain `.txt` or `.m3u` list stays out.
+- With Include Subfolders, a tree on sshfs mounted with `-o use_ino` (every inode 0) is listed
+  whole, not empty.
+- Several folders opened at once list their files by their real paths, so marks, stars and
+  `--remote select` work as when one folder is opened, and a folder named twice is listed once.
+- Undo of a delete finds a file named through a link to another disk in that disk's trash.
+- Copy To, Move To and sort folders follow the destination's links before they start, so a
+  move refused by a FAT card behind a link keeps the files in the list, and a destination
+  written with `..` is no longer refused wrongly (#77).
+- Esc that leaves a text field, such as the folder path or the search, no longer also leaves
+  full screen, stops the slideshow or goes back to the grid, and the first key after closing a
+  name prompt with Esc is no longer lost.
+- The file list scrolls to the image shown after full screen or Hide File List.
+- A PNG cropped or saved as a copy after a quarter turn keeps its DPI across and down the right
+  way round, so a 204×98 dpi scan no longer prints stretched.
+- Crop and Save As of a 32-bit float TIFF or JPEG XL as PNG works; it failed before.
+- A copy keeps the image's colour profile only when it fits the pixels written: a grey JPEG
+  stays grey with its profile, and a CMYK JPEG's profile is no longer put on RGB pixels.
+- An image is shown turned by the orientation the info panel reads, in every format: a PNG with
+  it only in its EXIF text chunk, and a WebP whose EXIF chunk starts with "Exif\0\0". A PNG with
+  Adobe RGB only in that text is shown as Adobe RGB. Thumbnails cached before stay as they were
+  until `~/.cache/thumbnails` is cleared.
+- Leaving thumbnail and pixel-size properties out of a derived file's XMP is linear on hostile
+  packets and never cuts through an XML comment (#78).
+- A size just under a megabyte or gigabyte reads "1.0 MB" or "1.0 GB", not "1000.0 kB".
+
+### Changed
+
+- With Include Subfolders, a link to a folder is followed only when it leads inside the folder
+  opened, so a downloaded folder cannot list your other folders for Select All and Delete. A
+  link from the tree to another drive or a NAS is no longer listed; open that folder itself.
+  The Help Manual and Differences from Geeqie say so.
+- A part chosen for cropping is never saved while the grid of thumbnails covers the image.
+- Sorting by EXIF date and searching read each PNG once.
+- The README keeps building from source and what the website does not have; the describe
+  plugin and the Help Manual point to glimt.pario.no.
+
 ## [0.66.1] - 2026-11-06
 
 ### Fixed
@@ -2831,7 +2886,8 @@ The first release. Glimt is not 1.0 yet: it is in daily use, but expect rough ed
 - Remote control from the command line: `glimt --remote` and `--remote-all`.
 - Remembers the folder, window size and position.
 
-[Unreleased]: https://github.com/thornbux/glimt/compare/v0.66.1...HEAD
+[Unreleased]: https://github.com/thornbux/glimt/compare/v0.67.0...HEAD
+[0.67.0]: https://github.com/thornbux/glimt/compare/v0.66.1...v0.67.0
 [0.66.1]: https://github.com/thornbux/glimt/compare/v0.66.0...v0.66.1
 [0.66.0]: https://github.com/thornbux/glimt/compare/v0.65.1...v0.66.0
 [0.65.1]: https://github.com/thornbux/glimt/compare/v0.65.0...v0.65.1
