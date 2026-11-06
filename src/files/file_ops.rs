@@ -498,6 +498,9 @@ impl crate::App {
             self.notice = Some(tr("Still writing keywords: try again in a moment").into());
         } else if renaming {
             self.notice = Some(tr("Rename Many is still renaming").into());
+        } else if reading && !self.folder.is_listing() {
+            // No listing runs that would check the list in a moment, so waiting would not help.
+            self.stopped(tr("Reading the folder"));
         } else if busy {
             self.notice = Some(tr("Still working on these files: try again in a moment").into());
         }
@@ -2172,7 +2175,8 @@ mod tests {
 
     /// A list's entries count as unchecked only until a listing of them comes whole. A folder
     /// opened while a list was read was refused file operations until its own listing came,
-    /// and a list whose listing broke allowed them unchecked.
+    /// and a list whose listing broke allowed them unchecked. The refusal then said that the
+    /// files were still worked on, which no waiting would end.
     #[test]
     fn only_a_whole_listing_checks_a_list() {
         let d = std::env::temp_dir().join(format!("glimt-test-list-gone-{}", std::process::id()));
@@ -2190,7 +2194,11 @@ mod tests {
         app.receive_listing(&ctx, std::time::Duration::ZERO);
         assert!(!app.folder.is_listing());
         app.notice = None;
-        assert!(!app.none_saving(&[]) && app.notice.is_some());
+        assert!(!app.none_saving(&[]));
+        // It says that the listing stopped, not that the files are still worked on.
+        let what = crate::support::lang::tr("Reading the folder");
+        let stopped = crate::tf!("{what} stopped unexpectedly", what);
+        assert_eq!(app.notice, Some(stopped));
         std::fs::remove_dir_all(d).unwrap();
     }
 
