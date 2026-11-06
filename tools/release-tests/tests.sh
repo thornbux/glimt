@@ -1224,7 +1224,7 @@ if ! grep -q " /tmp/rclone fuse.rclone " /proc/mounts; then
     fail "no rclone mount: run.sh's containers need --privileged for /dev/fuse"
 else
     on_mount rclone /tmp/rclone/photos
-    fusermount3 -u /tmp/rclone
+    fusermount3 -uz /tmp/rclone
 fi
 # gio needs a session bus. gvfsd-fuse, which the bus starts, mounts under this XDG_RUNTIME_DIR.
 bus=$(dbus-daemon --session --fork --print-address=1 --print-pid=1 --nopidfile)
@@ -1237,7 +1237,8 @@ else
 fi
 grep fuse /proc/mounts | sed 's/^/     /'
 gio mount -u "sftp://localhost/" 2>/dev/null
-fusermount3 -u $XDG_RUNTIME_DIR/gvfs 2>/dev/null
+# -z: a busy mount (a hung gvfsd-sftp) is let go of all the same, so no later rm walks into it.
+fusermount3 -uz $XDG_RUNTIME_DIR/gvfs 2>/dev/null
 kill $(echo "$bus" | tail -1) 2>/dev/null
 unset DBUS_SESSION_BUS_ADDRESS
 
