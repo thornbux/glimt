@@ -5,6 +5,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.63.0] - 2026-11-06
+
 ### Fixed
 
 - Copy To, Move To and the sort folders' buttons onto a camera card (FAT or exFAT) say which
@@ -2705,7 +2707,8 @@ The first release. Glimt is not 1.0 yet: it is in daily use, but expect rough ed
 - Remote control from the command line: `glimt --remote` and `--remote-all`.
 - Remembers the folder, window size and position.
 
-[Unreleased]: https://github.com/thornbux/glimt/compare/v0.62.0...HEAD
+[Unreleased]: https://github.com/thornbux/glimt/compare/v0.63.0...HEAD
+[0.63.0]: https://github.com/thornbux/glimt/compare/v0.62.0...v0.63.0
 [0.62.0]: https://github.com/thornbux/glimt/compare/v0.61.0...v0.62.0
 [0.61.0]: https://github.com/thornbux/glimt/compare/v0.60.0...v0.61.0
 [0.60.0]: https://github.com/thornbux/glimt/compare/v0.59.0...v0.60.0
