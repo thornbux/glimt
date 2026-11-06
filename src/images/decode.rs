@@ -1130,10 +1130,6 @@ mod tests {
     /// Every frame of a GIF and every page of a TIFF, one at a time, or only the one asked for.
     #[test]
     fn gives_each_frame() {
-        // The ICO's colours go through the colour settings, which another test changes.
-        let _held = crate::images::colour::COLOUR_TEST
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
         let dir = std::env::temp_dir().join(format!("glimt-test-frames-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let gif = std::fs::File::create(dir.join("a.gif")).unwrap();
