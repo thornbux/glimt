@@ -11,6 +11,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
   (`~/card` → `/media/u/CARD`) say which characters the card refuses before copying anything,
   as they do for the card's own folder. A folder picked in the file dialog is now resolved
   through its links.
+- A Copy To or Move To of many files with a name a camera card refuses stops at the first such
+  name, instead of first making a path of every one in the window's thread.
 
 ## [0.63.0] - 2026-11-06
 
