@@ -730,9 +730,14 @@ impl crate::App {
                     ui.label(tf!("Permanently delete {what}?", what));
                     ui.weak(tr("This cannot be undone."));
                 }
+                // Only a new press answers, not a repeat of an Enter held since before the
+                // question opened by itself.
+                let pressed = |e: &egui::Event| {
+                    matches!(e, egui::Event::Key { key: egui::Key::Enter, pressed: true, repeat: false, .. })
+                };
                 ui.horizontal(|ui| {
                     delete = crate::ui::menus::button(ui, tr("Delete (Enter)")).clicked()
-                        || enter_answers && ui.input(|i| i.key_pressed(egui::Key::Enter));
+                        || enter_answers && ui.input(|i| i.events.iter().any(pressed));
                     if crate::ui::menus::button(ui, tr("Cancel (Esc)")).clicked() {
                         ui.close();
                     }
@@ -842,8 +847,9 @@ mod tests {
     use eframe::egui;
 
     /// The question to delete for good what the trash refused opens by itself, so an Enter in
-    /// its first moment, meant for something else, does not answer it. Enter answers it once it
-    /// has been on screen for a moment.
+    /// its first moment, meant for something else, does not answer it. Nor does the repeat of
+    /// an Enter held down since then. A new press of Enter answers it once it has been on
+    /// screen for a moment.
     #[test]
     fn an_enter_as_the_trash_refused_question_opens_does_not_delete() {
         let dir =
@@ -854,26 +860,38 @@ mod tests {
         // file_ops.rs's `asks_to_delete_for_good_what_the_trash_refused_on_a_network_mount`.
         app.dialogs.asked_about(0, vec!["a.png".into()]);
         app.dialogs.confirm_delete_instead("fuse.rclone".into());
-        let enter_at = |app: &mut crate::App, time: f64| {
+        // Each key is (pressed, repeat). egui takes a press of a key that is down as a repeat.
+        let enter_at = |app: &mut crate::App, time: f64, keys: &[(bool, bool)]| {
+            let key = |&(pressed, repeat)| egui::Event::Key {
+                key: egui::Key::Enter,
+                physical_key: None,
+                pressed,
+                repeat,
+                modifiers: Default::default(),
+            };
             let input = egui::RawInput {
                 time: Some(time),
-                events: vec![egui::Event::Key {
-                    key: egui::Key::Enter,
-                    physical_key: None,
-                    pressed: true,
-                    repeat: false,
-                    modifiers: Default::default(),
-                }],
+                events: keys.iter().map(key).collect(),
                 ..Default::default()
             };
             let _ = ctx.run_ui(input, |ui| app.confirm_delete_dialog(ui.ctx()));
         };
-        enter_at(&mut app, 10.0);
+        enter_at(&mut app, 10.0, &[(true, false)]);
         assert!(
             app.dialogs.confirm_delete.is_some(),
             "the first Enter answered"
         );
-        enter_at(&mut app, 10.0 + super::ENTER_AFTER);
+        enter_at(&mut app, 10.0 + super::ENTER_AFTER, &[(true, true)]);
+        assert!(
+            app.dialogs.confirm_delete.is_some(),
+            "a held Enter's repeat answered"
+        );
+        // The Enter is let go and pressed again.
+        enter_at(
+            &mut app,
+            10.6 + super::ENTER_AFTER,
+            &[(false, false), (true, false)],
+        );
         assert!(
             app.dialogs.confirm_delete.is_none(),
             "a later Enter did not answer"

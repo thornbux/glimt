@@ -13,6 +13,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
   `/mnt` after a card at `/mnt/card`, is known by the file system that is on top.
 - Rename and Rename Many on an exFAT card mounted through exfat-fuse (`fuseblk`) say which
   characters it refuses, as on a card the kernel mounts, when udev knows the card's file system.
+- An Enter held down no longer answers the question to delete for good what the trash refused:
+  only a new press of Enter does.
 
 ## [0.62.0] - 2026-11-06
 
