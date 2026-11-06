@@ -237,6 +237,22 @@ of that part. The exceptions are the tables of one arm per action (`Action::engl
   `latest` or `wait`, which tell once when the thread is gone. egui only takes clipboard and
   other output during a frame, so hand results to the UI thread instead of calling the context
   from a worker.
+- **A new way to show the list** (as the grid in the image area, G) gets what every view of
+  it needs, which 0.65.0's grid missed through five audit rounds:
+  - its form from `file_list`'s parameters, never from the settings in the functions that
+    draw it, as two views draw at once (`the_list_is_drawn_in_the_form_its_caller_asks`);
+  - its keys read only while no dialog is open and no text field has the focus (`typing` in
+    `read_keys`), and before the shortcut that would take them;
+  - a screen reader's text: each row or cell through `speak_item`, and the shown image read
+    out with `speak_image` when the view takes the image area's place
+    (`every_row_of_the_list_speaks`);
+  - a menu item ticked when choosing it turns the view off, and not otherwise;
+  - the notices drawn over it, as over the image;
+  - drag and drop, the rubber band and the scroll to the shown image (`Panel::start_frame`)
+    handled once per frame, whichever views are drawn;
+  - a double-click or key that opens a file opens the one clicked, also with Ctrl or Shift;
+  - a check in `tests.sh` for each, that compares with a screen at rest (`settled`), not with
+    a shot taken while thumbnails still come.
 - **State indexed into the file list** (a `usize` or a set of them that means "this file")
   goes into `List` (list.rs), never into `App`: a new list is a new `List`, so such state cannot outlive
   the list it was made for. What should follow a file to the new list is carried over by name
