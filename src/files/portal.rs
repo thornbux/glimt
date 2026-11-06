@@ -27,7 +27,7 @@ fn request<B>(
     body: &B,
 ) -> Result<Option<Results>, String>
 where
-    B: zbus::export::serde::Serialize + zbus::zvariant::DynamicType,
+    B: serde::Serialize + zbus::zvariant::DynamicType,
 {
     let e = |e: zbus::Error| e.to_string();
     let sender = conn.unique_name().ok_or("no D-Bus name")?;
@@ -58,19 +58,11 @@ where
     // The Response, or an end to the wait when the portal that was asked has left the bus. A
     // portal that restarted has lost the request, and its new name is never trusted to answer.
     let wait = move || {
-        use std::task::Poll;
-        use zbus::export::futures_core::Stream;
-        // A blocking iterator waits on one stream only. zbus's own block_on, which its
-        // iterators use, waits here on both streams at once, without a thread for each.
-        zbus::block_on(std::future::poll_fn(|cx| {
-            while let Poll::Ready(change) = std::pin::Pin::new(&mut owners).poll_next(cx) {
-                match change {
-                    Some(Ok(change)) if !portal_lost(&change, &owner) => continue,
-                    _ => return Poll::Ready(Err(())),
-                }
-            }
-            std::pin::Pin::new(&mut responses).poll_next(cx).map(Ok)
-        }))
+        let lost = |change: &zbus::Result<zbus::message::Message>| match change {
+            Ok(change) => portal_lost(change, &owner),
+            Err(_) => true,
+        };
+        answer_or_loss(&mut responses, &mut owners, lost)
     };
     let Some(message) = within(ANSWER_LIMIT, wait, stop) else {
         return Err("no answer from the portal".into());
@@ -124,6 +116,35 @@ fn portal_lost(change: &zbus::message::Message, owner: &str) -> bool {
         return false;
     };
     from_bus && name == DEST && new != owner
+}
+
+/// Waits on both `responses` and `owners` at once, without a thread for each, as a blocking
+/// iterator waits on one stream only. Returns the first response, `None` when that stream ends,
+/// or `Err` when an owner change is `lost` or the owner stream ends. A response that is ready
+/// in the same wake-up as a loss wins, so that the user's choice in the dialog is kept.
+fn answer_or_loss<R, O>(
+    responses: &mut R,
+    owners: &mut O,
+    lost: impl Fn(&O::Item) -> bool,
+) -> Result<Option<R::Item>, ()>
+where
+    R: futures_lite::Stream + Unpin + ?Sized,
+    O: futures_lite::Stream + Unpin,
+{
+    use std::task::Poll;
+    futures_lite::future::block_on(std::future::poll_fn(|cx| {
+        if let Poll::Ready(answer) = std::pin::Pin::new(&mut *responses).poll_next(cx) {
+            return Poll::Ready(Ok(answer));
+        }
+        // The owner stream is read until it is pending, so that both streams wake this wait.
+        while let Poll::Ready(change) = std::pin::Pin::new(&mut *owners).poll_next(cx) {
+            match change {
+                Some(change) if !lost(&change) => continue,
+                _ => return Poll::Ready(Err(())),
+            }
+        }
+        Poll::Pending
+    }))
 }
 
 /// Runs `wait` in a thread of its own. Returns what it gives, or `None` when it takes longer
@@ -323,6 +344,43 @@ mod tests {
         let rule = super::owner_rule().unwrap();
         assert!(rule.matches(&change(bus, portal, "")).unwrap());
         assert!(!rule.matches(&change(bus, "org.example.Other", "")).unwrap());
+    }
+
+    /// The wait for a Response ends with the Response, or with an error when the portal is
+    /// lost first or its owner changes can no longer be followed. A change that is no loss is
+    /// passed over, and a Response that is ready together with a loss is kept.
+    #[test]
+    fn a_response_or_a_lost_portal_ends_the_wait() {
+        use futures_lite::Stream;
+        use futures_lite::stream::{self, StreamExt};
+        let lost = |change: &bool| *change;
+        // This Response comes at the second look, after the owner changes were read.
+        let later = || {
+            let mut looked = false;
+            stream::poll_fn(move |cx| {
+                if looked {
+                    return std::task::Poll::Ready(Some(7));
+                }
+                looked = true;
+                cx.waker().wake_by_ref();
+                std::task::Poll::Pending
+            })
+        };
+        // The owner changes are `owners`, and then the stream ends or stays pending for good.
+        let wait = |responses: &mut (dyn Stream<Item = i32> + Unpin), owners, end| {
+            if end {
+                super::answer_or_loss(responses, &mut stream::iter(owners), lost)
+            } else {
+                let mut owners = stream::iter(owners).chain(stream::pending());
+                super::answer_or_loss(responses, &mut owners, lost)
+            }
+        };
+        assert_eq!(wait(&mut later(), vec![], false), Ok(Some(7)));
+        assert_eq!(wait(&mut later(), vec![true], false), Err(()));
+        assert_eq!(wait(&mut later(), vec![], true), Err(()));
+        assert_eq!(wait(&mut later(), vec![false, false], false), Ok(Some(7)));
+        assert_eq!(wait(&mut stream::iter([7]), vec![true], false), Ok(Some(7)));
+        assert_eq!(wait(&mut stream::empty(), vec![], false), Ok(None));
     }
 
     /// A wait for a portal's answer ends at its limit, also when the answer never comes, and
