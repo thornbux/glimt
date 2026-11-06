@@ -1275,10 +1275,12 @@ impl crate::App {
                 opened
             })
             .inner;
-        if let Some(i) = go_to {
+        // A double-click opens the file clicked, also with Ctrl or Shift, whose clicks change
+        // the selection and go to no file.
+        if let Some(i) = opened.or(go_to) {
             self.go(ctx, i);
         }
-        if opened {
+        if opened.is_some() {
             self.panel.open_from_grid();
         }
         if let Some(action) = list_act {
@@ -1322,6 +1324,7 @@ impl crate::App {
     }
 
     /// The file list (names, details, thumbnails or icons), drawn only where it is visible.
+    /// Returns the file double-clicked, if any.
     pub(crate) fn file_list(
         &mut self,
         ctx: &egui::Context,
@@ -1329,7 +1332,7 @@ impl crate::App {
         go_to: &mut Option<usize>,
         list_act: &mut Option<Action>,
         [icons, thumbs]: [bool; 2],
-    ) -> bool {
+    ) -> Option<usize> {
         // The rows shown are the search matches, or all files.
         let count = self
             .list
@@ -1341,7 +1344,7 @@ impl crate::App {
         };
         // Only visible rows are drawn, so the list is as fast with 10 files as with 300,000.
         let thumbs = thumbs || icons;
-        let mut opened = false;
+        let mut opened = None;
         let row_h = if icons {
             self.cell().y
         } else if thumbs {
@@ -1426,7 +1429,7 @@ impl crate::App {
                 if let Some(i) = self.row_clicked(ctx, &row, i) {
                     *go_to = Some(i);
                 }
-                opened |= row.double_clicked();
+                opened = row.double_clicked().then_some(i).or(opened);
                 row.context_menu(|ui| self.file_menu(ui, list_act));
                 if self.folder.collection().is_some() {
                     self.drag_row(ui, &row, i, icons, pointer);

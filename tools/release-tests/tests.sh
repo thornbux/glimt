@@ -833,6 +833,38 @@ for v in new old; do
     else note "old: $grid with the grid, $image on an image opened from it"; fi
 done
 
+section "Ctrl+ and Shift+double-click in the grid in the image area (G): open the file clicked"
+for v in new old; do
+    as_version $v
+    d=/tmp/grid-ctrl-open-$v
+    mkdir -p $d
+    for c in a b c; do convert -size 300x200 xc:red $d/$c.jpg; done
+    config
+    start $d
+    key g; sleep 1
+    # The grid is drawn after the side panel, so where names its cells.
+    at=$(where c.jpg)
+    if [ -n "$at" ]; then
+        xdotool mousemove ${at% *} ${at#* } keydown ctrl click --repeat 2 --delay 100 1 \
+            keyup ctrl 2>/dev/null
+        sleep 1
+    fi
+    current=$(remote current 2>/dev/null | tr -d '\0')
+    key Escape; sleep 1                    # back to the grid; Shift+double-click on b
+    at=$(where b.jpg)
+    if [ -n "$at" ]; then
+        xdotool mousemove ${at% *} ${at#* } keydown shift click --repeat 2 --delay 100 1 \
+            keyup shift 2>/dev/null
+        sleep 1
+    fi
+    shifted=$(remote current 2>/dev/null | tr -d '\0')
+    quit
+    if [ $v = new ]; then
+        expect "Ctrl: the file double-clicked is shown" "$current" "$d/c.jpg"
+        expect "Shift: the file double-clicked is shown" "$shifted" "$d/b.jpg"
+    else note "old: $current shown after Ctrl, $shifted after Shift"; fi
+done
+
 section "--remote select while Delete asks: the answer deletes the file it asked about only"
 for v in new old; do
     as_version $v
