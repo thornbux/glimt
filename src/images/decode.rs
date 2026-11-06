@@ -58,6 +58,9 @@ type Unturned = (
     Option<[usize; 2]>,
 );
 
+/// An animation's frames, decoded as they are taken, and its size, or why it is not decoded.
+type Animated = Result<(image::Frames<'static>, (u32, u32)), String>;
+
 pub fn histogram(img: &egui::ColorImage) -> Box<Hist> {
     let mut h = Box::new([[0; 256]; 5]);
     for p in &img.pixels {
@@ -302,8 +305,10 @@ fn tone_mapped(img: image::Rgb32FImage) -> image::DynamicImage {
 }
 
 /// The frames of a GIF, an animated WebP or an animated PNG (APNG), decoded as they are taken, and
-/// its size. Returns `None` for any other file, a still WebP or PNG among them.
-fn animated_frames(path: &Path) -> Option<(image::Frames<'static>, (u32, u32))> {
+/// its size. Returns `None` for any other file, a still WebP or PNG among them, and an error for
+/// an animation too large (`too_large_animation`), whose frames are never made.
+#[allow(clippy::disallowed_methods)] // the one place for into_frames, after too_large_animation
+fn animated_frames(path: &Path) -> Option<Animated> {
     use image::{AnimationDecoder, ImageDecoder};
     let ext = path.extension()?.to_str()?.to_ascii_lowercase();
     let file = std::io::BufReader::new(open(path).ok()?);
@@ -311,18 +316,22 @@ fn animated_frames(path: &Path) -> Option<(image::Frames<'static>, (u32, u32))> 
     // damaged frame header that claims gigabytes is an error, not a failed allocation that ends
     // Glimt.
     let limits = image::Limits::default();
+    let too_large = |size| too_large_animation(size).then(|| Err("image too large".to_string()));
     Some(match ext.as_str() {
         "gif" => {
             let mut dec = image::codecs::gif::GifDecoder::new(file).ok()?;
             dec.set_limits(limits).ok()?;
             let size = dec.dimensions();
-            (dec.into_frames(), size)
+            too_large(size).unwrap_or_else(|| Ok((dec.into_frames(), size)))
         }
         "webp" => {
             let mut dec = image::codecs::webp::WebPDecoder::new(file).ok()?;
             dec.set_limits(limits).ok()?;
             let size = dec.dimensions();
-            (dec.has_animation().then(|| dec.into_frames())?, size)
+            if !dec.has_animation() {
+                return None;
+            }
+            too_large(size).unwrap_or_else(|| Ok((dec.into_frames(), size)))
         }
         "png" | "apng" => {
             let dec = image::codecs::png::PngDecoder::with_limits(file, limits).ok()?;
@@ -330,7 +339,10 @@ fn animated_frames(path: &Path) -> Option<(image::Frames<'static>, (u32, u32))> 
             if !dec.is_apng().ok()? {
                 return None;
             }
-            (dec.apng().ok()?.into_frames(), size)
+            match too_large(size) {
+                Some(err) => err,
+                None => Ok((dec.apng().ok()?.into_frames(), size)),
+            }
         }
         _ => return None,
     })
@@ -346,11 +358,8 @@ fn too_large_animation((w, h): (u32, u32)) -> bool {
 /// The frames of an animated GIF, WebP or PNG (APNG). Returns `None` for other files, which
 /// `decode` decodes.
 pub fn animation(path: &Path, max: [u32; 2]) -> Option<(Frames, [usize; 2])> {
-    let (frames, size) = animated_frames(path)?;
     // One too large is shown by `decode` as a still image, instead of asking for gigabytes here.
-    if too_large_animation(size) {
-        return None;
-    }
+    let (frames, _) = animated_frames(path)?.ok()?;
     let (mut out, mut orig, mut bytes) = (Vec::new(), [0, 0], 0);
     for frame in frames {
         // A GIF cut short in a download keeps the frames that came, as browsers show them.
@@ -388,13 +397,12 @@ pub fn each_frame(
     // image is animated. An animation too large for its frames may still have its first frame
     // read alone, as a still image by `load_icc`.
     let animated = animated_frames(path);
-    if let Some((_, size)) = &animated
-        && too_large_animation(*size)
+    if let Some(Err(e)) = &animated
         && only != Some(0)
     {
-        return Err("image too large".into());
+        return Err(e.clone());
     }
-    if let Some((frames, _)) = animated.filter(|(_, size)| !too_large_animation(*size)) {
+    if let Some(Ok((frames, _))) = animated {
         for (k, frame) in frames.enumerate() {
             if only.is_some_and(|o| k > o) {
                 break;
@@ -1604,6 +1612,15 @@ mod tests {
         assert!(refused(super::tiff_page(&tif, 0).err()));
         std::fs::remove_file(&tif).unwrap();
         assert!(super::too_large_animation((40000, 40000)));
+        // A GIF whose screen claims 40,000 pixels square gets no frames made at all.
+        let gif = file.with_extension("gif");
+        let mut head = b"GIF89a".to_vec();
+        head.extend(40000u16.to_le_bytes().repeat(2));
+        head.extend([0x80, 0, 0, 0, 0, 0, 255, 255, 255]);
+        head.extend([0x2c, 0, 0, 0, 0, 1, 0, 1, 0, 0, 2, 2, 0x44, 1, 0, 0x3b]);
+        std::fs::write(&gif, &head).unwrap();
+        assert!(matches!(super::animated_frames(&gif), Some(Err(_))));
+        std::fs::remove_file(&gif).unwrap();
     }
 
     /// A file larger than Glimt decodes is refused before it is read whole, so a sparse one of
