@@ -213,9 +213,24 @@ pub fn walk(
     dir: &Path,
     types: Types,
 ) -> impl Iterator<Item = (PathBuf, Vec<PathBuf>, Vec<OsString>)> {
+    walk_by(dir, types, crate::images::save::file_id)
+}
+
+/// Walks the tree as `walk` does, with `file_id` telling the folders apart, so a test can give
+/// the ids a file system without unique inodes has.
+fn walk_by(
+    dir: &Path,
+    types: Types,
+    file_id: impl Fn(&Path) -> Option<(u64, u64)>,
+) -> impl Iterator<Item = (PathBuf, Vec<PathBuf>, Vec<OsString>)> {
     let (dir, mut todo) = (dir.to_path_buf(), vec![PathBuf::new()]);
     let mut seen: HashSet<Result<(u64, u64), PathBuf>> = HashSet::new();
-    let file_id = crate::images::save::file_id;
+    // An inode of 0 is no id: sshfs with `-o use_ino` gives it to every folder, and the tree
+    // would end at the first one. The real path tells such folders apart instead.
+    let key = move |full: &Path| match file_id(full) {
+        Some(id) if id.1 != 0 => Ok(id),
+        _ => Err(real_dir(full)),
+    };
     let real = real_dir(&dir);
     std::iter::from_fn(move || {
         loop {
@@ -225,7 +240,7 @@ pub fn walk(
             if is_link && !real_dir(&full).starts_with(&real) {
                 continue;
             }
-            if !seen.insert(file_id(&full).ok_or_else(|| full.clone())) {
+            if !seen.insert(key(&full)) {
                 continue;
             }
             let (dirs, files) = list_folder(&full, types);
@@ -542,6 +557,34 @@ mod tests {
             assert_eq!(files, ["a.jpg", "sub/in/c.jpg"], "{top:?}");
         }
         std::fs::remove_dir_all(base).unwrap();
+    }
+
+    /// On a file system whose folders all have inode 0 (sshfs with `-o use_ino`), the whole
+    /// tree is listed, and a link back into it is still read once. Told apart by inode alone,
+    /// every folder below the one opened counted as read already, and the tree was cut short.
+    #[test]
+    fn a_tree_without_unique_inodes_is_listed_whole() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-tree-ino-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join("a/deep")).unwrap();
+        for f in ["1.jpg", "a/2.jpg", "a/deep/3.jpg"] {
+            std::fs::write(dir.join(f), "x").unwrap();
+        }
+        std::os::unix::fs::symlink("..", dir.join("a/again")).unwrap();
+        let types = super::Types {
+            images: true,
+            raw: true,
+            videos: true,
+            hidden: false,
+        };
+        let mut files: Vec<std::path::PathBuf> = super::walk_by(&dir, types, |_| Some((1, 0)))
+            .flat_map(|(rel, _, files)| files.into_iter().map(move |f| rel.join(f)))
+            .collect();
+        files.sort();
+        assert_eq!(
+            files,
+            ["1.jpg", "a/2.jpg", "a/deep/3.jpg"].map(std::path::PathBuf::from)
+        );
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     /// A path is compared by its folder's real path and its own name: `..` and the folder's
