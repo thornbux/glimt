@@ -152,6 +152,43 @@ pub(crate) enum Derived {
     Copy,
 }
 
+/// The next place of a text in a packet, for places asked in rising order. A search goes on
+/// from where the last one ended, so all of them together read the packet once, however many
+/// places are asked (`without`).
+struct Next<'a> {
+    hay: &'a [u8],
+    what: &'a [u8],
+    /// What the last search found, if one was made. A search that found nothing holds for every
+    /// later place too.
+    found: Option<Option<usize>>,
+}
+
+impl<'a> Next<'a> {
+    fn new(hay: &'a [u8], what: &'a [u8]) -> Self {
+        Next {
+            hay,
+            what,
+            found: None,
+        }
+    }
+
+    /// Returns the first place of the text at or after `from`, or `None` when there is none.
+    /// `from` is never smaller than in the call before.
+    fn at(&mut self, from: usize) -> Option<usize> {
+        if let Some(found) = self.found
+            && found.is_none_or(|f| f >= from)
+        {
+            return found;
+        }
+        let rest = self.hay.get(from..).unwrap_or_default();
+        let found = (rest.windows(self.what.len()))
+            .position(|w| w == self.what)
+            .map(|i| from + i);
+        self.found = Some(found);
+        found
+    }
+}
+
 /// Saves the view's rotation in a PNG or WebP, which have no orientation field to set. The
 /// pixels are turned, and the file is written again with its ICC profile, EXIF block and XMP
 /// (keywords, comment, and alt text other programs wrote into it). PNG and lossless WebP lose
@@ -522,59 +559,76 @@ fn derive_sidecar(path: &Path, how: Derived) -> Result<(), String> {
 }
 
 /// Leaves the property `name` out of `xmp`, written as an attribute (` name="…"`) or as an
-/// element (`<name …>…</name>` or `<name …/>`). A property that is cut off is left as it is.
+/// element (`<name …>…</name>` or `<name …/>`). A property that is cut off is left as it is, and
+/// so is one in a comment or one whose element would reach into a comment. The packet is copied
+/// once, and each search goes on from where the last one ended (`Next`), so a hostile packet
+/// takes linear time. Before, each property left out moved the rest of the packet, and each
+/// element without its end tag searched to the end again, both quadratic, and a
+/// `<!--<xmp:Thumbnails>-->` comment was cut to the next end tag, which left the packet broken.
 fn without(xmp: &[u8], name: &[u8]) -> Vec<u8> {
-    let find = |hay: &[u8], what: &[u8]| hay.windows(what.len()).position(|w| w == what);
-    let mut out = xmp.to_vec();
-    let mut from = 0;
-    while let Some(at) = find(&out[from..], name).map(|i| from + i) {
+    let end_tag = [&b"</"[..], name, b">"].concat();
+    let [mut names, mut gts, mut ends] = [
+        Next::new(xmp, name),
+        Next::new(xmp, b">"),
+        Next::new(xmp, &end_tag),
+    ];
+    let [mut opens, mut closes] = [Next::new(xmp, b"<!--"), Next::new(xmp, b"-->")];
+    let [mut double, mut single] = [Next::new(xmp, b"\""), Next::new(xmp, b"'")];
+    let (mut out, mut copied, mut from) = (Vec::with_capacity(xmp.len()), 0, 0);
+    while let Some(at) = names.at(from) {
+        // A comment that starts before the name is passed over whole.
+        if let Some(open) = opens.at(from)
+            && open < at
+        {
+            match closes.at(open + 4) {
+                Some(close) => from = close + 3,
+                None => break,
+            }
+            continue;
+        }
         let end = at + name.len();
-        let before = at.checked_sub(1).map(|i| out[i]);
-        let after = out.get(end).copied();
+        let before = at.checked_sub(1).map(|i| xmp[i]);
+        let after = xmp.get(end).copied();
         let cut = match before {
             // An element: up to its own "/>", or else to its end tag.
             Some(b'<')
                 if after.is_some_and(|c| c == b'>' || c == b'/' || c.is_ascii_whitespace()) =>
             {
-                let close = find(&out[end..], b">").map(|i| end + i);
-                match close {
-                    Some(gt) if out[gt - 1] == b'/' => Some((at - 1, gt + 1)),
-                    Some(gt) => {
-                        let tag = [&b"</"[..], name, b">"].concat();
-                        find(&out[gt..], &tag).map(|i| (at - 1, gt + i + tag.len()))
-                    }
+                match gts.at(end) {
+                    Some(gt) if xmp[gt - 1] == b'/' => Some(gt + 1),
+                    Some(gt) => ends.at(gt).map(|e| e + end_tag.len()),
                     None => None,
                 }
             }
             // An attribute: its name, "=" and the quoted value, with the blank before it.
             Some(c) if c.is_ascii_whitespace() => {
-                let mut i = end;
-                let skip = |i: &mut usize| {
-                    while out.get(*i).is_some_and(u8::is_ascii_whitespace) {
-                        *i += 1;
-                    }
+                let blanks = |i: usize| {
+                    i + xmp[i.min(xmp.len())..]
+                        .iter()
+                        .take_while(|c| c.is_ascii_whitespace())
+                        .count()
                 };
-                skip(&mut i);
-                let eq = out.get(i) == Some(&b'=');
-                i += 1;
-                skip(&mut i);
-                match out.get(i).copied() {
-                    Some(q @ (b'"' | b'\'')) if eq => {
-                        find(&out[i + 1..], &[q]).map(|j| (at - 1, i + 1 + j + 1))
-                    }
+                let i = blanks(end);
+                let eq = xmp.get(i) == Some(&b'=');
+                let i = blanks(i + 1);
+                match xmp.get(i).copied() {
+                    Some(b'"') if eq => double.at(i + 1).map(|j| j + 1),
+                    Some(b'\'') if eq => single.at(i + 1).map(|j| j + 1),
                     _ => None,
                 }
             }
             _ => None,
         };
-        match cut {
-            Some((start, stop)) => {
-                out.drain(start..stop);
-                from = start;
+        // A cut that would reach into a comment is not made.
+        match cut.filter(|&stop| opens.at(at).is_none_or(|open| open >= stop)) {
+            Some(stop) => {
+                out.extend_from_slice(&xmp[copied..at - 1]);
+                (copied, from) = (stop, stop);
             }
             None => from = end,
         }
     }
+    out.extend_from_slice(&xmp[copied..]);
     out
 }
 
@@ -1706,6 +1760,37 @@ mod tests {
             let turned = super::derived_xmp(xmp, how);
             assert!(has(&turned, "crs:CropTop") && has(&turned, "darktable:operation=\"crop\""));
         }
+    }
+
+    /// A property is left out of XMP in one pass, also from a hostile packet, and never through
+    /// a comment. Before, 100,000 properties to leave out moved the rest of the packet each
+    /// time, and a `<!--<xmp:Thumbnails>-->` comment was cut to the next end tag, so the
+    /// comment's end went and the packet was broken.
+    #[test]
+    fn leaves_xmp_properties_out_in_one_pass() {
+        let without = |x: &str| String::from_utf8(super::without(x.as_bytes(), b"xmp:Thumbnails"));
+        let kept = "<!--<xmp:Thumbnails>--><a/>";
+        assert_eq!(
+            without(&format!("{kept}<xmp:Thumbnails>t</xmp:Thumbnails><b/>")).unwrap(),
+            format!("{kept}<b/>")
+        );
+        assert_eq!(
+            without("<xmp:Thumbnails>t<!-- --></xmp:Thumbnails>").unwrap(),
+            "<xmp:Thumbnails>t<!-- --></xmp:Thumbnails>"
+        );
+        assert_eq!(
+            without("<a xmp:Thumbnails='1' b=\"2\" xmp:Thumbnails = \"3\"/><xmp:Thumbnails/>")
+                .unwrap(),
+            "<a b=\"2\"/>"
+        );
+        let started = std::time::Instant::now();
+        let many = " xmp:Thumbnails=\"1\"".repeat(100_000);
+        assert_eq!(without(&many).unwrap(), "");
+        let open = "<xmp:Thumbnails>".repeat(100_000);
+        assert_eq!(without(&open).unwrap(), open);
+        let unclosed = "<xmp:Thumbnails".repeat(100_000);
+        assert_eq!(without(&unclosed).unwrap(), unclosed);
+        assert!(started.elapsed() < std::time::Duration::from_secs(2));
     }
 
     /// XMP packets broken in thousands of ways are made a derived file's without a panic or a
