@@ -10,7 +10,7 @@ which distribution and desktop you use, Wayland or X11.
 
 ## Translating Glimt
 
-Glimt speaks English and eleven more languages. To add one, copy
+Glimt speaks English and fourteen more languages. To add one, copy
 [po/glimt.pot](po/glimt.pot) to `po/<code>.po` (for example `po/pt.po`), fill in its header and
 write a translation under each text; its first lines say how. Then open a pull request, or an
 issue with the file attached. The template always has every text of the latest version, and a

@@ -1,0 +1,2837 @@
+# Glimt's interface in Norwegian Nynorsk. The English text is the msgid; a text left out, or
+# with an empty msgstr, shows in English.
+msgid ""
+msgstr ""
+"Project-Id-Version: Glimt\n"
+"Language: nn\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Plural-Forms: nplurals=2; plural=(n != 1);\n"
+
+#: src/ui/accessibility.rs
+msgid "No images"
+msgstr "Ingen bilete"
+
+#: src/ui/actions.rs
+msgid "About Glimt"
+msgstr "Om Glimt"
+
+#: src/ui/actions.rs
+msgid "Auto Rotate Using EXIF"
+msgstr "Roter automatisk etter EXIF"
+
+#: src/ui/actions.rs
+msgid "Back"
+msgstr "Tilbake"
+
+#: src/ui/actions.rs
+msgid "Back Up Glimt's Data…"
+msgstr "Ta tryggingskopi av data i Glimt …"
+
+#: src/ui/actions.rs
+msgid "Check Images…"
+msgstr "Sjekk bilete …"
+
+#: src/ui/actions.rs
+msgid "Close Window"
+msgstr "Lukk vindauget"
+
+#: src/ui/actions.rs
+msgid "Compare Side by Side"
+msgstr "Samanlikn side ved side"
+
+#: src/ui/actions.rs
+msgid "Copy Files to Clipboard"
+msgstr "Kopier filene til utklippstavla"
+
+#: src/ui/actions.rs
+msgid "Copy Image to Clipboard"
+msgstr "Kopier biletet til utklippstavla"
+
+#: src/ui/actions.rs
+msgid "Copy Path (Unquoted)"
+msgstr "Kopier stien (utan hermeteikn)"
+
+#: src/ui/actions.rs
+msgid "Copy Path to Clipboard"
+msgstr "Kopier stien til utklippstavla"
+
+#: src/ui/actions.rs
+msgid "Copy…"
+msgstr "Kopier …"
+
+#: src/ui/actions.rs
+msgid "Delete Permanently…"
+msgstr "Slett for godt …"
+
+#: src/ui/actions.rs
+msgid "Delete…"
+msgstr "Slett …"
+
+#: src/ui/actions.rs
+msgid "EXIF Window"
+msgstr "EXIF-vindauge"
+
+#: src/ui/actions.rs
+msgid "Export Frames…"
+msgstr "Eksporter ruter …"
+
+#: src/ui/actions.rs
+msgid "Faster"
+msgstr "Raskare"
+
+#: src/ui/actions.rs
+msgid "Fill the View"
+msgstr "Fyll visinga"
+
+#: src/ui/actions.rs
+msgid "Find Duplicates…"
+msgstr "Finn duplikat …"
+
+#: src/ui/actions.rs
+msgid "First Image"
+msgstr "Første bilete"
+
+#: src/ui/actions.rs
+msgid "Fit the Height"
+msgstr "Tilpass høgda"
+
+#: src/ui/actions.rs
+msgid "Fit the Width"
+msgstr "Tilpass breidda"
+
+#: src/ui/actions.rs
+msgid "Flip"
+msgstr "Vend opp ned"
+
+#: src/ui/actions.rs
+msgid "Forward"
+msgstr "Fram"
+
+#: src/ui/actions.rs
+msgid "Full Screen"
+msgstr "Fullskjerm"
+
+#: src/ui/actions.rs
+msgid "Help Manual"
+msgstr "Brukarhandbok"
+
+#: src/ui/actions.rs
+msgid "Hide File List"
+msgstr "Gøym fillista"
+
+#: src/ui/actions.rs
+msgid "Histogram: Off, RGB, Brightness"
+msgstr "Histogram: av, RGB, lysstyrke"
+
+#: src/ui/actions.rs
+msgid "Home"
+msgstr "Heim"
+
+#: src/ui/actions.rs
+msgid "Import Lightroom Catalog…"
+msgstr "Importer Lightroom-katalog …"
+
+#: src/ui/actions.rs
+msgid "Include Subfolders"
+msgstr "Ta med undermapper"
+
+#: src/ui/actions.rs
+msgid "Invert Selection"
+msgstr "Inverter utvalet"
+
+#: src/ui/actions.rs
+msgid "Keyboard Map"
+msgstr "Tastaturkart"
+
+#: src/ui/actions.rs
+msgid "Keyboard Shortcuts"
+msgstr "Snøggtastar"
+
+#: src/ui/actions.rs
+msgid "Keywords and Comment"
+msgstr "Nøkkelord og kommentar"
+
+#: src/ui/actions.rs
+msgid "Last Image"
+msgstr "Siste bilete"
+
+#: src/ui/actions.rs
+msgid "Logarithmic Histogram"
+msgstr "Logaritmisk histogram"
+
+#: src/ui/actions.rs
+msgid "Mark 1"
+msgstr "Merke 1"
+
+#: src/ui/actions.rs
+msgid "Mark 2"
+msgstr "Merke 2"
+
+#: src/ui/actions.rs
+msgid "Mark 3"
+msgstr "Merke 3"
+
+#: src/ui/actions.rs
+msgid "Mark 4"
+msgstr "Merke 4"
+
+#: src/ui/actions.rs
+msgid "Mark 5"
+msgstr "Merke 5"
+
+#: src/ui/actions.rs
+msgid "Mark 6"
+msgstr "Merke 6"
+
+#: src/ui/actions.rs
+msgid "Mirror"
+msgstr "Spegelvend"
+
+#: src/ui/actions.rs
+msgid "Move Collection to Trash"
+msgstr "Flytt samlinga til papirkorga"
+
+#: src/ui/actions.rs
+msgid "Move Earlier in Collection"
+msgstr "Flytt tidlegare i samlinga"
+
+#: src/ui/actions.rs
+msgid "Move Later in Collection"
+msgstr "Flytt seinare i samlinga"
+
+#: src/ui/actions.rs
+msgid "Move to End of Collection"
+msgstr "Flytt til slutten av samlinga"
+
+#: src/ui/actions.rs
+msgid "Move to Start of Collection"
+msgstr "Flytt til starten av samlinga"
+
+#: src/ui/actions.rs
+msgid "Move…"
+msgstr "Flytt …"
+
+#: src/ui/actions.rs
+msgid "New Collection…"
+msgstr "Ny samling …"
+
+#: src/ui/actions.rs
+msgid "New Folder…"
+msgstr "Ny mappe …"
+
+#: src/ui/actions.rs
+msgid "New Window"
+msgstr "Nytt vindauge"
+
+#: src/ui/actions.rs
+msgid "Next Filter"
+msgstr "Neste filter"
+
+#: src/ui/actions.rs
+msgid "Next Image"
+msgstr "Neste bilete"
+
+#: src/ui/actions.rs
+msgid "Next Layout"
+msgstr "Neste oppsett"
+
+#: src/ui/actions.rs
+msgid "Next Page"
+msgstr "Neste side"
+
+#: src/ui/actions.rs
+msgid "No Stars"
+msgstr "Ingen stjerner"
+
+#: src/ui/actions.rs
+msgid "One Image"
+msgstr "Eitt bilete"
+
+#: src/ui/actions.rs
+msgid "Open Collection…"
+msgstr "Opna samling …"
+
+#: src/ui/actions.rs
+msgid "Open File…"
+msgstr "Opna fil …"
+
+#: src/ui/actions.rs
+msgid "Open Folder Recursive…"
+msgstr "Opna mappe med undermapper …"
+
+#: src/ui/actions.rs
+msgid "Open Folder…"
+msgstr "Opna mappe …"
+
+#: src/ui/actions.rs
+msgid "Open Several Folders…"
+msgstr "Opna fleire mapper …"
+
+#: src/ui/actions.rs
+msgid "Open With Default App"
+msgstr "Opna med standardprogrammet"
+
+#: src/ui/actions.rs
+msgid "Pan View"
+msgstr "Oversiktsvising"
+
+#: src/ui/actions.rs
+msgid "Pane Above"
+msgstr "Ruta over"
+
+#: src/ui/actions.rs
+msgid "Pane Below"
+msgstr "Ruta under"
+
+#: src/ui/actions.rs
+msgid "Pane to the Left"
+msgstr "Ruta til venstre"
+
+#: src/ui/actions.rs
+msgid "Pane to the Right"
+msgstr "Ruta til høgre"
+
+#: src/ui/actions.rs
+msgid "Pause Slideshow"
+msgstr "Set lysbiletframsyninga på pause"
+
+#: src/ui/actions.rs
+msgid "Play Animations"
+msgstr "Spel av animasjonar"
+
+#: src/ui/actions.rs
+msgid "Play Video"
+msgstr "Spel av video"
+
+#: src/ui/actions.rs
+msgid "Preferences…"
+msgstr "Innstillingar …"
+
+#: src/ui/actions.rs
+msgid "Previous Image"
+msgstr "Førre bilete"
+
+#: src/ui/actions.rs
+msgid "Previous Page"
+msgstr "Førre side"
+
+#: src/ui/actions.rs
+msgid "Print…"
+msgstr "Skriv ut …"
+
+#: src/ui/actions.rs
+msgid "Projector"
+msgstr "Projektor"
+
+#: src/ui/actions.rs
+msgid "Quit"
+msgstr "Avslutt"
+
+#: src/ui/actions.rs
+msgid "Random Order"
+msgstr "Tilfeldig rekkjefølgje"
+
+#: src/ui/actions.rs
+msgid "Refresh"
+msgstr "Oppdater"
+
+#: src/ui/actions.rs
+msgid "Remove from Collection"
+msgstr "Fjern frå samlinga"
+
+#: src/ui/actions.rs
+msgid "Rename Collection…"
+msgstr "Endra namn på samlinga …"
+
+#: src/ui/actions.rs
+msgid "Rename…"
+msgstr "Endra namn …"
+
+#: src/ui/actions.rs
+msgid "Rotate 180°"
+msgstr "Roter 180°"
+
+#: src/ui/actions.rs
+msgid "Rotate Clockwise"
+msgstr "Roter med klokka"
+
+#: src/ui/actions.rs
+msgid "Rotate Counterclockwise"
+msgstr "Roter mot klokka"
+
+#: src/ui/actions.rs
+msgid "Save Orientation to File"
+msgstr "Lagra retninga i fila"
+
+#: src/ui/actions.rs
+msgid "Crop…"
+msgstr "Skjer til …"
+
+#: src/ui/actions.rs
+msgid "Save As…"
+msgstr "Lagra som …"
+
+#: src/ui/actions.rs
+msgid "Save This Frame…"
+msgstr "Lagra denne ruta …"
+
+#: src/ui/actions.rs
+msgid "Search File Names"
+msgstr "Søk i filnamn"
+
+#: src/ui/actions.rs
+msgid "Select All"
+msgstr "Vel alle"
+
+#: src/ui/actions.rs
+msgid "Select Mark 1"
+msgstr "Vel merke 1"
+
+#: src/ui/actions.rs
+msgid "Select Mark 2"
+msgstr "Vel merke 2"
+
+#: src/ui/actions.rs
+msgid "Select Mark 3"
+msgstr "Vel merke 3"
+
+#: src/ui/actions.rs
+msgid "Select Mark 4"
+msgstr "Vel merke 4"
+
+#: src/ui/actions.rs
+msgid "Select Mark 5"
+msgstr "Vel merke 5"
+
+#: src/ui/actions.rs
+msgid "Select Mark 6"
+msgstr "Vel merke 6"
+
+#: src/ui/actions.rs
+msgid "Select None"
+msgstr "Vel ingen"
+
+#: src/ui/actions.rs
+msgid "Set as Wallpaper"
+msgstr "Bruk som bakgrunnsbilete"
+
+#: src/ui/actions.rs
+msgid "Show EXIF Panel"
+msgstr "Vis EXIF-panelet"
+
+#: src/ui/actions.rs
+msgid "Show Folder Path"
+msgstr "Vis mappestien"
+
+#: src/ui/actions.rs
+msgid "Show Folder Tree"
+msgstr "Vis mappetreet"
+
+#: src/ui/actions.rs
+msgid "Show Hidden Files"
+msgstr "Vis gøymde filer"
+
+#: src/ui/actions.rs
+msgid "Show Image Info in Full Screen"
+msgstr "Vis biletinformasjon i fullskjerm"
+
+#: src/ui/actions.rs
+msgid "Show Sort Manager"
+msgstr "Vis sorteringshandsamaren"
+
+#: src/ui/actions.rs
+msgid "Show the Pointer on the Projector"
+msgstr "Vis peikaren på projektoren"
+
+#: src/ui/actions.rs
+msgid "Show Thumbnails"
+msgstr "Vis miniatyrbilete"
+
+#: src/ui/actions.rs
+msgid "Thumbnails in Image Area"
+msgstr "Miniatyrbilete i biletområdet"
+
+#: src/ui/actions.rs
+msgid "Show Toolbar"
+msgstr "Vis verktøylinja"
+
+#: src/ui/actions.rs
+msgid "Slower"
+msgstr "Saktare"
+
+#: src/ui/actions.rs
+msgid "Start/Stop Slideshow"
+msgstr "Start/stopp lysbiletframsyning"
+
+#: src/ui/actions.rs
+msgid "Stop Slideshow, Leave Full Screen"
+msgstr "Stopp lysbiletframsyninga, gå ut av fullskjerm"
+
+#: src/ui/actions.rs
+msgid "Two Above Each Other"
+msgstr "To over kvarandre"
+
+#: src/ui/actions.rs
+msgid "Undo"
+msgstr "Angre"
+
+#: src/ui/actions.rs
+msgid "Up"
+msgstr "Opp"
+
+#: src/ui/actions.rs
+msgid "View Images as Icons"
+msgstr "Vis bileta som ikon"
+
+#: src/ui/actions.rs
+msgid "Zoom 1:1"
+msgstr "Zoom 1:1"
+
+#: src/ui/actions.rs
+msgid "Zoom In"
+msgstr "Zoom inn"
+
+#: src/ui/actions.rs
+msgid "Zoom Out"
+msgstr "Zoom ut"
+
+#: src/ui/actions.rs
+msgid "Zoom to Fit"
+msgstr "Zoom for å passa"
+
+#: src/model/collections.rs
+msgid "Not a valid collection name: \"{name}\""
+msgstr "Ikkje eit gyldig samlingsnamn: «{name}»"
+
+#: src/model/collections.rs
+msgid "There is a collection called \"{name}\" already"
+msgstr "Det finst alt ei samling som heiter «{name}»"
+
+#: src/viewer/crop.rs
+msgid "A video is not cropped"
+msgstr "Ein video blir ikkje skoren til"
+
+#: src/viewer/crop.rs
+msgid "Drag over the image to choose the part to keep"
+msgstr "Dra over biletet for å velja delen som skal haldast på"
+
+#: src/viewer/crop.rs
+msgid "Save Copy (Enter)"
+msgstr "Lagra kopi (Enter)"
+
+#: src/viewer/crop.rs
+msgid "Could not crop the image: {e}"
+msgstr "Kunne ikkje skjera til biletet: {e}"
+
+#: src/viewer/save_as.rs
+msgid "A video is not saved as an image"
+msgstr "Ein video blir ikkje lagra som bilete"
+
+#: src/viewer/save_as.rs
+msgid "Format:"
+msgstr "Format:"
+
+#: src/viewer/save_as.rs
+msgid "As the original ({format})"
+msgstr "Som originalen ({format})"
+
+#: src/viewer/save_as.rs
+msgid "WebP, lossless"
+msgstr "WebP, tapsfri"
+
+#: src/viewer/save_as.rs
+msgid "WebP, lossy"
+msgstr "WebP, med tap"
+
+#: src/viewer/save_as.rs
+msgid "Size:"
+msgstr "Storleik:"
+
+#: src/viewer/save_as.rs
+msgid "Original ({w} × {h})"
+msgstr "Original ({w} × {h})"
+
+#: src/viewer/save_as.rs
+msgid "Longest side"
+msgstr "Lengste side"
+
+#: src/viewer/save_as.rs
+msgid "Percent"
+msgstr "Prosent"
+
+#: src/viewer/save_as.rs
+msgid "Saved {w} × {h}; never enlarged"
+msgstr "Blir lagra {w} × {h}; aldri forstørra"
+
+#: src/viewer/save_as.rs
+msgid "Quality:"
+msgstr "Kvalitet:"
+
+#: src/viewer/save_as.rs
+msgid "Remove EXIF and GPS (camera, date, place), XMP and the sidecar"
+msgstr "Fjern EXIF og GPS (kamera, dato, stad), XMP og sidefila"
+
+#: src/viewer/save_as.rs
+msgid "Save…"
+msgstr "Lagra …"
+
+#: src/viewer/save_as.rs
+msgid "Could not save the image: {e}"
+msgstr "Kunne ikkje lagra biletet: {e}"
+
+#: src/features/duplicates.rs
+msgid "Among the {count} in the list, compare by"
+msgstr "Blant dei {count} i lista, samanlikn etter"
+
+#: src/features/duplicates.rs
+msgid "Check all but the first of each group"
+msgstr "Kryss av alle utanom det første i kvar gruppe"
+
+#: src/features/duplicates.rs
+msgid "Checksum (identical files)"
+msgstr "Kontrollsum (identiske filer)"
+
+#: src/features/duplicates.rs
+msgid "Comparing… {done} of {total}"
+msgstr "Samanliknar … {done} av {total}"
+
+#: src/features/duplicates.rs
+msgid "Find"
+msgstr "Finn"
+
+#: src/features/duplicates.rs
+msgid "Find Duplicates"
+msgstr "Finn duplikat"
+
+#: src/features/duplicates.rs
+msgid "Group {n} ({files})"
+msgstr "Gruppe {n} ({files})"
+
+#: src/features/duplicates.rs
+msgid "Include Subfolders in the View menu searches the folders below too."
+msgstr "Ta med undermapper i Vis-menyen søkjer òg i mappene under."
+
+#: src/features/duplicates.rs
+msgid "Move {n} checked to trash…"
+msgstr "Flytt {n} avkryssa til papirkorga …"
+
+#: src/features/duplicates.rs
+msgid "Name"
+msgstr "Namn"
+
+#: src/features/duplicates.rs
+msgid "Similarity (90%)"
+msgstr "Likskap (90 %)"
+
+#: src/features/duplicates.rs
+msgid "Similarity (high, 95%)"
+msgstr "Likskap (høg, 95 %)"
+
+#: src/features/duplicates.rs
+msgid "Similarity (low, 85%)"
+msgstr "Likskap (låg, 85 %)"
+
+#: src/features/duplicates.rs
+msgid "Size"
+msgstr "Storleik"
+
+#: src/features/duplicates.rs
+msgid "Stop"
+msgstr "Stopp"
+
+#: src/features/duplicates.rs
+msgid "The checked files are no longer all in the list"
+msgstr "Dei avkryssa filene er ikkje lenger alle i lista"
+
+#: src/features/duplicates.rs
+msgid "Uncheck all"
+msgstr "Fjern alle avkryssingar"
+
+#: src/features/duplicates.rs
+msgid "{groups}, {files}, among {images}"
+msgstr "{groups}, {files}, blant {images}"
+
+#: src/files/file_ops.rs
+msgid "Backing up"
+msgstr "Tek tryggingskopi"
+
+#: src/files/file_ops.rs
+msgid "Copy"
+msgstr "Kopier"
+
+#: src/files/file_ops.rs
+msgid "Copying"
+msgstr "Kopierer"
+
+#: src/files/file_ops.rs
+msgid "Could not make {folder}"
+msgstr "Kunne ikkje laga {folder}"
+
+#: src/files/file_ops.rs
+msgid "Could not rename {f} to {t}: {e}; nothing renamed"
+msgstr "Kunne ikkje gje {f} namnet {t}: {e}; ingenting har fått nytt namn"
+
+#: src/files/file_ops.rs
+msgid "Could not save the frames: {e}"
+msgstr "Kunne ikkje lagra rutene: {e}"
+
+#: src/files/file_ops.rs
+msgid "Delete failed ({count}): {first}"
+msgstr "Sletting feila ({count}): {first}"
+
+#: src/files/file_ops.rs
+msgid "Deleting"
+msgstr "Slettar"
+
+#: src/files/file_ops.rs
+msgid "Renaming"
+msgstr "Endrar namn"
+
+#: src/files/file_ops.rs
+msgid "Exporting"
+msgstr "Eksporterer"
+
+#: src/files/file_ops.rs
+msgid "Nothing to undo"
+msgstr "Ingenting å angra"
+
+#: src/files/file_ops.rs
+msgid "another file has taken its place"
+msgstr "ei anna fil har teke plassen"
+
+#: src/files/file_ops.rs
+msgid "Undo failed ({count}): {first}"
+msgstr "Angring feila ({count}): {first}"
+
+#: src/files/file_ops.rs
+msgid "Undo failed: {e}"
+msgstr "Angring feila: {e}"
+
+#: src/files/file_ops.rs
+msgid "gio trash (from glib): {e}"
+msgstr "gio trash (frå glib): {e}"
+
+#: src/files/file_ops.rs
+msgid "Move"
+msgstr "Flytt"
+
+#: src/files/file_ops.rs
+msgid "Moving"
+msgstr "Flyttar"
+
+#: src/files/file_ops.rs
+msgid "Saved {file}"
+msgstr "Lagra {file}"
+
+#: src/files/file_ops.rs
+msgid "Saved; it shows when Auto Rotate Using EXIF is on"
+msgstr "Lagra; det blir vist når Roter automatisk etter EXIF er på"
+
+#: src/files/file_ops.rs
+msgid "Still saving a rotation: try again in a moment"
+msgstr "Lagrar framleis ei rotering: prøv igjen om eit augneblink"
+
+#: src/files/file_ops.rs
+msgid "The files asked about are no longer in the list: nothing was done"
+msgstr "Filene det vart spurt om, er ikkje lenger i lista: ingenting vart gjort"
+
+#: src/files/file_ops.rs
+msgid "The pattern gives several files the same name; add # for a number"
+msgstr "Mønsteret gjev fleire filer same namn; legg til # for eit nummer"
+
+#: src/files/file_ops.rs
+msgid "Writing the sidecars stopped at a file that broke it"
+msgstr "Skrivinga av sidefilene stoppa ved ei fil som fekk ho til å feila"
+
+#: src/files/file_ops.rs
+msgid "{count} back from the trash"
+msgstr "{count} henta tilbake frå papirkorga"
+
+#: src/files/file_ops.rs
+msgid "{count} deleted"
+msgstr "{count} sletta"
+
+#: src/files/file_ops.rs
+msgid "{count} moved to the trash"
+msgstr "{count} flytta til papirkorga"
+
+#: src/files/file_ops.rs
+msgid "{files} moved back"
+msgstr "{files} flytta tilbake"
+
+#: src/files/file_ops.rs
+msgid "{frames} saved in {folder}"
+msgstr "{frames} lagra i {folder}"
+
+#: src/files/file_ops.rs
+msgid "{name} exists already"
+msgstr "{name} finst allereie"
+
+#: src/files/file_ops.rs
+msgid "{name} exists already; nothing renamed"
+msgstr "{name} finst allereie; ingenting har fått nytt namn"
+
+#: src/files/trash.rs
+msgid "{name} is not in the trash"
+msgstr "{name} er ikkje i papirkorga"
+
+#: src/files/file_ops.rs
+msgid "{verb} failed ({count}): {first}"
+msgstr "{verb} feila ({count}): {first}"
+
+#: src/metadata/lightroom.rs
+msgid "Cancel (Esc)"
+msgstr "Avbryt (Esc)"
+
+#: src/metadata/lightroom.rs
+msgid "Import"
+msgstr "Importer"
+
+#: src/metadata/lightroom.rs
+msgid "Import from Lightroom"
+msgstr "Importer frå Lightroom"
+
+#: src/metadata/lightroom.rs
+msgid "Importing"
+msgstr "Importerer"
+
+#: src/metadata/lightroom.rs
+msgid "Keep Glimt's stars"
+msgstr "Behald stjernene i Glimt"
+
+#: src/metadata/lightroom.rs
+msgid "Lightroom has the catalog open: close Lightroom first"
+msgstr "Lightroom har katalogen open: lukk Lightroom først"
+
+#: src/metadata/lightroom.rs
+msgid "Lightroom's stars or keywords not written to the sidecars of {count}"
+msgstr "Stjernene eller nøkkelorda frå Lightroom vart ikkje skrivne til sidefilene til {count}"
+
+#: src/metadata/lightroom.rs
+msgid "Next"
+msgstr "Neste"
+
+#: src/metadata/lightroom.rs
+msgid "Not a Lightroom Classic catalog Glimt can read: {why}"
+msgstr "Ikkje ein Lightroom Classic-katalog som Glimt kan lesa: {why}"
+
+#: src/metadata/lightroom.rs
+msgid "Reading a Lightroom catalog needs the sqlite3 program"
+msgstr "Å lesa ein Lightroom-katalog krev programmet sqlite3"
+
+#: src/metadata/lightroom.rs
+msgid "Take Lightroom's stars"
+msgstr "Ta stjernene frå Lightroom"
+
+#: src/metadata/lightroom.rs
+msgid "the keywords of {count}"
+msgstr "nøkkelorda til {count}"
+
+#: src/metadata/lightroom.rs
+msgid "the stars of {count}"
+msgstr "stjernene til {count}"
+
+#: src/metadata/lightroom.rs
+msgid "There already, so they get only the images they lack: {names}."
+msgstr "Finst allereie, så dei får berre bileta dei manglar: {names}."
+
+#: src/metadata/lightroom.rs
+msgid "Where the catalog's folders are now (empty: left out):"
+msgstr "Kvar mappene i katalogen er no (tom: blir utelaten):"
+
+#: src/metadata/lightroom.rs
+msgid "{collections}, {keywords} and the stars of {images}."
+msgstr "{collections}, {keywords} og stjernene til {images}."
+
+#: src/metadata/lightroom.rs
+msgid "{count} have"
+msgstr "{count} har"
+
+#: src/metadata/lightroom.rs
+msgid "{needs}, which is not installed"
+msgstr "{needs}, som ikkje er installert"
+
+#: src/metadata/lightroom.rs
+msgid "{n} other stars in Glimt:"
+msgstr "{n} andre stjerner i Glimt:"
+
+#: src/main.rs
+msgid ", and {n} more"
+msgstr ", og {n} til"
+
+#: src/main.rs
+msgid "; and {n} more (glimt --check-config)"
+msgstr "; og {n} til (glimt --check-config)"
+
+#: src/main.rs
+msgid "A file dialog is open already"
+msgstr "Ein fildialog er allereie open"
+
+#: src/main.rs
+msgid "A plain list is not renamed or trashed by Glimt"
+msgstr "Ei vanleg liste får ikkje nytt namn og blir ikkje kasta av Glimt"
+
+#: src/main.rs
+msgid "Add"
+msgstr "Legg til"
+
+#: src/main.rs
+msgid "Add the keywords to the {n} selected"
+msgstr "Legg nøkkelorda til dei {n} valde"
+
+#: src/main.rs
+msgid "Add This Folder"
+msgstr "Legg til denne mappa"
+
+#: src/main.rs
+msgid "Add this image's keywords to the tree"
+msgstr "Legg nøkkelorda til dette biletet i treet"
+
+#: src/main.rs
+msgid "Add to Collection"
+msgstr "Legg til i samling"
+
+#: src/main.rs
+msgid "Adding keywords"
+msgstr "Legg til nøkkelord"
+
+#: src/main.rs
+msgid "Add…"
+msgstr "Legg til …"
+
+#: src/main.rs
+msgid "All Images Change Together"
+msgstr "Alle bileta skiftar samtidig"
+
+#: src/main.rs
+msgid "Alt text"
+msgstr "Alternativ tekst"
+
+#: src/main.rs
+msgid "Ascending"
+msgstr "Stigande"
+
+#: src/main.rs
+msgid "Case"
+msgstr "Store/små bokstavar"
+
+#: src/main.rs
+msgid "Check"
+msgstr "Sjekk"
+
+#: src/main.rs
+msgid "Check Images"
+msgstr "Sjekk bilete"
+
+#: src/main.rs
+msgid "Clear Recent"
+msgstr "Tøm lista"
+
+#: src/main.rs
+msgid "Collections"
+msgstr "Samlingar"
+
+#: src/main.rs
+msgid "Colour Management"
+msgstr "Fargehandsaming"
+
+#: src/main.rs
+msgid "Comment"
+msgstr "Kommentar"
+
+#: src/main.rs
+msgid "Connect (Enter)"
+msgstr "Kopla til (Enter)"
+
+#: src/main.rs
+msgid "Connecting to {uri}…"
+msgstr "Koplar til {uri} …"
+
+#: src/main.rs
+msgid "Could not copy the image: {e}"
+msgstr "Kunne ikkje kopiera biletet: {e}"
+
+#: src/main.rs
+msgid "Could not copy to the clipboard: {e}"
+msgstr "Kunne ikkje kopiera til utklippstavla: {e}"
+
+#: src/main.rs
+msgid "Could not open a new window: {e}"
+msgstr "Kunne ikkje opna eit nytt vindauge: {e}"
+
+#: src/main.rs
+msgid "Could not read the keyword tree: {e}"
+msgstr "Kunne ikkje lesa nøkkelordtreet: {e}"
+
+#: src/main.rs
+msgid "Could not save the keyword tree: {e}"
+msgstr "Kunne ikkje lagra nøkkelordtreet: {e}"
+
+#: src/main.rs
+msgid "Could not read the sort manager's folders: {e}"
+msgstr "Kunne ikkje lesa mappene til sorteringshandsamaren: {e}"
+
+#: src/main.rs
+msgid "Could not save the alt text: {e}"
+msgstr "Kunne ikkje lagra den alternative teksten: {e}"
+
+#: src/main.rs
+msgid "Could not save the collection: {e}"
+msgstr "Kunne ikkje lagra samlinga: {e}"
+
+#: src/main.rs
+msgid "Could not save the keywords: {e}"
+msgstr "Kunne ikkje lagra nøkkelorda: {e}"
+
+#: src/main.rs
+msgid "Could not save the orientation: {e}"
+msgstr "Kunne ikkje lagra retninga: {e}"
+
+#: src/main.rs
+msgid "Could not save the sort manager's folders: no home folder"
+msgstr "Kunne ikkje lagra mappene til sorteringshandsamaren: inga heimemappe"
+
+#: src/main.rs
+msgid "Could not save the sort manager's folders: {e}"
+msgstr "Kunne ikkje lagra mappene til sorteringshandsamaren: {e}"
+
+#: src/main.rs
+msgid "Could not save the theme: {e}"
+msgstr "Kunne ikkje lagra temaet: {e}"
+
+#: src/main.rs
+msgid "Could not set the wallpaper: {e}"
+msgstr "Kunne ikkje bruka som bakgrunnsbilete: {e}"
+
+#: src/main.rs
+msgid "Could not trash {name} (gio is needed): {e}"
+msgstr "Kunne ikkje kasta {name} (gio trengst): {e}"
+
+#: src/main.rs
+msgid "Could not trash {name}: {err}"
+msgstr "Kunne ikkje kasta {name}: {err}"
+
+#: src/main.rs
+msgid "Delete (Enter)"
+msgstr "Slett (Enter)"
+
+#: src/main.rs
+msgid "Desktop files there, as Geeqie's, show in this menu after a restart"
+msgstr "Desktop-filer der, som dei til Geeqie, blir viste i denne menyen etter omstart"
+
+#: src/main.rs
+msgid "Dimensions"
+msgstr "Dimensjonar"
+
+#: src/main.rs
+msgid "Domain:"
+msgstr "Domene:"
+
+#: src/main.rs
+msgid "Each file keeps its own keywords and gets these too"
+msgstr "Kvar fil held på sine eigne nøkkelord og får desse i tillegg"
+
+#: src/main.rs
+msgid "Edit"
+msgstr "Rediger"
+
+#: src/main.rs
+msgid "Extended description"
+msgstr "Utvida skildring"
+
+#: src/main.rs
+msgid "File"
+msgstr "Fil"
+
+#: src/main.rs
+msgid "Filter"
+msgstr "Filter"
+
+#: src/main.rs
+msgid "Finish the renaming"
+msgstr "Fullfør namneendringa"
+
+#: src/main.rs
+msgid "First: {name}"
+msgstr "Første: {name}"
+
+#: src/main.rs
+msgid "Get More Themes…"
+msgstr "Hent fleire tema …"
+
+#: src/main.rs
+msgid "Glimt ({n})"
+msgstr "Glimt ({n})"
+
+#: src/main.rs
+msgid "Go"
+msgstr "Gå"
+
+#: src/main.rs
+msgid "Help"
+msgstr "Hjelp"
+
+#: src/main.rs
+msgid "Images"
+msgstr "Bilete"
+
+#: src/main.rs
+msgid "Keyword tree"
+msgstr "Nøkkelordtre"
+
+#: src/main.rs
+msgid "Keywords"
+msgstr "Nøkkelord"
+
+#: src/main.rs
+msgid "Keywords added to {count}"
+msgstr "Nøkkelord lagde til {count}"
+
+#: src/main.rs
+msgid "Keywords could not be saved for {count}"
+msgstr "Nøkkelord kunne ikkje lagrast for {count}"
+
+#: src/main.rs
+msgid "Later"
+msgstr "Seinare"
+
+#: src/main.rs
+msgid "Layout"
+msgstr "Oppsett"
+
+#: src/main.rs
+msgid "Log in to {uri}"
+msgstr "Logg inn på {uri}"
+
+#: src/main.rs
+msgid "Marks and Stars"
+msgstr "Merke og stjerner"
+
+#: src/main.rs
+msgid "Move Folder to Trash…"
+msgstr "Flytt mappa til papirkorga …"
+
+#: src/main.rs
+msgid "Move in Collection"
+msgstr "Flytt i samlinga"
+
+#: src/main.rs
+msgid "Move the folder \"{name}\" and all in it to the trash?"
+msgstr "Flytta mappa «{name}» og alt i ho til papirkorga?"
+
+#: src/main.rs
+msgid "Move to Trash (Enter)"
+msgstr "Flytt til papirkorga (Enter)"
+
+#: src/main.rs
+msgid "Move {what} to the trash?"
+msgstr "Flytta {what} til papirkorga?"
+
+#: src/main.rs
+msgid "Name of a new collection with {count}:"
+msgstr "Namn på ei ny samling med {count}:"
+
+#: src/main.rs
+msgid "New Folder makes a folder in the folder shown: open one"
+msgstr "Ny mappe lagar ei mappe i mappa som blir vist: opna ei"
+
+#: src/main.rs
+msgid "New names for {count} (* = old name, # = number, ### = 001):"
+msgstr "Nye namn for {count} (* = gammalt namn, # = nummer, ### = 001):"
+
+#: src/main.rs
+msgid "No applications found"
+msgstr "Fann ingen program"
+
+#: src/main.rs
+msgid "No collections yet"
+msgstr "Ingen samlingar enno"
+
+#: src/main.rs
+msgid "No EXIF data"
+msgstr "Ingen EXIF-data"
+
+#: src/main.rs
+msgid "No file dialog (install zenity or kdialog): {e}"
+msgstr "Ingen fildialog (installer zenity eller kdialog): {e}"
+
+#: src/main.rs
+msgid "No images for a collection here"
+msgstr "Ingen bilete til ei samling her"
+
+#: src/main.rs
+msgid "No images in folder"
+msgstr "Ingen bilete i mappa"
+
+#: src/main.rs
+msgid "No plugins"
+msgstr "Ingen tillegg"
+
+#: src/main.rs
+msgid "No such folder: {folder}"
+msgstr "Mappa finst ikkje: {folder}"
+
+#: src/main.rs
+msgid "Not a valid name: \"{text}\""
+msgstr "Ikkje eit gyldig namn: «{text}»"
+
+#: src/main.rs
+msgid "Nothing opened yet"
+msgstr "Ingenting opna enno"
+
+#: src/main.rs
+msgid "OK (Enter)"
+msgstr "OK (Enter)"
+
+#: src/main.rs
+msgid "One Image at a Time"
+msgstr "Eitt bilete om gongen"
+
+#: src/main.rs
+msgid "Only the images of a collection can be moved"
+msgstr "Berre bileta i ei samling kan flyttast"
+
+#: src/main.rs
+msgid "Open Recent"
+msgstr "Opna nyleg brukt"
+
+#: src/main.rs
+msgid "Open the Plugins Folder"
+msgstr "Opna tilleggsmappa"
+
+#: src/main.rs
+msgid "Open Themes Folder"
+msgstr "Opna temamappa"
+
+#: src/main.rs
+msgid "Open With"
+msgstr "Opna med"
+
+#: src/main.rs
+msgid "Orientation"
+msgstr "Retning"
+
+#: src/main.rs
+msgid "Password:"
+msgstr "Passord:"
+
+#: src/main.rs
+msgid "Permanently delete {what}?"
+msgstr "Sletta {what} for godt?"
+
+#: src/main.rs
+msgid "Places|Norway|Oslo"
+msgstr "Stader|Noreg|Oslo"
+
+#: src/main.rs
+msgid "Plugins"
+msgstr "Tillegg"
+
+#: src/main.rs
+msgid "Put the old names back"
+msgstr "Set dei gamle namna tilbake"
+
+#: src/main.rs
+msgid "Random order is on: R turns it off to move images"
+msgstr "Tilfeldig rekkjefølgje er på: R slår ho av, så du kan flytta bilete"
+
+#: src/main.rs
+msgid "Reading folder…"
+msgstr "Les mappa …"
+
+#: src/main.rs
+msgid "Remove"
+msgstr "Fjern"
+
+#: src/main.rs
+msgid "Remove from the tree"
+msgstr "Fjern frå treet"
+
+#: src/main.rs
+msgid "Rename Folder…"
+msgstr "Endra namn på mappa …"
+
+#: src/main.rs
+msgid "Rename Many is still renaming"
+msgstr "Endra mange namn held framleis på"
+
+#: src/main.rs
+msgid "Rename Many was cut short"
+msgstr "Endra mange namn vart avbrote"
+
+#: src/main.rs
+msgid "Save as Theme…"
+msgstr "Lagra som tema …"
+
+#: src/main.rs
+msgid "Select"
+msgstr "Vel"
+
+#: src/main.rs
+msgid "Select Them"
+msgstr "Vel dei"
+
+#: src/main.rs
+msgid "Separated by commas"
+msgstr "Skilde med komma"
+
+#: src/main.rs
+msgid "{tag} set on {count}"
+msgstr "{tag} sett på {count}"
+
+#: src/main.rs
+msgid "Setting keywords"
+msgstr "Set nøkkelord"
+
+#: src/main.rs
+msgid "Show File Names"
+msgstr "Vis filnamn"
+
+#: src/main.rs
+msgid "Show on OpenStreetMap"
+msgstr "Vis på OpenStreetMap"
+
+#: src/main.rs
+msgid "Show Together with These Images"
+msgstr "Vis saman med desse bileta"
+
+#: src/main.rs
+msgid "Slideshow in this layout:"
+msgstr "Lysbiletframsyning i dette oppsettet:"
+
+#: src/main.rs
+msgid "Sort Manager"
+msgstr "Sorteringshandsamar"
+
+#: src/main.rs
+msgid "Start Slideshow"
+msgstr "Start lysbiletframsyning"
+
+#: src/main.rs
+msgid "Still saving the last rotation of this file"
+msgstr "Lagrar framleis den siste roteringa av denne fila"
+
+#: src/main.rs
+msgid "Stop Slideshow"
+msgstr "Stopp lysbiletframsyning"
+
+#: src/files/file_ops.rs
+msgid "Stopped: {done} of {total}"
+msgstr "Stoppa: {done} av {total}"
+
+#: src/main.rs
+msgid "{tag} taken off {count}"
+msgstr "{tag} teke av {count}"
+
+#: src/main.rs
+msgid "Taking keywords off"
+msgstr "Tek av nøkkelord"
+
+#: src/main.rs
+msgid "Tell upper and lower case apart"
+msgstr "Skil mellom store og små bokstavar"
+
+msgid "Search file names (3+ letters), re: pattern, or exif: camera, date …"
+msgstr "Søk i filnamn (3+ bokstavar), re: mønster eller exif: kamera, dato …"
+
+msgid "Filter file names by pattern, or exif: camera, date …"
+msgstr "Filtrer filnamn etter mønster eller exif: kamera, dato …"
+
+#: src/main.rs
+msgid "Regular expression instead of fuzzy search"
+msgstr "Regulært uttrykk i staden for omtrentleg søk"
+
+#: src/main.rs
+msgid "The collection {file} is gone (renamed or removed in another window): not saved"
+msgstr "Samlinga {file} er borte (fekk nytt namn eller vart fjerna i eit anna vindauge): ikkje lagra"
+
+#: src/main.rs
+msgid "The keyword could not be saved for {count}"
+msgstr "Nøkkelordet kunne ikkje lagrast for {count}"
+
+#: src/main.rs
+msgid "The pane these details are of: the one under the pointer"
+msgstr "Ruta desse detaljane gjeld: den under peikaren"
+
+#: src/main.rs
+msgid "The settings are locked (--lock-settings)"
+msgstr "Innstillingane er låste (--lock-settings)"
+
+#: src/main.rs
+msgid "The stars could not be written to the XMP sidecar of {count}"
+msgstr "Stjernene kunne ikkje skrivast til XMP-sidefila til {count}"
+
+#: src/main.rs
+msgid "Theme"
+msgstr "Tema"
+
+#: src/main.rs
+msgid "This cannot be undone."
+msgstr "Dette kan ikkje angrast."
+
+#: src/main.rs
+msgid "User:"
+msgstr "Brukar:"
+
+#: src/main.rs
+msgid "Video: Enter or click to play"
+msgstr "Video: Enter eller klikk for å spela av"
+
+#: src/main.rs
+msgid "Videos"
+msgstr "Videoar"
+
+#: src/main.rs
+msgid "View"
+msgstr "Vis"
+
+#: src/main.rs
+msgid "What the picture shows, for someone who cannot see it"
+msgstr "Kva biletet viser, for den som ikkje kan sjå det"
+
+#: src/main.rs
+msgid "Window"
+msgstr "Vindauge"
+
+#: src/main.rs
+msgid "Writing stars"
+msgstr "Skriv stjerner"
+
+#: src/main.rs
+msgid "Zoom"
+msgstr "Zoom"
+
+#: src/main.rs
+msgid "{doing} {done} of {total}…{more}"
+msgstr "{doing} {done} av {total} …{more}"
+
+#: src/main.rs
+msgid "{name} is gone"
+msgstr "{name} finst ikkje lenger"
+
+#: src/main.rs
+msgid "{n} added to the collection \"{name}\""
+msgstr "{n} lagt til i samlinga «{name}»"
+
+#: src/main.rs
+msgid "{n} broken:"
+msgstr "{n} øydelagde:"
+
+#: src/main.rs
+msgid "{text} is a built-in theme: choose another name"
+msgstr "{text} er eit innebygd tema: vel eit anna namn"
+
+#: src/main.rs LAYOUTS
+msgid "Four (2 × 2)"
+msgstr "Fire (2 × 2)"
+
+#: src/main.rs LAYOUTS
+msgid "Two Side by Side"
+msgstr "To side ved side"
+
+#: src/viewer/pan.rs
+msgid "April"
+msgstr "april"
+
+#: src/viewer/pan.rs
+msgid "August"
+msgstr "august"
+
+#: src/viewer/pan.rs
+msgid "Calendar"
+msgstr "Kalender"
+
+#: src/viewer/pan.rs
+msgid "December"
+msgstr "desember"
+
+#: src/viewer/pan.rs
+msgid "EXIF date"
+msgstr "EXIF-dato"
+
+#: src/viewer/pan.rs
+msgid "February"
+msgstr "februar"
+
+#: src/viewer/pan.rs
+msgid "January"
+msgstr "januar"
+
+#: src/viewer/pan.rs
+msgid "July"
+msgstr "juli"
+
+#: src/viewer/pan.rs
+msgid "June"
+msgstr "juni"
+
+#: src/viewer/pan.rs
+msgid "March"
+msgstr "mars"
+
+#: src/viewer/pan.rs
+msgid "May"
+msgstr "mai"
+
+#: src/viewer/pan.rs
+msgid "No date"
+msgstr "Utan dato"
+
+#: src/viewer/pan.rs
+msgid "November"
+msgstr "november"
+
+#: src/viewer/pan.rs
+msgid "October"
+msgstr "oktober"
+
+#: src/viewer/pan.rs
+msgid "September"
+msgstr "september"
+
+#: src/viewer/pan.rs
+msgid "Timeline"
+msgstr "Tidsline"
+
+#: src/viewer/pan.rs
+msgid "{images} on {days}"
+msgstr "{images} på {days}"
+
+#: src/ui/preferences.rs
+msgid "Also write stars to XMP sidecars (photo.jpg.xmp), for darktable and digiKam"
+msgstr "Skriv òg stjerner til XMP-sidefiler (foto.jpg.xmp), for darktable og digiKam"
+
+#: src/ui/preferences.rs
+msgid "Auto rotate images using EXIF (Alt+X)"
+msgstr "Roter bilete automatisk etter EXIF (Alt+X)"
+
+#: src/ui/preferences.rs
+msgid "Automatic (system language)"
+msgstr "Automatisk (språket til systemet)"
+
+#: src/ui/preferences.rs
+msgid "Background behind the image"
+msgstr "Bakgrunn bak biletet"
+
+#: src/ui/preferences.rs
+msgid "Checkerboard behind transparent images"
+msgstr "Sjakkbrett bak gjennomsiktige bilete"
+
+#: src/ui/preferences.rs
+msgid "Black"
+msgstr "Svart"
+
+#: src/ui/preferences.rs
+msgid "Brightness"
+msgstr "Lysstyrke"
+
+#: src/ui/preferences.rs
+msgid "Change"
+msgstr "Endra"
+
+#: src/ui/preferences.rs
+msgid "Choose…"
+msgstr "Vel …"
+
+#: src/ui/preferences.rs
+msgid "Colour management"
+msgstr "Fargehandsaming"
+
+#: src/ui/preferences.rs
+msgid "Confirm move file to Trash"
+msgstr "Stadfest flytting av fil til papirkorga"
+
+#: src/ui/preferences.rs
+msgid "Confirm permanent file delete"
+msgstr "Stadfest sletting av fil for godt"
+
+#: src/ui/preferences.rs
+msgid "CPU use:"
+msgstr "Prosessorbruk:"
+
+#: src/ui/preferences.rs
+msgid "Custom"
+msgstr "Eigendefinert"
+
+#: src/ui/preferences.rs
+msgid "Decoding threads and one malloc arena take effect after a restart."
+msgstr "Dekodingstrådar og éin malloc-arena verkar etter omstart."
+
+#: src/ui/preferences.rs
+msgid "Default"
+msgstr "Standard"
+
+#: src/ui/preferences.rs
+msgid "Keep a list of recent folders (File → Open Recent)"
+msgstr "Hugs nyleg brukte mapper (Fil → Opna nyleg brukt)"
+
+#: src/ui/preferences.rs
+msgid "default application"
+msgstr "standardprogram"
+
+#: src/ui/preferences.rs
+msgid "Details"
+msgstr "Detaljar"
+
+#: src/ui/preferences.rs
+msgid "Enable Delete key"
+msgstr "Slå på Delete-tasten"
+
+#: src/ui/preferences.rs
+msgid "Enlarge small images to fit the window"
+msgstr "Forstørr små bilete så dei fyller vindauget"
+
+#: src/ui/preferences.rs
+msgid "Fade to the next image:"
+msgstr "Ton over til neste bilete:"
+
+#: src/ui/preferences.rs
+msgid "From colord, which GNOME and KDE set"
+msgstr "Frå colord, som GNOME og KDE stiller inn"
+
+#: src/ui/preferences.rs
+msgid "Fuzzy, best matches first (like fzf)"
+msgstr "Omtrentleg, beste treff først (som fzf)"
+
+#: src/ui/preferences.rs
+msgid "High Contrast when the desktop asks for high contrast"
+msgstr "Høg kontrast når skrivebordet ber om høg kontrast"
+
+#: src/ui/preferences.rs
+msgid "Histogram (K):"
+msgstr "Histogram (K):"
+
+#: src/ui/preferences.rs
+msgid "Image info template:"
+msgstr "Mal for biletinformasjon:"
+
+#: src/ui/preferences.rs
+msgid "images decoded at once"
+msgstr "bilete dekoda samtidig"
+
+#: src/ui/preferences.rs
+msgid "images on each side"
+msgstr "bilete på kvar side"
+
+#: src/ui/preferences.rs
+msgid "Images without a profile:"
+msgstr "Bilete utan profil:"
+
+#: src/ui/preferences.rs
+msgid "In ~/.cache/thumbnails; kept for disks that are not plugged in"
+msgstr "I ~/.cache/thumbnails; blir haldne på for diskar som ikkje er kopla til"
+
+#: src/ui/preferences.rs
+msgid "Include the images in subfolders"
+msgstr "Ta med bileta i undermapper"
+
+#: src/ui/preferences.rs
+msgid "Include the images in subfolders in the file list"
+msgstr "Ta med bileta i undermapper i fillista"
+
+#: src/ui/preferences.rs
+msgid "Keep the screen saver off in full screen"
+msgstr "Hald skjermspararen av i fullskjerm"
+
+#: src/ui/preferences.rs
+msgid "Keep zoom and position when changing image"
+msgstr "Behald zoom og posisjon ved byte av bilete"
+
+#: src/ui/preferences.rs
+msgid "Keyboard shortcuts"
+msgstr "Snøggtastar"
+
+#: src/ui/preferences.rs
+msgid "Language"
+msgstr "Språk"
+
+#: src/ui/preferences.rs
+msgid "Large"
+msgstr "Store"
+
+#: src/ui/preferences.rs
+msgid "Larger still when the desktop's text is (GNOME's Large Text)"
+msgstr "Endå større når teksten på skrivebordet er det (Stor tekst i GNOME)"
+
+#: src/ui/preferences.rs
+msgid "Listen for glimt --remote commands (after restart)"
+msgstr "Lytt etter glimt --remote-kommandoar (etter omstart)"
+
+#: src/ui/preferences.rs
+msgid "Logarithmic (J)"
+msgstr "Logaritmisk (J)"
+
+#: src/ui/preferences.rs
+msgid "MB at most for an animation's frames"
+msgstr "MB på det meste for rutene i ein animasjon"
+
+#: src/ui/preferences.rs
+msgid "Medium"
+msgstr "Middels"
+
+#: src/ui/preferences.rs
+msgid "Memory use:"
+msgstr "Minnebruk:"
+
+#: src/ui/preferences.rs
+msgid "Mouse wheel zooms (off: next/previous image, Ctrl+wheel zooms)"
+msgstr "Musehjulet zoomar (av: neste/førre bilete, Ctrl+hjul zoomar)"
+
+#: src/ui/preferences.rs
+msgid "None"
+msgstr "Ingen"
+
+#: src/ui/preferences.rs
+msgid "Not with CPU use Power saving"
+msgstr "Ikkje med prosessorbruk Straumsparing"
+
+#: src/ui/preferences.rs
+msgid "Off"
+msgstr "Av"
+
+#: src/ui/preferences.rs
+msgid "One malloc arena: much less memory, decoding up to ~8 % slower"
+msgstr "Éin malloc-arena: mykje mindre minne, dekoding opptil ~8 % tregare"
+
+#: src/ui/preferences.rs
+msgid "Play animated GIF and WebP (A)"
+msgstr "Spel av animerte GIF og WebP (A)"
+
+#: src/ui/preferences.rs
+msgid "Player (Enter):"
+msgstr "Avspelar (Enter):"
+
+#: src/ui/preferences.rs
+msgid "Preferences"
+msgstr "Innstillingar"
+
+#: src/ui/preferences.rs
+msgid "Preload next and previous images:"
+msgstr "Last inn neste og førre bilete på førehand:"
+
+#: src/ui/preferences.rs
+msgid "Press a key (Esc cancels)"
+msgstr "Trykk ein tast (Esc avbryt)"
+
+#: src/ui/preferences.rs
+msgid "Profile file…"
+msgstr "Profilfil …"
+
+#: src/ui/preferences.rs
+msgid "quality when a lossy WebP is saved again"
+msgstr "kvalitet når ein WebP med tap blir lagra på nytt"
+
+#: src/ui/preferences.rs
+msgid "quality of a cropped JPEG (Edit → Crop)"
+msgstr "kvalitet for ein tilskoren JPEG (Rediger → Skjer til)"
+
+#: src/ui/preferences.rs
+msgid "Random order"
+msgstr "Tilfeldig rekkjefølgje"
+
+#: src/ui/preferences.rs
+msgid "Refresh the folder when files change"
+msgstr "Oppdater mappa når filer blir endra"
+
+#: src/ui/preferences.rs
+msgid "Regular expression, in list order (like Geeqie's file filter)"
+msgstr "Regulært uttrykk, i rekkjefølgja til lista (som filfilteret i Geeqie)"
+
+#: src/ui/preferences.rs
+msgid "Remember the window size and position"
+msgstr "Hugs storleiken og plasseringa til vindauget"
+
+#: src/ui/preferences.rs
+msgid "Remove thumbnails of deleted files"
+msgstr "Fjern miniatyrbilete av sletta filer"
+
+#: src/ui/preferences.rs
+msgid "Removed {removed} of {seen} thumbnails"
+msgstr "Fjerna {removed} av {seen} miniatyrbilete"
+
+#: src/ui/preferences.rs
+msgid "Rendering intent:"
+msgstr "Gjengivingsmåte:"
+
+#: src/ui/preferences.rs
+msgid "Repeat: start again after the last image"
+msgstr "Gjenta: start på nytt etter siste bilete"
+
+#: src/ui/preferences.rs
+msgid "Reset"
+msgstr "Tilbakestill"
+
+#: src/ui/preferences.rs
+msgid "Save new thumbnails to ~/.cache/thumbnails (shared with other programs)"
+msgstr "Lagra nye miniatyrbilete i ~/.cache/thumbnails (delte med andre program)"
+
+#: src/ui/preferences.rs
+msgid "Save rotation to the file when changing image (JPEG; PNG and WebP are saved again)"
+msgstr "Lagra rotering i fila ved byte av bilete (JPEG; PNG og WebP blir lagra på nytt)"
+
+#: src/ui/preferences.rs
+msgid "Screen profile:"
+msgstr "Skjermprofil:"
+
+#: src/ui/preferences.rs
+msgid "Search field above the file list:"
+msgstr "Søkjefelt over fillista:"
+
+#: src/ui/preferences.rs
+msgid "seconds per image"
+msgstr "sekund per bilete"
+
+#: src/ui/preferences.rs
+msgid "Show file size and date in the file list"
+msgstr "Vis filstorleik og dato i fillista"
+
+#: src/ui/preferences.rs
+msgid "Show folders as a tree (Ctrl+T)"
+msgstr "Vis mapper som eit tre (Ctrl+T)"
+
+#: src/ui/preferences.rs
+msgid "Show image info in full screen (I)"
+msgstr "Vis biletinformasjon i fullskjerm (I)"
+
+#: src/ui/preferences.rs
+msgid "Show marks and stars in the file list"
+msgstr "Vis merke og stjerner i fillista"
+
+#: src/ui/preferences.rs
+msgid "Show the EXIF panel (Ctrl+K; reads a little from each image shown)"
+msgstr "Vis EXIF-panelet (Ctrl+K; les litt frå kvart bilete som blir vist)"
+
+#: src/ui/preferences.rs
+msgid "Show the file list as icons (Ctrl+I)"
+msgstr "Vis fillista som ikon (Ctrl+I)"
+
+#: src/ui/preferences.rs
+msgid "Show the file name search"
+msgstr "Vis søket i filnamn"
+
+#: src/ui/preferences.rs
+msgid "Show the folder path"
+msgstr "Vis mappestien"
+
+#: src/ui/preferences.rs
+msgid "Show the toolbar"
+msgstr "Vis verktøylinja"
+
+#: src/ui/preferences.rs
+msgid "Show thumbnails in the file list (T)"
+msgstr "Vis miniatyrbilete i fillista (T)"
+
+#: src/ui/preferences.rs
+msgid "Show videos in the file list"
+msgstr "Vis videoar i fillista"
+
+#: src/ui/preferences.rs
+msgid "size of the menus, lists and text"
+msgstr "storleik på menyar, lister og tekst"
+
+#: src/ui/preferences.rs
+msgid "Small"
+msgstr "Små"
+
+#: src/ui/preferences.rs
+msgid "Start in the last used folder"
+msgstr "Start i den sist brukte mappa"
+
+#: src/ui/preferences.rs
+msgid "Thumbnail size:"
+msgstr "Storleik på miniatyrbilete:"
+
+#: src/ui/preferences.rs
+msgid "Toolbar icons:"
+msgstr "Ikon på verktøylinja:"
+
+#: src/ui/preferences.rs
+msgid "Up to ≈ {mb} MB, each image at most {w}×{h}"
+msgstr "Opptil ≈ {mb} MB, kvart bilete på det meste {w}×{h}"
+
+#: src/ui/preferences.rs
+msgid "Use no trash at all (Delete deletes permanently)"
+msgstr "Ikkje bruk papirkorg (Slett slettar for godt)"
+
+#: src/ui/preferences.rs
+msgid "Use the desktop's screen profile"
+msgstr "Bruk skjermprofilen til skrivebordet"
+
+#: src/ui/preferences.rs
+msgid "Use the image's own profile"
+msgstr "Bruk den eigne profilen til biletet"
+
+#: src/ui/preferences.rs
+msgid "{keys} was the key of {others} too: now of {label} only"
+msgstr "{keys} var òg tasten til {others}: no berre til {label}"
+
+#: src/features/print.rs
+msgid "Copies:"
+msgstr "Kopiar:"
+
+#: src/features/print.rs
+msgid "Images per page:"
+msgstr "Bilete per side:"
+
+#: src/features/print.rs
+msgid "No image could be read: nothing printed"
+msgstr "Ingen bilete kunne lesast: ingenting skrive ut"
+
+#: src/features/print.rs
+msgid "No printers found"
+msgstr "Fann ingen skrivarar"
+
+#: src/features/print.rs
+msgid "Paper:"
+msgstr "Papir:"
+
+#: src/features/print.rs
+msgid "PDF file"
+msgstr "PDF-fil"
+
+#: src/features/print.rs
+msgid "Print (Enter)"
+msgstr "Skriv ut (Enter)"
+
+#: src/features/print.rs
+msgid "Print {count}"
+msgstr "Skriv ut {count}"
+
+#: src/features/print.rs
+msgid "Printer:"
+msgstr "Skrivar:"
+
+#: src/features/print.rs
+msgid "Printing failed: {e}"
+msgstr "Utskrifta feila: {e}"
+
+#: src/features/print.rs
+msgid "Save PDF… (Enter)"
+msgstr "Lagra PDF … (Enter)"
+
+#: src/features/print.rs
+msgid "{images} on {pages}"
+msgstr "{images} på {pages}"
+
+#: src/features/print.rs
+msgid "{msg}; {f} could not be read"
+msgstr "{msg}; {f} kunne ikkje lesast"
+
+#: src/features/print.rs
+msgid "{what} saved in {file}"
+msgstr "{what} lagra i {file}"
+
+#: src/features/print.rs
+msgid "{what} sent to {printer}"
+msgstr "{what} sendt til {printer}"
+
+#. count(): one and many
+msgid "collection"
+msgid_plural "collections"
+msgstr[0] "samling"
+msgstr[1] "samlingar"
+
+#. count(): one and many
+msgid "day"
+msgid_plural "days"
+msgstr[0] "dag"
+msgstr[1] "dagar"
+
+#. count(): one and many
+msgid "error"
+msgid_plural "errors"
+msgstr[0] "feil"
+msgstr[1] "feil"
+
+#. count(): one and many
+msgid "file"
+msgid_plural "files"
+msgstr[0] "fil"
+msgstr[1] "filer"
+
+#. count(): one and many
+msgid "frame"
+msgid_plural "frames"
+msgstr[0] "rute"
+msgstr[1] "ruter"
+
+#. count(): one and many
+msgid "group"
+msgid_plural "groups"
+msgstr[0] "gruppe"
+msgstr[1] "grupper"
+
+#. count(): one and many
+msgid "image"
+msgid_plural "images"
+msgstr[0] "bilete"
+msgstr[1] "bilete"
+
+#. count(): one and many
+msgid "keyword"
+msgid_plural "keywords"
+msgstr[0] "nøkkelord"
+msgstr[1] "nøkkelord"
+
+#. count(): one and many
+msgid "page"
+msgid_plural "pages"
+msgstr[0] "side"
+msgstr[1] "sider"
+
+#. count(): one and many
+msgid "star"
+msgid_plural "stars"
+msgstr[0] "stjerne"
+msgstr[1] "stjerner"
+
+#. count(): one and many
+msgid "step"
+msgid_plural "steps"
+msgstr[0] "steg"
+msgstr[1] "steg"
+
+#: src/features/print.rs
+msgid "Orientation:"
+msgstr "Retning:"
+
+#: src/features/print.rs
+msgid "Automatic"
+msgstr "Automatisk"
+
+#: src/features/print.rs
+msgid "Portrait"
+msgstr "Ståande"
+
+#: src/features/print.rs
+msgid "Landscape"
+msgstr "Liggjande"
+
+#: src/features/print.rs
+msgid "Margin (mm):"
+msgstr "Marg (mm):"
+
+#: src/features/print.rs
+msgid "Image size (%):"
+msgstr "Biletstorleik (%):"
+
+#: src/features/print.rs
+msgid "Fill each box, cutting the image to it"
+msgstr "Fyll kvar rute, og skjer biletet til etter ho"
+
+#: src/features/print.rs
+msgid "Text under each image:"
+msgstr "Tekst under kvart bilete:"
+
+#: src/features/print.rs
+msgid "As the full screen info: %name%, %path%, %position%, %dimensions%, %File size%, %Taken%, %Camera%, %keywords%, %comment% …"
+msgstr "Som biletinformasjonen i fullskjerm: %name%, %path%, %position%, %dimensions%, %File size%, %Taken%, %Camera%, %keywords%, %comment% …"
+
+#: src/features/print.rs
+msgid "%page% is the page's number, %pages% how many there are"
+msgstr "%page% er nummeret på sida, %pages% kor mange det er"
+
+#: src/features/print.rs
+msgid "Top of each page:"
+msgstr "Øvst på kvar side:"
+
+#: src/features/print.rs
+msgid "Bottom of each page:"
+msgstr "Nedst på kvar side:"
+
+#: src/features/print.rs
+msgid "Both sides of the paper"
+msgstr "Begge sidene av arket"
+
+#: src/features/print.rs
+msgid "Print the image"
+msgstr "Skriv ut biletet"
+
+#: src/features/print.rs
+msgid "{files} copied to {folder}"
+msgstr "{files} kopiert til {folder}"
+
+#: src/features/print.rs
+msgid "{files} moved to {folder}"
+msgstr "{files} flytta til {folder}"
+
+#: src/features/print.rs
+msgid "Could not move the folder to the trash: {e}"
+msgstr "Kunne ikkje flytta mappa til papirkorga: {e}"
+
+#: src/features/print.rs
+msgid "calculating…"
+msgstr "reknar ut …"
+
+#: src/features/print.rs
+msgid "Open Folder"
+msgstr "Opna mappe"
+
+#: src/features/print.rs
+msgid "Open File"
+msgstr "Opna fil"
+
+#: src/features/print.rs
+msgid "Open Folders (Ctrl+click for several)"
+msgstr "Opna mapper (Ctrl+klikk for fleire)"
+
+#: src/features/print.rs
+msgid "Open Folder with Its Subfolders"
+msgstr "Opna mappe med undermapper"
+
+#: src/features/print.rs
+msgid "Open Collection"
+msgstr "Opna samling"
+
+#: src/features/print.rs
+msgid "Copy to Folder"
+msgstr "Kopier til mappe"
+
+#: src/features/print.rs
+msgid "Move to Folder"
+msgstr "Flytt til mappe"
+
+#: src/features/print.rs
+msgid "Save as PDF"
+msgstr "Lagra som PDF"
+
+#: src/main.rs
+msgid "Save As"
+msgstr "Lagra som"
+
+#: src/features/print.rs
+msgid "Add to the Sort Manager"
+msgstr "Legg til i sorteringshandsamaren"
+
+#: src/features/print.rs
+msgid "Screen Profile"
+msgstr "Skjermprofil"
+
+#: src/features/print.rs
+msgid "Profile of Images Without One"
+msgstr "Profil for bilete utan profil"
+
+#: src/features/print.rs
+msgid "Import Lightroom Catalog"
+msgstr "Importer Lightroom-katalog"
+
+#: src/features/print.rs
+msgid "Back Up Glimt's Data To"
+msgstr "Ta tryggingskopi av data i Glimt til"
+
+#: src/features/print.rs
+msgid "Save This Frame as PNG"
+msgstr "Lagra denne ruta som PNG"
+
+#: src/features/print.rs
+msgid "Export Every Frame To"
+msgstr "Eksporter alle rutene til"
+
+#: src/features/print.rs
+msgid "Collection {name} moved to the trash"
+msgstr "Samlinga {name} er flytta til papirkorga"
+
+#: src/features/print.rs
+msgid "Not a pattern: {e}"
+msgstr "Ikkje eit mønster: {e}"
+
+#: src/features/print.rs
+msgid "{text} exists already: choose another name"
+msgstr "{text} finst allereie: vel eit anna namn"
+
+#: src/features/print.rs
+msgid "Saved as {file}: edit it, then choose it again"
+msgstr "Lagra som {file}: rediger ho, og vel ho igjen"
+
+#: src/features/print.rs
+msgid "{files} given their old names back"
+msgstr "{files} har fått tilbake dei gamle namna"
+
+#: src/features/print.rs
+msgid "{files} renamed"
+msgstr "{files} har fått nytt namn"
+
+#: src/features/print.rs
+msgid "; {files} could not be, asked again at the next start"
+msgstr "; {files} kunne ikkje, blir spurde om igjen ved neste oppstart"
+
+#: src/features/print.rs
+msgid "{found} of {images} ({size})"
+msgstr "{found} av {images} ({size})"
+
+#: src/features/print.rs
+msgid ", {m} selected ({size})"
+msgstr ", {m} valde ({size})"
+
+#: src/features/print.rs
+msgid "{n} bytes"
+msgstr "{n} byte"
+
+#: src/features/print.rs
+msgid " page {n}/{pages}"
+msgstr " side {n}/{pages}"
+
+#: src/features/print.rs
+msgid " frame {n}/{frames}"
+msgstr " rute {n}/{frames}"
+
+#: src/files/file_ops.rs
+msgid "Could not rename {f} to {t}: {e}; not all names could be put back, Glimt offers to put them right at the next start"
+msgstr "Kunne ikkje gje {f} namnet {t}: {e}; ikkje alle namn kunne setjast tilbake, Glimt tilbyr å retta dei ved neste oppstart"
+
+#: src/viewer/pan.rs
+msgid "Mon"
+msgstr "mån"
+
+#: src/viewer/pan.rs
+msgid "Tue"
+msgstr "tys"
+
+#: src/viewer/pan.rs
+msgid "Wed"
+msgstr "ons"
+
+#: src/viewer/pan.rs
+msgid "Thu"
+msgstr "tor"
+
+#: src/viewer/pan.rs
+msgid "Fri"
+msgstr "fre"
+
+#: src/viewer/pan.rs
+msgid "Sat"
+msgstr "lau"
+
+#: src/viewer/pan.rs
+msgid "Sun"
+msgstr "sun"
+
+#: src/files/file_ops.rs
+msgid "Still writing keywords: try again in a moment"
+msgstr "Skriv framleis nøkkelord: prøv igjen om eit augneblink"
+
+#: src/files/file_ops.rs
+msgid "Still working on these files: try again in a moment"
+msgstr "Arbeider framleis med desse filene: prøv igjen om eit augneblink"
+
+#: src/main.rs
+msgid "{what} stopped unexpectedly"
+msgstr "{what} stoppa uventa"
+
+#: src/main.rs
+msgid "Connecting"
+msgstr "Tilkopling"
+
+#: src/main.rs
+msgid "Reading the Lightroom catalog"
+msgstr "Lesing av Lightroom-katalogen"
+
+#: src/main.rs
+msgid "Looking for renames cut short"
+msgstr "Leiting etter avbrotne namneendringar"
+
+#: src/main.rs
+msgid "The EXIF index"
+msgstr "EXIF-indeksen"
+
+#: src/main.rs
+msgid "The Pan view's days"
+msgstr "Dagane i oversiktsvisinga"
+
+#: src/main.rs
+msgid "Rename Many"
+msgstr "Endra mange namn"
+
+#: src/files/external.rs
+msgid "No answer from the server in a minute"
+msgstr "Ikkje noko svar frå tenaren på eitt minutt"
+
+#: src/metadata/lightroom.rs
+msgid "The catalog is too large to read"
+msgstr "Katalogen er for stor til å lesa"
+
+#: src/files/file_ops.rs
+msgid "stopped"
+msgstr "stoppa"
+
+#: src/main.rs
+msgid "Saving keywords"
+msgstr "Lagrar nøkkelord"
+
+#: src/main.rs
+msgid "Saving the alt text"
+msgstr "Lagrar alt-teksten"
+
+#: src/main.rs
+msgid "Reading the folder"
+msgstr "Lesing av mappa"
+
+#: src/features/print.rs
+msgid "No answer from the print server in two minutes"
+msgstr "Ikkje noko svar frå utskriftstenaren på to minutt"
+
+#: src/files/file_ops.rs
+msgid "Could not rename {f} to {t}: {e}; not all names could be put back, and no plan could be kept: the files under .glimt-rename-* names next to them are theirs"
+msgstr "Kunne ikkje gje {f} namnet {t}: {e}; ikkje alle namn kunne setjast tilbake, og ingen plan kunne lagrast: filene med .glimt-rename-*-namn ved sida av høyrer til dei"
+
+#: src/ui/preferences.rs
+msgid "Look"
+msgstr "Utsjånad"
+
+#: src/ui/preferences.rs
+msgid "Keyboard"
+msgstr "Tastatur"
+
+#: src/ui/preferences.rs
+msgid "Image"
+msgstr "Bilete"
+
+#: src/ui/preferences.rs
+msgid "Slideshow"
+msgstr "Lysbiletframsyning"
+
+#: src/ui/preferences.rs
+msgid "File list"
+msgstr "Filliste"
+
+#: src/ui/preferences.rs
+msgid "Memory and CPU"
+msgstr "Minne og prosessor"
+
+#: src/ui/preferences.rs
+msgid "Video"
+msgstr "Video"
+
+#: src/ui/preferences.rs
+msgid "Start and system"
+msgstr "Oppstart og system"
+
+#: src/ui/preferences.rs
+msgid "Previews need ffmpeg"
+msgstr "Førehandsvising treng ffmpeg"
+
+#: src/ui/preferences.rs
+msgid "S starts and stops, R random order, Ctrl+= faster, Ctrl+- slower"
+msgstr "S startar og stoppar, R tilfeldig rekkjefølgje, Ctrl+= raskare, Ctrl+- saktare"
+
+#: src/ui/preferences.rs
+msgid "Custom window title (empty: as above):"
+msgstr "Eigen vindaugstittel (tom: som over):"
+
+#: src/ui/preferences.rs
+msgid "Fields: %name%, %path%, %folder% and %app%. A | starts a part, left out when its fields are empty."
+msgstr "Felt: %name%, %path%, %folder% og %app%. Ein | startar ein del, som blir utelaten når felta i han er tomme."
+
+#: src/ui/actions.rs
+msgid "Set Window Title…"
+msgstr "Set vindaugstittel …"
+
+#: src/main.rs
+msgid "Title of this window (%name%, %path%, %folder%, %app%; empty: as in Preferences):"
+msgstr "Tittel på dette vindauget (%name%, %path%, %folder%, %app%; tom: som i Innstillingar):"
+
+#: src/metadata/xmp.rs
+msgid "{name} is a link: not written through"
+msgstr "{name} er ei lenkje: blir ikkje skriven gjennom"
+
+#: src/metadata/lightroom.rs
+msgid "Reading a Lightroom catalog needs sqlite3 3.37 or newer"
+msgstr "Å lesa ein Lightroom-katalog krev sqlite3 3.37 eller nyare"
+
+#: src/ui/preferences.rs
+msgid "Copies of the pictures in your home folder: those of an encrypted volume or a stick stay readable there"
+msgstr "Kopiar av bileta i heimemappa di: dei frå eit kryptert volum eller ein minnepinne kan framleis lesast der"
+
+#: src/main.rs
+msgid "Stop {name}"
+msgstr "Stopp {name}"
+
+#: src/files/file_ops.rs
+msgid "The rotation was not saved: other work is still changing the file"
+msgstr "Roteringa vart ikkje lagra: anna arbeid endrar framleis fila"
+
+#: src/ui/preferences.rs
+msgid "Hide the pointer in full screen when the mouse is still"
+msgstr "Gøym musepeikaren i fullskjerm når musa står i ro"
+
+#: src/ui/preferences.rs
+msgid "Search the settings"
+msgstr "Søk i innstillingane"
+
+#: src/ui/preferences.rs
+msgid "No setting has these words"
+msgstr "Inga innstilling har desse orda"
+
+msgid "{program} runs outside the Flatpak, which needs: {how}"
+msgstr "{program} køyrer utanfor Flatpak, og det krev: {how}"
+
+msgid "System print dialog"
+msgstr "Utskriftsdialogen til systemet"
+
+msgid "Printing cancelled"
+msgstr "Utskrifta vart avbroten"
+
+msgid "Choose Application…"
+msgstr "Vel program …"
+
+#: src/ui/accessibility.rs
+msgid "{done} of {total}"
+msgstr "{done} av {total}"
+
+#: src/ui/accessibility.rs
+msgid "not among the matches"
+msgstr "ikkje blant treffa"
+
+#: src/ui/info_panel.rs
+msgid "EXIF: {name}"
+msgstr "EXIF: {name}"
+
+#: src/metadata/exif.rs
+msgid "Camera"
+msgstr "Kamera"
+
+#: src/metadata/exif.rs
+msgid "Lens"
+msgstr "Objektiv"
+
+#: src/metadata/exif.rs
+msgid "Taken"
+msgstr "Teke"
+
+#: src/metadata/exif.rs
+msgid "Exposure"
+msgstr "Eksponering"
+
+#: src/metadata/exif.rs
+msgid "Aperture"
+msgstr "Blendar"
+
+#: src/metadata/exif.rs
+msgid "Focal length"
+msgstr "Brennvidd"
+
+#: src/metadata/exif.rs
+msgid "Exposure bias"
+msgstr "Eksponeringskompensasjon"
+
+#: src/metadata/exif.rs
+msgid "Flash"
+msgstr "Blits"
+
+#: src/metadata/exif.rs
+msgid "Fired"
+msgstr "Utløyst"
+
+#: src/metadata/exif.rs
+msgid "No"
+msgstr "Nei"
+
+#: src/ui/info_panel.rs
+msgid "File size"
+msgstr "Filstorleik"
+
+#: src/ui/info_panel.rs
+msgid "Colour profile"
+msgstr "Fargeprofil"
+
+#: src/images/colour.rs
+msgid "{name}, in the file"
+msgstr "{name}, i fila"
+
+#: src/images/colour.rs
+msgid "Adobe RGB, from its EXIF"
+msgstr "Adobe RGB, frå EXIF"
+
+#: src/images/colour.rs
+msgid "unnamed"
+msgstr "utan namn"
+
+#: src/images/colour.rs
+msgid "{own}; {input} used instead"
+msgstr "{own}; {input} blir brukt i staden"
+
+#: src/images/colour.rs
+msgid "none: taken as {input}"
+msgstr "ingen: blir tolka som {input}"
+
+#: src/model/listing.rs
+msgid "Sort by name"
+msgstr "Sorter etter namn"
+
+#: src/model/listing.rs
+msgid "Sort by number"
+msgstr "Sorter etter nummer"
+
+#: src/model/listing.rs
+msgid "Sort by date"
+msgstr "Sorter etter dato"
+
+#: src/model/listing.rs
+msgid "Sort by file creation date"
+msgstr "Sorter etter når fila vart oppretta"
+
+#: src/model/listing.rs
+msgid "Sort by EXIF date original"
+msgstr "Sorter etter EXIF-dato for opptak"
+
+#: src/model/listing.rs
+msgid "Sort by EXIF date digitized"
+msgstr "Sorter etter EXIF-dato for digitalisering"
+
+#: src/model/listing.rs
+msgid "Sort by size"
+msgstr "Sorter etter storleik"
+
+#: src/model/listing.rs
+msgid "Sort by extension"
+msgstr "Sorter etter filending"
+
+#: src/ui/file_list.rs
+msgid "All types"
+msgstr "Alle typar"
+
+#: src/ui/file_list.rs
+msgid "No types"
+msgstr "Ingen typar"
+
+#: src/ui/theme.rs
+msgid "Desktop"
+msgstr "Skrivebord"
+
+#: src/ui/theme.rs
+msgid "Light"
+msgstr "Lyst"
+
+#: src/ui/theme.rs
+msgid "Dark"
+msgstr "Mørkt"
+
+#: src/ui/theme.rs
+msgid "High Contrast"
+msgstr "Høg kontrast"
+
+#: src/ui/theme.rs
+msgid "Contrast"
+msgstr "Kontrast"
+
+#: src/images/colour.rs
+msgid "Greyscale"
+msgstr "Gråtonar"
+
+#: src/images/colour.rs
+msgid "Inverted"
+msgstr "Invertert"
+
+#: src/images/colour.rs
+msgid "More Contrast"
+msgstr "Meir kontrast"
+
+#: src/images/colour.rs
+msgid "Perceptual"
+msgstr "Perseptuell"
+
+#: src/images/colour.rs
+msgid "Relative colorimetric"
+msgstr "Relativ kolorimetrisk"
+
+#: src/images/colour.rs
+msgid "Saturation"
+msgstr "Metting"
+
+#: src/images/colour.rs
+msgid "Absolute colorimetric"
+msgstr "Absolutt kolorimetrisk"
+
+#: src/files/config.rs
+msgid "Power saving"
+msgstr "Straumsparing"
+
+#: src/files/config.rs
+msgid "Balanced"
+msgstr "Balansert"
+
+#: src/files/config.rs
+msgid "Full"
+msgstr "Full"
+
+#: src/files/config.rs
+msgid "Fewer cores at once: thumbnails one at a time, searches and Find Duplicates on two cores. Slower in large folders, kinder to a laptop battery."
+msgstr "Færre kjernar om gongen: eitt miniatyrbilete om gongen, søk og Finn duplikat på to kjernar. Tregare i store mapper, skånsamare mot batteriet i ein berbar."
+
+#: src/files/config.rs
+msgid "Two thumbnails at once; searches and Find Duplicates on every core."
+msgstr "To miniatyrbilete om gongen; søk og Finn duplikat på alle kjernar."
+
+#: src/files/config.rs
+msgid "Every core: thumbnails and searches as fast as the machine allows."
+msgstr "Alle kjernar: miniatyrbilete og søk så raskt som maskina tillèt."
+
+#: src/files/config.rs
+msgid "Low"
+msgstr "Låg"
+
+#: src/files/config.rs
+msgid "High"
+msgstr "Høg"
+
+#: src/files/config.rs
+msgid "Least memory: one image decoded at a time, one preloaded on each side. Slow storage (SMB, NFS, USB) makes browsing wait for each file."
+msgstr "Minst minne: eitt bilete dekoda om gongen, eitt lasta på førehand på kvar side. Treg lagring (SMB, NFS, USB) får blainga til å venta på kvar fil."
+
+#: src/files/config.rs
+msgid "The default: four images decoded at once, two preloaded on each side."
+msgstr "Standard: fire bilete dekoda samtidig, to lasta på førehand på kvar side."
+
+#: src/files/config.rs
+msgid "Fastest browsing: eight images decoded at once, five preloaded on each side; hides the wait of slow storage (SMB, NFS) best."
+msgstr "Raskast blaing: åtte bilete dekoda samtidig, fem lasta på førehand på kvar side; skjuler ventinga på treg lagring (SMB, NFS) best."
+
+#: src/files/config.rs
+msgid "Short"
+msgstr "Kort"
+
+#: src/files/config.rs
+msgid "Long"
+msgstr "Lang"
+
+#: src/ui/preferences.rs
+msgid "{name}, from the desktop"
+msgstr "{name}, frå skrivebordet"
+
+#: src/ui/preferences.rs
+msgid "none, sRGB"
+msgstr "ingen, sRGB"
+
+#: src/ui/preferences.rs
+msgid "Fields: %name%, %path%, %position%, %dimensions%, %marks%, %keywords%, %comment%, and each label of the EXIF panel, such as %Camera% or %ISO%. A | starts a part, left out when its fields are empty."
+msgstr "Felt: %name%, %path%, %position%, %dimensions%, %marks%, %keywords%, %comment% og kvar etikett i EXIF-panelet med det engelske namnet sitt, som %Camera% eller %ISO%. Ein | startar ein del, som blir utelaten når felta i han er tomme."
+
+#: src/ui/preferences.rs
+msgid "Window title \"Glimt - image name\" (off: \"image name - Glimt\")"
+msgstr "Vindaugstittel «Glimt - biletnamn» (av: «biletnamn - Glimt»)"
+
+#: src/ui/preferences.rs
+msgid "A command line, such as mpv --fs; a path with spaces goes in \"quotes\""
+msgstr "Ei kommandolinje, som mpv --fs; ein sti med mellomrom skal stå i \"hermeteikn\""
+
+#: src/ui/dialogs.rs
+msgid "New folder name:"
+msgstr "Namn på ny mappe:"
+
+#: src/ui/dialogs.rs
+msgid "Name of the new theme:"
+msgstr "Namn på det nye temaet:"
+
+#: src/ui/dialogs.rs
+msgid "New name of the collection:"
+msgstr "Nytt namn på samlinga:"
+
+#: src/ui/dialogs.rs
+msgid "New file name:"
+msgstr "Nytt filnamn:"
+
+#: src/ui/dialogs.rs
+msgid "A crash or a power cut stopped it in {folder}. Some files may have their new names, some their old ones, and some hidden temporary names ({steps} to put right)."
+msgstr "Eit krasj eller straumbrot stoppa det i {folder}. Nokre filer kan ha fått dei nye namna, nokre har dei gamle, og nokre har gøymde mellombelse namn ({steps} å retta opp)."
+
+#: src/ui/dialogs.rs
+msgid "no home folder"
+msgstr "inga heimemappe"
+
+#: src/ui/window.rs
+msgid "Glimt closes when the file operations are done; close again to stop them"
+msgstr "Glimt blir lukka når filoperasjonane er ferdige; lukk igjen for å stoppa dei"
+
+#: src/ui/window.rs
+msgid "Stopping after the files at hand; close once more to end at once"
+msgstr "Stoppar etter filene som er i arbeid; lukk ein gong til for å avslutta med ein gong"
+
+#: src/features/check.rs
+msgid "Opens each of the {count} in the list, as the viewer would, and lists those that cannot be: broken files, files cut off in copying, and files that are no image. They are marked in the list too."
+msgstr "Opnar kvart av dei {count} i lista, slik visinga ville gjort, og listar opp dei som ikkje kan opnast: øydelagde filer, filer som vart kutta av under kopiering, og filer som ikkje er bilete. Dei blir merkte i lista òg."
+
+#: src/features/check.rs
+msgid "None broken."
+msgstr "Ingen øydelagde."
+
+#: src/main.rs
+msgid "Settings file: {first}{more}"
+msgstr "Innstillingsfila: {first}{more}"
+
+#: src/ui/accessibility.rs
+msgid ", could not be shown: {e}"
+msgstr ", kunne ikkje visast: {e}"
+
+#: src/ui/accessibility.rs
+msgid ", keywords: {keywords}"
+msgstr ", nøkkelord: {keywords}"
+
+#: src/files/config.rs
+msgid "Could not save {name}: {e}"
+msgstr "Kunne ikkje lagra {name}: {e}"
+
+#: src/files/backup.rs
+msgid "{folder} is not a folder"
+msgstr "{folder} er ikkje ei mappe"
+
+#: src/files/backup.rs
+msgid "Nothing to back up: Glimt has no settings, marks or collections here"
+msgstr "Ingenting å ta tryggingskopi av: Glimt har ingen innstillingar, merke eller samlingar her"
+
+#: src/files/backup.rs
+msgid "A backup cannot go inside {folder}, which it copies"
+msgstr "Ein tryggingskopi kan ikkje leggjast i {folder}, som han kopierer"
+
+#: src/files/backup.rs
+msgid "Glimt's data backed up to {folder}: {files}"
+msgstr "Data i Glimt er tryggingskopierte til {folder}: {files}"
+
+#: src/files/backup.rs
+msgid "The backup to {folder} is not whole: {e}"
+msgstr "Tryggingskopien til {folder} er ikkje fullstendig: {e}"
+
+#: src/files/file_io.rs
+msgid "the file was moved, renamed or deleted meanwhile"
+msgstr "fila vart flytta, fekk nytt namn eller vart sletta i mellomtida"
+
+#: src/files/external.rs
+msgid "HEIC and AVIF need ffprobe (ffmpeg): {e}"
+msgstr "HEIC og AVIF treng ffprobe (ffmpeg): {e}"
+
+#: src/files/external.rs
+msgid "video, HEIC and AVIF need ffmpeg: {e}"
+msgstr "video, HEIC og AVIF treng ffmpeg: {e}"
+
+#: src/files/external.rs
+msgid "Could not mount {uri}: not an address"
+msgstr "Kunne ikkje montera {uri}: ikkje ei adresse"
+
+#: src/files/external.rs
+msgid "Could not run gio: {e}"
+msgstr "Kunne ikkje køyra gio: {e}"
+
+#: src/files/external.rs
+msgid "Could not mount {uri}: wrong user name or password"
+msgstr "Kunne ikkje montera {uri}: feil brukarnamn eller passord"
+
+#: src/files/external.rs
+msgid "Could not mount {uri}: {err}{hint}"
+msgstr "Kunne ikkje montera {uri}: {err}{hint}"
+
+#: src/files/external.rs
+msgid " (the name {host} is not found)"
+msgstr " (namnet {host} finst ikkje)"
+
+#: src/files/external.rs
+msgid " (the name {host} is not found; try {host}.local or its IP address)"
+msgstr " (namnet {host} finst ikkje; prøv {host}.local eller IP-adressa)"
+
+#: src/files/file_ops.rs
+msgid "No such frame"
+msgstr "Det finst inga slik rute"
+
+#: src/files/file_ops.rs
+msgid "choose another name: the image itself is not changed"
+msgstr "vel eit anna namn: sjølve biletet blir ikkje endra"
+
+#: src/metadata/lightroom.rs
+msgid "Imported from Lightroom: {done}"
+msgstr "Importert frå Lightroom: {done}"
+
+#: src/metadata/lightroom.rs
+msgid "; not saved: {names}"
+msgstr "; ikkje lagra: {names}"
+
+#: src/metadata/lightroom.rs
+msgid " (no data folder: $HOME is not set)"
+msgstr " (inga datamappe: $HOME er ikkje sett)"
+
+#: src/metadata/lightroom.rs
+msgid "Collections are added to Glimt's, keywords to the keyword tree and stars to the marks. Smart collections are left out."
+msgstr "Samlingar blir lagde til dei i Glimt, nøkkelord i nøkkelordtreet og stjerner til merka. Smarte samlingar blir utelatne."
+
+#: src/metadata/lightroom.rs
+msgid "{names} and {n} more"
+msgstr "{names} og {n} til"
+
+#: src/metadata/lightroom.rs
+msgid "The keywords of each image, into its XMP sidecar ({count}); those it has stay"
+msgstr "Nøkkelorda til kvart bilete, inn i XMP-sidefila ({count}); dei som finst der, blir verande"
+
+#: src/metadata/lightroom.rs
+msgid "1 image has"
+msgstr "1 bilete har"
+
+#: src/model/collections.rs
+msgid "no data folder ($HOME is not set)"
+msgstr "inga datamappe ($HOME er ikkje sett)"
+
+#: src/model/collections.rs
+msgid "Could not rename the collection: {e}"
+msgstr "Kunne ikkje endra namn på samlinga: {e}"
+
+#: src/viewer/view.rs
+msgid "Could not open {name}:\n{e}"
+msgstr "Kunne ikkje opna {name}:\n{e}"
+
+#: src/images/save.rs
+msgid "only JPEG, PNG and WebP can store the rotation"
+msgstr "berre JPEG, PNG og WebP kan lagra roteringa"
+
+#: src/images/save.rs
+msgid "animated images are not turned"
+msgstr "animerte bilete blir ikkje roterte"
+
+#: src/images/save.rs
+msgid "animated images are not saved as a copy"
+msgstr "animerte bilete blir ikkje lagra som kopi"
+
+#: src/images/save.rs
+msgid "the part is outside the image"
+msgstr "utsnittet er utanfor biletet"
+
+#: src/images/save.rs
+msgid "a lossy WebP needs ffmpeg to be saved: {e}"
+msgstr "ein WebP med tap treng ffmpeg for å bli lagra: {e}"
+
+#: src/metadata/exif.rs
+msgid "only JPEG files can store the orientation"
+msgstr "berre JPEG-filer kan lagra retninga"
+
+#: src/metadata/xmp.rs
+msgid "the image was moved, renamed or deleted meanwhile"
+msgstr "biletet vart flytta, fekk nytt namn eller vart sletta i mellomtida"
+
+#: src/ui/dialogs.rs
+msgid "Move the collection \"{name}\" to the trash? Its images stay where they are."
+msgstr "Flytta samlinga «{name}» til papirkorga? Bileta blir verande der dei er."
+
+#: src/files/file_io.rs
+msgid "the file system here ({kind}) does not allow this rename, as on some shares, cloud folders and phones ({e})"
+msgstr "filsystemet her ({kind}) tillèt ikkje denne namneendringa, slik som på somme delte mapper, skymapper og telefonar ({e})"
+
+#: src/files/file_ops.rs
+msgid "\"{name}\": a {kind} file system, as on a camera card, allows none of : ? * \" < > | \\ in a name. Nothing was renamed."
+msgstr "«{name}»: eit {kind}-filsystem, som på minnekortet i eit kamera, tillèt ingen av : ? * \" < > | \\ i eit namn. Ingenting fekk nytt namn."
+
+#: src/files/file_ops.rs
+msgid "The trash refused {count} ({kind}). Nothing was deleted, because another folder is open now."
+msgstr "Papirkorga tok ikkje imot {count} ({kind}). Ingenting vart sletta, fordi ei anna mappe er open no."
+
+#: src/ui/dialogs.rs
+msgid "The trash does not take files in this folder ({kind}), as on network and cloud folders."
+msgstr "Papirkorga tek ikkje imot filer i denne mappa ({kind}), slik som i nettverks- og skymapper."
+
+#: src/files/file_ops.rs
+msgid "\"{name}\": a {kind} file system, as on a camera card, allows none of : ? * \" < > | \\ in a name. Nothing was copied."
+msgstr "«{name}»: eit {kind}-filsystem, som på minnekortet i eit kamera, tillèt ingen av : ? * \" < > | \\ i eit namn. Ingenting vart kopiert."
+
+#: src/files/file_ops.rs
+msgid "\"{name}\": a {kind} file system, as on a camera card, allows none of : ? * \" < > | \\ in a name. Nothing was moved."
+msgstr "«{name}»: eit {kind}-filsystem, som på minnekortet i eit kamera, tillèt ingen av : ? * \" < > | \\ i eit namn. Ingenting vart flytta."
+
+#: src/ui/dialogs.rs
+msgid "A {kind} file system, as on a camera card, allows none of : ? * \" < > | \\ in a name."
+msgstr "Eit {kind}-filsystem, som på minnekortet i eit kamera, tillèt ingen av : ? * \" < > | \\ i eit namn."

@@ -42,11 +42,11 @@ test; new ones go at the end of that file.
 English for everything in the repository: UI text, identifiers, comments, commit messages and
 documentation.
 
-The interface ships in fourteen languages: English and the translations in `po/*.po` (Czech,
-Danish, German, Spanish, Finnish, French, Icelandic, Italian, Dutch, Norwegian bokmål, Polish,
-Brazilian Portuguese and Swedish), listed in `lang::LANGUAGES`. **Every new UI text, `tr("…")`
-or `tf!("…")`, is translated into all of them in the same commit**: `po/no_nb.po` first, then
-the others.
+The interface ships in fifteen languages: English and the translations in `po/*.po` (Czech,
+Danish, German, Spanish, Finnish, French, Icelandic, Italian, Dutch, Norwegian bokmål and
+nynorsk, Polish, Brazilian Portuguese and Swedish), listed in `lang::LANGUAGES`. **Every new UI
+text, `tr("…")` or `tf!("…")`, is translated into all of them in the same commit**:
+`po/no_nb.po` first, then the others.
 `lang::tests::every_language_has_every_text` fails while one lacks a text of `no_nb.po`, and
 `translations_keep_placeholders` while a translation drops a `{name}`. Keep the key names as the
 menus show them (Ctrl, Shift, Enter, Esc, Delete), `%field%` template names unchanged, and only
