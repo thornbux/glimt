@@ -114,9 +114,19 @@ def empty_fields(xmp):
     return [f for f in FIELDS if not exiftool(["-s3", f"-{f}"], xmp).strip()]
 
 
-def replace(sidecar, data):
+class Changed(Exception):
+    """The sidecar changed between reading it and replacing it."""
+
+
+def replace(sidecar, data, read):
     """Writes `data` as the sidecar, whole or not at all. The new file is made under a name of
-    its own and renamed over the sidecar, which replaces a link put there rather than follow it."""
+    its own and renamed over the sidecar, which replaces a link put there rather than follow it.
+    Raises Changed, and writes nothing, when the sidecar no longer holds `read`, what `data` was
+    made from: Glimt wrote it meanwhile, and replacing it would lose that.
+
+    shortcut: a write in the moment between the last read and the rename is still lost, as the
+    plugin cannot take the lock Glimt's own sidecar writes take; a plugin API that writes
+    through Glimt would close it."""
     fd, temp = tempfile.mkstemp(dir=os.path.dirname(sidecar), prefix=".glimt-describe-")
     # mkstemp makes the file readable by its owner only; a sidecar gets the usual permissions.
     umask = os.umask(0)
@@ -125,8 +135,10 @@ def replace(sidecar, data):
         os.fchmod(fd, 0o666 & ~umask)
         with os.fdopen(fd, "wb") as f:
             f.write(data)
+        if read_sidecar(sidecar) != read:
+            raise Changed()
         os.replace(temp, sidecar)
-    except OSError:
+    except (OSError, Changed):
         os.unlink(temp)
         raise
 
@@ -162,15 +174,26 @@ def main(paths):
         # Only that fresh copy is changed, so a keyword or stars added meanwhile are kept.
         # One argument each, so exiftool reads the text as no option. It writes the changed XMP
         # to its standard output ("-o -"), and the sidecar is replaced with that.
-        try:
-            xmp = read_sidecar(sidecar) or seed(path)
-            fields = empty_fields(xmp)
-            if not fields:
+        # When Glimt writes the sidecar while it is being changed here, the change is made again
+        # from what Glimt wrote; a few tries, as each takes only as long as two exiftool runs.
+        for _ in range(5):
+            try:
+                read = read_sidecar(sidecar)
+                xmp = read or seed(path)
+                fields = empty_fields(xmp)
+                if fields:
+                    args = ["-q", *[f"-{f}={text}" for f in fields], "-o", "-"]
+                    replace(sidecar, exiftool(args, xmp), read)
+                break
+            except Changed:
                 continue
-            replace(sidecar, exiftool(["-q", *[f"-{f}={text}" for f in fields], "-o", "-"], xmp))
-        except OSError as e:
+            except OSError as e:
+                failed += 1
+                print(f"{path}: {e}", file=sys.stderr)
+                break
+        else:
             failed += 1
-            print(f"{path}: {e}", file=sys.stderr)
+            print(f"{path}: the sidecar kept changing: left alone", file=sys.stderr)
     sys.exit(1 if failed else 0)
 
 
