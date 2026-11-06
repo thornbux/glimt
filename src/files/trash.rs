@@ -43,7 +43,8 @@ struct Trashed {
 /// before only when there is none. Each trash folder is read once, into a map by name. Read from
 /// the trash's own folders (files/ and info/*.trashinfo, as freedesktop.org has it): `gio trash
 /// --restore` needs gvfs, which KDE and containers often lack. Never over a file that has taken the
-/// name since. A file that cannot come back holds none of the others back.
+/// name since. A file that cannot come back stays in the trash with its sidecar, and holds none
+/// of the others back.
 /// Returns the files put back, and the first error.
 pub(crate) fn restore(
     thrown: &Thrown,
@@ -112,24 +113,33 @@ pub(crate) fn restore(
         .iter()
         .map(|f| crate::metadata::xmp::sidecar(f))
         .collect();
-    let mut steps: Vec<(Trashed, bool)> = Vec::new();
+    // Each step is a file with its own sidecar, or a sidecar alone.
+    let mut steps: Vec<(Trashed, bool, Option<Trashed>)> = Vec::new();
     for t in found {
         let side = Some(crate::metadata::xmp::sidecar(&t.from)).filter(|s| sides.contains(s));
         let side = side.and_then(|s| find(&s));
-        steps.push((t, true));
-        steps.extend(side.map(|s| (s, false)));
+        steps.push((t, true, side));
     }
     let rest = (thrown.sidecars.iter())
         .filter(|s| !paired.contains(*s))
         .filter_map(|s| find(s));
-    steps.extend(rest.map(|s| (s, false)));
+    steps.extend(rest.map(|s| (s, false, None)));
+    let put_back = |t: &Trashed| {
+        rename_never_over(&t.file, &t.from)
+            .map(|()| drop(std::fs::remove_file(&t.info)))
+            .map_err(|e| format!("{display}: {e}", display = t.from.display()))
+    };
+    // A file that cannot come back stays in the trash with its sidecar, and the next files
+    // still come back.
     let mut back = Vec::new();
-    for (t, is_file) in steps {
-        if let Err(e) = rename_never_over(&t.file, &t.from) {
-            let e = format!("{display}: {e}", display = t.from.display());
-            return (back, error.or(Some(e)));
+    for (t, is_file, side) in steps {
+        if let Err(e) = put_back(&t) {
+            error.get_or_insert(e);
+            continue;
         }
-        let _ = std::fs::remove_file(&t.info);
+        if let Some(Err(e)) = side.as_ref().map(put_back) {
+            error.get_or_insert(e);
+        }
         if is_file {
             back.push(t.from);
         }
@@ -672,6 +682,47 @@ mod tests {
         assert_eq!(back, [x.join("a.jpg")]);
         assert!(error.is_some());
         assert!(x.join("a.jpg.xmp").exists());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A file that cannot come back from the trash stays there with its sidecar, and the files
+    /// after it still come back. Undo stopped at the first one.
+    #[test]
+    fn a_file_that_cannot_come_back_holds_none_back() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-holds-{}", std::process::id()));
+        let (trash, x) = (dir.join("trash"), dir.join("x"));
+        for d in [trash.join("files"), trash.join("info"), x.clone()] {
+            std::fs::create_dir_all(d).unwrap();
+        }
+        let now = std::time::SystemTime::now();
+        let secs = now.duration_since(std::time::UNIX_EPOCH).unwrap().as_secs() as i64;
+        let date = crate::support::format::local_time(secs).replacen(' ', "T", 1);
+        // b.jpg's own file is gone from the trash, so it cannot come back.
+        for kept in ["a.jpg", "a.jpg.xmp", "b.jpg", "b.jpg.xmp"] {
+            if kept != "b.jpg" {
+                crate::files::file_io::create_file(&trash.join("files").join(kept), kept).unwrap();
+            }
+            let text = format!(
+                "[Trash Info]\nPath={}\nDeletionDate={date}\n",
+                x.join(kept).display()
+            );
+            let info = trash.join("info").join(format!("{kept}.trashinfo"));
+            crate::files::file_io::create_file(&info, text).unwrap();
+        }
+        let thrown = super::Thrown {
+            files: vec![x.join("b.jpg"), x.join("a.jpg")],
+            sidecars: vec![x.join("b.jpg.xmp"), x.join("a.jpg.xmp")],
+            sidecars_left: Vec::new(),
+            since: now - std::time::Duration::from_secs(1),
+            marks: Vec::new(),
+            collection: None,
+        };
+        let dirs = |_: &std::path::Path| vec![(trash.clone(), std::path::PathBuf::from("/"))];
+        let (back, error) = super::restore(&thrown, dirs);
+        assert_eq!(back, [x.join("a.jpg")]);
+        assert!(error.is_some());
+        assert!(x.join("a.jpg.xmp").exists() && !x.join("b.jpg.xmp").exists());
+        assert!(trash.join("files/b.jpg.xmp").exists());
         std::fs::remove_dir_all(dir).unwrap();
     }
 
