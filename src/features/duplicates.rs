@@ -314,12 +314,13 @@ pub fn find(
     save: bool,
     p: &Progress,
 ) -> Vec<Vec<PathBuf>> {
-    // The same file reached twice, by a link to it or through a linked folder, would be its own
-    // "duplicate", and checked and trashed the only copy would go: each file once.
-    let real = parallel(&paths, p, |path| path.canonicalize().ok());
+    // The same file reached twice, by a link to it, through a linked folder or through a bind
+    // mount, would be its own "duplicate", and checked and trashed the only copy would go: each
+    // file once. Hard links of one file are one file too, since trashing one frees nothing.
+    let ids = parallel(&paths, p, crate::images::save::file_id);
     let mut seen = std::collections::HashSet::new();
-    let paths: Vec<PathBuf> = (paths.into_iter().zip(real))
-        .filter(|(path, real)| seen.insert(real.clone().unwrap_or_else(|| path.clone())))
+    let paths: Vec<PathBuf> = (paths.into_iter().zip(ids))
+        .filter(|(path, id)| seen.insert(id.ok_or_else(|| path.clone())))
         .map(|(path, _)| path)
         .collect();
     let mut groups = match by {
@@ -725,6 +726,22 @@ mod tests {
         std::fs::write(&files[2], other).unwrap();
         let groups = super::same_contents(files.clone(), &super::Progress::default());
         assert_eq!(groups, [files[..2].to_vec()]);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// One file reached by two paths whose real paths differ, through a bind mount or a hard
+    /// link, is no duplicate of itself, so "all but the first" never checks its only copy.
+    #[test]
+    fn one_file_reached_twice_is_one_file() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-twice-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let files: Vec<std::path::PathBuf> = ["a", "b", "c"].iter().map(|n| dir.join(n)).collect();
+        std::fs::write(&files[0], vec![7u8; 1000]).unwrap();
+        std::fs::hard_link(&files[0], &files[1]).unwrap();
+        std::fs::write(&files[2], vec![7u8; 1000]).unwrap();
+        let p = super::Progress::default();
+        let groups = super::find(files.clone(), super::By::Checksum, false, false, &p);
+        assert_eq!(groups, [vec![files[0].clone(), files[2].clone()]]);
         std::fs::remove_dir_all(dir).unwrap();
     }
 

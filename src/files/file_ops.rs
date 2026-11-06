@@ -474,8 +474,9 @@ impl crate::App {
         // back.
         let renaming = self.work.renaming.is_some();
         // A list just opened shows the names in its file until they are checked to be files.
-        // A folder named there was moved to the trash as one of its entries.
-        let reading = self.list.unchecked() && self.folder.is_listing();
+        // A folder named there was moved to the trash as one of its entries. A listing that
+        // broke checked nothing either, so the list waits for one that comes whole (F5).
+        let reading = self.list.unchecked();
         let busy = !saving && !writing && !renaming && (reading || self.touched(paths));
         if saving {
             self.notice = Some(tr("Still saving a rotation: try again in a moment").into());
@@ -2157,6 +2158,30 @@ mod tests {
         assert!(app.notice.is_some() && app.list.files().len() == 2);
         assert!(settle(&mut app, &ctx, |a| !a.folder.is_listing()));
         assert_eq!(app.list.files().len(), 1);
+        std::fs::remove_dir_all(d).unwrap();
+    }
+
+    /// A list's entries count as unchecked only until a listing of them comes whole. A folder
+    /// opened while a list was read was refused file operations until its own listing came,
+    /// and a list whose listing broke allowed them unchecked.
+    #[test]
+    fn only_a_whole_listing_checks_a_list() {
+        let d = std::env::temp_dir().join(format!("glimt-test-list-gone-{}", std::process::id()));
+        std::fs::create_dir_all(d.join("sub")).unwrap();
+        image::RgbImage::new(2, 2).save(d.join("a.png")).unwrap();
+        std::fs::write(d.join("show.m3u"), "sub\na.png\n").unwrap();
+        let (mut app, ctx) = app_on(&d);
+        app.open_collection(&ctx, d.join("show.m3u"));
+        app.open(&ctx, d.clone());
+        assert!(!app.list.unchecked());
+        app.open_collection(&ctx, d.join("show.m3u"));
+        let (tx, rx) = std::sync::mpsc::channel();
+        drop(tx);
+        app.folder.hold_listing(rx);
+        app.receive_listing(&ctx, std::time::Duration::ZERO);
+        assert!(!app.folder.is_listing());
+        app.notice = None;
+        assert!(!app.none_saving(&[]) && app.notice.is_some());
         std::fs::remove_dir_all(d).unwrap();
     }
 

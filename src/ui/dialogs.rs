@@ -78,6 +78,11 @@ pub(crate) enum Prompt {
 pub(crate) struct Dialogs {
     /// Open text dialog and the text typed so far.
     prompt: Option<(Prompt, String)>,
+    /// The text the dialog opened with. An answer left as it was does nothing, because the
+    /// name shown is not always the name on disk: bytes that are not UTF-8 are shown as a
+    /// replacement character, and the answer is trimmed of the spaces a name may start or end
+    /// with.
+    opened_with: String,
     /// The delete confirmation is open: `Some(true)` = move to trash, `Some(false)` = permanently.
     confirm_delete: Option<bool>,
     /// The type of the network or cloud mount whose files the trash refused, when the delete
@@ -110,7 +115,14 @@ pub(crate) struct Dialogs {
 impl Dialogs {
     /// Opens the text dialog `prompt`, with `text` typed in already.
     pub(crate) fn ask(&mut self, prompt: Prompt, text: String) {
+        self.opened_with.clone_from(&text);
         self.prompt = Some((prompt, text));
+    }
+
+    /// Whether `text`, as typed, is what the dialog `prompt` opened with. Rename Many's is
+    /// a pattern to apply, not a name already there, so it is never unchanged.
+    fn unchanged(&self, prompt: Prompt, text: &str) -> bool {
+        !matches!(prompt, Prompt::RenameMany) && text == self.opened_with
     }
 
     /// Asks whether to delete the files: to the trash when `trash`, else for good.
@@ -151,20 +163,20 @@ impl Dialogs {
     /// Asks for a new name for the folder `dir`.
     pub(crate) fn ask_rename_folder(&mut self, dir: &Path) {
         let name = dir.file_name().unwrap_or_default().to_string_lossy();
-        self.prompt = Some((Prompt::RenameFolder, name.into_owned()));
+        self.ask(Prompt::RenameFolder, name.into_owned());
         self.folder_target = Some(dir.to_path_buf());
     }
 
     /// Asks for the name of a new folder in the folder `dir`.
     pub(crate) fn ask_new_folder(&mut self, dir: &Path) {
-        self.prompt = Some((Prompt::NewFolder, String::new()));
+        self.ask(Prompt::NewFolder, String::new());
         self.folder_target = Some(dir.to_path_buf());
     }
 
     /// Asks for a new name for the collection `file`.
     pub(crate) fn ask_rename_collection(&mut self, file: &Path) {
         let name = file.file_stem().unwrap_or_default().to_string_lossy();
-        self.prompt = Some((Prompt::RenameCollection, name.into_owned()));
+        self.ask(Prompt::RenameCollection, name.into_owned());
         self.folder_target = Some(file.to_path_buf());
     }
 
@@ -454,7 +466,7 @@ impl crate::App {
                 });
             });
             if let Some(text) = answer {
-                self.answer_prompt(ctx, prompt, text.trim());
+                self.prompt_answered(ctx, prompt, &text);
             } else if !modal.should_close() {
                 self.dialogs.prompt = Some((prompt, text));
             }
@@ -477,7 +489,16 @@ impl crate::App {
         }
     }
 
-    /// The text dialog was answered with `text`.
+    /// The text dialog was answered with `text` as typed. An answer left as the dialog opened
+    /// with does nothing, as Cancel: a file's name with bytes that are not UTF-8, or with a
+    /// space at its end, was otherwise renamed to the name shown, trimmed.
+    pub(crate) fn prompt_answered(&mut self, ctx: &egui::Context, prompt: Prompt, text: &str) {
+        if !self.dialogs.unchanged(prompt, text) {
+            self.answer_prompt(ctx, prompt, text.trim());
+        }
+    }
+
+    /// The text dialog was answered with `text`, trimmed.
     pub(crate) fn answer_prompt(&mut self, ctx: &egui::Context, prompt: Prompt, text: &str) {
         if let Prompt::WindowTitle = prompt {
             return self.set_window_title(ctx, text);
@@ -952,6 +973,38 @@ mod tests {
             "a later Enter did not answer"
         );
         std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// Rename, and Rename Folder, answered with the name they opened with rename nothing. The
+    /// name shown is not the name on disk when it has bytes that are not UTF-8 or a space at
+    /// its start or end, and the file was renamed to the name shown.
+    #[test]
+    fn an_unchanged_name_renames_nothing() {
+        use std::os::unix::ffi::OsStrExt;
+        let dir = std::env::temp_dir().join(format!("glimt-test-same-{}", std::process::id()));
+        let latin1 = std::ffi::OsStr::from_bytes(b"caf\xe9.png");
+        for name in [latin1, " holiday.png".as_ref()] {
+            let _ = std::fs::remove_dir_all(&dir);
+            std::fs::create_dir_all(dir.join("trip ")).unwrap();
+            image::RgbImage::new(2, 2).save(dir.join("a.png")).unwrap();
+            std::fs::rename(dir.join("a.png"), dir.join(name)).unwrap();
+            let (mut app, ctx) = app_on(&dir);
+            let listed = |a: &crate::App| !a.list.files().is_empty();
+            assert!(crate::support::test_support::settle(&mut app, &ctx, listed));
+            app.run(&ctx, crate::ui::actions::Action::Rename);
+            app.dialogs.ask_rename_folder(&dir.join("trip "));
+            let (prompt, text) = app.dialogs.prompt.take().unwrap();
+            app.prompt_answered(&ctx, prompt, &text);
+            let done = |a: &crate::App| !a.working_besides_image();
+            assert!(crate::support::test_support::settle(&mut app, &ctx, done));
+            assert!(dir.join("trip ").is_dir(), "the folder was renamed");
+            app.run(&ctx, crate::ui::actions::Action::Rename);
+            let (prompt, text) = app.dialogs.prompt.take().unwrap();
+            app.prompt_answered(&ctx, prompt, &text);
+            assert!(crate::support::test_support::settle(&mut app, &ctx, done));
+            assert!(dir.join(name).is_file(), "{name:?} was renamed");
+        }
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     /// New Collection selects the files it asked about through set_selection, so what follows

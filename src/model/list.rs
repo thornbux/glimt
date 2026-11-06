@@ -104,7 +104,8 @@ pub(crate) struct List {
     version: usize,
     /// The entries are the names in a list's file, not yet checked to be files, so no file
     /// operation may start. A new `List` keeps it, because a shuffle or a move in the
-    /// collection puts the same names in another order. The whole listing clears it.
+    /// collection puts the same names in another order. The whole listing clears it, and so
+    /// does another folder opened.
     unchecked: bool,
 }
 
@@ -484,6 +485,58 @@ fn without_indices<T>(map: HashMap<usize, T>, removed: &[usize]) -> HashMap<usiz
 
 #[cfg(test)]
 mod tests {
+    /// Every field of `List` says what becomes of it when a new list replaces the old one
+    /// (`List::after` and `App::replace_files`). A slideshow's last slide was dropped, because
+    /// nobody chose for it. A new field fails here until it is carried by name or its reset is
+    /// meant, and written in this table.
+    #[test]
+    fn every_field_is_carried_or_reset_on_a_new_list() {
+        const FATE: &[(&str, &str)] = &[
+            ("files", "the new list"),
+            ("cur", "carried by name: the file shown"),
+            (
+                "selected",
+                "carried by name by the callers that keep it (reselect)",
+            ),
+            ("anchor", "reset"),
+            ("range_end", "reset"),
+            ("panes", "carried by name"),
+            ("slots", "carried by name"),
+            ("decode_errors", "reset: decoded again"),
+            (
+                "decodes_pending",
+                "the shown file's carried, the others reset",
+            ),
+            ("matches", "worked out again: update_search"),
+            ("match_size", "worked out again: update_search"),
+            ("rubber_band", "reset"),
+            ("dragging", "reset"),
+            ("last_slide", "carried by name"),
+            (
+                "pan_thumbs",
+                "reset: pan view names them again in its next frame",
+            ),
+            ("details", "reset: read again as the rows are drawn"),
+            ("version", "goes up in List::after"),
+            ("unchecked", "carried by List::after"),
+        ];
+        let sources = crate::support::source_rules::sources();
+        let text = &sources
+            .iter()
+            .find(|(n, _)| n == "model/list.rs")
+            .unwrap()
+            .1;
+        let body = text.split("pub(crate) struct List {").nth(1).unwrap();
+        let body = body.split("\n}").next().unwrap();
+        let fields: Vec<&str> = (body.lines())
+            .map(str::trim)
+            .filter(|l| !l.starts_with("//") && l.contains(':'))
+            .map(|l| l.split(':').next().unwrap())
+            .collect();
+        let named: Vec<&str> = FATE.iter().map(|f| f.0).collect();
+        assert_eq!(fields, named);
+    }
+
     #[test]
     fn without_indices_shifts_down() {
         let map = std::collections::HashMap::from([(1, 'a'), (2, 'b'), (4, 'c'), (6, 'd')]);
