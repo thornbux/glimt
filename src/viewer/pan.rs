@@ -74,10 +74,11 @@ pub(crate) struct Pan {
     /// that come are moved through the deletes to the list as it is now, in one pass however
     /// many deletes there were.
     gone: (Vec<usize>, usize),
-    /// The rows for this many columns, and their height.
+    /// The rows, their height, and the number of columns and the cell size they were laid out
+    /// for. `None` makes them again at the next frame.
     rows: Vec<(f32, pan::Row)>,
-    columns: usize,
     height: f32,
+    laid_for: Option<(usize, egui::Vec2)>,
     /// The calendar instead of the timeline, its months, and a day picked there for the
     /// timeline to scroll to.
     calendar: bool,
@@ -138,7 +139,21 @@ impl Pan {
         without(days, removed);
         *made = version;
         self.months = months(days);
-        (self.columns, self.jump) = (0, None);
+        (self.laid_for, self.jump) = (None, None);
+    }
+
+    /// Lays the rows out again when the number of columns or the cell size differs from the
+    /// one they were laid out for. A thumbnail size or the names under thumbnails can change
+    /// the cell's height while the columns stay, and rows of the old height would then put
+    /// each cell over the next row.
+    fn lay_out(&mut self, columns: usize, heading: f32, cell: egui::Vec2) {
+        let Some((days, _)) = self.days.as_ref() else {
+            return;
+        };
+        if self.laid_for != Some((columns, cell)) {
+            (self.rows, self.height) = layout(days, columns, heading, cell.y);
+            self.laid_for = Some((columns, cell));
+        }
     }
 
     /// Takes the days read so far and moves them through the deletes made since the reading
@@ -147,7 +162,7 @@ impl Pan {
         without(&mut days, &self.gone.0);
         self.months = months(&days);
         self.days = Some((days, self.gone.1));
-        self.columns = 0;
+        self.laid_for = None;
         if done {
             self.days_rx.clear();
         }
@@ -276,15 +291,12 @@ impl crate::App {
         cell: egui::Vec2,
     ) -> (Option<usize>, bool) {
         let (mut show, mut close) = (None, false);
+        let heading = 26.0;
+        let columns = ((ui.available_width() / cell.x) as usize).max(1);
+        pan.lay_out(columns, heading, cell);
         let Some((days, _)) = pan.days.as_ref() else {
             return (None, false);
         };
-        let heading = 26.0;
-        let columns = ((ui.available_width() / cell.x) as usize).max(1);
-        if columns != pan.columns {
-            (pan.rows, pan.height) = layout(days, columns, heading, cell.y);
-            pan.columns = columns;
-        }
         let mut area = egui::ScrollArea::vertical().auto_shrink(false);
         if let Some(d) = pan.jump.take()
             && let Some(row) = pan.rows.iter().find(|r| r.1 == Row::Heading(d))
@@ -581,7 +593,8 @@ fn by_day<K: Ord>(keys: Vec<Option<K>>, mut day: impl FnMut(&K) -> String) -> Ve
 }
 
 /// The rows of `days` with `columns` thumbnails to a row, each with its top; and the height of
-/// them all. Made again only when the number of columns changes.
+/// them all. Made again only when the number of columns or the cell size changes
+/// (`Pan::lay_out`).
 pub fn layout(days: &[Day], columns: usize, heading: f32, cell: f32) -> (Vec<(f32, Row)>, f32) {
     let (mut rows, mut y) = (Vec::new(), 0.0);
     for (d, (_, list)) in days.iter().enumerate() {
@@ -677,6 +690,20 @@ fn days_in_month(y: i32, m: u32) -> u32 {
 mod tests {
     use super::*;
     use std::sync::atomic::AtomicUsize;
+
+    /// A taller cell with the same number of columns lays the rows out again at the new pitch,
+    /// as names turned on under the thumbnails do.
+    #[test]
+    fn the_rows_follow_the_cell_size() {
+        let mut pan = Pan::default();
+        pan.days = Some((vec![("2024-01-01".into(), vec![0, 1, 2, 3])], 1));
+        let pitch = |pan: &Pan| pan.rows[2].0 - pan.rows[1].0;
+        pan.lay_out(2, 26.0, egui::vec2(100.0, 100.0));
+        assert_eq!(pitch(&pan), 100.0);
+        pan.lay_out(2, 26.0, egui::vec2(100.0, 118.0));
+        assert_eq!(pitch(&pan), 118.0);
+        assert_eq!(pan.height, 26.0 + 2.0 * 118.0);
+    }
 
     /// A delete keeps the days of the files left, at their new places, and a day left empty
     /// goes. Days of another version of the list are not touched.

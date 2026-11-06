@@ -668,7 +668,7 @@ const DIFFERENCES: &[(&str, &str, &str)] = &[
     (
         "Thumbnail size",
         "Small, Medium or Large, in View → Thumbnail Size and in Preferences",
-        "A width and height in Preferences only",
+        "One of a list of fixed sizes, from 24×24 to 256×256, in Preferences only",
     ),
     (
         "File names in the grid",
