@@ -16,17 +16,22 @@
 # cargo fmt changes the files in place: the checkout is mounted, not copied.
 set -u
 cd "$(dirname "$0")/.." || exit 2
-here=$(pwd)
+# The real path, as git worktree list prints it, so --clean knows this checkout's folder also
+# when it is reached through a link (on macOS /tmp is /private/tmp).
+here=$(pwd -P)
 folder() { printf '%s-%s' "$(basename "$1")" "$(printf %s "$1" | cksum | cut -d' ' -f1)"; }
 name=$(folder "$here")
 # Each checkout's build folder stays in glimt-target when its worktree is removed, 1.5 to 4.5 GB
 # each, until the disk is full. --clean keeps those of the worktrees git still knows and
-# run.sh's own, and removes the rest.
+# run.sh's own (the two builds and the last release's binaries), and removes the rest. A clone
+# of the repository elsewhere is not in this list, so its folder goes and is built again.
 if [ "${1:-}" = --clean ]; then
-    keep="release-tests-new release-tests-old"
+    trees=$(git worktree list --porcelain) ||
+        { echo "git worktree list failed: nothing removed"; exit 2; }
+    keep="release-tests-new release-tests-old old-builds"
     while IFS= read -r tree; do
         keep="$keep $(folder "$tree")"
-    done < <(git worktree list --porcelain | sed -n 's/^worktree //p')
+    done < <(printf '%s\n' "$trees" | sed -n 's/^worktree //p')
     exec docker run --rm -v glimt-target:/target -w /target glimt-check sh -c '
         for d in *; do
             [ -d "$d" ] || continue

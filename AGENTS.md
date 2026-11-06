@@ -323,7 +323,7 @@ python3 tools/flatpak-sources.py  # and flatpak/cargo-sources.json, the Flatpak'
   computer without cargo or to run several worktrees at once. CI runs them too on every push to
   any branch, so a branch is checked there without a local build. Each checkout keeps a build
   folder of a few GB in the volume `glimt-target`; after removing worktrees, `tools/check.sh
-  --clean` removes the folders of those that are gone. Read its exit status directly, not
+  --clean` removes the folders of those that are gone (a clone elsewhere is built again). Read its exit status directly, not
   through a pipe such as `| tail`, which hides a failed check.
 - A release: the version in `Cargo.toml` and in the header of `docs/glimt.1`, a section in
   `CHANGELOG.md`, a `<release>` line in `assets/io.github.thornbux.Glimt.metainfo.xml`, and a
