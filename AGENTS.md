@@ -245,7 +245,7 @@ of that part. The exceptions are the tables of one arm per action (`Action::engl
     `read_keys`), and before the shortcut that would take them;
   - a screen reader's text: each row or cell through `speak_item`, and the shown image read
     out with `speak_image` when the view takes the image area's place
-    (`every_row_of_the_list_speaks`);
+    (`every_clickable_widget_drawn_by_hand_speaks`);
   - a menu item ticked when choosing it turns the view off, and not otherwise;
   - the notices drawn over it, as over the image;
   - drag and drop, the rubber band and the scroll to the shown image (`Panel::start_frame`)

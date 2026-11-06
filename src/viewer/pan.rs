@@ -436,6 +436,8 @@ impl crate::App {
             return None;
         };
         let r = ui.interact(rect, ui.scope_id().with(("day", d)), egui::Sense::click());
+        let images = count(days[d].1.len(), "image");
+        crate::ui::file_list::speak_item(&r, false, &format!("{day}, {images}"));
         if r.hovered() {
             ui.painter()
                 .rect_filled(rect, 3.0, ui.visuals().widgets.hovered.weak_bg_fill);
@@ -462,9 +464,7 @@ impl crate::App {
             p.rect_filled(at.expand(2.0), 3.0, dark);
             p.galley(at.min, g, egui::Color32::WHITE);
         }
-        r.on_hover_text(count(days[d].1.len(), "image"))
-            .clicked()
-            .then_some(d)
+        r.on_hover_text(images).clicked().then_some(d)
     }
 }
 

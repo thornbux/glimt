@@ -1828,7 +1828,7 @@ pub(crate) fn thumbs_to_keep<'a>(
 
 /// Tells a screen reader what a file's row or cell is: an item of the list with the file's name,
 /// and whether it is selected. The rows of names get this from egui's own widget.
-fn speak_item(response: &egui::Response, marked: bool, name: &str) {
+pub(crate) fn speak_item(response: &egui::Response, marked: bool, name: &str) {
     response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::ListItem, true, name));
     (response.ctx).accesskit_node_builder(response.id, |node| node.set_selected(marked));
 }
