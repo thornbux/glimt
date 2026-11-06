@@ -25,7 +25,9 @@ for Linux in Rust/egui, inspired by Geeqie. Read this before changing anything.
   deliberate deviation goes in the `DIFFERENCES` table in `src/ui/help.rs`, which the Help Manual
   (F1) shows. Remove a row when Glimt starts behaving like Geeqie.
 - New user-visible features are described in `src/ui/help.rs` (manual, shortcuts, keyboard map)
-  and, where relevant, in `README.md`.
+  and, where relevant, on the website (the `glimt-web` repository, glimt.pario.no). `README.md`
+  keeps only what the website does not have: building from source, the optional features'
+  table, the runtime dependencies and restoring a backup.
 
 ## Frozen in 1.x
 
