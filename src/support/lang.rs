@@ -38,6 +38,12 @@ pub const LANGUAGES: &[(&str, &str, &[&str], &str)] = &[
         &["nb", "no"],
         include_str!("../../po/no_nb.po"),
     ),
+    (
+        "no_nn",
+        "Norsk nynorsk",
+        &["nn"],
+        include_str!("../../po/no_nn.po"),
+    ),
     ("pl", "Polski", &["pl"], include_str!("../../po/pl.po")),
     ("fi", "Suomi", &["fi"], include_str!("../../po/fi.po")),
     ("sv", "Svenska", &["sv"], include_str!("../../po/sv.po")),
@@ -122,9 +128,11 @@ fn language(locale: &str) -> Option<String> {
     if lang == "en" {
         return None;
     }
+    // A translation's own code comes first, as "no_nn" starts with bokmål's "no".
     LANGUAGES
         .iter()
-        .find(|l| l.0 == name || l.2.contains(&lang.as_str()))
+        .find(|l| l.0 == name)
+        .or_else(|| LANGUAGES.iter().find(|l| l.2.contains(&lang.as_str())))
         .map(|l| l.0.to_owned())
 }
 
@@ -379,6 +387,9 @@ msgstr[1] "bilder"
         for l in ["nb_NO.UTF-8", "nb", "no_NO", "nb_NO@euro", "no_nb"] {
             assert_eq!(super::language(l).as_deref(), Some("no_nb"), "{l}");
         }
+        for l in ["nn_NO.UTF-8", "nn", "no_nn"] {
+            assert_eq!(super::language(l).as_deref(), Some("no_nn"), "{l}");
+        }
         assert_eq!(super::language("de_DE.UTF-8").as_deref(), Some("de"));
         assert_eq!(super::language("pl_PL.UTF-8").as_deref(), Some("pl"));
         for l in ["en_US.UTF-8", "C", "ru_RU.UTF-8", ""] {
@@ -489,7 +500,7 @@ msgstr[1] "bilder"
             ),
             (
                 "support/lang.rs",
-                &["Norsk bokmål"],
+                &["Norsk bokmål", "Norsk nynorsk"],
                 "each language is named in itself",
             ),
             (
