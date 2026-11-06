@@ -2696,6 +2696,9 @@ msgstr "Tryggingskopien til {folder} er ikkje fullstendig: {e}"
 msgid "the file was moved, renamed or deleted meanwhile"
 msgstr "fila vart flytta, fekk nytt namn eller vart sletta i mellomtida"
 
+msgid "the file is read-only"
+msgstr "fila er skriveverna"
+
 #: src/files/external.rs
 msgid "HEIC and AVIF need ffprobe (ffmpeg): {e}"
 msgstr "HEIC og AVIF treng ffprobe (ffmpeg): {e}"

@@ -2706,6 +2706,9 @@ msgstr ""
 msgid "the file was moved, renamed or deleted meanwhile"
 msgstr ""
 
+msgid "the file is read-only"
+msgstr ""
+
 #: src/files/external.rs
 msgid "HEIC and AVIF need ffprobe (ffmpeg): {e}"
 msgstr ""

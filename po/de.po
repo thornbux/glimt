@@ -2685,6 +2685,9 @@ msgstr "Die Sicherung nach {folder} ist unvollständig: {e}"
 msgid "the file was moved, renamed or deleted meanwhile"
 msgstr "die Datei wurde inzwischen verschoben, umbenannt oder gelöscht"
 
+msgid "the file is read-only"
+msgstr "die Datei ist schreibgeschützt"
+
 #: src/files/external.rs
 msgid "HEIC and AVIF need ffprobe (ffmpeg): {e}"
 msgstr "HEIC und AVIF brauchen ffprobe (ffmpeg): {e}"

@@ -2685,6 +2685,9 @@ msgstr "Säkerhetskopian till {folder} är inte fullständig: {e}"
 msgid "the file was moved, renamed or deleted meanwhile"
 msgstr "filen flyttades, bytte namn eller togs bort under tiden"
 
+msgid "the file is read-only"
+msgstr "filen är skrivskyddad"
+
 #: src/files/external.rs
 msgid "HEIC and AVIF need ffprobe (ffmpeg): {e}"
 msgstr "HEIC och AVIF behöver ffprobe (ffmpeg): {e}"

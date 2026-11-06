@@ -2696,6 +2696,9 @@ msgstr "Kopia zapasowa w {folder} nie jest pełna: {e}"
 msgid "the file was moved, renamed or deleted meanwhile"
 msgstr "plik został w międzyczasie przeniesiony, przemianowany lub usunięty"
 
+msgid "the file is read-only"
+msgstr "plik jest tylko do odczytu"
+
 #: src/files/external.rs
 msgid "HEIC and AVIF need ffprobe (ffmpeg): {e}"
 msgstr "HEIC i AVIF wymagają ffprobe (ffmpeg): {e}"

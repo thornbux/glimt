@@ -2707,6 +2707,9 @@ msgstr "Záloha do {folder} není úplná: {e}"
 msgid "the file was moved, renamed or deleted meanwhile"
 msgstr "soubor byl mezitím přesunut, přejmenován nebo smazán"
 
+msgid "the file is read-only"
+msgstr "soubor je jen pro čtení"
+
 #: src/files/external.rs
 msgid "HEIC and AVIF need ffprobe (ffmpeg): {e}"
 msgstr "HEIC a AVIF vyžadují ffprobe (ffmpeg): {e}"
