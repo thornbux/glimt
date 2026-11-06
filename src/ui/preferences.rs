@@ -264,7 +264,7 @@ impl crate::App {
                     if shown[4] {
                         section(ui, theme::icon::LIST, tr(FILE_LIST[0]));
                         changed |= self.list_settings(ui, ctx);
-                        changed |= self.exif_panel_setting(ui);
+                        self.exif_panel_setting(ui);
                         changed |= self.search_settings(ui, ctx);
                         changed |= self.refresh_setting(ui);
                         changed |= self.cache_settings(ui, ctx);
@@ -501,14 +501,15 @@ impl crate::App {
     /// Preferences → Image: the histogram and animations.
     fn histogram_settings(&mut self, ui: &mut egui::Ui) -> bool {
         let mut changed = false;
-        let c = &mut self.config;
         ui.horizontal(|ui| {
             ui.label(tr("Histogram (K):"));
             for (n, name) in [(0, tr("Off")), (1, "RGB"), (2, tr("Brightness"))] {
-                changed |= radio_choice(ui, &mut c.histogram, n, name).changed();
+                changed |= radio_choice(ui, &mut self.config.histogram, n, name).changed();
             }
-            changed |= checkbox(ui, &mut c.histogram_log, tr("Logarithmic (J)")).changed();
+            let log = self.config.histogram_log;
+            self.toggle_box(ui, log, Action::HistogramLog, tr("Logarithmic (J)"));
         });
+        let c = &mut self.config;
         changed |= checkbox(ui, &mut c.animate, tr("Play animated GIF and WebP (A)")).changed();
         changed
     }
@@ -537,7 +538,6 @@ impl crate::App {
     /// Preferences: thumbnails, icons, the folder tree, subfolders, marks, the histogram and
     /// animations.
     pub(crate) fn list_settings(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) -> bool {
-        let mut changed = false;
         let mut show = self.config.thumbnails;
         if checkbox(ui, &mut show, tr("Show thumbnails in the file list (T)")).changed() {
             self.set_thumbnails(show);
@@ -546,17 +546,15 @@ impl crate::App {
             ui.label(tr("Thumbnail size:"));
             self.thumb_size_setting(ui);
         });
-        let c = &mut self.config;
-        changed |= checkbox(ui, &mut c.icons, tr("Show the file list as icons (Ctrl+I)")).changed();
-        let names = tr("Show File Names Under Thumbnails");
-        changed |= checkbox(ui, &mut c.grid_names, names).changed();
-        changed |= checkbox(
-            ui,
-            &mut c.folder_tree,
-            tr("Show folders as a tree (Ctrl+T)"),
-        )
-        .changed();
-        let mut sub = c.show_subfolders;
+        let icons = tr("Show the file list as icons (Ctrl+I)");
+        self.toggle_box(ui, self.config.icons, Action::Icons, icons);
+        let mut names = self.config.grid_names;
+        if checkbox(ui, &mut names, tr("Show File Names Under Thumbnails")).changed() {
+            self.set_grid_names(names);
+        }
+        let tree = tr("Show folders as a tree (Ctrl+T)");
+        self.toggle_box(ui, self.config.folder_tree, Action::FolderTree, tree);
+        let mut sub = self.config.show_subfolders;
         if checkbox(
             ui,
             &mut sub,
@@ -566,8 +564,10 @@ impl crate::App {
         {
             self.set_subfolders(ctx, sub);
         }
-        #[cfg(feature = "marks")]
-        {
+        // The settings above save themselves through their setters, so only the marks' are
+        // left to the caller. A `cfg!` keeps `changed` changed in a build without marks.
+        let mut changed = false;
+        if cfg!(feature = "marks") {
             let c = &mut self.config;
             changed |= checkbox(
                 ui,
@@ -583,6 +583,15 @@ impl crate::App {
             .changed();
         }
         changed
+    }
+
+    /// Draws a checkbox of a setting that a View action turns on and off, and changes it
+    /// through that action's `toggle_setting`, so it does what the menu does besides.
+    fn toggle_box(&mut self, ui: &mut egui::Ui, on: bool, action: Action, text: &str) {
+        let mut on = on;
+        if checkbox(ui, &mut on, text).changed() {
+            self.toggle_setting(action);
+        }
     }
 
     /// Preferences → Memory use: Low, Medium or High set the settings below it at once; other
@@ -780,9 +789,15 @@ impl crate::App {
     /// Preferences: the toolbar, folder path, search field, EXIF panel and full-screen info.
     pub(crate) fn bar_settings(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) -> bool {
         let mut changed = false;
+        self.toggle_box(
+            ui,
+            self.config.toolbar,
+            Action::Toolbar,
+            tr("Show the toolbar"),
+        );
+        let path = tr("Show the folder path");
+        self.toggle_box(ui, self.config.path_bar, Action::PathBar, path);
         let c = &mut self.config;
-        changed |= checkbox(ui, &mut c.toolbar, tr("Show the toolbar")).changed();
-        changed |= checkbox(ui, &mut c.path_bar, tr("Show the folder path")).changed();
         if checkbox(ui, &mut c.search_bar, tr("Show the file name search")).changed() {
             changed = true;
             if !c.search_bar {
@@ -815,17 +830,17 @@ impl crate::App {
     }
 
     /// Preferences → File list: the EXIF panel.
-    fn exif_panel_setting(&mut self, ui: &mut egui::Ui) -> bool {
+    fn exif_panel_setting(&mut self, ui: &mut egui::Ui) {
         let exif = tr("Show the EXIF panel (Ctrl+K; reads a little from each image shown)");
-        checkbox(ui, &mut self.config.exif_panel, exif).changed()
+        self.toggle_box(ui, self.config.exif_panel, Action::ExifPanel, exif);
     }
 
     /// Preferences → Image: the full screen info and its template.
     fn info_settings(&mut self, ui: &mut egui::Ui) -> bool {
         let mut changed = false;
-        let c = &mut self.config;
         let osd = tr("Show image info in full screen (I)");
-        changed |= checkbox(ui, &mut c.osd, osd).changed();
+        self.toggle_box(ui, self.config.osd, Action::Overlay, osd);
+        let c = &mut self.config;
         ui.label(tr("Image info template:"));
         // Kept on one line in the config file, with \n for each new line.
         let mut text = c.osd_template.replace("\\n", "\n");
@@ -1335,5 +1350,75 @@ mod tests {
         }
         assert_eq!(app.prefs.capturing, None);
         std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// Preferences changes a setting that has a setter (an App `set_…` method, or a View
+    /// action's `toggle_setting`) only through that setter, so it does what the menu does
+    /// besides. Writing the field directly skipped the scroll to the shown image after the
+    /// names under the thumbnails changed every row's height.
+    #[test]
+    fn preferences_change_settings_through_their_setters() {
+        let sources = crate::support::source_rules::sources();
+        let ident = |c: char| c.is_alphanumeric() || c == '_';
+        let body = |code: &str| {
+            let end = ["\n    }\n", "\n}\n"].map(|e| code.find(e).unwrap_or(code.len()));
+            code[..end[0].min(end[1])].to_owned()
+        };
+        let mut guarded = Vec::new();
+        for (_, code) in &sources {
+            for (at, _) in code.match_indices("fn set_") {
+                for (k, _) in body(&code[at..]).match_indices("self.config.") {
+                    let rest = &body(&code[at..])[k + 12..];
+                    let name: String = rest.chars().take_while(|&c| ident(c)).collect();
+                    if rest[name.len()..].trim_start().starts_with("= ") {
+                        guarded.push(name);
+                    }
+                }
+            }
+        }
+        let menus = include_str!("menus.rs");
+        let toggle = body(&menus[menus.find("fn toggle_setting(").unwrap()..]);
+        for (k, _) in toggle.match_indices("&mut c.") {
+            let name: String = toggle[k + 7..].chars().take_while(|&c| ident(c)).collect();
+            // A on a stepped animation plays it on and leaves the setting, which a checkbox
+            // in Preferences must not.
+            if name != "animate" {
+                guarded.push(name);
+            }
+        }
+        for name in [
+            "thumb_size",
+            "grid_names",
+            "thumbnails",
+            "icons",
+            "show_subfolders",
+        ] {
+            assert!(
+                guarded.iter().any(|g| g == name),
+                "{name} has no setter found"
+            );
+        }
+        let src = include_str!("preferences.rs");
+        let src = &src[..src.find("#[cfg(test)]").unwrap()];
+        let mut wrong = Vec::new();
+        for name in &guarded {
+            for field in [format!("c.{name}"), format!("self.config.{name}")] {
+                for (at, _) in src.match_indices(&field) {
+                    let after = &src[at + field.len()..];
+                    if src[..at].ends_with(ident) || after.starts_with(ident) {
+                        continue;
+                    }
+                    let after = after.trim_start();
+                    let written = after.starts_with('=') && !after.starts_with("==");
+                    if written || src[..at].ends_with("&mut ") {
+                        wrong.push(field.clone());
+                    }
+                }
+            }
+        }
+        assert!(
+            wrong.is_empty(),
+            "set through their setters instead: {wrong:?}"
+        );
     }
 }
