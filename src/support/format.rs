@@ -25,9 +25,10 @@ pub(crate) fn size_text(bytes: Option<u64>) -> String {
 /// Size as in the file manager: "850.0 kB", "2.3 MB", "1.2 GB" (decimal units), with the
 /// decimal mark of the language in use.
 pub(crate) fn human_size(bytes: u64) -> String {
+    // A unit starts where the one below would round to 1000.0, so 999,950 bytes are "1.0 MB".
     let (value, unit) = match bytes {
-        b if b >= 1_000_000_000 => (b as f64 / 1e9, "GB"),
-        b if b >= 1_000_000 => (b as f64 / 1e6, "MB"),
+        b if b >= 999_950_000 => (b as f64 / 1e9, "GB"),
+        b if b >= 999_950 => (b as f64 / 1e6, "MB"),
         b if b >= 1_000 => (b as f64 / 1e3, "kB"),
         b => return format!("{b} B"),
     };
@@ -170,6 +171,9 @@ mod tests {
         assert_eq!(super::human_size(850_000), "850.0 kB");
         assert_eq!(super::human_size(2_345_678), "2.3 MB");
         assert_eq!(super::human_size(1_200_000_000), "1.2 GB");
+        assert_eq!(super::human_size(999_949), "999.9 kB");
+        assert_eq!(super::human_size(999_950), "1.0 MB");
+        assert_eq!(super::human_size(999_950_000), "1.0 GB");
     }
 
     #[test]
