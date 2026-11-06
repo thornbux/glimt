@@ -403,7 +403,7 @@ pub fn turned(o: u8, turns: u8, mirrored: bool) -> u8 {
 /// there is one, or a small EXIF block if the file has none. The pixels are not touched, and the
 /// file is replaced in one step (a new file renamed over it), keeping its permissions. The
 /// view's turns are on what it showed: the file's orientation when Auto Rotate was on
-/// (`rotate`), else the pixels as stored.
+/// (`rotate`), else the pixels as stored. A sidecar that holds the orientation is set to it too.
 pub fn write_orientation(
     path: &Path,
     turns: u8,
@@ -411,15 +411,21 @@ pub fn write_orientation(
     rotate: bool,
 ) -> Result<(), String> {
     // Through a symlink, the file it points to: the new file is renamed over that, not the link.
-    let path = &std::fs::canonicalize(path).map_err(|e| e.to_string())?;
-    let data = crate::images::decode::read_limited(path).map_err(|e| e.to_string())?;
-    crate::files::file_io::replace_existing(path, oriented(data, turns, mirrored, rotate)?)
-        .map_err(|e| e.to_string())
+    let real = &std::fs::canonicalize(path).map_err(|e| e.to_string())?;
+    let data = crate::images::decode::read_limited(real).map_err(|e| e.to_string())?;
+    let (data, new) = oriented(data, turns, mirrored, rotate)?;
+    crate::images::save::derive_sidecar(path, crate::images::save::Derived::Oriented(new))?;
+    crate::files::file_io::replace_existing(real, data).map_err(|e| e.to_string())
 }
 
 /// The JPEG `data` with the view's rotation as its EXIF orientation, as `write_orientation`
-/// writes it.
-fn oriented(mut data: Vec<u8>, turns: u8, mirrored: bool, rotate: bool) -> Result<Vec<u8>, String> {
+/// writes it. Returns the new data and the orientation it has.
+fn oriented(
+    mut data: Vec<u8>,
+    turns: u8,
+    mirrored: bool,
+    rotate: bool,
+) -> Result<(Vec<u8>, u8), String> {
     if !data.starts_with(&[0xff, 0xd8]) {
         return Err(crate::support::lang::tr("only JPEG files can store the orientation").into());
     }
@@ -491,7 +497,7 @@ fn oriented(mut data: Vec<u8>, turns: u8, mirrored: bool, rotate: bool) -> Resul
         // Only the orientation's one digit changes, so the segment keeps its length.
         data[start..end].copy_from_slice(&xmp);
     }
-    Ok(data)
+    Ok((data, new as u8))
 }
 
 /// The XMP's `tiff:Orientation` set to `value` (1–8), as an attribute or an element; the length

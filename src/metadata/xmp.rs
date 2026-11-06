@@ -353,7 +353,6 @@ pub(crate) fn lock_slot(side: &Path) -> u64 {
 /// Changes the sidecar of `path` with `change`, or a new, empty sidecar unless `only_if_there`,
 /// in which case a file without a sidecar keeps having none. It is written to a temporary file
 /// first, so a crash never leaves half a sidecar.
-#[cfg_attr(not(feature = "marks"), allow(dead_code))]
 pub fn update_sidecar(
     path: &Path,
     only_if_there: bool,

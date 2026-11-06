@@ -135,6 +135,7 @@ pub fn save_rotated(
     mirrored: bool,
     webp_quality: u8,
 ) -> Result<(), String> {
+    let named = path;
     // Through a symlink, the new file is renamed over the file it points to, not over the link.
     let path = &std::fs::canonicalize(path).map_err(|e| e.to_string())?;
     let png = has_ext(path, &["png"]);
@@ -153,6 +154,7 @@ pub fn save_rotated(
     let (exif, xmp, stored_quarter) = derived_metadata(path, rotate, (img.width(), img.height()))?;
     let quarter = (turns % 2 == 1) != stored_quarter;
     let out = encode(path, img, icc, exif, xmp, kind, quarter, webp_quality)?;
+    derive_sidecar(named, Derived::Pixels)?;
     crate::files::file_io::replace_existing(path, out).map_err(|e| e.to_string())
 }
 
@@ -436,6 +438,25 @@ pub(crate) fn derived_xmp(xmp: &[u8], how: Derived) -> Vec<u8> {
         }
     }
     out
+}
+
+/// Makes the sidecar of `path`, whose image is being written anew as `how` says, say what the
+/// image will. Otherwise a program that reads the sidecar first (digiKam) turns the photo back
+/// by its old orientation. It is called before the image is written: a sidecar that cannot be
+/// written then leaves the image as it was, and the next save writes the same orientation to
+/// an image that failed after it. Only a sidecar of its own, readable as text and with
+/// something to change, is written, under its lock (`xmp::update_sidecar`). A link or one that
+/// cannot be read is left alone, as the panel leaves it. The sidecar is the one of the name the
+/// list shows, which is the one Glimt's panel reads, also for a link to a photo.
+pub(crate) fn derive_sidecar(path: &Path, how: Derived) -> Result<(), String> {
+    let old = crate::metadata::xmp::own_sidecar(path).ok().flatten();
+    let text = old.filter(|x| std::str::from_utf8(x).is_ok());
+    if text.is_none_or(|x| derived_xmp(&x, how) == x) {
+        return Ok(());
+    }
+    crate::metadata::xmp::update_sidecar(path, true, |x| {
+        String::from_utf8(derived_xmp(x.as_bytes(), how)).ok()
+    })
 }
 
 /// Leaves the property `name` out of `xmp`, written as an attribute (` name="…"`) or as an
@@ -1336,6 +1357,35 @@ mod tests {
         }
         assert!(has(&copy, "hello"));
         assert!(has(&side, "tiff:Orientation=\"1\""));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A turn saved sets the orientation in the photo's sidecar too, so digiKam, which reads
+    /// the sidecar first, shows it turned as Glimt does. A JPEG's sidecar gets the new EXIF
+    /// orientation, and a PNG turned in its pixels gets 1 and loses the old thumbnail. Before,
+    /// only the XMP inside a JPEG was set, and the sidecar turned the photo back.
+    #[test]
+    fn a_turn_saved_sets_its_sidecar() {
+        let dir = std::env::temp_dir().join(format!("glimt-turn-side-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let has = |path: &std::path::Path, what: &str| {
+            let side = std::fs::read(crate::metadata::xmp::sidecar(path)).unwrap();
+            side.windows(what.len()).any(|w| w == what.as_bytes())
+        };
+        let jpeg = dir.join("a.jpg");
+        image::RgbImage::new(8, 4).save(&jpeg).unwrap();
+        let side = BRIDGE_XMP.replace("Orientation=\"6\"", "Orientation=\"1\"");
+        std::fs::write(crate::metadata::xmp::sidecar(&jpeg), side).unwrap();
+        crate::metadata::exif::write_orientation(&jpeg, 1, false, true).unwrap();
+        assert!(has(&jpeg, "tiff:Orientation=\"6\""));
+        assert!(has(&jpeg, "<rdf:li>beach</rdf:li>"));
+        let png = dir.join("b.png");
+        std::fs::write(&png, black_png(8, 4)).unwrap();
+        std::fs::write(crate::metadata::xmp::sidecar(&png), BRIDGE_XMP).unwrap();
+        super::save_rotated(&png, true, 1, false, 90).unwrap();
+        assert_eq!(image::image_dimensions(&png).unwrap(), (4, 8));
+        assert!(has(&png, "tiff:Orientation=\"1\""));
+        assert!(!has(&png, "WHOLEFRAME") && has(&png, "<rdf:li>beach</rdf:li>"));
         std::fs::remove_dir_all(dir).unwrap();
     }
 

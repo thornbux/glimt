@@ -880,7 +880,11 @@ fn derived_files_take_metadata_in_one_place() {
         ("set_exif_metadata(", &[("images/save.rs", "encode")]),
         (
             "own_sidecar(",
-            &[("metadata/xmp.rs", ""), ("images/save.rs", "land")],
+            &[
+                ("metadata/xmp.rs", ""),
+                ("images/save.rs", "land"),
+                ("images/save.rs", "derive_sidecar"),
+            ],
         ),
     ];
     let wrong = outside_their_homes(HOMES);
