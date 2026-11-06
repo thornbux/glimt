@@ -789,11 +789,12 @@ pub(crate) fn scroll_menu<R>(
         egui::ScrollArea::vertical().max_height(max).show(ui, add);
     };
     if egui::containers::menu::is_in_menu(ui) {
-        noted(&ui.menu_button(title, content).response, &name);
+        submenu(ui, title, content);
         return;
     }
     // A menu of the menu bar. While one of them is open, pointing at another opens that one,
     // as in GNOME and KDE.
+    #[allow(clippy::disallowed_methods)] // The one place a menu of the bar is drawn, noted below.
     let response = egui::containers::menu::MenuButton::new(title)
         .ui(ui, content)
         .0;
@@ -925,6 +926,25 @@ pub(crate) fn radio_choice<T: PartialEq>(
 #[allow(clippy::disallowed_methods)] // The one place that draws egui's own checkbox.
 pub(crate) fn checkbox(ui: &mut egui::Ui, on: &mut bool, text: &str) -> egui::Response {
     noted(&ui.checkbox(on, text), text)
+}
+
+/// Draws a link of `text`, noted as `button` does. The caller opens what it points to.
+#[allow(clippy::disallowed_methods)] // The one place a link is drawn.
+pub(crate) fn link(ui: &mut egui::Ui, text: &str) -> egui::Response {
+    noted(&ui.link(text), text)
+}
+
+/// Draws a button of `title` that opens a submenu drawn by `add`, noted by its title as
+/// `button` does.
+#[allow(clippy::disallowed_methods)] // The one place egui's own menu button is drawn.
+pub(crate) fn submenu<R>(
+    ui: &mut egui::Ui,
+    title: impl Into<egui::WidgetText>,
+    add: impl FnOnce(&mut egui::Ui) -> R,
+) {
+    let title: egui::WidgetText = title.into();
+    let name = title.text().to_owned();
+    noted(&ui.menu_button(title, add).response, &name);
 }
 
 /// `text` with the Phosphor `icon` before it, as every row of the menus shows: the icon in the

@@ -126,7 +126,7 @@ impl Dups {
                             };
                         }
                         let name = path.file_name().unwrap_or_default().to_string_lossy();
-                        if ui.link(name).clicked() {
+                        if crate::ui::menus::link(ui, &name).clicked() {
                             *show = Some(path.clone());
                         }
                         let size = *(self.sizes.entry(path.clone()))
