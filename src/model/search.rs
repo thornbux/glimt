@@ -222,7 +222,10 @@ impl crate::App {
         self.status.forget_place();
         self.search.error = None;
         let matches = self.search_matches(ctx, query);
-        self.list.set_matches(matches);
+        // The files the search hides leave the selection, so an action acts on what is shown.
+        if self.list.set_matches(matches) {
+            self.selection_changed(ctx);
+        }
         // The size of the matches is summed in the background. A new search drops the receiver,
         // which stops the old sum.
         self.list.set_match_size(0);
@@ -770,6 +773,42 @@ pub fn exif_index(
 
 #[cfg(test)]
 mod tests {
+    use crate::support::test_support::app_on;
+
+    /// The selection holds only files the list shows. A search takes the files it hides out of
+    /// it, so a file action acts on what is on screen and not on a hidden file, and no way of
+    /// selecting adds a hidden one.
+    #[test]
+    fn a_search_keeps_the_selection_to_its_matches() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-sel-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let (mut app, ctx) = app_on(&dir);
+        let names = ["a.jpg", "b.jpg", "beach.jpg", "beach2.jpg"];
+        app.list.set_files(names.iter().map(Into::into).collect());
+        app.list.select([1, 2].into());
+        app.search.set_query("beach");
+        app.update_search(&ctx);
+        assert_eq!(app.list.selected(), &[2].into());
+        assert_eq!(app.targets(), [2]);
+        // Ctrl+click adds the shown image the first time, but not when the search hides it.
+        app.list.clear_selection();
+        app.list.add_to_selection([app.list.cur(), 3]);
+        app.list.toggle_selected(0);
+        app.list.set_selected(1, true);
+        app.set_selection(&ctx, [0, 1, 2].into());
+        assert_eq!(app.list.selected(), &[2].into());
+        app.list.select_one(1);
+        assert!(app.list.selected().is_empty());
+        app.list.add_to_selection([2, 3]);
+        // A hidden file does not come back when the search is cleared, as in Geeqie.
+        app.search.set_query("beach2");
+        app.update_search(&ctx);
+        app.search.set_query("");
+        app.update_search(&ctx);
+        assert_eq!(app.list.selected(), &[3].into());
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
     #[test]
     fn finds_and_ranks() {
         let names: Vec<std::ffi::OsString> = [
