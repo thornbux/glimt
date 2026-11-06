@@ -281,6 +281,17 @@ pub fn real_dir(dir: &Path) -> PathBuf {
         .unwrap_or_else(|_| dir.to_path_buf())
 }
 
+/// Returns `path` in the form Glimt keeps and compares files by: its folder's real path
+/// (`real_dir`) with its own name. The file's own link is not followed, because the list shows
+/// a link under its own name.
+pub fn real_path(path: &Path) -> PathBuf {
+    let name = path.file_name();
+    match (path.parent().filter(|p| !p.as_os_str().is_empty()), name) {
+        (parent, Some(name)) => real_dir(parent.unwrap_or(Path::new("."))).join(name),
+        (_, None) => real_dir(path),
+    }
+}
+
 /// Whether a folder entry is a file and whether a folder, from the entry's own type (no `stat`),
 /// a link as what it points to. Only files are images: a folder named 2019.jpg is a folder, and
 /// a pipe or a link to /dev/zero named a.jpg would block or fill memory when read.
@@ -520,6 +531,35 @@ mod tests {
             assert_eq!(files, ["a.jpg", "sub/beside/b.jpg"], "{top:?}");
         }
         std::fs::remove_dir_all(base).unwrap();
+    }
+
+    /// A path is compared by its folder's real path and its own name: `..` and the folder's
+    /// links are worked out, and a link to a file keeps its own name.
+    #[test]
+    fn real_path_follows_the_folder_not_the_file() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-real-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join("real")).unwrap();
+        std::os::unix::fs::symlink(dir.join("real"), dir.join("link")).unwrap();
+        std::os::unix::fs::symlink(dir.join("real/a.jpg"), dir.join("real/b.jpg")).unwrap();
+        let real = dir.canonicalize().unwrap().join("real");
+        assert_eq!(
+            super::real_path(&dir.join("link/b.jpg")),
+            real.join("b.jpg")
+        );
+        assert_eq!(
+            super::real_path(&dir.join("link/../link/a.jpg")),
+            real.join("a.jpg")
+        );
+        assert_eq!(
+            super::real_dir(&dir.join("link/..")),
+            real.parent().unwrap()
+        );
+        // A folder that is not there is only made absolute.
+        assert_eq!(
+            super::real_dir(std::path::Path::new("/no/such")),
+            std::path::Path::new("/no/such")
+        );
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]
