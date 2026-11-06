@@ -25,6 +25,7 @@ macro_rules! tf {
 /// The translations built in: code (the setting), name in its own language, the language codes
 /// of `$LANG` it is for, and its `.po` file. Each has every text of `no_nb.po`.
 pub const LANGUAGES: &[(&str, &str, &[&str], &str)] = &[
+    ("cs", "Čeština", &["cs"], include_str!("../../po/cs.po")),
     ("da", "Dansk", &["da"], include_str!("../../po/da.po")),
     ("de", "Deutsch", &["de"], include_str!("../../po/de.po")),
     ("es", "Español", &["es"], include_str!("../../po/es.po")),
@@ -59,7 +60,8 @@ struct Table {
 }
 
 /// Which of a noun's forms goes with `n`, by the language's rule (its `.po`'s Plural-Forms):
-/// one and many in most; 0 also one in French; 21 one in Icelandic; one, few and many in Polish.
+/// one and many in most; 0 also one in French; 21 one in Icelandic; one, few and many in Polish
+/// and Czech.
 fn plural_form(code: &str, n: usize) -> usize {
     match code {
         "fr" => (n > 1) as usize,
@@ -67,6 +69,9 @@ fn plural_form(code: &str, n: usize) -> usize {
         "pl" if n == 1 => 0,
         "pl" if (2..=4).contains(&(n % 10)) && !(12..=14).contains(&(n % 100)) => 1,
         "pl" => 2,
+        "cs" if n == 1 => 0,
+        "cs" if (2..=4).contains(&n) => 1,
+        "cs" => 2,
         _ => (n != 1) as usize,
     }
 }
@@ -422,6 +427,10 @@ msgstr[1] "bilder"
         assert_eq!(
             forms("pl", &[1, 2, 4, 5, 12, 22, 25, 112]),
             [0, 1, 1, 2, 2, 1, 2, 2]
+        );
+        assert_eq!(
+            forms("cs", &[0, 1, 2, 4, 5, 22, 101]),
+            [2, 0, 1, 1, 2, 2, 2]
         );
     }
 
