@@ -107,13 +107,7 @@ pub fn decode(
             } else {
                 load_unturned(path, rotate, to_box)?
             };
-            // The image is shrunk first and then turned, because a 100 MP photo with
-            // orientation 6 turned whole would need a second 400 MB buffer for a moment.
-            let quarter = quarter_turn(turn);
-            let [w, h] = [img.width() as usize, img.height() as usize];
-            let orig = size.unwrap_or(if quarter { [h, w] } else { [w, h] });
-            let mut img = shrink(img, if quarter { [max[1], max[0]] } else { max })?;
-            img.apply_orientation(turn);
+            let (img, orig) = shrunk_upright(img, turn, size, max)?;
             (img, icc, orig)
         }
     };
@@ -426,13 +420,14 @@ pub fn each_frame(
 
 /// An image no larger than `max`, with its ICC profile and its upright size before it was
 /// shrunk. A JPEG is decoded at a fraction, and other images whole (HEIC, AVIF and video frames
-/// at `max` from ffmpeg) and shrunk after. This is the one way for thumbnails, the print and its
-/// preview. The view (`decode`) has its own, which shrinks before it turns.
+/// at `max` from ffmpeg) and shrunk after, then turned (`shrunk_upright`), as the view does.
+/// This is the one way for thumbnails, the print and its preview.
 pub fn small(path: &Path, max: [u32; 2], rotate: bool) -> Result<Small, String> {
     let (img, icc, size) = match scaled_jpeg(path, max, rotate) {
         Some(found) => found,
         None => {
-            let (img, icc, size) = load_for(path, rotate, Some(max))?;
+            let (img, icc, turn, size) = load_unturned(path, rotate, Some(max))?;
+            let (img, size) = shrunk_upright(img, turn, size, max)?;
             (img, icc, size)
         }
     };
@@ -463,24 +458,33 @@ pub fn load_icc(
     path: &Path,
     rotate: bool,
 ) -> Result<(image::DynamicImage, Option<Vec<u8>>), String> {
-    let (img, icc, _) = load_for(path, rotate, None)?;
+    let (mut img, icc, turn, _) = load_unturned(path, rotate, None)?;
+    // The whole image is wanted (Save As, a copy, a turned save), so it is turned whole.
+    img.apply_orientation(turn);
     Ok((img, icc))
 }
 
-/// As `load_icc`, for a thumbnail no larger than `max`, with the image's real size, upright.
-/// HEIC, AVIF and video frames come at that size from ffmpeg, while other formats are shrunk
-/// after.
-pub fn load_for(path: &Path, rotate: bool, max: Option<[u32; 2]>) -> Result<Small, String> {
-    let (mut img, icc, turn, size) = load_unturned(path, rotate, max)?;
+/// `img` shrunk to fit `max` once it is turned by `turn`, and then turned, with its upright
+/// size (`size` where it came smaller than it is). It is shrunk first, because a 100 MP photo
+/// with orientation 6 turned whole would need a second 400 MB buffer for a moment. It is the
+/// one way the view and the thumbnails turn a decoded image.
+fn shrunk_upright(
+    img: image::DynamicImage,
+    turn: Orientation,
+    size: Option<[usize; 2]>,
+    max: [u32; 2],
+) -> Result<(image::DynamicImage, [usize; 2]), String> {
+    let quarter = quarter_turn(turn);
+    let [w, h] = [img.width() as usize, img.height() as usize];
+    let orig = size.unwrap_or(if quarter { [h, w] } else { [w, h] });
+    let mut img = shrink(img, if quarter { [max[1], max[0]] } else { max })?;
     img.apply_orientation(turn);
-    let size = size.unwrap_or([img.width() as usize, img.height() as usize]);
-    Ok((img, icc, size))
+    Ok((img, orig))
 }
 
-/// As `load_for`, but the EXIF turn the image crate reads is returned rather than done, so the
-/// view shrinks first and turns the small image, not a copy of the whole one. Other formats come
-/// upright already (their turn is `NoTransforms`). The size is given only where the image came
-/// smaller than it is (ffmpeg's formats at `max`).
+/// The image at `path` with its ICC profile, and the EXIF turn returned rather than done, so a
+/// caller that shrinks it turns the small image, not a copy of the whole one. The size is given
+/// only where the image came smaller than it is (ffmpeg's formats and SVG at `max`).
 fn load_unturned(path: &Path, rotate: bool, max: Option<[u32; 2]>) -> Result<Unturned, String> {
     let upright = Orientation::NoTransforms;
     // Only ffmpeg's formats and SVG take `max`, so without them it has no use.
@@ -492,7 +496,8 @@ fn load_unturned(path: &Path, rotate: bool, max: Option<[u32; 2]>) -> Result<Unt
         return Ok((img, None, upright, size));
     }
     if has_ext(path, raw::EXTS) {
-        return Ok((raw::load(path, rotate)?, None, upright, None));
+        let (img, turn) = raw::unturned(&read_limited(path).map_err(|e| e.to_string())?)?;
+        return Ok((img, None, if rotate { turn } else { upright }, None));
     }
     #[cfg(any(feature = "heic", feature = "avif"))]
     if crate::files::external::is_heif(path) {
