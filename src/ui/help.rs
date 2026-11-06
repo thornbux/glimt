@@ -420,7 +420,8 @@ const MANUAL: &[(&str, &str)] = &[
          not in the photos.\n\n\
          File → Back Up Glimt's Data… copies them to a new folder glimt-backup-DATE wherever you \
          choose, and glimt --back-up FOLDER does the same from a script or a timer, without a \
-         window. To restore, close Glimt and copy them back (see the README).\n\n\
+         window. To restore, close Glimt and copy them back (Files and privacy on \
+         glimt.pario.no says how).\n\n\
          Keywords, comments and alt text are in the XMP sidecars beside the photos, and go with a \
          backup of the photo folders.",
     ),

@@ -4,7 +4,7 @@ computer (Ollama), written as the image's comment and as its IPTC alt text in it
 (<image>.xmp): Glimt shows both, a screen reader reads the alt text first, and exif: searches
 find the comment.
 
-Safety, as the README's "Scripts and AI" says:
+Safety, as "Scripts and AI" on https://glimt.pario.no/scripts-and-ai/ says:
 - Only a model on this computer is asked: the images never leave it. GLIMT_AI_URL must be a
   loopback address (127.0.0.1, ::1 or localhost).
 - The files come as arguments, never through a shell.
