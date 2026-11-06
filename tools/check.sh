@@ -33,6 +33,8 @@ FROM rust:1
 RUN apt-get update && apt-get install -y --no-install-recommends mold sccache \
     && rm -rf /var/lib/apt/lists/* && rustup component add rustfmt clippy
 DOCKERFILE
+        # The rust:1 and glimt-check that were replaced are left without a name; about 4 GB.
+        docker image prune -f >/dev/null
     fi
     mkdir -p "$HOME/.cache" && touch "$stamp"
 fi
