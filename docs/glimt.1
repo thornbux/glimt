@@ -170,6 +170,12 @@ file could not be copied.
 .TP
 .BR \-V ", " \-\-version
 Print the version.
+.TP
+.B \-\-
+End the options: every argument after it is a file or folder, also one whose name starts with
+.BR \- ,
+such as
+.BR "glimt \-\- \-h.jpg" .
 .SH REMOTE COMMANDS
 Remote commands reach only the Glimt windows of the same user on the same computer: they go
 through a Unix socket in

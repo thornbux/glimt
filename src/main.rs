@@ -459,7 +459,7 @@ fn main() -> eframe::Result {
             std::process::exit(2);
         }
     };
-    if cli::answered(&args_os) {
+    if cli::answered(&start, &args_os) {
         return Ok(());
     }
     let args: Vec<String> = (args_os.iter())
@@ -467,12 +467,14 @@ fn main() -> eframe::Result {
         .collect();
     let mut arg = args_os.first().map(PathBuf::from);
     let mut start = start;
+    // After `--` the first argument is a file, also when it is named --remote.
+    let command = args.first().filter(|_| !start.files_only);
     // With glimt DIR DIR …, the images of every folder are shown in one list.
-    if !args.first().is_some_and(|a| a.starts_with("--remote")) {
+    if !command.is_some_and(|a| a.starts_with("--remote")) {
         start.more = args_os.iter().skip(1).map(PathBuf::from).collect();
     }
-    let to_all = args.first().is_some_and(|a| a == "--remote-all");
-    if args.first().is_some_and(|a| a == "--remote") || to_all {
+    let to_all = command.is_some_and(|a| a == "--remote-all");
+    if command.is_some_and(|a| a == "--remote") || to_all {
         let paths = args_os.get(2..).unwrap_or_default();
         match crate::features::remote::client(&args[1..], paths, start.name.as_deref(), to_all) {
             Some(path) => arg = Some(path),

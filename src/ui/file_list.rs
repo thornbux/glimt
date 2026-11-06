@@ -9,7 +9,7 @@ use crate::support::format::{count, local_time, middle_cut, size_text, thousands
 use crate::support::lang::tr;
 use crate::support::threads::{Receiving, Took};
 use crate::ui::actions::Action;
-use crate::ui::dialogs::Pick;
+use crate::ui::dialogs::{Pick, entered};
 use crate::ui::menus::{checkbox, radio_choice, scroll_menu, selectable, submenu};
 use crate::ui::workers::spawn_thumbnailers;
 use crate::viewer::view::{broken_mark, pane_map};
@@ -1184,7 +1184,7 @@ impl crate::App {
         let edit =
             egui::TextEdit::singleline(self.folder.path_text_mut()).desired_width(f32::INFINITY);
         let response = ui.add(edit);
-        if response.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+        if entered(&response) {
             let text = self.folder.path_text().trim().to_owned();
             let text = text.as_str();
             let path = match (text.strip_prefix('~'), std::env::var_os("HOME")) {

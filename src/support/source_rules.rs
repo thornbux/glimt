@@ -315,6 +315,41 @@ fn function_name(line: &str) -> Option<&str> {
     rest.split(['(', '<']).next()
 }
 
+/// The name of the constant or static that starts on `line` at the top level, such as
+/// `SHORTCUTS`; `None` for any other line.
+fn constant_name(line: &str) -> Option<&str> {
+    let l = qualifiers_off(line);
+    let rest = (l
+        .strip_prefix("const ")
+        .or_else(|| l.strip_prefix("static ")))?;
+    (!line.starts_with(' ')).then(|| rest.split([':', ' ']).next())?
+}
+
+/// Whether `line` names Enter or Esc other than as the key of an `answers(…, Key)` call, or
+/// renames `Key` or imports its variants so that a key could be named without it.
+fn names_enter_or_esc(line: &str) -> bool {
+    if ["Key as ", "Key::*", "Key::{"]
+        .iter()
+        .any(|t| line.contains(t))
+    {
+        return true;
+    }
+    ["Key::Enter", "Key::Escape"].iter().any(|key| {
+        line.match_indices(key).any(|(at, _)| {
+            let before = &line[..at];
+            let before = before.strip_suffix("egui::").unwrap_or(before);
+            // The key is the second and last argument of the nearest `answers(` before it.
+            let argument = before
+                .rfind("answers(")
+                .map(|a| &before[a + "answers(".len()..]);
+            let answer = argument
+                .is_some_and(|a| a.ends_with(", ") && a.matches(", ").count() == 1)
+                && line[at + key.len()..].starts_with(')');
+            !answer
+        })
+    })
+}
+
 /// Whether `line` names a `Sense` that takes a click, in any of egui's spellings
 /// (`Sense::click()`, `Sense::CLICK`, `Sense::click_and_drag()`, `Sense::all()`, a union). Every
 /// spelling counts except the few that take no click, so a new one is caught, not missed.
@@ -1110,15 +1145,25 @@ fn view_colours_stay_in_the_view() {
 /// A dialog or window reads its Enter or Esc only through `App::answers`, which leaves the key to
 /// the widget with the keyboard focus. Read from the input as a whole, the key also answered
 /// while egui gave it to that widget: Shift+Delete, Tab to "Cancel" and Enter deleted the file
-/// for good. A text field's own Enter (`lost_focus()` on the same line) is the field's, and the
-/// shortcuts' table reads its keys in `read_keys` only while nothing has the focus. The places
-/// below own their key while a widget may have the focus.
+/// for good. Every way of reading a key names it, so the rule is on the name, not on the read:
+/// `Key::Enter` and `Key::Escape` appear only as the key of an `answers(…)` call, and in the
+/// homes below. A text field's own Enter goes through `dialogs::entered`, and the shortcuts'
+/// table is read in `read_keys` only while `App::focus_held` says no widget has the key. A
+/// `use` that renames `Key` or brings in its variants would hide the name, so it counts too.
 #[test]
 fn keys_answer_through_one_place() {
-    const READS: &[&str] = &["key_pressed(", "consume_key(", "Event::Key", "key_down("];
-    const OWNERS: &[(&str, &str)] = &[
+    const HOMES: &[(&str, &str)] = &[
+        // The one place that reads a dialog's key, and the one for a text field's Enter.
+        ("ui/dialogs.rs", "answers"),
+        ("ui/dialogs.rs", "entered"),
+        // The shortcuts' table, and the keyboard map in Help, which only draws the keys.
+        ("ui/actions.rs", "SHORTCUTS"),
+        ("ui/help.rs", "ROWS"),
         // Esc in Preferences' search field clears the search first, and closes it after.
         ("ui/preferences.rs", "preferences_window"),
+        // A key being chosen for an action: Esc gives up the choice.
+        ("ui/preferences.rs", "key_settings"),
+        ("ui/preferences.rs", "pressed_key"),
         // The projector's own window has no widget that takes the focus.
         ("viewer/view.rs", "projector_window"),
     ];
@@ -1126,24 +1171,45 @@ fn keys_answer_through_one_place() {
     for (file, text) in rust_sources() {
         let lines = code_lines(&text);
         let end = tests_start(&lines);
-        let mut function = String::new();
+        let mut item = String::new();
         for (i, line) in lines[..end].iter().enumerate() {
-            if let Some(name) = function_name(line) {
-                function = name.to_owned();
+            // A top-level line starts a new item, which is no home unless it is named as one.
+            if line.starts_with(|c: char| c.is_alphabetic()) {
+                item.clear();
             }
-            let key = line.contains("Key::Enter") || line.contains("Key::Escape");
-            let read = READS.iter().any(|r| line.contains(r));
-            let owner = OWNERS.iter().any(|(f, s)| file == *f && function == *s);
-            if key && read && !owner && !line.contains("lost_focus()") {
-                wrong.push(format!("{file}:{} in {function}", i + 1));
+            if let Some(name) = function_name(line).or_else(|| constant_name(line)) {
+                item = name.to_owned();
+            }
+            let home = HOMES.iter().any(|(f, s)| file == *f && item == *s);
+            if names_enter_or_esc(line) && !home {
+                wrong.push(format!("{file}:{} in {item}", i + 1));
             }
         }
     }
     assert!(
         wrong.is_empty(),
-        "Enter or Esc read from the whole input (use App::answers):\n{}",
+        "Enter or Esc read from the whole input (use App::answers or dialogs::entered):\n{}",
         wrong.join("\n")
     );
+    // The rule sees the key however it is read, also away from the read and beside a field's
+    // own Enter, and lets only the key of an answer through.
+    for caught in [
+        "let k = egui::Key::Enter;",
+        "x.lost_focus() || i.key_pressed(Key::Enter)",
+        "i.num_presses(egui::Key::Escape) > 0",
+        "i.consume_shortcut(&KeyboardShortcut::new(NONE, Key::Escape))",
+        "self.answers(ctx, egui::Key::Enter) || i.key_released(Key::Enter)",
+        "use egui::Key as K;",
+        "use egui::Key::*;",
+    ] {
+        assert!(names_enter_or_esc(caught), "missed: {caught}");
+    }
+    for answer in [
+        "if self.answers(ctx, egui::Key::Escape) {",
+        "&& self.answers(ui.ctx(), Key::Enter)",
+    ] {
+        assert!(!names_enter_or_esc(answer), "caught an answer: {answer}");
+    }
 }
 
 /// Every module lives in the folder of what it does, so `src/` itself holds only main.rs, cli.rs
