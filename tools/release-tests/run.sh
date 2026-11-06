@@ -88,9 +88,10 @@ docker commit glimt-release-tests-$$ $image >/dev/null || status=1
 docker rm glimt-release-tests-$$ >/dev/null
 [ $status = 0 ] || { docker rmi $image >/dev/null 2>&1; echo "FAIL preparing the tests"; exit 1; }
 set +e
-# part: K
+# part: K. --privileged gives the container a loop device, for the FAT file system of a camera
+# card that tests.sh mounts.
 part() {
-    docker run --rm --shm-size=1g -e STEP=run -e SCRIPT=/t/part-$1.sh -e QUICK="${QUICK:-}" \
+    docker run --rm --privileged --shm-size=1g -e STEP=run -e SCRIPT=/t/part-$1.sh -e QUICK="${QUICK:-}" \
         -v "$work:/t" -v "$samples:/samples:ro" $image bash /t/tests.sh > "$work/part-$1.log" 2>&1
 }
 pids=""

@@ -21,7 +21,7 @@ if [ "$(id -u)" = 0 ]; then
     apt-get update -qq >/dev/null
     apt-get install -y -qq xvfb xdotool x11-utils xclip imagemagick libimage-exiftool-perl ffmpeg \
         poppler-utils libglib2.0-bin colord-data python3 procps libgl1-mesa-dri libegl1 libgl1 \
-        libxkbcommon-x11-0 libxcursor1 libxrandr2 libxi6 libx11-xcb1 sqlite3 python3-nibabel python3-h5py python3-openslide python3-mrcfile python3-astropy python3-pydicom python3-gdcm libgdcm-tools default-jre-headless unzip >/dev/null || { echo "FAIL installing the tools"; exit 1; }
+        libxkbcommon-x11-0 libxcursor1 libxrandr2 libxi6 libx11-xcb1 sqlite3 python3-nibabel python3-h5py python3-openslide python3-mrcfile python3-astropy python3-pydicom python3-gdcm libgdcm-tools default-jre-headless unzip dosfstools >/dev/null || { echo "FAIL installing the tools"; exit 1; }
     # Bio-Formats for its decoder is no Debian package: its release, checked against the hash
     # it had when added.
     curl -sfL -o /tmp/bftools.zip \
@@ -57,6 +57,12 @@ if [ "$(id -u)" = 0 ]; then
   if [ "$STEP" != audit ]; then
     useradd -m tester
     chmod 777 /t/out
+    # A FAT file system, as on a camera card, for the check of case-only renames. Mounting it
+    # needs a loop device, which run.sh's containers get with --privileged. Without one, that
+    # check fails and says so.
+    truncate -s 16M /opt/card.img && mkfs.vfat -n CARD /opt/card.img >/dev/null \
+        && mkdir -p /mnt/card \
+        && mount -o loop,uid=$(id -u tester),gid=$(id -g tester) /opt/card.img /mnt/card 2>/dev/null
     # -noreset: an X server starts over when its last client closes, and refuses every client
     # that comes in that moment. Each check starts and quits Glimt, so a window now and then got
     # XOpenDisplayFailed.
@@ -1121,6 +1127,36 @@ xdotool type --delay 30 '*#'; sleep 0.4
 key Return; sleep 2
 quit
 expect "renamed with the names swapped" "$(ls -A $d | tr '\n' ' ')" "11.jpg a2.jpg a23.jpg "
+
+section "Rename Many on a FAT card: a change of case and a swap, through the hidden names"
+# A real vfat, where IMG_1.JPG and img_1.JPG are one name. A hard link on ext4 or a faked
+# listing (#47) cannot show what the kernel's FAT does, so without the mount this fails.
+card=/mnt/card
+if ! grep -q " $card vfat " /proc/mounts; then
+    fail "no FAT file system at $card: run.sh's containers need --privileged for a loop device"
+else
+    rm -rf $card/* $card/.glimt-rename-*
+    colours=(red green blue)
+    for n in 1 2 3; do
+        convert -size 64x64 xc:${colours[n - 1]} $card/IMG_$n.JPG
+        echo "sidecar $n" >$card/IMG_$n.JPG.xmp
+    done
+    # What each file holds, to follow it to its new name.
+    held() { echo "$(md5sum <$1 | cut -c1-32) $(cat $1.xmp)"; }
+    want=$(for n in 3 2 1; do held $card/IMG_$n.JPG; done)
+    # Sorted by name, descending: IMG_3 becomes img_1, IMG_2 img_2 (its case only) and IMG_1
+    # img_3, which takes the name IMG_3 had on FAT.
+    config sort_ascending=false
+    start $card
+    key ctrl+a; key ctrl+r; sleep 1; key ctrl+a
+    xdotool type --delay 30 'img_#'; sleep 0.4
+    key Return; sleep 2
+    quit
+    expect "the new names, and no hidden one left" "$(ls -A $card | tr '\n' ' ')" \
+        "img_1.JPG img_1.JPG.xmp img_2.JPG img_2.JPG.xmp img_3.JPG img_3.JPG.xmp "
+    expect "each image and its sidecar kept, under its new name" \
+        "$(for n in 1 2 3; do held $card/img_$n.JPG 2>/dev/null; done)" "$want"
+fi
 
 section "Rename Many with Include Subfolders: the view stays on the folder and its subfolders"
 for v in new old; do
