@@ -1061,3 +1061,28 @@ fn the_list_is_drawn_in_the_form_its_caller_asks() {
         wrong.join("\n")
     );
 }
+
+/// Every row or cell of the file list that takes a click tells a screen reader what it is,
+/// through `speak_item`, or `speak_image` for the grid as a whole. egui's own widgets do this
+/// themselves, but a row drawn by hand says nothing, and Orca was silent in the grid.
+#[test]
+fn every_row_of_the_list_speaks() {
+    let lines = code_lines(&source("ui/file_list.rs"));
+    let end = tests_start(&lines);
+    let mut wrong = Vec::new();
+    for (i, line) in lines[..end].iter().enumerate() {
+        let speaks = || {
+            lines[i..(i + 4).min(end)]
+                .iter()
+                .any(|l| l.contains("speak_"))
+        };
+        if line.contains("Sense::click") && !speaks() {
+            wrong.push(format!("ui/file_list.rs:{}", i + 1));
+        }
+    }
+    assert!(
+        wrong.is_empty(),
+        "a row or cell of the list with nothing for a screen reader:\n{}",
+        wrong.join("\n")
+    );
+}

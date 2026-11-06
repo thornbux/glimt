@@ -626,6 +626,7 @@ impl crate::App {
     ) -> egui::Response {
         let size = egui::vec2(ui.available_width(), height);
         let (rect, response) = ui.allocate_exact_size(size, egui::Sense::click());
+        speak_item(&response, marked, &self.name(i));
         let visuals = ui.visuals();
         if marked || response.hovered() {
             let fill = if marked {
@@ -723,6 +724,8 @@ impl crate::App {
         marked: bool,
     ) -> egui::Response {
         let response = ui.interact(rect, ui.scope_id().with(("cell", i)), egui::Sense::click());
+        let name = self.name(i).into_owned();
+        speak_item(&response, marked, &name);
         let visuals = ui.visuals();
         if marked || response.hovered() {
             let fill = if marked {
@@ -740,7 +743,6 @@ impl crate::App {
         let frame = egui::Rect::from_min_size(rect.min + egui::vec2(4.0, 4.0), self.thumb());
         self.paint_thumb(ui, i, frame);
         let font = egui::TextStyle::Small.resolve(ui.style());
-        let name = self.name(i).into_owned();
         let mut job = egui::text::LayoutJob::simple_singleline(name, font, color);
         job.wrap = egui::text::TextWrapping::truncate_at_width(self.cell().x - 6.0);
         let galley = ui.painter().layout_job(job);
@@ -862,7 +864,9 @@ impl crate::App {
                     .rect_stroke(frame.expand(2.0), 3.0, stroke, egui::StrokeKind::Outside);
             }
             let id = ui.scope_id().with(("strip", i));
-            if ui.interact(frame, id, egui::Sense::click()).clicked() {
+            let response = ui.interact(frame, id, egui::Sense::click());
+            speak_item(&response, i == self.list.cur(), &self.name(i));
+            if response.clicked() {
                 clicked = Some(i);
             }
         }
@@ -1253,6 +1257,14 @@ impl crate::App {
         let (mut go_to, mut list_act) = (None, None);
         let opened = egui::CentralPanel::default()
             .show(ui, |ui| {
+                // The grid takes the image's place for a screen reader too. The image shown is
+                // read out as the arrows move in the grid, as it is over the image.
+                #[cfg(feature = "accessibility")]
+                {
+                    let id = ui.scope_id().with("grid");
+                    let response = ui.interact(ui.max_rect(), id, egui::Sense::click());
+                    self.speak_image(ui, &response);
+                }
                 let opened = self.file_list(ctx, ui, &mut go_to, &mut list_act, [true, true]);
                 // A failed copy or delete says so here too, as over the image.
                 self.paint_notice(ui, ui.max_rect());
@@ -1806,6 +1818,13 @@ pub(crate) fn thumbs_to_keep<'a>(
     around
         .map(|row| &files[matches.map_or(row, |m| m[row])])
         .collect()
+}
+
+/// Tells a screen reader what a file's row or cell is: an item of the list with the file's name,
+/// and whether it is selected. The rows of names get this from egui's own widget.
+fn speak_item(response: &egui::Response, marked: bool, name: &str) {
+    response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::ListItem, true, name));
+    (response.ctx).accesskit_node_builder(response.id, |node| node.set_selected(marked));
 }
 
 /// The places along a row or column of items `size` long, one every `step`, that the span
