@@ -1209,9 +1209,11 @@ fn full_has_every_feature() {
 /// The file list is drawn in two places at once, the side panel and the grid in the image area,
 /// each in its own form. The functions that draw it take that form from `file_list`'s
 /// parameters, so a setting read there would draw the side panel as the grid, or the other way.
+/// The settings are read only where the side panel picks its form and where they are set, so a
+/// helper the drawing calls cannot read them either, whatever the settings are called through.
 #[test]
 fn the_list_is_drawn_in_the_form_its_caller_asks() {
-    const DRAWING: &[&str] = &["file_list", "file_row", "file_cell"];
+    const HOMES: &[&str] = &["side_panel", "set_thumbnails"];
     let lines = code_lines(&source("ui/file_list.rs"));
     let end = tests_start(&lines);
     let mut function = String::new();
@@ -1220,10 +1222,13 @@ fn the_list_is_drawn_in_the_form_its_caller_asks() {
         if let Some(name) = function_name(line) {
             function = name.to_owned();
         }
-        let setting = ["config.thumbnails", "config.icons"]
-            .iter()
-            .any(|s| line.contains(s));
-        if setting && DRAWING.contains(&function.as_str()) {
+        let setting = [".thumbnails", ".icons"].iter().any(|s| {
+            (line.match_indices(s)).any(|(at, _)| {
+                let after = line[at + s.len()..].chars().next();
+                !after.is_some_and(|c| c.is_alphanumeric() || c == '_')
+            })
+        });
+        if setting && !HOMES.contains(&function.as_str()) {
             wrong.push(format!("ui/file_list.rs:{} in {function}", i + 1));
         }
     }
