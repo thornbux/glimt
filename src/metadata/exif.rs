@@ -486,7 +486,10 @@ fn oriented(mut data: Vec<u8>, turns: u8, mirrored: bool, rotate: bool) -> Resul
         })
     {
         let end = (start + len).min(data.len());
-        set_xmp_orientation(&mut data[start..end], new as u8);
+        let how = crate::images::save::Derived::Oriented(new as u8);
+        let xmp = crate::images::save::derived_xmp(&data[start..end], how);
+        // Only the orientation's one digit changes, so the segment keeps its length.
+        data[start..end].copy_from_slice(&xmp);
     }
     Ok(data)
 }
@@ -515,11 +518,27 @@ pub fn set_xmp_orientation(xmp: &mut [u8], value: u8) {
 /// turned upright. A block without the field is left as it is, and so is one without a TIFF
 /// header: no program finds an orientation in it to turn the pixels again. Also clears the EXIF
 /// thumbnail (IFD1), which a copy must not keep: of a crop it shows the whole frame, so every
-/// copy goes through here, upright or not.
-pub fn set_upright(block: &mut [u8]) -> Result<(), String> {
-    let Some((t, ifd0, _, _)) = ifds(block) else {
+/// copy goes through here, upright or not. The pixel sizes the block has are set to `size`,
+/// the copy's own. This is what `save::Derived::Pixels` keeps of EXIF.
+pub fn set_upright(block: &mut [u8], size: (u32, u32)) -> Result<(), String> {
+    let Some((t, ifd0, exif, _)) = ifds(block) else {
         return Ok(());
     };
+    // A size that does not fit the field's type is left as it was.
+    let sizes: Vec<(usize, Vec<u8>)> = [(0xa002, size.0), (0xa003, size.1)]
+        .into_iter()
+        .filter_map(|(tag, value)| {
+            let e = find(&exif, tag).filter(|e| e.count == 1)?;
+            let bytes = match (e.kind, t.little) {
+                (SHORT, true) => u16::try_from(value).ok()?.to_le_bytes().to_vec(),
+                (SHORT, false) => u16::try_from(value).ok()?.to_be_bytes().to_vec(),
+                (LONG, true) => value.to_le_bytes().to_vec(),
+                (LONG, false) => value.to_be_bytes().to_vec(),
+                _ => return None,
+            };
+            Some((e.at, bytes))
+        })
+        .collect();
     let found = find(&ifd0, ORIENTATION);
     if found.is_some_and(|e| e.kind != SHORT) {
         return Err("unusual orientation field".into());
@@ -562,6 +581,11 @@ pub fn set_upright(block: &mut [u8]) -> Result<(), String> {
     }
     if let Some(n) = next.and_then(|n| block.get_mut(head + n..head + n + 4)) {
         n.fill(0);
+    }
+    for (at, bytes) in sizes {
+        if let Some(field) = block.get_mut(head + at..head + at + bytes.len()) {
+            field.copy_from_slice(&bytes);
+        }
     }
     let Some(e) = found else {
         return Ok(());
@@ -1202,7 +1226,7 @@ mod tests {
     #[test]
     fn keeps_unreadable_exif() {
         let mut block = b"Exif\0\0not a TIFF header".to_vec();
-        assert_eq!(super::set_upright(&mut block), Ok(()));
+        assert_eq!(super::set_upright(&mut block, (1, 1)), Ok(()));
         assert_eq!(block, b"Exif\0\0not a TIFF header");
     }
 
@@ -1213,7 +1237,7 @@ mod tests {
         let mut block = b"Exif\0\0II*\0\x08\0\0\0\x01\0\x12\x01\x03\0\x01\0\0\0\x06\0\0\0\
                           \x1a\0\0\0\0\0"
             .to_vec();
-        super::set_upright(&mut block).unwrap();
+        super::set_upright(&mut block, (1, 1)).unwrap();
         let upright = image::metadata::Orientation::NoTransforms;
         assert_eq!(super::orientation(&block), Some(upright));
         assert_eq!(block[28..32], [0, 0, 0, 0]);
@@ -1240,7 +1264,7 @@ mod tests {
         entry(&mut d, 0x0202, 4, 6);
         d.extend(0u32.to_le_bytes());
         d.extend(b"\xff\xd8\xaa\xbb\xff\xd9");
-        super::set_upright(&mut d).unwrap();
+        super::set_upright(&mut d, (1, 1)).unwrap();
         assert!(!d.windows(2).any(|w| w == b"\xff\xd8"));
         assert_eq!(d.len(), 6 + 62);
         // An uncompressed thumbnail in two strips: both cleared. IFD1 at 26 with StripOffsets
@@ -1262,8 +1286,37 @@ mod tests {
         d.extend(0x40u32.to_le_bytes());
         d.extend(0x44u32.to_le_bytes());
         d.extend(b"AAAABBBB");
-        super::set_upright(&mut d).unwrap();
+        super::set_upright(&mut d, (1, 1)).unwrap();
         assert_eq!(&d[6 + 0x40..], [0; 8]);
+    }
+
+    /// A copy's EXIF says its own pixel sizes, not the original's, in a SHORT or a LONG field.
+    #[test]
+    fn sets_the_pixel_sizes_of_a_copy() {
+        let entry = |d: &mut Vec<u8>, tag: u16, kind: u16, value: u32| {
+            d.extend(tag.to_le_bytes());
+            d.extend(kind.to_le_bytes());
+            d.extend(1u32.to_le_bytes());
+            d.extend(value.to_le_bytes());
+        };
+        // IFD0 at 8 with the Exif IFD at 26, which has the width as a SHORT, the height a LONG.
+        let mut d = b"Exif\0\0II*\0\x08\0\0\0".to_vec();
+        d.extend(1u16.to_le_bytes());
+        entry(&mut d, super::EXIF_IFD, 4, 26);
+        d.extend(0u32.to_le_bytes());
+        d.extend(2u16.to_le_bytes());
+        entry(&mut d, 0xa002, 3, 4000);
+        entry(&mut d, 0xa003, 4, 3000);
+        d.extend(0u32.to_le_bytes());
+        super::set_upright(&mut d, (400, 70_000)).unwrap();
+        let (t, _, exif, _) = super::ifds(&d).unwrap();
+        let size = |tag| t.int(super::find(&exif, tag).unwrap());
+        assert_eq!((size(0xa002), size(0xa003)), (Some(400), Some(70_000)));
+        // A width too large for its SHORT is left as it was.
+        super::set_upright(&mut d, (70_000, 50)).unwrap();
+        let (t, _, exif, _) = super::ifds(&d).unwrap();
+        let size = |tag| t.int(super::find(&exif, tag).unwrap());
+        assert_eq!((size(0xa002), size(0xa003)), (Some(400), Some(50)));
     }
 
     /// Blocks and a JPEG broken in thousands of ways, as a damaged or crafted file has them:
@@ -1296,7 +1349,7 @@ mod tests {
                 super::orientation(&block);
                 super::adobe_rgb(&block);
                 let len = block.len();
-                let _ = super::set_upright(&mut block);
+                let _ = super::set_upright(&mut block, (1, 1));
                 assert_eq!(block.len(), len);
             }
         }
