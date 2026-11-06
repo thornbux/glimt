@@ -1105,6 +1105,9 @@ impl crate::App {
         let panes: Vec<OsString> = (self.list.panes().iter())
             .filter_map(|&i| self.list.files().get(i).cloned())
             .collect();
+        // So is the image that a slideshow of one pane at a time showed last, because it goes
+        // on from there, while the panes it keeps stay as they are.
+        let last_slide = self.list.files().get(self.list.last_slide()).cloned();
         // A new List means every place held in the old one goes with it, whatever field holds
         // it. Only what is carried over by name above comes back.
         self.list = List::after(&self.list, files);
@@ -1117,6 +1120,9 @@ impl crate::App {
             .filter_map(|n| self.list.files().iter().position(|f| f == n))
             .collect();
         self.list.set_panes(panes);
+        let last = last_slide.and_then(|n| self.list.files().iter().position(|f| *f == n));
+        let last = last.or(self.list.panes().last().copied()).unwrap_or(cur);
+        self.list.set_last_slide(last);
         // One pass over the list for a handful of textures.
         let mut kept = Vec::new();
         for (i, name) in self.list.files().iter().enumerate() {
@@ -1290,6 +1296,32 @@ pub(crate) fn total_size(paths: &[PathBuf]) -> u64 {
 #[cfg(test)]
 mod tests {
     use crate::support::test_support::{app_on, contract_folder, settle};
+
+    /// A slideshow of one pane at a time goes on from the image it showed last after the list
+    /// is read again or put in another order. It started from the top after every change.
+    #[test]
+    fn a_new_list_keeps_the_last_slide() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-last-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        for name in ["a.png", "b.png", "c.png", "d.png", "e.png"] {
+            image::RgbImage::new(4, 4).save(dir.join(name)).unwrap();
+        }
+        let (mut app, ctx) = app_on(&dir);
+        assert!(settle(&mut app, &ctx, |a| a.list.files().len() == 5));
+        app.config.layout = "2x1".into();
+        app.config.layout_turns = "2x1".into();
+        app.start_slideshow(&ctx);
+        app.refill();
+        assert_eq!(app.list.panes(), [1]);
+        app.list.set_last_slide(3);
+        let mut files = app.list.files().to_vec();
+        files.reverse();
+        let shown = app.list.files().first().cloned();
+        app.replace_files(&ctx, files, shown);
+        let last = &app.list.files()[app.list.last_slide()];
+        assert_eq!(last, "d.png");
+        std::fs::remove_dir_all(dir).unwrap();
+    }
 
     /// Other files taken out of the list leave the shown image as it was. Its turn not saved
     /// yet and its zoom stay, also when it moves up to another place.
