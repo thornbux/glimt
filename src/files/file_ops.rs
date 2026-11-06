@@ -644,7 +644,9 @@ impl crate::App {
             let refused = trash && !errors.is_empty() && !job.stopped();
             // Those not reached after Stop are still there, as after a failure.
             let _ = deleted_tx.send(Deleted {
-                untrashable: refused.then(|| left_by_trash(&paths)).flatten(),
+                untrashable: refused
+                    .then(|| left_by_trash(&paths, crate::files::file_io::mount_type))
+                    .flatten(),
                 paths,
                 gone,
                 failed: !errors.is_empty() || job.stopped(),
@@ -1705,10 +1707,13 @@ fn forget_in_collection(
 
 /// Returns the files of `paths` that are still there on a network or cloud mount, with the
 /// mount's type, after the trash refused them. Returns `None` when there are none, such as when
-/// the trash failed in a local folder that cannot be written. The mount table is read once for
-/// each folder.
-fn left_by_trash(paths: &[PathBuf]) -> Option<(String, Vec<PathBuf>)> {
-    use crate::files::file_io::{is_remote, mount_type};
+/// the trash failed in a local folder that cannot be written. `mount_type` gives a folder's file
+/// system, and it is asked once for each folder.
+fn left_by_trash(
+    paths: &[PathBuf],
+    mount_type: impl Fn(&Path) -> Option<String>,
+) -> Option<(String, Vec<PathBuf>)> {
+    use crate::files::file_io::is_remote;
     let mut kinds: HashMap<PathBuf, Option<String>> = HashMap::new();
     let mut remote = |p: &Path| {
         let dir = p.parent()?.to_path_buf();
@@ -2697,6 +2702,54 @@ mod tests {
         assert!(settle(&mut app, &ctx, |app| !app.working() && refused(app)));
         assert!(!a.exists(), "the other image was moved back as a.png");
         assert!(moved.exists());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// Of the files the trash refused, only those still there on a network or cloud mount are
+    /// left to ask about, with that mount's type. A file that went after all and a file of a
+    /// local folder are not. Each folder's mount is looked up once.
+    #[test]
+    fn leaves_to_ask_about_only_files_still_on_a_network_mount() {
+        use std::path::{Path, PathBuf};
+        let dir = std::env::temp_dir().join(format!("glimt-test-left-{}", std::process::id()));
+        let (cloud, local) = (dir.join("cloud"), dir.join("local"));
+        std::fs::create_dir_all(&cloud).unwrap();
+        std::fs::create_dir_all(&local).unwrap();
+        for file in [
+            cloud.join("a.png"),
+            cloud.join("b.png"),
+            local.join("c.png"),
+        ] {
+            crate::files::file_io::create_file(&file, "").unwrap();
+        }
+        let looked = std::cell::Cell::new(0);
+        let mount_type = |folder: &Path| {
+            looked.set(looked.get() + 1);
+            Some(
+                if folder == cloud {
+                    "fuse.rclone"
+                } else {
+                    "ext4"
+                }
+                .to_owned(),
+            )
+        };
+        let paths: Vec<PathBuf> = ["a.png", "gone.png", "b.png"]
+            .map(|n| cloud.join(n))
+            .into_iter()
+            .chain([local.join("c.png")])
+            .collect();
+        let left = super::left_by_trash(&paths, mount_type);
+        let kind = "fuse.rclone".to_owned();
+        assert_eq!(
+            left,
+            Some((kind, vec![cloud.join("a.png"), cloud.join("b.png")]))
+        );
+        assert_eq!(looked.get(), 2);
+        assert_eq!(
+            super::left_by_trash(&[local.join("c.png")], mount_type),
+            None
+        );
         std::fs::remove_dir_all(dir).unwrap();
     }
 
