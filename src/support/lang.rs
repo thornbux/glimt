@@ -425,6 +425,23 @@ msgstr[1] "bilder"
         );
     }
 
+    /// The template for a new language, po/glimt.pot, has every text of no_nb.po, in its order,
+    /// and no translation. After a text is added or changed, `python3 tools/pot.py` writes it.
+    #[test]
+    fn the_template_has_every_text() {
+        let ids = |po: &'static str| -> Vec<&'static str> {
+            (po.lines()).filter(|l| l.starts_with("msgid")).collect()
+        };
+        let pot = include_str!("../../po/glimt.pot");
+        assert!(
+            ids(pot) == ids(include_str!("../../po/no_nb.po")),
+            "po/glimt.pot is behind po/no_nb.po: run python3 tools/pot.py"
+        );
+        let translated = (pot.lines().skip_while(|l| !l.is_empty()))
+            .find(|l| l.starts_with("msgstr") && !l.ends_with(" \"\""));
+        assert_eq!(translated, None, "po/glimt.pot has a translation");
+    }
+
     /// Every translation has every text and noun of the Norwegian one, which each new text
     /// gets first: a language that lacks one would show it in English.
     #[test]

@@ -52,6 +52,12 @@ menus show them (Ctrl, Shift, Enter, Esc, Delete), `%field%` template names unch
 quotation marks Inter has (`«»`, `“”`, `„`, `”`). A noun of `count` has the forms its language's
 `plural_form` picks from: two in most, three in Polish (one, few, many).
 
+`po/glimt.pot` is the template for a new language: no_nb.po with every translation empty,
+written by `python3 tools/pot.py` (see *Before every commit*). `lang::tests::
+the_template_has_every_text` fails while it lacks a text of no_nb.po. A new language is
+added with its `.po` file, a line in `lang::LANGUAGES` and, if it is not one and many, its
+rule in `plural_form`.
+
 ## Code layout
 
 `src/` holds main.rs (the app and its frame), cli.rs (the command line) and eight folders, in the
@@ -127,7 +133,7 @@ holds only its `mod` lines, and a new module goes into the folder of what it doe
 | `src/support/format.rs` | Text for the user: `human_size`, `size_text`, `thousands`, `count`, `middle_cut`, `local_time` (the trash's date form too), `fill_template` |
 | `src/support/lang.rs` | The interface's languages: the `.po` files, `tr`/`tf!`, each language's plural rule |
 | `src/support/source_rules.rs` | Tests of the source itself: the layout below, kept by a test rather than by memory; `sources()`, every source file and translation |
-| `po/` | The translations, one gettext `.po` file per language, built into the program (`lang::LANGUAGES`) |
+| `po/` | The translations, one gettext `.po` file per language, built into the program (`lang::LANGUAGES`), and `glimt.pot`, the template for a new one |
 | `themes/` | The built-in themes |
 | `assets/` | Icons, the desktop and AppStream files, the fonts and their licenses |
 | `docs/` | The man page `glimt.1`, and `screenshots/` for README and the website |
@@ -137,6 +143,7 @@ holds only its `mod` lines, and a new module goes into the folder of what it doe
 | `tools/check.sh` | Runs the checks before a commit in Docker, with mold and sccache, a few at a time |
 | `tools/sbom.py` | Writes `sbom.cdx.json` and `THIRD-PARTY-LICENSES.txt` |
 | `tools/flatpak-sources.py` | Writes `flatpak/cargo-sources.json` from `Cargo.lock` |
+| `tools/pot.py` | Writes `po/glimt.pot`, the template for a new language, from `po/no_nb.po` |
 | `tools/flathub-manifest.py` | Writes the Flathub repository's manifest and `cargo-sources.json` for a release tag |
 | `tools/release-tests/` | `run.sh` builds this and the last release in Docker; `tests.sh` checks them under Xvfb; `samples.txt` lists real files of each format, downloaded once |
 | `tools/screenshots/` | `run.sh` makes `docs/screenshots/` of generated pictures with `shots.sh`, using `tests.sh`'s setup (`SHOTS=1`) |
@@ -304,6 +311,7 @@ cargo clippy --profile quick --all-targets --all-features -- -D warnings
 cargo test --profile quick --all-features
 python3 tools/sbom.py        # keeps sbom.cdx.json and THIRD-PARTY-LICENSES.txt in step with Cargo.lock
 python3 tools/flatpak-sources.py  # and flatpak/cargo-sources.json, the Flatpak's crates
+python3 tools/pot.py         # and po/glimt.pot, after a text is added or changed
 ```
 
 - **A branch per feature or fix**, named after it (`flatpak`, `slideshow-transitions`), merged
