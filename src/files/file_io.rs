@@ -907,7 +907,8 @@ mod tests {
     /// stays deleted. Before, the new version was renamed in under its old name.
     #[test]
     fn a_file_gone_during_the_step_before_stays_gone() {
-        let dir = std::env::temp_dir().join(format!("glimt-test-gone-{}", std::process::id()));
+        let dir =
+            std::env::temp_dir().join(format!("glimt-test-gone-before-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let file = dir.join("a.png");
         std::fs::write(&file, b"old").unwrap();

@@ -458,6 +458,29 @@ fn items_are_in_order() {
     assert!(wrong.is_empty(), "out of order:\n{}", wrong.join("\n"));
 }
 
+/// Every test's own folder or file in the temporary folder has a name no other test uses.
+/// Tests run at once, and two that shared `glimt-test-esc-{pid}` removed each other's folder.
+#[test]
+fn tests_use_temporary_names_of_their_own() {
+    let mut seen: std::collections::HashMap<String, String> = Default::default();
+    let mut wrong = Vec::new();
+    for (name, text) in sources().iter().filter(|(n, _)| n.ends_with(".rs")) {
+        for (at, _) in text.match_indices("\"glimt-test-") {
+            let rest = &text[at + 1..];
+            let Some(end) = rest.find('"') else { continue };
+            let literal = &rest[..end];
+            if let Some(first) = seen.insert(literal.to_owned(), name.clone()) {
+                wrong.push(format!("{literal}: {first} and {name}"));
+            }
+        }
+    }
+    assert!(
+        wrong.is_empty(),
+        "the same temporary name in two tests:\n{}",
+        wrong.join("\n")
+    );
+}
+
 /// A test sits in the tests of the module whose code it tests. Once main.rs's tests module held
 /// what such tests start from (`app_on`, `settle`), and that drew every test that needed a whole
 /// `App` into main.rs. Those helpers are in test_support.rs now, and only the tests of main.rs's

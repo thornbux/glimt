@@ -1100,7 +1100,7 @@ mod tests {
     /// The next Esc, with nothing focused, answers.
     #[test]
     fn esc_in_a_text_field_only_leaves_it() {
-        let dir = std::env::temp_dir().join(format!("glimt-test-esc-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("glimt-test-esc-field-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let (app, ctx) = app_on(&dir);
         let field = egui::Id::unique("a text field");

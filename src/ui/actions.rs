@@ -1646,7 +1646,7 @@ mod tests {
             Action::FullScreen,
             Action::HideTools,
         ];
-        let dir = std::env::temp_dir().join(format!("glimt-test-gone-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("glimt-test-view-gone-{}", std::process::id()));
         for &action in OPENS_A_VIEW {
             std::fs::create_dir_all(&dir).unwrap();
             image::RgbImage::new(4, 4).save(dir.join("a.png")).unwrap();
