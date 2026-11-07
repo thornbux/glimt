@@ -336,17 +336,12 @@ pub fn write_xmp(path: &Path, stars: u8) -> Result<(), String> {
     crate::metadata::xmp::update_sidecar(path, stars == 0, |x| set_rating(x, stars))
 }
 
-/// `xmp` with its rating set to `stars`, as an attribute or element, or added; `None` if it has
-/// no rdf:Description to put it in.
+/// `xmp` with its rating set to `stars`, as an attribute of its first rdf:Description. Returns
+/// `None` if it has no rdf:Description to put it in.
 fn set_rating(xmp: &str, stars: u8) -> Option<String> {
-    let number_after = |key: &str| {
-        let start = xmp.find(key)? + key.len();
-        let len = xmp[start..].find(|c: char| !c.is_ascii_digit() && c != '-')?;
-        Some((start, start + len))
-    };
-    if let Some((a, b)) = number_after("xmp:Rating=\"").or_else(|| number_after("<xmp:Rating>")) {
-        return Some(format!("{}{stars}{}", &xmp[..a], &xmp[b..]));
-    }
+    // The rating it has goes first, in whatever form and quotes it was written, so the sidecar
+    // never holds two, which darktable and digiKam refuse as broken XML.
+    let xmp = &crate::metadata::xmp::without(xmp, "xmp:Rating");
     let at = xmp.find("<rdf:Description")? + "<rdf:Description".len();
     // Declared on this Description or above it, as in xmp::set.
     let tag_end = at + xmp[at..].find('>')?;
@@ -526,20 +521,25 @@ mod tests {
         assert_eq!((map[&a], map[&b]), ((5, 0), (0, 4)));
         // A darktable sidecar keeps its fields; the rating is changed or added.
         let dt = r#"<rdf:Description rdf:about="" xmlns:xmp="http://ns.adobe.com/xap/1.0/" xmp:Rating="1" darktable:x="y">"#;
-        assert!(
-            super::set_rating(dt, 4)
-                .unwrap()
-                .contains(r#"xmp:Rating="4" darktable:x="y""#)
+        assert_eq!(
+            super::set_rating(dt, 4).unwrap(),
+            r#"<rdf:Description xmp:Rating="4" rdf:about="" xmlns:xmp="http://ns.adobe.com/xap/1.0/" darktable:x="y">"#
+        );
+        // A rating in single quotes, as exiftool may write it, is replaced, not written twice,
+        // which would make the XML broken.
+        let quoted = r#"<rdf:Description xmlns:xmp="http://ns.adobe.com/xap/1.0/" xmp:Rating='3'>"#;
+        assert_eq!(
+            super::set_rating(quoted, 4).unwrap(),
+            r#"<rdf:Description xmp:Rating="4" xmlns:xmp="http://ns.adobe.com/xap/1.0/">"#
         );
         let none = r#"<rdf:Description rdf:about="">"#;
         assert_eq!(
             super::set_rating(none, 2).unwrap(),
             r#"<rdf:Description xmlns:xmp="http://ns.adobe.com/xap/1.0/" xmp:Rating="2" rdf:about="">"#
         );
-        assert!(
-            super::set_rating("<xmp:Rating>5</xmp:Rating><rdf:Description>", 0)
-                .unwrap()
-                .starts_with("<xmp:Rating>0<")
+        assert_eq!(
+            super::set_rating("<xmp:Rating>5</xmp:Rating><rdf:Description>", 0).unwrap(),
+            r#"<rdf:Description xmlns:xmp="http://ns.adobe.com/xap/1.0/" xmp:Rating="0">"#
         );
         assert_eq!(super::set_rating("nothing", 1), None);
         super::TEST_FILE.with(|f| *f.borrow_mut() = None);

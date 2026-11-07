@@ -652,17 +652,11 @@ pub fn add_tags(path: &Path, tags: &[String]) -> Result<(), String> {
     })
 }
 
-/// `xmp` without element `tag` and its contents.
-fn without(xmp: &str, tag: &str) -> String {
-    let close = format!("</{tag}>");
-    match (xmp.find(&format!("<{tag}>")), xmp.find(&close)) {
-        (Some(a), Some(b)) if b > a => {
-            // With the white space before it, so the sidecar does not gather empty lines.
-            let a = xmp[..a].trim_end().len();
-            format!("{}{}", &xmp[..a], &xmp[b + close.len()..])
-        }
-        _ => xmp.to_owned(),
-    }
+/// `xmp` without property `tag` in any form it is written in (`save::without`).
+pub(crate) fn without(xmp: &str, tag: &str) -> String {
+    let out = crate::images::save::without(xmp.as_bytes(), tag.as_bytes());
+    // It cuts only at ASCII characters, so the text stays UTF-8.
+    String::from_utf8(out).unwrap_or_else(|_| xmp.to_owned())
 }
 
 fn escape(text: &str) -> String {
@@ -1193,6 +1187,28 @@ mod tests {
         });
         assert_eq!(read(&path).keywords.len(), 80);
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// Keywords and a comment written again replace those a sidecar has in any form: an element
+    /// with attributes, an empty element and an attribute. Before, only `<dc:subject>` was
+    /// found, and the others stayed beside the new ones, a property twice.
+    #[test]
+    fn replaces_a_property_in_any_form() {
+        let xmp = r#"<rdf:Description rdf:about="" dc:title='t'>
+   <dc:subject xmlns:dc="http://purl.org/dc/elements/1.1/"><rdf:Bag><rdf:li>a</rdf:li></rdf:Bag></dc:subject>
+   <dc:description/>
+   <lr:hierarchicalSubject rdf:parseType="Resource"><rdf:Bag/></lr:hierarchicalSubject>
+  </rdf:Description>"#;
+        let meta = Meta {
+            keywords: vec!["b".into()],
+            comment: "c".into(),
+        };
+        let new = set(xmp, &meta, false).unwrap();
+        for tag in ["<dc:subject", "<dc:description", "<lr:hierarchicalSubject"] {
+            assert_eq!(new.matches(tag).count(), 1, "{tag} in {new}");
+        }
+        assert_eq!(parse(&new), meta);
+        assert!(new.contains("dc:title='t'") && !new.contains("\n\n"));
     }
 
     #[test]
