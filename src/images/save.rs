@@ -469,12 +469,57 @@ pub(crate) fn same_file(a: &Path, b: &Path) -> bool {
 /// nanoseconds), are of one file. One file has one size and time under every name. The size
 /// and time are compared too because NFSv3 with `nohide` and overlayfs without `xino` can give
 /// two files the same device and inode, and Rename Many's repair removes a name that it takes
-/// for a second name of the same file.
+/// for a second name of the same file. Where the file system gives no inode, two names that
+/// differ only in case are one file when the file system ignores case (`case_folded`).
 fn same_named(
     (key_a, at_a): (FileKey, (u64, i64, i64)),
     (key_b, at_b): (FileKey, (u64, i64, i64)),
 ) -> bool {
-    at_a == at_b && key_a == key_b
+    at_a == at_b
+        && match (key_a, key_b) {
+            (Err(a), Err(b)) => a == b || case_folded(&a, &b),
+            (a, b) => a == b,
+        }
+}
+
+/// Whether `a` and `b`, two names of files that are there, in one folder and differing only in
+/// case, reach one file because the file system ignores case. A file system that keeps case
+/// lists both names, since both are there. One that ignores case lists the file once, under
+/// the name it was made with, so at least one of the two is missing from the listing. Save As
+/// `a.JPG` to `a.jpg` on sshfs with `-o use_ino` from a Mac would otherwise write over the
+/// image with its own copy.
+/// shortcut: the folder is listed whole, which is only done without inodes and for names that
+/// differ only in case; names that differ in Unicode normalization (as APFS ignores) are still
+/// taken for two files, fold that too if such a share is met.
+fn case_folded(a: &Path, b: &Path) -> bool {
+    let name = |p: &Path| {
+        p.file_name()
+            .and_then(std::ffi::OsStr::to_str)
+            .map(str::to_owned)
+    };
+    let (Some(x), Some(y)) = (name(a), name(b)) else {
+        return false;
+    };
+    let Some(folder) = a.parent().filter(|&f| Some(f) == b.parent()) else {
+        return false;
+    };
+    if x == y || x.to_lowercase() != y.to_lowercase() {
+        return false;
+    }
+    let Ok(entries) = std::fs::read_dir(folder) else {
+        return false;
+    };
+    let mut listed = [false; 2];
+    for entry in entries {
+        // A listing cut short says nothing, so the names stay two files.
+        let Ok(entry) = entry else {
+            return false;
+        };
+        let found = entry.file_name();
+        listed[0] |= found.to_str() == Some(x.as_str());
+        listed[1] |= found.to_str() == Some(y.as_str());
+    }
+    listed != [true, true]
 }
 
 /// Returns what tells the file or folder at `path` from every other (`FileKey`). Every
@@ -2068,6 +2113,23 @@ mod tests {
         assert!(super::same_named((Ok((1, 7)), one), (Ok((1, 7)), one)));
         assert!(!super::same_named((Ok((1, 7)), one), (Ok((1, 7)), other)));
         assert!(!super::same_named((Ok((1, 7)), one), (Ok((1, 8)), one)));
+    }
+
+    /// Without inodes, two names that differ only in case are one file where the folder lists
+    /// only one of them (a server that ignores case), and two where it lists both.
+    #[test]
+    fn names_differing_in_case_are_one_file_where_case_is_ignored() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-case-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let (lower, upper) = (dir.join("a.jpg"), dir.join("a.JPG"));
+        std::fs::write(&lower, "x").unwrap();
+        let stamp = (1, 1_700_000_000, 0);
+        let same = || super::same_named((Err(upper.clone()), stamp), (Err(lower.clone()), stamp));
+        assert!(same());
+        assert!(!super::case_folded(&lower, &dir.join("b.jpg")));
+        std::fs::write(&upper, "y").unwrap();
+        assert!(!same());
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     /// A move in another window that comes during a turn's sidecar step waits until the image
