@@ -1250,7 +1250,11 @@ mod tests {
     }
 
     /// The parser takes every start option that --help lists, and --remote and --remote-all.
-    /// Before, an option renamed in the parser alone passed, because only the help was pinned.
+    /// An option that the parser leaves in place must be one that is acted on after it: a
+    /// --remote command, or a command that `answered` answers. Before, an option renamed in
+    /// the parser alone passed, because only the help was pinned. Later, `answered` read the
+    /// commands by names of its own, so renaming --check-config there passed too, and -h and
+    /// -V could never fail.
     #[test]
     fn the_parser_takes_every_frozen_option() {
         let remote = [
@@ -1264,7 +1268,10 @@ mod tests {
                 // The value given is the first choice, or the word that --help shows for it.
                 let value = value.trim_matches(['[', ']']).split('|').next();
                 let args = vec![name.into(), value.unwrap_or_default().into()];
-                assert!(crate::cli::Start::parse(args).is_ok(), "{name}");
+                let (_, rest) = crate::cli::Start::parse(args).expect(name);
+                let left = rest.first().is_some_and(|a| a == name);
+                let acted_on = remote.contains(&name) || crate::cli::Command::named(name).is_some();
+                assert!(!left || acted_on, "{name} is neither taken nor answered");
             }
         }
     }

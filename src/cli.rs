@@ -116,14 +116,8 @@ impl Start {
                     args.remove(0);
                     break;
                 }
-                "--help"
-                | "-h"
-                | "--version"
-                | "-V"
-                | remote::REMOTE
-                | remote::REMOTE_ALL
-                | "--check-config"
-                | "--back-up" => break,
+                remote::REMOTE | remote::REMOTE_ALL => break,
+                a if Command::named(a).is_some() => break,
                 a if a.starts_with("--") => return Err(format!("unknown option {a}")),
                 _ => break,
             }
@@ -133,17 +127,41 @@ impl Start {
     }
 }
 
+/// The commands that answer and end without opening a window.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) enum Command {
+    Version,
+    CheckConfig,
+    BackUp,
+    Help,
+}
+
+impl Command {
+    /// Returns the command that the argument `arg` names, or `None` for another argument.
+    /// The parser stops at these names and `answered` acts on them, so both read the one list
+    /// that the frozen options are checked against.
+    pub(crate) fn named(arg: &str) -> Option<Command> {
+        Some(match arg {
+            "--version" | "-V" => Command::Version,
+            "--check-config" => Command::CheckConfig,
+            "--back-up" => Command::BackUp,
+            "--help" | "-h" => Command::Help,
+            _ => return None,
+        })
+    }
+}
+
 /// Answers the commands that need no window: --version, --check-config, --back-up and --help.
 /// Returns true when one of them was given, and Glimt has nothing more to do. After `--` the
 /// arguments are files, never a command.
 pub(crate) fn answered(start: &Start, args_os: &[OsString]) -> bool {
     let first = (args_os.first().filter(|_| !start.files_only)).and_then(|a| a.to_str());
-    match first {
-        Some("--version" | "-V") => println!("glimt {}", env!("CARGO_PKG_VERSION")),
-        Some("--check-config") => check_config(args_os.get(1).map(PathBuf::from)),
-        Some("--back-up") => back_up(args_os.get(1)),
-        Some("--help" | "-h") => print_help(),
-        _ => return false,
+    match first.and_then(Command::named) {
+        Some(Command::Version) => println!("glimt {}", env!("CARGO_PKG_VERSION")),
+        Some(Command::CheckConfig) => check_config(args_os.get(1).map(PathBuf::from)),
+        Some(Command::BackUp) => back_up(args_os.get(1)),
+        Some(Command::Help) => print_help(),
+        None => return false,
     }
     true
 }
