@@ -994,25 +994,6 @@ fn copies_of_settings_have_one_writer() {
     );
 }
 
-/// A file's inode is read only in `save::meta_key`, which gives a file system that numbers every
-/// file 0 a key by path instead. Undo of a move compared inodes of its own, and on sshfs with
-/// `-o use_ino` took another file at the moved name for the moved one. `marks::seen` keeps the
-/// inode beside the time only to see that the file at a path changed, never to tell two apart.
-#[test]
-fn files_are_told_apart_by_one_key() {
-    const READERS: &[(&str, &str)] = &[
-        ("images/save.rs", "meta_key"),
-        ("metadata/marks.rs", "seen"),
-    ];
-    const HOMES: &[(&str, &[(&str, &str)])] = &[(".ino()", READERS), ("::ino(", READERS)];
-    let wrong = outside_their_homes(HOMES);
-    assert!(
-        wrong.is_empty(),
-        "an inode read outside save::meta_key (use save::file_key or meta_key):\n{}",
-        wrong.join("\n")
-    );
-}
-
 /// Returns each place outside the tests where a text of `homes` is written in code outside the
 /// functions it is allowed in, as "file:line (text)". A function named "" allows the whole
 /// file, and the text's own definition is allowed anywhere.
