@@ -1252,6 +1252,31 @@ mod tests {
         std::fs::remove_dir_all(dir).unwrap();
     }
 
+    /// A JPEG is written also when its EXIF block is larger than an APP1 segment holds, without
+    /// the block, and a block that fits is kept. A RAW's EXIF can be that large.
+    #[test]
+    fn a_jpeg_is_written_without_an_exif_block_too_large() {
+        use crate::support::test_support::CANON_EXIF;
+        use image::ImageDecoder;
+        let exif_of = |exif: Vec<u8>| {
+            let img = image::RgbImage::new(2, 2).into();
+            let kind = super::Kind::Jpeg(90);
+            let path = std::path::Path::new("");
+            let out = super::encode(path, img, None, Some(exif), None, kind, false, 90);
+            let reader = image::ImageReader::new(std::io::Cursor::new(out.unwrap()));
+            let mut dec = reader
+                .with_guessed_format()
+                .unwrap()
+                .into_decoder()
+                .unwrap();
+            dec.exif_metadata().unwrap()
+        };
+        assert_eq!(exif_of(CANON_EXIF.to_vec()).as_deref(), Some(CANON_EXIF));
+        let mut large = CANON_EXIF.to_vec();
+        large.resize(super::MAX_JPEG_EXIF + 1, 0);
+        assert_eq!(exif_of(large), None);
+    }
+
     /// A derived file is written from pixels its format holds: a float image as a 16-bit PNG,
     /// and grey as a grey JPEG. Before, a PNG of a 32-bit float TIFF failed to be written.
     #[test]
