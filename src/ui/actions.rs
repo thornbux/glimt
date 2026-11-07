@@ -1919,6 +1919,89 @@ mod tests {
         );
     }
 
+    /// Every action on the selection reaches `targets`, `quiet_targets` or `ask_about_targets`
+    /// from its arm in `App::run`, in the arm itself or in a function it calls. `Action::target`
+    /// is only a label, which a menu about the selection trusts. An arm that took the shown
+    /// image instead would act on another file than the ones the user picked.
+    #[test]
+    fn actions_on_the_selection_reach_their_targets() {
+        use std::collections::HashMap;
+        /// Returns whether `code`, or a function it calls on `self` up to `depth` calls down,
+        /// asks for the selected files through one of the three.
+        fn reaches(code: &str, depth: u8, bodies: &HashMap<String, String>) -> bool {
+            let called = (code.match_indices("self.")).filter_map(|(at, s)| {
+                let rest = &code[at + s.len()..];
+                let name = rest
+                    .split(|c: char| !c.is_alphanumeric() && c != '_')
+                    .next()?;
+                rest[name.len()..].starts_with('(').then_some(name)
+            });
+            let deeper = |n: &str| bodies.get(n).is_some_and(|b| reaches(b, depth - 1, bodies));
+            code.contains("targets()") || depth > 0 && { called }.any(deeper)
+        }
+        // The code of every function outside the tests, by name. Functions of one name are put
+        // together, which can only let an arm pass, never fail one that reaches its targets.
+        let mut bodies: HashMap<String, String> = HashMap::new();
+        let mut run = String::new();
+        for (file, text) in crate::support::source_rules::rust_sources() {
+            let lines = crate::support::source_rules::code_lines(&text);
+            let end =
+                (lines.iter().position(|l| l.trim_start() == "mod tests {")).unwrap_or(lines.len());
+            for (i, line) in lines[..end].iter().enumerate() {
+                let Some((before, after)) = line.split_once("fn ") else {
+                    continue;
+                };
+                let name = after.split(['(', '<']).next().unwrap_or_default();
+                if !(before.is_empty() || before.ends_with(' ')) || name.contains(' ') {
+                    continue;
+                }
+                let indent = line.len() - line.trim_start().len();
+                let closes = |l: &String| {
+                    l.len() - l.trim_start().len() == indent && l.trim_start().starts_with('}')
+                };
+                if let Some(last) = (i + 1..end).find(|&j| closes(&lines[j])) {
+                    let body = lines[i..=last].join("\n");
+                    if file == "ui/actions.rs" && name == "run" {
+                        run.clone_from(&body);
+                    }
+                    bodies.entry(name.to_owned()).or_default().push_str(&body);
+                }
+            }
+        }
+        // An arm that runs another action is checked as that action, not through `run` itself.
+        bodies.remove("run");
+        let (_, match_arms) = run.split_once("match action {\n").unwrap();
+        // An arm starts at each line of the match's own indent that names an action.
+        let mut arms: Vec<String> = Vec::new();
+        for line in match_arms.lines() {
+            let rest = line.strip_prefix("            ").unwrap_or("");
+            if rest.starts_with("Action::") || rest.starts_with("#[") || arms.is_empty() {
+                arms.push(String::new());
+            }
+            arms.last_mut().unwrap().push_str(&format!("{line}\n"));
+        }
+        let selection = ALL.iter().filter(|a| a.target() == Target::Selection);
+        for name in selection.map(|a| format!("{a:?}")) {
+            let names = |arm: &&String| {
+                (arm.match_indices(&format!("Action::{name}"))).any(|(at, s)| {
+                    let after = arm[at + s.len()..].chars().next();
+                    !after.is_some_and(|c| c.is_alphanumeric() || c == '_')
+                })
+            };
+            let mine: Vec<&String> = arms.iter().filter(names).collect();
+            assert!(!mine.is_empty(), "{name} has no arm in App::run");
+            for arm in mine {
+                let (_, does) = arm.split_once("=>").unwrap();
+                let nothing = does.trim().trim_end_matches(',') == "{}";
+                assert!(
+                    nothing || reaches(does, 3, &bodies),
+                    "{name} acts on the selection (Action::target) but its arm in App::run \
+                     reaches no targets(), quiet_targets() or ask_about_targets():\n{arm}"
+                );
+            }
+        }
+    }
+
     /// Every action's name is in the translations: it reaches tr through `english`, where the
     /// translation test, which looks for tr("…"), cannot see it. The stars are the same in
     /// every language.
