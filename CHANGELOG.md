@@ -5,6 +5,21 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.72.0] - 2026-11-07
+
+### Added
+
+- `glimt --remote run ACTION` does an action by its name, as in `keys=`: zooming, browsing,
+  selecting, the panels and windows, the settings. Only the actions that change no file,
+  sidecar, mark or collection are taken, not even through a window the user then clicks in, and
+  none while a dialog asks the user; `glimt --help` lists them, and another name exits with 2.
+- A plugin whose desktop file has `MimeType=` (such as `image/x-canon-cr2;` or `image/*`) is
+  given only the selected files of those types, and Glimt says how many it leaves out.
+
+### Fixed
+
+- With `XDG_DATA_DIRS` set but empty, the system's plugins and decoders were not found.
+
 ## [0.71.0] - 2026-11-07
 
 ### Added
@@ -2998,7 +3013,8 @@ The first release. Glimt is not 1.0 yet: it is in daily use, but expect rough ed
 - Remote control from the command line: `glimt --remote` and `--remote-all`.
 - Remembers the folder, window size and position.
 
-[Unreleased]: https://github.com/thornbux/glimt/compare/v0.71.0...HEAD
+[Unreleased]: https://github.com/thornbux/glimt/compare/v0.72.0...HEAD
+[0.72.0]: https://github.com/thornbux/glimt/compare/v0.71.0...v0.72.0
 [0.71.0]: https://github.com/thornbux/glimt/compare/v0.70.0...v0.71.0
 [0.70.0]: https://github.com/thornbux/glimt/compare/v0.69.0...v0.70.0
 [0.69.0]: https://github.com/thornbux/glimt/compare/v0.68.0...v0.69.0
