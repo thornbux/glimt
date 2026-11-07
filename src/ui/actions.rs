@@ -1561,6 +1561,17 @@ mod tests {
     /// below too. A variant behind the marks feature counts only in a build with it.
     #[test]
     fn all_lists_every_action() {
+        let variants = variants(cfg!(feature = "marks"));
+        let listed: Vec<String> = ALL.iter().map(|a| format!("{a:?}")).collect();
+        let missing: Vec<&String> = variants.iter().filter(|v| !listed.contains(v)).collect();
+        assert!(missing.is_empty(), "ALL lacks {missing:?}");
+        assert_eq!(listed.len(), variants.len(), "ALL names an action twice");
+        assert!(listed.is_sorted(), "ALL is not in name order");
+    }
+
+    /// Returns the names of `Action`'s variants as its source writes them, those behind the
+    /// marks feature only when `marks`.
+    fn variants(marks: bool) -> Vec<String> {
         let src = include_str!("actions.rs");
         let start = src.find("pub enum Action {").unwrap();
         let body = &src[start..start + src[start..].find("\n}\n").unwrap()];
@@ -1570,17 +1581,13 @@ mod tests {
                 marks_only = true;
             } else if line.starts_with(|c: char| c.is_ascii_uppercase()) {
                 let name = line.split([',', ' ', '(', '{']).next().unwrap();
-                if !marks_only || cfg!(feature = "marks") {
+                if !marks_only || marks {
                     variants.push(name.to_owned());
                 }
                 marks_only = false;
             }
         }
-        let listed: Vec<String> = ALL.iter().map(|a| format!("{a:?}")).collect();
-        let missing: Vec<&String> = variants.iter().filter(|v| !listed.contains(v)).collect();
-        assert!(missing.is_empty(), "ALL lacks {missing:?}");
-        assert_eq!(listed.len(), variants.len(), "ALL names an action twice");
-        assert!(listed.is_sorted(), "ALL is not in name order");
+        variants
     }
 
     /// Every action run in an empty folder does nothing harmful, and nor does the frame drawn
@@ -1727,15 +1734,26 @@ mod tests {
 
     /// The names in keys= of the settings file are frozen since 1.0: an action or a key name
     /// changed would take every user's own keys away. src/keys-1.0.txt holds the names of 1.0;
-    /// new ones are added there, never one taken out or changed.
+    /// new ones are added there, never one taken out or changed. Every action is in it, also
+    /// one without a key of its own, because a user can give it one. Before, only the actions
+    /// with a key were pinned, so one without a key could be renamed unseen.
     #[test]
     fn names_of_1_0_are_kept() {
-        let now: std::collections::HashSet<String> = (super::SHORTCUTS.iter())
-            .flat_map(|(a, _, k)| [format!("{a:?}"), k.name().to_owned()])
+        let actions = variants(true);
+        let mut now: std::collections::HashSet<String> = (super::SHORTCUTS.iter())
+            .map(|(_, _, k)| k.name().to_owned())
             .collect();
+        now.extend(actions.iter().cloned());
         let frozen: Vec<&str> = (include_str!("../keys-1.0.txt").lines())
             .filter(|l| !l.starts_with('#') && !l.is_empty())
             .collect();
+        let unpinned: Vec<&String> = (actions.iter())
+            .filter(|a| !frozen.contains(&a.as_str()))
+            .collect();
+        assert!(
+            unpinned.is_empty(),
+            "add these at the end of src/keys-1.0.txt: {unpinned:?}"
+        );
         let mut sorted: Vec<&String> = now.iter().collect();
         sorted.sort();
         assert!(
