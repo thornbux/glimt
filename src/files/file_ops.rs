@@ -48,6 +48,16 @@ pub(crate) struct RenameJob {
     undoing: bool,
 }
 
+/// What a rename's thread answers: how it went, the places in the job of the files that an
+/// Undo left alone because other files have taken their names (in order), and the Undo it
+/// leaves. That is the Undo of a rename that went through, or the part that a failed Undo
+/// still has to do.
+pub(crate) struct Renamed {
+    result: Result<(), String>,
+    refused: Vec<usize>,
+    undo: Vec<Moved>,
+}
+
 /// What a delete, move, copy or plugin reports, in one message. It holds the files it was asked
 /// to delete or move, and those that are gone now. The thread finds out which are gone, so the
 /// window does not `stat` each one. It also says whether to read the folder again, and holds
@@ -100,17 +110,17 @@ pub(crate) struct Deleted {
 /// then only the size and time tell the file.
 pub(crate) type FileId = (Option<(u64, u64)>, u64, (i64, i64));
 
-/// A file moved, `(from, to, id)`, as Undo moves it back. The id is the file's at `to`, or
-/// `None` once Glimt itself wrote the file anew there (a turn saved), which gives it a new id.
-pub(crate) type Moved = (PathBuf, PathBuf, Option<FileId>);
+/// A file moved or renamed, `(from, to, id)`, as Undo puts it back. The id is the file's at
+/// `to`. When Glimt itself writes the file anew there (a turn saved), it takes the new id.
+pub(crate) type Moved = (PathBuf, PathBuf, FileId);
 
 /// What Edit → Undo puts back. It is the last files or folder moved to the trash, the last
-/// files moved `(from, to, id)`, or the last files renamed (old names, new names). The id is
-/// the moved file's `FileId`, so an Undo leaves alone a file put at `to` after the move.
+/// files moved, or the last files renamed, each `(from, to, id)`. The id is the file's
+/// `FileId` at `to`, so an Undo leaves alone a file that another program put there since.
 pub(crate) enum Undo {
     Trash(Thrown),
     Move(Vec<Moved>),
-    Rename(Vec<PathBuf>, Vec<PathBuf>),
+    Rename(Vec<Moved>),
 }
 
 /// Files held for work that is not a job (`App::hold`). Other operations on them wait while it
@@ -202,7 +212,7 @@ pub(crate) struct Work {
     touching: Vec<Arc<Vec<PathBuf>>>,
     /// A Rename Many running in the background.
     renaming: Option<RenameJob>,
-    renaming_rx: Receiving<Result<(), String>>,
+    renaming_rx: Receiving<Renamed>,
     /// The names being deleted in the background. They are kept out of refreshed listings
     /// until the delete is done.
     deleting: HashSet<OsString>,
@@ -318,7 +328,7 @@ impl Work {
     }
 
     /// Takes Rename Many's answer, when it has come: the job it was and how it went.
-    pub(crate) fn take_renamed(&mut self) -> Took<(Option<RenameJob>, Result<(), String>)> {
+    pub(crate) fn take_renamed(&mut self) -> Took<(Option<RenameJob>, Renamed)> {
         match self.renaming_rx.take() {
             Took::Answer(result) => Took::Answer((self.renaming.take(), result)),
             // The thread ended without an answer. Closing does not wait for it, and Rename
@@ -983,8 +993,8 @@ impl crate::App {
             // joined it, or that failed to go, were refused or were not reached after Stop. A
             // copy to another folder does not change the list.
             let relist = (listed || !keep) && (listed || failed);
-            let undo =
-                (!keep && !put.is_empty()).then(|| Undo::Move(put.iter().map(moved).collect()));
+            let undo = (!keep && !put.is_empty())
+                .then(|| Undo::Move(put.iter().filter_map(moved).collect()));
             let _ = deleted_tx.send(Deleted {
                 paths: if keep { Vec::new() } else { paths },
                 gone,
@@ -1052,6 +1062,19 @@ impl crate::App {
         from: Vec<PathBuf>,
         to: Vec<PathBuf>,
     ) {
+        self.rename_files_of(ctx, from, to, None);
+    }
+
+    /// Renames `from` to `to` in the background, as `rename_in_background` says. An Undo gives
+    /// the ids the files at `from` had after the rename it undoes, and each file that another
+    /// has replaced since is left alone.
+    fn rename_files_of(
+        &mut self,
+        ctx: &egui::Context,
+        from: Vec<PathBuf>,
+        to: Vec<PathBuf>,
+        ids: Option<Vec<FileId>>,
+    ) {
         // A camera card refuses some characters. Saying so before the job starts names the
         // reason, where a rename that fails halfway would only give the system's error.
         if let Some(refused) = refused_on_fat(&to, fs_type) {
@@ -1070,13 +1093,13 @@ impl crate::App {
             from: from.clone(),
             to: to.clone(),
             shown,
-            undoing: false,
+            undoing: ids.is_some(),
         };
         let (tx, rx) = mpsc::channel();
         let ctx = ctx.clone();
         let pointer = Working::new(&self.busy);
         std::thread::spawn(move || {
-            let _ = tx.send(rename_files(from, to, &steps));
+            let _ = tx.send(rename_undoable(from, to, ids, &steps));
             drop(steps);
             drop(pointer);
             ctx.request_repaint();
@@ -1087,33 +1110,43 @@ impl crate::App {
 
     /// Brings the list along after Rename Many has run, with the shown image under its new
     /// name.
-    pub(crate) fn renamed(
-        &mut self,
-        ctx: &egui::Context,
-        job: RenameJob,
-        result: Result<(), String>,
-    ) {
+    pub(crate) fn renamed(&mut self, ctx: &egui::Context, job: RenameJob, answer: Renamed) {
+        let Renamed {
+            result,
+            refused,
+            undo,
+        } = answer;
         let failed = result.is_err();
-        if let Err(e) = result {
+        // The files an Undo left alone are told by name, as an Undo of a move tells them.
+        let other = tr("another file has taken its place");
+        let mut errors: Vec<String> = (refused.iter())
+            .map(|&k| format!("{}: {other}", job.from[k].display()))
+            .collect();
+        if !errors.is_empty() {
+            errors.extend(result.err());
+            self.notice = Some(tf!(
+                "Undo failed ({count}): {first}",
+                count = count(errors.len(), "error"),
+                first = errors[0]
+            ));
+        } else if let Err(e) = result {
             self.notice = Some(e);
         }
         self.set_selection(ctx, Default::default());
+        // A rename that was itself an undo is not undone again, so Ctrl+Z twice does not give
+        // the new names back. A failed Undo stays to be done again, unless an operation that
+        // finished meanwhile left a newer Undo.
+        if !undo.is_empty() && !(job.undoing && self.work.undo.is_some()) {
+            self.work.undo = Some(Undo::Rename(undo));
+        }
         // The files are found by their old names, because the list may have changed while they
         // were renamed. When nothing was renamed, the names stay.
-        // A rename that was itself an undo is not undone again, so Ctrl+Z twice does not give
-        // the new names back.
-        if !failed && !job.undoing {
-            self.work.undo = Some(Undo::Rename(job.from.clone(), job.to.clone()));
-        }
         if !failed {
-            self.paths_moved(
-                job.from
-                    .iter()
-                    .cloned()
-                    .zip(job.to.iter().cloned())
-                    .collect(),
-                false,
-            );
+            let pairs = (job.from.iter().zip(&job.to).enumerate())
+                .filter(|(k, _)| refused.binary_search(k).is_err())
+                .map(|(_, (f, t))| (f.clone(), t.clone()))
+                .collect();
+            self.paths_moved(pairs, false);
         }
         if self.folder.collection().is_some() {
             return self.list(ctx);
@@ -1129,6 +1162,7 @@ impl crate::App {
         // subfolders or folders it shows.
         if let Some(k) = job.shown
             && !failed
+            && refused.binary_search(&k).is_err()
             && self.is_file(self.list.cur(), &job.from[k])
             && let Ok(rel) = job.to[k].strip_prefix(self.folder.dir())
         {
@@ -1209,11 +1243,12 @@ impl crate::App {
         self.refill();
     }
 
-    /// Keeps `paths` as the files an Undo of a move moves back, although Glimt wrote them anew
-    /// in place (a turn saved, a plugin's change) and so gave them new ids. A file written over
-    /// by another image (Save As, Save This Frame) is not one of them, so it does not come here.
+    /// Keeps `paths` as the files an Undo of a move or rename puts back, although Glimt wrote
+    /// them anew in place (a turn saved, a plugin's change) and so gave them new ids. A file
+    /// written over by another image (Save As, Save This Frame) is not one of them, so it does
+    /// not come here.
     pub(crate) fn written_anew(&mut self, paths: &[PathBuf]) {
-        if let Some(Undo::Move(pairs)) = &mut self.work.undo {
+        if let Some(Undo::Move(pairs) | Undo::Rename(pairs)) = &mut self.work.undo {
             let written: HashSet<&PathBuf> = paths.iter().collect();
             // A folder opened through a link spells the same file otherwise, so a pair of the
             // same file name is compared by its real path too. Only the paths whose name a
@@ -1233,9 +1268,9 @@ impl crate::App {
                         && to.file_name().is_some_and(|n| moved.contains(n))
                         && to.canonicalize().is_ok_and(|t| real.contains(&t)))
             };
-            (pairs.iter_mut())
-                .filter(|(_, to, _)| same(to))
-                .for_each(|(_, _, id)| *id = None);
+            // The file takes its new id, so a file put there later is still told apart. One
+            // that is gone has nothing left to put back.
+            pairs.retain_mut(|(_, to, id)| !same(to) || file_id(to).map(|now| *id = now).is_some());
         }
     }
 
@@ -1373,7 +1408,9 @@ impl crate::App {
                 .flat_map(|(from, to, _)| [from.clone(), to.clone()])
                 .collect(),
             Some(Undo::Trash(thrown)) => thrown.files.clone(),
-            Some(Undo::Rename(from, to)) => from.iter().chain(to).cloned().collect(),
+            Some(Undo::Rename(pairs)) => (pairs.iter())
+                .flat_map(|(from, to, _)| [from.clone(), to.clone()])
+                .collect(),
             None => Vec::new(),
         };
         if !self.none_saving(&touches) {
@@ -1385,11 +1422,14 @@ impl crate::App {
         };
         let deleted_tx = self.work.deleted_tx.clone();
         match undo {
-            Undo::Rename(from, to) => {
-                self.rename_in_background(ctx, to, from);
-                if let Some(job) = &mut self.work.renaming {
-                    job.undoing = true;
+            Undo::Rename(pairs) => {
+                let (mut now, mut before, mut ids) = (Vec::new(), Vec::new(), Vec::new());
+                for (from, to, id) in pairs {
+                    before.push(from);
+                    now.push(to);
+                    ids.push(id);
                 }
+                self.rename_files_of(ctx, now, before, Some(ids));
             }
             Undo::Move(pairs) => drop(self.background(ctx, touches, move || {
                 let (back, errors) = move_back(pairs);
@@ -1917,6 +1957,49 @@ pub(crate) fn taken(to: &Path, ours: &HashSet<&PathBuf>) -> Option<PathBuf> {
         .find(|p| there(p) && !ours.contains(p))
 }
 
+/// Renames `from` to `to` as `rename_files` does, for a rename's thread. When `ids` are given
+/// (an Undo), each file at `from` that is no longer the one with its id is left out, so a file
+/// that another program put at the name since keeps it. Returns how it went, with the places
+/// left out and the Undo it leaves: of a rename that went through, or of an Undo that failed,
+/// what it still has to put back.
+fn rename_undoable(
+    from: Vec<PathBuf>,
+    to: Vec<PathBuf>,
+    ids: Option<Vec<FileId>>,
+    job: &Job,
+) -> Renamed {
+    let refused: Vec<usize> = match &ids {
+        Some(ids) => (0..from.len())
+            .filter(|&k| !file_id(&from[k]).is_some_and(|now| same_id(ids[k], now)))
+            .collect(),
+        None => Vec::new(),
+    };
+    let pairs: Vec<(PathBuf, PathBuf)> = (from.into_iter().zip(to).enumerate())
+        .filter(|(k, _)| refused.binary_search(k).is_err())
+        .map(|(_, pair)| pair)
+        .collect();
+    let (kept_from, kept_to) = pairs.iter().cloned().unzip();
+    let result = match pairs.is_empty() {
+        true => Ok(()),
+        false => rename_files(kept_from, kept_to, job),
+    };
+    // An Undo that failed put the names back, so what it still has to do is the rename it was
+    // asked to undo, from the old name to the name the file has now. A file left under a
+    // hidden name has nothing at its name, so it drops out here and the journal repairs it.
+    let undo = match (ids.is_some(), result.is_ok()) {
+        (false, true) => pairs.iter().filter_map(moved).collect(),
+        (true, false) => (pairs.iter())
+            .filter_map(|(now, before)| moved(&(before.clone(), now.clone())))
+            .collect(),
+        _ => Vec::new(),
+    };
+    Renamed {
+        result,
+        refused,
+        undo,
+    }
+}
+
 /// Renames `from` to `to` with their sidecars, all or none. It is refused when a new name is
 /// another file's. When names swap, it goes through temporary names. The plan is on disk while
 /// it runs, and a failure is undone. It never replaces a file, also not one that another
@@ -2036,7 +2119,7 @@ fn move_back(pairs: Vec<Moved>) -> (Vec<(PathBuf, PathBuf)>, Vec<String>) {
     for (from, to, id) in pairs {
         let _held = xmp::held(&to);
         // Another program may have put another file at `to` since the move.
-        if id.is_some_and(|id| !file_id(&to).is_some_and(|now| same_id(id, now))) {
+        if !file_id(&to).is_some_and(|now| same_id(id, now)) {
             let other = tr("another file has taken its place");
             errors.push(format!("{}: {other}", to.display()));
             continue;
@@ -2058,9 +2141,10 @@ fn move_back(pairs: Vec<Moved>) -> (Vec<(PathBuf, PathBuf)>, Vec<String>) {
     (back, errors)
 }
 
-/// Returns a file just moved from `from` to `to` with its id, for Undo.
-fn moved((from, to): &(PathBuf, PathBuf)) -> Moved {
-    (from.clone(), to.clone(), file_id(to))
+/// Returns a file just moved or renamed from `from` to `to` with its id, for Undo. Returns
+/// `None` when nothing is at `to` any more.
+fn moved((from, to): &(PathBuf, PathBuf)) -> Option<Moved> {
+    Some((from.clone(), to.clone(), file_id(to)?))
 }
 
 /// Returns the id of the file or link at `path`, or `None` when nothing is there.
@@ -2565,7 +2649,7 @@ mod tests {
         app.work.undo = Some(super::Undo::Move(vec![(
             a.clone(),
             dir.join("c.png"),
-            None,
+            (None, 0, (0, 0)),
         )]));
         app.undo(&ctx);
         assert!(app.work.undo.is_some());
@@ -2854,7 +2938,8 @@ mod tests {
         const IN_CONTRACT: &[&str] = &[
             "delete_now",
             "transfer",
-            "rename_in_background",
+            // Through rename_in_background, and the Undo of a rename.
+            "rename_files_of",
             "undo",
             "save_as_to",
             "export_frames",
@@ -2944,13 +3029,96 @@ mod tests {
         std::fs::create_dir_all(&empty).unwrap();
         image::RgbImage::new(2, 2).save(dir.join("a.png")).unwrap();
         let (mut app, ctx) = app_on(&dir);
-        app.work.undo = Some(super::Undo::Rename(
-            vec![dir.join("b.png")],
-            vec![dir.join("a.png")],
-        ));
+        let id = super::file_id(&dir.join("a.png")).unwrap();
+        app.work.undo = Some(super::Undo::Rename(vec![(
+            dir.join("b.png"),
+            dir.join("a.png"),
+            id,
+        )]));
         app.open(&ctx, empty.clone());
         app.undo(&ctx);
         assert!(settle(&mut app, &ctx, |a| !a.working()));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// Every kind of Undo leaves alone a file that another program put in the place of the one
+    /// it changed, also after Glimt wrote that file anew (a turn saved). Before, an Undo of a
+    /// rename went by the names alone, and a turn saved after a move dropped the move's check.
+    #[test]
+    fn every_undo_leaves_a_file_put_in_its_place() {
+        // A new kind of Undo fails to build here until it is checked below.
+        let _checked = |undo: &super::Undo| match undo {
+            // `a_refused_undo_from_the_trash_keeps_its_marks`: nothing is put over a name.
+            super::Undo::Trash(_) => (),
+            super::Undo::Move(_) | super::Undo::Rename(_) => (),
+        };
+        let dir =
+            std::env::temp_dir().join(format!("glimt-test-undo-every-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join("sub")).unwrap();
+        let (mut app, ctx) = app_on(&dir);
+        let replace = |path: &std::path::Path| {
+            std::fs::write(dir.join("new"), b"another").unwrap();
+            std::fs::rename(dir.join("new"), path).unwrap();
+        };
+        let refused =
+            |app: &crate::App| (app.notice.as_deref()).is_some_and(|n| n.contains("Undo failed"));
+        for (kind, saved_first) in [
+            ("move", false),
+            ("move", true),
+            ("rename", false),
+            ("rename", true),
+        ] {
+            let a = dir.join("a.png");
+            image::RgbImage::new(2, 2).save(&a).unwrap();
+            let now = match kind {
+                "move" => {
+                    app.transfer(&ctx, vec![a.clone()], dir.join("sub"), false);
+                    dir.join("sub/a.png")
+                }
+                _ => {
+                    app.rename_in_background(&ctx, vec![a.clone()], vec![dir.join("b.png")]);
+                    dir.join("b.png")
+                }
+            };
+            assert!(settle(&mut app, &ctx, |app| app.work.undo.is_some()
+                && !app.working()));
+            if saved_first {
+                std::fs::copy(&now, dir.join("turned")).unwrap();
+                std::fs::rename(dir.join("turned"), &now).unwrap();
+                app.written_anew(std::slice::from_ref(&now));
+            }
+            replace(&now);
+            app.notice = None;
+            app.undo(&ctx);
+            assert!(settle(&mut app, &ctx, |app| !app.working() && refused(app)));
+            assert!(!a.exists(), "{kind}: the other file was put back as a.png");
+            assert_eq!(std::fs::read(&now).unwrap(), b"another", "{kind}");
+            std::fs::remove_file(&now).unwrap();
+        }
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// An Undo of a rename that fails, here because a new file has taken the old name, stays to
+    /// be done again once the name is free.
+    #[test]
+    fn a_failed_undo_of_a_rename_stays() {
+        let dir =
+            std::env::temp_dir().join(format!("glimt-test-undo-again-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let (a, b) = (dir.join("a.png"), dir.join("b.png"));
+        image::RgbImage::new(2, 2).save(&a).unwrap();
+        let (mut app, ctx) = app_on(&dir);
+        app.rename_in_background(&ctx, vec![a.clone()], vec![b.clone()]);
+        assert!(settle(&mut app, &ctx, |app| app.work.undo.is_some()
+            && !app.working()));
+        std::fs::write(&a, b"another").unwrap();
+        app.undo(&ctx);
+        assert!(settle(&mut app, &ctx, |app| !app.working() && app.notice.is_some()));
+        assert!(b.exists() && app.work.undo.is_some(), "the Undo was lost");
+        std::fs::remove_file(&a).unwrap();
+        app.undo(&ctx);
+        assert!(settle(&mut app, &ctx, |app| !app.working() && a.exists()));
+        assert!(!b.exists() && app.work.undo.is_none());
         std::fs::remove_dir_all(dir).unwrap();
     }
 
