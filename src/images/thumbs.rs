@@ -33,24 +33,25 @@ fn thumbnail_in(
         return Err("not a regular file".into());
     }
     let (size, folder) = SIZES[large as usize];
-    let mtime = std::fs::metadata(path)
-        .and_then(|m| m.modified())
-        .ok()
-        .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
-        .map(|d| d.as_secs());
+    // The time is in whole seconds, as the spec has it, so the size tells apart two photos of a
+    // burst that took each other's name in the same second (Rename Many).
+    let stamp = std::fs::metadata(path).ok().and_then(|m| {
+        let time = m.modified().ok()?.duration_since(UNIX_EPOCH).ok()?;
+        Some((time.as_secs(), m.len()))
+    });
     let uri = format!("file://{}", uri_path(path));
     let file = cache.as_ref().map(|c| cache_file(c, folder, &uri));
     let failed = cache.as_ref().map(|c| cache_file(c, FAILED, &uri));
-    if let (Some(file), Some(failed), Some(mtime)) = (&file, &failed, mtime) {
+    if let (Some(file), Some(failed), Some(stamp)) = (&file, &failed, stamp) {
         // The shared cache holds thumbnails turned upright, so with Auto Rotate off it is not
         // read: the list would show turned what the image shows as stored. Whether a file can
         // be read at all does not depend on it.
         // shortcut: every thumbnail made again with Auto Rotate off; reading the cache for images
         // without an EXIF turn would need each format's orientation, if that is ever slow.
-        if rotate && let Some(img) = read_cached(file, mtime) {
+        if rotate && let Some(img) = read_cached(file, stamp) {
             return Ok(img);
         }
-        if read_cached(failed, mtime).is_some() {
+        if read_cached(failed, stamp).is_some() {
             return Err("no thumbnail could be made before".into());
         }
     }
@@ -65,15 +66,15 @@ fn thumbnail_in(
     // one not turned upright by EXIF (Auto Rotate off) is not shared; the failure mark, Glimt's
     // own, is.
     if save
-        && let (Some(cache), Some(file), Some(failed), Some(mtime)) =
-            (&cache, &file, &failed, mtime)
+        && let (Some(cache), Some(file), Some(failed), Some(stamp)) =
+            (&cache, &file, &failed, stamp)
         && !path.starts_with(cache)
     {
         match &made {
-            Ok(img) if rotate => drop(write(file, img, &uri, mtime)),
+            Ok(img) if rotate => drop(write(file, img, &uri, stamp)),
             Ok(_) => {}
             Err(e) if worth_marking(path, e) => {
-                drop(write(failed, &image::RgbaImage::new(1, 1), &uri, mtime))
+                drop(write(failed, &image::RgbaImage::new(1, 1), &uri, stamp))
             }
             Err(_) => {}
         }
@@ -90,26 +91,37 @@ fn cache_file(cache: &Path, folder: &str, uri: &str) -> PathBuf {
     cache.join(folder).join(name + ".png")
 }
 
-/// A cached thumbnail, if it was made from the file as it is now (same Thumb::MTime).
-fn read_cached(file: &Path, mtime: u64) -> Option<image::RgbaImage> {
+/// Returns the cached thumbnail in `file` if it was made from the file as it is now, by its
+/// modification time in seconds and its size, `stamp`. The thumbnail's Thumb::MTime must be
+/// that time. Its Thumb::Size, which the spec leaves optional, must be that size when it is
+/// there, so a thumbnail another program wrote without it is still used.
+fn read_cached(file: &Path, (mtime, size): (u64, u64)) -> Option<image::RgbaImage> {
     let bytes = crate::images::decode::read_limited(file).ok()?;
     let reader = png::Decoder::new(std::io::Cursor::new(&bytes))
         .read_info()
         .ok()?;
-    let fresh =
-        reader.info().uncompressed_latin1_text.iter().any(|t| {
-            t.keyword == "Thumb::MTime" && t.text.trim().parse::<u64>().ok() == Some(mtime)
-        });
+    let texts = &reader.info().uncompressed_latin1_text;
+    let value = |key: &str| {
+        (texts.iter().find(|t| t.keyword == key)).map(|t| t.text.trim().parse::<u64>().ok())
+    };
+    let fresh = value("Thumb::MTime") == Some(Some(mtime))
+        && value("Thumb::Size").is_none_or(|s| s == Some(size));
     fresh.then_some(())?;
     crate::images::decode::from_memory(&bytes)
         .ok()
         .map(|i| i.into_rgba8())
 }
 
-/// Write a thumbnail as the spec says: PNG with Thumb::URI and Thumb::MTime, mode 600, and
-/// renamed into place so other programs never read a half-written file.
+/// Write a thumbnail as the spec says: PNG with Thumb::URI, Thumb::MTime and Thumb::Size of
+/// `stamp` (the time and size), mode 600, and renamed into place so other programs never read a
+/// half-written file.
 #[allow(clippy::disallowed_methods)] // the cache's own file, replaced on purpose
-fn write(file: &Path, img: &image::RgbaImage, uri: &str, mtime: u64) -> std::io::Result<()> {
+fn write(
+    file: &Path,
+    img: &image::RgbaImage,
+    uri: &str,
+    (mtime, size): (u64, u64),
+) -> std::io::Result<()> {
     use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
     let dir = file.parent().unwrap_or(Path::new("."));
     std::fs::DirBuilder::new()
@@ -131,6 +143,7 @@ fn write(file: &Path, img: &image::RgbaImage, uri: &str, mtime: u64) -> std::io:
     let encoded = (|| {
         enc.add_text_chunk("Thumb::URI".into(), uri.into())?;
         enc.add_text_chunk("Thumb::MTime".into(), mtime.to_string())?;
+        enc.add_text_chunk("Thumb::Size".into(), size.to_string())?;
         enc.add_text_chunk("Software".into(), "Glimt".into())?;
         let mut writer = enc.write_header()?;
         writer.write_image_data(img.as_raw())?;
@@ -310,6 +323,8 @@ fn program_missing(error: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
+    use std::time::UNIX_EPOCH;
+
     /// Cleaning the shared thumbnail cache removes the thumbnail of a file that is gone from a
     /// folder still there, and keeps the one of a file there and those of a folder not there
     /// (a disk not plugged in): it deletes in a cache file managers share.
@@ -322,7 +337,7 @@ mod tests {
         let img = image::RgbaImage::new(2, 2);
         let thumb = |name: &str, of: &std::path::Path| {
             let uri = format!("file://{}", super::uri_path(of));
-            super::write(&cache.join("normal").join(name), &img, &uri, 1).unwrap();
+            super::write(&cache.join("normal").join(name), &img, &uri, (1, 1)).unwrap();
         };
         thumb("kept.png", &photos.join("kept.png"));
         thumb("gone.png", &photos.join("gone.png"));
@@ -424,7 +439,7 @@ mod tests {
             std::thread::current().id()
         ));
         std::os::unix::fs::symlink(&victim, &tmp).unwrap();
-        super::write(&file, &image::RgbaImage::new(2, 2), "file:///a.jpg", 7).unwrap();
+        super::write(&file, &image::RgbaImage::new(2, 2), "file:///a.jpg", (7, 1)).unwrap();
         assert_eq!(std::fs::read_to_string(&victim).unwrap(), "keep");
         assert!(file.is_file() && !tmp.exists());
         std::fs::remove_dir_all(dir).unwrap();
@@ -435,9 +450,22 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("glimt-thumbs-{}", std::process::id()));
         let file = super::cache_file(&dir, "normal", "file:///a%20b.jpg");
         let img = image::RgbaImage::from_pixel(4, 3, image::Rgba([1, 2, 3, 255]));
-        super::write(&file, &img, "file:///a%20b.jpg", 42).unwrap();
-        assert_eq!(super::read_cached(&file, 42).unwrap(), img);
-        assert!(super::read_cached(&file, 43).is_none());
+        super::write(&file, &img, "file:///a%20b.jpg", (42, 9)).unwrap();
+        assert_eq!(super::read_cached(&file, (42, 9)).unwrap(), img);
+        assert!(super::read_cached(&file, (43, 9)).is_none());
+        assert!(super::read_cached(&file, (42, 10)).is_none());
+        // Another program's thumbnail without Thumb::Size is used by its time alone.
+        let mut png = Vec::new();
+        let mut enc = png::Encoder::new(&mut png, 1, 1);
+        enc.set_color(png::ColorType::Rgba);
+        enc.add_text_chunk("Thumb::MTime".into(), "42".into())
+            .unwrap();
+        enc.write_header()
+            .unwrap()
+            .write_image_data(&[0; 4])
+            .unwrap();
+        std::fs::write(&file, &png).unwrap();
+        assert!(super::read_cached(&file, (42, 9)).is_some());
         assert_eq!(
             super::uri_path(std::path::Path::new("/a b/(1)+æ.jpg")),
             "/a%20b/(1)+%C3%A6.jpg"
@@ -448,8 +476,32 @@ mod tests {
             "file://{}",
             super::uri_path(std::path::Path::new("/a b/æ.jpg"))
         );
-        super::write(&named, &img, &uri, 1).unwrap();
+        super::write(&named, &img, &uri, (1, 1)).unwrap();
         assert_eq!(super::thumb_source(&named), Some("/a b/æ.jpg".into()));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A photo put at another's name in the same second gets its own thumbnail, not the other's.
+    /// The cache told files by their name and their time in whole seconds, so after Rename Many
+    /// renumbered a burst, the list showed a frame that was gone.
+    #[test]
+    fn a_file_of_the_same_second_at_the_name_gets_its_own_thumbnail() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-burst-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let (cache, photo) = (dir.join("cache"), dir.join("burst.png"));
+        let save = |size: u32, colour: [u8; 4]| {
+            image::RgbaImage::from_pixel(size, size, image::Rgba(colour))
+                .save(&photo)
+                .unwrap();
+            let file = std::fs::File::options().write(true).open(&photo).unwrap();
+            file.set_modified(UNIX_EPOCH + std::time::Duration::from_secs(1_700_000_000))
+                .unwrap();
+        };
+        let thumb = || super::thumbnail_in(Some(cache.clone()), &photo, true, true, false);
+        save(8, [255, 0, 0, 255]);
+        assert_eq!(thumb().unwrap().get_pixel(0, 0).0, [255, 0, 0, 255]);
+        save(9, [0, 0, 255, 255]);
+        assert_eq!(thumb().unwrap().get_pixel(0, 0).0, [0, 0, 255, 255]);
         std::fs::remove_dir_all(dir).unwrap();
     }
 

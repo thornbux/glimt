@@ -455,22 +455,21 @@ fn deliver(path: &std::path::Path, command: &str) -> bool {
     true
 }
 
-/// The sockets of the running Glimts. Those left by a Glimt that crashed are removed.
-fn live() -> Vec<PathBuf> {
-    let entries = dir().and_then(|d| std::fs::read_dir(d).ok());
+/// The sockets in `dir` that a Glimt answers on. One that does not answer is left alone,
+/// because a Glimt that is starting refuses connections between binding its socket and
+/// listening on it, and removing it then would leave that Glimt without remote control.
+/// shortcut: the socket of a Glimt that crashed stays until the runtime folder is cleared at
+/// logout, and costs one refused connection each time; remove such sockets at start, under
+/// `claim`'s lock, if they ever pile up.
+fn live(dir: Option<PathBuf>) -> Vec<PathBuf> {
+    let entries = dir.and_then(|d| std::fs::read_dir(d).ok());
     entries
         .into_iter()
         .flatten()
         .flatten()
         .map(|e| e.path())
         .filter(|p| p.extension().is_some_and(|x| x == "sock"))
-        .filter(|p| {
-            let alive = UnixStream::connect(p).is_ok();
-            if !alive {
-                let _ = std::fs::remove_file(p);
-            }
-            alive
-        })
+        .filter(|p| UnixStream::connect(p).is_ok())
         .collect()
 }
 
@@ -482,7 +481,7 @@ pub fn send(command: &str) -> bool {
     if last.is_some_and(|p| deliver(&p, command)) {
         return true;
     }
-    live().iter().any(|p| deliver(p, command))
+    live(dir()).iter().any(|p| deliver(p, command))
 }
 
 /// Sends `command` to the Glimt started with `--name name`. Returns false if none runs.
@@ -492,7 +491,7 @@ pub fn send_to(name: &str, command: &str) -> bool {
 
 /// Send `command` to every running Glimt. Returns how many got it.
 pub fn send_all(command: &str) -> usize {
-    live().iter().filter(|p| deliver(p, command)).count()
+    live(dir()).iter().filter(|p| deliver(p, command)).count()
 }
 
 /// `glimt --remote` and `--remote-all`. It sends `words` (the command and its arguments) to the
@@ -540,7 +539,7 @@ pub fn client(
     {
         let running = match name {
             Some(name) => socket(name).is_some_and(|p| UnixStream::connect(p).is_ok()),
-            None => !live().is_empty(),
+            None => !live(dir()).is_empty(),
         };
         if !running {
             return Some(path.into());
@@ -906,6 +905,21 @@ mod tests {
         let mut got = Vec::new();
         let read = client.read_to_end(&mut got);
         assert!(read.is_err() && got.is_empty(), "{read:?} {got:?}");
+    }
+
+    /// A socket that does not answer is passed over by `--remote-all` but left in place. A
+    /// Glimt between binding it and listening refuses connections just as a crashed one's
+    /// socket does, and `live` removed it, so that Glimt could not be reached.
+    #[test]
+    fn a_socket_not_answering_is_left_alone() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-live-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let (quiet, answering) = (dir.join("glimt-1.sock"), dir.join("glimt-2.sock"));
+        drop(std::os::unix::net::UnixListener::bind(&quiet).unwrap());
+        let _listening = std::os::unix::net::UnixListener::bind(&answering).unwrap();
+        assert_eq!(super::live(Some(dir.clone())), [answering]);
+        assert!(quiet.exists());
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     /// A socket that a Glimt answers on is kept, and one it left behind is taken over.

@@ -993,6 +993,147 @@ fn copies_of_settings_have_one_writer() {
     );
 }
 
+/// A setting that has a setter (an App `set_…` method, or a View action's `toggle_setting`) is
+/// changed only through that setter, in every file, so each place that changes it does what
+/// the menu does besides. Preferences wrote the names under the thumbnails directly and skipped
+/// the scroll to the shown image, and Keywords and Comment turned the EXIF panel on the same way.
+#[test]
+fn settings_change_through_their_setters() {
+    let ident = |c: char| c.is_alphanumeric() || c == '_';
+    let sources = rust_sources();
+    let mut guarded = Vec::new();
+    for (_, code) in &sources {
+        let code = code_lines(code).join("\n");
+        for (at, _) in code.match_indices("fn set_") {
+            guarded.extend(fields_set(function_body(&code[at..])));
+        }
+    }
+    let menus = code_lines(&source("ui/menus.rs")).join("\n");
+    let toggle = function_body(&menus[menus.find("fn toggle_setting(").unwrap()..]);
+    for (k, _) in toggle.match_indices("&mut c.") {
+        let name: String = toggle[k + 7..].chars().take_while(|&c| ident(c)).collect();
+        // A on a stepped animation plays it on and leaves the setting, which a checkbox in
+        // Preferences must not.
+        if name != "animate" {
+            guarded.push(name);
+        }
+    }
+    for name in ["thumb_size", "grid_names", "icons", "exif_panel"] {
+        assert!(
+            guarded.iter().any(|g| g == name),
+            "{name} has no setter found"
+        );
+    }
+    // Two places write a setting on purpose. A folder opened with its subfolders is listed with
+    // them, where the setter would first list the folder before it again. Compare shows one
+    // pane, where `set_layout` would turn Compare off.
+    const MEANT: &[(&str, &str)] = &[
+        ("ui/dialogs.rs", "receive_picked"),
+        ("viewer/view.rs", "toggle_compare"),
+    ];
+    let mut wrong = Vec::new();
+    // The settings file's own reader fills the fields it reads.
+    for (file, text) in sources.iter().filter(|(f, _)| f != "files/config.rs") {
+        let lines = code_lines(text);
+        let mut function = String::new();
+        for (i, line) in lines[..tests_start(&lines)].iter().enumerate() {
+            if line.starts_with(|c: char| c.is_alphabetic()) {
+                function.clear();
+            }
+            if let Some(name) = function_name(line) {
+                function = name.to_owned();
+            }
+            // The setters themselves write their fields.
+            let meant = MEANT.contains(&(file.as_str(), function.as_str()));
+            if function.starts_with("set_") || function == "toggle_setting" || meant {
+                continue;
+            }
+            for name in &guarded {
+                for field in [format!("c.{name}"), format!("self.config.{name}")] {
+                    for (at, _) in line.match_indices(&field) {
+                        let after = &line[at + field.len()..];
+                        if line[..at].ends_with(ident) || after.starts_with(ident) {
+                            continue;
+                        }
+                        let after = after.trim_start();
+                        let written =
+                            (after.strip_prefix('=')).is_some_and(|r| !r.starts_with(['=', '>']));
+                        if written || line[..at].ends_with("&mut ") {
+                            wrong.push(format!("{file}:{} ({field})", i + 1));
+                        }
+                    }
+                }
+            }
+        }
+    }
+    assert!(
+        wrong.is_empty(),
+        "set through their setters instead:\n{}",
+        wrong.join("\n")
+    );
+}
+
+/// The setter test sees a field set as `c.X =` after `let c = &mut self.config`, and the
+/// whole body of a setter with a block inside it or at the top level.
+#[test]
+fn a_setters_fields_are_found_however_it_is_written() {
+    let code = code_only(
+        "fn set_a(&mut self) {\n    if on {\n        x();\n    }\n    self.config.a = 1;\n}\n\
+         fn set_b(&mut self) {\n    let c = &mut self.config;\n    c.b = \"}\";\n    \
+         c.d == 2;\n}\nfn other(&mut self) {\n    self.config.e = 3;\n}\n",
+    );
+    let found: Vec<String> = (code.match_indices("fn set_"))
+        .flat_map(|(at, _)| fields_set(function_body(&code[at..])))
+        .collect();
+    assert_eq!(found, ["a", "b"]);
+}
+
+/// `text` with its comments and the insides of its literals blanked, so a brace or a field
+/// in a string is not taken for code.
+fn code_only(text: &str) -> String {
+    code_lines(text).join("\n")
+}
+
+/// Returns `code`, which starts at a function's `fn`, up to the `}` that ends the function.
+fn function_body(code: &str) -> &str {
+    let mut depth = 0;
+    for (i, c) in code.char_indices() {
+        match c {
+            '{' => depth += 1,
+            '}' if depth == 1 => return &code[..=i],
+            '}' => depth -= 1,
+            ';' if depth == 0 => return &code[..=i],
+            _ => {}
+        }
+    }
+    code
+}
+
+/// Returns the settings that `body` assigns: `self.config.X = …`, or `c.X = …` when `c` is
+/// `&mut self.config` there.
+fn fields_set(body: &str) -> Vec<String> {
+    let ident = |c: char| c.is_alphanumeric() || c == '_';
+    let mut fields = vec!["self.config."];
+    if body.contains("let c = &mut self.config;") {
+        fields.push("c.");
+    }
+    let mut set = Vec::new();
+    for field in fields {
+        for (k, _) in body.match_indices(field) {
+            if body[..k].ends_with(|c: char| ident(c) || c == '.') {
+                continue;
+            }
+            let rest = &body[k + field.len()..];
+            let name: String = rest.chars().take_while(|&c| ident(c)).collect();
+            let after = rest[name.len()..].trim_start();
+            if after.starts_with('=') && !after.starts_with("==") {
+                set.push(name);
+            }
+        }
+    }
+    set
+}
+
 /// Returns each place outside the tests where a text of `homes` is written in code outside the
 /// functions it is allowed in, as "file:line (text)". A function named "" allows the whole
 /// file, and the text's own definition is allowed anywhere.

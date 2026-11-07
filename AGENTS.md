@@ -37,7 +37,8 @@ the `--remote` commands with their answers and exit codes, the settings file's k
 desktop file formats of plugins and decoders. Add; never take away or change a meaning. A
 setting that goes out of use keeps being read and ignored. Never rename an `Action` variant or
 rely on a changed key name: they are the `keys=` format, pinned by `src/keys-1.0.txt` and its
-test; new ones go at the end of that file.
+test, every action (also one without a default key) and every default key; new ones go at the
+end of that file, and the test fails until a new action is there.
 
 ## Language
 
@@ -206,7 +207,8 @@ of that part. The exceptions are the tables of one arm per action (`Action::engl
 
 ## How to add things
 
-- **An action:** add a variant to `Action`, its menu label in `Action::label`, a key in
+- **An action:** add a variant to `Action`, its name at the end of `src/keys-1.0.txt`, its
+  menu label in `Action::label`, a key in
   `SHORTCUTS` if Geeqie has one (put Shift/Ctrl+Shift combinations before the plain key: egui
   ignores an extra Shift when matching), handle it in `App::run`, and add it to a menu with
   `menu_item`/`menu_toggle`. Name what it acts on in `Action::target`: the selection (`App::targets`), the
