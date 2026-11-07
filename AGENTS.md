@@ -241,9 +241,10 @@ function, type or field is or does from its name alone, without reading its body
 - One thing has one name throughout: the same word in the type, its fields, its functions and
   the comments.
 
-Older names that break this are renamed in 0.74.0's naming review, and before that whenever
-the code they name changes. `Action` variants and the names in `src/frozen-1.0.txt` keep their
-names, or change only through a table of old names, as *Frozen in 1.x* says.
+Older names that broke this were renamed in 0.74.0's naming review, and
+`source_rules::retired_names_stay_gone` keeps them out of the code: its list gives each old name
+with the one that took its place. `Action` variants and the names in `src/frozen-1.0.txt` keep
+their names, or change only through a table of old names, as *Frozen in 1.x* says.
 
 A function is at most 120 lines outside the tests (`source_rules::functions_stay_short`): a
 longer one is split into functions named for what each part does, beside it or in the module
