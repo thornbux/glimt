@@ -30,8 +30,8 @@ impl crate::App {
         self.receive_sizes();
         self.receive_exif_index(ctx);
         self.receive_operation_report(ctx);
-        self.selection_size(ctx);
-        self.match_size(ctx);
+        self.sum_selection_size(ctx);
+        self.sum_match_size(ctx);
         self.receive_file_work(ctx);
         // --slideshow: once the folder is read, so random order shuffles all of it.
         if self.slideshow.starts_now(!self.folder.is_listing()) {
@@ -47,11 +47,11 @@ impl crate::App {
         if self.working() {
             ctx.set_cursor_icon(egui::CursorIcon::Progress);
         }
-        if self.folder.changed() && self.config.auto_refresh {
+        if self.folder.changed_on_disk() && self.config.auto_refresh {
             self.folder.relist_later();
         }
         if self.folder.wants_relist() && !self.folder.is_listing() {
-            self.list(ctx);
+            self.start_listing(ctx);
         }
         self.receive_lightroom();
         self.receive_renames(ctx);
@@ -77,11 +77,12 @@ impl crate::App {
         }
     }
 
-    /// File operations: the jobs and the files they touch let go when done (an `exif:` search
-    /// reads what it held back for keywords written), closing once they are, and saved turns.
+    /// Takes what file operations finished: their jobs and the files they touch are let go (an
+    /// `exif:` search then reads the files it waited for), a window asked to close closes once
+    /// they are done, and saved turns are taken.
     fn receive_file_work(&mut self, ctx: &egui::Context) {
-        // Keywords written: an `exif:` search reads what it held back for them.
-        if self.file_operations.drop_ended_jobs() && self.search.holds_exif_reads() {
+        // The keywords are written, so an `exif:` search reads the files it waited for.
+        if self.file_operations.drop_ended_jobs() && self.search.exif_search_waits_for_writes() {
             self.update_search(ctx);
         }
         if self.is_writing() {
@@ -161,8 +162,8 @@ impl crate::App {
     /// the background, or the shown image still decoded.
     pub(crate) fn working(&self) -> bool {
         let decoding = !self.list.files().is_empty()
-            && !self.list.slots().contains_key(&self.list.cur())
-            && !self.list.decode_errors().contains_key(&self.list.cur());
+            && !self.list.loaded_images().contains_key(&self.list.shown())
+            && !self.list.decode_errors().contains_key(&self.list.shown());
         decoding || self.working_besides_image()
     }
 

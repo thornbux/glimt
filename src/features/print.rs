@@ -36,16 +36,16 @@ pub const ORIENTATIONS: [(&str, Orientation); 3] = [
 ];
 
 /// Room for the caption below the image, at 9 points.
-const CAPTION: f32 = 18.0;
+const CAPTION_HEIGHT: f32 = 18.0;
 
 /// Room for a line of page text at the top or bottom.
-const PAGE_TEXT: f32 = 16.0;
+const PAGE_TEXT_HEIGHT: f32 = 16.0;
 
 /// The pixels per inch printed. More would only make the PDF larger.
 const PPI: f32 = 300.0;
 
 /// Points in a millimetre.
-pub const MM: f32 = 72.0 / 25.4;
+pub const POINTS_PER_MM: f32 = 72.0 / 25.4;
 
 /// Images per page, and their grid on a portrait page as [columns, rows].
 pub const PER_PAGE: [(usize, [usize; 2]); 7] = [
@@ -63,7 +63,7 @@ pub const PER_PAGE: [(usize, [usize; 2]); 7] = [
 pub const SYSTEM_DIALOG: &str = "System print dialog";
 
 /// The most images the preview shows, which is the most on one page.
-const PREVIEWED: usize = 20;
+const MAX_PREVIEWS: usize = 20;
 
 /// The long side of an image in the preview, in pixels.
 const PREVIEW_PX: u32 = 256;
@@ -99,7 +99,7 @@ pub struct Layout {
     /// wide and high.
     pub scale: f32,
     /// Each image fills its box, cut to it, instead of fitting in it.
-    pub fill: bool,
+    pub fills_cell: bool,
     /// The text at the top and bottom of every page. %page% and %pages% are its numbers.
     pub header: String,
     pub footer: String,
@@ -112,9 +112,9 @@ impl Layout {
             paper,
             per_page,
             orientation: Orientation::Auto,
-            margin: 10.0 * MM,
+            margin: 10.0 * POINTS_PER_MM,
             scale: 1.0,
-            fill: false,
+            fills_cell: false,
             header: String::new(),
             footer: String::new(),
         }
@@ -130,7 +130,7 @@ impl Layout {
 }
 
 /// One page as laid out, in PDF's points from the bottom left. It holds the page's size, the
-/// size of its captions' type, and each image's place.
+/// size of its captions' type, and where each image goes.
 #[derive(Debug)]
 pub struct Page {
     pub size: [f32; 2],
@@ -176,12 +176,12 @@ impl<W: Write> Pdf<W> {
 }
 
 /// A writer that tells `watchdog` of each write taken. A full pipe holds the write until lp reads.
-struct Fed<'a, W: Write> {
+struct WatchdogWriter<'a, W: Write> {
     out: W,
     watchdog: &'a crate::files::external::Watchdog,
 }
 
-impl<W: Write> Write for Fed<'_, W> {
+impl<W: Write> Write for WatchdogWriter<'_, W> {
     fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
         let n = self.out.write(bytes)?;
         self.watchdog.feed();
@@ -336,7 +336,7 @@ impl crate::App {
         let c = &self.config;
         let job = PrintJob {
             paths: dialog.paths,
-            layout: layout_of(c),
+            layout: layout_from_settings(c),
             caption: c.print_caption.then(|| c.print_template.clone()),
             two_sided: c.print_two_sided,
             rotate: c.exif_rotate,
@@ -357,7 +357,7 @@ impl crate::App {
         };
         let (tx, rx) = mpsc::channel();
         let paths: Vec<PathBuf> = targets.iter().map(|&i| self.path(i)).collect();
-        let first: Vec<PathBuf> = paths.iter().take(PREVIEWED).cloned().collect();
+        let first: Vec<PathBuf> = paths.iter().take(MAX_PREVIEWS).cloned().collect();
         let (shown_tx, shown_rx) = mpsc::channel();
         let (rotate, ctx2) = (self.config.exif_rotate, ctx.clone());
         let ctx = ctx.clone();
@@ -383,8 +383,8 @@ impl crate::App {
             }
         });
         self.print_window = Some(PrintDialog {
-            previews: vec![None; paths.len().min(PREVIEWED)],
-            sizes: vec![None; paths.len().min(PREVIEWED)],
+            previews: vec![None; paths.len().min(MAX_PREVIEWS)],
+            sizes: vec![None; paths.len().min(MAX_PREVIEWS)],
             decoded: false,
             paths,
             printers: None,
@@ -411,7 +411,7 @@ impl crate::App {
         let (tx, rx) = mpsc::channel();
         let (template, ctx, sizes) = (template.clone(), ctx.clone(), dialog.sizes.clone());
         let (first, n): (Vec<PathBuf>, usize) = (
-            dialog.paths.iter().take(PREVIEWED).cloned().collect(),
+            dialog.paths.iter().take(MAX_PREVIEWS).cloned().collect(),
             dialog.paths.len(),
         );
         std::thread::spawn(move || {
@@ -551,7 +551,7 @@ fn grid(per_page: usize) -> [usize; 2] {
 }
 
 /// The page for images of `sizes` (pixels), with room for captions if `captions`.
-pub fn place(layout: &Layout, sizes: &[[u32; 2]], captions: bool) -> Page {
+pub fn lay_out_page(layout: &Layout, sizes: &[[u32; 2]], captions: bool) -> Page {
     let one = layout.per_page == 1;
     let wide = sizes.first().is_some_and(|s| s[0] > s[1]);
     let landscape = match layout.orientation {
@@ -570,10 +570,20 @@ pub fn place(layout: &Layout, sizes: &[[u32; 2]], captions: bool) -> Page {
     // Smaller type, and a gap between the images, on a sheet of several.
     let (size, gap) = if one { (9.0, 0.0) } else { (7.0, 8.0) };
     let m = layout.margin_on([pw, ph]);
-    let room = |text: &str| if text.is_empty() { 0.0 } else { PAGE_TEXT };
+    let room = |text: &str| {
+        if text.is_empty() {
+            0.0
+        } else {
+            PAGE_TEXT_HEIGHT
+        }
+    };
     let (top, bottom) = (ph - m - room(&layout.header), m + room(&layout.footer));
     let (cw, ch) = ((pw - 2.0 * m) / cols as f32, (top - bottom) / rows as f32);
-    let below = if captions { CAPTION * size / 9.0 } else { 0.0 };
+    let below = if captions {
+        CAPTION_HEIGHT * size / 9.0
+    } else {
+        0.0
+    };
     let scale = if one {
         layout.scale.clamp(0.1, 1.0)
     } else {
@@ -588,7 +598,7 @@ pub fn place(layout: &Layout, sizes: &[[u32; 2]], captions: bool) -> Page {
                 cy + gap / 2.0 + below + (ch - gap - below - bh) / 2.0,
             );
             let (w, h) = (w.max(1) as f32, h.max(1) as f32);
-            let s = match layout.fill {
+            let s = match layout.fills_cell {
                 true => (bw / w).max(bh / h),
                 false => (bw / w).min(bh / h),
             };
@@ -614,8 +624,8 @@ pub fn place(layout: &Layout, sizes: &[[u32; 2]], captions: bool) -> Page {
 pub fn max_pixels(layout: &Layout) -> u32 {
     let [pw, ph] = layout.paper;
     let [cols, rows] = grid(layout.per_page);
-    // This is the margin `place` uses, because on small photo paper a wide margin is less than
-    // asked.
+    // This is the margin `lay_out_page` uses, because on small photo paper a wide margin is less
+    // than asked.
     let m = layout.margin_on([pw, ph]);
     let long = match layout.per_page {
         // Turned to landscape, or cut to fill, its long side may span the paper's.
@@ -623,7 +633,7 @@ pub fn max_pixels(layout: &Layout) -> u32 {
         _ => ((pw - 2.0 * m) / cols as f32).max((ph - 2.0 * m) / rows as f32),
     };
     // An image cut to fill its box is drawn larger than the box.
-    let fill = if layout.fill { 2.0 } else { 1.0 };
+    let fill = if layout.fills_cell { 2.0 } else { 1.0 };
     (long / 72.0 * PPI * fill) as u32
 }
 
@@ -741,7 +751,7 @@ pub fn pdf(
         }
         let sizes: Vec<[u32; 2]> = on_page.iter().map(|i| i.0).collect();
         let captions = on_page.iter().any(|i| i.1.is_some());
-        let placed = place(layout, &sizes, captions);
+        let placed = lay_out_page(layout, &sizes, captions);
         let [pw, ph] = placed.size;
         next += 2;
         let (mut draw, mut names) = (Vec::new(), Vec::new());
@@ -899,7 +909,7 @@ pub fn send(
         crate::files::external::PROGRAM_TIME_LIMIT * 4,
     );
     let written = match child.stdin.take() {
-        Some(input) => write(&mut Fed {
+        Some(input) => write(&mut WatchdogWriter {
             out: std::io::BufWriter::new(input),
             watchdog: &watchdog,
         }),
@@ -919,33 +929,33 @@ pub fn send(
 }
 
 /// The layout the print settings ask for.
-pub fn layout_of(c: &crate::files::config::Config) -> Layout {
+pub fn layout_from_settings(c: &crate::files::config::Config) -> Layout {
     let paper = (PAPERS.iter())
         .find(|p| p.0 == c.print_paper)
         .unwrap_or(&PAPERS[0])
         .1;
     Layout {
         orientation: Orientation::from(&c.print_orientation),
-        margin: c.print_margin as f32 * MM,
+        margin: c.print_margin as f32 * POINTS_PER_MM,
         scale: c.print_scale as f32 / 100.0,
-        fill: c.print_fill,
+        fills_cell: c.print_fill,
         header: c.print_header.clone(),
         footer: c.print_footer.clone(),
         ..Layout::new(paper, c.print_per_page)
     }
 }
 
-/// The first page as it will print, laid out by `place` as the PDF is. It shows white paper,
+/// The first page as it will print, laid out by `lay_out_page` as the PDF is. It shows white paper,
 /// the images (grey until decoded), their text and the page text.
 fn preview(ui: &mut egui::Ui, dialog: &PrintDialog, c: &crate::files::config::Config) {
-    let layout = layout_of(c);
+    let layout = layout_from_settings(c);
     let n = layout.per_page.min(dialog.paths.len());
     let size = |k: usize| {
         (dialog.previews.get(k).and_then(Option::as_ref))
             .map_or([4, 3], |t| [t.size()[0] as u32, t.size()[1] as u32])
     };
     let sizes: Vec<[u32; 2]> = (0..n).map(size).collect();
-    let page = place(&layout, &sizes, c.print_caption);
+    let page = lay_out_page(&layout, &sizes, c.print_caption);
     let [pw, ph] = page.size;
     let f = 240.0 / pw.max(ph);
     let (rect, _) = ui.allocate_exact_size(egui::vec2(pw * f, ph * f), egui::Sense::hover());
@@ -1134,10 +1144,10 @@ mod tests {
     /// the room that leaves, not for less.
     #[test]
     fn decodes_for_the_room_left() {
-        use super::{Layout, MM, PAPERS, max_pixels};
+        use super::{Layout, PAPERS, POINTS_PER_MM, max_pixels};
         let photo = PAPERS.iter().find(|p| p.0.starts_with("10")).unwrap().1;
         let wide = Layout {
-            margin: 50.0 * MM,
+            margin: 50.0 * POINTS_PER_MM,
             ..Layout::new(photo, 1)
         };
         let third = Layout {
@@ -1168,7 +1178,7 @@ mod tests {
     /// from the top line.
     #[test]
     fn writes_page_text() {
-        use super::{Layout, PAPERS, place};
+        use super::{Layout, PAPERS, lay_out_page};
         let a4 = PAPERS[0].1;
         let layout = Layout {
             header: "Trip".into(),
@@ -1185,13 +1195,13 @@ mod tests {
                 && text.contains("(Page 2 of 2) Tj")
         );
         let top = |l: &Layout| {
-            let c = &place(l, &[[20, 40]], false).cells[0];
+            let c = &lay_out_page(l, &[[20, 40]], false).cells[0];
             c.clip[1] + c.clip[3]
         };
         assert!(top(&layout) < top(&Layout::new(a4, 1)));
     }
 
-    /// The text under an image comes from the template, with its name, place and size. A field
+    /// The text under an image comes from the template, with its name, position and size. A field
     /// it lacks is left out with the words around it, as in the full screen info.
     #[test]
     fn captions_from_the_template() {
@@ -1218,12 +1228,12 @@ mod tests {
     /// Fitted, it lies within it.
     #[test]
     fn fills_the_box() {
-        use super::{Layout, PAPERS, place};
+        use super::{Layout, PAPERS, lay_out_page};
         let a4 = PAPERS[0].1;
         let cell = |fill| {
-            place(
+            lay_out_page(
                 &Layout {
-                    fill,
+                    fills_cell: fill,
                     ..Layout::new(a4, 4)
                 },
                 &[[300, 100]],
@@ -1240,7 +1250,7 @@ mod tests {
         super::pdf(
             [(img, None)].into_iter(),
             &Layout {
-                fill: true,
+                fills_cell: true,
                 ..Layout::new(a4, 4)
             },
             1,
@@ -1254,10 +1264,10 @@ mod tests {
     /// keeps its images whole.
     #[test]
     fn scales_one_image() {
-        use super::{Layout, PAPERS, place};
+        use super::{Layout, PAPERS, lay_out_page};
         let a4 = PAPERS[0].1;
-        let full = place(&Layout::new(a4, 1), &[[100, 100]], false).cells[0].image;
-        let half = place(
+        let full = lay_out_page(&Layout::new(a4, 1), &[[100, 100]], false).cells[0].image;
+        let half = lay_out_page(
             &Layout {
                 scale: 0.5,
                 ..Layout::new(a4, 1)
@@ -1270,7 +1280,7 @@ mod tests {
         assert!((half[2] - full[2] / 2.0).abs() < 0.01);
         assert!((half[0] + half[2] / 2.0 - a4[0] / 2.0).abs() < 0.01);
         let sheet = |scale| {
-            place(
+            lay_out_page(
                 &Layout {
                     scale,
                     ..Layout::new(a4, 4)
@@ -1288,12 +1298,12 @@ mod tests {
     /// 20 mm in from it.
     #[test]
     fn keeps_the_margin() {
-        use super::{Layout, MM, PAPERS, place};
+        use super::{Layout, PAPERS, POINTS_PER_MM, lay_out_page};
         let a4 = PAPERS[0].1;
         let at = |mm: f32| {
-            place(
+            lay_out_page(
                 &Layout {
-                    margin: mm * MM,
+                    margin: mm * POINTS_PER_MM,
                     ..Layout::new(a4, 1)
                 },
                 &[[100, 100]],
@@ -1303,25 +1313,25 @@ mod tests {
                 .clip
         };
         assert_eq!(at(0.0)[0], 0.0);
-        assert!((at(20.0)[0] - 20.0 * MM).abs() < 0.01);
-        assert!((at(20.0)[2] - (a4[0] - 40.0 * MM)).abs() < 0.01);
+        assert!((at(20.0)[0] - 20.0 * POINTS_PER_MM).abs() < 0.01);
+        assert!((at(20.0)[2] - (a4[0] - 40.0 * POINTS_PER_MM)).abs() < 0.01);
     }
 
     /// The paper is turned by the setting, and a sheet turned to landscape turns its grid too.
     /// By the image, a wide one alone goes landscape, and a sheet stays portrait.
     #[test]
     fn turns_the_paper() {
-        use super::{Layout, Orientation, PAPERS, place};
+        use super::{Layout, Orientation, PAPERS, lay_out_page};
         let a4 = PAPERS[0].1;
         let wide = [[60, 40]; 6];
-        let auto = |per| place(&Layout::new(a4, per), &wide[..per], false);
+        let auto = |per| lay_out_page(&Layout::new(a4, per), &wide[..per], false);
         assert_eq!(auto(1).size, [a4[1], a4[0]]);
         assert_eq!(auto(6).size, a4);
         let landscape = Layout {
             orientation: Orientation::Landscape,
             ..Layout::new(a4, 6)
         };
-        let page = place(&landscape, &wide, false);
+        let page = lay_out_page(&landscape, &wide, false);
         assert_eq!(page.size, [a4[1], a4[0]]);
         // Three across and two down on the wide page.
         let xs: std::collections::BTreeSet<i32> =
@@ -1331,7 +1341,7 @@ mod tests {
             orientation: Orientation::Portrait,
             ..Layout::new(a4, 1)
         };
-        assert_eq!(place(&portrait, &wide[..1], false).size, a4);
+        assert_eq!(lay_out_page(&portrait, &wide[..1], false).size, a4);
     }
 
     #[test]

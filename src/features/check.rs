@@ -12,7 +12,7 @@ use std::sync::{Arc, mpsc};
 
 /// Check Images: every image of the list opened in the background, as the viewer would; those
 /// that cannot be are listed, and marked in the file list.
-pub(crate) struct Check {
+pub(crate) struct ImageCheck {
     /// Files checked, and the threads still at work.
     done: Arc<AtomicUsize>,
     working: Arc<AtomicUsize>,
@@ -23,7 +23,7 @@ pub(crate) struct Check {
     broken: Vec<(OsString, String)>,
 }
 
-impl Check {
+impl ImageCheck {
     /// Stops the check, because its window closed or the list it checks is gone.
     pub(crate) fn stop(&self) {
         self.stop.store(true, std::sync::atomic::Ordering::Relaxed);
@@ -112,7 +112,7 @@ impl crate::App {
         if let Some(name) = show
             && let Some(i) = self.list.files().iter().position(|f| *f == name)
         {
-            self.go(ctx, i);
+            self.show_file(ctx, i);
         }
         if select {
             let broken = (self.list.files().iter().enumerate())
@@ -131,7 +131,7 @@ impl crate::App {
 
     /// Check every image of the list in background threads, as many as the CPU setting allows,
     /// each taking the next file until all are done or Stop is pressed.
-    pub(crate) fn start_check(&mut self, ctx: &egui::Context) -> Check {
+    pub(crate) fn start_check(&mut self, ctx: &egui::Context) -> ImageCheck {
         self.broken_files.clear();
         let files: Arc<Vec<(OsString, PathBuf)>> = Arc::new(
             (0..self.list.files().len())
@@ -141,7 +141,7 @@ impl crate::App {
         let threads = background_threads().min(files.len().max(1));
         let (tx, found) = mpsc::channel();
         let next = Arc::new(AtomicUsize::new(0));
-        let check = Check {
+        let check = ImageCheck {
             done: Arc::default(),
             working: Arc::default(),
             stop: Arc::default(),

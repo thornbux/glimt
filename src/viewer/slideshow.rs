@@ -24,14 +24,15 @@ pub(crate) enum Slide {
     Hold,
 }
 
-/// Where a slideshow is in its order: at `row` of the `shown` rows (`None` when a search hides
-/// the image), stepping `delta` (the panes changed at once), in a list of `len` files.
+/// Where a slideshow is in its order: at `row` of the `shown_rows` rows (`None` when a search
+/// hides the image), stepping `step` rows (the panes changed at once), in a list of
+/// `file_count` files.
 #[derive(Clone, Copy)]
-pub(crate) struct Place {
+pub(crate) struct SlideshowPosition {
     pub(crate) row: Option<usize>,
-    pub(crate) delta: usize,
-    pub(crate) shown: usize,
-    pub(crate) len: usize,
+    pub(crate) step: usize,
+    pub(crate) shown_rows: usize,
+    pub(crate) file_count: usize,
 }
 
 /// The slideshow: whether it runs, its order and the pane it changes next.
@@ -136,7 +137,7 @@ impl crate::App {
         // Back on while a random slideshow still reads its list, which random off asked for in
         // sort order: read again, shuffled whole.
         if on && self.slideshow.whole_shuffle && self.folder.is_listing() {
-            return self.list(ctx);
+            return self.start_listing(ctx);
         }
         if !on {
             // A collection back in its own order, which shuffling left only in its file.
@@ -147,7 +148,7 @@ impl crate::App {
                 .filter(|_| !self.folder.sorts_collection())
                 && let Ok(saved) = collections::load(file)
             {
-                let shown = self.list.files().get(self.list.cur()).cloned();
+                let shown = self.list.files().get(self.list.shown()).cloned();
                 let files: Vec<PathBuf> =
                     (0..self.list.files().len()).map(|i| self.path(i)).collect();
                 // The saved entries by their real paths, the names the list has.
@@ -168,19 +169,19 @@ impl crate::App {
                 // A listing on its way (a random slideshow's, a refresh's) would bring the order
                 // it was asked for: read again, in the saved order now shown.
                 if self.folder.is_listing() {
-                    self.list(ctx);
+                    self.start_listing(ctx);
                 }
                 return;
             }
             // Back to the chosen sort order; listing keeps the shown image.
-            self.list(ctx);
+            self.start_listing(ctx);
             return;
         }
         // A copy, not taken: the textures and the shown image's zoom are kept by the names in
         // the list as it is.
         let mut files = self.list.files().to_vec();
-        let shown = files[self.list.cur()].clone();
-        files.swap(0, self.list.cur());
+        let shown = files[self.list.shown()].clone();
+        files.swap(0, self.list.shown());
         shuffle(&mut files[1..]);
         // New panes from the new order: kept, a slideshow one image at a time would still stand
         // at the end of the round and shuffle again on every frame.
@@ -199,7 +200,7 @@ impl crate::App {
             self.folder.set_recursive(true);
             self.slideshow.shuffled = self.config.slideshow_random;
             self.slideshow.whole_shuffle = self.slideshow.shuffled;
-            self.list(ctx);
+            self.start_listing(ctx);
         } else if self.config.slideshow_random != self.slideshow.shuffled {
             self.shuffle_list(ctx, self.config.slideshow_random);
         }
@@ -222,7 +223,7 @@ impl crate::App {
         if self.folder.recursive() != self.config.show_subfolders {
             self.folder.set_recursive(self.config.show_subfolders);
             self.slideshow.shuffled = false;
-            self.list(ctx);
+            self.start_listing(ctx);
         } else if self.slideshow.shuffled {
             self.shuffle_list(ctx, false);
         }
@@ -249,9 +250,9 @@ impl crate::App {
         let n = self.list.panes().len() + 1;
         let turns = n > 1 && self.one_at_a_time();
         let (from, delta) = match n {
-            1 => (self.list.cur(), 1),
+            1 => (self.list.shown(), 1),
             _ if turns => (self.list.last_slide(), 1),
-            _ => (self.list.cur(), n),
+            _ => (self.list.shown(), n),
         };
         let delay = std::time::Duration::from_secs(self.config.slideshow_delay);
         let left = delay.saturating_sub(last.elapsed());
@@ -268,11 +269,11 @@ impl crate::App {
         let shown = m.map_or(self.list.files().len(), <[usize]>::len);
         let pending =
             next.is_some_and(|next| self.list.decodes_pending().contains_key(&(next, false)));
-        let at = Place {
+        let at = SlideshowPosition {
             row,
-            delta,
-            shown,
-            len: self.list.files().len(),
+            step: delta,
+            shown_rows: shown,
+            file_count: self.list.files().len(),
         };
         match next_slide(
             at,
@@ -290,7 +291,7 @@ impl crate::App {
                     self.list.set_pane(self.slideshow.next_pane - 1, next);
                     self.refill();
                 } else {
-                    self.go(ctx, next);
+                    self.show_file(ctx, next);
                 }
                 self.decoding.fade_from(before);
                 if turns {
@@ -340,19 +341,19 @@ impl crate::App {
 /// The slideshow's move from `at`, to `next` if there is one; repeating or not, in a `shuffled`
 /// order, with `next` `pending` (still being decoded) or not.
 pub(crate) fn next_slide(
-    at: Place,
+    at: SlideshowPosition,
     next: Option<usize>,
     repeat: bool,
     shuffled: bool,
     pending: bool,
 ) -> Slide {
-    let Place {
+    let SlideshowPosition {
         row,
-        delta,
-        shown,
-        len,
+        step,
+        shown_rows,
+        file_count,
     } = at;
-    let round_over = round_ends(row, delta, shown);
+    let round_over = round_ends(row, step, shown_rows);
     let Some(next) = next else { return Slide::Hold };
     if round_over && !repeat {
         return Slide::Stop;
@@ -360,7 +361,12 @@ pub(crate) fn next_slide(
     // A new round shuffles again instead of repeating the same order. Not when a search hides
     // the shown image, nor when it shows no more images than one step: the shuffled list starts
     // with the shown image, so the round would be over again, and shuffled on every frame.
-    if shuffled && round_over && row.is_some() && len > 2 && !round_ends(Some(0), delta, shown) {
+    if shuffled
+        && round_over
+        && row.is_some()
+        && file_count > 2
+        && !round_ends(Some(0), step, shown_rows)
+    {
         return Slide::Shuffle;
     }
     match pending {
@@ -371,7 +377,7 @@ pub(crate) fn next_slide(
 
 #[cfg(test)]
 mod tests {
-    use crate::support::test_support::{app_on, settle};
+    use crate::support::test_support::{app_on, run_background_until};
 
     /// A random slideshow with subfolders, without Repeat, started on the last image: it does
     /// not end before its list is read, and stopped before that, the list comes back in sort
@@ -393,7 +399,7 @@ mod tests {
             }
             let (mut app, ctx) = app_on(&d);
             let sorted = app.list.files().to_vec();
-            app.go(&ctx, 4);
+            app.show_file(&ctx, 4);
             app.config.slideshow_subfolders = true;
             app.config.slideshow_random = true;
             app.config.slideshow_repeat = false;
@@ -410,7 +416,9 @@ mod tests {
                 app.set_random_order(&ctx, false);
                 app.set_random_order(&ctx, true);
             }
-            assert!(settle(&mut app, &ctx, |a| !a.folder.is_listing()));
+            assert!(run_background_until(&mut app, &ctx, |a| !a
+                .folder
+                .is_listing()));
             if stop {
                 assert_eq!(app.list.files(), sorted);
             } else {
@@ -452,9 +460,11 @@ mod tests {
         app.start_slideshow(&ctx);
         assert!(app.slideshow.shuffled && app.list.files() != order);
         // A refresh on its way.
-        app.list(&ctx);
+        app.start_listing(&ctx);
         app.set_random_order(&ctx, false);
-        assert!(settle(&mut app, &ctx, |a| !a.folder.is_listing()
+        assert!(run_background_until(&mut app, &ctx, |a| !a
+            .folder
+            .is_listing()
             && a.status.folder_total().is_some()));
         assert_eq!(app.list.files(), order);
         std::fs::remove_dir_all(&d).unwrap();
@@ -486,9 +496,11 @@ mod tests {
             if shuffled_first {
                 app.shuffle_list(&ctx, true);
             }
-            let shown = app.list.files()[app.list.cur()].clone();
+            let shown = app.list.files()[app.list.shown()].clone();
             app.start_slideshow(&ctx);
-            assert!(settle(&mut app, &ctx, |a| !a.folder.is_listing()));
+            assert!(run_background_until(&mut app, &ctx, |a| !a
+                .folder
+                .is_listing()));
             assert!(
                 app.slideshow.shuffled && app.list.files() != order,
                 "R first: {shuffled_first}"
@@ -500,7 +512,9 @@ mod tests {
             app.stop_slideshow(&ctx);
             app.start_slideshow(&ctx);
             app.set_random_order(&ctx, false);
-            assert!(settle(&mut app, &ctx, |a| !a.folder.is_listing()
+            assert!(run_background_until(&mut app, &ctx, |a| !a
+                .folder
+                .is_listing()
                 && a.status.folder_total().is_some()));
             assert_eq!(app.list.files(), order);
             assert!(app.status.folder_total() > Some(0), "size");
@@ -540,7 +554,7 @@ mod tests {
     /// it stops at the end of the round and not before.
     #[test]
     fn slideshow_advances_on_every_tick() {
-        use super::{Place, Slide, next_slide};
+        use super::{Slide, SlideshowPosition, next_slide};
         use crate::model::selection::next_row;
         // (files, rows shown by a search or all, step: the panes changed at once)
         let cases: Vec<(usize, Option<Vec<usize>>, usize)> = vec![
@@ -565,11 +579,11 @@ mod tests {
                     let case = format!(
                         "{len} files, {m:?} shown, step {delta}, repeat {repeat}, shuffled {shuffled}, from {from}"
                     );
-                    let at = Place {
+                    let at = SlideshowPosition {
                         row,
-                        delta,
-                        shown,
-                        len,
+                        step: delta,
+                        shown_rows: shown,
+                        file_count: len,
                     };
                     match next_slide(at, next, repeat, shuffled, false) {
                         Slide::Hold => assert_eq!(shown, 0, "held: {case}"),
@@ -600,11 +614,11 @@ mod tests {
             }
         }
         // Held only while the next image is still being decoded.
-        let at = Place {
+        let at = SlideshowPosition {
             row: Some(0),
-            delta: 1,
-            shown: 3,
-            len: 3,
+            step: 1,
+            shown_rows: 3,
+            file_count: 3,
         };
         assert_eq!(next_slide(at, Some(1), true, false, true), Slide::Hold);
         assert_eq!(next_row(None, 1, 3, true), Some(0));

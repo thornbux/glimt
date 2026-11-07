@@ -32,13 +32,13 @@ pub(crate) fn human_size(bytes: u64) -> String {
         b if b >= 1_000 => (b as f64 / 1e3, "kB"),
         b => return format!("{b} B"),
     };
-    format!("{value:.1} {unit}").replacen('.', lang::number_marks().1, 1)
+    format!("{value:.1} {unit}").replacen('.', lang::number_separators().1, 1)
 }
 
 /// Integer with its thousands grouped as the language in use writes them: 300000 → "300,000"
 /// in English, "300.000" in German.
 pub(crate) fn thousands(n: usize) -> String {
-    grouped(n, lang::number_marks().0)
+    grouped(n, lang::number_separators().0)
 }
 
 /// Returns `n` with `separator` between each group of three digits.

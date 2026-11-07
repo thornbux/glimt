@@ -506,7 +506,7 @@ impl crate::App {
             ui,
             iconed(ui, theme::icon::STACK_PLUS, tr("Add to Collection")),
             |ui| {
-                for (name, file) in collections::list() {
+                for (name, file) in collections::saved_collections() {
                     if icon_button(ui, theme::icon::STACK, &name).clicked() {
                         self.add_to_collection(ui.ctx(), &file);
                     }
@@ -574,7 +574,7 @@ impl crate::App {
             };
             let plugin = self.plugins[k].clone();
             let (files, left): (Vec<PathBuf>, Vec<PathBuf>) =
-                (targets.iter().map(|&i| self.path(i))).partition(|p| plugin.takes(p));
+                (targets.iter().map(|&i| self.path(i))).partition(|p| plugin.accepts(p));
             let name = &plugin.name;
             if files.is_empty() {
                 self.notice = Some(tf!("{name} takes none of these files", name));
@@ -697,8 +697,8 @@ impl crate::App {
         if self.list.files().is_empty() {
             return;
         }
-        let (path, tx) = (self.path(self.list.cur()), self.notices_tx.clone());
-        let mut words = plugins::words(player);
+        let (path, tx) = (self.path(self.list.shown()), self.notices_tx.clone());
+        let mut words = plugins::command_words(player);
         std::thread::spawn(move || {
             // The player stays open as long as it plays, waited for in this thread.
             let run = |name: &str, mut cmd: std::process::Command| {
@@ -781,7 +781,7 @@ impl crate::App {
     /// The View menu's toggles of a setting: the path bar, toolbar, panels, overlay, icons,
     /// histogram scale and animation. A stepped through an animation plays it on instead.
     pub(crate) fn toggle_setting(&mut self, action: Action) {
-        self.panel.scroll_to_current();
+        self.panel.scroll_to_shown();
         let c = &mut self.config;
         let flag = match action {
             Action::PathBar => &mut c.path_bar,

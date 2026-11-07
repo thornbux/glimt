@@ -359,7 +359,7 @@ impl crate::App {
             ui.label(tr("Language"));
             if chosen {
                 changed = true;
-                lang::set(&self.config.language);
+                lang::set_language(&self.config.language);
             }
         });
         let follow = tr("High Contrast when the desktop asks for high contrast");
@@ -1023,7 +1023,7 @@ impl crate::App {
         ui.weak(tr("Previews need ffmpeg"));
         if checkbox(ui, &mut c.list_videos, tr("Show videos in the file list")).changed() {
             changed = true;
-            self.list(ctx);
+            self.start_listing(ctx);
         }
         ui.horizontal(|ui| {
             ui.label(tr("Player (Enter):"));

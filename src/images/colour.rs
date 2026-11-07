@@ -379,8 +379,8 @@ pub fn colour_source(path: &Path) -> String {
                 .ok()
                 .and_then(|r| r.into_decoder().ok());
             // The block the view reads, so a PNG's text chunk counts too.
-            let exif = dec.and_then(|mut d| exif::decoded(path, &mut d));
-            (exif.is_some_and(|e| exif::adobe_rgb(&e)))
+            let exif = dec.and_then(|mut d| exif::block_from_decoder(path, &mut d));
+            (exif.is_some_and(|e| exif::is_adobe_rgb(&e)))
                 .then(|| tr("Adobe RGB, from its EXIF").to_owned())
         }
     };

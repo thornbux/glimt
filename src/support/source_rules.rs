@@ -8,7 +8,7 @@ use std::path::Path;
 /// Where a top-level item stands in a file's order, as AGENTS.md gives it under "Within a
 /// file"; the variants are in that order.
 #[derive(Clone, Copy, PartialEq, PartialOrd)]
-enum Place {
+enum Section {
     Imports,
     Constants,
     Types,
@@ -17,15 +17,15 @@ enum Place {
     Tests,
 }
 
-impl Place {
+impl Section {
     fn name(self) -> &'static str {
         match self {
-            Place::Imports => "use and mod",
-            Place::Constants => "const and static",
-            Place::Types => "types and their impls",
-            Place::AppBlock => "the impl crate::App block",
-            Place::Functions => "functions",
-            Place::Tests => "the tests",
+            Section::Imports => "use and mod",
+            Section::Constants => "const and static",
+            Section::Types => "types and their impls",
+            Section::AppBlock => "the impl crate::App block",
+            Section::Functions => "functions",
+            Section::Tests => "the tests",
         }
     }
 }
@@ -285,7 +285,7 @@ fn finds_functions_and_clicks() {
 /// `line` without what may stand before `fn`, `struct` and the like: a visibility, `unsafe`,
 /// `async`, and `const` or `extern "C"` when a function follows (a const fn is a function, not
 /// a constant).
-fn qualifiers_off(line: &str) -> &str {
+fn without_qualifiers(line: &str) -> &str {
     let mut l = line;
     loop {
         let before = l;
@@ -296,7 +296,7 @@ fn qualifiers_off(line: &str) -> &str {
             l = l.strip_prefix(prefix).unwrap_or(l);
         }
         for prefix in ["const ", "extern \"C\" "] {
-            let function = |r: &&str| qualifiers_off(r).starts_with("fn ");
+            let function = |r: &&str| without_qualifiers(r).starts_with("fn ");
             if let Some(rest) = l.strip_prefix(prefix).filter(function) {
                 l = rest;
             }
@@ -311,14 +311,14 @@ fn qualifiers_off(line: &str) -> &str {
 /// inside another), or `None` when it starts none. Every rule that asks which function a line
 /// is in finds it here, so none of them misses an indented one.
 fn function_name(line: &str) -> Option<&str> {
-    let rest = qualifiers_off(line.trim_start()).strip_prefix("fn ")?;
+    let rest = without_qualifiers(line.trim_start()).strip_prefix("fn ")?;
     rest.split(['(', '<']).next()
 }
 
 /// The name of the constant or static that starts on `line` at the top level, such as
 /// `SHORTCUTS`; `None` for any other line.
 fn constant_name(line: &str) -> Option<&str> {
-    let l = qualifiers_off(line);
+    let l = without_qualifiers(line);
     let rest = (l
         .strip_prefix("const ")
         .or_else(|| l.strip_prefix("static ")))?;
@@ -386,14 +386,14 @@ fn block_end(lines: &[String], i: usize) -> Option<usize> {
 /// The line where the tests module starts in `lines`, or their end without one.
 fn tests_start(lines: &[String]) -> usize {
     (lines.iter())
-        .position(|l| qualifiers_off(l) == "mod tests {")
+        .position(|l| without_qualifiers(l) == "mod tests {")
         .unwrap_or(lines.len())
 }
 
-/// The place of the top-level item that starts on `line` (a line of `code_lines`); `None` for a
+/// The section of the top-level item that starts on `line` (a line of `code_lines`); `None` for a
 /// line that starts none (an attribute, the rest of an item, a blank).
-fn place(line: &str) -> Option<Place> {
-    let l = qualifiers_off(line);
+fn section_of(line: &str) -> Option<Section> {
+    let l = without_qualifiers(line);
     let starts = |word: &str| {
         l.strip_prefix(word)
             .is_some_and(|rest| rest.starts_with([' ', '<', '!', '(', '"']))
@@ -404,20 +404,20 @@ fn place(line: &str) -> Option<Place> {
         !name.is_empty() && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
     });
     Some(if l == "mod tests {" {
-        Place::Tests
+        Section::Tests
     } else if starts("use") || starts("mod") || starts("macro_rules") || starts("extern crate") {
-        Place::Imports
+        Section::Imports
     } else if starts("const") || starts("static") {
-        Place::Constants
+        Section::Constants
     } else if l == "impl App {" || l == "impl crate::App {" || (starts("impl") && for_app) {
-        Place::AppBlock
+        Section::AppBlock
     } else if types.iter().any(|w| starts(w)) {
-        Place::Types
+        Section::Types
     } else if starts("fn") || starts("extern") {
-        Place::Functions
+        Section::Functions
     } else if macro_call {
         // A macro that makes items, such as config!.
-        Place::Types
+        Section::Types
     } else {
         return None;
     })
@@ -430,10 +430,10 @@ fn items_are_in_order() {
     let mut wrong = Vec::new();
     for (name, text) in rust_sources() {
         let lines = code_lines(&text);
-        let (mut last, mut apps, mut i) = (Place::Imports, 0, 0);
+        let (mut last, mut apps, mut i) = (Section::Imports, 0, 0);
         while i < lines.len() {
             let line = &lines[i];
-            let Some(here) = place(line) else {
+            let Some(here) = section_of(line) else {
                 i += 1;
                 continue;
             };
@@ -450,7 +450,7 @@ fn items_are_in_order() {
             last = here;
             // Nothing inside the tests module is ranked; whatever comes after it is.
             i = match here {
-                Place::Tests => block_end(&lines, i).unwrap_or(lines.len()) + 1,
+                Section::Tests => block_end(&lines, i).unwrap_or(lines.len()) + 1,
                 _ => i + 1,
             };
         }
@@ -482,9 +482,9 @@ fn tests_use_temporary_names_of_their_own() {
 }
 
 /// A test sits in the tests of the module whose code it tests. Once main.rs's tests module held
-/// what such tests start from (`app_on`, `settle`), and that drew every test that needed a whole
-/// `App` into main.rs. Those helpers are in test_support.rs now, and only the tests of main.rs's
-/// own code stay in main.rs.
+/// what such tests start from (`app_on`, `run_background_until`), and that drew every test that
+/// needed a whole `App` into main.rs. Those helpers are in test_support.rs now, and only the tests
+/// of main.rs's own code stay in main.rs.
 #[test]
 fn tests_sit_beside_their_code() {
     const OWN: &[&str] = &[
@@ -536,8 +536,8 @@ fn app_stays_small() {
 #[test]
 fn parts_keep_their_fields() {
     const PARTS: &[(&str, &str)] = &[
-        ("features/check.rs", "Check"),
-        ("features/duplicates.rs", "Dups"),
+        ("features/check.rs", "ImageCheck"),
+        ("features/duplicates.rs", "FindDuplicates"),
         ("features/print.rs", "PrintDialog"),
         ("features/remote.rs", "Listener"),
         ("files/file_ops.rs", "FileOperations"),
@@ -606,7 +606,7 @@ fn functions_stay_short() {
         let lines = code_lines(&text);
         let end = tests_start(&lines);
         for i in 0..end {
-            let Some(rest) = qualifiers_off(lines[i].trim_start()).strip_prefix("fn ") else {
+            let Some(rest) = without_qualifiers(lines[i].trim_start()).strip_prefix("fn ") else {
                 continue;
             };
             let name = rest.split(['(', '<']).next().unwrap_or("");
@@ -746,11 +746,11 @@ fn imports_name_where_defined() {
     let mut in_extern = false;
     let top: Vec<&str> = (main[..main_end].iter())
         .filter(|l| {
-            let opens = qualifiers_off(l).starts_with("extern ") && l.ends_with('{');
+            let opens = without_qualifiers(l).starts_with("extern ") && l.ends_with('{');
             in_extern = (in_extern || opens) && l.as_str() != "}";
             indent(l) == 0 || in_extern
         })
-        .map(|l| qualifiers_off(l.trim_start()))
+        .map(|l| without_qualifiers(l.trim_start()))
         .collect();
     // An item main.rs defines there, a macro exported to the crate root, or main.rs's tests
     // module. A macro that is not exported, such as config!, is no name at the root. The code
@@ -793,7 +793,7 @@ fn super_only_inside_modules() {
         let mut i = 0;
         while i < lines.len() {
             let line = &lines[i];
-            if qualifiers_off(line).starts_with("mod ") && line.ends_with('{') {
+            if without_qualifiers(line).starts_with("mod ") && line.ends_with('{') {
                 i = block_end(&lines, i).unwrap_or(lines.len()) + 1;
                 continue;
             }
@@ -816,7 +816,7 @@ fn super_only_inside_modules() {
 fn main_names_its_modules_with_crate() {
     let modules = module_names();
     for (i, line) in code_lines(&source("main.rs")).iter().enumerate() {
-        let first = (qualifiers_off(line).strip_prefix("use "))
+        let first = (without_qualifiers(line).strip_prefix("use "))
             .and_then(|l| l.split("::").next())
             .filter(|m| modules.iter().any(|x| x == m));
         assert!(
@@ -902,7 +902,7 @@ fn agents_md_names_what_each_module_has() {
     );
 }
 
-/// A panic is caught only by `threads::caught`, the one function whose doc says why. A worker
+/// A panic is caught only by `threads::catch_panic`, the one function whose doc says why. A worker
 /// that caught panics its own way once forgot it, and a broken file ended the thread. Eight
 /// commits added the catch one path at a time.
 #[test]
@@ -919,7 +919,7 @@ fn panics_are_caught_in_one_place() {
     }
     assert!(
         wrong.is_empty(),
-        "a panic caught outside threads::caught (use it instead):\n{}",
+        "a panic caught outside threads::catch_panic (use it instead):\n{}",
         wrong.join("\n")
     );
 }
@@ -1188,33 +1188,33 @@ fn a_home_ends_at_the_next_top_level_item() {
 }
 
 /// A file Glimt writes from an image (a turn saved, a crop, a copy, their sidecars) takes the
-/// image's metadata only through `save::derived_metadata` and `save::derived_xmp`, which say
-/// what such a file keeps. The EXIF thumbnail was cleared there, but the XMP's thumbnail and a
-/// PNG's Photoshop resources were copied as they were, because each kind was decided apart. The
-/// readers that give an image's XMP as it is are watched too, because a copy written from one
-/// would skip what `derived_xmp` drops. The panel reads it in `xmp::embedded`. The EXIF block
-/// is read through `exif::decoded`, which also sees a PNG's EXIF in a text chunk. Before, a
-/// turned or copied PNG lost EXIF that only such a chunk held, because the save read the eXIf
-/// chunk alone. A derived file takes its EXIF block from `exif::derived`, the panel's reader,
-/// and never from `exif::decoded`, which reads only what the image crate opens. Before, a copy
-/// of a HEIC, AVIF, JPEG XL or RAW photo lost the EXIF the panel showed. The orientation an
-/// image is turned upright by is read through `exif::stored_orientation`, so the view and a
-/// turned or copied file take the one the panel shows. The view once took the decoder's alone
-/// and showed a PNG with its orientation in a text chunk unturned. The view's Adobe RGB check
-/// takes the same block as its orientation, and the colour line reads it through `decoded`
-/// too, so a PNG with its ColorSpace only in a text chunk is shown and named as Adobe RGB. A
-/// RAW's preview is a JPEG, read on its own. A copy or an exported frame reads a page through
-/// `decode::load_page`, which gives every page with its own ICC profile. Before, a later page
-/// of a TIFF was read without it. Every image file Glimt writes is encoded by `save::encode`,
-/// which fits the pixels to the format. Before, Export Frames wrote a float page as it was,
-/// which PNG refuses (`.write_to` is watched for that).
+/// image's metadata only through `save::derived_metadata` and `save::derived_xmp`, which say what
+/// such a file keeps. The EXIF thumbnail was cleared there, but the XMP's thumbnail and a PNG's
+/// Photoshop resources were copied as they were, because each kind was decided apart. The readers
+/// that give an image's XMP as it is are watched too, because a copy written from one would skip
+/// what `derived_xmp` drops. The panel reads it in `xmp::embedded`. The EXIF block is read through
+/// `exif::block_from_decoder`, which also sees a PNG's EXIF in a text chunk. Before, a turned or
+/// copied PNG lost EXIF that only such a chunk held, because the save read the eXIf chunk alone. A
+/// derived file takes its EXIF block from `exif::derived`, the panel's reader, and never from
+/// `exif::block_from_decoder`, which reads only what the image crate opens. Before, a copy of a
+/// HEIC, AVIF, JPEG XL or RAW photo lost the EXIF the panel showed. The orientation an image is
+/// turned upright by is read through `exif::stored_orientation`, so the view and a turned or copied
+/// file take the one the panel shows. The view once took the decoder's alone and showed a PNG with
+/// its orientation in a text chunk unturned. The view's Adobe RGB check takes the same block as its
+/// orientation, and the colour line reads it through `block_from_decoder` too, so a PNG with its
+/// ColorSpace only in a text chunk is shown and named as Adobe RGB. A RAW's preview is a JPEG, read
+/// on its own. A copy or an exported frame reads a page through `decode::load_page`, which gives
+/// every page with its own ICC profile. Before, a later page of a TIFF was read without it. Every
+/// image file Glimt writes is encoded by `save::encode`, which fits the pixels to the format.
+/// Before, Export Frames wrote a float page as it was, which PNG refuses (`.write_to` is watched
+/// for that).
 #[test]
 fn derived_files_take_metadata_in_one_place() {
     const HOMES: &[(&str, &[(&str, &str)])] = &[
         ("set_upright(", &[("images/save.rs", "derived_metadata")]),
         ("exif::derived(", &[("images/save.rs", "derived_metadata")]),
         (
-            "exif::decoded(",
+            "exif::block_from_decoder(",
             &[
                 ("images/decode.rs", "load_unturned"),
                 ("images/colour.rs", "colour_source"),
@@ -1222,7 +1222,10 @@ fn derived_files_take_metadata_in_one_place() {
         ),
         (
             ".exif_metadata()",
-            &[("metadata/exif.rs", "decoded"), ("images/raw.rs", "exif")],
+            &[
+                ("metadata/exif.rs", "block_from_decoder"),
+                ("images/raw.rs", "exif"),
+            ],
         ),
         (
             "xmp_metadata(",
@@ -1535,7 +1538,7 @@ fn modules_live_in_their_folder() {
         }
         let lines = code_lines(&text);
         for (i, line) in lines.iter().enumerate() {
-            let name = qualifiers_off(line)
+            let name = without_qualifiers(line)
                 .strip_prefix("mod ")
                 .and_then(|l| l.strip_suffix(';'));
             let is_mod = name.is_some_and(|n| n.chars().all(|c| c == '_' || c.is_alphanumeric()));

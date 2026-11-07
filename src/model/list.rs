@@ -1,5 +1,5 @@
 //! The model of what is open: the file list with everything that holds a place in it
-//! (`List`), and the decoded images (`Slot`).
+//! (`List`), and the decoded images (`LoadedImage`).
 
 use crate::images::decode::HistogramCounts;
 use crate::ui::file_list::RubberBand;
@@ -9,29 +9,29 @@ use std::ffi::OsString;
 use std::path::PathBuf;
 
 /// An image decoded for the view: the shown one or a neighbour read ahead, at the size shown or
-/// (`full`) at full resolution.
-pub(crate) struct Slot {
-    pub(crate) tex: egui::TextureHandle,
+/// (`is_full_resolution`) at full resolution.
+pub(crate) struct LoadedImage {
+    pub(crate) texture: egui::TextureHandle,
     /// The file the texture was made from; decides whether it can be kept when the file list
     /// changes.
     pub(crate) path: PathBuf,
-    pub(crate) full: bool,
+    pub(crate) is_full_resolution: bool,
     /// Original size after EXIF rotation.
-    pub(crate) orig: [usize; 2],
+    pub(crate) original_size: [usize; 2],
     /// Frames of an animated GIF or WebP with their delays in ms; empty for a still image.
-    pub(crate) anim: Vec<(egui::TextureHandle, u32)>,
+    pub(crate) frames: Vec<(egui::TextureHandle, u32)>,
     /// Of the decoded image (the first frame of an animation).
-    pub(crate) hist: Box<HistogramCounts>,
+    pub(crate) histogram: Box<HistogramCounts>,
     /// Pages of a multi-page TIFF; 1 for other files.
     pub(crate) pages: usize,
     /// The box it was decoded into (`decode_box`): decoded again only for a larger one.
     pub(crate) decoded_for: [u32; 2],
 }
 
-impl Slot {
+impl LoadedImage {
     /// Whether any pixel of the (first) frame is less than opaque.
     pub(crate) fn transparent(&self) -> bool {
-        self.hist[4][..255].iter().any(|&n| n > 0)
+        self.histogram[4][..255].iter().any(|&n| n > 0)
     }
 
     /// The frame to show `t` after the image was opened; asks for a repaint when the next is due.
@@ -44,14 +44,14 @@ impl Slot {
         if let Some(left) = left {
             ctx.request_repaint_after(std::time::Duration::from_millis(left as u64));
         }
-        self.anim.get(k).map_or(&self.tex, |f| &f.0)
+        self.frames.get(k).map_or(&self.texture, |f| &f.0)
     }
 
     /// The frame shown `t` after the start, and the milliseconds it still has.
     pub(crate) fn frame_at(&self, t: std::time::Duration) -> (usize, Option<u32>) {
-        let total: u32 = self.anim.iter().map(|f| f.1).sum();
+        let total: u32 = self.frames.iter().map(|f| f.1).sum();
         let mut at = (t.as_millis() % total.max(1) as u128) as u32;
-        for (k, (_, ms)) in self.anim.iter().enumerate() {
+        for (k, (_, ms)) in self.frames.iter().enumerate() {
             if at < *ms {
                 return (k, Some(ms - at));
             }
@@ -64,13 +64,13 @@ impl Slot {
 /// The file list and everything that holds a place in it: made anew when the list is another
 /// (`replace_files`), so nothing indexed into one list can outlive it, whatever field comes
 /// next. What follows a file from one list to the next (the shown image, the selection, the
-/// panes, the decoded slots) is carried over by name there, in the one place.
+/// panes, the decoded images) is carried over by name there, in the one place.
 #[derive(Default)]
 pub(crate) struct List {
     /// The images in `dir`, file name only (the full path is built on demand by `path`): saves
     /// memory in large folders, where the path would otherwise be repeated for every file.
     files: Vec<OsString>,
-    cur: usize,
+    shown: usize,
     /// Selected files (Ctrl/Shift+click in the file list) that Delete acts on. They are always
     /// files the list shows, so while searching they are matches only. No action then acts on
     /// a file the search hides.
@@ -84,9 +84,9 @@ pub(crate) struct List {
     /// Where the Shift selection made by the keys last ended (file index), while nothing else
     /// changed the selection or the search since: the selection is then that range.
     range_end: Option<usize>,
-    /// The images of a layout's panes after the first, which shows `cur`.
+    /// The images of a layout's panes after the first, which shows `shown`.
     panes: Vec<usize>,
-    slots: HashMap<usize, Slot>,
+    loaded_images: HashMap<usize, LoadedImage>,
     decode_errors: HashMap<usize, String>,
     /// Decodes asked for, with the number of the job: only its result is taken, so one asked
     /// for before the list, the page, the look or the file changed is dropped; and the box it
@@ -107,7 +107,7 @@ pub(crate) struct List {
     /// also while the file list shows others.
     pan_thumbs: Vec<usize>,
     /// File list size and date columns: (bytes, mtime) by file name.
-    details: HashMap<OsString, (u64, i64)>,
+    sizes_and_dates: HashMap<OsString, (u64, i64)>,
     /// Goes up whenever the file list changes, so what was worked out from its indices can tell
     /// that it is old, also when the list kept its length (another order).
     version: usize,
@@ -115,7 +115,7 @@ pub(crate) struct List {
     /// operation may start. A new `List` keeps it, because a shuffle or a move in the
     /// collection puts the same names in another order. The whole listing clears it, and so
     /// does another folder opened.
-    unchecked: bool,
+    has_unchecked_entries: bool,
 }
 
 impl List {
@@ -125,8 +125,8 @@ impl List {
     }
 
     /// The place of the shown image in the list.
-    pub(crate) fn cur(&self) -> usize {
-        self.cur
+    pub(crate) fn shown(&self) -> usize {
+        self.shown
     }
 
     /// The selected files, by their places in the list.
@@ -165,8 +165,8 @@ impl List {
     }
 
     /// The decoded images, by their places in the list.
-    pub(crate) fn slots(&self) -> &HashMap<usize, Slot> {
-        &self.slots
+    pub(crate) fn loaded_images(&self) -> &HashMap<usize, LoadedImage> {
+        &self.loaded_images
     }
 
     /// Why images could not be decoded, by their places in the list.
@@ -211,8 +211,8 @@ impl List {
     }
 
     /// The size and date columns, as (bytes, mtime) by file name.
-    pub(crate) fn details(&self) -> &HashMap<OsString, (u64, i64)> {
-        &self.details
+    pub(crate) fn sizes_and_dates(&self) -> &HashMap<OsString, (u64, i64)> {
+        &self.sizes_and_dates
     }
 
     /// The list's version, which goes up whenever the list changes.
@@ -227,24 +227,24 @@ impl List {
         List {
             files,
             version: old.version + 1,
-            unchecked: old.unchecked,
+            has_unchecked_entries: old.has_unchecked_entries,
             ..Default::default()
         }
     }
 
     /// Whether the entries are a list's names not yet checked to be files.
-    pub(crate) fn unchecked(&self) -> bool {
-        self.unchecked
+    pub(crate) fn has_unchecked_entries(&self) -> bool {
+        self.has_unchecked_entries
     }
 
     /// Marks the entries as a list's names not yet checked to be files, or as checked.
-    pub(crate) fn set_unchecked(&mut self, unchecked: bool) {
-        self.unchecked = unchecked;
+    pub(crate) fn set_unchecked_entries(&mut self, unchecked: bool) {
+        self.has_unchecked_entries = unchecked;
     }
 
     /// Shows the image at place `i`.
-    pub(crate) fn set_cur(&mut self, i: usize) {
-        self.cur = i;
+    pub(crate) fn set_shown(&mut self, i: usize) {
+        self.shown = i;
     }
 
     /// Gives the file at place `i` the name `name`, because it was renamed or moved within the
@@ -276,7 +276,7 @@ impl List {
             idx += 1;
             removed.binary_search(&(idx - 1)).is_err()
         });
-        self.slots = without_indices(std::mem::take(&mut self.slots), removed);
+        self.loaded_images = without_indices(std::mem::take(&mut self.loaded_images), removed);
         self.decode_errors = without_indices(std::mem::take(&mut self.decode_errors), removed);
         self.panes.clear();
     }
@@ -296,14 +296,15 @@ impl List {
 
     /// Returns whether the list shows the file at `i`. While searching, that is whether the
     /// file is a match.
-    pub(crate) fn shows(&self, i: usize) -> bool {
+    pub(crate) fn shows_file(&self, i: usize) -> bool {
         self.matches.is_none() || self.is_match.get(i).copied().unwrap_or(false)
     }
 
     /// Selects the files at `places` and nothing else. Those that the search hides are kept
     /// apart in `hidden_selected` until it shows them.
     pub(crate) fn select(&mut self, places: std::collections::BTreeSet<usize>) {
-        (self.selected, self.hidden_selected) = places.into_iter().partition(|&i| self.shows(i));
+        (self.selected, self.hidden_selected) =
+            places.into_iter().partition(|&i| self.shows_file(i));
     }
 
     /// Selects the file at `i` alone, and starts a Shift selection there.
@@ -317,9 +318,9 @@ impl List {
     /// selection, as in a file manager, so the menu acts on it. The shown image counts as
     /// selected only while nothing else is, also among the files the search hides. Returns
     /// whether the selection changed.
-    pub(crate) fn right_click(&mut self, i: usize) -> bool {
+    pub(crate) fn select_on_right_click(&mut self, i: usize) -> bool {
         let others = !self.selected.is_empty() || !self.hidden_selected.is_empty();
-        let outside = !self.selected.contains(&i) && (i != self.cur || others);
+        let outside = !self.selected.contains(&i) && (i != self.shown || others);
         if outside {
             self.select_one(i);
         }
@@ -336,7 +337,7 @@ impl List {
     /// Selects the file at `i` too when `on` is true and the list shows it, and takes it out of
     /// the selection otherwise.
     pub(crate) fn set_selected(&mut self, i: usize, on: bool) {
-        match on && self.shows(i) {
+        match on && self.shows_file(i) {
             true => self.selected.insert(i),
             false => self.selected.remove(&i),
         };
@@ -361,8 +362,8 @@ impl List {
     }
 
     /// Where a Shift selection started. When none has, it starts at the shown image.
-    pub(crate) fn anchor_or_cur(&mut self) -> usize {
-        *self.anchor.get_or_insert(self.cur)
+    pub(crate) fn anchor_or_shown(&mut self) -> usize {
+        *self.anchor.get_or_insert(self.shown)
     }
 
     /// Notes where the Shift selection made by the keys ended, or that the selection is no
@@ -392,36 +393,39 @@ impl List {
     }
 
     /// Takes the decoded images, by their places, to carry them into a new list by name.
-    pub(crate) fn take_slots(&mut self) -> HashMap<usize, Slot> {
-        std::mem::take(&mut self.slots)
+    pub(crate) fn take_loaded_images(&mut self) -> HashMap<usize, LoadedImage> {
+        std::mem::take(&mut self.loaded_images)
     }
 
-    /// Keeps the decoded image `slot` at place `i`.
-    pub(crate) fn keep_slot(&mut self, i: usize, slot: Slot) {
-        self.slots.insert(i, slot);
+    /// Keeps the decoded image `loaded` at place `i`.
+    pub(crate) fn keep_loaded_image(&mut self, i: usize, loaded: LoadedImage) {
+        self.loaded_images.insert(i, loaded);
     }
 
     /// Lets go of the decoded image at place `i`.
-    pub(crate) fn forget_slot(&mut self, i: usize) {
-        self.slots.remove(&i);
+    pub(crate) fn forget_loaded_image(&mut self, i: usize) {
+        self.loaded_images.remove(&i);
     }
 
     /// Keeps only the decoded images for which `keep` says so.
-    pub(crate) fn keep_slots(&mut self, mut keep: impl FnMut(&usize, &Slot) -> bool) {
-        self.slots.retain(|i, s| keep(i, s));
+    pub(crate) fn keep_loaded_images(
+        &mut self,
+        mut keep: impl FnMut(&usize, &LoadedImage) -> bool,
+    ) {
+        self.loaded_images.retain(|i, s| keep(i, s));
     }
 
     /// Keeps only the images decoded at full resolution, and the decodes at full resolution
     /// asked for, so the others are decoded again to a new size.
     pub(crate) fn keep_full_only(&mut self) {
-        self.slots.retain(|_, s| s.full);
+        self.loaded_images.retain(|_, s| s.is_full_resolution);
         self.decodes_pending.retain(|&(_, full), _| full);
     }
 
     /// Lets go of every decoded image, every decode asked for and every decode error, so all
     /// are decoded again.
     pub(crate) fn forget_decoded(&mut self) {
-        self.slots.clear();
+        self.loaded_images.clear();
         self.decodes_pending.clear();
         self.decode_errors.clear();
     }
@@ -466,10 +470,10 @@ impl List {
         self.matches = matches;
         // One step per selected file, not per file, as this runs at every letter typed.
         let hidden: Vec<usize> = (self.selected.iter().copied())
-            .filter(|&i| !self.shows(i))
+            .filter(|&i| !self.shows_file(i))
             .collect();
         let shown: Vec<usize> = (self.hidden_selected.iter().copied())
-            .filter(|&i| self.shows(i))
+            .filter(|&i| self.shows_file(i))
             .collect();
         for &i in &hidden {
             self.selected.remove(&i);
@@ -521,23 +525,23 @@ impl List {
     }
 
     /// Notes that pan view draws the cell of the file at place `i` this frame.
-    pub(crate) fn pan_thumb(&mut self, i: usize) {
+    pub(crate) fn note_pan_thumb(&mut self, i: usize) {
         self.pan_thumbs.push(i);
     }
 
     /// Keeps the size and date `d` of the file `name` for the list's columns.
-    pub(crate) fn remember_details(&mut self, name: OsString, d: (u64, i64)) {
-        self.details.insert(name, d);
+    pub(crate) fn remember_size_and_date(&mut self, name: OsString, d: (u64, i64)) {
+        self.sizes_and_dates.insert(name, d);
     }
 
     /// Forgets the size and date of the file `name`, because it changed.
-    pub(crate) fn forget_details_of(&mut self, name: &std::ffi::OsStr) {
-        self.details.remove(name);
+    pub(crate) fn forget_size_and_date_of(&mut self, name: &std::ffi::OsStr) {
+        self.sizes_and_dates.remove(name);
     }
 
     /// Forgets every file's size and date, so the rows on screen read them again.
-    pub(crate) fn forget_details(&mut self) {
-        self.details.clear();
+    pub(crate) fn forget_sizes_and_dates(&mut self) {
+        self.sizes_and_dates.clear();
     }
 }
 
@@ -571,7 +575,7 @@ mod tests {
     fn every_field_is_carried_or_reset_on_a_new_list() {
         const FATE: &[(&str, &str)] = &[
             ("files", "the new list"),
-            ("cur", "carried by name: the file shown"),
+            ("shown", "carried by name: the file shown"),
             (
                 "selected",
                 "carried by name by the callers that keep it (reselect)",
@@ -583,7 +587,7 @@ mod tests {
             ("anchor", "reset"),
             ("range_end", "reset"),
             ("panes", "carried by name"),
-            ("slots", "carried by name"),
+            ("loaded_images", "carried by name"),
             ("decode_errors", "reset: decoded again"),
             (
                 "decodes_pending",
@@ -599,9 +603,9 @@ mod tests {
                 "pan_thumbs",
                 "reset: pan view names them again in its next frame",
             ),
-            ("details", "reset: read again as the rows are drawn"),
+            ("sizes_and_dates", "reset: read again as the rows are drawn"),
             ("version", "goes up in List::after"),
-            ("unchecked", "carried by List::after"),
+            ("has_unchecked_entries", "carried by List::after"),
         ];
         let sources = crate::support::source_rules::sources();
         let text = &sources

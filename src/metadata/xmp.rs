@@ -15,12 +15,12 @@ const EXTENDED: &str = "Iptc4xmpCore:ExtDescrAccessibility";
 static SIDECAR_LOCKS: [std::sync::Mutex<()>; 64] = [const { std::sync::Mutex::new(()) }; 64];
 
 #[derive(Clone, Default, PartialEq, Debug)]
-pub struct Meta {
+pub struct KeywordsAndComment {
     pub keywords: Vec<String>,
     pub comment: String,
 }
 
-impl Meta {
+impl KeywordsAndComment {
     /// The keywords as typed, separated by commas.
     pub fn keywords_text(&self) -> String {
         self.keywords.join(", ")
@@ -48,20 +48,20 @@ impl Meta {
 /// tools and screen readers use them. They are kept apart from the keywords and comment, which
 /// Geeqie edits.
 #[derive(Clone, Default, PartialEq, Debug)]
-pub struct Access {
-    pub alt: String,
-    pub extended: String,
+pub struct AltText {
+    pub text: String,
+    pub extended_description: String,
 }
 
 /// A sidecar's lock while it is held. It holds the lock file, if it could be made, and the
 /// mutex in `SIDECAR_LOCKS` that its number picks.
 pub(crate) type SidecarLock = (Option<std::fs::File>, std::sync::MutexGuard<'static, ()>);
 
-fn parse_access(xmp: &str) -> Access {
-    let first = |tag| items(xmp, tag).into_iter().next().unwrap_or_default();
-    Access {
-        alt: first(ALT),
-        extended: first(EXTENDED),
+fn parse_alt_text(xmp: &str) -> AltText {
+    let first = |tag| list_items(xmp, tag).into_iter().next().unwrap_or_default();
+    AltText {
+        text: first(ALT),
+        extended_description: first(EXTENDED),
     }
 }
 
@@ -69,37 +69,44 @@ fn parse_access(xmp: &str) -> Access {
 /// sidecar if that has them, and otherwise from the image), for the panel. Its sidecar and the
 /// XMP inside it are each read once, because on a network share each reading of a large photo
 /// costs.
-pub fn read_all(path: &Path) -> (Meta, Vec<String>, Access) {
+pub fn read_all(path: &Path) -> (KeywordsAndComment, Vec<String>, AltText) {
     let side = own_sidecar_text(path);
     let inside = std::cell::OnceCell::new();
     let inside = || inside.get_or_init(|| embedded(path)).clone();
     let has_meta = |x: &String| x.contains("<dc:subject") || x.contains("<dc:description");
-    let has_access =
+    let has_alt_text =
         |x: &String| x.contains(&format!("<{ALT}")) || x.contains(&format!("<{EXTENDED}"));
     let source = side.clone().filter(has_meta).or_else(inside);
-    let access = side.filter(has_access).or_else(inside);
+    let alt_text = side.filter(has_alt_text).or_else(inside);
     (
-        source.as_deref().map_or_else(Meta::default, parse),
-        source.map_or_else(Vec::new, |x| unique(items(&x, "lr:hierarchicalSubject"))),
-        access.map_or_else(Access::default, |x| parse_access(&x)),
+        source
+            .as_deref()
+            .map_or_else(KeywordsAndComment::default, parse),
+        source.map_or_else(Vec::new, |x| {
+            unique(list_items(&x, "lr:hierarchicalSubject"))
+        }),
+        alt_text.map_or_else(AltText::default, |x| parse_alt_text(&x)),
     )
 }
 
 /// Writes the alt text and extended description of `path` to its sidecar, and everything else
 /// in it stays. Fields the image holds itself and that were cleared are written empty, as the
 /// comment is.
-pub fn write_access(path: &Path, access: &Access) -> Result<(), String> {
+pub fn write_alt_text(path: &Path, alt_text: &AltText) -> Result<(), String> {
     let _lock = lock_sidecar(path);
-    let own = embedded(path).is_some_and(|x| parse_access(&x) != Access::default());
-    update(path, *access == Access::default() && !own, |x| {
-        set_access(x, access, own)
+    let own = embedded(path).is_some_and(|x| parse_alt_text(&x) != AltText::default());
+    update(path, *alt_text == AltText::default() && !own, |x| {
+        set_alt_text(x, alt_text, own)
     })
 }
 
-fn set_access(xmp: &str, access: &Access, say_empty: bool) -> Option<String> {
-    let xmp = without(&without(xmp, ALT), EXTENDED);
+fn set_alt_text(xmp: &str, alt_text: &AltText, say_empty: bool) -> Option<String> {
+    let xmp = without_property(&without_property(xmp, ALT), EXTENDED);
     let mut add = String::new();
-    for (tag, text) in [(ALT, &access.alt), (EXTENDED, &access.extended)] {
+    for (tag, text) in [
+        (ALT, &alt_text.text),
+        (EXTENDED, &alt_text.extended_description),
+    ] {
         if !text.is_empty() {
             add += &format!(
                 "\n   <{tag}>\n    <rdf:Alt>\n     <rdf:li xml:lang=\"x-default\">{}</rdf:li>\n    </rdf:Alt>\n   </{tag}>",
@@ -118,7 +125,7 @@ fn set_access(xmp: &str, access: &Access, say_empty: bool) -> Option<String> {
 }
 
 /// Whether two keywords are the same one. Letter case does not count ("Oslo" and "oslo").
-pub fn same(a: &str, b: &str) -> bool {
+pub fn same_keyword(a: &str, b: &str) -> bool {
     a.to_lowercase() == b.to_lowercase()
 }
 
@@ -126,7 +133,7 @@ pub fn same(a: &str, b: &str) -> bool {
 fn unique(keywords: impl IntoIterator<Item = String>) -> Vec<String> {
     let mut out: Vec<String> = Vec::new();
     for k in keywords {
-        if !out.iter().any(|o| same(o, &k)) {
+        if !out.iter().any(|o| same_keyword(o, &k)) {
             out.push(k);
         }
     }
@@ -134,7 +141,7 @@ fn unique(keywords: impl IntoIterator<Item = String>) -> Vec<String> {
 }
 
 /// The keyword of a keyword tree path, which is its last level.
-fn leaf(tag: &str) -> &str {
+fn keyword_of_path(tag: &str) -> &str {
     tag.rsplit('|').next().unwrap_or(tag)
 }
 
@@ -142,24 +149,25 @@ fn leaf(tag: &str) -> &str {
 /// keyword, and the path too unless no path ends in that keyword (as when a program that
 /// writes keywords only set it).
 pub fn has_tag(keywords: &[String], paths: &[String], tag: &str) -> bool {
-    let name = leaf(tag);
-    keywords.iter().any(|k| same(k, name))
-        && (paths.iter().any(|p| same(p, tag)) || !paths.iter().any(|p| same(leaf(p), name)))
+    let name = keyword_of_path(tag);
+    keywords.iter().any(|k| same_keyword(k, name))
+        && (paths.iter().any(|p| same_keyword(p, tag))
+            || !paths.iter().any(|p| same_keyword(keyword_of_path(p), name)))
 }
 
 /// Set keyword tree path `tag` on or off in `keywords` and `paths`. Its keyword is added once,
 /// and taken off only when no other path ends in it ("Events|Oslo" off keeps Oslo for
 /// "Places|Norway|Oslo").
 pub fn set_tag(keywords: &mut Vec<String>, paths: &mut Vec<String>, tag: &str, on: bool) {
-    let name = leaf(tag);
-    paths.retain(|p| !same(p, tag));
+    let name = keyword_of_path(tag);
+    paths.retain(|p| !same_keyword(p, tag));
     if on {
         paths.push(tag.to_owned());
-        if !keywords.iter().any(|k| same(k, name)) {
+        if !keywords.iter().any(|k| same_keyword(k, name)) {
             keywords.push(name.to_owned());
         }
-    } else if !paths.iter().any(|p| same(leaf(p), name)) {
-        keywords.retain(|k| !same(k, name));
+    } else if !paths.iter().any(|p| same_keyword(keyword_of_path(p), name)) {
+        keywords.retain(|k| !same_keyword(k, name));
     }
 }
 
@@ -167,7 +175,9 @@ pub fn set_tag(keywords: &mut Vec<String>, paths: &mut Vec<String>, tag: &str, o
 pub fn tree_paths(path: &Path) -> Vec<String> {
     // The paths come from where `read` takes the keywords, the sidecar or else the XMP inside
     // the image.
-    source(path).map_or_else(Vec::new, |x| unique(items(&x, "lr:hierarchicalSubject")))
+    source(path).map_or_else(Vec::new, |x| {
+        unique(list_items(&x, "lr:hierarchicalSubject"))
+    })
 }
 
 /// The XMP the keywords and comment of `path` come from. It is the sidecar if that has them,
@@ -209,8 +219,8 @@ pub fn sidecar(path: &Path) -> PathBuf {
 
 /// The keywords and comment of `path`, from its sidecar if that has them, and otherwise from
 /// the image.
-pub fn read(path: &Path) -> Meta {
-    source(path).map_or_else(Meta::default, |x| parse(&x))
+pub fn read(path: &Path) -> KeywordsAndComment {
+    source(path).map_or_else(KeywordsAndComment::default, |x| parse(&x))
 }
 
 /// The XMP packet inside the image. A JPEG's is read from its first 256 KB, as its EXIF is.
@@ -236,7 +246,7 @@ pub fn write_changed(
     path: &Path,
     keywords: Option<Vec<String>>,
     comment: Option<String>,
-) -> Result<Meta, String> {
+) -> Result<KeywordsAndComment, String> {
     let _lock = lock_sidecar(path);
     let mut meta = read(path);
     let keywords_only = comment.is_none();
@@ -246,13 +256,13 @@ pub fn write_changed(
     if let Some(c) = comment {
         meta.comment = c;
     }
-    let own = embedded(path).is_some_and(|x| parse(&x) != Meta::default());
+    let own = embedded(path).is_some_and(|x| parse(&x) != KeywordsAndComment::default());
     update(
         path,
-        meta == Meta::default() && !own,
+        meta == KeywordsAndComment::default() && !own,
         |x| match keywords_only {
             true => set_keywords(x, &meta, own),
-            false => set(x, &meta, own),
+            false => set_keywords_and_comment(x, &meta, own),
         },
     )?;
     Ok(meta)
@@ -261,7 +271,7 @@ pub fn write_changed(
 /// Adds each of `keywords` that `have` lacks to it, at its end.
 pub fn add_to(have: &mut Vec<String>, keywords: &[String]) {
     for k in keywords {
-        if !have.iter().any(|m| same(m, k)) {
+        if !have.iter().any(|m| same_keyword(m, k)) {
             have.push(k.clone());
         }
     }
@@ -272,7 +282,7 @@ pub fn add_keywords(path: &Path, keywords: &[String]) -> Result<(), String> {
     let _lock = lock_sidecar(path);
     let mut meta = read(path);
     add_to(&mut meta.keywords, keywords);
-    update(path, meta == Meta::default(), |x| {
+    update(path, meta == KeywordsAndComment::default(), |x| {
         set_keywords(x, &meta, false)
     })
 }
@@ -289,7 +299,7 @@ pub fn add_keywords(path: &Path, keywords: &[String]) -> Result<(), String> {
 /// the sidecars of its own lock, not every write of the window. A move holds it too, so a write
 /// that waited finds the photo gone, not its old name free for a sidecar.
 pub(crate) fn lock_sidecar(path: &Path) -> SidecarLock {
-    lock_sidecar_in(locks().as_deref(), path)
+    lock_sidecar_in(lock_dir().as_deref(), path)
 }
 
 fn lock_sidecar_in(dir: Option<&Path>, path: &Path) -> SidecarLock {
@@ -305,7 +315,7 @@ fn lock_sidecar_in(dir: Option<&Path>, path: &Path) -> SidecarLock {
 /// taken in the order of their numbers, which every Glimt and every thread takes them in, so
 /// two of these never wait for each other.
 pub(crate) fn lock_sidecars<'a>(paths: impl IntoIterator<Item = &'a PathBuf>) -> Vec<SidecarLock> {
-    lock_sidecars_in(locks().as_deref(), paths)
+    lock_sidecars_in(lock_dir().as_deref(), paths)
 }
 
 fn lock_sidecars_in<'a>(
@@ -329,8 +339,8 @@ fn lock_sidecars_in<'a>(
 }
 
 /// The folder of the lock files, where there is a runtime folder.
-fn locks() -> Option<PathBuf> {
-    crate::features::remote::dir().map(|d| d.join("sidecar-locks"))
+fn lock_dir() -> Option<PathBuf> {
+    crate::features::remote::runtime_dir().map(|d| d.join("sidecar-locks"))
 }
 
 fn lock_file(dir: &Path, side: &Path) -> Option<std::fs::File> {
@@ -395,7 +405,7 @@ fn update(
     let side = sidecar(path);
     // A link is not written through, because a downloaded folder may point IMG.jpg.xmp at
     // another file of the user's, which a keyword added here would then change.
-    if linked(&side) {
+    if is_link(&side) {
         return Err(crate::tf!(
             "{name} is a link: not written through",
             name = side.display()
@@ -425,7 +435,7 @@ fn update(
 
 /// Returns the sidecar of `path` when there is one, as a name in the folder. A link counts, also
 /// one that points nowhere, so that it goes with its file rather than stay behind under the old
-/// name for the next file of that name. Whether it may be read or copied is for `linked` to say.
+/// name for the next file of that name. Whether it may be read or copied is for `is_link` to say.
 /// Every operation that moves, renames or deletes a file asks this.
 pub(crate) fn sidecar_of(path: &Path) -> Option<PathBuf> {
     let side = sidecar(path);
@@ -434,7 +444,7 @@ pub(crate) fn sidecar_of(path: &Path) -> Option<PathBuf> {
 
 /// Whether `path` is a link. A sidecar that is one is never read or written through, because a
 /// downloaded folder may point it at any file of the user's (a private key).
-pub(crate) fn linked(path: &Path) -> bool {
+pub(crate) fn is_link(path: &Path) -> bool {
     std::fs::symlink_metadata(path).is_ok_and(|m| m.file_type().is_symlink())
 }
 
@@ -442,7 +452,7 @@ pub(crate) fn linked(path: &Path) -> bool {
 pub fn follow(from: &Path, to: &Path, copy: bool) -> std::io::Result<()> {
     let (side, to) = (sidecar(from), sidecar(to));
     // A link is no sidecar to copy. Moved, it goes as itself on the same disk, or it stays.
-    if linked(&side) {
+    if is_link(&side) {
         return match copy {
             true => Ok(()),
             false => crate::files::file_io::rename_never_over(&side, &to).or(Ok(())),
@@ -461,10 +471,10 @@ pub fn follow(from: &Path, to: &Path, copy: bool) -> std::io::Result<()> {
     }
 }
 
-fn parse(xmp: &str) -> Meta {
-    Meta {
-        keywords: items(xmp, "dc:subject"),
-        comment: items(xmp, "dc:description")
+fn parse(xmp: &str) -> KeywordsAndComment {
+    KeywordsAndComment {
+        keywords: list_items(xmp, "dc:subject"),
+        comment: list_items(xmp, "dc:description")
             .into_iter()
             .next()
             .unwrap_or_default(),
@@ -472,7 +482,7 @@ fn parse(xmp: &str) -> Meta {
 }
 
 /// The texts of the rdf:li items of element `tag`.
-fn items(xmp: &str, tag: &str) -> Vec<String> {
+fn list_items(xmp: &str, tag: &str) -> Vec<String> {
     let Some(start) = xmp.find(&format!("<{tag}")) else {
         return Vec::new();
     };
@@ -497,22 +507,22 @@ fn items(xmp: &str, tag: &str) -> Vec<String> {
     out
 }
 
-/// `set` for a change of keywords only. A comment the sidecar has stays as it is, in all its
-/// languages. A comment only inside the image is copied into a new sidecar, which would hide it
-/// otherwise.
-fn set_keywords(xmp: &str, meta: &Meta, say_empty: bool) -> Option<String> {
+/// `set_keywords_and_comment` for a change of keywords only. A comment the sidecar has stays as
+/// it is, in all its languages. A comment only inside the image is copied into a new sidecar,
+/// which would hide it otherwise.
+fn set_keywords(xmp: &str, meta: &KeywordsAndComment, say_empty: bool) -> Option<String> {
     let Some(original) = element(xmp, "dc:description") else {
-        return set(xmp, meta, say_empty);
+        return set_keywords_and_comment(xmp, meta, say_empty);
     };
-    let comment = items(xmp, "dc:description")
+    let comment = list_items(xmp, "dc:description")
         .into_iter()
         .next()
         .unwrap_or_default();
-    let keep = Meta {
+    let keep = KeywordsAndComment {
         keywords: meta.keywords.clone(),
         comment,
     };
-    let new = set(xmp, &keep, say_empty)?;
+    let new = set_keywords_and_comment(xmp, &keep, say_empty)?;
     // The description element as it was, every language of it.
     Some(match element(&new, "dc:description") {
         Some(made) => new.replacen(&made, &original, 1),
@@ -536,8 +546,12 @@ fn element(xmp: &str, tag: &str) -> Option<String> {
 /// `xmp` with the keywords and comment of `meta`, in its first rdf:Description. Empty ones are
 /// written as empty elements when `say_empty` is set. Returns `None` if `xmp` has no
 /// rdf:Description.
-fn set(xmp: &str, meta: &Meta, say_empty: bool) -> Option<String> {
-    let xmp = without(&without(xmp, "dc:subject"), "dc:description");
+fn set_keywords_and_comment(
+    xmp: &str,
+    meta: &KeywordsAndComment,
+    say_empty: bool,
+) -> Option<String> {
+    let xmp = without_property(&without_property(xmp, "dc:subject"), "dc:description");
     let mut add = String::new();
     if meta.keywords.is_empty() && say_empty {
         add += "\n   <dc:subject>\n    <rdf:Bag/>\n   </dc:subject>";
@@ -559,7 +573,7 @@ fn set(xmp: &str, meta: &Meta, say_empty: bool) -> Option<String> {
         );
     }
     let xmp = insert(xmp, &add, "dc", "http://purl.org/dc/elements/1.1/")?;
-    let paths = tree_paths_for(&meta.keywords, items(&xmp, "lr:hierarchicalSubject"));
+    let paths = tree_paths_for(&meta.keywords, list_items(&xmp, "lr:hierarchicalSubject"));
     with_paths(xmp, &paths)
 }
 
@@ -568,11 +582,11 @@ fn set(xmp: &str, meta: &Meta, say_empty: bool) -> Option<String> {
 /// shows tags, reads only these). A keyword's own path goes when a longer one ends in it.
 fn tree_paths_for(keywords: &[String], paths: Vec<String>) -> Vec<String> {
     let kept: Vec<String> = (unique(paths).into_iter())
-        .filter(|p| keywords.iter().any(|k| same(k, leaf(p))))
+        .filter(|p| keywords.iter().any(|k| same_keyword(k, keyword_of_path(p))))
         .collect();
     // Lightroom writes the levels above a keyword as keywords too, Places, Norway and Oslo for
     // Places|Norway|Oslo. They are in that path, not paths of their own.
-    let in_path = |p: &str, name: &str| p.split('|').any(|level| same(level, name));
+    let in_path = |p: &str, name: &str| p.split('|').any(|level| same_keyword(level, name));
     let longer = |name: &str| kept.iter().any(|q| q.contains('|') && in_path(q, name));
     let mut out: Vec<String> = (kept.iter())
         .filter(|p| p.contains('|') || !longer(p))
@@ -588,7 +602,7 @@ fn tree_paths_for(keywords: &[String], paths: Vec<String>) -> Vec<String> {
 
 /// `xmp` with lr:hierarchicalSubject holding `paths`, or without it if there are none.
 fn with_paths(xmp: String, paths: &[String]) -> Option<String> {
-    let xmp = without(&xmp, "lr:hierarchicalSubject");
+    let xmp = without_property(&xmp, "lr:hierarchicalSubject");
     if paths.is_empty() {
         return Some(xmp);
     }
@@ -631,10 +645,12 @@ pub fn tag_file(path: &Path, tag: &str, on: bool) -> Result<(), String> {
     let mut meta = read(path);
     let mut paths = tree_paths(path);
     set_tag(&mut meta.keywords, &mut paths, tag, on);
-    let own = embedded(path).is_some_and(|x| parse(&x) != Meta::default());
-    update(path, !on && meta == Meta::default() && !own, |x| {
-        set_keywords(&with_paths(x.to_owned(), &paths)?, &meta, own)
-    })
+    let own = embedded(path).is_some_and(|x| parse(&x) != KeywordsAndComment::default());
+    update(
+        path,
+        !on && meta == KeywordsAndComment::default() && !own,
+        |x| set_keywords(&with_paths(x.to_owned(), &paths)?, &meta, own),
+    )
 }
 
 /// Sets the keyword tree paths `tags` on `path` in one write, as `tag` sets one. Each name goes
@@ -651,14 +667,14 @@ pub fn add_tags(path: &Path, tags: &[String]) -> Result<(), String> {
     if meta.keywords == keywords && paths == known {
         return Ok(());
     }
-    let own = embedded(path).is_some_and(|x| parse(&x) != Meta::default());
+    let own = embedded(path).is_some_and(|x| parse(&x) != KeywordsAndComment::default());
     update(path, false, |x| {
         set_keywords(&with_paths(x.to_owned(), &paths)?, &meta, own)
     })
 }
 
-/// `xmp` without property `tag` in any form it is written in (`save::without`).
-pub(crate) fn without(xmp: &str, tag: &str) -> String {
+/// `xmp` without property `tag` in any form it is written in (`save::xmp_without_property`).
+pub(crate) fn without_property(xmp: &str, tag: &str) -> String {
     let out = crate::images::save::xmp_without_property(xmp.as_bytes(), tag.as_bytes());
     // It cuts only at ASCII characters, so the text stays UTF-8.
     String::from_utf8(out).unwrap_or_else(|_| xmp.to_owned())
@@ -728,7 +744,7 @@ pub(crate) fn keyword_paths<'a>(paths: impl Iterator<Item = &'a str>) -> Vec<Str
         .collect();
     // A path in another letter case is the same path, and the first spelling stays.
     out.sort_by_key(|p| p.to_lowercase());
-    out.dedup_by(|a, b| same(a, b));
+    out.dedup_by(|a, b| same_keyword(a, b));
     out
 }
 
@@ -858,11 +874,11 @@ mod tests {
             r#"<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"><rdf:Description xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:lr="http://ns.adobe.com/lightroom/1.0/"><dc:subject><rdf:Bag><rdf:li>Oslo</rdf:li></rdf:Bag></dc:subject><lr:hierarchicalSubject><rdf:Bag><rdf:li>Places|Oslo</rdf:li></rdf:Bag></lr:hierarchicalSubject></rdf:Description></rdf:RDF></x:xmpmeta>"#,
         )
         .unwrap();
-        let (meta, paths, access) = super::read_all(&img);
+        let (meta, paths, alt_text) = super::read_all(&img);
         assert_eq!(meta.keywords, super::read(&img).keywords);
         assert_eq!(paths, super::tree_paths(&img));
         assert_eq!(paths, ["Places|Oslo"]);
-        assert_eq!(access, super::Access::default());
+        assert_eq!(alt_text, super::AltText::default());
         std::fs::remove_dir_all(dir).unwrap();
     }
 
@@ -888,7 +904,7 @@ mod tests {
         let file = dir.join("a.jpg");
         std::fs::write(&file, b"").unwrap();
         std::fs::write(sidecar(&file), b"\xff\xfe not UTF-8").unwrap();
-        let meta = Meta {
+        let meta = KeywordsAndComment {
             keywords: vec!["x".into()],
             comment: String::new(),
         };
@@ -965,11 +981,11 @@ mod tests {
                         </rdf:Description><rdf:Description rdf:about=\"\" \
                         xmlns:dc=\"http://purl.org/dc/elements/1.1/\"></rdf:Description>\
                         </rdf:RDF></x:xmpmeta>";
-        let meta = Meta {
+        let meta = KeywordsAndComment {
             keywords: vec!["x".into()],
             comment: String::new(),
         };
-        let written = set(exiftool, &meta, false).unwrap();
+        let written = set_keywords_and_comment(exiftool, &meta, false).unwrap();
         let first = &written[..written.find("<dc:subject").unwrap()];
         assert_eq!(first.matches("xmlns:dc=").count(), 1, "{written}");
     }
@@ -983,7 +999,7 @@ mod tests {
         let file = dir.join("a.jpg");
         std::fs::write(&file, b"").unwrap();
         let paths = |file: &Path| {
-            items(
+            list_items(
                 &std::fs::read_to_string(sidecar(file)).unwrap(),
                 "lr:hierarchicalSubject",
             )
@@ -1026,7 +1042,7 @@ mod tests {
         set_tag(&mut keywords, &mut paths, "Places|Norway|Oslo", false);
         assert!(keywords.is_empty() && paths.is_empty());
         assert_eq!(
-            Meta::parse_keywords("Oslo, beach, oslo,, beach"),
+            KeywordsAndComment::parse_keywords("Oslo, beach, oslo,, beach"),
             ["Oslo", "beach", "oslo"]
         );
     }
@@ -1042,12 +1058,13 @@ mod tests {
         assert_eq!(paths(&["beach", "Oslo"], &[]), ["beach", "Oslo"]);
         assert_eq!(paths(&["beach"], &["Places|Oslo", "beach"]), ["beach"]);
         assert_eq!(paths(&["oslo"], &["Oslo", "Places|Oslo"]), ["Places|Oslo"]);
-        let meta = Meta {
+        let meta = KeywordsAndComment {
             keywords: vec!["beach".into()],
             comment: String::new(),
         };
-        let xmp = set(r#"<rdf:Description rdf:about="">"#, &meta, false).unwrap();
-        assert_eq!(items(&xmp, "lr:hierarchicalSubject"), ["beach"]);
+        let xmp =
+            set_keywords_and_comment(r#"<rdf:Description rdf:about="">"#, &meta, false).unwrap();
+        assert_eq!(list_items(&xmp, "lr:hierarchicalSubject"), ["beach"]);
     }
 
     /// Keywords inside a JPEG that are cleared stay cleared, and are not read from the image
@@ -1061,13 +1078,13 @@ mod tests {
         let jpeg = image::ImageFormat::Jpeg;
         let mut out = std::io::Cursor::new(&mut base);
         image::RgbImage::new(4, 2).write_to(&mut out, jpeg).unwrap();
-        let own = Meta {
+        let own = KeywordsAndComment {
             keywords: vec!["beach".into()],
             comment: String::new(),
         };
         let empty = "<x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><rdf:RDF><rdf:Description \
                      rdf:about=\"\"/></rdf:RDF></x:xmpmeta>";
-        let packet = set(empty, &own, false).unwrap();
+        let packet = set_keywords_and_comment(empty, &own, false).unwrap();
         let mut app1 = b"http://ns.adobe.com/xap/1.0/\0".to_vec();
         app1.extend(packet.as_bytes());
         let mut bytes = vec![0xff, 0xd8, 0xff, 0xe1];
@@ -1077,13 +1094,13 @@ mod tests {
         std::fs::write(&file, bytes).unwrap();
         assert_eq!(read(&file), own);
         write_changed(&file, Some(Vec::new()), Some(String::new())).unwrap();
-        assert_eq!(read(&file), Meta::default());
+        assert_eq!(read(&file), KeywordsAndComment::default());
         std::fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]
     fn keywords_and_comment_round_trip() {
-        let meta = Meta {
+        let meta = KeywordsAndComment {
             keywords: vec!["beach".into(), "Tom & Ann".into()],
             comment: "Summer <2024>\nsecond line".into(),
         };
@@ -1091,25 +1108,25 @@ mod tests {
         // it is.
         let dt = "<x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><rdf:RDF><rdf:Description rdf:about=\"\" \
                   xmlns:xmp=\"http://ns.adobe.com/xap/1.0/\" xmp:Rating=\"3\"/></rdf:RDF></x:xmpmeta>";
-        let written = set(dt, &meta, false).unwrap();
+        let written = set_keywords_and_comment(dt, &meta, false).unwrap();
         assert!(written.contains("xmp:Rating=\"3\" xmlns:dc="));
         assert_eq!(parse(&written), meta);
         // Written again with other values, they are replaced, not added.
-        let other = Meta {
+        let other = KeywordsAndComment {
             keywords: vec!["snow".into()],
             comment: String::new(),
         };
-        let again = set(&written, &other, false).unwrap();
+        let again = set_keywords_and_comment(&written, &other, false).unwrap();
         assert_eq!(parse(&again), other);
         assert_eq!(again.matches("<dc:subject>").count(), 1);
         assert_eq!(again.matches("xmlns:dc=").count(), 1);
         // With everything removed, the sidecar is as it was, but for the name space.
-        let none = set(&again, &Meta::default(), false).unwrap();
-        assert_eq!(parse(&none), Meta::default());
+        let none = set_keywords_and_comment(&again, &KeywordsAndComment::default(), false).unwrap();
+        assert_eq!(parse(&none), KeywordsAndComment::default());
         assert!(none.contains("xmp:Rating=\"3\""));
         assert_eq!(unescape("a&#x41;&#66;&bogus c&amp;"), "aAB&bogus c&");
         assert_eq!(
-            Meta::parse_keywords(" a, b,,a ,c "),
+            KeywordsAndComment::parse_keywords(" a, b,,a ,c "),
             ["a", "b", "c"].map(String::from)
         );
     }
@@ -1118,42 +1135,44 @@ mod tests {
     /// cleared, and the keywords, comment and other fields are kept.
     #[test]
     fn alt_text_round_trip() {
-        let meta = Meta {
+        let meta = KeywordsAndComment {
             keywords: vec!["beach".into()],
             comment: "Summer".into(),
         };
         let empty = "<x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><rdf:RDF><rdf:Description \
                      rdf:about=\"\"/></rdf:RDF></x:xmpmeta>";
-        let with_meta = set(empty, &meta, false).unwrap();
-        let access = Access {
-            alt: "A dog <on> a beach".into(),
-            extended: "Long & detailed".into(),
+        let with_meta = set_keywords_and_comment(empty, &meta, false).unwrap();
+        let alt_text = AltText {
+            text: "A dog <on> a beach".into(),
+            extended_description: "Long & detailed".into(),
         };
-        let written = set_access(&with_meta, &access, false).unwrap();
-        assert_eq!(parse_access(&written), access);
+        let written = set_alt_text(&with_meta, &alt_text, false).unwrap();
+        assert_eq!(parse_alt_text(&written), alt_text);
         assert_eq!(parse(&written), meta);
         assert_eq!(written.matches("xmlns:Iptc4xmpCore=").count(), 1);
-        let other = Access {
-            alt: "A cat".into(),
-            extended: String::new(),
+        let other = AltText {
+            text: "A cat".into(),
+            extended_description: String::new(),
         };
-        let again = set_access(&written, &other, false).unwrap();
-        assert_eq!(parse_access(&again), other);
+        let again = set_alt_text(&written, &other, false).unwrap();
+        assert_eq!(parse_alt_text(&again), other);
         assert_eq!(again.matches("AltTextAccessibility>").count(), 2);
-        let none = set_access(&again, &Access::default(), false).unwrap();
-        assert_eq!(parse_access(&none), Access::default());
+        let none = set_alt_text(&again, &AltText::default(), false).unwrap();
+        assert_eq!(parse_alt_text(&none), AltText::default());
         assert_eq!(parse(&none), meta);
         // The image's own fields that are cleared are written empty, so they are not read from
         // the image again.
         assert!(
-            set_access(&none, &Access::default(), true)
+            set_alt_text(&none, &AltText::default(), true)
                 .unwrap()
                 .contains("<rdf:Alt/>")
         );
         // Keywords written after the alt text leave it.
         assert_eq!(
-            parse_access(&set(&written, &Meta::default(), false).unwrap()),
-            access
+            parse_alt_text(
+                &set_keywords_and_comment(&written, &KeywordsAndComment::default(), false).unwrap()
+            ),
+            alt_text
         );
     }
 
@@ -1210,11 +1229,11 @@ mod tests {
    <dc:description/>
    <lr:hierarchicalSubject rdf:parseType="Resource"><rdf:Bag/></lr:hierarchicalSubject>
   </rdf:Description>"#;
-        let meta = Meta {
+        let meta = KeywordsAndComment {
             keywords: vec!["b".into()],
             comment: "c".into(),
         };
-        let new = set(xmp, &meta, false).unwrap();
+        let new = set_keywords_and_comment(xmp, &meta, false).unwrap();
         for tag in ["<dc:subject", "<dc:description", "<lr:hierarchicalSubject"] {
             assert_eq!(new.matches(tag).count(), 1, "{tag} in {new}");
         }
@@ -1304,8 +1323,8 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let (a, b, c) = (dir.join("a.png"), dir.join("b.png"), dir.join("c.png"));
         image::RgbaImage::new(2, 2).save(&a).unwrap();
-        assert_eq!(read(&a), Meta::default());
-        let meta = Meta {
+        assert_eq!(read(&a), KeywordsAndComment::default());
+        let meta = KeywordsAndComment {
             keywords: vec!["x".into()],
             comment: "y".into(),
         };
@@ -1319,7 +1338,7 @@ mod tests {
         assert_eq!(read(&c), meta);
         // A sidecar at the target belongs to another file, so it is kept, not replaced.
         std::fs::write(&a, b"").unwrap();
-        let other = Meta {
+        let other = KeywordsAndComment {
             keywords: vec!["other".into()],
             comment: String::new(),
         };
@@ -1382,7 +1401,7 @@ mod tests {
         );
         std::fs::rename(&a, b.with_file_name("d.png")).unwrap();
         follow(&a, &dir.join("d.png"), false).unwrap();
-        assert!(linked(&sidecar(&dir.join("d.png"))), "moved as itself");
+        assert!(is_link(&sidecar(&dir.join("d.png"))), "moved as itself");
         assert_eq!(std::fs::read_to_string(&secret).unwrap(), "PRIVATE KEY");
         std::fs::remove_dir_all(&dir).unwrap();
     }
@@ -1424,24 +1443,29 @@ mod tests {
     /// Sidecars broken in thousands of ways are read and written to without a panic.
     #[test]
     fn survives_broken_sidecars() {
-        let meta = Meta {
+        let meta = KeywordsAndComment {
             keywords: vec!["beach".into(), "Tom & Ann".into()],
             comment: "Summer".into(),
         };
         let empty = "<x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><rdf:RDF><rdf:Description \
                      rdf:about=\"\"/></rdf:RDF></x:xmpmeta>";
-        let access = Access {
-            alt: "A dog".into(),
-            extended: "On a beach".into(),
+        let alt_text = AltText {
+            text: "A dog".into(),
+            extended_description: "On a beach".into(),
         };
-        let seed = set_access(&set(empty, &meta, false).unwrap(), &access, false).unwrap();
+        let seed = set_alt_text(
+            &set_keywords_and_comment(empty, &meta, false).unwrap(),
+            &alt_text,
+            false,
+        )
+        .unwrap();
         for bytes in crate::support::test_support::broken(seed.as_bytes()) {
             let xmp = String::from_utf8_lossy(&bytes);
             parse(&xmp);
-            set(&xmp, &meta, true);
-            set(&xmp, &Meta::default(), false);
-            parse_access(&xmp);
-            set_access(&xmp, &Access::default(), true);
+            set_keywords_and_comment(&xmp, &meta, true);
+            set_keywords_and_comment(&xmp, &KeywordsAndComment::default(), false);
+            parse_alt_text(&xmp);
+            set_alt_text(&xmp, &AltText::default(), true);
             set_keywords(&xmp, &meta, true);
             element(&xmp, "dc:subject");
         }

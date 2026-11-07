@@ -1,7 +1,7 @@
 //! Everything the user can do from a menu or a key: the Action list with menu labels, Geeqie's
 //! default keys (SHORTCUTS), and the user's own keys from Preferences.
 
-use crate::features::duplicates::Dups;
+use crate::features::duplicates::FindDuplicates;
 use crate::images::colour::FILTERS;
 use crate::images::decode::{catch_panic, color_image};
 #[cfg(feature = "marks")]
@@ -1008,7 +1008,7 @@ impl crate::App {
         }
         // An action on a file does nothing in an empty list. It is refused here, once, rather than
         // by a guard in each arm, which a new action could leave out and then panic on
-        // `self.path(self.list.cur())` with no file.
+        // `self.path(self.list.shown())` with no file.
         if self.list.files().is_empty() && action.target() != Target::NoFile {
             if action == Action::NewCollection {
                 self.notice = Some(tr("No images for a collection here").into());
@@ -1053,7 +1053,7 @@ impl crate::App {
                     self.move_in_collection(ctx, picked, order)
                 }
             }
-            Action::FindDuplicates => drop(self.dups.get_or_insert_with(Dups::new)),
+            Action::FindDuplicates => drop(self.dups.get_or_insert_with(FindDuplicates::new)),
             Action::CheckImages => drop(self.check.get_or_insert(None)),
             Action::BackUp => self.pick(ctx, true, Pick::BackUp),
             // A kiosk shows only the image.
@@ -1199,11 +1199,11 @@ impl crate::App {
             Action::Print => self.open_print(ctx),
             Action::SaveFrame if self.frame_count() > 1 => {
                 let k = self.shown_frame();
-                let (path, how) = (self.path(self.list.cur()), self.shown_copy());
+                let (path, how) = (self.path(self.list.shown()), self.shown_copy());
                 self.pick(ctx, false, Pick::SaveFrame(path, k, how));
             }
             Action::ExportFrames if self.frame_count() > 1 => {
-                let (path, how) = (self.path(self.list.cur()), self.shown_copy());
+                let (path, how) = (self.path(self.list.shown()), self.shown_copy());
                 self.pick(ctx, true, Pick::ExportFrames(path, how));
             }
             Action::SaveFrame | Action::ExportFrames => {}
@@ -1343,7 +1343,7 @@ impl crate::App {
 
     /// Select → Copy Image: the shown image's pixels to the clipboard, decoded in the background.
     pub(crate) fn copy_image(&mut self, ctx: &egui::Context) {
-        let (path, how) = (self.path(self.list.cur()), self.shown_copy());
+        let (path, how) = (self.path(self.list.shown()), self.shown_copy());
         let (tx, ctx) = (self.notices_tx.clone(), ctx.clone());
         let (clip_tx, clip_rx) = mpsc::channel();
         self.file_operations.copy_image_from(clip_rx);
@@ -1870,7 +1870,7 @@ mod tests {
     /// panicked on the next frame.
     #[test]
     fn every_view_draws_after_the_last_file_goes() {
-        use crate::support::test_support::{app_on, settle};
+        use crate::support::test_support::{app_on, run_background_until};
         const OPENS_A_VIEW: &[Action] = &[
             Action::Projector,
             Action::ThumbnailGrid,
@@ -1902,13 +1902,19 @@ mod tests {
             // Crop and Save As start from the image decoded for the view, which a frame asks
             // for.
             frame(&mut app);
-            assert!(settle(&mut app, &ctx, |app| !app.list.slots().is_empty()));
+            assert!(run_background_until(&mut app, &ctx, |app| !app
+                .list
+                .loaded_images()
+                .is_empty()));
             app.run(&ctx, action);
             frame(&mut app);
             std::fs::remove_dir_all(&dir).unwrap();
             std::fs::create_dir_all(&dir).unwrap();
             app.run(&ctx, Action::Refresh);
-            assert!(settle(&mut app, &ctx, |app| app.list.files().is_empty()));
+            assert!(run_background_until(&mut app, &ctx, |app| app
+                .list
+                .files()
+                .is_empty()));
             frame(&mut app);
             frame(&mut app);
         }
@@ -1944,15 +1950,16 @@ mod tests {
         assert!(menu.contains("self.open_with_menu(ui)"));
         let open_with = body("open_with_menu");
         assert!(
-            open_with.contains("first_target()") && !open_with.contains("list.cur()"),
+            open_with.contains("first_target()") && !open_with.contains("list.shown()"),
             "Open With asks about the first selected file (first_target), not the shown one"
         );
     }
 
-    /// Every action on the selection reaches `targets`, `quiet_targets` or `ask_about_targets`
-    /// from its arm in `App::run`, in the arm itself or in a function it calls. `Action::target`
-    /// is only a label, which a menu about the selection trusts. An arm that took the shown
-    /// image instead would act on another file than the ones the user picked.
+    /// Every action on the selection reaches `targets`, `targets_without_notice` or
+    /// `ask_about_targets` from its arm in `App::run`, in the arm itself or in a function it
+    /// calls. `Action::target` is only a label, which a menu about the selection trusts.
+    /// An arm that took the shown image instead would act on another file than the ones the
+    /// user picked.
     #[test]
     fn actions_on_the_selection_reach_their_targets() {
         use std::collections::HashMap;
@@ -2026,7 +2033,7 @@ mod tests {
                 assert!(
                     nothing || reaches(does, 3, &bodies),
                     "{name} acts on the selection (Action::target) but its arm in App::run \
-                     reaches no targets(), quiet_targets() or ask_about_targets():\n{arm}"
+                     reaches no targets(), targets_without_notice() or ask_about_targets():\n{arm}"
                 );
             }
         }

@@ -3,7 +3,7 @@
 
 use crate::files::config::{sort_folders_from, sort_folders_path};
 use crate::files::external::is_video;
-use crate::model::folder::drain;
+use crate::model::folder::add_sent_sizes;
 use crate::model::listing::{SORTS, Types, list_folder};
 use crate::support::format::{count, local_time, middle_cut, size_text, thousands};
 use crate::support::lang::tr;
@@ -184,7 +184,7 @@ pub(crate) struct Panel {
     /// otherwise 1.
     row_step: isize,
     /// Scroll the file list to the current image on the next frame.
-    scroll_to_cur: bool,
+    scroll_to_shown: bool,
     /// The scroll asked for before this frame, which every list drawn in it makes: the side
     /// panel and the grid in the image area both, and neither while the list is hidden.
     scroll_now: bool,
@@ -210,7 +210,7 @@ impl Default for Panel {
             hidden: false,
             grid_cols: 1,
             row_step: 1,
-            scroll_to_cur: true,
+            scroll_to_shown: true,
             scroll_now: false,
             area_grid: AreaGrid::Off,
         }
@@ -233,8 +233,8 @@ impl Panel {
     }
 
     /// The file list scrolls to the shown image on the next frame.
-    pub(crate) fn scroll_to_current(&mut self) {
-        self.scroll_to_cur = true;
+    pub(crate) fn scroll_to_shown(&mut self) {
+        self.scroll_to_shown = true;
     }
 
     /// One column until the icon grid, drawn later in the frame, says how many it has. The
@@ -244,7 +244,7 @@ impl Panel {
     /// image shown when it comes back.
     pub(crate) fn start_frame(&mut self, lists: bool) {
         self.grid_cols = 1;
-        self.scroll_now = lists && std::mem::take(&mut self.scroll_to_cur);
+        self.scroll_now = lists && std::mem::take(&mut self.scroll_to_shown);
     }
 
     /// Sets how far Previous and Next move, a row of the icon grid for ↑ and ↓, and otherwise
@@ -257,7 +257,7 @@ impl Panel {
     /// frame draws is made at once, and again in the next frame for the lists drawn before it
     /// was asked.
     fn scrolls(&self) -> bool {
-        self.scroll_now || self.scroll_to_cur
+        self.scroll_now || self.scroll_to_shown
     }
 
     pub(crate) fn row_step(&self) -> isize {
@@ -271,7 +271,7 @@ impl Panel {
             AreaGrid::Shown => AreaGrid::Off,
             AreaGrid::Off | AreaGrid::Opened => AreaGrid::Shown,
         };
-        self.scroll_to_cur = true;
+        self.scroll_to_shown = true;
     }
 
     /// Whether the image area shows the grid of thumbnails instead of the image.
@@ -296,7 +296,7 @@ impl Panel {
         let opened = self.area_grid == AreaGrid::Opened;
         if opened {
             self.area_grid = AreaGrid::Shown;
-            self.scroll_to_cur = true;
+            self.scroll_to_shown = true;
         }
         opened
     }
@@ -355,18 +355,18 @@ impl Tree {
     }
 }
 
-/// The status bar's numbers. It holds the shown image's size and place, the folder's total, and
+/// The status bar's numbers. It holds the shown image's size and position, the folder's total, and
 /// the size of the selection.
 pub(crate) struct StatusBar {
     /// Size in bytes of the shown file, for the status bar.
-    cur_size: Option<(PathBuf, u64)>,
+    shown_size: Option<(PathBuf, u64)>,
     /// Image and scale in each pane of the last frame, the pane the status bar tells about (the
     /// one under the pointer, else the first) and the panes as [columns, rows].
     pane_info: Vec<(usize, Option<f32>)>,
     pane: usize,
     grid: [usize; 2],
-    /// The place "[n/m]" of an image in another pane than the first, by image and list length.
-    place: Option<(usize, usize, String)>,
+    /// The position "[n/m]" of an image in another pane than the first, by image and list length.
+    position_text: Option<(usize, usize, String)>,
     /// Total size of the images in the folder, summed in the background after listing.
     /// Only sums are sent (no per-file table), so memory use does not grow with the folder.
     total_size: u64,
@@ -387,11 +387,11 @@ impl Default for StatusBar {
     fn default() -> Self {
         let (freed_tx, freed_rx) = mpsc::channel();
         StatusBar {
-            cur_size: None,
+            shown_size: None,
             pane_info: Vec::new(),
             pane: 0,
             grid: [1, 1],
-            place: None,
+            position_text: None,
             total_size: 0,
             size_rx: Receiving::none(),
             freed_tx,
@@ -420,7 +420,7 @@ impl StatusBar {
 
     /// The shown file's size is read again, as it changed.
     pub(crate) fn forget_size(&mut self) {
-        self.cur_size = None;
+        self.shown_size = None;
     }
 
     /// The folder's total, summed anew from `sums`.
@@ -449,31 +449,31 @@ impl StatusBar {
             Took::Gone => self.selected_size = Some(0),
             Took::Nothing => {}
         }
-        drain(&mut self.size_rx, &mut self.total_size);
+        add_sent_sizes(&mut self.size_rx, &mut self.total_size);
     }
 
-    /// The place "[n/m]" of image `idx` among `total`. `make` makes it only when another image
+    /// The position "[n/m]" of image `idx` among `total`. `make` makes it only when another image
     /// or another total asks, so the search matches are looked through once for each image.
-    pub(crate) fn place(
+    pub(crate) fn position_text(
         &mut self,
         idx: usize,
         total: usize,
         make: impl FnOnce() -> String,
     ) -> String {
-        if let Some((i, t, text)) = &self.place
+        if let Some((i, t, text)) = &self.position_text
             && (*i, *t) == (idx, total)
         {
             return text.clone();
         }
         let text = make();
-        self.place = Some((idx, total, text.clone()));
+        self.position_text = Some((idx, total, text.clone()));
         text
     }
 
-    /// Makes the place told for another pane again, because another search may have as many
+    /// Makes the position told for another pane again, because another search may have as many
     /// matches.
-    pub(crate) fn forget_place(&mut self) {
-        self.place = None;
+    pub(crate) fn forget_position_text(&mut self) {
+        self.position_text = None;
     }
 
     /// Marks the selection's size as unknown, because the selection changed. It is worked out
@@ -567,7 +567,7 @@ impl crate::App {
         self.config.thumb_size = size;
         self.config.save();
         self.thumbs_changed();
-        self.panel.scroll_to_cur = true;
+        self.panel.scroll_to_shown = true;
     }
 
     /// Shows the file names under the thumbnails of every grid, or none.
@@ -575,7 +575,7 @@ impl crate::App {
         self.config.grid_names = on;
         self.config.save();
         // The rows change height, so the shown image is scrolled to again.
-        self.panel.scroll_to_cur = true;
+        self.panel.scroll_to_shown = true;
     }
 
     /// Thumbnails in the file list, or none.
@@ -586,7 +586,7 @@ impl crate::App {
             self.thumbs.textures.clear();
             self.thumbs.pending.clear();
         }
-        self.panel.scroll_to_cur = true;
+        self.panel.scroll_to_shown = true;
     }
 
     /// List the images of all subfolders too, or only the folder's own.
@@ -594,7 +594,7 @@ impl crate::App {
         self.config.show_subfolders = on;
         self.config.save();
         self.folder.show_subfolders(on);
-        self.list(ctx);
+        self.start_listing(ctx);
     }
 
     pub(crate) fn receive_thumbs(&mut self, ctx: &egui::Context) {
@@ -873,8 +873,8 @@ impl crate::App {
             view.sort_unstable();
             self.thumbs.view.lock().unwrap()[0] = view;
             let row = match self.list.matches() {
-                Some(m) => self.cur_row(m).unwrap_or(0),
-                None => self.list.cur(),
+                Some(m) => self.shown_row(m).unwrap_or(0),
+                None => self.list.shown(),
             };
             let k = k as usize;
             self.trim_thumbs(row.saturating_sub(k)..row + k + 1);
@@ -884,7 +884,7 @@ impl crate::App {
         // The shown image in the middle, where it is when there are images on both sides.
         let at = shown
             .iter()
-            .position(|&i| i == self.list.cur())
+            .position(|&i| i == self.list.shown())
             .unwrap_or(0) as f32;
         let x0 = strip.center().x - (at + 0.5) * cell.x;
         let mut clicked = None;
@@ -892,14 +892,14 @@ impl crate::App {
             let min = egui::pos2(x0 + n as f32 * cell.x, strip.top() + 8.0);
             let frame = egui::Rect::from_min_size(min, cell).shrink(4.0);
             self.paint_thumb(ui, i, frame);
-            if i == self.list.cur() {
+            if i == self.list.shown() {
                 let stroke = egui::Stroke::new(2.0, ui.visuals().selection.bg_fill);
                 ui.painter()
                     .rect_stroke(frame.expand(2.0), 3.0, stroke, egui::StrokeKind::Outside);
             }
             let id = ui.scope_id().with(("strip", i));
             let response = ui.interact(frame, id, egui::Sense::click());
-            speak_item(&response, i == self.list.cur(), &self.name(i));
+            speak_item(&response, i == self.list.shown(), &self.name(i));
             if response.clicked() {
                 clicked = Some(i);
             }
@@ -911,7 +911,7 @@ impl crate::App {
     /// shortcut: stat in the UI thread, once per visible file; move to a thread if network
     /// folders make scrolling stutter.
     pub(crate) fn file_details(&mut self, i: usize) -> (u64, i64) {
-        if let Some(&d) = self.list.details().get(&self.list.files()[i]) {
+        if let Some(&d) = self.list.sizes_and_dates().get(&self.list.files()[i]) {
             return d;
         }
         let d = std::fs::metadata(self.path(i)).map_or((0, 0), |m| {
@@ -920,10 +920,11 @@ impl crate::App {
         });
         // The cache is bounded, because scrolling through a folder of 500,000 would keep some
         // 50 MB. Only the rows on screen are read again.
-        if self.list.details().len() >= 20_000 {
-            self.list.forget_details();
+        if self.list.sizes_and_dates().len() >= 20_000 {
+            self.list.forget_sizes_and_dates();
         }
-        self.list.remember_details(self.list.files()[i].clone(), d);
+        self.list
+            .remember_size_and_date(self.list.files()[i].clone(), d);
         d
     }
 
@@ -1173,7 +1174,7 @@ impl crate::App {
         });
         if changed {
             self.config.save();
-            self.list(ctx);
+            self.start_listing(ctx);
         }
     }
 
@@ -1201,7 +1202,7 @@ impl crate::App {
             // A chosen order replaces a shuffled one (kept after a random slideshow).
             self.slideshow.unshuffle();
             self.folder.sort_again();
-            self.list(ctx);
+            self.start_listing(ctx);
         }
     }
 
@@ -1277,7 +1278,7 @@ impl crate::App {
         if let Some(d) = open_dir {
             self.visit(ctx, d);
         } else if let Some(i) = opened.or(go_to) {
-            self.go(ctx, i);
+            self.show_file(ctx, i);
         }
         if let Some(action) = list_act {
             self.run(ctx, action);
@@ -1308,7 +1309,7 @@ impl crate::App {
         // A double-click opens the file clicked, also with Ctrl or Shift, whose clicks change
         // the selection and go to no file.
         if let Some(i) = opened.or(go_to) {
-            self.go(ctx, i);
+            self.show_file(ctx, i);
         }
         if opened.is_some() {
             self.panel.open_from_grid();
@@ -1396,7 +1397,7 @@ impl crate::App {
             .id_salt("files")
             .auto_shrink(false);
         if self.panel.scrolls()
-            && let Some(row) = row_of(self.list.cur(), self.list.matches()).map(|r| r / cols)
+            && let Some(row) = row_of(self.list.shown(), self.list.matches()).map(|r| r / cols)
         {
             // Scroll only when the current image is out of view, and centre it.
             let (top, view) = (row as f32 * pitch, ui.available_height());
@@ -1433,7 +1434,7 @@ impl crate::App {
             }
             let mut cells = Vec::new();
             for (k, i) in shown.into_iter().enumerate() {
-                let marked = i == self.list.cur() || self.list.selected().contains(&i);
+                let marked = i == self.list.shown() || self.list.selected().contains(&i);
                 let row = if icons {
                     if k % cols == 0 {
                         let size = egui::vec2(ui.available_width(), self.cell().y);
@@ -1698,14 +1699,14 @@ impl crate::App {
             if m.command {
                 // Ctrl+click toggles the selection (the shown image is included the first time).
                 if self.list.selected().is_empty() {
-                    self.list.add_to_selection([self.list.cur()]);
+                    self.list.add_to_selection([self.list.shown()]);
                 }
                 self.list.toggle_selected(i);
                 self.list.set_anchor(Some(i));
                 self.selection_changed(ctx);
             } else if m.shift {
                 // Shift+click selects the rows from where the selection started.
-                let anchor = self.list.anchor_or_cur();
+                let anchor = self.list.anchor_or_shown();
                 self.list.clear_selection();
                 self.select_range(anchor, i);
                 self.selection_changed(ctx);
@@ -1717,7 +1718,7 @@ impl crate::App {
         }
         // A right-click on a file outside the selection selects just that file, as in a file
         // manager, and the menu acts on the selection.
-        if row.secondary_clicked() && self.list.right_click(i) {
+        if row.secondary_clicked() && self.list.select_on_right_click(i) {
             self.selection_changed(ctx);
         }
         go_to
@@ -1793,45 +1794,49 @@ impl crate::App {
                     // the zoom. With several panes, it tells about the one under the pointer.
                     let (idx, scale) = (self.status.pane_info.get(self.status.pane).copied())
                         .filter(|p| p.0 < n)
-                        .unwrap_or((self.list.cur(), Some(self.zoom.scale_shown())));
+                        .unwrap_or((self.list.shown(), Some(self.zoom.scale_shown())));
                     let path = self.path(idx);
-                    if self.status.cur_size.as_ref().is_none_or(|c| c.0 != path) {
+                    if self.status.shown_size.as_ref().is_none_or(|c| c.0 != path) {
                         // shortcut: one stat in the UI thread per image change; move it to
                         // a thread if slow network folders make browsing stutter.
                         let bytes = std::fs::metadata(&path).map_or(0, |m| m.len());
-                        self.status.cur_size = Some((path, bytes));
+                        self.status.shown_size = Some((path, bytes));
                     }
-                    let bytes = self.status.cur_size.as_ref().map_or(0, |c| c.1);
-                    let place = if idx == self.list.cur() {
-                        self.place()
+                    let bytes = self.status.shown_size.as_ref().map_or(0, |c| c.1);
+                    let position = if idx == self.list.shown() {
+                        self.position_text()
                     } else {
-                        self.place_of(idx)
+                        self.position_text_of(idx)
                     };
                     let bytes = tf!("{n} bytes", n = thousands(bytes as usize));
-                    match self.list.slots().get(&idx) {
-                        Some(slot) => {
-                            let [w, h] = slot.orig;
+                    match self.list.loaded_images().get(&idx) {
+                        Some(loaded) => {
+                            let [w, h] = loaded.original_size;
                             if let Some(scale) = scale {
                                 ui.label(format!("{} %", (scale * 100.0).round()));
                                 ui.separator();
                             }
-                            let page = if slot.pages > 1 && idx == self.list.cur() {
+                            let page = if loaded.pages > 1 && idx == self.list.shown() {
                                 tf!(
                                     " page {n}/{pages}",
                                     n = self.viewing.page() + 1,
-                                    pages = slot.pages
+                                    pages = loaded.pages
                                 )
                             } else if let Some(k) =
-                                self.viewing.frame().filter(|_| idx == self.list.cur())
+                                self.viewing.frame().filter(|_| idx == self.list.shown())
                             {
-                                tf!(" frame {n}/{frames}", n = k + 1, frames = slot.anim.len())
+                                tf!(
+                                    " frame {n}/{frames}",
+                                    n = k + 1,
+                                    frames = loaded.frames.len()
+                                )
                             } else {
                                 String::new()
                             };
-                            ui.label(format!("( {w} x {h} ) {bytes} {place}{page}"));
+                            ui.label(format!("( {w} x {h} ) {bytes} {position}{page}"));
                         }
                         None => {
-                            ui.label(format!("{bytes} {place}"));
+                            ui.label(format!("{bytes} {position}"));
                         }
                     }
                     if self.status.grid != [1, 1] {
@@ -1891,7 +1896,7 @@ mod tests {
         );
         panel.start_frame(true);
         assert!(!panel.scrolls());
-        panel.scroll_to_current();
+        panel.scroll_to_shown();
         assert!(panel.scrolls());
         panel.start_frame(true);
         assert!(panel.scrolls());
@@ -1899,7 +1904,7 @@ mod tests {
         assert!(!panel.scrolls());
         // Frames without a list (the list hidden, full screen) keep the scroll for the first
         // frame that draws one again.
-        panel.scroll_to_current();
+        panel.scroll_to_shown();
         panel.start_frame(false);
         panel.start_frame(false);
         assert_eq!(panel.grid_cols, 1);

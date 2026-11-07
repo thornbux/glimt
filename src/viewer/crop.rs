@@ -29,7 +29,7 @@ impl crate::App {
     /// grid came back.
     fn crop_shown(&self, crop: &Crop) -> bool {
         !self.panel.area_grid_shown()
-            && self.is_file(self.list.cur(), &crop.path)
+            && self.is_file(self.list.shown(), &crop.path)
             && self.shown_copy() == crop.how
     }
 
@@ -38,15 +38,15 @@ impl crate::App {
     pub(crate) fn start_crop(&mut self) {
         // The part is chosen over the image, so a crop from the grid in the image area opens it.
         self.panel.open_from_grid();
-        let cur = self.list.cur();
+        let shown = self.list.shown();
         #[cfg(feature = "video")]
-        if (self.list.files().get(cur)).is_some_and(|f| is_video(Path::new(f))) {
+        if (self.list.files().get(shown)).is_some_and(|f| is_video(Path::new(f))) {
             self.notice = Some(tr("A video is not cropped").into());
             return;
         }
-        if self.list.slots().contains_key(&cur) {
+        if self.list.loaded_images().contains_key(&shown) {
             self.viewing.start_crop(Crop {
-                path: self.path(cur),
+                path: self.path(shown),
                 how: self.shown_copy(),
                 anchor: egui::Pos2::ZERO,
                 part: None,
@@ -147,10 +147,12 @@ impl crate::App {
         let Some(crop) = self.viewing.take_crop().filter(|c| self.crop_shown(c)) else {
             return;
         };
-        let (Some(part), Some(slot)) = (crop.part, self.list.slots().get(&self.list.cur())) else {
+        let (Some(part), Some(loaded)) =
+            (crop.part, self.list.loaded_images().get(&self.list.shown()))
+        else {
             return;
         };
-        let [w, h] = slot.orig;
+        let [w, h] = loaded.original_size;
         let pixels = if crop.how.turns % 2 == 1 {
             [h, w]
         } else {
@@ -332,14 +334,17 @@ mod tests {
     #[cfg(feature = "marks")]
     #[test]
     fn a_crop_gets_the_stars_of_its_image() {
-        use crate::support::test_support::{app_on, settle};
+        use crate::support::test_support::{app_on, run_background_until};
         let dir =
             std::env::temp_dir().join(format!("glimt-test-crop-stars-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let a = dir.join("a.png");
         image::RgbImage::new(8, 8).save(&a).unwrap();
         let (mut app, ctx) = app_on(&dir);
-        assert!(settle(&mut app, &ctx, |a| a.list.slots().contains_key(&0)));
+        assert!(run_background_until(&mut app, &ctx, |a| a
+            .list
+            .loaded_images()
+            .contains_key(&0)));
         app.marks.rate(std::slice::from_ref(&a), 4);
         app.start_crop();
         if let Some(crop) = app.viewing.crop_mut() {
@@ -350,7 +355,11 @@ mod tests {
         }
         app.save_crop(&ctx);
         let new = dir.join("a-cropped.png");
-        assert!(settle(&mut app, &ctx, |app| app.marks.get(&new).1 == 4));
+        assert!(run_background_until(&mut app, &ctx, |app| app
+            .marks
+            .get(&new)
+            .1
+            == 4));
         // Copied, not moved: the original keeps its stars.
         assert_eq!(app.marks.get(&a).1, 4);
         std::fs::remove_dir_all(dir).unwrap();

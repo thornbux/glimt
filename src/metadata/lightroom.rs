@@ -51,11 +51,11 @@ const ARGS: [&str; 11] = [
 ];
 
 /// Between the columns and after the rows: neither is in a file name or keyword.
-const COLUMN: u8 = 0x1f;
+const COLUMN_END: u8 = 0x1f;
 
-const ROW: u8 = 0x1e;
+const ROW_END: u8 = 0x1e;
 
-const NEEDS: &str = "Reading a Lightroom catalog needs the sqlite3 program";
+const NEEDS_SQLITE3: &str = "Reading a Lightroom catalog needs the sqlite3 program";
 
 #[derive(Default)]
 pub struct Catalog {
@@ -66,11 +66,11 @@ pub struct Catalog {
     /// Collection: (parent, name, kind).
     collections: HashMap<i64, (i64, String, String)>,
     /// (collection, image)
-    members: Vec<(i64, i64)>,
+    collection_images: Vec<(i64, i64)>,
     /// Keyword: (parent, name).
     keywords: HashMap<i64, (i64, String)>,
     /// (image, keyword)
-    tagged: Vec<(i64, i64)>,
+    image_keyword_ids: Vec<(i64, i64)>,
     /// The tables read that are something else: (name, type).
     not_tables: Vec<(String, String)>,
 }
@@ -99,7 +99,7 @@ impl Catalog {
     /// they are in ("Travel - Norway"), and their images at `paths` (from `Catalog::paths`).
     pub fn collections(&self, paths: &HashMap<i64, PathBuf>) -> Vec<(String, Vec<PathBuf>)> {
         let mut images: HashMap<i64, Vec<PathBuf>> = HashMap::new();
-        for (coll, image) in &self.members {
+        for (coll, image) in &self.collection_images {
             if let Some(p) = paths.get(image) {
                 images.entry(*coll).or_default().push(p.clone());
             }
@@ -107,7 +107,7 @@ impl Catalog {
         let mut all: Vec<(String, Vec<PathBuf>)> = (self.collections.iter())
             .filter(|(_, c)| c.2 == "com.adobe.ag.library.collection")
             .map(|(id, _)| {
-                let names = chain(*id, |i| {
+                let names = names_from_top(*id, |i| {
                     self.collections.get(&i).map(|c| (c.0, c.1.as_str()))
                 });
                 let name = names.join(" - ").replace('/', "-");
@@ -128,7 +128,7 @@ impl Catalog {
     }
 
     fn keyword_path(&self, id: i64) -> Option<String> {
-        let names = chain(id, |i| self.keywords.get(&i).map(|k| (k.0, k.1.as_str())));
+        let names = names_from_top(id, |i| self.keywords.get(&i).map(|k| (k.0, k.1.as_str())));
         (!names.is_empty()).then(|| names.join("|"))
     }
 
@@ -136,7 +136,7 @@ impl Catalog {
     /// One list for each file: the keywords of its virtual copies too, each once.
     pub fn image_keywords(&self, paths: &HashMap<i64, PathBuf>) -> Vec<(PathBuf, Vec<String>)> {
         let mut per_file: HashMap<PathBuf, Vec<String>> = HashMap::new();
-        for (image, keyword) in &self.tagged {
+        for (image, keyword) in &self.image_keyword_ids {
             let (Some(path), Some(tag)) = (paths.get(image), self.keyword_path(*keyword)) else {
                 continue;
             };
@@ -170,10 +170,13 @@ impl Catalog {
     // shortcut: made in the window's thread, a short pause for a catalog of some 100,000 images;
     // in a thread with the busy pointer when that is too long.
     pub(crate) fn plan(&self, now: &[String], stars_here: impl Fn(&Path) -> u8) -> Plan {
-        let now: Vec<PathBuf> = now.iter().map(|s| root_now(s)).collect();
+        let now: Vec<PathBuf> = now.iter().map(|s| typed_root_folder(s)).collect();
         let paths = self.paths(&now);
         let collections = self.collections(&paths);
-        let there: HashSet<String> = collections::list().into_iter().map(|c| c.0).collect();
+        let there: HashSet<String> = collections::saved_collections()
+            .into_iter()
+            .map(|c| c.0)
+            .collect();
         let existing = (collections.iter())
             .filter(|c| there.contains(&c.0))
             .map(|c| c.0.clone())
@@ -183,11 +186,11 @@ impl Catalog {
         #[cfg(not(feature = "marks"))]
         let stars = Vec::new();
         #[cfg(feature = "marks")]
-        let differ = (stars.iter())
+        let differing_stars = (stars.iter())
             .filter(|(p, n)| ![0, *n].contains(&stars_here(p)))
             .count();
         #[cfg(not(feature = "marks"))]
-        let differ = {
+        let differing_stars = {
             let _ = stars_here;
             0
         };
@@ -197,8 +200,8 @@ impl Catalog {
             keywords: self.keyword_paths(),
             image_keywords: self.image_keywords(&paths),
             stars,
-            differ,
-            take_lightroom: false,
+            differing_stars,
+            takes_lightroom_stars: false,
         }
     }
 }
@@ -207,7 +210,7 @@ impl Catalog {
 /// clicked what importing it will do.
 pub(crate) struct Import {
     catalog: Catalog,
-    now: Vec<String>,
+    root_folders_now: Vec<String>,
     plan: Option<Plan>,
 }
 
@@ -215,10 +218,10 @@ impl Import {
     /// The import dialog for `catalog`, with the folders where its photos are now worked out
     /// and nothing planned yet.
     pub(crate) fn new(catalog: Catalog) -> Self {
-        let now = roots_now(&catalog);
+        let root_folders_now = roots_now(&catalog);
         Import {
             catalog,
-            now,
+            root_folders_now,
             plan: None,
         }
     }
@@ -233,8 +236,8 @@ pub(crate) struct Plan {
     /// Each image's keywords, as keyword tree paths.
     image_keywords: Vec<(PathBuf, Vec<String>)>,
     /// How many images have other stars in Glimt, and whether Lightroom's replace them.
-    differ: usize,
-    take_lightroom: bool,
+    differing_stars: usize,
+    takes_lightroom_stars: bool,
 }
 
 // ---- Import Lightroom Catalog: the dialog, the plan and the import ----
@@ -267,7 +270,8 @@ impl crate::App {
                 None => {
                     ui.label(tr("Where the catalog's folders are now (empty: left out):"));
                     egui::Grid::new("lightroom roots").show(ui, |ui| {
-                        for ((_, was), now) in lr.catalog.roots.iter().zip(&mut lr.now) {
+                        for ((_, was), now) in lr.catalog.roots.iter().zip(&mut lr.root_folders_now)
+                        {
                             ui.label(was);
                             // A size of its own: in the grid the field would be as narrow as
                             // its text.
@@ -277,7 +281,11 @@ impl crate::App {
                             // The screenshots click the field by the folder it stands for.
                             crate::support::test_hooks::noted(&field, was);
                             // A few folders, only while the dialog is open.
-                            ui.label(if root_now(now).is_dir() { "✓" } else { "" });
+                            ui.label(if typed_root_folder(now).is_dir() {
+                                "✓"
+                            } else {
+                                ""
+                            });
                             ui.end_row();
                         }
                     });
@@ -318,15 +326,15 @@ impl crate::App {
                         );
                         crate::ui::menus::checkbox(ui, &mut self.config.lightroom_keywords, &what);
                     }
-                    if plan.differ > 0 {
+                    if plan.differing_stars > 0 {
                         ui.label(tf!(
                             "{n} other stars in Glimt:",
-                            n = match plan.differ {
+                            n = match plan.differing_stars {
                                 1 => tr("1 image has").to_owned(),
                                 n => tf!("{count} have", count = count(n, "image")),
                             }
                         ));
-                        let take = &mut plan.take_lightroom;
+                        let take = &mut plan.takes_lightroom_stars;
                         crate::ui::menus::radio_choice(ui, take, false, tr("Keep Glimt's stars"));
                         crate::ui::menus::radio_choice(
                             ui,
@@ -350,7 +358,7 @@ impl crate::App {
             let stars_here = |p: &Path| self.marks.get(p).1;
             #[cfg(not(feature = "marks"))]
             let stars_here = |_: &Path| 0;
-            lr.plan = Some(lr.catalog.plan(&lr.now, stars_here));
+            lr.plan = Some(lr.catalog.plan(&lr.root_folders_now, stars_here));
         }
         if back {
             lr.plan = None;
@@ -369,7 +377,7 @@ impl crate::App {
             collections: all,
             keywords,
             stars,
-            take_lightroom,
+            takes_lightroom_stars,
             image_keywords,
             ..
         } = plan;
@@ -383,7 +391,7 @@ impl crate::App {
         self.change_keyword_tree(keywords, None);
         #[cfg(feature = "marks")]
         let stars: Vec<(PathBuf, u8)> = (stars.into_iter())
-            .filter(|(p, _)| take_lightroom || self.marks.get(p).1 == 0)
+            .filter(|(p, _)| takes_lightroom_stars || self.marks.get(p).1 == 0)
             .collect();
         #[cfg(feature = "marks")]
         {
@@ -401,7 +409,7 @@ impl crate::App {
             ));
         }
         #[cfg(not(feature = "marks"))]
-        let _ = (&stars, take_lightroom);
+        let _ = (&stars, takes_lightroom_stars);
         let xmp = cfg!(feature = "marks") && self.config.xmp_stars;
         if !image_keywords.is_empty() {
             done.push(tf!(
@@ -448,7 +456,7 @@ impl crate::App {
         // The collections: one of the same name gets the images it lacks, nothing is lost.
         // The collections' own files, each edited under its lock.
         self.run_in_background(ctx, Vec::new(), move || {
-            let dir = collections::dir();
+            let dir = collections::collections_dir();
             if let Some(dir) = &dir {
                 let _ = std::fs::create_dir_all(dir);
             }
@@ -476,7 +484,7 @@ impl crate::App {
 /// Before `QUERY`, with -bail: each table it reads that is not a table (a view, or a virtual
 /// table such as zipfile('/any/file'), which -safe does not stop) printed as a 'v' row, and then
 /// an error (an integer overflow) that ends the run before anything is read from it.
-fn check() -> String {
+fn non_table_check() -> String {
     let not_tables = format!(
         "FROM pragma_table_list WHERE schema = 'main' AND lower(name) IN ({TABLES}) \
          AND type <> 'table'"
@@ -493,7 +501,10 @@ pub fn read(file: &Path) -> Result<Catalog, String> {
         return Err(tr("Lightroom has the catalog open: close Lightroom first").into());
     }
     if !crate::files::external::has_program("sqlite3") {
-        return Err(tf!("{needs}, which is not installed", needs = tr(NEEDS)));
+        return Err(tf!(
+            "{needs}, which is not installed",
+            needs = tr(NEEDS_SQLITE3)
+        ));
     }
     // A catalog may come from anywhere: one with a view (or a schema whose rows say otherwise)
     // in the place of a table it reads would have sqlite3 run what the view says, its writefile
@@ -504,9 +515,9 @@ pub fn read(file: &Path) -> Result<Catalog, String> {
     let mut child = crate::files::external::stoppable_command("sqlite3")
         .args(ARGS)
         .arg(file)
-        .arg(check() + QUERY)
+        .arg(non_table_check() + QUERY)
         .spawn()
-        .map_err(|e| format!("{NEEDS}: {e}"))?;
+        .map_err(|e| format!("{NEEDS_SQLITE3}: {e}"))?;
     let (out, why, ok) = crate::files::external::output_of(
         &mut child,
         256 << 20,
@@ -515,10 +526,12 @@ pub fn read(file: &Path) -> Result<Catalog, String> {
     let out = out.ok_or_else(|| tr("The catalog is too large to read").to_owned())?;
     let catalog = parse(&out);
     if let Some((name, kind)) = catalog.not_tables.first() {
-        return Err(failed(&format!("{name} is of type {kind}, not a table")));
+        return Err(sqlite_error_text(&format!(
+            "{name} is of type {kind}, not a table"
+        )));
     }
     if !ok {
-        return Err(failed(&why));
+        return Err(sqlite_error_text(&why));
     }
     Ok(catalog)
 }
@@ -526,7 +539,7 @@ pub fn read(file: &Path) -> Result<Catalog, String> {
 /// Tells why sqlite3 could not read a catalog, from what it wrote: one too old for -safe, or
 /// the catalog. Only the first line is told, because sqlite3 puts the reason there and then
 /// echoes the query with a caret under the error.
-fn failed(why: &str) -> String {
+fn sqlite_error_text(why: &str) -> String {
     let first = (why.lines().map(str::trim)).find(|l| !l.is_empty());
     match why.contains("unknown option: -safe") {
         true => tr("Reading a Lightroom catalog needs sqlite3 3.37 or newer").into(),
@@ -539,8 +552,8 @@ fn failed(why: &str) -> String {
 
 fn parse(text: &[u8]) -> Catalog {
     let mut c = Catalog::default();
-    for row in text.split(|&b| b == ROW) {
-        let cols: Vec<String> = (row.split(|&b| b == COLUMN))
+    for row in text.split(|&b| b == ROW_END) {
+        let cols: Vec<String> = (row.split(|&b| b == COLUMN_END))
             .map(|s| String::from_utf8_lossy(s).into_owned())
             .collect();
         let [kind, id, a, b, d] = &cols[..] else {
@@ -560,9 +573,9 @@ fn parse(text: &[u8]) -> Catalog {
                     .insert(id, (n, b.clone(), d.parse().unwrap_or(0).min(5))),
             ),
             ("c", Ok(n)) => drop(c.collections.insert(id, (n, b.clone(), d.clone()))),
-            ("m", Ok(n)) => c.members.push((id, n)),
+            ("m", Ok(n)) => c.collection_images.push((id, n)),
             ("k", Ok(n)) => drop(c.keywords.insert(id, (n, b.clone()))),
-            ("w", Ok(n)) => c.tagged.push((id, n)),
+            ("w", Ok(n)) => c.image_keyword_ids.push((id, n)),
             _ => {}
         }
     }
@@ -571,7 +584,10 @@ fn parse(text: &[u8]) -> Catalog {
 
 /// The names from the top down to `id`, through `parent_and_name`; the nameless root that
 /// Lightroom keeps keywords under is left out. A loop in a damaged catalog ends after 32 steps.
-fn chain<'a>(mut id: i64, parent_and_name: impl Fn(i64) -> Option<(i64, &'a str)>) -> Vec<String> {
+fn names_from_top<'a>(
+    mut id: i64,
+    parent_and_name: impl Fn(i64) -> Option<(i64, &'a str)>,
+) -> Vec<String> {
     let mut names = Vec::new();
     for _ in 0..32 {
         let Some((parent, name)) = parent_and_name(id) else {
@@ -588,7 +604,7 @@ fn chain<'a>(mut id: i64, parent_and_name: impl Fn(i64) -> Option<(i64, &'a str)
 
 /// The folder typed for a root folder: `~/` is the home folder, and a relative path or nothing
 /// is no folder (empty), as a collection keeps absolute paths only.
-pub fn root_now(typed: &str) -> PathBuf {
+pub fn typed_root_folder(typed: &str) -> PathBuf {
     let typed = typed.trim();
     let path = match typed.strip_prefix("~/") {
         Some(rest) => std::env::home_dir().unwrap_or_default().join(rest),
@@ -677,10 +693,10 @@ mod tests {
         // Its keyword too, once for the file.
         assert_eq!(tags(&c)[0], tag(&a, &["Places|Oslo"]));
         assert_eq!(
-            super::root_now(" /media/disk "),
+            super::typed_root_folder(" /media/disk "),
             PathBuf::from("/media/disk")
         );
-        assert_eq!(super::root_now("Pictures"), PathBuf::new());
+        assert_eq!(super::typed_root_folder("Pictures"), PathBuf::new());
     }
 
     /// A catalog of tables is read with sqlite3's -safe; one with a view in the place of a table,
@@ -779,12 +795,14 @@ mod tests {
     fn tells_an_sqlite3_without_safe_mode() {
         let old = "sqlite3: Error: unknown option: -safe\nUse -help for a list of options.\n";
         assert_eq!(
-            super::failed(old),
+            super::sqlite_error_text(old),
             "Reading a Lightroom catalog needs sqlite3 3.37 or newer"
         );
-        assert!(super::failed("Error: file is not a database\n").ends_with("not a database"));
+        assert!(
+            super::sqlite_error_text("Error: file is not a database\n").ends_with("not a database")
+        );
         let parse = "Parse error: no such table: Adobe_images\n  SELECT id FROM Adobe_images\n";
-        assert!(super::failed(parse).ends_with("no such table: Adobe_images"));
+        assert!(super::sqlite_error_text(parse).ends_with("no such table: Adobe_images"));
     }
 
     /// sqlite3 not on the host of a Flatpak, or not in PATH, is told from a catalog it cannot read.

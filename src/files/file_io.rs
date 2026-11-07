@@ -366,7 +366,7 @@ pub fn write_later(work: impl FnOnce() + Send + 'static) {
     let writing = crate::support::threads::Working::new(&WRITING);
     let counted = move || {
         let _writing = writing;
-        let _ = crate::support::threads::caught(work);
+        let _ = crate::support::threads::catch_panic(work);
     };
     let _ = WRITER
         .get_or_init(start_ordered_worker)
@@ -379,7 +379,7 @@ pub fn start_ordered_worker() -> std::sync::mpsc::Sender<QueuedWrite> {
     let (works, rx) = std::sync::mpsc::channel::<QueuedWrite>();
     std::thread::spawn(move || {
         for work in rx {
-            let _ = crate::support::threads::caught(work);
+            let _ = crate::support::threads::catch_panic(work);
         }
     });
     works

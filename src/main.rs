@@ -9,13 +9,13 @@
 #![cfg_attr(test, allow(clippy::disallowed_methods))]
 
 use crate::cli::Start;
-use crate::features::check::Check;
-use crate::features::duplicates::Dups;
+use crate::features::check::ImageCheck;
+use crate::features::duplicates::FindDuplicates;
 use crate::features::print::PrintDialog;
 use crate::files::config::{Config, WindowState, parse_last_dir, state_path};
 use crate::files::file_io::write_atomic;
 use crate::model::list::List;
-use crate::support::threads::{ONE_ARENA, Receiving, cores, set_cpu_use, thread_cpu_us};
+use crate::support::threads::{HAS_ONE_MALLOC_ARENA, Receiving, cores, set_cpu_use, thread_cpu_us};
 use crate::viewer::pan::Pan;
 use crate::viewer::view::View;
 use crate::viewer::view::frame_at;
@@ -131,7 +131,7 @@ struct App {
     /// Edit → Plugins, read at start.
     plugins: Vec<crate::features::plugins::Plugin>,
     /// The plugins running, for Stop in their menu.
-    plugins_running: crate::features::plugins::Running,
+    plugins_running: crate::features::plugins::RunningPlugins,
     /// The help page open (F1), if any.
     help: Option<crate::ui::help::Page>,
     /// File → Print's dialog, while open.
@@ -146,10 +146,10 @@ struct App {
     save_as: Option<crate::viewer::save_as::SaveAs>,
     save_as_last: crate::viewer::save_as::Choice,
     /// The Find Duplicates window, while open.
-    dups: Option<Dups>,
+    dups: Option<FindDuplicates>,
     /// The Check Images window. `None` means it is closed, and `Some(None)` means it is open
     /// but not started.
-    check: Option<Option<Check>>,
+    check: Option<Option<ImageCheck>>,
     /// Commands from --remote, and the selects that wait until the list is read.
     remote: crate::features::remote::Listener,
 }
@@ -171,7 +171,7 @@ impl App {
         path: Option<PathBuf>,
         start: Start,
     ) -> Self {
-        crate::support::lang::set(&config.language);
+        crate::support::lang::set_language(&config.language);
         // Start options are kept, as choosing them in the View menu would.
         if let Some(layout) = start.layout {
             config.layout = layout.into();
@@ -246,7 +246,7 @@ impl App {
             prefs: crate::ui::preferences::Prefs::default(),
             open_with: crate::ui::menus::OpenWith::default(),
             plugins: crate::features::plugins::find(),
-            plugins_running: crate::features::plugins::Running::default(),
+            plugins_running: crate::features::plugins::RunningPlugins::default(),
             help: None,
             print_window: None,
             lightroom_rx: Receiving::none(),
@@ -452,7 +452,7 @@ fn main() -> eframe::Result {
     if Config::load().low_memory {
         // SAFETY: This is called before any other thread exists.
         unsafe { mallopt(M_ARENA_MAX, 1) };
-        ONE_ARENA.store(true, Ordering::Relaxed);
+        HAS_ONE_MALLOC_ARENA.store(true, Ordering::Relaxed);
     }
     let (start, args_os) = match Start::parse(std::env::args_os().skip(1).collect()) {
         Ok(parsed) => parsed,

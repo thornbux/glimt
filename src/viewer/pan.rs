@@ -62,7 +62,7 @@ impl Month {
 pub(crate) struct Pan {
     /// Days from the EXIF dates instead of the file dates.
     exif: bool,
-    /// The days, and the version of the file list they are for (`App::files_gen`).
+    /// The days, and the version of the file list they are for (`List::version`).
     days: Option<(Vec<pan::Day>, usize)>,
     /// The days read so far, and whether they are all of them.
     days_rx: Receiving<(Vec<pan::Day>, bool)>,
@@ -217,7 +217,7 @@ impl crate::App {
         // hidden (Hide File List). Kept are the same as there, so the two never undo each other.
         self.trim_thumbs(self.thumbs.list_rows());
         if let Some(i) = show {
-            self.go(ctx, i);
+            self.show_file(ctx, i);
         }
         if open && !close {
             self.pan_window = Some(pan);
@@ -335,8 +335,8 @@ impl crate::App {
                             }
                             let at = top + egui::vec2(j as f32 * cell.x, y);
                             let rect = egui::Rect::from_min_size(at, cell);
-                            self.list.pan_thumb(i);
-                            let r = self.file_cell(ui, i, rect, i == self.list.cur());
+                            self.list.note_pan_thumb(i);
+                            let r = self.file_cell(ui, i, rect, i == self.list.shown());
                             if r.clicked() {
                                 show = Some(i);
                             }
@@ -454,7 +454,7 @@ impl crate::App {
             ui.painter()
                 .rect_filled(rect, 3.0, ui.visuals().widgets.hovered.weak_bg_fill);
         }
-        self.list.pan_thumb(first);
+        self.list.note_pan_thumb(first);
         self.paint_thumb(ui, first, rect.shrink(4.0));
         // The day and the number of images, on dark so they read on any picture.
         let p = ui.painter();
@@ -566,7 +566,7 @@ fn each<T: Send>(
                 path.push(name);
                 // A file that breaks its reader has no date: a whole part lost would give the
                 // files after it the dates of others.
-                let found = crate::support::threads::caught(|| f(&path));
+                let found = crate::support::threads::catch_panic(|| f(&path));
                 out.push(found.flatten());
                 path.pop();
             }

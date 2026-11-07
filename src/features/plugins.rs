@@ -2,14 +2,14 @@
 //! run on the selected files. They are read from `glimt/plugins` in the XDG data folders
 //! (`~/.local/share/glimt/plugins` first). Geeqie's own plugins are not read: many of them ask
 //! a running Geeqie for things with `geeqie --remote`. Decoder plugins' desktop files are read
-//! with the same `desktop_files` and `values`.
+//! with the same `desktop_files` and `desktop_entry_values`.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 /// The plugins running, by name and process ID, for Stop in Edit → Plugins: one may be an
 /// editor that stays open for hours, or a script that never ends.
-pub type Running = std::sync::Arc<std::sync::Mutex<Vec<(String, u32)>>>;
+pub type RunningPlugins = std::sync::Arc<std::sync::Mutex<Vec<(String, u32)>>>;
 
 #[derive(Clone)]
 pub struct Plugin {
@@ -24,10 +24,10 @@ pub struct Plugin {
 }
 
 impl Plugin {
-    /// Returns whether the plugin takes `path`: every file when its desktop file names no
+    /// Returns whether the plugin accepts `path`: every file when its desktop file names no
     /// MimeType, otherwise a file whose extension has one of those types in the desktop's
-    /// MIME database. A file of a type the database does not know is not taken then.
-    pub fn takes(&self, path: &Path) -> bool {
+    /// MIME database. A file of a type the database does not know is not accepted then.
+    pub fn accepts(&self, path: &Path) -> bool {
         if self.types.is_empty() {
             return true;
         }
@@ -45,8 +45,13 @@ impl Plugin {
     /// with %F or %U, and once in `folder` without any. Each run is in `running` while it runs;
     /// one taken out of it there was stopped, and the runs after it are not made. The error
     /// output if it failed.
-    pub fn run(&self, files: &[PathBuf], folder: &Path, running: &Running) -> Result<(), String> {
-        let words = words(&self.exec);
+    pub fn run(
+        &self,
+        files: &[PathBuf],
+        folder: &Path,
+        running: &RunningPlugins,
+    ) -> Result<(), String> {
+        let words = command_words(&self.exec);
         let each = words.iter().any(|w| w == "%f" || w == "%u");
         let runs: Vec<&[PathBuf]> = if each {
             files.chunks(1).collect()
@@ -161,7 +166,7 @@ fn absolute_dirs(list: &str) -> impl Iterator<Item = &Path> {
 
 /// The values of a desktop file's first group (its [Desktop Entry] or [Glimt Decoder], not its
 /// actions), by key.
-pub fn values<'a>(text: &'a str) -> impl Fn(&str) -> Option<&'a str> + 'a {
+pub fn desktop_entry_values<'a>(text: &'a str) -> impl Fn(&str) -> Option<&'a str> + 'a {
     // Comments and blank lines may come before its header.
     let mut rest = text;
     while let Some(line) = rest.lines().next()
@@ -179,7 +184,7 @@ pub fn values<'a>(text: &'a str) -> impl Fn(&str) -> Option<&'a str> + 'a {
 
 /// The plugin of a desktop file; `None` if it is hidden or has no command.
 fn parse(text: &str, dir: &Path) -> Option<Plugin> {
-    let value = values(text);
+    let value = desktop_entry_values(text);
     if value("Hidden") == Some("true") || value("NoDisplay") == Some("true") {
         return None;
     }
@@ -254,7 +259,7 @@ fn globs(text: &str) -> HashMap<String, String> {
 
 /// The words of a desktop file's Exec line or the video player's command: separated by spaces,
 /// "quoted" ones may hold them.
-pub fn words(exec: &str) -> Vec<String> {
+pub fn command_words(exec: &str) -> Vec<String> {
     let (mut out, mut word, mut quoted, mut chars) =
         (Vec::new(), None::<String>, false, exec.chars());
     while let Some(c) = chars.next() {
@@ -339,17 +344,17 @@ mod tests {
         let raw = raw.unwrap();
         assert_eq!(raw.types, ["image/x-canon-cr2"]);
         let any = super::parse("[Desktop Entry]\nName=A\nExec=a\n", dir).unwrap();
-        assert!(any.takes(std::path::Path::new("/x/notes.weird")));
+        assert!(any.accepts(std::path::Path::new("/x/notes.weird")));
         let images = super::parse("[Desktop Entry]\nName=I\nExec=i\nMimeType=image/*\n", dir);
         let images = images.unwrap();
         // The database of this computer: a JPEG is an image everywhere it is installed, and
         // no type is known for a made-up extension.
         if super::mime_types().contains_key("jpg") {
-            assert!(images.takes(std::path::Path::new("/x/a.JPG")));
-            assert!(!raw.takes(std::path::Path::new("/x/a.jpg")));
+            assert!(images.accepts(std::path::Path::new("/x/a.JPG")));
+            assert!(!raw.accepts(std::path::Path::new("/x/a.jpg")));
         }
-        assert!(!images.takes(std::path::Path::new("/x/a.no-such-type")));
-        assert!(!images.takes(std::path::Path::new("/x/no-extension")));
+        assert!(!images.accepts(std::path::Path::new("/x/a.no-such-type")));
+        assert!(!images.accepts(std::path::Path::new("/x/no-extension")));
     }
 
     /// The files where %F stands, %% as a %, other field codes left out.
@@ -389,7 +394,7 @@ mod tests {
     #[test]
     fn reads_and_runs_a_plugin() {
         assert_eq!(
-            words(r#"sh -c "echo \"a b\" >> log" x %F"#),
+            command_words(r#"sh -c "echo \"a b\" >> log" x %F"#),
             ["sh", "-c", "echo \"a b\" >> log", "x", "%F"]
         );
         let dir = std::env::temp_dir().join(format!("glimt-test-plugins-{}", std::process::id()));
@@ -404,7 +409,9 @@ mod tests {
         assert_eq!(commented.unwrap().name, "C");
         // Once for each file, in the folder given.
         let files = [dir.join("a b.jpg"), dir.join("c.jpg")];
-        plugin.run(&files, &dir, &Running::default()).unwrap();
+        plugin
+            .run(&files, &dir, &RunningPlugins::default())
+            .unwrap();
         let log = std::fs::read_to_string(dir.join("log")).unwrap();
         assert_eq!(
             log.lines().collect::<Vec<_>>(),
@@ -415,7 +422,9 @@ mod tests {
             &dir,
         );
         assert_eq!(
-            failing.unwrap().run(&files, &dir, &Running::default()),
+            failing
+                .unwrap()
+                .run(&files, &dir, &RunningPlugins::default()),
             Err("no".into())
         );
         // One that leaves a program running in the background with its errors open: done once
@@ -424,13 +433,13 @@ mod tests {
         let start = std::time::Instant::now();
         let ran = parse(helper, &dir)
             .unwrap()
-            .run(&files, &dir, &Running::default());
+            .run(&files, &dir, &RunningPlugins::default());
         assert_eq!(ran, Ok(()));
         assert!(start.elapsed() < std::time::Duration::from_secs(3));
         // One that does not end, stopped from the menu: ended with what it started, and told.
         let endless = "[Desktop Entry]\nName=Endless\nExec=sh -c \"sleep 30; sleep 30\"\n";
         let endless = parse(endless, &dir).unwrap();
-        let running = Running::default();
+        let running = RunningPlugins::default();
         let start = std::time::Instant::now();
         let stopping = {
             let running = running.clone();

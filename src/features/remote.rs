@@ -98,10 +98,10 @@ pub const MAX_SELECT: usize = 100_000;
 const WAIT: std::time::Duration = std::time::Duration::from_secs(10);
 
 /// The name from `--name`, set before the window opens.
-static NAME: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+static GIVEN_NAME: std::sync::OnceLock<String> = std::sync::OnceLock::new();
 
 /// A window took a command but gave no answer in time.
-static UNANSWERED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+static TIMED_OUT: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 /// This Glimt listens on its socket, so it removes it when it closes.
 static LISTENING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
@@ -110,25 +110,25 @@ static LISTENING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool:
 static LISTENER: std::sync::atomic::AtomicI32 = std::sync::atomic::AtomicI32::new(-1);
 
 /// Clients connected, and queries sent to the window whose answers are not written yet.
-static ANSWERING: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+static UNFINISHED_ANSWERS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
 
 /// Where the window sends a query's answer. It is paths, each ending in a NUL byte, as
 /// `find -print0` writes them, because a file name can hold a line break.
 pub type Reply = mpsc::Sender<Vec<u8>>;
 
-/// One of `ANSWERING` while it lives.
-struct Answering;
+/// One of `UNFINISHED_ANSWERS` while it lives.
+struct UnfinishedAnswer;
 
-impl Answering {
+impl UnfinishedAnswer {
     fn new() -> Self {
-        ANSWERING.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        Answering
+        UNFINISHED_ANSWERS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        UnfinishedAnswer
     }
 }
 
-impl Drop for Answering {
+impl Drop for UnfinishedAnswer {
     fn drop(&mut self) {
-        ANSWERING.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
+        UNFINISHED_ANSWERS.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
     }
 }
 
@@ -170,14 +170,14 @@ impl crate::App {
         // window busy again. Each gets its own answer, from the list as it was when it was sent.
         while !self.remote.waiting_selects.is_empty() && !busy(self) {
             let (command, reply) = self.remote.waiting_selects.remove(0);
-            self.remote_one(ctx, &command, reply);
+            self.handle_remote(ctx, &command, reply);
         }
         while let Ok((command, reply)) = self.remote.rx.try_recv() {
             let select = reply.is_some() && command.starts_with("select ");
             let wait = (may_relist(&command) && !self.remote.waiting_selects.is_empty())
                 || (select && busy(self));
             if !wait {
-                self.remote_one(ctx, &command, reply);
+                self.handle_remote(ctx, &command, reply);
             } else if self.remote.waiting_selects.len() < 64 {
                 self.remote.waiting_selects.push((command, reply));
             }
@@ -202,20 +202,27 @@ impl crate::App {
                     let _ = reply.send(paths.flat_map(|p| p.bytes().chain([0])).collect());
                 }
                 // Answered as at any other time (`where` too, in the release tests' build).
-                None => self.remote_one(&ctx, &command, Some(reply)),
+                None => self.handle_remote(&ctx, &command, Some(reply)),
             }
         }
     }
 
     /// One command from `glimt --remote`, with the answer to send if it asks for one.
-    pub(crate) fn remote_one(&mut self, ctx: &egui::Context, command: &str, reply: Option<Reply>) {
+    pub(crate) fn handle_remote(
+        &mut self,
+        ctx: &egui::Context,
+        command: &str,
+        reply: Option<Reply>,
+    ) {
         match reply {
             Some(reply) if command.starts_with("select ") => {
                 let _ = reply.send(self.remote_select(ctx, command));
             }
             #[cfg(feature = "test-hooks")]
             Some(reply) if command.starts_with("where ") => {
-                let _ = reply.send(test_hooks::position(command.trim_start_matches("where ")));
+                let _ = reply.send(test_hooks::label_position(
+                    command.trim_start_matches("where "),
+                ));
             }
             Some(reply) => drop(reply.send(self.remote_query(command))),
             None => self.remote_command(ctx, command),
@@ -283,10 +290,10 @@ impl crate::App {
     pub(crate) fn remote_query(&self, command: &str) -> Vec<u8> {
         use std::os::unix::ffi::OsStringExt;
         let files = match command.trim() {
-            "current" => vec![self.list.cur()],
+            "current" => vec![self.list.shown()],
             // When the search hides every selected file, the answer names none of them, and
             // not the shown image in their place.
-            _ => self.quiet_targets().unwrap_or_default(),
+            _ => self.targets_without_notice().unwrap_or_default(),
         };
         (files.into_iter().filter(|&i| i < self.list.files().len()))
             .flat_map(|i| {
@@ -327,7 +334,7 @@ impl crate::App {
             if !self.select_for_action(ctx, found) {
                 return paths.iter().flat_map(|p| p.bytes().chain([0])).collect();
             }
-            self.go(ctx, first);
+            self.show_file(ctx, first);
             self.list.set_anchor(None);
         }
         missing
@@ -344,8 +351,8 @@ fn is_query(command: &str) -> bool {
 
 /// Glimt's runtime folder, which only the user can reach. It holds the sockets and the sidecar
 /// locks.
-pub(crate) fn dir() -> Option<PathBuf> {
-    let mut dir = runtime_dir(std::env::var_os("XDG_RUNTIME_DIR"))?;
+pub(crate) fn runtime_dir() -> Option<PathBuf> {
+    let mut dir = runtime_dir_from(std::env::var_os("XDG_RUNTIME_DIR"))?;
     if let Some(id) = std::env::var_os("FLATPAK_ID") {
         dir = dir.join("app").join(id);
     }
@@ -353,18 +360,18 @@ pub(crate) fn dir() -> Option<PathBuf> {
     // A folder of this name may be another user's, where $XDG_RUNTIME_DIR is not private as it
     // should be (/tmp). Its sockets would be theirs to answer, and its locks theirs to hold.
     let uid = std::fs::metadata("/proc/self").ok()?.uid();
-    own_or_none(&dir, uid).then_some(dir)
+    is_own_or_missing(&dir, uid).then_some(dir)
 }
 
 /// Returns `$XDG_RUNTIME_DIR` as given in `set`, or `None` when it is unset, empty or relative.
 /// A relative one would put the sockets and locks in the current folder, and the XDG spec says
 /// to ignore it, as `config::xdg_base` does for the other XDG folders.
-fn runtime_dir(set: Option<std::ffi::OsString>) -> Option<PathBuf> {
+fn runtime_dir_from(set: Option<std::ffi::OsString>) -> Option<PathBuf> {
     set.map(PathBuf::from).filter(|p| p.is_absolute())
 }
 
 /// Whether `dir` is a folder of user `uid`, not a link, or not there yet (made by `listen`).
-fn own_or_none(dir: &std::path::Path, uid: u32) -> bool {
+fn is_own_or_missing(dir: &std::path::Path, uid: u32) -> bool {
     match std::fs::symlink_metadata(dir) {
         Ok(m) => m.is_dir() && m.uid() == uid,
         Err(e) => e.kind() == std::io::ErrorKind::NotFound,
@@ -375,8 +382,8 @@ fn own_or_none(dir: &std::path::Path, uid: u32) -> bool {
 /// the same process ID, the Flatpak instance ID too (a new window from Ctrl+N shares the
 /// instance). It is found once, because every new thumbnail asks.
 pub fn instance_id() -> &'static str {
-    static ME: std::sync::OnceLock<String> = std::sync::OnceLock::new();
-    ME.get_or_init(|| {
+    static INSTANCE_ID: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    INSTANCE_ID.get_or_init(|| {
         let info = (crate::files::external::in_flatpak())
             .then(|| crate::images::decode::read_text("/.flatpak-info").ok())
             .flatten();
@@ -390,12 +397,12 @@ pub fn instance_id() -> &'static str {
 
 /// Listen as `name` instead of the process ID.
 pub fn set_name(name: String) {
-    let _ = NAME.set(name);
+    let _ = GIVEN_NAME.set(name);
 }
 
 /// The `--name` given, if any.
 pub fn given_name() -> Option<&'static str> {
-    NAME.get().map(String::as_str)
+    GIVEN_NAME.get().map(String::as_str)
 }
 
 /// Whether `name` cannot be taken for a process ID or a path. It holds letters, digits, - and
@@ -424,7 +431,7 @@ fn may_relist(command: &str) -> bool {
 /// Whether `words` is one of `COMMANDS`, with a path where it takes one and none where it does
 /// not. `open` takes one path, and `select` any number of files. A choice in brackets
 /// ([on|off]) may be left out, as may `title`'s words.
-pub fn known(words: &[String]) -> bool {
+pub fn is_known_command(words: &[String]) -> bool {
     (COMMANDS.iter()).any(|(c, _)| {
         let mut parts = c.split(' ');
         if parts.next() != words.first().map(|w| command_word_now(w)) {
@@ -457,8 +464,8 @@ pub fn command_word_now(word: &str) -> &str {
 }
 
 /// Whether a window took a command but gave no answer within `WAIT`.
-pub fn unanswered() -> bool {
-    UNANSWERED.load(std::sync::atomic::Ordering::Relaxed)
+pub fn timed_out() -> bool {
+    TIMED_OUT.load(std::sync::atomic::Ordering::Relaxed)
 }
 
 /// The socket's name, which is the --name, or the process ID.
@@ -467,11 +474,11 @@ fn socket_id() -> &'static str {
 }
 
 fn socket(id: &str) -> Option<PathBuf> {
-    dir().map(|d| d.join(format!("glimt-{id}.sock")))
+    runtime_dir().map(|d| d.join(format!("glimt-{id}.sock")))
 }
 
 /// Send `command` to the socket at `path`, and print what it answers to standard output.
-fn deliver(path: &std::path::Path, command: &str) -> bool {
+fn send_and_print_answer(path: &std::path::Path, command: &str) -> bool {
     use std::io::Read;
     let Ok(mut s) = UnixStream::connect(path) else {
         return false;
@@ -487,7 +494,7 @@ fn deliver(path: &std::path::Path, command: &str) -> bool {
     let read = s.read_to_end(&mut answer);
     if let Err(e) = read {
         eprintln!("glimt: no answer from {}: {e}", path.display());
-        UNANSWERED.store(true, std::sync::atomic::Ordering::Relaxed);
+        TIMED_OUT.store(true, std::sync::atomic::Ordering::Relaxed);
     }
     let _ = std::io::stdout().write_all(&answer);
     true
@@ -499,7 +506,7 @@ fn deliver(path: &std::path::Path, command: &str) -> bool {
 /// shortcut: the socket of a Glimt that crashed stays until the runtime folder is cleared at
 /// logout, and costs one refused connection each time; remove such sockets at start, under
 /// `claim`'s lock, if they ever pile up.
-fn live(dir: Option<PathBuf>) -> Vec<PathBuf> {
+fn live_sockets(dir: Option<PathBuf>) -> Vec<PathBuf> {
     let entries = dir.and_then(|d| std::fs::read_dir(d).ok());
     entries
         .into_iter()
@@ -513,23 +520,28 @@ fn live(dir: Option<PathBuf>) -> Vec<PathBuf> {
 
 /// Sends `command` to the Glimt used last, or else to another one. Returns false if none runs.
 pub fn send(command: &str) -> bool {
-    let last = dir()
+    let last = runtime_dir()
         .and_then(|d| crate::images::decode::read_text(d.join("focused")).ok())
         .and_then(|id| socket(id.trim()));
-    if last.is_some_and(|p| deliver(&p, command)) {
+    if last.is_some_and(|p| send_and_print_answer(&p, command)) {
         return true;
     }
-    live(dir()).iter().any(|p| deliver(p, command))
+    live_sockets(runtime_dir())
+        .iter()
+        .any(|p| send_and_print_answer(p, command))
 }
 
 /// Sends `command` to the Glimt started with `--name name`. Returns false if none runs.
 pub fn send_to(name: &str, command: &str) -> bool {
-    socket(name).is_some_and(|p| deliver(&p, command))
+    socket(name).is_some_and(|p| send_and_print_answer(&p, command))
 }
 
 /// Send `command` to every running Glimt. Returns how many got it.
 pub fn send_all(command: &str) -> usize {
-    live(dir()).iter().filter(|p| deliver(p, command)).count()
+    live_sockets(runtime_dir())
+        .iter()
+        .filter(|p| send_and_print_answer(p, command))
+        .count()
 }
 
 /// `glimt --remote` and `--remote-all`. It sends `words` (the command and its arguments) to the
@@ -543,7 +555,7 @@ pub fn client(
     name: Option<&str>,
     to_all: bool,
 ) -> Option<PathBuf> {
-    if !known(words) {
+    if !is_known_command(words) {
         eprintln!("glimt: no such command, or not with these arguments; glimt --help lists them");
         std::process::exit(NOT_SENT);
     }
@@ -584,7 +596,7 @@ pub fn client(
     {
         let running = match name {
             Some(name) => socket(name).is_some_and(|p| UnixStream::connect(p).is_ok()),
-            None => !live(dir()).is_empty(),
+            None => !live_sockets(runtime_dir()).is_empty(),
         };
         if !running {
             return Some(path.into());
@@ -608,7 +620,7 @@ pub fn client(
         (Some(name), false) => send_to(name, &command),
         (None, false) => send(&command),
     };
-    if unanswered() {
+    if timed_out() {
         std::process::exit(NOT_TAKEN);
     }
     if sent {
@@ -630,7 +642,7 @@ pub fn client(
 /// a query.
 pub fn listen(tx: mpsc::Sender<(String, Option<Reply>)>, ctx: eframe::egui::Context) {
     let Some(path) = socket(socket_id()) else {
-        return match runtime_dir(std::env::var_os("XDG_RUNTIME_DIR")) {
+        return match runtime_dir_from(std::env::var_os("XDG_RUNTIME_DIR")) {
             None => eprintln!("No remote control: $XDG_RUNTIME_DIR is not set to a full path"),
             Some(_) => eprintln!("No remote control: its folder there is not this user's own"),
         };
@@ -647,11 +659,11 @@ pub fn listen(tx: mpsc::Sender<(String, Option<Reply>)>, ctx: eframe::egui::Cont
         let _ = std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700));
         // A folder made by another user meanwhile, between the look in `dir` and here, is not
         // used.
-        if dir_of_another(dir) {
+        if is_another_users_dir(dir) {
             return eprintln!("No remote control: its folder there is not this user's own");
         }
     }
-    let listener = match claim(&path) {
+    let listener = match bind_socket(&path) {
         Ok(listener) => listener,
         Err(None) => {
             return eprintln!(
@@ -678,7 +690,7 @@ pub fn listen(tx: mpsc::Sender<(String, Option<Reply>)>, ctx: eframe::egui::Cont
             let (tx, ctx) = (tx.clone(), ctx.clone());
             // The client is counted from here, before its query is read, so a client that came
             // just before the socket went is waited for at closing too.
-            let client = Answering::new();
+            let client = UnfinishedAnswer::new();
             std::thread::spawn(move || {
                 serve(stream, &tx, &ctx);
                 drop(client);
@@ -711,7 +723,7 @@ fn serve(
         };
         // The client is counted until its answer is written, because `stop` waits for that at
         // closing.
-        let answering = answer.is_some().then(Answering::new);
+        let answering = answer.is_some().then(UnfinishedAnswer::new);
         if tx.send((line, reply)).is_err() {
             return;
         }
@@ -733,9 +745,9 @@ fn serve(
 }
 
 /// Whether `dir` is there and not the user's own folder.
-fn dir_of_another(dir: &std::path::Path) -> bool {
+fn is_another_users_dir(dir: &std::path::Path) -> bool {
     let uid = std::fs::metadata("/proc/self").map(|m| m.uid());
-    uid.is_ok_and(|uid| !own_or_none(dir, uid))
+    uid.is_ok_and(|uid| !is_own_or_missing(dir, uid))
 }
 
 /// Whether this Glimt listens for --remote commands.
@@ -746,7 +758,7 @@ pub fn listening() -> bool {
 /// The socket at `path` for this Glimt. A socket left by a Glimt that did not close is replaced,
 /// but not one that a running Glimt (of the same `--name`) answers on. Returns `Err(None)` when
 /// a running Glimt answers on it, and `Err(Some(why))` when it cannot be made.
-fn claim(path: &std::path::Path) -> Result<UnixListener, Option<std::io::Error>> {
+fn bind_socket(path: &std::path::Path) -> Result<UnixListener, Option<std::io::Error>> {
     // The socket is bound first, which fails if it is there, so two Glimts of one name started
     // at once cannot both find it free and then remove each other's.
     let first = match UnixListener::bind(path) {
@@ -771,7 +783,7 @@ fn claim(path: &std::path::Path) -> Result<UnixListener, Option<std::io::Error>>
 
 /// Marks that this Glimt got the focus, so `--remote` goes to it from now on.
 pub fn mark_focused() {
-    if let Some(d) = dir() {
+    if let Some(d) = runtime_dir() {
         // The file is written whole and never truncated first, because a `--remote` reading it
         // meanwhile got an empty name.
         let _ = crate::files::file_io::replace_file(&d.join("focused"), socket_id());
@@ -796,8 +808,8 @@ pub fn stop(answer: impl FnMut()) {
 fn wait_answered(mut answer: impl FnMut(), limit: std::time::Duration) {
     let until = std::time::Instant::now() + limit;
     let busy = || {
-        ANSWERING.load(std::sync::atomic::Ordering::Relaxed) > 0
-            || queued(LISTENER.load(std::sync::atomic::Ordering::Relaxed))
+        UNFINISHED_ANSWERS.load(std::sync::atomic::Ordering::Relaxed) > 0
+            || has_waiting_client(LISTENER.load(std::sync::atomic::Ordering::Relaxed))
     };
     let mut quiet = 0;
     while quiet < 2 && std::time::Instant::now() < until {
@@ -808,7 +820,7 @@ fn wait_answered(mut answer: impl FnMut(), limit: std::time::Duration) {
 }
 
 /// Whether a client waits to be accepted on the listening socket `fd` (-1 for none).
-fn queued(fd: i32) -> bool {
+fn has_waiting_client(fd: i32) -> bool {
     #[repr(C)]
     struct PollFd {
         fd: i32,
@@ -846,11 +858,11 @@ mod tests {
     /// An empty or relative $XDG_RUNTIME_DIR is not used, so nothing goes into ./glimt.
     #[test]
     fn a_relative_runtime_dir_is_ignored() {
-        let dir = |s: &str| super::runtime_dir(Some(s.into()));
+        let dir = |s: &str| super::runtime_dir_from(Some(s.into()));
         assert_eq!(dir(""), None);
         assert_eq!(dir("run"), None);
         assert_eq!(dir("/run/user/1000"), Some("/run/user/1000".into()));
-        assert_eq!(super::runtime_dir(None), None);
+        assert_eq!(super::runtime_dir_from(None), None);
     }
 
     /// `run ACTION` does an action a script may run, as its key would, and nothing for one that
@@ -866,18 +878,18 @@ mod tests {
         app.list
             .set_files(["a.png", "b.png", "c.png"].map(Into::into).to_vec());
         app.remote_command(&ctx, "run Next");
-        assert_eq!(app.list.cur(), 1);
+        assert_eq!(app.list.shown(), 1);
         app.remote_command(&ctx, "run Last");
-        assert_eq!(app.list.cur(), 2);
+        assert_eq!(app.list.shown(), 2);
         // The renamed command by its new and its old word, and the renamed action by its old
         // name.
         app.remote_command(&ctx, "previous");
-        assert_eq!(app.list.cur(), 1);
+        assert_eq!(app.list.shown(), 1);
         app.remote_command(&ctx, "prev");
-        assert_eq!(app.list.cur(), 0);
+        assert_eq!(app.list.shown(), 0);
         app.remote_command(&ctx, "run Next");
         app.remote_command(&ctx, "run Prev");
-        assert_eq!(app.list.cur(), 0);
+        assert_eq!(app.list.shown(), 0);
         app.remote_command(&ctx, "run Last");
         app.config.confirm_trash = false;
         app.remote_command(&ctx, "run Delete");
@@ -886,13 +898,13 @@ mod tests {
         assert!(!app.asking_about_selection());
         // Nor a script's action while a dialog asks the user: the Rename prompt stays.
         app.remote_command(&ctx, "run First");
-        assert_eq!(app.list.cur(), 0);
+        assert_eq!(app.list.shown(), 0);
         let asked = crate::ui::dialogs::Asked::new(0, vec!["a.png".into()], None);
         let rename = crate::ui::dialogs::Prompt::Rename;
         app.dialogs.ask_about(asked, rename, "a.png".into());
         app.remote_command(&ctx, "run WindowTitle");
         app.remote_command(&ctx, "run Last");
-        assert_eq!(app.list.cur(), 0);
+        assert_eq!(app.list.shown(), 0);
         assert!(app.dialogs.asks_about_files());
         assert_eq!(app.list.files().len(), 3);
         assert!(dir.join("c.png").exists());
@@ -921,31 +933,40 @@ mod tests {
     #[test]
     fn knows_its_commands() {
         let words = |s: &str| s.split(' ').map(String::from).collect::<Vec<_>>();
-        assert!(super::known(&words("next")));
+        assert!(super::is_known_command(&words("next")));
         // A renamed command is known by its old word too, and takes no more words than before.
-        assert!(super::known(&words("previous")) && super::known(&words("prev")));
-        assert!(!super::known(&words("prev 2")));
-        assert!(super::known(&["open".into(), "/a b.jpg".into()]));
-        // Two words are two paths, not one with a space, because the shell joins no words.
-        assert!(!super::known(&words("open /a.jpg /b.jpg")));
-        assert!(super::known(&words("select /a.jpg /b.jpg")));
-        assert!(!super::known(&words("nxet")));
-        assert!(!super::known(&words("open")));
-        assert!(super::known(&words("run ZoomIn")));
-        assert!(!super::known(&words("run")));
-        assert!(!super::known(&words("run ZoomIn ZoomOut")));
-        assert!(!super::known(&words("next 2")));
-        assert!(super::known(&words("subfolders on")));
-        assert!(super::known(&words("title")));
-        assert!(super::known(&words("title Left: %name%")));
-        assert!(!super::known(&words("subfolders")));
-        assert!(super::known(&words("subfolders off")));
-        assert!(super::known(&words("slideshow")) && super::known(&words("slideshow off")));
-        assert!(!super::known(&words("slideshow yes")) && !super::known(&words("random on off")));
         assert!(
-            !super::known(&words("subfolders yes")) && !super::known(&words("subfolders on off"))
+            super::is_known_command(&words("previous")) && super::is_known_command(&words("prev"))
         );
-        assert!(!super::known(&[]));
+        assert!(!super::is_known_command(&words("prev 2")));
+        assert!(super::is_known_command(&["open".into(), "/a b.jpg".into()]));
+        // Two words are two paths, not one with a space, because the shell joins no words.
+        assert!(!super::is_known_command(&words("open /a.jpg /b.jpg")));
+        assert!(super::is_known_command(&words("select /a.jpg /b.jpg")));
+        assert!(!super::is_known_command(&words("nxet")));
+        assert!(!super::is_known_command(&words("open")));
+        assert!(super::is_known_command(&words("run ZoomIn")));
+        assert!(!super::is_known_command(&words("run")));
+        assert!(!super::is_known_command(&words("run ZoomIn ZoomOut")));
+        assert!(!super::is_known_command(&words("next 2")));
+        assert!(super::is_known_command(&words("subfolders on")));
+        assert!(super::is_known_command(&words("title")));
+        assert!(super::is_known_command(&words("title Left: %name%")));
+        assert!(!super::is_known_command(&words("subfolders")));
+        assert!(super::is_known_command(&words("subfolders off")));
+        assert!(
+            super::is_known_command(&words("slideshow"))
+                && super::is_known_command(&words("slideshow off"))
+        );
+        assert!(
+            !super::is_known_command(&words("slideshow yes"))
+                && !super::is_known_command(&words("random on off"))
+        );
+        assert!(
+            !super::is_known_command(&words("subfolders yes"))
+                && !super::is_known_command(&words("subfolders on off"))
+        );
+        assert!(!super::is_known_command(&[]));
     }
 
     /// The runtime folder is used when it is the user's own folder or not there yet. It is not
@@ -956,14 +977,14 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("glimt-test-runtime-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let uid = std::fs::metadata(&dir).unwrap().uid();
-        assert!(super::own_or_none(&dir, uid));
-        assert!(!super::own_or_none(&dir, uid + 1));
-        assert!(super::own_or_none(&dir.join("none"), uid));
+        assert!(super::is_own_or_missing(&dir, uid));
+        assert!(!super::is_own_or_missing(&dir, uid + 1));
+        assert!(super::is_own_or_missing(&dir.join("none"), uid));
         let link = dir.join("link");
         std::os::unix::fs::symlink(&dir, &link).unwrap();
-        assert!(!super::own_or_none(&link, uid));
+        assert!(!super::is_own_or_missing(&link, uid));
         std::fs::write(dir.join("file"), "").unwrap();
-        assert!(!super::own_or_none(&dir.join("file"), uid));
+        assert!(!super::is_own_or_missing(&dir.join("file"), uid));
         std::fs::remove_dir_all(dir).unwrap();
     }
 
@@ -971,7 +992,7 @@ mod tests {
     /// too. The window is asked again until no client is left, not only waited for.
     #[test]
     fn answers_a_query_that_comes_while_closing() {
-        let mut client = Some(super::Answering::new());
+        let mut client = Some(super::UnfinishedAnswer::new());
         let (query, queries) = std::sync::mpsc::channel();
         std::thread::spawn(move || {
             std::thread::sleep(std::time::Duration::from_millis(50));
@@ -994,15 +1015,15 @@ mod tests {
     #[test]
     fn sees_a_client_queued_for_accept() {
         let path = std::env::temp_dir().join(format!("glimt-queued-{}.sock", std::process::id()));
-        let listener = super::claim(&path).unwrap();
+        let listener = super::bind_socket(&path).unwrap();
         let fd = std::os::fd::AsRawFd::as_raw_fd(&listener);
-        assert!(!super::queued(fd));
+        assert!(!super::has_waiting_client(fd));
         let _client = std::os::unix::net::UnixStream::connect(&path).unwrap();
         std::fs::remove_file(&path).unwrap();
-        assert!(super::queued(fd));
+        assert!(super::has_waiting_client(fd));
         let _served = listener.accept().unwrap();
-        assert!(!super::queued(fd));
-        assert!(!super::queued(-1));
+        assert!(!super::has_waiting_client(fd));
+        assert!(!super::has_waiting_client(-1));
         let _ = std::fs::remove_file(path.with_extension("lock"));
     }
 
@@ -1039,7 +1060,7 @@ mod tests {
         // program, so it can answer a moment longer, as in `claims_only_a_left_socket`.
         let passed_over = (0..50).any(|_| {
             std::thread::sleep(std::time::Duration::from_millis(20));
-            super::live(Some(dir.clone())) == [answering.clone()]
+            super::live_sockets(Some(dir.clone())) == [answering.clone()]
         });
         assert!(passed_over);
         assert!(quiet.exists());
@@ -1050,14 +1071,14 @@ mod tests {
     #[test]
     fn claims_only_a_left_socket() {
         let path = std::env::temp_dir().join(format!("glimt-claim-{}.sock", std::process::id()));
-        let first = super::claim(&path).unwrap();
-        assert!(super::claim(&path).is_err_and(|e| e.is_none()));
+        let first = super::bind_socket(&path).unwrap();
+        assert!(super::bind_socket(&path).is_err_and(|e| e.is_none()));
         drop(first);
         // A process another test starts holds a copy of the socket until it runs its program,
         // so it can answer a moment longer.
         let taken = (0..50).any(|_| {
             std::thread::sleep(std::time::Duration::from_millis(20));
-            super::claim(&path).is_ok()
+            super::bind_socket(&path).is_ok()
         });
         assert!(taken);
         std::fs::remove_file(path.with_extension("lock")).unwrap();

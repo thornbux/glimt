@@ -1,8 +1,8 @@
-//! What tests start from. `app_on` makes an `App` on a folder without a window, `settle` runs
-//! its background work until a condition holds, and `contract_folder` makes the folder the file
-//! operations' contract works on. `broken` gives damaged forms of a good input for the parsers'
-//! `survives_broken_*` tests. `png_with_raw_profile` writes a PNG with its EXIF only in a text
-//! chunk.
+//! What tests start from. `app_on` makes an `App` on a folder without a window,
+//! `run_background_until` runs its background work until a condition holds, and `contract_folder`
+//! makes the folder the file operations' contract works on. `broken` gives damaged forms of a good
+//! input for the parsers' `survives_broken_*` tests. `png_with_raw_profile` writes a PNG with its
+//! EXIF only in a text chunk.
 
 /// The EXIF block of a photo of a Canon taken on 2020:01:02 at 03:04:05, stored turned a
 /// quarter (orientation 6), big-endian.
@@ -65,8 +65,9 @@ pub(crate) fn contract_folder(name: &str) -> std::path::PathBuf {
     dir
 }
 
-/// Run the window's background work until `done` holds, at most five seconds.
-pub(crate) fn settle(
+/// Runs the window's background work until `done` holds, for at most five seconds. Returns
+/// whether it held.
+pub(crate) fn run_background_until(
     app: &mut crate::App,
     ctx: &eframe::egui::Context,
     done: impl Fn(&crate::App) -> bool,

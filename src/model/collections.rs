@@ -15,7 +15,7 @@ use std::path::{Path, PathBuf};
 
 /// Plain lists of images, as a script or a music player writes them: one path on each line,
 /// relative to the list or absolute, `#` for comments. Opened as a collection, never written.
-const LISTS: &[&str] = &["txt", "m3u", "m3u8"];
+const LIST_EXTS: &[&str] = &["txt", "m3u", "m3u8"];
 
 impl crate::App {
     /// The collection shown is a plain list (.txt, .m3u), which Glimt reads but never writes.
@@ -32,7 +32,7 @@ impl crate::App {
         };
         // shortcut: read and written in the UI thread, small text files; move to
         // file_io::write_later if collections of hundreds of thousands are edited.
-        if let Err(e) = edit_told(file, change) {
+        if let Err(e) = edit_open_collection(file, change) {
             self.notice = Some(e);
         }
     }
@@ -69,7 +69,7 @@ impl crate::App {
             self.notice = Some(tr("Random order is on: R turns it off to move images").into());
             return;
         }
-        let shown = self.list.files().get(self.list.cur()).cloned();
+        let shown = self.list.files().get(self.list.shown()).cloned();
         // The images moved stay selected when they were, and so do the selected images that the
         // search hides. A row dragged from outside the selection takes the selection's place, as a
         // click on it would, so the hidden selected images are let go with the rest. That is so
@@ -113,7 +113,7 @@ impl crate::App {
             return;
         }
         let folder = (!self.list.files().is_empty())
-            .then(|| self.path(self.list.cur()))
+            .then(|| self.path(self.list.shown()))
             .and_then(|p| p.parent().map(Path::to_path_buf));
         if let Some(folder) = folder.or_else(std::env::home_dir) {
             self.visit(ctx, folder);
@@ -149,7 +149,7 @@ impl crate::App {
             ui,
             iconed(ui, theme::icon::STACK, tr("Collections")),
             |ui| {
-                let all = list();
+                let all = saved_collections();
                 if all.is_empty() {
                     ui.label(tr("No collections yet"));
                 }
@@ -165,7 +165,7 @@ impl crate::App {
                 ui,
                 iconed(ui, theme::icon::STACK_PLUS, tr("Add to Collection")),
                 |ui| {
-                    let all = list();
+                    let all = saved_collections();
                     if all.is_empty() {
                         ui.label(tr("No collections yet"));
                     }
@@ -218,7 +218,7 @@ impl crate::App {
 }
 
 /// Where new collections go.
-pub fn dir() -> Option<PathBuf> {
+pub fn collections_dir() -> Option<PathBuf> {
     crate::files::config::xdg_dir("XDG_DATA_HOME", ".local/share", "glimt")
         .map(|d| d.join("collections"))
 }
@@ -226,19 +226,19 @@ pub fn dir() -> Option<PathBuf> {
 /// A `.gqv` collection, or a plain list: what opens as a list of images from any folders.
 pub fn is_collection(path: &Path) -> bool {
     path.extension().is_some_and(|e| {
-        e.eq_ignore_ascii_case("gqv") || LISTS.iter().any(|l| e.eq_ignore_ascii_case(l))
+        e.eq_ignore_ascii_case("gqv") || LIST_EXTS.iter().any(|l| e.eq_ignore_ascii_case(l))
     }) && path.is_file()
 }
 
 /// Whether `file` is a plain list, which Glimt shows but never writes: a change in the window
 /// (an image taken out, another order) stays there.
 pub fn is_list(file: &Path) -> bool {
-    (file.extension()).is_some_and(|e| LISTS.iter().any(|l| e.eq_ignore_ascii_case(l)))
+    (file.extension()).is_some_and(|e| LIST_EXTS.iter().any(|l| e.eq_ignore_ascii_case(l)))
 }
 
 /// The saved collections: (name, file), by name.
-pub fn list() -> Vec<(String, PathBuf)> {
-    let entries = dir().and_then(|d| std::fs::read_dir(d).ok());
+pub fn saved_collections() -> Vec<(String, PathBuf)> {
+    let entries = collections_dir().and_then(|d| std::fs::read_dir(d).ok());
     let mut all: Vec<(String, PathBuf)> = (entries.into_iter().flatten().flatten())
         .map(|e| e.path())
         .filter(|p| p.extension().is_some_and(|e| e == "gqv"))
@@ -249,7 +249,7 @@ pub fn list() -> Vec<(String, PathBuf)> {
 }
 
 /// `name` trimmed, if it can be the name of a collection's file.
-fn valid(name: &str) -> Result<&str, String> {
+fn valid_collection_name(name: &str) -> Result<&str, String> {
     let name = name.trim();
     match name.is_empty() || name.contains('/') || name.starts_with('.') {
         true => Err(tf!("Not a valid collection name: \"{name}\"", name)),
@@ -259,8 +259,8 @@ fn valid(name: &str) -> Result<&str, String> {
 
 /// The file of a new collection called `name`, or why there can be none.
 pub fn new_file(name: &str) -> Result<PathBuf, String> {
-    let name = valid(name)?;
-    let file = dir()
+    let name = valid_collection_name(name)?;
+    let file = collections_dir()
         .ok_or(tr("no data folder ($HOME is not set)"))?
         .join(format!("{name}.gqv"));
     match file.exists() {
@@ -271,7 +271,7 @@ pub fn new_file(name: &str) -> Result<PathBuf, String> {
 
 /// Give the collection in `file` the name `name`, in the same folder. Returns the new file.
 pub fn rename(file: &Path, name: &str) -> Result<PathBuf, String> {
-    let name = valid(name)?;
+    let name = valid_collection_name(name)?;
     // Under the collection's lock, as every edit of it: another window's edit lands before or
     // after the rename, never in between, where it would make the old name again.
     #[allow(clippy::disallowed_methods)] // a collection's own lock, as edit
@@ -317,7 +317,7 @@ fn parse_list(text: &[u8], base: &Path) -> Vec<PathBuf> {
                 let path = PathBuf::from(OsStr::from_bytes(&percent_decoded(uri)));
                 path.is_absolute().then_some(path)
             }
-            None => Some(lexical(&base.join(OsStr::from_bytes(line)))),
+            None => Some(lexically_normal(&base.join(OsStr::from_bytes(line)))),
         })
         .filter(|p| seen.insert(p.clone()))
         .collect()
@@ -326,7 +326,7 @@ fn parse_list(text: &[u8], base: &Path) -> Vec<PathBuf> {
 /// `path` with its `.` and `..` worked out as written, without looking at the disk: the same
 /// image named "../Pictures/a.jpg" in a list is "/home/u/Pictures/a.jpg", the key its stars are
 /// kept by when it is shown from its folder.
-fn lexical(path: &Path) -> PathBuf {
+fn lexically_normal(path: &Path) -> PathBuf {
     use std::path::Component;
     let mut out = PathBuf::new();
     for part in path.components() {
@@ -366,7 +366,10 @@ pub fn percent_decoded(uri: &[u8]) -> Vec<u8> {
 /// plain list (.m3u, .txt) is the user's own and is never written, so nothing happens. A file
 /// renamed or moved to the trash in another window since it was opened is not made again under
 /// its old name. This is the one way an operation edits the open collection.
-pub(crate) fn edit_told(file: &Path, change: impl FnOnce(&mut Vec<PathBuf>)) -> Result<(), String> {
+pub(crate) fn edit_open_collection(
+    file: &Path,
+    change: impl FnOnce(&mut Vec<PathBuf>),
+) -> Result<(), String> {
     if is_list(file) {
         return Ok(());
     }
@@ -410,7 +413,7 @@ pub fn edit(file: &Path, new: bool, change: impl FnOnce(&mut Vec<PathBuf>)) -> s
         .collect();
     // Written whole or not at all; a new one never lands over a collection another window made
     // meanwhile. What else the file held (Geeqie's #geometry line) goes back in.
-    let out = to_text(&all, &other_lines(&text));
+    let out = to_text(&all, &non_entry_lines(&text));
     // A collection opened from a downloaded folder may be a link to another file of the user's.
     // The link itself is replaced, so the file it points to is never written over.
     match was_new {
@@ -447,7 +450,7 @@ pub fn by_real_path(entries: &[PathBuf]) -> Vec<(PathBuf, &PathBuf)> {
 /// lines (#geometry, its comments) stay as they were when Glimt edits one of its collections.
 /// Only lines starting with `#` are kept: a collection that is a link to another file of the
 /// user's would else copy that file's text into the collection written in the link's place.
-fn other_lines(text: &[u8]) -> Vec<&[u8]> {
+fn non_entry_lines(text: &[u8]) -> Vec<&[u8]> {
     let ours = |line: &[u8]| {
         line.is_empty()
             || line.starts_with(b"#GQview collection")
@@ -642,13 +645,17 @@ mod tests {
         let a = dir.join("a.png");
         image::RgbImage::new(2, 2).save(&a).unwrap();
         let (mut app, ctx) = crate::support::test_support::app_on(&dir);
-        assert!(crate::support::test_support::settle(&mut app, &ctx, |a| !a
-            .folder
-            .is_listing()));
+        assert!(crate::support::test_support::run_background_until(
+            &mut app,
+            &ctx,
+            |a| !a.folder.is_listing()
+        ));
         let file = dir.join("trip.gqv");
         app.add_to_collection(&ctx, &file);
         let told = |app: &crate::App| app.notice.as_deref().is_some_and(|n| n.contains("trip"));
-        assert!(crate::support::test_support::settle(&mut app, &ctx, told));
+        assert!(crate::support::test_support::run_background_until(
+            &mut app, &ctx, told
+        ));
         assert_eq!(super::load(&file).unwrap(), [a]);
         std::fs::remove_dir_all(dir).unwrap();
     }

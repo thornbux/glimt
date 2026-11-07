@@ -172,7 +172,7 @@ impl crate::App {
             self.save_meta(ctx);
             let shown = Some((
                 self.viewing.turned_file().to_path_buf(),
-                self.viewing.orient(),
+                self.viewing.turn(),
             ));
             if self.config.save_orientation && self.window.close_saved != shown {
                 self.window.close_saved = shown;
@@ -327,12 +327,12 @@ impl crate::App {
     /// are all empty.
     pub(crate) fn title_text(&self) -> String {
         let (name, path) = match (
-            self.list.files().get(self.list.cur()),
+            self.list.files().get(self.list.shown()),
             self.folder.collection(),
         ) {
             (Some(_), _) => (
-                self.name(self.list.cur()).into_owned(),
-                self.path(self.list.cur()).display().to_string(),
+                self.name(self.list.shown()).into_owned(),
+                self.path(self.list.shown()).display().to_string(),
             ),
             (None, Some(file)) => (file.display().to_string(), file.display().to_string()),
             (None, None) => (
@@ -341,8 +341,8 @@ impl crate::App {
             ),
         };
         // The shown image's own folder: a collection and several folders are listed as "/".
-        let folder = match self.list.files().get(self.list.cur()) {
-            Some(_) => self.path(self.list.cur()).parent().map(Path::to_path_buf),
+        let folder = match self.list.files().get(self.list.shown()) {
+            Some(_) => self.path(self.list.shown()).parent().map(Path::to_path_buf),
             None => self
                 .folder
                 .collection()
@@ -443,7 +443,7 @@ fn window_shown(ctx: &egui::Context) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use crate::support::test_support::{app_on, contract_folder, settle};
+    use crate::support::test_support::{app_on, contract_folder, run_background_until};
 
     /// A kiosk that may close lets Quit through, but still refuses what changes the settings.
     #[test]
@@ -498,16 +498,16 @@ mod tests {
     fn hides_the_pointer_only_when_nothing_goes_on() {
         let dir = contract_folder("pointer");
         let (mut app, ctx) = app_on(&dir);
-        assert!(settle(&mut app, &ctx, |a| !a.working()));
+        assert!(run_background_until(&mut app, &ctx, |a| !a.working()));
         app.config.hide_pointer = true;
         assert!(app.pointer_hides(true));
         assert!(!app.pointer_hides(false));
         let job = crate::support::threads::Working::new(&app.busy);
         assert!(!app.pointer_hides(true));
         drop(job);
-        app.list(&ctx);
+        app.start_listing(&ctx);
         assert!(app.folder.is_listing() && !app.pointer_hides(true));
-        assert!(settle(&mut app, &ctx, |a| a.pointer_hides(true)));
+        assert!(run_background_until(&mut app, &ctx, |a| a.pointer_hides(true)));
         app.prefs.show();
         assert!(!app.pointer_hides(true));
         app.prefs = Default::default();
@@ -526,7 +526,7 @@ mod tests {
         crate::files::file_io::create_file(&dir.join("a.png"), b"not a PNG").unwrap();
         let (mut app, ctx) = app_on(&dir);
         app.config.save_orientation = true;
-        app.viewing.turn((1, false), dir.join("a.png"));
+        app.viewing.set_turn((1, false), dir.join("a.png"));
         let close = |app: &mut crate::App| {
             let info = ViewportInfo {
                 events: vec![ViewportEvent::Close],
@@ -545,14 +545,14 @@ mod tests {
         assert!(app.file_operations.is_saving(&a));
         // The save's thread lets go of the file just after it tells the result.
         let over = |app: &crate::App| !app.file_operations.is_saving(&a);
-        assert!(settle(&mut app, &ctx, over));
+        assert!(run_background_until(&mut app, &ctx, over));
         close(&mut app);
         assert!(!app.file_operations.is_saving(&a));
         // A turn made after that, while the window waits for other work, is saved.
-        app.viewing.turn((2, false), a.clone());
+        app.viewing.set_turn((2, false), a.clone());
         close(&mut app);
         assert!(app.file_operations.is_saving(&a));
-        assert!(settle(&mut app, &ctx, over));
+        assert!(run_background_until(&mut app, &ctx, over));
         std::fs::remove_dir_all(dir).unwrap();
     }
 

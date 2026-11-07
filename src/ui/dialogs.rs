@@ -79,17 +79,21 @@ pub(crate) enum Prompt {
 /// and a dialog about files opens only with one. So no such dialog opens without the files its
 /// answer acts on.
 pub(crate) struct Asked {
-    place: u64,
+    opened_folder_hash: u64,
     names: Vec<OsString>,
     left_out: Option<String>,
 }
 
 impl Asked {
-    /// The files `names` asked about while the list was at `place`, with `left_out`, the text
-    /// that tells of the selected files the question leaves out.
-    pub(crate) fn new(place: u64, names: Vec<OsString>, left_out: Option<String>) -> Asked {
+    /// The files `names` asked about while the list showed what `opened_folder_hash` stands
+    /// for, with `left_out`, the text that tells of the selected files the question leaves out.
+    pub(crate) fn new(
+        opened_folder_hash: u64,
+        names: Vec<OsString>,
+        left_out: Option<String>,
+    ) -> Asked {
         Asked {
-            place,
+            opened_folder_hash,
             names,
             left_out,
         }
@@ -193,7 +197,7 @@ impl Dialogs {
 
     /// Keeps the files `asked` for the dialog that opens about them.
     fn keep(&mut self, asked: Asked) {
-        self.asked_for = (asked.place, asked.names);
+        self.asked_for = (asked.opened_folder_hash, asked.names);
         self.asked_left_out = asked.left_out;
     }
 
@@ -382,7 +386,7 @@ impl crate::App {
             )),
             Pick::SaveAs(_, _, start) => start.clone(),
             // Made first: the file dialog cannot start in a folder that is not there.
-            Pick::Collection => (collections::dir())
+            Pick::Collection => (collections::collections_dir())
                 .inspect(|d| drop(std::fs::create_dir_all(d)))
                 .unwrap_or_default()
                 .join(""),
@@ -625,21 +629,21 @@ impl crate::App {
                 return;
             };
             match prompt {
-                Prompt::Rename => self.go(ctx, found[0]),
+                Prompt::Rename => self.show_file(ctx, found[0]),
                 _ if !self.select_for_action(ctx, found.into_iter().collect()) => return,
                 _ => {}
             }
         }
         if matches!(prompt, Prompt::Rename)
             && !self.list.files().is_empty()
-            && !self.are_free_to_change(&[self.path(self.list.cur())])
+            && !self.are_free_to_change(&[self.path(self.list.shown())])
         {
             return;
         }
         // A renamed file stays in its own folder, also a subfolder in the list with subfolders.
         let target = match prompt {
             Prompt::Rename if !self.list.files().is_empty() => {
-                self.path(self.list.cur()).with_file_name(text)
+                self.path(self.list.shown()).with_file_name(text)
             }
             Prompt::NewFolder => match self.dialogs.take_folder() {
                 Some(dir) => dir.join(text),
@@ -664,7 +668,7 @@ impl crate::App {
                 });
             }
             Prompt::Rename if self.list.files().is_empty() => {}
-            Prompt::Rename if target == self.path(self.list.cur()) => {}
+            Prompt::Rename if target == self.path(self.list.shown()) => {}
             Prompt::RenameMany => self.rename_many(ctx, text),
             Prompt::NewCollection
             | Prompt::RenameCollection
@@ -674,7 +678,7 @@ impl crate::App {
             // As Rename Many: in its thread, never over a file or another file's sidecar
             // there; `renamed` puts the list right.
             Prompt::Rename => {
-                self.rename_in_background(ctx, vec![self.path(self.list.cur())], vec![target]);
+                self.rename_in_background(ctx, vec![self.path(self.list.shown())], vec![target]);
             }
         }
     }
@@ -1058,7 +1062,9 @@ mod tests {
         image::RgbImage::new(2, 2).save(d.join("a.png")).unwrap();
         let (mut app, ctx) = app_on(&d);
         let listed = |a: &crate::App| !a.list.files().is_empty();
-        assert!(crate::support::test_support::settle(&mut app, &ctx, listed));
+        assert!(crate::support::test_support::run_background_until(
+            &mut app, &ctx, listed
+        ));
         test_mount(&d, Some("ext4"));
         let asked = app.ask_about_targets().unwrap();
         app.ask_rename_many(asked);
@@ -1140,7 +1146,9 @@ mod tests {
         image::RgbImage::new(2, 2).save(dir.join("a.png")).unwrap();
         let (mut app, ctx) = app_on(&dir);
         let listed = |a: &crate::App| !a.list.files().is_empty();
-        assert!(crate::support::test_support::settle(&mut app, &ctx, listed));
+        assert!(crate::support::test_support::run_background_until(
+            &mut app, &ctx, listed
+        ));
         // Each key is pressed and let go in one frame. None is a frame without a key.
         let press = |app: &mut crate::App, key: Option<egui::Key>| {
             let event = |key, pressed| egui::Event::Key {
@@ -1174,7 +1182,9 @@ mod tests {
             app.dialogs.confirm_delete.is_none(),
             "Cancel did not answer"
         );
-        assert!(crate::support::test_support::settle(&mut app, &ctx, done));
+        assert!(crate::support::test_support::run_background_until(
+            &mut app, &ctx, done
+        ));
         assert!(
             dir.join("a.png").exists(),
             "Enter on Cancel deleted the file"
@@ -1184,7 +1194,9 @@ mod tests {
         press(&mut app, None);
         app.run(&ctx, crate::ui::actions::Action::DeletePermanently);
         press(&mut app, Some(egui::Key::Enter));
-        assert!(crate::support::test_support::settle(&mut app, &ctx, done));
+        assert!(crate::support::test_support::run_background_until(
+            &mut app, &ctx, done
+        ));
         assert!(
             !dir.join("a.png").exists(),
             "Enter with no focus did not delete"
@@ -1278,18 +1290,24 @@ mod tests {
             std::fs::rename(dir.join("a.png"), dir.join(name)).unwrap();
             let (mut app, ctx) = app_on(&dir);
             let listed = |a: &crate::App| !a.list.files().is_empty();
-            assert!(crate::support::test_support::settle(&mut app, &ctx, listed));
+            assert!(crate::support::test_support::run_background_until(
+                &mut app, &ctx, listed
+            ));
             app.run(&ctx, crate::ui::actions::Action::Rename);
             app.dialogs.ask_rename_folder(&dir.join("trip "));
             let (prompt, text) = app.dialogs.prompt.take().unwrap();
             app.prompt_answered(&ctx, prompt, &text);
             let done = |a: &crate::App| !a.working_besides_image();
-            assert!(crate::support::test_support::settle(&mut app, &ctx, done));
+            assert!(crate::support::test_support::run_background_until(
+                &mut app, &ctx, done
+            ));
             assert!(dir.join("trip ").is_dir(), "the folder was renamed");
             app.run(&ctx, crate::ui::actions::Action::Rename);
             let (prompt, text) = app.dialogs.prompt.take().unwrap();
             app.prompt_answered(&ctx, prompt, &text);
-            assert!(crate::support::test_support::settle(&mut app, &ctx, done));
+            assert!(crate::support::test_support::run_background_until(
+                &mut app, &ctx, done
+            ));
             assert!(dir.join(name).is_file(), "{name:?} was renamed");
         }
         std::fs::remove_dir_all(&dir).unwrap();
@@ -1327,15 +1345,15 @@ mod tests {
             crate::support::lang::tr("The search hides files this would act on: clear it first");
         assert_eq!(app.notice.as_deref(), Some(hides));
         assert_eq!(app.list.selected_with_hidden(), [0, 1].into());
-        let dir_of = crate::model::collections::dir().unwrap();
+        let dir_of = crate::model::collections::collections_dir().unwrap();
         assert!(!dir_of.join(format!("{other}.gqv")).exists());
         app.list.set_matches(None);
         // The collection is written in the background, and removed once it is.
-        let file = crate::model::collections::dir()
+        let file = crate::model::collections::collections_dir()
             .unwrap()
             .join(format!("{name}.gqv"));
         let written = |a: &crate::App| !a.working_besides_image();
-        assert!(crate::support::test_support::settle(
+        assert!(crate::support::test_support::run_background_until(
             &mut app, &ctx, written
         ));
         std::fs::remove_file(&file).unwrap();
@@ -1443,7 +1461,9 @@ mod tests {
         image::RgbImage::new(2, 2).save(dir.join("a.png")).unwrap();
         let (mut app, ctx) = app_on(&dir);
         let listed = |a: &crate::App| !a.list.files().is_empty();
-        assert!(crate::support::test_support::settle(&mut app, &ctx, listed));
+        assert!(crate::support::test_support::run_background_until(
+            &mut app, &ctx, listed
+        ));
         app.run(&ctx, Action::Rename);
         let prompt = |app: &mut crate::App, ctx: &egui::Context| app.prompt_dialog(ctx);
         frame(&mut app, &ctx, None, prompt);

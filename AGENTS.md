@@ -104,7 +104,7 @@ holds only its `mod` lines, and a new module goes into the folder of what it doe
 | `src/main.rs` | The app: `App` and its parts (each a struct in the module whose code uses it, such as `slideshow::Slideshow` or `file_ops::FileOperations`), starting up, the frame (`eframe::App`) and `main()`. The window's parts are each in a module of their own below, as `impl crate::App` blocks |
 | `src/cli.rs` | The command line: the start options (`Start`, `START_OPTIONS`) and the commands that answer without a window (`answered`: --help, --version, --check-config, --back-up) |
 | `src/model.rs` | **The model/ folder:** what is open: the file list, listing and opening folders and collections, the search and the selection |
-| `src/model/list.rs` | The model of what is open: `List`, the file list with everything that holds a place in it, and `Slot`, an image decoded for the view |
+| `src/model/list.rs` | The model of what is open: `List`, the file list with everything that holds a place in it, and `LoadedImage`, an image decoded for the view |
 | `src/model/folder.rs` | Opening a folder, a collection or several folders, listing them, following changes, the sizes summed for the status bar (`send_sizes`, `receive_sizes`) |
 | `src/model/selection.rs` | Moving through the list (next, previous, a page, random) and the selection |
 | `src/model/listing.rs` | Image extensions, reading a folder or tree, sorting (`Sort`, `natural_cmp`), the Types menu, `pattern_name` for Rename Many |
@@ -131,7 +131,7 @@ holds only its `mod` lines, and a new module goes into the folder of what it doe
 | `src/features.rs` | **The features/ folder:** features with a window or a job of their own: Find Duplicates, Check Images, printing, plugins and remote control |
 | `src/features/check.rs` | File → Check Images: every image decoded in the background, the broken ones listed |
 | `src/features/duplicates.rs` | Find Duplicates: groups by checksum, name, size, dimensions or likeness, and its window |
-| `src/features/plugins.rs` | Plugins: desktop files whose command runs on the selected files; `desktop_files` and `values`, which decoder_plugins.rs reads with too |
+| `src/features/plugins.rs` | Plugins: desktop files whose command runs on the selected files; `desktop_files` and `desktop_entry_values`, which decoder_plugins.rs reads with too |
 | `src/features/print.rs` | Printing: a PDF of the images, sent to `lp` or saved, and the print dialog |
 | `src/features/remote.rs` | `--remote`, `--remote-all` and `--name`: a socket for each Glimt in `$XDG_RUNTIME_DIR/glimt`, `COMMANDS`, the sender (`client`) and the listener |
 | `src/images.rs` | **The images/ folder:** from a file to pixels and back: decoding, RAW, colour, video, decoder plugins, thumbnails and saving |
@@ -159,7 +159,7 @@ holds only its `mod` lines, and a new module goes into the folder of what it doe
 | `src/files/journal.rs` | Rename Many's steps on disk while they run, put right at the next start after a crash |
 | `src/support.rs` | **The support/ folder:** what the rest is built on: threads, text for the user, the languages, and what the tests use |
 | `src/support/test_hooks.rs` | The release tests' hook (feature `test-hooks`): where a widget with a text was drawn, for `glimt --remote where LABEL`, and `noted`, which every widget the tests click goes through |
-| `src/support/test_support.rs` | What tests start from, built only for tests: `app_on` (a `crate::App` on a folder without a window), `settle`, `contract_folder`, and `broken` for the parsers' `survives_broken_*` tests; each module's tests use them, so a test sits beside the code it tests |
+| `src/support/test_support.rs` | What tests start from, built only for tests: `app_on` (a `crate::App` on a folder without a window), `run_background_until`, `contract_folder`, and `broken` for the parsers' `survives_broken_*` tests; each module's tests use them, so a test sits beside the code it tests |
 | `src/support/threads.rs` | How many threads for each kind of work (the CPU use level, `background_threads`, `thumb_threads`, `small_alloc_threads`), `in_parts`, `Receiving`/`Took` for a background thread's answer, `Working` for work counted while it runs |
 | `src/support/format.rs` | Text for the user: `human_size`, `size_text`, `thousands`, `count`, `middle_cut`, `local_time` (the trash's date form too), `fill_template` |
 | `src/support/lang.rs` | The interface's languages: the `.po` files, `tr`/`tf!`, each language's plural rule |

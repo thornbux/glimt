@@ -5,7 +5,7 @@
 use crate::files::config::Config;
 use crate::files::external::is_video;
 use crate::images::decode::{Decoded, catch_panic, decode, histogram};
-use crate::model::list::Slot;
+use crate::model::list::LoadedImage;
 use crate::support::format::fill_template;
 use crate::support::lang::tr;
 use crate::support::test_hooks::noted;
@@ -246,7 +246,7 @@ impl Zoom {
     }
 }
 
-/// What belongs to the image shown, beside its place in the list (`List.cur`). That is the page
+/// What belongs to the image shown, beside its place in the list (`List.shown`). That is the page
 /// of a TIFF, the frame of an animation stepped to, the turn not saved yet and the file it
 /// belongs to, and the part being cropped. It is made anew as a whole when the image is left
 /// (`leave_image`), as `List` is when the list is read again, so nothing of one image stays for
@@ -258,11 +258,11 @@ pub(crate) struct Viewing {
     /// The frame of an animation stepped to with Ctrl+Page Up/Down. It is `None` while the
     /// animation plays.
     frame: Option<usize>,
-    /// The orientation of the shown image, for viewing only, as quarter turns clockwise. They
-    /// apply after mirroring when the flag is set. It is reset for each image, as in Geeqie.
-    orient: (u8, bool),
-    /// The file `orient` belongs to, set when it is turned. The turn is saved into that file
-    /// even when the list changed meanwhile and another file is at `cur`.
+    /// The turn of the shown image, for viewing only, as quarter turns clockwise. They apply
+    /// after mirroring when the flag is set. It is reset for each image, as in Geeqie.
+    turn: (u8, bool),
+    /// The file `turn` belongs to, set when it is turned. The turn is saved into that file
+    /// even when the list changed meanwhile and another file is at `shown`.
     turned: PathBuf,
     /// The part of the shown image being chosen with Edit → Crop.
     crop: Option<Crop>,
@@ -271,23 +271,23 @@ pub(crate) struct Viewing {
 impl Viewing {
     /// The turn of the shown image, as quarter turns clockwise, after mirroring when the flag is
     /// set.
-    pub(crate) fn orient(&self) -> (u8, bool) {
-        self.orient
+    pub(crate) fn turn(&self) -> (u8, bool) {
+        self.turn
     }
 
     /// Whether the shown image is turned or mirrored by hand.
     pub(crate) fn is_turned(&self) -> bool {
-        self.orient != (0, false)
+        self.turn != (0, false)
     }
 
     /// Whether it is turned a quarter, so its width and height swap.
     pub(crate) fn is_sideways(&self) -> bool {
-        self.orient.0 % 2 == 1
+        self.turn.0 % 2 == 1
     }
 
     /// Drops the turn, because the file was written as it is shown, or changed elsewhere.
     pub(crate) fn drop_turn(&mut self) {
-        self.orient = (0, false);
+        self.turn = (0, false);
     }
 
     /// The file the turn belongs to.
@@ -348,8 +348,8 @@ impl Viewing {
 /// For tests of other modules, which start from an image turned by hand.
 #[cfg(test)]
 impl Viewing {
-    pub(crate) fn turn(&mut self, orient: (u8, bool), file: PathBuf) {
-        self.orient = orient;
+    pub(crate) fn set_turn(&mut self, turn: (u8, bool), file: PathBuf) {
+        self.turn = turn;
         self.turned = file;
     }
 }
@@ -360,7 +360,11 @@ impl crate::App {
     /// Ask the decoders for file `idx` at the size shown, or at full resolution, unless it is
     /// there, failed or asked for already.
     pub(crate) fn request(&mut self, idx: usize, full: bool) {
-        let have = self.list.slots().get(&idx).is_some_and(|s| s.full || !full);
+        let have = self
+            .list
+            .loaded_images()
+            .get(&idx)
+            .is_some_and(|s| s.is_full_resolution || !full);
         if !have
             && !self.list.decode_errors().contains_key(&idx)
             && !self.list.decodes_pending().contains_key(&(idx, full))
@@ -374,7 +378,7 @@ impl crate::App {
             self.list
                 .ask_decode((idx, full), (self.decoding.sent, path.clone(), max));
             // The neighbours are preloaded at their first page.
-            let page = if idx == self.list.cur() {
+            let page = if idx == self.list.shown() {
                 self.viewing.page
             } else {
                 0
@@ -399,20 +403,20 @@ impl crate::App {
         }
         self.fill_panes();
         // The shown image first, then its neighbours in the order the list shows.
-        let (cur, ahead) = (
-            self.list.cur(),
+        let (shown, ahead) = (
+            self.list.shown(),
             self.decoding.preload.load(Ordering::Relaxed) as isize,
         );
-        let mut window = vec![cur];
+        let mut window = vec![shown];
         // The compared image comes second, because it may be loaded at full resolution too.
-        let other = self.compare_other().filter(|&i| i != cur);
+        let other = self.compare_other().filter(|&i| i != shown);
         window.extend(other);
         // The other panes, which may be zoomed too, and the images a slideshow shows in them next.
         window.extend(
             self.list
                 .panes()
                 .iter()
-                .filter(|&&i| i != cur && Some(i) != other),
+                .filter(|&&i| i != shown && Some(i) != other),
         );
         let full = window.len();
         self.decoding.full_ok.store(full, Ordering::Relaxed);
@@ -435,8 +439,9 @@ impl crate::App {
                 window.push(i);
             }
         }
-        self.list
-            .keep_slots(|i, s| window.contains(i) && (!s.full || window[..full].contains(i)));
+        self.list.keep_loaded_images(|i, s| {
+            window.contains(i) && (!s.is_full_resolution || window[..full].contains(i))
+        });
         *self.decoding.keep.lock().unwrap() = window.clone();
         for i in window {
             self.request(i, false);
@@ -459,18 +464,24 @@ impl crate::App {
             let decoded_for = (self.list.take_decode((idx, full))).map_or([0; 2], |j| j.2);
             let wanted = self.is_file(idx, &d.path)
                 && d.rotated == self.config.exif_rotate
-                && d.page == if idx == self.list.cur() { self.viewing.page } else { 0 }
+                && d.page == if idx == self.list.shown() { self.viewing.page } else { 0 }
                 && self.decoding.keep.lock().unwrap().contains(&idx)
                 // Full resolution is kept for each image on screen: the shown one, the compared
                 // one and the panes of a layout, which zoom together.
                 && (!full
-                    || idx == self.list.cur()
+                    || idx == self.list.shown()
                     || Some(idx) == self.compare_other()
                     || self.list.panes().contains(&idx));
             match d.result {
                 Some(Ok((frames, orig, hist, pages))) if wanted => {
                     // A screen-size version must not replace a full-resolution one already loaded.
-                    if !full && self.list.slots().get(&idx).is_some_and(|s| s.full) {
+                    if !full
+                        && self
+                            .list
+                            .loaded_images()
+                            .get(&idx)
+                            .is_some_and(|s| s.is_full_resolution)
+                    {
                         continue;
                     }
                     let mut anim: Vec<_> = (frames.into_iter().enumerate())
@@ -486,29 +497,33 @@ impl crate::App {
                     if anim.len() == 1 {
                         anim.clear();
                     }
-                    self.list.keep_slot(
+                    self.list.keep_loaded_image(
                         idx,
-                        Slot {
-                            tex,
+                        LoadedImage {
+                            texture: tex,
                             path: d.path,
-                            full,
-                            orig,
-                            anim,
-                            hist,
+                            is_full_resolution: full,
+                            original_size: orig,
+                            frames: anim,
+                            histogram: hist,
                             pages,
                             decoded_for,
                         },
                     );
                     // A full-resolution decode keeps fewer frames of a large animation, because
                     // of its memory budget. The frame stepped to stays among them.
-                    let frames = self.list.slots().get(&idx).map_or(0, |s| s.anim.len());
-                    if idx == self.list.cur()
+                    let frames = self
+                        .list
+                        .loaded_images()
+                        .get(&idx)
+                        .map_or(0, |s| s.frames.len());
+                    if idx == self.list.shown()
                         && frames > 0
                         && self.viewing.frame.is_some_and(|k| k >= frames)
                     {
                         self.viewing.frame = Some(frames - 1);
                     }
-                    if idx == self.list.cur()
+                    if idx == self.list.shown()
                         && let Some(t) = self.decoding.started.take()
                     {
                         eprintln!("first image: {} ms", t.elapsed().as_millis());
@@ -523,7 +538,7 @@ impl crate::App {
                 // previous image would stay on screen.
                 None if !full
                     && self.is_file(idx, &d.path)
-                    && !self.list.slots().contains_key(&idx)
+                    && !self.list.loaded_images().contains_key(&idx)
                     && self.decoding.keep.lock().unwrap().contains(&idx) =>
                 {
                     self.request(idx, false);
@@ -544,8 +559,13 @@ impl crate::App {
     /// The textures each pane shows now, for a fade to start from. Returns `None` with fading off.
     pub(crate) fn shown_textures(&self) -> Option<Vec<Option<Shown>>> {
         (self.fade_ms() > 0).then(|| {
-            (std::iter::once(self.list.cur()).chain(self.list.panes().iter().copied()))
-                .map(|i| self.list.slots().get(&i).map(|s| (s.tex.clone(), s.orig)))
+            (std::iter::once(self.list.shown()).chain(self.list.panes().iter().copied()))
+                .map(|i| {
+                    self.list
+                        .loaded_images()
+                        .get(&i)
+                        .map(|s| (s.texture.clone(), s.original_size))
+                })
                 .collect()
         })
     }
@@ -575,7 +595,7 @@ impl crate::App {
     /// not flash black. A video does not get the image before, because ffmpeg takes a while for
     /// its frame, and another photo stood under its play button.
     pub(crate) fn placeholder(&self) -> Option<(egui::TextureHandle, [usize; 2], bool)> {
-        let name = self.list.files().get(self.list.cur())?;
+        let name = self.list.files().get(self.list.shown())?;
         if let Some(t) = self.thumbs.made(name) {
             return Some((t.clone(), t.size(), true));
         }
@@ -598,8 +618,8 @@ impl crate::App {
         // Select All in a large folder would copy the whole selection every frame.
         let mut two = self.list.selected().iter().copied();
         match (self.list.selected().len(), two.next(), two.next()) {
-            (2, Some(a), Some(b)) => Some(if a == self.list.cur() { b } else { a }),
-            _ => self.step(1, false).filter(|&i| i != self.list.cur()),
+            (2, Some(a), Some(b)) => Some(if a == self.list.shown() { b } else { a }),
+            _ => self.step(1, false).filter(|&i| i != self.list.shown()),
         }
     }
 
@@ -627,8 +647,13 @@ impl crate::App {
         }
         let panes = (1..n as isize).filter_map(|k| self.step(k, true)).collect();
         self.list.set_panes(panes);
-        self.list
-            .set_last_slide(self.list.panes().last().copied().unwrap_or(self.list.cur()));
+        self.list.set_last_slide(
+            self.list
+                .panes()
+                .last()
+                .copied()
+                .unwrap_or(self.list.shown()),
+        );
         self.slideshow.first_pane_next();
     }
 
@@ -715,21 +740,22 @@ impl crate::App {
     ) -> Option<f32> {
         // When zoomed in further than the screen-size version holds, the full resolution is
         // loaded.
-        let sharper = self.list.slots().get(&i).is_some_and(|s| {
-            !s.full
-                && zoom
-                    .is_some_and(|z| s.tex.size()[0] as f32 + 1.0 < s.orig[0] as f32 * z.min(1.0))
+        let sharper = self.list.loaded_images().get(&i).is_some_and(|s| {
+            !s.is_full_resolution
+                && zoom.is_some_and(|z| {
+                    s.texture.size()[0] as f32 + 1.0 < s.original_size[0] as f32 * z.min(1.0)
+                })
         });
         if sharper {
             self.request(i, true);
         }
-        let now = self.list.slots().get(&i)?.tex.id();
+        let now = self.list.loaded_images().get(&i)?.texture.id();
         let fade = k.and_then(|k| self.fading(ui.ctx(), k, now));
-        let slot = self.list.slots().get(&i)?;
+        let loaded = self.list.loaded_images().get(&i)?;
         let ppp = ui.ctx().pixels_per_point();
         let look = (self.config.enlarge, self.config.fit_mode);
         let zoom = zoom.map(|z| (z, self.zoom.offset));
-        let (at, scale) = placed(rect, slot.orig, ppp, look, zoom);
+        let (at, scale) = placed(rect, loaded.original_size, ppp, look, zoom);
         let uv = egui::Rect::from_min_max(egui::Pos2::ZERO, egui::pos2(1.0, 1.0));
         let p = ui.painter().with_clip_rect(rect);
         let shown = match &fade {
@@ -740,10 +766,10 @@ impl crate::App {
             }
             None => 1.0,
         };
-        if self.config.checkerboard && slot.transparent() {
+        if self.config.checkerboard && loaded.transparent() {
             paint_checker(&p, at, 0, alpha(shown));
         }
-        p.image(slot.tex.id(), at, uv, alpha(shown));
+        p.image(loaded.texture.id(), at, uv, alpha(shown));
         Some(scale)
     }
 
@@ -778,7 +804,7 @@ impl crate::App {
 
     /// The shown image's histogram in the bottom right corner of `area`.
     pub(crate) fn paint_histogram(&self, ui: &egui::Ui, area: egui::Rect) {
-        let Some(slot) = self.list.slots().get(&self.list.cur()) else {
+        let Some(loaded) = self.list.loaded_images().get(&self.list.shown()) else {
             return;
         };
         let size = egui::vec2(256.0, 100.0);
@@ -800,7 +826,7 @@ impl crate::App {
         let height = |v: u32| if log { (v as f32).ln_1p() } else { v as f32 };
         let max = channels
             .iter()
-            .flat_map(|c| slot.hist[c.0].iter())
+            .flat_map(|c| loaded.histogram[c.0].iter())
             .map(|&v| height(v))
             .fold(1.0, f32::max);
         for &(c, color) in channels {
@@ -809,7 +835,7 @@ impl crate::App {
                     let x = rect.left() + i as f32 * rect.width() / 255.0;
                     egui::pos2(
                         x,
-                        rect.bottom() - height(slot.hist[c][i]) / max * rect.height(),
+                        rect.bottom() - height(loaded.histogram[c][i]) / max * rect.height(),
                     )
                 })
                 .collect();
@@ -820,22 +846,22 @@ impl crate::App {
     /// Full screen info in the top left corner, from the template in Preferences.
     pub(crate) fn overlay(&mut self, ui: &mut egui::Ui, area: egui::Rect) {
         self.want_exif(ui.ctx());
-        let path = self.path(self.list.cur());
+        let path = self.path(self.list.shown());
         let meta = self.info_panel.meta_of(&path).map(|m| &m.saved);
         let text = fill_template(&self.config.osd_template, |field| match field {
-            "name" => self.name(self.list.cur()).to_string(),
+            "name" => self.name(self.list.shown()).to_string(),
             "path" => path.display().to_string(),
-            "position" => self.place(),
-            "dimensions" => (self.list.slots().get(&self.list.cur()))
-                .map(|s| format!("{} × {}", s.orig[0], s.orig[1]))
+            "position" => self.position_text(),
+            "dimensions" => (self.list.loaded_images().get(&self.list.shown()))
+                .map(|s| format!("{} × {}", s.original_size[0], s.original_size[1]))
                 .unwrap_or_default(),
-            "marks" => self.mark_text(self.list.cur()),
+            "marks" => self.mark_text(self.list.shown()),
             "keywords" => meta.map(|m| m.keywords.join(", ")).unwrap_or_default(),
             "comment" => meta.map(|m| m.comment.clone()).unwrap_or_default(),
             label => self
                 .info_panel
                 .exif_row(&path, label)
-                .map(|value| crate::metadata::exif::shown(label, value).to_owned())
+                .map(|value| crate::metadata::exif::shown_value(label, value).to_owned())
                 .unwrap_or_default(),
         });
         if text.is_empty() {
@@ -900,7 +926,7 @@ impl crate::App {
                     }
                 }
                 let response = ui.allocate_rect(area, egui::Sense::click());
-                let name = self.name(self.list.cur());
+                let name = self.name(self.list.shown());
                 response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Image, true, &name));
                 if f || response.double_clicked() || (esc && full) {
                     pctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(!full));
@@ -919,12 +945,12 @@ impl crate::App {
 
     /// The shown image in the projector's `area`, as `view` showed it, and the pointer's ring.
     pub(crate) fn paint_projector(&self, ui: &egui::Ui, area: egui::Rect) {
-        let Some(slot) = self.list.slots().get(&self.list.cur()) else {
+        let Some(loaded) = self.list.loaded_images().get(&self.list.shown()) else {
             return;
         };
         let ppp = ui.ctx().pixels_per_point();
-        let turns = self.viewing.orient.0;
-        let [w, h] = slot.orig.map(|n| n as f32);
+        let turns = self.viewing.turn.0;
+        let [w, h] = loaded.original_size.map(|n| n as f32);
         let (uw, uh) = if turns % 2 == 1 { (h, w) } else { (w, h) };
         let fit = fit_scale(area.size() * ppp, [uw, uh], self.config.fit_mode);
         let fit = if self.config.enlarge {
@@ -944,11 +970,11 @@ impl crate::App {
         };
         let rect =
             egui::Rect::from_center_size(area.center() + pan, egui::vec2(w, h) * scale / ppp);
-        if self.config.checkerboard && slot.transparent() {
+        if self.config.checkerboard && loaded.transparent() {
             paint_checker(ui.painter(), rect, turns, egui::Color32::WHITE);
         }
-        let tex = self.texture(slot, ui.ctx());
-        paint_turned(ui, tex, rect, self.viewing.orient, egui::Color32::WHITE);
+        let tex = self.texture(loaded, ui.ctx());
+        paint_turned(ui, tex, rect, self.viewing.turn, egui::Color32::WHITE);
         // Where the pointer is over the main window's image, to point things out.
         if self.config.projector_pointer
             && let Some(v) = self.last_view
@@ -971,24 +997,24 @@ impl crate::App {
 
     /// The frame of the shown animation playing now.
     pub(crate) fn playing_frame(&self) -> usize {
-        let slot = self.list.slots().get(&self.list.cur());
+        let loaded = self.list.loaded_images().get(&self.list.shown());
         match self.config.animate {
-            true => slot.map_or(0, |s| s.frame_at(self.decoding.opened.elapsed()).0),
+            true => loaded.map_or(0, |s| s.frame_at(self.decoding.opened.elapsed()).0),
             false => 0,
         }
     }
 
-    /// What `slot` shows now, in the main window and on the projector alike. It is the frame
+    /// What `loaded` shows now, in the main window and on the projector alike. It is the frame
     /// stepped to, the frame playing, or the image.
     pub(crate) fn texture<'a>(
         &self,
-        slot: &'a Slot,
+        loaded: &'a LoadedImage,
         ctx: &egui::Context,
     ) -> &'a egui::TextureHandle {
         match self.viewing.frame {
-            Some(k) => slot.anim.get(k).map_or(&slot.tex, |f| &f.0),
-            None if self.config.animate => slot.frame(self.decoding.opened.elapsed(), ctx),
-            None => &slot.tex,
+            Some(k) => loaded.frames.get(k).map_or(&loaded.texture, |f| &f.0),
+            None if self.config.animate => loaded.frame(self.decoding.opened.elapsed(), ctx),
+            None => &loaded.texture,
         }
     }
 
@@ -996,9 +1022,9 @@ impl crate::App {
     pub(crate) fn shown_frame(&self) -> usize {
         let animated = self
             .list
-            .slots()
-            .get(&self.list.cur())
-            .is_some_and(|s| s.anim.len() > 1);
+            .loaded_images()
+            .get(&self.list.shown())
+            .is_some_and(|s| s.frames.len() > 1);
         match self.viewing.frame {
             Some(k) => k,
             None if animated => self.playing_frame(),
@@ -1008,12 +1034,13 @@ impl crate::App {
 
     /// The shown image is an animation, of more than one frame.
     pub(crate) fn animated(&self) -> bool {
-        (self.list.slots().get(&self.list.cur())).is_some_and(|s| s.anim.len() > 1)
+        (self.list.loaded_images().get(&self.list.shown())).is_some_and(|s| s.frames.len() > 1)
     }
 
     /// The frames, or pages, of the shown file, for the status bar and the File menu's entries.
     pub(crate) fn frame_count(&self) -> usize {
-        (self.list.slots().get(&self.list.cur())).map_or(1, |s| s.anim.len().max(s.pages))
+        (self.list.loaded_images().get(&self.list.shown()))
+            .map_or(1, |s| s.frames.len().max(s.pages))
     }
 
     /// The image area. It shows the shown image in one or more panes, compare, zoom and drag,
@@ -1049,10 +1076,14 @@ impl crate::App {
                     1.0
                 };
                 let mode = self.config.fit_mode;
-                let fit = self.list.slots().get(&self.list.cur()).map_or(1.0, |s| {
-                    let [w, h] = self.turned(s.orig);
-                    fit_scale(area.size() * ppp, [w as f32, h as f32], mode).min(max_fit)
-                });
+                let fit = self
+                    .list
+                    .loaded_images()
+                    .get(&self.list.shown())
+                    .map_or(1.0, |s| {
+                        let [w, h] = self.turned(s.original_size);
+                        fit_scale(area.size() * ppp, [w as f32, h as f32], mode).min(max_fit)
+                    });
                 let long = self.decode_size(area, ppp, max_fit);
                 if response.hovered()
                     && !self.dialog_open()
@@ -1074,7 +1105,8 @@ impl crate::App {
                 // A video gets a play button over the preview frame (click or Enter). It can be
                 // read on any frame, also in the slideshow and in full screen.
                 #[cfg(feature = "video")]
-                if (self.list.files().get(self.list.cur())).is_some_and(|f| is_video(Path::new(f)))
+                if (self.list.files().get(self.list.shown()))
+                    .is_some_and(|f| is_video(Path::new(f)))
                     && play_button(ui, area)
                 {
                     later = Some(Action::PlayVideo);
@@ -1099,13 +1131,13 @@ impl crate::App {
             self.run(ctx, action);
         }
         if let Some(i) = clicked_pane {
-            self.go(ctx, i);
+            self.show_file(ctx, i);
         }
     }
 
     /// A size `[w, h]` of the shown image as it is on screen, after its quarter turns.
     fn turned(&self, [w, h]: [usize; 2]) -> [usize; 2] {
-        if self.viewing.orient.0 % 2 == 1 {
+        if self.viewing.turn.0 % 2 == 1 {
             [h, w]
         } else {
             [w, h]
@@ -1115,11 +1147,12 @@ impl crate::App {
     /// A drag pans the image at `scale`, only along a side where it is larger than `area` and
     /// only up to its edge, so an image that fits stays put.
     fn pan_within(&mut self, response: &egui::Response, area: egui::Rect, scale: f32, ppp: f32) {
-        let orig = (self.list.slots().get(&self.list.cur()).map(|s| s.orig)).or(self
-            .decoding
-            .last_drawn
-            .as_ref()
-            .map(|d| d.1));
+        let orig = (self
+            .list
+            .loaded_images()
+            .get(&self.list.shown())
+            .map(|s| s.original_size))
+        .or(self.decoding.last_drawn.as_ref().map(|d| d.1));
         if let Some([w, h]) = orig.map(|o| self.turned(o)) {
             // Choosing a part to crop, a drag draws it instead.
             if response.dragged() && self.viewing.crop.is_none() {
@@ -1139,28 +1172,31 @@ impl crate::App {
     /// image is not decoded again and again. When it is zoomed, it gets full resolution, also
     /// where the size shown is larger than a texture may be (`long`).
     fn decode_again_if_needed(&mut self, area: egui::Rect, ppp: f32, scale: f32, long: u32) {
-        let slot = self.list.slots().get(&self.list.cur());
-        let decode_box = self.decode_box(self.list.cur());
-        let grown =
-            slot.is_some_and(|s| !s.full && grown(decode_box, s.decoded_for, s.tex.size(), s.orig));
+        let loaded = self.list.loaded_images().get(&self.list.shown());
+        let decode_box = self.decode_box(self.list.shown());
+        let grown = loaded.is_some_and(|s| {
+            !s.is_full_resolution
+                && grown(decode_box, s.decoded_for, s.texture.size(), s.original_size)
+        });
         let view = area.size() * ppp;
-        let view = if self.viewing.orient.0 % 2 == 1 {
+        let view = if self.viewing.turn.0 % 2 == 1 {
             [view.y, view.x]
         } else {
             [view.x, view.y]
         };
-        let too_small =
-            slot.is_some_and(|s| !s.full && too_small(s.tex.size(), s.orig, scale, view));
+        let too_small = loaded.is_some_and(|s| {
+            !s.is_full_resolution && too_small(s.texture.size(), s.original_size, scale, view)
+        });
         // When not zoomed, the image is decoded again to the size shown, which the decoders'
         // limit now holds. It gets full resolution only where that is larger than a texture may
         // be.
-        let fits = slot.is_some_and(|s| fits_texture(s.orig, scale, long));
+        let fits = loaded.is_some_and(|s| fits_texture(s.original_size, scale, long));
         let fitted = self.zoom.level.is_none() && fits;
         if fitted && grown {
-            self.list.forget_slot(self.list.cur());
-            self.request(self.list.cur(), false);
+            self.list.forget_loaded_image(self.list.shown());
+            self.request(self.list.shown(), false);
         } else if !fitted && too_small {
-            self.request(self.list.cur(), true);
+            self.request(self.list.shown(), true);
         }
     }
 
@@ -1176,9 +1212,9 @@ impl crate::App {
     ) {
         let shown = self
             .list
-            .slots()
-            .get(&self.list.cur())
-            .map(|s| self.turned(s.orig));
+            .loaded_images()
+            .get(&self.list.shown())
+            .map(|s| self.turned(s.original_size));
         match shown {
             Some([w, h]) => {
                 let size = egui::vec2(w as f32, h as f32) * scale / ppp;
@@ -1204,7 +1240,7 @@ impl crate::App {
     ) -> Option<usize> {
         let mut clicked_pane = None;
         // What each pane shows, for the status bar, which tells the one under the pointer.
-        let mut shown = vec![(self.list.cur(), Some(self.zoom.last_scale))];
+        let mut shown = vec![(self.list.shown(), Some(self.zoom.last_scale))];
         if let Some(right) = right {
             shown.extend(self.paint_other(ui, right, self.zoom.level));
         }
@@ -1247,7 +1283,7 @@ impl crate::App {
         };
         self.status.panes_shown(pane, grid, shown);
         if panes.len() > 1 && self.config.layout_names && !self.list.files().is_empty() {
-            let shown = std::iter::once(self.list.cur()).chain(self.list.panes().iter().copied());
+            let shown = std::iter::once(self.list.shown()).chain(self.list.panes().iter().copied());
             for (rect, i) in panes.iter().zip(shown) {
                 self.paint_name(ui, *rect, i);
             }
@@ -1261,7 +1297,7 @@ impl crate::App {
         // The image area counts, not the whole screen, so a small window on a 4K screen needs a
         // fraction of the memory (3840×2160 is 33 MB per image).
         let [w, h] = [(area.width() * ppp) as u32, (area.height() * ppp) as u32];
-        let quarter = self.viewing.orient.0 % 2 == 1;
+        let quarter = self.viewing.turn.0 % 2 == 1;
         let turned = |[w, h]: [usize; 2]| if quarter { [h, w] } else { [w, h] };
         let mode = self.config.fit_mode;
         // The image is decoded to the size shown, which is the view for a whole image. Fit
@@ -1270,11 +1306,12 @@ impl crate::App {
         // image's shape. It uses the image's size at its scale once that is known (also while
         // it is decoded again, from the image drawn), and otherwise the longer side.
         let long = self.decoding.max_side;
-        let orig = (self.list.slots().get(&self.list.cur()).map(|s| s.orig)).or(self
-            .decoding
-            .last_drawn
-            .as_ref()
-            .map(|d| d.1));
+        let orig = (self
+            .list
+            .loaded_images()
+            .get(&self.list.shown())
+            .map(|s| s.original_size))
+        .or(self.decoding.last_drawn.as_ref().map(|d| d.1));
         let view = match (mode, orig) {
             (0, _) => [w, h],
             (3, Some([ow, oh])) => {
@@ -1297,8 +1334,8 @@ impl crate::App {
             self.decoding.view_box,
             self.decoding.view_area,
             self.config.fit_mode == 3,
-            idx == self.list.cur(),
-            self.viewing.orient.0 % 2 == 1,
+            idx == self.list.shown(),
+            self.viewing.turn.0 % 2 == 1,
             self.window.projector_size(),
         )
     }
@@ -1316,12 +1353,20 @@ impl crate::App {
     ) {
         let ppp = ctx.pixels_per_point();
         let mode = self.config.fit_mode;
-        let now = self.list.slots().get(&self.list.cur()).map(|s| s.tex.id());
+        let now = self
+            .list
+            .loaded_images()
+            .get(&self.list.shown())
+            .map(|s| s.texture.id());
         let fade = now.and_then(|id| self.fading(ctx, 0, id));
-        if let Some(slot) = self.list.slots().get(&self.list.cur()) {
-            let size = egui::vec2(slot.orig[0] as f32, slot.orig[1] as f32) * scale / ppp;
+        if let Some(loaded) = self.list.loaded_images().get(&self.list.shown()) {
+            let size = egui::vec2(
+                loaded.original_size[0] as f32,
+                loaded.original_size[1] as f32,
+            ) * scale
+                / ppp;
             let rect = egui::Rect::from_center_size(area.center() + self.zoom.offset, size);
-            let tex = self.texture(slot, ctx);
+            let tex = self.texture(loaded, ctx);
             // Within its pane or half, which zoom makes it overflow.
             let clip = ui.clip_rect();
             ui.set_clip_rect(area.intersect(clip));
@@ -1338,12 +1383,12 @@ impl crate::App {
                 }
                 None => 1.0,
             };
-            if self.config.checkerboard && slot.transparent() {
-                paint_checker(ui.painter(), rect, self.viewing.orient.0, alpha(shown));
+            if self.config.checkerboard && loaded.transparent() {
+                paint_checker(ui.painter(), rect, self.viewing.turn.0, alpha(shown));
             }
-            paint_turned(ui, tex, rect, self.viewing.orient, alpha(shown));
+            paint_turned(ui, tex, rect, self.viewing.turn, alpha(shown));
             ui.set_clip_rect(clip);
-            self.decoding.last_drawn = Some((slot.tex.clone(), slot.orig));
+            self.decoding.last_drawn = Some((loaded.texture.clone(), loaded.original_size));
             // The projector follows this view, and the pointer measured from the image's
             // centre.
             let centre = area.center() + self.zoom.offset;
@@ -1359,7 +1404,7 @@ impl crate::App {
                 pointer,
             });
         } else if let Some((tex, orig, thumb)) = self.placeholder()
-            && !self.list.decode_errors().contains_key(&self.list.cur())
+            && !self.list.decode_errors().contains_key(&self.list.shown())
         {
             // A thumbnail fills the area, as the image will, while the image before keeps its
             // size.
@@ -1376,10 +1421,10 @@ impl crate::App {
                     tr("No images in folder")
                 }
                 .to_owned()
-            } else if let Some(e) = self.list.decode_errors().get(&self.list.cur()) {
+            } else if let Some(e) = self.list.decode_errors().get(&self.list.shown()) {
                 crate::tf!(
                     "Could not open {name}:\n{e}",
-                    name = self.path(self.list.cur()).display(),
+                    name = self.path(self.list.shown()).display(),
                     e
                 )
             } else {
@@ -1497,9 +1542,9 @@ impl crate::App {
     pub(crate) fn step_frame(&mut self, action: Action) {
         let n = self
             .list
-            .slots()
-            .get(&self.list.cur())
-            .map_or(1, |s| s.anim.len());
+            .loaded_images()
+            .get(&self.list.shown())
+            .map_or(1, |s| s.frames.len());
         let at = self.viewing.frame.unwrap_or_else(|| self.playing_frame());
         self.viewing.frame = Some(match action {
             Action::NextPage => (at + 1) % n,
@@ -1511,8 +1556,8 @@ impl crate::App {
     pub(crate) fn step_page(&mut self, action: Action) {
         let pages = self
             .list
-            .slots()
-            .get(&self.list.cur())
+            .loaded_images()
+            .get(&self.list.shown())
             .map_or(1, |s| s.pages);
         let page = match action {
             Action::NextPage => (self.viewing.page + 1).min(pages - 1),
@@ -1520,8 +1565,8 @@ impl crate::App {
         };
         if page != self.viewing.page {
             self.viewing.page = page;
-            self.list.forget_slot(self.list.cur());
-            self.list.forget_decodes_of(self.list.cur());
+            self.list.forget_loaded_image(self.list.shown());
+            self.list.forget_decodes_of(self.list.shown());
             self.refill();
         }
     }
@@ -1549,7 +1594,7 @@ impl crate::App {
             .then(|| self.list.panes().get(step as usize - 1))
             .flatten();
         if let Some(i) = pane.copied().or_else(|| self.step(step, false)) {
-            self.go(ctx, i);
+            self.show_file(ctx, i);
         }
     }
 
@@ -1569,13 +1614,16 @@ impl crate::App {
     pub(crate) fn turn(&mut self, action: Action) {
         // Until the image is saved, the old picture shows. Turned again, it would be saved
         // twice, into the same temporary file.
-        if self.file_operations.is_saving(&self.path(self.list.cur())) {
+        if self
+            .file_operations
+            .is_saving(&self.path(self.list.shown()))
+        {
             self.notice = Some(tr("Still saving the last rotation of this file").into());
             return;
         }
-        let (q, m) = self.viewing.orient;
-        self.viewing.turned = self.path(self.list.cur());
-        self.viewing.orient = match action {
+        let (q, m) = self.viewing.turn;
+        self.viewing.turned = self.path(self.list.shown());
+        self.viewing.turn = match action {
             Action::RotateCw => ((q + 1) % 4, m),
             Action::RotateCcw => ((q + 3) % 4, m),
             Action::Rotate180 => ((q + 2) % 4, m),
@@ -1955,13 +2003,13 @@ mod tests {
         }
         let (mut app, ctx) = app_on(&dir);
         app.config.save_orientation = false;
-        app.viewing.orient = (1, true);
+        app.viewing.turn = (1, true);
         app.viewing.page = 2;
         app.viewing.frame = Some(3);
         app.viewing.turned = dir.join("a.png");
-        app.go(&ctx, 1);
+        app.show_file(&ctx, 1);
         let v = &app.viewing;
-        assert_eq!((v.orient, v.page, v.frame), ((0, false), 0, None));
+        assert_eq!((v.turn, v.page, v.frame), ((0, false), 0, None));
         assert!(v.turned.as_os_str().is_empty() && v.crop.is_none());
         std::fs::remove_dir_all(dir).unwrap();
     }
@@ -1983,12 +2031,12 @@ mod tests {
             ("2x1", Action::PaneDown, Action::PaneRight),
         ] {
             app.config.layout = layout.into();
-            app.go(&ctx, 0);
+            app.show_file(&ctx, 0);
             app.list.set_panes(vec![1]);
             app.go_to_pane(&ctx, dead);
-            assert_eq!(app.list.cur(), 0, "{layout}");
+            assert_eq!(app.list.shown(), 0, "{layout}");
             app.go_to_pane(&ctx, live);
-            assert_eq!(app.list.cur(), 1, "{layout}");
+            assert_eq!(app.list.shown(), 1, "{layout}");
         }
         std::fs::remove_dir_all(dir).unwrap();
     }
