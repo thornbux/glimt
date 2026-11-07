@@ -1128,7 +1128,7 @@ impl crate::App {
             Action::Subfolders => self.set_subfolders(ctx, !self.config.show_subfolders),
             Action::HiddenFiles => self.toggle_hidden_files(ctx),
             // An animation: stopped at the frame before or after the one shown, which A plays on.
-            Action::NextPage | Action::PrevPage if self.animated() => self.step_frame(action),
+            Action::NextPage | Action::PrevPage if self.is_animated() => self.step_frame(action),
             Action::NextPage | Action::PrevPage => self.step_page(action),
             Action::ExifWindow => self.info_panel.toggle_exif_window(),
             Action::FocusKeywords => {

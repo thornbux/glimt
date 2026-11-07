@@ -72,7 +72,7 @@ impl crate::App {
             self.show_file_anew(ctx, idx);
         } else if self.list.decode_errors().contains_key(&idx) {
             self.list.forget_decode_error(idx);
-            self.refill();
+            self.refill_preload();
         }
     }
 
@@ -102,7 +102,7 @@ impl crate::App {
         self.panel.scroll_to_shown();
         // Every image gets the full delay, also when the user moves back or forward by hand.
         self.slideshow.restart_delay();
-        self.refill();
+        self.refill_preload();
         self.title(ctx);
     }
 
@@ -267,7 +267,7 @@ impl crate::App {
         self.list.set_range_end(None);
         self.title(ctx);
         if self.is_comparing {
-            self.refill();
+            self.refill_preload();
         }
         let wait = self
             .status_bar

@@ -248,7 +248,7 @@ impl crate::App {
         }
         // Several panes: the next set together, or the next image into one pane at a time.
         let n = self.list.panes().len() + 1;
-        let turns = n > 1 && self.one_at_a_time();
+        let turns = n > 1 && self.changes_one_pane_at_a_time();
         let (from, delta) = match n {
             1 => (self.list.shown(), 1),
             _ if turns => (self.list.last_slide(), 1),
@@ -289,7 +289,7 @@ impl crate::App {
                 let before = self.shown_textures();
                 if turns && self.slideshow.next_pane > 0 {
                     self.list.set_pane(self.slideshow.next_pane - 1, next);
-                    self.refill();
+                    self.refill_preload();
                 } else {
                     self.show_file(ctx, next);
                 }

@@ -31,8 +31,8 @@ pub struct Decoded {
     pub rotated: bool,
     /// The page of a multi-page TIFF. It is 0 for everything else.
     pub page: usize,
-    /// The job's number, as in `App::pending`.
-    pub job: u64,
+    /// The request's number, as in `App::pending`.
+    pub request_number: u64,
     /// `None` = skipped because the user has already moved past it.
     pub result: Option<Result<DecodedImage, String>>,
 }

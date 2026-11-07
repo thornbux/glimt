@@ -148,7 +148,7 @@ impl crate::App {
     /// Preload `n` images on each side.
     pub(crate) fn set_preload(&mut self, n: usize) {
         self.decoding.set_preload(n);
-        self.refill();
+        self.refill_preload();
         self.config.preload = n;
     }
 
@@ -156,7 +156,7 @@ impl crate::App {
     pub(crate) fn set_exif_rotate(&mut self, on: bool) {
         self.config.exif_rotate = on;
         self.config.save();
-        self.decoding.set_rotate(on);
+        self.decoding.set_auto_rotate(on);
         // The thumbnails too, which are turned by it as well.
         self.redecode();
     }

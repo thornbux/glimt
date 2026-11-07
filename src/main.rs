@@ -95,7 +95,7 @@ struct App {
     viewing: crate::viewer::view::Viewing,
     /// The zoom, and where the zoomed image is in the view.
     zoom: crate::viewer::view::Zoom,
-    /// Whether two images are shown side by side (E), the shown one and `compare_other`.
+    /// Whether two images are shown side by side (E), the shown one and `compared_image`.
     is_comparing: bool,
     /// What the image area showed in the last frame, for the projector to show the same.
     last_image_area: Option<ImageArea>,
@@ -206,7 +206,7 @@ impl App {
         let thumbs = crate::ui::file_list::Thumbs::new(
             ctx,
             workers,
-            decoding.rotation(),
+            decoding.auto_rotate(),
             config.save_thumbnails,
         );
         // A name is only of use with remote control, so a named Glimt listens in any case. A

@@ -67,7 +67,7 @@
       <line x1="470" y1="658" x2="648" y2="658" stroke="#1f2328" stroke-width="1.5" marker-end="url(#arrow)"/>
       <text x="559" y="651">Thumbs::ask → jobs</text>
       <line x1="470" y1="720" x2="648" y2="720" stroke="#1f2328" stroke-width="1.5" marker-end="url(#arrow)"/>
-      <text x="559" y="713">refill → request</text>
+      <text x="559" y="713">refill_preload → request_decode</text>
       <text x="559" y="736">DecodeJob</text>
     </g>
 
@@ -106,7 +106,7 @@
 
     <rect x="650" y="688" width="490" height="64" rx="6" fill="#e6f4ea" stroke="#2e8b57" stroke-width="1.5"/>
     <text x="664" y="708" font-size="13"><tspan font-weight="700">Decode workers</tspan> <tspan font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" font-size="12">spawn_decoders</tspan> (viewer/view.rs)</text>
-    <text x="664" y="726" font-size="12">skip a job no longer in keep · decode() to the box asked · histogram</text>
+    <text x="664" y="726" font-size="12">skip a job no longer in kept_images · decode() to the box asked · histogram</text>
     <text x="664" y="744" font-size="12">→ Decoded → receive_decoded makes the texture</text>
 
     <rect x="650" y="762" width="490" height="64" rx="6" fill="#f3e8fd" stroke="#8e44ad" stroke-width="1.5"/>

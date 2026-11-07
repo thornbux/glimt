@@ -1263,7 +1263,7 @@ impl crate::App {
         self.forget_names(paths);
         // Their size changed, so the status bar and the list read it again.
         self.status_bar.forget_size();
-        self.refill();
+        self.refill_preload();
     }
 
     /// Keeps `paths` as the files an Undo of a move or rename puts back, although Glimt wrote
