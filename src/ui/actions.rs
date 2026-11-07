@@ -179,10 +179,10 @@ pub const SHORTCUTS: &[(Action, egui::Modifiers, egui::Key)] = {
 };
 
 /// The user's own keys (Preferences), which replace the defaults of their actions.
-pub static OWN_KEYS: std::sync::RwLock<Vec<(Action, egui::Modifiers, egui::Key)>> =
+pub static USER_KEYS: std::sync::RwLock<Vec<(Action, egui::Modifiers, egui::Key)>> =
     std::sync::RwLock::new(Vec::new());
 
-/// Held by the tests that set `OWN_KEYS`, and by every new window of a test, which sets them
+/// Held by the tests that set `USER_KEYS`, and by every new window of a test, which sets them
 /// to its own settings' keys, as tests run at once.
 #[cfg(test)]
 pub static KEYS_TEST: std::sync::Mutex<()> = std::sync::Mutex::new(());
@@ -505,7 +505,7 @@ impl Action {
 
     /// Whether this build does something for the action. PlayVideo needs the video feature, so
     /// without it Enter is not taken by an action that does nothing.
-    pub fn in_build(self) -> bool {
+    pub fn is_in_build(self) -> bool {
         self != Action::PlayVideo || cfg!(feature = "video")
     }
 
@@ -1064,7 +1064,7 @@ impl crate::App {
             Action::FocusSearch => self.focus_search_field(ctx, fullscreen),
             Action::CopyTo | Action::MoveTo => self.pick_copy_or_move(ctx, action),
             // The default application; the Open With submenu lists the others.
-            Action::OpenWith => self.launch(""),
+            Action::OpenWith => self.open_shown_in(""),
             Action::SetWallpaper => self.set_wallpaper(),
             // Enter: videos play in a player (images have nothing to play).
             Action::PlayVideo => self.play_video(ctx),
@@ -1492,10 +1492,10 @@ impl crate::App {
 }
 
 /// Makes the user's own keys in `keys` the ones in effect, at start and after each change in
-/// Preferences. The settings hold them, and `OWN_KEYS` holds the copy the key handling reads.
+/// Preferences. The settings hold them, and `USER_KEYS` holds the copy the key handling reads.
 /// Every change goes through this function, so the copy cannot fall behind the settings.
-pub(crate) fn use_own_keys(keys: &Keys) {
-    if let Ok(mut own) = OWN_KEYS.write() {
+pub(crate) fn use_user_keys(keys: &Keys) {
+    if let Ok(mut own) = USER_KEYS.write() {
         own.clone_from(&keys.0);
     }
 }
@@ -1513,7 +1513,7 @@ pub fn same_keys(a: &Shortcut, b: &Shortcut) -> bool {
 pub fn shortcuts() -> std::sync::Arc<[Shortcut]> {
     type Made = Option<(Vec<Shortcut>, std::sync::Arc<[Shortcut]>)>;
     static MADE: std::sync::Mutex<Made> = std::sync::Mutex::new(None);
-    let own = OWN_KEYS.read().map(|o| o.clone()).unwrap_or_default();
+    let own = USER_KEYS.read().map(|o| o.clone()).unwrap_or_default();
     let mut made = MADE.lock().unwrap_or_else(|e| e.into_inner());
     if let Some((from, all)) = made.as_ref()
         && *from == own
@@ -1523,7 +1523,7 @@ pub fn shortcuts() -> std::sync::Arc<[Shortcut]> {
     // Defaults of actions with own keys go, and so does a default whose key an own key took.
     let mut all = own.clone();
     all.extend((SHORTCUTS.iter()).filter(|s| !own.iter().any(|o| o.0 == s.0 || same_keys(o, s))));
-    all.retain(|s| s.0.in_build());
+    all.retain(|s| s.0.is_in_build());
     let weight = |m: &egui::Modifiers| m.shift as u8 + m.alt as u8 + m.command as u8;
     all.sort_by_key(|s| std::cmp::Reverse(weight(&s.1)));
     let all: std::sync::Arc<[Shortcut]> = all.into();
@@ -2130,7 +2130,7 @@ mod tests {
             "Next=Ctrl+Shift+N;ZoomIn=Plus;Bogus=X;Prev=Hyper+P"
         );
         assert_eq!(keys.to_string().parse::<Keys>().unwrap(), keys);
-        *super::OWN_KEYS.write().unwrap() = keys.0.clone();
+        *super::USER_KEYS.write().unwrap() = keys.0.clone();
         let all = super::shortcuts();
         // PlayVideo has no shortcut in a build without video, so Enter is free there.
         let play = all.iter().any(|s| s.0 == Action::PlayVideo);
@@ -2142,7 +2142,7 @@ mod tests {
         assert!(pos(Action::Rotate180) < pos(Action::RandomOrder));
         // An own key that is another action's default takes it from that action.
         let r = "ZoomFit=R".parse::<Keys>().unwrap();
-        *super::OWN_KEYS.write().unwrap() = r.0.clone();
+        *super::USER_KEYS.write().unwrap() = r.0.clone();
         let all = super::shortcuts();
         let on_r: Vec<Action> = (all.iter())
             .filter(|s| s.2 == eframe::egui::Key::R && s.1 == eframe::egui::Modifiers::NONE)
@@ -2151,13 +2151,13 @@ mod tests {
         assert_eq!(on_r, [Action::ZoomFit]);
         // Also a key with Ctrl, which the defaults and own keys say each their way.
         let ctrl_n = "Next=Ctrl+N".parse::<Keys>().unwrap();
-        *super::OWN_KEYS.write().unwrap() = ctrl_n.0.clone();
+        *super::USER_KEYS.write().unwrap() = ctrl_n.0.clone();
         let all = super::shortcuts();
         assert!(
             !all.iter()
                 .any(|s| s.0 == Action::NewWindow && super::same_keys(s, &ctrl_n.0[0]))
         );
-        super::OWN_KEYS.write().unwrap().clear();
+        super::USER_KEYS.write().unwrap().clear();
     }
 
     /// Plain Ctrl+C comes from egui-winit as a Copy event, and so does the Copy key with no

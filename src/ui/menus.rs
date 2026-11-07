@@ -31,11 +31,11 @@ type Apps = Vec<(String, PathBuf)>;
 pub(crate) struct OpenWith {
     /// The applications by file extension, or by the whole path for a file without one. An
     /// entry is asked for once in the background, and then kept with the time it came.
-    apps: HashMap<String, Answer>,
+    apps: HashMap<String, AppsLookup>,
 }
 
 /// One entry of `OpenWith`: the question still running, or its answer and when it came.
-enum Answer {
+enum AppsLookup {
     Asking(Receiving<Apps>),
     Found(Apps, Instant),
 }
@@ -47,7 +47,7 @@ impl OpenWith {
 
     /// Finds the applications for the file type `key` with `ask`, in a thread of its own the
     /// first time. Returns `None` while that thread runs.
-    fn apps(
+    fn apps_for_type(
         &mut self,
         key: &str,
         ask: impl FnOnce() -> Apps + Send + 'static,
@@ -55,8 +55,8 @@ impl OpenWith {
     ) -> Option<&Apps> {
         let stale = match self.apps.get(key) {
             None => true,
-            Some(Answer::Asking(_)) => false,
-            Some(Answer::Found(apps, at)) => apps.is_empty() && at.elapsed() >= Self::RETRY,
+            Some(AppsLookup::Asking(_)) => false,
+            Some(AppsLookup::Found(apps, at)) => apps.is_empty() && at.elapsed() >= Self::RETRY,
         };
         if stale {
             let (tx, rx) = mpsc::channel();
@@ -66,20 +66,20 @@ impl OpenWith {
                 ctx.request_repaint();
             });
             self.apps
-                .insert(key.to_owned(), Answer::Asking(Receiving::of(rx)));
+                .insert(key.to_owned(), AppsLookup::Asking(Receiving::of(rx)));
         }
         let entry = self.apps.get_mut(key)?;
-        if let Answer::Asking(rx) = entry {
+        if let AppsLookup::Asking(rx) = entry {
             // A thread that panicked counts as an empty answer, which is asked again later.
             match rx.take() {
                 Took::Nothing => return None,
-                Took::Answer(apps) => *entry = Answer::Found(apps, Instant::now()),
-                Took::Gone => *entry = Answer::Found(Vec::new(), Instant::now()),
+                Took::Answer(apps) => *entry = AppsLookup::Found(apps, Instant::now()),
+                Took::Gone => *entry = AppsLookup::Found(Vec::new(), Instant::now()),
             }
         }
         match entry {
-            Answer::Found(apps, _) => Some(apps),
-            Answer::Asking(_) => None,
+            AppsLookup::Found(apps, _) => Some(apps),
+            AppsLookup::Asking(_) => None,
         }
     }
 }
@@ -115,7 +115,7 @@ impl crate::App {
             // Chosen again too, so a theme file just edited shows.
             let shown = theme::shown_name(&name);
             #[allow(clippy::disallowed_methods)] // It has an icon before the text, noted below.
-            let radio = ui.radio(self.config.theme == name, iconed(ui, icon, shown));
+            let radio = ui.radio(self.config.theme == name, with_icon(ui, icon, shown));
             if noted(&radio, &name).clicked() {
                 self.config.theme = name;
                 self.config.save();
@@ -185,7 +185,7 @@ impl crate::App {
         }
         self.config.screen_profile = path;
         self.config.save();
-        self.use_screen();
+        self.choose_screen_profile();
     }
 
     /// Whether the desktop's screen profile goes before the chosen one; read from colord when on.
@@ -195,12 +195,12 @@ impl crate::App {
         if on {
             self.desktop_settings.ask_screen_profile(ctx);
         }
-        self.use_screen();
+        self.choose_screen_profile();
     }
 
     /// Show through the desktop's screen profile when it counts and colord has one, else through
     /// the chosen one.
-    pub(crate) fn use_screen(&mut self) {
+    pub(crate) fn choose_screen_profile(&mut self) {
         let path = match self.desktop_settings.screen_profile() {
             Some(p) if self.config.desktop_profile => p.to_owned(),
             _ => self.config.screen_profile.clone(),
@@ -240,96 +240,96 @@ impl crate::App {
     }
 
     /// The menu bar, as Geeqie's, and the toolbar under it.
-    pub(crate) fn menu_bar(&mut self, ui: &mut egui::Ui, act: &mut Option<Action>) {
+    pub(crate) fn menu_bar(&mut self, ui: &mut egui::Ui, chosen: &mut Option<Action>) {
         let bar = egui::Panel::top("menu").show(ui, |ui| {
             egui::MenuBar::new().ui(ui, |ui| {
-                scroll_menu(ui, tr("File"), |ui| self.menu_file(ui, act));
-                scroll_menu(ui, tr("Go"), |ui| self.menu_go(ui, act));
-                scroll_menu(ui, tr("Select"), |ui| self.menu_select(ui, act));
-                scroll_menu(ui, tr("Edit"), |ui| self.menu_edit(ui, act));
-                scroll_menu(ui, tr("View"), |ui| self.menu_view(ui, act));
-                scroll_menu(ui, tr("Window"), |ui| self.menu_window(ui, act));
-                scroll_menu(ui, tr("Help"), |ui| self.menu_help(ui, act));
+                scroll_menu(ui, tr("File"), |ui| self.menu_file(ui, chosen));
+                scroll_menu(ui, tr("Go"), |ui| self.menu_go(ui, chosen));
+                scroll_menu(ui, tr("Select"), |ui| self.menu_select(ui, chosen));
+                scroll_menu(ui, tr("Edit"), |ui| self.menu_edit(ui, chosen));
+                scroll_menu(ui, tr("View"), |ui| self.menu_view(ui, chosen));
+                scroll_menu(ui, tr("Window"), |ui| self.menu_window(ui, chosen));
+                scroll_menu(ui, tr("Help"), |ui| self.menu_help(ui, chosen));
             });
         });
         self.window.close_menus(ui.ctx(), bar.response.rect);
         if self.config.toolbar {
-            self.toolbar(ui, act);
+            self.toolbar(ui, chosen);
         }
     }
 
     /// The File menu.
-    fn menu_file(&mut self, ui: &mut egui::Ui, act: &mut Option<Action>) {
-        menu_item(ui, act, Action::OpenFile);
-        menu_item(ui, act, Action::OpenFolder);
-        menu_item(ui, act, Action::OpenRecursive);
-        menu_item(ui, act, Action::OpenFolders);
+    fn menu_file(&mut self, ui: &mut egui::Ui, chosen: &mut Option<Action>) {
+        menu_item(ui, chosen, Action::OpenFile);
+        menu_item(ui, chosen, Action::OpenFolder);
+        menu_item(ui, chosen, Action::OpenRecursive);
+        menu_item(ui, chosen, Action::OpenFolders);
         self.recent_menu(ui);
-        menu_item(ui, act, Action::NewFolder);
-        menu_item(ui, act, Action::CopyTo);
-        menu_item(ui, act, Action::MoveTo);
-        menu_item(ui, act, Action::Rename);
-        menu_item(ui, act, Action::OpenWith);
+        menu_item(ui, chosen, Action::NewFolder);
+        menu_item(ui, chosen, Action::CopyTo);
+        menu_item(ui, chosen, Action::MoveTo);
+        menu_item(ui, chosen, Action::Rename);
+        menu_item(ui, chosen, Action::OpenWith);
         self.open_with_menu(ui);
-        menu_item(ui, act, Action::SetWallpaper);
+        menu_item(ui, chosen, Action::SetWallpaper);
         #[cfg(feature = "video")]
-        menu_item(ui, act, Action::PlayVideo);
-        menu_item(ui, act, Action::SaveAs);
-        menu_item(ui, act, Action::Print);
+        menu_item(ui, chosen, Action::PlayVideo);
+        menu_item(ui, chosen, Action::SaveAs);
+        menu_item(ui, chosen, Action::Print);
         // Only for a file of several frames or pages: the menu stays as it was
         // for every other one.
         if self.frame_count() > 1 {
-            menu_item(ui, act, Action::SaveFrame);
-            menu_item(ui, act, Action::ExportFrames);
+            menu_item(ui, chosen, Action::SaveFrame);
+            menu_item(ui, chosen, Action::ExportFrames);
         }
         ui.separator();
-        menu_item(ui, act, Action::Delete);
-        menu_item(ui, act, Action::DeletePermanently);
+        menu_item(ui, chosen, Action::Delete);
+        menu_item(ui, chosen, Action::DeletePermanently);
         ui.separator();
-        self.collections_menu(ui, act);
-        menu_item(ui, act, Action::FindDuplicates);
-        menu_item(ui, act, Action::CheckImages);
-        menu_item(ui, act, Action::BackUp);
+        self.collections_menu(ui, chosen);
+        menu_item(ui, chosen, Action::FindDuplicates);
+        menu_item(ui, chosen, Action::CheckImages);
+        menu_item(ui, chosen, Action::BackUp);
         ui.separator();
-        menu_item(ui, act, Action::CloseWindow);
-        menu_item(ui, act, Action::Quit);
+        menu_item(ui, chosen, Action::CloseWindow);
+        menu_item(ui, chosen, Action::Quit);
     }
 
     /// The Go menu.
-    fn menu_go(&mut self, ui: &mut egui::Ui, act: &mut Option<Action>) {
-        menu_item(ui, act, Action::First);
-        menu_item(ui, act, Action::Previous);
-        menu_item(ui, act, Action::Next);
-        menu_item(ui, act, Action::Last);
+    fn menu_go(&mut self, ui: &mut egui::Ui, chosen: &mut Option<Action>) {
+        menu_item(ui, chosen, Action::First);
+        menu_item(ui, chosen, Action::Previous);
+        menu_item(ui, chosen, Action::Next);
+        menu_item(ui, chosen, Action::Last);
         ui.separator();
-        menu_item(ui, act, Action::Back);
-        menu_item(ui, act, Action::Forward);
-        menu_item(ui, act, Action::Home);
-        menu_item(ui, act, Action::Up);
+        menu_item(ui, chosen, Action::Back);
+        menu_item(ui, chosen, Action::Forward);
+        menu_item(ui, chosen, Action::Home);
+        menu_item(ui, chosen, Action::Up);
         ui.separator();
-        menu_item(ui, act, Action::FocusSearch);
+        menu_item(ui, chosen, Action::FocusSearch);
     }
 
     /// The Select menu.
-    fn menu_select(&mut self, ui: &mut egui::Ui, act: &mut Option<Action>) {
-        menu_item(ui, act, Action::SelectAll);
-        menu_item(ui, act, Action::SelectNone);
-        menu_item(ui, act, Action::InvertSelection);
+    fn menu_select(&mut self, ui: &mut egui::Ui, chosen: &mut Option<Action>) {
+        menu_item(ui, chosen, Action::SelectAll);
+        menu_item(ui, chosen, Action::SelectNone);
+        menu_item(ui, chosen, Action::InvertSelection);
         ui.separator();
-        menu_item(ui, act, Action::CopyPath);
-        menu_item(ui, act, Action::CopyPathUnquoted);
-        menu_item(ui, act, Action::CopyImage);
-        menu_item(ui, act, Action::CopyFiles);
+        menu_item(ui, chosen, Action::CopyPath);
+        menu_item(ui, chosen, Action::CopyPathUnquoted);
+        menu_item(ui, chosen, Action::CopyImage);
+        menu_item(ui, chosen, Action::CopyFiles);
     }
 
     /// The Edit menu.
-    fn menu_edit(&mut self, ui: &mut egui::Ui, act: &mut Option<Action>) {
-        menu_item(ui, act, Action::Undo);
+    fn menu_edit(&mut self, ui: &mut egui::Ui, chosen: &mut Option<Action>) {
+        menu_item(ui, chosen, Action::Undo);
         ui.separator();
         #[cfg(feature = "marks")]
         scroll_menu(
             ui,
-            iconed(ui, theme::icon::STAR, tr("Marks and Stars")),
+            with_icon(ui, theme::icon::STAR, tr("Marks and Stars")),
             |ui| {
                 for action in [
                     Action::Mark1,
@@ -339,7 +339,7 @@ impl crate::App {
                     Action::Mark5,
                     Action::Mark6,
                 ] {
-                    menu_item(ui, act, action);
+                    menu_item(ui, chosen, action);
                 }
                 ui.separator();
                 for action in [
@@ -350,7 +350,7 @@ impl crate::App {
                     Action::SelectMark5,
                     Action::SelectMark6,
                 ] {
-                    menu_item(ui, act, action);
+                    menu_item(ui, chosen, action);
                 }
                 ui.separator();
                 for action in [
@@ -361,13 +361,13 @@ impl crate::App {
                     Action::Rate4,
                     Action::Rate5,
                 ] {
-                    menu_item(ui, act, action);
+                    menu_item(ui, chosen, action);
                 }
             },
         );
         scroll_menu(
             ui,
-            iconed(ui, theme::icon::ORIENTATION, tr("Orientation")),
+            with_icon(ui, theme::icon::ORIENTATION, tr("Orientation")),
             |ui| {
                 for action in [
                     Action::RotateCw,
@@ -376,36 +376,36 @@ impl crate::App {
                     Action::Mirror,
                     Action::Flip,
                 ] {
-                    menu_item(ui, act, action);
+                    menu_item(ui, chosen, action);
                 }
                 ui.separator();
-                menu_item(ui, act, Action::SaveOrientation);
+                menu_item(ui, chosen, Action::SaveOrientation);
             },
         );
-        menu_item(ui, act, Action::Crop);
-        menu_item(ui, act, Action::FocusKeywords);
+        menu_item(ui, chosen, Action::Crop);
+        menu_item(ui, chosen, Action::FocusKeywords);
         ui.separator();
         self.plugins_menu(ui);
         ui.separator();
-        menu_item(ui, act, Action::Preferences);
+        menu_item(ui, chosen, Action::Preferences);
     }
 
     /// The View menu: layout, theme, colour, filter and zoom, the panels, and the slideshow.
-    fn menu_view(&mut self, ui: &mut egui::Ui, act: &mut Option<Action>) {
-        self.layout_menu(ui, act);
-        scroll_menu(ui, iconed(ui, theme::icon::PALETTE, tr("Theme")), |ui| {
+    fn menu_view(&mut self, ui: &mut egui::Ui, chosen: &mut Option<Action>) {
+        self.layout_menu(ui, chosen);
+        scroll_menu(ui, with_icon(ui, theme::icon::PALETTE, tr("Theme")), |ui| {
             self.theme_menu(ui)
         });
         scroll_menu(
             ui,
-            iconed(ui, theme::icon::COLOUR, tr("Colour Management")),
+            with_icon(ui, theme::icon::COLOUR, tr("Colour Management")),
             |ui| self.colour_settings(ui),
         );
-        scroll_menu(ui, iconed(ui, theme::icon::FILTER, tr("Filter")), |ui| {
+        scroll_menu(ui, with_icon(ui, theme::icon::FILTER, tr("Filter")), |ui| {
             use theme::icon::{CIRCLE, HALF, HALF_TILT, SUN_DIM};
             let icons = [CIRCLE, HALF, HALF_TILT, SUN_DIM];
             for (f, label) in FILTERS.iter().enumerate() {
-                let text = iconed(ui, icons[f.min(3)], tr(label));
+                let text = with_icon(ui, icons[f.min(3)], tr(label));
                 #[allow(clippy::disallowed_methods)] // It has an icon before the text, noted below.
                 let radio = ui.radio(self.config.view_filter == f, text);
                 if noted(&radio, tr(label)).clicked() {
@@ -413,208 +413,218 @@ impl crate::App {
                 }
             }
             ui.separator();
-            menu_item(ui, act, Action::NextFilter);
+            menu_item(ui, chosen, Action::NextFilter);
         });
-        scroll_menu(ui, iconed(ui, theme::icon::ZOOM, tr("Zoom")), |ui| {
-            menu_item(ui, act, Action::ZoomIn);
-            menu_item(ui, act, Action::ZoomOut);
-            menu_item(ui, act, Action::Zoom1To1);
+        scroll_menu(ui, with_icon(ui, theme::icon::ZOOM, tr("Zoom")), |ui| {
+            menu_item(ui, chosen, Action::ZoomIn);
+            menu_item(ui, chosen, Action::ZoomOut);
+            menu_item(ui, chosen, Action::Zoom1To1);
             let mode = self.config.fit_mode;
-            menu_toggle(ui, act, mode == 0, Action::ZoomFit);
-            menu_toggle(ui, act, mode == 1, Action::FitWidth);
-            menu_toggle(ui, act, mode == 2, Action::FitHeight);
-            menu_toggle(ui, act, mode == 3, Action::FitFill);
+            menu_toggle(ui, chosen, mode == 0, Action::ZoomFit);
+            menu_toggle(ui, chosen, mode == 1, Action::FitWidth);
+            menu_toggle(ui, chosen, mode == 2, Action::FitHeight);
+            menu_toggle(ui, chosen, mode == 3, Action::FitFill);
         });
-        menu_item(ui, act, Action::FullScreen);
-        menu_item(ui, act, Action::HideFileList);
+        menu_item(ui, chosen, Action::FullScreen);
+        menu_item(ui, chosen, Action::HideFileList);
         let c = &self.config;
-        menu_toggle(ui, act, c.toolbar, Action::Toolbar);
-        menu_toggle(ui, act, c.path_bar, Action::PathBar);
-        menu_toggle(ui, act, c.folder_tree, Action::FolderTree);
-        menu_toggle(ui, act, c.show_subfolders, Action::Subfolders);
-        menu_toggle(ui, act, c.show_hidden, Action::HiddenFiles);
-        menu_toggle(ui, act, c.thumbnails, Action::Thumbnails);
-        menu_toggle(ui, act, c.icons, Action::Icons);
+        menu_toggle(ui, chosen, c.toolbar, Action::Toolbar);
+        menu_toggle(ui, chosen, c.path_bar, Action::PathBar);
+        menu_toggle(ui, chosen, c.folder_tree, Action::FolderTree);
+        menu_toggle(ui, chosen, c.show_subfolders, Action::Subfolders);
+        menu_toggle(ui, chosen, c.show_hidden, Action::HiddenFiles);
+        menu_toggle(ui, chosen, c.thumbnails, Action::Thumbnails);
+        menu_toggle(ui, chosen, c.icons, Action::Icons);
         // Ticked only while the grid shows: from an image opened from it, the item goes back to
         // the grid, as G and Esc do.
         let grid = self.panel.is_area_grid_shown();
-        menu_toggle(ui, act, grid, Action::ThumbnailGrid);
-        let size = iconed(ui, theme::icon::SIZE, tr("Thumbnail Size"));
+        menu_toggle(ui, chosen, grid, Action::ThumbnailGrid);
+        let size = with_icon(ui, theme::icon::SIZE, tr("Thumbnail Size"));
         submenu(ui, size, |ui| self.thumb_size_setting(ui));
         let c = &self.config;
-        menu_toggle(ui, act, c.grid_names, Action::GridNames);
-        menu_toggle(ui, act, c.info_panel, Action::InfoPanel);
-        menu_toggle(ui, act, c.sort_manager, Action::SortManager);
+        menu_toggle(ui, chosen, c.grid_names, Action::GridNames);
+        menu_toggle(ui, chosen, c.info_panel, Action::InfoPanel);
+        menu_toggle(ui, chosen, c.sort_manager, Action::SortManager);
         menu_toggle(
             ui,
-            act,
+            chosen,
             self.info_panel.exif_window_open(),
             Action::ExifWindow,
         );
-        menu_toggle(ui, act, self.pan_view.is_some(), Action::PanView);
-        menu_toggle(ui, act, c.osd, Action::FullScreenInfo);
-        menu_item(ui, act, Action::Histogram);
-        menu_toggle(ui, act, c.histogram_log, Action::HistogramLog);
-        menu_item(ui, act, Action::Refresh);
+        menu_toggle(ui, chosen, self.pan_view.is_some(), Action::PanView);
+        menu_toggle(ui, chosen, c.osd, Action::FullScreenInfo);
+        menu_item(ui, chosen, Action::Histogram);
+        menu_toggle(ui, chosen, c.histogram_log, Action::HistogramLog);
+        menu_item(ui, chosen, Action::Refresh);
         ui.separator();
         let (icon, label) = if self.slideshow.is_running() {
             (theme::icon::STOP, tr("Stop Slideshow"))
         } else {
             (theme::icon::PLAY, tr("Start Slideshow"))
         };
-        let text = iconed(ui, icon, label);
+        let text = with_icon(ui, icon, label);
         #[allow(clippy::disallowed_methods)] // menu_button notes it by the action's label.
-        menu_button(ui, act, egui::Button::new(text), Action::Slideshow);
-        menu_toggle(ui, act, self.slideshow.is_paused(), Action::Pause);
-        menu_item(ui, act, Action::SlideshowFaster);
-        menu_item(ui, act, Action::SlideshowSlower);
-        menu_toggle(ui, act, self.config.slideshow_random, Action::RandomOrder);
+        menu_button(ui, chosen, egui::Button::new(text), Action::Slideshow);
+        menu_toggle(ui, chosen, self.slideshow.is_paused(), Action::Pause);
+        menu_item(ui, chosen, Action::SlideshowFaster);
+        menu_item(ui, chosen, Action::SlideshowSlower);
+        menu_toggle(
+            ui,
+            chosen,
+            self.config.slideshow_random,
+            Action::RandomOrder,
+        );
     }
 
     /// The Window menu.
-    fn menu_window(&mut self, ui: &mut egui::Ui, act: &mut Option<Action>) {
-        menu_item(ui, act, Action::NewWindow);
-        menu_item(ui, act, Action::CloseWindow);
-        menu_item(ui, act, Action::WindowTitle);
+    fn menu_window(&mut self, ui: &mut egui::Ui, chosen: &mut Option<Action>) {
+        menu_item(ui, chosen, Action::NewWindow);
+        menu_item(ui, chosen, Action::CloseWindow);
+        menu_item(ui, chosen, Action::WindowTitle);
         ui.separator();
-        menu_toggle(ui, act, self.window.has_projector(), Action::Projector);
+        menu_toggle(ui, chosen, self.window.has_projector(), Action::Projector);
         let pointer = self.config.projector_pointer;
-        menu_toggle(ui, act, pointer, Action::ProjectorPointer);
+        menu_toggle(ui, chosen, pointer, Action::ProjectorPointer);
     }
 
     /// The Help menu.
-    fn menu_help(&mut self, ui: &mut egui::Ui, act: &mut Option<Action>) {
-        menu_item(ui, act, Action::Help);
-        menu_item(ui, act, Action::Shortcuts);
-        menu_item(ui, act, Action::KeyboardMap);
+    fn menu_help(&mut self, ui: &mut egui::Ui, chosen: &mut Option<Action>) {
+        menu_item(ui, chosen, Action::Help);
+        menu_item(ui, chosen, Action::Shortcuts);
+        menu_item(ui, chosen, Action::KeyboardMap);
         ui.separator();
-        menu_item(ui, act, Action::About);
+        menu_item(ui, chosen, Action::About);
     }
 
     /// A file's right-click menu; it acts on the selection.
-    pub(crate) fn file_menu(&mut self, ui: &mut egui::Ui, list_act: &mut Option<Action>) {
+    pub(crate) fn file_menu(&mut self, ui: &mut egui::Ui, chosen: &mut Option<Action>) {
         for action in [
             Action::CopyTo,
             Action::MoveTo,
             Action::CopyPath,
             Action::CopyFiles,
         ] {
-            menu_item(ui, list_act, action);
+            menu_item(ui, chosen, action);
         }
         self.open_with_menu(ui);
         scroll_menu(
             ui,
-            iconed(ui, theme::icon::STACK_PLUS, tr("Add to Collection")),
+            with_icon(ui, theme::icon::STACK_PLUS, tr("Add to Collection")),
             |ui| {
                 for (name, file) in collections::saved_collections() {
                     if icon_button(ui, theme::icon::STACK, &name).clicked() {
                         self.add_to_collection(ui.ctx(), &file);
                     }
                 }
-                menu_item(ui, list_act, Action::NewCollection);
+                menu_item(ui, chosen, Action::NewCollection);
             },
         );
         if self.folder.collection().is_some() {
-            menu_item(ui, list_act, Action::RemoveFromCollection);
+            menu_item(ui, chosen, Action::RemoveFromCollection);
         }
         ui.separator();
-        menu_item(ui, list_act, Action::Delete);
-        menu_item(ui, list_act, Action::DeletePermanently);
+        menu_item(ui, chosen, Action::Delete);
+        menu_item(ui, chosen, Action::DeletePermanently);
     }
 
     /// Edit → Plugins: run one on the selected files, or the shown one, in the background;
     /// they are read again afterwards, as plugins change them.
     pub(crate) fn plugins_menu(&mut self, ui: &mut egui::Ui) {
-        scroll_menu(ui, iconed(ui, theme::icon::PLUGIN, tr("Plugins")), |ui| {
-            ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Extend);
-            let dir = xdg_dir("XDG_DATA_HOME", ".local/share", "glimt").map(|d| d.join("plugins"));
-            if self.plugins.is_empty() {
-                ui.weak(tr("No plugins"));
-            }
-            let mut chosen = None;
-            for (k, plugin) in self.plugins.iter().enumerate() {
-                if icon_button(ui, theme::icon::PLUGIN, &plugin.name).clicked() {
-                    chosen = Some(k);
+        scroll_menu(
+            ui,
+            with_icon(ui, theme::icon::PLUGIN, tr("Plugins")),
+            |ui| {
+                ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Extend);
+                let dir =
+                    xdg_dir("XDG_DATA_HOME", ".local/share", "glimt").map(|d| d.join("plugins"));
+                if self.plugins.is_empty() {
+                    ui.weak(tr("No plugins"));
                 }
-            }
-            // A plugin that is still running, an editor left open or a script that hangs: ended
-            // here, with what it started, in the background (it is given a second).
-            let running = self.plugins_running.lock().unwrap().clone();
-            if !running.is_empty() {
-                ui.separator();
-            }
-            for (name, pid) in running {
-                let text = tf!("Stop {name}", name);
-                if icon_button(ui, theme::icon::STOP, &text).clicked() {
-                    let mut running = self.plugins_running.lock().unwrap();
-                    let was = running.len();
-                    running.retain(|r| r.1 != pid);
-                    // Not when it ended meanwhile: its number may be another's by now.
-                    if running.len() < was {
-                        std::thread::spawn(move || external::stop_process_group(pid));
+                let mut chosen = None;
+                for (k, plugin) in self.plugins.iter().enumerate() {
+                    if icon_button(ui, theme::icon::PLUGIN, &plugin.name).clicked() {
+                        chosen = Some(k);
                     }
                 }
-            }
-            ui.separator();
-            if icon_button(ui, theme::icon::FOLDER_OPEN, tr("Open the Plugins Folder"))
-                .on_hover_text(tr(
-                    "Desktop files there, as Geeqie's, show in this menu after a restart",
-                ))
-                .clicked()
-                && let Some(dir) = dir
-            {
-                let _ = std::fs::create_dir_all(&dir);
-                open_url(&dir.to_string_lossy());
-            }
-            let Some(k) = chosen.filter(|_| !self.list.files().is_empty()) else {
-                return;
-            };
-            let Some(targets) = self.targets() else {
-                return;
-            };
-            let plugin = self.plugins[k].clone();
-            let (files, left): (Vec<PathBuf>, Vec<PathBuf>) =
-                (targets.iter().map(|&i| self.path(i))).partition(|p| plugin.accepts(p));
-            let name = &plugin.name;
-            if files.is_empty() {
-                self.notice = Some(tf!("{name} takes none of these files", name));
-                return;
-            }
-            if !left.is_empty() {
-                let files = count(left.len(), "file");
-                self.notice = Some(tf!(
-                    "{name} leaves out {files} of a type it does not take",
-                    name,
-                    files
-                ));
-            }
-            // A turned image still being saved would be written over the plugin's edit. The
-            // files are held while the plugin runs, so a delete, move or rename of them waits.
-            let Some(held_back) = self.hold_back_while_writing(files.clone()) else {
-                return;
-            };
-            let (dir, running) = (
-                self.folder.dir().to_path_buf(),
-                self.plugins_running.clone(),
-            );
-            let report_tx = self.file_operations.report_sender();
-            let (tx, ctx) = (self.notice_sender.clone(), ui.ctx().clone());
-            // A plugin may be an editor that stays open for hours: not waited for at closing,
-            // and no busy pointer meanwhile, as for Open With.
-            std::thread::spawn(move || {
-                let result = plugin.run(&files, &dir, &running);
-                drop(held_back);
-                let _ = report_tx.send(OperationReport {
-                    read_folder_again: true,
-                    changed: files,
-                    ..Default::default()
-                });
-                if let Err(e) = result {
-                    let _ = tx.send(format!("{}: {e}", plugin.name));
+                // A plugin that is still running, an editor left open or a script that hangs: ended
+                // here, with what it started, in the background (it is given a second).
+                let running = self.plugins_running.lock().unwrap().clone();
+                if !running.is_empty() {
+                    ui.separator();
                 }
-                ctx.request_repaint();
-            });
-        });
+                for (name, pid) in running {
+                    let text = tf!("Stop {name}", name);
+                    if icon_button(ui, theme::icon::STOP, &text).clicked() {
+                        let mut running = self.plugins_running.lock().unwrap();
+                        let was = running.len();
+                        running.retain(|r| r.1 != pid);
+                        // Not when it ended meanwhile: its number may be another's by now.
+                        if running.len() < was {
+                            std::thread::spawn(move || external::stop_process_group(pid));
+                        }
+                    }
+                }
+                ui.separator();
+                if icon_button(ui, theme::icon::FOLDER_OPEN, tr("Open the Plugins Folder"))
+                    .on_hover_text(tr(
+                        "Desktop files there, as Geeqie's, show in this menu after a restart",
+                    ))
+                    .clicked()
+                    && let Some(dir) = dir
+                {
+                    let _ = std::fs::create_dir_all(&dir);
+                    open_url(&dir.to_string_lossy());
+                }
+                let Some(k) = chosen.filter(|_| !self.list.files().is_empty()) else {
+                    return;
+                };
+                let Some(targets) = self.targets() else {
+                    return;
+                };
+                let plugin = self.plugins[k].clone();
+                let (files, left): (Vec<PathBuf>, Vec<PathBuf>) =
+                    (targets.iter().map(|&i| self.path(i))).partition(|p| plugin.accepts(p));
+                let name = &plugin.name;
+                if files.is_empty() {
+                    self.notice = Some(tf!("{name} takes none of these files", name));
+                    return;
+                }
+                if !left.is_empty() {
+                    let files = count(left.len(), "file");
+                    self.notice = Some(tf!(
+                        "{name} leaves out {files} of a type it does not take",
+                        name,
+                        files
+                    ));
+                }
+                // A turned image still being saved would be written over the plugin's edit. The
+                // files are held while the plugin runs, so a delete, move or rename of them waits.
+                let Some(held_back) = self.hold_back_while_writing(files.clone()) else {
+                    return;
+                };
+                let (dir, running) = (
+                    self.folder.dir().to_path_buf(),
+                    self.plugins_running.clone(),
+                );
+                let report_tx = self.file_operations.report_sender();
+                let (tx, ctx) = (self.notice_sender.clone(), ui.ctx().clone());
+                // A plugin may be an editor that stays open for hours: not waited for at closing,
+                // and no busy pointer meanwhile, as for Open With.
+                std::thread::spawn(move || {
+                    let result = plugin.run(&files, &dir, &running);
+                    drop(held_back);
+                    let _ = report_tx.send(OperationReport {
+                        read_folder_again: true,
+                        changed: files,
+                        ..Default::default()
+                    });
+                    if let Err(e) = result {
+                        let _ = tx.send(format!("{}: {e}", plugin.name));
+                    }
+                    ctx.request_repaint();
+                });
+            },
+        );
     }
 
     /// The Open With submenu. It lists the applications registered for the type of the first
@@ -629,7 +639,7 @@ impl crate::App {
             .extension()
             .map_or(String::new(), |e| e.to_string_lossy().to_lowercase());
         let path = self.path(first);
-        scroll_menu(ui, iconed(ui, theme::icon::APP, tr("Open With")), |ui| {
+        scroll_menu(ui, with_icon(ui, theme::icon::APP, tr("Open With")), |ui| {
             // The menu keeps the width of its first frame, "…": names must not wrap to it.
             ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Extend);
             // Files without an extension share no type, so each is asked about on its own.
@@ -639,7 +649,7 @@ impl crate::App {
             };
             // apps_for runs gio twice: in the background, so the menu never stalls.
             let ask = move || apps_for(&path);
-            let Some(apps) = self.open_with.apps(&key, ask, ui.ctx()) else {
+            let Some(apps) = self.open_with.apps_for_type(&key, ask, ui.ctx()) else {
                 ui.label("…");
                 return;
             };
@@ -691,14 +701,14 @@ impl crate::App {
         });
     }
 
-    /// Open the shown file in `player` (a command line), or in the default application when
-    /// `player` is empty. Runs in its own thread, which waits for the program to exit.
-    pub(crate) fn launch(&self, player: &str) {
+    /// Open the shown file in `command_line`, or in the default application when
+    /// `command_line` is empty. Runs in its own thread, which waits for the program to exit.
+    pub(crate) fn open_shown_in(&self, command_line: &str) {
         if self.list.files().is_empty() {
             return;
         }
         let (path, tx) = (self.path(self.list.shown()), self.notice_sender.clone());
-        let mut words = plugins::command_words(player);
+        let mut words = plugins::command_words(command_line);
         std::thread::spawn(move || {
             // The player stays open as long as it plays, waited for in this thread.
             let run = |name: &str, mut cmd: std::process::Command| {
@@ -730,27 +740,27 @@ impl crate::App {
     }
 
     /// Geeqie's toolbar: navigation, zoom, thumbnails, slideshow and preferences.
-    pub(crate) fn toolbar(&mut self, ui: &mut egui::Ui, act: &mut Option<Action>) {
+    pub(crate) fn toolbar(&mut self, ui: &mut egui::Ui, chosen: &mut Option<Action>) {
         let size = [14.0, 20.0, 28.0][self.config.toolbar_icons.min(2)];
         egui::Panel::top("toolbar").show(ui, |ui| {
             ui.style_mut().override_font_id = Some(egui::FontId::proportional(size));
             ui.horizontal(|ui| {
                 // The icons the menus show for the same actions.
                 for action in [Action::Back, Action::Forward, Action::Up, Action::Home] {
-                    tool_button(ui, act, action.icon(), action, false);
+                    tool_button(ui, chosen, action.icon(), action, false);
                 }
-                tool_button(ui, act, Action::Refresh.icon(), Action::Refresh, false);
+                tool_button(ui, chosen, Action::Refresh.icon(), Action::Refresh, false);
                 ui.separator();
-                tool_button(ui, act, Action::ZoomIn.icon(), Action::ZoomIn, false);
-                tool_button(ui, act, Action::ZoomOut.icon(), Action::ZoomOut, false);
-                tool_button(ui, act, "1:1", Action::Zoom1To1, false);
+                tool_button(ui, chosen, Action::ZoomIn.icon(), Action::ZoomIn, false);
+                tool_button(ui, chosen, Action::ZoomOut.icon(), Action::ZoomOut, false);
+                tool_button(ui, chosen, "1:1", Action::Zoom1To1, false);
                 let fit = self.zoom.is_fitted();
-                tool_button(ui, act, Action::ZoomFit.icon(), Action::ZoomFit, fit);
+                tool_button(ui, chosen, Action::ZoomFit.icon(), Action::ZoomFit, fit);
                 ui.separator();
                 let thumbs = self.config.thumbnails;
                 tool_button(
                     ui,
-                    act,
+                    chosen,
                     Action::Thumbnails.icon(),
                     Action::Thumbnails,
                     thumbs,
@@ -762,14 +772,14 @@ impl crate::App {
                 };
                 tool_button(
                     ui,
-                    act,
+                    chosen,
                     show,
                     Action::Slideshow,
                     self.slideshow.is_running(),
                 );
                 tool_button(
                     ui,
-                    act,
+                    chosen,
                     Action::Preferences.icon(),
                     Action::Preferences,
                     false,
@@ -902,7 +912,7 @@ pub(crate) fn button(ui: &mut egui::Ui, text: &str) -> egui::Response {
 /// Draws a button of `icon` before `text`, noted by its text as `button` does.
 #[allow(clippy::disallowed_methods)] // The one place a button with an icon is drawn.
 pub(crate) fn icon_button(ui: &mut egui::Ui, icon: &str, text: &str) -> egui::Response {
-    noted(&ui.button(iconed(ui, icon, text)), text)
+    noted(&ui.button(with_icon(ui, icon, text)), text)
 }
 
 /// Draws a button of `text` that can be clicked only when `on`, noted as `button` does.
@@ -986,7 +996,7 @@ pub(crate) fn submenu<R>(
 /// `text` with the Phosphor `icon` before it, as every row of the menus shows: the icon in the
 /// weak colour, the text in the widget's own (Color32::PLACEHOLDER), so a selected row keeps
 /// its colours. Phosphor's glyphs are all one em wide, so the texts line up.
-pub(crate) fn iconed(ui: &egui::Ui, icon: &str, text: &str) -> egui::text::LayoutJob {
+pub(crate) fn with_icon(ui: &egui::Ui, icon: &str, text: &str) -> egui::text::LayoutJob {
     let font = egui::TextStyle::Button.resolve(ui.style());
     let mut job = egui::text::LayoutJob::default();
     let format = |color| egui::TextFormat {
@@ -999,28 +1009,33 @@ pub(crate) fn iconed(ui: &egui::Ui, icon: &str, text: &str) -> egui::text::Layou
     job
 }
 
-/// A menu entry showing the action's shortcut; sets `act` when clicked.
-pub(crate) fn menu_item(ui: &mut egui::Ui, act: &mut Option<Action>, action: Action) {
-    let text = iconed(ui, action.icon(), action.label());
+/// A menu entry showing the action's shortcut; sets `chosen` when clicked.
+pub(crate) fn menu_item(ui: &mut egui::Ui, chosen: &mut Option<Action>, action: Action) {
+    let text = with_icon(ui, action.icon(), action.label());
     #[allow(clippy::disallowed_methods)] // menu_button notes it by the action's label.
-    menu_button(ui, act, egui::Button::new(text), action);
+    menu_button(ui, chosen, egui::Button::new(text), action);
 }
 
 /// A menu entry with a check mark when `on`.
-pub(crate) fn menu_toggle(ui: &mut egui::Ui, act: &mut Option<Action>, on: bool, action: Action) {
-    let mut text = iconed(ui, action.icon(), action.label());
+pub(crate) fn menu_toggle(
+    ui: &mut egui::Ui,
+    chosen: &mut Option<Action>,
+    on: bool,
+    action: Action,
+) {
+    let mut text = with_icon(ui, action.icon(), action.label());
     // On the accent colour of a row that is on, the weak grey would hardly show.
     if on {
         text.sections[0].format.color = egui::Color32::PLACEHOLDER;
     }
     #[allow(clippy::disallowed_methods)] // menu_button notes it by the action's label.
     let button = egui::Button::selectable(on, text);
-    menu_button(ui, act, button, action);
+    menu_button(ui, chosen, button, action);
 }
 
 pub(crate) fn menu_button(
     ui: &mut egui::Ui,
-    act: &mut Option<Action>,
+    chosen: &mut Option<Action>,
     mut button: egui::Button,
     action: Action,
 ) {
@@ -1028,14 +1043,14 @@ pub(crate) fn menu_button(
         button = button.shortcut_text(text);
     }
     if noted(&ui.add(button), action.label()).clicked() {
-        *act = Some(action);
+        *chosen = Some(action);
     }
 }
 
 /// A toolbar button with the action's name and shortcut as tooltip.
 pub(crate) fn tool_button(
     ui: &mut egui::Ui,
-    act: &mut Option<Action>,
+    chosen: &mut Option<Action>,
     icon: &str,
     action: Action,
     on: bool,
@@ -1048,7 +1063,7 @@ pub(crate) fn tool_button(
     let button = egui::Button::selectable(on, icon);
     let response = ui.add(button).on_hover_text(tip);
     if noted(&response, action.label()).clicked() {
-        *act = Some(action);
+        *chosen = Some(action);
     }
 }
 
@@ -1060,7 +1075,7 @@ mod tests {
     fn answer(open_with: &mut OpenWith, key: &str, ask: fn() -> Apps) -> Apps {
         let ctx = egui::Context::default();
         for _ in 0..2000 {
-            if let Some(apps) = open_with.apps(key, ask, &ctx) {
+            if let Some(apps) = open_with.apps_for_type(key, ask, &ctx) {
                 return apps.clone();
             }
             std::thread::sleep(std::time::Duration::from_millis(1));
@@ -1083,7 +1098,7 @@ mod tests {
         };
         open_with
             .apps
-            .insert("jpg".into(), Answer::Found(Vec::new(), old));
+            .insert("jpg".into(), AppsLookup::Found(Vec::new(), old));
         assert_eq!(answer(&mut open_with, "jpg", one), one());
         // A found application is kept, and not asked about again.
         assert_eq!(answer(&mut open_with, "jpg", Vec::new), one());

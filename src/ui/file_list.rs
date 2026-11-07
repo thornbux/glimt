@@ -1243,7 +1243,7 @@ impl crate::App {
     /// The left side, as in Geeqie, with the path, the folders at the top, the search, and the
     /// files below. Returns what a click there asked for.
     pub(crate) fn side_panel(&mut self, ctx: &egui::Context, ui: &mut egui::Ui) {
-        let (mut open_dir, mut go_to, mut list_act, mut opened) = (None, None, None, None);
+        let (mut open_dir, mut go_to, mut chosen, mut opened) = (None, None, None, None);
         // The grid in the image area has the thumbnails, so the list has names.
         let form = if self.panel.is_area_grid_on() {
             [false, false]
@@ -1278,7 +1278,7 @@ impl crate::App {
                 if self.config.search_bar {
                     self.search_field(ui);
                 }
-                opened = self.file_list(ctx, ui, &mut go_to, &mut list_act, form);
+                opened = self.file_list(ctx, ui, &mut go_to, &mut chosen, form);
             });
         // A double-click opens the file clicked, also with Ctrl or Shift, whose clicks change
         // the selection and go to no file. A plain click before it has already gone there.
@@ -1287,7 +1287,7 @@ impl crate::App {
         } else if let Some(i) = opened.or(go_to) {
             self.show_file(ctx, i);
         }
-        if let Some(action) = list_act {
+        if let Some(action) = chosen {
             self.run(ctx, action);
         }
     }
@@ -1296,7 +1296,7 @@ impl crate::App {
     /// The arrow keys move in it as in the icon grid, and Enter or a double-click shows the
     /// image there.
     pub(crate) fn area_grid(&mut self, ctx: &egui::Context, ui: &mut egui::Ui) {
-        let (mut go_to, mut list_act) = (None, None);
+        let (mut go_to, mut chosen) = (None, None);
         let opened = egui::CentralPanel::default()
             .show(ui, |ui| {
                 // The grid takes the image's place for a screen reader too. The image shown is
@@ -1307,7 +1307,7 @@ impl crate::App {
                     let response = ui.interact(ui.max_rect(), id, egui::Sense::click());
                     self.speak_image(ui, &response);
                 }
-                let opened = self.file_list(ctx, ui, &mut go_to, &mut list_act, [true, true]);
+                let opened = self.file_list(ctx, ui, &mut go_to, &mut chosen, [true, true]);
                 // A failed copy or delete says so here too, as over the image.
                 self.paint_notice(ui, ui.max_rect());
                 opened
@@ -1321,7 +1321,7 @@ impl crate::App {
         if opened.is_some() {
             self.panel.open_from_grid();
         }
-        if let Some(action) = list_act {
+        if let Some(action) = chosen {
             self.run(ctx, action);
         }
     }
@@ -1369,7 +1369,7 @@ impl crate::App {
         ctx: &egui::Context,
         ui: &mut egui::Ui,
         go_to: &mut Option<usize>,
-        list_act: &mut Option<Action>,
+        chosen: &mut Option<Action>,
         [icons, thumbs]: [bool; 2],
     ) -> Option<usize> {
         // The rows shown are the search matches, or all files.
@@ -1469,7 +1469,7 @@ impl crate::App {
                     *go_to = Some(i);
                 }
                 opened = row.double_clicked().then_some(i).or(opened);
-                row.context_menu(|ui| self.file_menu(ui, list_act));
+                row.context_menu(|ui| self.file_menu(ui, chosen));
                 if self.folder.collection().is_some() {
                     self.drag_row(ui, &row, i, icons, pointer);
                 }

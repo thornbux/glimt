@@ -184,7 +184,7 @@ impl App {
             config.save();
         }
         let screen_error = crate::images::colour::set_up_colour(&config);
-        crate::ui::actions::use_own_keys(&config.keys);
+        crate::ui::actions::use_user_keys(&config.keys);
         let path = path
             .or_else(|| {
                 let state = crate::images::decode::read_text(state_path()?).ok()?;
@@ -284,16 +284,16 @@ impl App {
         crate::support::test_hooks::begin_frame();
         self.sync_thumb_source(ctx.pixels_per_point());
         self.poll_background(ctx);
-        let mut act = self.read_keys(ctx);
+        let mut chosen = self.read_keys(ctx);
         // Full screen and Hide File List work as in Geeqie, showing only the image without the
         // menu or the panels.
         let fullscreen = self.track_window(ctx);
         self.hide_still_pointer(ctx, fullscreen);
         let bare = fullscreen || self.panel.is_hidden() || self.window.is_kiosk();
         if !bare {
-            self.menu_bar(ui, &mut act);
+            self.menu_bar(ui, &mut chosen);
         }
-        if let Some(action) = act {
+        if let Some(action) = chosen {
             self.run(ctx, action);
         }
         // The icon grid sets the row step again in the file list, and the next frame's ↑ and ↓

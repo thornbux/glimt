@@ -73,7 +73,7 @@ impl crate::App {
             self.apply_theme(ctx);
         }
         if screen {
-            self.use_screen();
+            self.choose_screen_profile();
         }
     }
 

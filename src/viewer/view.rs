@@ -10,7 +10,7 @@ use crate::support::format::fill_template;
 use crate::support::lang::tr;
 use crate::support::test_hooks::noted;
 use crate::ui::actions::{Action, KIOSK_ACTIONS};
-use crate::ui::menus::{checkbox, iconed, menu_item, scroll_menu};
+use crate::ui::menus::{checkbox, menu_item, scroll_menu, with_icon};
 use crate::viewer::crop::Crop;
 use crate::{app_id, malloc_trim, ui::theme};
 use eframe::egui;
@@ -676,9 +676,9 @@ impl crate::App {
     }
 
     /// View → Layout. It shows one image, two or four, and how a slideshow changes them.
-    pub(crate) fn layout_menu(&mut self, ui: &mut egui::Ui, act: &mut Option<Action>) {
-        scroll_menu(ui, iconed(ui, theme::icon::LAYOUT, tr("Layout")), |ui| {
-            menu_item(ui, act, Action::NextLayout);
+    pub(crate) fn layout_menu(&mut self, ui: &mut egui::Ui, chosen: &mut Option<Action>) {
+        scroll_menu(ui, with_icon(ui, theme::icon::LAYOUT, tr("Layout")), |ui| {
+            menu_item(ui, chosen, Action::NextLayout);
             ui.separator();
             for (key, label, grid) in LAYOUTS {
                 let icon = match grid {
@@ -687,7 +687,7 @@ impl crate::App {
                     [1, 2] => theme::icon::ROWS,
                     _ => theme::icon::GRID_FOUR,
                 };
-                let text = iconed(ui, icon, tr(label));
+                let text = with_icon(ui, icon, tr(label));
                 #[allow(clippy::disallowed_methods)] // It has an icon before the text, noted below.
                 let radio = ui.radio(self.config.layout == key, text);
                 if noted(&radio, tr(label)).clicked() {
@@ -712,7 +712,7 @@ impl crate::App {
                 ),
                 (true, theme::icon::CURSOR, tr("One Image at a Time")),
             ] {
-                let text = iconed(ui, icon, label);
+                let text = with_icon(ui, icon, label);
                 #[allow(clippy::disallowed_methods)] // It has an icon before the text, noted here.
                 noted(&ui.radio_value(&mut chosen, value, text), label);
             }
@@ -899,7 +899,7 @@ impl crate::App {
             .with_title("Glimt Projector")
             .with_app_id(app_id())
             .with_inner_size([960.0, 600.0]);
-        let mut act = None;
+        let mut chosen = None;
         let closed = ctx.show_viewport_immediate(id, builder, |ui, _| {
             let pctx = ui.ctx().clone();
             let full = pctx.input(|i| i.viewport().fullscreen).unwrap_or(false);
@@ -913,7 +913,7 @@ impl crate::App {
                 self.folder.collection().is_some(),
             )
             .filter(|a| KIOSK_ACTIONS.contains(a));
-            act = key;
+            chosen = key;
             let [r, g, b] = self.config.background.0;
             let frame = egui::Frame::NONE.fill(egui::Color32::from_rgb(r, g, b));
             egui::CentralPanel::default().frame(frame).show(ui, |ui| {
@@ -948,7 +948,7 @@ impl crate::App {
         if closed {
             self.window.close_projector();
         }
-        if let Some(action) = act {
+        if let Some(action) = chosen {
             self.run(ctx, action);
         }
     }
@@ -1539,7 +1539,7 @@ impl crate::App {
     pub(crate) fn play_video(&mut self, ctx: &egui::Context) {
         #[cfg(feature = "video")]
         if is_video(&self.location()) {
-            self.launch(&self.config.video_player);
+            self.open_shown_in(&self.config.video_player);
             // The slideshow waits while the video plays, until P resumes it.
             if self.slideshow.is_running() {
                 self.slideshow.pause();

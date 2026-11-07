@@ -121,7 +121,7 @@ holds only its `mod` lines, and a new module goes into the folder of what it doe
 | `src/ui/dialogs.rs` | The file chooser (zenity or kdialog, `Pick`), `dialog_open`, and the small dialogs: a name asked for (`Prompt`), a delete confirmed, a share's login, a job cut short |
 | `src/ui/file_list.rs` | The side panel: the folder list, the file list or icon grid with its thumbnails (their sizes, `THUMB_SIZES`, `MAX_THUMBS`), dragging, the rubber band, and the status bar |
 | `src/ui/info_panel.rs` | The info panel (Ctrl+K) and what it edits: EXIF, keywords and the keyword tree, comment, alt text, marks; the EXIF reader thread |
-| `src/ui/menus.rs` | The menu bar and the toolbar, the menus that change settings, Plugins and Open With, and the helpers every menu is drawn with (`menu_item`, `scroll_menu`, `iconed`) |
+| `src/ui/menus.rs` | The menu bar and the toolbar, the menus that change settings, Plugins and Open With, and the helpers every menu is drawn with (`menu_item`, `scroll_menu`, `with_icon`) |
 | `src/ui/window.rs` | The window's size, place and title, the pointer hidden in full screen, and the screen saver kept off |
 | `src/ui/workers.rs` | The thumbnail workers, what the window collects from every background job each frame (`poll_background`), and whether work is running (`working`) |
 | `src/ui/accessibility.rs` | Optional screen reader support: the shown image as text for Orca (AccessKit) |

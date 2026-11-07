@@ -965,7 +965,7 @@ fn images_are_turned_after_they_shrink() {
 #[test]
 fn copies_of_settings_have_one_writer() {
     const WRITERS: &[(&str, &[(&str, &str)])] = &[
-        ("OWN_KEYS.write()", &[("ui/actions.rs", "use_own_keys")]),
+        ("USER_KEYS.write()", &[("ui/actions.rs", "use_user_keys")]),
         (
             "MAX_ANIMATION_BYTES.store(",
             &[("images/decode.rs", "set_animation_limit")],

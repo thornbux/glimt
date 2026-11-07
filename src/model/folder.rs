@@ -12,7 +12,7 @@ use crate::model::listing::{
 use crate::support::lang::tr;
 use crate::support::threads::{Receiving, Took};
 use crate::ui::actions::Action;
-use crate::ui::menus::{iconed, scroll_menu};
+use crate::ui::menus::{scroll_menu, with_icon};
 use crate::viewer::view::Viewing;
 use crate::{files::config, files::external, model::collections, model::listing, tf, ui::theme};
 use eframe::egui;
@@ -620,7 +620,7 @@ impl crate::App {
         let ctx = ui.ctx().clone();
         scroll_menu(
             ui,
-            iconed(ui, theme::icon::RECENT, tr("Open Recent")),
+            with_icon(ui, theme::icon::RECENT, tr("Open Recent")),
             |ui| {
                 ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Extend);
                 if self.folder.recent.is_empty() {
