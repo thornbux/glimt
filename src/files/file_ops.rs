@@ -1656,7 +1656,7 @@ impl crate::App {
                 return Some(tf!("Could not save the image: {e}", e));
             }
             // The name's own bytes, also when they are not UTF-8.
-            let named = |more: &str| crate::images::save::stem_and(&path, more);
+            let named = |more: &str| crate::images::save::stem_with_suffix(&path, more);
             // The frames go into a folder made new for them. A name that is taken, also by a
             // folder another export made a moment ago or by a link, is passed over, so two
             // exports never write into the same folder.

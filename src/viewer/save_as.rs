@@ -160,11 +160,11 @@ impl crate::App {
             // "a-1920.jpg" when smaller, "a.webp" in another format, else "a-copy.jpg".
             let path = &dialog.path;
             let mut name = match how.long_side {
-                Some(long) => save::stem_and(path, &format!("-{long}.{}", format.ext())),
-                None => save::stem_and(path, &format!(".{}", format.ext())),
+                Some(long) => save::stem_with_suffix(path, &format!("-{long}.{}", format.ext())),
+                None => save::stem_with_suffix(path, &format!(".{}", format.ext())),
             };
             if path.with_file_name(&name) == *path {
-                name = save::stem_and(path, &format!("-copy.{}", format.ext()));
+                name = save::stem_with_suffix(path, &format!("-copy.{}", format.ext()));
             }
             let start = path.with_file_name(name);
             self.pick(ctx, false, Pick::SaveAs(dialog.path, how, start));

@@ -659,7 +659,7 @@ pub fn add_tags(path: &Path, tags: &[String]) -> Result<(), String> {
 
 /// `xmp` without property `tag` in any form it is written in (`save::without`).
 pub(crate) fn without(xmp: &str, tag: &str) -> String {
-    let out = crate::images::save::without(xmp.as_bytes(), tag.as_bytes());
+    let out = crate::images::save::xmp_without_property(xmp.as_bytes(), tag.as_bytes());
     // It cuts only at ASCII characters, so the text stays UTF-8.
     String::from_utf8(out).unwrap_or_else(|_| xmp.to_owned())
 }

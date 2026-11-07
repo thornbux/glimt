@@ -124,7 +124,7 @@ impl Format {
 
 /// How an image is written, as a PNG, a WebP (lossy or not) or a JPEG of a quality.
 #[derive(Clone, Copy)]
-enum Kind {
+enum Encoding {
     Png,
     WebP(bool),
     Jpeg(u8),
@@ -160,10 +160,10 @@ pub(crate) enum Derived {
     Copy,
 }
 
-/// The next place of a text in a packet, for places asked in rising order. A search goes on
+/// A forward search for a text in a packet, for places asked in rising order. A search goes on
 /// from where the last one ended, so all of them together read the packet once, however many
-/// places are asked (`without`).
-struct Next<'a> {
+/// places are asked (`xmp_without_property`).
+struct ForwardSearch<'a> {
     hay: &'a [u8],
     what: &'a [u8],
     /// What the last search found, if one was made. A search that found nothing holds for every
@@ -171,9 +171,9 @@ struct Next<'a> {
     found: Option<Option<usize>>,
 }
 
-impl<'a> Next<'a> {
+impl<'a> ForwardSearch<'a> {
     fn new(hay: &'a [u8], what: &'a [u8]) -> Self {
-        Next {
+        ForwardSearch {
             hay,
             what,
             found: None,
@@ -221,15 +221,15 @@ pub fn save_rotated(
     if animated(path)? {
         return Err(tr("animated images are not turned").into());
     }
-    let kind = match png {
-        true => Kind::Png,
-        false => Kind::WebP(webp_lossless(path) == Some(false)),
+    let encoding = match png {
+        true => Encoding::Png,
+        false => Encoding::WebP(webp_lossless(path) == Some(false)),
     };
     let (img, icc) = load_icc(path, rotate)?;
     let img = turned(img, turns, mirrored);
     let size = (img.width(), img.height());
     let (exif, xmp, quarter) = derived_metadata(path, rotate, turns, size, Derived::Turned)?;
-    let out = encode(path, img, icc, exif, xmp, kind, quarter, webp_quality)?;
+    let out = encode(path, img, icc, exif, xmp, encoding, quarter, webp_quality)?;
     replace_with_sidecar(path, named, out, Derived::Turned)
 }
 
@@ -276,11 +276,11 @@ pub fn copy_bytes(path: &Path, how: &CopyAs) -> Result<(Vec<u8>, Format), String
         return Err(tr("animated images are not saved as a copy").into());
     }
     let format = how.format.unwrap_or_else(|| Format::of(path));
-    let kind = match format {
-        Format::Jpeg => Kind::Jpeg(how.jpeg_quality),
-        Format::Png => Kind::Png,
-        Format::WebP => Kind::WebP(false),
-        Format::WebPLossy => Kind::WebP(true),
+    let encoding = match format {
+        Format::Jpeg => Encoding::Jpeg(how.jpeg_quality),
+        Format::Png => Encoding::Png,
+        Format::WebP => Encoding::WebP(false),
+        Format::WebPLossy => Encoding::WebP(true),
     };
     let (img, icc) = pixels(path, how)?;
     let size = (img.width(), img.height());
@@ -291,7 +291,16 @@ pub fn copy_bytes(path: &Path, how: &CopyAs) -> Result<(Vec<u8>, Format), String
     // A PNG's other chunks hold as they were, because a DPI is no different for a part. They
     // are dropped when stripped, because the text chunks may say where and by whom.
     let from = if how.strip { Path::new("") } else { path };
-    let out = encode(from, img, icc, exif, xmp, kind, quarter, how.webp_quality)?;
+    let out = encode(
+        from,
+        img,
+        icc,
+        exif,
+        xmp,
+        encoding,
+        quarter,
+        how.webp_quality,
+    )?;
     Ok((out, format))
 }
 
@@ -308,7 +317,7 @@ fn pixels(path: &Path, how: &CopyAs) -> Result<(image::DynamicImage, Option<Vec<
         img = img.crop_imm(x, y, width, height);
     }
     if let Some(long) = how.long_side {
-        img = smaller(img, long.max(1))?;
+        img = shrink_to_long_side(img, long.max(1))?;
     }
     Ok((img, icc))
 }
@@ -319,7 +328,16 @@ fn pixels(path: &Path, how: &CopyAs) -> Result<(image::DynamicImage, Option<Vec<
 /// a 32-bit float page is written in 16 bits.
 pub fn frame_png(img: image::DynamicImage, how: &CopyAs) -> Result<Vec<u8>, String> {
     let img = turned(img, how.turns, how.mirrored);
-    encode(Path::new(""), img, None, None, None, Kind::Png, false, 0)
+    encode(
+        Path::new(""),
+        img,
+        None,
+        None,
+        None,
+        Encoding::Png,
+        false,
+        0,
+    )
 }
 
 /// The image as `how` shows it, in sRGB, for Select → Copy Image. That copied the image
@@ -329,8 +347,9 @@ pub fn shown_image(path: &Path, how: &CopyAs) -> Result<image::DynamicImage, Str
     Ok(crate::images::colour::to_srgb(img, icc.as_deref()))
 }
 
-/// `img` with its longest side `long` at most, by Lanczos3, which is sharp, for a copy kept.
-fn smaller(img: image::DynamicImage, long: u32) -> Result<image::DynamicImage, String> {
+/// Shrinks `img` so its longest side is `long` at most, by Lanczos3, which is sharp, for a copy
+/// kept.
+fn shrink_to_long_side(img: image::DynamicImage, long: u32) -> Result<image::DynamicImage, String> {
     let (w, h) = (img.width(), img.height());
     if w.max(h) <= long {
         return Ok(img);
@@ -347,9 +366,9 @@ fn smaller(img: image::DynamicImage, long: u32) -> Result<image::DynamicImage, S
     Ok(small)
 }
 
-/// The name of `path` without its extension, as its bytes, with `more` after it, as a copy's
-/// name beside it. A name that is not UTF-8 is kept as it is, not made "caf\u{FFFD}".
-pub(crate) fn stem_and(path: &Path, more: &str) -> std::ffi::OsString {
+/// Returns the name of `path` without its extension, as its bytes, with `more` after it, as a
+/// copy's name beside it. A name that is not UTF-8 is kept as it is, not made "caf\u{FFFD}".
+pub(crate) fn stem_with_suffix(path: &Path, more: &str) -> std::ffi::OsString {
     let mut name = path.file_stem().unwrap_or_default().to_owned();
     name.push(more);
     name
@@ -370,8 +389,8 @@ pub fn save_cropped(path: &Path, how: &CopyAs) -> Result<std::path::PathBuf, Str
     };
     for n in 1.. {
         let name = match n {
-            1 => stem_and(path, &format!("-cropped.{ext}")),
-            _ => stem_and(path, &format!("-cropped-{n}.{ext}")),
+            1 => stem_with_suffix(path, &format!("-cropped.{ext}")),
+            _ => stem_with_suffix(path, &format!("-cropped-{n}.{ext}")),
         };
         let new = path.with_file_name(name);
         match save_copy_with_sidecar(path, &new, &out, false, how.strip) {
@@ -654,7 +673,7 @@ pub(crate) fn derived_xmp(xmp: &[u8], how: Derived) -> Vec<u8> {
             exif::set_xmp_orientation(&mut out, 1);
             let copy = (how == Derived::Copy).then_some(&DROPPED_FROM_COPIES[..]);
             for name in DROPPED_XMP.iter().chain(copy.unwrap_or_default()) {
-                out = without(&out, name.as_bytes());
+                out = xmp_without_property(&out, name.as_bytes());
             }
         }
     }
@@ -691,19 +710,25 @@ fn derive_sidecar(
 /// a search for one spelling misses the others (`xmp:Rating='3'`) and leaves the property
 /// twice. A property that is cut off is left as it is, and
 /// so is one in a comment or one whose element would reach into a comment. The packet is copied
-/// once, and each search goes on from where the last one ended (`Next`), so a hostile packet
-/// takes linear time. Before, each property left out moved the rest of the packet, and each
+/// once, and each search goes on from where the last one ended (`ForwardSearch`), so a hostile
+/// packet takes linear time. Before, each property left out moved the rest of the packet, and each
 /// element without its end tag searched to the end again, both quadratic, and a
 /// `<!--<xmp:Thumbnails>-->` comment was cut to the next end tag, which left the packet broken.
-pub(crate) fn without(xmp: &[u8], name: &[u8]) -> Vec<u8> {
+pub(crate) fn xmp_without_property(xmp: &[u8], name: &[u8]) -> Vec<u8> {
     let end_tag = [&b"</"[..], name, b">"].concat();
     let [mut names, mut gts, mut ends] = [
-        Next::new(xmp, name),
-        Next::new(xmp, b">"),
-        Next::new(xmp, &end_tag),
+        ForwardSearch::new(xmp, name),
+        ForwardSearch::new(xmp, b">"),
+        ForwardSearch::new(xmp, &end_tag),
     ];
-    let [mut opens, mut closes] = [Next::new(xmp, b"<!--"), Next::new(xmp, b"-->")];
-    let [mut double, mut single] = [Next::new(xmp, b"\""), Next::new(xmp, b"'")];
+    let [mut opens, mut closes] = [
+        ForwardSearch::new(xmp, b"<!--"),
+        ForwardSearch::new(xmp, b"-->"),
+    ];
+    let [mut double, mut single] = [
+        ForwardSearch::new(xmp, b"\""),
+        ForwardSearch::new(xmp, b"'"),
+    ];
     let (mut out, mut copied, mut from) = (Vec::with_capacity(xmp.len()), 0, 0);
     while let Some(at) = names.at(from) {
         // A comment that starts before the name is passed over whole.
@@ -778,11 +803,11 @@ fn turned(img: image::DynamicImage, turns: u8, mirrored: bool) -> image::Dynamic
     }
 }
 
-/// `img` encoded as `kind` with the profile, EXIF and XMP. A PNG keeps the other chunks of
+/// `img` encoded as `encoding` with the profile, EXIF and XMP. A PNG keeps the other chunks of
 /// `path` (`quarter` says it was turned a quarter since). It is encoded in memory, because an
 /// encoder that owns its file flushes it on drop, where a full disk would go unnoticed and a
-/// cut-off file would replace the photo. The pixels and the profile are made to fit `kind`
-/// first (`fitted`), so every derived file is written from pixels its format holds.
+/// cut-off file would replace the photo. The pixels and the profile are made to fit `encoding`
+/// first (`writable_pixels`), so every derived file is written from pixels its format holds.
 #[allow(clippy::too_many_arguments)]
 fn encode(
     path: &Path,
@@ -790,14 +815,14 @@ fn encode(
     icc: Option<Vec<u8>>,
     exif: Option<Vec<u8>>,
     xmp: Option<Vec<u8>>,
-    kind: Kind,
+    encoding: Encoding,
     quarter: bool,
     webp_quality: u8,
 ) -> Result<Vec<u8>, String> {
     use image::ImageEncoder;
-    let (img, icc) = fitted(img, icc, kind);
+    let (img, icc) = writable_pixels(img, icc, encoding);
     let (width, height) = (img.width(), img.height());
-    if let Kind::WebP(true) = kind {
+    if let Encoding::WebP(true) = encoding {
         // ffmpeg drops the profile, so it is put back. The pixels are never converted to sRGB
         // here: that followed the view's colour settings, so with colour management off a
         // Display P3 file lost its profile and kept its P3 pixels.
@@ -814,8 +839,8 @@ fn encode(
         return Ok(webp);
     }
     let mut out = Vec::new();
-    let written = match kind {
-        Kind::Png => {
+    let written = match encoding {
+        Encoding::Png => {
             let mut enc = image::codecs::png::PngEncoder::new(&mut out);
             if let Some(icc) = icc {
                 let _ = enc.set_icc_profile(icc);
@@ -825,7 +850,7 @@ fn encode(
                 _ => img.write_with_encoder(enc),
             }
         }
-        Kind::Jpeg(quality) => {
+        Encoding::Jpeg(quality) => {
             let mut enc = image::codecs::jpeg::JpegEncoder::new_with_quality(&mut out, quality);
             if let Some(icc) = icc {
                 let _ = enc.set_icc_profile(icc);
@@ -837,7 +862,7 @@ fn encode(
                 _ => img.write_with_encoder(enc),
             }
         }
-        Kind::WebP(_) => {
+        Encoding::WebP(_) => {
             let mut enc = image::codecs::webp::WebPEncoder::new_lossless(&mut out);
             if let Some(icc) = icc {
                 let _ = enc.set_icc_profile(icc);
@@ -852,41 +877,41 @@ fn encode(
     // The rest of what the PNG said of itself is kept: its text (a comment, an AI tool's
     // prompt), its DPI and its gamma. Otherwise a 300 dpi scan prints at 72 after a turn. It is
     // only taken from a PNG.
-    if let Kind::Png = kind
+    if let Encoding::Png = encoding
         && has_ext(path, &["png"])
         && let Ok(old) = crate::images::decode::read_limited(path)
     {
         out = png_with_chunks(&out, &old, quarter);
     }
     if let Some(xmp) = &xmp {
-        out = match kind {
-            Kind::Png => png_with_xmp(&out, xmp)?,
-            Kind::Jpeg(_) => jpeg_with_xmp(&out, xmp)?,
-            Kind::WebP(_) => webp_with_chunk(&out, b"XMP ", xmp, width, height)?,
+        out = match encoding {
+            Encoding::Png => png_with_xmp(&out, xmp)?,
+            Encoding::Jpeg(_) => jpeg_with_xmp(&out, xmp)?,
+            Encoding::WebP(_) => webp_with_chunk(&out, b"XMP ", xmp, width, height)?,
         };
     }
     Ok(out)
 }
 
-/// Makes `img` pixels that `kind` writes, and keeps `icc` only where it describes them. A JPEG
+/// Makes `img` pixels that `encoding` writes, and keeps `icc` only where it describes them. A JPEG
 /// holds 8-bit grey or RGB, a WebP 8-bit RGB or RGBA, and a PNG no floats, so a 32-bit float
 /// TIFF is written in 16 bits. Before, a PNG copy of such a TIFF failed. A profile is kept only
 /// when its colour space, in bytes 16 to 20 of its header, is the pixels' own, grey or RGB.
 /// Before, a grey JPEG's Gray profile went with RGB pixels, and a CMYK JPEG's profile with the
 /// RGB it is decoded to, so other programs showed the copy in wrong colours.
-fn fitted(
+fn writable_pixels(
     img: image::DynamicImage,
     icc: Option<Vec<u8>>,
-    kind: Kind,
+    encoding: Encoding,
 ) -> (image::DynamicImage, Option<Vec<u8>>) {
     use image::DynamicImage as D;
     let colour = img.color();
-    let img = match kind {
-        Kind::Jpeg(_) if !colour.has_color() => D::from(img.into_luma8()),
-        Kind::Jpeg(_) => D::from(img.into_rgb8()),
-        Kind::WebP(_) if colour.has_alpha() => D::from(img.into_rgba8()),
-        Kind::WebP(_) => D::from(img.into_rgb8()),
-        Kind::Png => match img {
+    let img = match encoding {
+        Encoding::Jpeg(_) if !colour.has_color() => D::from(img.into_luma8()),
+        Encoding::Jpeg(_) => D::from(img.into_rgb8()),
+        Encoding::WebP(_) if colour.has_alpha() => D::from(img.into_rgba8()),
+        Encoding::WebP(_) => D::from(img.into_rgb8()),
+        Encoding::Png => match img {
             D::ImageRgb32F(_) => D::from(img.into_rgb16()),
             D::ImageRgba32F(_) => D::from(img.into_rgba16()),
             img => img,
@@ -1268,9 +1293,9 @@ mod tests {
         use image::ImageDecoder;
         let exif_of = |exif: Vec<u8>| {
             let img = image::RgbImage::new(2, 2).into();
-            let kind = super::Kind::Jpeg(90);
+            let encoding = super::Encoding::Jpeg(90);
             let path = std::path::Path::new("");
-            let out = super::encode(path, img, None, Some(exif), None, kind, false, 90);
+            let out = super::encode(path, img, None, Some(exif), None, encoding, false, 90);
             let reader = image::ImageReader::new(std::io::Cursor::new(out.unwrap()));
             let mut dec = reader
                 .with_guessed_format()
@@ -1290,14 +1315,14 @@ mod tests {
     #[test]
     fn a_derived_file_has_pixels_its_format_holds() {
         use image::ImageDecoder;
-        let write = |img: image::DynamicImage, kind| {
+        let write = |img: image::DynamicImage, encoding| {
             let out = super::encode(
                 std::path::Path::new(""),
                 img,
                 None,
                 None,
                 None,
-                kind,
+                encoding,
                 false,
                 90,
             );
@@ -1312,17 +1337,17 @@ mod tests {
         };
         let float = image::Rgb32FImage::from_pixel(2, 2, image::Rgb([0.5, 0.25, 1.0]));
         assert_eq!(
-            write(float.into(), super::Kind::Png),
+            write(float.into(), super::Encoding::Png),
             image::ColorType::Rgb16
         );
         let float = image::Rgba32FImage::from_pixel(2, 2, image::Rgba([0.5, 0.25, 1.0, 1.0]));
         assert_eq!(
-            write(float.into(), super::Kind::Png),
+            write(float.into(), super::Encoding::Png),
             image::ColorType::Rgba16
         );
         let grey = image::GrayImage::from_pixel(2, 2, image::Luma([90]));
         assert_eq!(
-            write(grey.into(), super::Kind::Jpeg(90)),
+            write(grey.into(), super::Encoding::Jpeg(90)),
             image::ColorType::L8
         );
     }
@@ -1341,14 +1366,14 @@ mod tests {
             p
         };
         let (gray, cmyk) = (other(b"GRAY"), other(b"CMYK"));
-        let profile = |img: image::DynamicImage, icc: &Vec<u8>, kind| {
+        let profile = |img: image::DynamicImage, icc: &Vec<u8>, encoding| {
             let out = super::encode(
                 std::path::Path::new(""),
                 img,
                 Some(icc.clone()),
                 None,
                 None,
-                kind,
+                encoding,
                 false,
                 90,
             );
@@ -1362,12 +1387,12 @@ mod tests {
         };
         let grey = || image::DynamicImage::from(image::GrayImage::new(2, 2));
         let colour = || image::DynamicImage::from(image::RgbImage::new(2, 2));
-        use super::Kind::{Jpeg, Png, WebP};
-        for kind in [Jpeg(90), Png] {
-            assert_eq!(profile(grey(), &gray, kind), Some(gray.clone()));
-            assert_eq!(profile(colour(), &gray, kind), None);
-            assert_eq!(profile(colour(), &rgb, kind), Some(rgb.clone()));
-            assert_eq!(profile(colour(), &cmyk, kind), None);
+        use super::Encoding::{Jpeg, Png, WebP};
+        for encoding in [Jpeg(90), Png] {
+            assert_eq!(profile(grey(), &gray, encoding), Some(gray.clone()));
+            assert_eq!(profile(colour(), &gray, encoding), None);
+            assert_eq!(profile(colour(), &rgb, encoding), Some(rgb.clone()));
+            assert_eq!(profile(colour(), &cmyk, encoding), None);
         }
         assert_eq!(profile(grey(), &gray, WebP(false)), None);
         assert_eq!(profile(grey(), &rgb, WebP(false)), Some(rgb.clone()));
@@ -2029,28 +2054,32 @@ mod tests {
     /// comment's end went and the packet was broken.
     #[test]
     fn leaves_xmp_properties_out_in_one_pass() {
-        let without = |x: &str| String::from_utf8(super::without(x.as_bytes(), b"xmp:Thumbnails"));
+        let without_thumbnails = |x: &str| {
+            String::from_utf8(super::xmp_without_property(x.as_bytes(), b"xmp:Thumbnails"))
+        };
         let kept = "<!--<xmp:Thumbnails>--><a/>";
         assert_eq!(
-            without(&format!("{kept}<xmp:Thumbnails>t</xmp:Thumbnails><b/>")).unwrap(),
+            without_thumbnails(&format!("{kept}<xmp:Thumbnails>t</xmp:Thumbnails><b/>")).unwrap(),
             format!("{kept}<b/>")
         );
         assert_eq!(
-            without("<xmp:Thumbnails>t<!-- --></xmp:Thumbnails>").unwrap(),
+            without_thumbnails("<xmp:Thumbnails>t<!-- --></xmp:Thumbnails>").unwrap(),
             "<xmp:Thumbnails>t<!-- --></xmp:Thumbnails>"
         );
         assert_eq!(
-            without("<a xmp:Thumbnails='1' b=\"2\" xmp:Thumbnails = \"3\"/><xmp:Thumbnails/>")
-                .unwrap(),
+            without_thumbnails(
+                "<a xmp:Thumbnails='1' b=\"2\" xmp:Thumbnails = \"3\"/><xmp:Thumbnails/>"
+            )
+            .unwrap(),
             "<a b=\"2\"/>"
         );
         let started = std::time::Instant::now();
         let many = " xmp:Thumbnails=\"1\"".repeat(100_000);
-        assert_eq!(without(&many).unwrap(), "");
+        assert_eq!(without_thumbnails(&many).unwrap(), "");
         let open = "<xmp:Thumbnails>".repeat(100_000);
-        assert_eq!(without(&open).unwrap(), open);
+        assert_eq!(without_thumbnails(&open).unwrap(), open);
         let unclosed = "<xmp:Thumbnails".repeat(100_000);
-        assert_eq!(without(&unclosed).unwrap(), unclosed);
+        assert_eq!(without_thumbnails(&unclosed).unwrap(), unclosed);
         assert!(started.elapsed() < std::time::Duration::from_secs(2));
     }
 
