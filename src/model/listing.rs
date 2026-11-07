@@ -234,11 +234,16 @@ fn walk_by(
     let real = real_dir(&dir);
     std::iter::from_fn(move || {
         loop {
-            let rel = todo.pop()?;
+            let mut rel = todo.pop()?;
             let full = dir.join(&rel);
-            let is_link = std::fs::symlink_metadata(&full).is_ok_and(|m| m.is_symlink());
-            if is_link && !followed(canonical(&full), &real) {
-                continue;
+            // A followed link's folder is named by its real path in the tree, so every file has
+            // one name, the one `--remote select`'s client gives and marks and stars are kept
+            // by. Named through the link, the file was another name than its own.
+            if std::fs::symlink_metadata(&full).is_ok_and(|m| m.is_symlink()) {
+                match inside(canonical(&full), &real) {
+                    Some(real_rel) => rel = real_rel,
+                    None => continue,
+                }
             }
             if !seen.insert(key(&full)) {
                 continue;
@@ -256,12 +261,13 @@ fn walk_by(
     })
 }
 
-/// Whether the walk follows a link to a folder whose real path is `real`, into the tree whose
-/// real path is `top`. A link whose real path cannot be worked out is not followed. Made
-/// absolute instead, as `real_dir` does, it would always lie inside the tree, and a chain of
-/// short links to a folder whose real path is longer than realpath takes would lead anywhere.
-fn followed(real: std::io::Result<PathBuf>, top: &Path) -> bool {
-    real.is_ok_and(|real| real.starts_with(top))
+/// Returns the path relative to the tree whose real path is `top` of a link's folder whose real
+/// path is `real`, which the walk follows. Returns `None` when the walk does not follow it: the
+/// folder is outside the tree, or its real path cannot be worked out. Made absolute instead, as
+/// `real_dir` does, it would always lie inside the tree, and a chain of short links to a folder
+/// whose real path is longer than realpath takes would lead anywhere.
+fn inside(real: std::io::Result<PathBuf>, top: &Path) -> Option<PathBuf> {
+    Some(real.ok()?.strip_prefix(top).ok()?.to_path_buf())
 }
 
 /// The folders in `dir`, as `list_folder` gives them, and the images in it and every folder
@@ -561,10 +567,33 @@ mod tests {
         symlink(&tree, base.join("named")).unwrap();
         for top in [tree.clone(), base.join("named")] {
             let (_, files) = super::list_tree(&top, types, &stop, |_| {}, |_| {});
-            // The hidden folder is not listed itself, so its image is seen only through the link.
-            assert_eq!(files, ["a.jpg", "sub/in/c.jpg"], "{top:?}");
+            // The hidden folder is not listed itself, so its image is seen only through the link,
+            // and it is named by its real path in the tree.
+            assert_eq!(files, [".inner/c.jpg", "a.jpg"], "{top:?}");
         }
         std::fs::remove_dir_all(base).unwrap();
+    }
+
+    /// A file reached through a link to a folder in the tree is named by its real path, the
+    /// name `--remote select`'s client gives it, whichever way the walk came first. Named
+    /// through the link, `--remote select` missed it in a tree with Include Subfolders.
+    #[test]
+    fn a_file_through_a_link_in_the_tree_has_its_real_name() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-tree-name-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join("real")).unwrap();
+        std::fs::write(dir.join("real/x.jpg"), "x").unwrap();
+        // Before "real" in name order, so the walk reaches the folder through the link first.
+        std::os::unix::fs::symlink("real", dir.join("a-link")).unwrap();
+        let types = super::Types {
+            images: true,
+            raw: true,
+            videos: true,
+            hidden: false,
+        };
+        let stop = std::sync::atomic::AtomicBool::new(false);
+        let (_, files) = super::list_tree(&dir, types, &stop, |_| {}, |_| {});
+        assert_eq!(files, ["real/x.jpg"]);
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     /// On a file system whose folders all have inode 0 (sshfs with `-o use_ino`), the whole
@@ -603,8 +632,8 @@ mod tests {
     #[test]
     fn a_link_whose_real_path_is_unknown_is_not_followed() {
         let top = std::path::Path::new("/home/a/pics");
-        assert!(super::followed(Ok(top.join("sub")), top));
-        assert!(!super::followed(Ok("/home/a".into()), top));
+        assert_eq!(super::inside(Ok(top.join("sub")), top), Some("sub".into()));
+        assert_eq!(super::inside(Ok("/home/a".into()), top), None);
         let dir = std::env::temp_dir().join(format!("glimt-test-walk-long-{}", std::process::id()));
         // The folder is hidden, so it is reached only through the link.
         std::fs::create_dir_all(dir.join(".in")).unwrap();

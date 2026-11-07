@@ -2349,7 +2349,8 @@ mod tests {
     }
 
     /// With subfolders and no auto refresh, a move into a link in the tree follows the rule the
-    /// list is read by. Into a link to a folder inside the tree, the file stays in the list. Into
+    /// list is read by. Into a link to a folder inside the tree, the file stays in the list,
+    /// named by its real path as the tree names it. Into
     /// a link to a folder outside it, the file leaves the list and is not listed again, as the
     /// tree does not follow that link.
     #[test]
@@ -2377,13 +2378,14 @@ mod tests {
         assert!(settle(&mut app, &ctx, |a| names(a) == ["a.png", "b.png"]));
         app.transfer(&ctx, vec![tree.join("a.png")], tree.join("in"), false);
         assert!(settle(&mut app, &ctx, |a| !a.working()
-            && names(a) == ["b.png", "in/a.png"]));
+            && names(a) == ["b.png", "inner/a.png"]));
         app.transfer(&ctx, vec![tree.join("b.png")], tree.join("out"), false);
-        assert!(settle(&mut app, &ctx, |a| !a.working() && names(a) == ["in/a.png"]));
+        assert!(settle(&mut app, &ctx, |a| !a.working()
+            && names(a) == ["inner/a.png"]));
         assert!(d.join("beside/b.png").exists());
         app.refresh(&ctx);
         assert!(settle(&mut app, &ctx, |a| !a.folder.is_listing() && !a.working()));
-        assert_eq!(names(&app), ["in/a.png"]);
+        assert_eq!(names(&app), ["inner/a.png"]);
         std::fs::remove_dir_all(d).unwrap();
     }
 
