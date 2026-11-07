@@ -45,35 +45,35 @@ pub enum Row {
 pub struct Month {
     pub year: i32,
     pub month: u32,
-    pub first: u32,
-    pub days: u32,
+    pub first_weekday: u32,
+    pub day_count: u32,
     pub images: Vec<(u32, usize)>,
 }
 
 impl Month {
     /// Weeks it spans: rows of seven days.
     pub fn weeks(&self) -> u32 {
-        (self.first + self.days).div_ceil(7)
+        (self.first_weekday + self.day_count).div_ceil(7)
     }
 }
 
 /// The pan view's window (Ctrl+J). Closed, the days being made for it are not read on.
 #[derive(Default)]
-pub(crate) struct Pan {
+pub(crate) struct PanView {
     /// Days from the EXIF dates instead of the file dates.
-    exif: bool,
+    uses_exif_dates: bool,
     /// The days, and the version of the file list they are for (`List::version`).
     days: Option<(Vec<pan::Day>, usize)>,
     /// The days read so far, and whether they are all of them.
     days_rx: Receiving<(Vec<pan::Day>, bool)>,
     /// Set when the days being made are no longer wanted: the thread stops reading.
-    days_stop: Arc<AtomicBool>,
+    stop_reading_days: Arc<AtomicBool>,
     /// The files deleted while the days are being read, as sorted places in the list the days
     /// are read from. The second number is the list version the days will be for: the version
     /// read from when the reading starts, and after each delete the version after it. The days
     /// that come are moved through the deletes to the list as it is now, in one pass however
     /// many deletes there were.
-    gone: (Vec<usize>, usize),
+    removed_while_reading: (Vec<usize>, usize),
     /// The rows, their height, and the number of columns and the cell size they were laid out
     /// for. `None` makes them again at the next frame.
     rows: Vec<(f32, pan::Row)>,
@@ -81,23 +81,24 @@ pub(crate) struct Pan {
     laid_for: Option<(usize, egui::Vec2)>,
     /// The calendar instead of the timeline, its months, and a day picked there for the
     /// timeline to scroll to.
-    calendar: bool,
+    shows_calendar: bool,
     months: Vec<pan::Month>,
-    jump: Option<usize>,
+    scroll_to_day: Option<usize>,
 }
 
-impl Pan {
+impl PanView {
     /// The view's tabs (Timeline, Calendar), EXIF date, and how many images and days, for the
     /// list at `version`.
     fn tabs(&mut self, ui: &mut egui::Ui, version: usize) {
         ui.horizontal(|ui| {
-            crate::ui::menus::choice(ui, &mut self.calendar, false, tr("Timeline"));
-            crate::ui::menus::choice(ui, &mut self.calendar, true, tr("Calendar"));
+            crate::ui::menus::choice(ui, &mut self.shows_calendar, false, tr("Timeline"));
+            crate::ui::menus::choice(ui, &mut self.shows_calendar, true, tr("Calendar"));
             ui.separator();
-            if crate::ui::menus::checkbox(ui, &mut self.exif, tr("EXIF date")).changed() {
+            if crate::ui::menus::checkbox(ui, &mut self.uses_exif_dates, tr("EXIF date")).changed()
+            {
                 self.days = None;
                 self.days_rx.clear();
-                self.days_stop.store(true, Ordering::Relaxed);
+                self.stop_reading_days.store(true, Ordering::Relaxed);
             }
             // Days of an older list are not shown while new ones are made: they point
             // at other images now.
@@ -128,18 +129,19 @@ impl Pan {
         if self.days_rx.is_some() {
             // A delete while the days are being read lets the reading go on, because in a
             // large folder it takes minutes. The days it sends are moved through the delete.
-            if self.gone.1 != old {
+            if self.removed_while_reading.1 != old {
                 return;
             }
-            self.gone = (add_gone(&self.gone.0, removed), version);
+            self.removed_while_reading =
+                (add_removed(&self.removed_while_reading.0, removed), version);
         }
         let Some((days, made)) = self.days.as_mut().filter(|d| d.1 == old) else {
             return;
         };
-        without(days, removed);
+        remove_from_days(days, removed);
         *made = version;
         self.months = months(days);
-        (self.laid_for, self.jump) = (None, None);
+        (self.laid_for, self.scroll_to_day) = (None, None);
     }
 
     /// Lays the rows out again when the number of columns or the cell size differs from the
@@ -159,9 +161,9 @@ impl Pan {
     /// Takes the days read so far and moves them through the deletes made since the reading
     /// started. `done` says that they are all of them.
     fn take_days(&mut self, mut days: Vec<Day>, done: bool) {
-        without(&mut days, &self.gone.0);
+        remove_from_days(&mut days, &self.removed_while_reading.0);
         self.months = months(&days);
-        self.days = Some((days, self.gone.1));
+        self.days = Some((days, self.removed_while_reading.1));
         self.laid_for = None;
         if done {
             self.days_rx.clear();
@@ -169,9 +171,9 @@ impl Pan {
     }
 }
 
-impl Drop for Pan {
+impl Drop for PanView {
     fn drop(&mut self) {
-        self.days_stop.store(true, Ordering::Relaxed);
+        self.stop_reading_days.store(true, Ordering::Relaxed);
     }
 }
 
@@ -185,7 +187,7 @@ impl crate::App {
         view.sort_unstable();
         view.dedup();
         self.thumbs.pan_view_shows(view);
-        let Some(mut pan) = self.pan_window.take() else {
+        let Some(mut pan) = self.pan_view.take() else {
             return;
         };
         self.pan_days(ctx, &mut pan);
@@ -201,10 +203,10 @@ impl crate::App {
                     return;
                 };
                 let cell = self.cell();
-                if pan.calendar {
+                if pan.shows_calendar {
                     if let Some(d) = self.pan_calendar(ui, &pan.months, days) {
                         // The day in the timeline, which has all its images.
-                        (pan.calendar, pan.jump) = (false, Some(d));
+                        (pan.shows_calendar, pan.scroll_to_day) = (false, Some(d));
                     }
                     return;
                 }
@@ -220,20 +222,20 @@ impl crate::App {
             self.show_file(ctx, i);
         }
         if open && !close {
-            self.pan_window = Some(pan);
+            self.pan_view = Some(pan);
         }
     }
 
     /// The Pan view's days made in the background when the list changed, also only its order,
     /// and taken as they come.
-    fn pan_days(&mut self, ctx: &egui::Context, pan: &mut Pan) {
+    fn pan_days(&mut self, ctx: &egui::Context, pan: &mut PanView) {
         // The days again when the list changed, also only its order; only the visible rows are
         // drawn.
         let stale = (pan.days.as_ref()).is_none_or(|d| d.1 != self.list.version());
         // Days still being made for a list that changed: stopped, so the new list's start now
         // instead of after every old file is read.
-        if pan.days_rx.is_some() && pan.gone.1 != self.list.version() {
-            pan.days_stop.store(true, Ordering::Relaxed);
+        if pan.days_rx.is_some() && pan.removed_while_reading.1 != self.list.version() {
+            pan.stop_reading_days.store(true, Ordering::Relaxed);
             pan.days_rx.clear();
         }
         if stale && pan.days_rx.is_none() {
@@ -241,14 +243,14 @@ impl crate::App {
             let (dir, files, exif) = (
                 self.folder.dir().to_path_buf(),
                 self.list.files().to_vec(),
-                pan.exif,
+                pan.uses_exif_dates,
             );
             let ctx = ctx.clone();
             // The days are read from the list as it is now, which no file has left yet.
-            pan.gone = (Vec::new(), self.list.version());
+            pan.removed_while_reading = (Vec::new(), self.list.version());
             let pointer = Working::new(&self.busy);
-            pan.days_stop = Arc::default();
-            let stop = pan.days_stop.clone();
+            pan.stop_reading_days = Arc::default();
+            let stop = pan.stop_reading_days.clone();
             std::thread::spawn(move || {
                 timeline(&dir, &files, exif, &stop, |days, done| {
                     let _ = tx.send((days, done));
@@ -278,7 +280,7 @@ impl crate::App {
                 pan.days = Some((Vec::new(), self.list.version()));
                 pan.months = Vec::new();
             }
-            self.stopped(tr("The Pan view's days"));
+            self.tell_background_stopped(tr("The Pan view's days"));
         }
     }
 
@@ -287,7 +289,7 @@ impl crate::App {
     fn pan_timeline(
         &mut self,
         ui: &mut egui::Ui,
-        pan: &mut Pan,
+        pan: &mut PanView,
         cell: egui::Vec2,
     ) -> (Option<usize>, bool) {
         let (mut show, mut close) = (None, false);
@@ -298,7 +300,7 @@ impl crate::App {
             return (None, false);
         };
         let mut area = egui::ScrollArea::vertical().auto_shrink(false);
-        if let Some(d) = pan.jump.take()
+        if let Some(d) = pan.scroll_to_day.take()
             && let Some(row) = pan.rows.iter().find(|r| r.1 == Row::Heading(d))
         {
             area = area.vertical_scroll_offset(row.0);
@@ -404,8 +406,8 @@ impl crate::App {
                             weak,
                         );
                     }
-                    for day in 1..=m.days {
-                        let slot = m.first + day - 1;
+                    for day in 1..=m.day_count {
+                        let slot = m.first_weekday + day - 1;
                         let at = egui::vec2(
                             (slot % 7) as f32 * w,
                             y0 + title + names + (slot / 7) as f32 * h,
@@ -486,16 +488,17 @@ impl crate::App {
 pub fn timeline(
     dir: &Path,
     files: &[OsString],
-    exif: bool,
+    uses_exif_dates: bool,
     stop: &AtomicBool,
     found: impl FnMut(Vec<Day>, bool),
 ) {
-    if exif {
+    if uses_exif_dates {
         // EXIF writes "2024:05:06 07:08:09", which sorts as it is.
         // A date that is no day (the blank "    :  :  " of a camera that had none) is none.
-        let date = |p: &Path| crate::metadata::exif::date(p, false).filter(|d| ymd(d).is_some());
+        let date =
+            |p: &Path| crate::metadata::exif::date(p, false).filter(|d| parse_date(d).is_some());
         let day = |d: &String| d.get(..10).unwrap_or(d).replace(':', "-");
-        return as_read(dir, files, stop, found, date, day);
+        return read_days(dir, files, stop, found, date, day);
     }
     let time = |p: &Path| {
         use std::os::unix::fs::MetadataExt;
@@ -513,12 +516,12 @@ pub fn timeline(
         }
         last.1.clone()
     };
-    as_read(dir, files, stop, found, time, day);
+    read_days(dir, files, stop, found, time, day);
 }
 
 /// `key` of every file, a few thousand at a time on all cores, and the days of those read so
 /// far to `found` every half second; the last call has them all.
-fn as_read<K: Ord + Clone + Send>(
+fn read_days<K: Ord + Clone + Send>(
     dir: &Path,
     files: &[OsString],
     stop: &AtomicBool,
@@ -530,7 +533,12 @@ fn as_read<K: Ord + Clone + Send>(
     let mut sent = Instant::now();
     let mut chunks = files.chunks(4096);
     loop {
-        keys.extend(each(dir, chunks.next().unwrap_or(&[]), stop, &key));
+        keys.extend(map_files_in_parallel(
+            dir,
+            chunks.next().unwrap_or(&[]),
+            stop,
+            &key,
+        ));
         let done = keys.len() == files.len();
         if done || sent.elapsed() >= std::time::Duration::from_millis(500) {
             found(by_day(keys.clone(), &mut day), done);
@@ -545,7 +553,7 @@ fn as_read<K: Ord + Clone + Send>(
 /// `f` of the path of every file, in parallel. Each thread reuses one path: Glimt's allocator
 /// has a single arena, so allocating in every thread would make them wait for each other; for
 /// the same reason they are two at most then (small_alloc_threads).
-fn each<T: Send>(
+fn map_files_in_parallel<T: Send>(
     dir: &Path,
     files: &[OsString],
     stop: &AtomicBool,
@@ -594,7 +602,7 @@ fn by_day<K: Ord>(keys: Vec<Option<K>>, mut day: impl FnMut(&K) -> String) -> Ve
 
 /// The rows of `days` with `columns` thumbnails to a row, each with its top; and the height of
 /// them all. Made again only when the number of columns or the cell size changes
-/// (`Pan::lay_out`).
+/// (`PanView::lay_out`).
 pub fn layout(days: &[Day], columns: usize, heading: f32, cell: f32) -> (Vec<(f32, Row)>, f32) {
     let (mut rows, mut y) = (Vec::new(), 0.0);
     for (d, (_, list)) in days.iter().enumerate() {
@@ -610,7 +618,7 @@ pub fn layout(days: &[Day], columns: usize, heading: f32, cell: f32) -> (Vec<(f3
 
 /// The year, month and day of a date "2024-05-06" or EXIF's "2024:05:06 07:08:09"; `None` for
 /// one that is no day, such as the 0000:00:00 of a camera with its clock never set.
-fn ymd(date: &str) -> Option<(i32, u32, u32)> {
+fn parse_date(date: &str) -> Option<(i32, u32, u32)> {
     let mut parts = date.get(..10)?.split(['-', ':']).map(str::parse::<u32>);
     let (Some(Ok(y)), Some(Ok(m)), Some(Ok(day))) = (parts.next(), parts.next(), parts.next())
     else {
@@ -624,7 +632,7 @@ fn ymd(date: &str) -> Option<(i32, u32, u32)> {
 pub fn months(days: &[Day]) -> Vec<Month> {
     let mut out: Vec<Month> = Vec::new();
     for (d, (date, _)) in days.iter().enumerate() {
-        let Some((y, m, day)) = ymd(date) else {
+        let Some((y, m, day)) = parse_date(date) else {
             continue;
         };
         match out.last_mut() {
@@ -632,8 +640,8 @@ pub fn months(days: &[Day]) -> Vec<Month> {
             _ => out.push(Month {
                 year: y,
                 month: m,
-                first: weekday(y, m, 1),
-                days: days_in_month(y, m),
+                first_weekday: weekday(y, m, 1),
+                day_count: days_in_month(y, m),
                 images: vec![(day, d)],
             }),
         }
@@ -651,7 +659,7 @@ fn weekday(y: i32, m: u32, d: u32) -> u32 {
 
 /// Removes the sorted places `removed` from the days, moves the images after them to their new
 /// places, and drops a day left empty.
-fn without(days: &mut Vec<Day>, removed: &[usize]) {
+fn remove_from_days(days: &mut Vec<Day>, removed: &[usize]) {
     for day in days.iter_mut() {
         day.1.retain(|i| removed.binary_search(i).is_err());
         for i in &mut day.1 {
@@ -664,7 +672,7 @@ fn without(days: &mut Vec<Day>, removed: &[usize]) {
 /// Adds the sorted places `removed`, in the list left after the files `gone` were removed, to
 /// `gone`, which holds sorted places in the list before any of them was. Returns the new `gone`,
 /// sorted.
-fn add_gone(gone: &[usize], removed: &[usize]) -> Vec<usize> {
+fn add_removed(gone: &[usize], removed: &[usize]) -> Vec<usize> {
     let (mut all, mut j) = (gone.to_vec(), 0);
     for &r in removed {
         // The place before the removals is r plus the number of removed places at or before it.
@@ -695,9 +703,9 @@ mod tests {
     /// as names turned on under the thumbnails do.
     #[test]
     fn the_rows_follow_the_cell_size() {
-        let mut pan = Pan::default();
+        let mut pan = PanView::default();
         pan.days = Some((vec![("2024-01-01".into(), vec![0, 1, 2, 3])], 1));
-        let pitch = |pan: &Pan| pan.rows[2].0 - pan.rows[1].0;
+        let pitch = |pan: &PanView| pan.rows[2].0 - pan.rows[1].0;
         pan.lay_out(2, 26.0, egui::vec2(100.0, 100.0));
         assert_eq!(pitch(&pan), 100.0);
         pan.lay_out(2, 26.0, egui::vec2(100.0, 118.0));
@@ -709,7 +717,7 @@ mod tests {
     /// goes. Days of another version of the list are not touched.
     #[test]
     fn the_days_follow_a_delete() {
-        let mut pan = Pan::default();
+        let mut pan = PanView::default();
         let days = vec![
             ("2024-01-01".into(), vec![0, 2]),
             ("2024-01-02".into(), vec![1]),
@@ -725,9 +733,9 @@ mod tests {
     /// sends afterwards come at the new places, through every delete made meanwhile.
     #[test]
     fn the_days_being_read_follow_a_delete() {
-        let mut pan = Pan::default();
+        let mut pan = PanView::default();
         let (_tx, rx) = mpsc::channel();
-        (pan.days_rx, pan.gone) = (Receiving::of(rx), (Vec::new(), 5));
+        (pan.days_rx, pan.removed_while_reading) = (Receiving::of(rx), (Vec::new(), 5));
         pan.days = Some((vec![("2024-01-01".into(), vec![2, 3])], 5));
         pan.follow(&[2], 5, 6);
         pan.follow(&[2], 6, 7);
@@ -735,7 +743,7 @@ mod tests {
         // Places 0 and 2 of the list left are 0 and 4 of the list read, before and after the
         // two deleted first.
         pan.follow(&[0, 2], 7, 8);
-        assert_eq!(pan.gone, (vec![0, 2, 3, 4], 8));
+        assert_eq!(pan.removed_while_reading, (vec![0, 2, 3, 4], 8));
         let read = vec![
             ("2024-01-01".into(), vec![0, 1]),
             ("2024-01-02".into(), vec![2, 3]),
@@ -749,7 +757,7 @@ mod tests {
         assert_eq!(pan.days, Some((left, 8)));
         // A delete in a list the reading is not for leaves it alone.
         pan.follow(&[0], 3, 9);
-        assert_eq!(pan.gone.1, 8);
+        assert_eq!(pan.removed_while_reading.1, 8);
     }
 
     /// A delete in the window keeps Pan view's days for the new list, so they are not read
@@ -762,12 +770,12 @@ mod tests {
         let (mut app, ctx) = crate::support::test_support::app_on(&dir);
         app.list
             .set_files((0..3).map(|i| format!("{i}.png").into()).collect());
-        let mut pan = Pan::default();
+        let mut pan = PanView::default();
         let days = vec![("2024-01-01".into(), vec![0, 1, 2])];
         pan.days = Some((days, app.list.version()));
-        app.pan_window = Some(pan);
+        app.pan_view = Some(pan);
         app.remove_indices(&ctx, &[1]);
-        let pan = app.pan_window.as_ref().unwrap();
+        let pan = app.pan_view.as_ref().unwrap();
         let days = vec![("2024-01-01".into(), vec![0, 1])];
         assert_eq!(pan.days, Some((days, app.list.version())));
         std::fs::remove_dir_all(&dir).unwrap();
@@ -779,7 +787,7 @@ mod tests {
         let files: Vec<OsString> = (0..4).map(|i| i.to_string().into()).collect();
         let stop = AtomicBool::new(false);
         let count = AtomicUsize::new(0);
-        let got = each(Path::new("/"), &files, &stop, |_| {
+        let got = map_files_in_parallel(Path::new("/"), &files, &stop, |_| {
             // The first file read sets the flag: the rest are left.
             stop.store(true, Ordering::Relaxed);
             Some(count.fetch_add(1, Ordering::Relaxed))
@@ -795,15 +803,13 @@ mod tests {
     #[test]
     fn each_keeps_places_past_a_panic() {
         let files: Vec<OsString> = (0..9).map(|i| i.to_string().into()).collect();
-        let got = each(
-            Path::new("/"),
-            &files,
-            &AtomicBool::new(false),
-            |p| match p.ends_with("4") {
+        let got =
+            map_files_in_parallel(Path::new("/"), &files, &AtomicBool::new(false), |p| match p
+                .ends_with("4")
+            {
                 true => panic!("broken file"),
                 false => Some(p.to_path_buf()),
-            },
-        );
+            });
         assert_eq!(got.len(), 9);
         assert_eq!(got[4], None);
         assert_eq!(got[5].as_deref(), Some(Path::new("/5")));
@@ -850,11 +856,11 @@ mod tests {
     /// Days in either form; the blank date and the never set clock are none.
     #[test]
     fn reads_days() {
-        assert_eq!(ymd("2024:05:06 07:08:09"), Some((2024, 5, 6)));
-        assert_eq!(ymd("2024-02-29"), Some((2024, 2, 29)));
-        assert_eq!(ymd("    :  :     :  :  "), None);
-        assert_eq!(ymd("0000:00:00 00:00:00"), None);
-        assert_eq!(ymd("No date"), None);
+        assert_eq!(parse_date("2024:05:06 07:08:09"), Some((2024, 5, 6)));
+        assert_eq!(parse_date("2024-02-29"), Some((2024, 2, 29)));
+        assert_eq!(parse_date("    :  :     :  :  "), None);
+        assert_eq!(parse_date("0000:00:00 00:00:00"), None);
+        assert_eq!(parse_date("No date"), None);
     }
 
     /// Months with their weekdays and leap years; days in two months, and one without a date.
@@ -875,8 +881,11 @@ mod tests {
         let m = months(&days);
         assert_eq!(m.len(), 2);
         // 1 February 2024 was a Thursday, 1 July 2025 a Tuesday.
-        assert_eq!((m[0].first, m[0].days, m[0].weeks()), (3, 29, 5));
-        assert_eq!((m[1].first, m[1].days), (1, 31));
+        assert_eq!(
+            (m[0].first_weekday, m[0].day_count, m[0].weeks()),
+            (3, 29, 5)
+        );
+        assert_eq!((m[1].first_weekday, m[1].day_count), (1, 31));
         assert_eq!(m[1].images, [(1, 1), (15, 2)]);
         assert_eq!(weekday(2000, 1, 1), 5);
         assert_eq!(days_in_month(1900, 2), 28);

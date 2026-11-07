@@ -16,8 +16,8 @@ use crate::files::config::{Config, WindowState, parse_last_dir, state_path};
 use crate::files::file_io::write_atomic;
 use crate::model::list::List;
 use crate::support::threads::{HAS_ONE_MALLOC_ARENA, Receiving, cores, set_cpu_use, thread_cpu_us};
-use crate::viewer::pan::Pan;
-use crate::viewer::view::View;
+use crate::viewer::pan::PanView;
+use crate::viewer::view::ImageArea;
 use crate::viewer::view::frame_at;
 use eframe::egui;
 use std::collections::HashSet;
@@ -50,7 +50,7 @@ struct App {
     config: Config,
     /// What the desktop says. It holds the desktop's dark style, its accent colour and its
     /// screen profile.
-    desktop: crate::ui::theme::FromDesktop,
+    desktop_settings: crate::ui::theme::DesktopSettings,
 
     // ---- What is open and its files ----
     /// What is open (a folder, a collection or several folders), its listing in the
@@ -81,7 +81,7 @@ struct App {
     search: crate::model::search::Search,
     /// The status bar's numbers. It holds the shown image's size and place, the folder's total,
     /// and the size of the selection.
-    status: crate::ui::file_list::StatusBar,
+    status_bar: crate::ui::file_list::StatusBar,
     /// Files Check Images found broken, marked in the list until another list is shown.
     broken_files: HashSet<OsString>,
     #[cfg(feature = "marks")]
@@ -95,16 +95,16 @@ struct App {
     viewing: crate::viewer::view::Viewing,
     /// The zoom, and where the zoomed image is in the view.
     zoom: crate::viewer::view::Zoom,
-    /// Whether two images are shown side by side (E), the shown one and `compare_other`.
-    compare: bool,
+    /// Whether two images are shown side by side (E), the shown one and `compared_image`.
+    is_comparing: bool,
     /// What the image area showed in the last frame, for the projector to show the same.
-    last_view: Option<View>,
+    last_image_area: Option<ImageArea>,
     /// The image area. It keeps the keyboard focus for a screen reader, because a widget with
     /// the focus would take the keys from the shortcuts.
-    image_id: Option<egui::Id>,
+    image_area_id: Option<egui::Id>,
     /// Whether the focus was last moved by Tab rather than by the mouse. Its ring shows only
     /// then, as in GNOME.
-    focus_by_keys: bool,
+    is_focus_from_keys: bool,
     /// The slideshow. It knows whether it runs, its order, and the pane it changes next.
     slideshow: crate::viewer::slideshow::Slideshow,
     /// The window. It holds the remembered window state, the kiosk, the projector, the screen
@@ -116,8 +116,8 @@ struct App {
     /// The message shown over the image, until the next image.
     notice: Option<String>,
     /// Messages from background tasks (deleting, copying), to become the notice.
-    notices_tx: crate::support::threads::Notices,
-    notices_rx: mpsc::Receiver<String>,
+    notice_sender: crate::support::threads::Notices,
+    notices: mpsc::Receiver<String>,
 
     // ---- Menus, dialogs and windows ----
     /// The small dialogs. They ask for a name, confirm a delete or the trashing of a folder,
@@ -125,7 +125,7 @@ struct App {
     dialogs: crate::ui::dialogs::Dialogs,
     /// The Preferences window. It knows whether it is open, its search, and the action whose
     /// key is being chosen.
-    prefs: crate::ui::preferences::Prefs,
+    preferences: crate::ui::preferences::Preferences,
     /// Open With's programs for each file type, read in the background.
     open_with: crate::ui::menus::OpenWith,
     /// Edit → Plugins, read at start.
@@ -135,21 +135,21 @@ struct App {
     /// The help page open (F1), if any.
     help: Option<crate::ui::help::Page>,
     /// File → Print's dialog, while open.
-    print_window: Option<PrintDialog>,
+    print_dialog: Option<PrintDialog>,
     /// A Lightroom catalog being read, then imported with the folders where its root folders
     /// are now.
-    lightroom_rx: Receiving<Result<crate::metadata::lightroom::Catalog, String>>,
+    lightroom_catalog: Receiving<Result<crate::metadata::lightroom::Catalog, String>>,
     lightroom: Option<crate::metadata::lightroom::Import>,
     /// The pan view's window (Ctrl+J), while it is open.
-    pan_window: Option<Pan>,
+    pan_view: Option<PanView>,
     /// File → Save As. It holds the dialog while it is open, and the answers given last.
     save_as: Option<crate::viewer::save_as::SaveAs>,
-    save_as_last: crate::viewer::save_as::Choice,
+    save_as_choices: crate::viewer::save_as::SaveAsChoices,
     /// The Find Duplicates window, while open.
-    dups: Option<FindDuplicates>,
+    find_duplicates: Option<FindDuplicates>,
     /// The Check Images window. `None` means it is closed, and `Some(None)` means it is open
     /// but not started.
-    check: Option<Option<ImageCheck>>,
+    check_images: Option<Option<ImageCheck>>,
     /// Commands from --remote, and the selects that wait until the list is read.
     remote: crate::features::remote::Listener,
 }
@@ -159,12 +159,12 @@ impl App {
 
     fn new(cc: &eframe::CreationContext, path: Option<PathBuf>, start: Start) -> Self {
         let (config, problems) = Config::load_checked();
-        Self::with(&cc.egui_ctx, config, &problems, path, start)
+        Self::with_config(&cc.egui_ctx, config, &problems, path, start)
     }
 
     /// The window's state from the settings `new` reads, or a test gives, so a test makes an
     /// `App` on `egui::Context::default()` with settings of its own.
-    fn with(
+    fn with_config(
         ctx: &egui::Context,
         mut config: Config,
         problems: &[String],
@@ -184,7 +184,7 @@ impl App {
             config.save();
         }
         let screen_error = crate::images::colour::set_up_colour(&config);
-        crate::ui::actions::use_own_keys(&config.keys);
+        crate::ui::actions::use_user_keys(&config.keys);
         let path = path
             .or_else(|| {
                 let state = crate::images::decode::read_text(state_path()?).ok()?;
@@ -206,17 +206,17 @@ impl App {
         let thumbs = crate::ui::file_list::Thumbs::new(
             ctx,
             workers,
-            decoding.rotation(),
+            decoding.auto_rotate(),
             config.save_thumbnails,
         );
         // A name is only of use with remote control, so a named Glimt listens in any case. A
         // kiosk listens too, because --remote quit is its way out.
         let listen =
             config.remote_control || crate::features::remote::given_name().is_some() || start.kiosk;
-        let (notices_tx, notices_rx) = crate::support::threads::Notices::new(ctx);
+        let (notice_sender, notices) = crate::support::threads::Notices::new(ctx);
         let mut app = App {
             ctx: ctx.clone(),
-            desktop: crate::ui::theme::FromDesktop::new(ctx, config.desktop_profile),
+            desktop_settings: crate::ui::theme::DesktopSettings::new(ctx, config.desktop_profile),
             folder: crate::model::folder::Folder::new(&config),
             list: List::default(),
             file_operations: crate::files::file_ops::FileOperations::new(),
@@ -225,37 +225,37 @@ impl App {
             tree: crate::ui::file_list::Tree::default(),
             thumbs,
             search: crate::model::search::Search::default(),
-            status: crate::ui::file_list::StatusBar::default(),
+            status_bar: crate::ui::file_list::StatusBar::default(),
             broken_files: HashSet::new(),
             #[cfg(feature = "marks")]
             marks: crate::metadata::marks::Marks::load(),
             decoding,
             viewing: crate::viewer::view::Viewing::default(),
             zoom: crate::viewer::view::Zoom::default(),
-            compare: false,
-            last_view: None,
-            image_id: None,
-            focus_by_keys: false,
+            is_comparing: false,
+            last_image_area: None,
+            image_area_id: None,
+            is_focus_from_keys: false,
             slideshow: crate::viewer::slideshow::Slideshow::new(start.slideshow),
             window: crate::ui::window::Window::new(start.kiosk),
             info_panel: crate::ui::info_panel::InfoPanel::new(ctx),
             notice: screen_error.or_else(|| config_notice(problems)),
-            notices_tx,
-            notices_rx,
+            notice_sender,
+            notices,
             dialogs: crate::ui::dialogs::Dialogs::default(),
-            prefs: crate::ui::preferences::Prefs::default(),
+            preferences: crate::ui::preferences::Preferences::default(),
             open_with: crate::ui::menus::OpenWith::default(),
             plugins: crate::features::plugins::find(),
             plugins_running: crate::features::plugins::RunningPlugins::default(),
             help: None,
-            print_window: None,
-            lightroom_rx: Receiving::none(),
+            print_dialog: None,
+            lightroom_catalog: Receiving::none(),
             lightroom: None,
-            pan_window: None,
+            pan_view: None,
             save_as: None,
-            save_as_last: Default::default(),
-            dups: None,
-            check: None,
+            save_as_choices: Default::default(),
+            find_duplicates: None,
+            check_images: None,
             remote: crate::features::remote::Listener::new(ctx, listen),
             config,
         };
@@ -266,8 +266,8 @@ impl App {
                 app.open(ctx, ".".into());
                 app.mount(ctx, uri.to_owned());
             }
-            None if !start.more.is_empty() => {
-                let all = std::iter::once(path).chain(start.more.iter().cloned());
+            None if !start.more_paths.is_empty() => {
+                let all = std::iter::once(path).chain(start.more_paths.iter().cloned());
                 app.open_folders(ctx, all.collect());
             }
             None => app.open(ctx, path),
@@ -284,22 +284,22 @@ impl App {
         crate::support::test_hooks::begin_frame();
         self.sync_thumb_source(ctx.pixels_per_point());
         self.poll_background(ctx);
-        let mut act = self.read_keys(ctx);
+        let mut chosen = self.read_keys(ctx);
         // Full screen and Hide File List work as in Geeqie, showing only the image without the
         // menu or the panels.
         let fullscreen = self.track_window(ctx);
         self.hide_still_pointer(ctx, fullscreen);
         let bare = fullscreen || self.panel.is_hidden() || self.window.is_kiosk();
         if !bare {
-            self.menu_bar(ui, &mut act);
+            self.menu_bar(ui, &mut chosen);
         }
-        if let Some(action) = act {
+        if let Some(action) = chosen {
             self.run(ctx, action);
         }
         // The icon grid sets the row step again in the file list, and the next frame's ↑ and ↓
         // read it. The scroll to the shown image waits while no list is drawn.
         self.panel
-            .start_frame(!bare || self.panel.area_grid_shown());
+            .start_frame(!bare || self.panel.is_area_grid_shown());
         // A drag's drop target is set again by the row under the pointer, in whichever list,
         // so a drag let go elsewhere ends where it is.
         if let Some(to) = self.list.drag_target_mut() {
@@ -334,9 +334,9 @@ impl App {
             self.info_panel(ui);
         } else {
             // The panel was hidden while a field had the focus, so the field never lost it.
-            self.save_meta(ui.ctx());
+            self.save_metadata_edit(ui.ctx());
         }
-        if self.panel.area_grid_shown() {
+        if self.panel.is_area_grid_shown() {
             self.area_grid(ctx, ui);
         } else {
             self.image_area(ctx, ui, fullscreen, bare);
@@ -360,7 +360,7 @@ impl eframe::App for App {
         self.answer_waiting_selects();
         crate::features::remote::stop(|| self.answer_waiting_selects());
         let ctx = self.ctx.clone();
-        self.save_meta(&ctx);
+        self.save_metadata_edit(&ctx);
         // shortcut: the path is stored as UTF-8, lossless for ordinary paths; store its bytes
         // if a folder name that is not UTF-8 must be remembered.
         let mut state = String::new();
@@ -383,7 +383,7 @@ impl eframe::App for App {
         // This waits a few seconds at most for the state above, the settings, and the keywords
         // queued at the first close. After a third close it does not wait, and Glimt ends at
         // once whatever still runs.
-        if self.window.closes_asked() < 2 {
+        if self.window.close_requests() < 2 {
             crate::files::file_io::flush();
         }
         let at = |share| frame_at(self.decoding.frame_times(), share);
@@ -422,7 +422,11 @@ unsafe extern "C" {
 /// is in the AppImage's mount, which goes away when this window closes. Otherwise it is the
 /// binary. Every program started from an AppImage inherits its APPIMAGE variable, so the
 /// variable counts only when the binary is inside APPDIR.
-fn own_program(exe: PathBuf, appdir: Option<OsString>, appimage: Option<OsString>) -> PathBuf {
+fn new_window_program(
+    exe: PathBuf,
+    appdir: Option<OsString>,
+    appimage: Option<OsString>,
+) -> PathBuf {
     match (appdir, appimage) {
         (Some(dir), Some(image)) if exe.starts_with(&dir) => PathBuf::from(image),
         _ => exe,
@@ -461,7 +465,7 @@ fn main() -> eframe::Result {
             std::process::exit(2);
         }
     };
-    if cli::answered(&start, &args_os) {
+    if cli::answer_without_window(&start, &args_os) {
         return Ok(());
     }
     let args: Vec<String> = (args_os.iter())
@@ -477,7 +481,7 @@ fn main() -> eframe::Result {
         crate::features::remote::REMOTE_ALL,
     ];
     if !command.is_some_and(|a| remote.contains(&a.as_str())) {
-        start.more = args_os.iter().skip(1).map(PathBuf::from).collect();
+        start.more_paths = args_os.iter().skip(1).map(PathBuf::from).collect();
     }
     let to_all = command.is_some_and(|a| a == remote[1]);
     if command.is_some_and(|a| a == remote[0]) || to_all {
@@ -570,15 +574,19 @@ mod tests {
         use std::path::PathBuf;
         let os = |s: &str| Some(std::ffi::OsString::from(s));
         let inside = PathBuf::from("/tmp/.mount_ab12/usr/bin/glimt");
-        let got = super::own_program(inside, os("/tmp/.mount_ab12"), os("/home/u/glimt.AppImage"));
+        let got =
+            super::new_window_program(inside, os("/tmp/.mount_ab12"), os("/home/u/glimt.AppImage"));
         assert_eq!(got, PathBuf::from("/home/u/glimt.AppImage"));
         let installed = PathBuf::from("/usr/bin/glimt");
-        let got = super::own_program(
+        let got = super::new_window_program(
             installed.clone(),
             os("/tmp/.mount_cd34"),
             os("/home/u/Term.AppImage"),
         );
         assert_eq!(got, installed);
-        assert_eq!(super::own_program(installed.clone(), None, None), installed);
+        assert_eq!(
+            super::new_window_program(installed.clone(), None, None),
+            installed
+        );
     }
 }

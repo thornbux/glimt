@@ -36,7 +36,7 @@ impl crate::App {
     /// The Check Images window: starts the check of every image in the list, shows how far it
     /// is, and lists the broken ones; a click shows one, Select Them selects them in the list.
     pub(crate) fn check_window(&mut self, ctx: &egui::Context) {
-        let Some(mut check) = self.check.take() else {
+        let Some(mut check) = self.check_images.take() else {
             return;
         };
         if let Some(c) = &mut check {
@@ -122,7 +122,7 @@ impl crate::App {
             self.select_for_action(ctx, broken);
         }
         if open {
-            self.check = Some(check);
+            self.check_images = Some(check);
         } else if let Some(c) = check {
             // Closed while it runs: the threads stop at their next file.
             c.stop.store(true, Ordering::Relaxed);

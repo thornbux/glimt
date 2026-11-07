@@ -6,7 +6,7 @@
 use crate::files::external;
 use crate::files::file_io::{put_file, rename_never_over};
 use crate::files::trash::{TrashMove, restore, trash_dirs};
-use crate::images::decode::catch_panic;
+use crate::images::decode::catch_panic_as_error;
 use crate::images::save::save_rotated;
 use crate::model::folder::total_size;
 use crate::model::listing::pattern_name;
@@ -510,7 +510,7 @@ impl crate::App {
             self.notice = Some(tr("Rename Many is still renaming").into());
         } else if reading && !self.folder.is_listing() {
             // No listing runs that would check the list in a moment, so waiting would not help.
-            self.stopped(tr("Reading the folder"));
+            self.tell_background_stopped(tr("Reading the folder"));
         } else if busy {
             self.notice = Some(tr("Still working on these files: try again in a moment").into());
         }
@@ -588,7 +588,7 @@ impl crate::App {
             .deleting
             .extend(targets.iter().map(|&i| self.list.files()[i].clone()));
         self.remove_indices(ctx, &targets);
-        let (tx, freed_tx) = (self.notices_tx.clone(), self.status.freed_sender());
+        let (tx, freed_tx) = (self.notice_sender.clone(), self.status_bar.freed_sender());
         let (ctx, report_tx) = (ctx.clone(), self.file_operations.report_sender());
         let collection = self.folder.collection().map(Path::to_path_buf);
         let pointer = Working::new(&self.busy);
@@ -776,9 +776,9 @@ impl crate::App {
             if undo.is_some() && !(is_undo_remainder && self.file_operations.undo.is_some()) {
                 self.file_operations.undo = undo;
             }
-            if let Some(dups) = &mut self.dups {
+            if let Some(find_duplicates) = &mut self.find_duplicates {
                 // Those that failed are still there.
-                dups.remove(&gone.iter().map(PathBuf::as_path).collect());
+                find_duplicates.remove(&gone.iter().map(PathBuf::as_path).collect());
             }
             // The files are found by the name the list has, which includes their folders in
             // the list with subfolders and in a collection.
@@ -935,8 +935,8 @@ impl crate::App {
             self.moving_out(ctx, &paths, &dest);
         }
         let (tx, freed_tx, ctx) = (
-            self.notices_tx.clone(),
-            self.status.freed_sender(),
+            self.notice_sender.clone(),
+            self.status_bar.freed_sender(),
             ctx.clone(),
         );
         let report_tx = self.file_operations.report_tx.clone();
@@ -1224,7 +1224,7 @@ impl crate::App {
         let (rotate, quality) = (self.config.exif_rotate, self.config.webp_quality);
         let (saved, notices) = (
             self.file_operations.saved_tx.clone(),
-            self.notices_tx.clone(),
+            self.notice_sender.clone(),
         );
         let ctx = ctx.clone();
         self.file_operations.saving.insert(path.clone());
@@ -1232,7 +1232,7 @@ impl crate::App {
         let writing = Working::new(&crate::files::file_io::WRITING);
         std::thread::spawn(move || {
             let _writing = writing;
-            let result = catch_panic(|| match jpeg {
+            let result = catch_panic_as_error(|| match jpeg {
                 true => exif::write_orientation(&path, turns, mirrored, rotate),
                 false => save_rotated(&path, rotate, turns, mirrored, quality),
             });
@@ -1262,8 +1262,8 @@ impl crate::App {
         }
         self.forget_names(paths);
         // Their size changed, so the status bar and the list read it again.
-        self.status.forget_size();
-        self.refill();
+        self.status_bar.forget_size();
+        self.refill_preload();
     }
 
     /// Keeps `paths` as the files an Undo of a move or rename puts back, although Glimt wrote
@@ -1567,7 +1567,7 @@ impl crate::App {
         let Some(held_back) = self.hold_back_while_writing(touches) else {
             return false;
         };
-        let (tx, ctx) = (self.notices_tx.clone(), ctx.clone());
+        let (tx, ctx) = (self.notice_sender.clone(), ctx.clone());
         let pointer = Working::new(&self.busy);
         let writing = Working::new(&crate::files::file_io::WRITING);
         std::thread::spawn(move || {
@@ -1605,7 +1605,7 @@ impl crate::App {
             .iter()
             .filter_map(|p| p.strip_prefix(self.folder.dir()).ok());
         (self.search).read_exif_again(names.map(|n| n.as_os_str().to_owned()));
-        let (tx, ctx) = (self.notices_tx.clone(), ctx.clone());
+        let (tx, ctx) = (self.notice_sender.clone(), ctx.clone());
         let pointer = Working::new(&self.busy);
         let work: QueuedWrite = Box::new(move || {
             // A file that makes the writing panic ends this job, not the count or the busy
@@ -1683,7 +1683,7 @@ impl crate::App {
             let saved = if made.is_err() {
                 Err(tf!("Could not make {folder}", folder = folder.display()))
             } else {
-                decode::catch_panic(|| {
+                decode::catch_panic_as_error(|| {
                     decode::each_frame(&path, only, rotate, |k, img| {
                         if job.is_stopped() {
                             return Err(job.stopped_text());
@@ -1760,7 +1760,7 @@ impl crate::App {
     /// File → Set as Wallpaper. It sets the shown image through the desktop portal, in the
     /// background.
     pub(crate) fn set_wallpaper(&mut self) {
-        let (path, tx) = (self.path(self.list.shown()), self.notices_tx.clone());
+        let (path, tx) = (self.path(self.list.shown()), self.notice_sender.clone());
         std::thread::spawn(move || {
             if let Err(e) = external::set_wallpaper(&path) {
                 let _ = tx.send(tf!("Could not set the wallpaper: {e}", e));
@@ -3174,7 +3174,7 @@ mod tests {
             ),
             ("trash_folder", "gio trash; Undo's restore has its own test"),
             (
-                "answer_prompt",
+                "act_on_prompt_answer",
                 "New Folder: an empty folder, nothing to follow; makes_a_new_folder_in_the_background",
             ),
             ("trash_collection", "gio trash of the collection's own file"),
@@ -3686,9 +3686,7 @@ mod tests {
         app.undo(&ctx);
         app.file_operations.undo = Some(super::Undo::Move(Vec::new()));
         // The thread reports before it tells, so its report is waiting once it told.
-        let told = app
-            .notices_rx
-            .recv_timeout(std::time::Duration::from_secs(5));
+        let told = app.notices.recv_timeout(std::time::Duration::from_secs(5));
         assert!(told.is_ok());
         app.receive_operation_report(&ctx);
         assert!(matches!(
@@ -3955,7 +3953,7 @@ mod tests {
         let other = d.join("other");
         std::fs::create_dir_all(&other).unwrap();
         app.open(&ctx, other.clone());
-        app.answer_prompt(&ctx, crate::ui::dialogs::Prompt::NewFolder, "trip");
+        app.act_on_prompt_answer(&ctx, crate::ui::dialogs::Prompt::NewFolder, "trip");
         app.open(&ctx, d.clone());
         assert!(run_background_until(&mut app, &ctx, |a| {
             !a.folder.is_listing() && a.folder.subdirs().iter().any(|s| s.ends_with("trip"))
@@ -3963,7 +3961,7 @@ mod tests {
         assert!(d.join("trip").is_dir() && !other.join("trip").exists());
         // When the folder is there already, a notice says so, and nothing else is made.
         app.run(&ctx, crate::ui::actions::Action::NewFolder);
-        app.answer_prompt(&ctx, crate::ui::dialogs::Prompt::NewFolder, "trip");
+        app.act_on_prompt_answer(&ctx, crate::ui::dialogs::Prompt::NewFolder, "trip");
         assert!(run_background_until(&mut app, &ctx, |a| a.notice.is_some()));
         std::fs::remove_dir_all(d).unwrap();
     }

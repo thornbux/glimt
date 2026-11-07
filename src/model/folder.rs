@@ -12,7 +12,7 @@ use crate::model::listing::{
 use crate::support::lang::tr;
 use crate::support::threads::{Receiving, Took};
 use crate::ui::actions::Action;
-use crate::ui::menus::{iconed, scroll_menu};
+use crate::ui::menus::{scroll_menu, with_icon};
 use crate::viewer::view::Viewing;
 use crate::{files::config, files::external, model::collections, model::listing, tf, ui::theme};
 use eframe::egui;
@@ -576,7 +576,7 @@ impl crate::App {
         self.folder.lists_tree_in_parts = true;
         self.start_listing(ctx);
         self.start_watching(ctx);
-        self.title(ctx);
+        self.update_window_title(ctx);
     }
 
     /// Puts `path` first in File → Open Recent, also in the file the other windows read when
@@ -620,7 +620,7 @@ impl crate::App {
         let ctx = ui.ctx().clone();
         scroll_menu(
             ui,
-            iconed(ui, theme::icon::RECENT, tr("Open Recent")),
+            with_icon(ui, theme::icon::RECENT, tr("Open Recent")),
             |ui| {
                 ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Extend);
                 if self.folder.recent.is_empty() {
@@ -658,7 +658,7 @@ impl crate::App {
     pub(crate) fn forget_old_list(&mut self) {
         // A check still running would find names of the old list, so it is stopped and its
         // window closed.
-        if let Some(Some(check)) = self.check.take() {
+        if let Some(Some(check)) = self.check_images.take() {
             check.stop();
         }
         self.folder.opened_type = Types::NONE;
@@ -721,7 +721,7 @@ impl crate::App {
         self.replace_files(ctx, files, first);
         self.list.set_unchecked_entries(true);
         self.start_listing(ctx);
-        self.title(ctx);
+        self.update_window_title(ctx);
     }
 
     /// Shows the images of several folders as one list, for a slideshow across them. One folder
@@ -760,7 +760,7 @@ impl crate::App {
         self.folder.folders = folders;
         self.replace_files(ctx, Vec::new(), None);
         self.start_listing(ctx);
-        self.title(ctx);
+        self.update_window_title(ctx);
     }
 
     /// Where Back comes back to. It is the collection shown, and otherwise the file shown or
@@ -827,7 +827,7 @@ impl crate::App {
     pub(crate) fn start_listing(&mut self, ctx: &egui::Context) {
         let (tx, rx) = mpsc::channel();
         let (size_tx, size_rx) = mpsc::channel();
-        let (list_dir, ctx2, types) = (self.folder.dir.clone(), ctx.clone(), self.types());
+        let (list_dir, ctx2, types) = (self.folder.dir.clone(), ctx.clone(), self.shown_types());
         let c = &self.config;
         let (by, ascending, case) = (c.sort, c.sort_ascending, c.sort_case_sensitive);
         let (recursive, shuffled) = (self.folder.recursive, self.slideshow.shuffles_whole());
@@ -901,7 +901,7 @@ impl crate::App {
         });
         self.folder.listing_rx = Receiving::of(rx);
         self.folder.listing_version = self.list.version();
-        self.status.sum_folder(size_rx);
+        self.status_bar.sum_folder(size_rx);
         self.folder.relist_when_done = false;
     }
 
@@ -953,7 +953,7 @@ impl crate::App {
             Took::Gone => {
                 self.folder.subdirs_rx.clear();
                 self.folder.part_rx.clear();
-                return self.stopped(tr("Reading the folder"));
+                return self.tell_background_stopped(tr("Reading the folder"));
             }
             Took::Nothing => return,
         };
@@ -970,7 +970,8 @@ impl crate::App {
         // Several folders shown together are listed as "/" with no subfolders, which are not
         // the tree's.
         if self.folder.collection.is_none() && self.folder.folders.is_empty() {
-            self.tree.read(self.folder.dir.clone(), dirs.clone());
+            self.tree
+                .add_subfolders(self.folder.dir.clone(), dirs.clone());
         }
         self.folder.subdirs = dirs;
         self.take_listed_files(ctx, files, true);
@@ -1029,7 +1030,7 @@ impl crate::App {
             self.list.forget_sizes_and_dates();
             // A rename keeps the list as it is but forgot the file's decoded image, which is
             // asked for again here.
-            self.refill();
+            self.refill_preload();
             return;
         }
         // Glimt went to an image by itself, in the name order of a tree's first images. The
@@ -1090,7 +1091,7 @@ impl crate::App {
     /// places shifted. This is the one place for it. (A list read again gets a new `List`
     /// instead.) It covers the selection (told to the status bar), the anchor, a rectangle or
     /// a collection drag, and the decodes in flight. Those have old places, so they are
-    /// rejected by path when they arrive, and refill asks for them again.
+    /// rejected by path when they arrive, and `refill_preload` asks for them again.
     pub(crate) fn list_changed(&mut self, ctx: &egui::Context) {
         self.list.places_changed();
         self.selection_changed(ctx);
@@ -1155,7 +1156,7 @@ impl crate::App {
         // it. Only what is carried over by name above comes back.
         self.list = List::after(&self.list, files);
         // The shown file is set before anything refills the list, because with Compare on a
-        // refill at place 0 would drop the decode of the image shown.
+        // `refill_preload` at place 0 would drop the decode of the image shown.
         let shown = found.unwrap_or(0);
         self.list.set_shown(shown);
         self.index_new_names();
@@ -1192,8 +1193,8 @@ impl crate::App {
         self.update_search(ctx);
         self.selection_changed(ctx);
         if still {
-            self.refill();
-            self.title(ctx);
+            self.refill_preload();
+            self.update_window_title(ctx);
             return;
         }
         // `show_file` clears the notice for a new image. A new list is not one, and a notice is
@@ -1213,8 +1214,8 @@ impl crate::App {
         }
         let version = self.list.version();
         // The next remaining file after the shown one, or the last. It is set in the list before
-        // anything reads it, because with Compare on a refill at the old place would drop the
-        // decode of the image shown.
+        // anything reads it, because with Compare on `refill_preload` at the old place would drop
+        // the decode of the image shown.
         let shown = self.list.shown() - removed.partition_point(|&r| r < self.list.shown());
         // The panes' places belong to other files now, so they are filled again from the list
         // as it is.
@@ -1225,20 +1226,20 @@ impl crate::App {
         // image and the neighbours are counted among the matches, not in the whole folder.
         self.update_search(ctx);
         self.list_changed(ctx);
-        if let Some(pan) = &mut self.pan_window {
+        if let Some(pan) = &mut self.pan_view {
             pan.follow(removed, version, self.list.version());
         }
         if gone && !self.list.files().is_empty() {
             self.show_file_anew(ctx, self.list.shown());
         } else {
             // The shown image stays, so it keeps its zoom, turn and page, as in replace_files.
-            self.refill();
-            self.title(ctx);
+            self.refill_preload();
+            self.update_window_title(ctx);
         }
     }
 
     pub(crate) fn receive_sizes(&mut self) {
-        self.status.receive();
+        self.status_bar.receive_sizes();
         let mut size = self.list.match_size();
         self.search.receive_match_size(&mut size);
         self.list.set_match_size(size);
@@ -1281,9 +1282,9 @@ impl crate::App {
         // The image is decoded again now, because a folder read again unchanged keeps its list
         // as it is and asks for nothing. The thumbnails and the size of a file edited elsewhere
         // are made again too.
-        self.refill();
+        self.refill_preload();
         self.thumbs_changed();
-        self.status.forget_size();
+        self.status_bar.forget_size();
         self.start_listing(ctx);
     }
 }
@@ -1358,7 +1359,7 @@ mod tests {
         app.config.layout = "2x1".into();
         app.config.layout_turns = "2x1".into();
         app.start_slideshow(&ctx);
-        app.refill();
+        app.refill_preload();
         assert_eq!(app.list.panes(), [1]);
         app.list.set_last_slide(3);
         let mut files = app.list.files().to_vec();
@@ -1441,16 +1442,16 @@ mod tests {
         }
         let (mut app, ctx) = app_on(&dir);
         app.show_file(&ctx, 5);
-        app.compare = true;
+        app.is_comparing = true;
         app.search.set_query("re:0[59]");
         app.update_search(&ctx);
-        app.refill();
+        app.refill_preload();
         let both = |a: &crate::App, x, y| {
             a.list.loaded_images().contains_key(&x) && a.list.loaded_images().contains_key(&y)
         };
         assert!(run_background_until(&mut app, &ctx, |a| both(a, 5, 9)));
         app.remove_indices(&ctx, &[0]);
-        assert_eq!((app.list.shown(), app.compare_other()), (4, Some(8)));
+        assert_eq!((app.list.shown(), app.compared_image()), (4, Some(8)));
         assert!(both(&app, 4, 8));
         // A refresh that finds a new file first moves both one place on, and keeps them too.
         image::RgbImage::new(4, 4)
@@ -1460,7 +1461,7 @@ mod tests {
         files.insert(0, "00a.png".into());
         let shown = app.list.files().get(app.list.shown()).cloned();
         app.replace_files(&ctx, files, shown);
-        assert_eq!((app.list.shown(), app.compare_other()), (5, Some(9)));
+        assert_eq!((app.list.shown(), app.compared_image()), (5, Some(9)));
         assert!(both(&app, 5, 9));
         std::fs::remove_dir_all(dir).unwrap();
     }

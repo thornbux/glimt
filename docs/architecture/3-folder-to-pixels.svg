@@ -1,4 +1,4 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 830" width="1200" height="830" role="img" aria-label="From a folder to pixels in Glimt. A listing thread reads the folder without a stat per file; replace_files makes a new List and carries the shown file, selection and decoded images over by name. refill asks the decode workers for the shown image and its neighbours at the size of the view; decode shrinks and converts to the screen with to_display. Thumbnails come from the freedesktop cache or are made, converted with to_srgb for the cache. Every decode checks fits_decode_limit before it allocates.">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 830" width="1200" height="830" role="img" aria-label="From a folder to pixels in Glimt. A listing thread reads the folder without a stat per file; replace_files makes a new List and carries the shown file, selection and decoded images over by name. refill_preload asks the decode workers for the shown image and its neighbours at the size of the view; decode shrinks and converts to the screen with to_display. Thumbnails come from the freedesktop cache or are made, converted with to_srgb for the cache. Every decode checks fits_decode_limit before it allocates.">
   <title>From a folder to pixels</title>
   <defs>
     <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
@@ -66,7 +66,7 @@
     <text x="30" y="268" font-size="14" font-weight="700">2. The shown image and its neighbours</text>
     <g font-size="12">
       <rect x="30" y="278" width="196" height="166" rx="6" fill="#e6f4ea" stroke="#2e8b57" stroke-width="1.5"/>
-      <text x="42" y="299" font-size="13" font-weight="700" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace">refill()</text>
+      <text x="42" y="299" font-size="13" font-weight="700" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace">refill_preload()</text>
       <text x="42" y="319">the window to keep: the</text>
       <text x="42" y="335">shown image (List::shown),</text>
       <text x="42" y="351">the compared one, panes,</text>
@@ -76,17 +76,17 @@
       <text x="42" y="425" fill="#57606a">viewer/view.rs</text>
 
       <rect x="266" y="278" width="196" height="166" rx="6" fill="#e6f4ea" stroke="#2e8b57" stroke-width="1.5"/>
-      <text x="278" y="299" font-size="13" font-weight="700" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace">request(idx, full)</text>
-      <text x="278" y="319" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace">DecodeJob { idx, path,</text>
-      <text x="278" y="335" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace">  page, job, max }</text>
-      <text x="278" y="359">max = decode_box: the</text>
+      <text x="278" y="299" font-size="13" font-weight="700" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace">request_decode()</text>
+      <text x="278" y="319" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace">DecodeJob { index, path,</text>
+      <text x="278" y="335" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace">  request_number, … }</text>
+      <text x="278" y="359">max_box = decode_box: the</text>
       <text x="278" y="375">view's size, not the file's;</text>
       <text x="278" y="391">full only when zoomed in</text>
       <text x="278" y="425" fill="#57606a">sent to the decode workers</text>
 
       <rect x="502" y="278" width="196" height="166" rx="6" fill="#e6f4ea" stroke="#2e8b57" stroke-width="1.5"/>
       <text x="514" y="299" font-size="13" font-weight="700" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace">decode()</text>
-      <text x="514" y="319">skipped if not in keep;</text>
+      <text x="514" y="319">skipped if not kept;</text>
       <text x="514" y="335">animation, or scaled_jpeg</text>
       <text x="514" y="351">(1/2, 1/4 or 1/8 of a JPEG),</text>
       <text x="514" y="367">or load_unturned: RAW</text>
@@ -131,7 +131,7 @@
       <text x="42" y="543">only the rows on screen</text>
       <text x="42" y="559">(show_rows) ask;</text>
       <text x="42" y="575">sync_thumb_source picks</text>
-      <text x="42" y="591">the size (THUMBS)</text>
+      <text x="42" y="591">the size (THUMB_SIZES)</text>
 
       <rect x="266" y="502" width="196" height="122" rx="6" fill="#fef3e2" stroke="#d08a1a" stroke-width="1.5"/>
       <text x="278" y="523" font-size="13" font-weight="700" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace">Thumbs::ask</text>
@@ -171,7 +171,7 @@
       <text x="44" y="732"><tspan font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace">read_limited, read_text, open_regular</tspan>: a size cap, and no pipe or device.</text>
       <text x="44" y="752"><tspan font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace">from_decoder, from_memory</tspan>: the only ways into the image crate;</text>
       <text x="44" y="768">clippy.toml refuses image::open, load_from_memory and the rest.</text>
-      <text x="44" y="788"><tspan font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace">catch_panic</tspan>: a decoder that panics fails one image, not its worker thread.</text>
+      <text x="44" y="788"><tspan font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace">catch_panic_as_error</tspan>: a decoder that panics fails one image, not its worker thread.</text>
     </g>
 
     <rect x="610" y="652" width="560" height="156" rx="6" fill="#f6f8fa" stroke="#57606a" stroke-width="1.5"/>

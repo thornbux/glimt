@@ -12,12 +12,12 @@ impl App {
     /// keeps the focus while nothing else has it and no dialog is open, so browsing reads out
     /// the next image.
     pub fn speak_image(&mut self, ui: &egui::Ui, response: &egui::Response) {
-        self.image_id = Some(response.id);
+        self.image_area_id = Some(response.id);
         let text = if self.list.files().is_empty() {
             crate::support::lang::tr("No images").to_owned()
         } else {
             // Read in the background, as for the info panel: here once for each image.
-            self.want_exif(ui.ctx());
+            self.request_exif(ui.ctx());
             let path = self.path(self.list.shown());
             let place = self.spoken_place();
             // The name the list shows, not the whole path a collection's entry holds.
@@ -32,7 +32,7 @@ impl App {
                     crate::support::format::count(stars as usize, "star")
                 );
             }
-            if let Some(meta) = self.info_panel.meta_of(&path) {
+            if let Some(meta) = self.info_panel.metadata_edit_of(&path) {
                 if !meta.saved.keywords.is_empty() {
                     let keywords = meta.saved.keywords.join(", ");
                     text += &crate::tf!(", keywords: {keywords}", keywords);
@@ -40,12 +40,12 @@ impl App {
                 if !meta.saved.comment.is_empty() {
                     text += &format!(". {}", meta.saved.comment);
                 }
-                if !meta.alt_text.extended_description.is_empty() {
-                    text += &format!(". {}", meta.alt_text.extended_description);
+                if !meta.saved_alt_text.extended_description.is_empty() {
+                    text += &format!(". {}", meta.saved_alt_text.extended_description);
                 }
                 // The IPTC alt text is written for this: read first, before the file name.
-                if !meta.alt_text.text.is_empty() {
-                    text = format!("{}. {text}", meta.alt_text.text);
+                if !meta.saved_alt_text.text.is_empty() {
+                    text = format!("{}. {text}", meta.saved_alt_text.text);
                 }
             }
             text
@@ -162,7 +162,7 @@ mod tests {
         (app.list).set_files(["a.png", "b.png"].map(Into::into).to_vec());
         ctx.enable_accesskit();
         let status = |app: &mut crate::App, grid: bool| {
-            if grid != app.panel.area_grid_shown() {
+            if grid != app.panel.is_area_grid_shown() {
                 app.panel.toggle_area_grid();
             }
             let mut found = None;

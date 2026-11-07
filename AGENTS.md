@@ -48,7 +48,7 @@ the command-line options of `START_OPTIONS` with `--remote` and `--remote-all`. 
 fails when one is taken out or renamed, when a `NAMED` list gains a value anywhere but at its
 end, and until a new one is added at the end of that file.
 `the_parser_takes_every_frozen_option` fails when an option that the help lists is neither
-taken by `Start::parse` nor answered by `cli::answered` (through `cli::Command::named`) or by
+taken by `Start::parse` nor answered by `cli::answer_without_window` (through `cli::Command::named`) or by
 `--remote`. Not pinned, and so kept by hand: the window's own reading of each `--remote`
 command (`remote_command` matches the words again), what the commands print, the `%field%`
 names of the full screen info, the print caption and the window title (`name`, `path`,
@@ -102,7 +102,7 @@ holds only its `mod` lines, and a new module goes into the folder of what it doe
 | File | Contents |
 |---|---|
 | `src/main.rs` | The app: `App` and its parts (each a struct in the module whose code uses it, such as `slideshow::Slideshow` or `file_ops::FileOperations`), starting up, the frame (`eframe::App`) and `main()`. The window's parts are each in a module of their own below, as `impl crate::App` blocks |
-| `src/cli.rs` | The command line: the start options (`Start`, `START_OPTIONS`) and the commands that answer without a window (`answered`: --help, --version, --check-config, --back-up) |
+| `src/cli.rs` | The command line: the start options (`Start`, `START_OPTIONS`) and the commands that answer without a window (`answer_without_window`: --help, --version, --check-config, --back-up) |
 | `src/model.rs` | **The model/ folder:** what is open: the file list, listing and opening folders and collections, the search and the selection |
 | `src/model/list.rs` | The model of what is open: `List`, the file list with everything that holds a place in it, and `LoadedImage`, an image decoded for the view |
 | `src/model/folder.rs` | Opening a folder, a collection or several folders, listing them, following changes, the sizes summed for the status bar (`send_sizes`, `receive_sizes`) |
@@ -119,9 +119,9 @@ holds only its `mod` lines, and a new module goes into the folder of what it doe
 | `src/ui.rs` | **The ui/ folder:** the window around the image: actions and keys, menus, dialogs, the side panel, the info panel, Preferences, help, the window, the look, the screen reader and the background work each frame collects |
 | `src/ui/actions.rs` | The `Action` enum with its menu labels, the `SHORTCUTS` table, the user's own keys (variants are stored by name, renamed only through `RENAMED_ACTIONS`); `run`, which does each action, and reading the keys |
 | `src/ui/dialogs.rs` | The file chooser (zenity or kdialog, `Pick`), `dialog_open`, and the small dialogs: a name asked for (`Prompt`), a delete confirmed, a share's login, a job cut short |
-| `src/ui/file_list.rs` | The side panel: the folder list, the file list or icon grid with its thumbnails (their sizes, `THUMBS`, `MAX_THUMBS`), dragging, the rubber band, and the status bar |
+| `src/ui/file_list.rs` | The side panel: the folder list, the file list or icon grid with its thumbnails (their sizes, `THUMB_SIZES`, `MAX_THUMBS`), dragging, the rubber band, and the status bar |
 | `src/ui/info_panel.rs` | The info panel (Ctrl+K) and what it edits: EXIF, keywords and the keyword tree, comment, alt text, marks; the EXIF reader thread |
-| `src/ui/menus.rs` | The menu bar and the toolbar, the menus that change settings, Plugins and Open With, and the helpers every menu is drawn with (`menu_item`, `scroll_menu`, `iconed`) |
+| `src/ui/menus.rs` | The menu bar and the toolbar, the menus that change settings, Plugins and Open With, and the helpers every menu is drawn with (`menu_item`, `scroll_menu`, `with_icon`) |
 | `src/ui/window.rs` | The window's size, place and title, the pointer hidden in full screen, and the screen saver kept off |
 | `src/ui/workers.rs` | The thumbnail workers, what the window collects from every background job each frame (`poll_background`), and whether work is running (`working`) |
 | `src/ui/accessibility.rs` | Optional screen reader support: the shown image as text for Orca (AccessKit) |
@@ -241,9 +241,10 @@ function, type or field is or does from its name alone, without reading its body
 - One thing has one name throughout: the same word in the type, its fields, its functions and
   the comments.
 
-Older names that break this are renamed in 0.74.0's naming review, and before that whenever
-the code they name changes. `Action` variants and the names in `src/frozen-1.0.txt` keep their
-names, or change only through a table of old names, as *Frozen in 1.x* says.
+Older names that broke this were renamed in 0.74.0's naming review, and
+`source_rules::retired_names_stay_gone` keeps them out of the code: its list gives each old name
+with the one that took its place. `Action` variants and the names in `src/frozen-1.0.txt` keep
+their names, or change only through a table of old names, as *Frozen in 1.x* says.
 
 A function is at most 120 lines outside the tests (`source_rules::functions_stay_short`): a
 longer one is split into functions named for what each part does, beside it or in the module

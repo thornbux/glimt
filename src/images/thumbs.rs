@@ -58,7 +58,7 @@ fn thumbnail_in(
     // A JPEG at 1/8 while decoding: under 1 MB for a 12 MP photo instead of 38. A decoder that
     // panics on the file fails here, inside, so the failure is marked like any other and the
     // file is not decoded again at every visit.
-    let made = crate::images::decode::catch_panic(|| {
+    let made = crate::images::decode::catch_panic_as_error(|| {
         let (img, icc, _) = crate::images::decode::decode_shrunk(path, [size, size], rotate)?;
         Ok(crate::images::colour::to_srgb(img, icc.as_deref()).into_rgba8())
     });

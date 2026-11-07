@@ -5,7 +5,7 @@
 use crate::model::listing::real_dir;
 use crate::support::lang::tr;
 use crate::ui::actions::Action;
-use crate::ui::menus::{icon_button, iconed, menu_item, scroll_menu, submenu};
+use crate::ui::menus::{icon_button, menu_item, scroll_menu, submenu, with_icon};
 use crate::{tf, ui::theme};
 use eframe::egui;
 use std::collections::HashSet;
@@ -140,14 +140,14 @@ impl crate::App {
 
     /// File menu entries for collections; the ones listing collections read the folder only
     /// while open.
-    pub(crate) fn collections_menu(&mut self, ui: &mut egui::Ui, act: &mut Option<Action>) {
-        menu_item(ui, act, Action::NewCollection);
-        menu_item(ui, act, Action::OpenCollection);
-        menu_item(ui, act, Action::ImportLightroom);
+    pub(crate) fn collections_menu(&mut self, ui: &mut egui::Ui, chosen: &mut Option<Action>) {
+        menu_item(ui, chosen, Action::NewCollection);
+        menu_item(ui, chosen, Action::OpenCollection);
+        menu_item(ui, chosen, Action::ImportLightroom);
         let mut open = None;
         scroll_menu(
             ui,
-            iconed(ui, theme::icon::STACK, tr("Collections")),
+            with_icon(ui, theme::icon::STACK, tr("Collections")),
             |ui| {
                 let all = saved_collections();
                 if all.is_empty() {
@@ -163,7 +163,7 @@ impl crate::App {
         if !self.list.files().is_empty() {
             scroll_menu(
                 ui,
-                iconed(ui, theme::icon::STACK_PLUS, tr("Add to Collection")),
+                with_icon(ui, theme::icon::STACK_PLUS, tr("Add to Collection")),
                 |ui| {
                     let all = saved_collections();
                     if all.is_empty() {
@@ -178,15 +178,15 @@ impl crate::App {
             );
         }
         if let Some(file) = self.folder.collection() {
-            menu_item(ui, act, Action::RemoveFromCollection);
+            menu_item(ui, chosen, Action::RemoveFromCollection);
             // A plain list is the user's own file: Glimt never writes it.
             if !is_list(file) {
-                menu_item(ui, act, Action::RenameCollection);
-                menu_item(ui, act, Action::TrashCollection);
+                menu_item(ui, chosen, Action::RenameCollection);
+                menu_item(ui, chosen, Action::TrashCollection);
             }
             submenu(
                 ui,
-                iconed(ui, theme::icon::MOVE_IN, tr("Move in Collection")),
+                with_icon(ui, theme::icon::MOVE_IN, tr("Move in Collection")),
                 |ui| {
                     for action in [
                         Action::MoveEarlier,
@@ -194,7 +194,7 @@ impl crate::App {
                         Action::MoveFirst,
                         Action::MoveLast,
                     ] {
-                        menu_item(ui, act, action);
+                        menu_item(ui, chosen, action);
                     }
                 },
             );
@@ -631,7 +631,7 @@ mod tests {
         app.open(&ctx, trip.clone());
         app.run(&ctx, crate::ui::actions::Action::RenameCollection);
         app.open(&ctx, home.clone());
-        app.answer_prompt(&ctx, crate::ui::dialogs::Prompt::RenameCollection, "summer");
+        app.act_on_prompt_answer(&ctx, crate::ui::dialogs::Prompt::RenameCollection, "summer");
         assert!(dir.join("summer.gqv").is_file() && !trip.exists() && home.is_file());
         assert_eq!(app.folder.collection(), Some(home.as_path()));
         std::fs::remove_dir_all(dir).unwrap();

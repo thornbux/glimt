@@ -31,8 +31,8 @@ pub struct Decoded {
     pub rotated: bool,
     /// The page of a multi-page TIFF. It is 0 for everything else.
     pub page: usize,
-    /// The job's number, as in `App::pending`.
-    pub job: u64,
+    /// The request's number, as in `App::pending`.
+    pub request_number: u64,
     /// `None` = skipped because the user has already moved past it.
     pub result: Option<Result<DecodedImage, String>>,
 }
@@ -794,7 +794,7 @@ pub fn from_memory(bytes: &[u8]) -> Result<image::DynamicImage, String> {
 /// list's thumbnails. A JPEG is also looked at for its end marker, which a file cut off in copying
 /// lacks, though it may still decode with grey at the bottom. Returns why not, if it cannot.
 pub fn check_decodes(path: &Path) -> Result<(), String> {
-    catch_panic(|| decode(path, [64, 64], false, 0).map(drop))?;
+    catch_panic_as_error(|| decode(path, [64, 64], false, 0).map(drop))?;
     if crate::model::listing::is_jpeg(path) && !is_whole_jpeg_file(path)? {
         return Err("cut off: the JPEG has no end".into());
     }
@@ -822,7 +822,7 @@ pub fn is_quarter_turn(o: Orientation) -> bool {
 /// Runs `work`, and returns an error if it panics. A decoder crashing on a broken file must not
 /// end the worker thread, because that would leave every later image or thumbnail waiting for
 /// ever.
-pub fn catch_panic<T>(work: impl FnOnce() -> Result<T, String>) -> Result<T, String> {
+pub fn catch_panic_as_error<T>(work: impl FnOnce() -> Result<T, String>) -> Result<T, String> {
     crate::support::threads::catch_panic(work)
         .unwrap_or_else(|| Err("the decoder crashed on this file".into()))
 }
@@ -1927,7 +1927,10 @@ mod tests {
 
     #[test]
     fn survives_a_panic() {
-        assert_eq!(super::catch_panic(|| Ok::<_, String>(1)), Ok(1));
-        assert!(super::catch_panic(|| -> Result<(), String> { panic!("broken file") }).is_err());
+        assert_eq!(super::catch_panic_as_error(|| Ok::<_, String>(1)), Ok(1));
+        assert!(
+            super::catch_panic_as_error(|| -> Result<(), String> { panic!("broken file") })
+                .is_err()
+        );
     }
 }

@@ -269,7 +269,7 @@ impl List {
 
     /// Takes the files at the sorted places `removed` out of the list in one pass. The decoded
     /// images and the decode errors of the others move to their new places, and the panes are
-    /// cleared, so `refill` fills them again from the list as it is.
+    /// cleared, so `refill_preload` fills them again from the list as it is.
     pub(crate) fn remove(&mut self, removed: &[usize]) {
         let mut idx = 0;
         self.files.retain(|_| {

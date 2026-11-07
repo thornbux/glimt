@@ -72,7 +72,7 @@ impl crate::App {
             self.show_file_anew(ctx, idx);
         } else if self.list.decode_errors().contains_key(&idx) {
             self.list.forget_decode_error(idx);
-            self.refill();
+            self.refill_preload();
         }
     }
 
@@ -102,8 +102,8 @@ impl crate::App {
         self.panel.scroll_to_shown();
         // Every image gets the full delay, also when the user moves back or forward by hand.
         self.slideshow.restart_delay();
-        self.refill();
-        self.title(ctx);
+        self.refill_preload();
+        self.update_window_title(ctx);
     }
 
     /// The shown image is left: its rotation saved (with Save Orientation on) or dropped, and a
@@ -178,7 +178,7 @@ impl crate::App {
             .matches()
             .map_or(self.list.files().len(), <[usize]>::len);
         let matches = self.list.matches();
-        self.status.position_text(idx, total, || {
+        self.status_bar.position_text(idx, total, || {
             let row = match matches {
                 Some(m) => m.iter().position(|&x| x == idx),
                 None => Some(idx),
@@ -265,19 +265,19 @@ impl crate::App {
     /// Called when the selection changes: update the title and compute the size in the background.
     pub(crate) fn selection_changed(&mut self, ctx: &egui::Context) {
         self.list.set_range_end(None);
-        self.title(ctx);
-        if self.compare {
-            self.refill();
+        self.update_window_title(ctx);
+        if self.is_comparing {
+            self.refill_preload();
         }
         let wait = self
-            .status
+            .status_bar
             .selection_changed(!self.list.selected().is_empty());
         ctx.request_repaint_after(wait);
     }
 
     /// The size of the selection, in the background, once it has stayed the same a moment.
     pub(crate) fn sum_selection_size(&mut self, ctx: &egui::Context) {
-        match self.status.size_due() {
+        match self.status_bar.size_due() {
             SizeDue::No => return,
             // Asked again each frame: a frame drawn before it is due drops the earlier request.
             SizeDue::Later(wait) => return ctx.request_repaint_after(wait),
@@ -288,9 +288,9 @@ impl crate::App {
         }
         // All of them (Select All in a folder of 500,000): the folder's size, summed already.
         if self.list.selected().len() == self.list.files().len()
-            && let Some(total) = self.status.folder_total()
+            && let Some(total) = self.status_bar.folder_total()
         {
-            return self.status.selection_is(total);
+            return self.status_bar.set_selection_size(total);
         }
         // The paths made in the thread: only the names are copied here.
         let names: Vec<OsString> = self
@@ -311,7 +311,7 @@ impl crate::App {
                 ctx.request_repaint();
             }
         });
-        self.status.sum_selection(rx);
+        self.status_bar.sum_selection(rx);
     }
 
     /// The files that an action on the selection acts on: the selected files, otherwise the

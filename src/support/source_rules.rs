@@ -5,6 +5,260 @@
 
 use std::path::Path;
 
+/// The names that 0.74.0's naming review retired, because a reader new to the code could not tell
+/// from them what they hold or do. Beside each is the name that took its place, which is the one
+/// to use. `retired_names_stay_gone` fails when one comes back as a name in the code. A name that
+/// is now another thing's right name (`status`, `shown`, `turn`) is not here, nor are the old
+/// names of settings and actions, which the `RENAMED_*` tables still read from users' files.
+const RETIRED_NAMES: &[&str] = &[
+    // The window's parts (main.rs).
+    "prefs",         // preferences
+    "Prefs",         // Preferences
+    "dups",          // find_duplicates
+    "Dups",          // FindDuplicates
+    "pan_window",    // pan_view
+    "print_window",  // print_dialog
+    "focus_by_keys", // is_focus_from_keys
+    "last_view",     // last_image_area
+    "image_id",      // image_area_id
+    "notices_tx",    // notice_sender
+    "notices_rx",    // notices
+    "lightroom_rx",  // lightroom_catalog
+    "save_as_last",  // save_as_choices
+    "Choice",        // SaveAsChoices
+    "own_program",   // new_window_program
+    // The image area (viewer/view.rs).
+    "full_ok",       // full_resolution_count
+    "set_rotate",    // set_auto_rotate
+    "refill",        // refill_preload
+    "one_at_a_time", // changes_one_pane_at_a_time
+    "paint_other",   // paint_compared
+    "compare_other", // compared_image
+    "orient",        // turn
+    "files_gen",     // version, list_version
+    // The slideshow, Save As and pan view (viewer/).
+    "Slide",         // SlideStep
+    "Hold",          // SlideStep::Wait, HeldBackFiles
+    "at_start",      // start_after_listing
+    "whole_shuffle", // shuffle_next_listing_whole
+    "days_stop",     // stop_reading_days
+    "jump",          // scroll_to_day
+    "add_gone",      // add_removed
+    "as_read",       // read_days
+    "ymd",           // parse_date
+    "Place",         // SlideshowPosition, Section
+    // The side panel and the status bar (ui/file_list.rs).
+    "ThumbView",          // OnScreenFiles
+    "THUMBS",             // THUMB_SIZES
+    "CELL_EXTRA",         // CELL_PADDING
+    "CELL_EXTRA_NO_NAME", // CELL_PADDING_NO_NAME
+    "grid_cols",          // grid_columns
+    "area_grid_shown",    // is_area_grid_shown
+    "area_grid_on",       // is_area_grid_on
+    "pane_info",          // pane_images
+    "selected_rx",        // selection_sum
+    "selection_is",       // set_selection_size
+    "scroll_to_cur",      // scroll_to_shown
+    "scroll_to_current",  // scroll_to_shown
+    "cur_size",           // shown_size
+    "forget_place",       // forget_position_text
+    // The info panel (ui/info_panel.rs).
+    "exif_jobs",          // exif_requests
+    "exif_rx",            // exif_answers
+    "exif_window",        // is_exif_window_open
+    "want_exif",          // request_exif
+    "MetaEdit",           // MetadataEdit
+    "meta_of",            // metadata_edit_of
+    "save_meta",          // save_metadata_edit
+    "tag_files",          // set_keyword_on_files
+    "exif_panel_setting", // info_panel_setting
+    // The look and the window (ui/theme.rs, ui/window.rs).
+    "FromDesktop",   // DesktopSettings
+    "look_rx",       // look_answer
+    "screen_rx",     // screen_profile_answer
+    "ask_screen",    // ask_screen_profile
+    "built_in",      // is_built_in
+    "Ender",         // InhibitorStop
+    "inhibit_on",    // inhibit_asked
+    "kiosk_quit",    // kiosk_may_quit
+    "closes_asked",  // close_requests
+    "close_saved",   // turn_tried_at_close
+    "turn_saved",    // forget_turn_tried_at_close
+    "menu_away",     // pointer_left_menu_at
+    "POINTER_STILL", // HIDE_POINTER_AFTER
+    "window_shown",  // is_window_visible
+    // The dialogs, menus, actions and Preferences (ui/).
+    "asked_for",       // asked
+    "unchanged",       // is_unchanged
+    "prompt_answered", // take_prompt_answer
+    "answer_prompt",   // act_on_prompt_answer
+    "delete_shown",    // delete_dialog_opened_at
+    "file_dialog_rx",  // picked_path
+    "confirm_folder",  // is_confirming_folder_trash
+    "ENTER_AFTER",     // ENTER_IGNORED_FOR
+    "delete_what",     // delete_dialog_subject
+    "use_screen",      // choose_screen_profile
+    "list_act",        // chosen
+    "iconed",          // with_icon
+    "OWN_KEYS",        // USER_KEYS
+    "use_own_keys",    // use_user_keys
+    "in_build",        // is_in_build
+    "unsaved",         // has_unsaved
+    "focus_search",    // search_takes_focus
+    "capturing",       // key_being_chosen_for
+    // What is open: the list, the folder, the search and collections (model/).
+    "cur",               // shown
+    "set_cur",           // set_shown
+    "cur_row",           // shown_row
+    "anchor_or_cur",     // anchor_or_shown
+    "Slot",              // LoadedImage
+    "slots",             // loaded_images
+    "take_slots",        // take_loaded_images
+    "keep_slot",         // keep_loaded_image
+    "keep_slots",        // keep_loaded_images
+    "forget_slot",       // forget_loaded_image
+    "details",           // sizes_and_dates
+    "remember_details",  // remember_size_and_date
+    "forget_details",    // forget_sizes_and_dates
+    "forget_details_of", // forget_size_and_date_of
+    "pan_thumb",         // note_pan_thumb
+    "right_click",       // select_on_right_click
+    "set_unchecked",     // set_unchecked_entries
+    "selection_size",    // sum_selection_size
+    "quiet_targets",     // targets_without_notice
+    "place_of",          // position_text_of
+    "only_held_back",    // only_hidden_selected
+    "selected_and_held", // selected_with_hidden
+    "listings",          // whole_listings
+    "list_parts",        // lists_tree_in_parts
+    "relist",            // relist_when_done, read_folder_again
+    "watching",          // watcher_generation
+    "went_to",           // first_part_shown
+    "take_files",        // take_listed_files
+    "keep_found",        // keep_files_with_size
+    "match_rx",          // match_size_rx
+    "exif_stale",        // exif_to_read_again
+    "holds_exif_reads",  // exif_search_waits_for_writes
+    "exif_follow_list",  // index_new_names
+    "LISTS",             // LIST_EXTS
+    "edit_told",         // edit_open_collection
+    // How files change on disk (files/).
+    "Deleted",         // OperationReport
+    "deleted_sender",  // report_sender
+    "deleted_tx",      // report_tx
+    "receive_deleted", // receive_operation_report
+    "Work",            // FileOperations, QueuedWrite
+    "land",            // save_copy_with_sidecar
+    "Renamed",         // RenameOutcome
+    "take_renamed",    // take_rename_outcome
+    "let_go_of_ended", // drop_ended_jobs
+    "none_saving",     // are_free_to_change
+    "work_left",       // is_writing
+    "same_id",         // same_fingerprint
+    "writes_keywords", // is_writing_sidecars
+    "writes_of",       // jobs_writing_sidecar_of
+    "paths_moved",     // follow_moved_paths
+    "fs_type",         // file_system_type_or_test
+    "fat_type",        // fat_file_system_type
+    "mount_type",      // file_system_type
+    "mount_type_in",   // file_system_type_in
+    "fs_type_in_udev", // file_system_type_in_udev
+    "new_beside",      // create_temp_beside
+    "own_tag",         // instance_tag
+    "serial",          // start_ordered_worker
+    "writable",        // check_writable
+    "settle",          // repair_cut_short, run_background_until
+    "interrupted",     // cut_short_plans
+    "Thrown",          // TrashMove
+    "Trashed",         // TrashEntry
+    "own_dir",         // is_usable_top_trash
+    "trash_name",      // name_in_trash
+    "Dog",             // WatchdogState
+    "dog",             // watchdog
+    "limited",         // short_output_of
+    "host_has",        // host_has_program
+    "heif",            // decode_heif
+    "DEST",            // PORTAL_BUS_NAME
+    "DEFAULT_DELAY",   // DEFAULT_SLIDESHOW_DELAY
+    "MAX_DELAY",       // MAX_SLIDESHOW_DELAY
+    // From a file to pixels and back (images/).
+    "survive",                 // catch_panic_as_error
+    "Hist",                    // HistogramCounts
+    "jpeg_ends",               // is_whole_jpeg_file
+    "whole_jpeg",              // is_whole_jpeg
+    "quarter_turn",            // is_quarter_turn
+    "open_file",               // open_regular_with_metadata
+    "read_opened",             // read_open_file
+    "MAX_DECODE",              // MAX_DECODE_BYTES
+    "MAX_ANIMATION",           // MAX_ANIMATION_BYTES
+    "Kind",                    // Encoding
+    "stem_and",                // stem_with_suffix
+    "FileKey",                 // FileId
+    "file_key",                // file_id
+    "meta_key",                // file_id_from_metadata
+    "key_of",                  // file_id_from_inode
+    "replace_holding_sidecar", // replace_with_sidecar_locked
+    "like_srgb",               // is_like_srgb
+    "set_up",                  // set_up_colour
+    "FAILED",                  // FAILED_DIR
+    "worth_marking",           // should_mark_failed
+    "clean",                   // remove_orphaned_thumbnails
+    // What is said about an image (metadata/).
+    "Meta",         // KeywordsAndComment
+    "Access",       // AltText
+    "parse_access", // parse_alt_text
+    "write_access", // write_alt_text
+    "set_access",   // set_alt_text
+    "Held",         // SidecarLock
+    "held_in",      // lock_sidecar_in
+    "held_all",     // lock_sidecars
+    "held_all_in",  // lock_sidecars_in
+    "update_held",  // update_locked_sidecar
+    "SLOTS",        // SIDECAR_LOCKS
+    "lock_slot",    // sidecar_lock_number
+    "locks",        // lock_dir
+    "adobe_rgb",    // is_adobe_rgb
+    "mul",          // compose_orientations
+    "ratio",        // rational
+    "Seen",         // FileStamp
+    "put_folder",   // follow_folder
+    "put_known",    // follow_known
+    "NEEDS",        // NEEDS_SQLITE3
+    // The features with a window of their own (features/).
+    "parallel",            // on_all_cores
+    "in_block",            // block_matches
+    "SIDE",                // SIGNATURE_SIDE
+    "Fed",                 // WatchdogWriter
+    "CAPTION",             // CAPTION_HEIGHT
+    "PAGE_TEXT",           // PAGE_TEXT_HEIGHT
+    "PREVIEWED",           // MAX_PREVIEWS
+    "layout_of",           // layout_from_settings
+    "Running",             // RunningPlugins
+    "ANSWERING",           // UNFINISHED_ANSWERS
+    "Answering",           // UnfinishedAnswer
+    "UNANSWERED",          // TIMED_OUT
+    "unanswered",          // timed_out
+    "ME",                  // INSTANCE_ID
+    "claim",               // bind_socket
+    "queued",              // has_waiting_client
+    "own_or_none",         // is_own_or_missing
+    "dir_of_another",      // is_another_users_dir
+    "deliver",             // send_and_print_answer
+    "remote_one",          // handle_remote
+    "waiting_select",      // waiting_selects
+    "answer_held_selects", // answer_waiting_selects
+    // What the rest is built on (support/).
+    "CPU_USE",        // CPU_USE_LEVEL
+    "ONE_ARENA",      // HAS_ONE_MALLOC_ARENA
+    "Table",          // Translation
+    "CURRENT",        // CURRENT_TRANSLATION
+    "number_marks",   // number_separators
+    "marks_of",       // number_separators_of
+    "LABELS",         // THIS_FRAME
+    "LAST",           // LAST_FRAME
+    "qualifiers_off", // without_qualifiers
+];
+
 /// Where a top-level item stands in a file's order, as AGENTS.md gives it under "Within a
 /// file"; the variants are in that order.
 #[derive(Clone, Copy, PartialEq, PartialOrd)]
@@ -553,11 +807,11 @@ fn parts_keep_their_fields() {
         ("ui/file_list.rs", "Tree"),
         ("ui/info_panel.rs", "InfoPanel"),
         ("ui/menus.rs", "OpenWith"),
-        ("ui/preferences.rs", "Prefs"),
-        ("ui/theme.rs", "FromDesktop"),
+        ("ui/preferences.rs", "Preferences"),
+        ("ui/theme.rs", "DesktopSettings"),
         ("ui/window.rs", "Window"),
-        ("viewer/pan.rs", "Pan"),
-        ("viewer/save_as.rs", "Choice"),
+        ("viewer/pan.rs", "PanView"),
+        ("viewer/save_as.rs", "SaveAsChoices"),
         ("viewer/save_as.rs", "SaveAs"),
         ("viewer/slideshow.rs", "Slideshow"),
         ("viewer/view.rs", "Decoding"),
@@ -585,6 +839,28 @@ fn parts_keep_their_fields() {
     assert!(
         wrong.is_empty(),
         "make these private, and give the part a method that says what happens:\n{}",
+        wrong.join("\n")
+    );
+}
+
+/// A name that 0.74.0's naming review retired stays out of the code, so the next change does
+/// not bring it back by habit or by copying older code. Only code is read: a comment or a text
+/// may still say the old word.
+#[test]
+fn retired_names_stay_gone() {
+    let retired: std::collections::HashSet<&str> = RETIRED_NAMES.iter().copied().collect();
+    let mut wrong = Vec::new();
+    for (file, text) in rust_sources() {
+        for (i, line) in code_lines(&text).iter().enumerate() {
+            let words = line.split(|c: char| c != '_' && !c.is_alphanumeric());
+            for word in words.filter(|w| retired.contains(w)) {
+                wrong.push(format!("{file}:{}: {word}", i + 1));
+            }
+        }
+    }
+    assert!(
+        wrong.is_empty(),
+        "names retired in 0.74.0 (RETIRED_NAMES says what took their place):\n{}",
         wrong.join("\n")
     );
 }
@@ -965,7 +1241,7 @@ fn images_are_turned_after_they_shrink() {
 #[test]
 fn copies_of_settings_have_one_writer() {
     const WRITERS: &[(&str, &[(&str, &str)])] = &[
-        ("OWN_KEYS.write()", &[("ui/actions.rs", "use_own_keys")]),
+        ("USER_KEYS.write()", &[("ui/actions.rs", "use_user_keys")]),
         (
             "MAX_ANIMATION_BYTES.store(",
             &[("images/decode.rs", "set_animation_limit")],

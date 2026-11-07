@@ -3,7 +3,7 @@
 
 use crate::features::duplicates::FindDuplicates;
 use crate::images::colour::FILTERS;
-use crate::images::decode::{catch_panic, color_image};
+use crate::images::decode::{catch_panic_as_error, color_image};
 #[cfg(feature = "marks")]
 use crate::metadata::marks;
 #[cfg(feature = "marks")]
@@ -11,10 +11,11 @@ use crate::support::format::count;
 use crate::support::lang::tr;
 use crate::support::threads::Working;
 use crate::ui::dialogs::{Pick, Prompt};
-use crate::viewer::pan::Pan;
+use crate::viewer::pan::PanView;
 use crate::viewer::view::LAYOUTS;
 use crate::{
-    features::remote, files::config, images::save, model::collections, own_program, tf, ui::help,
+    features::remote, files::config, images::save, model::collections, new_window_program, tf,
+    ui::help,
 };
 use eframe::egui;
 use std::collections::HashSet;
@@ -178,10 +179,10 @@ pub const SHORTCUTS: &[(Action, egui::Modifiers, egui::Key)] = {
 };
 
 /// The user's own keys (Preferences), which replace the defaults of their actions.
-pub static OWN_KEYS: std::sync::RwLock<Vec<(Action, egui::Modifiers, egui::Key)>> =
+pub static USER_KEYS: std::sync::RwLock<Vec<(Action, egui::Modifiers, egui::Key)>> =
     std::sync::RwLock::new(Vec::new());
 
-/// Held by the tests that set `OWN_KEYS`, and by every new window of a test, which sets them
+/// Held by the tests that set `USER_KEYS`, and by every new window of a test, which sets them
 /// to its own settings' keys, as tests run at once.
 #[cfg(test)]
 pub static KEYS_TEST: std::sync::Mutex<()> = std::sync::Mutex::new(());
@@ -504,7 +505,7 @@ impl Action {
 
     /// Whether this build does something for the action. PlayVideo needs the video feature, so
     /// without it Enter is not taken by an action that does nothing.
-    pub fn in_build(self) -> bool {
+    pub fn is_in_build(self) -> bool {
         self != Action::PlayVideo || cfg!(feature = "video")
     }
 
@@ -1053,15 +1054,17 @@ impl crate::App {
                     self.move_in_collection(ctx, picked, order)
                 }
             }
-            Action::FindDuplicates => drop(self.dups.get_or_insert_with(FindDuplicates::new)),
-            Action::CheckImages => drop(self.check.get_or_insert(None)),
+            Action::FindDuplicates => {
+                self.find_duplicates.get_or_insert_with(FindDuplicates::new);
+            }
+            Action::CheckImages => drop(self.check_images.get_or_insert(None)),
             Action::BackUp => self.pick(ctx, true, Pick::BackUp),
             // A kiosk shows only the image.
             Action::FocusSearch if self.window.is_kiosk() => {}
             Action::FocusSearch => self.focus_search_field(ctx, fullscreen),
             Action::CopyTo | Action::MoveTo => self.pick_copy_or_move(ctx, action),
             // The default application; the Open With submenu lists the others.
-            Action::OpenWith => self.launch(""),
+            Action::OpenWith => self.open_shown_in(""),
             Action::SetWallpaper => self.set_wallpaper(),
             // Enter: videos play in a player (images have nothing to play).
             Action::PlayVideo => self.play_video(ctx),
@@ -1107,7 +1110,7 @@ impl crate::App {
             Action::Preferences if config::locked() => {
                 self.notice = Some(tr("The settings are locked (--lock-settings)").into());
             }
-            Action::Preferences => self.prefs.show(),
+            Action::Preferences => self.preferences.show(),
             Action::Help => self.help = Some(help::Page::Manual),
             Action::Shortcuts => self.help = Some(help::Page::Shortcuts),
             Action::KeyboardMap => self.help = Some(help::Page::Keymap),
@@ -1125,7 +1128,7 @@ impl crate::App {
             Action::Subfolders => self.set_subfolders(ctx, !self.config.show_subfolders),
             Action::HiddenFiles => self.toggle_hidden_files(ctx),
             // An animation: stopped at the frame before or after the one shown, which A plays on.
-            Action::NextPage | Action::PrevPage if self.animated() => self.step_frame(action),
+            Action::NextPage | Action::PrevPage if self.is_animated() => self.step_frame(action),
             Action::NextPage | Action::PrevPage => self.step_page(action),
             Action::ExifWindow => self.info_panel.toggle_exif_window(),
             Action::FocusKeywords => {
@@ -1135,9 +1138,9 @@ impl crate::App {
                 self.info_panel.focus_keywords();
             }
             Action::PanView => {
-                self.pan_window = match self.pan_window {
+                self.pan_view = match self.pan_view {
                     Some(_) => None,
-                    None => Some(Pan::default()),
+                    None => Some(PanView::default()),
                 }
             }
             Action::OneImage => self.set_layout("1"),
@@ -1217,7 +1220,7 @@ impl crate::App {
             Action::NewWindow => self.new_window(),
             Action::WindowTitle => {
                 self.dialogs
-                    .ask_window_title(self.window.title().to_owned());
+                    .ask_window_title(self.window.title_template().to_owned());
             }
             Action::Projector => {
                 self.window.toggle_projector();
@@ -1254,7 +1257,7 @@ impl crate::App {
             // Resuming gives the shown image the full delay again.
             Action::Pause if self.slideshow.is_running() => {
                 self.slideshow.toggle_pause();
-                self.title(ctx);
+                self.update_window_title(ctx);
             }
             Action::Pause => {}
             Action::RandomOrder => self.set_random_order(ctx, !self.config.slideshow_random),
@@ -1318,7 +1321,7 @@ impl crate::App {
     pub(crate) fn new_window(&mut self) {
         let exe = std::env::current_exe().map(|exe| {
             let var = std::env::var_os;
-            own_program(exe, var("APPDIR"), var("APPIMAGE"))
+            new_window_program(exe, var("APPDIR"), var("APPIMAGE"))
         });
         // After an update (or a rebuild) Linux reports the running binary as
         // "/path/glimt (deleted)"; the new one is at the same path.
@@ -1344,14 +1347,14 @@ impl crate::App {
     /// Select → Copy Image: the shown image's pixels to the clipboard, decoded in the background.
     pub(crate) fn copy_image(&mut self, ctx: &egui::Context) {
         let (path, how) = (self.path(self.list.shown()), self.shown_copy());
-        let (tx, ctx) = (self.notices_tx.clone(), ctx.clone());
+        let (tx, ctx) = (self.notice_sender.clone(), ctx.clone());
         let (clip_tx, clip_rx) = mpsc::channel();
         self.file_operations.copy_image_from(clip_rx);
         let pointer = Working::new(&self.busy);
         std::thread::spawn(move || {
             // A decoder that panics on a broken file must not end the thread: the busy pointer
             // would stay for good.
-            match catch_panic(|| save::shown_image(&path, &how)) {
+            match catch_panic_as_error(|| save::shown_image(&path, &how)) {
                 Ok(img) => drop(clip_tx.send(color_image(img))),
                 Err(e) => drop(tx.send(tf!("Could not copy the image: {e}", e))),
             }
@@ -1390,21 +1393,23 @@ impl crate::App {
         }
         // Escape closes the pan view. It is read before the shortcuts, and nothing else is done
         // with it then.
-        if self.pan_window.is_some() && !self.dialog_open() && self.answers(ctx, egui::Key::Escape)
-        {
-            self.pan_window = None;
+        if self.pan_view.is_some() && !self.dialog_open() && self.answers(ctx, egui::Key::Escape) {
+            self.pan_view = None;
         }
         // And the Check Images window: a check still running is stopped with it.
-        if self.check.is_some()
+        if self.check_images.is_some()
             && !self.dialog_open()
             && self.answers(ctx, egui::Key::Escape)
-            && let Some(Some(check)) = self.check.take()
+            && let Some(Some(check)) = self.check_images.take()
         {
             check.stop();
         }
         // A zoomed image larger than the window: the arrow keys move it, as in Geeqie; along a
         // side where it fits they still browse.
-        if !self.dialog_open() && !typing && !self.zoom.is_fitted() && !self.panel.area_grid_shown()
+        if !self.dialog_open()
+            && !typing
+            && !self.zoom.is_fitted()
+            && !self.panel.is_area_grid_shown()
         {
             let step = 100.0;
             let max = self.zoom.pan_room();
@@ -1424,7 +1429,7 @@ impl crate::App {
         }
         // Enter in the grid in the image area shows the image there. It is read before PlayVideo
         // takes the key.
-        if self.panel.area_grid_shown()
+        if self.panel.is_area_grid_shown()
             && !self.dialog_open()
             && self.answers(ctx, egui::Key::Enter)
         {
@@ -1451,17 +1456,17 @@ impl crate::App {
     pub(crate) fn focus_ring(&mut self, ctx: &egui::Context) {
         let pressed = ctx.input(|i| {
             if i.key_pressed(egui::Key::Tab) {
-                self.focus_by_keys = true;
+                self.is_focus_from_keys = true;
             }
             i.pointer.any_pressed()
         });
         if pressed {
-            self.focus_by_keys = false;
+            self.is_focus_from_keys = false;
         }
         let Some(id) = ctx.memory(|m| m.focused()) else {
             return;
         };
-        if Some(id) == self.image_id || ctx.text_edit_focused() {
+        if Some(id) == self.image_area_id || ctx.text_edit_focused() {
             return;
         }
         // A click puts the focus Tab gave away, also on the widget clicked, where egui keeps it:
@@ -1470,7 +1475,7 @@ impl crate::App {
             ctx.memory_mut(|m| m.surrender_focus(id));
             return;
         }
-        if !self.focus_by_keys {
+        if !self.is_focus_from_keys {
             return;
         }
         if let Some(widget) = ctx.read_response(id) {
@@ -1487,10 +1492,10 @@ impl crate::App {
 }
 
 /// Makes the user's own keys in `keys` the ones in effect, at start and after each change in
-/// Preferences. The settings hold them, and `OWN_KEYS` holds the copy the key handling reads.
+/// Preferences. The settings hold them, and `USER_KEYS` holds the copy the key handling reads.
 /// Every change goes through this function, so the copy cannot fall behind the settings.
-pub(crate) fn use_own_keys(keys: &Keys) {
-    if let Ok(mut own) = OWN_KEYS.write() {
+pub(crate) fn use_user_keys(keys: &Keys) {
+    if let Ok(mut own) = USER_KEYS.write() {
         own.clone_from(&keys.0);
     }
 }
@@ -1508,7 +1513,7 @@ pub fn same_keys(a: &Shortcut, b: &Shortcut) -> bool {
 pub fn shortcuts() -> std::sync::Arc<[Shortcut]> {
     type Made = Option<(Vec<Shortcut>, std::sync::Arc<[Shortcut]>)>;
     static MADE: std::sync::Mutex<Made> = std::sync::Mutex::new(None);
-    let own = OWN_KEYS.read().map(|o| o.clone()).unwrap_or_default();
+    let own = USER_KEYS.read().map(|o| o.clone()).unwrap_or_default();
     let mut made = MADE.lock().unwrap_or_else(|e| e.into_inner());
     if let Some((from, all)) = made.as_ref()
         && *from == own
@@ -1518,7 +1523,7 @@ pub fn shortcuts() -> std::sync::Arc<[Shortcut]> {
     // Defaults of actions with own keys go, and so does a default whose key an own key took.
     let mut all = own.clone();
     all.extend((SHORTCUTS.iter()).filter(|s| !own.iter().any(|o| o.0 == s.0 || same_keys(o, s))));
-    all.retain(|s| s.0.in_build());
+    all.retain(|s| s.0.is_in_build());
     let weight = |m: &egui::Modifiers| m.shift as u8 + m.alt as u8 + m.command as u8;
     all.sort_by_key(|s| std::cmp::Reverse(weight(&s.1)));
     let all: std::sync::Arc<[Shortcut]> = all.into();
@@ -2125,7 +2130,7 @@ mod tests {
             "Next=Ctrl+Shift+N;ZoomIn=Plus;Bogus=X;Prev=Hyper+P"
         );
         assert_eq!(keys.to_string().parse::<Keys>().unwrap(), keys);
-        *super::OWN_KEYS.write().unwrap() = keys.0.clone();
+        *super::USER_KEYS.write().unwrap() = keys.0.clone();
         let all = super::shortcuts();
         // PlayVideo has no shortcut in a build without video, so Enter is free there.
         let play = all.iter().any(|s| s.0 == Action::PlayVideo);
@@ -2137,7 +2142,7 @@ mod tests {
         assert!(pos(Action::Rotate180) < pos(Action::RandomOrder));
         // An own key that is another action's default takes it from that action.
         let r = "ZoomFit=R".parse::<Keys>().unwrap();
-        *super::OWN_KEYS.write().unwrap() = r.0.clone();
+        *super::USER_KEYS.write().unwrap() = r.0.clone();
         let all = super::shortcuts();
         let on_r: Vec<Action> = (all.iter())
             .filter(|s| s.2 == eframe::egui::Key::R && s.1 == eframe::egui::Modifiers::NONE)
@@ -2146,13 +2151,13 @@ mod tests {
         assert_eq!(on_r, [Action::ZoomFit]);
         // Also a key with Ctrl, which the defaults and own keys say each their way.
         let ctrl_n = "Next=Ctrl+N".parse::<Keys>().unwrap();
-        *super::OWN_KEYS.write().unwrap() = ctrl_n.0.clone();
+        *super::USER_KEYS.write().unwrap() = ctrl_n.0.clone();
         let all = super::shortcuts();
         assert!(
             !all.iter()
                 .any(|s| s.0 == Action::NewWindow && super::same_keys(s, &ctrl_n.0[0]))
         );
-        super::OWN_KEYS.write().unwrap().clear();
+        super::USER_KEYS.write().unwrap().clear();
     }
 
     /// Plain Ctrl+C comes from egui-winit as a Copy event, and so does the Copy key with no

@@ -165,26 +165,26 @@ const START: &[&str] = &[
 
 /// The Preferences window: open or not, its search, and the action whose key is being chosen.
 #[derive(Default)]
-pub(crate) struct Prefs {
+pub(crate) struct Preferences {
     /// Edit → Preferences is open.
     open: bool,
     /// Preferences changed while the pointer is down: saved when it is let go.
-    unsaved: bool,
+    has_unsaved: bool,
     /// The search field of Preferences: only the sections with these words show.
     query: String,
     /// Preferences was just opened: its search field takes the keys.
-    focus_search: bool,
+    search_takes_focus: bool,
     /// The action whose key is being chosen in Preferences: the next key press goes to it.
-    capturing: Option<Action>,
+    key_being_chosen_for: Option<Action>,
 }
 
-impl Prefs {
+impl Preferences {
     /// Opens Preferences with an empty search, because a search from last time would hide
     /// settings without saying why. The search field takes the keys.
     pub(crate) fn show(&mut self) {
         self.open = true;
         self.query.clear();
-        self.focus_search = true;
+        self.search_takes_focus = true;
     }
 
     pub(crate) fn is_open(&self) -> bool {
@@ -195,16 +195,16 @@ impl Prefs {
 impl crate::App {
     /// Edit → Preferences: every setting, saved when one changes; Esc closes it.
     pub(crate) fn preferences_window(&mut self, ctx: &egui::Context) {
-        let mut open = self.prefs.open;
+        let mut open = self.preferences.open;
         // Esc closes Preferences (shortcuts are off while it is open), unless a dialog on top
         // of it is the one Esc is meant for; a search in its field is cleared first.
         if open
             && !self.modal_open()
-            && self.prefs.capturing.is_none()
+            && self.preferences.key_being_chosen_for.is_none()
             && ctx.input(|i| i.key_pressed(egui::Key::Escape))
         {
-            open = !self.prefs.query.trim().is_empty();
-            self.prefs.query.clear();
+            open = !self.preferences.query.trim().is_empty();
+            self.preferences.query.clear();
         }
         let mut keys_drawn = false;
         egui::Window::new(tr("Preferences"))
@@ -216,16 +216,16 @@ impl crate::App {
                 // takes its own space instead of covering the text.
                 ui.spacing_mut().scroll = egui::style::ScrollStyle::solid();
                 // Above the settings, so it stays when they scroll.
-                let search = egui::TextEdit::singleline(&mut self.prefs.query)
+                let search = egui::TextEdit::singleline(&mut self.preferences.query)
                     .hint_text(tr("Search the settings"))
                     .desired_width(f32::INFINITY);
                 let search = ui.add(search);
                 // Until it has it: the window's first frame only measures it.
-                if self.prefs.focus_search {
+                if self.preferences.search_takes_focus {
                     search.request_focus();
-                    self.prefs.focus_search = !search.has_focus();
+                    self.preferences.search_takes_focus = !search.has_focus();
                 }
-                let query = self.prefs.query.to_lowercase();
+                let query = self.preferences.query.to_lowercase();
                 let shown = sections_shown(&query);
                 if !shown.contains(&true) {
                     ui.weak(tr("No setting has these words"));
@@ -292,18 +292,18 @@ impl crate::App {
                         changed |= self.window_settings(ui, ctx);
                     }
                     // Saved once a slider is let go, not in every frame it is dragged.
-                    self.prefs.unsaved |= changed;
-                    if self.prefs.unsaved && !ctx.input(|i| i.pointer.any_down()) {
-                        self.prefs.unsaved = false;
+                    self.preferences.has_unsaved |= changed;
+                    if self.preferences.has_unsaved && !ctx.input(|i| i.pointer.any_down()) {
+                        self.preferences.has_unsaved = false;
                         self.config.save();
                     }
                 });
             });
-        self.prefs.open = open;
+        self.preferences.open = open;
         // A key is chosen only while its row is drawn. Closing the window or the header ends
         // the choosing, so a key pressed later in another field is not taken for the action.
         if !keys_drawn {
-            self.prefs.capturing = None;
+            self.preferences.key_being_chosen_for = None;
         }
     }
 
@@ -398,7 +398,7 @@ impl crate::App {
             .text(tr("seconds per image"));
         if ui.add(delay).changed() {
             changed = true;
-            self.title(ctx);
+            self.update_window_title(ctx);
         }
         let mut random = self.config.slideshow_random;
         if checkbox(ui, &mut random, tr("Random order")).changed() {
@@ -710,8 +710,8 @@ impl crate::App {
             {
                 self.set_desktop_profile(desktop, ui.ctx());
             }
-            let from_desktop =
-                (self.desktop.screen().map(str::to_owned)).filter(|_| self.config.desktop_profile);
+            let from_desktop = (self.desktop_settings.screen_profile().map(str::to_owned))
+                .filter(|_| self.config.desktop_profile);
             ui.horizontal(|ui| {
                 ui.label(tr("Screen profile:"));
                 if let Some(path) = from_desktop {
@@ -770,7 +770,7 @@ impl crate::App {
             ))
             .clicked()
         {
-            let (tx, ctx) = (self.notices_tx.clone(), ctx.clone());
+            let (tx, ctx) = (self.notice_sender.clone(), ctx.clone());
             let pointer = Working::new(&self.busy);
             std::thread::spawn(move || {
                 let (removed, seen) = thumbs::remove_orphaned_thumbnails();
@@ -885,7 +885,7 @@ impl crate::App {
         let order = tr("Window title \"Glimt - image name\" (off: \"image name - Glimt\")");
         if checkbox(ui, &mut c.app_name_first, order).changed() {
             changed = true;
-            self.title(ctx);
+            self.update_window_title(ctx);
         }
         ui.label(tr("Custom window title (empty: as above):"));
         let field = egui::TextEdit::singleline(&mut self.config.window_title)
@@ -893,7 +893,7 @@ impl crate::App {
             .hint_text("%name% - %app%");
         if ui.add(field).changed() {
             changed = true;
-            self.title(ctx);
+            self.update_window_title(ctx);
         }
         ui.weak(tr(
             "Fields: %name%, %path%, %folder% and %app%. A | starts a part, left out when its \
@@ -914,10 +914,10 @@ impl crate::App {
     /// Preferences → Keyboard shortcuts: every action with a key, which can be changed (the next
     /// key press) or reset to Geeqie's.
     pub(crate) fn key_settings(&mut self, ui: &mut egui::Ui, query: &str) {
-        if let Some(action) = self.prefs.capturing {
+        if let Some(action) = self.preferences.key_being_chosen_for {
             let pressed = ui.input(pressed_key);
             if let Some((key, mods)) = pressed {
-                self.prefs.capturing = None;
+                self.preferences.key_being_chosen_for = None;
                 if key != egui::Key::Escape {
                     let mods = egui::Modifiers {
                         mac_cmd: false,
@@ -947,14 +947,14 @@ impl crate::App {
                         .retain(|k| k.0 != action && !actions::same_keys(k, &(action, mods, key)));
                     self.config.keys.0.push((action, mods, key));
                     self.config.save();
-                    crate::ui::actions::use_own_keys(&self.config.keys);
+                    crate::ui::actions::use_user_keys(&self.config.keys);
                 }
             }
         }
         let all = shortcuts();
         let mut actions = key_actions();
         // Those a search finds, or all when it finds none (it found the section's own words).
-        let has = |a: &Action| found(query, &[], &[a.english(), a.label()]);
+        let has = |a: &Action| section_matches(query, &[], &[a.english(), a.label()]);
         if actions.iter().any(has) {
             actions.retain(has);
         }
@@ -967,7 +967,7 @@ impl crate::App {
                             .format_shortcut(&egui::KeyboardShortcut::new(s.1, s.2))
                     })
                     .collect();
-                if self.prefs.capturing == Some(action) {
+                if self.preferences.key_being_chosen_for == Some(action) {
                     ui.strong(tr("Press a key (Esc cancels)"));
                 } else {
                     ui.label(keys.join(", "));
@@ -980,13 +980,13 @@ impl crate::App {
                     )
                     .clicked()
                     {
-                        self.prefs.capturing = Some(action);
+                        self.preferences.key_being_chosen_for = Some(action);
                     }
                     let own = self.config.keys.0.iter().any(|k| k.0 == action);
                     if own && crate::ui::menus::small_button(ui, tr("Reset")).clicked() {
                         self.config.keys.0.retain(|k| k.0 != action);
                         self.config.save();
-                        crate::ui::actions::use_own_keys(&self.config.keys);
+                        crate::ui::actions::use_user_keys(&self.config.keys);
                     }
                 });
                 ui.end_row();
@@ -1082,7 +1082,7 @@ fn section(ui: &mut egui::Ui, icon: &str, title: &str) {
 /// Whether a section with these texts (English, the title first) and `more` (as shown) has
 /// every word of the lowercase `query`, in English or in the language shown; always without
 /// a search. Only a few hundred short texts, and only while there is a search.
-fn found(query: &str, texts: &[&'static str], more: &[&str]) -> bool {
+fn section_matches(query: &str, texts: &[&'static str], more: &[&str]) -> bool {
     if query.trim().is_empty() {
         return true;
     }
@@ -1106,7 +1106,7 @@ fn found(query: &str, texts: &[&'static str], more: &[&str]) -> bool {
 fn key_actions() -> Vec<Action> {
     let mut actions: Vec<Action> = Vec::new();
     for s in SHORTCUTS {
-        if !actions.contains(&s.0) && s.0.in_build() {
+        if !actions.contains(&s.0) && s.0.is_in_build() {
             actions.push(s.0);
         }
     }
@@ -1117,7 +1117,7 @@ fn key_actions() -> Vec<Action> {
 /// order they show: the look, keys, image, slideshow, file list, deleting, colour, memory,
 /// video and start.
 fn sections_shown(query: &str) -> [bool; 10] {
-    let shows = |texts: &[&'static str], more: &[&str]| found(query, texts, more);
+    let shows = |texts: &[&'static str], more: &[&str]| section_matches(query, texts, more);
     // The search finds a level by its English name and by the name shown.
     let levels = |l: &config::MemoryLevel| [l.name, l.tooltip];
     let levels: Vec<&str> = (MEMORY_LEVELS.iter().flat_map(levels))
@@ -1238,14 +1238,14 @@ mod tests {
 
     #[test]
     fn a_search_finds_every_word_in_either_language() {
-        assert!(found("", LOOK, &[]));
-        assert!(found("  ", LOOK, &[]));
-        assert!(found("theme", LOOK, &[]));
-        assert!(found("save theme", LOOK, &[]));
-        assert!(!found("theme slideshow", LOOK, &[]));
-        assert!(found("rotate", KEYBOARD, &["Rotate Clockwise"]));
+        assert!(section_matches("", LOOK, &[]));
+        assert!(section_matches("  ", LOOK, &[]));
+        assert!(section_matches("theme", LOOK, &[]));
+        assert!(section_matches("save theme", LOOK, &[]));
+        assert!(!section_matches("theme slideshow", LOOK, &[]));
+        assert!(section_matches("rotate", KEYBOARD, &["Rotate Clockwise"]));
         // The preload estimate, made with tf!: its template's words.
-        assert!(found("each image at most", MEMORY, &[]));
+        assert!(section_matches("each image at most", MEMORY, &[]));
     }
 
     /// Esc in Preferences clears a search first and closes the window the next time; with no
@@ -1269,21 +1269,21 @@ mod tests {
             };
             let _ = ctx.run_ui(input, |ui| app.preferences_window(ui.ctx()));
         };
-        app.prefs.show();
-        app.prefs.query = "zoom".into();
+        app.preferences.show();
+        app.preferences.query = "zoom".into();
         escape(&mut app);
-        assert!(app.prefs.open && app.prefs.query.is_empty());
+        assert!(app.preferences.open && app.preferences.query.is_empty());
         escape(&mut app);
-        assert!(!app.prefs.open);
-        app.prefs.show();
-        app.prefs.query = "  ".into();
+        assert!(!app.preferences.open);
+        app.preferences.show();
+        app.preferences.query = "  ".into();
         escape(&mut app);
-        assert!(!app.prefs.open && app.prefs.query.is_empty());
+        assert!(!app.preferences.open && app.preferences.query.is_empty());
         // A dialog on top of Preferences takes the Esc, and Preferences stays open.
-        app.prefs.show();
+        app.preferences.show();
         app.dialogs.ask_trash_folder(&dir);
         escape(&mut app);
-        assert!(app.prefs.open);
+        assert!(app.preferences.open);
         std::fs::remove_dir_all(dir).unwrap();
     }
 
@@ -1334,21 +1334,21 @@ mod tests {
             let _ = ctx.run_ui(input, |ui| app.preferences_window(ui.ctx()));
         };
         // The header starts closed.
-        app.prefs.open = true;
-        app.prefs.capturing = Some(Action::Next);
+        app.preferences.open = true;
+        app.preferences.key_being_chosen_for = Some(Action::Next);
         frame(&mut app);
-        assert_eq!(app.prefs.capturing, None);
+        assert_eq!(app.preferences.key_being_chosen_for, None);
         // A search for the action opens the header, so its row is drawn and the choosing stays.
-        app.prefs.query = "next image".into();
-        app.prefs.capturing = Some(Action::Next);
+        app.preferences.query = "next image".into();
+        app.preferences.key_being_chosen_for = Some(Action::Next);
         frame(&mut app);
-        assert_eq!(app.prefs.capturing, Some(Action::Next));
+        assert_eq!(app.preferences.key_being_chosen_for, Some(Action::Next));
         // A closed window fades out first, drawing its rows a few frames more.
-        app.prefs.open = false;
+        app.preferences.open = false;
         for _ in 0..30 {
             frame(&mut app);
         }
-        assert_eq!(app.prefs.capturing, None);
+        assert_eq!(app.preferences.key_being_chosen_for, None);
         std::fs::remove_dir_all(dir).unwrap();
     }
 }

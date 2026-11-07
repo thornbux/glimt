@@ -228,7 +228,7 @@ impl crate::App {
         self.list.set_range_end(None);
         // A position "[n/m]" told for another pane is made again, because another search may have
         // as many matches.
-        self.status.forget_position_text();
+        self.status_bar.forget_position_text();
         self.search.error = None;
         let matches = self.search_matches(ctx, query);
         // The selected files that the search hides are kept apart from the selection, so an
@@ -281,7 +281,7 @@ impl crate::App {
             // Without any index, the search would start reading again at once, so it gets an
             // empty one, and the user is told.
             Took::Gone => {
-                self.stopped(tr("The EXIF index"));
+                self.tell_background_stopped(tr("The EXIF index"));
                 HashMap::new()
             }
         };

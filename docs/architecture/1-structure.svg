@@ -19,7 +19,7 @@
     <rect x="510" y="76" width="280" height="80" rx="6" fill="#ffffff" stroke="#1f2328" stroke-width="1.5"/>
     <text x="524" y="100" font-size="15" font-weight="700" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace">cli.rs</text>
     <text x="524" y="121" font-size="13">Start, START_OPTIONS: the options</text>
-    <text x="524" y="141" font-size="13">answered: --help, --version, …</text>
+    <text x="524" y="141" font-size="13">answer_without_window: --help, …</text>
 
     <line x1="255" y1="156" x2="255" y2="190" stroke="#1f2328" stroke-width="1.5" marker-end="url(#arrow)"/>
     <text x="265" y="178" font-size="12" fill="#57606a">calls the methods the modules below add to App</text>
@@ -148,11 +148,11 @@
       <rect x="826" y="347" width="10" height="10" fill="#d08a1a"/><text x="844" y="356">panel</text><text x="956" y="356">ui::file_list::Panel</text>
       <rect x="826" y="366" width="10" height="10" fill="#d08a1a"/><text x="844" y="375">tree</text><text x="956" y="375">ui::file_list::Tree</text>
       <rect x="826" y="385" width="10" height="10" fill="#d08a1a"/><text x="844" y="394">thumbs</text><text x="956" y="394">ui::file_list::Thumbs</text>
-      <rect x="826" y="404" width="10" height="10" fill="#d08a1a"/><text x="844" y="413">status</text><text x="956" y="413">ui::file_list::StatusBar</text>
+      <rect x="826" y="404" width="10" height="10" fill="#d08a1a"/><text x="844" y="413">status_bar</text><text x="956" y="413">ui::file_list::StatusBar</text>
       <rect x="826" y="423" width="10" height="10" fill="#d08a1a"/><text x="844" y="432">window</text><text x="956" y="432">ui::window::Window</text>
-      <rect x="826" y="442" width="10" height="10" fill="#d08a1a"/><text x="844" y="451">info</text><text x="956" y="451">ui::info_panel::Info</text>
+      <rect x="826" y="442" width="10" height="10" fill="#d08a1a"/><text x="844" y="451">info_panel</text><text x="956" y="451">ui::info_panel::InfoPanel</text>
       <rect x="826" y="461" width="10" height="10" fill="#d08a1a"/><text x="844" y="470">dialogs</text><text x="956" y="470">ui::dialogs::Dialogs</text>
-      <rect x="826" y="480" width="10" height="10" fill="#d08a1a"/><text x="844" y="489">prefs</text><text x="956" y="489">ui::preferences::Prefs</text>
+      <rect x="826" y="480" width="10" height="10" fill="#d08a1a"/><text x="844" y="489">preferences</text><text x="956" y="489">ui::preferences::Preferences</text>
       <rect x="826" y="499" width="10" height="10" fill="#8e44ad"/><text x="844" y="508">remote</text><text x="956" y="508">features::remote::Listener</text>
       <text x="844" y="527" fill="#57606a">…</text><text x="956" y="527" fill="#57606a">and a few more</text>
     </g>

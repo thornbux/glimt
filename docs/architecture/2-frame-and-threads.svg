@@ -23,7 +23,7 @@
       <text x="34" y="144">receive_decoded · receive_thumbs</text>
       <text x="34" y="160">receive_listing · receive_operation_report</text>
       <text x="34" y="176">receive_file_work · receive_remote</text>
-      <text x="34" y="192">notices_rx · receive_lightroom · …</text>
+      <text x="34" y="192">notices · receive_lightroom · …</text>
     </g>
 
     <rect x="20" y="215" width="450" height="45" rx="6" fill="#fef3e2" stroke="#d08a1a" stroke-width="1.5"/>
@@ -67,7 +67,7 @@
       <line x1="470" y1="658" x2="648" y2="658" stroke="#1f2328" stroke-width="1.5" marker-end="url(#arrow)"/>
       <text x="559" y="651">Thumbs::ask → jobs</text>
       <line x1="470" y1="720" x2="648" y2="720" stroke="#1f2328" stroke-width="1.5" marker-end="url(#arrow)"/>
-      <text x="559" y="713">refill → request</text>
+      <text x="559" y="713">refill_preload → request_decode</text>
       <text x="559" y="736">DecodeJob</text>
     </g>
 
@@ -91,7 +91,7 @@
     <rect x="650" y="428" width="490" height="78" rx="6" fill="#f1f1e4" stroke="#7a7a2a" stroke-width="1.5"/>
     <text x="664" y="448" font-size="13"><tspan font-weight="700">File jobs</tspan> (files/file_ops.rs; progress and Stop between files)</text>
     <text x="664" y="466" font-size="12" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace">delete_now · transfer · rename_in_background · save_orientation</text>
-    <text x="664" y="484" font-size="12">→ report_tx: OperationReport · saved_tx: (path, result) · notices_tx</text>
+    <text x="664" y="484" font-size="12">→ report_tx: OperationReport · saved_tx: (path, result) · notice_sender</text>
 
     <rect x="650" y="516" width="490" height="82" rx="6" fill="#f1f1e4" stroke="#7a7a2a" stroke-width="1.5"/>
     <text x="664" y="536" font-size="13" font-weight="700">Writer threads</text>
@@ -106,7 +106,7 @@
 
     <rect x="650" y="688" width="490" height="64" rx="6" fill="#e6f4ea" stroke="#2e8b57" stroke-width="1.5"/>
     <text x="664" y="708" font-size="13"><tspan font-weight="700">Decode workers</tspan> <tspan font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" font-size="12">spawn_decoders</tspan> (viewer/view.rs)</text>
-    <text x="664" y="726" font-size="12">skip a job no longer in keep · decode() to the box asked · histogram</text>
+    <text x="664" y="726" font-size="12">skip a job no longer in kept_images · decode() to the box asked · histogram</text>
     <text x="664" y="744" font-size="12">→ Decoded → receive_decoded makes the texture</text>
 
     <rect x="650" y="762" width="490" height="64" rx="6" fill="#f3e8fd" stroke="#8e44ad" stroke-width="1.5"/>

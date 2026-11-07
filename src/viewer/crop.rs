@@ -11,12 +11,12 @@ use std::path::Path;
 use std::path::PathBuf;
 
 /// The part being chosen of the image `path`, as fractions (0–1) of the image as shown, turned;
-/// `None` until a drag. Held by its path and with the copy as it was shown (`how`), not by a
+/// `None` until a drag. Held by its path and with the copy as it was shown (`copy_as`), not by a
 /// place in the list: a list read again, or a file deleted before it, would make that place
 /// another image's. Another image, turn or page shown ends it.
 pub struct Crop {
     path: PathBuf,
-    how: crate::images::save::CopyAs,
+    copy_as: crate::images::save::CopyAs,
     anchor: egui::Pos2,
     part: Option<egui::Rect>,
 }
@@ -28,9 +28,9 @@ impl crate::App {
     /// check, as Auto Rotate first was. A part behind the grid is never saved, whatever way the
     /// grid came back.
     fn crop_shown(&self, crop: &Crop) -> bool {
-        !self.panel.area_grid_shown()
+        !self.panel.is_area_grid_shown()
             && self.is_file(self.list.shown(), &crop.path)
-            && self.shown_copy() == crop.how
+            && self.shown_copy() == crop.copy_as
     }
 
     /// Edit → Crop: choose a part of the shown image. Not for a video, nor before the image
@@ -47,7 +47,7 @@ impl crate::App {
         if self.list.loaded_images().contains_key(&shown) {
             self.viewing.start_crop(Crop {
                 path: self.path(shown),
-                how: self.shown_copy(),
+                copy_as: self.shown_copy(),
                 anchor: egui::Pos2::ZERO,
                 part: None,
             });
@@ -153,20 +153,20 @@ impl crate::App {
             return;
         };
         let [w, h] = loaded.original_size;
-        let pixels = if crop.how.turns % 2 == 1 {
+        let pixels = if crop.copy_as.turns % 2 == 1 {
             [h, w]
         } else {
             [w, h]
         };
-        let how = crate::images::save::CopyAs {
+        let copy_as = crate::images::save::CopyAs {
             crop: Some(part_pixels(part, pixels)),
-            ..crop.how
+            ..crop.copy_as
         };
         let path = crop.path;
         let report_tx = self.file_operations.report_sender();
         self.run_in_background(ctx, vec![path.clone()], move || {
-            let saved = crate::images::decode::catch_panic(|| {
-                crate::images::save::save_cropped(&path, &how)
+            let saved = crate::images::decode::catch_panic_as_error(|| {
+                crate::images::save::save_cropped(&path, &copy_as)
             });
             Some(match saved {
                 Ok(new) => {
@@ -174,7 +174,7 @@ impl crate::App {
                     // sidecar, unless it was stripped.
                     let _ = report_tx.send(OperationReport {
                         read_folder_again: true,
-                        moved: (!how.strip)
+                        moved: (!copy_as.strip)
                             .then(|| (path.clone(), new.clone()))
                             .into_iter()
                             .collect(),
@@ -213,7 +213,7 @@ mod tests {
         let (mut app, ctx) = crate::support::test_support::app_on(&dir);
         let crop = super::Crop {
             path: dir.join("a.png"),
-            how: app.shown_copy(),
+            copy_as: app.shown_copy(),
             anchor: egui::Pos2::ZERO,
             part: None,
         };
@@ -257,7 +257,7 @@ mod tests {
         let (mut app, ctx) = crate::support::test_support::app_on(&dir);
         let crop = super::Crop {
             path: dir.join("a.png"),
-            how: app.shown_copy(),
+            copy_as: app.shown_copy(),
             anchor: egui::Pos2::ZERO,
             part: None,
         };
@@ -266,7 +266,7 @@ mod tests {
         assert!(!app.viewing.is_cropping());
         // And Crop chosen in the grid opens the image, where the part is chosen.
         app.start_crop();
-        assert!(app.panel.area_grid_on() && !app.panel.area_grid_shown());
+        assert!(app.panel.is_area_grid_on() && !app.panel.is_area_grid_shown());
         std::fs::remove_dir_all(dir).unwrap();
     }
 
@@ -281,13 +281,13 @@ mod tests {
         app.panel.open_from_grid();
         let crop = super::Crop {
             path: dir.join("a.png"),
-            how: app.shown_copy(),
+            copy_as: app.shown_copy(),
             anchor: egui::Pos2::ZERO,
             part: None,
         };
         app.viewing.start_crop(crop);
         app.run(&ctx, crate::ui::actions::Action::Escape);
-        assert!(app.panel.area_grid_shown() && !app.viewing.is_cropping());
+        assert!(app.panel.is_area_grid_shown() && !app.viewing.is_cropping());
         std::fs::remove_dir_all(dir).unwrap();
     }
 
@@ -301,7 +301,7 @@ mod tests {
         app.list.set_files(vec!["a.png".into()]);
         let crop = super::Crop {
             path: app.path(0),
-            how: app.shown_copy(),
+            copy_as: app.shown_copy(),
             anchor: egui::Pos2::ZERO,
             part: None,
         };

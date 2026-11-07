@@ -65,7 +65,7 @@ pub(crate) struct Start {
     /// --fade: an index in FADES.
     pub(crate) fade: Option<usize>,
     /// More folders after the first, to show together.
-    pub(crate) more: Vec<PathBuf>,
+    pub(crate) more_paths: Vec<PathBuf>,
     /// Whether `--` ended the options. Every argument after it is then a file or folder, also
     /// one named like an option or a command, such as `-h` or `--remote`.
     pub(crate) files_only: bool,
@@ -138,8 +138,8 @@ pub(crate) enum Command {
 
 impl Command {
     /// Returns the command that the argument `arg` names, or `None` for another argument.
-    /// The parser stops at these names and `answered` acts on them, so both read the one list
-    /// that the frozen options are checked against.
+    /// The parser stops at these names and `answer_without_window` acts on them, so both read
+    /// the one list that the frozen options are checked against.
     pub(crate) fn named(arg: &str) -> Option<Command> {
         Some(match arg {
             "--version" | "-V" => Command::Version,
@@ -154,7 +154,7 @@ impl Command {
 /// Answers the commands that need no window: --version, --check-config, --back-up and --help.
 /// Returns true when one of them was given, and Glimt has nothing more to do. After `--` the
 /// arguments are files, never a command.
-pub(crate) fn answered(start: &Start, args_os: &[OsString]) -> bool {
+pub(crate) fn answer_without_window(start: &Start, args_os: &[OsString]) -> bool {
     let first = (args_os.first().filter(|_| !start.files_only)).and_then(|a| a.to_str());
     match first.and_then(Command::named) {
         Some(Command::Version) => println!("glimt {}", env!("CARGO_PKG_VERSION")),
@@ -285,11 +285,11 @@ mod tests {
         assert!(s.slideshow && s.files_only);
         assert_eq!(rest, args(&["-h", "--x.jpg"]));
         assert!(
-            !super::answered(&s, &rest),
+            !super::answer_without_window(&s, &rest),
             "-h after -- was taken as --help"
         );
         let (s, rest) = Start::parse(args(&["--", "--remote", "next"])).unwrap();
-        assert!(s.files_only && !super::answered(&s, &rest));
+        assert!(s.files_only && !super::answer_without_window(&s, &rest));
         assert_eq!(rest, args(&["--remote", "next"]));
         assert!(!Start::parse(args(&["d"])).unwrap().0.files_only);
     }
