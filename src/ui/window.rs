@@ -651,6 +651,14 @@ mod tests {
                 delay,
             )
         };
+        // A thread the window started (the desktop's look, the folder's sizes) asks for one
+        // repaint when it ends, which can come at any pass. So a pass that waits is looked for
+        // among a few, and only a window that never waits fails.
+        let waits = |app: &mut crate::App| {
+            (0..5)
+                .map(|_| pass(app))
+                .find(|&(_, d)| d > std::time::Duration::from_secs(1))
+        };
         // egui repaints at once for a few passes after a change (the first, the cursor).
         app.busy.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         for _ in 0..3 {
@@ -662,19 +670,11 @@ mod tests {
             "{delay:?}"
         );
         app.busy.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
-        let (hidden, delay) = pass(&mut app);
-        assert!(
-            hidden && delay > std::time::Duration::from_secs(1),
-            "{delay:?}"
-        );
+        assert!(waits(&mut app).is_some_and(|(hidden, _)| hidden));
         // The shown image decoded does not keep the pointer, so it needs no look again either.
         app.list.set_files(vec!["a.png".into()]);
         assert!(app.working());
-        let (hidden, delay) = pass(&mut app);
-        assert!(
-            hidden && delay > std::time::Duration::from_secs(1),
-            "{delay:?}"
-        );
+        assert!(waits(&mut app).is_some_and(|(hidden, _)| hidden));
         std::fs::remove_dir_all(dir).unwrap();
     }
 }
