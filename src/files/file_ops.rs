@@ -2697,22 +2697,17 @@ mod tests {
         std::fs::remove_dir_all(dir).unwrap();
     }
 
-    /// Every file operation brings along what follows a file (its sidecar, its stars, its entry
-    /// in the collection shown), and it waits while other work changes the file. These are the
-    /// classes of bugs that came back release after release, held for every operation at once.
-    /// A new operation joins here, and `every_file_operation_is_in_the_contract` fails until it
-    /// does.
-    #[test]
-    fn file_operations_keep_their_contract() {
-        use std::path::Path;
-        type Ctx = eframe::egui::Context;
-        type Op = fn(&mut crate::App, &Ctx, &Path);
-        type Check = fn(&crate::App, &Path) -> bool;
-        // Each operation is run on a.png (and b.png), with what must hold afterwards. Each is
-        // held back while other work changes its files, except those that change none. A copy
-        // only reads them, and keywords never wait, because an edit would be lost. Their job
-        // holds back the rest instead.
-        let ops: [(&str, Op, Check); 11] = [
+    /// An operation of the contract, run on a.png (and b.png) of `contract_folder`.
+    type Op = fn(&mut crate::App, &eframe::egui::Context, &std::path::Path);
+    /// What must hold after an operation of the contract.
+    type Check = fn(&crate::App, &std::path::Path) -> bool;
+
+    /// Returns the operations of the contract, by name, each with what must hold afterwards.
+    /// Each is held back while other work changes its files, except those that change none. A
+    /// copy only reads them, and keywords never wait, because an edit would be lost. Their job
+    /// holds back the rest instead.
+    fn contract_ops() -> [(&'static str, Op, Check); 11] {
+        [
             (
                 "move",
                 |app, ctx, d| app.transfer(ctx, vec![d.join("a.png")], d.join("sub"), false),
@@ -2869,8 +2864,17 @@ mod tests {
                         && (!cfg!(feature = "marks") || stars(app, &a) == 3)
                 },
             ),
-        ];
-        for (name, op, check) in ops {
+        ]
+    }
+
+    /// Every file operation brings along what follows a file (its sidecar, its stars, its entry
+    /// in the collection shown), and it waits while other work changes the file. These are the
+    /// classes of bugs that came back release after release, held for every operation at once.
+    /// A new operation joins `contract_ops`, and `every_file_operation_is_in_the_contract` fails
+    /// until it does.
+    #[test]
+    fn file_operations_keep_their_contract() {
+        for (name, op, check) in contract_ops() {
             let d = contract_folder(&name.replace(' ', "-"));
             let gif = d.join("g.gif");
             let mut enc = image::codecs::gif::GifEncoder::new(std::fs::File::create(&gif).unwrap());
@@ -3003,22 +3007,26 @@ mod tests {
     /// here why it is not. So a new one cannot leave out what follows its files unseen.
     #[test]
     fn every_file_operation_is_in_the_contract() {
-        const IN_CONTRACT: &[&str] = &[
-            "delete_now",
-            "transfer",
+        // Each function with the operation of `contract_ops` that runs it.
+        const IN_CONTRACT: &[(&str, &str)] = &[
+            ("delete_now", "delete"),
+            ("transfer", "move"),
             // Through rename_in_background, and the Undo of a rename.
-            "rename_files_of",
-            "undo",
-            "save_as_to",
-            "export_frames",
-            "write_sidecars",
-            "rename_folder",
-            "save_orientation",
+            ("rename_files_of", "rename"),
+            ("undo", "undo a move"),
+            ("save_as_to", "save as over b"),
+            ("export_frames", "save frame over b"),
+            ("write_sidecars", "keywords"),
+            ("save_orientation", "save orientation"),
         ];
         const OUTSIDE: &[(&str, &str)] = &[
             ("start_job", "the start itself"),
             ("background", "the start itself"),
             ("new", "Job::new, the start itself"),
+            (
+                "rename_folder",
+                "a folder renamed, its files follow: a_collection_follows_its_files",
+            ),
             (
                 "print",
                 "a new PDF of its own, no file of the user's changed: writes_a_pdf",
@@ -3077,9 +3085,14 @@ mod tests {
                 }
             }
         }
-        let known: Vec<&str> = IN_CONTRACT
-            .iter()
-            .copied()
+        // A name in IN_CONTRACT is checked only through its operation, so one without an
+        // operation would pass unchecked.
+        let ops: Vec<&str> = contract_ops().iter().map(|o| o.0).collect();
+        let no_op: Vec<&(&str, &str)> = (IN_CONTRACT.iter())
+            .filter(|(_, op)| !ops.contains(op))
+            .collect();
+        assert!(no_op.is_empty(), "no operation in the contract: {no_op:?}");
+        let known: Vec<&str> = (IN_CONTRACT.iter().map(|o| o.0))
             .chain(OUTSIDE.iter().map(|o| o.0))
             .collect();
         let unknown: Vec<&String> = found
