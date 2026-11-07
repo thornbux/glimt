@@ -2706,7 +2706,7 @@ mod tests {
     /// Each is held back while other work changes its files, except those that change none. A
     /// copy only reads them, and keywords never wait, because an edit would be lost. Their job
     /// holds back the rest instead.
-    fn contract_ops() -> [(&'static str, Op, Check); 13] {
+    fn contract_ops() -> [(&'static str, Op, Check); 14] {
         [
             (
                 "move",
@@ -2878,6 +2878,31 @@ mod tests {
                 },
             ),
             (
+                "rename folder",
+                |app, ctx, d| {
+                    // A folder left by a run that failed would refuse the new name.
+                    let _ = std::fs::remove_dir_all(renamed(d));
+                    app.dialogs.act_on_folder(d.to_path_buf());
+                    let name = renamed(d)
+                        .file_name()
+                        .unwrap()
+                        .to_string_lossy()
+                        .into_owned();
+                    app.rename_folder(ctx, &name);
+                },
+                |app, d| {
+                    let (a, b) = (renamed(d).join("a.png"), renamed(d).join("b.png"));
+                    a.exists()
+                        && !d.exists()
+                        && side(&a) == "a"
+                        && side(&b) == "b"
+                        && (!cfg!(feature = "marks")
+                            || (stars(app, &a) == 3
+                                && stars(app, &b) == 2
+                                && stars(app, &d.join("a.png")) == 0))
+                },
+            ),
+            (
                 "save orientation",
                 |app, ctx, d| {
                     // The fixture's image is square. A wide one shows the turn in its size.
@@ -2952,9 +2977,17 @@ mod tests {
                 settle(&mut app, &ctx, |app| check(app, &d)),
                 "{name}: what follows the file"
             );
-            std::fs::remove_dir_all(&d).unwrap();
+            // After "rename folder" the folder is there only under its new name.
+            let _ = std::fs::remove_dir_all(renamed(&d));
+            let _ = std::fs::remove_dir_all(&d);
             empty_trash_of(&d);
         }
+    }
+
+    /// The name that the "rename folder" operation gives the contract's folder `d`.
+    fn renamed(d: &std::path::Path) -> std::path::PathBuf {
+        let name = d.file_name().unwrap().to_string_lossy();
+        d.with_file_name(format!("{name}-renamed"))
     }
 
     /// Removes what a test moved from the folder `dir` into the tests' own trash.
@@ -3066,15 +3099,12 @@ mod tests {
             ("export_frames", "save frame over b"),
             ("write_sidecars", "keywords"),
             ("save_orientation", "save orientation"),
+            ("rename_folder", "rename folder"),
         ];
         const OUTSIDE: &[(&str, &str)] = &[
             ("start_job", "the start itself"),
             ("background", "the start itself"),
             ("new", "Job::new, the start itself"),
-            (
-                "rename_folder",
-                "a folder renamed, its files follow: a_collection_follows_its_files",
-            ),
             (
                 "print",
                 "a new PDF of its own, no file of the user's changed: writes_a_pdf",
