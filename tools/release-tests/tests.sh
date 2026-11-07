@@ -120,7 +120,15 @@ as_version() {
     chmod 700 $XDG_RUNTIME_DIR
     export PATH=/tmp/stub:/usr/local/bin:/usr/bin:/bin
 }
-config() { printf '%s\n' "$@" >$XDG_CONFIG_HOME/glimt/config; }
+# config SETTING=VALUE…: the settings file. OLD before 0.74.0 reads only the old keys of the
+# settings renamed then, so it gets those.
+OLD_KEYS='s/^delete_to_trash=/trash=/; s/^slideshow_delay=/delay=/; s/^slideshow_random=/random=/;
+    s/^use_image_profile=/own_profile=/; s/^list_videos=/videos=/; s/^info_panel=/exif_panel=/;
+    s/^sort_case_sensitive=/sort_case=/; s/^search_case_sensitive=/search_case=/'
+config() {
+    if [ "$V" = old ]; then printf '%s\n' "$@" | sed "$OLD_KEYS"; else printf '%s\n' "$@"; fi \
+        >$XDG_CONFIG_HOME/glimt/config
+}
 # The start of a section: its title, and NEW with nothing left by a section before, neither in
 # the homes nor in /tmp/stub, as run.sh may start a part at any section. The working folder and
 # the variables a section exports for itself are reset too; a new one of those goes in the list.
@@ -556,13 +564,13 @@ for v in new old; do
     panes=$(busy)
     quit
     # No fade: it draws every frame for its 400 ms, which is wanted, not a busy loop.
-    config random=true slideshow_repeat=true delay=1 fade=0
+    config slideshow_random=true slideshow_repeat=true slideshow_delay=1 fade=0
     start --slideshow $d/show; sleep 2
     key slash; xdotool type omega; sleep 2
     slideshow=$(busy)
     quit
     # Four panes, one image at a time, no fade: a new round shuffles once, then goes on.
-    config random=true slideshow_repeat=true delay=1 fade=0 layout=2x2 layout_turns=2x2
+    config slideshow_random=true slideshow_repeat=true slideshow_delay=1 fade=0 layout=2x2 layout_turns=2x2
     start --slideshow $d/show; sleep 4
     shot turns-a-$v
     turns=$(busy)
@@ -668,7 +676,7 @@ for v in new old; do
     convert -size 300x200 xc:red $d/a.png
     convert -size 300x200 xc:blue $d/b.png
     convert -size 300x200 xc:lime $d/c.png
-    config layout=2x1 layout_turns=2x1 delay=60 auto_refresh=true
+    config layout=2x1 layout_turns=2x1 slideshow_delay=60 auto_refresh=true
     start $d/a.png
     sleep 2
     key s; sleep 2                                  # a in the first pane, b in the second
@@ -1000,7 +1008,7 @@ d=/tmp/remote-on-off
 mkdir -p $d
 # Five images: the first slide comes at once, then one a second, so 2.5 s in it is on c or d.
 for f in a b c d e; do convert -size 64x64 xc:red $d/$f.png; done
-config delay=1
+config slideshow_delay=1
 start $d/a.png; sleep 2
 remote slideshow on >/dev/null 2>&1; remote slideshow on >/dev/null 2>&1; sleep 2.5
 moved=$(remote current 2>/dev/null | tr -d '\0' | sed "s|$d/||")
@@ -1011,7 +1019,7 @@ remote random on >/dev/null 2>&1; remote random on >/dev/null 2>&1; sleep 1
 quit
 expect "on twice: running, past a.png" "$([ "$moved" != a.png ] && echo moved)" moved
 expect "off twice: stopped, the image stays" "$([ "$was" = "$still" ] && echo stays)" stays
-expect "random on twice: on" "$(grep -c '^random=true$' $XDG_CONFIG_HOME/glimt/config)" 1
+expect "random on twice: on" "$(grep -c '^slideshow_random=true$' $XDG_CONFIG_HOME/glimt/config)" 1
 
 section "--remote open of a folder whose name ends in a space: opened as named"
 for v in new old; do
@@ -1489,7 +1497,7 @@ on_mount() {
     mkdir -p $at/sub
     for f in a b c; do convert -size 64x64 xc:red $at/$f.jpg; done
     printf 'Animals\n' >$XDG_CONFIG_HOME/glimt/keywords
-    config confirm_trash=false confirm_delete=false xmp_stars=true exif_panel=true
+    config confirm_trash=false confirm_delete=false xmp_stars=true info_panel=true
     start ${3:-$d}
     until_current $d/a.jpg 30
     key ctrl+r; key ctrl+a; xdotool type --delay 30 r.jpg; key Return
@@ -1686,7 +1694,7 @@ for v in new old; do
     convert -size 64x64 xc:red $d/one/a.png
     convert -size 64x64 xc:red $d/two/b.png
     printf '#!/bin/sh\nprintf "%%s\\n%%s\\n" %s %s\n' $d/one $d/two >/tmp/stub/zenity; chmod +x /tmp/stub/zenity
-    config videos=false
+    config list_videos=false
     start $d/v.mp4; sleep 2
     menu File "Open Several Folders…"; sleep 3
     key ctrl+a
@@ -2377,7 +2385,7 @@ for v in new old; do
     for c in a b c d e f g h; do convert -size 300x200 xc:red $d/$c.jpg; done
     printf '#GQview collection\n' >$d/show.gqv
     for c in a b c d e f g h; do printf '"%s/%s.jpg"\n' $d $c >>$d/show.gqv; done
-    config random=true
+    config slideshow_random=true
     start $d/show.gqv
     sleep 2
     key s; sleep 1          # the slideshow, shuffled
@@ -2466,14 +2474,15 @@ mkdir -p $d
 convert -size 300x200 xc:red $d/a.jpg
 for v in new old; do
     as_version $v
-    printf 'delay=7\nvideo_player=/opt/caf\351/player\n' >$XDG_CONFIG_HOME/glimt/config
+    printf 'slideshow_delay=7\nvideo_player=/opt/caf\351/player\n' \
+        | sed "$([ $v = old ] && echo "$OLD_KEYS")" >$XDG_CONFIG_HOME/glimt/config
     start $d/a.jpg
     sleep 2
     key t; key t          # Thumbnails off and on: each saves the settings
     sleep 1
     quit
     # The toggles' save adds the keys the file lacked (thumbnails=): none when it was refused.
-    got="$(grep -c '^delay=7$' $XDG_CONFIG_HOME/glimt/config) $(grep -c '^thumbnails=' $XDG_CONFIG_HOME/glimt/config)"
+    got="$(grep -c 'delay=7$' $XDG_CONFIG_HOME/glimt/config) $(grep -c '^thumbnails=' $XDG_CONFIG_HOME/glimt/config)"
     if [ $v = new ]; then expect "saved, the own delay kept" "$got" "1 1"
     else note "old: delay=7 lines, thumbnails lines: $got"; fi
 done
@@ -2546,7 +2555,7 @@ section "Faster without a lock: the delay saved (so the two checks below test so
 d=/tmp/faster-saved
 mkdir -p $d
 for f in a b; do convert -size 64x64 xc:red $d/$f.png; done
-config delay=5
+config slideshow_delay=5
 start $d
 sleep 2
 key ctrl+equal; sleep 1
@@ -2559,7 +2568,7 @@ for v in new old; do
     d=/tmp/kiosk-keys-$v
     mkdir -p $d
     for f in a b c; do convert -size 64x64 xc:red $d/$f.png; done
-    config delay=5
+    config slideshow_delay=5
     start --kiosk $d
     sleep 2
     # The control: End, which a kiosk allows, reaches it. A settings file the keys never
@@ -2946,7 +2955,7 @@ for v in new old; do
     d=/tmp/lock-new-window-$v
     mkdir -p $d
     for f in a b c; do convert -size 64x64 xc:red $d/$f.png; done
-    config delay=5
+    config slideshow_delay=5
     start --lock-settings $d
     sleep 2
     key ctrl+n; sleep 3                   # a new window: Faster pressed there
@@ -3093,7 +3102,7 @@ d=/tmp/keywords
 mkdir -p $d
 convert -size 300x200 xc:red $d/a.jpg
 printf 'Animals\nPlaces|Norway|Oslo\n' >$XDG_CONFIG_HOME/glimt/keywords
-config exif_panel=true
+config info_panel=true
 start $d
 sleep 2
 # Frames drawn as the pointer moves: a panel that grows with each moves the boxes away.
@@ -3118,7 +3127,7 @@ for v in new old; do
     mkdir -p $d
     convert -size 300x200 xc:red $d/a.jpg
     printf 'Animals\nPlaces|Norway|Oslo\n' >$XDG_CONFIG_HOME/glimt/keywords
-    config exif_panel=true xmp_stars=true
+    config info_panel=true xmp_stars=true
     # Every sidecar lock held from outside, as by another window in the middle of its write.
     rm -f /tmp/locks-held
     python3 -c "
@@ -3161,7 +3170,7 @@ convert -size 300x200 xc:red $d/a.jpg
 for v in new old; do
     as_version $v
     printf 'Animals\nPlaces|Norway|Oslo\n' >$XDG_CONFIG_HOME/glimt/keywords
-    config exif_panel=true
+    config info_panel=true
     start $d
     sleep 2
     for x in $(seq 1100 4 1240); do xdotool mousemove $x 500; done
@@ -3184,7 +3193,7 @@ convert -size 300x200 xc:red $d/a.jpg
 for v in new old; do
     as_version $v
     printf 'Animals\nPlaces|Norway|Oslo\n' >$XDG_CONFIG_HOME/glimt/keywords
-    config exif_panel=true
+    config info_panel=true
     start --lock-settings $d
     sleep 2
     for x in $(seq 1100 4 1240); do xdotool mousemove $x 500; done
@@ -3726,7 +3735,7 @@ for v in new old; do
     as_version $v
     cp /tmp/browse-a.xmp $d/a.jpg.xmp
     rm -f $d/b.jpg.xmp
-    config exif_panel=true
+    config info_panel=true
     start $d/a.jpg
     sleep 2
     key space; sleep 2; key space; sleep 2
@@ -3742,7 +3751,7 @@ mkdir -p $d
 convert -size 300x200 xc:red $d/a.jpg
 convert -size 300x200 xc:blue $d/b.jpg
 printf 'Zebra\n' >$XDG_CONFIG_HOME/glimt/keywords
-config exif_panel=true
+config info_panel=true
 start $d/b.jpg
 sleep 2
 search() { click 120 284; key ctrl+a; xdotool type "$1"; sleep 3; }
@@ -4037,7 +4046,7 @@ as_adobe=$(show plain.png input_profile=adobe)
 differ "without a profile, taken as Adobe RGB" "$as_adobe" "$plain"
 expect "EXIF says Adobe RGB (R03): shown as Adobe RGB" "$(show exif.png)" "$as_adobe"
 expect "its own Adobe RGB profile: shown as Adobe RGB" "$(show icc.png)" "$as_adobe"
-expect "its own profile left out: as sRGB" "$(show icc.png own_profile=false)" "$plain"
+expect "its own profile left out: as sRGB" "$(show icc.png use_image_profile=false)" "$plain"
 
 section "the window title: the template in Preferences, this window's own, and back"
 d=/tmp/title

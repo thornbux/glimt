@@ -1146,7 +1146,7 @@ impl crate::App {
         Types {
             images: self.config.list_images || o.images,
             raw: self.config.list_raw || o.raw,
-            videos: self.config.videos || o.videos,
+            videos: self.config.list_videos || o.videos,
             hidden: self.config.show_hidden || o.hidden,
         }
     }
@@ -1157,7 +1157,7 @@ impl crate::App {
         let c = &mut self.config;
         let mut all = vec![(tr("Images"), &mut c.list_images), ("RAW", &mut c.list_raw)];
         if cfg!(feature = "video") {
-            all.push((tr("Videos"), &mut c.videos));
+            all.push((tr("Videos"), &mut c.list_videos));
         }
         let on: Vec<&str> = all.iter().filter(|t| *t.1).map(|t| t.0).collect();
         let title = match on.len() {
@@ -1194,7 +1194,7 @@ impl crate::App {
             }
             ui.separator();
             changed |= checkbox(ui, &mut self.config.sort_ascending, tr("Ascending")).changed();
-            changed |= checkbox(ui, &mut self.config.sort_case, tr("Case")).changed();
+            changed |= checkbox(ui, &mut self.config.sort_case_sensitive, tr("Case")).changed();
         });
         if changed {
             self.config.save();

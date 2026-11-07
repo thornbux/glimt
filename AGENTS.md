@@ -47,6 +47,13 @@ choices (`on|off`, from `COMMANDS`); `--remote`'s exit codes (`NOT_SENT`, `NOT_T
 the command-line options of `START_OPTIONS` with `--remote` and `--remote-all`. `config::tests::frozen_names_are_kept`
 fails when one is taken out or renamed, when a `NAMED` list gains a value anywhere but at its
 end, and until a new one is added at the end of that file.
+
+A name that fails a reader (0.74.0 renamed a few) is renamed only through a table of old
+names, one for each kind, beside the code that reads it: `config::RENAMED_SETTINGS` and
+`config::RENAMED_STATE`. Glimt reads the old name too, forever, and writes only the new one;
+when a file holds both, the new one counts. The old line stays in the frozen file and the new
+name is added at its end, and the test takes an old name only when its table maps it to a
+name that is read now.
 `the_parser_takes_every_frozen_option` fails when an option that the help lists is neither
 taken by `Start::parse` nor answered by `cli::answered` (through `cli::Command::named`) or by
 `--remote`. Not pinned, and so kept by hand: the window's own reading of each `--remote`

@@ -150,6 +150,24 @@ const NAMED: [(&str, &[&str]); 7] = [
     ("cpu_use", &["saving", "balanced", "full"]),
 ];
 
+/// The settings renamed in 0.74.0, as (old key, new key). A settings file is read by the old
+/// keys too, forever, so the users' files keep working, and only the new keys are written. When
+/// a file holds both keys of a setting, the value of the new key is the one used.
+const RENAMED_SETTINGS: [(&str, &str); 8] = [
+    ("trash", "delete_to_trash"),
+    ("delay", "slideshow_delay"),
+    ("random", "slideshow_random"),
+    ("own_profile", "use_image_profile"),
+    ("videos", "list_videos"),
+    ("sort_case", "sort_case_sensitive"),
+    ("search_case", "search_case_sensitive"),
+    ("exif_panel", "info_panel"),
+];
+
+/// The window state's keys renamed in 0.74.0, as (old key, new key). They are read as the
+/// keys of `RENAMED_SETTINGS` are.
+const RENAMED_STATE: [(&str, &str); 1] = [("window_pos", "window_position")];
+
 /// The key of the last folder in the window state file, beside `WindowState`'s keys.
 pub const LAST_DIR: &str = "last_dir";
 
@@ -184,7 +202,7 @@ pub(crate) struct MemoryLevel {
 #[derive(Debug, Default, PartialEq)]
 pub struct WindowState {
     pub size: Option<egui::Vec2>,
-    pub pos: Option<egui::Pos2>,
+    pub position: Option<egui::Pos2>,
     pub maximized: bool,
 }
 
@@ -198,7 +216,7 @@ impl WindowState {
             size: pair("window_size")
                 .filter(|&(w, h)| w >= 200.0 && h >= 150.0)
                 .map(|(w, h)| egui::vec2(w, h)),
-            pos: pair("window_pos").map(|(x, y)| egui::pos2(x, y)),
+            position: pair("window_position").map(|(x, y)| egui::pos2(x, y)),
             maximized: state_value(state, "maximized") == Some("true"),
         }
     }
@@ -208,8 +226,8 @@ impl WindowState {
         if let Some(s) = self.size {
             text += &format!("window_size={},{}\n", s.x, s.y);
         }
-        if let Some(p) = self.pos {
-            text += &format!("window_pos={},{}\n", p.x, p.y);
+        if let Some(p) = self.position {
+            text += &format!("window_position={},{}\n", p.x, p.y);
         }
         text
     }
@@ -238,14 +256,14 @@ impl std::fmt::Display for Rgb {
 config! {
     preload: usize = DEFAULT_PRELOAD,
     /// Seconds between images in a slideshow.
-    delay: u64 = DEFAULT_DELAY,
+    slideshow_delay: u64 = DEFAULT_DELAY,
     /// Start in the last used folder when no folder is given on the command line.
     remember_dir: bool = false,
     /// Keep File → Open Recent's list. When this is off, no list is written and the one kept
     /// is deleted.
     keep_recent: bool = true,
     /// Deleting moves files to the trash (the default). Otherwise a file is deleted for good.
-    trash: bool = true,
+    delete_to_trash: bool = true,
     /// Ask before deleting permanently.
     confirm_delete: bool = true,
     /// Ask before moving to the trash.
@@ -253,7 +271,7 @@ config! {
     /// The Delete key deletes (Ctrl+D always does).
     delete_key: bool = true,
     /// Slideshow in random order.
-    random: bool = false,
+    slideshow_random: bool = false,
     /// Zoom to fit also enlarges images smaller than the window (Geeqie: "Allow enlargement").
     enlarge: bool = true,
     /// A slideshow starts again from the first image after the last. When this is off, it stops
@@ -284,7 +302,7 @@ config! {
     input_profile: String = "srgb".to_owned(),
     /// An image's own ICC profile (or Adobe RGB from its EXIF) counts. When this is off, the
     /// input profile is used for every image.
-    own_profile: bool = true,
+    use_image_profile: bool = true,
     /// How colours outside the target are brought in: perceptual, relative, saturation or
     /// absolute. Only profiles with tables for it (LUT profiles) tell them apart.
     rendering_intent: String = "perceptual".to_owned(),
@@ -323,9 +341,9 @@ config! {
     thumbnails: bool = true,
     /// Write new thumbnails to the shared cache (~/.cache/thumbnails), as file managers do.
     save_thumbnails: bool = true,
-    /// The EXIF panel on the right (Ctrl+K). It is off by default, because reading EXIF costs a
+    /// The info panel on the right (Ctrl+K). It is off by default, because reading EXIF costs a
     /// little for each image.
-    exif_panel: bool = false,
+    info_panel: bool = false,
     /// The sort manager on the right (Shift+S), with folders to copy or move the selected files
     /// to.
     sort_manager: bool = false,
@@ -367,7 +385,7 @@ config! {
     file_details: bool = false,
     sort: Sort = Sort::Name,
     sort_ascending: bool = true,
-    sort_case: bool = true,
+    sort_case_sensitive: bool = true,
     /// The toolbar's icon size, small, medium or large, as an index.
     toolbar_icons: usize = 0,
     /// View → Filter: none, greyscale, inverted or contrast, as an index into colour::FILTERS.
@@ -407,7 +425,7 @@ config! {
     /// regular expression, as Geeqie's file filter does.
     fuzzy_search: bool = true,
     /// Without fuzzy search, the regular expression tells upper and lower case apart.
-    search_case: bool = false,
+    search_case_sensitive: bool = false,
     /// Re-read the folder when files are added, removed or renamed.
     auto_refresh: bool = true,
     /// Rotate images by their EXIF orientation (Geeqie: "Auto rotate image using Exif
@@ -420,7 +438,7 @@ config! {
     /// List files and folders whose names start with a dot.
     show_hidden: bool = false,
     /// The video feature lists video files.
-    videos: bool = true,
+    list_videos: bool = true,
     /// The video feature's command line that plays a video. When it is empty, the default
     /// application plays it.
     video_player: String = String::new(),
@@ -455,7 +473,10 @@ impl Config {
     pub fn parse(text: &str) -> Self {
         let mut c = Config::default();
         for (key, value) in text.lines().filter_map(|l| l.split_once('=')) {
-            c.set(key.trim(), value.trim());
+            let key = key.trim();
+            if !old_key_overridden(key, text) {
+                c.set(setting_key_now(key), value.trim());
+            }
         }
         c.preload = c.preload.min(20);
         c.decode_threads = c.decode_threads.clamp(1, 8);
@@ -473,7 +494,7 @@ impl Config {
         c.thumb_size = c.thumb_size.min(2);
         c.webp_quality = c.webp_quality.min(100);
         c.jpeg_quality = c.jpeg_quality.clamp(1, 100);
-        c.delay = c.delay.clamp(1, MAX_DELAY);
+        c.slideshow_delay = c.slideshow_delay.clamp(1, MAX_DELAY);
         c.toolbar_icons = c.toolbar_icons.min(2);
         c.view_filter = c.view_filter.min(3);
         c
@@ -489,6 +510,8 @@ impl Config {
         let lines: Vec<(usize, &str)> = (text.lines().enumerate())
             .map(|(n, l)| (n + 1, l.trim()))
             .filter(|(_, l)| !l.is_empty() && !l.starts_with('#'))
+            // The line of an old key beside its new key is passed over, as `parse` does.
+            .filter(|(_, l)| (l.split_once('=')).is_none_or(|(k, _)| !old_key_overridden(k, text)))
             .collect();
         let mut problems = Vec::new();
         for (k, &(n, line)) in lines.iter().enumerate() {
@@ -497,16 +520,19 @@ impl Config {
                 continue;
             };
             let (key, value) = (key.trim(), value.trim());
-            let has_key =
-                |&(_, l): &(usize, &str)| l.split_once('=').map(|(o, _)| o.trim()) == Some(key);
+            // The setting's key now, also for a line with its old key.
+            let now = setting_key_now(key);
+            let has_key = |&(_, l): &(usize, &str)| {
+                l.split_once('=').map(|(o, _)| setting_key_now(o.trim())) == Some(now)
+            };
             let again = lines[..k].iter().any(has_key);
             let later = lines[k + 1..].iter().any(has_key);
             let mut alone = Config::default();
-            match alone.set(key, value) {
+            match alone.set(now, value) {
                 None => problems.push(format!("line {n}: there is no setting {key}")),
                 Some(false) => problems.push(format!(
                     "line {n}: {key}={value} is not a value it takes; {} is used",
-                    used(key)
+                    used(now)
                 )),
                 Some(true) if again => {
                     problems.push(format!("line {n}: {key} is set again; the last is used"));
@@ -514,11 +540,11 @@ impl Config {
                 // When the setting is set again later, that later line is the one checked.
                 Some(true) if later => {}
                 Some(true) => {
-                    let wanted = value_in(&alone.to_text(), key);
-                    if wanted != used(key) {
+                    let wanted = value_in(&alone.to_text(), now);
+                    if wanted != used(now) {
                         problems.push(format!(
                             "line {n}: {key}={value} is out of range; {} is used",
-                            used(key)
+                            used(now)
                         ));
                     }
                 }
@@ -740,12 +766,38 @@ pub fn parse_last_dir(state: &str) -> Option<PathBuf> {
     state_value(state, LAST_DIR).map(PathBuf::from)
 }
 
+/// Returns the value of `key` in the window state's text. A key renamed in `RENAMED_STATE` is
+/// read by its old name when the text does not hold the new one. Returns `None` when neither
+/// is there with a value.
 pub fn state_value<'a>(state: &'a str, key: &str) -> Option<&'a str> {
+    let old_key = RENAMED_STATE.iter().find(|r| r.1 == key).map(|r| r.0);
+    state_line_value(state, key).or_else(|| state_line_value(state, old_key?))
+}
+
+/// Returns the value of the first line of `key` in the window state's text, or `None` when no
+/// line has that key with a value.
+fn state_line_value<'a>(state: &'a str, key: &str) -> Option<&'a str> {
     state.lines().find_map(|l| {
         l.strip_prefix(key)?
             .strip_prefix('=')
             .filter(|v| !v.is_empty())
     })
+}
+
+/// Returns the key a setting has now: the new key of one renamed in `RENAMED_SETTINGS`, and
+/// `key` itself for every other.
+fn setting_key_now(key: &str) -> &str {
+    (RENAMED_SETTINGS.iter())
+        .find(|r| r.0 == key)
+        .map_or(key, |r| r.1)
+}
+
+/// Whether the line of `key` in the settings file `text` is passed over. That is so when `key`
+/// is the old key of a renamed setting and `text` also sets its new key, whose value counts.
+fn old_key_overridden(key: &str, text: &str) -> bool {
+    let key = key.trim();
+    let now = setting_key_now(key);
+    now != key && (text.lines()).any(|l| l.split_once('=').is_some_and(|(k, _)| k.trim() == now))
 }
 
 /// The `value` of `key` as the code holds it. A name becomes its place in its list, and other
@@ -866,7 +918,7 @@ mod tests {
     fn checks_the_settings_file() {
         let (_, none) = super::Config::check(&super::Config::default().to_text());
         assert_eq!(none, Vec::<String>::new());
-        let text = "# note\nthumbnails=ja\nthumbnail=true\nui_scale=500\ndelay=4\ndelay=5\nwords\n\nfit_mode=2\n";
+        let text = "# note\nthumbnails=ja\nthumbnail=true\nui_scale=500\nslideshow_delay=4\nslideshow_delay=5\nwords\n\nfit_mode=2\n";
         let (config, problems) = super::Config::check(text);
         assert_eq!(
             problems,
@@ -874,12 +926,12 @@ mod tests {
                 "line 2: thumbnails=ja is not a value it takes; true is used",
                 "line 3: there is no setting thumbnail",
                 "line 4: ui_scale=500 is out of range; 300 is used",
-                "line 6: delay is set again; the last is used",
+                "line 6: slideshow_delay is set again; the last is used",
                 "line 7: “words” is not setting=value",
             ]
         );
         assert_eq!(
-            (config.delay, config.fit_mode, config.ui_scale),
+            (config.slideshow_delay, config.fit_mode, config.ui_scale),
             (5, 2, 300)
         );
     }
@@ -961,24 +1013,31 @@ mod tests {
                 medium.one_arena
             )
         );
-        assert_eq!(Config::parse("delay=0").delay, 1);
-        assert_eq!(Config::parse("delay=7").delay, 7);
+        assert_eq!(Config::parse("slideshow_delay=0").slideshow_delay, 1);
+        assert_eq!(Config::parse("slideshow_delay=7").slideshow_delay, 7);
         // Every setting survives a save and load.
-        let mut c = Config::parse("trash=false\nsort=size\nbackground=#102030\ntoolbar_icons=2");
+        let mut c =
+            Config::parse("delete_to_trash=false\nsort=size\nbackground=#102030\ntoolbar_icons=2");
         c.video_player = "mpv --fs".into();
         assert_eq!(Config::parse(&c.to_text()), c);
-        assert!(Config::default().trash && !Config::parse("trash=false").trash);
+        assert!(
+            Config::default().delete_to_trash
+                && !Config::parse("delete_to_trash=false").delete_to_trash
+        );
         assert!(
             Config::default().confirm_trash && !Config::parse("confirm_trash=false").confirm_trash
         );
         assert!(Config::default().delete_key && !Config::parse("delete_key=false").delete_key);
         assert!(Config::parse("remember_dir=true").remember_dir);
-        assert!(!Config::default().random && Config::parse("random=true").random);
+        assert!(
+            !Config::default().slideshow_random
+                && Config::parse("slideshow_random=true").slideshow_random
+        );
         assert!(Config::default().enlarge && !Config::parse("enlarge=false").enlarge);
         assert!(Config::default().wheel_zoom && !Config::parse("wheel_zoom=false").wheel_zoom);
         assert!(Config::default().thumbnails && !Config::parse("thumbnails=false").thumbnails);
         assert!(Config::default().save_thumbnails);
-        assert!(!Config::default().exif_panel && Config::parse("exif_panel=true").exif_panel);
+        assert!(!Config::default().info_panel && Config::parse("info_panel=true").info_panel);
         assert!(Config::default().toolbar && !Config::parse("toolbar=false").toolbar);
         assert!(Config::default().low_memory && !Config::parse("low_memory=false").low_memory);
         assert!(Config::default().path_bar && !Config::parse("path_bar=false").path_bar);
@@ -988,9 +1047,10 @@ mod tests {
         assert!(!Config::parse("inhibit_screensaver=false").inhibit_screensaver);
         assert!(!Config::default().app_name_first);
         assert!(!Config::default().file_details && Config::parse("file_details=true").file_details);
-        let c = Config::parse("sort=exif_digitized\nsort_ascending=false\nsort_case=false");
+        let c =
+            Config::parse("sort=exif_digitized\nsort_ascending=false\nsort_case_sensitive=false");
         assert_eq!(
-            (c.sort, c.sort_ascending, c.sort_case),
+            (c.sort, c.sort_ascending, c.sort_case_sensitive),
             (crate::model::listing::Sort::ExifDigitized, false, false)
         );
         assert_eq!(
@@ -1004,7 +1064,7 @@ mod tests {
         assert!(Config::parse("app_name_first=true").app_name_first);
         let win = super::WindowState {
             size: Some(eframe::egui::vec2(1000.0, 700.5)),
-            pos: Some(eframe::egui::pos2(10.0, -20.0)),
+            position: Some(eframe::egui::pos2(10.0, -20.0)),
             maximized: true,
         };
         let text = format!("last_dir=/x\n{}", win.to_text());
@@ -1017,7 +1077,7 @@ mod tests {
         assert_eq!(Config::parse("background=#12").background.0, [0, 0, 0]);
         assert!(!Config::parse("save_thumbnails=false").save_thumbnails);
         assert!(Config::default().exif_rotate && !Config::parse("exif_rotate=false").exif_rotate);
-        assert!(Config::default().videos && !Config::parse("videos=false").videos);
+        assert!(Config::default().list_videos && !Config::parse("list_videos=false").list_videos);
         assert_eq!(
             Config::parse("video_player= mpv --fs ").video_player,
             "mpv --fs"
@@ -1053,9 +1113,9 @@ mod tests {
         crate::files::file_io::replace_file(&crate::metadata::xmp::sidecar(&long), "<x/>").unwrap();
         assert_eq!(std::fs::read_to_string(&long).unwrap(), "y");
         let file = dir.join("config");
-        std::fs::write(&file, b"delay=5\nvideo_player=mpv \xff\n").unwrap();
+        std::fs::write(&file, b"slideshow_delay=5\nvideo_player=mpv \xff\n").unwrap();
         let text = super::read_lossy(&file).unwrap();
-        assert_eq!(Config::parse(&text).delay, 5);
+        assert_eq!(Config::parse(&text).slideshow_delay, 5);
         // A file that is not there gives none. One that is there but cannot be read (a folder)
         // gives an error and is never written over.
         assert_eq!(
@@ -1137,9 +1197,10 @@ mod tests {
         let frozen: Vec<&str> = (include_str!("../frozen-1.0.txt").lines())
             .filter(|l| !l.starts_with('#') && !l.is_empty())
             .collect();
+        // An old name passes when its table of old names maps it to a name that is read now.
         let gone: Vec<&&str> = frozen
             .iter()
-            .filter(|f| !now.iter().any(|n| n == **f))
+            .filter(|f| !now.contains(&frozen_name_now(f)))
             .collect();
         assert!(
             gone.is_empty(),
@@ -1164,6 +1225,66 @@ mod tests {
         }
     }
 
+    /// Each renamed setting is read by its old key too, and a file with both keys has the value
+    /// of the new one, wherever it stands. Only the new key is written, and --check-config
+    /// finds nothing wrong with either. The window state's renamed keys are read the same way.
+    #[test]
+    fn old_keys_are_read_and_only_new_ones_written() {
+        use super::Config;
+        let defaults = Config::default().to_text();
+        for (old, new) in super::RENAMED_SETTINGS {
+            let value = super::value_in(&defaults, new);
+            // Another value than the default: a bool turned, or a number one larger.
+            let other = match value.as_str() {
+                "true" => "false".to_owned(),
+                "false" => "true".to_owned(),
+                number => (number.parse::<u64>().unwrap() + 1).to_string(),
+            };
+            let text = format!("{old}={other}\n");
+            let written = Config::parse(&text).to_text();
+            assert_eq!(super::value_in(&written, new), other, "{old} is not read");
+            let old_line = format!("{old}=");
+            assert!(
+                !written.lines().any(|l| l.starts_with(&old_line)),
+                "{old} written"
+            );
+            assert_eq!(Config::check(&text).1, Vec::<String>::new());
+            for both in [
+                format!("{new}={value}\n{old}={other}\n"),
+                format!("{old}={other}\n{new}={value}\n"),
+            ] {
+                let written = Config::parse(&both).to_text();
+                assert_eq!(super::value_in(&written, new), value, "{both}");
+                assert_eq!(Config::check(&both).1, Vec::<String>::new());
+            }
+        }
+        let position = |text: &str| super::WindowState::parse(text).position;
+        let at = |x, y| Some(eframe::egui::pos2(x, y));
+        assert_eq!(position("window_pos=10,20\n"), at(10.0, 20.0));
+        assert_eq!(
+            position("window_pos=10,20\nwindow_position=1,2\n"),
+            at(1.0, 2.0)
+        );
+        let written = super::WindowState::parse("window_pos=10,20\n").to_text();
+        assert!(written.contains("window_position=10,20\n") && !written.contains("window_pos="));
+    }
+
+    /// Returns the line of src/frozen-1.0.txt as the code names it now. A setting or a window
+    /// state key renamed in its table of old names gets its new name, and every other line is
+    /// returned as it is.
+    fn frozen_name_now(line: &str) -> String {
+        let (kind, name) = line.split_once(' ').unwrap_or((line, ""));
+        let table: &[(&str, &str)] = match kind {
+            "setting" => &super::RENAMED_SETTINGS,
+            "state" => &super::RENAMED_STATE,
+            _ => &[],
+        };
+        match table.iter().find(|r| r.0 == name) {
+            Some((_, new)) => format!("{kind} {new}"),
+            None => line.to_owned(),
+        }
+    }
+
     /// Returns every frozen name as the code holds it now, one line each as in
     /// src/frozen-1.0.txt.
     fn names_now() -> Vec<String> {
@@ -1177,7 +1298,7 @@ mod tests {
         now.extend(named_values());
         let window = super::WindowState {
             size: Some(eframe::egui::vec2(1000.0, 700.0)),
-            pos: Some(eframe::egui::pos2(0.0, 0.0)),
+            position: Some(eframe::egui::pos2(0.0, 0.0)),
             maximized: true,
         };
         let state = format!("{}=/x\n{}", super::LAST_DIR, window.to_text());

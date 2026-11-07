@@ -394,13 +394,13 @@ impl crate::App {
         ui.weak(tr(
             "S starts and stops, R random order, Ctrl+= faster, Ctrl+- slower",
         ));
-        let delay =
-            egui::Slider::new(&mut self.config.delay, 1..=MAX_DELAY).text(tr("seconds per image"));
+        let delay = egui::Slider::new(&mut self.config.slideshow_delay, 1..=MAX_DELAY)
+            .text(tr("seconds per image"));
         if ui.add(delay).changed() {
             changed = true;
             self.title(ctx);
         }
-        let mut random = self.config.random;
+        let mut random = self.config.slideshow_random;
         if checkbox(ui, &mut random, tr("Random order")).changed() {
             self.set_random_order(ctx, random);
         }
@@ -684,7 +684,7 @@ impl crate::App {
             self.set_color_management(cm);
         }
         ui.add_enabled_ui(cm, |ui| {
-            let mut own = self.config.own_profile;
+            let mut own = self.config.use_image_profile;
             if checkbox(ui, &mut own, tr("Use the image's own profile")).changed() {
                 self.set_own_profile(own);
             }
@@ -832,7 +832,7 @@ impl crate::App {
     /// Preferences → File list: the EXIF panel.
     fn exif_panel_setting(&mut self, ui: &mut egui::Ui) {
         let exif = tr("Show the EXIF panel (Ctrl+K; reads a little from each image shown)");
-        self.toggle_box(ui, self.config.exif_panel, Action::ExifPanel, exif);
+        self.toggle_box(ui, self.config.info_panel, Action::ExifPanel, exif);
     }
 
     /// Preferences → Image: the full screen info and its template.
@@ -1006,10 +1006,10 @@ impl crate::App {
         .changed();
         changed |= checkbox(ui, &mut c.confirm_trash, tr("Confirm move file to Trash")).changed();
         changed |= checkbox(ui, &mut c.delete_key, tr("Enable Delete key")).changed();
-        let mut no_trash = !c.trash;
+        let mut no_trash = !c.delete_to_trash;
         let none = tr("Use no trash at all (Delete deletes permanently)");
         if checkbox(ui, &mut no_trash, none).changed() {
-            c.trash = !no_trash;
+            c.delete_to_trash = !no_trash;
             changed = true;
         }
         changed
@@ -1021,7 +1021,7 @@ impl crate::App {
         let mut changed = false;
         let c = &mut self.config;
         ui.weak(tr("Previews need ffmpeg"));
-        if checkbox(ui, &mut c.videos, tr("Show videos in the file list")).changed() {
+        if checkbox(ui, &mut c.list_videos, tr("Show videos in the file list")).changed() {
             changed = true;
             self.list(ctx);
         }

@@ -825,7 +825,7 @@ impl crate::App {
         let (size_tx, size_rx) = mpsc::channel();
         let (list_dir, ctx2, types) = (self.folder.dir.clone(), ctx.clone(), self.types());
         let c = &self.config;
-        let (by, ascending, case) = (c.sort, c.sort_ascending, c.sort_case);
+        let (by, ascending, case) = (c.sort, c.sort_ascending, c.sort_case_sensitive);
         let (recursive, shuffled) = (self.folder.recursive, self.slideshow.shuffles_whole());
         let collection = self
             .folder
@@ -975,7 +975,7 @@ impl crate::App {
                 self.folder.dir.clone(),
                 c.sort,
                 c.sort_ascending,
-                c.sort_case,
+                c.sort_case_sensitive,
                 self.folder.recursive,
             )
         });
@@ -1639,7 +1639,7 @@ mod tests {
         std::fs::write(&file, gqv).unwrap();
         let (mut app, ctx) = app_on(&file);
         app.config.sort = crate::model::listing::Sort::Name;
-        app.config.sort_case = true;
+        app.config.sort_case_sensitive = true;
         app.folder.sort_collection = true;
         app.list(&ctx);
         assert!(settle(&mut app, &ctx, |a| a.folder.listing_rx.is_none()));

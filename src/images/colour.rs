@@ -528,7 +528,7 @@ pub(crate) fn set_up(config: &Config) -> Option<String> {
     let error = (set_screen(&config.screen_profile))
         .and_then(|_| set_input(&config.input_profile))
         .err();
-    set_colour(|c| c.own = config.own_profile);
+    set_colour(|c| c.own = config.use_image_profile);
     set_intent(&config.rendering_intent);
     if config.desktop_profile && config.color_management {
         let deadline = Instant::now() + std::time::Duration::from_millis(SCREEN_WAIT_MS);

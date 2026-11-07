@@ -221,9 +221,9 @@ impl crate::App {
             let zoom = ctx.zoom_factor();
             self.window.state.size = Some(size * zoom);
             // Wayland reports no position.
-            self.window.state.pos = outer
+            self.window.state.position = outer
                 .map(|r| (r.min.to_vec2() * zoom).to_pos2())
-                .or(self.window.state.pos);
+                .or(self.window.state.position);
         }
         fullscreen
     }

@@ -226,7 +226,7 @@ impl crate::App {
     /// Whether an image's own profile counts, or the input profile is used for all.
     pub(crate) fn set_own_profile(&mut self, on: bool) {
         set_colour(|c| c.own = on);
-        self.config.own_profile = on;
+        self.config.use_image_profile = on;
         self.config.save();
         self.redecode();
     }
@@ -443,7 +443,7 @@ impl crate::App {
         submenu(ui, size, |ui| self.thumb_size_setting(ui));
         let c = &self.config;
         menu_toggle(ui, act, c.grid_names, Action::GridNames);
-        menu_toggle(ui, act, c.exif_panel, Action::ExifPanel);
+        menu_toggle(ui, act, c.info_panel, Action::ExifPanel);
         menu_toggle(ui, act, c.sort_manager, Action::SortManager);
         menu_toggle(ui, act, self.info.exif_window_open(), Action::ExifWindow);
         menu_toggle(ui, act, self.pan_window.is_some(), Action::PanView);
@@ -463,7 +463,7 @@ impl crate::App {
         menu_toggle(ui, act, self.slideshow.is_paused(), Action::Pause);
         menu_item(ui, act, Action::Faster);
         menu_item(ui, act, Action::Slower);
-        menu_toggle(ui, act, self.config.random, Action::RandomOrder);
+        menu_toggle(ui, act, self.config.slideshow_random, Action::RandomOrder);
     }
 
     /// The Window menu.
@@ -793,7 +793,7 @@ impl crate::App {
                 &mut c.animate
             }
             Action::SortManager => &mut c.sort_manager,
-            Action::ExifPanel => &mut c.exif_panel,
+            Action::ExifPanel => &mut c.info_panel,
             // Another action has no setting here, and must not flip one.
             _ => return,
         };
@@ -1091,11 +1091,11 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("glimt-test-toggle-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let (mut app, _ctx) = crate::support::test_support::app_on(&dir);
-        let panel = app.config.exif_panel;
+        let panel = app.config.info_panel;
         app.toggle_setting(Action::Next);
-        assert_eq!(app.config.exif_panel, panel);
+        assert_eq!(app.config.info_panel, panel);
         app.toggle_setting(Action::ExifPanel);
-        assert_eq!(app.config.exif_panel, !panel);
+        assert_eq!(app.config.info_panel, !panel);
         std::fs::remove_dir_all(dir).unwrap();
     }
 }

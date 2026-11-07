@@ -1045,7 +1045,7 @@ impl crate::App {
             Action::SetWallpaper => self.set_wallpaper(),
             // Enter: videos play in a player (images have nothing to play).
             Action::Play => self.play_video(ctx),
-            Action::Delete => self.request_delete(ctx, self.config.trash),
+            Action::Delete => self.request_delete(ctx, self.config.delete_to_trash),
             Action::DeletePermanently => self.request_delete(ctx, false),
             Action::Undo => self.undo(ctx),
             Action::CloseWindow | Action::Quit => {
@@ -1109,7 +1109,7 @@ impl crate::App {
             Action::NextPage | Action::PrevPage => self.step_page(action),
             Action::ExifWindow => self.info.toggle_exif_window(),
             Action::Keywords => {
-                if !self.config.exif_panel {
+                if !self.config.info_panel {
                     self.toggle_setting(Action::ExifPanel);
                 }
                 self.info.focus_keywords();
@@ -1237,7 +1237,7 @@ impl crate::App {
                 self.title(ctx);
             }
             Action::Pause => {}
-            Action::RandomOrder => self.set_random_order(ctx, !self.config.random),
+            Action::RandomOrder => self.set_random_order(ctx, !self.config.slideshow_random),
             Action::Faster | Action::Slower => self.change_delay(ctx, action),
             // As in Geeqie, Escape never quits; it stops the slideshow and leaves full screen.
             Action::Escape => self.escape(ctx, fullscreen),

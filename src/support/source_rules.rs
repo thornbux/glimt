@@ -1025,7 +1025,7 @@ fn settings_change_through_their_setters() {
         "thumbnails",
         "icons",
         "show_subfolders",
-        "exif_panel",
+        "info_panel",
     ] {
         assert!(setters.contains_key(name), "{name} has no setter found");
     }

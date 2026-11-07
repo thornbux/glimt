@@ -176,7 +176,7 @@ impl App {
         if let Some(layout) = start.layout {
             config.layout = layout.into();
         }
-        config.random |= start.random;
+        config.slideshow_random |= start.random;
         if let Some(fade) = start.fade {
             config.fade = fade;
         }
@@ -330,7 +330,7 @@ impl App {
         if !bare && self.config.sort_manager {
             self.sort_manager(ui);
         }
-        if !bare && self.config.exif_panel && !self.list.files().is_empty() {
+        if !bare && self.config.info_panel && !self.list.files().is_empty() {
             self.exif_panel(ui);
         } else {
             // The panel was hidden while a field had the focus, so the field never lost it.
@@ -511,7 +511,7 @@ fn main() -> eframe::Result {
         if let Some(size) = win.size {
             viewport = viewport.with_inner_size(size);
         }
-        if let Some(pos) = win.pos {
+        if let Some(pos) = win.position {
             viewport = viewport.with_position(pos);
         }
         viewport = viewport.with_maximized(win.maximized);
@@ -555,7 +555,7 @@ mod tests {
     #[test]
     fn tells_settings_problems_but_unknown_ones() {
         let unknown = "line 3: there is no setting projector_screen".to_string();
-        let wrong = "line 5: delay=fast is not a number; 3 is used".to_string();
+        let wrong = "line 5: slideshow_delay=fast is not a number; 3 is used".to_string();
         assert_eq!(super::config_notice(std::slice::from_ref(&unknown)), None);
         assert_eq!(
             super::config_notice(&[unknown, wrong.clone()]),
