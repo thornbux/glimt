@@ -334,7 +334,7 @@ impl App {
             self.info_panel(ui);
         } else {
             // The panel was hidden while a field had the focus, so the field never lost it.
-            self.save_meta(ui.ctx());
+            self.save_metadata_edit(ui.ctx());
         }
         if self.panel.is_area_grid_shown() {
             self.area_grid(ctx, ui);
@@ -360,7 +360,7 @@ impl eframe::App for App {
         self.answer_waiting_selects();
         crate::features::remote::stop(|| self.answer_waiting_selects());
         let ctx = self.ctx.clone();
-        self.save_meta(&ctx);
+        self.save_metadata_edit(&ctx);
         // shortcut: the path is stored as UTF-8, lossless for ordinary paths; store its bytes
         // if a folder name that is not UTF-8 must be remembered.
         let mut state = String::new();

@@ -169,7 +169,7 @@ impl crate::App {
         // failed would otherwise start again at the Close sent when it ends, and count as the
         // user's second close.
         if ctx.input(|i| i.viewport().close_requested()) {
-            self.save_meta(ctx);
+            self.save_metadata_edit(ctx);
             let shown = Some((
                 self.viewing.turned_file().to_path_buf(),
                 self.viewing.turn(),

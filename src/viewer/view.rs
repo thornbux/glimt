@@ -855,9 +855,9 @@ impl crate::App {
 
     /// Full screen info in the top left corner, from the template in Preferences.
     pub(crate) fn paint_full_screen_info(&mut self, ui: &mut egui::Ui, area: egui::Rect) {
-        self.want_exif(ui.ctx());
+        self.request_exif(ui.ctx());
         let path = self.path(self.list.shown());
-        let meta = self.info_panel.meta_of(&path).map(|m| &m.saved);
+        let meta = self.info_panel.metadata_edit_of(&path).map(|m| &m.saved);
         let text = fill_template(&self.config.osd_template, |field| match field {
             "name" => self.name(self.list.shown()).to_string(),
             "path" => path.display().to_string(),
