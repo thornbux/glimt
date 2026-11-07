@@ -660,7 +660,7 @@ pub(crate) fn spawn_exif_reader(
             // Not opened unless it is a file: a pipe would block this thread for good. A decoder
             // that panics on the file leaves the panel without EXIF for it, not for good.
             if decode::is_regular_file(&path) {
-                let read = crate::support::threads::caught(|| {
+                let read = crate::support::threads::catch_panic(|| {
                     let mut rows = vec![("Colour profile", colour_source(&path))];
                     let (exif_rows, all) = exif::read_and_all(&path);
                     rows.extend(exif_rows);

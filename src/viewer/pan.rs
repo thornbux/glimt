@@ -566,7 +566,7 @@ fn each<T: Send>(
                 path.push(name);
                 // A file that breaks its reader has no date: a whole part lost would give the
                 // files after it the dates of others.
-                let found = crate::support::threads::caught(|| f(&path));
+                let found = crate::support::threads::catch_panic(|| f(&path));
                 out.push(found.flatten());
                 path.pop();
             }

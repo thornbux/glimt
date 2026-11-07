@@ -823,7 +823,7 @@ pub fn is_quarter_turn(o: Orientation) -> bool {
 /// end the worker thread, because that would leave every later image or thumbnail waiting for
 /// ever.
 pub fn catch_panic<T>(work: impl FnOnce() -> Result<T, String>) -> Result<T, String> {
-    crate::support::threads::caught(work)
+    crate::support::threads::catch_panic(work)
         .unwrap_or_else(|| Err("the decoder crashed on this file".into()))
 }
 

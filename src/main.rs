@@ -15,7 +15,7 @@ use crate::features::print::PrintDialog;
 use crate::files::config::{Config, WindowState, parse_last_dir, state_path};
 use crate::files::file_io::write_atomic;
 use crate::model::list::List;
-use crate::support::threads::{ONE_ARENA, Receiving, cores, set_cpu_use, thread_cpu_us};
+use crate::support::threads::{HAS_ONE_MALLOC_ARENA, Receiving, cores, set_cpu_use, thread_cpu_us};
 use crate::viewer::pan::Pan;
 use crate::viewer::view::View;
 use crate::viewer::view::frame_at;
@@ -452,7 +452,7 @@ fn main() -> eframe::Result {
     if Config::load().low_memory {
         // SAFETY: This is called before any other thread exists.
         unsafe { mallopt(M_ARENA_MAX, 1) };
-        ONE_ARENA.store(true, Ordering::Relaxed);
+        HAS_ONE_MALLOC_ARENA.store(true, Ordering::Relaxed);
     }
     let (start, args_os) = match Start::parse(std::env::args_os().skip(1).collect()) {
         Ok(parsed) => parsed,

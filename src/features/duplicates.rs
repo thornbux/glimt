@@ -417,7 +417,7 @@ fn on_all_cores<T: Send>(
                         }
                         // A file that breaks its reader is left out alone, not the worker's
                         // whole share of the list with it.
-                        let found = crate::support::threads::caught(|| f(&paths[i]));
+                        let found = crate::support::threads::catch_panic(|| f(&paths[i]));
                         out.push((i, found.flatten()));
                         progress.done.fetch_add(1, Ordering::Relaxed);
                     }

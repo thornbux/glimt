@@ -7,13 +7,13 @@ use std::sync::{Arc, Mutex, mpsc};
 
 /// The CPU use level (index in CPU_LEVELS), for the worker threads, and the signal that wakes
 /// the thumbnail workers it leaves idle when it changes.
-pub(crate) static CPU_USE: AtomicUsize = AtomicUsize::new(1);
+pub(crate) static CPU_USE_LEVEL: AtomicUsize = AtomicUsize::new(1);
 
 pub(crate) static CPU_CHANGED: (Mutex<()>, std::sync::Condvar) =
     (Mutex::new(()), std::sync::Condvar::new());
 
 /// Glimt runs with one malloc arena (`low_memory`): set at startup.
-pub(crate) static ONE_ARENA: AtomicBool = AtomicBool::new(false);
+pub(crate) static HAS_ONE_MALLOC_ARENA: AtomicBool = AtomicBool::new(false);
 
 /// What a background thread's receiver has: nothing yet, its answer, or the thread gone without
 /// one (it panicked). Taken, the receiver is dropped, so nothing waits for it for ever.
@@ -155,7 +155,7 @@ pub(crate) struct Timespec {
 
 pub(crate) fn set_cpu_use(level: usize) {
     let _lock = CPU_CHANGED.0.lock().unwrap();
-    CPU_USE.store(level, Ordering::Relaxed);
+    CPU_USE_LEVEL.store(level, Ordering::Relaxed);
     CPU_CHANGED.1.notify_all();
 }
 
@@ -166,7 +166,7 @@ pub(crate) fn cores() -> usize {
 /// Threads for parallel work in the background: searches, the EXIF index, Find Duplicates and
 /// pan view.
 pub(crate) fn background_threads() -> usize {
-    background_threads_at(CPU_USE.load(Ordering::Relaxed))
+    background_threads_at(CPU_USE_LEVEL.load(Ordering::Relaxed))
 }
 
 pub(crate) fn background_threads_at(level: usize) -> usize {
@@ -179,7 +179,7 @@ pub(crate) fn background_threads_at(level: usize) -> usize {
 /// Thumbnails made at once; Balanced keeps one with the low memory level (`decoders` 1), so
 /// two full-size images are not decoded at once.
 pub(crate) fn thumb_threads(decoders: usize) -> usize {
-    thumb_threads_at(CPU_USE.load(Ordering::Relaxed), decoders)
+    thumb_threads_at(CPU_USE_LEVEL.load(Ordering::Relaxed), decoders)
 }
 
 pub(crate) fn thumb_threads_at(level: usize, decoders: usize) -> usize {
@@ -195,7 +195,7 @@ pub(crate) fn thumb_threads_at(level: usize, decoders: usize) -> usize {
 /// 2,000 files took 206 ms on one thread, 128 ms on two and 551 ms on four (20 cores); with an
 /// arena each, eight threads took 68 ms.
 pub(crate) fn small_alloc_threads() -> usize {
-    match ONE_ARENA.load(Ordering::Relaxed) {
+    match HAS_ONE_MALLOC_ARENA.load(Ordering::Relaxed) {
         true => background_threads().min(2),
         false => background_threads(),
     }
@@ -241,7 +241,7 @@ pub(crate) fn thread_cpu_us() -> u64 {
 /// each file it reads or writes, so that a file that breaks a decoder or a parser costs only
 /// that file, not the worker thread and every file after it. This is the one place Glimt
 /// catches a panic (`source_rules::panics_are_caught_in_one_place`).
-pub(crate) fn caught<T>(work: impl FnOnce() -> T) -> Option<T> {
+pub(crate) fn catch_panic<T>(work: impl FnOnce() -> T) -> Option<T> {
     std::panic::catch_unwind(std::panic::AssertUnwindSafe(work)).ok()
 }
 

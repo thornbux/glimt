@@ -360,7 +360,7 @@ fn tag_name(gps: bool, tag: u16) -> Option<&'static str> {
 /// after or before every other date, and Pan view showed their day twice.
 pub fn date(path: &Path, digitized: bool) -> Option<String> {
     // A decoder panicking on one file must not end the sort or the Pan view that asked.
-    crate::support::threads::caught(|| {
+    crate::support::threads::catch_panic(|| {
         let raw = read_exif_block(path)?;
         let (t, _, exif, _) = ifds(&raw)?;
         let tag = if digitized { 0x9004 } else { 0x9003 };

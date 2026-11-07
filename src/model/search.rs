@@ -766,7 +766,7 @@ pub fn exif_index(
             let path = dir.join(name);
             // A file that breaks its reader has no text. A whole part lost would leave 1/N of
             // the folder out of every exif: search, in silence.
-            let text = crate::support::threads::caught(|| {
+            let text = crate::support::threads::catch_panic(|| {
                 let rows = exif::read(&path);
                 let mut text: Vec<&str> = rows.iter().map(|r| r.1.as_str()).collect();
                 let meta = xmp::read(&path).text();

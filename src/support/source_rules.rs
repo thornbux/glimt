@@ -902,7 +902,7 @@ fn agents_md_names_what_each_module_has() {
     );
 }
 
-/// A panic is caught only by `threads::caught`, the one function whose doc says why. A worker
+/// A panic is caught only by `threads::catch_panic`, the one function whose doc says why. A worker
 /// that caught panics its own way once forgot it, and a broken file ended the thread. Eight
 /// commits added the catch one path at a time.
 #[test]
@@ -919,7 +919,7 @@ fn panics_are_caught_in_one_place() {
     }
     assert!(
         wrong.is_empty(),
-        "a panic caught outside threads::caught (use it instead):\n{}",
+        "a panic caught outside threads::catch_panic (use it instead):\n{}",
         wrong.join("\n")
     );
 }

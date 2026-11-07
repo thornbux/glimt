@@ -1610,7 +1610,7 @@ impl crate::App {
         let work: QueuedWrite = Box::new(move || {
             // A file that makes the writing panic ends this job, not the count or the busy
             // pointer.
-            let text = crate::support::threads::caught(|| {
+            let text = crate::support::threads::catch_panic(|| {
                 let mut failed = 0;
                 for path in &paths {
                     if job.is_stopped() {
