@@ -1018,7 +1018,14 @@ fn settings_change_through_their_setters() {
             guarded.push(name);
         }
     }
-    for name in ["thumb_size", "grid_names", "icons", "exif_panel"] {
+    for name in [
+        "thumb_size",
+        "grid_names",
+        "thumbnails",
+        "icons",
+        "show_subfolders",
+        "exif_panel",
+    ] {
         assert!(
             guarded.iter().any(|g| g == name),
             "{name} has no setter found"
