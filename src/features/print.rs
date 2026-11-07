@@ -208,6 +208,21 @@ pub(crate) enum PrintTo {
     File(PathBuf),
 }
 
+impl PrintTo {
+    /// Whether this is a file whose name Glimt lists as an image, a RAW file or a video. A PDF
+    /// written there would replace the image, and the image's sidecar and stars would stay on
+    /// the PDF, so such a name is refused before anything is written.
+    fn is_an_image(&self) -> bool {
+        let every = crate::model::listing::Types {
+            images: true,
+            raw: true,
+            videos: true,
+            hidden: true,
+        };
+        matches!(self, PrintTo::File(file) if crate::model::listing::is_listed(file, every))
+    }
+}
+
 /// The Print dialog (Ctrl+P).
 pub(crate) struct PrintDialog {
     paths: Vec<PathBuf>,
@@ -395,6 +410,11 @@ impl crate::App {
 
     /// Print `job` in the background.
     pub(crate) fn print(&mut self, ctx: &egui::Context, job: PrintJob, to: PrintTo) {
+        if to.is_an_image() {
+            let text = tr("Not saved over an image: choose a name ending in .pdf");
+            let _ = self.notices_tx.send(text.into());
+            return;
+        }
         let (tx, ctx) = (self.notices_tx.clone(), ctx.clone());
         let pointer = Working::new(&self.busy);
         // A PDF half made would be lost, its temporary file left beside the one chosen.
@@ -1352,6 +1372,32 @@ mod tests {
         assert_eq!(std::fs::read_to_string(&secret).unwrap(), "keep");
         let pdf = std::fs::symlink_metadata(&link).unwrap();
         assert!(pdf.is_file());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// Print to File under an image's name is refused: the image stays as it was.
+    #[test]
+    fn prints_never_over_an_image() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-print-img-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let jpg = dir.join("a.jpg");
+        image::RgbImage::new(4, 4).save(&jpg).unwrap();
+        let before = std::fs::read(&jpg).unwrap();
+        let (mut app, ctx) = crate::support::test_support::app_on(&dir);
+        let job = super::PrintJob {
+            paths: vec![jpg.clone()],
+            layout: super::Layout::new(super::PAPERS[0].1, 1),
+            caption: None,
+            two_sided: false,
+            rotate: false,
+            copies: 1,
+        };
+        app.print(&ctx, job, super::PrintTo::File(jpg.clone()));
+        let told = app
+            .notices_rx
+            .recv_timeout(std::time::Duration::from_secs(5));
+        assert!(told.is_ok());
+        assert_eq!(std::fs::read(&jpg).unwrap(), before);
         std::fs::remove_dir_all(dir).unwrap();
     }
 

@@ -1727,6 +1727,10 @@ msgid "No image could be read: nothing printed"
 msgstr "No se pudo leer ninguna imagen: no se imprimió nada"
 
 #: src/features/print.rs
+msgid "Not saved over an image: choose a name ending in .pdf"
+msgstr "No se guardó sobre una imagen: elija un nombre que termine en .pdf"
+
+#: src/features/print.rs
 msgid "No printers found"
 msgstr "No se encontraron impresoras"
 
