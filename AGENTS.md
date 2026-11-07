@@ -139,7 +139,7 @@ holds only its `mod` lines, and a new module goes into the folder of what it doe
 | `src/images/svg.rs` | SVG and SVGZ through resvg (feature `svg`): `load`, with limits on the text unpacked, the pictures linked and entities that grow |
 | `src/images/decoder_plugins.rs` | Decoder plugins: programs in `glimt/decoders` that turn other formats into images |
 | `src/images/colour.rs` | Colour management: ICC profiles, the screen profile (also from colord), rendering intent |
-| `src/images/save.rs` | Saving a turned image with its EXIF and XMP, also lossy WebP; copies of the shown image (`CopyAs`, `copy_bytes`, `shown_image`), `land`, the one way a copy and its sidecar are saved, and `Derived` with `derived_xmp`, what a turned image, a copy and their sidecars keep of the metadata |
+| `src/images/save.rs` | Saving a turned image with its EXIF and XMP, also lossy WebP; copies of the shown image (`CopyAs`, `copy_bytes`, `shown_image`), `save_copy_with_sidecar`, the one way a copy and its sidecar are saved, and `Derived` with `derived_xmp`, what a turned image, a copy and their sidecars keep of the metadata |
 | `src/images/raw.rs` | Camera RAW: the largest embedded JPEG preview |
 | `src/images/thumbs.rs` | Freedesktop thumbnail cache (`~/.cache/thumbnails`) |
 | `src/images/video.rs` | Optional video feature |
@@ -338,7 +338,7 @@ of that part. The exceptions are the tables of one arm per action (`Action::engl
     sandbox), the user's with `host_command` or `stoppable_host_command` (on the host), and
     wait for it only with `run_limited`, `limited`, `output_of` or a `Watchdog` (never
     `.output()`/`.status()`);
-  - make a copy of the shown image from `App::shown_copy` and save it with `save::land`.
+  - make a copy of the shown image from `App::shown_copy` and save it with `save::save_copy_with_sidecar`.
   `clippy.toml` has the whole list, each call with the way to take instead. A place that must
   do otherwise gets `#[allow(clippy::disallowed_methods)]` on the narrowest statement or
   function, with its reason on the same line or the next.

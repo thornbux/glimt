@@ -1663,8 +1663,10 @@ impl crate::App {
                         crate::images::save::frame_png(img, &how)
                             .and_then(|png| {
                                 let replace = only.is_some();
-                                crate::images::save::land(&path, &file, &png, replace, true)
-                                    .map_err(|e| e.to_string())
+                                crate::images::save::save_copy_with_sidecar(
+                                    &path, &file, &png, replace, true,
+                                )
+                                .map_err(|e| e.to_string())
                             })
                             .map_err(|e| format!("{}: {e}", file.display()))
                     })
@@ -3119,7 +3121,7 @@ mod tests {
             ),
             (
                 "save_crop",
-                "a new file beside the image: save::land's tests; it needs a decoded image",
+                "a new file beside the image: save::save_copy_with_sidecar's tests; it needs a decoded image",
             ),
             ("trash_folder", "gio trash; Undo's restore has its own test"),
             (

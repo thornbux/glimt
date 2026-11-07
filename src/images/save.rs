@@ -374,7 +374,7 @@ pub fn save_cropped(path: &Path, how: &CopyAs) -> Result<std::path::PathBuf, Str
             _ => stem_and(path, &format!("-cropped-{n}.{ext}")),
         };
         let new = path.with_file_name(name);
-        match land(path, &new, &out, false, how.strip) {
+        match save_copy_with_sidecar(path, &new, &out, false, how.strip) {
             Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
             Err(e) => return Err(e.to_string()),
             Ok(()) => return Ok(new),
@@ -390,7 +390,7 @@ pub fn save_cropped(path: &Path, how: &CopyAs) -> Result<std::path::PathBuf, Str
 /// removed and the copy's is made new, never written through a link there, which a downloaded
 /// folder may have pointed at any file of the user's (~/.bashrc). This is the one way a copy is
 /// saved, for Crop, Save As and Save This Frame.
-pub(crate) fn land(
+pub(crate) fn save_copy_with_sidecar(
     path: &Path,
     new: &Path,
     out: &[u8],
@@ -582,7 +582,8 @@ pub fn save_as(path: &Path, how: &CopyAs, to: &Path) -> Result<std::path::PathBu
         return Err(tr("choose another name: the image itself is not changed").into());
     }
     let (out, _) = copy_bytes(path, how)?;
-    land(path, &to, &out, matches, how.strip).map_err(|e| format!("{}: {e}", to.display()))?;
+    save_copy_with_sidecar(path, &to, &out, matches, how.strip)
+        .map_err(|e| format!("{}: {e}", to.display()))?;
     Ok(to)
 }
 
@@ -2177,7 +2178,7 @@ mod tests {
         let held = crate::metadata::xmp::held(&b);
         let saver = {
             let (a, b) = (a.clone(), b.clone());
-            std::thread::spawn(move || super::land(&a, &b, b"x", false, false))
+            std::thread::spawn(move || super::save_copy_with_sidecar(&a, &b, b"x", false, false))
         };
         let written = || {
             (std::fs::read_dir(&dir).unwrap().flatten()).any(|e| {

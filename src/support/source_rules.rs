@@ -1253,7 +1253,7 @@ fn derived_files_take_metadata_in_one_place() {
             "own_sidecar(",
             &[
                 ("metadata/xmp.rs", ""),
-                ("images/save.rs", "land"),
+                ("images/save.rs", "save_copy_with_sidecar"),
                 ("images/save.rs", "derive_sidecar"),
             ],
         ),
