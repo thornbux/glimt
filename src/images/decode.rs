@@ -201,9 +201,10 @@ pub fn tiff_pages(path: &Path) -> usize {
 }
 
 /// Page `page` of a TIFF. The image crate reads only the first page, so the tiff crate (which
-/// it uses) decodes the others. It takes 8- and 16-bit grey and colour, which covers scanned
-/// documents, and grey of other kinds as science writes it (32-bit floats of a height model or
-/// a microscope, signed or 32-bit integers), stretched from its lowest value to its highest.
+/// it uses) decodes the others. It takes 1-, 2-, 4-, 8- and 16-bit grey and 8- and 16-bit
+/// colour, which covers faxes and scanned documents. Grey of other kinds, as science writes
+/// it (32-bit floats of a height model or a microscope, signed or 32-bit integers), is
+/// stretched from its lowest value to its highest.
 pub fn tiff_page(path: &Path, page: usize) -> Result<image::DynamicImage, String> {
     use image::DynamicImage as D;
     use tiff::ColorType as C;
@@ -230,12 +231,34 @@ pub fn tiff_page(path: &Path, page: usize) -> Result<image::DynamicImage, String
         (C::Gray(16), R::U16(v)) => image::ImageBuffer::from_raw(w, h, v).map(D::ImageLuma16),
         (C::RGB(16), R::U16(v)) => image::ImageBuffer::from_raw(w, h, v).map(D::ImageRgb16),
         (C::RGBA(16), R::U16(v)) => image::ImageBuffer::from_raw(w, h, v).map(D::ImageRgba16),
+        (C::Gray(bits @ (1 | 2 | 4)), R::U8(v)) => {
+            image::GrayImage::from_raw(w, h, unpacked(&v, w, bits)).map(D::ImageLuma8)
+        }
         (C::Gray(_), v) => {
             stretched(v).and_then(|v| image::GrayImage::from_raw(w, h, v).map(D::ImageLuma8))
         }
         _ => None,
     };
     img.ok_or_else(|| format!("page {} is in a colour format Glimt cannot show", page + 1))
+}
+
+/// Grey of 1, 2 or 4 bits a pixel, as fax and scanned documents keep it, as 8 bits a pixel.
+/// Each row of `packed` starts on a byte. The tiff crate has already turned the values of a
+/// WhiteIsZero page, where 1 is black, the other way.
+fn unpacked(packed: &[u8], width: u32, bits: u8) -> Vec<u8> {
+    let (width, bits) = (width as usize, bits as usize);
+    let stride = (width * bits).div_ceil(8).max(1);
+    let max = (1u16 << bits) - 1;
+    (packed.chunks(stride))
+        .flat_map(|row| {
+            (0..width).map(move |x| {
+                let at = x * bits;
+                let byte = row.get(at / 8).copied().unwrap_or(0);
+                let value = u16::from(byte >> (8 - bits - at % 8)) & max;
+                (value * 255 / max) as u8
+            })
+        })
+        .collect()
 }
 
 /// Grey values of any kind as 0 to 255, from the lowest finite value to the highest. Returns
@@ -1129,6 +1152,55 @@ mod tests {
         let (top, bottom) = (shown.pixels[0], shown.pixels[shown.pixels.len() - 1]);
         assert!(top.r() > 200 && top.b() < 50, "{top:?}");
         assert!(bottom.b() > 200 && bottom.r() < 50, "{bottom:?}");
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A later page of a multi-page TIFF in 1 bit a pixel, as a fax or a scanned letter keeps
+    /// it, is shown, with a WhiteIsZero page's 1 as black. Before, such a page could not be
+    /// shown, copied or exported.
+    #[test]
+    fn shows_a_bilevel_page() {
+        // A page as a little-endian TIFF directory with every value in its entry, and the
+        // offset of the next one.
+        let ifd = |w: u16, h: u16, bits: u16, white_is_zero: bool, data: u32, len: u32, next| {
+            let photometric = if white_is_zero { 0 } else { 1 };
+            let entries: [(u16, u16, u32); 9] = [
+                (256, 3, w.into()),
+                (257, 3, h.into()),
+                (258, 3, bits.into()),
+                (259, 3, 1),
+                (262, 3, photometric),
+                (273, 4, data),
+                (277, 3, 1),
+                (278, 3, h.into()),
+                (279, 4, len),
+            ];
+            let mut out = 9u16.to_le_bytes().to_vec();
+            for (tag, kind, value) in entries {
+                out.extend(tag.to_le_bytes());
+                out.extend(kind.to_le_bytes());
+                out.extend(1u32.to_le_bytes());
+                out.extend(value.to_le_bytes());
+            }
+            out.extend(u32::to_le_bytes(next));
+            out
+        };
+        // The first page is one grey pixel, and the second ten pixels across and two down,
+        // whose first and last are black.
+        let mut file = b"II*\0\x08\0\0\0".to_vec();
+        file.extend(ifd(1, 1, 8, false, 122, 1, 124));
+        file.extend([128, 0]);
+        file.extend(ifd(10, 2, 1, true, 238, 4, 0));
+        file.extend([0b1000_0000, 0b0100_0000, 0, 0]);
+        let dir = std::env::temp_dir().join(format!("glimt-test-fax-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("fax.tif");
+        std::fs::write(&path, &file).unwrap();
+        assert_eq!(super::pages(&path), 2);
+        let page = super::page_of(&path, 1).unwrap().to_luma8();
+        let row = |y| (0..10).map(|x| page.get_pixel(x, y)[0]).collect::<Vec<_>>();
+        assert_eq!(row(0), [0, 255, 255, 255, 255, 255, 255, 255, 255, 0]);
+        assert_eq!(row(1), [255; 10]);
         std::fs::remove_dir_all(dir).unwrap();
     }
 
