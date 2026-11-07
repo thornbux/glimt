@@ -849,8 +849,9 @@ mod tests {
         // Nor a script's action while a dialog asks the user: the Rename prompt stays.
         app.remote_command(&ctx, "run First");
         assert_eq!(app.list.cur(), 0);
-        app.dialogs
-            .ask(crate::ui::dialogs::Prompt::Rename, "a.png".into());
+        let asked = crate::ui::dialogs::Asked::new(0, vec!["a.png".into()], None);
+        let rename = crate::ui::dialogs::Prompt::Rename;
+        app.dialogs.ask_about(asked, rename, "a.png".into());
         app.remote_command(&ctx, "run WindowTitle");
         app.remote_command(&ctx, "run Last");
         assert_eq!(app.list.cur(), 0);

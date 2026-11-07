@@ -74,6 +74,28 @@ pub(crate) enum Prompt {
     WindowTitle,
 }
 
+/// The files a dialog asks about, by their names in the list, where the list was, and how many
+/// selected files the search hid and the question leaves out. `App::ask_about_targets` makes it,
+/// and a dialog about files opens only with one. So no such dialog opens without the files its
+/// answer acts on.
+pub(crate) struct Asked {
+    place: u64,
+    names: Vec<OsString>,
+    left_out: Option<String>,
+}
+
+impl Asked {
+    /// The files `names` asked about while the list was at `place`, with `left_out`, the text
+    /// that tells of the selected files the question leaves out.
+    pub(crate) fn new(place: u64, names: Vec<OsString>, left_out: Option<String>) -> Asked {
+        Asked {
+            place,
+            names,
+            left_out,
+        }
+    }
+}
+
 /// The small dialogs: a name asked for, a delete or a folder's trashing confirmed, and the file
 /// chooser.
 #[derive(Default)]
@@ -118,8 +140,9 @@ pub(crate) struct Dialogs {
 }
 
 impl Dialogs {
-    /// Opens the text dialog `prompt`, with `text` typed in already.
-    pub(crate) fn ask(&mut self, prompt: Prompt, text: String) {
+    /// Opens the text dialog `prompt`, with `text` typed in already. A dialog about files
+    /// opens through `ask_about` instead, which takes the files it asks about.
+    fn ask(&mut self, prompt: Prompt, text: String) {
         self.opened_with.clone_from(&text);
         self.prompt = Some((prompt, text));
     }
@@ -130,16 +153,34 @@ impl Dialogs {
         !matches!(prompt, Prompt::RenameMany) && text == self.opened_with
     }
 
-    /// Asks whether to delete the files: to the trash when `trash`, else for good.
-    pub(crate) fn confirm_delete(&mut self, trash: bool) {
+    /// Opens the text dialog `prompt` about the files `asked`, with `text` typed in already.
+    pub(crate) fn ask_about(&mut self, asked: Asked, prompt: Prompt, text: String) {
+        self.keep(asked);
+        self.ask(prompt, text);
+    }
+
+    /// Asks for the name of the theme to save the look shown as.
+    pub(crate) fn ask_theme_name(&mut self) {
+        self.ask(Prompt::SaveTheme, String::new());
+    }
+
+    /// Asks for this window's own title, with `title` typed in already.
+    pub(crate) fn ask_window_title(&mut self, title: String) {
+        self.ask(Prompt::WindowTitle, title);
+    }
+
+    /// Asks whether to delete the files `asked`: to the trash when `trash`, else for good.
+    pub(crate) fn confirm_delete(&mut self, asked: Asked, trash: bool) {
+        self.keep(asked);
         self.confirm_delete = Some(trash);
         self.trash_refused = None;
         self.delete_shown = None;
     }
 
-    /// Asks whether to delete the files for good, because the trash refused them on a network
-    /// or cloud mount of type `kind`.
-    pub(crate) fn confirm_delete_instead(&mut self, kind: String) {
+    /// Asks whether to delete the files `asked` for good, because the trash refused them on a
+    /// network or cloud mount of type `kind`.
+    pub(crate) fn confirm_delete_instead(&mut self, asked: Asked, kind: String) {
+        self.keep(asked);
         self.confirm_delete = Some(false);
         self.trash_refused = Some(kind);
         self.delete_shown = None;
@@ -150,15 +191,10 @@ impl Dialogs {
         self.prompt.is_some() || self.confirm_delete.is_some()
     }
 
-    /// The files asked about, by their names, and where the list was when asked.
-    pub(crate) fn asked_about(
-        &mut self,
-        place: u64,
-        names: Vec<OsString>,
-        left_out: Option<String>,
-    ) {
-        self.asked_for = (place, names);
-        self.asked_left_out = left_out;
+    /// Keeps the files `asked` for the dialog that opens about them.
+    fn keep(&mut self, asked: Asked) {
+        self.asked_for = (asked.place, asked.names);
+        self.asked_left_out = asked.left_out;
     }
 
     /// Returns how many selected files the search hid and the question leaves out, as said when
@@ -222,12 +258,13 @@ impl Dialogs {
 }
 
 impl crate::App {
-    /// Asks for Rename Many's pattern for the files asked about. The file system of the first
+    /// Asks for Rename Many's pattern for the files `asked`. The file system of the first
     /// file's folder is looked up here, once, for the preview of its new name.
-    pub(crate) fn ask_rename_many(&mut self) {
-        let first = (self.dialogs.asked_names().first()).map(|n| self.folder.dir().join(n));
+    pub(crate) fn ask_rename_many(&mut self, asked: Asked) {
+        let first = (asked.names.first()).map(|n| self.folder.dir().join(n));
         self.dialogs.fat = first.as_deref().and_then(Path::parent).and_then(fat_type);
-        self.dialogs.ask(Prompt::RenameMany, "*_###".into());
+        self.dialogs
+            .ask_about(asked, Prompt::RenameMany, "*_###".into());
     }
 
     /// Run zenity's (or kdialog's) file dialog in its own thread so the window does not freeze.
@@ -1015,12 +1052,13 @@ mod tests {
         let (mut app, ctx) = app_on(&d);
         let listed = |a: &crate::App| !a.list.files().is_empty();
         assert!(crate::support::test_support::settle(&mut app, &ctx, listed));
-        app.ask_about_targets();
         test_mount(&d, Some("ext4"));
-        app.ask_rename_many();
+        let asked = app.ask_about_targets().unwrap();
+        app.ask_rename_many(asked);
         assert_eq!(app.dialogs.fat, None);
         test_mount(&d, Some("vfat"));
-        app.ask_rename_many();
+        let asked = app.ask_about_targets().unwrap();
+        app.ask_rename_many(asked);
         test_mount(&d, None);
         let fat = app.dialogs.fat.as_deref();
         assert_eq!(fat, Some("vfat"));
@@ -1043,8 +1081,9 @@ mod tests {
         let (mut app, ctx) = app_on(&dir);
         // Only whether the dialog answers is tested here: what it then deletes is
         // file_ops.rs's `asks_to_delete_for_good_what_the_trash_refused_on_a_network_mount`.
-        app.dialogs.asked_about(0, vec!["a.png".into()], None);
-        app.dialogs.confirm_delete_instead("fuse.rclone".into());
+        let asked = super::Asked::new(0, vec!["a.png".into()], None);
+        app.dialogs
+            .confirm_delete_instead(asked, "fuse.rclone".into());
         // Each key is (pressed, repeat). egui takes a press of a key that is down as a repeat.
         let enter_at = |app: &mut crate::App, time: f64, keys: &[(bool, bool)]| {
             let key = |&(pressed, repeat)| egui::Event::Key {

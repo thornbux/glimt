@@ -15,7 +15,7 @@ use crate::support::lang::tr;
 use crate::support::threads::{Receiving, Took, Working};
 use crate::ui::actions::Action;
 use crate::ui::dialogs::Pick;
-use crate::ui::dialogs::Prompt;
+use crate::ui::dialogs::{Asked, Prompt};
 use crate::{
     files::journal, images::decode, metadata::exif, metadata::xmp, model::collections, tf,
 };
@@ -418,8 +418,8 @@ impl crate::App {
         } else {
             self.config.confirm_delete
         } {
-            if self.ask_about_targets() {
-                self.dialogs.confirm_delete(trash);
+            if let Some(asked) = self.ask_about_targets() {
+                self.dialogs.confirm_delete(asked, trash);
             }
         } else if let Some(targets) = self.targets() {
             self.delete_now(ctx, trash, targets);
@@ -440,18 +440,15 @@ impl crate::App {
         place.finish()
     }
 
-    /// Keeps the targets' names when a dialog about them opens. A folder that another program
-    /// writes to is read again every second, and that can give them other places in the list.
-    /// Returns false, with a notice, when there are no targets, and the dialog must not open.
-    pub(crate) fn ask_about_targets(&mut self) -> bool {
-        let Some(targets) = self.targets() else {
-            return false;
-        };
+    /// Takes the targets' names for a dialog about them, which needs them to open. A folder
+    /// that another program writes to is read again every second, and that can give them other
+    /// places in the list. Returns `None`, with a notice, when there are no targets, and the
+    /// dialog must not open.
+    pub(crate) fn ask_about_targets(&mut self) -> Option<Asked> {
+        let targets = self.targets()?;
         let names = targets.iter().map(|&i| self.list.files()[i].clone());
         let left_out = self.left_out();
-        self.dialogs
-            .asked_about(self.list_place(), names.collect(), left_out);
-        true
+        Some(Asked::new(self.list_place(), names.collect(), left_out))
     }
 
     /// The places now of the files the dialog asked about that are still in the list. Returns
@@ -822,8 +819,8 @@ impl crate::App {
         if names.is_empty() {
             return;
         }
-        self.dialogs.asked_about(self.list_place(), names, None);
-        self.dialogs.confirm_delete_instead(kind);
+        let asked = Asked::new(self.list_place(), names, None);
+        self.dialogs.confirm_delete_instead(asked, kind);
     }
 
     /// Brings along what Glimt keeps about files or folders that were moved or renamed
@@ -1761,9 +1758,9 @@ impl crate::App {
             .get(self.list.cur())
             .and_then(|f| Path::new(f).file_name())
             .map(|n| n.to_string_lossy().into_owned())
-            && self.ask_about_targets()
+            && let Some(asked) = self.ask_about_targets()
         {
-            self.dialogs.ask(Prompt::Rename, name);
+            self.dialogs.ask_about(asked, Prompt::Rename, name);
         }
     }
 }
