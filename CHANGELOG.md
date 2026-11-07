@@ -5,6 +5,22 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.70.0] - 2026-11-07
+
+### Added
+
+- When the search hides some of the selected files, the status bar counts them ("2 selected but
+  hidden by the search"), and Delete's question says how many it leaves out. An action on the
+  selection acts on the files the search shows, as before (#80).
+
+### Fixed
+
+- A test of `--remote-all` that failed now and then while another test started a process.
+
+### Changed
+
+- A new screenshot for the website: the thumbnails in the image area (G).
+
 ## [0.69.0] - 2026-11-07
 
 The findings of a full audit of 0.68.0, fixed by class, and the hardening of #79.
