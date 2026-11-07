@@ -946,9 +946,8 @@ fn images_are_turned_after_they_shrink() {
         (
             "load_icc(",
             &[
-                ("images/decode.rs", "each_frame"),
+                ("images/decode.rs", "load_page"),
                 ("images/save.rs", "save_rotated"),
-                ("images/save.rs", "pixels"),
             ],
         ),
     ];
@@ -1077,7 +1076,9 @@ fn a_home_ends_at_the_next_top_level_item() {
 /// and showed a PNG with its orientation in a text chunk unturned. The view's Adobe RGB check
 /// takes the same block as its orientation, and the colour line reads it through `decoded`
 /// too, so a PNG with its ColorSpace only in a text chunk is shown and named as Adobe RGB. A
-/// RAW's preview is a JPEG, read on its own.
+/// RAW's preview is a JPEG, read on its own. A copy or an exported frame reads a page through
+/// `decode::load_page`, which gives every page with its own ICC profile. Before, a later page
+/// of a TIFF was read without it.
 #[test]
 fn derived_files_take_metadata_in_one_place() {
     const HOMES: &[(&str, &[(&str, &str)])] = &[
@@ -1106,6 +1107,13 @@ fn derived_files_take_metadata_in_one_place() {
             &[
                 ("metadata/exif.rs", "stored_orientation"),
                 ("images/raw.rs", "unturned"),
+            ],
+        ),
+        (
+            "page_of(",
+            &[
+                ("images/decode.rs", "decode"),
+                ("images/decode.rs", "load_page"),
             ],
         ),
         ("png_with_xmp(", &[("images/save.rs", "encode")]),

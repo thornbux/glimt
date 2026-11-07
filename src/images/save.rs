@@ -299,12 +299,7 @@ pub fn copy_bytes(path: &Path, how: &CopyAs) -> Result<(Vec<u8>, Format), String
 /// turned as shown, the part, and smaller. Every copy of the shown image starts from these,
 /// whether it is saved or put on the clipboard.
 fn pixels(path: &Path, how: &CopyAs) -> Result<(image::DynamicImage, Option<Vec<u8>>), String> {
-    // A later page is read as the view decodes it, because the image crate reads only the
-    // first.
-    let (img, icc) = match how.page {
-        0 => load_icc(path, how.rotate)?,
-        page => (crate::images::decode::page_of(path, page)?, None),
-    };
+    let (img, icc) = crate::images::decode::load_page(path, how.page, how.rotate)?;
     let mut img = turned(img, how.turns, how.mirrored);
     if let Some([x, y, width, height]) = how.crop {
         if width == 0 || height == 0 || x + width > img.width() || y + height > img.height() {
