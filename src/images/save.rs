@@ -604,14 +604,18 @@ fn derive_sidecar(
     })
 }
 
-/// Leaves the property `name` out of `xmp`, written as an attribute (` name="…"`) or as an
-/// element (`<name …>…</name>` or `<name …/>`). A property that is cut off is left as it is, and
+/// Leaves the property `name` out of `xmp`, written as an attribute (` name="…"` or with single
+/// quotes) or as an element (`<name …>…</name>` or `<name …/>`), every time it is there. An
+/// element goes with the white space before it, so a sidecar written again and again does not
+/// gather empty lines. Every XMP editor that replaces a property takes the old one out here, as
+/// a search for one spelling misses the others (`xmp:Rating='3'`) and leaves the property
+/// twice. A property that is cut off is left as it is, and
 /// so is one in a comment or one whose element would reach into a comment. The packet is copied
 /// once, and each search goes on from where the last one ended (`Next`), so a hostile packet
 /// takes linear time. Before, each property left out moved the rest of the packet, and each
 /// element without its end tag searched to the end again, both quadratic, and a
 /// `<!--<xmp:Thumbnails>-->` comment was cut to the next end tag, which left the packet broken.
-fn without(xmp: &[u8], name: &[u8]) -> Vec<u8> {
+pub(crate) fn without(xmp: &[u8], name: &[u8]) -> Vec<u8> {
     let end_tag = [&b"</"[..], name, b">"].concat();
     let [mut names, mut gts, mut ends] = [
         Next::new(xmp, name),
@@ -668,7 +672,11 @@ fn without(xmp: &[u8], name: &[u8]) -> Vec<u8> {
         // A cut that would reach into a comment is not made.
         match cut.filter(|&stop| opens.at(at).is_none_or(|open| open >= stop)) {
             Some(stop) => {
-                out.extend_from_slice(&xmp[copied..at - 1]);
+                let mut start = at - 1;
+                if xmp[start] == b'<' {
+                    start = copied + xmp[copied..start].trim_ascii_end().len();
+                }
+                out.extend_from_slice(&xmp[copied..start]);
                 (copied, from) = (stop, stop);
             }
             None => from = end,
