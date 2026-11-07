@@ -294,7 +294,9 @@ impl crate::App {
         let checked = (0..self.list.files().len())
             .filter(|&i| dups.checked.contains(&self.path(i)))
             .collect();
-        self.set_selection(ctx, checked);
+        if !self.select_for_action(ctx, checked) {
+            return;
+        }
         // With none selected the delete takes the shown image: only when the list still has
         // every checked file, else it would be another one, or too few.
         if self.list.selected().len() == dups.checked.len() {
@@ -700,6 +702,28 @@ fn in_block(
 
 #[cfg(test)]
 mod tests {
+    /// Move to Trash with a checked file that the search hides trashes nothing, says why, and
+    /// leaves the selection as it was. It said the checked files were no longer in the list,
+    /// and the user's selection was gone.
+    #[test]
+    fn checked_files_the_search_hides_are_not_trashed() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-dup-hid-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let (mut app, ctx) = crate::support::test_support::app_on(&dir);
+        app.list
+            .set_files(["a.png", "b.png", "c.png"].map(Into::into).to_vec());
+        app.list.select([2].into());
+        app.list.set_matches(Some(vec![1, 2]));
+        let mut dups = super::Dups::new();
+        dups.checked = [dir.join("a.png"), dir.join("b.png")].into();
+        app.trash_checked(&ctx, &dups);
+        let hides = "The search hides files this would act on: clear it first";
+        assert_eq!(app.notice.as_deref(), Some(crate::support::lang::tr(hides)));
+        assert_eq!(app.list.selected(), &[2].into());
+        assert!(!app.asking_about_selection());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
     /// One file that breaks its reader is left out alone; every other file keeps its result,
     /// and the count of files done still reaches the total.
     #[test]

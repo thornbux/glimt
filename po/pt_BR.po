@@ -2846,3 +2846,7 @@ msgstr "Um sistema de arquivos {kind}, como o de um cartão de câmera, não per
 #: src/ui/menus.rs
 msgid "Thumbnail Size"
 msgstr "Tamanho das miniaturas"
+
+#: src/model/selection.rs
+msgid "The search hides files this would act on: clear it first"
+msgstr "A busca oculta arquivos aos quais isto se aplicaria: limpe-a primeiro"

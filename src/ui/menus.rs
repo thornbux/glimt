@@ -564,7 +564,10 @@ impl crate::App {
             let Some(k) = chosen.filter(|_| !self.list.files().is_empty()) else {
                 return;
             };
-            let files: Vec<PathBuf> = self.targets().iter().map(|&i| self.path(i)).collect();
+            let Some(targets) = self.targets() else {
+                return;
+            };
+            let files: Vec<PathBuf> = targets.iter().map(|&i| self.path(i)).collect();
             // A turned image still being saved would be written over the plugin's edit. The
             // files are held while the plugin runs, so a delete, move or rename of them waits.
             let Some(hold) = self.hold(files.clone()) else {
@@ -624,10 +627,11 @@ impl crate::App {
             #[cfg(feature = "portals")]
             if apps.is_empty() && crate::files::external::in_flatpak() {
                 // The Flatpak, without the host's applications: the desktop's own chooser.
-                if icon_button(ui, theme::icon::APP, tr("Choose Application…")).clicked() {
+                if icon_button(ui, theme::icon::APP, tr("Choose Application…")).clicked()
+                    && let Some(targets) = self.targets()
+                {
                     // Each selected file (or the shown one), the chooser asking for each.
-                    let files: Vec<PathBuf> =
-                        self.targets().iter().map(|&i| self.path(i)).collect();
+                    let files: Vec<PathBuf> = targets.iter().map(|&i| self.path(i)).collect();
                     let tx = self.notices_tx.clone();
                     std::thread::spawn(move || {
                         // Cancel ends them all, not only the one asked about.
@@ -651,8 +655,10 @@ impl crate::App {
                     chosen = Some(desktop.clone());
                 }
             }
-            if let Some(desktop) = chosen {
-                let files: Vec<PathBuf> = self.targets().iter().map(|&i| self.path(i)).collect();
+            if let Some(desktop) = chosen
+                && let Some(targets) = self.targets()
+            {
+                let files: Vec<PathBuf> = targets.iter().map(|&i| self.path(i)).collect();
                 let tx = self.notices_tx.clone();
                 // The chosen application may stay open, so it is waited for in a thread of its own.
                 std::thread::spawn(move || {

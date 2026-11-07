@@ -2835,3 +2835,7 @@ msgstr "{kind}-skráakerfi, eins og á minniskorti myndavélar, leyfir ekkert af
 #: src/ui/menus.rs
 msgid "Thumbnail Size"
 msgstr "Stærð smámynda"
+
+#: src/model/selection.rs
+msgid "The search hides files this would act on: clear it first"
+msgstr "Leitin felur skrár sem þetta myndi ná til: hreinsaðu hana fyrst"

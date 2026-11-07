@@ -139,6 +139,12 @@ impl List {
         &self.held_back
     }
 
+    /// Returns whether every selected file is one the search hides. An action on the
+    /// selection then acts on nothing, not on the shown image in their place.
+    pub(crate) fn only_held_back(&self) -> bool {
+        self.selected.is_empty() && !self.held_back.is_empty()
+    }
+
     /// The selected files and those the search holds back, which a new list selects again by
     /// name and a rectangle drawn with Ctrl adds to.
     pub(crate) fn selected_and_held(&self) -> std::collections::BTreeSet<usize> {
@@ -287,7 +293,7 @@ impl List {
 
     /// Returns whether the list shows the file at `i`. While searching, that is whether the
     /// file is a match.
-    fn shows(&self, i: usize) -> bool {
+    pub(crate) fn shows(&self, i: usize) -> bool {
         self.matches.is_none() || self.is_match.get(i).copied().unwrap_or(false)
     }
 
@@ -302,6 +308,19 @@ impl List {
         self.clear_selection();
         self.set_selected(i, true);
         self.anchor = Some(i);
+    }
+
+    /// A right-click on the file at `i`. It selects that file alone when it is outside the
+    /// selection, as in a file manager, so the menu acts on it. The shown image counts as
+    /// selected only while nothing else is, also among the files the search hides. Returns
+    /// whether the selection changed.
+    pub(crate) fn right_click(&mut self, i: usize) -> bool {
+        let others = !self.selected.is_empty() || !self.held_back.is_empty();
+        let outside = !self.selected.contains(&i) && (i != self.cur || others);
+        if outside {
+            self.select_one(i);
+        }
+        outside
     }
 
     /// Selects the file at `i`, or takes it out of the selection when it was in it.

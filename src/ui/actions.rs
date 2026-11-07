@@ -895,8 +895,9 @@ impl crate::App {
             Action::OpenFolders => self.pick(ctx, true, Pick::Folders),
             Action::OpenRecursive => self.pick(ctx, true, Pick::Recursive),
             Action::NewCollection => {
-                self.ask_about_targets();
-                self.dialogs.ask(Prompt::NewCollection, String::new());
+                if self.ask_about_targets() {
+                    self.dialogs.ask(Prompt::NewCollection, String::new());
+                }
             }
             Action::OpenCollection => self.pick(ctx, false, Pick::Collection),
             Action::ImportLightroom => self.pick(ctx, false, Pick::Lightroom),
@@ -918,9 +919,11 @@ impl crate::App {
                 }
             }
             Action::MoveEarlier | Action::MoveLater | Action::MoveFirst | Action::MoveLast => {
-                let picked: HashSet<usize> = self.targets().into_iter().collect();
-                let order = collections::moved(self.list.files().len(), &picked, action);
-                self.move_in_collection(ctx, picked, order)
+                if let Some(picked) = self.targets() {
+                    let picked: HashSet<usize> = picked.into_iter().collect();
+                    let order = collections::moved(self.list.files().len(), &picked, action);
+                    self.move_in_collection(ctx, picked, order)
+                }
             }
             Action::FindDuplicates => drop(self.dups.get_or_insert_with(Dups::new)),
             Action::CheckImages => drop(self.check.get_or_insert(None)),
@@ -1073,9 +1076,10 @@ impl crate::App {
                 self.pick(ctx, true, Pick::ExportFrames(self.path(self.list.cur())));
             }
             Action::SaveFrame | Action::ExportFrames => {}
-            Action::Rename if self.targets().len() > 1 => {
-                self.ask_about_targets();
-                self.ask_rename_many();
+            Action::Rename if self.list.selected().len() > 1 => {
+                if self.ask_about_targets() {
+                    self.ask_rename_many();
+                }
             }
             Action::Rename => self.start_rename(ctx),
             // A separate process: windows share nothing but the config file.
@@ -1147,7 +1151,10 @@ impl crate::App {
             self.set_selection(ctx, picked);
             return;
         }
-        let paths: Vec<PathBuf> = self.targets().iter().map(|&i| self.path(i)).collect();
+        let Some(targets) = self.targets() else {
+            return;
+        };
+        let paths: Vec<PathBuf> = targets.iter().map(|&i| self.path(i)).collect();
         if kind == 'm' {
             self.marks.toggle(&paths, n);
         } else {
@@ -1225,7 +1232,10 @@ impl crate::App {
     /// Select → Copy Files: the selected files (or the shown one) to the clipboard, as a file
     /// manager copies them.
     pub(crate) fn copy_files(&mut self) {
-        let paths: Vec<PathBuf> = self.targets().iter().map(|&i| self.path(i)).collect();
+        let Some(targets) = self.targets() else {
+            return;
+        };
+        let paths: Vec<PathBuf> = targets.iter().map(|&i| self.path(i)).collect();
         let result = (self.work.clipboard()).and_then(|c| c.set().file_list(&paths));
         if let Err(e) = result {
             self.notice = Some(tf!("Could not copy to the clipboard: {e}", e));

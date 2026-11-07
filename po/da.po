@@ -2835,3 +2835,7 @@ msgstr "Et {kind}-filsystem, som på hukommelseskortet i et kamera, tillader ing
 #: src/ui/menus.rs
 msgid "Thumbnail Size"
 msgstr "Miniaturestørrelse"
+
+#: src/model/selection.rs
+msgid "The search hides files this would act on: clear it first"
+msgstr "Søgningen skjuler filer, som dette ville gælde: ryd den først"
