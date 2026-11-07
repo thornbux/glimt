@@ -2840,6 +2840,14 @@ msgstr "Pienoiskuvien koko"
 msgid "The search hides files this would act on: clear it first"
 msgstr "Haku piilottaa tiedostoja, joihin tämä kohdistuisi: tyhjennä se ensin"
 
+#: src/ui/menus.rs
+msgid "{name} takes none of these files"
+msgstr "{name} ei ota mitään näistä tiedostoista"
+
+#: src/ui/menus.rs
+msgid "{name} leaves out {files} of a type it does not take"
+msgstr "{name} jättää pois {files}, joiden tyyppiä se ei ota"
+
 #: src/model/selection.rs
 msgid "Not included, as the search hides them: {files}"
 msgstr "Ei mukana, koska haku piilottaa ne: {files}"

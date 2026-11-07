@@ -2840,6 +2840,14 @@ msgstr "Stærð smámynda"
 msgid "The search hides files this would act on: clear it first"
 msgstr "Leitin felur skrár sem þetta myndi ná til: hreinsaðu hana fyrst"
 
+#: src/ui/menus.rs
+msgid "{name} takes none of these files"
+msgstr "{name} tekur enga af þessum skrám"
+
+#: src/ui/menus.rs
+msgid "{name} leaves out {files} of a type it does not take"
+msgstr "{name} sleppir {files} af tegund sem það tekur ekki"
+
 #: src/model/selection.rs
 msgid "Not included, as the search hides them: {files}"
 msgstr "Ekki með, því leitin felur þær: {files}"

@@ -2840,6 +2840,14 @@ msgstr "Grootte van miniaturen"
 msgid "The search hides files this would act on: clear it first"
 msgstr "De zoekopdracht verbergt bestanden waarop dit zou werken: wis die eerst"
 
+#: src/ui/menus.rs
+msgid "{name} takes none of these files"
+msgstr "{name} neemt geen van deze bestanden"
+
+#: src/ui/menus.rs
+msgid "{name} leaves out {files} of a type it does not take"
+msgstr "{name} slaat {files} over van een type dat het niet neemt"
+
 #: src/model/selection.rs
 msgid "Not included, as the search hides them: {files}"
 msgstr "Niet meegenomen, omdat de zoekopdracht ze verbergt: {files}"

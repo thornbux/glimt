@@ -2851,6 +2851,14 @@ msgstr "Storleik på miniatyrbilete"
 msgid "The search hides files this would act on: clear it first"
 msgstr "Søket gøymer filer dette ville gjelde: tøm det først"
 
+#: src/ui/menus.rs
+msgid "{name} takes none of these files"
+msgstr "{name} tek ingen av desse filene"
+
+#: src/ui/menus.rs
+msgid "{name} leaves out {files} of a type it does not take"
+msgstr "{name} hoppar over {files} av ein type han ikkje tek"
+
 #: src/model/selection.rs
 msgid "Not included, as the search hides them: {files}"
 msgstr "Ikkje teke med, fordi søket gøymer dei: {files}"

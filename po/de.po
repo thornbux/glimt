@@ -2840,6 +2840,14 @@ msgstr "Vorschaugröße"
 msgid "The search hides files this would act on: clear it first"
 msgstr "Die Suche verbirgt Dateien, die das betreffen würde: zuerst leeren"
 
+#: src/ui/menus.rs
+msgid "{name} takes none of these files"
+msgstr "{name} nimmt keine dieser Dateien"
+
+#: src/ui/menus.rs
+msgid "{name} leaves out {files} of a type it does not take"
+msgstr "{name} lässt {files} eines Typs aus, den es nicht nimmt"
+
 #: src/model/selection.rs
 msgid "Not included, as the search hides them: {files}"
 msgstr "Nicht einbezogen, da die Suche sie verbirgt: {files}"

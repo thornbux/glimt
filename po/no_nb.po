@@ -2851,6 +2851,14 @@ msgstr "Størrelse på miniatyrbilder"
 msgid "The search hides files this would act on: clear it first"
 msgstr "Søket skjuler filer dette ville gjelde: tøm det først"
 
+#: src/ui/menus.rs
+msgid "{name} takes none of these files"
+msgstr "{name} tar ingen av disse filene"
+
+#: src/ui/menus.rs
+msgid "{name} leaves out {files} of a type it does not take"
+msgstr "{name} hopper over {files} av en type den ikke tar"
+
 #: src/model/selection.rs
 msgid "Not included, as the search hides them: {files}"
 msgstr "Ikke tatt med, fordi søket skjuler dem: {files}"
