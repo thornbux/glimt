@@ -24,6 +24,9 @@ cd "$(git rev-parse --show-toplevel)"
 # never removes, as the image has a name. They go however the run ends.
 image=glimt-release-tests:$$
 leave() {
+    # The trap runs under set -e, and GNU xargs runs docker rm once without names when no
+    # container is left, which fails, so without this the image would never be removed.
+    set +e
     # By the whole name, so another run's containers, of a pid that starts with this one's, stay.
     docker ps -a --format '{{.Names}}' | grep -E "^glimt-release-tests-$$(-[a-z0-9]+)?\$" |
         xargs docker rm -f >/dev/null 2>&1

@@ -2149,16 +2149,19 @@ fn file_id(path: &Path) -> Option<FileId> {
     Some((key, m.len(), (m.mtime(), m.mtime_nsec())))
 }
 
-/// Whether ids `a` and `b` are of the same file. It is so on the same device when the inode is
-/// the same, or when the size and modification time are, as an inode may change on FAT. Where
-/// the file system gives no inode, only the size and modification time can say it.
+/// Whether ids `a` and `b` are of the same file, the one rule Undo tells its own file by. The
+/// size and modification time must be the same, and the device too, or both have no inode.
+/// The inode alone says nothing: a file system gives a freed inode to the next new file, so a
+/// file copied in at the name after the first one was deleted may have the same inode. The
+/// inode itself may differ, as FAT gives the same file another one later. Glimt's own rewrites
+/// of the file (a turn saved) update the id through `written_anew`, so they still match.
 fn same_id(a: FileId, b: FileId) -> bool {
-    let stamp = (a.1, a.2) == (b.1, b.2);
-    match (a.0, b.0) {
-        (Some(x), Some(y)) => x.0 == y.0 && (x.1 == y.1 || stamp),
-        (None, None) => stamp,
-        _ => false,
-    }
+    (a.1, a.2) == (b.1, b.2)
+        && match (a.0, b.0) {
+            (Some(x), Some(y)) => x.0 == y.0,
+            (None, None) => true,
+            _ => false,
+        }
 }
 
 /// Checks that every name in the way of a rename is one of the files being renamed, under a
@@ -3104,18 +3107,21 @@ mod tests {
             std::env::temp_dir().join(format!("glimt-test-undo-every-{}", std::process::id()));
         std::fs::create_dir_all(dir.join("sub")).unwrap();
         let (mut app, ctx) = app_on(&dir);
-        let replace = |path: &std::path::Path| {
+        // In place, the other file keeps the inode, as a freed inode goes to the next new file.
+        let replace = |path: &std::path::Path, in_place: bool| {
+            if in_place {
+                std::fs::write(path, b"another").unwrap();
+                return;
+            }
             std::fs::write(dir.join("new"), b"another").unwrap();
             std::fs::rename(dir.join("new"), path).unwrap();
         };
         let refused =
             |app: &crate::App| (app.notice.as_deref()).is_some_and(|n| n.contains("Undo failed"));
-        for (kind, saved_first) in [
-            ("move", false),
-            ("move", true),
-            ("rename", false),
-            ("rename", true),
-        ] {
+        let cases = ["move", "rename"].into_iter().flat_map(|kind| {
+            [(false, false), (true, false), (false, true)].map(|(s, i)| (kind, s, i))
+        });
+        for (kind, saved_first, in_place) in cases {
             let a = dir.join("a.png");
             image::RgbImage::new(2, 2).save(&a).unwrap();
             let now = match kind {
@@ -3135,12 +3141,19 @@ mod tests {
                 std::fs::rename(dir.join("turned"), &now).unwrap();
                 app.written_anew(std::slice::from_ref(&now));
             }
-            replace(&now);
+            replace(&now, in_place);
             app.notice = None;
             app.undo(&ctx);
             assert!(settle(&mut app, &ctx, |app| !app.working() && refused(app)));
-            assert!(!a.exists(), "{kind}: the other file was put back as a.png");
-            assert_eq!(std::fs::read(&now).unwrap(), b"another", "{kind}");
+            assert!(
+                !a.exists(),
+                "{kind}, in place {in_place}: the other file was put back as a.png"
+            );
+            assert_eq!(
+                std::fs::read(&now).unwrap(),
+                b"another",
+                "{kind}, in place {in_place}"
+            );
             std::fs::remove_file(&now).unwrap();
         }
         std::fs::remove_dir_all(dir).unwrap();
@@ -3258,6 +3271,11 @@ mod tests {
         assert!(!super::same_id(
             (Some((1, 2)), 1, (5, 0)),
             (Some((2, 2)), 1, (5, 0))
+        ));
+        // A freed inode given to another file at the name is not the moved file.
+        assert!(!super::same_id(
+            (Some((1, 2)), 1, (5, 0)),
+            (Some((1, 2)), 7, (9, 0))
         ));
     }
 
