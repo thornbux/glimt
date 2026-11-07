@@ -773,7 +773,9 @@ impl crate::App {
                 &mut c.animate
             }
             Action::SortManager => &mut c.sort_manager,
-            _ => &mut c.exif_panel,
+            Action::ExifPanel => &mut c.exif_panel,
+            // Another action has no setting here, and must not flip one.
+            _ => return,
         };
         *flag = !*flag;
         c.save();
@@ -1060,5 +1062,20 @@ mod tests {
         assert_eq!(answer(&mut open_with, "jpg", one), one());
         // A found application is kept, and not asked about again.
         assert_eq!(answer(&mut open_with, "jpg", Vec::new), one());
+    }
+
+    /// An action that is not a View toggle changes no setting. Any action it did not know
+    /// turned the EXIF panel on or off.
+    #[test]
+    fn only_a_view_toggle_changes_its_setting() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-toggle-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let (mut app, _ctx) = crate::support::test_support::app_on(&dir);
+        let panel = app.config.exif_panel;
+        app.toggle_setting(Action::Next);
+        assert_eq!(app.config.exif_panel, panel);
+        app.toggle_setting(Action::ExifPanel);
+        assert_eq!(app.config.exif_panel, !panel);
+        std::fs::remove_dir_all(dir).unwrap();
     }
 }
