@@ -11,10 +11,10 @@ use std::sync::Mutex;
 use std::time::Instant;
 
 /// How long the mouse is still in full screen before the pointer hides.
-const POINTER_STILL: std::time::Duration = std::time::Duration::from_secs(2);
+const HIDE_POINTER_AFTER: std::time::Duration = std::time::Duration::from_secs(2);
 
 /// What ends a screen saver inhibitor: its process killed, or the portal's request closed.
-pub(crate) type Ender = Box<dyn FnOnce() + Send>;
+pub(crate) type InhibitorStop = Box<dyn FnOnce() + Send>;
 
 /// The window: its state remembered, the kiosk, the projector, the screen saver, the pointer and
 /// the title.
@@ -22,9 +22,9 @@ pub(crate) struct Window {
     /// Window geometry seen in the last frame, saved at exit.
     state: WindowState,
     /// --kiosk: full screen, only the image, only actions that show and browse.
-    kiosk: bool,
+    is_kiosk: bool,
     /// `--remote quit` came: a kiosk may close.
-    kiosk_quit: bool,
+    kiosk_may_quit: bool,
     /// Window → Projector: a second window with only the image, following this one.
     projector: bool,
     /// The projector's image area in pixels, which images are decoded to cover too.
@@ -32,25 +32,26 @@ pub(crate) struct Window {
     /// The screen saver inhibitor running while in full screen, and how many times full screen
     /// was turned on or off: the inhibitor is looked for and started in a thread, and one that
     /// comes after full screen ended again is ended at once.
-    inhibitor: Arc<Mutex<(u64, Option<Ender>)>>,
+    inhibitor: Arc<Mutex<(u64, Option<InhibitorStop>)>>,
     /// Whether it was asked for: tried once, not on every frame where none could be started.
-    inhibit_on: bool,
+    inhibit_asked: bool,
     /// Since when the pointer has been away from an open menu of the menu bar.
-    menu_away: Option<Instant>,
+    pointer_left_menu_at: Option<Instant>,
     /// The window had the focus last frame; getting it makes this Glimt the one `--remote`
     /// talks to.
     has_focus: bool,
-    /// When the mouse last moved, or full screen began: the pointer hides after `POINTER_STILL`.
+    /// When the mouse last moved, or full screen began. The pointer hides
+    /// `HIDE_POINTER_AFTER` later.
     pointer_moved: std::time::Instant,
     /// Window → Set Window Title: this window's title template; empty, the one in Preferences.
-    title: String,
+    title_template: String,
     /// Close asked for while files were being written (`is_writing`): 1, it waits for them; 2,
     /// they are stopped after the file at hand and it waits for that; a third close ends at once.
-    closing: u8,
+    close_requests: u8,
     /// The image and turn that a close last tried to save. A close saves a turn only when it
     /// differs, so a failed save is not tried again at every close, but a newer turn is saved.
     /// A save that worked forgets it, so the same turn made again is saved too.
-    close_saved: Option<(std::path::PathBuf, (u8, bool))>,
+    turn_tried_at_close: Option<(std::path::PathBuf, (u8, bool))>,
 }
 
 impl Window {
@@ -58,35 +59,35 @@ impl Window {
     pub(crate) fn new(kiosk: bool) -> Self {
         Window {
             state: WindowState::default(),
-            kiosk,
-            kiosk_quit: false,
+            is_kiosk: kiosk,
+            kiosk_may_quit: false,
             projector: false,
             projector_size: [0, 0],
             inhibitor: Arc::default(),
-            inhibit_on: false,
-            menu_away: None,
+            inhibit_asked: false,
+            pointer_left_menu_at: None,
             has_focus: true,
             pointer_moved: Instant::now(),
-            title: String::new(),
-            closing: 0,
-            close_saved: None,
+            title_template: String::new(),
+            close_requests: 0,
+            turn_tried_at_close: None,
         }
     }
 
     pub(crate) fn is_kiosk(&self) -> bool {
-        self.kiosk
+        self.is_kiosk
     }
 
     /// `--remote quit` came, or Ctrl+Q where it cannot: a kiosk may close.
     pub(crate) fn let_kiosk_quit(&mut self) {
-        self.kiosk_quit = true;
+        self.kiosk_may_quit = true;
     }
 
     /// Whether `action` may run: a kiosk shows and browses, and does not change files, settings
     /// or the window. Once it may close, Quit passes too, but nothing else does.
     pub(crate) fn allows(&self, action: Action) -> bool {
-        let quits = action == Action::Quit && self.kiosk_quit;
-        !self.kiosk || KIOSK_ACTIONS.contains(&action) || quits
+        let quits = action == Action::Quit && self.kiosk_may_quit;
+        !self.is_kiosk || KIOSK_ACTIONS.contains(&action) || quits
     }
 
     /// Window → Projector, open or closed; its size is learnt anew.
@@ -121,23 +122,23 @@ impl Window {
     }
 
     /// Window → Set Window Title's template for this window; empty, the one in Preferences.
-    pub(crate) fn title(&self) -> &str {
-        &self.title
+    pub(crate) fn title_template(&self) -> &str {
+        &self.title_template
     }
 
     /// How many times closing was asked for while files were being written.
-    pub(crate) fn closes_asked(&self) -> u8 {
-        self.closing
+    pub(crate) fn close_requests(&self) -> u8 {
+        self.close_requests
     }
 
     /// Forgets the turn a close tried to save, because a save worked. A turn made after it,
     /// also the same one again, is then saved at the next close.
-    pub(crate) fn turn_saved(&mut self) {
-        self.close_saved = None;
+    pub(crate) fn forget_turn_tried_at_close(&mut self) {
+        self.turn_tried_at_close = None;
     }
 
     /// The window has the focus or not; true when it just got it.
-    pub(crate) fn focus(&mut self, focus: bool) -> bool {
+    pub(crate) fn set_focused(&mut self, focus: bool) -> bool {
         let gained = focus && !self.has_focus;
         self.has_focus = focus;
         gained
@@ -145,7 +146,7 @@ impl Window {
 
     /// Closes an open menu of the menu bar when the pointer has stayed away from it.
     pub(crate) fn close_menus(&mut self, ctx: &egui::Context, bar: egui::Rect) {
-        crate::ui::menus::close_menus(ctx, bar, &mut self.menu_away);
+        crate::ui::menus::close_menus(ctx, bar, &mut self.pointer_left_menu_at);
     }
 }
 
@@ -154,7 +155,7 @@ impl crate::App {
     /// window's size and place; whether the window is full screen.
     pub(crate) fn track_window(&mut self, ctx: &egui::Context) -> bool {
         let fullscreen = ctx.input(|i| i.viewport().fullscreen).unwrap_or(false);
-        if self.window.kiosk && !self.window.kiosk_quit {
+        if self.window.is_kiosk && !self.window.kiosk_may_quit {
             // Closing the window is refused, and full screen comes back if the desktop ends it.
             if ctx.input(|i| i.viewport().close_requested()) {
                 ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
@@ -174,8 +175,8 @@ impl crate::App {
                 self.viewing.turned_file().to_path_buf(),
                 self.viewing.turn(),
             ));
-            if self.config.save_orientation && self.window.close_saved != shown {
-                self.window.close_saved = shown;
+            if self.config.save_orientation && self.window.turn_tried_at_close != shown {
+                self.window.turn_tried_at_close = shown;
                 self.save_orientation(ctx);
             }
         }
@@ -183,15 +184,15 @@ impl crate::App {
         // halfway; a second close stops them after the file at hand, a third does not wait.
         if ctx.input(|i| i.viewport().close_requested())
             && self.is_writing()
-            && self.window.closing < 2
+            && self.window.close_requests < 2
         {
             ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
-            self.window.closing += 1;
-            if self.window.closing == 2 {
+            self.window.close_requests += 1;
+            if self.window.close_requests == 2 {
                 self.file_operations.stop_jobs();
             }
             self.notice = Some(
-                match self.window.closing {
+                match self.window.close_requests {
                     1 => crate::support::lang::tr(
                         "Glimt closes when the file operations are done; close again to stop them",
                     ),
@@ -232,10 +233,10 @@ impl crate::App {
     /// The inhibitor runs `cat` on a pipe from Glimt, so it ends with Glimt even after a crash. In
     /// the Flatpak, which has neither, the inhibit portal, held by a connection of Glimt's.
     pub(crate) fn inhibit(&mut self, on: bool) {
-        if on == self.window.inhibit_on {
+        if on == self.window.inhibit_asked {
             return;
         }
-        self.window.inhibit_on = on;
+        self.window.inhibit_asked = on;
         let mut held = self
             .window
             .inhibitor
@@ -278,7 +279,7 @@ impl crate::App {
                 .and_then(|held| held.map_err(|e| eprintln!("inhibit portal: {e}")).ok());
             #[cfg(not(feature = "portals"))]
             let portal: Option<std::sync::mpsc::Sender<()>> = None;
-            let end: Ender = if let Some(held) = portal {
+            let end: InhibitorStop = if let Some(held) = portal {
                 Box::new(move || drop(held))
             } else {
                 let found = commands.iter().find(|c| external::host_has_program(c[0]));
@@ -311,15 +312,15 @@ impl crate::App {
         });
     }
 
-    pub(crate) fn title(&self, ctx: &egui::Context) {
+    pub(crate) fn update_window_title(&self, ctx: &egui::Context) {
         ctx.send_viewport_cmd(egui::ViewportCommand::Title(self.title_text()));
     }
 
     /// Window → Set Window Title: this window's own template, until it closes; empty, the one
     /// in Preferences again.
     pub(crate) fn set_window_title(&mut self, ctx: &egui::Context, template: &str) {
-        self.window.title = template.to_owned();
-        self.title(ctx);
+        self.window.title_template = template.to_owned();
+        self.update_window_title(ctx);
     }
 
     /// "image name - Glimt" (or "Glimt - image name", Preferences); the folder when it has no
@@ -358,7 +359,7 @@ impl crate::App {
             Some(n) => tf!("Glimt ({n})", n),
             None => "Glimt".to_owned(),
         };
-        let template = match self.window.title.as_str() {
+        let template = match self.window.title_template.as_str() {
             "" => &self.config.window_title,
             own => own,
         };
@@ -379,7 +380,7 @@ impl crate::App {
     }
 
     /// In full screen, with the setting on, the pointer hidden once the mouse has been still for
-    /// `POINTER_STILL`; never while work goes on (the busy pointer shows it; the shown image
+    /// `HIDE_POINTER_AFTER`; never while work goes on (the busy pointer shows it; the shown image
     /// decoded does not count, or it would flash at each image of a slideshow), nor while a window,
     /// menu or popup shows (Help, the EXIF window, pan view, a dialog): one reads it, and wants
     /// the pointer there at once.
@@ -396,10 +397,10 @@ impl crate::App {
             // A job may end without a repaint; look again, for the pointer to hide then.
             ctx.request_repaint_after(std::time::Duration::from_millis(500));
         }
-        if !self.pointer_hides(fullscreen) || window_shown(ctx) {
+        if !self.pointer_hides(fullscreen) || is_window_visible(ctx) {
             return;
         }
-        match POINTER_STILL.checked_sub(self.window.pointer_moved.elapsed()) {
+        match HIDE_POINTER_AFTER.checked_sub(self.window.pointer_moved.elapsed()) {
             Some(left) if !left.is_zero() => ctx.request_repaint_after(left),
             _ => ctx.set_cursor_icon(egui::CursorIcon::None),
         }
@@ -434,7 +435,7 @@ impl crate::App {
 
 /// Whether a window, menu or popup was on the screen in this frame or the last; the panels
 /// of the main window do not count.
-fn window_shown(ctx: &egui::Context) -> bool {
+fn is_window_visible(ctx: &egui::Context) -> bool {
     use egui::Order::{Foreground, Middle};
     ctx.memory(|m| {
         (m.areas().visible_layer_ids().iter()).any(|l| matches!(l.order, Middle | Foreground))
@@ -567,7 +568,7 @@ mod tests {
                     eframe::egui::Window::new("Help").show(ui.ctx(), |ui| ui.label("text"));
                 }
             });
-            super::window_shown(&ctx)
+            super::is_window_visible(&ctx)
         };
         assert!(!pass(false) && !pass(false));
         assert!(pass(true));
@@ -576,8 +577,8 @@ mod tests {
         assert!(!pass(false));
     }
 
-    /// In full screen the pointer hides once still for `POINTER_STILL`, and comes back when the
-    /// mouse moves, outside full screen, or while a dialog is open.
+    /// In full screen the pointer hides once it has been still for `HIDE_POINTER_AFTER`, and
+    /// comes back when the mouse moves, outside full screen, or while a dialog is open.
     #[test]
     fn a_still_pointer_hides_after_the_timer() {
         use eframe::egui::{CursorIcon, Event, RawInput, pos2};
@@ -593,7 +594,7 @@ mod tests {
             let out = ctx.run_ui(input, |ui| app.hide_still_pointer(ui.ctx(), fullscreen));
             out.platform_output.cursor_icon == CursorIcon::None
         };
-        let long_ago = || std::time::Instant::now() - super::POINTER_STILL * 2;
+        let long_ago = || std::time::Instant::now() - super::HIDE_POINTER_AFTER * 2;
         // Just moved: shown, until the timer has run.
         app.window.pointer_moved = std::time::Instant::now();
         assert!(!pass(&mut app, vec![], true));
@@ -603,7 +604,7 @@ mod tests {
         let moved = |x| vec![Event::PointerMoved(pos2(x, 10.0))];
         let _ = pass(&mut app, moved(10.0), true);
         assert!(!pass(&mut app, moved(20.0), true));
-        assert!(app.window.pointer_moved.elapsed() < super::POINTER_STILL);
+        assert!(app.window.pointer_moved.elapsed() < super::HIDE_POINTER_AFTER);
         // Outside full screen it never hides, and the timer starts when full screen begins.
         app.window.pointer_moved = long_ago();
         assert!(!pass(&mut app, vec![], false));
@@ -640,7 +641,7 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let (mut app, ctx) = app_on(&dir);
         app.config.hide_pointer = true;
-        app.window.pointer_moved = std::time::Instant::now() - super::POINTER_STILL * 2;
+        app.window.pointer_moved = std::time::Instant::now() - super::HIDE_POINTER_AFTER * 2;
         let pass = |app: &mut crate::App| {
             let out = ctx.run_ui(Default::default(), |ui| {
                 app.hide_still_pointer(ui.ctx(), true)

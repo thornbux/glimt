@@ -1543,7 +1543,7 @@ impl crate::App {
             // The slideshow waits while the video plays, until P resumes it.
             if self.slideshow.is_running() {
                 self.slideshow.pause();
-                self.title(ctx);
+                self.update_window_title(ctx);
             }
         }
     }

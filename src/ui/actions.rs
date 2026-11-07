@@ -1220,7 +1220,7 @@ impl crate::App {
             Action::NewWindow => self.new_window(),
             Action::WindowTitle => {
                 self.dialogs
-                    .ask_window_title(self.window.title().to_owned());
+                    .ask_window_title(self.window.title_template().to_owned());
             }
             Action::Projector => {
                 self.window.toggle_projector();
@@ -1257,7 +1257,7 @@ impl crate::App {
             // Resuming gives the shown image the full delay again.
             Action::Pause if self.slideshow.is_running() => {
                 self.slideshow.toggle_pause();
-                self.title(ctx);
+                self.update_window_title(ctx);
             }
             Action::Pause => {}
             Action::RandomOrder => self.set_random_order(ctx, !self.config.slideshow_random),

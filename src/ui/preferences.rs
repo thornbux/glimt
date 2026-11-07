@@ -398,7 +398,7 @@ impl crate::App {
             .text(tr("seconds per image"));
         if ui.add(delay).changed() {
             changed = true;
-            self.title(ctx);
+            self.update_window_title(ctx);
         }
         let mut random = self.config.slideshow_random;
         if checkbox(ui, &mut random, tr("Random order")).changed() {
@@ -710,8 +710,8 @@ impl crate::App {
             {
                 self.set_desktop_profile(desktop, ui.ctx());
             }
-            let from_desktop =
-                (self.desktop.screen().map(str::to_owned)).filter(|_| self.config.desktop_profile);
+            let from_desktop = (self.desktop_settings.screen_profile().map(str::to_owned))
+                .filter(|_| self.config.desktop_profile);
             ui.horizontal(|ui| {
                 ui.label(tr("Screen profile:"));
                 if let Some(path) = from_desktop {
@@ -885,7 +885,7 @@ impl crate::App {
         let order = tr("Window title \"Glimt - image name\" (off: \"image name - Glimt\")");
         if checkbox(ui, &mut c.app_name_first, order).changed() {
             changed = true;
-            self.title(ctx);
+            self.update_window_title(ctx);
         }
         ui.label(tr("Custom window title (empty: as above):"));
         let field = egui::TextEdit::singleline(&mut self.config.window_title)
@@ -893,7 +893,7 @@ impl crate::App {
             .hint_text("%name% - %app%");
         if ui.add(field).changed() {
             changed = true;
-            self.title(ctx);
+            self.update_window_title(ctx);
         }
         ui.weak(tr(
             "Fields: %name%, %path%, %folder% and %app%. A | starts a part, left out when its \

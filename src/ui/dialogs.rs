@@ -459,7 +459,7 @@ impl crate::App {
     pub(crate) fn receive_mount(&mut self, ctx: &egui::Context) {
         let done = match self.folder.take_mounted() {
             Took::Nothing => return,
-            Took::Gone => return self.stopped(tr("Connecting")),
+            Took::Gone => return self.tell_background_stopped(tr("Connecting")),
             Took::Answer(done) => done,
         };
         {
@@ -549,7 +549,7 @@ impl crate::App {
             // The window follows only when it still shows the collection it asked about.
             Ok(new) if self.folder.collection() == Some(old.as_path()) => {
                 self.folder.collection_renamed(new);
-                self.title(ctx);
+                self.update_window_title(ctx);
             }
             Ok(_) => {}
             Err(e) => self.notice = Some(e),
@@ -591,11 +591,11 @@ impl crate::App {
             return;
         }
         if let Prompt::SaveTheme = prompt {
-            let file = theme::dir().map(|d| d.join(format!("{text}.theme")));
+            let file = theme::own_themes_dir().map(|d| d.join(format!("{text}.theme")));
             let saved = file.ok_or(tr("no home folder").to_owned()).and_then(|f| {
                 // Never over a theme there, hand-edited perhaps, nor in the place of a built-in
                 // one, which a file of its name would hide for good.
-                if theme::built_in(text) {
+                if theme::is_built_in(text) {
                     return Err(tf!("{text} is a built-in theme: choose another name", text));
                 }
                 let _ = std::fs::create_dir_all(f.parent().unwrap_or(&f));

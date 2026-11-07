@@ -211,7 +211,7 @@ impl crate::App {
                 .checked_sub(delay)
                 .unwrap_or_else(Instant::now),
         );
-        self.title(ctx);
+        self.update_window_title(ctx);
         ctx.request_repaint();
     }
 
@@ -227,7 +227,7 @@ impl crate::App {
         } else if self.slideshow.shuffled {
             self.shuffle_list(ctx, false);
         }
-        self.title(ctx);
+        self.update_window_title(ctx);
     }
 
     /// Switch image when the time is up. Waits for a preloaded image that is still
@@ -317,7 +317,7 @@ impl crate::App {
         self.config.save();
         if self.slideshow.shown_at.is_some() {
             self.shuffle_list(ctx, on);
-            self.title(ctx);
+            self.update_window_title(ctx);
         }
     }
 
@@ -334,7 +334,7 @@ impl crate::App {
             .saturating_add_signed(step)
             .clamp(1, MAX_SLIDESHOW_DELAY);
         self.config.save();
-        self.title(ctx);
+        self.update_window_title(ctx);
     }
 }
 

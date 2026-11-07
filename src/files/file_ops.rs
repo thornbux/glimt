@@ -510,7 +510,7 @@ impl crate::App {
             self.notice = Some(tr("Rename Many is still renaming").into());
         } else if reading && !self.folder.is_listing() {
             // No listing runs that would check the list in a moment, so waiting would not help.
-            self.stopped(tr("Reading the folder"));
+            self.tell_background_stopped(tr("Reading the folder"));
         } else if busy {
             self.notice = Some(tr("Still working on these files: try again in a moment").into());
         }

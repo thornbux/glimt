@@ -68,7 +68,7 @@ impl crate::App {
 
     /// The desktop's look and screen profile, once read.
     fn receive_desktop(&mut self, ctx: &egui::Context) {
-        let (look, screen) = self.desktop.receive();
+        let (look, screen) = self.desktop_settings.receive();
         if look {
             self.apply_theme(ctx);
         }
@@ -87,13 +87,13 @@ impl crate::App {
         }
         if self.is_writing() {
             ctx.request_repaint_after(std::time::Duration::from_millis(250));
-        } else if self.window.closes_asked() > 0 {
+        } else if self.window.close_requests() > 0 {
             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
         }
         while let Some((path, result)) = self.file_operations.take_saved() {
             match result {
                 Ok(()) => {
-                    self.window.turn_saved();
+                    self.window.forget_turn_tried_at_close();
                     self.written_anew(std::slice::from_ref(&path));
                     self.files_changed(ctx, &[path]);
                 }
@@ -106,7 +106,7 @@ impl crate::App {
     /// window made meanwhile are read.
     fn receive_focus(&mut self, ctx: &egui::Context) {
         let focus = ctx.input(|i| i.viewport().focused.unwrap_or(false));
-        let gained = self.window.focus(focus);
+        let gained = self.window.set_focused(focus);
         if gained && self.config.remote_control {
             remote::mark_focused();
         }
@@ -132,7 +132,7 @@ impl crate::App {
     fn receive_lightroom(&mut self) {
         match self.lightroom_catalog.take() {
             Took::Nothing => {}
-            Took::Gone => self.stopped(tr("Reading the Lightroom catalog")),
+            Took::Gone => self.tell_background_stopped(tr("Reading the Lightroom catalog")),
             Took::Answer(Ok(catalog)) => {
                 self.lightroom = Some(lightroom::Import::new(catalog));
             }
@@ -145,16 +145,16 @@ impl crate::App {
         match self.file_operations.take_rename_outcome() {
             Took::Answer((Some(job), result)) => self.finish_rename_many(ctx, job, result),
             Took::Answer((None, _)) | Took::Nothing => {}
-            Took::Gone => self.stopped(tr("Rename Many")),
+            Took::Gone => self.tell_background_stopped(tr("Rename Many")),
         }
         if !self.file_operations.receive_cut_short() {
-            self.stopped(tr("Looking for renames cut short"));
+            self.tell_background_stopped(tr("Looking for renames cut short"));
         }
     }
 
     /// A background thread ended without its answer (it panicked on something): told, so the
     /// user knows why `what` did not come, instead of a pointer or a dialog waiting for ever.
-    pub(crate) fn stopped(&mut self, what: &str) {
+    pub(crate) fn tell_background_stopped(&mut self, what: &str) {
         self.notice = Some(tf!("{what} stopped unexpectedly", what));
     }
 

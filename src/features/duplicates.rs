@@ -190,7 +190,7 @@ impl crate::App {
             Took::Nothing => {}
             Took::Gone => {
                 find_duplicates.searched = 0;
-                self.stopped(tr("Find Duplicates"));
+                self.tell_background_stopped(tr("Find Duplicates"));
             }
             Took::Answer(groups) => {
                 // Stopped: no result, not "0 groups" as if every image had been compared.

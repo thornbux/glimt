@@ -103,7 +103,7 @@ impl crate::App {
         // Every image gets the full delay, also when the user moves back or forward by hand.
         self.slideshow.restart_delay();
         self.refill_preload();
-        self.title(ctx);
+        self.update_window_title(ctx);
     }
 
     /// The shown image is left: its rotation saved (with Save Orientation on) or dropped, and a
@@ -265,7 +265,7 @@ impl crate::App {
     /// Called when the selection changes: update the title and compute the size in the background.
     pub(crate) fn selection_changed(&mut self, ctx: &egui::Context) {
         self.list.set_range_end(None);
-        self.title(ctx);
+        self.update_window_title(ctx);
         if self.is_comparing {
             self.refill_preload();
         }

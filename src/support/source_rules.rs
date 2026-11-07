@@ -554,7 +554,7 @@ fn parts_keep_their_fields() {
         ("ui/info_panel.rs", "InfoPanel"),
         ("ui/menus.rs", "OpenWith"),
         ("ui/preferences.rs", "Preferences"),
-        ("ui/theme.rs", "FromDesktop"),
+        ("ui/theme.rs", "DesktopSettings"),
         ("ui/window.rs", "Window"),
         ("viewer/pan.rs", "PanView"),
         ("viewer/save_as.rs", "SaveAsChoices"),

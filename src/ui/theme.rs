@@ -161,7 +161,7 @@ impl Theme {
 
 /// What the desktop asks of the look, from the XDG desktop portal.
 #[derive(Clone, Copy, Default)]
-pub struct Desktop {
+pub struct DesktopLook {
     /// Dark or light; `None` for no preference.
     pub dark: Option<bool>,
     pub accent: Option<egui::Color32>,
@@ -172,57 +172,58 @@ pub struct Desktop {
 }
 
 /// What the desktop says: its dark style and accent, and its screen profile.
-pub(crate) struct FromDesktop {
+pub(crate) struct DesktopSettings {
     /// The desktop's dark style and accent colour, once read from the portal.
-    look: Desktop,
-    look_rx: Receiving<Desktop>,
+    look: DesktopLook,
+    look_answer: Receiving<DesktopLook>,
     /// The desktop's screen profile file, once read from colord.
-    screen: Option<String>,
-    screen_rx: Receiving<Option<String>>,
+    screen_profile: Option<String>,
+    screen_profile_answer: Receiving<Option<String>>,
 }
 
-impl FromDesktop {
+impl DesktopSettings {
     /// The desktop asked in the background: gdbus takes a moment, and the window shows
     /// meanwhile and takes the desktop's look after. Its screen profile only if `profile`.
     pub(crate) fn new(ctx: &egui::Context, profile: bool) -> Self {
         let (tx, rx) = mpsc::channel();
         let repaint = ctx.clone();
         std::thread::spawn(move || {
-            let _ = tx.send(desktop());
+            let _ = tx.send(read_desktop_look());
             repaint.request_repaint();
         });
-        FromDesktop {
+        DesktopSettings {
             look: Default::default(),
-            look_rx: Receiving::of(rx),
-            screen: None,
-            screen_rx: profile
+            look_answer: Receiving::of(rx),
+            screen_profile: None,
+            screen_profile_answer: profile
                 .then(|| crate::images::colour::read_desktop_screen(ctx))
                 .map_or_else(Receiving::none, Receiving::of),
         }
     }
 
     /// The desktop's dark style, accent colour, contrast and text size.
-    pub(crate) fn look(&self) -> Desktop {
+    pub(crate) fn look(&self) -> DesktopLook {
         self.look
     }
 
     /// The desktop's screen profile file. Returns `None` until colord has told it, or when it
     /// has none.
-    pub(crate) fn screen(&self) -> Option<&str> {
-        self.screen.as_deref()
+    pub(crate) fn screen_profile(&self) -> Option<&str> {
+        self.screen_profile.as_deref()
     }
 
     /// Asks colord for the desktop's screen profile in the background, unless it is known.
-    pub(crate) fn ask_screen(&mut self, ctx: &egui::Context) {
-        if self.screen.is_none() {
-            self.screen_rx = Receiving::of(crate::images::colour::read_desktop_screen(ctx));
+    pub(crate) fn ask_screen_profile(&mut self, ctx: &egui::Context) {
+        if self.screen_profile.is_none() {
+            self.screen_profile_answer =
+                Receiving::of(crate::images::colour::read_desktop_screen(ctx));
         }
     }
 
     /// Takes what the desktop answered. Returns whether its look came, and whether a screen
     /// profile came.
     pub(crate) fn receive(&mut self) -> (bool, bool) {
-        let look = match self.look_rx.take() {
+        let look = match self.look_answer.take() {
             Took::Answer(look) => Some(look),
             _ => None,
         };
@@ -230,9 +231,9 @@ impl FromDesktop {
             self.look = look;
         }
         let mut screen = false;
-        if let Took::Answer(path) = self.screen_rx.take() {
-            self.screen = path;
-            screen = self.screen.is_some();
+        if let Took::Answer(path) = self.screen_profile_answer.take() {
+            self.screen_profile = path;
+            screen = self.screen_profile.is_some();
         }
         (look.is_some(), screen)
     }
@@ -266,13 +267,13 @@ pub fn fonts(ctx: &egui::Context) {
 }
 
 /// Where more themes go: `$XDG_CONFIG_HOME/glimt/themes`, one `name.theme` file each.
-pub fn dir() -> Option<std::path::PathBuf> {
+pub fn own_themes_dir() -> Option<std::path::PathBuf> {
     crate::files::config::xdg_dir("XDG_CONFIG_HOME", ".config", "glimt").map(|d| d.join("themes"))
 }
 
 /// The built-in themes, then the user's, by name.
 /// Whether `name` is one of the themes built in.
-pub fn built_in(name: &str) -> bool {
+pub fn is_built_in(name: &str) -> bool {
     BUILT_IN.iter().any(|b| b.0 == name)
 }
 
@@ -282,7 +283,7 @@ pub fn shown_name(name: &str) -> &str {
 }
 
 pub fn names() -> Vec<String> {
-    let mut own: Vec<String> = (dir().and_then(|d| std::fs::read_dir(d).ok()))
+    let mut own: Vec<String> = (own_themes_dir().and_then(|d| std::fs::read_dir(d).ok()))
         .into_iter()
         .flatten()
         .flatten()
@@ -298,7 +299,7 @@ pub fn names() -> Vec<String> {
 /// The theme of that name: the user's file if there is one, else the built-in one, else
 /// "Desktop". Read each time, so a changed file shows when it is chosen again.
 pub fn load(name: &str) -> Theme {
-    let file = dir().map(|d| d.join(format!("{name}.theme")));
+    let file = own_themes_dir().map(|d| d.join(format!("{name}.theme")));
     match file.and_then(|f| crate::images::decode::read_text(f).ok()) {
         Some(text) => Theme::parse(&text),
         None => BUILT_IN
@@ -325,11 +326,11 @@ pub fn apply(
     let accent =
         (theme.accent.or(desktop_accent)).unwrap_or(egui::Color32::from_rgb(0x35, 0x84, 0xe4));
     for t in [egui::Theme::Dark, egui::Theme::Light] {
-        ctx.style_mut_of(t, |s| style(s, t == egui::Theme::Dark, accent, theme));
+        ctx.style_mut_of(t, |s| apply_style(s, t == egui::Theme::Dark, accent, theme));
     }
 }
 
-fn style(style: &mut egui::Style, dark: bool, accent: egui::Color32, theme: &Theme) {
+fn apply_style(style: &mut egui::Style, dark: bool, accent: egui::Color32, theme: &Theme) {
     let gray = |v: u8| egui::Color32::from_gray(v);
     // The theme's own colour, or a gray for the dark style and one for the light style.
     let pick = |own: Option<egui::Color32>, on_dark: u8, on_light: u8| {
@@ -408,7 +409,7 @@ fn style(style: &mut egui::Style, dark: bool, accent: egui::Color32, theme: &The
 
 /// The desktop's dark style, accent colour and contrast, from the XDG desktop portal; `None`
 /// and false where it says nothing. Runs `gdbus`, so it belongs in a background thread.
-pub fn desktop() -> Desktop {
+pub fn read_desktop_look() -> DesktopLook {
     let read = |namespace: &str, key: &str| {
         let args = [
             "call",
@@ -424,7 +425,7 @@ pub fn desktop() -> Desktop {
         ];
         crate::files::external::short_output_of("gdbus", &args, 1 << 16).unwrap_or_default()
     };
-    Desktop {
+    DesktopLook {
         dark: parse_scheme(&read("org.freedesktop.appearance", "color-scheme")),
         accent: parse_accent(&read("org.freedesktop.appearance", "accent-color")),
         high_contrast: parse_contrast(&read("org.freedesktop.appearance", "contrast")),

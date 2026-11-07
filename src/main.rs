@@ -50,7 +50,7 @@ struct App {
     config: Config,
     /// What the desktop says. It holds the desktop's dark style, its accent colour and its
     /// screen profile.
-    desktop: crate::ui::theme::FromDesktop,
+    desktop_settings: crate::ui::theme::DesktopSettings,
 
     // ---- What is open and its files ----
     /// What is open (a folder, a collection or several folders), its listing in the
@@ -216,7 +216,7 @@ impl App {
         let (notice_sender, notices) = crate::support::threads::Notices::new(ctx);
         let mut app = App {
             ctx: ctx.clone(),
-            desktop: crate::ui::theme::FromDesktop::new(ctx, config.desktop_profile),
+            desktop_settings: crate::ui::theme::DesktopSettings::new(ctx, config.desktop_profile),
             folder: crate::model::folder::Folder::new(&config),
             list: List::default(),
             file_operations: crate::files::file_ops::FileOperations::new(),
@@ -383,7 +383,7 @@ impl eframe::App for App {
         // This waits a few seconds at most for the state above, the settings, and the keywords
         // queued at the first close. After a third close it does not wait, and Glimt ends at
         // once whatever still runs.
-        if self.window.closes_asked() < 2 {
+        if self.window.close_requests() < 2 {
             crate::files::file_io::flush();
         }
         let at = |share| frame_at(self.decoding.frame_times(), share);

@@ -281,7 +281,7 @@ impl crate::App {
             // Without any index, the search would start reading again at once, so it gets an
             // empty one, and the user is told.
             Took::Gone => {
-                self.stopped(tr("The EXIF index"));
+                self.tell_background_stopped(tr("The EXIF index"));
                 HashMap::new()
             }
         };

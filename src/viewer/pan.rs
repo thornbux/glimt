@@ -278,7 +278,7 @@ impl crate::App {
                 pan.days = Some((Vec::new(), self.list.version()));
                 pan.months = Vec::new();
             }
-            self.stopped(tr("The Pan view's days"));
+            self.tell_background_stopped(tr("The Pan view's days"));
         }
     }
 

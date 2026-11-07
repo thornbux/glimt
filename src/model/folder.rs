@@ -576,7 +576,7 @@ impl crate::App {
         self.folder.lists_tree_in_parts = true;
         self.start_listing(ctx);
         self.start_watching(ctx);
-        self.title(ctx);
+        self.update_window_title(ctx);
     }
 
     /// Puts `path` first in File → Open Recent, also in the file the other windows read when
@@ -721,7 +721,7 @@ impl crate::App {
         self.replace_files(ctx, files, first);
         self.list.set_unchecked_entries(true);
         self.start_listing(ctx);
-        self.title(ctx);
+        self.update_window_title(ctx);
     }
 
     /// Shows the images of several folders as one list, for a slideshow across them. One folder
@@ -760,7 +760,7 @@ impl crate::App {
         self.folder.folders = folders;
         self.replace_files(ctx, Vec::new(), None);
         self.start_listing(ctx);
-        self.title(ctx);
+        self.update_window_title(ctx);
     }
 
     /// Where Back comes back to. It is the collection shown, and otherwise the file shown or
@@ -953,7 +953,7 @@ impl crate::App {
             Took::Gone => {
                 self.folder.subdirs_rx.clear();
                 self.folder.part_rx.clear();
-                return self.stopped(tr("Reading the folder"));
+                return self.tell_background_stopped(tr("Reading the folder"));
             }
             Took::Nothing => return,
         };
@@ -1194,7 +1194,7 @@ impl crate::App {
         self.selection_changed(ctx);
         if still {
             self.refill_preload();
-            self.title(ctx);
+            self.update_window_title(ctx);
             return;
         }
         // `show_file` clears the notice for a new image. A new list is not one, and a notice is
@@ -1234,7 +1234,7 @@ impl crate::App {
         } else {
             // The shown image stays, so it keeps its zoom, turn and page, as in replace_files.
             self.refill_preload();
-            self.title(ctx);
+            self.update_window_title(ctx);
         }
     }
 
