@@ -3664,7 +3664,9 @@ expect "the keys reach the window (the control)" "$arrived" yes
 expect "Glimt still runs" "$alive" yes
 if [ "${mb:-9999}" -lt 400 ]; then pass "memory stays small: $mb MB"; else fail "memory: ${mb:-?} MB"; fi
 
-section "printing to a PDF named as one of the images printed: that image is read first"
+# Up to 0.72 the PDF replaced the image named, once every image was read. From 0.73 a name
+# Glimt lists as an image is refused, so the image and its place in the list are kept.
+section "printing to a PDF named as one of the images printed: refused, the image kept"
 d=/tmp/printself
 for v in new old; do
     as_version $v
@@ -3675,12 +3677,11 @@ for v in new old; do
     start $d/a.jpg
     sleep 2
     answer $d/a.jpg; key ctrl+a; key ctrl+p; sleep 1; key Return
-    for i in $(seq 30); do pdfinfo $d/a.jpg >/dev/null 2>&1 && break; sleep 1; done
-    sleep 1
+    sleep 4
     quit
-    pages=$(pdfinfo $d/a.jpg 2>/dev/null | awk '/^Pages:/ {print $2}')
-    if [ $v = new ]; then expect "both images in the PDF" "$pages" 2
-    else note "old, pages: ${pages:-none}"; fi
+    kind=$(identify -format '%m' "$d/a.jpg[0]" 2>/dev/null)
+    if [ $v = new ]; then expect "a.jpg is still the JPEG" "$kind" JPEG
+    else note "old: a.jpg is $kind"; fi
 done
 
 section "printing to a PDF when no image can be read: the file chosen is left as it was"
