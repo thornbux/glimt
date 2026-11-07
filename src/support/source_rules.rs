@@ -1078,7 +1078,9 @@ fn a_home_ends_at_the_next_top_level_item() {
 /// too, so a PNG with its ColorSpace only in a text chunk is shown and named as Adobe RGB. A
 /// RAW's preview is a JPEG, read on its own. A copy or an exported frame reads a page through
 /// `decode::load_page`, which gives every page with its own ICC profile. Before, a later page
-/// of a TIFF was read without it.
+/// of a TIFF was read without it. Every image file Glimt writes is encoded by `save::encode`,
+/// which fits the pixels to the format. Before, Export Frames wrote a float page as it was,
+/// which PNG refuses (`.write_to` is watched for that).
 #[test]
 fn derived_files_take_metadata_in_one_place() {
     const HOMES: &[(&str, &[(&str, &str)])] = &[
@@ -1116,6 +1118,7 @@ fn derived_files_take_metadata_in_one_place() {
                 ("images/decode.rs", "load_page"),
             ],
         ),
+        (".write_to(", &[("images/save.rs", "lossy_webp")]),
         ("png_with_xmp(", &[("images/save.rs", "encode")]),
         ("set_xmp_orientation(", &[("images/save.rs", "derived_xmp")]),
         ("set_exif_metadata(", &[("images/save.rs", "encode")]),

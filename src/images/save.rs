@@ -313,6 +313,13 @@ fn pixels(path: &Path, how: &CopyAs) -> Result<(image::DynamicImage, Option<Vec<
     Ok((img, icc))
 }
 
+/// A frame or page `img`, in sRGB, as the PNG that Save This Frame and Export Frames write.
+/// It goes through `encode` as every copy does, so a 32-bit float page is written in 16 bits.
+/// Before, such a page was written as it was, which PNG refuses, and the export stopped.
+pub fn frame_png(img: image::DynamicImage) -> Result<Vec<u8>, String> {
+    encode(Path::new(""), img, None, None, None, Kind::Png, false, 0)
+}
+
 /// The image as `how` shows it, in sRGB, for Select → Copy Image. That copied the image
 /// unturned, and only its first page.
 pub fn shown_image(path: &Path, how: &CopyAs) -> Result<image::DynamicImage, String> {

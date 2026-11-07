@@ -1626,11 +1626,8 @@ impl crate::App {
                         // let it replace. That file's sidecar is not the frame's, so a frame is
                         // saved without one. Every frame goes into the new folder, where it never
                         // replaces a file.
-                        let mut png = std::io::Cursor::new(Vec::new());
-                        (img.write_to(&mut png, image::ImageFormat::Png))
-                            .map_err(|e| e.to_string())
-                            .and_then(|_| {
-                                let png = png.into_inner();
+                        crate::images::save::frame_png(img)
+                            .and_then(|png| {
                                 let replace = only.is_some();
                                 crate::images::save::land(&path, &file, &png, replace, true)
                                     .map_err(|e| e.to_string())
@@ -2844,6 +2841,28 @@ mod tests {
         };
         assert!(settle(&mut app, &ctx, saved));
         assert!(!d.join("nowhere").exists());
+        std::fs::remove_dir_all(d).unwrap();
+    }
+
+    /// Export Frames of a TIFF whose first page is 32-bit float RGB writes that page in 16 bits,
+    /// as Save As does, because PNG holds no floats. Before, the export stopped at that page.
+    #[test]
+    fn a_float_page_is_exported() {
+        use tiff::encoder::colortype::{Gray8, RGB32Float};
+        let d = contract_folder("float-frame");
+        let tif = d.join("f.tif");
+        let mut tiff = tiff::encoder::TiffEncoder::new(std::fs::File::create(&tif).unwrap());
+        let tiff = tiff.as_mut().unwrap();
+        tiff.write_image::<RGB32Float>(2, 2, &[0.5; 12]).unwrap();
+        tiff.write_image::<Gray8>(2, 2, &[9; 4]).unwrap();
+        let (mut app, ctx) = app_on(&d);
+        app.export_frames(&ctx, tif, None, d.clone());
+        let saved = |_: &crate::App| {
+            ["f-001.png", "f-002.png"]
+                .iter()
+                .all(|f| d.join("f-frames").join(f).exists())
+        };
+        assert!(settle(&mut app, &ctx, saved));
         std::fs::remove_dir_all(d).unwrap();
     }
 
