@@ -1270,7 +1270,9 @@ impl crate::App {
                 if self.config.search_bar {
                     self.search_field(ui);
                 }
-                self.file_list(ctx, ui, &mut go_to, &mut list_act, form);
+                // The side panel does nothing more on a double-click. The click before it has
+                // already gone to the file.
+                let _double_clicked = self.file_list(ctx, ui, &mut go_to, &mut list_act, form);
             });
         if let Some(d) = open_dir {
             self.visit(ctx, d);
@@ -1353,6 +1355,7 @@ impl crate::App {
 
     /// The file list (names, details, thumbnails or icons), drawn only where it is visible.
     /// Returns the file double-clicked, if any.
+    #[must_use]
     pub(crate) fn file_list(
         &mut self,
         ctx: &egui::Context,
