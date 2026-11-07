@@ -335,6 +335,12 @@ fn style(style: &mut egui::Style, dark: bool, accent: egui::Color32, theme: &The
     let pick = |own: Option<egui::Color32>, on_dark: u8, on_light: u8| {
         own.unwrap_or(gray(if dark { on_dark } else { on_light }))
     };
+    // The release tests' and the screenshots' build shows the text cursor without blinking,
+    // so a shot at rest is the same in every run.
+    #[cfg(feature = "test-hooks")]
+    {
+        style.visuals.text_cursor.blink = false;
+    }
     let spacing = &mut style.spacing;
     spacing.item_spacing = egui::vec2(8.0, 6.0);
     spacing.button_padding = egui::vec2(8.0, 4.0);

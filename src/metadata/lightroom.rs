@@ -272,7 +272,10 @@ impl crate::App {
                             // A size of its own: in the grid the field would be as narrow as
                             // its text.
                             let height = ui.spacing().interact_size.y;
-                            ui.add_sized([360.0, height], egui::TextEdit::singleline(now));
+                            let field =
+                                ui.add_sized([360.0, height], egui::TextEdit::singleline(now));
+                            // The screenshots click the field by the folder it stands for.
+                            crate::support::test_hooks::noted(&field, was);
                             // A few folders, only while the dialog is open.
                             ui.label(if root_now(now).is_dir() { "✓" } else { "" });
                             ui.end_row();

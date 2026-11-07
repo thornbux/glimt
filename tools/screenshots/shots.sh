@@ -44,6 +44,8 @@ for f in *.jpg; do
         -ISO=$((100 * (n % 4 + 1))) -FNumber=5.6 -ExposureTime=1/$((125 * (n % 3 + 1))) \
         -FocalLength=23 "$f"
 done
+# One date for every picture, so the file list's dates are the same in every run.
+find $P -name '*.jpg' -exec touch -d '2025-07-28 18:30:00' {} +
 cd /tmp
 printf 'Places|Norway|Lofoten\nPlaces|Norway|Senja\nSeasons|Summer\nSeasons|Autumn\nNature|Mountains\nNature|Sea\n' \
     >$XDG_CONFIG_HOME/glimt/keywords
@@ -76,8 +78,21 @@ INSERT INTO AgLibraryCollectionImage VALUES (12, 10, 6), (13, 10, 7), (14, 11, 6
 INSERT INTO AgLibraryKeyword VALUES (16, NULL, NULL), (17, 'Places', 16), (18, 'Norway', 17), (19, 'Senja', 18);
 INSERT INTO AgLibraryKeywordImage VALUES (20, 6, 19);
 SQL
-# The window, without the rest of the virtual screen.
-cshot() { import -window root -crop 1280x800+0+0 +repage /t/out/$1.png; }
+# The window, without the rest of the virtual screen, once it is at rest: a list that scrolls to
+# the shown image moves for a moment, and a shot taken then differed from run to run, so git
+# diff showed pictures changed that were not.
+cshot() {
+    local i
+    import -window root -crop 1280x800+0+0 +repage /t/out/$1.png
+    for i in $(seq 20); do
+        sleep 0.5
+        import -window root -crop 1280x800+0+0 +repage /t/out/$1-next.png
+        [ "$(compare -metric AE /t/out/$1.png /t/out/$1-next.png null: 2>&1 | cut -d' ' -f1)" = 0 ] \
+            && break
+        mv /t/out/$1-next.png /t/out/$1.png
+    done
+    rm -f /t/out/$1-next.png
+}
 
 config print_per_page=4
 start $P/Summer/fjord_sunrise.jpg
@@ -115,9 +130,11 @@ printf '0\t3\t%s\n' $P/Summer/fjord_sunrise.jpg >$XDG_STATE_HOME/glimt/marks
 start $P/Summer/fjord_sunrise.jpg
 sleep 3
 answer /tmp/glimt-demo/Lightroom.lrcat
-click 20 11; click 100 444 3   # File → Import Lightroom Catalog…
-click 650 390; xdotool type /tmp/glimt-demo/Pictures/; sleep 1
-click 376 447 2   # Next
+# By the texts, as tests.sh does: a fixed place missed the menu item once File grew, and a
+# click beside the dialog's field closed it.
+menu File "Import Lightroom Catalog…"; sleep 3
+menu /Volumes/Photos/; xdotool type /tmp/glimt-demo/Pictures/; sleep 1
+menu Next; sleep 2
 xdotool mousemove 700 650; sleep 1
 cshot lightroom-import
 quit
@@ -145,7 +162,9 @@ cshot duplicates
 quit
 
 config theme=Light
-start $P/Summer/lake_mirror.jpg
+# The first image, so the file list behind the windows needs no scrolling: scrolled to one
+# further down, it came to rest at one of two places, which changed the shots from run to run.
+start $P/Summer/alpine_lake.jpg
 sleep 3
 key ctrl+i; sleep 2; cshot light-theme; key ctrl+i
 # The Pan view by the EXIF date, which spreads the pictures over July.
