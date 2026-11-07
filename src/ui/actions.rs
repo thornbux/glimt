@@ -221,6 +221,109 @@ pub(crate) const KIOSK_ACTIONS: &[Action] = &[
     Action::PrevPage,
 ];
 
+/// The actions a script may run with `glimt --remote run ACTION`: showing, browsing, selecting,
+/// the panels and windows, the settings and the clipboard. None of them changes a file, a
+/// sidecar, a mark or star, or a collection, not even through a dialog the user answers, so
+/// a program that reaches Glimt's socket still cannot delete, move, rename or rewrite anything.
+/// `every_action_is_decided_for_scripts` makes each new action be put here or left out on
+/// purpose.
+pub(crate) const SCRIPT_ACTIONS: &[Action] = &[
+    Action::About,
+    Action::AboveEachOther,
+    Action::Animate,
+    Action::Back,
+    Action::CheckImages,
+    Action::CloseWindow,
+    Action::Compare,
+    Action::CopyFiles,
+    Action::CopyImage,
+    Action::CopyPath,
+    Action::CopyPathUnquoted,
+    Action::Escape,
+    Action::ExifPanel,
+    Action::ExifRotate,
+    Action::ExifWindow,
+    Action::Faster,
+    Action::FindDuplicates,
+    Action::First,
+    Action::FitFill,
+    Action::FitHeight,
+    Action::FitWidth,
+    Action::FocusSearch,
+    Action::FolderTree,
+    Action::Forward,
+    Action::FullScreen,
+    Action::GridNames,
+    Action::Help,
+    Action::HiddenFiles,
+    Action::HideTools,
+    Action::Histogram,
+    Action::HistogramLog,
+    Action::Home,
+    Action::Icons,
+    Action::InvertSelection,
+    Action::KeyboardMap,
+    Action::Keywords,
+    Action::Last,
+    Action::NewWindow,
+    Action::Next,
+    Action::NextLayout,
+    Action::NextPage,
+    Action::OneImage,
+    Action::OpenCollection,
+    Action::OpenFile,
+    Action::OpenFolder,
+    Action::OpenFolders,
+    Action::OpenRecursive,
+    Action::OpenWith,
+    Action::Overlay,
+    Action::PanView,
+    Action::PaneDown,
+    Action::PaneLeft,
+    Action::PaneRight,
+    Action::PaneUp,
+    Action::PathBar,
+    Action::Pause,
+    Action::Play,
+    Action::Preferences,
+    Action::Prev,
+    Action::PrevPage,
+    Action::Projector,
+    Action::ProjectorPointer,
+    Action::Quit,
+    Action::RandomOrder,
+    Action::Refresh,
+    Action::SelectAll,
+    Action::SelectNone,
+    Action::Shortcuts,
+    Action::Slideshow,
+    Action::Slower,
+    Action::SortManager,
+    Action::Subfolders,
+    Action::ThumbnailGrid,
+    Action::Up,
+    Action::Thumbnails,
+    Action::Toolbar,
+    Action::ViewFilter,
+    Action::WindowTitle,
+    Action::Zoom1To1,
+    Action::ZoomFit,
+    Action::ZoomIn,
+    Action::ZoomOut,
+    #[cfg(feature = "marks")]
+    Action::SelectMark1,
+    #[cfg(feature = "marks")]
+    Action::SelectMark2,
+    #[cfg(feature = "marks")]
+    Action::SelectMark3,
+    #[cfg(feature = "marks")]
+    Action::SelectMark4,
+    #[cfg(feature = "marks")]
+    Action::SelectMark5,
+    #[cfg(feature = "marks")]
+    Action::SelectMark6,
+];
+
 /// Everything the user can do from a menu or a shortcut. The variants' names are stored in the
 /// settings for the user's own keys (`{a:?}`): renaming one loses those keys.
 #[derive(Clone, Copy, PartialEq, Debug)]
@@ -376,6 +479,15 @@ pub enum Action {
 }
 
 impl Action {
+    /// Returns the action a script may run under `name`, its name in `keys=` and
+    /// src/keys-1.0.txt, or `None` when there is no such action or it is not in
+    /// `SCRIPT_ACTIONS`.
+    pub fn for_script(name: &str) -> Option<Action> {
+        (SCRIPT_ACTIONS.iter())
+            .find(|a| format!("{a:?}") == name)
+            .copied()
+    }
+
     /// Whether this build does something for the action. Play needs the video feature; without
     /// it, Enter is not taken by an action that does nothing.
     pub fn in_build(self) -> bool {
@@ -1568,6 +1680,82 @@ mod tests {
         Action::ZoomIn,
         Action::ZoomOut,
     ];
+
+    /// Each action is either one a script may run or one it may not, chosen on purpose: a new
+    /// action fails here until it is in `SCRIPT_ACTIONS` or in the list below, which names
+    /// those that change a file, a sidecar, a mark or star, or a collection, also through a
+    /// dialog. Every name a script may run is found by its frozen name.
+    #[test]
+    fn every_action_is_decided_for_scripts() {
+        use Action::*;
+        let changes_files: &[Action] = &[
+            Copy,
+            Crop,
+            Delete,
+            DeletePermanently,
+            ExportFrames,
+            Flip,
+            ImportLightroom,
+            Mirror,
+            Move,
+            MoveEarlier,
+            MoveFirst,
+            MoveLast,
+            MoveLater,
+            NewCollection,
+            NewFolder,
+            Print,
+            RemoveFromCollection,
+            Rename,
+            RenameCollection,
+            Rotate180,
+            RotateCcw,
+            RotateCw,
+            SaveAs,
+            SaveFrame,
+            SaveOrientation,
+            SetWallpaper,
+            TrashCollection,
+            BackUp,
+            Undo,
+            #[cfg(feature = "marks")]
+            Mark1,
+            #[cfg(feature = "marks")]
+            Mark2,
+            #[cfg(feature = "marks")]
+            Mark3,
+            #[cfg(feature = "marks")]
+            Mark4,
+            #[cfg(feature = "marks")]
+            Mark5,
+            #[cfg(feature = "marks")]
+            Mark6,
+            #[cfg(feature = "marks")]
+            Rate0,
+            #[cfg(feature = "marks")]
+            Rate1,
+            #[cfg(feature = "marks")]
+            Rate2,
+            #[cfg(feature = "marks")]
+            Rate3,
+            #[cfg(feature = "marks")]
+            Rate4,
+            #[cfg(feature = "marks")]
+            Rate5,
+        ];
+        for action in ALL {
+            let script = super::SCRIPT_ACTIONS.contains(action);
+            assert!(
+                script != changes_files.contains(action),
+                "{action:?}: put it in SCRIPT_ACTIONS or in changes_files, in one only"
+            );
+        }
+        for action in super::SCRIPT_ACTIONS {
+            assert_eq!(Action::for_script(&format!("{action:?}")), Some(*action));
+        }
+        assert_eq!(Action::for_script("Delete"), None);
+        assert_eq!(Action::for_script("Nothing"), None);
+    }
 
     /// `ALL` names every variant of `Action`, in name order, so a new action is run by the test
     /// below too. A variant behind the marks feature counts only in a build with it.

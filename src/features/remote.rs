@@ -52,6 +52,10 @@ pub const COMMANDS: &[(&str, &str)] = &[
     ),
     ("quit", "Close Glimt"),
     (
+        "run ACTION",
+        "Do an action by its name, one of those listed below, which change no file, sidecar, mark or collection",
+    ),
+    (
         "current",
         "Print the path of the image shown, ending in a NUL byte",
     ),
@@ -209,8 +213,8 @@ impl crate::App {
 
     /// Runs a command from `glimt --remote`. The commands are next, prev, first, last,
     /// slideshow, random and fullscreen (each with on or off, or without to go to the other),
-    /// subfolders on|off, quit, open PATH, and title with this window's own title, or without
-    /// one to have the title in Preferences.
+    /// subfolders on|off, quit, open PATH, title with this window's own title, or without one
+    /// to have the title in Preferences, and run ACTION with an action of `SCRIPT_ACTIONS`.
     pub(crate) fn remote_command(&mut self, ctx: &egui::Context, command: &str) {
         let fullscreen = ctx.input(|i| i.viewport().fullscreen).unwrap_or(false);
         let action = match command.trim() {
@@ -237,6 +241,7 @@ impl crate::App {
             "subfolders on" => return self.set_subfolders(ctx, true),
             "subfolders off" => return self.set_subfolders(ctx, false),
             "title" => return self.set_window_title(ctx, ""),
+            other if other.starts_with("run ") => Action::for_script(other["run ".len()..].trim()),
             other if other.starts_with("title ") => {
                 return self.set_window_title(ctx, other["title ".len()..].trim());
             }
@@ -507,6 +512,13 @@ pub fn client(
 ) -> Option<PathBuf> {
     if !known(words) {
         eprintln!("glimt: no such command, or not with these arguments; glimt --help lists them");
+        std::process::exit(2);
+    }
+    if words[0] == "run" && Action::for_script(&words[1]).is_none() {
+        eprintln!(
+            "glimt: {} is not an action a script may run; glimt --help lists them",
+            words[1]
+        );
         std::process::exit(2);
     }
     let mut command = words.join(" ");
@@ -805,6 +817,32 @@ mod tests {
         assert_eq!(super::runtime_dir(None), None);
     }
 
+    /// `run ACTION` does an action a script may run, as its key would, and nothing for one that
+    /// changes files, such as Delete, so no file goes, and no question is asked.
+    #[test]
+    fn run_does_only_the_actions_for_scripts() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-run-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        for name in ["a.png", "b.png", "c.png"] {
+            std::fs::write(dir.join(name), b"").unwrap();
+        }
+        let (mut app, ctx) = app_on(&dir);
+        app.list
+            .set_files(["a.png", "b.png", "c.png"].map(Into::into).to_vec());
+        app.remote_command(&ctx, "run Next");
+        assert_eq!(app.list.cur(), 1);
+        app.remote_command(&ctx, "run Last");
+        assert_eq!(app.list.cur(), 2);
+        app.config.confirm_trash = false;
+        app.remote_command(&ctx, "run Delete");
+        app.remote_command(&ctx, "run DeletePermanently");
+        app.remote_command(&ctx, "run NoSuchAction");
+        assert!(!app.asking_about_selection());
+        assert_eq!(app.list.files().len(), 3);
+        assert!(dir.join("c.png").exists());
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
     /// Only the commands Glimt knows go out, with a path only where one is taken.
     #[test]
     fn knows_its_commands() {
@@ -816,6 +854,9 @@ mod tests {
         assert!(super::known(&words("select /a.jpg /b.jpg")));
         assert!(!super::known(&words("nxet")));
         assert!(!super::known(&words("open")));
+        assert!(super::known(&words("run ZoomIn")));
+        assert!(!super::known(&words("run")));
+        assert!(!super::known(&words("run ZoomIn ZoomOut")));
         assert!(!super::known(&words("next 2")));
         assert!(super::known(&words("subfolders on")));
         assert!(super::known(&words("title")));

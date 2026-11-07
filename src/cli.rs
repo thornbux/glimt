@@ -189,6 +189,10 @@ fn print_help() {
     for (command, does) in remote::COMMANDS {
         println!("  {command:<12} {does}");
     }
+    let actions: Vec<String> = (crate::ui::actions::SCRIPT_ACTIONS.iter())
+        .map(|a| format!("{a:?}"))
+        .collect();
+    println!("\nActions for run:\n  {}", actions.join(" "));
 }
 
 #[cfg(test)]

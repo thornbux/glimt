@@ -622,7 +622,9 @@ const MANUAL: &[(&str, &str)] = &[
          every one: next, prev, slideshow or open PATH from a script or a desktop shortcut. \
          current, selection and select PATH … tell a script (or an AI assistant) what is shown and \
          selected, or select files for you; they print each path followed by a NUL byte, and none \
-         of them changes a file.\n\n\
+         of them changes a file. run ACTION does an action by its name in your own keys, such \
+         as glimt --remote run ZoomIn or run ThumbnailGrid; glimt --help lists the actions it \
+         takes, which are those that change no file, sidecar, mark or collection.\n\n\
          They reach only the Glimt windows of the same user on this computer, through a private \
          socket, never over the network; for another computer, run the command there (ssh). \
          Several can be told apart by name: start them with glimt --name left and glimt --name \
@@ -657,8 +659,8 @@ const DIFFERENCES: &[(&str, &str, &str)] = &[
     (
         "Remote control",
         "glimt --remote with next, prev, first, last, slideshow, random, fullscreen (each also \
-         with on or off), subfolders on|off, open, title, quit, current, selection or select; \
-         --remote-all sends it to every window",
+         with on or off), subfolders on|off, open, title, quit, current, selection, select or \
+         run ACTION (an action that changes no file); --remote-all sends it to every window",
         "The options themselves go to the running Geeqie (geeqie --next, --tell, \
          --get-selection, --file= …), and there are many more",
     ),
