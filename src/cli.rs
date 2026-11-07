@@ -173,7 +173,7 @@ fn check_config(file: Option<PathBuf>) -> ! {
         std::process::exit(1);
     };
     let problems = match crate::images::decode::read_text(&path) {
-        Ok(text) => Config::check(&text).1,
+        Ok(text) => Config::parse_checked(&text).1,
         Err(e) => vec![format!("cannot be read ({e})")],
     };
     for p in &problems {

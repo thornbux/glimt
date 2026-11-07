@@ -1,7 +1,7 @@
 //! Edit → Preferences: one window of every setting, in sections, saved when one changes (when
 //! a slider is let go). The settings themselves are `Config`'s (config.rs).
 
-use crate::files::config::{CPU_LEVELS, FADES, MAX_DELAY, MEMORY_LEVELS, OSD_TEMPLATE};
+use crate::files::config::{CPU_LEVELS, FADES, MAX_SLIDESHOW_DELAY, MEMORY_LEVELS, OSD_TEMPLATE};
 use crate::images::colour::{INPUT_PROFILES, INTENTS};
 use crate::support::format::thousands;
 use crate::support::lang::tr;
@@ -394,7 +394,7 @@ impl crate::App {
         ui.weak(tr(
             "S starts and stops, R random order, Ctrl+= faster, Ctrl+- slower",
         ));
-        let delay = egui::Slider::new(&mut self.config.slideshow_delay, 1..=MAX_DELAY)
+        let delay = egui::Slider::new(&mut self.config.slideshow_delay, 1..=MAX_SLIDESHOW_DELAY)
             .text(tr("seconds per image"));
         if ui.add(delay).changed() {
             changed = true;
@@ -607,7 +607,7 @@ impl crate::App {
             for l in &MEMORY_LEVELS {
                 let on = level.is_some_and(|m| m.name == l.name);
                 if radio(ui, on, tr(l.name))
-                    .on_hover_text(tr(l.hover))
+                    .on_hover_text(tr(l.tooltip))
                     .clicked()
                 {
                     chosen = Some(*l);
@@ -1119,7 +1119,7 @@ fn key_actions() -> Vec<Action> {
 fn sections_shown(query: &str) -> [bool; 10] {
     let shows = |texts: &[&'static str], more: &[&str]| found(query, texts, more);
     // The search finds a level by its English name and by the name shown.
-    let levels = |l: &config::MemoryLevel| [l.name, l.hover];
+    let levels = |l: &config::MemoryLevel| [l.name, l.tooltip];
     let levels: Vec<&str> = (MEMORY_LEVELS.iter().flat_map(levels))
         .chain(CPU_LEVELS.iter().flat_map(|l| [l.0, l.1]))
         .flat_map(|t| [t, tr(t)])
