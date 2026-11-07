@@ -31,6 +31,9 @@ const SLONG: u16 = 9;
 
 const SRATIONAL: u16 = 10;
 
+/// A directory's offset, as libtiff writes the Exif and GPS pointers.
+const IFD: u16 = 13;
+
 /// The longest text read from one field. A description or a comment is far shorter. Without a
 /// cap, a crafted block of 1,500 fields all naming the same megabyte would take gigabytes.
 const MAX_TEXT: usize = 4096;
@@ -162,7 +165,7 @@ impl Tiff<'_> {
         }
         match e.kind {
             SHORT => self.u16(e.at).map(u32::from),
-            LONG | SLONG => self.u32(e.at),
+            LONG | SLONG | IFD => self.u32(e.at),
             _ => None,
         }
     }
@@ -909,7 +912,7 @@ fn raw_profile(text: &str) -> Option<Vec<u8>> {
 fn width(kind: u16) -> usize {
     match kind {
         SHORT | 8 => 2,
-        LONG | SLONG | 11 | 13 => 4,
+        LONG | SLONG | 11 | IFD => 4,
         RATIONAL | SRATIONAL | 12 => 8,
         _ => 1,
     }
@@ -1442,6 +1445,22 @@ mod tests {
             d.extend(v.to_le_bytes());
         }
         d
+    }
+
+    /// An Exif directory named by a pointer of type IFD (13), as libtiff writes it, is read for
+    /// the panel and kept in a copy. Before, only SHORT and LONG pointers were followed, so the
+    /// panel showed no date or exposure and a copy lost the whole Exif directory.
+    #[test]
+    fn follows_a_pointer_of_type_ifd() {
+        let mut block = crate::support::test_support::CANON_EXIF.to_vec();
+        block[37] = 13;
+        let rows = super::parse(&block);
+        assert!(
+            rows.contains(&("Taken", "2020:01:02 03:04:05".into())),
+            "{rows:?}"
+        );
+        let copy = super::derived_block(&block).unwrap();
+        assert!(copy.ends_with(b"03:04:05\0"));
     }
 
     /// A PNG's or WebP's EXIF that cannot be read stays as it is when the image is saved turned.
