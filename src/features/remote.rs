@@ -917,7 +917,13 @@ mod tests {
         let (quiet, answering) = (dir.join("glimt-1.sock"), dir.join("glimt-2.sock"));
         drop(std::os::unix::net::UnixListener::bind(&quiet).unwrap());
         let _listening = std::os::unix::net::UnixListener::bind(&answering).unwrap();
-        assert_eq!(super::live(Some(dir.clone())), [answering]);
+        // A process another test starts holds a copy of the closed socket until it runs its
+        // program, so it can answer a moment longer, as in `claims_only_a_left_socket`.
+        let passed_over = (0..50).any(|_| {
+            std::thread::sleep(std::time::Duration::from_millis(20));
+            super::live(Some(dir.clone())) == [answering.clone()]
+        });
+        assert!(passed_over);
         assert!(quiet.exists());
         std::fs::remove_dir_all(dir).unwrap();
     }
