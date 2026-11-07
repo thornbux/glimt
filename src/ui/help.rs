@@ -223,7 +223,9 @@ const MANUAL: &[(&str, &str)] = &[
          and the other actions on the selection (Print, Copy Path, keywords, collections) do \
          nothing and ask you to clear the search first. Find Duplicates, Check Images and the \
          Rename and New Collection dialogs do the same when the search hides any of the files \
-         they act on. Delete moves files to the trash and Shift+Delete \
+         they act on. While it hides only some of them, an action acts on the files it shows, the \
+         status bar counts the selected files it hides, and Delete's question says how many it \
+         leaves out. Delete moves files to the trash and Shift+Delete \
          deletes them for good. Both ask first, as set under Deleting in Preferences, which can \
          also turn the Delete key off or use no trash at all.\n\n\
          Edit → Undo (Ctrl+Z) puts back what this window did last: files or a folder moved to the \

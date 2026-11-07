@@ -2839,3 +2839,11 @@ msgstr "Pienoiskuvien koko"
 #: src/model/selection.rs
 msgid "The search hides files this would act on: clear it first"
 msgstr "Haku piilottaa tiedostoja, joihin tämä kohdistuisi: tyhjennä se ensin"
+
+#: src/model/selection.rs
+msgid "Not included, as the search hides them: {files}"
+msgstr "Ei mukana, koska haku piilottaa ne: {files}"
+
+#: src/ui/file_list.rs
+msgid ", {h} selected but hidden by the search"
+msgstr ", {h} valittu mutta haun piilottama"

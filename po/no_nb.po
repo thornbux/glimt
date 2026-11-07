@@ -2850,3 +2850,11 @@ msgstr "Størrelse på miniatyrbilder"
 #: src/model/selection.rs
 msgid "The search hides files this would act on: clear it first"
 msgstr "Søket skjuler filer dette ville gjelde: tøm det først"
+
+#: src/model/selection.rs
+msgid "Not included, as the search hides them: {files}"
+msgstr "Ikke tatt med, fordi søket skjuler dem: {files}"
+
+#: src/ui/file_list.rs
+msgid ", {h} selected but hidden by the search"
+msgstr ", {h} valgt, men skjult av søket"

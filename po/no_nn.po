@@ -2850,3 +2850,11 @@ msgstr "Storleik på miniatyrbilete"
 #: src/model/selection.rs
 msgid "The search hides files this would act on: clear it first"
 msgstr "Søket gøymer filer dette ville gjelde: tøm det først"
+
+#: src/model/selection.rs
+msgid "Not included, as the search hides them: {files}"
+msgstr "Ikkje teke med, fordi søket gøymer dei: {files}"
+
+#: src/ui/file_list.rs
+msgid ", {h} selected but hidden by the search"
+msgstr ", {h} valde, men gøymde av søket"

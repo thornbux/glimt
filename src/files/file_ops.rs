@@ -448,7 +448,9 @@ impl crate::App {
             return false;
         };
         let names = targets.iter().map(|&i| self.list.files()[i].clone());
-        self.dialogs.asked_about(self.list_place(), names.collect());
+        let left_out = self.left_out();
+        self.dialogs
+            .asked_about(self.list_place(), names.collect(), left_out);
         true
     }
 
@@ -820,7 +822,7 @@ impl crate::App {
         if names.is_empty() {
             return;
         }
-        self.dialogs.asked_about(self.list_place(), names);
+        self.dialogs.asked_about(self.list_place(), names, None);
         self.dialogs.confirm_delete_instead(kind);
     }
 

@@ -1,8 +1,9 @@
 //! Moving through the list (next, previous, first, last, a page, random) and the selection.
 
 use crate::model::folder::total_size;
-use crate::support::format::thousands;
+use crate::support::format::{count, thousands};
 use crate::support::lang::tr;
+use crate::tf;
 use crate::ui::actions::Action;
 use crate::ui::file_list::SizeDue;
 use crate::viewer::view::Viewing;
@@ -313,7 +314,8 @@ impl crate::App {
     /// The files that an action on the selection acts on: the selected files, otherwise the
     /// shown image, sorted. This is the one place that decides it. Returns `None`, with a
     /// notice, when every selected file is one the search hides, because the shown image
-    /// would then stand in for files the user picked.
+    /// would then stand in for files the user picked. When the search hides only some of
+    /// them, the action acts on the others, and the status bar counts the ones it leaves out.
     pub(crate) fn targets(&mut self) -> Option<Vec<usize>> {
         let targets = self.quiet_targets();
         if targets.is_none() {
@@ -321,6 +323,19 @@ impl crate::App {
                 Some(tr("The search hides files this would act on: clear it first").into());
         }
         targets
+    }
+
+    /// Says how many selected files the search hides, which an action on the selection
+    /// leaves out. Returns `None` when the search hides none of them.
+    pub(crate) fn left_out(&self) -> Option<String> {
+        let files = match self.list.held_back().len() {
+            0 => return None,
+            n => count(n, "file"),
+        };
+        Some(tf!(
+            "Not included, as the search hides them: {files}",
+            files
+        ))
     }
 
     /// The files of `targets()`, without the notice, for a query that changes nothing.
@@ -461,6 +476,37 @@ mod tests {
         assert!(app.list.right_click(cur));
         assert_eq!(app.targets(), Some(vec![cur]));
         assert!(app.list.held_back().is_empty());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// When the search hides some of the selected files, an action acts on the others, and the
+    /// delete's question says how many it leaves out: the count when it asked, whatever changes
+    /// while it is open. Without hidden files it says nothing of them.
+    #[test]
+    fn a_partly_hidden_selection_says_what_it_leaves_out() {
+        let dir =
+            std::env::temp_dir().join(format!("glimt-test-part-hidden-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let (mut app, ctx) = app_on(&dir);
+        let names = ["apple.jpg", "banana.jpg", "cherry.jpg", "cherry2.jpg"];
+        app.list.set_files(names.iter().map(Into::into).collect());
+        app.list.select([0, 1, 2].into());
+        app.search.set_query("cherry");
+        app.update_search(&ctx);
+        assert_eq!(app.targets(), Some(vec![2]));
+        let left_out = app.left_out().unwrap();
+        assert!(left_out.contains("2 files"), "{left_out}");
+        app.config.confirm_trash = true;
+        app.request_delete(&ctx, true);
+        app.list.select([0, 2].into());
+        assert_eq!(app.dialogs.asked_left_out(), Some(left_out.as_str()));
+        assert_eq!(app.asked_targets(), Some(vec![2]));
+        assert_eq!(app.dialogs.asked_left_out(), None);
+        app.list.select([2, 3].into());
+        assert_eq!(app.targets(), Some(vec![2, 3]));
+        assert_eq!(app.left_out(), None);
+        app.request_delete(&ctx, true);
+        assert_eq!(app.dialogs.asked_left_out(), None);
         std::fs::remove_dir_all(dir).unwrap();
     }
 

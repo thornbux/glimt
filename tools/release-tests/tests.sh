@@ -1001,6 +1001,26 @@ for v in new old; do
     else note "old: $got"; fi
 done
 
+section "a selection the search hides part of: the status bar and the delete's question count the hidden files"
+for v in new old; do
+    as_version $v
+    d=/tmp/part-hidden-$v
+    mkdir -p $d
+    for f in apple banana cherry; do convert -size 64x64 xc:red $d/$f.png; done
+    config
+    start $d
+    remote select $d/apple.png $d/banana.png $d/cherry.png >/dev/null 2>&1
+    key slash; xdotool type cherry; sleep 2; key Escape
+    status=$(where ", 2 selected but hidden by the search")
+    key Delete; sleep 1
+    asked=$(where "Not included, as the search hides them: 2 files")
+    key Return; sleep 2
+    quit
+    got="$(ls $d | tr '\n' ' ')${status:+status} ${asked:+asked}"
+    if [ $v = new ]; then expect "cherry deleted alone, the counts in the status bar and the question" "$got" "apple.png banana.png status asked"
+    else note "old: $got"; fi
+done
+
 section "--remote select while Preferences is open: answered at once"
 for v in new old; do
     as_version $v

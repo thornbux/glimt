@@ -2839,3 +2839,11 @@ msgstr "Dimensione delle miniature"
 #: src/model/selection.rs
 msgid "The search hides files this would act on: clear it first"
 msgstr "La ricerca nasconde file su cui questo agirebbe: cancellala prima"
+
+#: src/model/selection.rs
+msgid "Not included, as the search hides them: {files}"
+msgstr "Non inclusi, perché la ricerca li nasconde: {files}"
+
+#: src/ui/file_list.rs
+msgid ", {h} selected but hidden by the search"
+msgstr ", {h} selezionate ma nascoste dalla ricerca"

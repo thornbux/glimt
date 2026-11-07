@@ -108,6 +108,9 @@ pub(crate) struct Dialogs {
     /// (`ask_about_targets`). The dialog names them, and its answer acts on them, wherever a
     /// refresh put them.
     asked_for: (u64, Vec<OsString>),
+    /// How many selected files the search hid and the question leaves out, said when it was
+    /// asked, so that a selection changed while it is open does not change it.
+    asked_left_out: Option<String>,
     /// The type of the FAT or exFAT file system that Rename Many renames on, looked up once as
     /// the dialog opens, so that its preview can warn without reading the mount table in every
     /// frame. It is `None` on any other file system.
@@ -148,8 +151,20 @@ impl Dialogs {
     }
 
     /// The files asked about, by their names, and where the list was when asked.
-    pub(crate) fn asked_about(&mut self, place: u64, names: Vec<OsString>) {
+    pub(crate) fn asked_about(
+        &mut self,
+        place: u64,
+        names: Vec<OsString>,
+        left_out: Option<String>,
+    ) {
         self.asked_for = (place, names);
+        self.asked_left_out = left_out;
+    }
+
+    /// Returns how many selected files the search hid and the question leaves out, as said when
+    /// it was asked, or `None` when it leaves none out.
+    pub(crate) fn asked_left_out(&self) -> Option<&str> {
+        self.asked_left_out.as_deref()
     }
 
     /// Returns the names of the files asked about, which the dialog names while it is open.
@@ -159,6 +174,7 @@ impl Dialogs {
 
     /// The files asked about, taken for the answer to act on.
     pub(crate) fn take_asked(&mut self) -> (u64, Vec<OsString>) {
+        self.asked_left_out = None;
         std::mem::take(&mut self.asked_for)
     }
 
@@ -758,6 +774,7 @@ impl crate::App {
     pub(crate) fn confirm_delete_dialog(&mut self, ctx: &egui::Context) {
         if let Some(trash) = self.dialogs.confirm_delete {
             let what = self.delete_what();
+            let left_out = self.dialogs.asked_left_out().map(str::to_owned);
             let mut delete = false;
             let now = ctx.input(|i| i.time);
             let shown = *self.dialogs.delete_shown.get_or_insert(now);
@@ -775,6 +792,9 @@ impl crate::App {
                     }
                     ui.label(tf!("Permanently delete {what}?", what));
                     ui.weak(tr("This cannot be undone."));
+                }
+                if let Some(left_out) = &left_out {
+                    crate::support::test_hooks::noted(&ui.weak(left_out), left_out);
                 }
                 ui.horizontal(|ui| {
                     delete = crate::ui::menus::button(ui, tr("Delete (Enter)")).clicked() || enter;
@@ -1023,7 +1043,7 @@ mod tests {
         let (mut app, ctx) = app_on(&dir);
         // Only whether the dialog answers is tested here: what it then deletes is
         // file_ops.rs's `asks_to_delete_for_good_what_the_trash_refused_on_a_network_mount`.
-        app.dialogs.asked_about(0, vec!["a.png".into()]);
+        app.dialogs.asked_about(0, vec!["a.png".into()], None);
         app.dialogs.confirm_delete_instead("fuse.rclone".into());
         // Each key is (pressed, repeat). egui takes a press of a key that is down as a repeat.
         let enter_at = |app: &mut crate::App, time: f64, keys: &[(bool, bool)]| {

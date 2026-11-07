@@ -1754,10 +1754,17 @@ impl crate::App {
                     let size = size_text(self.status.selected_size);
                     left += &tf!(", {m} selected ({size})", m, size);
                 }
+                let mut hidden = String::new();
+                if !self.list.held_back().is_empty() {
+                    let h = thousands(self.list.held_back().len());
+                    hidden = tf!(", {h} selected but hidden by the search", h);
+                    left += &hidden;
+                }
                 self.sort_menu(ctx, ui);
                 self.types_menu(ctx, ui);
                 ui.separator();
-                ui.label(left);
+                // The release tests look for the hidden count on its own.
+                crate::support::test_hooks::noted(&ui.label(left), &hidden);
                 if let Some((job, jobs)) = self.work.jobs_shown() {
                     ui.separator();
                     let more = match jobs - 1 {

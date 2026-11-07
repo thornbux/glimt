@@ -2839,3 +2839,11 @@ msgstr "Stærð smámynda"
 #: src/model/selection.rs
 msgid "The search hides files this would act on: clear it first"
 msgstr "Leitin felur skrár sem þetta myndi ná til: hreinsaðu hana fyrst"
+
+#: src/model/selection.rs
+msgid "Not included, as the search hides them: {files}"
+msgstr "Ekki með, því leitin felur þær: {files}"
+
+#: src/ui/file_list.rs
+msgid ", {h} selected but hidden by the search"
+msgstr ", {h} valdar en faldar af leitinni"
