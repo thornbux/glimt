@@ -1390,18 +1390,18 @@ mod tests {
         let (mut app, ctx) = app_on(&dir);
         (app.config.save_orientation, app.config.keep_zoom) = (false, false);
         app.go(&ctx, 2);
-        app.viewing.turn((1, false), dir.join("c.png"));
+        app.viewing.set_turn((1, false), dir.join("c.png"));
         app.zoom.one_to_one();
         app.remove_indices(&ctx, &[0]);
         assert_eq!(app.list.files(), ["b.png", "c.png"]);
         assert_eq!(app.list.shown(), 1);
         assert_eq!(
-            (app.viewing.orient(), app.zoom.is_fitted()),
+            (app.viewing.turn(), app.zoom.is_fitted()),
             ((1, false), false)
         );
         // When the shown image itself is taken out, the next one shows afresh.
         app.remove_indices(&ctx, &[1]);
-        assert_eq!((app.list.shown(), app.viewing.orient()), (0, (0, false)));
+        assert_eq!((app.list.shown(), app.viewing.turn()), (0, (0, false)));
         std::fs::remove_dir_all(dir).unwrap();
     }
 

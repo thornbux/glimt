@@ -258,10 +258,10 @@ pub(crate) struct Viewing {
     /// The frame of an animation stepped to with Ctrl+Page Up/Down. It is `None` while the
     /// animation plays.
     frame: Option<usize>,
-    /// The orientation of the shown image, for viewing only, as quarter turns clockwise. They
-    /// apply after mirroring when the flag is set. It is reset for each image, as in Geeqie.
-    orient: (u8, bool),
-    /// The file `orient` belongs to, set when it is turned. The turn is saved into that file
+    /// The turn of the shown image, for viewing only, as quarter turns clockwise. They apply
+    /// after mirroring when the flag is set. It is reset for each image, as in Geeqie.
+    turn: (u8, bool),
+    /// The file `turn` belongs to, set when it is turned. The turn is saved into that file
     /// even when the list changed meanwhile and another file is at `shown`.
     turned: PathBuf,
     /// The part of the shown image being chosen with Edit → Crop.
@@ -271,23 +271,23 @@ pub(crate) struct Viewing {
 impl Viewing {
     /// The turn of the shown image, as quarter turns clockwise, after mirroring when the flag is
     /// set.
-    pub(crate) fn orient(&self) -> (u8, bool) {
-        self.orient
+    pub(crate) fn turn(&self) -> (u8, bool) {
+        self.turn
     }
 
     /// Whether the shown image is turned or mirrored by hand.
     pub(crate) fn is_turned(&self) -> bool {
-        self.orient != (0, false)
+        self.turn != (0, false)
     }
 
     /// Whether it is turned a quarter, so its width and height swap.
     pub(crate) fn is_sideways(&self) -> bool {
-        self.orient.0 % 2 == 1
+        self.turn.0 % 2 == 1
     }
 
     /// Drops the turn, because the file was written as it is shown, or changed elsewhere.
     pub(crate) fn drop_turn(&mut self) {
-        self.orient = (0, false);
+        self.turn = (0, false);
     }
 
     /// The file the turn belongs to.
@@ -348,8 +348,8 @@ impl Viewing {
 /// For tests of other modules, which start from an image turned by hand.
 #[cfg(test)]
 impl Viewing {
-    pub(crate) fn turn(&mut self, orient: (u8, bool), file: PathBuf) {
-        self.orient = orient;
+    pub(crate) fn set_turn(&mut self, turn: (u8, bool), file: PathBuf) {
+        self.turn = turn;
         self.turned = file;
     }
 }
@@ -949,7 +949,7 @@ impl crate::App {
             return;
         };
         let ppp = ui.ctx().pixels_per_point();
-        let turns = self.viewing.orient.0;
+        let turns = self.viewing.turn.0;
         let [w, h] = loaded.original_size.map(|n| n as f32);
         let (uw, uh) = if turns % 2 == 1 { (h, w) } else { (w, h) };
         let fit = fit_scale(area.size() * ppp, [uw, uh], self.config.fit_mode);
@@ -974,7 +974,7 @@ impl crate::App {
             paint_checker(ui.painter(), rect, turns, egui::Color32::WHITE);
         }
         let tex = self.texture(loaded, ui.ctx());
-        paint_turned(ui, tex, rect, self.viewing.orient, egui::Color32::WHITE);
+        paint_turned(ui, tex, rect, self.viewing.turn, egui::Color32::WHITE);
         // Where the pointer is over the main window's image, to point things out.
         if self.config.projector_pointer
             && let Some(v) = self.last_view
@@ -1137,7 +1137,7 @@ impl crate::App {
 
     /// A size `[w, h]` of the shown image as it is on screen, after its quarter turns.
     fn turned(&self, [w, h]: [usize; 2]) -> [usize; 2] {
-        if self.viewing.orient.0 % 2 == 1 {
+        if self.viewing.turn.0 % 2 == 1 {
             [h, w]
         } else {
             [w, h]
@@ -1179,7 +1179,7 @@ impl crate::App {
                 && grown(decode_box, s.decoded_for, s.texture.size(), s.original_size)
         });
         let view = area.size() * ppp;
-        let view = if self.viewing.orient.0 % 2 == 1 {
+        let view = if self.viewing.turn.0 % 2 == 1 {
             [view.y, view.x]
         } else {
             [view.x, view.y]
@@ -1297,7 +1297,7 @@ impl crate::App {
         // The image area counts, not the whole screen, so a small window on a 4K screen needs a
         // fraction of the memory (3840×2160 is 33 MB per image).
         let [w, h] = [(area.width() * ppp) as u32, (area.height() * ppp) as u32];
-        let quarter = self.viewing.orient.0 % 2 == 1;
+        let quarter = self.viewing.turn.0 % 2 == 1;
         let turned = |[w, h]: [usize; 2]| if quarter { [h, w] } else { [w, h] };
         let mode = self.config.fit_mode;
         // The image is decoded to the size shown, which is the view for a whole image. Fit
@@ -1335,7 +1335,7 @@ impl crate::App {
             self.decoding.view_area,
             self.config.fit_mode == 3,
             idx == self.list.shown(),
-            self.viewing.orient.0 % 2 == 1,
+            self.viewing.turn.0 % 2 == 1,
             self.window.projector_size(),
         )
     }
@@ -1384,9 +1384,9 @@ impl crate::App {
                 None => 1.0,
             };
             if self.config.checkerboard && loaded.transparent() {
-                paint_checker(ui.painter(), rect, self.viewing.orient.0, alpha(shown));
+                paint_checker(ui.painter(), rect, self.viewing.turn.0, alpha(shown));
             }
-            paint_turned(ui, tex, rect, self.viewing.orient, alpha(shown));
+            paint_turned(ui, tex, rect, self.viewing.turn, alpha(shown));
             ui.set_clip_rect(clip);
             self.decoding.last_drawn = Some((loaded.texture.clone(), loaded.original_size));
             // The projector follows this view, and the pointer measured from the image's
@@ -1621,9 +1621,9 @@ impl crate::App {
             self.notice = Some(tr("Still saving the last rotation of this file").into());
             return;
         }
-        let (q, m) = self.viewing.orient;
+        let (q, m) = self.viewing.turn;
         self.viewing.turned = self.path(self.list.shown());
-        self.viewing.orient = match action {
+        self.viewing.turn = match action {
             Action::RotateCw => ((q + 1) % 4, m),
             Action::RotateCcw => ((q + 3) % 4, m),
             Action::Rotate180 => ((q + 2) % 4, m),
@@ -2003,13 +2003,13 @@ mod tests {
         }
         let (mut app, ctx) = app_on(&dir);
         app.config.save_orientation = false;
-        app.viewing.orient = (1, true);
+        app.viewing.turn = (1, true);
         app.viewing.page = 2;
         app.viewing.frame = Some(3);
         app.viewing.turned = dir.join("a.png");
         app.go(&ctx, 1);
         let v = &app.viewing;
-        assert_eq!((v.orient, v.page, v.frame), ((0, false), 0, None));
+        assert_eq!((v.turn, v.page, v.frame), ((0, false), 0, None));
         assert!(v.turned.as_os_str().is_empty() && v.crop.is_none());
         std::fs::remove_dir_all(dir).unwrap();
     }

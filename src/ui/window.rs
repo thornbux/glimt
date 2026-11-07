@@ -172,7 +172,7 @@ impl crate::App {
             self.save_meta(ctx);
             let shown = Some((
                 self.viewing.turned_file().to_path_buf(),
-                self.viewing.orient(),
+                self.viewing.turn(),
             ));
             if self.config.save_orientation && self.window.close_saved != shown {
                 self.window.close_saved = shown;
@@ -526,7 +526,7 @@ mod tests {
         crate::files::file_io::create_file(&dir.join("a.png"), b"not a PNG").unwrap();
         let (mut app, ctx) = app_on(&dir);
         app.config.save_orientation = true;
-        app.viewing.turn((1, false), dir.join("a.png"));
+        app.viewing.set_turn((1, false), dir.join("a.png"));
         let close = |app: &mut crate::App| {
             let info = ViewportInfo {
                 events: vec![ViewportEvent::Close],
@@ -549,7 +549,7 @@ mod tests {
         close(&mut app);
         assert!(!app.file_operations.is_saving(&a));
         // A turn made after that, while the window waits for other work, is saved.
-        app.viewing.turn((2, false), a.clone());
+        app.viewing.set_turn((2, false), a.clone());
         close(&mut app);
         assert!(app.file_operations.is_saving(&a));
         assert!(settle(&mut app, &ctx, over));

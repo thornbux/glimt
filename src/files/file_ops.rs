@@ -1195,7 +1195,7 @@ impl crate::App {
     /// turned, which takes seconds for a large one. Both read and write the whole file, which
     /// is slow on a share.
     pub(crate) fn save_orientation(&mut self, ctx: &egui::Context) {
-        let (turns, mirrored) = self.viewing.orient();
+        let (turns, mirrored) = self.viewing.turn();
         if self.list.files().is_empty() || (turns, mirrored) == (0, false) {
             return;
         }
@@ -2951,7 +2951,7 @@ mod tests {
                 |app, ctx, d| {
                     // The fixture's image is square. A wide one shows the turn in its size.
                     image::RgbImage::new(8, 4).save(d.join("a.png")).unwrap();
-                    app.viewing.turn((1, false), d.join("a.png"));
+                    app.viewing.set_turn((1, false), d.join("a.png"));
                     app.save_orientation(ctx);
                 },
                 |app, d| {
@@ -3909,7 +3909,7 @@ mod tests {
         let a = dir.join("a.png");
         image::RgbImage::new(4, 4).save(&a).unwrap();
         let (mut app, ctx) = app_on(&dir);
-        app.viewing.turn((1, false), a.clone());
+        app.viewing.set_turn((1, false), a.clone());
         let held = app
             .start_job_of("Moving", 1, false, vec![a.clone()])
             .unwrap();

@@ -435,22 +435,22 @@ mod tests {
         let (mut app, ctx) = app_on(&dir);
         app.list.set_files(vec!["a.png".into(), "b.png".into()]);
         app.list.set_shown(1);
-        app.viewing.turn((1, false), dir.join("b.png"));
+        app.viewing.set_turn((1, false), dir.join("b.png"));
         app.move_along(&ctx, crate::ui::actions::Action::Next);
-        assert_eq!((app.list.shown(), app.viewing.orient()), (1, (1, false)));
+        assert_eq!((app.list.shown(), app.viewing.turn()), (1, (1, false)));
         app.go(&ctx, 1);
-        assert_eq!(app.viewing.orient(), (1, false));
+        assert_eq!(app.viewing.turn(), (1, false));
         app.list.set_shown(0);
-        app.viewing.turn((1, false), dir.join("a.png"));
+        app.viewing.set_turn((1, false), dir.join("a.png"));
         app.go_to_pane(&ctx, crate::ui::actions::Action::PaneLeft);
-        assert_eq!((app.list.shown(), app.viewing.orient()), (0, (1, false)));
+        assert_eq!((app.list.shown(), app.viewing.turn()), (0, (1, false)));
         app.shuffle_list(&ctx, true);
-        assert_eq!(app.viewing.orient(), (1, false));
+        assert_eq!(app.viewing.turn(), (1, false));
         // A decode of the shown image that failed is tried again when it is gone to again.
         app.list.decode_failed(0, "the share is away".into());
         app.go(&ctx, 0);
         assert!(!app.list.decode_errors().contains_key(&0));
-        assert_eq!(app.viewing.orient(), (1, false));
+        assert_eq!(app.viewing.turn(), (1, false));
         std::fs::remove_dir_all(dir).unwrap();
     }
 
