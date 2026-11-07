@@ -725,7 +725,7 @@ impl crate::App {
             let mut moved = Vec::new();
             for (plan, moves, done) in &plans {
                 // Put right by another window: nothing done here, nothing to tell.
-                let Some((r, l)) = journal::settle(plan, moves, *done, undo) else {
+                let Some((r, l)) = journal::repair_cut_short(plan, moves, *done, undo) else {
                     continue;
                 };
                 (renamed, left) = (renamed + r, left + l);

@@ -253,7 +253,9 @@ impl FileOperations {
         let (saved_tx, saved_rx) = mpsc::channel();
         let (tx, cut_short_rx) = mpsc::channel();
         std::thread::spawn(move || {
-            let _ = tx.send(journal::dir().map_or_else(Vec::new, |d| journal::interrupted(&d)));
+            let _ = tx.send(
+                journal::journal_dir().map_or_else(Vec::new, |d| journal::cut_short_plans(&d)),
+            );
         });
         FileOperations {
             jobs: Vec::new(),
@@ -2073,12 +2075,12 @@ pub(crate) fn rename_files(from: Vec<PathBuf>, to: Vec<PathBuf>, job: &Job) -> R
     }
     // The plan is on disk while the renames run, so a crash halfway is put right at the next
     // start.
-    let mut plan = journal::dir().and_then(|d| journal::begin(&d, &moves));
+    let mut plan = journal::journal_dir().and_then(|d| journal::start_journal(&d, &moves));
     for (k, (a, b)) in moves.iter().enumerate() {
         // On Stop, the names done so far go back, by the same steps a failure takes.
         let step = match job.is_stopped() {
             true => Err(std::io::Error::other(tr("stopped"))),
-            false => journal::step(a, b),
+            false => journal::rename_step(a, b),
         };
         if let Err(e) = step {
             // Named by the file and its new name, not a temporary one.
@@ -2096,7 +2098,7 @@ pub(crate) fn rename_files(from: Vec<PathBuf>, to: Vec<PathBuf>, job: &Job) -> R
                 // names.
                 return Err(match plan.take() {
                     Some(plan) => {
-                        plan.keep();
+                        plan.keep_on_disk();
                         tf!(
                             "Could not rename {f} to {t}: {e}; not all names could be put back, Glimt offers to put them right at the next start",
                             f,
@@ -2120,7 +2122,7 @@ pub(crate) fn rename_files(from: Vec<PathBuf>, to: Vec<PathBuf>, job: &Job) -> R
             ));
         }
         if let Some(plan) = plan.as_mut() {
-            plan.done();
+            plan.count_step_done();
             // When every file is under its hidden name, the disk is synced. Once the swap is
             // done, the names on disk are those of the start again, and the plan could not
             // tell a power cut after the swap from one before it.

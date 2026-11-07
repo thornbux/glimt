@@ -34,8 +34,8 @@ impl Journal {
     /// which were done. The file names cannot tell, because a swap has the same names before
     /// and after.
     // It is not synced, because a crash of Glimt does not need that. A power cut may lose the
-    // last steps' bytes, and `settle` finds them again by the names (`done_by_names`).
-    pub fn done(&mut self) {
+    // last steps' bytes, and `repair_cut_short` finds them again by the names (`done_by_names`).
+    pub fn count_step_done(&mut self) {
         let _ = self.file.write_all(&[0]);
     }
 
@@ -48,7 +48,7 @@ impl Journal {
 impl Journal {
     /// Leaves the plan on disk, because the renames could not all be undone, so the next start
     /// offers to put the files right. Its lock goes with this Glimt.
-    pub fn keep(mut self) {
+    pub fn keep_on_disk(mut self) {
         // With an empty path, the remove in `drop` finds nothing.
         self.path = PathBuf::new();
     }
@@ -61,14 +61,14 @@ impl Drop for Journal {
     }
 }
 
-pub fn dir() -> Option<PathBuf> {
+pub fn journal_dir() -> Option<PathBuf> {
     crate::files::config::xdg_dir("XDG_STATE_HOME", ".local/state", "glimt")
         .map(|d| d.join("renames"))
 }
 
 /// Writes `moves` down in `dir`, locked and on disk, before the first of them is done. Returns
 /// `None` if that fails, and the renames then run as they did before, without a plan.
-pub fn begin(dir: &Path, moves: &[(PathBuf, PathBuf)]) -> Option<Journal> {
+pub fn start_journal(dir: &Path, moves: &[(PathBuf, PathBuf)]) -> Option<Journal> {
     std::fs::create_dir_all(dir).ok()?;
     // The plan gets a name of its own, never one that is there, so a plan left by a crash, of a
     // Glimt that had the same process ID before a restart, is not written over and lost.
@@ -105,7 +105,7 @@ pub fn begin(dir: &Path, moves: &[(PathBuf, PathBuf)]) -> Option<Journal> {
 
 /// Whether `file` can be locked. It is tried for a moment, because a program that another
 /// thread starts holds a copy of the descriptor, and its lock, until it runs.
-fn free(file: &File) -> bool {
+fn is_unlocked(file: &File) -> bool {
     (0..10).any(|k| {
         if k > 0 {
             std::thread::sleep(std::time::Duration::from_millis(10));
@@ -116,7 +116,7 @@ fn free(file: &File) -> bool {
 
 /// The plans in `dir` of renames that were cut short, which are those no running window holds
 /// locked.
-pub fn interrupted(dir: &Path) -> Vec<CutShort> {
+pub fn cut_short_plans(dir: &Path) -> Vec<CutShort> {
     let entries = std::fs::read_dir(dir).into_iter().flatten().flatten();
     entries
         .filter_map(|e| {
@@ -127,8 +127,8 @@ pub fn interrupted(dir: &Path) -> Vec<CutShort> {
             // before it lets go of the lock, so a file opened just before then is no longer linked.
             let file = crate::images::decode::open(e.path())
                 .ok()
-                .filter(free)
-                .filter(linked)?;
+                .filter(is_unlocked)
+                .filter(is_linked)?;
             let mut bytes = Vec::new();
             #[allow(clippy::disallowed_methods)] // bounded by take, and only a file
             let read = (&file)
@@ -172,7 +172,7 @@ fn parse(bytes: &[u8]) -> Option<(Moves, Option<usize>)> {
 /// between its link and its unlink, where both names are the file, is finished by taking the
 /// old name away. This is the one way a step is done, whether as Rename Many runs, as it is
 /// undone, or as it is put right at the next start.
-pub fn step(a: &Path, b: &Path) -> std::io::Result<()> {
+pub fn rename_step(a: &Path, b: &Path) -> std::io::Result<()> {
     if same_file(a, b) {
         #[allow(clippy::disallowed_methods)] // a second name of the same file
         return std::fs::remove_file(a);
@@ -184,16 +184,16 @@ pub fn step(a: &Path, b: &Path) -> std::io::Result<()> {
 /// no longer there is nothing of ours to put back, and it is left out of both.
 pub fn undo(moves: &[(PathBuf, PathBuf)], done: usize) -> (usize, usize) {
     let back = moves[..done.min(moves.len())].iter().rev();
-    steps(back.map(|(a, b)| (b.as_path(), a.as_path())))
+    do_steps(back.map(|(a, b)| (b.as_path(), a.as_path())))
 }
 
 /// Does the steps of `moves` after the first `done`. Returns (renamed, left).
 pub fn finish(moves: &[(PathBuf, PathBuf)], done: usize) -> (usize, usize) {
     let rest = moves[done.min(moves.len())..].iter();
-    steps(rest.map(|(a, b)| (a.as_path(), b.as_path())))
+    do_steps(rest.map(|(a, b)| (a.as_path(), b.as_path())))
 }
 
-fn steps<'a>(steps: impl Iterator<Item = (&'a Path, &'a Path)>) -> (usize, usize) {
+fn do_steps<'a>(steps: impl Iterator<Item = (&'a Path, &'a Path)>) -> (usize, usize) {
     let (mut renamed, mut left) = (0, 0);
     for (a, b) in steps {
         // Only a name that is surely not there is passed over. One that cannot be looked at
@@ -206,7 +206,7 @@ fn steps<'a>(steps: impl Iterator<Item = (&'a Path, &'a Path)>) -> (usize, usize
             }
             Ok(_) => {}
         }
-        match step(a, b) {
+        match rename_step(a, b) {
             Ok(()) => renamed += 1,
             Err(_) => left += 1,
         }
@@ -251,7 +251,7 @@ pub fn pairs(moves: &[(PathBuf, PathBuf)]) -> Vec<(PathBuf, PathBuf)> {
 /// at the next start. Returns `None` when another window has the plan or has put it right
 /// already. Then nothing was done here, and the caller must not tell marks and collections of
 /// the moves a second time (a swap's marks would be swapped back).
-pub fn settle(
+pub fn repair_cut_short(
     plan: &Path,
     moves: &[(PathBuf, PathBuf)],
     done: Option<usize>,
@@ -263,8 +263,8 @@ pub fn settle(
     // that one let go.
     let _held = crate::images::decode::open(plan)
         .ok()
-        .filter(free)
-        .filter(linked)?;
+        .filter(is_unlocked)
+        .filter(is_linked)?;
     let done = done.map(|d| done_by_names(moves, d));
     let mut first = 0;
     // When the names are put back, the step cut short between its link and its unlink, the
@@ -329,8 +329,8 @@ fn done_by_names(moves: &[(PathBuf, PathBuf)], done: usize) -> usize {
             return k;
         }
         // When cut short between this step's link and its unlink, the names are those of the
-        // count before it, and its new name too, the same file as its old one. `settle` takes
-        // that name away.
+        // count before it, and its new name too, the same file as its old one. `repair_cut_short`
+        // takes that name away.
         let (from, to) = (&moves[k].0, &moves[k].1);
         if k >= done && wrong == 1 && !there[b] && on_disk[b] && same_file(from, to) {
             return k;
@@ -350,7 +350,7 @@ fn done_by_names(moves: &[(PathBuf, PathBuf)], done: usize) -> usize {
 }
 
 /// Whether `file` still has a name. A plan that another window put right and deleted has none.
-fn linked(file: &File) -> bool {
+fn is_linked(file: &File) -> bool {
     use std::os::unix::fs::MetadataExt;
     file.metadata().is_ok_and(|m| m.nlink() > 0)
 }
@@ -378,11 +378,14 @@ mod tests {
         std::fs::write(p("b.jpg"), "a").unwrap();
         std::fs::write(p(".tmp-1"), "b").unwrap();
         let plan = plans.join("cut");
-        let mut cut = super::begin(&plans, &moves).unwrap();
-        cut.done();
+        let mut cut = super::start_journal(&plans, &moves).unwrap();
+        cut.count_step_done();
         std::fs::copy(&cut.path, &plan).unwrap();
         drop(cut);
-        assert_eq!(super::settle(&plan, &moves, Some(1), true), Some((3, 0)));
+        assert_eq!(
+            super::repair_cut_short(&plan, &moves, Some(1), true),
+            Some((3, 0))
+        );
         assert_eq!((text("a.jpg"), text("b.jpg")), ("a".into(), "b".into()));
         assert!(!p(".tmp-0").exists() && !p(".tmp-1").exists() && !plan.exists());
         std::fs::remove_file(p("a.jpg")).unwrap();
@@ -395,8 +398,8 @@ mod tests {
             std::fs::write(p(".tmp-1"), "b").unwrap();
             std::fs::hard_link(p(".tmp-0"), p("b.jpg")).unwrap();
             let plan = plans.join("cut");
-            let mut cut = super::begin(&plans, &moves).unwrap();
-            cut.done();
+            let mut cut = super::start_journal(&plans, &moves).unwrap();
+            cut.count_step_done();
             std::fs::copy(&cut.path, &plan).unwrap();
             drop(cut);
             let (a, b, steps) = match undo {
@@ -404,7 +407,7 @@ mod tests {
                 false => ("b", "a", 2),
             };
             assert_eq!(
-                super::settle(&plan, &moves, Some(1), undo),
+                super::repair_cut_short(&plan, &moves, Some(1), undo),
                 Some((steps, 0))
             );
             assert_eq!((text("a.jpg"), text("b.jpg")), (a.into(), b.into()));
@@ -425,13 +428,13 @@ mod tests {
                 std::fs::write(p(&format!("{n}.png")), n.to_lowercase()).unwrap();
             }
             std::fs::hard_link(p("d.png"), p("D.png")).unwrap();
-            let mut cut = super::begin(&plans, &chain).unwrap();
-            cut.done();
+            let mut cut = super::start_journal(&plans, &chain).unwrap();
+            cut.count_step_done();
             std::fs::copy(&cut.path, &plan).unwrap();
             drop(cut);
             let steps = if undo { 4 } else { 1 };
             assert_eq!(
-                super::settle(&plan, &chain, Some(1), undo),
+                super::repair_cut_short(&plan, &chain, Some(1), undo),
                 Some((steps, 0))
             );
             for n in ["a", "b", "c", "d"] {
@@ -452,15 +455,18 @@ mod tests {
             std::fs::write(p(".tmp-0"), "a").unwrap();
             std::fs::write(p(".tmp-1"), "b").unwrap();
             let plan = plans.join("cut");
-            let mut cut = super::begin(&plans, &moves).unwrap();
-            cut.done();
+            let mut cut = super::start_journal(&plans, &moves).unwrap();
+            cut.count_step_done();
             std::fs::copy(&cut.path, &plan).unwrap();
             drop(cut);
             let (a, b) = match undo {
                 true => ("a", "b"),
                 false => ("b", "a"),
             };
-            assert_eq!(super::settle(&plan, &moves, Some(1), undo), Some((2, 0)));
+            assert_eq!(
+                super::repair_cut_short(&plan, &moves, Some(1), undo),
+                Some((2, 0))
+            );
             assert_eq!((text("a.jpg"), text("b.jpg")), (a.into(), b.into()));
             assert!(!p(".tmp-0").exists() && !p(".tmp-1").exists() && !plan.exists());
             std::fs::remove_file(p("a.jpg")).unwrap();
@@ -488,12 +494,15 @@ mod tests {
         std::fs::write(p("a.jpg"), "b").unwrap();
         std::fs::write(p("b.jpg"), "a").unwrap();
         let plan = plans.join("cut");
-        let mut cut = super::begin(&plans, &moves).unwrap();
-        cut.done();
-        cut.done();
+        let mut cut = super::start_journal(&plans, &moves).unwrap();
+        cut.count_step_done();
+        cut.count_step_done();
         std::fs::copy(&cut.path, &plan).unwrap();
         drop(cut);
-        assert_eq!(super::settle(&plan, &moves, Some(2), false), Some((0, 0)));
+        assert_eq!(
+            super::repair_cut_short(&plan, &moves, Some(2), false),
+            Some((0, 0))
+        );
         let text = |n| std::fs::read_to_string(p(n)).unwrap();
         assert_eq!((text("a.jpg"), text("b.jpg")), ("b".into(), "a".into()));
         assert!(!plan.exists());
@@ -514,7 +523,7 @@ mod tests {
                 .unwrap()
                 .success()
         );
-        assert!(super::interrupted(&dir).is_empty());
+        assert!(super::cut_short_plans(&dir).is_empty());
         std::fs::remove_dir_all(dir).unwrap();
     }
 
@@ -533,11 +542,11 @@ mod tests {
             (p(".tmp-0"), p("b.jpg")),
             (p(".tmp-1"), p("a.jpg")),
         ];
-        let running = super::begin(&plans, &moves).unwrap();
+        let running = super::start_journal(&plans, &moves).unwrap();
         // A second rename has a plan of its own, and neither is taken for one cut short.
-        let second = super::begin(&plans, &moves[..1]).unwrap();
+        let second = super::start_journal(&plans, &moves[..1]).unwrap();
         assert_ne!(running.path, second.path);
-        assert!(super::interrupted(&plans).is_empty());
+        assert!(super::cut_short_plans(&plans).is_empty());
         drop(second);
         let plan_now = std::fs::read(&running.path).unwrap();
         assert_eq!(
@@ -550,25 +559,25 @@ mod tests {
         drop(running);
         assert!(std::fs::read_dir(&plans).unwrap().next().is_none());
         // A plan finished while another window waits for its lock is not taken for one cut short.
-        let finishing = super::begin(&plans, &moves).unwrap();
+        let finishing = super::start_journal(&plans, &moves).unwrap();
         let ends = std::thread::spawn(move || {
             std::thread::sleep(std::time::Duration::from_millis(30));
             drop(finishing);
         });
-        assert!(super::interrupted(&plans).is_empty());
+        assert!(super::cut_short_plans(&plans).is_empty());
         ends.join().unwrap();
         // Cut short after two steps: both files under hidden names.
         std::fs::write(p(".tmp-0"), "a").unwrap();
         std::fs::write(p(".tmp-1"), "b").unwrap();
-        let mut cut = super::begin(&plans, &moves).unwrap();
-        cut.done();
-        cut.done();
+        let mut cut = super::start_journal(&plans, &moves).unwrap();
+        cut.count_step_done();
+        cut.count_step_done();
         let plan = cut.path.clone();
         std::mem::forget(cut);
         // As after a crash, the lock is gone with the process.
         let found = {
             std::fs::copy(&plan, plans.join("crashed")).unwrap();
-            super::interrupted(&plans)
+            super::cut_short_plans(&plans)
         };
         let (path, read, done) = found
             .into_iter()
@@ -581,7 +590,7 @@ mod tests {
         std::fs::hard_link(p(".tmp-0"), p("b.jpg")).unwrap();
         std::fs::copy(&path, plans.join("linked")).unwrap();
         assert_eq!(
-            super::settle(&plans.join("linked"), &read, Some(2), false),
+            super::repair_cut_short(&plans.join("linked"), &read, Some(2), false),
             Some((2, 0))
         );
         assert_eq!((text("a.jpg"), text("b.jpg")), ("b".into(), "a".into()));
@@ -592,7 +601,7 @@ mod tests {
         std::fs::hard_link(p(".tmp-0"), p("b.jpg")).unwrap();
         std::fs::copy(&path, plans.join("linked")).unwrap();
         assert_eq!(
-            super::settle(&plans.join("linked"), &read, Some(2), true),
+            super::repair_cut_short(&plans.join("linked"), &read, Some(2), true),
             Some((3, 0))
         );
         assert_eq!((text("a.jpg"), text("b.jpg")), ("a".into(), "b".into()));
@@ -601,25 +610,28 @@ mod tests {
         // While another window puts it right, this one does nothing.
         let other = std::fs::File::open(&path).unwrap();
         other.lock().unwrap();
-        assert_eq!(super::settle(&path, &read, done, true), None);
+        assert_eq!(super::repair_cut_short(&path, &read, done, true), None);
         drop(other);
-        assert_eq!(super::settle(&path, &read, done, true), Some((2, 0)));
+        assert_eq!(
+            super::repair_cut_short(&path, &read, done, true),
+            Some((2, 0))
+        );
         assert_eq!((text("a.jpg"), text("b.jpg")), ("a".into(), "b".into()));
         assert!(!path.exists());
         // One that opened it before it was deleted finds it has no name left.
         std::fs::write(&path, "x").unwrap();
         let opened = std::fs::File::open(&path).unwrap();
         std::fs::remove_file(&path).unwrap();
-        assert!(!super::linked(&opened));
+        assert!(!super::is_linked(&opened));
         // A second window that asked about it too finds it gone, and does nothing.
-        assert_eq!(super::settle(&path, &read, done, true), None);
+        assert_eq!(super::repair_cut_short(&path, &read, done, true), None);
         assert_eq!((text("a.jpg"), text("b.jpg")), ("a".into(), "b".into()));
         // Finishing instead gives the new names.
         std::fs::rename(p("a.jpg"), p(".tmp-0")).unwrap();
         std::fs::rename(p("b.jpg"), p(".tmp-1")).unwrap();
         std::fs::copy(&plan, plans.join("crashed")).unwrap();
         assert_eq!(
-            super::settle(&plans.join("crashed"), &moves, Some(2), false),
+            super::repair_cut_short(&plans.join("crashed"), &moves, Some(2), false),
             Some((2, 0))
         );
         assert_eq!((text("a.jpg"), text("b.jpg")), ("b".into(), "a".into()));
@@ -634,14 +646,14 @@ mod tests {
         };
         after_three();
         assert_eq!(
-            super::settle(&plans.join("crashed"), &moves, Some(3), false),
+            super::repair_cut_short(&plans.join("crashed"), &moves, Some(3), false),
             Some((1, 0))
         );
         assert_eq!((text("a.jpg"), text("b.jpg")), ("b".into(), "a".into()));
         assert!(!plans.join("crashed").exists());
         after_three();
         assert_eq!(
-            super::settle(&plans.join("crashed"), &moves, Some(3), true),
+            super::repair_cut_short(&plans.join("crashed"), &moves, Some(3), true),
             Some((3, 0))
         );
         assert_eq!((text("a.jpg"), text("b.jpg")), ("a".into(), "b".into()));
@@ -665,10 +677,10 @@ mod tests {
     fn a_kept_plan_stays() {
         let dir = std::env::temp_dir().join(format!("glimt-test-kept-{}", std::process::id()));
         let moves = vec![(dir.join("a"), dir.join("b"))];
-        let mut plan = super::begin(&dir, &moves).unwrap();
-        plan.done();
-        plan.keep();
-        let left = super::interrupted(&dir);
+        let mut plan = super::start_journal(&dir, &moves).unwrap();
+        plan.count_step_done();
+        plan.keep_on_disk();
+        let left = super::cut_short_plans(&dir);
         assert_eq!((left.len(), left[0].2), (1, Some(1)));
         std::fs::remove_dir_all(dir).unwrap();
     }
@@ -750,9 +762,9 @@ mod tests {
     /// Every place a Rename Many can be cut short is tried, also between the link and the
     /// unlink of one step, for a swap, a cycle of three, a shift and plain new names. Putting
     /// back gives every old name, finishing gives every new one, no hidden name is left, and a
-    /// second settle does nothing.
+    /// second repair does nothing.
     #[test]
-    fn settles_every_cut() {
+    fn repairs_every_cut() {
         let dir = std::env::temp_dir().join(format!("glimt-test-cuts-{}", std::process::id()));
         let plans = dir.join("plans");
         let p = |n: &str| dir.join(n);
@@ -784,10 +796,10 @@ mod tests {
                         for f in from {
                             std::fs::write(p(f), f).unwrap();
                         }
-                        let mut plan = super::begin(&plans, &moves).unwrap();
+                        let mut plan = super::start_journal(&plans, &moves).unwrap();
                         for (a, b) in &moves[..cut] {
                             std::fs::rename(a, b).unwrap();
-                            plan.done();
+                            plan.count_step_done();
                         }
                         if half {
                             std::fs::hard_link(&moves[cut].0, &moves[cut].1).unwrap();
@@ -796,11 +808,11 @@ mod tests {
                         let bytes = std::fs::read(&plan.path).unwrap();
                         drop(plan);
                         std::fs::write(plans.join("crashed"), bytes).unwrap();
-                        let [(path, read, done)] = &super::interrupted(&plans)[..] else {
+                        let [(path, read, done)] = &super::cut_short_plans(&plans)[..] else {
                             panic!("one plan");
                         };
                         assert_eq!((read, *done), (&moves, Some(cut)));
-                        let (_, left) = super::settle(path, read, *done, undo).unwrap();
+                        let (_, left) = super::repair_cut_short(path, read, *done, undo).unwrap();
                         let case = format!("{from:?} -> {to:?}, cut {cut}, half {half}");
                         assert_eq!(left, 0, "{case}");
                         assert!(!path.exists(), "{case}");
@@ -816,7 +828,11 @@ mod tests {
                         let mut want: Vec<String> = names.iter().map(|n| n.to_string()).collect();
                         want.sort();
                         assert_eq!(there, want, "{case}");
-                        assert_eq!(super::settle(path, read, *done, undo), None, "{case}");
+                        assert_eq!(
+                            super::repair_cut_short(path, read, *done, undo),
+                            None,
+                            "{case}"
+                        );
                     }
                 }
             }

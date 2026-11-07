@@ -79,9 +79,9 @@
 
       <rect x="490" y="328" width="220" height="132" rx="6" fill="#ffffff" stroke="#7a7a2a" stroke-width="1.5"/>
       <text x="502" y="349" font-size="13" font-weight="700" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace">rename_files</text>
-      <text x="502" y="369">journal::begin: the plan on</text>
+      <text x="502" y="369">journal::start_journal: plan on</text>
       <text x="502" y="385">disk, locked, before a rename;</text>
-      <text x="502" y="401">journal::step for each one;</text>
+      <text x="502" y="401">journal::rename_step each one;</text>
       <text x="502" y="417">a failure: journal::undo puts</text>
       <text x="502" y="433">every name back</text>
 
@@ -109,7 +109,7 @@
       <line x1="830" y1="460" x2="830" y2="512" marker-end="url(#arrow)"/>
       <line x1="1060" y1="460" x2="1060" y2="512" marker-end="url(#arrow)"/>
     </g>
-    <text x="528" y="492" font-size="12" fill="#57606a">journal::step</text>
+    <text x="528" y="492" font-size="12" fill="#57606a">journal::rename_step</text>
 
     <!-- 4. The one function per change -->
     <g font-size="12">
@@ -189,7 +189,7 @@
       <text x="832" y="791" font-size="13" font-weight="700">Rename Many's journal <tspan font-weight="400" font-size="12" fill="#57606a">files/journal.rs</tspan></text>
       <text x="832" y="813">The plan stays on disk, locked, while it runs.</text>
       <text x="832" y="829">A crash halfway leaves it behind:</text>
-      <text x="832" y="851">journal::interrupted finds it at the next start,</text>
+      <text x="832" y="851">journal::cut_short_plans finds it at the next start,</text>
       <text x="832" y="867">and a dialog puts the old names back</text>
       <text x="832" y="883">(journal::undo) or finishes (journal::finish).</text>
     </g>
