@@ -223,7 +223,8 @@ Select these files of the list (at most 100,000) and show the first; print those
 in it. Sent right after
 .BR open ,
 it waits until the folder is read, up to ten seconds; after that nothing is printed and the exit
-status is 1, so a script can try again. It only selects: deleting or moving is left to the user.
+status is 1, so a script can try again. When the search hides one of the files, nothing is
+selected and every path is printed. It only selects: deleting or moving is left to the user.
 .PP
 .BR current ,
 .B selection

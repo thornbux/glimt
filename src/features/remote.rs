@@ -278,7 +278,8 @@ impl crate::App {
 
     /// `--remote select PATH…` (the paths after a NUL each). It selects those of the list and
     /// shows the first. The answer is the paths that are not in the list, each ending in a NUL
-    /// byte. Only the selection changes, and deleting or moving it is left to the user.
+    /// byte. Only the selection changes, and deleting or moving it is left to the user. When
+    /// the search hides one of the files, nothing changes, and the answer is every path.
     pub(crate) fn remote_select(&mut self, ctx: &egui::Context, command: &str) -> Vec<u8> {
         let paths = command.strip_prefix("select ").unwrap_or_default();
         let paths: Vec<&str> = paths.split('\0').filter(|p| !p.is_empty()).collect();
@@ -301,9 +302,13 @@ impl crate::App {
             .flat_map(|p| p.bytes().chain([0]))
             .collect();
         if let Some(&first) = found.first() {
+            // When the search hides one of them, none is selected, and the answer names every
+            // path, as at closing.
+            if !self.select_for_action(ctx, found) {
+                return paths.iter().flat_map(|p| p.bytes().chain([0])).collect();
+            }
             self.go(ctx, first);
             self.list.set_anchor(None);
-            self.set_selection(ctx, found);
         }
         missing
     }
@@ -919,6 +924,29 @@ mod tests {
         assert!(taken);
         std::fs::remove_file(path.with_extension("lock")).unwrap();
         std::fs::remove_file(path).unwrap();
+    }
+
+    /// `--remote select` of a file the search hides selects nothing and answers every path, so
+    /// the script does not take the files as selected. The selection stays as it was.
+    #[test]
+    fn a_select_of_a_file_the_search_hides_selects_nothing() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-sel-hid-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let (mut app, ctx) = app_on(&dir);
+        app.list
+            .set_files(["a.png", "b.png", "c.png"].map(Into::into).to_vec());
+        app.list.select([2].into());
+        app.list.set_matches(Some(vec![1, 2]));
+        let (a, b) = (dir.join("a.png"), dir.join("b.png"));
+        let command = format!("select {}\0{}\0", a.display(), b.display());
+        let answer = app.remote_select(&ctx, &command);
+        assert_eq!(
+            answer,
+            format!("{}\0{}\0", a.display(), b.display()).into_bytes()
+        );
+        assert_eq!(app.list.selected(), &[2].into());
+        assert!(app.notice.is_some());
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     /// Two `--remote select` held back while the folder is read each get their answer. The

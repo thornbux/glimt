@@ -240,6 +240,24 @@ impl crate::App {
         self.selection_changed(ctx);
     }
 
+    /// Selects the files at `places` for an action to act on, as Find Duplicates, Check
+    /// Images, a dialog's answer and `--remote select` do. Returns false, with a notice and the
+    /// selection left as it was, when the search hides any of them. The search would hold those
+    /// back, and the action would then act on fewer files than meant, or on the shown image.
+    pub(crate) fn select_for_action(
+        &mut self,
+        ctx: &egui::Context,
+        places: std::collections::BTreeSet<usize>,
+    ) -> bool {
+        if !places.iter().all(|&i| self.list.shows(i)) {
+            self.notice =
+                Some(tr("The search hides files this would act on: clear it first").into());
+            return false;
+        }
+        self.set_selection(ctx, places);
+        true
+    }
+
     /// Called when the selection changes: update the title and compute the size in the background.
     pub(crate) fn selection_changed(&mut self, ctx: &egui::Context) {
         self.list.set_range_end(None);

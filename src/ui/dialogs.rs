@@ -507,7 +507,7 @@ impl crate::App {
             let Some(found) = self.asked_targets() else {
                 return;
             };
-            if !self.select_asked(ctx, found) {
+            if !self.select_for_action(ctx, found.into_iter().collect()) {
                 return;
             }
             return match collections::new_file(text) {
@@ -562,7 +562,7 @@ impl crate::App {
             };
             match prompt {
                 Prompt::Rename => self.go(ctx, found[0]),
-                _ if !self.select_asked(ctx, found) => return,
+                _ if !self.select_for_action(ctx, found.into_iter().collect()) => return,
                 _ => {}
             }
         }
@@ -1246,13 +1246,17 @@ mod tests {
         );
         assert_eq!(app.list.range_end(), None);
         // When a search hid one of the files meanwhile, the answer makes nothing, as it would
-        // act on the files left or on the shown image instead.
+        // act on the files left or on the shown image instead. It says so truly, and the
+        // selection stays as it was.
         app.run(&ctx, crate::ui::actions::Action::NewCollection);
         app.list.set_matches(Some(vec![1, 2]));
         let other = format!("{name}-hidden");
         app.notice = None;
         app.answer_prompt(&ctx, super::Prompt::NewCollection, &other);
-        assert!(app.notice.is_some());
+        let hides =
+            crate::support::lang::tr("The search hides files this would act on: clear it first");
+        assert_eq!(app.notice.as_deref(), Some(hides));
+        assert_eq!(app.list.selected_and_held(), [0, 1].into());
         let dir_of = crate::model::collections::dir().unwrap();
         assert!(!dir_of.join(format!("{other}.gqv")).exists());
         app.list.set_matches(None);

@@ -293,7 +293,7 @@ impl List {
 
     /// Returns whether the list shows the file at `i`. While searching, that is whether the
     /// file is a match.
-    fn shows(&self, i: usize) -> bool {
+    pub(crate) fn shows(&self, i: usize) -> bool {
         self.matches.is_none() || self.is_match.get(i).copied().unwrap_or(false)
     }
 
