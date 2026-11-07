@@ -114,7 +114,7 @@ fn source(name: &str) -> String {
 /// `text`'s lines as code only: comments and the insides of string and char literals blanked,
 /// and the blanks at the end of each line gone, so a line closing a block with a comment after
 /// it is just `}`. Every code character keeps its line and column.
-fn code_lines(text: &str) -> Vec<String> {
+pub(crate) fn code_lines(text: &str) -> Vec<String> {
     let chars: Vec<char> = text.chars().collect();
     let mut code = String::with_capacity(text.len());
     let mut i = 0;

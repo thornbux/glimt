@@ -1358,26 +1358,16 @@ mod tests {
     /// names under the thumbnails changed every row's height.
     #[test]
     fn preferences_change_settings_through_their_setters() {
-        let sources = crate::support::source_rules::sources();
         let ident = |c: char| c.is_alphanumeric() || c == '_';
-        let body = |code: &str| {
-            let end = ["\n    }\n", "\n}\n"].map(|e| code.find(e).unwrap_or(code.len()));
-            code[..end[0].min(end[1])].to_owned()
-        };
         let mut guarded = Vec::new();
-        for (_, code) in &sources {
+        for (_, code) in crate::support::source_rules::rust_sources() {
+            let code = code_only(&code);
             for (at, _) in code.match_indices("fn set_") {
-                for (k, _) in body(&code[at..]).match_indices("self.config.") {
-                    let rest = &body(&code[at..])[k + 12..];
-                    let name: String = rest.chars().take_while(|&c| ident(c)).collect();
-                    if rest[name.len()..].trim_start().starts_with("= ") {
-                        guarded.push(name);
-                    }
-                }
+                guarded.extend(fields_set(function_body(&code[at..])));
             }
         }
-        let menus = include_str!("menus.rs");
-        let toggle = body(&menus[menus.find("fn toggle_setting(").unwrap()..]);
+        let menus = code_only(include_str!("menus.rs"));
+        let toggle = function_body(&menus[menus.find("fn toggle_setting(").unwrap()..]);
         for (k, _) in toggle.match_indices("&mut c.") {
             let name: String = toggle[k + 7..].chars().take_while(|&c| ident(c)).collect();
             // A on a stepped animation plays it on and leaves the setting, which a checkbox
@@ -1420,5 +1410,66 @@ mod tests {
             wrong.is_empty(),
             "set through their setters instead: {wrong:?}"
         );
+    }
+
+    /// The setter test sees a field set as `c.X =` after `let c = &mut self.config`, and the
+    /// whole body of a setter with a block inside it or at the top level.
+    #[test]
+    fn a_setters_fields_are_found_however_it_is_written() {
+        let code = code_only(
+            "fn set_a(&mut self) {\n    if on {\n        x();\n    }\n    self.config.a = 1;\n}\n\
+             fn set_b(&mut self) {\n    let c = &mut self.config;\n    c.b = \"}\";\n    \
+             c.d == 2;\n}\nfn other(&mut self) {\n    self.config.e = 3;\n}\n",
+        );
+        let found: Vec<String> = (code.match_indices("fn set_"))
+            .flat_map(|(at, _)| fields_set(function_body(&code[at..])))
+            .collect();
+        assert_eq!(found, ["a", "b"]);
+    }
+
+    /// `text` with its comments and the insides of its literals blanked, so a brace or a field
+    /// in a string is not taken for code.
+    fn code_only(text: &str) -> String {
+        crate::support::source_rules::code_lines(text).join("\n")
+    }
+
+    /// Returns `code`, which starts at a function's `fn`, up to the `}` that ends the function.
+    fn function_body(code: &str) -> &str {
+        let mut depth = 0;
+        for (i, c) in code.char_indices() {
+            match c {
+                '{' => depth += 1,
+                '}' if depth == 1 => return &code[..=i],
+                '}' => depth -= 1,
+                ';' if depth == 0 => return &code[..=i],
+                _ => {}
+            }
+        }
+        code
+    }
+
+    /// Returns the settings that `body` assigns: `self.config.X = …`, or `c.X = …` when `c` is
+    /// `&mut self.config` there.
+    fn fields_set(body: &str) -> Vec<String> {
+        let ident = |c: char| c.is_alphanumeric() || c == '_';
+        let mut fields = vec!["self.config."];
+        if body.contains("let c = &mut self.config;") {
+            fields.push("c.");
+        }
+        let mut set = Vec::new();
+        for field in fields {
+            for (k, _) in body.match_indices(field) {
+                if body[..k].ends_with(|c: char| ident(c) || c == '.') {
+                    continue;
+                }
+                let rest = &body[k + field.len()..];
+                let name: String = rest.chars().take_while(|&c| ident(c)).collect();
+                let after = rest[name.len()..].trim_start();
+                if after.starts_with('=') && !after.starts_with("==") {
+                    set.push(name);
+                }
+            }
+        }
+        set
     }
 }
