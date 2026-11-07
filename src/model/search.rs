@@ -420,7 +420,7 @@ impl crate::App {
         // there is. That waits while keywords are still being written, and the marks stay until
         // they are, so files read before their sidecar landed are read again after. (The frame
         // that sees the job end searches again.)
-        let writing = self.file_operations.writes_keywords();
+        let writing = self.file_operations.is_writing_sidecars();
         if !writing
             && self.search.exif_index.is_some()
             && !self.search.exif_stale.is_empty()

@@ -187,7 +187,7 @@ impl crate::App {
         if self.info_panel.exif_asked.as_ref() != Some(&path)
             && self.info_panel.reread_after_write.is_none()
         {
-            let writes = self.file_operations.writes_of(&path);
+            let writes = self.file_operations.jobs_writing_sidecar_of(&path);
             if !writes.is_empty() {
                 // The wait ends by forgetting the panel, so the image before keeps its edit.
                 self.save_meta(ctx);
@@ -467,7 +467,7 @@ impl crate::App {
     pub(crate) fn read_info_again(&mut self, ctx: &egui::Context) {
         self.save_meta(ctx);
         let path = self.path(self.list.cur());
-        let writes = self.file_operations.writes_of(&path);
+        let writes = self.file_operations.jobs_writing_sidecar_of(&path);
         self.info_panel.reread_after_write = Some((path, writes));
         self.reread_when_written();
     }
@@ -789,7 +789,7 @@ mod tests {
         });
         assert!(!enabled, "the waiting panel's fields can be edited");
         drop(other);
-        let written = |a: &crate::App| !a.file_operations.writes_keywords();
+        let written = |a: &crate::App| !a.file_operations.is_writing_sidecars();
         assert!(crate::support::test_support::settle(
             &mut app, &ctx, written
         ));

@@ -146,7 +146,7 @@ pub(crate) struct Job {
     _writing: Working,
     /// Whether the job writes the sidecars of its files. Those files must not be moved, renamed
     /// or deleted while it runs.
-    pub(crate) sidecars: bool,
+    pub(crate) writes_sidecars: bool,
     /// The files and folders the job changes. No other operation starts on them while it runs.
     pub(crate) touches: Vec<PathBuf>,
 }
@@ -156,7 +156,7 @@ impl Job {
     pub(crate) fn new(
         doing: &'static str,
         total: usize,
-        sidecars: bool,
+        writes_sidecars: bool,
         touches: Vec<PathBuf>,
     ) -> Job {
         Job {
@@ -166,7 +166,7 @@ impl Job {
             stop: Default::default(),
             started: Instant::now(),
             _writing: Working::new(&crate::files::file_io::WRITING),
-            sidecars,
+            writes_sidecars,
             touches,
         }
     }
@@ -280,28 +280,28 @@ impl FileOperations {
         self.report_tx.clone()
     }
 
-    /// Lets go of the jobs and the `background` work that ended. True when the last job
-    /// writing keywords ended now.
+    /// Lets go of the jobs and the `background` work that ended. Returns true when the last job
+    /// writing sidecars ended now.
     pub(crate) fn let_go_of_ended(&mut self) -> bool {
-        let sidecars = |jobs: &[Arc<Job>]| jobs.iter().any(|j| j.sidecars);
-        let were_writing = sidecars(&self.jobs);
+        let any_writing = |jobs: &[Arc<Job>]| jobs.iter().any(|j| j.writes_sidecars);
+        let were_writing = any_writing(&self.jobs);
         self.jobs.retain(|job| Arc::strong_count(job) > 1);
         self.touching.retain(|t| Arc::strong_count(t) > 1);
-        were_writing && !sidecars(&self.jobs)
+        were_writing && !any_writing(&self.jobs)
     }
 
-    /// Whether a job writing keywords runs.
-    pub(crate) fn writes_keywords(&self) -> bool {
-        (self.jobs.iter()).any(|j| j.sidecars && Arc::strong_count(j) > 1)
+    /// Returns whether a job writing sidecars runs.
+    pub(crate) fn is_writing_sidecars(&self) -> bool {
+        (self.jobs.iter()).any(|j| j.writes_sidecars && Arc::strong_count(j) > 1)
     }
 
     /// Returns the running jobs that write the sidecar of `file`, or of a folder it is in. Each
     /// is over once `Weak::strong_count` is 1 or less, as only `jobs` holds it then. The jobs
     /// are looked through once here, so a wait for them does not go through a Lightroom
     /// import's 100,000 files in every frame.
-    pub(crate) fn writes_of(&self, file: &Path) -> Vec<std::sync::Weak<Job>> {
+    pub(crate) fn jobs_writing_sidecar_of(&self, file: &Path) -> Vec<std::sync::Weak<Job>> {
         (self.jobs.iter())
-            .filter(|j| j.sidecars && Arc::strong_count(j) > 1)
+            .filter(|j| j.writes_sidecars && Arc::strong_count(j) > 1)
             .filter(|j| j.touches.iter().any(|t| file.starts_with(t)))
             .map(Arc::downgrade)
             .collect()
@@ -484,8 +484,8 @@ impl crate::App {
     pub(crate) fn none_saving(&mut self, paths: &[PathBuf]) -> bool {
         let saving =
             (self.file_operations.saving.iter()).any(|s| paths.iter().any(|p| s.starts_with(p)));
-        let writing =
-            (self.file_operations.jobs.iter()).any(|j| j.sidecars && Arc::strong_count(j) > 1);
+        let writing = (self.file_operations.jobs.iter())
+            .any(|j| j.writes_sidecars && Arc::strong_count(j) > 1);
         // Only one Rename Many runs at a time, and nothing else works on files while it runs.
         // Otherwise a step would find its file gone, and its undo could not put the others
         // back.
@@ -550,22 +550,22 @@ impl crate::App {
         self.start_job_of(doing, total, false, touches)
     }
 
-    /// `start_job`, of the files' `sidecars` or of the files themselves.
+    /// `start_job`, of the files' sidecars (`writes_sidecars`) or of the files themselves.
     pub(crate) fn start_job_of(
         &mut self,
         doing: &'static str,
         total: usize,
-        sidecars: bool,
+        writes_sidecars: bool,
         touches: Vec<PathBuf>,
     ) -> Option<Arc<Job>> {
         // Keywords and stars are never refused, because an edit made in the panel would be
         // lost. Instead, their job holds back every other operation (`none_saving`'s
         // `writing`). A job that changes none of the user's files, such as a backup, is not
         // refused either.
-        if !sidecars && !touches.is_empty() && !self.none_saving(&touches) {
+        if !writes_sidecars && !touches.is_empty() && !self.none_saving(&touches) {
             return None;
         }
-        let job = Arc::new(Job::new(doing, total, sidecars, touches));
+        let job = Arc::new(Job::new(doing, total, writes_sidecars, touches));
         self.file_operations.jobs.push(job.clone());
         Some(job)
     }
