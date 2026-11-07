@@ -1701,3 +1701,26 @@ fn every_clickable_widget_drawn_by_hand_speaks() {
         wrong.join("\n")
     );
 }
+
+/// Every release in CHANGELOG.md has its compare link at the foot, and [Unreleased] compares
+/// from the newest release, so each heading is a link. 0.70.0's version commit left both out.
+#[test]
+fn every_release_in_the_changelog_has_its_link() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let log = std::fs::read_to_string(root.join("CHANGELOG.md")).unwrap();
+    let versions: Vec<&str> = (log.lines())
+        .filter_map(|l| l.strip_prefix("## [")?.split(']').next())
+        .filter(|v| *v != "Unreleased")
+        .collect();
+    let missing: Vec<&&str> = (versions.iter())
+        .filter(|v| !log.contains(&format!("\n[{v}]: https://github.com/thornbux/glimt/")))
+        .collect();
+    assert!(missing.is_empty(), "no link at the foot for {missing:?}");
+    let newest = versions.first().unwrap();
+    let unreleased =
+        format!("[Unreleased]: https://github.com/thornbux/glimt/compare/v{newest}...HEAD");
+    assert!(
+        log.contains(&unreleased),
+        "[Unreleased] does not compare from v{newest}"
+    );
+}

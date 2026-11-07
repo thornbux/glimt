@@ -5,6 +5,22 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.71.0] - 2026-11-07
+
+### Added
+
+- A screen reader such as Orca reads out every notice as it comes ("Copied 3 files", an error,
+  an action the search stops), without moving the focus.
+
+### Fixed
+
+- The Lightroom import's screenshot showed only the main window.
+- A test of the pointer in full screen that failed now and then.
+
+### Changed
+
+- The screenshots are the same in every run, so a changed one means a changed look.
+
 ## [0.70.0] - 2026-11-07
 
 ### Added
@@ -2982,7 +2998,9 @@ The first release. Glimt is not 1.0 yet: it is in daily use, but expect rough ed
 - Remote control from the command line: `glimt --remote` and `--remote-all`.
 - Remembers the folder, window size and position.
 
-[Unreleased]: https://github.com/thornbux/glimt/compare/v0.69.0...HEAD
+[Unreleased]: https://github.com/thornbux/glimt/compare/v0.71.0...HEAD
+[0.71.0]: https://github.com/thornbux/glimt/compare/v0.70.0...v0.71.0
+[0.70.0]: https://github.com/thornbux/glimt/compare/v0.69.0...v0.70.0
 [0.69.0]: https://github.com/thornbux/glimt/compare/v0.68.0...v0.69.0
 [0.68.0]: https://github.com/thornbux/glimt/compare/v0.67.0...v0.68.0
 [0.67.0]: https://github.com/thornbux/glimt/compare/v0.66.1...v0.67.0
