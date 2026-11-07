@@ -333,14 +333,22 @@ fn tag_name(gps: bool, tag: u16) -> Option<&'static str> {
     })
 }
 
-/// DateTimeOriginal (or DateTimeDigitized) as "YYYY:MM:DD HH:MM:SS", which sorts as text.
+/// DateTimeOriginal (or DateTimeDigitized) as "YYYY:MM:DD HH:MM:SS", which sorts as text. Some
+/// programs write the day with dashes ("YYYY-MM-DD"), which is made the same form, so the
+/// date sort and Pan view put those photos among the others of their day. Before, they came
+/// after or before every other date, and Pan view showed their day twice.
 pub fn date(path: &Path, digitized: bool) -> Option<String> {
     // A decoder panicking on one file must not end the sort or the Pan view that asked.
     crate::support::threads::caught(|| {
         let raw = raw(path)?;
         let (t, _, exif, _) = ifds(&raw)?;
         let tag = if digitized { 0x9004 } else { 0x9003 };
-        t.text(exif.iter().find(|(t2, _)| *t2 == tag)?.1)
+        let mut date = t.text(exif.iter().find(|(t2, _)| *t2 == tag)?.1)?;
+        if let Some(day) = date.get(..10) {
+            let day = day.replace('-', ":");
+            date.replace_range(..10, &day);
+        }
+        Some(date)
     })
     .flatten()
 }
@@ -1046,6 +1054,24 @@ mod tests {
         // Another key's text is not taken for EXIF.
         png_with_raw_profile(&file, "zTXt", "Raw profile type iptc", CANON_EXIF);
         assert_eq!(raw(&file), None);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A date written with dashes reads in EXIF's own form, so it sorts among the others.
+    #[test]
+    fn a_date_with_dashes_reads_with_colons() {
+        use crate::support::test_support::CANON_EXIF;
+        use image::ImageEncoder;
+        let dir = std::env::temp_dir().join(format!("glimt-test-dashes-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("a.png");
+        let mut exif = CANON_EXIF.to_vec();
+        let at = exif.windows(10).position(|w| w == b"2020:01:02").unwrap();
+        exif[at..at + 10].copy_from_slice(b"2020-01-02");
+        let mut enc = image::codecs::png::PngEncoder::new(std::fs::File::create(&file).unwrap());
+        enc.set_exif_metadata(exif).unwrap();
+        image::RgbImage::new(2, 2).write_with_encoder(enc).unwrap();
+        assert_eq!(date(&file, false).as_deref(), Some("2020:01:02 03:04:05"));
         std::fs::remove_dir_all(dir).unwrap();
     }
 
