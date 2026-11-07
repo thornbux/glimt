@@ -597,7 +597,7 @@ impl crate::App {
                 self.folder.dir().to_path_buf(),
                 self.plugins_running.clone(),
             );
-            let report_tx = self.work.report_sender();
+            let report_tx = self.file_operations.report_sender();
             let (tx, ctx) = (self.notices_tx.clone(), ui.ctx().clone());
             // A plugin may be an editor that stays open for hours: not waited for at closing,
             // and no busy pointer meanwhile, as for Open With.

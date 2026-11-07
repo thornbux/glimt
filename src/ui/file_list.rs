@@ -1768,7 +1768,7 @@ impl crate::App {
                 ui.separator();
                 // The release tests look for the hidden count on its own.
                 crate::support::test_hooks::noted(&ui.label(left), &hidden);
-                if let Some((job, jobs)) = self.work.jobs_shown() {
+                if let Some((job, jobs)) = self.file_operations.jobs_shown() {
                     ui.separator();
                     let more = match jobs - 1 {
                         0 => String::new(),
@@ -1782,7 +1782,7 @@ impl crate::App {
                         more
                     ));
                     if crate::ui::menus::small_button(ui, tr("Stop")).clicked() {
-                        self.work.stop_jobs();
+                        self.file_operations.stop_jobs();
                     }
                 }
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {

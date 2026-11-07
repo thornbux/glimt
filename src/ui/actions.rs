@@ -1346,7 +1346,7 @@ impl crate::App {
         let (path, how) = (self.path(self.list.cur()), self.shown_copy());
         let (tx, ctx) = (self.notices_tx.clone(), ctx.clone());
         let (clip_tx, clip_rx) = mpsc::channel();
-        self.work.copy_image_from(clip_rx);
+        self.file_operations.copy_image_from(clip_rx);
         let pointer = Working::new(&self.busy);
         std::thread::spawn(move || {
             // A decoder that panics on a broken file must not end the thread: the busy pointer
@@ -1367,7 +1367,7 @@ impl crate::App {
             return;
         };
         let paths: Vec<PathBuf> = targets.iter().map(|&i| self.path(i)).collect();
-        let result = (self.work.clipboard()).and_then(|c| c.set().file_list(&paths));
+        let result = (self.file_operations.clipboard()).and_then(|c| c.set().file_list(&paths));
         if let Err(e) = result {
             self.notice = Some(tf!("Could not copy to the clipboard: {e}", e));
         }

@@ -188,7 +188,7 @@ impl crate::App {
             ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
             self.window.closing += 1;
             if self.window.closing == 2 {
-                self.work.stop_jobs();
+                self.file_operations.stop_jobs();
             }
             self.notice = Some(
                 match self.window.closing {
@@ -542,16 +542,16 @@ mod tests {
         };
         close(&mut app);
         let a = dir.join("a.png");
-        assert!(app.work.is_saving(&a));
+        assert!(app.file_operations.is_saving(&a));
         // The save's thread lets go of the file just after it tells the result.
-        let over = |app: &crate::App| !app.work.is_saving(&a);
+        let over = |app: &crate::App| !app.file_operations.is_saving(&a);
         assert!(settle(&mut app, &ctx, over));
         close(&mut app);
-        assert!(!app.work.is_saving(&a));
+        assert!(!app.file_operations.is_saving(&a));
         // A turn made after that, while the window waits for other work, is saved.
         app.viewing.turn((2, false), a.clone());
         close(&mut app);
-        assert!(app.work.is_saving(&a));
+        assert!(app.file_operations.is_saving(&a));
         assert!(settle(&mut app, &ctx, over));
         std::fs::remove_dir_all(dir).unwrap();
     }

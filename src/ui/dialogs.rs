@@ -644,7 +644,7 @@ impl crate::App {
             // In the background, as a share that stopped answering would hold the window until
             // create_dir returns; `folder_made` reads the folder again.
             Prompt::NewFolder => {
-                let report_tx = self.work.report_sender();
+                let report_tx = self.file_operations.report_sender();
                 self.background(ctx, Vec::new(), move || {
                     if let Err(e) = std::fs::create_dir(&target) {
                         return Some(format!("{display}: {e}", display = target.display()));
@@ -675,7 +675,7 @@ impl crate::App {
     /// Renames cut short by a crash or a power cut: put the old names back, or finish them, in
     /// the background; Later asks again at the next start.
     pub(crate) fn cut_short_dialog(&mut self, ctx: &egui::Context) {
-        let cut_short = self.work.cut_short();
+        let cut_short = self.file_operations.cut_short();
         if cut_short.is_empty() {
             return;
         }
@@ -703,20 +703,20 @@ impl crate::App {
                 }
                 if crate::ui::menus::button(ui, tr("Later")).clicked() {
                     choice = None;
-                    self.work.take_cut_short();
+                    self.file_operations.take_cut_short();
                 }
             });
         });
         let Some(undo) = choice else { return };
         // Asked before the plans are taken: one held back is asked about again.
-        let touches: Vec<PathBuf> = (self.work.cut_short().iter())
+        let touches: Vec<PathBuf> = (self.file_operations.cut_short().iter())
             .flat_map(|(_, moves, _)| moves.iter().flat_map(|(a, b)| [a.clone(), b.clone()]))
             .collect();
         if !self.none_saving(&touches) {
             return;
         }
-        let plans = self.work.take_cut_short();
-        let report_tx = self.work.report_sender();
+        let plans = self.file_operations.take_cut_short();
+        let report_tx = self.file_operations.report_sender();
         self.background(ctx, touches, move || {
             let (mut renamed, mut left) = (0, 0);
             let mut moved = Vec::new();
@@ -936,7 +936,7 @@ impl crate::App {
             || self.print_window.is_some()
             || self.lightroom.is_some()
             || self.save_as.is_some()
-            || !self.work.cut_short().is_empty()
+            || !self.file_operations.cut_short().is_empty()
     }
 
     /// Returns whether `key`, Enter or Esc, gives the default answer of what is open, and takes

@@ -60,7 +60,7 @@ struct App {
     list: List,
     /// File operations in the background. It holds the jobs, the files they touch, what they
     /// report, and Undo.
-    work: crate::files::file_ops::Work,
+    file_operations: crate::files::file_ops::FileOperations,
     /// The count of work still running in the background, for the busy pointer. Deletes,
     /// copies and moves, printing, Check Images, Rename Many, the Lightroom import, plugins and
     /// every `background` count.
@@ -219,7 +219,7 @@ impl App {
             desktop: crate::ui::theme::FromDesktop::new(ctx, config.desktop_profile),
             folder: crate::model::folder::Folder::new(&config),
             list: List::default(),
-            work: crate::files::file_ops::Work::new(),
+            file_operations: crate::files::file_ops::FileOperations::new(),
             busy: Arc::default(),
             panel: crate::ui::file_list::Panel::default(),
             tree: crate::ui::file_list::Tree::default(),

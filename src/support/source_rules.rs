@@ -540,7 +540,7 @@ fn parts_keep_their_fields() {
         ("features/duplicates.rs", "Dups"),
         ("features/print.rs", "PrintDialog"),
         ("features/remote.rs", "Listener"),
-        ("files/file_ops.rs", "Work"),
+        ("files/file_ops.rs", "FileOperations"),
         ("metadata/lightroom.rs", "Import"),
         ("metadata/marks.rs", "Marks"),
         ("model/folder.rs", "Folder"),

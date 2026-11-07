@@ -16,8 +16,8 @@ static SAVE_ERROR: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None
 pub static WRITING: std::sync::LazyLock<std::sync::Arc<std::sync::atomic::AtomicUsize>> =
     std::sync::LazyLock::new(Default::default);
 
-/// Work for a `serial` thread.
-pub type Work = Box<dyn FnOnce() + Send>;
+/// A write queued for a `serial` thread.
+pub type QueuedWrite = Box<dyn FnOnce() + Send>;
 
 /// A line of /proc/self/mountinfo: one mount.
 struct Mount<'a> {
@@ -360,7 +360,8 @@ pub fn take_save_error() -> Option<String> {
 
 /// `work` in the one thread that writes Glimt's own files, in the order given.
 pub fn write_later(work: impl FnOnce() + Send + 'static) {
-    static WRITER: std::sync::OnceLock<std::sync::mpsc::Sender<Work>> = std::sync::OnceLock::new();
+    static WRITER: std::sync::OnceLock<std::sync::mpsc::Sender<QueuedWrite>> =
+        std::sync::OnceLock::new();
     // Dropped with the work, also when it panics or is never run: Glimt would wait for it at exit.
     let writing = crate::support::threads::Working::new(&WRITING);
     let counted = move || {
@@ -372,8 +373,8 @@ pub fn write_later(work: impl FnOnce() + Send + 'static) {
 
 /// A thread that does the work sent to it one after another, in that order. One that panics
 /// does not end it, or every later work sent would be lost.
-pub fn serial() -> std::sync::mpsc::Sender<Work> {
-    let (works, rx) = std::sync::mpsc::channel::<Work>();
+pub fn serial() -> std::sync::mpsc::Sender<QueuedWrite> {
+    let (works, rx) = std::sync::mpsc::channel::<QueuedWrite>();
     std::thread::spawn(move || {
         for work in rx {
             let _ = crate::support::threads::caught(work);

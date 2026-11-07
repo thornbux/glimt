@@ -39,11 +39,11 @@
     <text x="44" y="162" font-size="14" font-weight="700"><tspan font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace">start_job · background → none_saving(paths)</tspan>   <tspan font-weight="400" font-size="12" fill="#57606a">files/file_ops.rs, on the UI thread</tspan></text>
     <g font-size="12">
       <text x="44" y="184">Refuses the operation while other work could cross it:</text>
-      <text x="56" y="202">• a turn of one of these files is still being saved (work.saving)</text>
+      <text x="56" y="202">• a turn of one of these files is still being saved (file_operations.saving)</text>
       <text x="56" y="218">• keywords or stars are being written (a sidecars job still alive)</text>
-      <text x="56" y="234">• Rename Many runs (work.renaming), or the list's names are not yet checked</text>
+      <text x="56" y="234">• Rename Many runs (file_operations.renaming), or the list's names are not yet checked</text>
       <text x="56" y="250">• a running job or held work touches a path, a folder above it, or a file in it (touched)</text>
-      <text x="44" y="276">Passed: an Arc&lt;Job&gt; with progress and Stop, in work.jobs and the status bar. Save a turn asks touched itself; keywords are never refused.</text>
+      <text x="44" y="276">Passed: an Arc&lt;Job&gt; with progress and Stop, in file_operations.jobs and the status bar. Save a turn asks touched itself; keywords are never refused.</text>
     </g>
     <rect x="890" y="172" width="266" height="70" rx="6" fill="#fdeaea" stroke="#c0392b" stroke-width="1.5"/>
     <text x="902" y="192" font-size="12" font-weight="700" fill="#9b2c20">Refused: a notice, nothing done</text>

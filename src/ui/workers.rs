@@ -39,7 +39,7 @@ impl crate::App {
         }
         self.receive_focus(ctx);
         self.receive_remote(ctx);
-        if let Some(img) = self.work.take_image() {
+        if let Some(img) = self.file_operations.take_image() {
             ctx.copy_image(img);
         }
         self.receive_dropped(ctx);
@@ -81,7 +81,7 @@ impl crate::App {
     /// reads what it held back for keywords written), closing once they are, and saved turns.
     fn receive_file_work(&mut self, ctx: &egui::Context) {
         // Keywords written: an `exif:` search reads what it held back for them.
-        if self.work.let_go_of_ended() && self.search.holds_exif_reads() {
+        if self.file_operations.let_go_of_ended() && self.search.holds_exif_reads() {
             self.update_search(ctx);
         }
         if self.work_left() {
@@ -89,7 +89,7 @@ impl crate::App {
         } else if self.window.closes_asked() > 0 {
             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
         }
-        while let Some((path, result)) = self.work.take_saved() {
+        while let Some((path, result)) = self.file_operations.take_saved() {
             match result {
                 Ok(()) => {
                     self.window.turn_saved();
@@ -141,12 +141,12 @@ impl crate::App {
 
     /// Rename Many done, and the renames a crash cut short, found at start.
     fn receive_renames(&mut self, ctx: &egui::Context) {
-        match self.work.take_renamed() {
+        match self.file_operations.take_renamed() {
             Took::Answer((Some(job), result)) => self.renamed(ctx, job, result),
             Took::Answer((None, _)) | Took::Nothing => {}
             Took::Gone => self.stopped(tr("Rename Many")),
         }
-        if !self.work.receive_cut_short() {
+        if !self.file_operations.receive_cut_short() {
             self.stopped(tr("Looking for renames cut short"));
         }
     }

@@ -664,7 +664,7 @@ impl crate::App {
         self.folder.watching.fetch_add(1, Ordering::Relaxed);
         self.broken_files.clear();
         self.folder.subdirs.clear();
-        self.work.forget_deleting();
+        self.file_operations.forget_deleting();
         self.slideshow.unshuffle();
         // A sort or a whole shuffle asked of the old list's listing is not asked of the new
         // one. A sort carried over would put another collection in order and rewrite its file.
@@ -702,12 +702,12 @@ impl crate::App {
         // When the same collection is read again (F5), a delete still running keeps its names,
         // so a failed delete brings its images back.
         let deleting = if self.folder.collection.as_ref() == Some(&file) {
-            self.work.take_deleting()
+            self.file_operations.take_deleting()
         } else {
             HashSet::new()
         };
         self.forget_old_list();
-        self.work.keep_deleting(deleting);
+        self.file_operations.keep_deleting(deleting);
         self.folder.recursive = false;
         self.folder.dir = root.to_path_buf();
         self.remember_recent(&file);
@@ -987,7 +987,7 @@ impl crate::App {
     pub(crate) fn take_files(&mut self, ctx: &egui::Context, files: Vec<OsString>, whole: bool) {
         // Files still being deleted in the background must not come back with a refresh.
         let mut files = files;
-        self.work.leave_out_deleting(&mut files);
+        self.file_operations.leave_out_deleting(&mut files);
         // A refresh during random order keeps the order, so Previous still goes back through
         // the images that were shown. A list shuffled whole in the thread stays as it is. The
         // flag is for this listing, and it is taken whether or not the order is still random,
