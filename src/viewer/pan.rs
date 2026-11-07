@@ -62,7 +62,7 @@ impl Month {
 pub(crate) struct Pan {
     /// Days from the EXIF dates instead of the file dates.
     exif: bool,
-    /// The days, and the version of the file list they are for (`App::files_gen`).
+    /// The days, and the version of the file list they are for (`List::version`).
     days: Option<(Vec<pan::Day>, usize)>,
     /// The days read so far, and whether they are all of them.
     days_rx: Receiving<(Vec<pan::Day>, bool)>,
