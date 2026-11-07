@@ -79,17 +79,21 @@ pub(crate) enum Prompt {
 /// and a dialog about files opens only with one. So no such dialog opens without the files its
 /// answer acts on.
 pub(crate) struct Asked {
-    place: u64,
+    opened_folder_hash: u64,
     names: Vec<OsString>,
     left_out: Option<String>,
 }
 
 impl Asked {
-    /// The files `names` asked about while the list was at `place`, with `left_out`, the text
-    /// that tells of the selected files the question leaves out.
-    pub(crate) fn new(place: u64, names: Vec<OsString>, left_out: Option<String>) -> Asked {
+    /// The files `names` asked about while the list showed what `opened_folder_hash` stands
+    /// for, with `left_out`, the text that tells of the selected files the question leaves out.
+    pub(crate) fn new(
+        opened_folder_hash: u64,
+        names: Vec<OsString>,
+        left_out: Option<String>,
+    ) -> Asked {
         Asked {
-            place,
+            opened_folder_hash,
             names,
             left_out,
         }
@@ -193,7 +197,7 @@ impl Dialogs {
 
     /// Keeps the files `asked` for the dialog that opens about them.
     fn keep(&mut self, asked: Asked) {
-        self.asked_for = (asked.place, asked.names);
+        self.asked_for = (asked.opened_folder_hash, asked.names);
         self.asked_left_out = asked.left_out;
     }
 

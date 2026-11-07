@@ -430,18 +430,18 @@ impl crate::App {
         }
     }
 
-    /// Where the list is. Another folder or collection that is opened may hold files with the
-    /// same names.
-    fn list_place(&self) -> u64 {
+    /// A hash of what the list shows: the folder, the folders or the collection opened. Another
+    /// folder or collection that is opened may hold files with the same names.
+    fn opened_folder_hash(&self) -> u64 {
         use std::hash::{Hash, Hasher};
-        let mut place = std::collections::hash_map::DefaultHasher::new();
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
         (
             self.folder.dir(),
             self.folder.folders(),
             self.folder.collection(),
         )
-            .hash(&mut place);
-        place.finish()
+            .hash(&mut hasher);
+        hasher.finish()
     }
 
     /// Takes the targets' names for a dialog about them, which needs them to open. A folder
@@ -452,16 +452,20 @@ impl crate::App {
         let targets = self.targets()?;
         let names = targets.iter().map(|&i| self.list.files()[i].clone());
         let left_out = self.left_out();
-        Some(Asked::new(self.list_place(), names.collect(), left_out))
+        Some(Asked::new(
+            self.opened_folder_hash(),
+            names.collect(),
+            left_out,
+        ))
     }
 
     /// The places now of the files the dialog asked about that are still in the list. Returns
     /// `None`, with a notice, when none of them is, or when another folder or collection is
     /// shown.
     pub(crate) fn asked_targets(&mut self) -> Option<Vec<usize>> {
-        let (place, names) = self.dialogs.take_asked();
+        let (opened_folder_hash, names) = self.dialogs.take_asked();
         let names: HashSet<OsString> = names.into_iter().collect();
-        let found: Vec<usize> = match place == self.list_place() {
+        let found: Vec<usize> = match opened_folder_hash == self.opened_folder_hash() {
             true => (self.list.files().iter().enumerate())
                 .filter(|(_, f)| names.contains(*f))
                 .map(|(i, _)| i)
@@ -838,7 +842,7 @@ impl crate::App {
         if names.is_empty() {
             return;
         }
-        let asked = Asked::new(self.list_place(), names, None);
+        let asked = Asked::new(self.opened_folder_hash(), names, None);
         self.dialogs.confirm_delete_instead(asked, kind);
     }
 

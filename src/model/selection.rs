@@ -154,8 +154,9 @@ impl crate::App {
         })
     }
 
-    /// The shown image's place in the list as shown: "[3/16]", "[–/12]" if a search hides it.
-    pub(crate) fn place(&self) -> String {
+    /// The shown image's position in the list as shown: "[3/16]", or "[–/12]" when a search
+    /// hides it.
+    pub(crate) fn position_text(&self) -> String {
         match self.list.matches() {
             Some(m) => match self.shown_row(m) {
                 Some(row) => format!("[{}/{}]", thousands(row + 1), thousands(m.len())),
@@ -169,15 +170,15 @@ impl crate::App {
         }
     }
 
-    /// `place` of image `idx` in another pane; the search matches are looked through once per
-    /// image, not every frame.
-    pub(crate) fn place_of(&mut self, idx: usize) -> String {
+    /// The `position_text` of image `idx` in another pane. The search matches are looked through
+    /// once for each image, not in every frame.
+    pub(crate) fn position_text_of(&mut self, idx: usize) -> String {
         let total = self
             .list
             .matches()
             .map_or(self.list.files().len(), <[usize]>::len);
         let matches = self.list.matches();
-        self.status.place(idx, total, || {
+        self.status.position_text(idx, total, || {
             let row = match matches {
                 Some(m) => m.iter().position(|&x| x == idx),
                 None => Some(idx),

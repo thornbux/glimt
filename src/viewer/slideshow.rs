@@ -24,14 +24,15 @@ pub(crate) enum Slide {
     Hold,
 }
 
-/// Where a slideshow is in its order: at `row` of the `shown` rows (`None` when a search hides
-/// the image), stepping `delta` (the panes changed at once), in a list of `len` files.
+/// Where a slideshow is in its order: at `row` of the `shown_rows` rows (`None` when a search
+/// hides the image), stepping `step` rows (the panes changed at once), in a list of
+/// `file_count` files.
 #[derive(Clone, Copy)]
-pub(crate) struct Place {
+pub(crate) struct SlideshowPosition {
     pub(crate) row: Option<usize>,
-    pub(crate) delta: usize,
-    pub(crate) shown: usize,
-    pub(crate) len: usize,
+    pub(crate) step: usize,
+    pub(crate) shown_rows: usize,
+    pub(crate) file_count: usize,
 }
 
 /// The slideshow: whether it runs, its order and the pane it changes next.
@@ -268,11 +269,11 @@ impl crate::App {
         let shown = m.map_or(self.list.files().len(), <[usize]>::len);
         let pending =
             next.is_some_and(|next| self.list.decodes_pending().contains_key(&(next, false)));
-        let at = Place {
+        let at = SlideshowPosition {
             row,
-            delta,
-            shown,
-            len: self.list.files().len(),
+            step: delta,
+            shown_rows: shown,
+            file_count: self.list.files().len(),
         };
         match next_slide(
             at,
@@ -340,19 +341,19 @@ impl crate::App {
 /// The slideshow's move from `at`, to `next` if there is one; repeating or not, in a `shuffled`
 /// order, with `next` `pending` (still being decoded) or not.
 pub(crate) fn next_slide(
-    at: Place,
+    at: SlideshowPosition,
     next: Option<usize>,
     repeat: bool,
     shuffled: bool,
     pending: bool,
 ) -> Slide {
-    let Place {
+    let SlideshowPosition {
         row,
-        delta,
-        shown,
-        len,
+        step,
+        shown_rows,
+        file_count,
     } = at;
-    let round_over = round_ends(row, delta, shown);
+    let round_over = round_ends(row, step, shown_rows);
     let Some(next) = next else { return Slide::Hold };
     if round_over && !repeat {
         return Slide::Stop;
@@ -360,7 +361,12 @@ pub(crate) fn next_slide(
     // A new round shuffles again instead of repeating the same order. Not when a search hides
     // the shown image, nor when it shows no more images than one step: the shuffled list starts
     // with the shown image, so the round would be over again, and shuffled on every frame.
-    if shuffled && round_over && row.is_some() && len > 2 && !round_ends(Some(0), delta, shown) {
+    if shuffled
+        && round_over
+        && row.is_some()
+        && file_count > 2
+        && !round_ends(Some(0), step, shown_rows)
+    {
         return Slide::Shuffle;
     }
     match pending {
@@ -540,7 +546,7 @@ mod tests {
     /// it stops at the end of the round and not before.
     #[test]
     fn slideshow_advances_on_every_tick() {
-        use super::{Place, Slide, next_slide};
+        use super::{Slide, SlideshowPosition, next_slide};
         use crate::model::selection::next_row;
         // (files, rows shown by a search or all, step: the panes changed at once)
         let cases: Vec<(usize, Option<Vec<usize>>, usize)> = vec![
@@ -565,11 +571,11 @@ mod tests {
                     let case = format!(
                         "{len} files, {m:?} shown, step {delta}, repeat {repeat}, shuffled {shuffled}, from {from}"
                     );
-                    let at = Place {
+                    let at = SlideshowPosition {
                         row,
-                        delta,
-                        shown,
-                        len,
+                        step: delta,
+                        shown_rows: shown,
+                        file_count: len,
                     };
                     match next_slide(at, next, repeat, shuffled, false) {
                         Slide::Hold => assert_eq!(shown, 0, "held: {case}"),
@@ -600,11 +606,11 @@ mod tests {
             }
         }
         // Held only while the next image is still being decoded.
-        let at = Place {
+        let at = SlideshowPosition {
             row: Some(0),
-            delta: 1,
-            shown: 3,
-            len: 3,
+            step: 1,
+            shown_rows: 3,
+            file_count: 3,
         };
         assert_eq!(next_slide(at, Some(1), true, false, true), Slide::Hold);
         assert_eq!(next_row(None, 1, 3, true), Some(0));

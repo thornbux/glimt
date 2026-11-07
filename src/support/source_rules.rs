@@ -8,7 +8,7 @@ use std::path::Path;
 /// Where a top-level item stands in a file's order, as AGENTS.md gives it under "Within a
 /// file"; the variants are in that order.
 #[derive(Clone, Copy, PartialEq, PartialOrd)]
-enum Place {
+enum Section {
     Imports,
     Constants,
     Types,
@@ -17,15 +17,15 @@ enum Place {
     Tests,
 }
 
-impl Place {
+impl Section {
     fn name(self) -> &'static str {
         match self {
-            Place::Imports => "use and mod",
-            Place::Constants => "const and static",
-            Place::Types => "types and their impls",
-            Place::AppBlock => "the impl crate::App block",
-            Place::Functions => "functions",
-            Place::Tests => "the tests",
+            Section::Imports => "use and mod",
+            Section::Constants => "const and static",
+            Section::Types => "types and their impls",
+            Section::AppBlock => "the impl crate::App block",
+            Section::Functions => "functions",
+            Section::Tests => "the tests",
         }
     }
 }
@@ -390,9 +390,9 @@ fn tests_start(lines: &[String]) -> usize {
         .unwrap_or(lines.len())
 }
 
-/// The place of the top-level item that starts on `line` (a line of `code_lines`); `None` for a
+/// The section of the top-level item that starts on `line` (a line of `code_lines`); `None` for a
 /// line that starts none (an attribute, the rest of an item, a blank).
-fn place(line: &str) -> Option<Place> {
+fn section_of(line: &str) -> Option<Section> {
     let l = qualifiers_off(line);
     let starts = |word: &str| {
         l.strip_prefix(word)
@@ -404,20 +404,20 @@ fn place(line: &str) -> Option<Place> {
         !name.is_empty() && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
     });
     Some(if l == "mod tests {" {
-        Place::Tests
+        Section::Tests
     } else if starts("use") || starts("mod") || starts("macro_rules") || starts("extern crate") {
-        Place::Imports
+        Section::Imports
     } else if starts("const") || starts("static") {
-        Place::Constants
+        Section::Constants
     } else if l == "impl App {" || l == "impl crate::App {" || (starts("impl") && for_app) {
-        Place::AppBlock
+        Section::AppBlock
     } else if types.iter().any(|w| starts(w)) {
-        Place::Types
+        Section::Types
     } else if starts("fn") || starts("extern") {
-        Place::Functions
+        Section::Functions
     } else if macro_call {
         // A macro that makes items, such as config!.
-        Place::Types
+        Section::Types
     } else {
         return None;
     })
@@ -430,10 +430,10 @@ fn items_are_in_order() {
     let mut wrong = Vec::new();
     for (name, text) in rust_sources() {
         let lines = code_lines(&text);
-        let (mut last, mut apps, mut i) = (Place::Imports, 0, 0);
+        let (mut last, mut apps, mut i) = (Section::Imports, 0, 0);
         while i < lines.len() {
             let line = &lines[i];
-            let Some(here) = place(line) else {
+            let Some(here) = section_of(line) else {
                 i += 1;
                 continue;
             };
@@ -450,7 +450,7 @@ fn items_are_in_order() {
             last = here;
             // Nothing inside the tests module is ranked; whatever comes after it is.
             i = match here {
-                Place::Tests => block_end(&lines, i).unwrap_or(lines.len()) + 1,
+                Section::Tests => block_end(&lines, i).unwrap_or(lines.len()) + 1,
                 _ => i + 1,
             };
         }

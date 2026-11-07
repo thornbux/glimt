@@ -226,9 +226,9 @@ impl crate::App {
         self.search.match_rows.set(Default::default());
         // The rows are others now, so a Shift range of the keys is no longer the rows it was.
         self.list.set_range_end(None);
-        // A place "[n/m]" told for another pane is made again, because another search may have
+        // A position "[n/m]" told for another pane is made again, because another search may have
         // as many matches.
-        self.status.forget_place();
+        self.status.forget_position_text();
         self.search.error = None;
         let matches = self.search_matches(ctx, query);
         // The selected files that the search hides are kept apart from the selection, so an

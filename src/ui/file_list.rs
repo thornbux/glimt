@@ -355,7 +355,7 @@ impl Tree {
     }
 }
 
-/// The status bar's numbers. It holds the shown image's size and place, the folder's total, and
+/// The status bar's numbers. It holds the shown image's size and position, the folder's total, and
 /// the size of the selection.
 pub(crate) struct StatusBar {
     /// Size in bytes of the shown file, for the status bar.
@@ -365,8 +365,8 @@ pub(crate) struct StatusBar {
     pane_info: Vec<(usize, Option<f32>)>,
     pane: usize,
     grid: [usize; 2],
-    /// The place "[n/m]" of an image in another pane than the first, by image and list length.
-    place: Option<(usize, usize, String)>,
+    /// The position "[n/m]" of an image in another pane than the first, by image and list length.
+    position_text: Option<(usize, usize, String)>,
     /// Total size of the images in the folder, summed in the background after listing.
     /// Only sums are sent (no per-file table), so memory use does not grow with the folder.
     total_size: u64,
@@ -391,7 +391,7 @@ impl Default for StatusBar {
             pane_info: Vec::new(),
             pane: 0,
             grid: [1, 1],
-            place: None,
+            position_text: None,
             total_size: 0,
             size_rx: Receiving::none(),
             freed_tx,
@@ -452,28 +452,28 @@ impl StatusBar {
         drain(&mut self.size_rx, &mut self.total_size);
     }
 
-    /// The place "[n/m]" of image `idx` among `total`. `make` makes it only when another image
+    /// The position "[n/m]" of image `idx` among `total`. `make` makes it only when another image
     /// or another total asks, so the search matches are looked through once for each image.
-    pub(crate) fn place(
+    pub(crate) fn position_text(
         &mut self,
         idx: usize,
         total: usize,
         make: impl FnOnce() -> String,
     ) -> String {
-        if let Some((i, t, text)) = &self.place
+        if let Some((i, t, text)) = &self.position_text
             && (*i, *t) == (idx, total)
         {
             return text.clone();
         }
         let text = make();
-        self.place = Some((idx, total, text.clone()));
+        self.position_text = Some((idx, total, text.clone()));
         text
     }
 
-    /// Makes the place told for another pane again, because another search may have as many
+    /// Makes the position told for another pane again, because another search may have as many
     /// matches.
-    pub(crate) fn forget_place(&mut self) {
-        self.place = None;
+    pub(crate) fn forget_position_text(&mut self) {
+        self.position_text = None;
     }
 
     /// Marks the selection's size as unknown, because the selection changed. It is worked out
@@ -1802,10 +1802,10 @@ impl crate::App {
                         self.status.shown_size = Some((path, bytes));
                     }
                     let bytes = self.status.shown_size.as_ref().map_or(0, |c| c.1);
-                    let place = if idx == self.list.shown() {
-                        self.place()
+                    let position = if idx == self.list.shown() {
+                        self.position_text()
                     } else {
-                        self.place_of(idx)
+                        self.position_text_of(idx)
                     };
                     let bytes = tf!("{n} bytes", n = thousands(bytes as usize));
                     match self.list.loaded_images().get(&idx) {
@@ -1832,10 +1832,10 @@ impl crate::App {
                             } else {
                                 String::new()
                             };
-                            ui.label(format!("( {w} x {h} ) {bytes} {place}{page}"));
+                            ui.label(format!("( {w} x {h} ) {bytes} {position}{page}"));
                         }
                         None => {
-                            ui.label(format!("{bytes} {place}"));
+                            ui.label(format!("{bytes} {position}"));
                         }
                     }
                     if self.status.grid != [1, 1] {

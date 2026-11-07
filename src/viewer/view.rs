@@ -851,7 +851,7 @@ impl crate::App {
         let text = fill_template(&self.config.osd_template, |field| match field {
             "name" => self.name(self.list.shown()).to_string(),
             "path" => path.display().to_string(),
-            "position" => self.place(),
+            "position" => self.position_text(),
             "dimensions" => (self.list.loaded_images().get(&self.list.shown()))
                 .map(|s| format!("{} × {}", s.original_size[0], s.original_size[1]))
                 .unwrap_or_default(),
