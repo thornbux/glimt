@@ -53,7 +53,7 @@ pub const COMMANDS: &[(&str, &str)] = &[
     ("quit", "Close Glimt"),
     (
         "run ACTION",
-        "Do an action by its name, one of those listed below, which change no file, sidecar, mark or collection",
+        "Do an action by its name, one of those glimt --help lists, which change no file, sidecar, mark or collection",
     ),
     (
         "current",

@@ -224,7 +224,7 @@ pub(crate) const KIOSK_ACTIONS: &[Action] = &[
 /// The actions a script may run with `glimt --remote run ACTION`: showing, browsing, selecting,
 /// the panels and windows, the settings and the clipboard. None of them changes a file, a
 /// sidecar, a mark or star, or a collection, not even through a dialog or panel the user then
-/// answers or clicks in, and none starts a program other than Glimt. So a program that reaches
+/// answers or clicks in, and none starts a program of the user's. So a program that reaches
 /// Glimt's socket still cannot delete, move, rename or rewrite anything.
 /// `every_action_is_decided_for_scripts` makes each new action be put here or left out on
 /// purpose.
