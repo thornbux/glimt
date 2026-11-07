@@ -51,7 +51,7 @@ const IMAGE: &[&str] = &[
     "Auto rotate images using EXIF (Alt+X)",
     "Brightness",
     "Default",
-    "Fields: %name%, %path%, %position%, %dimensions%, %marks%, %keywords%, %comment%, and each label of the EXIF panel, such as %Camera% or %ISO%. A | starts a part, left out when its fields are empty.",
+    "Fields: %name%, %path%, %position%, %dimensions%, %marks%, %keywords%, %comment%, and each label of the info panel, such as %Camera% or %ISO%. A | starts a part, left out when its fields are empty.",
     "Enlarge small images to fit the window",
     "Hide the pointer in full screen when the mouse is still",
     "Histogram (K):",
@@ -95,7 +95,7 @@ const FILE_LIST: &[&str] = &[
     "Show file size and date in the file list",
     "Show folders as a tree (Ctrl+T)",
     "Show marks and stars in the file list",
-    "Show the EXIF panel (Ctrl+K; reads a little from each image shown)",
+    "Show the info panel (Ctrl+K; reads a little from each image shown)",
     "Show the file list as icons (Ctrl+I)",
     "Show File Names Under Thumbnails",
     "Show thumbnails in the file list (T)",
@@ -264,7 +264,7 @@ impl crate::App {
                     if shown[4] {
                         section(ui, theme::icon::LIST, tr(FILE_LIST[0]));
                         changed |= self.list_settings(ui, ctx);
-                        self.exif_panel_setting(ui);
+                        self.info_panel_setting(ui);
                         changed |= self.search_settings(ui, ctx);
                         changed |= self.refresh_setting(ui);
                         changed |= self.cache_settings(ui, ctx);
@@ -394,13 +394,13 @@ impl crate::App {
         ui.weak(tr(
             "S starts and stops, R random order, Ctrl+= faster, Ctrl+- slower",
         ));
-        let delay =
-            egui::Slider::new(&mut self.config.delay, 1..=MAX_DELAY).text(tr("seconds per image"));
+        let delay = egui::Slider::new(&mut self.config.slideshow_delay, 1..=MAX_DELAY)
+            .text(tr("seconds per image"));
         if ui.add(delay).changed() {
             changed = true;
             self.title(ctx);
         }
-        let mut random = self.config.random;
+        let mut random = self.config.slideshow_random;
         if checkbox(ui, &mut random, tr("Random order")).changed() {
             self.set_random_order(ctx, random);
         }
@@ -684,7 +684,7 @@ impl crate::App {
             self.set_color_management(cm);
         }
         ui.add_enabled_ui(cm, |ui| {
-            let mut own = self.config.own_profile;
+            let mut own = self.config.use_image_profile;
             if checkbox(ui, &mut own, tr("Use the image's own profile")).changed() {
                 self.set_own_profile(own);
             }
@@ -786,7 +786,7 @@ impl crate::App {
         changed
     }
 
-    /// Preferences: the toolbar, folder path, search field, EXIF panel and full-screen info.
+    /// Preferences: the toolbar, folder path, search field, info panel and full-screen info.
     pub(crate) fn bar_settings(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) -> bool {
         let mut changed = false;
         self.toggle_box(
@@ -829,17 +829,17 @@ impl crate::App {
         }
     }
 
-    /// Preferences → File list: the EXIF panel.
-    fn exif_panel_setting(&mut self, ui: &mut egui::Ui) {
-        let exif = tr("Show the EXIF panel (Ctrl+K; reads a little from each image shown)");
-        self.toggle_box(ui, self.config.exif_panel, Action::ExifPanel, exif);
+    /// Preferences → File list: the info panel.
+    fn info_panel_setting(&mut self, ui: &mut egui::Ui) {
+        let exif = tr("Show the info panel (Ctrl+K; reads a little from each image shown)");
+        self.toggle_box(ui, self.config.info_panel, Action::InfoPanel, exif);
     }
 
     /// Preferences → Image: the full screen info and its template.
     fn info_settings(&mut self, ui: &mut egui::Ui) -> bool {
         let mut changed = false;
         let osd = tr("Show image info in full screen (I)");
-        self.toggle_box(ui, self.config.osd, Action::Overlay, osd);
+        self.toggle_box(ui, self.config.osd, Action::FullScreenInfo, osd);
         let c = &mut self.config;
         ui.label(tr("Image info template:"));
         // Kept on one line in the config file, with \n for each new line.
@@ -854,7 +854,7 @@ impl crate::App {
         }
         ui.weak(tr(
             "Fields: %name%, %path%, %position%, %dimensions%, %marks%, %keywords%, %comment%, \
-             and each label of the EXIF panel, such as %Camera% or %ISO%. A | starts a part, \
+             and each label of the info panel, such as %Camera% or %ISO%. A | starts a part, \
              left out when its fields are empty.",
         ));
         if crate::ui::menus::button(ui, tr("Default")).clicked() {
@@ -1006,10 +1006,10 @@ impl crate::App {
         .changed();
         changed |= checkbox(ui, &mut c.confirm_trash, tr("Confirm move file to Trash")).changed();
         changed |= checkbox(ui, &mut c.delete_key, tr("Enable Delete key")).changed();
-        let mut no_trash = !c.trash;
+        let mut no_trash = !c.delete_to_trash;
         let none = tr("Use no trash at all (Delete deletes permanently)");
         if checkbox(ui, &mut no_trash, none).changed() {
-            c.trash = !no_trash;
+            c.delete_to_trash = !no_trash;
             changed = true;
         }
         changed
@@ -1021,7 +1021,7 @@ impl crate::App {
         let mut changed = false;
         let c = &mut self.config;
         ui.weak(tr("Previews need ffmpeg"));
-        if checkbox(ui, &mut c.videos, tr("Show videos in the file list")).changed() {
+        if checkbox(ui, &mut c.list_videos, tr("Show videos in the file list")).changed() {
             changed = true;
             self.list(ctx);
         }

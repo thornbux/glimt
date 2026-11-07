@@ -284,7 +284,7 @@ const MANUAL: &[(&str, &str)] = &[
     ),
     (
         "Keywords and comments",
-        "The EXIF panel (Ctrl+K) shows the keywords and comment of the image below its EXIF; Alt+K \
+        "The info panel (Ctrl+K) shows the keywords and comment of the image below its EXIF; Alt+K \
          puts the cursor in the keywords, separated by commas.\n\n\
          They are saved when you leave the field, to the sidecar photo.jpg.xmp that darktable and \
          digiKam also read (as dc:subject and dc:description); keywords written into the image by \
@@ -527,7 +527,7 @@ const MANUAL: &[(&str, &str)] = &[
          - A stops and starts animations\n\
          - E compares side by side: the next image, or the other of two selected files, at the \
          same zoom and position\n\
-         - Ctrl+K the EXIF panel (its GPS position opens a map)\n\
+         - Ctrl+K the info panel (its GPS position opens a map)\n\
          - Ctrl+E a window with every EXIF field\n\
          - Ctrl+H hides the file list\n\
          - F or F11 shows the image full screen, Esc leaves full screen.\n\n\
@@ -537,7 +537,7 @@ const MANUAL: &[(&str, &str)] = &[
          Image turns this off.\n\n\
          In full screen, I shows or hides the name, place and EXIF over the image. Preferences → \
          Image info template says what it shows, in Geeqie's form: %name%, %keywords%, %Camera% \
-         and the other EXIF panel labels, | between parts that are left out when empty, \\n for a \
+         and the other info panel labels, | between parts that are left out when empty, \\n for a \
          new line.\n\n\
          Preferences → Custom window title makes the window's title from a template of %name%, \
          %path%, %folder% and %app%, such as %app%: %folder%. Window → Set Window Title… gives \
@@ -566,7 +566,7 @@ const MANUAL: &[(&str, &str)] = &[
          RGB, Display P3 or a file). Use the image's own profile off takes that one for every \
          image. Thumbnails follow neither of these two: they show each image in its own \
          colours, as other programs show them, with images without a profile as sRGB.\n\n\
-         The EXIF panel (Ctrl+K) says which profile an image is shown from. The rendering intent \
+         The info panel (Ctrl+K) says which profile an image is shown from. The rendering intent \
          there decides how colours the target cannot show are brought in; only profiles with \
          tables for each intent (LUT profiles) tell them apart.\n\n\
          With a screen profile every image is converted, a few milliseconds each in the \
@@ -584,7 +584,7 @@ const MANUAL: &[(&str, &str)] = &[
          image the same way. The notices at the foot of the image, such as a copy that failed \
          or an action the search stops, are read out as they come, without moving the focus.\n\n\
          Tab moves to the panels and menus, and a ring in the accent colour shows where the \
-         keyboard focus is; a click puts it away. Write the alt text yourself in the EXIF panel, \
+         keyboard focus is; a click puts it away. Write the alt text yourself in the info panel, \
          or let a plugin write it (see Plugins).",
     ),
     (
@@ -756,7 +756,7 @@ const DIFFERENCES: &[(&str, &str, &str)] = &[
     ),
     (
         "Keywords and comment",
-        "In the EXIF panel (Ctrl+K) with a keyword tree, whose boxes show the shown image's \
+        "In the info panel (Ctrl+K) with a keyword tree, whose boxes show the shown image's \
          keywords; kept in the sidecar photo.jpg.xmp; found by exif: searches",
         "Info sidebar with a keyword tree that can also mark images and hide keywords; kept in \
          the image, a sidecar or Geeqie's own folder",
@@ -884,7 +884,7 @@ const DIFFERENCES: &[(&str, &str, &str)] = &[
         "Colour management",
         "The image's own profile, Adobe RGB from its EXIF, or a chosen one for images without, \
          to sRGB or a screen profile, the desktop's from colord when it has one; the profile \
-         used is in the EXIF panel; absolute colorimetric is shown as relative colorimetric",
+         used is in the info panel; absolute colorimetric is shown as relative colorimetric",
         "The same, with the profile used in the status bar, the desktop's from X \
          (_ICC_PROFILE, so not on Wayland), and absolute colorimetric keeping the paper white \
          of the profile",

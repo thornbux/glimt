@@ -197,14 +197,14 @@ impl crate::App {
             // The images of the subfolders too, listed in the background; random order
             // shuffles them all together.
             self.folder.set_recursive(true);
-            self.slideshow.shuffled = self.config.random;
+            self.slideshow.shuffled = self.config.slideshow_random;
             self.slideshow.whole_shuffle = self.slideshow.shuffled;
             self.list(ctx);
-        } else if self.config.random != self.slideshow.shuffled {
-            self.shuffle_list(ctx, self.config.random);
+        } else if self.config.slideshow_random != self.slideshow.shuffled {
+            self.shuffle_list(ctx, self.config.slideshow_random);
         }
         // The first slide comes at once: start as if the delay has already run out.
-        let delay = std::time::Duration::from_secs(self.config.delay);
+        let delay = std::time::Duration::from_secs(self.config.slideshow_delay);
         self.slideshow.shown_at = Some(
             Instant::now()
                 .checked_sub(delay)
@@ -253,7 +253,7 @@ impl crate::App {
             _ if turns => (self.list.last_slide(), 1),
             _ => (self.list.cur(), n),
         };
-        let delay = std::time::Duration::from_secs(self.config.delay);
+        let delay = std::time::Duration::from_secs(self.config.slideshow_delay);
         let left = delay.saturating_sub(last.elapsed());
         // The slideshow owns its clock: the next frame is asked for here, whatever this one
         // does, so that no move below can leave it standing still; held for a decode, it looks
@@ -312,7 +312,7 @@ impl crate::App {
 
     /// Random order changed in the menu or preferences: reshuffle now if a slideshow runs.
     pub(crate) fn set_random_order(&mut self, ctx: &egui::Context, on: bool) {
-        self.config.random = on;
+        self.config.slideshow_random = on;
         self.config.save();
         if self.slideshow.shown_at.is_some() {
             self.shuffle_list(ctx, on);
@@ -322,10 +322,14 @@ impl crate::App {
 
     /// Ctrl+= and Ctrl+-: the slideshow's delay a second shorter or longer.
     pub(crate) fn change_delay(&mut self, ctx: &egui::Context, action: Action) {
-        let step = if action == Action::Faster { -1 } else { 1 };
-        self.config.delay = self
+        let step = if action == Action::SlideshowFaster {
+            -1
+        } else {
+            1
+        };
+        self.config.slideshow_delay = self
             .config
-            .delay
+            .slideshow_delay
             .saturating_add_signed(step)
             .clamp(1, MAX_DELAY);
         self.config.save();
@@ -391,7 +395,7 @@ mod tests {
             let sorted = app.list.files().to_vec();
             app.go(&ctx, 4);
             app.config.slideshow_subfolders = true;
-            app.config.random = true;
+            app.config.slideshow_random = true;
             app.config.slideshow_repeat = false;
             app.start_slideshow(&ctx);
             app.slideshow_tick(&ctx);
@@ -444,7 +448,7 @@ mod tests {
         std::fs::write(&file, m3u).unwrap();
         let (mut app, ctx) = app_on(&file);
         let order = app.list.files().to_vec();
-        app.config.random = true;
+        app.config.slideshow_random = true;
         app.start_slideshow(&ctx);
         assert!(app.slideshow.shuffled && app.list.files() != order);
         // A refresh on its way.
@@ -478,7 +482,7 @@ mod tests {
             let (mut app, ctx) = app_on(&file);
             let order = app.list.files().to_vec();
             app.config.slideshow_subfolders = true;
-            app.config.random = true;
+            app.config.slideshow_random = true;
             if shuffled_first {
                 app.shuffle_list(&ctx, true);
             }

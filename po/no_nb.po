@@ -417,8 +417,8 @@ msgid "Set as Wallpaper"
 msgstr "Bruk som bakgrunnsbilde"
 
 #: src/ui/actions.rs
-msgid "Show EXIF Panel"
-msgstr "Vis EXIF-panelet"
+msgid "Show Info Panel"
+msgstr "Vis infopanelet"
 
 #: src/ui/actions.rs
 msgid "Show Folder Path"
@@ -1799,8 +1799,8 @@ msgid "Show marks and stars in the file list"
 msgstr "Vis merker og stjerner i fillisten"
 
 #: src/ui/preferences.rs
-msgid "Show the EXIF panel (Ctrl+K; reads a little from each image shown)"
-msgstr "Vis EXIF-panelet (Ctrl+K; leser litt fra hvert bilde som vises)"
+msgid "Show the info panel (Ctrl+K; reads a little from each image shown)"
+msgstr "Vis infopanelet (Ctrl+K; leser litt fra hvert bilde som vises)"
 
 #: src/ui/preferences.rs
 msgid "Show the file list as icons (Ctrl+I)"
@@ -2613,8 +2613,8 @@ msgid "none, sRGB"
 msgstr "ingen, sRGB"
 
 #: src/ui/preferences.rs
-msgid "Fields: %name%, %path%, %position%, %dimensions%, %marks%, %keywords%, %comment%, and each label of the EXIF panel, such as %Camera% or %ISO%. A | starts a part, left out when its fields are empty."
-msgstr "Felt: %name%, %path%, %position%, %dimensions%, %marks%, %keywords%, %comment% og hver etikett i EXIF-panelet med sitt engelske navn, som %Camera% eller %ISO%. En | starter en del, som utelates når feltene i den er tomme."
+msgid "Fields: %name%, %path%, %position%, %dimensions%, %marks%, %keywords%, %comment%, and each label of the info panel, such as %Camera% or %ISO%. A | starts a part, left out when its fields are empty."
+msgstr "Felt: %name%, %path%, %position%, %dimensions%, %marks%, %keywords%, %comment% og hver etikett i infopanelet med sitt engelske navn, som %Camera% eller %ISO%. En | starter en del, som utelates når feltene i den er tomme."
 
 #: src/ui/preferences.rs
 msgid "Window title \"Glimt - image name\" (off: \"image name - Glimt\")"

@@ -112,7 +112,7 @@ struct App {
     window: crate::ui::window::Window,
     /// The info panel and the EXIF window. They hold what was read of the shown image and
     /// what is being edited.
-    info: crate::ui::info_panel::Info,
+    info_panel: crate::ui::info_panel::InfoPanel,
     /// The message shown over the image, until the next image.
     notice: Option<String>,
     /// Messages from background tasks (deleting, copying), to become the notice.
@@ -176,7 +176,7 @@ impl App {
         if let Some(layout) = start.layout {
             config.layout = layout.into();
         }
-        config.random |= start.random;
+        config.slideshow_random |= start.random;
         if let Some(fade) = start.fade {
             config.fade = fade;
         }
@@ -238,7 +238,7 @@ impl App {
             focus_by_keys: false,
             slideshow: crate::viewer::slideshow::Slideshow::new(start.slideshow),
             window: crate::ui::window::Window::new(start.kiosk),
-            info: crate::ui::info_panel::Info::new(ctx),
+            info_panel: crate::ui::info_panel::InfoPanel::new(ctx),
             notice: screen_error.or_else(|| config_notice(problems)),
             notices_tx,
             notices_rx,
@@ -330,8 +330,8 @@ impl App {
         if !bare && self.config.sort_manager {
             self.sort_manager(ui);
         }
-        if !bare && self.config.exif_panel && !self.list.files().is_empty() {
-            self.exif_panel(ui);
+        if !bare && self.config.info_panel && !self.list.files().is_empty() {
+            self.info_panel(ui);
         } else {
             // The panel was hidden while a field had the focus, so the field never lost it.
             self.save_meta(ui.ctx());
@@ -511,7 +511,7 @@ fn main() -> eframe::Result {
         if let Some(size) = win.size {
             viewport = viewport.with_inner_size(size);
         }
-        if let Some(pos) = win.pos {
+        if let Some(pos) = win.position {
             viewport = viewport.with_position(pos);
         }
         viewport = viewport.with_maximized(win.maximized);
@@ -555,7 +555,7 @@ mod tests {
     #[test]
     fn tells_settings_problems_but_unknown_ones() {
         let unknown = "line 3: there is no setting projector_screen".to_string();
-        let wrong = "line 5: delay=fast is not a number; 3 is used".to_string();
+        let wrong = "line 5: slideshow_delay=fast is not a number; 3 is used".to_string();
         assert_eq!(super::config_notice(std::slice::from_ref(&unknown)), None);
         assert_eq!(
             super::config_notice(&[unknown, wrong.clone()]),

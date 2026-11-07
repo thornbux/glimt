@@ -551,7 +551,7 @@ fn parts_keep_their_fields() {
         ("ui/file_list.rs", "StatusBar"),
         ("ui/file_list.rs", "Thumbs"),
         ("ui/file_list.rs", "Tree"),
-        ("ui/info_panel.rs", "Info"),
+        ("ui/info_panel.rs", "InfoPanel"),
         ("ui/menus.rs", "OpenWith"),
         ("ui/preferences.rs", "Prefs"),
         ("ui/theme.rs", "FromDesktop"),
@@ -996,7 +996,7 @@ fn copies_of_settings_have_one_writer() {
 /// A setting that has a setter (an App `set_…` method, or a View action's `toggle_setting`) is
 /// changed only through that setter, in every file, so each place that changes it does what
 /// the menu does besides. Preferences wrote the names under the thumbnails directly and skipped
-/// the scroll to the shown image, and Keywords and Comment turned the EXIF panel on the same way.
+/// the scroll to the shown image, and Keywords and Comment turned the info panel on the same way.
 /// Each setting has one setter, and a setter writes no other's setting, as it would skip what
 /// that one does.
 #[test]
@@ -1025,7 +1025,7 @@ fn settings_change_through_their_setters() {
         "thumbnails",
         "icons",
         "show_subfolders",
-        "exif_panel",
+        "info_panel",
     ] {
         assert!(setters.contains_key(name), "{name} has no setter found");
     }

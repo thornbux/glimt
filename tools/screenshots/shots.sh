@@ -146,7 +146,7 @@ cshot layout
 quit
 
 # Without thumbnails, so the names have room beside the size and date.
-config file_details=true exif_panel=true thumbnails=false
+config file_details=true info_panel=true thumbnails=false
 start $P/Summer/red_cliffs.jpg
 sleep 3
 cshot exif-and-columns

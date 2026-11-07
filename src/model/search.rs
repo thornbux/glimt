@@ -185,9 +185,13 @@ impl crate::App {
             let mut changed = false;
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 if geeqie
-                    && crate::ui::menus::checkbox(ui, &mut self.config.search_case, tr("Case"))
-                        .on_hover_text(tr("Tell upper and lower case apart"))
-                        .changed()
+                    && crate::ui::menus::checkbox(
+                        ui,
+                        &mut self.config.search_case_sensitive,
+                        tr("Case"),
+                    )
+                    .on_hover_text(tr("Tell upper and lower case apart"))
+                    .changed()
                 {
                     self.config.save();
                     changed = true;
@@ -375,7 +379,7 @@ impl crate::App {
         min: usize,
     ) -> Option<Vec<usize>> {
         // Geeqie's Case checkbox, shown beside the field in its mode.
-        let case = self.config.search_case && !self.config.fuzzy_search;
+        let case = self.config.search_case_sensitive && !self.config.fuzzy_search;
         let regex = |this: &mut Self, pattern: &str| match regex(pattern, case) {
             Ok(re) => regex_matches(this.list.files(), &re),
             Err(e) => {

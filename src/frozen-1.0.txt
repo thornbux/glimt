@@ -3,7 +3,9 @@
 # config::NAMED in its order, because a value's place is the number it was written as before),
 # the window state's keys, the --remote commands with the words of their choices and the exit
 # codes, and the command-line options. A line is never taken out or changed. New ones are
-# added at the end, as the test frozen_names_are_kept in config.rs says.
+# added at the end, as the test frozen_names_are_kept in config.rs says. A name renamed later
+# keeps its line: the code's table of old names maps it to the new name, which is still read,
+# and the new name is added at the end.
 setting preload
 setting delay
 setting remember_dir
@@ -222,3 +224,13 @@ value language en
 value input_profile srgb
 value input_profile adobe
 value input_profile p3
+setting slideshow_delay
+setting delete_to_trash
+setting slideshow_random
+setting use_image_profile
+setting info_panel
+setting sort_case_sensitive
+setting search_case_sensitive
+setting list_videos
+state window_position
+remote previous

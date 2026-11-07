@@ -226,7 +226,7 @@ impl crate::App {
     /// Whether an image's own profile counts, or the input profile is used for all.
     pub(crate) fn set_own_profile(&mut self, on: bool) {
         set_colour(|c| c.own = on);
-        self.config.own_profile = on;
+        self.config.use_image_profile = on;
         self.config.save();
         self.redecode();
     }
@@ -266,14 +266,14 @@ impl crate::App {
         menu_item(ui, act, Action::OpenFolders);
         self.recent_menu(ui);
         menu_item(ui, act, Action::NewFolder);
-        menu_item(ui, act, Action::Copy);
-        menu_item(ui, act, Action::Move);
+        menu_item(ui, act, Action::CopyTo);
+        menu_item(ui, act, Action::MoveTo);
         menu_item(ui, act, Action::Rename);
         menu_item(ui, act, Action::OpenWith);
         self.open_with_menu(ui);
         menu_item(ui, act, Action::SetWallpaper);
         #[cfg(feature = "video")]
-        menu_item(ui, act, Action::Play);
+        menu_item(ui, act, Action::PlayVideo);
         menu_item(ui, act, Action::SaveAs);
         menu_item(ui, act, Action::Print);
         // Only for a file of several frames or pages: the menu stays as it was
@@ -298,7 +298,7 @@ impl crate::App {
     /// The Go menu.
     fn menu_go(&mut self, ui: &mut egui::Ui, act: &mut Option<Action>) {
         menu_item(ui, act, Action::First);
-        menu_item(ui, act, Action::Prev);
+        menu_item(ui, act, Action::Previous);
         menu_item(ui, act, Action::Next);
         menu_item(ui, act, Action::Last);
         ui.separator();
@@ -383,7 +383,7 @@ impl crate::App {
             },
         );
         menu_item(ui, act, Action::Crop);
-        menu_item(ui, act, Action::Keywords);
+        menu_item(ui, act, Action::FocusKeywords);
         ui.separator();
         self.plugins_menu(ui);
         ui.separator();
@@ -413,7 +413,7 @@ impl crate::App {
                 }
             }
             ui.separator();
-            menu_item(ui, act, Action::ViewFilter);
+            menu_item(ui, act, Action::NextFilter);
         });
         scroll_menu(ui, iconed(ui, theme::icon::ZOOM, tr("Zoom")), |ui| {
             menu_item(ui, act, Action::ZoomIn);
@@ -426,7 +426,7 @@ impl crate::App {
             menu_toggle(ui, act, mode == 3, Action::FitFill);
         });
         menu_item(ui, act, Action::FullScreen);
-        menu_item(ui, act, Action::HideTools);
+        menu_item(ui, act, Action::HideFileList);
         let c = &self.config;
         menu_toggle(ui, act, c.toolbar, Action::Toolbar);
         menu_toggle(ui, act, c.path_bar, Action::PathBar);
@@ -443,11 +443,16 @@ impl crate::App {
         submenu(ui, size, |ui| self.thumb_size_setting(ui));
         let c = &self.config;
         menu_toggle(ui, act, c.grid_names, Action::GridNames);
-        menu_toggle(ui, act, c.exif_panel, Action::ExifPanel);
+        menu_toggle(ui, act, c.info_panel, Action::InfoPanel);
         menu_toggle(ui, act, c.sort_manager, Action::SortManager);
-        menu_toggle(ui, act, self.info.exif_window_open(), Action::ExifWindow);
+        menu_toggle(
+            ui,
+            act,
+            self.info_panel.exif_window_open(),
+            Action::ExifWindow,
+        );
         menu_toggle(ui, act, self.pan_window.is_some(), Action::PanView);
-        menu_toggle(ui, act, c.osd, Action::Overlay);
+        menu_toggle(ui, act, c.osd, Action::FullScreenInfo);
         menu_item(ui, act, Action::Histogram);
         menu_toggle(ui, act, c.histogram_log, Action::HistogramLog);
         menu_item(ui, act, Action::Refresh);
@@ -461,9 +466,9 @@ impl crate::App {
         #[allow(clippy::disallowed_methods)] // menu_button notes it by the action's label.
         menu_button(ui, act, egui::Button::new(text), Action::Slideshow);
         menu_toggle(ui, act, self.slideshow.is_paused(), Action::Pause);
-        menu_item(ui, act, Action::Faster);
-        menu_item(ui, act, Action::Slower);
-        menu_toggle(ui, act, self.config.random, Action::RandomOrder);
+        menu_item(ui, act, Action::SlideshowFaster);
+        menu_item(ui, act, Action::SlideshowSlower);
+        menu_toggle(ui, act, self.config.slideshow_random, Action::RandomOrder);
     }
 
     /// The Window menu.
@@ -489,8 +494,8 @@ impl crate::App {
     /// A file's right-click menu; it acts on the selection.
     pub(crate) fn file_menu(&mut self, ui: &mut egui::Ui, list_act: &mut Option<Action>) {
         for action in [
-            Action::Copy,
-            Action::Move,
+            Action::CopyTo,
+            Action::MoveTo,
             Action::CopyPath,
             Action::CopyFiles,
         ] {
@@ -781,7 +786,7 @@ impl crate::App {
         let flag = match action {
             Action::PathBar => &mut c.path_bar,
             Action::Toolbar => &mut c.toolbar,
-            Action::Overlay => &mut c.osd,
+            Action::FullScreenInfo => &mut c.osd,
             Action::Icons => &mut c.icons,
             Action::FolderTree => &mut c.folder_tree,
             Action::HistogramLog => &mut c.histogram_log,
@@ -793,7 +798,7 @@ impl crate::App {
                 &mut c.animate
             }
             Action::SortManager => &mut c.sort_manager,
-            Action::ExifPanel => &mut c.exif_panel,
+            Action::InfoPanel => &mut c.info_panel,
             // Another action has no setting here, and must not flip one.
             _ => return,
         };
@@ -1085,17 +1090,17 @@ mod tests {
     }
 
     /// An action that is not a View toggle changes no setting. Any action it did not know
-    /// turned the EXIF panel on or off.
+    /// turned the info panel on or off.
     #[test]
     fn only_a_view_toggle_changes_its_setting() {
         let dir = std::env::temp_dir().join(format!("glimt-test-toggle-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let (mut app, _ctx) = crate::support::test_support::app_on(&dir);
-        let panel = app.config.exif_panel;
+        let panel = app.config.info_panel;
         app.toggle_setting(Action::Next);
-        assert_eq!(app.config.exif_panel, panel);
-        app.toggle_setting(Action::ExifPanel);
-        assert_eq!(app.config.exif_panel, !panel);
+        assert_eq!(app.config.info_panel, panel);
+        app.toggle_setting(Action::InfoPanel);
+        assert_eq!(app.config.info_panel, !panel);
         std::fs::remove_dir_all(dir).unwrap();
     }
 }

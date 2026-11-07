@@ -23,7 +23,7 @@ use std::sync::mpsc;
 /// The commands, for `glimt --help`.
 pub const COMMANDS: &[(&str, &str)] = &[
     ("next", "Show the next image"),
-    ("prev", "Show the previous image"),
+    ("previous", "Show the previous image"),
     ("first", "Show the first image"),
     ("last", "Show the last image"),
     (
@@ -73,6 +73,11 @@ pub const COMMANDS: &[(&str, &str)] = &[
         "Print where the menu item, button or choice with that text is, as x y (the release tests' build only)",
     ),
 ];
+
+/// The commands renamed in 0.74.0, as (old word, new word). Scripts may send the old word too,
+/// forever, and `glimt --help` lists only the new one. The client sends the word as it was
+/// given, so an older Glimt still takes the old word.
+pub const RENAMED_COMMANDS: [(&str, &str); 1] = [("prev", "previous")];
 
 /// The options that send a command, to the Glimt used last or to every one.
 pub const REMOTE: &str = "--remote";
@@ -217,15 +222,16 @@ impl crate::App {
         }
     }
 
-    /// Runs a command from `glimt --remote`. The commands are next, prev, first, last,
+    /// Runs a command from `glimt --remote`. The commands are next, previous, first, last,
     /// slideshow, random and fullscreen (each with on or off, or without to go to the other),
     /// subfolders on|off, quit, open PATH, title with this window's own title, or without one
     /// to have the title in Preferences, and run ACTION with an action of `SCRIPT_ACTIONS`.
     pub(crate) fn remote_command(&mut self, ctx: &egui::Context, command: &str) {
         let fullscreen = ctx.input(|i| i.viewport().fullscreen).unwrap_or(false);
-        let action = match command.trim() {
+        // The renamed commands take no words after them, so the whole command is their word.
+        let action = match command_word_now(command.trim()) {
             "next" => Some(Action::Next),
-            "prev" => Some(Action::Prev),
+            "previous" => Some(Action::Previous),
             "first" => Some(Action::First),
             "last" => Some(Action::Last),
             // With on or off, a script can count on the state, and nothing happens when it is so
@@ -421,7 +427,7 @@ fn may_relist(command: &str) -> bool {
 pub fn known(words: &[String]) -> bool {
     (COMMANDS.iter()).any(|(c, _)| {
         let mut parts = c.split(' ');
-        if parts.next() != words.first().map(String::as_str) {
+        if parts.next() != words.first().map(|w| command_word_now(w)) {
             return false;
         }
         match parts.next() {
@@ -440,6 +446,14 @@ pub fn known(words: &[String]) -> bool {
             None => words.len() == 1,
         }
     })
+}
+
+/// Returns the word a command has now: the new word of one renamed in `RENAMED_COMMANDS`, and
+/// `word` itself for every other.
+pub fn command_word_now(word: &str) -> &str {
+    (RENAMED_COMMANDS.iter())
+        .find(|r| r.0 == word)
+        .map_or(word, |r| r.1)
 }
 
 /// Whether a window took a command but gave no answer within `WAIT`.
@@ -855,6 +869,16 @@ mod tests {
         assert_eq!(app.list.cur(), 1);
         app.remote_command(&ctx, "run Last");
         assert_eq!(app.list.cur(), 2);
+        // The renamed command by its new and its old word, and the renamed action by its old
+        // name.
+        app.remote_command(&ctx, "previous");
+        assert_eq!(app.list.cur(), 1);
+        app.remote_command(&ctx, "prev");
+        assert_eq!(app.list.cur(), 0);
+        app.remote_command(&ctx, "run Next");
+        app.remote_command(&ctx, "run Prev");
+        assert_eq!(app.list.cur(), 0);
+        app.remote_command(&ctx, "run Last");
         app.config.confirm_trash = false;
         app.remote_command(&ctx, "run Delete");
         app.remote_command(&ctx, "run DeletePermanently");
@@ -898,6 +922,9 @@ mod tests {
     fn knows_its_commands() {
         let words = |s: &str| s.split(' ').map(String::from).collect::<Vec<_>>();
         assert!(super::known(&words("next")));
+        // A renamed command is known by its old word too, and takes no more words than before.
+        assert!(super::known(&words("previous")) && super::known(&words("prev")));
+        assert!(!super::known(&words("prev 2")));
         assert!(super::known(&["open".into(), "/a b.jpg".into()]));
         // Two words are two paths, not one with a space, because the shell joins no words.
         assert!(!super::known(&words("open /a.jpg /b.jpg")));

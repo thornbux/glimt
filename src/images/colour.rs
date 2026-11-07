@@ -357,7 +357,7 @@ pub fn set_intent(name: &str) {
     set_colour(|c| c.intent = intent);
 }
 
-/// The profile an image is shown from, for the EXIF panel: its own (by name), Adobe RGB from
+/// The profile an image is shown from, for the info panel: its own (by name), Adobe RGB from
 /// its EXIF, or the one taken for images without a profile.
 pub fn colour_source(path: &Path) -> String {
     use moxcms::{ColorProfile, ProfileText};
@@ -528,7 +528,7 @@ pub(crate) fn set_up(config: &Config) -> Option<String> {
     let error = (set_screen(&config.screen_profile))
         .and_then(|_| set_input(&config.input_profile))
         .err();
-    set_colour(|c| c.own = config.own_profile);
+    set_colour(|c| c.own = config.use_image_profile);
     set_intent(&config.rendering_intent);
     if config.desktop_profile && config.color_management {
         let deadline = Instant::now() + std::time::Duration::from_millis(SCREEN_WAIT_MS);
