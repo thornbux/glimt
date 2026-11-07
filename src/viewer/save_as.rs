@@ -22,22 +22,22 @@ pub struct SaveAsChoices {
     /// `None`: as the original.
     format: Option<Format>,
     /// 0 the original size, 1 the longest side in pixels, 2 a percentage.
-    size: u8,
-    long: u32,
+    size_mode: u8,
+    longest_side: u32,
     percent: u32,
     quality: u8,
-    strip: bool,
+    strip_metadata: bool,
 }
 
 impl Default for SaveAsChoices {
     fn default() -> Self {
         SaveAsChoices {
             format: None,
-            size: 0,
-            long: 1920,
+            size_mode: 0,
+            longest_side: 1920,
             percent: 50,
             quality: 90,
-            strip: false,
+            strip_metadata: false,
         }
     }
 }
@@ -45,8 +45,8 @@ impl Default for SaveAsChoices {
 impl SaveAsChoices {
     /// The longest side asked for, if smaller than the image's `long` side.
     fn long_side(&self, long: usize) -> Option<u32> {
-        let side = match self.size {
-            1 => self.long,
+        let side = match self.size_mode {
+            1 => self.longest_side,
             2 => (long as f64 * self.percent as f64 / 100.0).round() as u32,
             _ => return None,
         };
@@ -54,11 +54,11 @@ impl SaveAsChoices {
     }
 }
 
-/// The dialog open, for the image `path` as shown (`how`), `orig` pixels large.
+/// The dialog open, for the image `path` as shown (`copy_as`), `original_size` pixels large.
 pub struct SaveAs {
     path: PathBuf,
-    how: CopyAs,
-    orig: [usize; 2],
+    copy_as: CopyAs,
+    original_size: [usize; 2],
     choice: SaveAsChoices,
 }
 
@@ -75,7 +75,7 @@ impl crate::App {
             return;
         };
         let [w, h] = loaded.original_size;
-        let orig = if self.viewing.is_sideways() {
+        let original_size = if self.viewing.is_sideways() {
             [h, w]
         } else {
             [w, h]
@@ -87,11 +87,11 @@ impl crate::App {
             Format::WebPLossy => self.config.webp_quality,
             _ => self.config.jpeg_quality,
         };
-        let how = self.shown_copy();
+        let copy_as = self.shown_copy();
         self.save_as = Some(SaveAs {
             path,
-            how,
-            orig,
+            copy_as,
+            original_size,
             choice,
         });
     }
@@ -134,7 +134,7 @@ impl crate::App {
             save_as_fields(ui, &mut dialog);
             crate::ui::menus::checkbox(
                 ui,
-                &mut dialog.choice.strip,
+                &mut dialog.choice.strip_metadata,
                 tr("Remove EXIF and GPS (camera, date, place), XMP and the sidecar"),
             );
             ui.horizontal(|ui| {
@@ -147,19 +147,19 @@ impl crate::App {
         self.save_as_choices = dialog.choice;
         if go {
             let c = dialog.choice;
-            let [w, h] = dialog.orig;
+            let [w, h] = dialog.original_size;
             let format = c.format.unwrap_or_else(|| Format::of(&dialog.path));
-            let how = CopyAs {
+            let copy_as = CopyAs {
                 long_side: c.long_side(w.max(h)),
                 format: c.format,
                 jpeg_quality: c.quality,
                 webp_quality: c.quality,
-                strip: c.strip,
-                ..dialog.how.clone()
+                strip: c.strip_metadata,
+                ..dialog.copy_as.clone()
             };
             // "a-1920.jpg" when smaller, "a.webp" in another format, else "a-copy.jpg".
             let path = &dialog.path;
-            let mut name = match how.long_side {
+            let mut name = match copy_as.long_side {
                 Some(long) => save::stem_with_suffix(path, &format!("-{long}.{}", format.ext())),
                 None => save::stem_with_suffix(path, &format!(".{}", format.ext())),
             };
@@ -167,7 +167,7 @@ impl crate::App {
                 name = save::stem_with_suffix(path, &format!("-copy.{}", format.ext()));
             }
             let start = path.with_file_name(name);
-            self.pick(ctx, false, Pick::SaveAs(dialog.path, how, start));
+            self.pick(ctx, false, Pick::SaveAs(dialog.path, copy_as, start));
         } else if !modal.should_close() {
             self.save_as = Some(dialog);
         }
@@ -178,13 +178,13 @@ impl crate::App {
         &mut self,
         ctx: &egui::Context,
         path: PathBuf,
-        how: CopyAs,
+        copy_as: CopyAs,
         to: PathBuf,
     ) {
         let report_tx = self.file_operations.report_sender();
         self.run_in_background(ctx, vec![path.clone(), to.clone()], move || {
             Some(
-                match decode::catch_panic(|| save::save_as(&path, &how, &to)) {
+                match decode::catch_panic(|| save::save_as(&path, &copy_as, &to)) {
                     Ok(new) => {
                         // Saved over a file the dialog let it replace, maybe one in the list. The
                         // copy gets the marks and stars of the original, as it got its sidecar,
@@ -192,7 +192,7 @@ impl crate::App {
                         let _ = report_tx.send(OperationReport {
                             read_folder_again: true,
                             overwritten: vec![new.clone()],
-                            moved: (!how.strip)
+                            moved: (!copy_as.strip)
                                 .then(|| (path.clone(), new.clone()))
                                 .into_iter()
                                 .collect(),
@@ -211,7 +211,7 @@ impl crate::App {
 /// Save As's format, size and quality, in a grid.
 fn save_as_fields(ui: &mut egui::Ui, dialog: &mut SaveAs) {
     let original = Format::of(&dialog.path);
-    let [w, h] = dialog.orig;
+    let [w, h] = dialog.original_size;
     let c = &mut dialog.choice;
     egui::Grid::new("save as grid")
         .num_columns(2)
@@ -236,22 +236,22 @@ fn save_as_fields(ui: &mut egui::Ui, dialog: &mut SaveAs) {
             ui.vertical(|ui| {
                 crate::ui::menus::radio_choice(
                     ui,
-                    &mut c.size,
+                    &mut c.size_mode,
                     0,
                     &tf!("Original ({w} × {h})", w, h),
                 );
                 ui.horizontal(|ui| {
-                    crate::ui::menus::radio_choice(ui, &mut c.size, 1, tr("Longest side"));
-                    let drag = egui::DragValue::new(&mut c.long).range(1..=65535);
+                    crate::ui::menus::radio_choice(ui, &mut c.size_mode, 1, tr("Longest side"));
+                    let drag = egui::DragValue::new(&mut c.longest_side).range(1..=65535);
                     if ui.add(drag.suffix(" px")).changed() {
-                        c.size = 1;
+                        c.size_mode = 1;
                     }
                 });
                 ui.horizontal(|ui| {
-                    crate::ui::menus::radio_choice(ui, &mut c.size, 2, tr("Percent"));
+                    crate::ui::menus::radio_choice(ui, &mut c.size_mode, 2, tr("Percent"));
                     let drag = egui::DragValue::new(&mut c.percent).range(1..=100);
                     if ui.add(drag.suffix(" %")).changed() {
-                        c.size = 2;
+                        c.size_mode = 2;
                     }
                 });
             });
