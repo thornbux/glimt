@@ -223,8 +223,9 @@ pub(crate) const KIOSK_ACTIONS: &[Action] = &[
 
 /// The actions a script may run with `glimt --remote run ACTION`: showing, browsing, selecting,
 /// the panels and windows, the settings and the clipboard. None of them changes a file, a
-/// sidecar, a mark or star, or a collection, not even through a dialog the user answers, so
-/// a program that reaches Glimt's socket still cannot delete, move, rename or rewrite anything.
+/// sidecar, a mark or star, or a collection, not even through a dialog or panel the user then
+/// answers or clicks in, and none starts a program other than Glimt. So a program that reaches
+/// Glimt's socket still cannot delete, move, rename or rewrite anything.
 /// `every_action_is_decided_for_scripts` makes each new action be put here or left out on
 /// purpose.
 pub(crate) const SCRIPT_ACTIONS: &[Action] = &[
@@ -244,7 +245,6 @@ pub(crate) const SCRIPT_ACTIONS: &[Action] = &[
     Action::ExifRotate,
     Action::ExifWindow,
     Action::Faster,
-    Action::FindDuplicates,
     Action::First,
     Action::FitFill,
     Action::FitHeight,
@@ -263,7 +263,6 @@ pub(crate) const SCRIPT_ACTIONS: &[Action] = &[
     Action::Icons,
     Action::InvertSelection,
     Action::KeyboardMap,
-    Action::Keywords,
     Action::Last,
     Action::NewWindow,
     Action::Next,
@@ -275,7 +274,6 @@ pub(crate) const SCRIPT_ACTIONS: &[Action] = &[
     Action::OpenFolder,
     Action::OpenFolders,
     Action::OpenRecursive,
-    Action::OpenWith,
     Action::Overlay,
     Action::PanView,
     Action::PaneDown,
@@ -284,7 +282,6 @@ pub(crate) const SCRIPT_ACTIONS: &[Action] = &[
     Action::PaneUp,
     Action::PathBar,
     Action::Pause,
-    Action::Play,
     Action::Preferences,
     Action::Prev,
     Action::PrevPage,
@@ -298,12 +295,11 @@ pub(crate) const SCRIPT_ACTIONS: &[Action] = &[
     Action::Shortcuts,
     Action::Slideshow,
     Action::Slower,
-    Action::SortManager,
     Action::Subfolders,
     Action::ThumbnailGrid,
-    Action::Up,
     Action::Thumbnails,
     Action::Toolbar,
+    Action::Up,
     Action::ViewFilter,
     Action::WindowTitle,
     Action::Zoom1To1,
@@ -1689,6 +1685,13 @@ mod tests {
     fn every_action_is_decided_for_scripts() {
         use Action::*;
         let changes_files: &[Action] = &[
+            // These change files only through a window or panel the user then clicks or types
+            // in, or start another program; a script may not open the way to that either.
+            FindDuplicates,
+            Keywords,
+            OpenWith,
+            Play,
+            SortManager,
             Copy,
             Crop,
             Delete,
