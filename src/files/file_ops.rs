@@ -743,7 +743,7 @@ impl crate::App {
             self.marks.forget(&overwritten);
             // The moves are handled before their sources are taken for deleted files, so the
             // marks go along first.
-            self.paths_moved(moved, is_copy);
+            self.follow_moved_paths(moved, is_copy);
             self.written_anew(&changed);
             self.files_changed(ctx, &changed);
             self.files_changed(ctx, &overwritten);
@@ -841,7 +841,7 @@ impl crate::App {
     /// `(from, to)`, or copied (`copied`). It is the one place every operation reports to. The
     /// marks go along, to a copy too. When the files moved, a collection's entries of them, and
     /// of everything in a moved folder, take the new place, in the list and in its file.
-    pub(crate) fn paths_moved(&mut self, pairs: Vec<(PathBuf, PathBuf)>, copied: bool) {
+    pub(crate) fn follow_moved_paths(&mut self, pairs: Vec<(PathBuf, PathBuf)>, copied: bool) {
         // No message of a delete has pairs, so each one skips the look at every name in the
         // list.
         if pairs.is_empty() {
@@ -891,7 +891,7 @@ impl crate::App {
         }
         self.exif_follow_list();
         #[cfg(feature = "marks")]
-        self.marks.put(pairs, copied);
+        self.marks.follow_files(pairs, copied);
     }
 
     /// Copies or moves `paths` into `dest` in the background. Existing files are never
@@ -1150,7 +1150,7 @@ impl crate::App {
                 .filter(|(k, _)| refused.binary_search(k).is_err())
                 .map(|(_, (f, t))| (f.clone(), t.clone()))
                 .collect();
-            self.paths_moved(pairs, false);
+            self.follow_moved_paths(pairs, false);
         }
         if self.folder.collection().is_some() {
             return self.list(ctx);
@@ -1338,9 +1338,9 @@ impl crate::App {
         // name. In a collection, its own file follows the folder it is in, and its images in
         // the folder follow it to the new name, in its file too.
         self.folder.follow_rename(&old, &new);
-        self.paths_moved(vec![(old.clone(), new.clone())], false);
+        self.follow_moved_paths(vec![(old.clone(), new.clone())], false);
         #[cfg(feature = "marks")]
-        self.marks.put_folder(old.clone(), new.clone());
+        self.marks.follow_folder(old.clone(), new.clone());
         match self.folder.dir_renamed(&old, &new) {
             // The shown file is under the new name now, also for a turn not saved yet.
             Some(dir) => self.visit(ctx, dir),
@@ -3807,7 +3807,7 @@ mod tests {
             app.list.remember_details(name.into(), (1, 1));
             app.broken_files.insert(name.into());
         }
-        app.paths_moved(vec![(dir.join("a.png"), dir.join("c.png"))], false);
+        app.follow_moved_paths(vec![(dir.join("a.png"), dir.join("c.png"))], false);
         app.forget_names(&[dir.join("b.png")]);
         for name in ["a.png", "b.png", "c.png"] {
             let name = std::ffi::OsStr::new(name);

@@ -170,7 +170,7 @@
       <rect x="30" y="770" width="400" height="150" rx="6" fill="#fef3e2" stroke="#d08a1a" stroke-width="1.5"/>
       <text x="42" y="791" font-size="13" font-weight="700"><tspan font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace">receive_operation_report</tspan>  <tspan font-weight="400" font-size="12" fill="#57606a">an OperationReport</tspan></text>
       <text x="42" y="813">files gone leave the list; moved ones take their new name</text>
-      <text x="42" y="831">marks.forget, marks.put: marks and stars follow the file</text>
+      <text x="42" y="831">marks.forget, marks.follow_files: marks and stars go along</text>
       <text x="42" y="849">forget_in_collection: a collection's entry goes with it</text>
       <text x="42" y="867">after a failure the folder is read again instead</text>
       <text x="42" y="889">kept for Edit → Undo: Undo::Trash, Undo::Move,</text>

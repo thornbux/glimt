@@ -1461,7 +1461,7 @@ mod tests {
         app.update_search(&ctx);
         assert_eq!(app.list.matches().map(<[usize]>::len), Some(1));
         std::fs::rename(&a, &b).unwrap();
-        app.paths_moved(vec![(a, b)], false);
+        app.follow_moved_paths(vec![(a, b)], false);
         assert_eq!(app.list.matches().map(<[usize]>::len), Some(0));
         std::fs::remove_dir_all(dir).unwrap();
     }
@@ -1566,7 +1566,7 @@ mod tests {
             .folder
             .listing_rx
             .is_none()));
-        app.paths_moved(vec![(a, c)], false);
+        app.follow_moved_paths(vec![(a, c)], false);
         let has_c = |app: &crate::App| {
             (app.list.files().iter()).any(|f| std::path::Path::new(f).ends_with("c.png"))
         };

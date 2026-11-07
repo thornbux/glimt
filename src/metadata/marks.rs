@@ -109,19 +109,19 @@ impl Marks {
     }
 
     /// Files copied (`keep`) or moved and renamed `(from, to)`: the new ones get the marks. A
-    /// folder renamed goes through `put_folder`, so a report of files never stats them on the UI
+    /// folder renamed goes through `follow_folder`, so a report of files never stats them on the UI
     /// thread to find a folder among them.
-    pub fn put(&mut self, pairs: Vec<(PathBuf, PathBuf)>, keep: bool) {
+    pub fn follow_files(&mut self, pairs: Vec<(PathBuf, PathBuf)>, keep: bool) {
         // From the file as it is: stars set in another window since this one last read it were
         // left behind on the old names, as this window did not know them.
         self.refresh();
-        self.put_known(pairs, Vec::new(), keep);
+        self.follow_known(pairs, Vec::new(), keep);
     }
 
     /// The folder `from` renamed to `to` (Rename Folder): the files in it keep their marks under
     /// the new name. Every mark is looked at, so this is only for a folder, not for each rename
     /// of a file with 500,000 marked.
-    pub fn put_folder(&mut self, from: PathBuf, to: PathBuf) {
+    pub fn follow_folder(&mut self, from: PathBuf, to: PathBuf) {
         self.refresh();
         let pairs = vec![(from, to)];
         let moved = crate::files::file_ops::moves(&pairs);
@@ -131,11 +131,11 @@ impl Marks {
                 Some((k.clone(), dir.join(k.file_name()?)))
             })
             .collect();
-        self.put_known(pairs, inside, false);
+        self.follow_known(pairs, inside, false);
     }
 
     /// Moves or copies the marks of `pairs` and of `inside`, the files in a folder renamed.
-    fn put_known(
+    fn follow_known(
         &mut self,
         pairs: Vec<(PathBuf, PathBuf)>,
         inside: Vec<(PathBuf, PathBuf)>,
@@ -146,8 +146,8 @@ impl Marks {
             .chain(inside)
             .collect();
         if !pairs.is_empty() {
-            put(&mut self.map, &pairs, keep);
-            save(Edit::Put(pairs, keep));
+            follow_pairs(&mut self.map, &pairs, keep);
+            save(Edit::Follow(pairs, keep));
         }
     }
 
@@ -171,7 +171,7 @@ thread_local! {
 /// What a window did, applied to the file as it is then.
 enum Edit {
     Change(Vec<PathBuf>, Change),
-    Put(Vec<(PathBuf, PathBuf)>, bool),
+    Follow(Vec<(PathBuf, PathBuf)>, bool),
 }
 
 /// A change, rather than the new value, so that applied to the file it keeps what another
@@ -229,9 +229,10 @@ fn apply(map: &mut HashMap<PathBuf, (u8, u8)>, paths: &[PathBuf], change: Change
     }
 }
 
-/// The marks of each `from` to its `to`, kept on `from` too when copied. All are taken before
-/// any is put: in a Rename Many that swaps or shifts names, a `to` is another pair's `from`.
-fn put(map: &mut HashMap<PathBuf, (u8, u8)>, pairs: &[(PathBuf, PathBuf)], keep: bool) {
+/// Gives the marks of each `from` to its `to`, and keeps them on `from` too for a copy
+/// (`keep`). All are taken before any is given, because in a Rename Many that swaps or shifts
+/// names a `to` is another pair's `from`.
+fn follow_pairs(map: &mut HashMap<PathBuf, (u8, u8)>, pairs: &[(PathBuf, PathBuf)], keep: bool) {
     let taken: Vec<Option<(u8, u8)>> = (pairs.iter())
         .map(|(from, _)| match keep {
             true => map.get(from).copied(),
@@ -249,7 +250,7 @@ fn put(map: &mut HashMap<PathBuf, (u8, u8)>, pairs: &[(PathBuf, PathBuf)], keep:
 fn apply_edit(map: &mut HashMap<PathBuf, (u8, u8)>, edit: &Edit) {
     match edit {
         Edit::Change(paths, change) => apply(map, paths, *change),
-        Edit::Put(pairs, keep) => put(map, pairs, *keep),
+        Edit::Follow(pairs, keep) => follow_pairs(map, pairs, *keep),
     }
 }
 
@@ -401,7 +402,7 @@ mod tests {
         let mut marks = super::Marks::default();
         let text = format!("0\t3\t{}\n0\t2\t{}\n", a.display(), b.display());
         std::fs::write(&file, text).unwrap();
-        marks.put(vec![(a.clone(), c.clone())], false);
+        marks.follow_files(vec![(a.clone(), c.clone())], false);
         assert_eq!((marks.get(&c), marks.get(&a)), ((0, 3), (0, 0)));
         let was = marks.forget(std::slice::from_ref(&b));
         assert_eq!((marks.get(&b), was), ((0, 0), vec![(b.clone(), (0, 2))]));
@@ -561,12 +562,12 @@ mod tests {
         let mut m = super::Marks::load();
         m.rate(&[p("/a.jpg"), p("/b.jpg")], 4);
         m.toggle(&[p("/a.jpg")], 1);
-        m.put(vec![(p("/a.jpg"), p("/to/a.jpg"))], false);
+        m.follow_files(vec![(p("/a.jpg"), p("/to/a.jpg"))], false);
         assert_eq!(
             (m.get(&p("/a.jpg")), m.get(&p("/to/a.jpg"))),
             ((0, 0), (1, 4))
         );
-        m.put(vec![(p("/b.jpg"), p("/b copy.jpg"))], true);
+        m.follow_files(vec![(p("/b.jpg"), p("/b copy.jpg"))], true);
         assert_eq!(
             (m.get(&p("/b.jpg")), m.get(&p("/b copy.jpg"))),
             ((0, 4), (0, 4))
@@ -576,22 +577,22 @@ mod tests {
         // A folder renamed: its files' marks go along; trashed: they go. The folders are only
         // names, as nothing on the disk is looked at to tell a folder.
         m.rate(&[p("/trip/old/a.jpg")], 5);
-        m.put_folder(p("/trip/old"), p("/trip/2024"));
+        m.follow_folder(p("/trip/old"), p("/trip/2024"));
         assert_eq!(m.get(&p("/trip/2024/a.jpg")), (0, 5));
         m.forget(&[p("/trip/2024")]);
         assert_eq!(m.get(&p("/trip/2024/a.jpg")), (0, 0));
         // An old entry where an unmarked file lands is cleared.
-        m.put(vec![(p("/c.jpg"), p("/b copy.jpg"))], false);
+        m.follow_files(vec![(p("/c.jpg"), p("/b copy.jpg"))], false);
         assert_eq!(m.get(&p("/b copy.jpg")), (0, 0));
         // Rename Many swapping names, and shifting them: each keeps its own.
         m.rate(&[p("/x.jpg")], 1);
         m.rate(&[p("/y.jpg")], 2);
-        m.put(
+        m.follow_files(
             vec![(p("/x.jpg"), p("/y.jpg")), (p("/y.jpg"), p("/x.jpg"))],
             false,
         );
         assert_eq!((m.get(&p("/x.jpg")).1, m.get(&p("/y.jpg")).1), (2, 1));
-        m.put(
+        m.follow_files(
             vec![(p("/x.jpg"), p("/z.jpg")), (p("/y.jpg"), p("/x.jpg"))],
             false,
         );
