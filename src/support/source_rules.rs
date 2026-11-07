@@ -1722,6 +1722,34 @@ fn the_list_is_drawn_in_the_form_its_caller_asks() {
     );
 }
 
+/// The file list is drawn only by the side panel and the grid in the image area. A new view of
+/// the list needs what each of them has, which the grid of 0.65.0 missed through five audit
+/// rounds, so a third caller of `App::file_list` fails here until it is added with them.
+#[test]
+fn the_list_is_drawn_by_known_views() {
+    const VIEWS: &[(&str, &[(&str, &str)])] = &[(
+        "file_list(",
+        &[
+            ("ui/file_list.rs", "side_panel"),
+            ("ui/file_list.rs", "area_grid"),
+            // The clipboard's own `file_list`, which is arboard's and draws nothing.
+            ("ui/actions.rs", "copy_files"),
+        ],
+    )];
+    let wrong = outside_their_homes(VIEWS);
+    assert!(
+        wrong.is_empty(),
+        "a new view of the list: give it everything in AGENTS.md's \"A new way to show the \
+         list\", then add it to the views here:\n{}",
+        wrong.join("\n")
+    );
+    let planted = "fn pan() {\n    let opened = self.file_list(ctx, ui, &mut a, &mut b, f);\n}\n";
+    assert_eq!(
+        outside_homes_in("viewer/pan.rs", planted, VIEWS),
+        ["viewer/pan.rs:2 (file_list()"]
+    );
+}
+
 /// Every widget drawn by hand that takes a click tells a screen reader what it is: a row or
 /// cell of the list through `speak_item`, the image through `speak_image`, and the others with
 /// `widget_info`. egui's own widgets do this themselves, but a widget drawn by hand says
