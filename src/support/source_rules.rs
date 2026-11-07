@@ -946,9 +946,8 @@ fn images_are_turned_after_they_shrink() {
         (
             "load_icc(",
             &[
-                ("images/decode.rs", "each_frame"),
+                ("images/decode.rs", "load_page"),
                 ("images/save.rs", "save_rotated"),
-                ("images/save.rs", "pixels"),
             ],
         ),
     ];
@@ -1050,16 +1049,31 @@ fn a_home_ends_at_the_next_top_level_item() {
 /// would skip what `derived_xmp` drops. The panel reads it in `xmp::embedded`. The EXIF block
 /// is read through `exif::decoded`, which also sees a PNG's EXIF in a text chunk. Before, a
 /// turned or copied PNG lost EXIF that only such a chunk held, because the save read the eXIf
-/// chunk alone. The orientation an image is turned upright by is read through
-/// `exif::stored_orientation`, so the view and a turned or copied file take the one the panel
-/// shows. The view once took the decoder's alone and showed a PNG with its orientation in a
-/// text chunk unturned. The view's Adobe RGB check takes the same block as its orientation, and
-/// the colour line reads it through `decoded` too, so a PNG with its ColorSpace only in a text
-/// chunk is shown and named as Adobe RGB. A RAW's preview is a JPEG, read on its own.
+/// chunk alone. A derived file takes its EXIF block from `exif::derived`, the panel's reader,
+/// and never from `exif::decoded`, which reads only what the image crate opens. Before, a copy
+/// of a HEIC, AVIF, JPEG XL or RAW photo lost the EXIF the panel showed. The orientation an
+/// image is turned upright by is read through `exif::stored_orientation`, so the view and a
+/// turned or copied file take the one the panel shows. The view once took the decoder's alone
+/// and showed a PNG with its orientation in a text chunk unturned. The view's Adobe RGB check
+/// takes the same block as its orientation, and the colour line reads it through `decoded`
+/// too, so a PNG with its ColorSpace only in a text chunk is shown and named as Adobe RGB. A
+/// RAW's preview is a JPEG, read on its own. A copy or an exported frame reads a page through
+/// `decode::load_page`, which gives every page with its own ICC profile. Before, a later page
+/// of a TIFF was read without it. Every image file Glimt writes is encoded by `save::encode`,
+/// which fits the pixels to the format. Before, Export Frames wrote a float page as it was,
+/// which PNG refuses (`.write_to` is watched for that).
 #[test]
 fn derived_files_take_metadata_in_one_place() {
     const HOMES: &[(&str, &[(&str, &str)])] = &[
         ("set_upright(", &[("images/save.rs", "derived_metadata")]),
+        ("exif::derived(", &[("images/save.rs", "derived_metadata")]),
+        (
+            "exif::decoded(",
+            &[
+                ("images/decode.rs", "load_unturned"),
+                ("images/colour.rs", "colour_source"),
+            ],
+        ),
         (
             ".exif_metadata()",
             &[("metadata/exif.rs", "decoded"), ("images/raw.rs", "exif")],
@@ -1078,6 +1092,14 @@ fn derived_files_take_metadata_in_one_place() {
                 ("images/raw.rs", "unturned"),
             ],
         ),
+        (
+            "page_of(",
+            &[
+                ("images/decode.rs", "decode"),
+                ("images/decode.rs", "load_page"),
+            ],
+        ),
+        (".write_to(", &[("images/save.rs", "lossy_webp")]),
         ("png_with_xmp(", &[("images/save.rs", "encode")]),
         ("set_xmp_orientation(", &[("images/save.rs", "derived_xmp")]),
         ("set_exif_metadata(", &[("images/save.rs", "encode")]),

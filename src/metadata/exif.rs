@@ -87,12 +87,7 @@ impl Tiff<'_> {
             .filter_map(|i| {
                 let e = offset + 2 + i * 12;
                 let (tag, kind, count) = (self.u16(e)?, self.u16(e + 2)?, self.u32(e + 4)?);
-                let size = match kind {
-                    SHORT => 2,
-                    LONG | SLONG => 4,
-                    RATIONAL | SRATIONAL => 8,
-                    _ => 1,
-                };
+                let size = width(kind);
                 // Values of up to four bytes are stored in the entry itself.
                 let at = if size * count as usize <= 4 {
                     e + 8
@@ -338,14 +333,22 @@ fn tag_name(gps: bool, tag: u16) -> Option<&'static str> {
     })
 }
 
-/// DateTimeOriginal (or DateTimeDigitized) as "YYYY:MM:DD HH:MM:SS", which sorts as text.
+/// DateTimeOriginal (or DateTimeDigitized) as "YYYY:MM:DD HH:MM:SS", which sorts as text. Some
+/// programs write the day with dashes ("YYYY-MM-DD"), which is made the same form, so the
+/// date sort and Pan view put those photos among the others of their day. Before, they came
+/// after or before every other date, and Pan view showed their day twice.
 pub fn date(path: &Path, digitized: bool) -> Option<String> {
     // A decoder panicking on one file must not end the sort or the Pan view that asked.
     crate::support::threads::caught(|| {
         let raw = raw(path)?;
         let (t, _, exif, _) = ifds(&raw)?;
         let tag = if digitized { 0x9004 } else { 0x9003 };
-        t.text(exif.iter().find(|(t2, _)| *t2 == tag)?.1)
+        let mut date = t.text(exif.iter().find(|(t2, _)| *t2 == tag)?.1)?;
+        if let Some(day) = date.get(..10) {
+            let day = day.replace('-', ":");
+            date.replace_range(..10, &day);
+        }
+        Some(date)
     })
     .flatten()
 }
@@ -774,6 +777,38 @@ fn raw(path: &Path) -> Option<Vec<u8>> {
     decoded(path, &mut dec)
 }
 
+/// Reads the EXIF block of `path` as a file made from its image keeps it (`save::Derived`). It
+/// is read as the panel reads it (`raw`), so a copy of a HEIC, AVIF, JPEG XL or RAW photo keeps
+/// the EXIF the panel shows. Before, a copy read it only through the image crate, which cannot
+/// open those, and lost it. The block is made a bare TIFF block, because a JPEG's encoder puts
+/// its own "Exif\0\0" before it and a PNG's eXIf chunk must start with the TIFF header. It is
+/// cut to the directories that IFD0, Exif, GPS and Interop are and the values they name. The
+/// thumbnail (IFD1), which a copy drops anyway, and a RAW's or HEIC's picture after the block
+/// are left out. Returns `None` when there is no block.
+pub fn derived(path: &Path) -> Option<Vec<u8>> {
+    let raw = raw(path)?;
+    let (t, ifd0, exif, gps) = ifds(&raw)?;
+    let offset = |ifd: &Ifd, tag| Some(t.int(find(ifd, tag)?)? as usize);
+    let interop_at = offset(&exif, INTEROP_IFD);
+    let interop = interop_at.map(|at| t.ifd(at)).unwrap_or_default();
+    let dirs = [
+        (t.u32(4).map(|at| at as usize), &ifd0),
+        (offset(&ifd0, EXIF_IFD), &exif),
+        (offset(&ifd0, GPS_IFD), &gps),
+        (interop_at, &interop),
+    ];
+    let mut end = 8;
+    for (at, ifd) in dirs {
+        let Some(at) = at else { continue };
+        let n = t.u16(at).unwrap_or(0) as usize;
+        end = end.max(at.saturating_add(6 + 12 * n));
+        for (_, e) in ifd {
+            end = end.max(e.at.saturating_add(width(e.kind) * e.count as usize));
+        }
+    }
+    Some(t.data[..end.min(t.data.len())].to_vec())
+}
+
 /// Reads the EXIF block of `path` through `dec`, the image crate's decoder of it. A PNG keeps
 /// EXIF in an eXIf chunk, which the decoder reads, or in the text chunk that exiv2 (digiKam,
 /// GIMP) and older ImageMagick write (`png_text`). This is the one reader of an EXIF block the
@@ -857,6 +892,16 @@ fn raw_profile(text: &str) -> Option<Vec<u8>> {
         .collect::<Option<Vec<u8>>>()?;
     let at = (bytes.windows(4)).position(|w| w == b"II*\0" || w == b"MM\0*")?;
     Some(bytes[at..].to_vec())
+}
+
+/// The size in bytes of one value of the TIFF type `kind`.
+fn width(kind: u16) -> usize {
+    match kind {
+        SHORT | 8 => 2,
+        LONG | SLONG | 11 | 13 => 4,
+        RATIONAL | SRATIONAL | 12 => 8,
+        _ => 1,
+    }
 }
 
 /// The TIFF block with its IFD0, Exif and GPS directories.
@@ -1009,6 +1054,24 @@ mod tests {
         // Another key's text is not taken for EXIF.
         png_with_raw_profile(&file, "zTXt", "Raw profile type iptc", CANON_EXIF);
         assert_eq!(raw(&file), None);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A date written with dashes reads in EXIF's own form, so it sorts among the others.
+    #[test]
+    fn a_date_with_dashes_reads_with_colons() {
+        use crate::support::test_support::CANON_EXIF;
+        use image::ImageEncoder;
+        let dir = std::env::temp_dir().join(format!("glimt-test-dashes-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("a.png");
+        let mut exif = CANON_EXIF.to_vec();
+        let at = exif.windows(10).position(|w| w == b"2020:01:02").unwrap();
+        exif[at..at + 10].copy_from_slice(b"2020-01-02");
+        let mut enc = image::codecs::png::PngEncoder::new(std::fs::File::create(&file).unwrap());
+        enc.set_exif_metadata(exif).unwrap();
+        image::RgbImage::new(2, 2).write_with_encoder(enc).unwrap();
+        assert_eq!(date(&file, false).as_deref(), Some("2020:01:02 03:04:05"));
         std::fs::remove_dir_all(dir).unwrap();
     }
 

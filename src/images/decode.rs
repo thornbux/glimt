@@ -49,6 +49,9 @@ pub type Frames = Vec<(egui::ColorImage, u32)>;
 /// An image, its ICC profile if it has one, and its size upright before any shrinking.
 pub type Small = (image::DynamicImage, Option<Vec<u8>>, [usize; 2]);
 
+/// A page of an image, whole, and its ICC profile if it has one.
+pub type Page = (image::DynamicImage, Option<Vec<u8>>);
+
 /// An image as read, its ICC profile, the EXIF turn still to do, and its real size where it
 /// came smaller.
 type Unturned = (
@@ -106,7 +109,8 @@ pub fn decode(
             let svg = has_ext(path, crate::model::listing::SVG_EXTS);
             let to_box = (crate::files::external::ffmpeg_decodes(path) || svg).then_some(max);
             let (img, icc, turn, size) = if page > 0 {
-                (page_of(path, page)?, None, Orientation::NoTransforms, None)
+                let (img, icc) = page_of(path, page)?;
+                (img, icc, Orientation::NoTransforms, None)
             } else {
                 load_unturned(path, rotate, to_box)?
             };
@@ -129,11 +133,22 @@ pub fn pages(path: &Path) -> usize {
     }
 }
 
-/// Page `page` (from 1) of a multi-page TIFF, or the next size of an ICO.
-pub fn page_of(path: &Path, page: usize) -> Result<image::DynamicImage, String> {
+/// Page `page` (from 1) of a multi-page TIFF with its ICC profile, or the next size of an ICO.
+pub fn page_of(path: &Path, page: usize) -> Result<Page, String> {
     match has_ext(path, &["ico"]) {
-        true => ico_size(path, page),
+        true => Ok((ico_size(path, page)?, None)),
         false => tiff_page(path, page),
+    }
+}
+
+/// Page `page` of `path` whole, with its ICC profile: the image itself turned upright by EXIF
+/// if `rotate` for the first page, as the view shows it, and `page_of` for a later one. It is
+/// the one way a copy or an exported frame reads a page. Before, a later page of a TIFF was
+/// read without its profile, so its copy and exported frame lost their colours.
+pub fn load_page(path: &Path, page: usize, rotate: bool) -> Result<Page, String> {
+    match page {
+        0 => load_icc(path, rotate),
+        page => page_of(path, page),
     }
 }
 
@@ -201,10 +216,11 @@ pub fn tiff_pages(path: &Path) -> usize {
 }
 
 /// Page `page` of a TIFF. The image crate reads only the first page, so the tiff crate (which
-/// it uses) decodes the others. It takes 8- and 16-bit grey and colour, which covers scanned
-/// documents, and grey of other kinds as science writes it (32-bit floats of a height model or
-/// a microscope, signed or 32-bit integers), stretched from its lowest value to its highest.
-pub fn tiff_page(path: &Path, page: usize) -> Result<image::DynamicImage, String> {
+/// it uses) decodes the others. It takes 1-, 2-, 4-, 8- and 16-bit grey and 8- and 16-bit
+/// colour, which covers faxes and scanned documents. Grey of other kinds, as science writes
+/// it (32-bit floats of a height model or a microscope, signed or 32-bit integers), is
+/// stretched from its lowest value to its highest.
+pub fn tiff_page(path: &Path, page: usize) -> Result<Page, String> {
     use image::DynamicImage as D;
     use tiff::ColorType as C;
     use tiff::decoder::DecodingResult as R;
@@ -220,6 +236,7 @@ pub fn tiff_page(path: &Path, page: usize) -> Result<image::DynamicImage, String
         let claimed = (u64::from(w) * u64::from(h)).saturating_mul(bytes);
         return Err(format!("image too large ({})", human_size(claimed)));
     }
+    let icc = dec.get_tag_u8_vec(tiff::tags::Tag::IccProfile).ok();
     #[allow(clippy::disallowed_methods)] // the one place, after `fits`
     let data = dec.read_image().map_err(|e| e.to_string())?;
     let img = match (color, data) {
@@ -230,12 +247,36 @@ pub fn tiff_page(path: &Path, page: usize) -> Result<image::DynamicImage, String
         (C::Gray(16), R::U16(v)) => image::ImageBuffer::from_raw(w, h, v).map(D::ImageLuma16),
         (C::RGB(16), R::U16(v)) => image::ImageBuffer::from_raw(w, h, v).map(D::ImageRgb16),
         (C::RGBA(16), R::U16(v)) => image::ImageBuffer::from_raw(w, h, v).map(D::ImageRgba16),
+        (C::Gray(bits @ (1 | 2 | 4)), R::U8(v)) => {
+            image::GrayImage::from_raw(w, h, unpacked(&v, w, bits)).map(D::ImageLuma8)
+        }
         (C::Gray(_), v) => {
             stretched(v).and_then(|v| image::GrayImage::from_raw(w, h, v).map(D::ImageLuma8))
         }
         _ => None,
     };
-    img.ok_or_else(|| format!("page {} is in a colour format Glimt cannot show", page + 1))
+    let img =
+        img.ok_or_else(|| format!("page {} is in a colour format Glimt cannot show", page + 1));
+    Ok((img?, icc))
+}
+
+/// Grey of 1, 2 or 4 bits a pixel, as fax and scanned documents keep it, as 8 bits a pixel.
+/// Each row of `packed` starts on a byte. The tiff crate has already turned the values of a
+/// WhiteIsZero page, where 1 is black, the other way.
+fn unpacked(packed: &[u8], width: u32, bits: u8) -> Vec<u8> {
+    let (width, bits) = (width as usize, bits as usize);
+    let stride = (width * bits).div_ceil(8).max(1);
+    let max = (1u16 << bits) - 1;
+    (packed.chunks(stride))
+        .flat_map(|row| {
+            (0..width).map(move |x| {
+                let at = x * bits;
+                let byte = row.get(at / 8).copied().unwrap_or(0);
+                let value = u16::from(byte >> (8 - bits - at % 8)) & max;
+                (value * 255 / max) as u8
+            })
+        })
+        .collect()
 }
 
 /// Grey values of any kind as 0 to 255, from the lowest finite value to the highest. Returns
@@ -417,13 +458,8 @@ pub fn each_frame(
     }
     let pages = pages(path);
     for k in (0..pages).filter(|&k| wanted(k)) {
-        let img = if k == 0 {
-            let (img, icc) = load_icc(path, rotate)?;
-            to_srgb(img, icc.as_deref())
-        } else {
-            page_of(path, k)?
-        };
-        each(k, img)?;
+        let (img, icc) = load_page(path, k, rotate)?;
+        each(k, to_srgb(img, icc.as_deref()))?;
         done += 1;
     }
     Ok(done)
@@ -454,6 +490,9 @@ pub fn icc_profile(path: &Path) -> Option<Vec<u8>> {
         let mut dec = jxl_oxide::integration::JxlDecoder::new(file).ok()?;
         return dec.icc_profile().ok().flatten();
     }
+    if crate::files::external::is_heif(path) {
+        return heif_icc(path);
+    }
     image_reader(path)
         .ok()?
         .into_decoder()
@@ -461,6 +500,21 @@ pub fn icc_profile(path: &Path) -> Option<Vec<u8>> {
         .icc_profile()
         .ok()
         .flatten()
+}
+
+/// Returns the ICC profile of a HEIC or AVIF photo, from the first `colr` box of the kind
+/// `prof` in its first MB, where the boxes that describe the image are. It is read from the
+/// file, because ffmpeg's frame of a photo in tiles loses it where the tiles are put together.
+/// Before, an iPhone's Display P3 photo was shown, thumbnailed and saved as if it were sRGB.
+/// Returns `None` when there is none, or when what is found is no ICC profile.
+// shortcut: the first profile is taken, which is the photo's own in phones' files; find the
+// primary item's through iprp/ipma if a file turns up with another before it.
+fn heif_icc(path: &Path) -> Option<Vec<u8>> {
+    let head = read_head(path, 1 << 20).ok()?;
+    let at = head.windows(8).position(|w| w == b"colrprof")?;
+    let size = u32::from_be_bytes(head.get(at.checked_sub(4)?..at)?.try_into().ok()?) as usize;
+    let icc = head.get(at + 8..(at - 4).checked_add(size)?)?;
+    (icc.get(36..40) == Some(&b"acsp"[..])).then(|| icc.to_vec())
 }
 
 /// The whole image (a preview frame for videos), turned upright by EXIF if `rotate`, and its
@@ -513,7 +567,7 @@ fn load_unturned(path: &Path, rotate: bool, max: Option<[u32; 2]>) -> Result<Unt
     #[cfg(any(feature = "heic", feature = "avif"))]
     if crate::files::external::is_heif(path) {
         let (img, size) = crate::files::external::heif(path, max)?;
-        return Ok((img, None, upright, size));
+        return Ok((img, icc_profile(path), upright, size));
     }
     #[cfg(feature = "svg")]
     if has_ext(path, crate::model::listing::SVG_EXTS) {
@@ -549,7 +603,7 @@ fn load_unturned(path: &Path, rotate: bool, max: Option<[u32; 2]>) -> Result<Unt
     let mut dec = match dec {
         Err(e) if has_ext(path, crate::model::listing::TIFF_LIKE) => {
             return tiff_page(path, 0)
-                .map(|img| (img, None, upright, None))
+                .map(|(img, icc)| (img, icc, upright, None))
                 .map_err(|_| e);
         }
         dec => dec?,
@@ -1040,8 +1094,8 @@ mod tests {
         let ico = dir.join("many.ico");
         std::fs::write(&ico, out).unwrap();
         assert_eq!(super::pages(&ico), 257);
-        assert_eq!(super::page_of(&ico, 0).unwrap().width(), 32);
-        assert_eq!(super::page_of(&ico, 256).unwrap().width(), 16);
+        assert_eq!(super::page_of(&ico, 0).unwrap().0.width(), 32);
+        assert_eq!(super::page_of(&ico, 256).unwrap().0.width(), 16);
         std::fs::remove_dir_all(&dir).ok();
     }
 
@@ -1129,6 +1183,158 @@ mod tests {
         let (top, bottom) = (shown.pixels[0], shown.pixels[shown.pixels.len() - 1]);
         assert!(top.r() > 200 && top.b() < 50, "{top:?}");
         assert!(bottom.b() > 200 && bottom.r() < 50, "{bottom:?}");
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A later page of a multi-page TIFF in 1 bit a pixel, as a fax or a scanned letter keeps
+    /// it, is shown, with a WhiteIsZero page's 1 as black. Before, such a page could not be
+    /// shown, copied or exported.
+    #[test]
+    fn shows_a_bilevel_page() {
+        // A page as a little-endian TIFF directory with every value in its entry, and the
+        // offset of the next one.
+        let ifd = |w: u16, h: u16, bits: u16, white_is_zero: bool, data: u32, len: u32, next| {
+            let photometric = if white_is_zero { 0 } else { 1 };
+            let entries: [(u16, u16, u32); 9] = [
+                (256, 3, w.into()),
+                (257, 3, h.into()),
+                (258, 3, bits.into()),
+                (259, 3, 1),
+                (262, 3, photometric),
+                (273, 4, data),
+                (277, 3, 1),
+                (278, 3, h.into()),
+                (279, 4, len),
+            ];
+            let mut out = 9u16.to_le_bytes().to_vec();
+            for (tag, kind, value) in entries {
+                out.extend(tag.to_le_bytes());
+                out.extend(kind.to_le_bytes());
+                out.extend(1u32.to_le_bytes());
+                out.extend(value.to_le_bytes());
+            }
+            out.extend(u32::to_le_bytes(next));
+            out
+        };
+        // The first page is one grey pixel, and the second ten pixels across and two down,
+        // whose first and last are black.
+        let mut file = b"II*\0\x08\0\0\0".to_vec();
+        file.extend(ifd(1, 1, 8, false, 122, 1, 124));
+        file.extend([128, 0]);
+        file.extend(ifd(10, 2, 1, true, 238, 4, 0));
+        file.extend([0b1000_0000, 0b0100_0000, 0, 0]);
+        let dir = std::env::temp_dir().join(format!("glimt-test-fax-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("fax.tif");
+        std::fs::write(&path, &file).unwrap();
+        assert_eq!(super::pages(&path), 2);
+        let page = super::page_of(&path, 1).unwrap().0.to_luma8();
+        let row = |y| (0..10).map(|x| page.get_pixel(x, y)[0]).collect::<Vec<_>>();
+        assert_eq!(row(0), [0, 255, 255, 255, 255, 255, 255, 255, 255, 0]);
+        assert_eq!(row(1), [255; 10]);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A HEIC or AVIF photo's ICC profile is read from its `colr` box, for the view, the
+    /// thumbnails, a copy and the colour line alike. Before, it was lost on the way through
+    /// ffmpeg, and an iPhone's Display P3 photo was taken for sRGB.
+    #[test]
+    fn a_heif_photo_keeps_its_profile() {
+        use crate::images::colour::ADOBE_RGB;
+        let dir = std::env::temp_dir().join(format!("glimt-test-heif-icc-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let colr = |kind: &[u8], body: &[u8]| {
+            let size = (12 + body.len()) as u32;
+            [&size.to_be_bytes()[..], b"colr", kind, body].concat()
+        };
+        let file = [
+            &b"\0\0\0\x18ftypheic\0\0\0\0mif1heic"[..],
+            &colr(b"nclx", &[0, 1, 0, 13, 0, 6, 0x80]),
+            &colr(b"prof", &ADOBE_RGB),
+        ]
+        .concat();
+        for (ext, built) in [
+            ("heic", cfg!(feature = "heic")),
+            ("avif", cfg!(feature = "avif")),
+        ] {
+            let path = dir.join(format!("a.{ext}"));
+            std::fs::write(&path, &file).unwrap();
+            let icc = super::icc_profile(&path);
+            assert_eq!(icc.as_deref(), built.then_some(&ADOBE_RGB[..]), "{ext}");
+        }
+        // A box cut short or holding no profile gives none.
+        let path = dir.join("a.heic");
+        std::fs::write(&path, colr(b"prof", b"not a profile at all, not one")).unwrap();
+        assert_eq!(super::heif_icc(&path), None);
+        std::fs::write(&path, &file[..file.len() - 10]).unwrap();
+        assert_eq!(super::heif_icc(&path), None);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A damaged HEIC's profile is found or not, never a panic.
+    #[test]
+    fn survives_broken_heif_profiles() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-heif-bad-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("a.heic");
+        let seed = b"\0\0\0\x18ftypheic\0\0\0\0mif1heic\0\0\0\x34colrprof\0\0\0\x28\0\0\0\0\
+            \0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0acsp";
+        for bytes in crate::support::test_support::broken(seed) {
+            std::fs::write(&path, &bytes).unwrap();
+            let _ = super::heif_icc(&path);
+        }
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A later page of a TIFF keeps its own ICC profile when it is shown, copied and exported,
+    /// as the first page does. Before, only the first page's profile was read.
+    #[test]
+    fn a_later_page_keeps_its_profile() {
+        use crate::images::colour::ADOBE_RGB;
+        use image::ImageDecoder;
+        use tiff::encoder::colortype::{Gray8, RGB8};
+        let dir = std::env::temp_dir().join(format!("glimt-test-page-icc-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("pages.tif");
+        let mut tiff =
+            tiff::encoder::TiffEncoder::new(std::fs::File::create(&path).unwrap()).unwrap();
+        tiff.write_image::<Gray8>(4, 4, &[0; 16]).unwrap();
+        let green = [50u8, 200, 50].repeat(16);
+        let mut page = tiff.new_image::<RGB8>(4, 4).unwrap();
+        (page.encoder())
+            .write_tag(tiff::tags::Tag::IccProfile, &ADOBE_RGB[..])
+            .unwrap();
+        page.write_data(&green).unwrap();
+        drop(tiff);
+        assert_eq!(
+            super::page_of(&path, 1).unwrap().1.as_deref(),
+            Some(&ADOBE_RGB[..])
+        );
+        // Exported in sRGB, Adobe RGB's green is not the same numbers.
+        let mut exported = None;
+        super::each_frame(&path, Some(1), true, |_, img| {
+            exported = Some(img.to_rgb8().get_pixel(0, 0).0);
+            Ok(())
+        })
+        .unwrap();
+        assert_ne!(exported, Some([50, 200, 50]));
+        // A copy of the page keeps the profile.
+        let how = crate::images::save::CopyAs {
+            page: 1,
+            rotate: true,
+            turns: 0,
+            mirrored: false,
+            crop: None,
+            long_side: None,
+            format: Some(crate::images::save::Format::Png),
+            jpeg_quality: 90,
+            webp_quality: 90,
+            strip: false,
+        };
+        let (png, _) = crate::images::save::copy_bytes(&path, &how).unwrap();
+        let copy = image::ImageReader::new(std::io::Cursor::new(png)).with_guessed_format();
+        let mut copy = copy.unwrap().into_decoder().unwrap();
+        assert!(copy.icc_profile().unwrap().is_some());
         std::fs::remove_dir_all(dir).unwrap();
     }
 
