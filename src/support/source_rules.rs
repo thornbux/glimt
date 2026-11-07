@@ -973,14 +973,14 @@ fn copies_of_settings_have_one_writer() {
         (
             "VIEW_FILTER.store(",
             &[
-                ("images/colour.rs", "set_up"),
+                ("images/colour.rs", "set_up_colour"),
                 ("ui/menus.rs", "set_view_filter"),
             ],
         ),
         (
             "COLOR_MANAGEMENT.store(",
             &[
-                ("images/colour.rs", "set_up"),
+                ("images/colour.rs", "set_up_colour"),
                 ("ui/menus.rs", "set_color_management"),
             ],
         ),

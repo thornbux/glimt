@@ -225,7 +225,7 @@ impl crate::App {
 
     /// Whether an image's own profile counts, or the input profile is used for all.
     pub(crate) fn set_own_profile(&mut self, on: bool) {
-        set_colour(|c| c.own = on);
+        set_colour(|c| c.use_image_profile = on);
         self.config.use_image_profile = on;
         self.config.save();
         self.redecode();

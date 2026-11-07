@@ -183,7 +183,7 @@ impl App {
         if start.layout.is_some() || start.random || start.fade.is_some() {
             config.save();
         }
-        let screen_error = crate::images::colour::set_up(&config);
+        let screen_error = crate::images::colour::set_up_colour(&config);
         crate::ui::actions::use_own_keys(&config.keys);
         let path = path
             .or_else(|| {
