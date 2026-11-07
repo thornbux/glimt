@@ -760,8 +760,12 @@ mod tests {
             .is_listing()));
         app.go(&ctx, 0);
         read_panel(&mut app, &ctx);
-        // A long sidecar job of other files runs meanwhile.
-        let other = app.start_job_of("Other", 1, true, Vec::new()).unwrap();
+        // A long sidecar job of another file runs meanwhile. It holds the one sidecar thread
+        // until `other` is dropped, so the panel's own save waits behind it however fast the
+        // computer is. A job that is only counted let the save end before the panel looked.
+        let (other, hold) = std::sync::mpsc::channel::<()>();
+        let b = vec![dir.join("b.png")];
+        app.write_sidecars(&ctx, "Other", b, move |_| hold.recv().is_err(), |_, _| None);
         app.info.meta.as_mut().unwrap().keywords = "sea".into();
         app.files_changed(&ctx, std::slice::from_ref(&file));
         app.want_exif(&ctx);
