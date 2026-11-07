@@ -175,22 +175,22 @@ impl<W: Write> Pdf<W> {
     }
 }
 
-/// A writer that tells `dog` of each write taken. A full pipe holds the write until lp reads.
+/// A writer that tells `watchdog` of each write taken. A full pipe holds the write until lp reads.
 struct Fed<'a, W: Write> {
     out: W,
-    dog: &'a crate::files::external::Watchdog,
+    watchdog: &'a crate::files::external::Watchdog,
 }
 
 impl<W: Write> Write for Fed<'_, W> {
     fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
         let n = self.out.write(bytes)?;
-        self.dog.feed();
+        self.watchdog.feed();
         Ok(n)
     }
 
     fn flush(&mut self) -> std::io::Result<()> {
         self.out.flush()?;
-        self.dog.feed();
+        self.watchdog.feed();
         Ok(())
     }
 }
@@ -892,18 +892,19 @@ pub fn send(
         .map_err(|e| format!("lp (from CUPS): {e}"))?;
     // When a CUPS server does not answer, lp is ended after two minutes without progress, and
     // the print is told as failed, instead of the busy pointer for ever. A long print is not
-    // ended, because the PDF is made while lp reads it, and each write lp takes feeds the dog.
-    let dog = crate::files::external::Watchdog::new(child.id(), crate::files::external::LIMIT * 4);
+    // ended, because the PDF is made while lp reads it, and each write lp takes feeds the watchdog.
+    let watchdog =
+        crate::files::external::Watchdog::new(child.id(), crate::files::external::LIMIT * 4);
     let written = match child.stdin.take() {
         Some(input) => write(&mut Fed {
             out: std::io::BufWriter::new(input),
-            dog: &dog,
+            watchdog: &watchdog,
         }),
         None => Err(std::io::Error::other("no input")),
     };
     #[allow(clippy::disallowed_methods)] // under the Watchdog above
     let out = child.wait_with_output().map_err(|e| e.to_string())?;
-    if dog.gave_up() {
+    if watchdog.gave_up() {
         return Err(
             crate::support::lang::tr("No answer from the print server in two minutes").into(),
         );

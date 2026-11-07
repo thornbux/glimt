@@ -32,30 +32,30 @@ pub(crate) const TIMED_OUT: &str = "did not end in time";
 /// dropped first because the program ended. It is for a program fed on its input or read line
 /// by line (gio mount, lp), which `output_of` cannot run. `feed` tells it of progress (a page
 /// taken), so a long print is not ended while the printer takes it. After the wait, `gave_up`
-/// tells whether it was the dog that ended the program.
+/// tells whether it was the watchdog that ended the program.
 pub struct Watchdog {
-    state: std::sync::Arc<Dog>,
+    state: std::sync::Arc<WatchdogState>,
 }
 
 impl Watchdog {
     pub fn new(pid: u32, limit: std::time::Duration) -> Watchdog {
         use std::sync::atomic::Ordering::Relaxed;
-        let state = std::sync::Arc::new(Dog {
+        let state = std::sync::Arc::new(WatchdogState {
             ended: false.into(),
             gave_up: false.into(),
             fed: std::time::Instant::now().into(),
         });
-        let dog = state.clone();
+        let watchdog_state = state.clone();
         std::thread::spawn(move || {
             let step = limit.min(std::time::Duration::from_millis(100));
             loop {
                 std::thread::sleep(step);
-                if dog.ended.load(Relaxed) {
+                if watchdog_state.ended.load(Relaxed) {
                     return;
                 }
-                if dog.fed.lock().unwrap().elapsed() >= limit {
-                    dog.gave_up.store(true, Relaxed);
-                    stop_group(-(pid as i32), || dog.ended.load(Relaxed));
+                if watchdog_state.fed.lock().unwrap().elapsed() >= limit {
+                    watchdog_state.gave_up.store(true, Relaxed);
+                    stop_group(-(pid as i32), || watchdog_state.ended.load(Relaxed));
                     return;
                 }
             }
@@ -63,7 +63,7 @@ impl Watchdog {
         Watchdog { state }
     }
 
-    /// Tells the dog that the program made progress, so its `limit` starts again.
+    /// Tells the watchdog that the program made progress, so its `limit` starts again.
     pub fn feed(&self) {
         *self.state.fed.lock().unwrap() = std::time::Instant::now();
     }
@@ -81,7 +81,7 @@ impl Drop for Watchdog {
     }
 }
 
-struct Dog {
+struct WatchdogState {
     ended: std::sync::atomic::AtomicBool,
     gave_up: std::sync::atomic::AtomicBool,
     fed: std::sync::Mutex<std::time::Instant>,
@@ -368,7 +368,7 @@ pub fn output_of(
 ) -> (Option<Vec<u8>>, String, bool) {
     use std::io::Read;
     let group = -(child.id() as i32);
-    let dog = Watchdog::new(child.id(), limit);
+    let watchdog = Watchdog::new(child.id(), limit);
     let errors = child
         .stderr
         .take()
@@ -387,10 +387,10 @@ pub fn output_of(
     // This waits only once its errors are read to their end, because a helper it left behind
     // may hold them open.
     let mut err = errors.and_then(|t| t.join().ok()).unwrap_or_default();
-    if dog.gave_up() {
+    if watchdog.gave_up() {
         err = format!("{err}\n{TIMED_OUT}");
     }
-    drop(dog);
+    drop(watchdog);
     ((!large).then_some(out), err, ok)
 }
 
@@ -493,7 +493,7 @@ pub fn gio_mount(uri: &str, login: Option<&Login>) -> Mounted {
         .map_err(|e| Some(crate::tf!("Could not run gio: {e}", e)))?;
     // When a server never answers (a NAS asleep, a VPN down), gio is ended after a minute and
     // the mount is told as failed, instead of "Connecting…" and the busy pointer for ever.
-    let dog = Watchdog::new(child.id(), LIMIT * 2);
+    let watchdog = Watchdog::new(child.id(), LIMIT * 2);
     let (mut out, mut input) = (child.stdout.take().unwrap(), child.stdin.take().unwrap());
     // Prompts end in ": " without a newline, and the next one is printed after the answer.
     let (mut text, mut answered, mut buf) = (String::new(), 0, [0; 512]);
@@ -535,7 +535,7 @@ pub fn gio_mount(uri: &str, login: Option<&Login>) -> Mounted {
         answered = text.len();
     }
     let out = child.wait_with_output().map_err(|e| Some(e.to_string()))?;
-    if dog.gave_up() {
+    if watchdog.gave_up() {
         return Err(Some(
             crate::support::lang::tr("No answer from the server in a minute").into(),
         ));
@@ -955,7 +955,7 @@ mod tests {
         assert!(!super::host_has("glimt-no-such-program-xyz"));
     }
 
-    /// The dog ends a program that does not end, so sleep 30 is over in a tenth of a second.
+    /// The watchdog ends a program that does not end, so sleep 30 is over in a tenth of a second.
     #[test]
     fn the_watchdog_ends_a_program_in_time() {
         use std::os::unix::process::CommandExt;
@@ -964,17 +964,17 @@ mod tests {
             .process_group(0)
             .spawn()
             .unwrap();
-        let dog = super::Watchdog::new(child.id(), std::time::Duration::from_millis(100));
+        let watchdog = super::Watchdog::new(child.id(), std::time::Duration::from_millis(100));
         let start = std::time::Instant::now();
         assert!(!child.wait().unwrap().success());
-        assert!(dog.gave_up() && start.elapsed() < std::time::Duration::from_secs(5));
-        // One that ends in time is left alone, and the dog says so.
+        assert!(watchdog.gave_up() && start.elapsed() < std::time::Duration::from_secs(5));
+        // One that ends in time is left alone, and the watchdog says so.
         let mut quick = std::process::Command::new("true")
             .process_group(0)
             .spawn()
             .unwrap();
-        let dog = super::Watchdog::new(quick.id(), std::time::Duration::from_secs(10));
-        assert!(quick.wait().unwrap().success() && !dog.gave_up());
+        let watchdog = super::Watchdog::new(quick.id(), std::time::Duration::from_secs(10));
+        assert!(quick.wait().unwrap().success() && !watchdog.gave_up());
     }
 
     /// A program that keeps making progress is not ended at the limit. A print to lp longer
@@ -988,16 +988,16 @@ mod tests {
             .process_group(0)
             .spawn()
             .unwrap();
-        let dog = super::Watchdog::new(child.id(), std::time::Duration::from_millis(300));
+        let watchdog = super::Watchdog::new(child.id(), std::time::Duration::from_millis(300));
         // A second, three times the limit, fed every tenth.
         for _ in 0..10 {
             std::thread::sleep(std::time::Duration::from_millis(100));
-            dog.feed();
+            watchdog.feed();
         }
-        assert!(!dog.gave_up());
+        assert!(!watchdog.gave_up());
         let start = std::time::Instant::now();
         assert!(!child.wait().unwrap().success());
-        assert!(dog.gave_up() && start.elapsed() < std::time::Duration::from_secs(5));
+        assert!(watchdog.gave_up() && start.elapsed() < std::time::Duration::from_secs(5));
     }
 
     /// Every program Glimt may stop has a process group of its own and no terminal for its
