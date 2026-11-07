@@ -5,6 +5,60 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.69.0] - 2026-11-07
+
+The findings of a full audit of 0.68.0, fixed by class, and the hardening of #79.
+
+### Fixed
+
+- When the search hides every selected file, Delete, Move, Copy, Rename, Print, plugins, Open
+  With, keywords, marks and collections no longer act on the shown image instead; they say the
+  search hides the files. Find Duplicates' Move to Trash, Check Images' Select, New Collection,
+  Rename Many and `--remote select` leave the selection as it was and say why when the search
+  hides some of their files, where Find Duplicates wrongly said the files were gone.
+  `--remote selection` prints nothing then.
+- Undo of a rename leaves alone a file that has taken the new name since, and Undo of a move or
+  rename no longer moves back another file at the name, also one the file system gave the same
+  inode. A turn saved after a rename keeps it undoable, and an Undo that fails stays to be done
+  again.
+- Keywords, comment, alt text, stars and the keyword path written again into XMP replace the old
+  value in every form it has, including a rating in single quotes, instead of writing it twice,
+  which darktable and digiKam refuse as broken XML.
+- A collection or list entry named through a link to a folder (such as /home on Fedora
+  Silverblue) shows its marks and stars, is found by `--remote select`, and Remove and reordering
+  work on it; the file keeps the user's spelling. Opening such a collection no longer jumps back
+  to the first image, and renaming a folder moves its entries.
+- With Include Subfolders, an image under a link to a folder inside the tree is listed by its
+  real path, so `--remote select` finds it.
+- A copy of a HEIC, AVIF, JPEG XL or RAW photo keeps the EXIF the info panel shows, and a copy of
+  a WebP whose EXIF starts with "Exif" gets EXIF other programs read. A copy's EXIF no longer
+  carries the source's pixel fields. A PNG or WebP turned keeps its whole EXIF block.
+- The info panel, the date sort and copies read Exif and GPS directories whose pointers have the
+  TIFF type IFD, as libtiff writes them.
+- HEIC and AVIF photos (an iPhone's Display P3) are shown, thumbnailed and saved in their own
+  colours. Thumbnails cached before keep their old colours until `~/.cache/thumbnails` is
+  cleared.
+- Every page of a multi-page TIFF keeps its own colour profile, pages after the first of a 1-bit
+  TIFF such as a fax are shown, and Export Frames writes float pages as 16-bit PNG.
+- Save This Frame and Export Frames save the frames turned as the view shows them.
+- Photos whose EXIF date is written with dashes sort among the others and share their day in Pan
+  view.
+- A cached thumbnail is used only when its size matches the file, so a burst renumbered in the
+  same second gets its own thumbnails.
+- Two names count as one file only when their size and time agree too; on a share without inodes
+  that ignores case, Save As to the same name in other case is refused instead of writing over the
+  image.
+- A search with thousands of nested `(` no longer crashes Glimt; groups nest up to 32 deep.
+- `--remote-all` no longer removes the socket of a Glimt that is just starting.
+- Keywords and Comment (Ctrl+K) turns the EXIF panel on as the menu does.
+
+### Changed
+
+- Every action name, also one without a default key, is pinned for `keys=`.
+- The release tests clean old build folders first, stop when Docker has little space left, and
+  remove their container and image however they end.
+- New screenshots for the website and the README, with the View menu's new items.
+
 ## [0.68.0] - 2026-11-06
 
 ### Added
@@ -2912,7 +2966,8 @@ The first release. Glimt is not 1.0 yet: it is in daily use, but expect rough ed
 - Remote control from the command line: `glimt --remote` and `--remote-all`.
 - Remembers the folder, window size and position.
 
-[Unreleased]: https://github.com/thornbux/glimt/compare/v0.68.0...HEAD
+[Unreleased]: https://github.com/thornbux/glimt/compare/v0.69.0...HEAD
+[0.69.0]: https://github.com/thornbux/glimt/compare/v0.68.0...v0.69.0
 [0.68.0]: https://github.com/thornbux/glimt/compare/v0.67.0...v0.68.0
 [0.67.0]: https://github.com/thornbux/glimt/compare/v0.66.1...v0.67.0
 [0.66.1]: https://github.com/thornbux/glimt/compare/v0.66.0...v0.66.1
