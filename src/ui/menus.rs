@@ -12,7 +12,6 @@ use crate::support::lang::tr;
 use crate::support::test_hooks::noted;
 use crate::support::threads::{Receiving, Took};
 use crate::ui::actions::{Action, shortcut_text};
-use crate::ui::dialogs::Prompt;
 use crate::{features::plugins, files::config, files::external, model::collections, tf, ui::theme};
 use eframe::egui;
 use std::collections::HashMap;
@@ -133,7 +132,7 @@ impl crate::App {
     /// Save as Theme…, Open Themes Folder and Get More Themes…, in View → Theme and Preferences.
     pub(crate) fn theme_buttons(&mut self, ui: &mut egui::Ui) {
         if button(ui, tr("Save as Theme…")).clicked() {
-            self.dialogs.ask(Prompt::SaveTheme, String::new());
+            self.dialogs.ask_theme_name();
         }
         if button(ui, tr("Open Themes Folder")).clicked()
             && let Some(dir) = theme::dir()

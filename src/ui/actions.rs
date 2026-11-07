@@ -1002,8 +1002,9 @@ impl crate::App {
             Action::OpenFolders => self.pick(ctx, true, Pick::Folders),
             Action::OpenRecursive => self.pick(ctx, true, Pick::Recursive),
             Action::NewCollection => {
-                if self.ask_about_targets() {
-                    self.dialogs.ask(Prompt::NewCollection, String::new());
+                if let Some(asked) = self.ask_about_targets() {
+                    self.dialogs
+                        .ask_about(asked, Prompt::NewCollection, String::new());
                 }
             }
             Action::OpenCollection => self.pick(ctx, false, Pick::Collection),
@@ -1187,8 +1188,8 @@ impl crate::App {
             }
             Action::SaveFrame | Action::ExportFrames => {}
             Action::Rename if self.list.selected().len() > 1 => {
-                if self.ask_about_targets() {
-                    self.ask_rename_many();
+                if let Some(asked) = self.ask_about_targets() {
+                    self.ask_rename_many(asked);
                 }
             }
             Action::Rename => self.start_rename(ctx),
@@ -1196,7 +1197,7 @@ impl crate::App {
             Action::NewWindow => self.new_window(),
             Action::WindowTitle => {
                 self.dialogs
-                    .ask(Prompt::WindowTitle, self.window.title().to_owned());
+                    .ask_window_title(self.window.title().to_owned());
             }
             Action::Projector => {
                 self.window.toggle_projector();

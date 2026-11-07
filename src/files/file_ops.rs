@@ -15,7 +15,7 @@ use crate::support::lang::tr;
 use crate::support::threads::{Receiving, Took, Working};
 use crate::ui::actions::Action;
 use crate::ui::dialogs::Pick;
-use crate::ui::dialogs::Prompt;
+use crate::ui::dialogs::{Asked, Prompt};
 use crate::{
     files::journal, images::decode, metadata::exif, metadata::xmp, model::collections, tf,
 };
@@ -418,8 +418,8 @@ impl crate::App {
         } else {
             self.config.confirm_delete
         } {
-            if self.ask_about_targets() {
-                self.dialogs.confirm_delete(trash);
+            if let Some(asked) = self.ask_about_targets() {
+                self.dialogs.confirm_delete(asked, trash);
             }
         } else if let Some(targets) = self.targets() {
             self.delete_now(ctx, trash, targets);
@@ -440,18 +440,15 @@ impl crate::App {
         place.finish()
     }
 
-    /// Keeps the targets' names when a dialog about them opens. A folder that another program
-    /// writes to is read again every second, and that can give them other places in the list.
-    /// Returns false, with a notice, when there are no targets, and the dialog must not open.
-    pub(crate) fn ask_about_targets(&mut self) -> bool {
-        let Some(targets) = self.targets() else {
-            return false;
-        };
+    /// Takes the targets' names for a dialog about them, which needs them to open. A folder
+    /// that another program writes to is read again every second, and that can give them other
+    /// places in the list. Returns `None`, with a notice, when there are no targets, and the
+    /// dialog must not open.
+    pub(crate) fn ask_about_targets(&mut self) -> Option<Asked> {
+        let targets = self.targets()?;
         let names = targets.iter().map(|&i| self.list.files()[i].clone());
         let left_out = self.left_out();
-        self.dialogs
-            .asked_about(self.list_place(), names.collect(), left_out);
-        true
+        Some(Asked::new(self.list_place(), names.collect(), left_out))
     }
 
     /// The places now of the files the dialog asked about that are still in the list. Returns
@@ -825,8 +822,8 @@ impl crate::App {
         if names.is_empty() {
             return;
         }
-        self.dialogs.asked_about(self.list_place(), names, None);
-        self.dialogs.confirm_delete_instead(kind);
+        let asked = Asked::new(self.list_place(), names, None);
+        self.dialogs.confirm_delete_instead(asked, kind);
     }
 
     /// Brings along what Glimt keeps about files or folders that were moved or renamed
@@ -1764,9 +1761,9 @@ impl crate::App {
             .get(self.list.cur())
             .and_then(|f| Path::new(f).file_name())
             .map(|n| n.to_string_lossy().into_owned())
-            && self.ask_about_targets()
+            && let Some(asked) = self.ask_about_targets()
         {
-            self.dialogs.ask(Prompt::Rename, name);
+            self.dialogs.ask_about(asked, Prompt::Rename, name);
         }
     }
 }
@@ -2700,22 +2697,17 @@ mod tests {
         std::fs::remove_dir_all(dir).unwrap();
     }
 
-    /// Every file operation brings along what follows a file (its sidecar, its stars, its entry
-    /// in the collection shown), and it waits while other work changes the file. These are the
-    /// classes of bugs that came back release after release, held for every operation at once.
-    /// A new operation joins here, and `every_file_operation_is_in_the_contract` fails until it
-    /// does.
-    #[test]
-    fn file_operations_keep_their_contract() {
-        use std::path::Path;
-        type Ctx = eframe::egui::Context;
-        type Op = fn(&mut crate::App, &Ctx, &Path);
-        type Check = fn(&crate::App, &Path) -> bool;
-        // Each operation is run on a.png (and b.png), with what must hold afterwards. Each is
-        // held back while other work changes its files, except those that change none. A copy
-        // only reads them, and keywords never wait, because an edit would be lost. Their job
-        // holds back the rest instead.
-        let ops: [(&str, Op, Check); 10] = [
+    /// An operation of the contract, run on a.png (and b.png) of `contract_folder`.
+    type Op = fn(&mut crate::App, &eframe::egui::Context, &std::path::Path);
+    /// What must hold after an operation of the contract.
+    type Check = fn(&crate::App, &std::path::Path) -> bool;
+
+    /// Returns the operations of the contract, by name, each with what must hold afterwards.
+    /// Each is held back while other work changes its files, except those that change none. A
+    /// copy only reads them, and keywords never wait, because an edit would be lost. Their job
+    /// holds back the rest instead.
+    fn contract_ops() -> [(&'static str, Op, Check); 13] {
+        [
             (
                 "move",
                 |app, ctx, d| app.transfer(ctx, vec![d.join("a.png")], d.join("sub"), false),
@@ -2857,8 +2849,60 @@ mod tests {
                 },
                 |_, d| side(&d.join("a.png")).contains("Tag"),
             ),
-        ];
-        for (name, op, check) in ops {
+            (
+                "trash",
+                |app, ctx, _| app.delete_now(ctx, true, vec![0]),
+                |app, d| {
+                    !d.join("a.png").exists()
+                        && !crate::metadata::xmp::sidecar(&d.join("a.png")).exists()
+                        && matches!(app.work.undo, Some(super::Undo::Trash(_)))
+                        && (!cfg!(feature = "marks") || stars(app, &d.join("a.png")) == 0)
+                },
+            ),
+            (
+                "undo a trash",
+                |app, ctx, _| {
+                    app.delete_now(ctx, true, vec![0]);
+                    // This waits only when the operation started. When it was held back, it
+                    // says so, and there is nothing to wait for.
+                    if app.notice.is_none() {
+                        settle(app, ctx, |app| app.work.undo.is_some());
+                    }
+                    app.undo(ctx);
+                },
+                |app, d| {
+                    let a = d.join("a.png");
+                    a.exists()
+                        && side(&a) == "a"
+                        && (!cfg!(feature = "marks") || stars(app, &a) == 3)
+                },
+            ),
+            (
+                "save orientation",
+                |app, ctx, d| {
+                    // The fixture's image is square. A wide one shows the turn in its size.
+                    image::RgbImage::new(8, 4).save(d.join("a.png")).unwrap();
+                    app.viewing.turn((1, false), d.join("a.png"));
+                    app.save_orientation(ctx);
+                },
+                |app, d| {
+                    let a = d.join("a.png");
+                    image::image_dimensions(&a).ok() == Some((4, 8))
+                        && side(&a) == "a"
+                        && (!cfg!(feature = "marks") || stars(app, &a) == 3)
+                },
+            ),
+        ]
+    }
+
+    /// Every file operation brings along what follows a file (its sidecar, its stars, its entry
+    /// in the collection shown), and it waits while other work changes the file. These are the
+    /// classes of bugs that came back release after release, held for every operation at once.
+    /// A new operation joins `contract_ops`, and `every_file_operation_is_in_the_contract` fails
+    /// until it does.
+    #[test]
+    fn file_operations_keep_their_contract() {
+        for (name, op, check) in contract_ops() {
             let d = contract_folder(&name.replace(' ', "-"));
             let gif = d.join("g.gif");
             let mut enc = image::codecs::gif::GifEncoder::new(std::fs::File::create(&gif).unwrap());
@@ -2908,7 +2952,25 @@ mod tests {
                 settle(&mut app, &ctx, |app| check(app, &d)),
                 "{name}: what follows the file"
             );
-            std::fs::remove_dir_all(d).unwrap();
+            std::fs::remove_dir_all(&d).unwrap();
+            empty_trash_of(&d);
+        }
+    }
+
+    /// Removes what a test moved from the folder `dir` into the tests' own trash.
+    fn empty_trash_of(dir: &std::path::Path) {
+        let trash = crate::files::config::test_home().join(".local/share/Trash");
+        let Ok(infos) = std::fs::read_dir(trash.join("info")) else {
+            return;
+        };
+        let inside = format!("{}/", dir.display());
+        for info in infos.flatten().map(|i| i.path()) {
+            if std::fs::read_to_string(&info).is_ok_and(|t| t.contains(&inside))
+                && let Some(name) = info.file_stem()
+            {
+                let _ = std::fs::remove_file(trash.join("files").join(name));
+                let _ = std::fs::remove_file(&info);
+            }
         }
     }
 
@@ -2991,20 +3053,32 @@ mod tests {
     /// here why it is not. So a new one cannot leave out what follows its files unseen.
     #[test]
     fn every_file_operation_is_in_the_contract() {
-        const IN_CONTRACT: &[&str] = &[
-            "delete_now",
-            "transfer",
+        // Each function with the operation of `contract_ops` that runs it.
+        const IN_CONTRACT: &[(&str, &str)] = &[
+            ("delete_now", "delete"),
+            ("delete_now", "trash"),
+            ("undo", "undo a trash"),
+            ("transfer", "move"),
             // Through rename_in_background, and the Undo of a rename.
-            "rename_files_of",
-            "undo",
-            "save_as_to",
-            "export_frames",
-            "write_sidecars",
-            "rename_folder",
+            ("rename_files_of", "rename"),
+            ("undo", "undo a move"),
+            ("save_as_to", "save as over b"),
+            ("export_frames", "save frame over b"),
+            ("write_sidecars", "keywords"),
+            ("save_orientation", "save orientation"),
         ];
         const OUTSIDE: &[(&str, &str)] = &[
             ("start_job", "the start itself"),
             ("background", "the start itself"),
+            ("new", "Job::new, the start itself"),
+            (
+                "rename_folder",
+                "a folder renamed, its files follow: a_collection_follows_its_files",
+            ),
+            (
+                "print",
+                "a new PDF of its own, no file of the user's changed: writes_a_pdf",
+            ),
             (
                 "plugins_menu",
                 "a program of the user's that holds its files; a_hold_holds_its_files_back",
@@ -3051,15 +3125,22 @@ mod tests {
                     "self.start_job_of(",
                     "self.background(",
                     "self.hold(",
+                    // Work that starts its own thread counts itself as writing the user's files.
+                    "Working::new(&crate::files::file_io::WRITING)",
                 ];
                 if starts.iter().any(|s| line.contains(s)) && !line.trim_start().starts_with("//") {
                     found.insert(function.clone());
                 }
             }
         }
-        let known: Vec<&str> = IN_CONTRACT
-            .iter()
-            .copied()
+        // A name in IN_CONTRACT is checked only through its operation, so one without an
+        // operation would pass unchecked.
+        let ops: Vec<&str> = contract_ops().iter().map(|o| o.0).collect();
+        let no_op: Vec<&(&str, &str)> = (IN_CONTRACT.iter())
+            .filter(|(_, op)| !ops.contains(op))
+            .collect();
+        assert!(no_op.is_empty(), "no operation in the contract: {no_op:?}");
+        let known: Vec<&str> = (IN_CONTRACT.iter().map(|o| o.0))
             .chain(OUTSIDE.iter().map(|o| o.0))
             .collect();
         let unknown: Vec<&String> = found
