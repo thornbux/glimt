@@ -185,7 +185,7 @@ pub(crate) fn trash(paths: &[PathBuf]) -> Result<(), String> {
     // processes.
     let mut gio = crate::files::external::stoppable_command("gio");
     gio.args(["trash", "--"]).args(paths);
-    let limit = crate::files::external::LIMIT * 4;
+    let limit = crate::files::external::PROGRAM_TIME_LIMIT * 4;
     // Tests trash by hand into their own home's trash, where Undo looks. gio would put the
     // files into the user's own trash.
     let refused = match cfg!(test) {

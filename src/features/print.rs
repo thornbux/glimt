@@ -845,8 +845,9 @@ pub fn printers() -> (Vec<String>, Option<String>) {
     }
     // This has the usual limit, because a CUPS server that does not answer would otherwise hold
     // the dialog.
-    let run =
-        |arg: &str| crate::files::external::limited("lpstat", &[arg], 1 << 16).unwrap_or_default();
+    let run = |arg: &str| {
+        crate::files::external::short_output_of("lpstat", &[arg], 1 << 16).unwrap_or_default()
+    };
     let names = run("-e").lines().map(str::to_owned).collect();
     // The line reads "system default destination: name".
     let default = run("-d").rsplit_once(": ").map(|d| d.1.trim().to_owned());
@@ -893,8 +894,10 @@ pub fn send(
     // When a CUPS server does not answer, lp is ended after two minutes without progress, and
     // the print is told as failed, instead of the busy pointer for ever. A long print is not
     // ended, because the PDF is made while lp reads it, and each write lp takes feeds the watchdog.
-    let watchdog =
-        crate::files::external::Watchdog::new(child.id(), crate::files::external::LIMIT * 4);
+    let watchdog = crate::files::external::Watchdog::new(
+        child.id(),
+        crate::files::external::PROGRAM_TIME_LIMIT * 4,
+    );
     let written = match child.stdin.take() {
         Some(input) => write(&mut Fed {
             out: std::io::BufWriter::new(input),

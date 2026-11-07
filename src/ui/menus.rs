@@ -551,7 +551,7 @@ impl crate::App {
                     running.retain(|r| r.1 != pid);
                     // Not when it ended meanwhile: its number may be another's by now.
                     if running.len() < was {
-                        std::thread::spawn(move || external::stop(pid));
+                        std::thread::spawn(move || external::stop_process_group(pid));
                     }
                 }
             }
@@ -708,7 +708,7 @@ impl crate::App {
             let out = if words.is_empty() {
                 // gio is part of glib; xdg-open covers systems without it. In a Flatpak both
                 // ask the portal for the default application.
-                match external::has("gio") {
+                match external::has_program("gio") {
                     true => run("gio", {
                         let mut gio = command("gio");
                         gio.arg("open");

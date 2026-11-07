@@ -435,7 +435,7 @@ pub fn desktop_screen_profile() -> Option<String> {
         let mut args = vec!["call", "--system", "--dest", "org.freedesktop.ColorManager"];
         args.extend(["--object-path", object, "--method"]);
         args.extend(method);
-        let out = crate::files::external::limited("gdbus", &args, 1 << 20)?;
+        let out = crate::files::external::short_output_of("gdbus", &args, 1 << 20)?;
         first_quoted(&out).map(str::to_owned)
     };
     let get = "org.freedesktop.DBus.Properties.Get";

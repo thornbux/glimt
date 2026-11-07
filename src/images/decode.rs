@@ -566,7 +566,7 @@ fn load_unturned(path: &Path, rotate: bool, max: Option<[u32; 2]>) -> Result<Unt
     }
     #[cfg(any(feature = "heic", feature = "avif"))]
     if crate::files::external::is_heif(path) {
-        let (img, size) = crate::files::external::heif(path, max)?;
+        let (img, size) = crate::files::external::decode_heif(path, max)?;
         return Ok((img, icc_profile(path), upright, size));
     }
     #[cfg(feature = "svg")]

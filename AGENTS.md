@@ -154,7 +154,7 @@ holds only its `mod` lines, and a new module goes into the folder of what it doe
 | `src/files/file_ops.rs` | `Job` (a file operation in the background, with its progress and Stop) and `FileOperations`; delete, copy and move, `OperationReport` (what a file operation did, for `receive_operation_report`) and `Undo`, Rename and Rename Many, saving the orientation, as jobs with progress and Stop (`start_job`, `run_in_background`, `write_sidecars`); `rename_files`; Undo |
 | `src/files/file_io.rs` | The one way each change on disk is made: `replace_file`/`create_file`/`write_atomic` (whole or not at all), `replace_name` (a link at the name replaced, not followed), `edit_shared` for the files the windows share, `rename_never_over` (the one way to rename) and `put_file` (a move or copy, never over a file); the writer thread (`write_later`, `flush`) |
 | `src/files/trash.rs` | The trash: `trash` (gio, or by hand as the trash spec says when the Flatpak's portal refuses a file), `TrashMove` (what a move to the trash did) and `restore`, which puts it back for Undo by reading the trash folders |
-| `src/files/external.rs` | External programs: `command()`, `stoppable_command`, `run_limited`/`limited`, `output_of`, `Watchdog`, `in_flatpak`; ffmpeg (HEIC, AVIF, video), gio mounting, open with |
+| `src/files/external.rs` | External programs: `command()`, `stoppable_command`, `run_limited`/`short_output_of`, `output_of`, `Watchdog`, `in_flatpak`; ffmpeg (HEIC, AVIF, video), gio mounting, open with |
 | `src/files/portal.rs` | The desktop portals that need more than gdbus, through zbus (feature `portals`): printing, Open With and keeping the screen on in the Flatpak (`print`, `open_with`, `inhibit_idle`) |
 | `src/files/journal.rs` | Rename Many's steps on disk while they run, put right at the next start after a crash |
 | `src/support.rs` | **The support/ folder:** what the rest is built on: threads, text for the user, the languages, and what the tests use |
@@ -336,7 +336,7 @@ of that part. The exceptions are the tables of one arm per action (`Action::engl
   - rename with `file_io::rename_never_over` (never over a file), move or copy with `put_file`;
   - start Glimt's own program with `external::command` or `stoppable_command` (in a Flatpak's
     sandbox), the user's with `host_command` or `stoppable_host_command` (on the host), and
-    wait for it only with `run_limited`, `limited`, `output_of` or a `Watchdog` (never
+    wait for it only with `run_limited`, `short_output_of`, `output_of` or a `Watchdog` (never
     `.output()`/`.status()`);
   - make a copy of the shown image from `App::shown_copy` and save it with `save::save_copy_with_sidecar`.
   `clippy.toml` has the whole list, each call with the way to take instead. A place that must

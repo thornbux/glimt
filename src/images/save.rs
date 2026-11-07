@@ -1026,7 +1026,7 @@ pub fn webp_lossless(path: &Path) -> Option<bool> {
 
 /// `img` as a lossy WebP of `quality`, encoded by ffmpeg in memory, because the `image` crate
 /// writes only lossless ones. Its errors are read beside it, and it is stopped after
-/// `external::LIMIT`.
+/// `external::PROGRAM_TIME_LIMIT`.
 pub fn lossy_webp(img: &image::DynamicImage, quality: u8) -> Result<Vec<u8>, String> {
     use std::io::Write;
     let mut png = Vec::new();
@@ -1053,8 +1053,11 @@ pub fn lossy_webp(img: &image::DynamicImage, quality: u8) -> Result<Vec<u8>, Str
     let mut stdin = child.stdin.take();
     let feed = std::thread::spawn(move || drop(stdin.as_mut().map(|i| i.write_all(&png))));
     let max = crate::images::decode::MAX_DECODE;
-    let (webp, err, ok) =
-        crate::files::external::output_of(&mut child, max, crate::files::external::LIMIT);
+    let (webp, err, ok) = crate::files::external::output_of(
+        &mut child,
+        max,
+        crate::files::external::PROGRAM_TIME_LIMIT,
+    );
     let _ = feed.join();
     match webp {
         Some(webp) if ok && !webp.is_empty() => Ok(webp),

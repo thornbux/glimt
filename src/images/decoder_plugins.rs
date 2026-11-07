@@ -35,7 +35,7 @@ impl Decoder {
 
     /// The image the command writes for `path`.
     pub fn decode(&self, path: &Path) -> Result<image::DynamicImage, String> {
-        self.run(path, crate::files::external::LIMIT)
+        self.run(path, crate::files::external::PROGRAM_TIME_LIMIT)
     }
 
     fn run(&self, path: &Path, limit: Duration) -> Result<image::DynamicImage, String> {

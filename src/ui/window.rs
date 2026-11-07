@@ -281,7 +281,7 @@ impl crate::App {
             let end: Ender = if let Some(held) = portal {
                 Box::new(move || drop(held))
             } else {
-                let found = commands.iter().find(|c| external::host_has(c[0]));
+                let found = commands.iter().find(|c| external::host_has_program(c[0]));
                 let Some(mut child) = found.and_then(|c| {
                     external::host_command(c[0])
                         .args(&c[1..])

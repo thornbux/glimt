@@ -337,7 +337,10 @@ impl crate::App {
                 cmd.arg("--title").arg(title).arg(mode).arg(&start);
                 cmd.output()
             };
-            let output = match (external::has("zenity"), external::has("kdialog")) {
+            let output = match (
+                external::has_program("zenity"),
+                external::has_program("kdialog"),
+            ) {
                 (true, _) => zenity(),
                 (false, true) => kdialog(),
                 (false, false) => Err(std::io::ErrorKind::NotFound.into()),
