@@ -185,13 +185,19 @@ pub(crate) fn trash(paths: &[PathBuf]) -> Result<(), String> {
     let mut gio = crate::files::external::stoppable_command("gio");
     gio.args(["trash", "--"]).args(paths);
     let limit = crate::files::external::LIMIT * 4;
-    let refused = crate::files::external::run_limited(gio, 64 << 10, limit);
-    let Err(e) = refused.map(drop) else {
+    // Tests trash by hand into their own home's trash, where Undo looks. gio would put the
+    // files into the user's own trash.
+    let refused = match cfg!(test) {
+        true => Err("gio is not used in tests".to_owned()),
+        false => crate::files::external::run_limited(gio, 64 << 10, limit).map(drop),
+    };
+    let Err(e) = refused else {
         return Ok(());
     };
     // The host's trash, also where the host has its own XDG_DATA_HOME.
     let home = config::host_xdg_dir("XDG_DATA_HOME", ".local/share", "Trash");
-    let (true, Some(home)) = (crate::files::external::in_flatpak(), home) else {
+    let by_hand = cfg!(test) || crate::files::external::in_flatpak();
+    let (true, Some(home)) = (by_hand, home) else {
         return Err(e);
     };
     // Each one left tried, and the first that still fails told as it failed.

@@ -2706,7 +2706,7 @@ mod tests {
     /// Each is held back while other work changes its files, except those that change none. A
     /// copy only reads them, and keywords never wait, because an edit would be lost. Their job
     /// holds back the rest instead.
-    fn contract_ops() -> [(&'static str, Op, Check); 11] {
+    fn contract_ops() -> [(&'static str, Op, Check); 13] {
         [
             (
                 "move",
@@ -2850,6 +2850,34 @@ mod tests {
                 |_, d| side(&d.join("a.png")).contains("Tag"),
             ),
             (
+                "trash",
+                |app, ctx, _| app.delete_now(ctx, true, vec![0]),
+                |app, d| {
+                    !d.join("a.png").exists()
+                        && !crate::metadata::xmp::sidecar(&d.join("a.png")).exists()
+                        && matches!(app.work.undo, Some(super::Undo::Trash(_)))
+                        && (!cfg!(feature = "marks") || stars(app, &d.join("a.png")) == 0)
+                },
+            ),
+            (
+                "undo a trash",
+                |app, ctx, _| {
+                    app.delete_now(ctx, true, vec![0]);
+                    // This waits only when the operation started. When it was held back, it
+                    // says so, and there is nothing to wait for.
+                    if app.notice.is_none() {
+                        settle(app, ctx, |app| app.work.undo.is_some());
+                    }
+                    app.undo(ctx);
+                },
+                |app, d| {
+                    let a = d.join("a.png");
+                    a.exists()
+                        && side(&a) == "a"
+                        && (!cfg!(feature = "marks") || stars(app, &a) == 3)
+                },
+            ),
+            (
                 "save orientation",
                 |app, ctx, d| {
                     // The fixture's image is square. A wide one shows the turn in its size.
@@ -2924,7 +2952,25 @@ mod tests {
                 settle(&mut app, &ctx, |app| check(app, &d)),
                 "{name}: what follows the file"
             );
-            std::fs::remove_dir_all(d).unwrap();
+            std::fs::remove_dir_all(&d).unwrap();
+            empty_trash_of(&d);
+        }
+    }
+
+    /// Removes what a test moved from the folder `dir` into the tests' own trash.
+    fn empty_trash_of(dir: &std::path::Path) {
+        let trash = crate::files::config::test_home().join(".local/share/Trash");
+        let Ok(infos) = std::fs::read_dir(trash.join("info")) else {
+            return;
+        };
+        let inside = format!("{}/", dir.display());
+        for info in infos.flatten().map(|i| i.path()) {
+            if std::fs::read_to_string(&info).is_ok_and(|t| t.contains(&inside))
+                && let Some(name) = info.file_stem()
+            {
+                let _ = std::fs::remove_file(trash.join("files").join(name));
+                let _ = std::fs::remove_file(&info);
+            }
         }
     }
 
@@ -3010,6 +3056,8 @@ mod tests {
         // Each function with the operation of `contract_ops` that runs it.
         const IN_CONTRACT: &[(&str, &str)] = &[
             ("delete_now", "delete"),
+            ("delete_now", "trash"),
+            ("undo", "undo a trash"),
             ("transfer", "move"),
             // Through rename_in_background, and the Undo of a rename.
             ("rename_files_of", "rename"),
