@@ -281,7 +281,7 @@ pub(crate) fn put_file(from: &Path, to: &Path, keep: bool) -> std::io::Result<()
             .open(&part)?;
         // Its time kept, as mv does (sorting by date), and on disk before a move removes the
         // source: a stick pulled out right after must not lose both.
-        let copied = crate::images::decode::open(from)
+        let copied = crate::images::decode::open_regular(from)
             .and_then(|mut f| std::io::copy(&mut f, &mut out))
             .and_then(|_| {
                 // Its read, write and run bits, as cp gives them: not set-user-ID, set-group-ID

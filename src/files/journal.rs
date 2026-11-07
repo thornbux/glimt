@@ -125,14 +125,14 @@ pub fn cut_short_plans(dir: &Path) -> Vec<CutShort> {
             e.file_type().ok().filter(|t| t.is_file())?;
             // A plan another window was finishing is skipped. That window deletes the plan
             // before it lets go of the lock, so a file opened just before then is no longer linked.
-            let file = crate::images::decode::open(e.path())
+            let file = crate::images::decode::open_regular(e.path())
                 .ok()
                 .filter(is_unlocked)
                 .filter(is_linked)?;
             let mut bytes = Vec::new();
             #[allow(clippy::disallowed_methods)] // bounded by take, and only a file
             let read = (&file)
-                .take(crate::images::decode::MAX_DECODE)
+                .take(crate::images::decode::MAX_DECODE_BYTES)
                 .read_to_end(&mut bytes);
             read.ok()?;
             let (moves, done) = parse(&bytes)?;
@@ -261,7 +261,7 @@ pub fn repair_cut_short(
     // that asked about it too would do the same steps again, on files already put right. That
     // also holds for one that opened it just before the first deleted it, and got the lock once
     // that one let go.
-    let _held = crate::images::decode::open(plan)
+    let _held = crate::images::decode::open_regular(plan)
         .ok()
         .filter(is_unlocked)
         .filter(is_linked)?;

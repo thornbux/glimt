@@ -17,7 +17,7 @@ fn svg_images() -> resvg::usvg::ImageHrefResolver<'static> {
     let fits = move |data: &[u8]| {
         let reader = image::ImageReader::new(std::io::Cursor::new(data)).with_guessed_format();
         let decoded = match reader.ok().and_then(|r| r.into_dimensions().ok()) {
-            Some((w, h)) if !crate::images::decode::fits(w, h, 4) => return false,
+            Some((w, h)) if !crate::images::decode::fits_decode_limit(w, h, 4) => return false,
             Some((w, h)) => u64::from(w) * u64::from(h) * 4,
             // Data that image does not read as a picture, such as an SVG, goes to usvg, which
             // reads it with these limits. But usvg unpacks a gzipped one (svgz) without a limit.

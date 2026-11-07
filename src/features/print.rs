@@ -4,7 +4,7 @@
 //! images on a page make a contact sheet, as in Geeqie.
 
 use crate::files::config::Config;
-use crate::images::decode::survive;
+use crate::images::decode::catch_panic;
 use crate::support::format::count;
 use crate::support::lang::tr;
 use crate::support::threads::{Receiving, Took, Working};
@@ -369,8 +369,8 @@ impl crate::App {
             for (k, path) in first.iter().enumerate() {
                 // The preview is in the colours of the print, so a photo with its own profile
                 // looks as on paper.
-                let small = survive(|| {
-                    let (img, icc, size) = decode::small(path, [PREVIEW_PX; 2], rotate)?;
+                let small = catch_panic(|| {
+                    let (img, icc, size) = decode::decode_shrunk(path, [PREVIEW_PX; 2], rotate)?;
                     Ok((crate::images::colour::to_srgb(img, icc.as_deref()), size))
                 });
                 // When the dialog is gone, the rest are not decoded.
@@ -445,8 +445,8 @@ impl crate::App {
                 // The image is shrunk before it goes to sRGB, because a 45 MP photo with its own
                 // profile would otherwise need two full-size buffers. A JPEG is decoded at a
                 // fraction when that is enough.
-                let img = survive(|| {
-                    let (img, icc, size) = decode::small(path, [max, max], job.rotate)?;
+                let img = catch_panic(|| {
+                    let (img, icc, size) = decode::decode_shrunk(path, [max, max], job.rotate)?;
                     Ok((crate::images::colour::to_srgb(img, icc.as_deref()), size))
                 });
                 failed.set(failed.get() + img.is_err() as usize);

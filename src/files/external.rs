@@ -442,7 +442,7 @@ pub fn ffmpeg_ppm(
         .args(["-frames:v", "1", "-f", "image2pipe", "-vcodec", "ppm", "-"])
         .spawn()
         .map_err(|e| crate::tf!("video, HEIC and AVIF need ffmpeg: {e}", e))?;
-    let limit = crate::images::decode::MAX_DECODE + 64;
+    let limit = crate::images::decode::MAX_DECODE_BYTES + 64;
     let (frame, err, ok) = output_of(&mut child, limit, PROGRAM_TIME_LIMIT);
     let frame = frame.ok_or("image too large")?;
     if !ok || frame.is_empty() {

@@ -457,8 +457,8 @@ fn same_contents(group: Vec<PathBuf>, p: &Progress) -> Vec<Vec<PathBuf>> {
 /// false once `p` is cancelled, which is looked at between the reads of a large file.
 fn same_bytes(a: &Path, b: &Path, p: &Progress) -> bool {
     let (Ok(mut a), Ok(mut b)) = (
-        crate::images::decode::open(a),
-        crate::images::decode::open(b),
+        crate::images::decode::open_regular(a),
+        crate::images::decode::open_regular(b),
     ) else {
         return false;
     };
@@ -482,7 +482,7 @@ fn same_bytes(a: &Path, b: &Path, p: &Progress) -> bool {
 /// A 64-bit hash of the whole file. Returns `None` once `p` is cancelled, which is looked at
 /// between the reads of a large file.
 fn checksum(path: &Path, p: &Progress) -> Option<u64> {
-    let mut file = crate::images::decode::open(path).ok()?;
+    let mut file = crate::images::decode::open_regular(path).ok()?;
     let mut hasher = std::hash::DefaultHasher::new();
     let mut buf = vec![0; 1 << 16];
     loop {

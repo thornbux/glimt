@@ -597,7 +597,7 @@ fn animated(path: &Path) -> Result<bool, String> {
     let format = crate::images::decode::image_reader(path)
         .map_err(|e| e.to_string())?
         .format();
-    let file = || crate::images::decode::open(path).map(std::io::BufReader::new);
+    let file = || crate::images::decode::open_regular(path).map(std::io::BufReader::new);
     Ok(match format {
         Some(image::ImageFormat::Gif) => true,
         Some(image::ImageFormat::Png) => (file().ok())
@@ -639,7 +639,7 @@ fn derived_metadata(
     if let Some(xmp) = &mut xmp {
         *xmp = derived_xmp(xmp, how);
     }
-    let stored_quarter = stored.is_some_and(crate::images::decode::quarter_turn);
+    let stored_quarter = stored.is_some_and(crate::images::decode::is_quarter_turn);
     Ok((exif, xmp, (turns % 2 == 1) != stored_quarter))
 }
 
@@ -1002,7 +1002,7 @@ fn crc32(bytes: &[u8]) -> u32 {
 /// found.
 pub fn webp_lossless(path: &Path) -> Option<bool> {
     use std::io::{Read, Seek, SeekFrom};
-    let mut file = crate::images::decode::open(path).ok()?;
+    let mut file = crate::images::decode::open_regular(path).ok()?;
     let mut head = [0; 12];
     file.read_exact(&mut head).ok()?;
     if &head[..4] != b"RIFF" || &head[8..] != b"WEBP" {
@@ -1052,7 +1052,7 @@ pub fn lossy_webp(img: &image::DynamicImage, quality: u8) -> Result<Vec<u8>, Str
     // fills and stops it.
     let mut stdin = child.stdin.take();
     let feed = std::thread::spawn(move || drop(stdin.as_mut().map(|i| i.write_all(&png))));
-    let max = crate::images::decode::MAX_DECODE;
+    let max = crate::images::decode::MAX_DECODE_BYTES;
     let (webp, err, ok) = crate::files::external::output_of(
         &mut child,
         max,

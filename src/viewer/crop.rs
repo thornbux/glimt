@@ -163,8 +163,9 @@ impl crate::App {
         let path = crop.path;
         let report_tx = self.file_operations.report_sender();
         self.run_in_background(ctx, vec![path.clone()], move || {
-            let saved =
-                crate::images::decode::survive(|| crate::images::save::save_cropped(&path, &how));
+            let saved = crate::images::decode::catch_panic(|| {
+                crate::images::save::save_cropped(&path, &how)
+            });
             Some(match saved {
                 Ok(new) => {
                     // The copy gets the marks and stars of the original, as it got its

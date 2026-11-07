@@ -29,7 +29,7 @@ fn thumbnail_in(
     save: bool,
     large: bool,
 ) -> Result<image::RgbaImage, String> {
-    if !crate::images::decode::is_file(path) {
+    if !crate::images::decode::is_regular_file(path) {
         return Err("not a regular file".into());
     }
     let (size, folder) = SIZES[large as usize];
@@ -58,8 +58,8 @@ fn thumbnail_in(
     // A JPEG at 1/8 while decoding: under 1 MB for a 12 MP photo instead of 38. A decoder that
     // panics on the file fails here, inside, so the failure is marked like any other and the
     // file is not decoded again at every visit.
-    let made = crate::images::decode::survive(|| {
-        let (img, icc, _) = crate::images::decode::small(path, [size, size], rotate)?;
+    let made = crate::images::decode::catch_panic(|| {
+        let (img, icc, _) = crate::images::decode::decode_shrunk(path, [size, size], rotate)?;
         Ok(crate::images::colour::to_srgb(img, icc.as_deref()).into_rgba8())
     });
     // The spec forbids thumbnails of the thumbnails themselves. Others show them as made, so
@@ -219,7 +219,7 @@ fn clean_in(cache: &Path) -> (usize, usize) {
 /// The file a cached thumbnail was made from, from its Thumb::URI (file:// only).
 fn thumb_source(thumb: &Path) -> Option<PathBuf> {
     use std::os::unix::ffi::OsStringExt;
-    let file = std::io::BufReader::new(crate::images::decode::open(thumb).ok()?);
+    let file = std::io::BufReader::new(crate::images::decode::open_regular(thumb).ok()?);
     let reader = png::Decoder::new(file).read_info().ok()?;
     let info = reader.info();
     let uri = info

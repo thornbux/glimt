@@ -101,7 +101,7 @@
 
     <rect x="650" y="614" width="490" height="64" rx="6" fill="#e0f5f5" stroke="#138a8a" stroke-width="1.5"/>
     <text x="664" y="634" font-size="13"><tspan font-weight="700">Thumbnail workers</tspan> <tspan font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" font-size="12">spawn_thumbnailers</tspan>, one per core</text>
-    <text x="664" y="652" font-size="12">thumbs::thumbnail: from the freedesktop cache, or made by decode::small</text>
+    <text x="664" y="652" font-size="12">thumbs::thumbnail: freedesktop cache, or made by decode::decode_shrunk</text>
     <text x="664" y="670" font-size="12">→ (path, n, ColorImage) → receive_thumbs</text>
 
     <rect x="650" y="688" width="490" height="64" rx="6" fill="#e6f4ea" stroke="#2e8b57" stroke-width="1.5"/>

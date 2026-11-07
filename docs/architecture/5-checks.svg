@@ -34,7 +34,7 @@
     <g font-size="12" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace">
       <text x="32" y="190" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif" font-weight="700">Reading a file</text>
       <text x="32" y="208">fs::read → read_limited</text>
-      <text x="32" y="224">File::open → decode::open</text>
+      <text x="32" y="224">File::open → decode::open_regular</text>
       <text x="32" y="248" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif" font-weight="700">Writing, renaming, copying</text>
       <text x="32" y="266">fs::write → replace_name</text>
       <text x="32" y="282">File::create → create_file</text>
@@ -45,7 +45,7 @@
       <text x="32" y="372">               host_command</text>
       <text x="32" y="388">Command::output → run_limited</text>
       <text x="32" y="404">Child::wait → Watchdog</text>
-      <text x="32" y="428" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif" font-weight="700">Decoding (fits first)</text>
+      <text x="32" y="428" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif" font-weight="700">Decoding (fits_decode_limit first)</text>
       <text x="32" y="446">image::open → from_decoder</text>
       <text x="32" y="462">load_from_memory → from_memory</text>
       <text x="32" y="486" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif" font-weight="700">Widgets the release tests click</text>

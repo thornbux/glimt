@@ -160,7 +160,7 @@ impl crate::App {
                     let Some((name, path)) = files.get(next.fetch_add(1, Ordering::Relaxed)) else {
                         break;
                     };
-                    if let Err(why) = decode::check(path) {
+                    if let Err(why) = decode::check_decodes(path) {
                         let _ = tx.send((name.clone(), why));
                     }
                     done.fetch_add(1, Ordering::Relaxed);

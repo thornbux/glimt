@@ -12,7 +12,7 @@
 //!
 //! The command gets the file's absolute path as one argument of its own, never through a shell,
 //! and writes the image (PNM, PNG, TIFF, BMP …) to its standard output. It has 30 seconds and
-//! at most `MAX_DECODE` bytes, as ffmpeg has.
+//! at most `MAX_DECODE_BYTES` bytes, as ffmpeg has.
 
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -61,7 +61,7 @@ impl Decoder {
                 .args(&args[1..])
                 .spawn()
                 .map_err(|e| format!("{} ({}): {e}", self.name, program.display()))?;
-        let max = crate::images::decode::MAX_DECODE + 64;
+        let max = crate::images::decode::MAX_DECODE_BYTES + 64;
         let (image, err, ok) = crate::files::external::output_of(&mut child, max, limit);
         let image = image.ok_or_else(|| format!("{}: image too large", self.name))?;
         if !ok || image.is_empty() {

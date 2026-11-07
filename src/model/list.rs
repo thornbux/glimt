@@ -1,7 +1,7 @@
 //! The model of what is open: the file list with everything that holds a place in it
 //! (`List`), and the decoded images (`Slot`).
 
-use crate::images::decode::Hist;
+use crate::images::decode::HistogramCounts;
 use crate::ui::file_list::RubberBand;
 use eframe::egui;
 use std::collections::{HashMap, HashSet};
@@ -21,7 +21,7 @@ pub(crate) struct Slot {
     /// Frames of an animated GIF or WebP with their delays in ms; empty for a still image.
     pub(crate) anim: Vec<(egui::TextureHandle, u32)>,
     /// Of the decoded image (the first frame of an animation).
-    pub(crate) hist: Box<Hist>,
+    pub(crate) hist: Box<HistogramCounts>,
     /// Pages of a multi-page TIFF; 1 for other files.
     pub(crate) pages: usize,
     /// The box it was decoded into (`decode_box`): decoded again only for a larger one.

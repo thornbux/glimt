@@ -967,7 +967,7 @@ fn copies_of_settings_have_one_writer() {
     const WRITERS: &[(&str, &[(&str, &str)])] = &[
         ("OWN_KEYS.write()", &[("ui/actions.rs", "use_own_keys")]),
         (
-            "MAX_ANIMATION.store(",
+            "MAX_ANIMATION_BYTES.store(",
             &[("images/decode.rs", "set_animation_limit")],
         ),
         (
