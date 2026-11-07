@@ -994,6 +994,95 @@ fn copies_of_settings_have_one_writer() {
     );
 }
 
+/// A setting that has a setter (an App `set_…` method, or a View action's `toggle_setting`) is
+/// changed only through that setter, in every file, so each place that changes it does what
+/// the menu does besides. Preferences wrote the names under the thumbnails directly and skipped
+/// the scroll to the shown image, and Keywords and Comment turned the EXIF panel on the same way.
+#[test]
+fn settings_change_through_their_setters() {
+    let ident = |c: char| c.is_alphanumeric() || c == '_';
+    let body = |code: &str| {
+        let end = ["\n    }\n", "\n}\n"].map(|e| code.find(e).unwrap_or(code.len()));
+        code[..end[0].min(end[1])].to_owned()
+    };
+    let sources = rust_sources();
+    let mut guarded = Vec::new();
+    for (_, code) in &sources {
+        for (at, _) in code.match_indices("fn set_") {
+            for (k, _) in body(&code[at..]).match_indices("self.config.") {
+                let rest = &body(&code[at..])[k + 12..];
+                let name: String = rest.chars().take_while(|&c| ident(c)).collect();
+                if rest[name.len()..].trim_start().starts_with("= ") {
+                    guarded.push(name);
+                }
+            }
+        }
+    }
+    let menus = source("ui/menus.rs");
+    let toggle = body(&menus[menus.find("fn toggle_setting(").unwrap()..]);
+    for (k, _) in toggle.match_indices("&mut c.") {
+        let name: String = toggle[k + 7..].chars().take_while(|&c| ident(c)).collect();
+        // A on a stepped animation plays it on and leaves the setting, which a checkbox in
+        // Preferences must not.
+        if name != "animate" {
+            guarded.push(name);
+        }
+    }
+    for name in ["thumb_size", "grid_names", "icons", "exif_panel"] {
+        assert!(
+            guarded.iter().any(|g| g == name),
+            "{name} has no setter found"
+        );
+    }
+    // Two places write a setting on purpose. A folder opened with its subfolders is listed with
+    // them, where the setter would first list the folder before it again. Compare shows one
+    // pane, where `set_layout` would turn Compare off.
+    const MEANT: &[(&str, &str)] = &[
+        ("ui/dialogs.rs", "receive_picked"),
+        ("viewer/view.rs", "toggle_compare"),
+    ];
+    let mut wrong = Vec::new();
+    // The settings file's own reader fills the fields it reads.
+    for (file, text) in sources.iter().filter(|(f, _)| f != "files/config.rs") {
+        let lines = code_lines(text);
+        let mut function = String::new();
+        for (i, line) in lines[..tests_start(&lines)].iter().enumerate() {
+            if line.starts_with(|c: char| c.is_alphabetic()) {
+                function.clear();
+            }
+            if let Some(name) = function_name(line) {
+                function = name.to_owned();
+            }
+            // The setters themselves write their fields.
+            let meant = MEANT.contains(&(file.as_str(), function.as_str()));
+            if function.starts_with("set_") || function == "toggle_setting" || meant {
+                continue;
+            }
+            for name in &guarded {
+                for field in [format!("c.{name}"), format!("self.config.{name}")] {
+                    for (at, _) in line.match_indices(&field) {
+                        let after = &line[at + field.len()..];
+                        if line[..at].ends_with(ident) || after.starts_with(ident) {
+                            continue;
+                        }
+                        let after = after.trim_start();
+                        let written =
+                            (after.strip_prefix('=')).is_some_and(|r| !r.starts_with(['=', '>']));
+                        if written || line[..at].ends_with("&mut ") {
+                            wrong.push(format!("{file}:{} ({field})", i + 1));
+                        }
+                    }
+                }
+            }
+        }
+    }
+    assert!(
+        wrong.is_empty(),
+        "set through their setters instead:\n{}",
+        wrong.join("\n")
+    );
+}
+
 /// A file's inode is read only in `save::meta_key`, which gives a file system that numbers every
 /// file 0 a key by path instead. Undo of a move compared inodes of its own, and on sshfs with
 /// `-o use_ino` took another file at the moved name for the moved one. `marks::seen` keeps the

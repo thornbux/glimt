@@ -998,8 +998,9 @@ impl crate::App {
             Action::NextPage | Action::PrevPage => self.step_page(action),
             Action::ExifWindow => self.info.toggle_exif_window(),
             Action::Keywords => {
-                self.config.exif_panel = true;
-                self.config.save();
+                if !self.config.exif_panel {
+                    self.toggle_setting(Action::ExifPanel);
+                }
                 self.info.focus_keywords();
             }
             Action::PanView => {
