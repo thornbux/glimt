@@ -114,7 +114,7 @@ fn source(name: &str) -> String {
 /// `text`'s lines as code only: comments and the insides of string and char literals blanked,
 /// and the blanks at the end of each line gone, so a line closing a block with a comment after
 /// it is just `}`. Every code character keeps its line and column.
-fn code_lines(text: &str) -> Vec<String> {
+pub(crate) fn code_lines(text: &str) -> Vec<String> {
     let chars: Vec<char> = text.chars().collect();
     let mut code = String::with_capacity(text.len());
     let mut i = 0;
@@ -990,25 +990,6 @@ fn copies_of_settings_have_one_writer() {
     assert!(
         wrong.is_empty(),
         "a copy of a setting written by hand:\n{}",
-        wrong.join("\n")
-    );
-}
-
-/// A file's inode is read only in `save::meta_key`, which gives a file system that numbers every
-/// file 0 a key by path instead. Undo of a move compared inodes of its own, and on sshfs with
-/// `-o use_ino` took another file at the moved name for the moved one. `marks::seen` keeps the
-/// inode beside the time only to see that the file at a path changed, never to tell two apart.
-#[test]
-fn files_are_told_apart_by_one_key() {
-    const READERS: &[(&str, &str)] = &[
-        ("images/save.rs", "meta_key"),
-        ("metadata/marks.rs", "seen"),
-    ];
-    const HOMES: &[(&str, &[(&str, &str)])] = &[(".ino()", READERS), ("::ino(", READERS)];
-    let wrong = outside_their_homes(HOMES);
-    assert!(
-        wrong.is_empty(),
-        "an inode read outside save::meta_key (use save::file_key or meta_key):\n{}",
         wrong.join("\n")
     );
 }

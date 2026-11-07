@@ -466,7 +466,8 @@ pub(crate) fn file_key(path: &Path) -> Option<FileKey> {
 
 /// Returns the key of `path` from its metadata `meta`, which the caller looked up itself, for
 /// example without following a link. The inode is read here and in no other place, so no
-/// comparison can take inode 0 for one file (`source_rules::files_are_told_apart_by_one_key`).
+/// comparison can take inode 0 for one file (clippy.toml refuses the inode elsewhere).
+#[allow(clippy::disallowed_methods)] // the one place an inode tells files apart
 pub(crate) fn meta_key(path: &Path, meta: &std::fs::Metadata) -> FileKey {
     use std::os::unix::fs::MetadataExt;
     key_of(path, (meta.dev(), meta.ino()))
