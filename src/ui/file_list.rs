@@ -1235,7 +1235,7 @@ impl crate::App {
     /// The left side, as in Geeqie, with the path, the folders at the top, the search, and the
     /// files below. Returns what a click there asked for.
     pub(crate) fn side_panel(&mut self, ctx: &egui::Context, ui: &mut egui::Ui) {
-        let (mut open_dir, mut go_to, mut list_act) = (None, None, None);
+        let (mut open_dir, mut go_to, mut list_act, mut opened) = (None, None, None, None);
         // The grid in the image area has the thumbnails, so the list has names.
         let form = if self.panel.area_grid_on() {
             [false, false]
@@ -1270,13 +1270,13 @@ impl crate::App {
                 if self.config.search_bar {
                     self.search_field(ui);
                 }
-                // The side panel does nothing more on a double-click. The click before it has
-                // already gone to the file.
-                let _double_clicked = self.file_list(ctx, ui, &mut go_to, &mut list_act, form);
+                opened = self.file_list(ctx, ui, &mut go_to, &mut list_act, form);
             });
+        // A double-click opens the file clicked, also with Ctrl or Shift, whose clicks change
+        // the selection and go to no file. A plain click before it has already gone there.
         if let Some(d) = open_dir {
             self.visit(ctx, d);
-        } else if let Some(i) = go_to {
+        } else if let Some(i) = opened.or(go_to) {
             self.go(ctx, i);
         }
         if let Some(action) = list_act {
