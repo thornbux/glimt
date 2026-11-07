@@ -40,12 +40,12 @@ impl App {
                 if !meta.saved.comment.is_empty() {
                     text += &format!(". {}", meta.saved.comment);
                 }
-                if !meta.access.extended.is_empty() {
-                    text += &format!(". {}", meta.access.extended);
+                if !meta.alt_text.extended_description.is_empty() {
+                    text += &format!(". {}", meta.alt_text.extended_description);
                 }
                 // The IPTC alt text is written for this: read first, before the file name.
-                if !meta.access.alt.is_empty() {
-                    text = format!("{}. {text}", meta.access.alt);
+                if !meta.alt_text.text.is_empty() {
+                    text = format!("{}. {text}", meta.alt_text.text);
                 }
             }
             text

@@ -2597,7 +2597,7 @@ mod tests {
         std::os::unix::fs::symlink(p("nowhere"), p("f.jpg.xmp")).unwrap();
         super::rename_files(vec![p("f.jpg")], vec![p("g.jpg")], &job).unwrap();
         assert!(std::fs::symlink_metadata(p("f.jpg.xmp")).is_err());
-        assert!(crate::metadata::xmp::linked(&p("g.jpg.xmp")));
+        assert!(crate::metadata::xmp::is_link(&p("g.jpg.xmp")));
         // A new name that is the file itself, as G.JPG is g.jpg on a camera card, is not taken,
         // because the card's folder lists only g.jpg. A hard link of that name stands in for
         // the card here, with the listing a card gives.

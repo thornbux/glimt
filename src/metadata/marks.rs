@@ -345,9 +345,9 @@ pub fn write_xmp(path: &Path, stars: u8) -> Result<(), String> {
 fn set_rating(xmp: &str, stars: u8) -> Option<String> {
     // The rating it has goes first, in whatever form and quotes it was written, so the sidecar
     // never holds two, which darktable and digiKam refuse as broken XML.
-    let xmp = &crate::metadata::xmp::without(xmp, "xmp:Rating");
+    let xmp = &crate::metadata::xmp::without_property(xmp, "xmp:Rating");
     let at = xmp.find("<rdf:Description")? + "<rdf:Description".len();
-    // Declared on this Description or above it, as in xmp::set.
+    // Declared on this Description or above it, as in xmp::set_keywords_and_comment.
     let tag_end = at + xmp[at..].find('>')?;
     let ns = if xmp[..tag_end].contains("xmlns:xmp=") {
         ""
