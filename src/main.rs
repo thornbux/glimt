@@ -9,8 +9,8 @@
 #![cfg_attr(test, allow(clippy::disallowed_methods))]
 
 use crate::cli::Start;
-use crate::features::check::Check;
-use crate::features::duplicates::Dups;
+use crate::features::check::ImageCheck;
+use crate::features::duplicates::FindDuplicates;
 use crate::features::print::PrintDialog;
 use crate::files::config::{Config, WindowState, parse_last_dir, state_path};
 use crate::files::file_io::write_atomic;
@@ -146,10 +146,10 @@ struct App {
     save_as: Option<crate::viewer::save_as::SaveAs>,
     save_as_last: crate::viewer::save_as::Choice,
     /// The Find Duplicates window, while open.
-    dups: Option<Dups>,
+    dups: Option<FindDuplicates>,
     /// The Check Images window. `None` means it is closed, and `Some(None)` means it is open
     /// but not started.
-    check: Option<Option<Check>>,
+    check: Option<Option<ImageCheck>>,
     /// Commands from --remote, and the selects that wait until the list is read.
     remote: crate::features::remote::Listener,
 }

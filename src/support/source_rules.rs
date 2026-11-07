@@ -536,8 +536,8 @@ fn app_stays_small() {
 #[test]
 fn parts_keep_their_fields() {
     const PARTS: &[(&str, &str)] = &[
-        ("features/check.rs", "Check"),
-        ("features/duplicates.rs", "Dups"),
+        ("features/check.rs", "ImageCheck"),
+        ("features/duplicates.rs", "FindDuplicates"),
         ("features/print.rs", "PrintDialog"),
         ("features/remote.rs", "Listener"),
         ("files/file_ops.rs", "FileOperations"),

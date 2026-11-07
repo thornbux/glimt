@@ -1,7 +1,7 @@
 //! Everything the user can do from a menu or a key: the Action list with menu labels, Geeqie's
 //! default keys (SHORTCUTS), and the user's own keys from Preferences.
 
-use crate::features::duplicates::Dups;
+use crate::features::duplicates::FindDuplicates;
 use crate::images::colour::FILTERS;
 use crate::images::decode::{catch_panic, color_image};
 #[cfg(feature = "marks")]
@@ -1053,7 +1053,7 @@ impl crate::App {
                     self.move_in_collection(ctx, picked, order)
                 }
             }
-            Action::FindDuplicates => drop(self.dups.get_or_insert_with(Dups::new)),
+            Action::FindDuplicates => drop(self.dups.get_or_insert_with(FindDuplicates::new)),
             Action::CheckImages => drop(self.check.get_or_insert(None)),
             Action::BackUp => self.pick(ctx, true, Pick::BackUp),
             // A kiosk shows only the image.
