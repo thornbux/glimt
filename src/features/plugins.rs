@@ -19,7 +19,7 @@ pub struct Plugin {
     /// The folder of the desktop file: a program there is found without being on the PATH.
     dir: PathBuf,
     /// The MIME types of the files it takes, from the desktop file's MimeType=, such as
-    /// image/x-canon-cr2 or image/*. Empty, it takes every file.
+    /// image/x-canon-cr2 or image/*. When the list is empty, the plugin takes every file.
     types: Vec<String>,
 }
 
@@ -125,10 +125,9 @@ pub fn find() -> Vec<Plugin> {
 /// system's.
 pub fn desktop_files(kind: &str) -> Vec<(std::path::PathBuf, String)> {
     let home = crate::files::config::xdg_dir("XDG_DATA_HOME", ".local/share", "glimt");
-    let dirs = std::env::var("XDG_DATA_DIRS").unwrap_or("/usr/local/share:/usr/share".into());
     let mut seen = std::collections::HashSet::new();
     (home.into_iter())
-        .chain(absolute_dirs(&dirs).map(|d| d.join("glimt")))
+        .chain(system_data_dirs().into_iter().map(|d| d.join("glimt")))
         .map(|d| d.join(kind))
         .flat_map(|dir| std::fs::read_dir(&dir).into_iter().flatten().flatten())
         .map(|e| e.path())
@@ -136,6 +135,21 @@ pub fn desktop_files(kind: &str) -> Vec<(std::path::PathBuf, String)> {
         .filter(|p| seen.insert(p.file_name().map(|n| n.to_owned())))
         .filter_map(|p| Some((p.clone(), crate::images::decode::read_text(&p).ok()?)))
         .collect()
+}
+
+/// The system's data folders, from $XDG_DATA_DIRS, which plugins, decoders and the MIME
+/// database are read from after the user's own.
+fn system_data_dirs() -> Vec<PathBuf> {
+    data_dirs_of(std::env::var("XDG_DATA_DIRS").ok())
+}
+
+/// Returns the absolute folders of `value`, the text of $XDG_DATA_DIRS. When it is not set or
+/// is empty, they are /usr/local/share and /usr/share, as the XDG spec says. An empty value
+/// read as no folders lost the system's plugins and MIME types.
+fn data_dirs_of(value: Option<String>) -> Vec<PathBuf> {
+    let value = value.filter(|v| !v.is_empty());
+    let value = value.as_deref().unwrap_or("/usr/local/share:/usr/share");
+    absolute_dirs(value).map(Path::to_path_buf).collect()
 }
 
 /// Returns the folders of a list such as $XDG_DATA_DIRS that are absolute paths. The XDG spec
@@ -169,7 +183,10 @@ fn parse(text: &str, dir: &Path) -> Option<Plugin> {
     if value("Hidden") == Some("true") || value("NoDisplay") == Some("true") {
         return None;
     }
-    let types = value("MimeType").unwrap_or_default().split(';');
+    let types = value("MimeType")
+        .unwrap_or_default()
+        .split(';')
+        .map(str::trim);
     Some(Plugin {
         name: value("Name")?.to_owned(),
         exec: value("Exec")?.to_owned(),
@@ -186,10 +203,8 @@ fn mime_types() -> &'static HashMap<String, String> {
     static TYPES: std::sync::OnceLock<HashMap<String, String>> = std::sync::OnceLock::new();
     TYPES.get_or_init(|| {
         let home = crate::files::config::xdg_dir("XDG_DATA_HOME", ".local/share", "mime");
-        let dirs = std::env::var("XDG_DATA_DIRS").unwrap_or("/usr/local/share:/usr/share".into());
-        let all = home
-            .into_iter()
-            .chain(absolute_dirs(&dirs).map(|d| d.join("mime")));
+        let system = system_data_dirs().into_iter().map(|d| d.join("mime"));
+        let all = home.into_iter().chain(system);
         let mut types = HashMap::new();
         for dir in all {
             let Ok(text) = crate::images::decode::read_text(dir.join("globs2")) else {
@@ -204,9 +219,10 @@ fn mime_types() -> &'static HashMap<String, String> {
 }
 
 /// The extensions and their MIME types in the text of a globs2 file, whose lines are
-/// `weight:type:glob`, the heaviest first, as `*.cr2`. A glob that is more than an extension,
-/// or a line that is not of that form, is passed over. Returns each extension once, lowercase,
-/// with the type of its heaviest line.
+/// `weight:type:glob[:flags]`, the heaviest first, as `*.cr2`. A glob that is more than an
+/// extension, a line that is not of that form, and a case-sensitive glob (flag `cs`) with
+/// capitals, such as C++'s `*.C`, which would take the place of `*.c`, are passed over. Returns
+/// each extension once, lowercase, with the type of its heaviest line.
 fn globs(text: &str) -> HashMap<String, String> {
     let mut found: HashMap<String, (u32, String)> = HashMap::new();
     for line in text.lines().filter(|l| !l.starts_with('#')) {
@@ -218,6 +234,10 @@ fn globs(text: &str) -> HashMap<String, String> {
         let (Ok(weight), Some(ext)) = (weight.parse::<u32>(), glob.strip_prefix("*.")) else {
             continue;
         };
+        let flags = parts.next().unwrap_or_default();
+        if flags.split(',').any(|f| f == "cs") && ext.chars().any(char::is_uppercase) {
+            continue;
+        }
         if ext.is_empty() || ext.contains(['*', '?', '[', '.']) || !mime.contains('/') {
             continue;
         }
@@ -282,7 +302,7 @@ mod tests {
         }
     }
 
-    /// globs2 broken in thousands of ways: no panic.
+    /// A globs2 file broken in thousands of ways does not make the parser panic.
     #[test]
     fn survives_broken_globs() {
         let seed = b"# comment\n50:image/jpeg:*.jpg\n50:image/x-canon-cr2:*.cr2:cs\n10:a/b:*.x\n";
@@ -296,7 +316,8 @@ mod tests {
     #[test]
     fn takes_the_types_it_names() {
         let text = "60:image/x-canon-cr2:*.cr2\n50:image/jpeg:*.jpg\n50:image/jpeg:*.jpeg\n\
-                    40:text/plain:*.jpg\n50:video/mp4:*.mp4\n50:image/x:*.tar.gz\n10:bad\n";
+                    40:text/plain:*.jpg\n50:video/mp4:*.mp4\n50:image/x:*.tar.gz\n10:bad\n\
+                    60:text/x-c++src:*.C:cs\n50:text/x-csrc:*.c\n";
         let types = super::globs(text);
         assert_eq!(types.get("jpg").map(String::as_str), Some("image/jpeg"));
         assert_eq!(
@@ -304,7 +325,12 @@ mod tests {
             Some("image/x-canon-cr2")
         );
         assert_eq!(types.get("tar.gz"), None);
-        assert_eq!(types.len(), 4);
+        assert_eq!(types.get("c").map(String::as_str), Some("text/x-csrc"));
+        assert_eq!(types.len(), 5);
+        // Spaces around the types are not part of them.
+        let spaced = "[Desktop Entry]\nName=S\nExec=s\nMimeType=image/png; image/jpeg ;\n";
+        let spaced = super::parse(spaced, std::path::Path::new("/tmp")).unwrap();
+        assert_eq!(spaced.types, ["image/png", "image/jpeg"]);
         let dir = std::path::Path::new("/tmp");
         let raw = super::parse(
             "[Desktop Entry]\nName=R\nExec=r\nMimeType=image/x-canon-cr2;\n",
@@ -347,6 +373,17 @@ mod tests {
         let dirs: Vec<&Path> = absolute_dirs("/usr/share::glimt:/opt/x/").collect();
         assert_eq!(dirs, [Path::new("/usr/share"), Path::new("/opt/x/")]);
         assert_eq!(absolute_dirs("").count(), 0);
+        // Not set and set but empty are both the spec's default.
+        let default = [
+            PathBuf::from("/usr/local/share"),
+            PathBuf::from("/usr/share"),
+        ];
+        assert_eq!(data_dirs_of(None), default);
+        assert_eq!(data_dirs_of(Some(String::new())), default);
+        assert_eq!(
+            data_dirs_of(Some("/opt/x".into())),
+            [PathBuf::from("/opt/x")]
+        );
     }
 
     #[test]

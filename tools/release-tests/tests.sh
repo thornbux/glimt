@@ -21,7 +21,7 @@ if [ "$(id -u)" = 0 ]; then
     apt-get update -qq >/dev/null
     apt-get install -y -qq xvfb xdotool x11-utils xclip imagemagick libimage-exiftool-perl ffmpeg \
         poppler-utils libglib2.0-bin colord-data python3 procps libgl1-mesa-dri libegl1 libgl1 \
-        libxkbcommon-x11-0 libxcursor1 libxrandr2 libxi6 libx11-xcb1 sqlite3 python3-nibabel python3-h5py python3-openslide python3-mrcfile python3-astropy python3-pydicom python3-gdcm libgdcm-tools default-jre-headless unzip dosfstools rclone fuse3 gvfs gvfs-fuse gvfs-backends openssh-server dbus >/dev/null || { echo "FAIL installing the tools"; exit 1; }
+        libxkbcommon-x11-0 libxcursor1 libxrandr2 libxi6 libx11-xcb1 sqlite3 shared-mime-info python3-nibabel python3-h5py python3-openslide python3-mrcfile python3-astropy python3-pydicom python3-gdcm libgdcm-tools default-jre-headless unzip dosfstools rclone fuse3 gvfs gvfs-fuse gvfs-backends openssh-server dbus >/dev/null || { echo "FAIL installing the tools"; exit 1; }
     # Bio-Formats for its decoder is no Debian package: its release, checked against the hash
     # it had when added.
     curl -sfL -o /tmp/bftools.zip \

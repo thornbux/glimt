@@ -330,7 +330,8 @@ const MANUAL: &[(&str, &str)] = &[
          A program next to the desktop file is found there. New plugins show after a restart. The \
          files are given to the program directly, never through a shell. With MimeType= in the \
          desktop file, as image/x-canon-cr2;image/x-nikon-nef; or image/*, the plugin is given \
-         only the files of those types, and Glimt says how many it leaves out.\n\n\
+         only the files of those types, and Glimt says how many it leaves out. The types are \
+         those shared-mime-info names, not their aliases or parent types.\n\n\
          /usr/share/doc/glimt/examples/plugins (examples/plugins in the tar.gz and the \
          source) has one that writes a description of each image as its \
          comment and alt text, made by a model on this computer, and one that reads the alt text \
