@@ -415,6 +415,7 @@ pub(crate) fn land(
     let named =
         |e: std::io::Error| std::io::Error::new(e.kind(), format!("{}: {e}", side.display()));
     // A link goes, not what it points to, and `create_file` never follows one.
+    #[allow(clippy::disallowed_methods)] // the replaced file's sidecar
     let remove_side = || match std::fs::remove_file(&side) {
         Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(named(e)),
         _ => Ok(()),

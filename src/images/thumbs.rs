@@ -186,6 +186,7 @@ fn clean_in(cache: &Path) -> (usize, usize) {
     for entry in (std::fs::read_dir(cache.join("fail")).into_iter().flatten()).flatten() {
         let name = entry.file_name();
         // remove_dir_all removes a link there, never what it points to.
+        #[allow(clippy::disallowed_methods)] // an old Glimt's folder in the cache
         if name.as_encoded_bytes().starts_with(b"glimt-")
             && Some(name.as_os_str()) != own
             && std::fs::remove_dir_all(entry.path()).is_ok()
@@ -203,6 +204,7 @@ fn clean_in(cache: &Path) -> (usize, usize) {
             let Some(path) = thumb_source(&entry.path()) else {
                 continue;
             };
+            #[allow(clippy::disallowed_methods)] // a thumbnail whose image is gone
             if !path.exists()
                 && path.parent().is_some_and(Path::is_dir)
                 && std::fs::remove_file(entry.path()).is_ok()

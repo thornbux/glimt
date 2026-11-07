@@ -60,8 +60,10 @@ pub(crate) fn rename_never_over(from: &Path, to: &Path) -> std::io::Result<()> {
 /// again. One gone after all (deleted or moved in another window, or a share that said no but
 /// did it) is done: the new name may be the only one left.
 fn unlink_linked(from: &Path, to: &Path) -> std::io::Result<()> {
+    #[allow(clippy::disallowed_methods)] // the old name, linked at its new one
     match std::fs::remove_file(from) {
         Err(e) if std::fs::symlink_metadata(from).is_ok() => {
+            #[allow(clippy::disallowed_methods)] // the new name, taken back
             let _ = std::fs::remove_file(to);
             Err(e)
         }
@@ -286,11 +288,14 @@ pub(crate) fn put_file(from: &Path, to: &Path, keep: bool) -> std::io::Result<()
                 // or sticky, which a copy owned by this user would carry for its owner.
                 let meta = std::fs::metadata(from)?;
                 let mode = std::fs::Permissions::from_mode(meta.mode() & 0o777);
+                #[allow(clippy::disallowed_methods)] // the copy's hidden part, made new
                 std::fs::set_permissions(&part, mode)?;
+                #[allow(clippy::disallowed_methods)] // the copy's time, as mv keeps it
                 out.set_modified(meta.modified()?)?;
                 out.sync_all()
             })
             .and_then(|_| rename_never_over(&part, to));
+        #[allow(clippy::disallowed_methods)] // the copy's hidden part
         let _ = std::fs::remove_file(&part);
         copied
     };
@@ -332,6 +337,7 @@ pub fn remove_shared(path: &Path) {
     }
     #[allow(clippy::disallowed_methods)] // as edit_shared
     let _held = file_lock(path);
+    #[allow(clippy::disallowed_methods)] // a shared file of Glimt's own
     let _ = std::fs::remove_file(path);
 }
 
@@ -528,6 +534,7 @@ pub fn write_beside(
         .and_then(|mut f| write(&mut f).and_then(|_| f.sync_all()))
         .and_then(|_| land(tmp));
     if result.is_err() {
+        #[allow(clippy::disallowed_methods)] // the temporary file, not finished
         let _ = std::fs::remove_file(tmp);
     }
     result

@@ -56,6 +56,7 @@ impl Journal {
 
 impl Drop for Journal {
     fn drop(&mut self) {
+        #[allow(clippy::disallowed_methods)] // the journal, Glimt's own file
         let _ = std::fs::remove_file(&self.path);
     }
 }
@@ -173,6 +174,7 @@ fn parse(bytes: &[u8]) -> Option<(Moves, Option<usize>)> {
 /// undone, or as it is put right at the next start.
 pub fn step(a: &Path, b: &Path) -> std::io::Result<()> {
     if same_file(a, b) {
+        #[allow(clippy::disallowed_methods)] // a second name of the same file
         return std::fs::remove_file(a);
     }
     crate::files::file_io::put_file(a, b, false)
@@ -268,6 +270,7 @@ pub fn settle(
     // When the names are put back, the step cut short between its link and its unlink, the
     // first one not counted, has its new name taken away first, so the steps before it can be
     // undone.
+    #[allow(clippy::disallowed_methods)] // a second name of the same file
     if undo_them
         && let Some((a, b)) = done.and_then(|d| moves.get(d))
         && same_file(a, b)
@@ -284,6 +287,7 @@ pub fn settle(
         (false, None) => finish(moves, 0),
     };
     if left == 0 {
+        #[allow(clippy::disallowed_methods)] // the plan, Glimt's own file
         let _ = std::fs::remove_file(plan);
     }
     Some((renamed + first, left))

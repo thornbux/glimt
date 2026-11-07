@@ -116,6 +116,7 @@ pub(crate) fn back_up_to(dir: &Path) -> Result<String, String> {
         .map(|(name, from)| copy_tree(&from, &to.join(name)))
         .sum();
     // Not the plan of a Rename Many running now: restored later, it would rename files again.
+    #[allow(clippy::disallowed_methods)] // the backup's own copy, just made
     let _ = std::fs::remove_dir_all(to.join("state/renames"));
     match copied {
         Ok(n) => Ok(crate::tf!(
