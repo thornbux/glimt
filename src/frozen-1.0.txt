@@ -218,3 +218,7 @@ exit not_sent 2
 exit not_taken 1
 option --remote
 option --remote-all
+value language en
+value input_profile srgb
+value input_profile adobe
+value input_profile p3

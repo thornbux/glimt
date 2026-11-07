@@ -337,14 +337,14 @@ impl crate::App {
             let name = |code: &str| -> String {
                 match code {
                     "" => tr("Automatic (system language)").to_owned(),
-                    "en" => "English".to_owned(),
+                    lang::ENGLISH => "English".to_owned(),
                     code => (lang::LANGUAGES.iter().find(|l| l.0 == code))
                         .map_or(code, |l| l.1)
                         .to_owned(),
                 }
             };
             let mut chosen = false;
-            let codes = ["", "en"]
+            let codes = ["", lang::ENGLISH]
                 .into_iter()
                 .chain(lang::LANGUAGES.iter().map(|l| l.0));
             egui::ComboBox::from_id_salt("language")
@@ -690,7 +690,7 @@ impl crate::App {
             }
             ui.label(tr("Images without a profile:"));
             let current = self.config.input_profile.clone();
-            for (value, label) in INPUT_PROFILES {
+            for (value, label, _) in INPUT_PROFILES {
                 if radio(ui, current == value, label).clicked() && current != value {
                     self.set_input_profile(value.to_owned());
                 }

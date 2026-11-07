@@ -22,6 +22,10 @@ macro_rules! tf {
     };
 }
 
+/// The language setting's value for English, which Preferences writes. Any value that is not
+/// a code of `LANGUAGES` shows English, but this one is the one users' files hold.
+pub const ENGLISH: &str = "en";
+
 /// The translations built in: code (the setting), name in its own language, the language codes
 /// of `$LANG` it is for, and its `.po` file. Each has every text of `no_nb.po`.
 pub const LANGUAGES: &[(&str, &str, &[&str], &str)] = &[

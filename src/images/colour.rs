@@ -79,11 +79,17 @@ pub const INTENTS: [(&str, &str, moxcms::RenderingIntent); 4] = [
     ),
 ];
 
-/// The built-in input profiles: (config value, label).
-pub const INPUT_PROFILES: [(&str, &str); 3] = [
-    ("srgb", "sRGB"),
-    ("adobe", "Adobe RGB"),
-    ("p3", "Display P3"),
+/// The built-in input profiles: (config value, label, profile). The profile is `None` for sRGB,
+/// which images are shown in without a conversion. Preferences writes these values and
+/// `set_input` reads them, so a renamed one fails `config::tests::frozen_names_are_kept`.
+pub const INPUT_PROFILES: [(&str, &str, BuiltIn); 3] = [
+    ("srgb", "sRGB", || None),
+    ("adobe", "Adobe RGB", || {
+        Some(moxcms::ColorProfile::new_adobe_rgb())
+    }),
+    ("p3", "Display P3", || {
+        Some(moxcms::ColorProfile::new_display_p3())
+    }),
 ];
 
 /// Held by the tests that change the colour settings or depend on them, as tests run at once.
@@ -115,6 +121,9 @@ pub struct Colour {
     /// the rest a hash of the image's profile.
     pub transforms: Arc<Mutex<Transforms>>,
 }
+
+/// Makes a built-in profile of `INPUT_PROFILES`.
+pub type BuiltIn = fn() -> Option<moxcms::ColorProfile>;
 
 /// Colour transforms by (source, to the screen); `None` where none can be made.
 pub type Transforms = HashMap<(u64, bool), Option<Arc<moxcms::Transform8BitExecutor>>>;
@@ -327,14 +336,13 @@ pub fn wait_for_screen() {
     }
 }
 
-/// The profile for images without one: "srgb" (or empty), "adobe", "p3", or an ICC file.
+/// Sets the profile for images without one: a value of `INPUT_PROFILES`, an empty one for
+/// sRGB, or the path of an ICC file.
 pub fn set_input(name: &str) -> Result<(), String> {
-    use moxcms::ColorProfile;
-    let profile = match name {
-        "" | "srgb" => None,
-        "adobe" => Some(ColorProfile::new_adobe_rgb()),
-        "p3" => Some(ColorProfile::new_display_p3()),
-        path => rgb_profile(path)?,
+    let profile = match INPUT_PROFILES.iter().find(|p| p.0 == name) {
+        Some(p) => p.2(),
+        None if name.is_empty() => None,
+        None => rgb_profile(name)?,
     };
     set_colour(|c| c.input = profile);
     Ok(())

@@ -2920,9 +2920,11 @@ mod tests {
         ]
     }
 
-    /// Every file operation brings along what follows a file (its sidecar, its stars, its entry
-    /// in the collection shown), and it waits while other work changes the file. These are the
-    /// classes of bugs that came back release after release, held for every operation at once.
+    /// Every file operation brings along what follows a file (its sidecar and its stars), and it
+    /// waits while other work changes the file. These are the classes of bugs that came back
+    /// release after release, held for every operation at once. The collection's entry is
+    /// checked apart, by `a_collection_follows_its_files`, as the contract's folder is no
+    /// collection.
     /// A new operation joins `contract_ops`, and `every_file_operation_is_in_the_contract` fails
     /// until it does.
     #[test]

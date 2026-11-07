@@ -39,17 +39,22 @@ setting that goes out of use keeps being read and ignored.
 
 `src/frozen-1.0.txt` pins, from the code's own tables: the settings' keys; the values of each
 `config::NAMED` list in order; the values of `sort` (`SORTS`), `layout` and `layout_turns`
-(`LAYOUTS`, also `--layout`'s), `rendering_intent` (`INTENTS`), `print_paper` (`PAPERS`),
-`print_orientation` (`ORIENTATIONS`), `theme` (the built-in themes) and `language`
-(`LANGUAGES`); the window state's keys (`WindowState`, `LAST_DIR`); the `--remote` commands
-and the words of their choices (`on|off`, from `COMMANDS`); `--remote`'s exit codes
-(`NOT_SENT`, `NOT_TAKEN`); and the command-line options of `START_OPTIONS` with `--remote`
-and `--remote-all`. `config::tests::frozen_names_are_kept` fails when one is taken out or
-renamed, when a `NAMED` list gains a value anywhere but at its end, and until a new one is
-added at the end of that file. `the_parser_takes_every_frozen_option` fails when
-`Start::parse` no longer takes an option that the help lists. Not pinned: the window's own
-reading of each command (`remote_command` matches the words again), what the commands print,
-the files Glimt owns and the plugin formats; these are kept by hand. Never rename an `Action` variant or rely on a changed key
+(`LAYOUTS`, also `--layout`'s), `rendering_intent` (`INTENTS`), `input_profile`'s built-in
+words (`INPUT_PROFILES`), `print_paper` (`PAPERS`), `print_orientation` (`ORIENTATIONS`),
+`theme` (the built-in themes) and `language` (`LANGUAGES` and `lang::ENGLISH`); the window
+state's keys (`WindowState`, `LAST_DIR`); the `--remote` commands and the words of their
+choices (`on|off`, from `COMMANDS`); `--remote`'s exit codes (`NOT_SENT`, `NOT_TAKEN`); and
+the command-line options of `START_OPTIONS` with `--remote` and `--remote-all`. `config::tests::frozen_names_are_kept`
+fails when one is taken out or renamed, when a `NAMED` list gains a value anywhere but at its
+end, and until a new one is added at the end of that file.
+`the_parser_takes_every_frozen_option` fails when an option that the help lists is neither
+taken by `Start::parse` nor answered by `cli::answered` (through `cli::Command::named`) or by
+`--remote`. Not pinned, and so kept by hand: the window's own reading of each `--remote`
+command (`remote_command` matches the words again), what the commands print, the `%field%`
+names of the full screen info, the print caption and the window title (`name`, `path`,
+`position`, `dimensions`, `marks`, `keywords`, `comment`, `File size`, `folder`, `app`, and
+the EXIF labels that the first two fall through to), the files Glimt owns, and the desktop
+file formats of plugins and decoders. Never rename an `Action` variant or rely on a changed key
 name: they are the `keys=` format, pinned by `src/keys-1.0.txt` and its test, every action
 (also one without a default key) and every default key; new ones go at the end of that file,
 and the test fails until a new action is there.
