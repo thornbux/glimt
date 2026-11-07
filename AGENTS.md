@@ -204,6 +204,24 @@ The doc comment of a function starts with what the function does. When its name 
 the result plain, a sentence starting with "Returns" says what it gives back, and when it gives
 back `None`. Comments fit 100 columns (`source_rules::comments_fit_the_width`).
 
+Names are written for the same reader: someone new to the code should know what a variable,
+function, type or field is or does from its name alone, without reading its body.
+
+- Use whole, everyday words (`selected_paths`, not `sel` or `sp`). Short names are fine for a
+  loop counter or a closure's argument that lives a few lines.
+- Do not use a private image or a pet word for what the code does. `land` for "save a copy and its
+  sidecar" or `hold` for "hold the files back while other work changes them" must be looked up;
+  `save_copy_with_sidecar` and `hold_back_while_writing` need not.
+- Name a function for what it does or gives back (`read_sidecar`, `selected_paths`), a `bool`
+  as a question that its value answers (`is_hidden`, `has_sidecar`), and a type for what it
+  holds. A type that every file operation returns is not named after one of them (`Deleted`).
+- One thing has one name throughout: the same word in the type, its fields, its functions and
+  the comments.
+
+Older names that break this are renamed in 0.74.0's naming review, and before that whenever
+the code they name changes. `Action` variants and the names in `src/frozen-1.0.txt` keep their
+names, as *Frozen in 1.x* says.
+
 A function is at most 120 lines outside the tests (`source_rules::functions_stay_short`): a
 longer one is split into functions named for what each part does, beside it or in the module
 of that part. The exceptions are the tables of one arm per action (`Action::english`,
