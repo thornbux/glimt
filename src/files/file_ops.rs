@@ -3174,7 +3174,7 @@ mod tests {
             ),
             ("trash_folder", "gio trash; Undo's restore has its own test"),
             (
-                "answer_prompt",
+                "act_on_prompt_answer",
                 "New Folder: an empty folder, nothing to follow; makes_a_new_folder_in_the_background",
             ),
             ("trash_collection", "gio trash of the collection's own file"),
@@ -3953,7 +3953,7 @@ mod tests {
         let other = d.join("other");
         std::fs::create_dir_all(&other).unwrap();
         app.open(&ctx, other.clone());
-        app.answer_prompt(&ctx, crate::ui::dialogs::Prompt::NewFolder, "trip");
+        app.act_on_prompt_answer(&ctx, crate::ui::dialogs::Prompt::NewFolder, "trip");
         app.open(&ctx, d.clone());
         assert!(run_background_until(&mut app, &ctx, |a| {
             !a.folder.is_listing() && a.folder.subdirs().iter().any(|s| s.ends_with("trip"))
@@ -3961,7 +3961,7 @@ mod tests {
         assert!(d.join("trip").is_dir() && !other.join("trip").exists());
         // When the folder is there already, a notice says so, and nothing else is made.
         app.run(&ctx, crate::ui::actions::Action::NewFolder);
-        app.answer_prompt(&ctx, crate::ui::dialogs::Prompt::NewFolder, "trip");
+        app.act_on_prompt_answer(&ctx, crate::ui::dialogs::Prompt::NewFolder, "trip");
         assert!(run_background_until(&mut app, &ctx, |a| a.notice.is_some()));
         std::fs::remove_dir_all(d).unwrap();
     }

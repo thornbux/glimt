@@ -631,7 +631,7 @@ mod tests {
         app.open(&ctx, trip.clone());
         app.run(&ctx, crate::ui::actions::Action::RenameCollection);
         app.open(&ctx, home.clone());
-        app.answer_prompt(&ctx, crate::ui::dialogs::Prompt::RenameCollection, "summer");
+        app.act_on_prompt_answer(&ctx, crate::ui::dialogs::Prompt::RenameCollection, "summer");
         assert!(dir.join("summer.gqv").is_file() && !trip.exists() && home.is_file());
         assert_eq!(app.folder.collection(), Some(home.as_path()));
         std::fs::remove_dir_all(dir).unwrap();
