@@ -490,6 +490,9 @@ pub fn icc_profile(path: &Path) -> Option<Vec<u8>> {
         let mut dec = jxl_oxide::integration::JxlDecoder::new(file).ok()?;
         return dec.icc_profile().ok().flatten();
     }
+    if crate::files::external::is_heif(path) {
+        return heif_icc(path);
+    }
     image_reader(path)
         .ok()?
         .into_decoder()
@@ -497,6 +500,21 @@ pub fn icc_profile(path: &Path) -> Option<Vec<u8>> {
         .icc_profile()
         .ok()
         .flatten()
+}
+
+/// Returns the ICC profile of a HEIC or AVIF photo, from the first `colr` box of the kind
+/// `prof` in its first MB, where the boxes that describe the image are. It is read from the
+/// file, because ffmpeg's frame of a photo in tiles loses it where the tiles are put together.
+/// Before, an iPhone's Display P3 photo was shown, thumbnailed and saved as if it were sRGB.
+/// Returns `None` when there is none, or when what is found is no ICC profile.
+// shortcut: the first profile is taken, which is the photo's own in phones' files; find the
+// primary item's through iprp/ipma if a file turns up with another before it.
+fn heif_icc(path: &Path) -> Option<Vec<u8>> {
+    let head = read_head(path, 1 << 20).ok()?;
+    let at = head.windows(8).position(|w| w == b"colrprof")?;
+    let size = u32::from_be_bytes(head.get(at.checked_sub(4)?..at)?.try_into().ok()?) as usize;
+    let icc = head.get(at + 8..(at - 4).checked_add(size)?)?;
+    (icc.get(36..40) == Some(&b"acsp"[..])).then(|| icc.to_vec())
 }
 
 /// The whole image (a preview frame for videos), turned upright by EXIF if `rotate`, and its
@@ -549,7 +567,7 @@ fn load_unturned(path: &Path, rotate: bool, max: Option<[u32; 2]>) -> Result<Unt
     #[cfg(any(feature = "heic", feature = "avif"))]
     if crate::files::external::is_heif(path) {
         let (img, size) = crate::files::external::heif(path, max)?;
-        return Ok((img, None, upright, size));
+        return Ok((img, icc_profile(path), upright, size));
     }
     #[cfg(feature = "svg")]
     if has_ext(path, crate::model::listing::SVG_EXTS) {
@@ -1214,6 +1232,57 @@ mod tests {
         let row = |y| (0..10).map(|x| page.get_pixel(x, y)[0]).collect::<Vec<_>>();
         assert_eq!(row(0), [0, 255, 255, 255, 255, 255, 255, 255, 255, 0]);
         assert_eq!(row(1), [255; 10]);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A HEIC or AVIF photo's ICC profile is read from its `colr` box, for the view, the
+    /// thumbnails, a copy and the colour line alike. Before, it was lost on the way through
+    /// ffmpeg, and an iPhone's Display P3 photo was taken for sRGB.
+    #[test]
+    fn a_heif_photo_keeps_its_profile() {
+        use crate::images::colour::ADOBE_RGB;
+        let dir = std::env::temp_dir().join(format!("glimt-test-heif-icc-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let colr = |kind: &[u8], body: &[u8]| {
+            let size = (12 + body.len()) as u32;
+            [&size.to_be_bytes()[..], b"colr", kind, body].concat()
+        };
+        let file = [
+            &b"\0\0\0\x18ftypheic\0\0\0\0mif1heic"[..],
+            &colr(b"nclx", &[0, 1, 0, 13, 0, 6, 0x80]),
+            &colr(b"prof", &ADOBE_RGB),
+        ]
+        .concat();
+        for (ext, built) in [
+            ("heic", cfg!(feature = "heic")),
+            ("avif", cfg!(feature = "avif")),
+        ] {
+            let path = dir.join(format!("a.{ext}"));
+            std::fs::write(&path, &file).unwrap();
+            let icc = super::icc_profile(&path);
+            assert_eq!(icc.as_deref(), built.then_some(&ADOBE_RGB[..]), "{ext}");
+        }
+        // A box cut short or holding no profile gives none.
+        let path = dir.join("a.heic");
+        std::fs::write(&path, colr(b"prof", b"not a profile at all, not one")).unwrap();
+        assert_eq!(super::heif_icc(&path), None);
+        std::fs::write(&path, &file[..file.len() - 10]).unwrap();
+        assert_eq!(super::heif_icc(&path), None);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A damaged HEIC's profile is found or not, never a panic.
+    #[test]
+    fn survives_broken_heif_profiles() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-heif-bad-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("a.heic");
+        let seed = b"\0\0\0\x18ftypheic\0\0\0\0mif1heic\0\0\0\x34colrprof\0\0\0\x28\0\0\0\0\
+            \0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0acsp";
+        for bytes in crate::support::test_support::broken(seed) {
+            std::fs::write(&path, &bytes).unwrap();
+            let _ = super::heif_icc(&path);
+        }
         std::fs::remove_dir_all(dir).unwrap();
     }
 
