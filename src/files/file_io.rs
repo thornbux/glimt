@@ -81,7 +81,7 @@ fn plain(e: std::io::Error, to: &Path) -> std::io::Error {
     // file system.
     match e.raw_os_error() {
         Some(18 | 38 | 95) => {
-            let kind = mount_type(to.parent().unwrap_or(to)).unwrap_or_else(|| "?".into());
+            let kind = file_system_type(to.parent().unwrap_or(to)).unwrap_or_else(|| "?".into());
             std::io::Error::new(
                 e.kind(),
                 crate::tf!(
@@ -101,26 +101,26 @@ fn plain(e: std::io::Error, to: &Path) -> std::io::Error {
 /// that does not answer. A disk through FUSE, such as exFAT through exfat-fuse or NTFS through
 /// ntfs-3g, is only "fuseblk" there, so its type is the one udev found on the disk when udev
 /// knows it (not in a container or a Flatpak without the devices).
-pub(crate) fn mount_type(path: &Path) -> Option<String> {
+pub(crate) fn file_system_type(path: &Path) -> Option<String> {
     use crate::images::decode::{read_limited, read_text};
     let mounts = read_limited("/proc/self/mountinfo").ok()?;
-    mount_type_in(&mounts, path, |dev| {
+    file_system_type_in(&mounts, path, |dev| {
         let udev = read_text(format!("/run/udev/data/b{}", String::from_utf8_lossy(dev))).ok()?;
-        fs_type_in_udev(&udev)
+        file_system_type_in_udev(&udev)
     })
 }
 
 /// Returns the file system's type in `udev`, a device's file in /run/udev/data, as blkid
 /// found it on the disk. Returns `None` when blkid found none.
-fn fs_type_in_udev(udev: &str) -> Option<String> {
+fn file_system_type_in_udev(udev: &str) -> Option<String> {
     let kind = udev.lines().find_map(|l| l.strip_prefix("E:ID_FS_TYPE="))?;
     (!kind.is_empty()).then(|| kind.to_owned())
 }
 
-/// Returns whether a mount of type `kind` (from `mount_type`) is on another computer or in a
-/// cloud, through FUSE, SMB or NFS. A fuseblk mount (NTFS or exFAT on a local disk) is not.
-/// Every other FUSE mount counts, also a local one such as gocryptfs, so the delete dialog does
-/// not call the folder a network folder.
+/// Returns whether a mount of type `kind` (from `file_system_type`) is on another computer or in a
+/// cloud, through FUSE, SMB or NFS. A fuseblk mount (NTFS or exFAT on a local disk) is not. Every
+/// other FUSE mount counts, also a local one such as gocryptfs, so the delete dialog does not call
+/// the folder a network folder.
 pub(crate) fn is_remote(kind: &str) -> bool {
     kind.starts_with("fuse.") || matches!(kind, "cifs" | "smb3" | "nfs" | "nfs4" | "9p")
 }
@@ -132,7 +132,7 @@ pub(crate) fn is_remote(kind: &str) -> bool {
 /// two at the same place, the later one is on top. The text is read as bytes, because a mount
 /// point may have a name that is not UTF-8. `device_type` gives the type of a fuseblk mount's
 /// disk from its device's numbers.
-fn mount_type_in(
+fn file_system_type_in(
     mountinfo: &[u8],
     path: &Path,
     device_type: impl Fn(&[u8]) -> Option<String>,
@@ -630,7 +630,7 @@ mod tests {
     #[test]
     fn tells_a_rename_the_file_system_cannot_do_in_plain_words() {
         let to = std::env::temp_dir().join("b.jpg");
-        let kind = super::mount_type(&std::env::temp_dir()).unwrap();
+        let kind = super::file_system_type(&std::env::temp_dir()).unwrap();
         for errno in [18, 38, 95] {
             let raw = std::io::Error::from_raw_os_error(errno);
             let told = super::plain(std::io::Error::from_raw_os_error(errno), &to);
@@ -669,7 +669,7 @@ mod tests {
             13 1 8:113 / /media/me/NTFS rw - fuseblk /dev/sdh1 rw,user_id=0\n\
             broken\n";
         let udev = |dev: &[u8]| (dev == b"8:97").then(|| "exfat".to_owned());
-        let kind = |p: &str| super::mount_type_in(mounts, std::path::Path::new(p), udev);
+        let kind = |p: &str| super::file_system_type_in(mounts, std::path::Path::new(p), udev);
         assert_eq!(kind("/home/me/a.jpg").as_deref(), Some("ext4"));
         let gvfs = "/run/user/1000/gvfs/sftp:host=nas/a.jpg";
         assert_eq!(kind(gvfs).as_deref(), Some("fuse.gvfsd-fuse"));
@@ -685,11 +685,14 @@ mod tests {
         assert_eq!(kind("/media/me/EXFAT/a.jpg").as_deref(), Some("exfat"));
         assert_eq!(kind("/media/me/NTFS/a.jpg").as_deref(), Some("fuseblk"));
         let udev_file = "S:disk/by-uuid/1234-ABCD\nE:ID_FS_USAGE=filesystem\nE:ID_FS_TYPE=exfat\n";
-        assert_eq!(super::fs_type_in_udev(udev_file).as_deref(), Some("exfat"));
-        assert_eq!(super::fs_type_in_udev("E:ID_FS_TYPE=\n"), None);
+        assert_eq!(
+            super::file_system_type_in_udev(udev_file).as_deref(),
+            Some("exfat")
+        );
+        assert_eq!(super::file_system_type_in_udev("E:ID_FS_TYPE=\n"), None);
         let latin1 = std::path::Path::new(std::ffi::OsStr::from_bytes(b"/media/me/K\xf8RT/a.jpg"));
         assert_eq!(
-            super::mount_type_in(mounts, latin1, udev).as_deref(),
+            super::file_system_type_in(mounts, latin1, udev).as_deref(),
             Some("vfat")
         );
         assert!(super::is_remote("fuse.rclone") && super::is_remote("cifs"));
@@ -705,7 +708,7 @@ mod tests {
             31 20 0:5 / /proc rw - proc proc rw\n\
             32 30 8:17 / /card rw - vfat /dev/sdb1 rw\n";
         let none = |_: &[u8]| None;
-        let kind = |m: &[u8], p: &str| super::mount_type_in(m, std::path::Path::new(p), none);
+        let kind = |m: &[u8], p: &str| super::file_system_type_in(m, std::path::Path::new(p), none);
         assert_eq!(kind(mounts, "/proc/1/status"), None);
         assert_eq!(kind(mounts, "/card/a.jpg").as_deref(), Some("vfat"));
         assert_eq!(kind(mounts, "/home/a.jpg").as_deref(), Some("tmpfs"));

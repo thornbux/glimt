@@ -679,7 +679,7 @@ impl crate::App {
             // Those not reached after Stop are still there, as after a failure.
             let _ = report_tx.send(OperationReport {
                 untrashable: refused
-                    .then(|| left_by_trash(&paths, crate::files::file_io::mount_type))
+                    .then(|| left_by_trash(&paths, crate::files::file_io::file_system_type))
                     .flatten(),
                 requested: paths,
                 gone,
@@ -910,7 +910,7 @@ impl crate::App {
         // through a link is seen as one. It is checked before the files leave the list, so a
         // refused move keeps the view.
         let dest = crate::model::listing::real_dir(&dest);
-        if let Some(text) = refused_transfer(&paths, &dest, keep, fs_type) {
+        if let Some(text) = refused_transfer(&paths, &dest, keep, file_system_type_or_test) {
             self.notice = Some(text);
             return;
         }
@@ -1083,7 +1083,7 @@ impl crate::App {
     ) {
         // A camera card refuses some characters. Saying so before the job starts names the
         // reason, where a rename that fails halfway would only give the system's error.
-        if let Some(refused) = refused_on_fat(&to, fs_type) {
+        if let Some(refused) = refused_on_fat(&to, file_system_type_or_test) {
             self.notice = Some(not_renamed(refused));
             return;
         }
@@ -1314,7 +1314,8 @@ impl crate::App {
             return;
         }
         // A camera card refuses some characters, and its own error would not say which.
-        if let Some(refused) = refused_on_fat(std::slice::from_ref(&new), fs_type) {
+        if let Some(refused) = refused_on_fat(std::slice::from_ref(&new), file_system_type_or_test)
+        {
             self.notice = Some(not_renamed(refused));
             return;
         }
@@ -1839,18 +1840,18 @@ fn forget_in_collection(
 
 /// Returns the files of `paths` that are still there on a network or cloud mount, with the
 /// mount's type, after the trash refused them. Returns `None` when there are none, such as when
-/// the trash failed in a local folder that cannot be written. `mount_type` gives a folder's file
-/// system, and it is asked once for each folder.
+/// the trash failed in a local folder that cannot be written. `file_system_type` gives a folder's
+/// file system, and it is asked once for each folder.
 fn left_by_trash(
     paths: &[PathBuf],
-    mount_type: impl Fn(&Path) -> Option<String>,
+    file_system_type: impl Fn(&Path) -> Option<String>,
 ) -> Option<(String, Vec<PathBuf>)> {
     use crate::files::file_io::is_remote;
     let mut kinds: HashMap<PathBuf, Option<String>> = HashMap::new();
     let mut remote = |p: &Path| {
         let dir = p.parent()?.to_path_buf();
         (kinds.entry(dir))
-            .or_insert_with_key(|dir| mount_type(dir).filter(|k| is_remote(k)))
+            .or_insert_with_key(|dir| file_system_type(dir).filter(|k| is_remote(k)))
             .clone()
     };
     let left: Vec<PathBuf> = (paths.iter())
@@ -1860,9 +1861,9 @@ fn left_by_trash(
     Some((remote(left.first()?)?, left))
 }
 
-/// Returns the type of the file system that `dir` is on, as `file_io::mount_type` does. A test
-/// gives its folder a type with `test_mount` instead, because no test can mount a FAT card.
-fn fs_type(dir: &Path) -> Option<String> {
+/// Returns the type of the file system that `dir` is on, as `file_io::file_system_type` does. A
+/// test gives its folder a type with `test_mount` instead, because no test can mount a FAT card.
+fn file_system_type_or_test(dir: &Path) -> Option<String> {
     #[cfg(test)]
     {
         let mounts = TEST_MOUNTS.lock().unwrap();
@@ -1871,7 +1872,7 @@ fn fs_type(dir: &Path) -> Option<String> {
             return Some(kind.clone());
         }
     }
-    crate::files::file_io::mount_type(dir)
+    crate::files::file_io::file_system_type(dir)
 }
 
 /// Gives `dir` and the folders below it the file system `kind` in a test, as if a card were
@@ -1885,28 +1886,28 @@ pub(crate) fn test_mount(dir: &Path, kind: Option<&str>) {
 
 /// Returns the type of the file system that `dir` is on when it is FAT or exFAT, as on a camera
 /// card. Returns `None` on any other file system.
-pub(crate) fn fat_type(dir: &Path) -> Option<String> {
-    fs_type(dir).filter(|kind| is_fat(kind))
+pub(crate) fn fat_file_system_type(dir: &Path) -> Option<String> {
+    file_system_type_or_test(dir).filter(|kind| is_fat(kind))
 }
 
-/// Returns whether `kind`, a type of file system from `mount_type`, is FAT or exFAT. An exFAT
+/// Returns whether `kind`, a type of file system from `file_system_type`, is FAT or exFAT. An exFAT
 /// card through FUSE is "fuseblk" where udev's data cannot be read, as in a container or the
-/// Flatpak, and so is NTFS through ntfs-3g, which allows : ? * and the others. A fuseblk mount
-/// is not taken as FAT, so that no name is refused on NTFS. On such a card the copy or rename
-/// fails at that file with the system's error instead, as before 0.63.0.
+/// Flatpak, and so is NTFS through ntfs-3g, which allows : ? * and the others. A fuseblk mount is
+/// not taken as FAT, so that no name is refused on NTFS. On such a card the copy or rename fails at
+/// that file with the system's error instead, as before 0.63.0.
 fn is_fat(kind: &str) -> bool {
     matches!(kind, "vfat" | "msdos" | "exfat")
 }
 
 /// Finds a name of `to` with a character that the FAT or exFAT file system of its folder
 /// refuses, before anything is renamed, copied or moved. Returns that name with the type of its
-/// file system, or `None` when every name is allowed where it goes. `mount_type` gives a
+/// file system, or `None` when every name is allowed where it goes. `file_system_type` gives a
 /// folder's file system. Only the folder of a name with such a character is looked up, and each
 /// folder once, because a rename runs this in the window's thread and every lookup reads the
 /// mount table.
 fn refused_on_fat(
     to: &[PathBuf],
-    mount_type: impl Fn(&Path) -> Option<String>,
+    file_system_type: impl Fn(&Path) -> Option<String>,
 ) -> Option<(String, String)> {
     let mut kinds: HashMap<&Path, Option<String>> = HashMap::new();
     to.iter().find_map(|path| {
@@ -1917,7 +1918,7 @@ fn refused_on_fat(
         let dir = path.parent()?;
         let kind = kinds
             .entry(dir)
-            .or_insert_with(|| mount_type(dir))
+            .or_insert_with(|| file_system_type(dir))
             .clone()?;
         is_fat(&kind).then(|| (name.into_owned(), kind))
     })
@@ -1941,11 +1942,11 @@ fn refused_transfer(
     paths: &[PathBuf],
     dest: &Path,
     keep: bool,
-    mount_type: impl Fn(&Path) -> Option<String>,
+    file_system_type: impl Fn(&Path) -> Option<String>,
 ) -> Option<String> {
     let odd = (paths.iter().filter_map(|p| p.file_name()))
         .find(|n| n.to_string_lossy().contains(NOT_ON_FAT))?;
-    let (name, kind) = refused_on_fat(&[dest.join(odd)], mount_type)?;
+    let (name, kind) = refused_on_fat(&[dest.join(odd)], file_system_type)?;
     Some(match keep {
         true => tf!(
             "\"{name}\": a {kind} file system, as on a camera card, allows none of : ? * \" < > | \\ in a name. Nothing was copied.",
@@ -3552,7 +3553,7 @@ mod tests {
             crate::files::file_io::create_file(&file, "").unwrap();
         }
         let looked = std::cell::Cell::new(0);
-        let mount_type = |folder: &Path| {
+        let file_system_type = |folder: &Path| {
             looked.set(looked.get() + 1);
             Some(
                 if folder == cloud {
@@ -3568,7 +3569,7 @@ mod tests {
             .into_iter()
             .chain([local.join("c.png")])
             .collect();
-        let left = super::left_by_trash(&paths, mount_type);
+        let left = super::left_by_trash(&paths, file_system_type);
         let kind = "fuse.rclone".to_owned();
         assert_eq!(
             left,
@@ -3576,7 +3577,7 @@ mod tests {
         );
         assert_eq!(looked.get(), 2);
         assert_eq!(
-            super::left_by_trash(&[local.join("c.png")], mount_type),
+            super::left_by_trash(&[local.join("c.png")], file_system_type),
             None
         );
         std::fs::remove_dir_all(dir).unwrap();

@@ -4,7 +4,7 @@
 use crate::features::print::{PrintJob, PrintTo};
 use crate::files::config::xdg_dir;
 use crate::files::external::{Login, command};
-use crate::files::file_ops::{NOT_ON_FAT, OperationReport, fat_type};
+use crate::files::file_ops::{NOT_ON_FAT, OperationReport, fat_file_system_type};
 use crate::model::listing::pattern_name;
 use crate::support::format::count;
 use crate::support::lang::tr;
@@ -262,7 +262,10 @@ impl crate::App {
     /// file's folder is looked up here, once, for the preview of its new name.
     pub(crate) fn ask_rename_many(&mut self, asked: Asked) {
         let first = (asked.names.first()).map(|n| self.folder.dir().join(n));
-        self.dialogs.fat = first.as_deref().and_then(Path::parent).and_then(fat_type);
+        self.dialogs.fat = first
+            .as_deref()
+            .and_then(Path::parent)
+            .and_then(fat_file_system_type);
         self.dialogs
             .ask_about(asked, Prompt::RenameMany, "*_###".into());
     }
