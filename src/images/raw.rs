@@ -77,9 +77,9 @@ pub fn preview(data: &[u8]) -> Option<&[u8]> {
         .map(|f| f.1)
 }
 
-/// Whether all of the JPEG at the start of `data` is there: its end marker after its image data,
-/// not only the one of the thumbnail in its EXIF.
-pub fn whole_jpeg(data: &[u8]) -> bool {
+/// Returns whether all of the JPEG at the start of `data` is there: its end marker after its image
+/// data, not only the one of the thumbnail in its EXIF.
+pub fn is_whole_jpeg(data: &[u8]) -> bool {
     crate::metadata::exif::jpeg_scan_start(data)
         .is_some_and(|scan| data[scan..].windows(2).any(|w| w == [0xff, 0xd9]))
 }
@@ -124,8 +124,8 @@ mod tests {
                 image::ImageFormat::Jpeg,
             )
             .unwrap();
-        assert!(super::whole_jpeg(&jpeg));
-        assert!(!super::whole_jpeg(&jpeg[..jpeg.len() - 40]));
+        assert!(super::is_whole_jpeg(&jpeg));
+        assert!(!super::is_whole_jpeg(&jpeg[..jpeg.len() - 40]));
     }
 
     /// A made-up RAW file: a header, a small JPEG, lossless sensor data, a larger JPEG and a

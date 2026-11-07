@@ -11,8 +11,8 @@ const ALT: &str = "Iptc4xmpCore:AltTextAccessibility";
 
 const EXTENDED: &str = "Iptc4xmpCore:ExtDescrAccessibility";
 
-/// The 64 locks within this Glimt, by `lock_slot`.
-static SLOTS: [std::sync::Mutex<()>; 64] = [const { std::sync::Mutex::new(()) }; 64];
+/// The 64 locks within this Glimt, by `sidecar_lock_number`.
+static SIDECAR_LOCKS: [std::sync::Mutex<()>; 64] = [const { std::sync::Mutex::new(()) }; 64];
 
 #[derive(Clone, Default, PartialEq, Debug)]
 pub struct Meta {
@@ -54,8 +54,8 @@ pub struct Access {
 }
 
 /// A sidecar's lock while it is held. It holds the lock file, if it could be made, and the
-/// mutex of its slot.
-pub(crate) type Held = (Option<std::fs::File>, std::sync::MutexGuard<'static, ()>);
+/// mutex in `SIDECAR_LOCKS` that its number picks.
+pub(crate) type SidecarLock = (Option<std::fs::File>, std::sync::MutexGuard<'static, ()>);
 
 fn parse_access(xmp: &str) -> Access {
     let first = |tag| items(xmp, tag).into_iter().next().unwrap_or_default();
@@ -89,7 +89,7 @@ pub fn read_all(path: &Path) -> (Meta, Vec<String>, Access) {
 /// in it stays. Fields the image holds itself and that were cleared are written empty, as the
 /// comment is.
 pub fn write_access(path: &Path, access: &Access) -> Result<(), String> {
-    let _held = held(path);
+    let _lock = lock_sidecar(path);
     let own = embedded(path).is_some_and(|x| parse_access(&x) != Access::default());
     update(path, *access == Access::default() && !own, |x| {
         set_access(x, access, own)
@@ -237,7 +237,7 @@ pub fn write_changed(
     keywords: Option<Vec<String>>,
     comment: Option<String>,
 ) -> Result<Meta, String> {
-    let _held = held(path);
+    let _lock = lock_sidecar(path);
     let mut meta = read(path);
     let keywords_only = comment.is_none();
     if let Some(k) = keywords {
@@ -269,7 +269,7 @@ pub fn add_to(have: &mut Vec<String>, keywords: &[String]) {
 
 /// Add `keywords` to those `path` has, read and written as one change.
 pub fn add_keywords(path: &Path, keywords: &[String]) -> Result<(), String> {
-    let _held = held(path);
+    let _lock = lock_sidecar(path);
     let mut meta = read(path);
     add_to(&mut meta.keywords, keywords);
     update(path, meta == Meta::default(), |x| {
@@ -288,36 +288,41 @@ pub fn add_keywords(path: &Path, keywords: &[String]) -> Result<(), String> {
 /// the other. There are 64 locks, so a sidecar on a share that stopped answering holds up only
 /// the sidecars of its own lock, not every write of the window. A move holds it too, so a write
 /// that waited finds the photo gone, not its old name free for a sidecar.
-pub(crate) fn held(path: &Path) -> Held {
-    held_in(locks().as_deref(), path)
+pub(crate) fn lock_sidecar(path: &Path) -> SidecarLock {
+    lock_sidecar_in(locks().as_deref(), path)
 }
 
-fn held_in(dir: Option<&Path>, path: &Path) -> Held {
+fn lock_sidecar_in(dir: Option<&Path>, path: &Path) -> SidecarLock {
     let side = sidecar(path);
-    let guard = SLOTS[lock_slot(&side) as usize]
+    let guard = SIDECAR_LOCKS[sidecar_lock_number(&side) as usize]
         .lock()
         .unwrap_or_else(|e| e.into_inner());
     (dir.and_then(|d| lock_file(d, &side)), guard)
 }
 
-/// `held` for many files at once, as Rename Many and a delete move a photo and then its
+/// `lock_sidecar` for many files at once, as Rename Many and a delete move a photo and then its
 /// sidecar. Each lock is taken once, because taking one twice would wait for itself. They are
 /// taken in the order of their numbers, which every Glimt and every thread takes them in, so
 /// two of these never wait for each other.
-pub(crate) fn held_all<'a>(paths: impl IntoIterator<Item = &'a PathBuf>) -> Vec<Held> {
-    held_all_in(locks().as_deref(), paths)
+pub(crate) fn lock_sidecars<'a>(paths: impl IntoIterator<Item = &'a PathBuf>) -> Vec<SidecarLock> {
+    lock_sidecars_in(locks().as_deref(), paths)
 }
 
-fn held_all_in<'a>(dir: Option<&Path>, paths: impl IntoIterator<Item = &'a PathBuf>) -> Vec<Held> {
+fn lock_sidecars_in<'a>(
+    dir: Option<&Path>,
+    paths: impl IntoIterator<Item = &'a PathBuf>,
+) -> Vec<SidecarLock> {
     let mut sides: Vec<(u64, PathBuf)> = (paths.into_iter())
         .map(|p| sidecar(p))
-        .map(|s| (lock_slot(&s), s))
+        .map(|s| (sidecar_lock_number(&s), s))
         .collect();
     sides.sort_by_key(|s| s.0);
     sides.dedup_by_key(|s| s.0);
     (sides.iter())
         .map(|(n, side)| {
-            let guard = SLOTS[*n as usize].lock().unwrap_or_else(|e| e.into_inner());
+            let guard = SIDECAR_LOCKS[*n as usize]
+                .lock()
+                .unwrap_or_else(|e| e.into_inner());
             (dir.and_then(|d| lock_file(d, side)), guard)
         })
         .collect()
@@ -335,14 +340,14 @@ fn lock_file(dir: &Path, side: &Path) -> Option<std::fs::File> {
         .mode(0o700)
         .create(dir);
     #[allow(clippy::disallowed_methods)] // an empty lock file in the private runtime folder
-    let file = std::fs::File::create(dir.join(lock_slot(side).to_string())).ok()?;
+    let file = std::fs::File::create(dir.join(sidecar_lock_number(side).to_string())).ok()?;
     file.lock().ok()?;
     Some(file)
 }
 
 /// Which of the 64 lock files a sidecar has. It is FNV-1a of its path's bytes, the same in
 /// every Glimt, also one built with another Rust, whose own hasher may differ.
-pub(crate) fn lock_slot(side: &Path) -> u64 {
+pub(crate) fn sidecar_lock_number(side: &Path) -> u64 {
     use std::os::unix::ffi::OsStrExt;
     let fnv = (side.as_os_str().as_bytes().iter()).fold(0xcbf2_9ce4_8422_2325_u64, |h, &b| {
         (h ^ b as u64).wrapping_mul(0x100_0000_01b3)
@@ -353,21 +358,21 @@ pub(crate) fn lock_slot(side: &Path) -> u64 {
 /// Changes the sidecar of `path` with `change`, or a new, empty sidecar unless `only_if_there`,
 /// in which case a file without a sidecar keeps having none. It is written to a temporary file
 /// first, so a crash never leaves half a sidecar. The stars are written with it; a turn holds the
-/// lock on after the change, so it takes the lock itself (`update_held`).
+/// lock on after the change, so it takes the lock itself (`update_locked_sidecar`).
 #[cfg(any(feature = "marks", test))]
 pub fn update_sidecar(
     path: &Path,
     only_if_there: bool,
     change: impl FnOnce(&str) -> Option<String>,
 ) -> Result<(), String> {
-    let _held = held(path);
+    let _lock = lock_sidecar(path);
     update(path, only_if_there, change)
 }
 
 /// Changes the sidecar of `path` as `update_sidecar` does, with its lock already taken by the
 /// caller, who holds it on after the change (`save::replace_with_sidecar`).
-pub(crate) fn update_held(
-    _held: &Held,
+pub(crate) fn update_locked_sidecar(
+    _lock: &SidecarLock,
     path: &Path,
     only_if_there: bool,
     change: impl FnOnce(&str) -> Option<String>,
@@ -622,7 +627,7 @@ fn insert(xmp: String, add: &str, prefix: &str, uri: &str) -> Option<String> {
 /// name (Oslo) goes among the keywords, and the whole path in lr:hierarchicalSubject, where
 /// darktable, digiKam and Lightroom keep the tree's place of a keyword.
 pub fn tag_file(path: &Path, tag: &str, on: bool) -> Result<(), String> {
-    let _held = held(path);
+    let _lock = lock_sidecar(path);
     let mut meta = read(path);
     let mut paths = tree_paths(path);
     set_tag(&mut meta.keywords, &mut paths, tag, on);
@@ -636,7 +641,7 @@ pub fn tag_file(path: &Path, tag: &str, on: bool) -> Result<(), String> {
 /// among its keywords and each path in lr:hierarchicalSubject, beside what it has, which stays.
 /// Nothing is written when it has them all.
 pub fn add_tags(path: &Path, tags: &[String]) -> Result<(), String> {
-    let _held = held(path);
+    let _lock = lock_sidecar(path);
     let mut meta = read(path);
     let mut paths = tree_paths(path);
     let (keywords, known) = (meta.keywords.clone(), paths.clone());
@@ -654,7 +659,7 @@ pub fn add_tags(path: &Path, tags: &[String]) -> Result<(), String> {
 
 /// `xmp` without property `tag` in any form it is written in (`save::without`).
 pub(crate) fn without(xmp: &str, tag: &str) -> String {
-    let out = crate::images::save::without(xmp.as_bytes(), tag.as_bytes());
+    let out = crate::images::save::xmp_without_property(xmp.as_bytes(), tag.as_bytes());
     // It cuts only at ASCII characters, so the text stays UTF-8.
     String::from_utf8(out).unwrap_or_else(|_| xmp.to_owned())
 }
@@ -757,7 +762,7 @@ mod tests {
         std::fs::create_dir_all(dir.join("to")).unwrap();
         let (from, to) = (dir.join("IMG.jpg"), dir.join("to/IMG.jpg"));
         std::fs::write(&from, b"photo").unwrap();
-        let move_held = super::held(&from);
+        let move_lock = super::lock_sidecar(&from);
         let writer = {
             let from = from.clone();
             std::thread::spawn(move || super::add_keywords(&from, &["Oslo".to_owned()]))
@@ -765,7 +770,7 @@ mod tests {
         std::thread::sleep(std::time::Duration::from_millis(50));
         crate::files::file_io::put_file(&from, &to, false).unwrap();
         super::follow(&from, &to, false).unwrap();
-        drop(move_held);
+        drop(move_lock);
         assert!(writer.join().unwrap().is_err());
         assert!(!super::sidecar(&from).exists());
         std::fs::remove_dir_all(dir).unwrap();
@@ -786,8 +791,14 @@ mod tests {
     #[test]
     fn lock_slots_stay() {
         use std::path::Path;
-        assert_eq!(super::lock_slot(Path::new("")), 0xcbf2_9ce4_8422_2325 % 64);
-        assert_eq!(super::lock_slot(Path::new("a")), 0xaf63_dc4c_8601_ec8c % 64);
+        assert_eq!(
+            super::sidecar_lock_number(Path::new("")),
+            0xcbf2_9ce4_8422_2325 % 64
+        );
+        assert_eq!(
+            super::sidecar_lock_number(Path::new("a")),
+            0xaf63_dc4c_8601_ec8c % 64
+        );
     }
 
     /// Within one Glimt, a holder whose lock file could not be made waits for one whose could,
@@ -797,18 +808,18 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("glimt-test-slots-{}", std::process::id()));
         let photo = std::path::PathBuf::from("/photos/slot.jpg");
         for (first, then) in [(Some(dir.as_path()), None), (None, Some(dir.as_path()))] {
-            let held = super::held_in(first, &photo);
+            let lock = super::lock_sidecar_in(first, &photo);
             let (tx, rx) = std::sync::mpsc::channel();
             let (dir2, p) = (then.map(|d| d.to_path_buf()), photo.clone());
             let waiter = std::thread::spawn(move || {
-                let all = super::held_all_in(dir2.as_deref(), [&p]);
+                let all = super::lock_sidecars_in(dir2.as_deref(), [&p]);
                 tx.send(()).unwrap();
                 drop(all);
             });
             let waited = rx
                 .recv_timeout(std::time::Duration::from_millis(200))
                 .is_err();
-            drop(held);
+            drop(lock);
             waiter.join().unwrap();
             assert!(waited, "{first:?} then {then:?}");
         }
@@ -1364,7 +1375,7 @@ mod tests {
             std::fs::symlink_metadata(sidecar(&b)).is_err(),
             "copied through the link"
         );
-        crate::images::save::land(&a, &c, b"x", false, false).unwrap();
+        crate::images::save::save_copy_with_sidecar(&a, &c, b"x", false, false).unwrap();
         assert!(
             std::fs::symlink_metadata(sidecar(&c)).is_err(),
             "landed through the link"

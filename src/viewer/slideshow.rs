@@ -1,7 +1,7 @@
 //! The slideshow: its timer, its order, the fade and the next image.
 
 use crate::files::config::FADES;
-use crate::files::config::MAX_DELAY;
+use crate::files::config::MAX_SLIDESHOW_DELAY;
 use crate::model::collections;
 use crate::model::listing::shuffle;
 use crate::model::selection::round_ends;
@@ -331,7 +331,7 @@ impl crate::App {
             .config
             .slideshow_delay
             .saturating_add_signed(step)
-            .clamp(1, MAX_DELAY);
+            .clamp(1, MAX_SLIDESHOW_DELAY);
         self.config.save();
         self.title(ctx);
     }

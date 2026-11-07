@@ -4,7 +4,7 @@
 use crate::features::print::{PrintJob, PrintTo};
 use crate::files::config::xdg_dir;
 use crate::files::external::{Login, command};
-use crate::files::file_ops::{Deleted, NOT_ON_FAT, fat_type};
+use crate::files::file_ops::{NOT_ON_FAT, OperationReport, fat_file_system_type};
 use crate::model::listing::pattern_name;
 use crate::support::format::count;
 use crate::support::lang::tr;
@@ -262,7 +262,10 @@ impl crate::App {
     /// file's folder is looked up here, once, for the preview of its new name.
     pub(crate) fn ask_rename_many(&mut self, asked: Asked) {
         let first = (asked.names.first()).map(|n| self.folder.dir().join(n));
-        self.dialogs.fat = first.as_deref().and_then(Path::parent).and_then(fat_type);
+        self.dialogs.fat = first
+            .as_deref()
+            .and_then(Path::parent)
+            .and_then(fat_file_system_type);
         self.dialogs
             .ask_about(asked, Prompt::RenameMany, "*_###".into());
     }
@@ -334,7 +337,10 @@ impl crate::App {
                 cmd.arg("--title").arg(title).arg(mode).arg(&start);
                 cmd.output()
             };
-            let output = match (external::has("zenity"), external::has("kdialog")) {
+            let output = match (
+                external::has_program("zenity"),
+                external::has_program("kdialog"),
+            ) {
                 (true, _) => zenity(),
                 (false, true) => kdialog(),
                 (false, false) => Err(std::io::ErrorKind::NotFound.into()),
@@ -370,9 +376,10 @@ impl crate::App {
                 |p| p.with_extension("pdf"),
             ),
             // "name-frame-3.png" beside the file.
-            Pick::SaveFrame(path, k, _) => {
-                path.with_file_name(save::stem_and(path, &format!("-frame-{}.png", k + 1)))
-            }
+            Pick::SaveFrame(path, k, _) => path.with_file_name(save::stem_with_suffix(
+                path,
+                &format!("-frame-{}.png", k + 1),
+            )),
             Pick::SaveAs(_, _, start) => start.clone(),
             // Made first: the file dialog cannot start in a folder that is not there.
             Pick::Collection => (collections::dir())
@@ -625,7 +632,7 @@ impl crate::App {
         }
         if matches!(prompt, Prompt::Rename)
             && !self.list.files().is_empty()
-            && !self.none_saving(&[self.path(self.list.cur())])
+            && !self.are_free_to_change(&[self.path(self.list.cur())])
         {
             return;
         }
@@ -644,12 +651,12 @@ impl crate::App {
             // In the background, as a share that stopped answering would hold the window until
             // create_dir returns; `folder_made` reads the folder again.
             Prompt::NewFolder => {
-                let deleted_tx = self.work.deleted_sender();
-                self.background(ctx, Vec::new(), move || {
+                let report_tx = self.file_operations.report_sender();
+                self.run_in_background(ctx, Vec::new(), move || {
                     if let Err(e) = std::fs::create_dir(&target) {
                         return Some(format!("{display}: {e}", display = target.display()));
                     }
-                    let _ = deleted_tx.send(Deleted {
+                    let _ = report_tx.send(OperationReport {
                         folder_made: Some(target),
                         ..Default::default()
                     });
@@ -675,7 +682,7 @@ impl crate::App {
     /// Renames cut short by a crash or a power cut: put the old names back, or finish them, in
     /// the background; Later asks again at the next start.
     pub(crate) fn cut_short_dialog(&mut self, ctx: &egui::Context) {
-        let cut_short = self.work.cut_short();
+        let cut_short = self.file_operations.cut_short();
         if cut_short.is_empty() {
             return;
         }
@@ -703,26 +710,26 @@ impl crate::App {
                 }
                 if crate::ui::menus::button(ui, tr("Later")).clicked() {
                     choice = None;
-                    self.work.take_cut_short();
+                    self.file_operations.take_cut_short();
                 }
             });
         });
         let Some(undo) = choice else { return };
         // Asked before the plans are taken: one held back is asked about again.
-        let touches: Vec<PathBuf> = (self.work.cut_short().iter())
+        let touches: Vec<PathBuf> = (self.file_operations.cut_short().iter())
             .flat_map(|(_, moves, _)| moves.iter().flat_map(|(a, b)| [a.clone(), b.clone()]))
             .collect();
-        if !self.none_saving(&touches) {
+        if !self.are_free_to_change(&touches) {
             return;
         }
-        let plans = self.work.take_cut_short();
-        let deleted = self.work.deleted_sender();
-        self.background(ctx, touches, move || {
+        let plans = self.file_operations.take_cut_short();
+        let report_tx = self.file_operations.report_sender();
+        self.run_in_background(ctx, touches, move || {
             let (mut renamed, mut left) = (0, 0);
             let mut moved = Vec::new();
             for (plan, moves, done) in &plans {
                 // Put right by another window: nothing done here, nothing to tell.
-                let Some((r, l)) = journal::settle(plan, moves, *done, undo) else {
+                let Some((r, l)) = journal::repair_cut_short(plan, moves, *done, undo) else {
                     continue;
                 };
                 (renamed, left) = (renamed + r, left + l);
@@ -733,8 +740,8 @@ impl crate::App {
             }
             // One report when the steps are done, which also reads the folder again: read
             // before, the list would show the names of the middle.
-            let _ = deleted.send(Deleted {
-                relist: true,
+            let _ = report_tx.send(OperationReport {
+                read_folder_again: true,
                 moved,
                 ..Default::default()
             });
@@ -936,7 +943,7 @@ impl crate::App {
             || self.print_window.is_some()
             || self.lightroom.is_some()
             || self.save_as.is_some()
-            || !self.work.cut_short().is_empty()
+            || !self.file_operations.cut_short().is_empty()
     }
 
     /// Returns whether `key`, Enter or Esc, gives the default answer of what is open, and takes
@@ -1319,7 +1326,7 @@ mod tests {
         let hides =
             crate::support::lang::tr("The search hides files this would act on: clear it first");
         assert_eq!(app.notice.as_deref(), Some(hides));
-        assert_eq!(app.list.selected_and_held(), [0, 1].into());
+        assert_eq!(app.list.selected_with_hidden(), [0, 1].into());
         let dir_of = crate::model::collections::dir().unwrap();
         assert!(!dir_of.join(format!("{other}.gqv")).exists());
         app.list.set_matches(None);

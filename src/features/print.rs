@@ -4,7 +4,7 @@
 //! images on a page make a contact sheet, as in Geeqie.
 
 use crate::files::config::Config;
-use crate::images::decode::survive;
+use crate::images::decode::catch_panic;
 use crate::support::format::count;
 use crate::support::lang::tr;
 use crate::support::threads::{Receiving, Took, Working};
@@ -175,22 +175,22 @@ impl<W: Write> Pdf<W> {
     }
 }
 
-/// A writer that tells `dog` of each write taken. A full pipe holds the write until lp reads.
+/// A writer that tells `watchdog` of each write taken. A full pipe holds the write until lp reads.
 struct Fed<'a, W: Write> {
     out: W,
-    dog: &'a crate::files::external::Watchdog,
+    watchdog: &'a crate::files::external::Watchdog,
 }
 
 impl<W: Write> Write for Fed<'_, W> {
     fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
         let n = self.out.write(bytes)?;
-        self.dog.feed();
+        self.watchdog.feed();
         Ok(n)
     }
 
     fn flush(&mut self) -> std::io::Result<()> {
         self.out.flush()?;
-        self.dog.feed();
+        self.watchdog.feed();
         Ok(())
     }
 }
@@ -369,8 +369,8 @@ impl crate::App {
             for (k, path) in first.iter().enumerate() {
                 // The preview is in the colours of the print, so a photo with its own profile
                 // looks as on paper.
-                let small = survive(|| {
-                    let (img, icc, size) = decode::small(path, [PREVIEW_PX; 2], rotate)?;
+                let small = catch_panic(|| {
+                    let (img, icc, size) = decode::decode_shrunk(path, [PREVIEW_PX; 2], rotate)?;
                     Ok((crate::images::colour::to_srgb(img, icc.as_deref()), size))
                 });
                 // When the dialog is gone, the rest are not decoded.
@@ -445,8 +445,8 @@ impl crate::App {
                 // The image is shrunk before it goes to sRGB, because a 45 MP photo with its own
                 // profile would otherwise need two full-size buffers. A JPEG is decoded at a
                 // fraction when that is enough.
-                let img = survive(|| {
-                    let (img, icc, size) = decode::small(path, [max, max], job.rotate)?;
+                let img = catch_panic(|| {
+                    let (img, icc, size) = decode::decode_shrunk(path, [max, max], job.rotate)?;
                     Ok((crate::images::colour::to_srgb(img, icc.as_deref()), size))
                 });
                 failed.set(failed.get() + img.is_err() as usize);
@@ -845,8 +845,9 @@ pub fn printers() -> (Vec<String>, Option<String>) {
     }
     // This has the usual limit, because a CUPS server that does not answer would otherwise hold
     // the dialog.
-    let run =
-        |arg: &str| crate::files::external::limited("lpstat", &[arg], 1 << 16).unwrap_or_default();
+    let run = |arg: &str| {
+        crate::files::external::short_output_of("lpstat", &[arg], 1 << 16).unwrap_or_default()
+    };
     let names = run("-e").lines().map(str::to_owned).collect();
     // The line reads "system default destination: name".
     let default = run("-d").rsplit_once(": ").map(|d| d.1.trim().to_owned());
@@ -892,18 +893,21 @@ pub fn send(
         .map_err(|e| format!("lp (from CUPS): {e}"))?;
     // When a CUPS server does not answer, lp is ended after two minutes without progress, and
     // the print is told as failed, instead of the busy pointer for ever. A long print is not
-    // ended, because the PDF is made while lp reads it, and each write lp takes feeds the dog.
-    let dog = crate::files::external::Watchdog::new(child.id(), crate::files::external::LIMIT * 4);
+    // ended, because the PDF is made while lp reads it, and each write lp takes feeds the watchdog.
+    let watchdog = crate::files::external::Watchdog::new(
+        child.id(),
+        crate::files::external::PROGRAM_TIME_LIMIT * 4,
+    );
     let written = match child.stdin.take() {
         Some(input) => write(&mut Fed {
             out: std::io::BufWriter::new(input),
-            dog: &dog,
+            watchdog: &watchdog,
         }),
         None => Err(std::io::Error::other("no input")),
     };
     #[allow(clippy::disallowed_methods)] // under the Watchdog above
     let out = child.wait_with_output().map_err(|e| e.to_string())?;
-    if dog.gave_up() {
+    if watchdog.gave_up() {
         return Err(
             crate::support::lang::tr("No answer from the print server in two minutes").into(),
         );

@@ -3,7 +3,7 @@
 
 use crate::files::config::xdg_dir;
 use crate::files::external::{apps_for, command, open_url};
-use crate::files::file_ops::Deleted;
+use crate::files::file_ops::OperationReport;
 use crate::images::colour::{
     COLOR_MANAGEMENT, FILTERS, VIEW_FILTER, set_colour, set_input, set_intent, set_screen,
 };
@@ -225,7 +225,7 @@ impl crate::App {
 
     /// Whether an image's own profile counts, or the input profile is used for all.
     pub(crate) fn set_own_profile(&mut self, on: bool) {
-        set_colour(|c| c.own = on);
+        set_colour(|c| c.use_image_profile = on);
         self.config.use_image_profile = on;
         self.config.save();
         self.redecode();
@@ -551,7 +551,7 @@ impl crate::App {
                     running.retain(|r| r.1 != pid);
                     // Not when it ended meanwhile: its number may be another's by now.
                     if running.len() < was {
-                        std::thread::spawn(move || external::stop(pid));
+                        std::thread::spawn(move || external::stop_process_group(pid));
                     }
                 }
             }
@@ -590,22 +590,22 @@ impl crate::App {
             }
             // A turned image still being saved would be written over the plugin's edit. The
             // files are held while the plugin runs, so a delete, move or rename of them waits.
-            let Some(hold) = self.hold(files.clone()) else {
+            let Some(held_back) = self.hold_back_while_writing(files.clone()) else {
                 return;
             };
             let (dir, running) = (
                 self.folder.dir().to_path_buf(),
                 self.plugins_running.clone(),
             );
-            let deleted = self.work.deleted_sender();
+            let report_tx = self.file_operations.report_sender();
             let (tx, ctx) = (self.notices_tx.clone(), ui.ctx().clone());
             // A plugin may be an editor that stays open for hours: not waited for at closing,
             // and no busy pointer meanwhile, as for Open With.
             std::thread::spawn(move || {
                 let result = plugin.run(&files, &dir, &running);
-                drop(hold);
-                let _ = deleted.send(Deleted {
-                    relist: true,
+                drop(held_back);
+                let _ = report_tx.send(OperationReport {
+                    read_folder_again: true,
                     changed: files,
                     ..Default::default()
                 });
@@ -708,7 +708,7 @@ impl crate::App {
             let out = if words.is_empty() {
                 // gio is part of glib; xdg-open covers systems without it. In a Flatpak both
                 // ask the portal for the default application.
-                match external::has("gio") {
+                match external::has_program("gio") {
                     true => run("gio", {
                         let mut gio = command("gio");
                         gio.arg("open");

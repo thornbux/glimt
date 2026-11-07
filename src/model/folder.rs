@@ -412,7 +412,8 @@ impl Listing {
             .collect();
         // A list keeps only files, as `listing::kind` does in a folder. A folder or `/` named
         // in a downloaded list was kept, shown as broken, and Delete sent the whole folder to
-        // the trash. Until this listing has come, `none_saving` holds every file operation back.
+        // the trash. Until this listing has come, `are_free_to_change` holds every file operation
+        // back.
         let sizes = keep_found(&mut files, |f| {
             let meta = self.dir.join(f).metadata().ok()?;
             meta.is_file().then_some(meta.len())
@@ -664,7 +665,7 @@ impl crate::App {
         self.folder.watching.fetch_add(1, Ordering::Relaxed);
         self.broken_files.clear();
         self.folder.subdirs.clear();
-        self.work.forget_deleting();
+        self.file_operations.forget_deleting();
         self.slideshow.unshuffle();
         // A sort or a whole shuffle asked of the old list's listing is not asked of the new
         // one. A sort carried over would put another collection in order and rewrite its file.
@@ -702,12 +703,12 @@ impl crate::App {
         // When the same collection is read again (F5), a delete still running keeps its names,
         // so a failed delete brings its images back.
         let deleting = if self.folder.collection.as_ref() == Some(&file) {
-            self.work.take_deleting()
+            self.file_operations.take_deleting()
         } else {
             HashSet::new()
         };
         self.forget_old_list();
-        self.work.keep_deleting(deleting);
+        self.file_operations.keep_deleting(deleting);
         self.folder.recursive = false;
         self.folder.dir = root.to_path_buf();
         self.remember_recent(&file);
@@ -987,7 +988,7 @@ impl crate::App {
     pub(crate) fn take_files(&mut self, ctx: &egui::Context, files: Vec<OsString>, whole: bool) {
         // Files still being deleted in the background must not come back with a refresh.
         let mut files = files;
-        self.work.leave_out_deleting(&mut files);
+        self.file_operations.leave_out_deleting(&mut files);
         // A refresh during random order keeps the order, so Previous still goes back through
         // the images that were shown. A list shuffled whole in the thread stays as it is. The
         // flag is for this listing, and it is taken whether or not the order is still random,
@@ -1028,7 +1029,7 @@ impl crate::App {
         let first = self.list.files().is_empty() && !whole;
         // A refresh keeps the selection, so Delete or Move after it still acts on what was
         // picked. The files that the search holds back stay selected too.
-        let picked: HashSet<OsString> = (self.list.selected_and_held().iter())
+        let picked: HashSet<OsString> = (self.list.selected_with_hidden().iter())
             .filter_map(|&i| self.list.files().get(i).cloned())
             .collect();
         self.replace_files(ctx, files, shown);
@@ -1461,7 +1462,7 @@ mod tests {
         app.update_search(&ctx);
         assert_eq!(app.list.matches().map(<[usize]>::len), Some(1));
         std::fs::rename(&a, &b).unwrap();
-        app.paths_moved(vec![(a, b)], false);
+        app.follow_moved_paths(vec![(a, b)], false);
         assert_eq!(app.list.matches().map(<[usize]>::len), Some(0));
         std::fs::remove_dir_all(dir).unwrap();
     }
@@ -1566,7 +1567,7 @@ mod tests {
             .folder
             .listing_rx
             .is_none()));
-        app.paths_moved(vec![(a, c)], false);
+        app.follow_moved_paths(vec![(a, c)], false);
         let has_c = |app: &crate::App| {
             (app.list.files().iter()).any(|f| std::path::Path::new(f).ends_with("c.png"))
         };

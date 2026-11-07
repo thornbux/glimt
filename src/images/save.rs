@@ -124,7 +124,7 @@ impl Format {
 
 /// How an image is written, as a PNG, a WebP (lossy or not) or a JPEG of a quality.
 #[derive(Clone, Copy)]
-enum Kind {
+enum Encoding {
     Png,
     WebP(bool),
     Jpeg(u8),
@@ -137,9 +137,9 @@ enum Kind {
 /// across and down is swapped (`png_with_chunks`).
 type Metadata = (Option<Vec<u8>>, Option<Vec<u8>>, bool);
 
-/// What tells one file or folder from every other, as `file_key` gives it: its device and
+/// What tells one file or folder from every other, as `file_id` gives it: its device and
 /// inode, or its real path where the file system gives every file inode 0.
-pub(crate) type FileKey = Result<(u64, u64), std::path::PathBuf>;
+pub(crate) type FileId = Result<(u64, u64), std::path::PathBuf>;
 
 /// How a file Glimt writes came from the image it was made from, which decides what it keeps of
 /// that image's metadata. Every writer of such a file goes through `derived_metadata`,
@@ -160,10 +160,10 @@ pub(crate) enum Derived {
     Copy,
 }
 
-/// The next place of a text in a packet, for places asked in rising order. A search goes on
+/// A forward search for a text in a packet, for places asked in rising order. A search goes on
 /// from where the last one ended, so all of them together read the packet once, however many
-/// places are asked (`without`).
-struct Next<'a> {
+/// places are asked (`xmp_without_property`).
+struct ForwardSearch<'a> {
     hay: &'a [u8],
     what: &'a [u8],
     /// What the last search found, if one was made. A search that found nothing holds for every
@@ -171,9 +171,9 @@ struct Next<'a> {
     found: Option<Option<usize>>,
 }
 
-impl<'a> Next<'a> {
+impl<'a> ForwardSearch<'a> {
     fn new(hay: &'a [u8], what: &'a [u8]) -> Self {
-        Next {
+        ForwardSearch {
             hay,
             what,
             found: None,
@@ -213,7 +213,7 @@ pub fn save_rotated(
     // Through a symlink, the new file is renamed over the file it points to, not over the link.
     let path = &std::fs::canonicalize(path).map_err(|e| e.to_string())?;
     // A read-only file is refused before the whole image is decoded and encoded for nothing.
-    crate::files::file_io::writable(path).map_err(|e| e.to_string())?;
+    crate::files::file_io::check_writable(path).map_err(|e| e.to_string())?;
     let png = has_ext(path, &["png"]);
     if !png && !has_ext(path, &["webp"]) {
         return Err(tr("only JPEG, PNG and WebP can store the rotation").into());
@@ -221,15 +221,15 @@ pub fn save_rotated(
     if animated(path)? {
         return Err(tr("animated images are not turned").into());
     }
-    let kind = match png {
-        true => Kind::Png,
-        false => Kind::WebP(webp_lossless(path) == Some(false)),
+    let encoding = match png {
+        true => Encoding::Png,
+        false => Encoding::WebP(webp_lossless(path) == Some(false)),
     };
     let (img, icc) = load_icc(path, rotate)?;
     let img = turned(img, turns, mirrored);
     let size = (img.width(), img.height());
     let (exif, xmp, quarter) = derived_metadata(path, rotate, turns, size, Derived::Turned)?;
-    let out = encode(path, img, icc, exif, xmp, kind, quarter, webp_quality)?;
+    let out = encode(path, img, icc, exif, xmp, encoding, quarter, webp_quality)?;
     replace_with_sidecar(path, named, out, Derived::Turned)
 }
 
@@ -245,25 +245,25 @@ pub(crate) fn replace_with_sidecar(
     out: Vec<u8>,
     how: Derived,
 ) -> Result<(), String> {
-    replace_holding_sidecar(real, named, out, |held| derive_sidecar(held, named, how))
+    replace_with_sidecar_locked(real, named, out, |lock| derive_sidecar(lock, named, how))
 }
 
 /// Replaces the image at `real` with `out` after `step` changed the sidecar of `named`. The
-/// sidecar's lock (`xmp::held`) is held from the step until the image has its new name. A move
-/// in another window holds the same lock, so it moves the image and its sidecar together, both
-/// before the step or both after the image is replaced. Before, the lock was let go after the
-/// step, and a rename in that moment took the changed sidecar to the new name while the image,
-/// found gone, was left as it was.
-fn replace_holding_sidecar(
+/// sidecar's lock (`xmp::lock_sidecar`) is held from the step until the image has its new name. A
+/// move in another window holds the same lock, so it moves the image and its sidecar together, both
+/// before the step or both after the image is replaced. Before, the lock was let go after the step,
+/// and a rename in that moment took the changed sidecar to the new name while the image, found
+/// gone, was left as it was.
+fn replace_with_sidecar_locked(
     real: &Path,
     named: &Path,
     out: Vec<u8>,
-    step: impl FnOnce(&crate::metadata::xmp::Held) -> Result<(), String>,
+    step: impl FnOnce(&crate::metadata::xmp::SidecarLock) -> Result<(), String>,
 ) -> Result<(), String> {
-    let held = std::cell::OnceCell::new();
+    let lock = std::cell::OnceCell::new();
     let before = || {
-        let held = held.get_or_init(|| crate::metadata::xmp::held(named));
-        step(held).map_err(std::io::Error::other)
+        let lock = lock.get_or_init(|| crate::metadata::xmp::lock_sidecar(named));
+        step(lock).map_err(std::io::Error::other)
     };
     crate::files::file_io::replace_existing(real, out, before).map_err(|e| e.to_string())
 }
@@ -276,11 +276,11 @@ pub fn copy_bytes(path: &Path, how: &CopyAs) -> Result<(Vec<u8>, Format), String
         return Err(tr("animated images are not saved as a copy").into());
     }
     let format = how.format.unwrap_or_else(|| Format::of(path));
-    let kind = match format {
-        Format::Jpeg => Kind::Jpeg(how.jpeg_quality),
-        Format::Png => Kind::Png,
-        Format::WebP => Kind::WebP(false),
-        Format::WebPLossy => Kind::WebP(true),
+    let encoding = match format {
+        Format::Jpeg => Encoding::Jpeg(how.jpeg_quality),
+        Format::Png => Encoding::Png,
+        Format::WebP => Encoding::WebP(false),
+        Format::WebPLossy => Encoding::WebP(true),
     };
     let (img, icc) = pixels(path, how)?;
     let size = (img.width(), img.height());
@@ -291,7 +291,16 @@ pub fn copy_bytes(path: &Path, how: &CopyAs) -> Result<(Vec<u8>, Format), String
     // A PNG's other chunks hold as they were, because a DPI is no different for a part. They
     // are dropped when stripped, because the text chunks may say where and by whom.
     let from = if how.strip { Path::new("") } else { path };
-    let out = encode(from, img, icc, exif, xmp, kind, quarter, how.webp_quality)?;
+    let out = encode(
+        from,
+        img,
+        icc,
+        exif,
+        xmp,
+        encoding,
+        quarter,
+        how.webp_quality,
+    )?;
     Ok((out, format))
 }
 
@@ -308,7 +317,7 @@ fn pixels(path: &Path, how: &CopyAs) -> Result<(image::DynamicImage, Option<Vec<
         img = img.crop_imm(x, y, width, height);
     }
     if let Some(long) = how.long_side {
-        img = smaller(img, long.max(1))?;
+        img = shrink_to_long_side(img, long.max(1))?;
     }
     Ok((img, icc))
 }
@@ -319,7 +328,16 @@ fn pixels(path: &Path, how: &CopyAs) -> Result<(image::DynamicImage, Option<Vec<
 /// a 32-bit float page is written in 16 bits.
 pub fn frame_png(img: image::DynamicImage, how: &CopyAs) -> Result<Vec<u8>, String> {
     let img = turned(img, how.turns, how.mirrored);
-    encode(Path::new(""), img, None, None, None, Kind::Png, false, 0)
+    encode(
+        Path::new(""),
+        img,
+        None,
+        None,
+        None,
+        Encoding::Png,
+        false,
+        0,
+    )
 }
 
 /// The image as `how` shows it, in sRGB, for Select → Copy Image. That copied the image
@@ -329,8 +347,9 @@ pub fn shown_image(path: &Path, how: &CopyAs) -> Result<image::DynamicImage, Str
     Ok(crate::images::colour::to_srgb(img, icc.as_deref()))
 }
 
-/// `img` with its longest side `long` at most, by Lanczos3, which is sharp, for a copy kept.
-fn smaller(img: image::DynamicImage, long: u32) -> Result<image::DynamicImage, String> {
+/// Shrinks `img` so its longest side is `long` at most, by Lanczos3, which is sharp, for a copy
+/// kept.
+fn shrink_to_long_side(img: image::DynamicImage, long: u32) -> Result<image::DynamicImage, String> {
     let (w, h) = (img.width(), img.height());
     if w.max(h) <= long {
         return Ok(img);
@@ -347,9 +366,9 @@ fn smaller(img: image::DynamicImage, long: u32) -> Result<image::DynamicImage, S
     Ok(small)
 }
 
-/// The name of `path` without its extension, as its bytes, with `more` after it, as a copy's
-/// name beside it. A name that is not UTF-8 is kept as it is, not made "caf\u{FFFD}".
-pub(crate) fn stem_and(path: &Path, more: &str) -> std::ffi::OsString {
+/// Returns the name of `path` without its extension, as its bytes, with `more` after it, as a
+/// copy's name beside it. A name that is not UTF-8 is kept as it is, not made "caf\u{FFFD}".
+pub(crate) fn stem_with_suffix(path: &Path, more: &str) -> std::ffi::OsString {
     let mut name = path.file_stem().unwrap_or_default().to_owned();
     name.push(more);
     name
@@ -370,11 +389,11 @@ pub fn save_cropped(path: &Path, how: &CopyAs) -> Result<std::path::PathBuf, Str
     };
     for n in 1.. {
         let name = match n {
-            1 => stem_and(path, &format!("-cropped.{ext}")),
-            _ => stem_and(path, &format!("-cropped-{n}.{ext}")),
+            1 => stem_with_suffix(path, &format!("-cropped.{ext}")),
+            _ => stem_with_suffix(path, &format!("-cropped-{n}.{ext}")),
         };
         let new = path.with_file_name(name);
-        match land(path, &new, &out, false, how.strip) {
+        match save_copy_with_sidecar(path, &new, &out, false, how.strip) {
             Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
             Err(e) => return Err(e.to_string()),
             Ok(()) => return Ok(new),
@@ -390,7 +409,7 @@ pub fn save_cropped(path: &Path, how: &CopyAs) -> Result<std::path::PathBuf, Str
 /// removed and the copy's is made new, never written through a link there, which a downloaded
 /// folder may have pointed at any file of the user's (~/.bashrc). This is the one way a copy is
 /// saved, for Crop, Save As and Save This Frame.
-pub(crate) fn land(
+pub(crate) fn save_copy_with_sidecar(
     path: &Path,
     new: &Path,
     out: &[u8],
@@ -403,7 +422,7 @@ pub(crate) fn land(
     // before the lock is taken, because that is the slow part on a share, and other sidecars of
     // the lock's slot would wait for it. The lock is taken before the image takes its name and is
     // held until the copy's sidecar is in place.
-    let mut held = None;
+    let mut lock = None;
     // The sidecar is read before the copy is written, so one that cannot be read leaves no copy
     // behind. A sidecar that is a link counts as none, because what it points to (a private key)
     // is not the photo's.
@@ -431,7 +450,7 @@ pub(crate) fn land(
                 new,
                 |f| f.write_all(out),
                 || {
-                    held = Some(crate::metadata::xmp::held(new));
+                    lock = Some(crate::metadata::xmp::lock_sidecar(new));
                     remove_side()
                 },
             )?;
@@ -445,7 +464,7 @@ pub(crate) fn land(
                 new,
                 |f| f.write_all(out),
                 |tmp| {
-                    held = Some(crate::metadata::xmp::held(new));
+                    lock = Some(crate::metadata::xmp::lock_sidecar(new));
                     crate::files::file_io::rename_never_over(tmp, new)
                 },
             )?;
@@ -466,7 +485,10 @@ pub(crate) fn same_file(a: &Path, b: &Path) -> bool {
     use std::os::unix::fs::MetadataExt;
     let named = |p: &Path| {
         let m = std::fs::metadata(p).ok()?;
-        Some((meta_key(p, &m), (m.len(), m.mtime(), m.mtime_nsec())))
+        Some((
+            file_id_from_metadata(p, &m),
+            (m.len(), m.mtime(), m.mtime_nsec()),
+        ))
     };
     match (named(a), named(b)) {
         (Some(x), Some(y)) => same_named(x, y),
@@ -481,11 +503,11 @@ pub(crate) fn same_file(a: &Path, b: &Path) -> bool {
 /// for a second name of the same file. Where the file system gives no inode, two names that
 /// differ only in case are one file when the file system ignores case (`case_folded`).
 fn same_named(
-    (key_a, at_a): (FileKey, (u64, i64, i64)),
-    (key_b, at_b): (FileKey, (u64, i64, i64)),
+    (id_a, at_a): (FileId, (u64, i64, i64)),
+    (id_b, at_b): (FileId, (u64, i64, i64)),
 ) -> bool {
     at_a == at_b
-        && match (key_a, key_b) {
+        && match (id_a, id_b) {
             (Err(a), Err(b)) => a == b || case_folded(&a, &b),
             (a, b) => a == b,
         }
@@ -531,28 +553,28 @@ fn case_folded(a: &Path, b: &Path) -> bool {
     listed != [true, true]
 }
 
-/// Returns what tells the file or folder at `path` from every other (`FileKey`). Every
+/// Returns what tells the file or folder at `path` from every other (`FileId`). Every
 /// comparison of two files or folders by who they are goes through it. Returns `None` when the
 /// file cannot be looked up.
-pub(crate) fn file_key(path: &Path) -> Option<FileKey> {
-    Some(meta_key(path, &std::fs::metadata(path).ok()?))
+pub(crate) fn file_id(path: &Path) -> Option<FileId> {
+    Some(file_id_from_metadata(path, &std::fs::metadata(path).ok()?))
 }
 
-/// Returns the key of `path` from its metadata `meta`, which the caller looked up itself, for
+/// Returns the id of `path` from its metadata `meta`, which the caller looked up itself, for
 /// example without following a link. The inode is read here and in no other place, so no
 /// comparison can take inode 0 for one file (clippy.toml refuses the inode elsewhere).
 #[allow(clippy::disallowed_methods)] // the one place an inode tells files apart
-pub(crate) fn meta_key(path: &Path, meta: &std::fs::Metadata) -> FileKey {
+pub(crate) fn file_id_from_metadata(path: &Path, meta: &std::fs::Metadata) -> FileId {
     use std::os::unix::fs::MetadataExt;
-    key_of(path, (meta.dev(), meta.ino()))
+    file_id_from_inode(path, (meta.dev(), meta.ino()))
 }
 
-/// Returns the key of `path` from its device and inode, `id`. The pair is the same however the
+/// Returns the id of `path` from its device and inode, `id`. The pair is the same however the
 /// file is reached, through a link, a hard link or a bind mount, where its real path differs.
 /// But sshfs with `-o use_ino` and some other mounts give every file inode 0, so the pair
 /// would make all their files one, and the real path tells them apart instead. A test gives
 /// such ids through this function.
-pub(crate) fn key_of(path: &Path, id: (u64, u64)) -> FileKey {
+pub(crate) fn file_id_from_inode(path: &Path, id: (u64, u64)) -> FileId {
     match id.1 {
         0 => Err(crate::model::listing::real_dir(path)),
         _ => Ok(id),
@@ -582,7 +604,8 @@ pub fn save_as(path: &Path, how: &CopyAs, to: &Path) -> Result<std::path::PathBu
         return Err(tr("choose another name: the image itself is not changed").into());
     }
     let (out, _) = copy_bytes(path, how)?;
-    land(path, &to, &out, matches, how.strip).map_err(|e| format!("{}: {e}", to.display()))?;
+    save_copy_with_sidecar(path, &to, &out, matches, how.strip)
+        .map_err(|e| format!("{}: {e}", to.display()))?;
     Ok(to)
 }
 
@@ -593,7 +616,7 @@ fn animated(path: &Path) -> Result<bool, String> {
     let format = crate::images::decode::image_reader(path)
         .map_err(|e| e.to_string())?
         .format();
-    let file = || crate::images::decode::open(path).map(std::io::BufReader::new);
+    let file = || crate::images::decode::open_regular(path).map(std::io::BufReader::new);
     Ok(match format {
         Some(image::ImageFormat::Gif) => true,
         Some(image::ImageFormat::Png) => (file().ok())
@@ -635,7 +658,7 @@ fn derived_metadata(
     if let Some(xmp) = &mut xmp {
         *xmp = derived_xmp(xmp, how);
     }
-    let stored_quarter = stored.is_some_and(crate::images::decode::quarter_turn);
+    let stored_quarter = stored.is_some_and(crate::images::decode::is_quarter_turn);
     Ok((exif, xmp, (turns % 2 == 1) != stored_quarter))
 }
 
@@ -650,7 +673,7 @@ pub(crate) fn derived_xmp(xmp: &[u8], how: Derived) -> Vec<u8> {
             exif::set_xmp_orientation(&mut out, 1);
             let copy = (how == Derived::Copy).then_some(&DROPPED_FROM_COPIES[..]);
             for name in DROPPED_XMP.iter().chain(copy.unwrap_or_default()) {
-                out = without(&out, name.as_bytes());
+                out = xmp_without_property(&out, name.as_bytes());
             }
         }
     }
@@ -662,11 +685,11 @@ pub(crate) fn derived_xmp(xmp: &[u8], how: Derived) -> Vec<u8> {
 /// by its old orientation. It is called after the new image is written whole and before it
 /// takes the name (`replace_with_sidecar`): a sidecar that cannot be written then leaves the
 /// image as it was, and a failed image write leaves the sidecar. Only a sidecar of its own,
-/// readable as text and with something to change, is written, under its lock `held`. A link or
+/// readable as text and with something to change, is written, under its lock `lock`. A link or
 /// one that cannot be read is left alone, as the panel leaves it. The sidecar is the one of the
 /// name the list shows, which is the one Glimt's panel reads, also for a link to a photo.
 fn derive_sidecar(
-    held: &crate::metadata::xmp::Held,
+    lock: &crate::metadata::xmp::SidecarLock,
     path: &Path,
     how: Derived,
 ) -> Result<(), String> {
@@ -675,7 +698,7 @@ fn derive_sidecar(
     if text.is_none_or(|x| derived_xmp(&x, how) == x) {
         return Ok(());
     }
-    crate::metadata::xmp::update_held(held, path, true, |x| {
+    crate::metadata::xmp::update_locked_sidecar(lock, path, true, |x| {
         String::from_utf8(derived_xmp(x.as_bytes(), how)).ok()
     })
 }
@@ -687,19 +710,25 @@ fn derive_sidecar(
 /// a search for one spelling misses the others (`xmp:Rating='3'`) and leaves the property
 /// twice. A property that is cut off is left as it is, and
 /// so is one in a comment or one whose element would reach into a comment. The packet is copied
-/// once, and each search goes on from where the last one ended (`Next`), so a hostile packet
-/// takes linear time. Before, each property left out moved the rest of the packet, and each
+/// once, and each search goes on from where the last one ended (`ForwardSearch`), so a hostile
+/// packet takes linear time. Before, each property left out moved the rest of the packet, and each
 /// element without its end tag searched to the end again, both quadratic, and a
 /// `<!--<xmp:Thumbnails>-->` comment was cut to the next end tag, which left the packet broken.
-pub(crate) fn without(xmp: &[u8], name: &[u8]) -> Vec<u8> {
+pub(crate) fn xmp_without_property(xmp: &[u8], name: &[u8]) -> Vec<u8> {
     let end_tag = [&b"</"[..], name, b">"].concat();
     let [mut names, mut gts, mut ends] = [
-        Next::new(xmp, name),
-        Next::new(xmp, b">"),
-        Next::new(xmp, &end_tag),
+        ForwardSearch::new(xmp, name),
+        ForwardSearch::new(xmp, b">"),
+        ForwardSearch::new(xmp, &end_tag),
     ];
-    let [mut opens, mut closes] = [Next::new(xmp, b"<!--"), Next::new(xmp, b"-->")];
-    let [mut double, mut single] = [Next::new(xmp, b"\""), Next::new(xmp, b"'")];
+    let [mut opens, mut closes] = [
+        ForwardSearch::new(xmp, b"<!--"),
+        ForwardSearch::new(xmp, b"-->"),
+    ];
+    let [mut double, mut single] = [
+        ForwardSearch::new(xmp, b"\""),
+        ForwardSearch::new(xmp, b"'"),
+    ];
     let (mut out, mut copied, mut from) = (Vec::with_capacity(xmp.len()), 0, 0);
     while let Some(at) = names.at(from) {
         // A comment that starts before the name is passed over whole.
@@ -774,11 +803,11 @@ fn turned(img: image::DynamicImage, turns: u8, mirrored: bool) -> image::Dynamic
     }
 }
 
-/// `img` encoded as `kind` with the profile, EXIF and XMP. A PNG keeps the other chunks of
+/// `img` encoded as `encoding` with the profile, EXIF and XMP. A PNG keeps the other chunks of
 /// `path` (`quarter` says it was turned a quarter since). It is encoded in memory, because an
 /// encoder that owns its file flushes it on drop, where a full disk would go unnoticed and a
-/// cut-off file would replace the photo. The pixels and the profile are made to fit `kind`
-/// first (`fitted`), so every derived file is written from pixels its format holds.
+/// cut-off file would replace the photo. The pixels and the profile are made to fit `encoding`
+/// first (`writable_pixels`), so every derived file is written from pixels its format holds.
 #[allow(clippy::too_many_arguments)]
 fn encode(
     path: &Path,
@@ -786,14 +815,14 @@ fn encode(
     icc: Option<Vec<u8>>,
     exif: Option<Vec<u8>>,
     xmp: Option<Vec<u8>>,
-    kind: Kind,
+    encoding: Encoding,
     quarter: bool,
     webp_quality: u8,
 ) -> Result<Vec<u8>, String> {
     use image::ImageEncoder;
-    let (img, icc) = fitted(img, icc, kind);
+    let (img, icc) = writable_pixels(img, icc, encoding);
     let (width, height) = (img.width(), img.height());
-    if let Kind::WebP(true) = kind {
+    if let Encoding::WebP(true) = encoding {
         // ffmpeg drops the profile, so it is put back. The pixels are never converted to sRGB
         // here: that followed the view's colour settings, so with colour management off a
         // Display P3 file lost its profile and kept its P3 pixels.
@@ -810,8 +839,8 @@ fn encode(
         return Ok(webp);
     }
     let mut out = Vec::new();
-    let written = match kind {
-        Kind::Png => {
+    let written = match encoding {
+        Encoding::Png => {
             let mut enc = image::codecs::png::PngEncoder::new(&mut out);
             if let Some(icc) = icc {
                 let _ = enc.set_icc_profile(icc);
@@ -821,7 +850,7 @@ fn encode(
                 _ => img.write_with_encoder(enc),
             }
         }
-        Kind::Jpeg(quality) => {
+        Encoding::Jpeg(quality) => {
             let mut enc = image::codecs::jpeg::JpegEncoder::new_with_quality(&mut out, quality);
             if let Some(icc) = icc {
                 let _ = enc.set_icc_profile(icc);
@@ -833,7 +862,7 @@ fn encode(
                 _ => img.write_with_encoder(enc),
             }
         }
-        Kind::WebP(_) => {
+        Encoding::WebP(_) => {
             let mut enc = image::codecs::webp::WebPEncoder::new_lossless(&mut out);
             if let Some(icc) = icc {
                 let _ = enc.set_icc_profile(icc);
@@ -848,41 +877,41 @@ fn encode(
     // The rest of what the PNG said of itself is kept: its text (a comment, an AI tool's
     // prompt), its DPI and its gamma. Otherwise a 300 dpi scan prints at 72 after a turn. It is
     // only taken from a PNG.
-    if let Kind::Png = kind
+    if let Encoding::Png = encoding
         && has_ext(path, &["png"])
         && let Ok(old) = crate::images::decode::read_limited(path)
     {
         out = png_with_chunks(&out, &old, quarter);
     }
     if let Some(xmp) = &xmp {
-        out = match kind {
-            Kind::Png => png_with_xmp(&out, xmp)?,
-            Kind::Jpeg(_) => jpeg_with_xmp(&out, xmp)?,
-            Kind::WebP(_) => webp_with_chunk(&out, b"XMP ", xmp, width, height)?,
+        out = match encoding {
+            Encoding::Png => png_with_xmp(&out, xmp)?,
+            Encoding::Jpeg(_) => jpeg_with_xmp(&out, xmp)?,
+            Encoding::WebP(_) => webp_with_chunk(&out, b"XMP ", xmp, width, height)?,
         };
     }
     Ok(out)
 }
 
-/// Makes `img` pixels that `kind` writes, and keeps `icc` only where it describes them. A JPEG
+/// Makes `img` pixels that `encoding` writes, and keeps `icc` only where it describes them. A JPEG
 /// holds 8-bit grey or RGB, a WebP 8-bit RGB or RGBA, and a PNG no floats, so a 32-bit float
 /// TIFF is written in 16 bits. Before, a PNG copy of such a TIFF failed. A profile is kept only
 /// when its colour space, in bytes 16 to 20 of its header, is the pixels' own, grey or RGB.
 /// Before, a grey JPEG's Gray profile went with RGB pixels, and a CMYK JPEG's profile with the
 /// RGB it is decoded to, so other programs showed the copy in wrong colours.
-fn fitted(
+fn writable_pixels(
     img: image::DynamicImage,
     icc: Option<Vec<u8>>,
-    kind: Kind,
+    encoding: Encoding,
 ) -> (image::DynamicImage, Option<Vec<u8>>) {
     use image::DynamicImage as D;
     let colour = img.color();
-    let img = match kind {
-        Kind::Jpeg(_) if !colour.has_color() => D::from(img.into_luma8()),
-        Kind::Jpeg(_) => D::from(img.into_rgb8()),
-        Kind::WebP(_) if colour.has_alpha() => D::from(img.into_rgba8()),
-        Kind::WebP(_) => D::from(img.into_rgb8()),
-        Kind::Png => match img {
+    let img = match encoding {
+        Encoding::Jpeg(_) if !colour.has_color() => D::from(img.into_luma8()),
+        Encoding::Jpeg(_) => D::from(img.into_rgb8()),
+        Encoding::WebP(_) if colour.has_alpha() => D::from(img.into_rgba8()),
+        Encoding::WebP(_) => D::from(img.into_rgb8()),
+        Encoding::Png => match img {
             D::ImageRgb32F(_) => D::from(img.into_rgb16()),
             D::ImageRgba32F(_) => D::from(img.into_rgba16()),
             img => img,
@@ -998,7 +1027,7 @@ fn crc32(bytes: &[u8]) -> u32 {
 /// found.
 pub fn webp_lossless(path: &Path) -> Option<bool> {
     use std::io::{Read, Seek, SeekFrom};
-    let mut file = crate::images::decode::open(path).ok()?;
+    let mut file = crate::images::decode::open_regular(path).ok()?;
     let mut head = [0; 12];
     file.read_exact(&mut head).ok()?;
     if &head[..4] != b"RIFF" || &head[8..] != b"WEBP" {
@@ -1022,7 +1051,7 @@ pub fn webp_lossless(path: &Path) -> Option<bool> {
 
 /// `img` as a lossy WebP of `quality`, encoded by ffmpeg in memory, because the `image` crate
 /// writes only lossless ones. Its errors are read beside it, and it is stopped after
-/// `external::LIMIT`.
+/// `external::PROGRAM_TIME_LIMIT`.
 pub fn lossy_webp(img: &image::DynamicImage, quality: u8) -> Result<Vec<u8>, String> {
     use std::io::Write;
     let mut png = Vec::new();
@@ -1048,9 +1077,12 @@ pub fn lossy_webp(img: &image::DynamicImage, quality: u8) -> Result<Vec<u8>, Str
     // fills and stops it.
     let mut stdin = child.stdin.take();
     let feed = std::thread::spawn(move || drop(stdin.as_mut().map(|i| i.write_all(&png))));
-    let max = crate::images::decode::MAX_DECODE;
-    let (webp, err, ok) =
-        crate::files::external::output_of(&mut child, max, crate::files::external::LIMIT);
+    let max = crate::images::decode::MAX_DECODE_BYTES;
+    let (webp, err, ok) = crate::files::external::output_of(
+        &mut child,
+        max,
+        crate::files::external::PROGRAM_TIME_LIMIT,
+    );
     let _ = feed.join();
     match webp {
         Some(webp) if ok && !webp.is_empty() => Ok(webp),
@@ -1261,9 +1293,9 @@ mod tests {
         use image::ImageDecoder;
         let exif_of = |exif: Vec<u8>| {
             let img = image::RgbImage::new(2, 2).into();
-            let kind = super::Kind::Jpeg(90);
+            let encoding = super::Encoding::Jpeg(90);
             let path = std::path::Path::new("");
-            let out = super::encode(path, img, None, Some(exif), None, kind, false, 90);
+            let out = super::encode(path, img, None, Some(exif), None, encoding, false, 90);
             let reader = image::ImageReader::new(std::io::Cursor::new(out.unwrap()));
             let mut dec = reader
                 .with_guessed_format()
@@ -1283,14 +1315,14 @@ mod tests {
     #[test]
     fn a_derived_file_has_pixels_its_format_holds() {
         use image::ImageDecoder;
-        let write = |img: image::DynamicImage, kind| {
+        let write = |img: image::DynamicImage, encoding| {
             let out = super::encode(
                 std::path::Path::new(""),
                 img,
                 None,
                 None,
                 None,
-                kind,
+                encoding,
                 false,
                 90,
             );
@@ -1305,17 +1337,17 @@ mod tests {
         };
         let float = image::Rgb32FImage::from_pixel(2, 2, image::Rgb([0.5, 0.25, 1.0]));
         assert_eq!(
-            write(float.into(), super::Kind::Png),
+            write(float.into(), super::Encoding::Png),
             image::ColorType::Rgb16
         );
         let float = image::Rgba32FImage::from_pixel(2, 2, image::Rgba([0.5, 0.25, 1.0, 1.0]));
         assert_eq!(
-            write(float.into(), super::Kind::Png),
+            write(float.into(), super::Encoding::Png),
             image::ColorType::Rgba16
         );
         let grey = image::GrayImage::from_pixel(2, 2, image::Luma([90]));
         assert_eq!(
-            write(grey.into(), super::Kind::Jpeg(90)),
+            write(grey.into(), super::Encoding::Jpeg(90)),
             image::ColorType::L8
         );
     }
@@ -1334,14 +1366,14 @@ mod tests {
             p
         };
         let (gray, cmyk) = (other(b"GRAY"), other(b"CMYK"));
-        let profile = |img: image::DynamicImage, icc: &Vec<u8>, kind| {
+        let profile = |img: image::DynamicImage, icc: &Vec<u8>, encoding| {
             let out = super::encode(
                 std::path::Path::new(""),
                 img,
                 Some(icc.clone()),
                 None,
                 None,
-                kind,
+                encoding,
                 false,
                 90,
             );
@@ -1355,12 +1387,12 @@ mod tests {
         };
         let grey = || image::DynamicImage::from(image::GrayImage::new(2, 2));
         let colour = || image::DynamicImage::from(image::RgbImage::new(2, 2));
-        use super::Kind::{Jpeg, Png, WebP};
-        for kind in [Jpeg(90), Png] {
-            assert_eq!(profile(grey(), &gray, kind), Some(gray.clone()));
-            assert_eq!(profile(colour(), &gray, kind), None);
-            assert_eq!(profile(colour(), &rgb, kind), Some(rgb.clone()));
-            assert_eq!(profile(colour(), &cmyk, kind), None);
+        use super::Encoding::{Jpeg, Png, WebP};
+        for encoding in [Jpeg(90), Png] {
+            assert_eq!(profile(grey(), &gray, encoding), Some(gray.clone()));
+            assert_eq!(profile(colour(), &gray, encoding), None);
+            assert_eq!(profile(colour(), &rgb, encoding), Some(rgb.clone()));
+            assert_eq!(profile(colour(), &cmyk, encoding), None);
         }
         assert_eq!(profile(grey(), &gray, WebP(false)), None);
         assert_eq!(profile(grey(), &rgb, WebP(false)), Some(rgb.clone()));
@@ -2022,28 +2054,32 @@ mod tests {
     /// comment's end went and the packet was broken.
     #[test]
     fn leaves_xmp_properties_out_in_one_pass() {
-        let without = |x: &str| String::from_utf8(super::without(x.as_bytes(), b"xmp:Thumbnails"));
+        let without_thumbnails = |x: &str| {
+            String::from_utf8(super::xmp_without_property(x.as_bytes(), b"xmp:Thumbnails"))
+        };
         let kept = "<!--<xmp:Thumbnails>--><a/>";
         assert_eq!(
-            without(&format!("{kept}<xmp:Thumbnails>t</xmp:Thumbnails><b/>")).unwrap(),
+            without_thumbnails(&format!("{kept}<xmp:Thumbnails>t</xmp:Thumbnails><b/>")).unwrap(),
             format!("{kept}<b/>")
         );
         assert_eq!(
-            without("<xmp:Thumbnails>t<!-- --></xmp:Thumbnails>").unwrap(),
+            without_thumbnails("<xmp:Thumbnails>t<!-- --></xmp:Thumbnails>").unwrap(),
             "<xmp:Thumbnails>t<!-- --></xmp:Thumbnails>"
         );
         assert_eq!(
-            without("<a xmp:Thumbnails='1' b=\"2\" xmp:Thumbnails = \"3\"/><xmp:Thumbnails/>")
-                .unwrap(),
+            without_thumbnails(
+                "<a xmp:Thumbnails='1' b=\"2\" xmp:Thumbnails = \"3\"/><xmp:Thumbnails/>"
+            )
+            .unwrap(),
             "<a b=\"2\"/>"
         );
         let started = std::time::Instant::now();
         let many = " xmp:Thumbnails=\"1\"".repeat(100_000);
-        assert_eq!(without(&many).unwrap(), "");
+        assert_eq!(without_thumbnails(&many).unwrap(), "");
         let open = "<xmp:Thumbnails>".repeat(100_000);
-        assert_eq!(without(&open).unwrap(), open);
+        assert_eq!(without_thumbnails(&open).unwrap(), open);
         let unclosed = "<xmp:Thumbnails".repeat(100_000);
-        assert_eq!(without(&unclosed).unwrap(), unclosed);
+        assert_eq!(without_thumbnails(&unclosed).unwrap(), unclosed);
         assert!(started.elapsed() < std::time::Duration::from_secs(2));
     }
 
@@ -2174,10 +2210,10 @@ mod tests {
         let (a, b) = (dir.join("a.png"), dir.join("b.png"));
         std::fs::write(&a, b"a").unwrap();
         std::fs::write(crate::metadata::xmp::sidecar(&a), "a's").unwrap();
-        let held = crate::metadata::xmp::held(&b);
+        let lock = crate::metadata::xmp::lock_sidecar(&b);
         let saver = {
             let (a, b) = (a.clone(), b.clone());
-            std::thread::spawn(move || super::land(&a, &b, b"x", false, false))
+            std::thread::spawn(move || super::save_copy_with_sidecar(&a, &b, b"x", false, false))
         };
         let written = || {
             (std::fs::read_dir(&dir).unwrap().flatten()).any(|e| {
@@ -2192,7 +2228,7 @@ mod tests {
         assert!(written(), "the image waited for the sidecar's lock");
         std::thread::sleep(std::time::Duration::from_millis(100));
         assert!(!b.exists(), "saved while the sidecar was held");
-        drop(held);
+        drop(lock);
         saver.join().unwrap().unwrap();
         let side = std::fs::read_to_string(crate::metadata::xmp::sidecar(&b)).unwrap();
         assert_eq!(side, "a's");
@@ -2247,10 +2283,13 @@ mod tests {
         std::fs::write(&a, "x").unwrap();
         std::fs::write(&b, "x").unwrap();
         std::os::unix::fs::symlink("a.jpg", &link).unwrap();
-        let key = |p: &std::path::Path| super::key_of(p, (1, 0));
-        assert_ne!(key(&a), key(&b));
-        assert_eq!(key(&a), key(&link));
-        assert_eq!(super::key_of(&a, (1, 7)), super::key_of(&b, (1, 7)));
+        let file_id = |p: &std::path::Path| super::file_id_from_inode(p, (1, 0));
+        assert_ne!(file_id(&a), file_id(&b));
+        assert_eq!(file_id(&a), file_id(&link));
+        assert_eq!(
+            super::file_id_from_inode(&a, (1, 7)),
+            super::file_id_from_inode(&b, (1, 7))
+        );
         assert!(super::same_file(&a, &link) && !super::same_file(&a, &b));
         std::fs::remove_dir_all(dir).unwrap();
     }
@@ -2290,7 +2329,7 @@ mod tests {
     /// the image, found gone, was not turned.
     #[test]
     fn a_move_during_the_sidecar_step_waits_for_the_image() {
-        use crate::metadata::xmp::{held, sidecar, update_held};
+        use crate::metadata::xmp::{lock_sidecar, sidecar, update_locked_sidecar};
         let dir = std::env::temp_dir().join(format!("glimt-test-side-move-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let (a, b) = (dir.join("a.png"), dir.join("b.png"));
@@ -2304,20 +2343,20 @@ mod tests {
             // Glimt's moves do.
             std::thread::spawn(move || {
                 went.recv().unwrap();
-                let _held = held(&a);
+                let _lock = lock_sidecar(&a);
                 std::fs::rename(&a, &b).unwrap();
                 std::fs::rename(sidecar(&a), sidecar(&b)).unwrap();
                 done.send(()).unwrap();
             })
         };
-        let step = |held: &crate::metadata::xmp::Held| {
-            update_held(held, &a, true, |_| Some("new side".into()))?;
+        let step = |lock: &crate::metadata::xmp::SidecarLock| {
+            update_locked_sidecar(lock, &a, true, |_| Some("new side".into()))?;
             go.send(()).unwrap();
             // A move that is not held back lands now, before the image is looked at again.
             let _ = moved.recv_timeout(std::time::Duration::from_millis(200));
             Ok(())
         };
-        let replaced = super::replace_holding_sidecar(&a, &a, b"new".to_vec(), step);
+        let replaced = super::replace_with_sidecar_locked(&a, &a, b"new".to_vec(), step);
         mover.join().unwrap();
         assert!(replaced.is_ok(), "{replaced:?}");
         assert_eq!(std::fs::read_to_string(&b).unwrap(), "new");

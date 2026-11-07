@@ -101,7 +101,7 @@ holds only its `mod` lines, and a new module goes into the folder of what it doe
 
 | File | Contents |
 |---|---|
-| `src/main.rs` | The app: `App` and its parts (each a struct in the module whose code uses it, such as `slideshow::Slideshow` or `file_ops::Work`), starting up, the frame (`eframe::App`) and `main()`. The window's parts are each in a module of their own below, as `impl crate::App` blocks |
+| `src/main.rs` | The app: `App` and its parts (each a struct in the module whose code uses it, such as `slideshow::Slideshow` or `file_ops::FileOperations`), starting up, the frame (`eframe::App`) and `main()`. The window's parts are each in a module of their own below, as `impl crate::App` blocks |
 | `src/cli.rs` | The command line: the start options (`Start`, `START_OPTIONS`) and the commands that answer without a window (`answered`: --help, --version, --check-config, --back-up) |
 | `src/model.rs` | **The model/ folder:** what is open: the file list, listing and opening folders and collections, the search and the selection |
 | `src/model/list.rs` | The model of what is open: `List`, the file list with everything that holds a place in it, and `Slot`, an image decoded for the view |
@@ -139,7 +139,7 @@ holds only its `mod` lines, and a new module goes into the folder of what it doe
 | `src/images/svg.rs` | SVG and SVGZ through resvg (feature `svg`): `load`, with limits on the text unpacked, the pictures linked and entities that grow |
 | `src/images/decoder_plugins.rs` | Decoder plugins: programs in `glimt/decoders` that turn other formats into images |
 | `src/images/colour.rs` | Colour management: ICC profiles, the screen profile (also from colord), rendering intent |
-| `src/images/save.rs` | Saving a turned image with its EXIF and XMP, also lossy WebP; copies of the shown image (`CopyAs`, `copy_bytes`, `shown_image`), `land`, the one way a copy and its sidecar are saved, and `Derived` with `derived_xmp`, what a turned image, a copy and their sidecars keep of the metadata |
+| `src/images/save.rs` | Saving a turned image with its EXIF and XMP, also lossy WebP; copies of the shown image (`CopyAs`, `copy_bytes`, `shown_image`), `save_copy_with_sidecar`, the one way a copy and its sidecar are saved, and `Derived` with `derived_xmp`, what a turned image, a copy and their sidecars keep of the metadata |
 | `src/images/raw.rs` | Camera RAW: the largest embedded JPEG preview |
 | `src/images/thumbs.rs` | Freedesktop thumbnail cache (`~/.cache/thumbnails`) |
 | `src/images/video.rs` | Optional video feature |
@@ -151,10 +151,10 @@ holds only its `mod` lines, and a new module goes into the folder of what it doe
 | `src/files.rs` | **The files/ folder:** how files change on disk: file operations, the trash, the writers, Glimt's own files, and the external programs and portals |
 | `src/files/config.rs` | `Config` (the `config!` macro) with the settings' defaults and ranges, the window state, XDG paths, and `--lock-settings` |
 | `src/files/backup.rs` | The backup (File → Back Up, `--back-up`): Glimt's own folders (`own_folders`) copied into a new folder (`copy_tree`, `back_up_to`) |
-| `src/files/file_ops.rs` | `Job` (a file operation in the background, with its progress and Stop) and `Work`; delete, copy and move, `Deleted` (what a file operation did, for `receive_deleted`) and `Undo`, Rename and Rename Many, saving the orientation, as jobs with progress and Stop (`start_job`, `background`, `write_sidecars`); `rename_files`; Undo |
+| `src/files/file_ops.rs` | `Job` (a file operation in the background, with its progress and Stop) and `FileOperations`; delete, copy and move, `OperationReport` (what a file operation did, for `receive_operation_report`) and `Undo`, Rename and Rename Many, saving the orientation, as jobs with progress and Stop (`start_job`, `run_in_background`, `write_sidecars`); `rename_files`; Undo |
 | `src/files/file_io.rs` | The one way each change on disk is made: `replace_file`/`create_file`/`write_atomic` (whole or not at all), `replace_name` (a link at the name replaced, not followed), `edit_shared` for the files the windows share, `rename_never_over` (the one way to rename) and `put_file` (a move or copy, never over a file); the writer thread (`write_later`, `flush`) |
-| `src/files/trash.rs` | The trash: `trash` (gio, or by hand as the trash spec says when the Flatpak's portal refuses a file), `Thrown` (what a move to the trash did) and `restore`, which puts it back for Undo by reading the trash folders |
-| `src/files/external.rs` | External programs: `command()`, `stoppable_command`, `run_limited`/`limited`, `output_of`, `Watchdog`, `in_flatpak`; ffmpeg (HEIC, AVIF, video), gio mounting, open with |
+| `src/files/trash.rs` | The trash: `trash` (gio, or by hand as the trash spec says when the Flatpak's portal refuses a file), `TrashMove` (what a move to the trash did) and `restore`, which puts it back for Undo by reading the trash folders |
+| `src/files/external.rs` | External programs: `command()`, `stoppable_command`, `run_limited`/`short_output_of`, `output_of`, `Watchdog`, `in_flatpak`; ffmpeg (HEIC, AVIF, video), gio mounting, open with |
 | `src/files/portal.rs` | The desktop portals that need more than gdbus, through zbus (feature `portals`): printing, Open With and keeping the screen on in the Flatpak (`print`, `open_with`, `inhibit_idle`) |
 | `src/files/journal.rs` | Rename Many's steps on disk while they run, put right at the next start after a crash |
 | `src/support.rs` | **The support/ folder:** what the rest is built on: threads, text for the user, the languages, and what the tests use |
@@ -284,7 +284,7 @@ of that part. The exceptions are the tables of one arm per action (`Action::engl
   `every_file_operation_is_in_the_contract` fails until it is there or in `OUTSIDE` with the
   reason it is not, and also when a name in `IN_CONTRACT` has no entry in `contract_ops()`.
 - **State for a feature:** a field in the struct of the part it belongs to (`self.slideshow`,
-  `self.folder`, `self.work`, …), or a struct of its own in the feature's module held by one
+  `self.folder`, `self.file_operations`, …), or a struct of its own in the feature's module held by one
   field in `App`; never loose fields in `App` (`source_rules::app_stays_small`). The fields of
   the parts that `source_rules::parts_keep_their_fields` lists are private: other modules call
   their methods, named for what they do (`self.slideshow.toggle_pause()`,
@@ -336,9 +336,9 @@ of that part. The exceptions are the tables of one arm per action (`Action::engl
   - rename with `file_io::rename_never_over` (never over a file), move or copy with `put_file`;
   - start Glimt's own program with `external::command` or `stoppable_command` (in a Flatpak's
     sandbox), the user's with `host_command` or `stoppable_host_command` (on the host), and
-    wait for it only with `run_limited`, `limited`, `output_of` or a `Watchdog` (never
+    wait for it only with `run_limited`, `short_output_of`, `output_of` or a `Watchdog` (never
     `.output()`/`.status()`);
-  - make a copy of the shown image from `App::shown_copy` and save it with `save::land`.
+  - make a copy of the shown image from `App::shown_copy` and save it with `save::save_copy_with_sidecar`.
   `clippy.toml` has the whole list, each call with the way to take instead. A place that must
   do otherwise gets `#[allow(clippy::disallowed_methods)]` on the narrowest statement or
   function, with its reason on the same line or the next.

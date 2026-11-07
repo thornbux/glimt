@@ -60,10 +60,10 @@ struct App {
     list: List,
     /// File operations in the background. It holds the jobs, the files they touch, what they
     /// report, and Undo.
-    work: crate::files::file_ops::Work,
+    file_operations: crate::files::file_ops::FileOperations,
     /// The count of work still running in the background, for the busy pointer. Deletes,
     /// copies and moves, printing, Check Images, Rename Many, the Lightroom import, plugins and
-    /// every `background` count.
+    /// every `run_in_background` count.
     busy: Arc<AtomicUsize>,
 
     // ---- The side panel ----
@@ -150,7 +150,7 @@ struct App {
     /// The Check Images window. `None` means it is closed, and `Some(None)` means it is open
     /// but not started.
     check: Option<Option<Check>>,
-    /// Commands from --remote, and selects held back until the list is read.
+    /// Commands from --remote, and the selects that wait until the list is read.
     remote: crate::features::remote::Listener,
 }
 
@@ -183,7 +183,7 @@ impl App {
         if start.layout.is_some() || start.random || start.fade.is_some() {
             config.save();
         }
-        let screen_error = crate::images::colour::set_up(&config);
+        let screen_error = crate::images::colour::set_up_colour(&config);
         crate::ui::actions::use_own_keys(&config.keys);
         let path = path
             .or_else(|| {
@@ -219,7 +219,7 @@ impl App {
             desktop: crate::ui::theme::FromDesktop::new(ctx, config.desktop_profile),
             folder: crate::model::folder::Folder::new(&config),
             list: List::default(),
-            work: crate::files::file_ops::Work::new(),
+            file_operations: crate::files::file_ops::FileOperations::new(),
             busy: Arc::default(),
             panel: crate::ui::file_list::Panel::default(),
             tree: crate::ui::file_list::Tree::default(),
@@ -357,8 +357,8 @@ impl eframe::App for App {
         // The listener closes to new clients first, because a client coming after the answers
         // would get none.
         crate::features::remote::close();
-        self.answer_held_selects();
-        crate::features::remote::stop(|| self.answer_held_selects());
+        self.answer_waiting_selects();
+        crate::features::remote::stop(|| self.answer_waiting_selects());
         let ctx = self.ctx.clone();
         self.save_meta(&ctx);
         // shortcut: the path is stored as UTF-8, lossless for ordinary paths; store its bytes

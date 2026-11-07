@@ -44,7 +44,7 @@ pub(crate) struct Window {
     pointer_moved: std::time::Instant,
     /// Window → Set Window Title: this window's title template; empty, the one in Preferences.
     title: String,
-    /// Close asked for while files were being written (`work_left`): 1, it waits for them; 2,
+    /// Close asked for while files were being written (`is_writing`): 1, it waits for them; 2,
     /// they are stopped after the file at hand and it waits for that; a third close ends at once.
     closing: u8,
     /// The image and turn that a close last tried to save. A close saves a turn only when it
@@ -182,13 +182,13 @@ impl crate::App {
         // Files still being copied, moved, renamed or saved: closed when they are done, not
         // halfway; a second close stops them after the file at hand, a third does not wait.
         if ctx.input(|i| i.viewport().close_requested())
-            && self.work_left()
+            && self.is_writing()
             && self.window.closing < 2
         {
             ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
             self.window.closing += 1;
             if self.window.closing == 2 {
-                self.work.stop_jobs();
+                self.file_operations.stop_jobs();
             }
             self.notice = Some(
                 match self.window.closing {
@@ -281,7 +281,7 @@ impl crate::App {
             let end: Ender = if let Some(held) = portal {
                 Box::new(move || drop(held))
             } else {
-                let found = commands.iter().find(|c| external::host_has(c[0]));
+                let found = commands.iter().find(|c| external::host_has_program(c[0]));
                 let Some(mut child) = found.and_then(|c| {
                     external::host_command(c[0])
                         .args(&c[1..])
@@ -542,16 +542,16 @@ mod tests {
         };
         close(&mut app);
         let a = dir.join("a.png");
-        assert!(app.work.is_saving(&a));
+        assert!(app.file_operations.is_saving(&a));
         // The save's thread lets go of the file just after it tells the result.
-        let over = |app: &crate::App| !app.work.is_saving(&a);
+        let over = |app: &crate::App| !app.file_operations.is_saving(&a);
         assert!(settle(&mut app, &ctx, over));
         close(&mut app);
-        assert!(!app.work.is_saving(&a));
+        assert!(!app.file_operations.is_saving(&a));
         // A turn made after that, while the window waits for other work, is saved.
         app.viewing.turn((2, false), a.clone());
         close(&mut app);
-        assert!(app.work.is_saving(&a));
+        assert!(app.file_operations.is_saving(&a));
         assert!(settle(&mut app, &ctx, over));
         std::fs::remove_dir_all(dir).unwrap();
     }

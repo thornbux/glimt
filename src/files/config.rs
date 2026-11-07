@@ -65,9 +65,9 @@ macro_rules! config {
 pub(crate) const DEFAULT_PRELOAD: usize = 2;
 
 /// Default seconds between images in a slideshow.
-pub(crate) const DEFAULT_DELAY: u64 = 3;
+pub(crate) const DEFAULT_SLIDESHOW_DELAY: u64 = 3;
 
-pub(crate) const MAX_DELAY: u64 = 60;
+pub(crate) const MAX_SLIDESHOW_DELAY: u64 = 60;
 
 /// The full screen info, as Geeqie writes its overlay template. Fields are in percent signs,
 /// `|` stands between the parts of a line, and `\n` starts a new line. A part whose fields are
@@ -109,7 +109,7 @@ pub(crate) const MEMORY_LEVELS: [MemoryLevel; 3] = [
         decode_threads: 1,
         animation_mb: 32,
         one_arena: true,
-        hover: "Least memory: one image decoded at a time, one preloaded on each side. Slow \
+        tooltip: "Least memory: one image decoded at a time, one preloaded on each side. Slow \
                 storage (SMB, NFS, USB) makes browsing wait for each file.",
     },
     MemoryLevel {
@@ -118,7 +118,7 @@ pub(crate) const MEMORY_LEVELS: [MemoryLevel; 3] = [
         decode_threads: 4,
         animation_mb: 128,
         one_arena: true,
-        hover: "The default: four images decoded at once, two preloaded on each side.",
+        tooltip: "The default: four images decoded at once, two preloaded on each side.",
     },
     MemoryLevel {
         name: "High",
@@ -126,13 +126,13 @@ pub(crate) const MEMORY_LEVELS: [MemoryLevel; 3] = [
         decode_threads: 8,
         animation_mb: 256,
         one_arena: false,
-        hover: "Fastest browsing: eight images decoded at once, five preloaded on each side; \
+        tooltip: "Fastest browsing: eight images decoded at once, five preloaded on each side; \
                 hides the wait of slow storage (SMB, NFS) best.",
     },
 ];
 
 /// How many Open Recent keeps.
-pub const RECENT: usize = 10;
+pub const MAX_RECENT: usize = 10;
 
 /// The settings that take one of a few values. Since 1.0 they are written by name
 /// (fit_mode=width), and they are read by name or by the number used before (fit_mode=1). A
@@ -176,10 +176,10 @@ pub const LOCK_FILE: &str = "/etc/glimt/lock-settings";
 
 /// Whether --lock-settings is on. Then there are no Preferences, and nothing is written to the
 /// settings files.
-static LOCKED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+static SETTINGS_LOCKED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 /// The settings as this window last read or wrote them.
-static SAVED: std::sync::Mutex<String> = std::sync::Mutex::new(String::new());
+static LAST_SAVED_TEXT: std::sync::Mutex<String> = std::sync::Mutex::new(String::new());
 
 /// A memory use level in Preferences. The config holds the values, and the level shown is the
 /// one they match, or Custom.
@@ -193,7 +193,7 @@ pub(crate) struct MemoryLevel {
     pub(crate) animation_mb: usize,
     /// One malloc arena for all threads.
     pub(crate) one_arena: bool,
-    pub(crate) hover: &'static str,
+    pub(crate) tooltip: &'static str,
 }
 
 /// The window geometry saved at exit, in points. It holds the size, the position and whether
@@ -256,7 +256,7 @@ impl std::fmt::Display for Rgb {
 config! {
     preload: usize = DEFAULT_PRELOAD,
     /// Seconds between images in a slideshow.
-    slideshow_delay: u64 = DEFAULT_DELAY,
+    slideshow_delay: u64 = DEFAULT_SLIDESHOW_DELAY,
     /// Start in the last used folder when no folder is given on the command line.
     remember_dir: bool = false,
     /// Keep File → Open Recent's list. When this is off, no list is written and the one kept
@@ -494,7 +494,7 @@ impl Config {
         c.thumb_size = c.thumb_size.min(2);
         c.webp_quality = c.webp_quality.min(100);
         c.jpeg_quality = c.jpeg_quality.clamp(1, 100);
-        c.slideshow_delay = c.slideshow_delay.clamp(1, MAX_DELAY);
+        c.slideshow_delay = c.slideshow_delay.clamp(1, MAX_SLIDESHOW_DELAY);
         c.toolbar_icons = c.toolbar_icons.min(2);
         c.view_filter = c.view_filter.min(3);
         c
@@ -503,7 +503,7 @@ impl Config {
     /// The settings in `text`, and what is wrong in it, line by line. A problem is a line that
     /// is not key=value, a setting that does not exist or is set twice, or a value that cannot
     /// be read or is out of range. Empty lines and lines starting with # are left alone.
-    pub fn check(text: &str) -> (Self, Vec<String>) {
+    pub fn parse_checked(text: &str) -> (Self, Vec<String>) {
         let config = Config::parse(text);
         let used = config.to_text();
         let used = |key: &str| value_in(&used, key);
@@ -563,14 +563,14 @@ impl Config {
         let read = config_path().map(|p| read_lossy(&p));
         let (config, problems) = match read {
             // A byte that is not UTF-8 (a path in another encoding) does not cost the rest.
-            Some(Ok(text)) => Self::check(&text),
+            Some(Ok(text)) => Self::parse_checked(&text),
             Some(Err(e)) if e.kind() != std::io::ErrorKind::NotFound => (
                 Config::default(),
                 vec![format!("cannot be read ({e}); the defaults are used")],
             ),
             _ => (Config::default(), Vec::new()),
         };
-        *SAVED.lock().unwrap_or_else(|e| e.into_inner()) = config.to_text();
+        *LAST_SAVED_TEXT.lock().unwrap_or_else(|e| e.into_inner()) = config.to_text();
         (config, problems)
     }
 
@@ -583,7 +583,7 @@ impl Config {
         if let Some(p) = config_path() {
             let ours = self.to_text();
             let before = std::mem::replace(
-                &mut *SAVED.lock().unwrap_or_else(|e| e.into_inner()),
+                &mut *LAST_SAVED_TEXT.lock().unwrap_or_else(|e| e.into_inner()),
                 ours.clone(),
             );
             // The file is read, merged and written in the background, because each toggle in a
@@ -678,18 +678,18 @@ pub fn parse_recent(text: &[u8]) -> Vec<PathBuf> {
     (text.split(|&b| b == b'\n'))
         .filter(|l| !l.is_empty())
         .map(|l| std::ffi::OsStr::from_bytes(l).into())
-        .take(RECENT)
+        .take(MAX_RECENT)
         .collect()
 }
 
-/// `recent` with `path` first, once, and no more than RECENT paths. A name with a line break in
+/// `recent` with `path` first, once, and no more than MAX_RECENT paths. A name with a line break in
 /// it cannot be kept on a line, so it is left out.
 pub fn add_recent(recent: &[PathBuf], path: &Path) -> Vec<PathBuf> {
     use std::os::unix::ffi::OsStrExt;
     let fits = !path.as_os_str().as_bytes().contains(&b'\n');
     (fits.then(|| path.to_path_buf()).into_iter())
         .chain(recent.iter().filter(|p| *p != path).cloned())
-        .take(RECENT)
+        .take(MAX_RECENT)
         .collect()
 }
 
@@ -833,11 +833,11 @@ fn value_in(text: &str, key: &str) -> String {
 }
 
 pub fn lock() {
-    LOCKED.store(true, std::sync::atomic::Ordering::Relaxed);
+    SETTINGS_LOCKED.store(true, std::sync::atomic::Ordering::Relaxed);
 }
 
 pub fn locked() -> bool {
-    LOCKED.load(std::sync::atomic::Ordering::Relaxed)
+    SETTINGS_LOCKED.load(std::sync::atomic::Ordering::Relaxed)
 }
 
 /// `ours` (key=value lines), except that where a value is as this window `saved` it, the one
@@ -916,10 +916,10 @@ mod tests {
     /// The file Glimt writes has nothing wrong, and each kind of mistake is told with its line.
     #[test]
     fn checks_the_settings_file() {
-        let (_, none) = super::Config::check(&super::Config::default().to_text());
+        let (_, none) = super::Config::parse_checked(&super::Config::default().to_text());
         assert_eq!(none, Vec::<String>::new());
         let text = "# note\nthumbnails=ja\nthumbnail=true\nui_scale=500\nslideshow_delay=4\nslideshow_delay=5\nwords\n\nfit_mode=2\n";
-        let (config, problems) = super::Config::check(text);
+        let (config, problems) = super::Config::parse_checked(text);
         assert_eq!(
             problems,
             [
@@ -1142,14 +1142,14 @@ mod tests {
         ] {
             assert!(text.contains(line), "{text}");
         }
-        let (_, problems) = Config::check("fade=9\nfit_mode=wide");
+        let (_, problems) = Config::parse_checked("fade=9\nfit_mode=wide");
         assert!(problems[0].contains("long is used") && problems[1].contains("not a value"));
         for (k, (name, _, _)) in super::FADES.iter().enumerate() {
             assert_eq!(super::NAMED[0].1[k], *name);
         }
     }
 
-    /// Open Recent has the newest first, each once and at most RECENT, and it comes back from
+    /// Open Recent has the newest first, each once and at most MAX_RECENT, and it comes back from
     /// its file as it was written, also a name that is not UTF-8.
     #[test]
     fn keeps_recent_folders() {
@@ -1168,7 +1168,7 @@ mod tests {
         for k in 0..20 {
             recent = super::add_recent(&recent, &p(&format!("/{k}")));
         }
-        assert_eq!(recent.len(), super::RECENT);
+        assert_eq!(recent.len(), super::MAX_RECENT);
         assert_eq!(recent[0], p("/19"));
     }
 
@@ -1248,14 +1248,14 @@ mod tests {
                 !written.lines().any(|l| l.starts_with(&old_line)),
                 "{old} written"
             );
-            assert_eq!(Config::check(&text).1, Vec::<String>::new());
+            assert_eq!(Config::parse_checked(&text).1, Vec::<String>::new());
             for both in [
                 format!("{new}={value}\n{old}={other}\n"),
                 format!("{old}={other}\n{new}={value}\n"),
             ] {
                 let written = Config::parse(&both).to_text();
                 assert_eq!(super::value_in(&written, new), value, "{both}");
-                assert_eq!(Config::check(&both).1, Vec::<String>::new());
+                assert_eq!(Config::parse_checked(&both).1, Vec::<String>::new());
             }
         }
         let position = |text: &str| super::WindowState::parse(text).position;

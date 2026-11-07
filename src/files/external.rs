@@ -22,7 +22,7 @@ const FILES_ONLY: [&str; 4] = [
 
 /// How long a program may take over one file. A crafted file, or a share that stops answering,
 /// can keep it busy for good, and the decoder thread with it.
-pub const LIMIT: std::time::Duration = std::time::Duration::from_secs(30);
+pub const PROGRAM_TIME_LIMIT: std::time::Duration = std::time::Duration::from_secs(30);
 
 /// The line `output_of` adds to a program's errors when the time limit ended it. A thumbnail is
 /// not marked as failed over it, because a share that wakes slowly may answer the next time.
@@ -32,30 +32,30 @@ pub(crate) const TIMED_OUT: &str = "did not end in time";
 /// dropped first because the program ended. It is for a program fed on its input or read line
 /// by line (gio mount, lp), which `output_of` cannot run. `feed` tells it of progress (a page
 /// taken), so a long print is not ended while the printer takes it. After the wait, `gave_up`
-/// tells whether it was the dog that ended the program.
+/// tells whether it was the watchdog that ended the program.
 pub struct Watchdog {
-    state: std::sync::Arc<Dog>,
+    state: std::sync::Arc<WatchdogState>,
 }
 
 impl Watchdog {
     pub fn new(pid: u32, limit: std::time::Duration) -> Watchdog {
         use std::sync::atomic::Ordering::Relaxed;
-        let state = std::sync::Arc::new(Dog {
+        let state = std::sync::Arc::new(WatchdogState {
             ended: false.into(),
             gave_up: false.into(),
             fed: std::time::Instant::now().into(),
         });
-        let dog = state.clone();
+        let watchdog_state = state.clone();
         std::thread::spawn(move || {
             let step = limit.min(std::time::Duration::from_millis(100));
             loop {
                 std::thread::sleep(step);
-                if dog.ended.load(Relaxed) {
+                if watchdog_state.ended.load(Relaxed) {
                     return;
                 }
-                if dog.fed.lock().unwrap().elapsed() >= limit {
-                    dog.gave_up.store(true, Relaxed);
-                    stop_group(-(pid as i32), || dog.ended.load(Relaxed));
+                if watchdog_state.fed.lock().unwrap().elapsed() >= limit {
+                    watchdog_state.gave_up.store(true, Relaxed);
+                    stop_group(-(pid as i32), || watchdog_state.ended.load(Relaxed));
                     return;
                 }
             }
@@ -63,7 +63,7 @@ impl Watchdog {
         Watchdog { state }
     }
 
-    /// Tells the dog that the program made progress, so its `limit` starts again.
+    /// Tells the watchdog that the program made progress, so its `limit` starts again.
     pub fn feed(&self) {
         *self.state.fed.lock().unwrap() = std::time::Instant::now();
     }
@@ -81,7 +81,7 @@ impl Drop for Watchdog {
     }
 }
 
-struct Dog {
+struct WatchdogState {
     ended: std::sync::atomic::AtomicBool,
     gave_up: std::sync::atomic::AtomicBool,
     fed: std::sync::Mutex<std::time::Instant>,
@@ -113,16 +113,16 @@ pub fn ffmpeg_frame(
     at: &str,
     max: Option<[u32; 2]>,
 ) -> Result<image::DynamicImage, String> {
-    match fit(max) {
+    match ffmpeg_scale_filter(max) {
         Some(scale) => ffmpeg_ppm(path, &["-ss", at], &["-vf", &scale]),
         None => ffmpeg_ppm(path, &["-ss", at], &[]),
     }
 }
 
-/// An ffmpeg filter that shrinks to fit `max`, keeping the shape, and never enlarges. A
+/// Returns an ffmpeg filter that shrinks to fit `max`, keeping the shape, and never enlarges. A
 /// thumbnail of a 48 MP phone photo or an 8K video frame needs no 150 MB picture first.
 #[cfg(any(feature = "video", feature = "heic", feature = "avif", test))]
-fn fit(max: Option<[u32; 2]>) -> Option<String> {
+fn ffmpeg_scale_filter(max: Option<[u32; 2]>) -> Option<String> {
     let [w, h] = max?;
     Some(format!(
         "scale='min({w},iw)':'min({h},ih)':force_original_aspect_ratio=decrease"
@@ -134,7 +134,7 @@ fn fit(max: Option<[u32; 2]>) -> Option<String> {
 /// with their places in a "Tile Grid" group. The tiles are put together with xstack, cut to the
 /// image size and turned by the stored rotation.
 #[cfg(any(feature = "heic", feature = "avif"))]
-pub fn heif(
+pub fn decode_heif(
     path: &Path,
     max: Option<[u32; 2]>,
 ) -> Result<(image::DynamicImage, Option<[usize; 2]>), String> {
@@ -144,12 +144,12 @@ pub fn heif(
         .arg(path)
         .spawn()
         .map_err(|e| crate::tf!("HEIC and AVIF need ffprobe (ffmpeg): {e}", e))?;
-    let (probe, _, _) = output_of(&mut child, 1 << 20, LIMIT);
+    let (probe, _, _) = output_of(&mut child, 1 << 20, PROGRAM_TIME_LIMIT);
     let probe = probe.unwrap_or_default();
     let probe = String::from_utf8_lossy(&probe);
     match heif_filter(&probe) {
         Some(filter) => {
-            let filter = match fit(max) {
+            let filter = match ffmpeg_scale_filter(max) {
                 Some(scale) => filter.replace("[out]", &format!(",{scale}[out]")),
                 None => filter,
             };
@@ -172,7 +172,7 @@ fn heif_size(probe: &str) -> Option<[usize; 2]> {
             .find(|f| f.0.ends_with(key))
             .and_then(|f| f.1.parse::<i64>().ok())
     };
-    upright(
+    upright_size(
         value("tile_grid:width")?,
         value("tile_grid:height")?,
         value("rotation"),
@@ -191,7 +191,7 @@ pub fn probe_size(path: &Path) -> Option<[usize; 2]> {
         .arg(path)
         .spawn()
         .ok()?;
-    let (out, _, _) = output_of(&mut child, 1 << 16, LIMIT);
+    let (out, _, _) = output_of(&mut child, 1 << 16, PROGRAM_TIME_LIMIT);
     size_in(&String::from_utf8_lossy(&out?))
 }
 
@@ -204,13 +204,13 @@ fn size_in(text: &str) -> Option<[usize; 2]> {
             .find_map(|l| l.trim().strip_prefix(key)?.strip_prefix('=')))
         .and_then(|v| v.trim().parse::<i64>().ok())
     };
-    upright(value("width")?, value("height")?, value("rotation"))
+    upright_size(value("width")?, value("height")?, value("rotation"))
 }
 
 /// `w` × `h` as shown. They are swapped for a quarter turn, and there is none for a size that
 /// is no size.
 #[cfg(any(feature = "video", feature = "heic", feature = "avif", test))]
-fn upright(w: i64, h: i64, rotation: Option<i64>) -> Option<[usize; 2]> {
+fn upright_size(w: i64, h: i64, rotation: Option<i64>) -> Option<[usize; 2]> {
     if w <= 0 || h <= 0 {
         return None;
     }
@@ -275,13 +275,17 @@ pub fn heif_filter(probe: &str) -> Option<String> {
     ))
 }
 
-/// `program`'s output on `args`, at most `max` bytes, within `LIMIT`. Returns `None` when it
-/// could not run, failed, gave too much or did not end in time. It is for a question whose
-/// answer is all there is (gio info, lpstat, gdbus).
-pub fn limited<S: AsRef<std::ffi::OsStr>>(program: &str, args: &[S], max: u64) -> Option<String> {
+/// Returns `program`'s output on `args`, at most `max` bytes, within `PROGRAM_TIME_LIMIT`. Returns
+/// `None` when it could not run, failed, gave too much or did not end in time. It is for a question
+/// whose answer is all there is (gio info, lpstat, gdbus).
+pub fn short_output_of<S: AsRef<std::ffi::OsStr>>(
+    program: &str,
+    args: &[S],
+    max: u64,
+) -> Option<String> {
     let mut command = stoppable_command(program);
     command.args(args);
-    let out = run_limited(command, max, LIMIT).ok()?;
+    let out = run_limited(command, max, PROGRAM_TIME_LIMIT).ok()?;
     Some(String::from_utf8_lossy(&out).into_owned())
 }
 
@@ -339,7 +343,7 @@ pub(crate) fn in_flatpak() -> bool {
 /// host, but not a KILL.
 /// shortcut: there a child the plugin started in the background (`cmd &` in a script) ignores
 /// INT and goes on; start plugins with --watch-bus in their own session if that matters.
-pub fn stop(pid: u32) {
+pub fn stop_process_group(pid: u32) {
     let group = -(pid as i32);
     // In a Flatpak, flatpak-spawn passes INT on to the program's whole group on the host, but
     // TERM only to the program, so what it started (an ffmpeg, a speech) would go on.
@@ -368,7 +372,7 @@ pub fn output_of(
 ) -> (Option<Vec<u8>>, String, bool) {
     use std::io::Read;
     let group = -(child.id() as i32);
-    let dog = Watchdog::new(child.id(), limit);
+    let watchdog = Watchdog::new(child.id(), limit);
     let errors = child
         .stderr
         .take()
@@ -387,10 +391,10 @@ pub fn output_of(
     // This waits only once its errors are read to their end, because a helper it left behind
     // may hold them open.
     let mut err = errors.and_then(|t| t.join().ok()).unwrap_or_default();
-    if dog.gave_up() {
+    if watchdog.gave_up() {
         err = format!("{err}\n{TIMED_OUT}");
     }
-    drop(dog);
+    drop(watchdog);
     ((!large).then_some(out), err, ok)
 }
 
@@ -426,8 +430,8 @@ pub fn ffmpeg_ppm(
     before: &[&str],
     after: &[&str],
 ) -> Result<image::DynamicImage, String> {
-    // The frame is no larger than Glimt decodes and comes within `LIMIT`, because a crafted
-    // file could otherwise keep ffmpeg busy for good, or hand over gigabytes.
+    // The frame is no larger than Glimt decodes and comes within `PROGRAM_TIME_LIMIT`, because a
+    // crafted file could otherwise keep ffmpeg busy for good, or hand over gigabytes.
     let mut child = stoppable_command("ffmpeg")
         .args(["-v", "error"])
         .args(before)
@@ -438,8 +442,8 @@ pub fn ffmpeg_ppm(
         .args(["-frames:v", "1", "-f", "image2pipe", "-vcodec", "ppm", "-"])
         .spawn()
         .map_err(|e| crate::tf!("video, HEIC and AVIF need ffmpeg: {e}", e))?;
-    let limit = crate::images::decode::MAX_DECODE + 64;
-    let (frame, err, ok) = output_of(&mut child, limit, LIMIT);
+    let limit = crate::images::decode::MAX_DECODE_BYTES + 64;
+    let (frame, err, ok) = output_of(&mut child, limit, PROGRAM_TIME_LIMIT);
     let frame = frame.ok_or("image too large")?;
     if !ok || frame.is_empty() {
         return Err(last_line(&err, "no frame"));
@@ -478,7 +482,7 @@ pub fn gio_mount(uri: &str, login: Option<&Login>) -> Mounted {
     let local = || {
         let mut info = stoppable_host_command("gio");
         info.args(["info", "-a", "standard::name", "--", uri]);
-        let out = String::from_utf8(run_limited(info, 1 << 16, LIMIT).ok()?).ok()?;
+        let out = String::from_utf8(run_limited(info, 1 << 16, PROGRAM_TIME_LIMIT).ok()?).ok()?;
         out.lines()
             .find_map(|l| l.strip_prefix("local path: "))
             .map(PathBuf::from)
@@ -493,7 +497,7 @@ pub fn gio_mount(uri: &str, login: Option<&Login>) -> Mounted {
         .map_err(|e| Some(crate::tf!("Could not run gio: {e}", e)))?;
     // When a server never answers (a NAS asleep, a VPN down), gio is ended after a minute and
     // the mount is told as failed, instead of "Connecting…" and the busy pointer for ever.
-    let dog = Watchdog::new(child.id(), LIMIT * 2);
+    let watchdog = Watchdog::new(child.id(), PROGRAM_TIME_LIMIT * 2);
     let (mut out, mut input) = (child.stdout.take().unwrap(), child.stdin.take().unwrap());
     // Prompts end in ": " without a newline, and the next one is printed after the answer.
     let (mut text, mut answered, mut buf) = (String::new(), 0, [0; 512]);
@@ -535,7 +539,7 @@ pub fn gio_mount(uri: &str, login: Option<&Login>) -> Mounted {
         answered = text.len();
     }
     let out = child.wait_with_output().map_err(|e| Some(e.to_string()))?;
-    if dog.gave_up() {
+    if watchdog.gave_up() {
         return Err(Some(
             crate::support::lang::tr("No answer from the server in a minute").into(),
         ));
@@ -627,7 +631,7 @@ pub fn apps_for(path: &Path) -> Vec<(String, PathBuf)> {
     let gio = |args: &[&std::ffi::OsStr]| {
         let mut gio = stoppable_host_command("gio");
         gio.args(args);
-        let out = run_limited(gio, 1 << 16, LIMIT).unwrap_or_default();
+        let out = run_limited(gio, 1 << 16, PROGRAM_TIME_LIMIT).unwrap_or_default();
         String::from_utf8_lossy(&out).into_owned()
     };
     let info = gio(&[
@@ -651,13 +655,13 @@ pub fn apps_for(path: &Path) -> Vec<(String, PathBuf)> {
         .map(str::trim)
         // Glimt itself, as a package or as the Flatpak.
         .filter(|id| !matches!(*id, "glimt.desktop" | "io.github.thornbux.Glimt.desktop"));
-    named(stoppable_host_command("sh"), &ids.collect::<Vec<_>>())
+    desktop_apps_named(stoppable_host_command("sh"), &ids.collect::<Vec<_>>())
 }
 
-/// The names and desktop files of the applications `ids`, found by `sh`. In a Flatpak, `sh`
+/// Returns the names and desktop files of the applications `ids`, found by `sh`. In a Flatpak, `sh`
 /// runs on the host, where the desktop files are and where `gio launch` runs, not in the
 /// sandbox.
-fn named(mut sh: std::process::Command, ids: &[&str]) -> Vec<(String, PathBuf)> {
+fn desktop_apps_named(mut sh: std::process::Command, ids: &[&str]) -> Vec<(String, PathBuf)> {
     // This looks in the "applications" folder of each XDG data folder, and takes the first one
     // with the file. The value is split at the colons as a variable's value, because dash does
     // not split at a colon written between two.
@@ -674,7 +678,8 @@ fn named(mut sh: std::process::Command, ids: &[&str]) -> Vec<(String, PathBuf)> 
         done
     done"#;
     sh.arg("-c").arg(FIND).arg("sh").args(ids);
-    let text = run_limited(sh, 1 << 20, LIMIT).map(|o| String::from_utf8_lossy(&o).into_owned());
+    let text = run_limited(sh, 1 << 20, PROGRAM_TIME_LIMIT)
+        .map(|o| String::from_utf8_lossy(&o).into_owned());
     (text.unwrap_or_default().lines())
         .filter_map(|l| l.split_once('\t'))
         .filter(|(name, _)| !name.is_empty())
@@ -685,7 +690,7 @@ fn named(mut sh: std::process::Command, ids: &[&str]) -> Vec<(String, PathBuf)> 
 /// Returns how the program `name` that failed with `errors` and `status` is told: by the last
 /// line it printed on its errors, or by its exit status when it printed nothing, so the notice
 /// is never empty.
-fn failure(name: &str, errors: &str, status: std::process::ExitStatus) -> String {
+fn failure_text(name: &str, errors: &str, status: std::process::ExitStatus) -> String {
     match (errors.lines().map(str::trim)).rfind(|l| !l.is_empty()) {
         Some(line) => line.to_owned(),
         None => format!("{name}: {status}"),
@@ -696,7 +701,7 @@ fn failure(name: &str, errors: &str, status: std::process::ExitStatus) -> String
 /// errors are read in a thread of their own, and only their last part is kept. A program it
 /// started in the background (an editor, the application `gio launch` opened) may hold them
 /// open for hours, so `child` is waited for, not the end of its errors. Returns how it failed,
-/// when it did (`failure`).
+/// when it did (`failure_text`).
 pub(crate) fn wait_telling(mut child: std::process::Child, name: &str) -> Result<(), String> {
     let errors = child.stderr.take().map(|e| {
         let (tx, rx) = std::sync::mpsc::channel();
@@ -710,7 +715,7 @@ pub(crate) fn wait_telling(mut child: std::process::Child, name: &str) -> Result
     }
     let wait = std::time::Duration::from_millis(500);
     let err = errors.and_then(|rx| rx.recv_timeout(wait).ok());
-    Err(failure(name, &err.unwrap_or_default(), status))
+    Err(failure_text(name, &err.unwrap_or_default(), status))
 }
 
 /// Runs `cmd`, the user's program `name`, and waits for it in this thread, which the caller
@@ -762,7 +767,7 @@ pub fn set_wallpaper(path: &Path) -> Result<(), String> {
             &uri,
             "{'show-preview': <true>, 'set-on': <'background'>}",
         ]);
-    run_limited(gdbus, 1 << 16, LIMIT).map(drop)
+    run_limited(gdbus, 1 << 16, PROGRAM_TIME_LIMIT).map(drop)
 }
 
 /// A program for Glimt's own work, such as ffmpeg, gio, zenity, gdbus or sqlite3. In a Flatpak it
@@ -809,22 +814,22 @@ fn stoppable(mut command: std::process::Command) -> std::process::Command {
     command
 }
 
-/// Whether `program` is there for `command`. The shell is asked, and the answer is remembered
-/// once the program is there. A program that is not there is asked for again, so a program
-/// installed while Glimt runs is found without a restart. This is the one way every fallback
-/// decides: zenity or kdialog, gio or xdg-open, sqlite3.
-pub fn has(program: &str) -> bool {
-    knows(false, program)
+/// Returns whether `program` is there for `command`. The shell is asked, and the answer is
+/// remembered once the program is there. A program that is not there is asked for again, so a
+/// program installed while Glimt runs is found without a restart. This is the one way every
+/// fallback decides: zenity or kdialog, gio or xdg-open, sqlite3.
+pub fn has_program(program: &str) -> bool {
+    is_program_found(false, program)
 }
 
-/// Whether `program` is there for `host_command`. In a Flatpak that means on the host, where
-/// flatpak-spawn starts even for a program the host lacks and fails only afterwards. It decides
-/// which idle inhibitor is used.
-pub fn host_has(program: &str) -> bool {
-    knows(true, program)
+/// Returns whether `program` is there for `host_command`. In a Flatpak that means on the host,
+/// where flatpak-spawn starts even for a program the host lacks and fails only afterwards. It
+/// decides which idle inhibitor is used.
+pub fn host_has_program(program: &str) -> bool {
+    is_program_found(true, program)
 }
 
-fn knows(on_host: bool, program: &str) -> bool {
+fn is_program_found(on_host: bool, program: &str) -> bool {
     type Known = std::sync::Mutex<std::collections::HashMap<(bool, String), bool>>;
     static KNOWN: std::sync::OnceLock<Known> = std::sync::OnceLock::new();
     let known = KNOWN.get_or_init(Default::default);
@@ -837,7 +842,7 @@ fn knows(on_host: bool, program: &str) -> bool {
         false => stoppable_command("sh"),
     };
     sh.args(["-c", "command -v -- \"$1\" >/dev/null 2>&1", "sh", program]);
-    let has = run_limited(sh, 1 << 10, LIMIT).is_ok();
+    let has = run_limited(sh, 1 << 10, PROGRAM_TIME_LIMIT).is_ok();
     if has {
         known.lock().unwrap().insert(key, true);
     }
@@ -852,7 +857,7 @@ fn host_allowed() -> bool {
     *ALLOWED.get_or_init(|| {
         let mut spawn = stoppable(command("flatpak-spawn"));
         spawn.args(["--host", "true"]);
-        run_limited(spawn, 1 << 10, LIMIT).is_ok()
+        run_limited(spawn, 1 << 10, PROGRAM_TIME_LIMIT).is_ok()
     })
 }
 
@@ -892,8 +897,8 @@ fn host_for(
 }
 
 /// The host's own data folders, with those that Flatpak exports installed programs to, so that
-/// gio lists them for Open With and `named` finds their desktop files. flatpak-spawn would pass
-/// the sandbox's variables on to the host instead, with its data folder, /app/share.
+/// gio lists them for Open With and `desktop_apps_named` finds their desktop files. flatpak-spawn
+/// would pass the sandbox's variables on to the host instead, with its data folder, /app/share.
 fn host_data_dirs(home: &str) -> [String; 2] {
     [
         format!("--env=XDG_DATA_HOME={home}/.local/share"),
@@ -941,7 +946,7 @@ mod tests {
         assert_eq!(spawn.last().unwrap(), "mpv");
         let mut refused = super::stoppable(super::host_for(id(), || false, "mpv", &[]));
         refused.arg("x");
-        let why = super::run_limited(refused, 1 << 10, super::LIMIT).unwrap_err();
+        let why = super::run_limited(refused, 1 << 10, super::PROGRAM_TIME_LIMIT).unwrap_err();
         assert!(why.starts_with("mpv runs outside the Flatpak"), "{why}");
         assert!(why.ends_with("--talk-name=org.freedesktop.Flatpak io.github.thornbux.Glimt"));
     }
@@ -950,12 +955,12 @@ mod tests {
     /// found once it is installed.
     #[test]
     fn host_has_remembers_only_what_is_there() {
-        assert!(super::host_has("sh") && super::host_has("sh"));
-        assert!(!super::host_has("glimt-no-such-program-xyz"));
-        assert!(!super::host_has("glimt-no-such-program-xyz"));
+        assert!(super::host_has_program("sh") && super::host_has_program("sh"));
+        assert!(!super::host_has_program("glimt-no-such-program-xyz"));
+        assert!(!super::host_has_program("glimt-no-such-program-xyz"));
     }
 
-    /// The dog ends a program that does not end, so sleep 30 is over in a tenth of a second.
+    /// The watchdog ends a program that does not end, so sleep 30 is over in a tenth of a second.
     #[test]
     fn the_watchdog_ends_a_program_in_time() {
         use std::os::unix::process::CommandExt;
@@ -964,17 +969,17 @@ mod tests {
             .process_group(0)
             .spawn()
             .unwrap();
-        let dog = super::Watchdog::new(child.id(), std::time::Duration::from_millis(100));
+        let watchdog = super::Watchdog::new(child.id(), std::time::Duration::from_millis(100));
         let start = std::time::Instant::now();
         assert!(!child.wait().unwrap().success());
-        assert!(dog.gave_up() && start.elapsed() < std::time::Duration::from_secs(5));
-        // One that ends in time is left alone, and the dog says so.
+        assert!(watchdog.gave_up() && start.elapsed() < std::time::Duration::from_secs(5));
+        // One that ends in time is left alone, and the watchdog says so.
         let mut quick = std::process::Command::new("true")
             .process_group(0)
             .spawn()
             .unwrap();
-        let dog = super::Watchdog::new(quick.id(), std::time::Duration::from_secs(10));
-        assert!(quick.wait().unwrap().success() && !dog.gave_up());
+        let watchdog = super::Watchdog::new(quick.id(), std::time::Duration::from_secs(10));
+        assert!(quick.wait().unwrap().success() && !watchdog.gave_up());
     }
 
     /// A program that keeps making progress is not ended at the limit. A print to lp longer
@@ -988,16 +993,16 @@ mod tests {
             .process_group(0)
             .spawn()
             .unwrap();
-        let dog = super::Watchdog::new(child.id(), std::time::Duration::from_millis(300));
+        let watchdog = super::Watchdog::new(child.id(), std::time::Duration::from_millis(300));
         // A second, three times the limit, fed every tenth.
         for _ in 0..10 {
             std::thread::sleep(std::time::Duration::from_millis(100));
-            dog.feed();
+            watchdog.feed();
         }
-        assert!(!dog.gave_up());
+        assert!(!watchdog.gave_up());
         let start = std::time::Instant::now();
         assert!(!child.wait().unwrap().success());
-        assert!(dog.gave_up() && start.elapsed() < std::time::Duration::from_secs(5));
+        assert!(watchdog.gave_up() && start.elapsed() < std::time::Duration::from_secs(5));
     }
 
     /// Every program Glimt may stop has a process group of its own and no terminal for its
@@ -1010,7 +1015,7 @@ mod tests {
             .args(["-c", script])
             .spawn()
             .unwrap();
-        let (out, _, ok) = super::output_of(&mut child, 1024, super::LIMIT);
+        let (out, _, ok) = super::output_of(&mut child, 1024, super::PROGRAM_TIME_LIMIT);
         assert!(ok);
         assert_eq!(String::from_utf8_lossy(&out.unwrap()), "/dev/null\nown\n");
     }
@@ -1028,13 +1033,13 @@ mod tests {
         let mut echo = super::stoppable_command("sh");
         echo.args(["-c", "echo yes; echo why >&2"]);
         assert_eq!(
-            super::run_limited(echo, 1024, super::LIMIT).unwrap(),
+            super::run_limited(echo, 1024, super::PROGRAM_TIME_LIMIT).unwrap(),
             b"yes\n"
         );
         let mut fails = super::stoppable_command("sh");
         fails.args(["-c", "echo first >&2; echo the reason >&2; exit 1"]);
         assert_eq!(
-            super::run_limited(fails, 1024, super::LIMIT).unwrap_err(),
+            super::run_limited(fails, 1024, super::PROGRAM_TIME_LIMIT).unwrap_err(),
             "the reason"
         );
     }
@@ -1042,9 +1047,9 @@ mod tests {
     /// A program is there or not, and the shell is asked once.
     #[test]
     fn knows_what_the_host_has() {
-        assert!(super::host_has("sh"));
-        assert!(!super::host_has("no-such-program-glimt"));
-        assert!(!super::host_has("no-such-program-glimt"));
+        assert!(super::host_has_program("sh"));
+        assert!(!super::host_has_program("no-such-program-glimt"));
+        assert!(!super::host_has_program("no-such-program-glimt"));
     }
 
     /// Desktop files found in the first data folder that has them, with their names.
@@ -1063,7 +1068,7 @@ mod tests {
         let mut sh = super::stoppable_command("sh");
         sh.env("XDG_DATA_HOME", dir.join("a"))
             .env("XDG_DATA_DIRS", dir.join("b"));
-        let found = super::named(sh, &["x.desktop", "y.desktop", "none.desktop"]);
+        let found = super::desktop_apps_named(sh, &["x.desktop", "y.desktop", "none.desktop"]);
         assert_eq!(
             found,
             [
@@ -1147,10 +1152,10 @@ mod tests {
     #[test]
     fn fits_ffmpeg_frames() {
         assert_eq!(
-            super::fit(Some([256, 256])).unwrap(),
+            super::ffmpeg_scale_filter(Some([256, 256])).unwrap(),
             "scale='min(256,iw)':'min(256,ih)':force_original_aspect_ratio=decrease"
         );
-        assert_eq!(super::fit(None), None);
+        assert_eq!(super::ffmpeg_scale_filter(None), None);
     }
 
     /// Two tiles side by side, cut to 1000×500 and turned a quarter, with the keys as the parser

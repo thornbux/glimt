@@ -751,7 +751,7 @@ fn raw(path: &Path) -> Option<Vec<u8>> {
     }
     #[cfg(feature = "jxl")]
     if crate::model::listing::has_ext(path, crate::model::listing::JXL_EXTS) {
-        let file = std::io::BufReader::new(crate::images::decode::open(path).ok()?);
+        let file = std::io::BufReader::new(crate::images::decode::open_regular(path).ok()?);
         let mut dec = jxl_oxide::integration::JxlDecoder::new(file).ok()?;
         return decoded(path, &mut dec);
     }
@@ -900,7 +900,7 @@ fn png_exif(path: &Path) -> Option<Option<Vec<u8>>> {
     // shortcut: only the text before the pixels is read, where exiv2 and ImageMagick put it;
     // read the chunks after IDAT too if a program is found that writes EXIF there.
     const KEYS: [&[u8]; 2] = [b"Raw profile type exif", b"Raw profile type APP1"];
-    let file = std::io::BufReader::new(crate::images::decode::open(path).ok()?);
+    let file = std::io::BufReader::new(crate::images::decode::open_regular(path).ok()?);
     let reader = png::Decoder::new(file).read_info().ok()?;
     let info = reader.info();
     if let Some(exif) = &info.exif_metadata {

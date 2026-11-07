@@ -29,7 +29,7 @@ impl crate::App {
         self.receive_listing(ctx, std::time::Duration::ZERO);
         self.receive_sizes();
         self.receive_exif_index(ctx);
-        self.receive_deleted(ctx);
+        self.receive_operation_report(ctx);
         self.selection_size(ctx);
         self.match_size(ctx);
         self.receive_file_work(ctx);
@@ -39,7 +39,7 @@ impl crate::App {
         }
         self.receive_focus(ctx);
         self.receive_remote(ctx);
-        if let Some(img) = self.work.take_image() {
+        if let Some(img) = self.file_operations.take_image() {
             ctx.copy_image(img);
         }
         self.receive_dropped(ctx);
@@ -81,15 +81,15 @@ impl crate::App {
     /// reads what it held back for keywords written), closing once they are, and saved turns.
     fn receive_file_work(&mut self, ctx: &egui::Context) {
         // Keywords written: an `exif:` search reads what it held back for them.
-        if self.work.let_go_of_ended() && self.search.holds_exif_reads() {
+        if self.file_operations.drop_ended_jobs() && self.search.holds_exif_reads() {
             self.update_search(ctx);
         }
-        if self.work_left() {
+        if self.is_writing() {
             ctx.request_repaint_after(std::time::Duration::from_millis(250));
         } else if self.window.closes_asked() > 0 {
             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
         }
-        while let Some((path, result)) = self.work.take_saved() {
+        while let Some((path, result)) = self.file_operations.take_saved() {
             match result {
                 Ok(()) => {
                     self.window.turn_saved();
@@ -141,12 +141,12 @@ impl crate::App {
 
     /// Rename Many done, and the renames a crash cut short, found at start.
     fn receive_renames(&mut self, ctx: &egui::Context) {
-        match self.work.take_renamed() {
-            Took::Answer((Some(job), result)) => self.renamed(ctx, job, result),
+        match self.file_operations.take_rename_outcome() {
+            Took::Answer((Some(job), result)) => self.finish_rename_many(ctx, job, result),
             Took::Answer((None, _)) | Took::Nothing => {}
             Took::Gone => self.stopped(tr("Rename Many")),
         }
-        if !self.work.receive_cut_short() {
+        if !self.file_operations.receive_cut_short() {
             self.stopped(tr("Looking for renames cut short"));
         }
     }

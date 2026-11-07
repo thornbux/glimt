@@ -422,7 +422,7 @@ pub fn desktop() -> Desktop {
             namespace,
             key,
         ];
-        crate::files::external::limited("gdbus", &args, 1 << 16).unwrap_or_default()
+        crate::files::external::short_output_of("gdbus", &args, 1 << 16).unwrap_or_default()
     };
     Desktop {
         dark: parse_scheme(&read("org.freedesktop.appearance", "color-scheme")),

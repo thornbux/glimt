@@ -3,7 +3,7 @@
 
 #[cfg(feature = "video")]
 use crate::files::external::is_video;
-use crate::files::file_ops::Deleted;
+use crate::files::file_ops::OperationReport;
 use crate::images::decode;
 use crate::images::save;
 use crate::images::save::{CopyAs, Format};
@@ -160,11 +160,11 @@ impl crate::App {
             // "a-1920.jpg" when smaller, "a.webp" in another format, else "a-copy.jpg".
             let path = &dialog.path;
             let mut name = match how.long_side {
-                Some(long) => save::stem_and(path, &format!("-{long}.{}", format.ext())),
-                None => save::stem_and(path, &format!(".{}", format.ext())),
+                Some(long) => save::stem_with_suffix(path, &format!("-{long}.{}", format.ext())),
+                None => save::stem_with_suffix(path, &format!(".{}", format.ext())),
             };
             if path.with_file_name(&name) == *path {
-                name = save::stem_and(path, &format!("-copy.{}", format.ext()));
+                name = save::stem_with_suffix(path, &format!("-copy.{}", format.ext()));
             }
             let start = path.with_file_name(name);
             self.pick(ctx, false, Pick::SaveAs(dialog.path, how, start));
@@ -181,27 +181,29 @@ impl crate::App {
         how: CopyAs,
         to: PathBuf,
     ) {
-        let deleted = self.work.deleted_sender();
-        self.background(ctx, vec![path.clone(), to.clone()], move || {
-            Some(match decode::survive(|| save::save_as(&path, &how, &to)) {
-                Ok(new) => {
-                    // Saved over a file the dialog let it replace, maybe one in the list. The copy
-                    // gets the marks and stars of the original, as it got its sidecar, unless
-                    // it was stripped.
-                    let _ = deleted.send(Deleted {
-                        relist: true,
-                        overwritten: vec![new.clone()],
-                        moved: (!how.strip)
-                            .then(|| (path.clone(), new.clone()))
-                            .into_iter()
-                            .collect(),
-                        copied: true,
-                        ..Default::default()
-                    });
-                    tf!("Saved {file}", file = new.display())
-                }
-                Err(e) => tf!("Could not save the image: {e}", e),
-            })
+        let report_tx = self.file_operations.report_sender();
+        self.run_in_background(ctx, vec![path.clone(), to.clone()], move || {
+            Some(
+                match decode::catch_panic(|| save::save_as(&path, &how, &to)) {
+                    Ok(new) => {
+                        // Saved over a file the dialog let it replace, maybe one in the list. The
+                        // copy gets the marks and stars of the original, as it got its sidecar,
+                        // unless it was stripped.
+                        let _ = report_tx.send(OperationReport {
+                            read_folder_again: true,
+                            overwritten: vec![new.clone()],
+                            moved: (!how.strip)
+                                .then(|| (path.clone(), new.clone()))
+                                .into_iter()
+                                .collect(),
+                            is_copy: true,
+                            ..Default::default()
+                        });
+                        tf!("Saved {file}", file = new.display())
+                    }
+                    Err(e) => tf!("Could not save the image: {e}", e),
+                },
+            )
         });
     }
 }

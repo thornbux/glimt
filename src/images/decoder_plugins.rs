@@ -12,7 +12,7 @@
 //!
 //! The command gets the file's absolute path as one argument of its own, never through a shell,
 //! and writes the image (PNM, PNG, TIFF, BMP …) to its standard output. It has 30 seconds and
-//! at most `MAX_DECODE` bytes, as ffmpeg has.
+//! at most `MAX_DECODE_BYTES` bytes, as ffmpeg has.
 
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -27,15 +27,15 @@ pub struct Decoder {
 }
 
 impl Decoder {
-    /// Whether a file named `name` (in lower case) is of this decoder's format: by the end of
-    /// the name, so an ending of two parts (".nii.gz") is found too.
-    fn takes(&self, name: &str) -> bool {
+    /// Returns whether a file named `name` (in lower case) is of this decoder's format: by the end
+    /// of the name, so an ending of two parts (".nii.gz") is found too.
+    fn handles_name(&self, name: &str) -> bool {
         (self.exts.iter()).any(|e| name.ends_with(e.as_str()) && name != e)
     }
 
     /// The image the command writes for `path`.
     pub fn decode(&self, path: &Path) -> Result<image::DynamicImage, String> {
-        self.run(path, crate::files::external::LIMIT)
+        self.run(path, crate::files::external::PROGRAM_TIME_LIMIT)
     }
 
     fn run(&self, path: &Path, limit: Duration) -> Result<image::DynamicImage, String> {
@@ -61,7 +61,7 @@ impl Decoder {
                 .args(&args[1..])
                 .spawn()
                 .map_err(|e| format!("{} ({}): {e}", self.name, program.display()))?;
-        let max = crate::images::decode::MAX_DECODE + 64;
+        let max = crate::images::decode::MAX_DECODE_BYTES + 64;
         let (image, err, ok) = crate::files::external::output_of(&mut child, max, limit);
         let image = image.ok_or_else(|| format!("{}: image too large", self.name))?;
         if !ok || image.is_empty() {
@@ -72,10 +72,10 @@ impl Decoder {
     }
 }
 
-/// The decoders, read once, by the names of their files: when two take the same ending, the one
-/// first by name does. A desktop file in the user's folder hides one of the same name in the
-/// system's. New ones are seen after a restart, as plugins are.
-pub fn all() -> &'static [Decoder] {
+/// Returns the installed decoders, read once, by the names of their files: when two take the same
+/// ending, the one first by name does. A desktop file in the user's folder hides one of the same
+/// name in the system's. New ones are seen after a restart, as plugins are.
+pub fn installed_decoders() -> &'static [Decoder] {
     static ALL: std::sync::OnceLock<Vec<Decoder>> = std::sync::OnceLock::new();
     ALL.get_or_init(|| {
         (crate::features::plugins::desktop_files("decoders").into_iter())
@@ -113,7 +113,7 @@ fn parse(text: &str, dir: &Path) -> Option<Decoder> {
 /// The decoder for `path`, by its extension, unless Glimt reads that format itself.
 pub fn for_path(path: &Path) -> Option<&'static Decoder> {
     // No decoders, as for most: no work for each file of a folder of 500,000.
-    if all().is_empty() {
+    if installed_decoders().is_empty() {
         return None;
     }
     if crate::model::listing::built_in_format(path) {
@@ -121,7 +121,7 @@ pub fn for_path(path: &Path) -> Option<&'static Decoder> {
     }
     // Lossy: a name in another encoding (a Latin-1 "røntgen.dcm") still has its ending.
     let name = path.file_name()?.to_string_lossy().to_lowercase();
-    all().iter().find(|d| d.takes(&name))
+    installed_decoders().iter().find(|d| d.handles_name(&name))
 }
 
 #[cfg(test)]
@@ -150,8 +150,12 @@ mod tests {
         .unwrap();
         assert_eq!(cat.exts, [".xyz", ".xy2"]);
         let nifti = super::parse("Name=NIfTI\nExtensions=nii;nii.gz\nExec=x %f", &dir).unwrap();
-        assert!(nifti.takes("brain.nii.gz") && nifti.takes("brain.nii"));
-        assert!(!nifti.takes("notes.gz") && !nifti.takes(".nii") && !nifti.takes("a.niigz"));
+        assert!(nifti.handles_name("brain.nii.gz") && nifti.handles_name("brain.nii"));
+        assert!(
+            !nifti.handles_name("notes.gz")
+                && !nifti.handles_name(".nii")
+                && !nifti.handles_name("a.niigz")
+        );
         let img = cat.decode(&file).unwrap();
         assert_eq!((img.width(), img.height()), (6, 3));
         // Nothing written: an error that names the decoder.

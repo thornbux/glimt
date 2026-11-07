@@ -2,7 +2,7 @@
 
 #[cfg(feature = "video")]
 use crate::files::external::is_video;
-use crate::files::file_ops::Deleted;
+use crate::files::file_ops::OperationReport;
 use crate::support::lang::tr;
 use crate::tf;
 use eframe::egui;
@@ -161,21 +161,22 @@ impl crate::App {
             ..crop.how
         };
         let path = crop.path;
-        let deleted = self.work.deleted_sender();
-        self.background(ctx, vec![path.clone()], move || {
-            let saved =
-                crate::images::decode::survive(|| crate::images::save::save_cropped(&path, &how));
+        let report_tx = self.file_operations.report_sender();
+        self.run_in_background(ctx, vec![path.clone()], move || {
+            let saved = crate::images::decode::catch_panic(|| {
+                crate::images::save::save_cropped(&path, &how)
+            });
             Some(match saved {
                 Ok(new) => {
                     // The copy gets the marks and stars of the original, as it got its
                     // sidecar, unless it was stripped.
-                    let _ = deleted.send(Deleted {
-                        relist: true,
+                    let _ = report_tx.send(OperationReport {
+                        read_folder_again: true,
                         moved: (!how.strip)
                             .then(|| (path.clone(), new.clone()))
                             .into_iter()
                             .collect(),
-                        copied: true,
+                        is_copy: true,
                         ..Default::default()
                     });
                     tf!("Saved {file}", file = new.display())

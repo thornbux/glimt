@@ -1,7 +1,7 @@
 //! The model of what is open: the file list with everything that holds a place in it
 //! (`List`), and the decoded images (`Slot`).
 
-use crate::images::decode::Hist;
+use crate::images::decode::HistogramCounts;
 use crate::ui::file_list::RubberBand;
 use eframe::egui;
 use std::collections::{HashMap, HashSet};
@@ -21,7 +21,7 @@ pub(crate) struct Slot {
     /// Frames of an animated GIF or WebP with their delays in ms; empty for a still image.
     pub(crate) anim: Vec<(egui::TextureHandle, u32)>,
     /// Of the decoded image (the first frame of an animation).
-    pub(crate) hist: Box<Hist>,
+    pub(crate) hist: Box<HistogramCounts>,
     /// Pages of a multi-page TIFF; 1 for other files.
     pub(crate) pages: usize,
     /// The box it was decoded into (`decode_box`): decoded again only for a larger one.
@@ -75,10 +75,10 @@ pub(crate) struct List {
     /// files the list shows, so while searching they are matches only. No action then acts on
     /// a file the search hides.
     selected: std::collections::BTreeSet<usize>,
-    /// The selected files that the search hides. They are held back from `selected`, so no
+    /// The selected files that the search hides. They are kept apart from `selected`, so no
     /// action acts on them, and they come back when the search shows them again. A query typed
     /// letter by letter (`re:` before `re:IMG`) would otherwise lose them for good.
-    held_back: std::collections::BTreeSet<usize>,
+    hidden_selected: std::collections::BTreeSet<usize>,
     /// Where a Shift selection started (file index).
     anchor: Option<usize>,
     /// Where the Shift selection made by the keys last ended (file index), while nothing else
@@ -134,21 +134,24 @@ impl List {
         &self.selected
     }
 
-    /// The selected files that the search hides, held back until it shows them again.
-    pub(crate) fn held_back(&self) -> &std::collections::BTreeSet<usize> {
-        &self.held_back
+    /// Returns the selected files that the search hides, kept apart until it shows them again.
+    pub(crate) fn hidden_selected(&self) -> &std::collections::BTreeSet<usize> {
+        &self.hidden_selected
     }
 
     /// Returns whether every selected file is one the search hides. An action on the
     /// selection then acts on nothing, not on the shown image in their place.
-    pub(crate) fn only_held_back(&self) -> bool {
-        self.selected.is_empty() && !self.held_back.is_empty()
+    pub(crate) fn only_hidden_selected(&self) -> bool {
+        self.selected.is_empty() && !self.hidden_selected.is_empty()
     }
 
-    /// The selected files and those the search holds back, which a new list selects again by
-    /// name and a rectangle drawn with Ctrl adds to.
-    pub(crate) fn selected_and_held(&self) -> std::collections::BTreeSet<usize> {
-        self.selected.union(&self.held_back).copied().collect()
+    /// Returns the selected files together with those the search hides, which a new list selects
+    /// again by name and a rectangle drawn with Ctrl adds to.
+    pub(crate) fn selected_with_hidden(&self) -> std::collections::BTreeSet<usize> {
+        self.selected
+            .union(&self.hidden_selected)
+            .copied()
+            .collect()
     }
 
     /// Where the Shift selection made by the keys last ended.
@@ -284,7 +287,7 @@ impl List {
     pub(crate) fn places_changed(&mut self) {
         self.version += 1;
         self.selected.clear();
-        self.held_back.clear();
+        self.hidden_selected.clear();
         self.anchor = None;
         self.rubber_band = None;
         self.dragging = None;
@@ -297,10 +300,10 @@ impl List {
         self.matches.is_none() || self.is_match.get(i).copied().unwrap_or(false)
     }
 
-    /// Selects the files at `places` and nothing else. Those that the search hides are held
-    /// back until it shows them.
+    /// Selects the files at `places` and nothing else. Those that the search hides are kept
+    /// apart in `hidden_selected` until it shows them.
     pub(crate) fn select(&mut self, places: std::collections::BTreeSet<usize>) {
-        (self.selected, self.held_back) = places.into_iter().partition(|&i| self.shows(i));
+        (self.selected, self.hidden_selected) = places.into_iter().partition(|&i| self.shows(i));
     }
 
     /// Selects the file at `i` alone, and starts a Shift selection there.
@@ -315,7 +318,7 @@ impl List {
     /// selected only while nothing else is, also among the files the search hides. Returns
     /// whether the selection changed.
     pub(crate) fn right_click(&mut self, i: usize) -> bool {
-        let others = !self.selected.is_empty() || !self.held_back.is_empty();
+        let others = !self.selected.is_empty() || !self.hidden_selected.is_empty();
         let outside = !self.selected.contains(&i) && (i != self.cur || others);
         if outside {
             self.select_one(i);
@@ -349,7 +352,7 @@ impl List {
     /// Selects nothing, also among the files the search hides.
     pub(crate) fn clear_selection(&mut self) {
         self.selected.clear();
-        self.held_back.clear();
+        self.hidden_selected.clear();
     }
 
     /// Starts a Shift selection at `i`, or at nothing.
@@ -450,7 +453,7 @@ impl List {
     }
 
     /// Sets the search matches, or `None` when there is no search. The selected files that the
-    /// search hides are held back, and those it shows again are selected again. Returns whether
+    /// search hides are kept apart, and those it shows again are selected again. Returns whether
     /// the selection changed.
     pub(crate) fn set_matches(&mut self, matches: Option<Vec<usize>>) -> bool {
         self.is_match.clear();
@@ -465,15 +468,15 @@ impl List {
         let hidden: Vec<usize> = (self.selected.iter().copied())
             .filter(|&i| !self.shows(i))
             .collect();
-        let shown: Vec<usize> = (self.held_back.iter().copied())
+        let shown: Vec<usize> = (self.hidden_selected.iter().copied())
             .filter(|&i| self.shows(i))
             .collect();
         for &i in &hidden {
             self.selected.remove(&i);
-            self.held_back.insert(i);
+            self.hidden_selected.insert(i);
         }
         for &i in &shown {
-            self.held_back.remove(&i);
+            self.hidden_selected.remove(&i);
             self.selected.insert(i);
         }
         !hidden.is_empty() || !shown.is_empty()
@@ -574,8 +577,8 @@ mod tests {
                 "carried by name by the callers that keep it (reselect)",
             ),
             (
-                "held_back",
-                "carried by name with the selection (selected_and_held)",
+                "hidden_selected",
+                "carried by name with the selection (selected_with_hidden)",
             ),
             ("anchor", "reset"),
             ("range_end", "reset"),

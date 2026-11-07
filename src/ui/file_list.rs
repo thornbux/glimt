@@ -1572,7 +1572,7 @@ impl crate::App {
             && (self.folder.collection().is_none() || !cells.iter().any(|c| c.1.contains(p)))
         {
             let before = if add {
-                self.list.selected_and_held()
+                self.list.selected_with_hidden()
             } else {
                 Default::default()
             };
@@ -1758,8 +1758,8 @@ impl crate::App {
                     left += &tf!(", {m} selected ({size})", m, size);
                 }
                 let mut hidden = String::new();
-                if !self.list.held_back().is_empty() {
-                    let h = thousands(self.list.held_back().len());
+                if !self.list.hidden_selected().is_empty() {
+                    let h = thousands(self.list.hidden_selected().len());
                     hidden = tf!(", {h} selected but hidden by the search", h);
                     left += &hidden;
                 }
@@ -1768,7 +1768,7 @@ impl crate::App {
                 ui.separator();
                 // The release tests look for the hidden count on its own.
                 crate::support::test_hooks::noted(&ui.label(left), &hidden);
-                if let Some((job, jobs)) = self.work.jobs_shown() {
+                if let Some((job, jobs)) = self.file_operations.first_job_and_count() {
                     ui.separator();
                     let more = match jobs - 1 {
                         0 => String::new(),
@@ -1776,13 +1776,13 @@ impl crate::App {
                     };
                     ui.label(tf!(
                         "{doing} {done} of {total}…{more}",
-                        doing = tr(job.doing),
+                        doing = tr(job.activity),
                         done = thousands(job.done.load(Ordering::Relaxed)),
                         total = thousands(job.total),
                         more
                     ));
                     if crate::ui::menus::small_button(ui, tr("Stop")).clicked() {
-                        self.work.stop_jobs();
+                        self.file_operations.stop_jobs();
                     }
                 }
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {

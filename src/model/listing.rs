@@ -2,7 +2,7 @@
 //! of them, and sorting them (by name as numbers, date, size, EXIF date or shuffled).
 
 use crate::files::external::{is_heif, is_video};
-use crate::images::save::FileKey;
+use crate::images::save::FileId;
 use crate::{images::raw, metadata::exif};
 use std::collections::HashSet;
 use std::ffi::OsString;
@@ -214,23 +214,23 @@ pub fn walk(
     dir: &Path,
     types: Types,
 ) -> impl Iterator<Item = (PathBuf, Vec<PathBuf>, Vec<OsString>)> {
-    walk_by(dir, types, crate::images::save::file_key, |p| {
+    walk_by(dir, types, crate::images::save::file_id, |p| {
         std::fs::canonicalize(p)
     })
 }
 
-/// Walks the tree as `walk` does, with `file_key` telling the folders apart and `canonical`
-/// giving a link's real path, so a test can give the keys a file system without unique inodes
+/// Walks the tree as `walk` does, with `file_id` telling the folders apart and `canonical`
+/// giving a link's real path, so a test can give the ids a file system without unique inodes
 /// has, and a real path that cannot be worked out.
 fn walk_by(
     dir: &Path,
     types: Types,
-    file_key: impl Fn(&Path) -> Option<FileKey>,
+    file_id: impl Fn(&Path) -> Option<FileId>,
     canonical: impl Fn(&Path) -> std::io::Result<PathBuf>,
 ) -> impl Iterator<Item = (PathBuf, Vec<PathBuf>, Vec<OsString>)> {
     let (dir, mut todo) = (dir.to_path_buf(), vec![PathBuf::new()]);
-    let mut seen: HashSet<FileKey> = HashSet::new();
-    let key = move |full: &Path| file_key(full).unwrap_or_else(|| Err(real_dir(full)));
+    let mut seen: HashSet<FileId> = HashSet::new();
+    let folder_id = move |full: &Path| file_id(full).unwrap_or_else(|| Err(real_dir(full)));
     let real = real_dir(&dir);
     std::iter::from_fn(move || {
         loop {
@@ -245,7 +245,7 @@ fn walk_by(
                     None => continue,
                 }
             }
-            if !seen.insert(key(&full)) {
+            if !seen.insert(folder_id(&full)) {
                 continue;
             }
             let (dirs, files) = list_folder(&full, types);
@@ -626,9 +626,10 @@ mod tests {
             videos: true,
             hidden: false,
         };
-        let key = |p: &std::path::Path| Some(crate::images::save::key_of(p, (1, 0)));
+        let file_id =
+            |p: &std::path::Path| Some(crate::images::save::file_id_from_inode(p, (1, 0)));
         let real = |p: &std::path::Path| std::fs::canonicalize(p);
-        let mut files: Vec<std::path::PathBuf> = super::walk_by(&dir, types, key, real)
+        let mut files: Vec<std::path::PathBuf> = super::walk_by(&dir, types, file_id, real)
             .flat_map(|(rel, _, files)| files.into_iter().map(move |f| rel.join(f)))
             .collect();
         files.sort();
@@ -664,7 +665,7 @@ mod tests {
             false => std::fs::canonicalize(p),
         };
         let files: Vec<std::path::PathBuf> =
-            super::walk_by(&dir, types, crate::images::save::file_key, real)
+            super::walk_by(&dir, types, crate::images::save::file_id, real)
                 .flat_map(|(rel, _, files)| files.into_iter().map(move |f| rel.join(f)))
                 .collect();
         assert_eq!(files, [std::path::PathBuf::from("a.jpg")]);

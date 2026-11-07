@@ -66,9 +66,9 @@ impl Plugin {
             };
             // Its output is not read: a converter writing the image to stdout would else be
             // kept whole in memory; its errors are. In a process group of its own, so Stop ends
-            // what it started too (in a Flatpak through INT, see `external::stop`). Not
-            // `stoppable_command`: its --watch-bus would end an editor
-            // on the host when the Flatpak's Glimt closes, with its unsaved work.
+            // what it started too (in a Flatpak through INT, see `external::stop_process_group`).
+            // Not `stoppable_command`: its --watch-bus would end an editor on the host when the
+            // Flatpak's Glimt closes, with its unsaved work.
             use std::os::unix::process::CommandExt;
             let mut child =
                 crate::files::external::host_command(program.to_string_lossy().as_ref())
@@ -439,7 +439,7 @@ mod tests {
                     std::thread::sleep(std::time::Duration::from_millis(10));
                 }
                 let (_, pid) = running.lock().unwrap().remove(0);
-                crate::files::external::stop(pid);
+                crate::files::external::stop_process_group(pid);
             })
         };
         assert_eq!(endless.run(&files, &dir, &running), Err("stopped".into()));

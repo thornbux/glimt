@@ -540,7 +540,7 @@ fn parts_keep_their_fields() {
         ("features/duplicates.rs", "Dups"),
         ("features/print.rs", "PrintDialog"),
         ("features/remote.rs", "Listener"),
-        ("files/file_ops.rs", "Work"),
+        ("files/file_ops.rs", "FileOperations"),
         ("metadata/lightroom.rs", "Import"),
         ("metadata/marks.rs", "Marks"),
         ("model/folder.rs", "Folder"),
@@ -967,20 +967,20 @@ fn copies_of_settings_have_one_writer() {
     const WRITERS: &[(&str, &[(&str, &str)])] = &[
         ("OWN_KEYS.write()", &[("ui/actions.rs", "use_own_keys")]),
         (
-            "MAX_ANIMATION.store(",
+            "MAX_ANIMATION_BYTES.store(",
             &[("images/decode.rs", "set_animation_limit")],
         ),
         (
             "VIEW_FILTER.store(",
             &[
-                ("images/colour.rs", "set_up"),
+                ("images/colour.rs", "set_up_colour"),
                 ("ui/menus.rs", "set_view_filter"),
             ],
         ),
         (
             "COLOR_MANAGEMENT.store(",
             &[
-                ("images/colour.rs", "set_up"),
+                ("images/colour.rs", "set_up_colour"),
                 ("ui/menus.rs", "set_color_management"),
             ],
         ),
@@ -1253,7 +1253,7 @@ fn derived_files_take_metadata_in_one_place() {
             "own_sidecar(",
             &[
                 ("metadata/xmp.rs", ""),
-                ("images/save.rs", "land"),
+                ("images/save.rs", "save_copy_with_sidecar"),
                 ("images/save.rs", "derive_sidecar"),
             ],
         ),
@@ -1281,7 +1281,7 @@ fn an_image_and_its_sidecar_change_together() {
             "replace_existing(",
             &[
                 ("files/file_io.rs", ""),
-                ("images/save.rs", "replace_holding_sidecar"),
+                ("images/save.rs", "replace_with_sidecar_locked"),
             ],
         ),
     ];

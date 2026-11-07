@@ -231,8 +231,8 @@ impl crate::App {
         self.status.forget_place();
         self.search.error = None;
         let matches = self.search_matches(ctx, query);
-        // The files the search hides are held back from the selection, so an action acts on what
-        // is shown, and those it shows again come back.
+        // The selected files that the search hides are kept apart from the selection, so an
+        // action acts on what is shown. Those that the search shows again are selected again.
         if self.list.set_matches(matches) {
             self.selection_changed(ctx);
         }
@@ -420,7 +420,7 @@ impl crate::App {
         // there is. That waits while keywords are still being written, and the marks stay until
         // they are, so files read before their sidecar landed are read again after. (The frame
         // that sees the job end searches again.)
-        let writing = self.work.writes_keywords();
+        let writing = self.file_operations.is_writing_sidecars();
         if !writing
             && self.search.exif_index.is_some()
             && !self.search.exif_stale.is_empty()
@@ -809,7 +809,8 @@ mod tests {
         app.list.select_one(1);
         assert!(app.list.selected().is_empty());
         app.list.add_to_selection([2, 3]);
-        // A file the search hides is held back, and is selected again when it is shown again.
+        // A selected file that the search hides is kept apart, and is selected again when it is
+        // shown again.
         app.search.set_query("beach2");
         app.update_search(&ctx);
         assert_eq!(app.list.selected(), &[3].into());
@@ -817,7 +818,7 @@ mod tests {
         app.search.set_query("");
         app.update_search(&ctx);
         assert_eq!(app.list.selected(), &[2, 3].into());
-        // Select None, a plain click and Select All let go of the held-back files too.
+        // Select None, a plain click and Select All let go of the hidden selected files too.
         let ways: [fn(&mut crate::App, &eframe::egui::Context); 3] = [
             |a, c| a.run(c, Action::SelectNone),
             |a, _| a.list.select_one(3),

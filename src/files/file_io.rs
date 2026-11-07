@@ -16,8 +16,8 @@ static SAVE_ERROR: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None
 pub static WRITING: std::sync::LazyLock<std::sync::Arc<std::sync::atomic::AtomicUsize>> =
     std::sync::LazyLock::new(Default::default);
 
-/// Work for a `serial` thread.
-pub type Work = Box<dyn FnOnce() + Send>;
+/// A write queued for a `start_ordered_worker` thread.
+pub type QueuedWrite = Box<dyn FnOnce() + Send>;
 
 /// A line of /proc/self/mountinfo: one mount.
 struct Mount<'a> {
@@ -49,7 +49,7 @@ pub(crate) fn rename_never_over(from: &Path, to: &Path) -> std::io::Result<()> {
             // shortcut: a file that another program puts at `to` between the look and the
             // rename is written over. rclone, s3fs and MTP offer no way to rename without that
             // race; do more if one of them gains RENAME_NOREPLACE or hard links.
-            Err(_) => std::fs::rename(from, to).map_err(|e| plain(e, to)),
+            Err(_) => std::fs::rename(from, to).map_err(|e| explain_rename_error(e, to)),
         },
         done => done,
     }
@@ -75,13 +75,13 @@ fn unlink_linked(from: &Path, to: &Path) -> std::io::Result<()> {
 /// `to` as Glimt does, which some shares, cloud folders and phones cannot. The words name the
 /// type of the mount (fuse.rclone, cifs …), and the system's own words follow in brackets. The
 /// kind stays, so callers still match on it.
-fn plain(e: std::io::Error, to: &Path) -> std::io::Error {
+fn explain_rename_error(e: std::io::Error, to: &Path) -> std::io::Error {
     // EXDEV, ENOSYS and EOPNOTSUPP are what such file systems answer to a rename. EPERM is not
     // among them, because a folder with the sticky bit or a file made immutable gives it on any
     // file system.
     match e.raw_os_error() {
         Some(18 | 38 | 95) => {
-            let kind = mount_type(to.parent().unwrap_or(to)).unwrap_or_else(|| "?".into());
+            let kind = file_system_type(to.parent().unwrap_or(to)).unwrap_or_else(|| "?".into());
             std::io::Error::new(
                 e.kind(),
                 crate::tf!(
@@ -101,26 +101,26 @@ fn plain(e: std::io::Error, to: &Path) -> std::io::Error {
 /// that does not answer. A disk through FUSE, such as exFAT through exfat-fuse or NTFS through
 /// ntfs-3g, is only "fuseblk" there, so its type is the one udev found on the disk when udev
 /// knows it (not in a container or a Flatpak without the devices).
-pub(crate) fn mount_type(path: &Path) -> Option<String> {
+pub(crate) fn file_system_type(path: &Path) -> Option<String> {
     use crate::images::decode::{read_limited, read_text};
     let mounts = read_limited("/proc/self/mountinfo").ok()?;
-    mount_type_in(&mounts, path, |dev| {
+    file_system_type_in(&mounts, path, |dev| {
         let udev = read_text(format!("/run/udev/data/b{}", String::from_utf8_lossy(dev))).ok()?;
-        fs_type_in_udev(&udev)
+        file_system_type_in_udev(&udev)
     })
 }
 
 /// Returns the file system's type in `udev`, a device's file in /run/udev/data, as blkid
 /// found it on the disk. Returns `None` when blkid found none.
-fn fs_type_in_udev(udev: &str) -> Option<String> {
+fn file_system_type_in_udev(udev: &str) -> Option<String> {
     let kind = udev.lines().find_map(|l| l.strip_prefix("E:ID_FS_TYPE="))?;
     (!kind.is_empty()).then(|| kind.to_owned())
 }
 
-/// Returns whether a mount of type `kind` (from `mount_type`) is on another computer or in a
-/// cloud, through FUSE, SMB or NFS. A fuseblk mount (NTFS or exFAT on a local disk) is not.
-/// Every other FUSE mount counts, also a local one such as gocryptfs, so the delete dialog does
-/// not call the folder a network folder.
+/// Returns whether a mount of type `kind` (from `file_system_type`) is on another computer or in a
+/// cloud, through FUSE, SMB or NFS. A fuseblk mount (NTFS or exFAT on a local disk) is not. Every
+/// other FUSE mount counts, also a local one such as gocryptfs, so the delete dialog does not call
+/// the folder a network folder.
 pub(crate) fn is_remote(kind: &str) -> bool {
     kind.starts_with("fuse.") || matches!(kind, "cifs" | "smb3" | "nfs" | "nfs4" | "9p")
 }
@@ -132,7 +132,7 @@ pub(crate) fn is_remote(kind: &str) -> bool {
 /// two at the same place, the later one is on top. The text is read as bytes, because a mount
 /// point may have a name that is not UTF-8. `device_type` gives the type of a fuseblk mount's
 /// disk from its device's numbers.
-fn mount_type_in(
+fn file_system_type_in(
     mountinfo: &[u8],
     path: &Path,
     device_type: impl Fn(&[u8]) -> Option<String>,
@@ -281,7 +281,7 @@ pub(crate) fn put_file(from: &Path, to: &Path, keep: bool) -> std::io::Result<()
             .open(&part)?;
         // Its time kept, as mv does (sorting by date), and on disk before a move removes the
         // source: a stick pulled out right after must not lose both.
-        let copied = crate::images::decode::open(from)
+        let copied = crate::images::decode::open_regular(from)
             .and_then(|mut f| std::io::copy(&mut f, &mut out))
             .and_then(|_| {
                 // Its read, write and run bits, as cp gives them: not set-user-ID, set-group-ID
@@ -360,20 +360,23 @@ pub fn take_save_error() -> Option<String> {
 
 /// `work` in the one thread that writes Glimt's own files, in the order given.
 pub fn write_later(work: impl FnOnce() + Send + 'static) {
-    static WRITER: std::sync::OnceLock<std::sync::mpsc::Sender<Work>> = std::sync::OnceLock::new();
+    static WRITER: std::sync::OnceLock<std::sync::mpsc::Sender<QueuedWrite>> =
+        std::sync::OnceLock::new();
     // Dropped with the work, also when it panics or is never run: Glimt would wait for it at exit.
     let writing = crate::support::threads::Working::new(&WRITING);
     let counted = move || {
         let _writing = writing;
         let _ = crate::support::threads::caught(work);
     };
-    let _ = WRITER.get_or_init(serial).send(Box::new(counted));
+    let _ = WRITER
+        .get_or_init(start_ordered_worker)
+        .send(Box::new(counted));
 }
 
 /// A thread that does the work sent to it one after another, in that order. One that panics
 /// does not end it, or every later work sent would be lost.
-pub fn serial() -> std::sync::mpsc::Sender<Work> {
-    let (works, rx) = std::sync::mpsc::channel::<Work>();
+pub fn start_ordered_worker() -> std::sync::mpsc::Sender<QueuedWrite> {
+    let (works, rx) = std::sync::mpsc::channel::<QueuedWrite>();
     std::thread::spawn(move || {
         for work in rx {
             let _ = crate::support::threads::caught(work);
@@ -418,8 +421,8 @@ pub fn replace_file(path: &Path, bytes: impl AsRef<[u8]>) -> std::io::Result<()>
 /// `replace_file` for a file of the user's that must still be there: a turned image, whose
 /// save takes a while. Deleted, moved or renamed meanwhile, it is not made again under its old
 /// name by the save landing late; the save is refused instead. The one place this holds for
-/// every operation, whether or not it asked `none_saving` first. The step `before` runs after
-/// the file is found writable and still there and the new version is written whole, just
+/// every operation, whether or not it asked `are_free_to_change` first. The step `before` runs
+/// after the file is found writable and still there and the new version is written whole, just
 /// before the rename. The image's sidecar is changed there, so a write that fails (a read-only
 /// file, a full disk) leaves the file and its sidecar as they were.
 pub fn replace_existing(
@@ -449,11 +452,12 @@ pub fn replace_name_with(
     write: impl FnOnce(&mut std::fs::File) -> std::io::Result<()>,
     before: impl FnOnce() -> std::io::Result<()>,
 ) -> std::io::Result<()> {
-    writable(path)?;
+    check_writable(path)?;
     #[allow(clippy::disallowed_methods)] // replaces on purpose, the name and never a link's target
-    let land =
-        |tmp: &Path| before().and_then(|_| std::fs::rename(tmp, path).map_err(|e| plain(e, path)));
-    write_beside(&tmp_path(path), path, write, land)
+    let give_name = |tmp: &Path| {
+        before().and_then(|_| std::fs::rename(tmp, path).map_err(|e| explain_rename_error(e, path)))
+    };
+    write_beside(&tmp_path(path), path, write, give_name)
 }
 
 /// Writes `bytes` to `path` beside it and renames it, through a link to the file it points to.
@@ -480,7 +484,7 @@ fn replace(
     // goes in those microseconds comes back. renameat2 with RENAME_EXCHANGE if that is ever seen.
     there()?;
     if existing {
-        writable(path)?;
+        check_writable(path)?;
     }
     #[allow(clippy::disallowed_methods)] // replaces on purpose: the one writer of a file again
     write_beside(&tmp_path(path), path, write, |tmp| {
@@ -489,7 +493,7 @@ fn replace(
         there()
             .and_then(|_| before())
             .and_then(|_| there())
-            .and_then(|_| std::fs::rename(tmp, path).map_err(|e| plain(e, path)))
+            .and_then(|_| std::fs::rename(tmp, path).map_err(|e| explain_rename_error(e, path)))
     })
 }
 
@@ -501,7 +505,7 @@ fn replace(
 /// passes, because the link itself is replaced, and so does a name that is not there yet.
 /// Glimt's own files (`replace_file`) are not asked, as before. A turn saved asks it first too,
 /// before the slow work of encoding the image.
-pub(crate) fn writable(path: &Path) -> std::io::Result<()> {
+pub(crate) fn check_writable(path: &Path) -> std::io::Result<()> {
     use std::os::unix::ffi::OsStrExt;
     let Some(meta) = std::fs::symlink_metadata(path).ok().filter(|m| m.is_file()) else {
         return Ok(());
@@ -518,9 +522,9 @@ pub(crate) fn writable(path: &Path) -> std::io::Result<()> {
     }
 }
 
-/// A file written whole at `tmp` beside `path` (`new_beside`), on disk, and then given its name
-/// by `land`; `tmp` removed when anything fails. On disk before the rename: after a crash the
-/// old file or the new one, never an empty one. No folder made: a sidecar or a collection whose
+/// A file written whole at `tmp` beside `path` (`create_temp_beside`), on disk, and then given its
+/// name by `give_name`; `tmp` removed when anything fails. On disk before the rename: after a crash
+/// the old file or the new one, never an empty one. No folder made: a sidecar or a collection whose
 /// folder was renamed meanwhile is not written into a new one of the old name. The one
 /// temp-and-rename for every file Glimt writes: settings, sidecars, collections, a PDF, a
 /// thumbnail.
@@ -528,11 +532,11 @@ pub fn write_beside(
     tmp: &Path,
     path: &Path,
     write: impl FnOnce(&mut std::fs::File) -> std::io::Result<()>,
-    land: impl FnOnce(&Path) -> std::io::Result<()>,
+    give_name: impl FnOnce(&Path) -> std::io::Result<()>,
 ) -> std::io::Result<()> {
-    let result = new_beside(tmp, path)
+    let result = create_temp_beside(tmp, path)
         .and_then(|mut f| write(&mut f).and_then(|_| f.sync_all()))
-        .and_then(|_| land(tmp));
+        .and_then(|_| give_name(tmp));
     if result.is_err() {
         #[allow(clippy::disallowed_methods)] // the temporary file, not finished
         let _ = std::fs::remove_file(tmp);
@@ -564,12 +568,12 @@ pub fn create_file(path: &Path, bytes: impl AsRef<[u8]>) -> std::io::Result<()> 
 pub fn tmp_path(path: &Path) -> PathBuf {
     static MADE: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
     let k = MADE.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-    path.with_file_name(format!(".glimt-tmp-{}-{k}", own_tag()))
+    path.with_file_name(format!(".glimt-tmp-{}-{k}", instance_tag()))
 }
 
 /// This Glimt's instance ID and a random number of its own, for the names of its temporary
 /// files: two Glimts with one process ID (two computers with one home, two containers) differ.
-pub fn own_tag() -> &'static str {
+pub fn instance_tag() -> &'static str {
     use std::hash::{BuildHasher, Hasher};
     static OWN: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
         // Random for each process: the standard library seeds its hash keys from the system.
@@ -585,7 +589,7 @@ pub fn own_tag() -> &'static str {
 /// or a list kept private, 0600, stays so). Made private first when `path` is there, and given
 /// those before a byte is written: no one else can open it meanwhile. A new file as usual.
 #[allow(clippy::disallowed_methods)] // the one way a new file is made, under its temporary name
-pub fn new_beside(tmp: &Path, path: &Path) -> std::io::Result<std::fs::File> {
+pub fn create_temp_beside(tmp: &Path, path: &Path) -> std::io::Result<std::fs::File> {
     use std::os::unix::fs::OpenOptionsExt;
     // Made new, never opened: a link left or planted at `tmp` would be followed and the file
     // it points to emptied.
@@ -629,10 +633,10 @@ mod tests {
     #[test]
     fn tells_a_rename_the_file_system_cannot_do_in_plain_words() {
         let to = std::env::temp_dir().join("b.jpg");
-        let kind = super::mount_type(&std::env::temp_dir()).unwrap();
+        let kind = super::file_system_type(&std::env::temp_dir()).unwrap();
         for errno in [18, 38, 95] {
             let raw = std::io::Error::from_raw_os_error(errno);
-            let told = super::plain(std::io::Error::from_raw_os_error(errno), &to);
+            let told = super::explain_rename_error(std::io::Error::from_raw_os_error(errno), &to);
             assert_eq!(told.kind(), raw.kind());
             let text = told.to_string();
             assert!(text.contains("does not allow this rename") && text.contains(&raw.to_string()));
@@ -640,7 +644,7 @@ mod tests {
         }
         // Permission denied, and EPERM, which a sticky folder or an immutable file gives.
         for errno in [13, 1] {
-            let denied = super::plain(std::io::Error::from_raw_os_error(errno), &to);
+            let denied = super::explain_rename_error(std::io::Error::from_raw_os_error(errno), &to);
             assert_eq!(denied.raw_os_error(), Some(errno));
         }
     }
@@ -668,7 +672,7 @@ mod tests {
             13 1 8:113 / /media/me/NTFS rw - fuseblk /dev/sdh1 rw,user_id=0\n\
             broken\n";
         let udev = |dev: &[u8]| (dev == b"8:97").then(|| "exfat".to_owned());
-        let kind = |p: &str| super::mount_type_in(mounts, std::path::Path::new(p), udev);
+        let kind = |p: &str| super::file_system_type_in(mounts, std::path::Path::new(p), udev);
         assert_eq!(kind("/home/me/a.jpg").as_deref(), Some("ext4"));
         let gvfs = "/run/user/1000/gvfs/sftp:host=nas/a.jpg";
         assert_eq!(kind(gvfs).as_deref(), Some("fuse.gvfsd-fuse"));
@@ -684,11 +688,14 @@ mod tests {
         assert_eq!(kind("/media/me/EXFAT/a.jpg").as_deref(), Some("exfat"));
         assert_eq!(kind("/media/me/NTFS/a.jpg").as_deref(), Some("fuseblk"));
         let udev_file = "S:disk/by-uuid/1234-ABCD\nE:ID_FS_USAGE=filesystem\nE:ID_FS_TYPE=exfat\n";
-        assert_eq!(super::fs_type_in_udev(udev_file).as_deref(), Some("exfat"));
-        assert_eq!(super::fs_type_in_udev("E:ID_FS_TYPE=\n"), None);
+        assert_eq!(
+            super::file_system_type_in_udev(udev_file).as_deref(),
+            Some("exfat")
+        );
+        assert_eq!(super::file_system_type_in_udev("E:ID_FS_TYPE=\n"), None);
         let latin1 = std::path::Path::new(std::ffi::OsStr::from_bytes(b"/media/me/K\xf8RT/a.jpg"));
         assert_eq!(
-            super::mount_type_in(mounts, latin1, udev).as_deref(),
+            super::file_system_type_in(mounts, latin1, udev).as_deref(),
             Some("vfat")
         );
         assert!(super::is_remote("fuse.rclone") && super::is_remote("cifs"));
@@ -704,7 +711,7 @@ mod tests {
             31 20 0:5 / /proc rw - proc proc rw\n\
             32 30 8:17 / /card rw - vfat /dev/sdb1 rw\n";
         let none = |_: &[u8]| None;
-        let kind = |m: &[u8], p: &str| super::mount_type_in(m, std::path::Path::new(p), none);
+        let kind = |m: &[u8], p: &str| super::file_system_type_in(m, std::path::Path::new(p), none);
         assert_eq!(kind(mounts, "/proc/1/status"), None);
         assert_eq!(kind(mounts, "/card/a.jpg").as_deref(), Some("vfat"));
         assert_eq!(kind(mounts, "/home/a.jpg").as_deref(), Some("tmpfs"));
@@ -1010,7 +1017,7 @@ mod tests {
         drop(super::file_lock(&photo));
         let tmp = super::tmp_path(&photo);
         symlink(&victim, &tmp).unwrap();
-        drop(super::new_beside(&tmp, &photo).unwrap());
+        drop(super::create_temp_beside(&tmp, &photo).unwrap());
         assert_eq!(std::fs::read_to_string(&victim).unwrap(), "keep");
         std::fs::remove_dir_all(dir).unwrap();
     }

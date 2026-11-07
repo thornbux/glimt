@@ -187,7 +187,7 @@ impl crate::App {
         if self.info_panel.exif_asked.as_ref() != Some(&path)
             && self.info_panel.reread_after_write.is_none()
         {
-            let writes = self.work.writes_of(&path);
+            let writes = self.file_operations.jobs_writing_sidecar_of(&path);
             if !writes.is_empty() {
                 // The wait ends by forgetting the panel, so the image before keeps its edit.
                 self.save_meta(ctx);
@@ -433,14 +433,14 @@ impl crate::App {
             edit.keywords = edit.saved.keywords_text();
         }
         let paths: Vec<PathBuf> = targets.iter().map(|&i| self.path(i)).collect();
-        let doing = match on {
+        let activity = match on {
             true => tr("Setting keywords"),
             false => tr("Taking keywords off"),
         };
         let (n, written) = (paths.len(), tag.clone());
         self.write_sidecars(
             ctx,
-            doing,
+            activity,
             paths,
             move |path| xmp::tag_file(path, &written, on).is_ok(),
             move |failed, job| match () {
@@ -448,7 +448,7 @@ impl crate::App {
                     "The keyword could not be saved for {count}",
                     count = count(failed, "file")
                 )),
-                _ if job.stopped() => Some(job.stopped_text()),
+                _ if job.is_stopped() => Some(job.stopped_text()),
                 // One sentence, so each language can put the words in its own order.
                 _ if n > 1 => Some(match on {
                     true => tf!("{tag} set on {count}", tag, count = count(n, "file")),
@@ -467,7 +467,7 @@ impl crate::App {
     pub(crate) fn read_info_again(&mut self, ctx: &egui::Context) {
         self.save_meta(ctx);
         let path = self.path(self.list.cur());
-        let writes = self.work.writes_of(&path);
+        let writes = self.file_operations.jobs_writing_sidecar_of(&path);
         self.info_panel.reread_after_write = Some((path, writes));
         self.reread_when_written();
     }
@@ -589,7 +589,7 @@ impl crate::App {
                     "Keywords could not be saved for {count}",
                     count = count(failed, "file")
                 )),
-                _ if job.stopped() => Some(job.stopped_text()),
+                _ if job.is_stopped() => Some(job.stopped_text()),
                 _ => Some(tf!("Keywords added to {count}", count = count(n, "file"))),
             },
         );
@@ -658,7 +658,7 @@ pub(crate) fn spawn_exif_reader(
             let (mut all, mut meta, mut paths, mut access) = Default::default();
             // Not opened unless it is a file: a pipe would block this thread for good. A decoder
             // that panics on the file leaves the panel without EXIF for it, not for good.
-            if decode::is_file(&path) {
+            if decode::is_regular_file(&path) {
                 let read = crate::support::threads::caught(|| {
                     let mut rows = vec![("Colour profile", colour_source(&path))];
                     let (exif_rows, all) = exif::read_and_all(&path);
@@ -789,7 +789,7 @@ mod tests {
         });
         assert!(!enabled, "the waiting panel's fields can be edited");
         drop(other);
-        let written = |a: &crate::App| !a.work.writes_keywords();
+        let written = |a: &crate::App| !a.file_operations.is_writing_sidecars();
         assert!(crate::support::test_support::settle(
             &mut app, &ctx, written
         ));

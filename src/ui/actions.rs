@@ -3,7 +3,7 @@
 
 use crate::features::duplicates::Dups;
 use crate::images::colour::FILTERS;
-use crate::images::decode::{color_image, survive};
+use crate::images::decode::{catch_panic, color_image};
 #[cfg(feature = "marks")]
 use crate::metadata::marks;
 #[cfg(feature = "marks")]
@@ -1302,7 +1302,7 @@ impl crate::App {
                             "The stars could not be written to the XMP sidecar of {count}",
                             count = count(failed, "file")
                         )),
-                        _ if job.stopped() => Some(job.stopped_text()),
+                        _ if job.is_stopped() => Some(job.stopped_text()),
                         _ => None,
                     },
                 );
@@ -1346,12 +1346,12 @@ impl crate::App {
         let (path, how) = (self.path(self.list.cur()), self.shown_copy());
         let (tx, ctx) = (self.notices_tx.clone(), ctx.clone());
         let (clip_tx, clip_rx) = mpsc::channel();
-        self.work.copy_image_from(clip_rx);
+        self.file_operations.copy_image_from(clip_rx);
         let pointer = Working::new(&self.busy);
         std::thread::spawn(move || {
             // A decoder that panics on a broken file must not end the thread: the busy pointer
             // would stay for good.
-            match survive(|| save::shown_image(&path, &how)) {
+            match catch_panic(|| save::shown_image(&path, &how)) {
                 Ok(img) => drop(clip_tx.send(color_image(img))),
                 Err(e) => drop(tx.send(tf!("Could not copy the image: {e}", e))),
             }
@@ -1367,7 +1367,7 @@ impl crate::App {
             return;
         };
         let paths: Vec<PathBuf> = targets.iter().map(|&i| self.path(i)).collect();
-        let result = (self.work.clipboard()).and_then(|c| c.set().file_list(&paths));
+        let result = (self.file_operations.clipboard()).and_then(|c| c.set().file_list(&paths));
         if let Err(e) = result {
             self.notice = Some(tf!("Could not copy to the clipboard: {e}", e));
         }

@@ -4,7 +4,7 @@
 
 use crate::files::config::Config;
 use crate::files::external::is_video;
-use crate::images::decode::{Decoded, decode, histogram, survive};
+use crate::images::decode::{Decoded, catch_panic, decode, histogram};
 use crate::model::list::Slot;
 use crate::support::format::fill_template;
 use crate::support::lang::tr;
@@ -1569,7 +1569,7 @@ impl crate::App {
     pub(crate) fn turn(&mut self, action: Action) {
         // Until the image is saved, the old picture shows. Turned again, it would be saved
         // twice, into the same temporary file.
-        if self.work.is_saving(&self.path(self.list.cur())) {
+        if self.file_operations.is_saving(&self.path(self.list.cur())) {
             self.notice = Some(tr("Still saving the last rotation of this file").into());
             return;
         }
@@ -1822,7 +1822,7 @@ pub(crate) fn spawn_decoders(
                 }
                 let rotated = rotate.load(Ordering::Relaxed);
                 // The histogram here too, so the UI thread never walks the pixels.
-                let result = Some(survive(|| decode(&path, max, rotated, page)).map(
+                let result = Some(catch_panic(|| decode(&path, max, rotated, page)).map(
                     |(frames, orig, pages)| {
                         let hist = histogram(&frames[0].0);
                         (frames, orig, hist, pages)

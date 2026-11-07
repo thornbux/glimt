@@ -12,10 +12,10 @@ use std::path::{Path, PathBuf};
 /// moved, the sidecars that went with them, when it began (the trash may hold older files of the
 /// same names, which are not these), and what went with them elsewhere: their marks and stars,
 /// and their places in the collection shown. Recorded as it happens, never found out later: by
-/// the move's thread, and the marks by `receive_deleted` as it forgets them, which is the one
-/// way an `Undo::Trash` reaches `App::undo`. `since` has no default: one left out would take an
+/// the move's thread, and the marks by `receive_operation_report` as it forgets them, which is the
+/// one way an `Undo::Trash` reaches `App::undo`. `since` has no default: one left out would take an
 /// older file of the same name from the trash.
-pub(crate) struct Thrown {
+pub(crate) struct TrashMove {
     pub(crate) files: Vec<PathBuf>,
     pub(crate) sidecars: Vec<PathBuf>,
     /// The files' sidecars that the move could not take to the trash. They stay beside the
@@ -29,37 +29,37 @@ pub(crate) struct Thrown {
 /// A file in a trash folder: where it came from, when (as the trash writes it, which sorts by
 /// time), and its file and its .trashinfo there.
 #[derive(Clone)]
-struct Trashed {
+struct TrashEntry {
     from: PathBuf,
     date: String,
     file: PathBuf,
     info: PathBuf,
 }
 
-/// What `thrown` moved to the trash put back where it was, with the sidecars that went with it: of
-/// each, the first of its name put in the trash folders `dirs_of` gives (the home trash, and those
-/// at the top of its file system) since the move began, as an older one of the same name is another
-/// file's, and a later one too (a new file of that name trashed since); one from the two seconds
-/// before only when there is none. Each trash folder is read once, into a map by name. Read from
-/// the trash's own folders (files/ and info/*.trashinfo, as freedesktop.org has it): `gio trash
-/// --restore` needs gvfs, which KDE and containers often lack. Never over a file that has taken the
-/// name since. A file that cannot come back stays in the trash with its sidecar, and holds none
-/// of the others back.
+/// What `trash_move` moved to the trash put back where it was, with the sidecars that went with it:
+/// of each, the first of its name put in the trash folders `dirs_of` gives (the home trash, and
+/// those at the top of its file system) since the move began, as an older one of the same name is
+/// another file's, and a later one too (a new file of that name trashed since); one from the two
+/// seconds before only when there is none. Each trash folder is read once, into a map by name. Read
+/// from the trash's own folders (files/ and info/*.trashinfo, as freedesktop.org has it): `gio
+/// trash --restore` needs gvfs, which KDE and containers often lack. Never over a file that has
+/// taken the name since. A file that cannot come back stays in the trash with its sidecar, and
+/// holds none of the others back.
 /// Returns the files put back, and the first error.
 pub(crate) fn restore(
-    thrown: &Thrown,
+    trash_move: &TrashMove,
     dirs_of: impl Fn(&Path) -> Vec<(PathBuf, PathBuf)>,
 ) -> (Vec<PathBuf>, Option<String>) {
-    let mut trashes: HashMap<PathBuf, HashMap<PathBuf, Trashed>> = HashMap::new();
+    let mut trashes: HashMap<PathBuf, HashMap<PathBuf, TrashEntry>> = HashMap::new();
     // As the trash writes DeletionDate: local time, from this computer's clock, as `since` is;
     // not the .trashinfo's own time, which a share stamps with its server's clock. Two seconds
     // early, for a move that began in the second before.
-    let secs = (thrown.since.duration_since(std::time::UNIX_EPOCH)).map_or(0, |d| d.as_secs());
+    let secs = (trash_move.since.duration_since(std::time::UNIX_EPOCH)).map_or(0, |d| d.as_secs());
     let since = crate::support::format::local_time(secs as i64 - 2).replacen(' ', "T", 1);
     // Those from the move's own second on before those two seconds: one of the same name
     // trashed just before the move is another file's.
     let at = crate::support::format::local_time(secs as i64).replacen(' ', "T", 1);
-    let rank = |t: &Trashed| (t.date < at, t.date.clone());
+    let rank = |t: &TrashEntry| (t.date < at, t.date.clone());
     // Nor one dated later than now: a trash folder on a stick from someone else (FAT and exFAT
     // give every file to whoever mounts it) may hold an entry of the same name dated in the
     // future, which would else come back where the user's own is gone. An hour and a minute
@@ -73,7 +73,7 @@ pub(crate) fn restore(
     // real path, from the real top: an entry of a collection spelled through a link to another
     // disk is there only by its real path. Found either way, it comes back as the list named it.
     let mut find = |path: &Path| {
-        let mut first: Option<Trashed> = None;
+        let mut first: Option<TrashEntry> = None;
         let real = crate::model::listing::real_path(path);
         for at in [Some(path), Some(real.as_path()).filter(|r| *r != path)]
             .into_iter()
@@ -87,7 +87,7 @@ pub(crate) fn restore(
                 if let Some(t) = all.get(at)
                     && first.as_ref().is_none_or(|f| rank(t) < rank(f))
                 {
-                    first = Some(Trashed {
+                    first = Some(TrashEntry {
                         from: path.to_path_buf(),
                         ..t.clone()
                     });
@@ -97,13 +97,13 @@ pub(crate) fn restore(
         first
     };
     // A file that cannot come back is told, and left to be undone again with its sidecar.
-    let (mut found, mut error): (Vec<Trashed>, Option<String>) = (Vec::new(), None);
-    let left: HashSet<&PathBuf> = thrown.sidecars_left.iter().collect();
-    for path in &thrown.files {
+    let (mut found, mut error): (Vec<TrashEntry>, Option<String>) = (Vec::new(), None);
+    let left: HashSet<&PathBuf> = trash_move.sidecars_left.iter().collect();
+    for path in &trash_move.files {
         // The rule of Copy, Move and Rename: a sidecar alone at the name (written by another
         // program, or synced in) takes it too, as the file would come back with its keywords.
         // The file's own sidecar, which the move could not take along, is no other file's.
-        if let Some(at) = crate::files::file_ops::taken(path, &left) {
+        if let Some(at) = crate::files::file_ops::name_in_the_way(path, &left) {
             error.get_or_insert(tf!("{name} exists already", name = at.display()));
             continue;
         }
@@ -120,25 +120,25 @@ pub(crate) fn restore(
     // among the files told and counted.
     // Sets are used rather than searches, so a delete of 50,000 photos with sidecars is undone
     // in one pass.
-    let sides: HashSet<&PathBuf> = thrown.sidecars.iter().collect();
-    let paired: HashSet<PathBuf> = thrown
+    let sides: HashSet<&PathBuf> = trash_move.sidecars.iter().collect();
+    let paired: HashSet<PathBuf> = trash_move
         .files
         .iter()
         .map(|f| crate::metadata::xmp::sidecar(f))
         .collect();
     // Each step is a file with its own sidecar, or a sidecar alone.
-    let mut steps: Vec<(Trashed, bool, Option<Trashed>)> = Vec::new();
+    let mut steps: Vec<(TrashEntry, bool, Option<TrashEntry>)> = Vec::new();
     for t in found {
         let side = Some(crate::metadata::xmp::sidecar(&t.from)).filter(|s| sides.contains(s));
         let side = side.and_then(|s| find(&s));
         steps.push((t, true, side));
     }
-    let rest = (thrown.sidecars.iter())
+    let rest = (trash_move.sidecars.iter())
         .filter(|s| !paired.contains(*s))
         .filter_map(|s| find(s));
     steps.extend(rest.map(|s| (s, false, None)));
     #[allow(clippy::disallowed_methods)] // the .trashinfo of a file put back
-    let put_back = |t: &Trashed| {
+    let put_back = |t: &TrashEntry| {
         rename_never_over(&t.file, &t.from)
             .map(|()| drop(std::fs::remove_file(&t.info)))
             .map_err(|e| format!("{display}: {e}", display = t.from.display()))
@@ -163,10 +163,10 @@ pub(crate) fn restore(
 
 /// Of each name in a trash folder, the one put there first, by `rank`.
 fn first_of_each<K: Ord>(
-    all: impl Iterator<Item = Trashed>,
-    rank: impl Fn(&Trashed) -> K,
-) -> HashMap<PathBuf, Trashed> {
-    let mut by_name: HashMap<PathBuf, Trashed> = HashMap::new();
+    all: impl Iterator<Item = TrashEntry>,
+    rank: impl Fn(&TrashEntry) -> K,
+) -> HashMap<PathBuf, TrashEntry> {
+    let mut by_name: HashMap<PathBuf, TrashEntry> = HashMap::new();
     for t in all {
         match by_name.get(&t.from) {
             Some(had) if rank(had) <= rank(&t) => {}
@@ -185,7 +185,7 @@ pub(crate) fn trash(paths: &[PathBuf]) -> Result<(), String> {
     // processes.
     let mut gio = crate::files::external::stoppable_command("gio");
     gio.args(["trash", "--"]).args(paths);
-    let limit = crate::files::external::LIMIT * 4;
+    let limit = crate::files::external::PROGRAM_TIME_LIMIT * 4;
     // Tests trash by hand into their own home's trash, where Undo looks. gio would put the
     // files into the user's own trash.
     let refused = match cfg!(test) {
@@ -239,7 +239,7 @@ fn trash_by_hand(path: &Path, trash: &Path) -> std::io::Result<()> {
     );
     let name = path.file_name().unwrap_or_default();
     for n in 0..10_000 {
-        let taken = trash_name(name, n);
+        let taken = name_in_trash(name, n);
         let mut trashinfo = taken.clone();
         trashinfo.push(".trashinfo");
         let trashinfo = info.join(trashinfo);
@@ -275,7 +275,7 @@ fn trash_by_hand(path: &Path, trash: &Path) -> std::io::Result<()> {
 /// a name may have no more than 255 bytes. So a long name loses the end of its stem, and also its
 /// extension when that is too long to leave any of the stem. The trash spec allows any name here,
 /// because the .trashinfo keeps the file's own path.
-fn trash_name(name: &std::ffi::OsStr, n: u32) -> OsString {
+fn name_in_trash(name: &std::ffi::OsStr, n: u32) -> OsString {
     use std::os::unix::ffi::{OsStrExt, OsStringExt};
     const MAX: usize = 255 - ".trashinfo".len();
     if n == 0 && name.len() <= MAX {
@@ -321,24 +321,27 @@ pub(crate) fn trash_dirs(path: &Path) -> Vec<(PathBuf, PathBuf)> {
     }
     let shared = top.join(".Trash");
     let tops = [
-        (shared.join(uid.to_string()), own_dir(&shared, None, true)),
+        (
+            shared.join(uid.to_string()),
+            is_usable_top_trash(&shared, None, true),
+        ),
         (top.join(format!(".Trash-{uid}")), true),
     ];
     for (dir, shared_ok) in tops {
-        if shared_ok && own_dir(&dir, Some(uid), false) {
+        if shared_ok && is_usable_top_trash(&dir, Some(uid), false) {
             dirs.push((dir, top.to_path_buf()));
         }
     }
     dirs
 }
 
-/// Whether `dir` may be read as a trash folder at the top of a file system, as freedesktop.org
-/// asks: a folder, not a link, of user `uid` (any user's for `None`), and `sticky` where every
-/// user shares it (.Trash), so none can put a folder of another's name in it. Another user who
-/// can write at the top (a shared disk, a stick) could else make .Trash-1000 first, with a
+/// Returns whether `dir` may be read as a trash folder at the top of a file system, as
+/// freedesktop.org asks: a folder, not a link, of user `uid` (any user's for `None`), and `sticky`
+/// where every user shares it (.Trash), so none can put a folder of another's name in it. Another
+/// user who can write at the top (a shared disk, a stick) could else make .Trash-1000 first, with a
 /// .trashinfo of a later date for a file just thrown away, and Undo would put their file in its
 /// place.
-fn own_dir(dir: &Path, uid: Option<u32>, sticky: bool) -> bool {
+fn is_usable_top_trash(dir: &Path, uid: Option<u32>, sticky: bool) -> bool {
     use std::os::unix::fs::MetadataExt;
     std::fs::symlink_metadata(dir).is_ok_and(|m| {
         m.is_dir() && uid.is_none_or(|uid| m.uid() == uid) && (!sticky || m.mode() & 0o1000 != 0)
@@ -346,7 +349,7 @@ fn own_dir(dir: &Path, uid: Option<u32>, sticky: bool) -> bool {
 }
 
 /// What the trash folder `dir` holds, its relative paths read from `top`.
-fn read_trash(dir: &Path, top: &Path) -> Vec<Trashed> {
+fn read_trash(dir: &Path, top: &Path) -> Vec<TrashEntry> {
     use std::os::unix::ffi::{OsStrExt, OsStringExt};
     let entries = std::fs::read_dir(dir.join("info"))
         .into_iter()
@@ -362,7 +365,7 @@ fn read_trash(dir: &Path, top: &Path) -> Vec<Trashed> {
             let text = crate::images::decode::read_text(&info).ok()?;
             let value = |key: &str| text.lines().find_map(|l| l.strip_prefix(key));
             let from = collections::percent_decoded(value("Path=")?.as_bytes());
-            Some(Trashed {
+            Some(TrashEntry {
                 from: top.join(OsString::from_vec(from)),
                 date: value("DeletionDate=").unwrap_or_default().to_owned(),
                 file: dir.join("files").join(name),
@@ -433,9 +436,9 @@ mod tests {
             .collect();
         back.sort();
         assert_eq!(back, [b, a]);
-        assert_eq!(super::trash_name("a.png".as_ref(), 0), "a.png");
+        assert_eq!(super::name_in_trash("a.png".as_ref(), 0), "a.png");
         let ext = format!("a.{}", "e".repeat(250));
-        assert_eq!(super::trash_name(ext.as_ref(), 1), "a.1");
+        assert_eq!(super::name_in_trash(ext.as_ref(), 1), "a.1");
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
@@ -485,19 +488,23 @@ mod tests {
         std::fs::create_dir_all(&mine).unwrap();
         std::fs::create_dir_all(&shared).unwrap();
         let uid = std::fs::metadata(&mine).unwrap().uid();
-        assert!(super::own_dir(&mine, Some(uid), false));
+        assert!(super::is_usable_top_trash(&mine, Some(uid), false));
         // Another user's, as one made first by someone who can write there.
-        assert!(!super::own_dir(&mine, Some(uid + 1), false));
+        assert!(!super::is_usable_top_trash(&mine, Some(uid + 1), false));
         let link = dir.join(".Trash-link");
         std::os::unix::fs::symlink(&mine, &link).unwrap();
-        assert!(!super::own_dir(&link, Some(uid), false));
-        assert!(!super::own_dir(&dir.join("none"), Some(uid), false));
+        assert!(!super::is_usable_top_trash(&link, Some(uid), false));
+        assert!(!super::is_usable_top_trash(
+            &dir.join("none"),
+            Some(uid),
+            false
+        ));
         // .Trash: without the sticky bit anyone could remove the user's folder in it.
         let mode = |m| std::fs::Permissions::from_mode(m);
         std::fs::set_permissions(&shared, mode(0o777)).unwrap();
-        assert!(!super::own_dir(&shared, None, true));
+        assert!(!super::is_usable_top_trash(&shared, None, true));
         std::fs::set_permissions(&shared, mode(0o1777)).unwrap();
-        assert!(super::own_dir(&shared, None, true));
+        assert!(super::is_usable_top_trash(&shared, None, true));
         std::fs::remove_dir_all(dir).unwrap();
     }
 
@@ -555,7 +562,7 @@ mod tests {
         trashed("IMG_0002.jpg", "IMG_0002.jpg", now);
         trashed("IMG_0002.jpg.xmp", "IMG_0002.jpg.xmp", now);
         let dirs = |_: &std::path::Path| vec![(trash.clone(), std::path::PathBuf::from("/"))];
-        let thrown = |files: &[&str], sidecars: &[&str]| super::Thrown {
+        let trash_move = |files: &[&str], sidecars: &[&str]| super::TrashMove {
             files: files.iter().map(|f| photos.join(f)).collect(),
             sidecars: sidecars.iter().map(|f| photos.join(f)).collect(),
             sidecars_left: Vec::new(),
@@ -564,18 +571,19 @@ mod tests {
             collection: None,
         };
         // IMG_0001.jpg went alone: January's sidecar of its name stays in the trash.
-        let (back, error) = super::restore(&thrown(&["IMG_0001.jpg"], &[]), dirs);
+        let (back, error) = super::restore(&trash_move(&["IMG_0001.jpg"], &[]), dirs);
         assert_eq!((back, error), (vec![photos.join("IMG_0001.jpg")], None));
         assert!(!photos.join("IMG_0001.jpg.xmp").exists());
         // Even when asked for: it is older than the move.
-        let old = super::restore(&thrown(&["IMG_0001.jpg.xmp"], &[]), dirs);
+        let old = super::restore(&trash_move(&["IMG_0001.jpg.xmp"], &[]), dirs);
         assert!(old.0.is_empty() && old.1.is_some());
         // IMG_0002.jpg went with its sidecar, and both come back; never over a file there.
         std::fs::write(photos.join("IMG_0002.jpg"), "new").unwrap();
-        let taken = super::restore(&thrown(&["IMG_0002.jpg"], &["IMG_0002.jpg.xmp"]), dirs);
+        let taken = super::restore(&trash_move(&["IMG_0002.jpg"], &["IMG_0002.jpg.xmp"]), dirs);
         assert!(taken.0.is_empty() && taken.1.is_some());
         std::fs::remove_file(photos.join("IMG_0002.jpg")).unwrap();
-        let (back, error) = super::restore(&thrown(&["IMG_0002.jpg"], &["IMG_0002.jpg.xmp"]), dirs);
+        let (back, error) =
+            super::restore(&trash_move(&["IMG_0002.jpg"], &["IMG_0002.jpg.xmp"]), dirs);
         assert_eq!(error, None);
         assert_eq!(back, [photos.join("IMG_0002.jpg")]);
         assert!(photos.join("IMG_0002.jpg.xmp").exists());
@@ -599,7 +607,7 @@ mod tests {
             let root = std::path::PathBuf::from("/");
             vec![(trash.clone(), root.clone()), (stick.clone(), root)]
         };
-        let (back, error) = super::restore(&thrown(&["IMG_0003.jpg"], &[]), both);
+        let (back, error) = super::restore(&trash_move(&["IMG_0003.jpg"], &[]), both);
         assert_eq!((back, error), (vec![photos.join("IMG_0003.jpg")], None));
         let got = std::fs::read_to_string(photos.join("IMG_0003.jpg")).unwrap();
         assert_eq!(got, "IMG_0003.jpg");
@@ -613,7 +621,7 @@ mod tests {
         let img4 = photos.join("IMG_0004.jpg").display().to_string();
         at("IMG_0004.jpg", &img4, &next_year, "planted");
         at("IMG_0004.2.jpg", &img4, &today, "mine");
-        let (back, error) = super::restore(&thrown(&["IMG_0004.jpg"], &[]), both);
+        let (back, error) = super::restore(&trash_move(&["IMG_0004.jpg"], &[]), both);
         assert_eq!((back, error), (vec![photos.join("IMG_0004.jpg")], None));
         let got = std::fs::read_to_string(photos.join("IMG_0004.jpg")).unwrap();
         assert_eq!(got, "mine");
@@ -622,7 +630,7 @@ mod tests {
         let img5 = photos.join("IMG_0005.jpg").display().to_string();
         at("IMG_0005.jpg", &img5, &soon, "planted");
         at("IMG_0005.2.jpg", &img5, &today, "mine");
-        let (back, error) = super::restore(&thrown(&["IMG_0005.jpg"], &[]), both);
+        let (back, error) = super::restore(&trash_move(&["IMG_0005.jpg"], &[]), both);
         assert_eq!((back, error), (vec![photos.join("IMG_0005.jpg")], None));
         let got = std::fs::read_to_string(photos.join("IMG_0005.jpg")).unwrap();
         assert_eq!(got, "mine");
@@ -632,9 +640,9 @@ mod tests {
         let img6 = photos.join("IMG_0006.jpg").display().to_string();
         at("IMG_0006.jpg", &img6, &before, "other");
         at("IMG_0006.2.jpg", &img6, &today, "mine");
-        let thrown6 = super::Thrown {
+        let thrown6 = super::TrashMove {
             since: now,
-            ..thrown(&["IMG_0006.jpg"], &[])
+            ..trash_move(&["IMG_0006.jpg"], &[])
         };
         let (back, error) = super::restore(&thrown6, both);
         assert_eq!((back, error), (vec![photos.join("IMG_0006.jpg")], None));
@@ -643,7 +651,8 @@ mod tests {
         std::fs::remove_file(photos.join("IMG_0006.jpg")).unwrap();
         // One file emptied from the trash meanwhile: the others still come back.
         trashed("IMG_0007.jpg", "IMG_0007.jpg", now);
-        let (back, error) = super::restore(&thrown(&["IMG_0099.jpg", "IMG_0007.jpg"], &[]), dirs);
+        let (back, error) =
+            super::restore(&trash_move(&["IMG_0099.jpg", "IMG_0007.jpg"], &[]), dirs);
         assert_eq!(back, [photos.join("IMG_0007.jpg")]);
         assert!(error.is_some_and(|e| e.contains("IMG_0099.jpg")));
         let (back, error) = super::restore(&thrown6, both);
@@ -654,11 +663,11 @@ mod tests {
         // the move could not take to the trash. Then the file comes back beside it.
         trashed("IMG_0008.jpg", "IMG_0008.jpg", now);
         std::fs::write(photos.join("IMG_0008.jpg.xmp"), "own").unwrap();
-        let alone = super::restore(&thrown(&["IMG_0008.jpg"], &[]), dirs);
+        let alone = super::restore(&trash_move(&["IMG_0008.jpg"], &[]), dirs);
         assert!(alone.0.is_empty() && alone.1.is_some());
-        let own = super::Thrown {
+        let own = super::TrashMove {
             sidecars_left: vec![photos.join("IMG_0008.jpg.xmp")],
-            ..thrown(&["IMG_0008.jpg"], &[])
+            ..trash_move(&["IMG_0008.jpg"], &[])
         };
         let (back, error) = super::restore(&own, dirs);
         assert_eq!((back, error), (vec![photos.join("IMG_0008.jpg")], None));
@@ -691,7 +700,7 @@ mod tests {
             crate::files::file_io::create_file(&info, text).unwrap();
         }
         // The folder y is gone, so b.jpg cannot come back, but a.jpg comes back with its sidecar.
-        let thrown = super::Thrown {
+        let trash_move = super::TrashMove {
             files: vec![x.join("a.jpg"), y.join("b.jpg")],
             sidecars: vec![x.join("a.jpg.xmp")],
             sidecars_left: Vec::new(),
@@ -700,7 +709,7 @@ mod tests {
             collection: None,
         };
         let dirs = |_: &std::path::Path| vec![(trash.clone(), std::path::PathBuf::from("/"))];
-        let (back, error) = super::restore(&thrown, dirs);
+        let (back, error) = super::restore(&trash_move, dirs);
         assert_eq!(back, [x.join("a.jpg")]);
         assert!(error.is_some());
         assert!(x.join("a.jpg.xmp").exists());
@@ -731,7 +740,7 @@ mod tests {
             let info = trash.join("info").join(format!("{kept}.trashinfo"));
             crate::files::file_io::create_file(&info, text).unwrap();
         }
-        let thrown = super::Thrown {
+        let trash_move = super::TrashMove {
             files: vec![x.join("b.jpg"), x.join("a.jpg")],
             sidecars: vec![x.join("b.jpg.xmp"), x.join("a.jpg.xmp")],
             sidecars_left: Vec::new(),
@@ -740,7 +749,7 @@ mod tests {
             collection: None,
         };
         let dirs = |_: &std::path::Path| vec![(trash.clone(), std::path::PathBuf::from("/"))];
-        let (back, error) = super::restore(&thrown, dirs);
+        let (back, error) = super::restore(&trash_move, dirs);
         assert_eq!(back, [x.join("a.jpg")]);
         assert!(error.is_some());
         assert!(x.join("a.jpg.xmp").exists() && !x.join("b.jpg.xmp").exists());
@@ -770,7 +779,7 @@ mod tests {
             crate::files::file_io::create_file(&info, text).unwrap();
         }
         crate::files::file_io::create_file(&x.join("a.jpg.xmp"), "stranger").unwrap();
-        let thrown = super::Thrown {
+        let trash_move = super::TrashMove {
             files: vec![x.join("a.jpg")],
             sidecars: vec![x.join("a.jpg.xmp")],
             sidecars_left: Vec::new(),
@@ -779,7 +788,7 @@ mod tests {
             collection: None,
         };
         let dirs = |_: &std::path::Path| vec![(trash.clone(), std::path::PathBuf::from("/"))];
-        let (back, error) = super::restore(&thrown, dirs);
+        let (back, error) = super::restore(&trash_move, dirs);
         assert!(back.is_empty() && error.is_some());
         assert!(!x.join("a.jpg").exists());
         assert!(trash.join("files/a.jpg").exists() && trash.join("files/a.jpg.xmp").exists());
@@ -819,7 +828,7 @@ mod tests {
             false => Vec::new(),
         };
         let file = dir.join("link/a.jpg");
-        let thrown = super::Thrown {
+        let trash_move = super::TrashMove {
             files: vec![file.clone()],
             sidecars: vec![dir.join("link/a.jpg.xmp")],
             sidecars_left: Vec::new(),
@@ -827,7 +836,7 @@ mod tests {
             marks: Vec::new(),
             collection: None,
         };
-        let (back, error) = super::restore(&thrown, dirs);
+        let (back, error) = super::restore(&trash_move, dirs);
         assert_eq!((back, error), (vec![file], None));
         assert!(disk.join("photos/a.jpg").exists() && disk.join("photos/a.jpg.xmp").exists());
         std::fs::remove_dir_all(dir).unwrap();

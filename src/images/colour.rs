@@ -27,7 +27,7 @@ pub static COLOUR: std::sync::LazyLock<std::sync::RwLock<Colour>> =
             screen: None,
             screen_path: String::new(),
             input: None,
-            own: true,
+            use_image_profile: true,
             intent: moxcms::RenderingIntent::Perceptual,
             transforms: Arc::default(),
         })
@@ -42,7 +42,7 @@ static FOR_FILES: std::sync::LazyLock<Colour> = std::sync::LazyLock::new(|| Colo
     screen: None,
     screen_path: String::new(),
     input: None,
-    own: true,
+    use_image_profile: true,
     intent: moxcms::RenderingIntent::Perceptual,
     transforms: Arc::default(),
 });
@@ -110,10 +110,11 @@ pub struct Colour {
     pub screen: Option<moxcms::ColorProfile>,
     /// The file `screen` was read from; empty for none.
     pub screen_path: String,
-    /// For images without a profile of their own, or all with `own` off; `None`: sRGB.
+    /// For images without a profile of their own, or all with `use_image_profile` off; `None`:
+    /// sRGB.
     pub input: Option<moxcms::ColorProfile>,
     /// An image's own profile counts (Geeqie's "Use image's color profile").
-    pub own: bool,
+    pub use_image_profile: bool,
     /// Geeqie's rendering intent.
     pub intent: moxcms::RenderingIntent,
     /// Made once for each source and target: some profiles cost more to make a transform from
@@ -154,7 +155,7 @@ pub fn to_srgb(img: image::DynamicImage, icc: Option<&[u8]>) -> image::DynamicIm
 /// It follows the colour settings of Preferences and the view filter, so it is for what is
 /// shown only, never for files or the shared thumbnail cache (`to_srgb`).
 pub fn to_display(img: image::DynamicImage, icc: Option<&[u8]>) -> image::DynamicImage {
-    filter(
+    apply_view_filter(
         convert(img, icc, true, false),
         VIEW_FILTER.load(Ordering::Relaxed),
     )
@@ -163,14 +164,14 @@ pub fn to_display(img: image::DynamicImage, icc: Option<&[u8]>) -> image::Dynami
 /// An image that is sRGB already (a thumbnail, made by `to_srgb` or read from the shared cache)
 /// to the screen profile, not through the profile for images without one a second time.
 pub fn srgb_to_display(img: image::DynamicImage) -> image::DynamicImage {
-    filter(
+    apply_view_filter(
         convert(img, None, true, true),
         VIEW_FILTER.load(Ordering::Relaxed),
     )
 }
 
-/// The pixels as the view filter `f` shows them; alpha as it was.
-fn filter(img: image::DynamicImage, f: usize) -> image::DynamicImage {
+/// Applies the view filter `f` to the pixels; alpha stays as it was.
+fn apply_view_filter(img: image::DynamicImage, f: usize) -> image::DynamicImage {
     if f == 0 {
         return img;
     }
@@ -225,7 +226,7 @@ fn converted(
     screen: bool,
     srgb: bool,
 ) -> image::DynamicImage {
-    let icc = icc.filter(|_| c.own);
+    let icc = icc.filter(|_| c.use_image_profile);
     let screen = screen && c.screen.is_some();
     let from = match icc {
         Some(bytes) => {
@@ -273,11 +274,11 @@ pub fn rgb_profile(path: &str) -> Result<Option<moxcms::ColorProfile>, String> {
         .ok()
         .filter(|p| p.color_space == DataColorSpace::Rgb)
         .ok_or(format!("{path}: not an RGB colour profile"))?;
-    Ok((!like_srgb(&profile)).then_some(profile))
+    Ok((!is_like_srgb(&profile)).then_some(profile))
 }
 
-/// A few colours from sRGB through `profile` come out unchanged.
-pub fn like_srgb(profile: &moxcms::ColorProfile) -> bool {
+/// Returns whether a few colours from sRGB through `profile` come out unchanged.
+pub fn is_like_srgb(profile: &moxcms::ColorProfile) -> bool {
     use moxcms::{ColorProfile, Layout, TransformOptions};
     let samples = [
         255, 0, 0, 255, 0, 255, 0, 255, 0, 0, 255, 255, 128, 128, 128, 255, 30, 60, 90, 255,
@@ -396,7 +397,7 @@ pub fn colour_source(path: &Path) -> String {
     let c = COLOUR.read().unwrap_or_else(|e| e.into_inner());
     let input = c.input.as_ref().map_or("sRGB".to_owned(), name_of);
     match own {
-        Some(own) if c.own => own,
+        Some(own) if c.use_image_profile => own,
         Some(own) => crate::tf!("{own}; {input} used instead", own, input),
         None => crate::tf!("none: taken as {input}", input),
     }
@@ -435,7 +436,7 @@ pub fn desktop_screen_profile() -> Option<String> {
         let mut args = vec!["call", "--system", "--dest", "org.freedesktop.ColorManager"];
         args.extend(["--object-path", object, "--method"]);
         args.extend(method);
-        let out = crate::files::external::limited("gdbus", &args, 1 << 20)?;
+        let out = crate::files::external::short_output_of("gdbus", &args, 1 << 20)?;
         first_quoted(&out).map(str::to_owned)
     };
     let get = "org.freedesktop.DBus.Properties.Get";
@@ -488,7 +489,7 @@ fn make_transform(
     // An image's own profile that is sRGB (as most exports have) changes nothing on the way
     // to sRGB: no pass over every pixel, and no second copy of a large image for it. Looked
     // at once, as the transform is kept for that profile.
-    if !screen && from >= 2 && like_srgb(&source) {
+    if !screen && from >= 2 && is_like_srgb(&source) {
         return None;
     }
     let make = |rendering_intent| {
@@ -520,15 +521,16 @@ pub fn transformed(
     rgba.into()
 }
 
-/// The colour settings in effect at start. Returns the screen profile's or input profile's error,
-/// if either could not be read. With the desktop's profile asked for, images wait a moment for it.
-pub(crate) fn set_up(config: &Config) -> Option<String> {
+/// Sets up the colour settings in effect at start. Returns the screen profile's or input profile's
+/// error, if either could not be read. With the desktop's profile asked for, images wait a moment
+/// for it.
+pub(crate) fn set_up_colour(config: &Config) -> Option<String> {
     COLOR_MANAGEMENT.store(config.color_management, Ordering::Relaxed);
     VIEW_FILTER.store(config.view_filter, Ordering::Relaxed);
     let error = (set_screen(&config.screen_profile))
         .and_then(|_| set_input(&config.input_profile))
         .err();
-    set_colour(|c| c.own = config.use_image_profile);
+    set_colour(|c| c.use_image_profile = config.use_image_profile);
     set_intent(&config.rendering_intent);
     if config.desktop_profile && config.color_management {
         let deadline = Instant::now() + std::time::Duration::from_millis(SCREEN_WAIT_MS);
@@ -579,7 +581,10 @@ mod tests {
     fn view_filters() {
         let px = |f, rgba| {
             let img = image::RgbaImage::from_pixel(1, 1, image::Rgba(rgba));
-            super::filter(img.into(), f).into_rgba8().get_pixel(0, 0).0
+            super::apply_view_filter(img.into(), f)
+                .into_rgba8()
+                .get_pixel(0, 0)
+                .0
         };
         assert_eq!(px(0, [200, 10, 10, 9]), [200, 10, 10, 9]);
         assert_eq!(px(1, [255, 255, 255, 9]), [255, 255, 255, 9]);
@@ -640,10 +645,10 @@ mod tests {
         assert_eq!(super::srgb_to_display(grey()), grey());
         // The image's own profile left out: the input profile for all, here sRGB.
         super::set_input("srgb").unwrap();
-        super::set_colour(|c| c.own = false);
+        super::set_colour(|c| c.use_image_profile = false);
         let adobe = moxcms::ColorProfile::new_adobe_rgb().encode().unwrap();
         assert_eq!(super::to_display(grey(), Some(&adobe)), grey());
-        super::set_colour(|c| c.own = true);
+        super::set_colour(|c| c.use_image_profile = true);
         assert_ne!(super::to_display(grey(), Some(&adobe)), grey());
         assert!(super::set_input(&junk).is_err());
         // A profile that cannot be read: left as it is.
@@ -750,14 +755,14 @@ mod tests {
         let off = super::to_srgb(grey(), Some(&p3));
         super::COLOR_MANAGEMENT.store(true, Ordering::Relaxed);
         super::set_input("adobe").unwrap();
-        super::set_colour(|c| c.own = false);
+        super::set_colour(|c| c.use_image_profile = false);
         super::set_intent("relative");
         let set = (
             super::to_srgb(grey(), Some(&p3)),
             super::to_srgb(grey(), None),
         );
         super::set_input("srgb").unwrap();
-        super::set_colour(|c| c.own = true);
+        super::set_colour(|c| c.use_image_profile = true);
         super::set_intent("perceptual");
         assert_eq!(off, tagged);
         assert_eq!(set, (tagged, grey()));

@@ -14,14 +14,14 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 /// How many bytes of decoded frames are kept of one animation. A longer one loops its first
 /// part.
-pub static MAX_ANIMATION: AtomicUsize = AtomicUsize::new(128 << 20);
+pub static MAX_ANIMATION_BYTES: AtomicUsize = AtomicUsize::new(128 << 20);
 
 /// Frames of an animation kept at most, whatever their size.
 const MAX_FRAMES: usize = 1000;
 
-/// image's default limit (`Limits::max_alloc`). Pixels are measured against it only by `fits`;
-/// elsewhere it caps the bytes read from a file or a program.
-pub const MAX_DECODE: u64 = 512 << 20;
+/// image's default limit (`Limits::max_alloc`). Pixels are measured against it only by
+/// `fits_decode_limit`; elsewhere it caps the bytes read from a file or a program.
+pub const MAX_DECODE_BYTES: u64 = 512 << 20;
 
 pub struct Decoded {
     /// The file the job was for. It rejects results from a folder that has since been replaced.
@@ -38,16 +38,16 @@ pub struct Decoded {
 }
 
 /// The frames, the original size after EXIF rotation, the histogram and the number of pages.
-pub type DecodedImage = (Frames, [usize; 2], Box<Hist>, usize);
+pub type DecodedImage = (Frames, [usize; 2], Box<HistogramCounts>, usize);
 
 /// Pixel counts per level of red, green, blue, brightness and alpha.
-pub type Hist = [[u32; 256]; 5];
+pub type HistogramCounts = [[u32; 256]; 5];
 
 /// The decoded frames with their delays in ms. A still image has one frame.
 pub type Frames = Vec<(egui::ColorImage, u32)>;
 
 /// An image, its ICC profile if it has one, and its size upright before any shrinking.
-pub type Small = (image::DynamicImage, Option<Vec<u8>>, [usize; 2]);
+pub type ShrunkImage = (image::DynamicImage, Option<Vec<u8>>, [usize; 2]);
 
 /// A page of an image, whole, and its ICC profile if it has one.
 pub type Page = (image::DynamicImage, Option<Vec<u8>>);
@@ -64,7 +64,7 @@ type Unturned = (
 /// An animation's frames, decoded as they are taken, and its size, or why it is not decoded.
 type Animated = Result<(image::Frames<'static>, (u32, u32)), String>;
 
-pub fn histogram(img: &egui::ColorImage) -> Box<Hist> {
+pub fn histogram(img: &egui::ColorImage) -> Box<HistogramCounts> {
     let mut h = Box::new([[0; 256]; 5]);
     for p in &img.pixels {
         let [r, g, b, a] = p.to_array();
@@ -78,9 +78,9 @@ pub fn histogram(img: &egui::ColorImage) -> Box<Hist> {
     h
 }
 
-/// Whether `path` is a file (also through a link). A pipe would block a reader for good, and a
-/// device such as /dev/zero would fill memory.
-pub fn is_file(path: &Path) -> bool {
+/// Returns whether `path` is a regular file (also through a link). A pipe would block a reader for
+/// good, and a device such as /dev/zero would fill memory.
+pub fn is_regular_file(path: &Path) -> bool {
     std::fs::metadata(path).is_ok_and(|m| m.is_file())
 }
 
@@ -93,7 +93,7 @@ pub fn decode(
     page: usize,
 ) -> Result<(Frames, [usize; 2], usize), String> {
     // Also for a file from a collection or the command line, which the listing did not see.
-    if !is_file(path) {
+    if !is_regular_file(path) {
         return Err("not a regular file".into());
     }
     if let Some((frames, orig)) = animation(path, max) {
@@ -182,7 +182,7 @@ fn ico_size(path: &Path, k: usize) -> Result<image::DynamicImage, String> {
     let mut entry = *ico_sizes(path)?.get(k).ok_or("no such size in the ICO")?;
     let le32 = |e: &[u8; 16], at: usize| u32::from_le_bytes(e[at..at + 4].try_into().unwrap());
     let (len, offset) = (le32(&entry, 8), le32(&entry, 12));
-    let mut file = open(path).map_err(|e| e.to_string())?;
+    let mut file = open_regular(path).map_err(|e| e.to_string())?;
     file.seek(std::io::SeekFrom::Start(offset.into()))
         .map_err(|e| e.to_string())?;
     let mut one = vec![0, 0, 1, 0, 1, 0];
@@ -199,7 +199,7 @@ fn ico_size(path: &Path, k: usize) -> Result<image::DynamicImage, String> {
 
 /// The number of pages (images) in a TIFF file. It reads only their directories.
 pub fn tiff_pages(path: &Path) -> usize {
-    let Ok(file) = open(path) else {
+    let Ok(file) = open_regular(path) else {
         return 1;
     };
     let Ok(mut dec) = tiff::decoder::Decoder::new(std::io::BufReader::new(file)) else {
@@ -224,7 +224,7 @@ pub fn tiff_page(path: &Path, page: usize) -> Result<Page, String> {
     use image::DynamicImage as D;
     use tiff::ColorType as C;
     use tiff::decoder::DecodingResult as R;
-    let file = open(path).map_err(|e| e.to_string())?;
+    let file = open_regular(path).map_err(|e| e.to_string())?;
     let mut dec =
         tiff::decoder::Decoder::new(std::io::BufReader::new(file)).map_err(|e| e.to_string())?;
     dec.seek_to_image(page).map_err(|e| e.to_string())?;
@@ -232,12 +232,12 @@ pub fn tiff_page(path: &Path, page: usize) -> Result<Page, String> {
     let color = dec.colortype().map_err(|e| e.to_string())?;
     // The tiff crate allocates the page whole, as its header claims, so the page must fit first.
     let bytes = u64::from(color.bit_depth()).div_ceil(8) * u64::from(color.num_samples());
-    if !fits(w, h, bytes) {
+    if !fits_decode_limit(w, h, bytes) {
         let claimed = (u64::from(w) * u64::from(h)).saturating_mul(bytes);
         return Err(format!("image too large ({})", human_size(claimed)));
     }
     let icc = dec.get_tag_u8_vec(tiff::tags::Tag::IccProfile).ok();
-    #[allow(clippy::disallowed_methods)] // the one place, after `fits`
+    #[allow(clippy::disallowed_methods)] // the one place, after `fits_decode_limit`
     let data = dec.read_image().map_err(|e| e.to_string())?;
     let img = match (color, data) {
         (C::Gray(8), R::U8(v)) => image::GrayImage::from_raw(w, h, v).map(D::ImageLuma8),
@@ -352,8 +352,8 @@ fn tone_mapped(img: image::Rgb32FImage) -> image::DynamicImage {
 fn animated_frames(path: &Path) -> Option<Animated> {
     use image::{AnimationDecoder, ImageDecoder};
     let ext = path.extension()?.to_str()?.to_ascii_lowercase();
-    let file = std::io::BufReader::new(open(path).ok()?);
-    // The decoders get their own limit on what they allocate (512 MB, as `MAX_DECODE`), so a
+    let file = std::io::BufReader::new(open_regular(path).ok()?);
+    // The decoders get their own limit on what they allocate (512 MB, as `MAX_DECODE_BYTES`), so a
     // damaged frame header that claims gigabytes is an error, not a failed allocation that ends
     // Glimt.
     let limits = image::Limits::default();
@@ -393,7 +393,7 @@ fn animated_frames(path: &Path) -> Option<Animated> {
 /// image's limit, and the decoder keeps the last one while it makes the next, so two of them
 /// must fit.
 fn too_large_animation((w, h): (u32, u32)) -> bool {
-    !fits(w, h, 8)
+    !fits_decode_limit(w, h, 8)
 }
 
 /// The frames of an animated GIF, WebP or PNG (APNG). Returns `None` for other files, which
@@ -415,7 +415,7 @@ pub fn animation(path: &Path, max: [u32; 2]) -> Option<(Frames, [usize; 2])> {
         out.push((img, ms));
         // Tiny frames pass the memory budget in their thousands, and each becomes a texture
         // when shown, so there are 1,000 at most.
-        if bytes > MAX_ANIMATION.load(Ordering::Relaxed) || out.len() >= MAX_FRAMES {
+        if bytes > MAX_ANIMATION_BYTES.load(Ordering::Relaxed) || out.len() >= MAX_FRAMES {
             break;
         }
     }
@@ -465,11 +465,11 @@ pub fn each_frame(
     Ok(done)
 }
 
-/// An image no larger than `max`, with its ICC profile and its upright size before it was
+/// Decodes `path` no larger than `max`, with its ICC profile and its upright size before it was
 /// shrunk. A JPEG is decoded at a fraction, and other images whole (HEIC, AVIF and video frames
 /// at `max` from ffmpeg) and shrunk after, then turned (`shrunk_upright`), as the view does.
 /// This is the one way for thumbnails, the print and its preview.
-pub fn small(path: &Path, max: [u32; 2], rotate: bool) -> Result<Small, String> {
+pub fn decode_shrunk(path: &Path, max: [u32; 2], rotate: bool) -> Result<ShrunkImage, String> {
     let (img, icc, size) = match scaled_jpeg(path, max, rotate) {
         Some(found) => found,
         None => {
@@ -486,7 +486,7 @@ pub fn small(path: &Path, max: [u32; 2], rotate: bool) -> Result<Small, String> 
 pub fn icc_profile(path: &Path) -> Option<Vec<u8>> {
     #[cfg(feature = "jxl")]
     if has_ext(path, crate::model::listing::JXL_EXTS) {
-        let file = std::io::BufReader::new(open(path).ok()?);
+        let file = std::io::BufReader::new(open_regular(path).ok()?);
         let mut dec = jxl_oxide::integration::JxlDecoder::new(file).ok()?;
         return dec.icc_profile().ok().flatten();
     }
@@ -539,7 +539,7 @@ fn shrunk_upright(
     size: Option<[usize; 2]>,
     max: [u32; 2],
 ) -> Result<(image::DynamicImage, [usize; 2]), String> {
-    let quarter = quarter_turn(turn);
+    let quarter = is_quarter_turn(turn);
     let [w, h] = [img.width() as usize, img.height() as usize];
     let orig = size.unwrap_or(if quarter { [h, w] } else { [w, h] });
     let mut img = shrink(img, if quarter { [max[1], max[0]] } else { max })?;
@@ -566,7 +566,7 @@ fn load_unturned(path: &Path, rotate: bool, max: Option<[u32; 2]>) -> Result<Unt
     }
     #[cfg(any(feature = "heic", feature = "avif"))]
     if crate::files::external::is_heif(path) {
-        let (img, size) = crate::files::external::heif(path, max)?;
+        let (img, size) = crate::files::external::decode_heif(path, max)?;
         return Ok((img, icc_profile(path), upright, size));
     }
     #[cfg(feature = "svg")]
@@ -576,7 +576,7 @@ fn load_unturned(path: &Path, rotate: bool, max: Option<[u32; 2]>) -> Result<Unt
     }
     #[cfg(feature = "jxl")]
     if has_ext(path, crate::model::listing::JXL_EXTS) {
-        let file = open(path).map_err(|e| e.to_string())?;
+        let file = open_regular(path).map_err(|e| e.to_string())?;
         let mut dec = jxl_oxide::integration::JxlDecoder::new(std::io::BufReader::new(file))
             .map_err(|e| e.to_string())?;
         // jxl-oxide starts with no limit on what it allocates. A lossy JPEG XL needs some 24
@@ -585,7 +585,7 @@ fn load_unturned(path: &Path, rotate: bool, max: Option<[u32; 2]>) -> Result<Unt
         // more. A header that claims a larger picture than a decode may hold is refused before
         // that, by `from_decoder`.
         let mut limits = image::Limits::default();
-        limits.max_alloc = Some(4 * MAX_DECODE);
+        limits.max_alloc = Some(4 * MAX_DECODE_BYTES);
         dec.set_limits(limits).map_err(|e| e.to_string())?;
         // jxl-oxide already renders the image upright.
         let icc = dec.icc_profile().ok().flatten();
@@ -652,7 +652,7 @@ pub fn scaled_jpeg(
         // folder of 50 MB RAW files on a share is not read whole for its thumbnails.
         let head = read_head(path, 8 << 20).ok()?;
         let covers = |p: &[u8]| raw::jpeg_size(p).is_some_and(|(w, h)| w >= max[0] || h >= max[1]);
-        if raw::preview(&head).is_some_and(|p| covers(p) && raw::whole_jpeg(p)) {
+        if raw::preview(&head).is_some_and(|p| covers(p) && raw::is_whole_jpeg(p)) {
             if let Some(shown) = from(&head) {
                 return Some(shown);
             }
@@ -676,12 +676,15 @@ pub fn scaled_jpeg(
     None
 }
 
-/// The first `max` bytes of `path`, if it is a file (`open_file`).
+/// The first `max` bytes of `path`, if it is a file (`open_regular_with_metadata`).
 pub(crate) fn read_head(path: &Path, max: u64) -> std::io::Result<Vec<u8>> {
     use std::io::Read;
     let mut head = Vec::new();
     #[allow(clippy::disallowed_methods)] // bounded by take
-    open_file(path)?.0.take(max).read_to_end(&mut head)?;
+    open_regular_with_metadata(path)?
+        .0
+        .take(max)
+        .read_to_end(&mut head)?;
     Ok(head)
 }
 
@@ -705,7 +708,7 @@ pub fn scaled(
     // which refuses it.
     let bytes = info.pixel_format.pixel_bytes() as u64;
     let progressive = info.coding_process == jpeg_decoder::CodingProcess::DctProgressive;
-    if progressive && !fits(info.width.into(), info.height.into(), 2 * bytes) {
+    if progressive && !fits_decode_limit(info.width.into(), info.height.into(), 2 * bytes) {
         return None;
     }
     let orientation = (orientation.or_else(|| dec.exif_data().and_then(exif::orientation)))
@@ -713,7 +716,7 @@ pub fn scaled(
         .unwrap_or(image::metadata::Orientation::NoTransforms);
     let (w, h) = (info.width as f64, info.height as f64);
     // Upright size, which is what has to fit.
-    let (uw, uh) = if quarter_turn(orientation) {
+    let (uw, uh) = if is_quarter_turn(orientation) {
         (h, w)
     } else {
         (w, h)
@@ -727,10 +730,10 @@ pub fn scaled(
     let (sw, sh) = dec.scale(want_w, want_h).ok()?;
     // A baseline JPEG is decoded at the scaled size, into a plane for each channel and then the
     // pixels, so twice the pixels' bytes. 40000×40000 shown at 1/2 would take 2.4 GB.
-    if !fits(sw.into(), sh.into(), 2 * bytes) {
+    if !fits_decode_limit(sw.into(), sh.into(), 2 * bytes) {
         return None;
     }
-    #[allow(clippy::disallowed_methods)] // the one place, after `fits`
+    #[allow(clippy::disallowed_methods)] // the one place, after `fits_decode_limit`
     let pixels = dec.decode().ok()?;
     let (sw, sh) = (sw as u32, sh as u32);
     let mut img: image::DynamicImage = match info.pixel_format {
@@ -748,14 +751,14 @@ pub fn scaled(
 /// Makes `mb` megabytes the most an animation's decoded frames may take, from the setting
 /// `animation_mb`, at start and when it changes in Preferences.
 pub fn set_animation_limit(mb: usize) {
-    MAX_ANIMATION.store(mb << 20, Ordering::Relaxed);
+    MAX_ANIMATION_BYTES.store(mb << 20, Ordering::Relaxed);
 }
 
-/// Whether a picture of `w`×`h` with `bytes` bytes for each pixel fits in what one decode may
-/// allocate (`MAX_DECODE`). Every decoder asks it before it allocates from a size the file
-/// claims, so a header of a few bytes that claims gigabytes is refused, not allocated.
-pub fn fits(w: u32, h: u32, bytes: u64) -> bool {
-    (u64::from(w) * u64::from(h)).saturating_mul(bytes) <= MAX_DECODE
+/// Returns whether a picture of `w`×`h` with `bytes` bytes for each pixel fits in what one decode
+/// may allocate (`MAX_DECODE_BYTES`). Every decoder asks it before it allocates from a size the
+/// file claims, so a header of a few bytes that claims gigabytes is refused, not allocated.
+pub fn fits_decode_limit(w: u32, h: u32, bytes: u64) -> bool {
+    (u64::from(w) * u64::from(h)).saturating_mul(bytes) <= MAX_DECODE_BYTES
 }
 
 /// Decodes the image `dec` reads, after the size limit that `ImageReader` applies. The image
@@ -764,18 +767,18 @@ pub fn fits(w: u32, h: u32, bytes: u64) -> bool {
 /// way a decoder made directly is decoded; clippy refuses the image crate's.
 pub fn from_decoder(dec: impl ImageDecoder) -> Result<image::DynamicImage, String> {
     let (w, h) = dec.dimensions();
-    if !fits(w, h, dec.color_type().bytes_per_pixel().into()) {
+    if !fits_decode_limit(w, h, dec.color_type().bytes_per_pixel().into()) {
         return Err(format!(
             "image too large ({})",
             human_size(dec.total_bytes())
         ));
     }
-    #[allow(clippy::disallowed_methods)] // the one place, after `fits`
+    #[allow(clippy::disallowed_methods)] // the one place, after `fits_decode_limit`
     image::DynamicImage::from_decoder(dec).map_err(|e| e.to_string())
 }
 
-/// Decodes an image held in memory, of the format its bytes tell, after `fits`. It is the one
-/// way bytes are decoded (a decoder plugin's or ffmpeg's output, an ICO's image, a cached
+/// Decodes an image held in memory, of the format its bytes tell, after `fits_decode_limit`. It is
+/// the one way bytes are decoded (a decoder plugin's or ffmpeg's output, an ICO's image, a cached
 /// thumbnail). Clippy refuses the image crate's `load_from_memory`.
 pub fn from_memory(bytes: &[u8]) -> Result<image::DynamicImage, String> {
     let reader = image::ImageReader::new(std::io::Cursor::new(bytes)).with_guessed_format();
@@ -787,31 +790,31 @@ pub fn from_memory(bytes: &[u8]) -> Result<image::DynamicImage, String> {
     )
 }
 
-/// Whether Glimt can show `path`, for Check Images. The file is decoded small, as for the list's
-/// thumbnails. A JPEG is also looked at for its end marker, which a file cut off in copying
+/// Checks that Glimt can decode `path`, for Check Images. The file is decoded small, as for the
+/// list's thumbnails. A JPEG is also looked at for its end marker, which a file cut off in copying
 /// lacks, though it may still decode with grey at the bottom. Returns why not, if it cannot.
-pub fn check(path: &Path) -> Result<(), String> {
-    survive(|| decode(path, [64, 64], false, 0).map(drop))?;
-    if crate::model::listing::is_jpeg(path) && !jpeg_ends(path)? {
+pub fn check_decodes(path: &Path) -> Result<(), String> {
+    catch_panic(|| decode(path, [64, 64], false, 0).map(drop))?;
+    if crate::model::listing::is_jpeg(path) && !is_whole_jpeg_file(path)? {
         return Err("cut off: the JPEG has no end".into());
     }
     Ok(())
 }
 
-/// Whether a JPEG's image data reaches its end marker (FF D9), which the data itself never
-/// holds (an FF in it is followed by 00 or a restart marker). The marker is looked for from the
-/// image data on, not in the last bytes, because phones put a video of megabytes after it in a
+/// Returns whether a JPEG file's image data reaches its end marker (FF D9), which the data itself
+/// never holds (an FF in it is followed by 00 or a restart marker). The marker is looked for from
+/// the image data on, not in the last bytes, because phones put a video of megabytes after it in a
 /// motion photo.
 // shortcut: reads the whole file, as Check Images does each JPEG once; read from the image
 // data's start in blocks if motion photos of hundreds of MB make it slow.
-fn jpeg_ends(path: &Path) -> Result<bool, String> {
+fn is_whole_jpeg_file(path: &Path) -> Result<bool, String> {
     let data = read_limited(path).map_err(|e| e.to_string())?;
-    Ok(crate::images::raw::whole_jpeg(&data))
+    Ok(crate::images::raw::is_whole_jpeg(&data))
 }
 
-/// Whether the EXIF orientation turns the image a quarter, so its width and height swap. It is
-/// the one list of those orientations, for the view, the JPEG scaling and the save.
-pub fn quarter_turn(o: Orientation) -> bool {
+/// Returns whether the EXIF orientation turns the image a quarter, so its width and height swap. It
+/// is the one list of those orientations, for the view, the JPEG scaling and the save.
+pub fn is_quarter_turn(o: Orientation) -> bool {
     use Orientation::{Rotate90, Rotate90FlipH, Rotate270, Rotate270FlipH};
     matches!(o, Rotate90 | Rotate270 | Rotate90FlipH | Rotate270FlipH)
 }
@@ -819,7 +822,7 @@ pub fn quarter_turn(o: Orientation) -> bool {
 /// Runs `work`, and returns an error if it panics. A decoder crashing on a broken file must not
 /// end the worker thread, because that would leave every later image or thumbnail waiting for
 /// ever.
-pub fn survive<T>(work: impl FnOnce() -> Result<T, String>) -> Result<T, String> {
+pub fn catch_panic<T>(work: impl FnOnce() -> Result<T, String>) -> Result<T, String> {
     crate::support::threads::caught(work)
         .unwrap_or_else(|| Err("the decoder crashed on this file".into()))
 }
@@ -830,50 +833,55 @@ pub fn read_text(path: impl AsRef<Path>) -> std::io::Result<String> {
         .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))
 }
 
-/// The whole of `path`, read only up to `MAX_DECODE` bytes. A larger file (a sparse one, or one
-/// unpacked from a small zip) is refused before it fills memory, rather than read whole first.
+/// The whole of `path`, read only up to `MAX_DECODE_BYTES` bytes. A larger file (a sparse one, or
+/// one unpacked from a small zip) is refused before it fills memory, rather than read whole first.
 /// So is what is not a file (a pipe would block for good, and /dev/zero would fill memory), also
 /// through a link. This is the one way Glimt reads a file whole, whoever wrote it, and clippy
 /// (clippy.toml) refuses every other read.
 pub fn read_limited(path: impl AsRef<Path>) -> std::io::Result<Vec<u8>> {
-    read_opened(open_file(path.as_ref())?)
+    read_open_file(open_regular_with_metadata(path.as_ref())?)
 }
 
 /// `read_limited` of `path` when it is no link. Returns an error whose `raw_os_error` is
 /// `ELOOP` when it is one. The open itself refuses the link (O_NOFOLLOW), so a link swapped in
 /// after a look at the name is never read through.
 pub(crate) fn read_unlinked(path: &Path) -> std::io::Result<Vec<u8>> {
-    read_opened(opened(path, libc::O_NOFOLLOW)?)
+    read_open_file(open_regular_with_flags(path, libc::O_NOFOLLOW)?)
 }
 
-/// The whole of a file opened by `open_file`, up to `MAX_DECODE` bytes.
-fn read_opened((file, meta): (std::fs::File, std::fs::Metadata)) -> std::io::Result<Vec<u8>> {
+/// The whole of a file opened by `open_regular_with_metadata`, up to `MAX_DECODE_BYTES` bytes.
+fn read_open_file((file, meta): (std::fs::File, std::fs::Metadata)) -> std::io::Result<Vec<u8>> {
     use std::io::Read;
     let too_large =
-        || std::io::Error::other(format!("file too large ({})", human_size(MAX_DECODE)));
+        || std::io::Error::other(format!("file too large ({})", human_size(MAX_DECODE_BYTES)));
     // The size is looked at first, so a large file is not read at all. `take` is for a file
     // that grows meanwhile.
-    if meta.len() > MAX_DECODE {
+    if meta.len() > MAX_DECODE_BYTES {
         return Err(too_large());
     }
     let mut data = Vec::new();
     #[allow(clippy::disallowed_methods)] // bounded by take
-    file.take(MAX_DECODE + 1).read_to_end(&mut data)?;
-    if data.len() as u64 > MAX_DECODE {
+    file.take(MAX_DECODE_BYTES + 1).read_to_end(&mut data)?;
+    if data.len() as u64 > MAX_DECODE_BYTES {
         return Err(too_large());
     }
     Ok(data)
 }
 
-/// `path` opened to be read, if it is a file, with what it is. It is opened without waiting
-/// (O_NONBLOCK, which a file does not heed), and what is open is looked at rather than the
-/// name, because a pipe put there between a look and an open would block that open.
-pub(crate) fn open_file(path: &Path) -> std::io::Result<(std::fs::File, std::fs::Metadata)> {
-    opened(path, 0)
+/// Opens `path` to be read, if it is a regular file, and returns it with its metadata. It is opened
+/// without waiting (O_NONBLOCK, which a file does not heed), and what is open is looked at rather
+/// than the name, because a pipe put there between a look and an open would block that open.
+pub(crate) fn open_regular_with_metadata(
+    path: &Path,
+) -> std::io::Result<(std::fs::File, std::fs::Metadata)> {
+    open_regular_with_flags(path, 0)
 }
 
-/// `open_file` with the open's `flags` added.
-fn opened(path: &Path, flags: i32) -> std::io::Result<(std::fs::File, std::fs::Metadata)> {
+/// `open_regular_with_metadata` with the open's `flags` added.
+fn open_regular_with_flags(
+    path: &Path,
+    flags: i32,
+) -> std::io::Result<(std::fs::File, std::fs::Metadata)> {
     use std::os::unix::fs::OpenOptionsExt;
     const O_NONBLOCK: i32 = 0o4000;
     #[allow(clippy::disallowed_methods)] // the one opening of a file to read it whole
@@ -890,10 +898,10 @@ fn opened(path: &Path, flags: i32) -> std::io::Result<(std::fs::File, std::fs::M
     Ok((file, meta))
 }
 
-/// `path` opened to be read, if it is a file (`open_file`). This is the one way Glimt opens a
-/// file, so a pipe or device in its place is refused, not waited on for good.
-pub(crate) fn open(path: impl AsRef<Path>) -> std::io::Result<std::fs::File> {
-    open_file(path.as_ref()).map(|(file, _)| file)
+/// Opens `path` to be read, if it is a regular file (`open_regular_with_metadata`). This is the one
+/// way Glimt opens a file, so a pipe or device in its place is refused, not waited on for good.
+pub(crate) fn open_regular(path: impl AsRef<Path>) -> std::io::Result<std::fs::File> {
+    open_regular_with_metadata(path.as_ref()).map(|(file, _)| file)
 }
 
 /// Returns an image's width and height as stored, read from its header where it can be: a
@@ -928,7 +936,7 @@ fn jpeg_head_size(path: &Path) -> Option<(u32, u32)> {
         .then(|| raw::jpeg_size(&head))?
 }
 
-/// An image crate reader on `path`, opened with `open` (no pipe or device). Its format is
+/// An image crate reader on `path`, opened with `open_regular` (no pipe or device). Its format is
 /// guessed from the file's first bytes, and from the extension when they say nothing, as
 /// `image::ImageReader::open` and `with_guessed_format` do. Clippy refuses `open`, because the
 /// image crate opens the file itself, where clippy cannot look.
@@ -936,7 +944,7 @@ pub(crate) fn image_reader(
     path: impl AsRef<Path>,
 ) -> std::io::Result<image::ImageReader<std::io::BufReader<std::fs::File>>> {
     let path = path.as_ref();
-    let (file, meta) = open_file(path)?;
+    let (file, meta) = open_regular_with_metadata(path)?;
     let mut reader = image::ImageReader::new(std::io::BufReader::new(file));
     if let Ok(format) = image::ImageFormat::from_path(path) {
         reader.set_format(format);
@@ -947,10 +955,10 @@ pub(crate) fn image_reader(
     // counts as the bytes tell it, so a JPEG named .png is refused too. Other formats are read by
     // seeking, so a large TIFF or PNG still opens. A file of no known format is refused as well.
     let whole = matches!(reader.format(), Some(image::ImageFormat::Jpeg) | None);
-    if whole && meta.len() > MAX_DECODE {
+    if whole && meta.len() > MAX_DECODE_BYTES {
         return Err(std::io::Error::other(format!(
             "file too large ({})",
-            human_size(MAX_DECODE)
+            human_size(MAX_DECODE_BYTES)
         )));
     }
     Ok(reader)
@@ -1143,13 +1151,13 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let png = dir.join("a.png");
         image::RgbImage::new(400, 300).save(&png).unwrap();
-        let (img, icc, size) = super::small(&png, [100, 100], true).unwrap();
+        let (img, icc, size) = super::decode_shrunk(&png, [100, 100], true).unwrap();
         assert!(img.width() <= 100 && img.height() <= 100 && icc.is_none());
         assert_eq!(size, [400, 300]);
         let jpeg = dir.join("b.jpg");
         image::RgbImage::new(40, 20).save(&jpeg).unwrap();
         crate::metadata::exif::write_orientation(&jpeg, 1, false, true).unwrap();
-        let (img, _, size) = super::small(&jpeg, [100, 100], true).unwrap();
+        let (img, _, size) = super::decode_shrunk(&jpeg, [100, 100], true).unwrap();
         assert_eq!((img.width(), img.height(), size), (20, 40, [20, 40]));
         std::fs::remove_dir_all(dir).unwrap();
     }
@@ -1650,12 +1658,12 @@ mod tests {
         // A motion photo has a video after the JPEG's end, longer than 64 KB and without FF D9.
         let motion = [&jpeg[..], &vec![0x42; 200_000]].concat();
         std::fs::write(dir.join("motion.jpg"), motion).unwrap();
-        assert_eq!(super::check(&dir.join("motion.jpg")), Ok(()));
+        assert_eq!(super::check_decodes(&dir.join("motion.jpg")), Ok(()));
         std::fs::write(dir.join("text.png"), b"not a picture").unwrap();
         std::fs::write(dir.join("empty.webp"), b"").unwrap();
-        assert_eq!(super::check(&dir.join("whole.jpg")), Ok(()));
+        assert_eq!(super::check_decodes(&dir.join("whole.jpg")), Ok(()));
         for broken in ["cut.jpg", "text.png", "empty.webp"] {
-            assert!(super::check(&dir.join(broken)).is_err(), "{broken}");
+            assert!(super::check_decodes(&dir.join(broken)).is_err(), "{broken}");
         }
         std::fs::remove_dir_all(dir).unwrap();
     }
@@ -1786,12 +1794,15 @@ mod tests {
             std::env::temp_dir().join(format!("glimt-test-claims-{}.jpg", std::process::id()));
         std::fs::write(&file, &jpeg).unwrap();
         // Each error must be the size refused. A header with no pixels after it fails in the
-        // decoder too, for the missing data, so an error alone would pass without `fits`.
+        // decoder too, for the missing data, so an error alone would pass without
+        // `fits_decode_limit`.
         let refused = |e: Option<String>| e.is_some_and(|e| e.starts_with("image too large"));
         assert!(refused(
             super::decode(&file, [16384, 16384], false, 0).err()
         ));
-        assert!(refused(super::small(&file, [16384, 16384], false).err()));
+        assert!(refused(
+            super::decode_shrunk(&file, [16384, 16384], false).err()
+        ));
         std::fs::remove_file(&file).unwrap();
         assert!(refused(super::from_memory(b"P6\n40000 40000\n255\n").err()));
         // A grey TIFF page of 40000×40000, read by the tiff crate for its later pages.
@@ -1838,7 +1849,7 @@ mod tests {
         f.set_len(8 << 30).unwrap();
         assert!(super::read_limited(&file).is_err());
         // Check Images and the EXIF of a RAW read through it too, never the whole 8 GB.
-        assert!(super::jpeg_ends(&file).is_err());
+        assert!(super::is_whole_jpeg_file(&file).is_err());
         // And every decode through the image crate, whose JPEG decoder reads the file whole.
         assert!(super::image_reader(&file).is_err());
         // A TIFF is read by seeking, so a large one still opens.
@@ -1916,7 +1927,7 @@ mod tests {
 
     #[test]
     fn survives_a_panic() {
-        assert_eq!(super::survive(|| Ok::<_, String>(1)), Ok(1));
-        assert!(super::survive(|| -> Result<(), String> { panic!("broken file") }).is_err());
+        assert_eq!(super::catch_panic(|| Ok::<_, String>(1)), Ok(1));
+        assert!(super::catch_panic(|| -> Result<(), String> { panic!("broken file") }).is_err());
     }
 }
