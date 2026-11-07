@@ -87,6 +87,9 @@ cshot main
 click 173 11; sleep 1; cshot view-menu; click 173 11; sleep 1   # closed by a second click
 key ctrl+o; sleep 2; cshot preferences; key Escape; sleep 1
 key ctrl+i; sleep 2; cshot icon-grid; key ctrl+i
+# The thumbnails in the image area (G), with time for every thumbnail to come.
+key g; sleep 4; xdotool mousemove 700 790; sleep 1; cshot thumbnail-grid; key g
+xdotool mousemove 173 11   # back where the shots after it were taken
 key ctrl+t; sleep 1; cshot folder-tree; key ctrl+t
 key e; sleep 2; cshot compare; key e
 key k; sleep 1; cshot histogram; key k; key k
