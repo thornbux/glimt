@@ -401,12 +401,15 @@ impl Listing {
     /// A collection's files that still exist, from its file when it has one (`saved`), in
     /// its own order unless `sort`.
     fn collection(self, files: Vec<OsString>, saved: Option<PathBuf>, sort: bool) {
-        let mut files = files;
-        if let Some(Ok(paths)) = saved.map(|f| collections::load(&f)) {
-            files = (paths.iter())
-                .filter_map(|p| Some(p.strip_prefix("/").ok()?.as_os_str().to_owned()))
-                .collect();
-        }
+        let paths = match saved.map(|f| collections::load(&f)) {
+            Some(Ok(paths)) => paths,
+            _ => files.iter().map(|f| self.dir.join(f)).collect(),
+        };
+        // Each entry is listed by its real path, as a folder's files are, so that an entry named
+        // through a link has its marks and stars and is found by `--remote select`.
+        let mut files: Vec<OsString> = (collections::by_real_path(&paths).into_iter())
+            .filter_map(|(p, _)| Some(p.strip_prefix(&self.dir).ok()?.as_os_str().to_owned()))
+            .collect();
         // A list keeps only files, as `listing::kind` does in a folder. A folder or `/` named
         // in a downloaded list was kept, shown as broken, and Delete sent the whole folder to
         // the trash. Until this listing has come, `none_saving` holds every file operation back.
@@ -1708,6 +1711,35 @@ mod tests {
             .map(std::path::Path::new)
             .collect();
         assert_eq!(files, [dir.join("a.png").strip_prefix("/").unwrap()]);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A collection's or a plain list's entry named through a link to a folder is listed by its
+    /// real path, the name its marks and stars are kept by and `--remote select`'s client gives.
+    /// Listed as written, the entry showed none of them and the select missed it.
+    #[test]
+    fn collection_entries_through_a_link_are_listed_by_their_real_paths() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-gqv-real-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join("real")).unwrap();
+        image::RgbImage::new(4, 4)
+            .save(dir.join("real/a.png"))
+            .unwrap();
+        std::os::unix::fs::symlink(dir.join("real"), dir.join("link")).unwrap();
+        let entry = dir.join("link/a.png");
+        std::fs::write(
+            dir.join("c.gqv"),
+            format!("#GQview collection\n\"{}\"\n", entry.display()),
+        )
+        .unwrap();
+        std::fs::write(dir.join("show.m3u"), "link/a.png\n").unwrap();
+        let real = dir.canonicalize().unwrap().join("real/a.png");
+        for file in ["c.gqv", "show.m3u"] {
+            let (mut app, ctx) = app_on(&dir.join(file));
+            assert_eq!(app.list.files().len(), 1, "{file}");
+            assert_eq!(app.path(0), real, "{file}");
+            let missing = app.remote_select(&ctx, &format!("select {}\0", real.display()));
+            assert!(missing.is_empty(), "{file}");
+        }
         std::fs::remove_dir_all(dir).unwrap();
     }
 

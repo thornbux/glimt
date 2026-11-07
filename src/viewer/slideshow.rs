@@ -150,6 +150,10 @@ impl crate::App {
                 let shown = self.list.files().get(self.list.cur()).cloned();
                 let files: Vec<PathBuf> =
                     (0..self.list.files().len()).map(|i| self.path(i)).collect();
+                // The saved entries by their real paths, the names the list has.
+                let saved: Vec<PathBuf> = (collections::by_real_path(&saved).into_iter())
+                    .map(|(real, _)| real)
+                    .collect();
                 let files: Vec<OsString> = (collections::in_saved_order(&saved, files).iter())
                     .filter_map(|p| {
                         Some(
@@ -498,6 +502,32 @@ mod tests {
             assert!(app.status.folder_total() > Some(0), "size");
             std::fs::remove_dir_all(&d).unwrap();
         }
+    }
+
+    /// Random order turned off puts a collection back in its saved order, also when an entry
+    /// names its image through a link. Compared as written, that entry went last.
+    #[test]
+    fn random_off_keeps_the_place_of_an_entry_through_a_link() {
+        let d = std::env::temp_dir().join(format!("glimt-test-unshuffle-{}", std::process::id()));
+        std::fs::create_dir_all(d.join("real")).unwrap();
+        std::os::unix::fs::symlink(d.join("real"), d.join("link")).unwrap();
+        let mut gqv = String::from("#GQview collection\n");
+        for (i, at) in ["link", "real", "real"].iter().enumerate() {
+            image::RgbImage::new(2, 2)
+                .save(d.join(format!("real/{i}.png")))
+                .unwrap();
+            gqv.push_str(&format!(
+                "\"{}\"\n",
+                d.join(format!("{at}/{i}.png")).display()
+            ));
+        }
+        std::fs::write(d.join("c.gqv"), gqv).unwrap();
+        let (mut app, ctx) = app_on(&d.join("c.gqv"));
+        let order = app.list.files().to_vec();
+        app.shuffle_list(&ctx, true);
+        app.shuffle_list(&ctx, false);
+        assert_eq!(app.list.files(), order);
+        std::fs::remove_dir_all(&d).unwrap();
     }
 
     /// A slideshow goes on, tick after tick, whatever the layout, order and search: the image
