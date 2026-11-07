@@ -286,7 +286,7 @@ impl crate::App {
             "current" => vec![self.list.shown()],
             // When the search hides every selected file, the answer names none of them, and
             // not the shown image in their place.
-            _ => self.quiet_targets().unwrap_or_default(),
+            _ => self.targets_without_notice().unwrap_or_default(),
         };
         (files.into_iter().filter(|&i| i < self.list.files().len()))
             .flat_map(|i| {
@@ -327,7 +327,7 @@ impl crate::App {
             if !self.select_for_action(ctx, found) {
                 return paths.iter().flat_map(|p| p.bytes().chain([0])).collect();
             }
-            self.go(ctx, first);
+            self.show_file(ctx, first);
             self.list.set_anchor(None);
         }
         missing

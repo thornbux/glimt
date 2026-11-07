@@ -112,7 +112,7 @@ impl crate::App {
         if let Some(name) = show
             && let Some(i) = self.list.files().iter().position(|f| *f == name)
         {
-            self.go(ctx, i);
+            self.show_file(ctx, i);
         }
         if select {
             let broken = (self.list.files().iter().enumerate())

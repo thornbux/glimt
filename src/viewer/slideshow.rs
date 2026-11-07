@@ -291,7 +291,7 @@ impl crate::App {
                     self.list.set_pane(self.slideshow.next_pane - 1, next);
                     self.refill();
                 } else {
-                    self.go(ctx, next);
+                    self.show_file(ctx, next);
                 }
                 self.decoding.fade_from(before);
                 if turns {
@@ -399,7 +399,7 @@ mod tests {
             }
             let (mut app, ctx) = app_on(&d);
             let sorted = app.list.files().to_vec();
-            app.go(&ctx, 4);
+            app.show_file(&ctx, 4);
             app.config.slideshow_subfolders = true;
             app.config.slideshow_random = true;
             app.config.slideshow_repeat = false;

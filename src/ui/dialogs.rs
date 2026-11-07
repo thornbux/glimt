@@ -629,7 +629,7 @@ impl crate::App {
                 return;
             };
             match prompt {
-                Prompt::Rename => self.go(ctx, found[0]),
+                Prompt::Rename => self.show_file(ctx, found[0]),
                 _ if !self.select_for_action(ctx, found.into_iter().collect()) => return,
                 _ => {}
             }

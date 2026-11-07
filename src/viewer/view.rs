@@ -1131,7 +1131,7 @@ impl crate::App {
             self.run(ctx, action);
         }
         if let Some(i) = clicked_pane {
-            self.go(ctx, i);
+            self.show_file(ctx, i);
         }
     }
 
@@ -1594,7 +1594,7 @@ impl crate::App {
             .then(|| self.list.panes().get(step as usize - 1))
             .flatten();
         if let Some(i) = pane.copied().or_else(|| self.step(step, false)) {
-            self.go(ctx, i);
+            self.show_file(ctx, i);
         }
     }
 
@@ -2007,7 +2007,7 @@ mod tests {
         app.viewing.page = 2;
         app.viewing.frame = Some(3);
         app.viewing.turned = dir.join("a.png");
-        app.go(&ctx, 1);
+        app.show_file(&ctx, 1);
         let v = &app.viewing;
         assert_eq!((v.turn, v.page, v.frame), ((0, false), 0, None));
         assert!(v.turned.as_os_str().is_empty() && v.crop.is_none());
@@ -2031,7 +2031,7 @@ mod tests {
             ("2x1", Action::PaneDown, Action::PaneRight),
         ] {
             app.config.layout = layout.into();
-            app.go(&ctx, 0);
+            app.show_file(&ctx, 0);
             app.list.set_panes(vec![1]);
             app.go_to_pane(&ctx, dead);
             assert_eq!(app.list.shown(), 0, "{layout}");

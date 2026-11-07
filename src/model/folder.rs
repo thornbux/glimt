@@ -534,7 +534,7 @@ impl crate::App {
         // A file of the folder shown is only gone to. The folder is not read again, and its
         // thumbnails and EXIF index stay, which matters in a folder of 500,000 images.
         if let Some(i) = self.listed_here(&path) {
-            return self.go(ctx, i);
+            return self.show_file(ctx, i);
         }
         self.leave_image(ctx);
         self.folder.collection = None;
@@ -675,7 +675,7 @@ impl crate::App {
         self.search.forget_exif_index();
         // A list's entries not yet checked are the old list's. A folder opened now is listed
         // whole, and open_collection marks its own entries again.
-        self.list.set_unchecked(false);
+        self.list.set_unchecked_entries(false);
     }
 
     /// Show the collection in `file` as the list.
@@ -716,7 +716,7 @@ impl crate::App {
         self.folder.folders.clear();
         let first = files.first().cloned();
         self.replace_files(ctx, files, first);
-        self.list.set_unchecked(true);
+        self.list.set_unchecked_entries(true);
         self.list(ctx);
         self.title(ctx);
     }
@@ -966,7 +966,7 @@ impl crate::App {
         }
         self.folder.subdirs = dirs;
         self.take_files(ctx, files, true);
-        self.list.set_unchecked(false);
+        self.list.set_unchecked_entries(false);
         let c = &self.config;
         self.folder.listed_as = (self.folder.collection.is_none()
             && self.folder.folders.is_empty()
@@ -1013,7 +1013,7 @@ impl crate::App {
         if files == self.list.files() && !self.folder.sort_collection {
             // A file may have been saved over under its own name (an editor writes and
             // renames), so its size and date are read again, for the rows on screen only.
-            self.list.forget_details();
+            self.list.forget_sizes_and_dates();
             // A rename keeps the list as it is but forgot the file's decoded image, which is
             // asked for again here.
             self.refill();
@@ -1183,10 +1183,10 @@ impl crate::App {
             self.title(ctx);
             return;
         }
-        // go() clears the notice for a new image. A new list is not one, and a notice is often
-        // why the list was read again.
+        // `show_file` clears the notice for a new image. A new list is not one, and a notice is
+        // often why the list was read again.
         let notice = self.notice.take();
-        self.show(ctx, shown);
+        self.show_file_anew(ctx, shown);
         self.notice = notice;
     }
 
@@ -1216,7 +1216,7 @@ impl crate::App {
             pan.follow(removed, version, self.list.version());
         }
         if gone && !self.list.files().is_empty() {
-            self.show(ctx, self.list.shown());
+            self.show_file_anew(ctx, self.list.shown());
         } else {
             // The shown image stays, so it keeps its zoom, turn and page, as in replace_files.
             self.refill();
@@ -1389,7 +1389,7 @@ mod tests {
         }
         let (mut app, ctx) = app_on(&dir);
         (app.config.save_orientation, app.config.keep_zoom) = (false, false);
-        app.go(&ctx, 2);
+        app.show_file(&ctx, 2);
         app.viewing.set_turn((1, false), dir.join("c.png"));
         app.zoom.one_to_one();
         app.remove_indices(&ctx, &[0]);
@@ -1419,7 +1419,7 @@ mod tests {
                 .unwrap();
         }
         let (mut app, ctx) = app_on(&dir);
-        app.go(&ctx, 5);
+        app.show_file(&ctx, 5);
         app.compare = true;
         app.search.set_query("re:0[59]");
         app.update_search(&ctx);
@@ -1777,7 +1777,7 @@ mod tests {
         .unwrap();
         let (mut app, ctx) = app_on(&dir);
         app.open_collection(&ctx, dir.join("c.gqv"));
-        app.go(&ctx, 1);
+        app.show_file(&ctx, 1);
         assert!(settle(&mut app, &ctx, |a| !a.folder.is_listing()));
         assert_eq!(app.list.shown(), 1);
         let real = dir.canonicalize().unwrap().join("real/b.png");

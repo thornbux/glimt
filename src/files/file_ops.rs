@@ -451,7 +451,7 @@ impl crate::App {
     pub(crate) fn ask_about_targets(&mut self) -> Option<Asked> {
         let targets = self.targets()?;
         let names = targets.iter().map(|&i| self.list.files()[i].clone());
-        let left_out = self.left_out();
+        let left_out = self.hidden_selection_notice();
         Some(Asked::new(
             self.opened_folder_hash(),
             names.collect(),
@@ -499,7 +499,7 @@ impl crate::App {
         // A list just opened shows the names in its file until they are checked to be files.
         // A folder named there was moved to the trash as one of its entries. A listing that
         // broke checked nothing either, so the list waits for one that comes whole (F5).
-        let reading = self.list.unchecked();
+        let reading = self.list.has_unchecked_entries();
         let busy =
             !saving && !writing && !renaming && (reading || self.is_changed_by_running_work(paths));
         if saving {
@@ -1309,7 +1309,7 @@ impl crate::App {
             if let Ok(name) = path.strip_prefix(self.folder.dir()) {
                 let name = name.as_os_str();
                 self.thumbs.forget(name);
-                self.list.forget_details_of(name);
+                self.list.forget_size_and_date_of(name);
                 self.broken_files.remove(name);
                 // Also while the first index is being read, which may have read it before.
                 self.search.read_exif_again([name.to_owned()]);
@@ -1788,7 +1788,7 @@ impl crate::App {
         // The one file selected, as Delete and Move take it (right-clicked in the list,
         // say), not the image shown beside it.
         if let Some(&i) = self.list.selected().first() {
-            self.go(ctx, i);
+            self.show_file(ctx, i);
         }
         // Only the name, because in the list with subfolders the entry has its folders too.
         if let Some(name) = self
@@ -2318,7 +2318,7 @@ mod tests {
         let (mut app, ctx) = app_on(&d);
         app.open_collection(&ctx, d.join("show.m3u"));
         app.open(&ctx, d.clone());
-        assert!(!app.list.unchecked());
+        assert!(!app.list.has_unchecked_entries());
         app.open_collection(&ctx, d.join("show.m3u"));
         let (tx, rx) = std::sync::mpsc::channel();
         drop(tx);
@@ -3834,14 +3834,14 @@ mod tests {
         let (mut app, ctx) = app_on(&dir);
         assert!(settle(&mut app, &ctx, |a| !a.working()));
         for name in ["a.png", "b.png", "c.png"] {
-            app.list.remember_details(name.into(), (1, 1));
+            app.list.remember_size_and_date(name.into(), (1, 1));
             app.broken_files.insert(name.into());
         }
         app.follow_moved_paths(vec![(dir.join("a.png"), dir.join("c.png"))], false);
         app.forget_names(&[dir.join("b.png")]);
         for name in ["a.png", "b.png", "c.png"] {
             let name = std::ffi::OsStr::new(name);
-            assert!(!app.list.details().contains_key(name), "{name:?}");
+            assert!(!app.list.sizes_and_dates().contains_key(name), "{name:?}");
             assert!(!app.broken_files.contains(name), "{name:?}");
         }
         std::fs::remove_dir_all(dir).unwrap();

@@ -911,7 +911,7 @@ impl crate::App {
     /// shortcut: stat in the UI thread, once per visible file; move to a thread if network
     /// folders make scrolling stutter.
     pub(crate) fn file_details(&mut self, i: usize) -> (u64, i64) {
-        if let Some(&d) = self.list.details().get(&self.list.files()[i]) {
+        if let Some(&d) = self.list.sizes_and_dates().get(&self.list.files()[i]) {
             return d;
         }
         let d = std::fs::metadata(self.path(i)).map_or((0, 0), |m| {
@@ -920,10 +920,11 @@ impl crate::App {
         });
         // The cache is bounded, because scrolling through a folder of 500,000 would keep some
         // 50 MB. Only the rows on screen are read again.
-        if self.list.details().len() >= 20_000 {
-            self.list.forget_details();
+        if self.list.sizes_and_dates().len() >= 20_000 {
+            self.list.forget_sizes_and_dates();
         }
-        self.list.remember_details(self.list.files()[i].clone(), d);
+        self.list
+            .remember_size_and_date(self.list.files()[i].clone(), d);
         d
     }
 
@@ -1277,7 +1278,7 @@ impl crate::App {
         if let Some(d) = open_dir {
             self.visit(ctx, d);
         } else if let Some(i) = opened.or(go_to) {
-            self.go(ctx, i);
+            self.show_file(ctx, i);
         }
         if let Some(action) = list_act {
             self.run(ctx, action);
@@ -1308,7 +1309,7 @@ impl crate::App {
         // A double-click opens the file clicked, also with Ctrl or Shift, whose clicks change
         // the selection and go to no file.
         if let Some(i) = opened.or(go_to) {
-            self.go(ctx, i);
+            self.show_file(ctx, i);
         }
         if opened.is_some() {
             self.panel.open_from_grid();
@@ -1717,7 +1718,7 @@ impl crate::App {
         }
         // A right-click on a file outside the selection selects just that file, as in a file
         // manager, and the menu acts on the selection.
-        if row.secondary_clicked() && self.list.right_click(i) {
+        if row.secondary_clicked() && self.list.select_on_right_click(i) {
             self.selection_changed(ctx);
         }
         go_to

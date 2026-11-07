@@ -107,7 +107,7 @@ pub(crate) struct List {
     /// also while the file list shows others.
     pan_thumbs: Vec<usize>,
     /// File list size and date columns: (bytes, mtime) by file name.
-    details: HashMap<OsString, (u64, i64)>,
+    sizes_and_dates: HashMap<OsString, (u64, i64)>,
     /// Goes up whenever the file list changes, so what was worked out from its indices can tell
     /// that it is old, also when the list kept its length (another order).
     version: usize,
@@ -115,7 +115,7 @@ pub(crate) struct List {
     /// operation may start. A new `List` keeps it, because a shuffle or a move in the
     /// collection puts the same names in another order. The whole listing clears it, and so
     /// does another folder opened.
-    unchecked: bool,
+    has_unchecked_entries: bool,
 }
 
 impl List {
@@ -211,8 +211,8 @@ impl List {
     }
 
     /// The size and date columns, as (bytes, mtime) by file name.
-    pub(crate) fn details(&self) -> &HashMap<OsString, (u64, i64)> {
-        &self.details
+    pub(crate) fn sizes_and_dates(&self) -> &HashMap<OsString, (u64, i64)> {
+        &self.sizes_and_dates
     }
 
     /// The list's version, which goes up whenever the list changes.
@@ -227,19 +227,19 @@ impl List {
         List {
             files,
             version: old.version + 1,
-            unchecked: old.unchecked,
+            has_unchecked_entries: old.has_unchecked_entries,
             ..Default::default()
         }
     }
 
     /// Whether the entries are a list's names not yet checked to be files.
-    pub(crate) fn unchecked(&self) -> bool {
-        self.unchecked
+    pub(crate) fn has_unchecked_entries(&self) -> bool {
+        self.has_unchecked_entries
     }
 
     /// Marks the entries as a list's names not yet checked to be files, or as checked.
-    pub(crate) fn set_unchecked(&mut self, unchecked: bool) {
-        self.unchecked = unchecked;
+    pub(crate) fn set_unchecked_entries(&mut self, unchecked: bool) {
+        self.has_unchecked_entries = unchecked;
     }
 
     /// Shows the image at place `i`.
@@ -296,14 +296,15 @@ impl List {
 
     /// Returns whether the list shows the file at `i`. While searching, that is whether the
     /// file is a match.
-    pub(crate) fn shows(&self, i: usize) -> bool {
+    pub(crate) fn shows_file(&self, i: usize) -> bool {
         self.matches.is_none() || self.is_match.get(i).copied().unwrap_or(false)
     }
 
     /// Selects the files at `places` and nothing else. Those that the search hides are kept
     /// apart in `hidden_selected` until it shows them.
     pub(crate) fn select(&mut self, places: std::collections::BTreeSet<usize>) {
-        (self.selected, self.hidden_selected) = places.into_iter().partition(|&i| self.shows(i));
+        (self.selected, self.hidden_selected) =
+            places.into_iter().partition(|&i| self.shows_file(i));
     }
 
     /// Selects the file at `i` alone, and starts a Shift selection there.
@@ -317,7 +318,7 @@ impl List {
     /// selection, as in a file manager, so the menu acts on it. The shown image counts as
     /// selected only while nothing else is, also among the files the search hides. Returns
     /// whether the selection changed.
-    pub(crate) fn right_click(&mut self, i: usize) -> bool {
+    pub(crate) fn select_on_right_click(&mut self, i: usize) -> bool {
         let others = !self.selected.is_empty() || !self.hidden_selected.is_empty();
         let outside = !self.selected.contains(&i) && (i != self.shown || others);
         if outside {
@@ -336,7 +337,7 @@ impl List {
     /// Selects the file at `i` too when `on` is true and the list shows it, and takes it out of
     /// the selection otherwise.
     pub(crate) fn set_selected(&mut self, i: usize, on: bool) {
-        match on && self.shows(i) {
+        match on && self.shows_file(i) {
             true => self.selected.insert(i),
             false => self.selected.remove(&i),
         };
@@ -469,10 +470,10 @@ impl List {
         self.matches = matches;
         // One step per selected file, not per file, as this runs at every letter typed.
         let hidden: Vec<usize> = (self.selected.iter().copied())
-            .filter(|&i| !self.shows(i))
+            .filter(|&i| !self.shows_file(i))
             .collect();
         let shown: Vec<usize> = (self.hidden_selected.iter().copied())
-            .filter(|&i| self.shows(i))
+            .filter(|&i| self.shows_file(i))
             .collect();
         for &i in &hidden {
             self.selected.remove(&i);
@@ -524,23 +525,23 @@ impl List {
     }
 
     /// Notes that pan view draws the cell of the file at place `i` this frame.
-    pub(crate) fn pan_thumb(&mut self, i: usize) {
+    pub(crate) fn note_pan_thumb(&mut self, i: usize) {
         self.pan_thumbs.push(i);
     }
 
     /// Keeps the size and date `d` of the file `name` for the list's columns.
-    pub(crate) fn remember_details(&mut self, name: OsString, d: (u64, i64)) {
-        self.details.insert(name, d);
+    pub(crate) fn remember_size_and_date(&mut self, name: OsString, d: (u64, i64)) {
+        self.sizes_and_dates.insert(name, d);
     }
 
     /// Forgets the size and date of the file `name`, because it changed.
-    pub(crate) fn forget_details_of(&mut self, name: &std::ffi::OsStr) {
-        self.details.remove(name);
+    pub(crate) fn forget_size_and_date_of(&mut self, name: &std::ffi::OsStr) {
+        self.sizes_and_dates.remove(name);
     }
 
     /// Forgets every file's size and date, so the rows on screen read them again.
-    pub(crate) fn forget_details(&mut self) {
-        self.details.clear();
+    pub(crate) fn forget_sizes_and_dates(&mut self) {
+        self.sizes_and_dates.clear();
     }
 }
 
@@ -602,9 +603,9 @@ mod tests {
                 "pan_thumbs",
                 "reset: pan view names them again in its next frame",
             ),
-            ("details", "reset: read again as the rows are drawn"),
+            ("sizes_and_dates", "reset: read again as the rows are drawn"),
             ("version", "goes up in List::after"),
-            ("unchecked", "carried by List::after"),
+            ("has_unchecked_entries", "carried by List::after"),
         ];
         let sources = crate::support::source_rules::sources();
         let text = &sources

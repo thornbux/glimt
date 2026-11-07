@@ -769,7 +769,7 @@ mod tests {
         assert!(crate::support::test_support::settle(&mut app, &ctx, |a| !a
             .folder
             .is_listing()));
-        app.go(&ctx, 0);
+        app.show_file(&ctx, 0);
         read_panel(&mut app, &ctx);
         // A long sidecar job of another file runs meanwhile. It holds the one sidecar thread
         // until `other` is dropped, so the panel's own save waits behind it however fast the
@@ -803,7 +803,7 @@ mod tests {
         // Another image shown while the wait runs ends it, and its own panel is read.
         let other = app.start_job_of("Other", 1, true, Vec::new()).unwrap();
         app.files_changed(&ctx, std::slice::from_ref(&file));
-        app.go(&ctx, 1);
+        app.show_file(&ctx, 1);
         app.want_exif(&ctx);
         assert!(app.info_panel.reread_after_write.is_none());
         drop(other);
@@ -825,7 +825,7 @@ mod tests {
         assert!(crate::support::test_support::settle(&mut app, &ctx, |a| !a
             .folder
             .is_listing()));
-        app.go(&ctx, 0);
+        app.show_file(&ctx, 0);
         read_panel(&mut app, &ctx);
         let other = app.start_job_of("Other", 1, true, vec![b.clone()]).unwrap();
         app.files_changed(&ctx, std::slice::from_ref(&a));
@@ -838,13 +838,13 @@ mod tests {
         let writing = app
             .start_job_of("Saving", 1, true, vec![a.clone()])
             .unwrap();
-        app.go(&ctx, 1);
+        app.show_file(&ctx, 1);
         app.want_exif(&ctx);
         assert!(
             app.info_panel.reread_after_write.is_none(),
             "b.png waits for a.png's job"
         );
-        app.go(&ctx, 0);
+        app.show_file(&ctx, 0);
         app.want_exif(&ctx);
         assert!(
             app.info_panel.reread_after_write.is_some(),

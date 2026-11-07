@@ -63,13 +63,13 @@ impl crate::App {
     /// Shows file `idx`. When it is the image shown already, its zoom, turn and page stay. This
     /// holds for every caller: a click, a pane, a slide or a remote command. Only a decode that
     /// failed (a share away for a moment) is tried again, as when it is shown anew.
-    pub(crate) fn go(&mut self, ctx: &egui::Context, idx: usize) {
+    pub(crate) fn show_file(&mut self, ctx: &egui::Context, idx: usize) {
         if self.list.files().is_empty() {
             return;
         }
         let idx = idx.min(self.list.files().len() - 1);
         if idx != self.list.shown() {
-            self.show(ctx, idx);
+            self.show_file_anew(ctx, idx);
         } else if self.list.decode_errors().contains_key(&idx) {
             self.list.forget_decode_error(idx);
             self.refill();
@@ -79,7 +79,7 @@ impl crate::App {
     /// Shows file `idx`, also when it is the image shown. The image before is left, with its
     /// turn saved or dropped, the zoom is reset unless kept, and the images around the new one
     /// are decoded. A new list calls it after it has set the shown file itself.
-    pub(crate) fn show(&mut self, ctx: &egui::Context, idx: usize) {
+    pub(crate) fn show_file_anew(&mut self, ctx: &egui::Context, idx: usize) {
         if self.list.files().is_empty() {
             return;
         }
@@ -253,7 +253,7 @@ impl crate::App {
         ctx: &egui::Context,
         places: std::collections::BTreeSet<usize>,
     ) -> bool {
-        if !places.iter().all(|&i| self.list.shows(i)) {
+        if !places.iter().all(|&i| self.list.shows_file(i)) {
             self.notice =
                 Some(tr("The search hides files this would act on: clear it first").into());
             return false;
@@ -276,7 +276,7 @@ impl crate::App {
     }
 
     /// The size of the selection, in the background, once it has stayed the same a moment.
-    pub(crate) fn selection_size(&mut self, ctx: &egui::Context) {
+    pub(crate) fn sum_selection_size(&mut self, ctx: &egui::Context) {
         match self.status.size_due() {
             SizeDue::No => return,
             // Asked again each frame: a frame drawn before it is due drops the earlier request.
@@ -320,7 +320,7 @@ impl crate::App {
     /// would then stand in for files the user picked. When the search hides only some of
     /// them, the action acts on the others, and the status bar counts the ones it leaves out.
     pub(crate) fn targets(&mut self) -> Option<Vec<usize>> {
-        let targets = self.quiet_targets();
+        let targets = self.targets_without_notice();
         if targets.is_none() {
             self.notice =
                 Some(tr("The search hides files this would act on: clear it first").into());
@@ -330,7 +330,7 @@ impl crate::App {
 
     /// Says how many selected files the search hides, which an action on the selection
     /// leaves out. Returns `None` when the search hides none of them.
-    pub(crate) fn left_out(&self) -> Option<String> {
+    pub(crate) fn hidden_selection_notice(&self) -> Option<String> {
         let files = match self.list.hidden_selected().len() {
             0 => return None,
             n => count(n, "file"),
@@ -342,7 +342,7 @@ impl crate::App {
     }
 
     /// The files of `targets()`, without the notice, for a query that changes nothing.
-    pub(crate) fn quiet_targets(&self) -> Option<Vec<usize>> {
+    pub(crate) fn targets_without_notice(&self) -> Option<Vec<usize>> {
         if self.list.only_hidden_selected() {
             return None;
         }
@@ -393,7 +393,7 @@ impl crate::App {
                 self.selection_changed(ctx);
             }
         }
-        self.go(ctx, to);
+        self.show_file(ctx, to);
         if shift {
             self.list.set_range_end(Some(to));
         }
@@ -438,7 +438,7 @@ mod tests {
         app.viewing.set_turn((1, false), dir.join("b.png"));
         app.move_along(&ctx, crate::ui::actions::Action::Next);
         assert_eq!((app.list.shown(), app.viewing.turn()), (1, (1, false)));
-        app.go(&ctx, 1);
+        app.show_file(&ctx, 1);
         assert_eq!(app.viewing.turn(), (1, false));
         app.list.set_shown(0);
         app.viewing.set_turn((1, false), dir.join("a.png"));
@@ -448,7 +448,7 @@ mod tests {
         assert_eq!(app.viewing.turn(), (1, false));
         // A decode of the shown image that failed is tried again when it is gone to again.
         app.list.decode_failed(0, "the share is away".into());
-        app.go(&ctx, 0);
+        app.show_file(&ctx, 0);
         assert!(!app.list.decode_errors().contains_key(&0));
         assert_eq!(app.viewing.turn(), (1, false));
         std::fs::remove_dir_all(dir).unwrap();
@@ -476,7 +476,7 @@ mod tests {
         assert!(app.notice.take().is_some());
         assert!(app.remote_query("selection").is_empty());
         let shown = app.list.shown();
-        assert!(app.list.right_click(shown));
+        assert!(app.list.select_on_right_click(shown));
         assert_eq!(app.targets(), Some(vec![shown]));
         assert!(app.list.hidden_selected().is_empty());
         std::fs::remove_dir_all(dir).unwrap();
@@ -497,7 +497,7 @@ mod tests {
         app.search.set_query("cherry");
         app.update_search(&ctx);
         assert_eq!(app.targets(), Some(vec![2]));
-        let left_out = app.left_out().unwrap();
+        let left_out = app.hidden_selection_notice().unwrap();
         assert!(left_out.contains("2 files"), "{left_out}");
         app.config.confirm_trash = true;
         app.request_delete(&ctx, true);
@@ -507,7 +507,7 @@ mod tests {
         assert_eq!(app.dialogs.asked_left_out(), None);
         app.list.select([2, 3].into());
         assert_eq!(app.targets(), Some(vec![2, 3]));
-        assert_eq!(app.left_out(), None);
+        assert_eq!(app.hidden_selection_notice(), None);
         app.request_delete(&ctx, true);
         assert_eq!(app.dialogs.asked_left_out(), None);
         std::fs::remove_dir_all(dir).unwrap();

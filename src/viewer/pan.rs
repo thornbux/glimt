@@ -217,7 +217,7 @@ impl crate::App {
         // hidden (Hide File List). Kept are the same as there, so the two never undo each other.
         self.trim_thumbs(self.thumbs.list_rows());
         if let Some(i) = show {
-            self.go(ctx, i);
+            self.show_file(ctx, i);
         }
         if open && !close {
             self.pan_window = Some(pan);
@@ -335,7 +335,7 @@ impl crate::App {
                             }
                             let at = top + egui::vec2(j as f32 * cell.x, y);
                             let rect = egui::Rect::from_min_size(at, cell);
-                            self.list.pan_thumb(i);
+                            self.list.note_pan_thumb(i);
                             let r = self.file_cell(ui, i, rect, i == self.list.shown());
                             if r.clicked() {
                                 show = Some(i);
@@ -454,7 +454,7 @@ impl crate::App {
             ui.painter()
                 .rect_filled(rect, 3.0, ui.visuals().widgets.hovered.weak_bg_fill);
         }
-        self.list.pan_thumb(first);
+        self.list.note_pan_thumb(first);
         self.paint_thumb(ui, first, rect.shrink(4.0));
         // The day and the number of images, on dark so they read on any picture.
         let p = ui.painter();

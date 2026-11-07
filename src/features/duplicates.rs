@@ -258,7 +258,7 @@ impl crate::App {
         }
         if let Some(path) = show {
             match (0..self.list.files().len()).find(|&i| self.is_file(i, &path)) {
-                Some(i) => self.go(ctx, i),
+                Some(i) => self.show_file(ctx, i),
                 None => self.visit(ctx, path),
             }
         }

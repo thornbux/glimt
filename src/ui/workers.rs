@@ -30,7 +30,7 @@ impl crate::App {
         self.receive_sizes();
         self.receive_exif_index(ctx);
         self.receive_operation_report(ctx);
-        self.selection_size(ctx);
+        self.sum_selection_size(ctx);
         self.match_size(ctx);
         self.receive_file_work(ctx);
         // --slideshow: once the folder is read, so random order shuffles all of it.

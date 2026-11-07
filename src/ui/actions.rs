@@ -1952,10 +1952,11 @@ mod tests {
         );
     }
 
-    /// Every action on the selection reaches `targets`, `quiet_targets` or `ask_about_targets`
-    /// from its arm in `App::run`, in the arm itself or in a function it calls. `Action::target`
-    /// is only a label, which a menu about the selection trusts. An arm that took the shown
-    /// image instead would act on another file than the ones the user picked.
+    /// Every action on the selection reaches `targets`, `targets_without_notice` or
+    /// `ask_about_targets` from its arm in `App::run`, in the arm itself or in a function it
+    /// calls. `Action::target` is only a label, which a menu about the selection trusts.
+    /// An arm that took the shown image instead would act on another file than the ones the
+    /// user picked.
     #[test]
     fn actions_on_the_selection_reach_their_targets() {
         use std::collections::HashMap;
@@ -2029,7 +2030,7 @@ mod tests {
                 assert!(
                     nothing || reaches(does, 3, &bodies),
                     "{name} acts on the selection (Action::target) but its arm in App::run \
-                     reaches no targets(), quiet_targets() or ask_about_targets():\n{arm}"
+                     reaches no targets(), targets_without_notice() or ask_about_targets():\n{arm}"
                 );
             }
         }
