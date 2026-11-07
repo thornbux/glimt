@@ -2922,9 +2922,11 @@ mod tests {
 
     /// Every file operation brings along what follows a file (its sidecar and its stars), and it
     /// waits while other work changes the file. These are the classes of bugs that came back
-    /// release after release, held for every operation at once. The collection's entry is
-    /// checked apart, by `a_collection_follows_its_files`, as the contract's folder is no
-    /// collection.
+    /// release after release, held for every operation at once. The contract's folder is no
+    /// collection, so the collection's entry is checked apart, for these operations only:
+    /// rename, move, rename folder and delete in `a_collection_follows_its_files`, and Rename
+    /// Many, trash and the Undo of each, and the Undo of a move, in
+    /// `a_collection_follows_undo_and_the_trash`.
     /// A new operation joins `contract_ops`, and `every_file_operation_is_in_the_contract` fails
     /// until it does.
     #[test]
@@ -3971,6 +3973,58 @@ mod tests {
             .unwrap();
         app.delete_now(&ctx, false, vec![b]);
         assert!(settle(&mut app, &ctx, |_| !entries(&gqv).contains("b.png")));
+        std::fs::remove_dir_all(d).unwrap();
+    }
+
+    /// A collection's entries also follow Rename Many, a move to the trash and the Undo of
+    /// each, and the Undo of a move. Each Undo puts the entry back in its place.
+    #[test]
+    fn a_collection_follows_undo_and_the_trash() {
+        let d = contract_folder("collection-undo");
+        let gqv = d.join("col.gqv");
+        let (mut app, ctx) = app_on(&gqv);
+        // The entries as paths inside the folder, in the collection's order.
+        let entries = |_: &crate::App| -> Vec<String> {
+            let text = std::fs::read_to_string(&gqv).unwrap();
+            (text.lines().filter(|l| !l.starts_with('#')))
+                .map(|l| {
+                    let p = std::path::Path::new(l.trim_matches('"'));
+                    p.strip_prefix(&d).unwrap_or(p).display().to_string()
+                })
+                .collect()
+        };
+        let idle = |app: &crate::App| {
+            (app.work.jobs.iter()).all(|j| std::sync::Arc::strong_count(j) == 1)
+                && (app.work.touching.iter()).all(|t| std::sync::Arc::strong_count(t) == 1)
+        };
+        let has = |app: &crate::App, want: &[&str]| idle(app) && entries(app) == want;
+        app.list.select([0, 1].into_iter().collect());
+        app.rename_many(&ctx, "x#");
+        assert!(settle(&mut app, &ctx, |app| has(
+            app,
+            &["x1.png", "x2.png"]
+        )));
+        app.undo(&ctx);
+        assert!(settle(&mut app, &ctx, |app| has(app, &["a.png", "b.png"])));
+        app.transfer(&ctx, vec![d.join("a.png")], d.join("sub"), false);
+        assert!(settle(&mut app, &ctx, |app| has(
+            app,
+            &["sub/a.png", "b.png"]
+        ) && app.work.undo.is_some()));
+        app.undo(&ctx);
+        // The list is read again after the Undo, so the file is looked for once it is in it.
+        let at = |app: &crate::App| {
+            (0..app.list.files().len()).find(|&i| app.path(i) == d.join("a.png"))
+        };
+        assert!(settle(&mut app, &ctx, |app| has(app, &["a.png", "b.png"])
+            && at(app).is_some()));
+        let a = at(&app).unwrap();
+        app.delete_now(&ctx, true, vec![a]);
+        assert!(settle(&mut app, &ctx, |app| has(app, &["b.png"])
+            && app.work.undo.is_some()));
+        app.undo(&ctx);
+        assert!(settle(&mut app, &ctx, |app| has(app, &["a.png", "b.png"])));
+        empty_trash_of(&d);
         std::fs::remove_dir_all(d).unwrap();
     }
 
