@@ -386,7 +386,7 @@ impl crate::App {
             )),
             Pick::SaveAs(_, _, start) => start.clone(),
             // Made first: the file dialog cannot start in a folder that is not there.
-            Pick::Collection => (collections::dir())
+            Pick::Collection => (collections::collections_dir())
                 .inspect(|d| drop(std::fs::create_dir_all(d)))
                 .unwrap_or_default()
                 .join(""),
@@ -1331,11 +1331,11 @@ mod tests {
             crate::support::lang::tr("The search hides files this would act on: clear it first");
         assert_eq!(app.notice.as_deref(), Some(hides));
         assert_eq!(app.list.selected_with_hidden(), [0, 1].into());
-        let dir_of = crate::model::collections::dir().unwrap();
+        let dir_of = crate::model::collections::collections_dir().unwrap();
         assert!(!dir_of.join(format!("{other}.gqv")).exists());
         app.list.set_matches(None);
         // The collection is written in the background, and removed once it is.
-        let file = crate::model::collections::dir()
+        let file = crate::model::collections::collections_dir()
             .unwrap()
             .join(format!("{name}.gqv"));
         let written = |a: &crate::App| !a.working_besides_image();

@@ -173,7 +173,10 @@ impl Catalog {
         let now: Vec<PathBuf> = now.iter().map(|s| root_now(s)).collect();
         let paths = self.paths(&now);
         let collections = self.collections(&paths);
-        let there: HashSet<String> = collections::list().into_iter().map(|c| c.0).collect();
+        let there: HashSet<String> = collections::saved_collections()
+            .into_iter()
+            .map(|c| c.0)
+            .collect();
         let existing = (collections.iter())
             .filter(|c| there.contains(&c.0))
             .map(|c| c.0.clone())
@@ -448,7 +451,7 @@ impl crate::App {
         // The collections: one of the same name gets the images it lacks, nothing is lost.
         // The collections' own files, each edited under its lock.
         self.run_in_background(ctx, Vec::new(), move || {
-            let dir = collections::dir();
+            let dir = collections::collections_dir();
             if let Some(dir) = &dir {
                 let _ = std::fs::create_dir_all(dir);
             }

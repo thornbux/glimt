@@ -892,7 +892,7 @@ impl crate::App {
                 // None of them are in the list, because a refresh that started before they
                 // moved left them out. The file still follows, quietly, as it may hold none of
                 // them.
-                let _ = collections::edit_told(file, follow);
+                let _ = collections::edit_open_collection(file, follow);
             }
             // The list is read again from the file, because a refresh that started before they
             // moved brings the old names.
@@ -1485,7 +1485,9 @@ impl crate::App {
                         .filter(|(_, p)| returned(p))
                         .cloned()
                         .collect();
-                    if let Err(e) = collections::edit_told(file, |all| put_back(all, &removed)) {
+                    if let Err(e) =
+                        collections::edit_open_collection(file, |all| put_back(all, &removed))
+                    {
                         error.get_or_insert(e);
                     }
                 }
@@ -1838,7 +1840,7 @@ fn forget_in_collection(
     // comparisons.
     let gone: HashSet<&Path> = gone.iter().map(PathBuf::as_path).collect();
     let mut removed = Vec::new();
-    let edit = collections::edit_told(file, |all| {
+    let edit = collections::edit_open_collection(file, |all| {
         let mut at = 0;
         all.retain(|p| {
             let out = p.ancestors().any(|a| gone.contains(a));

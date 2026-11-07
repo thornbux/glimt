@@ -506,7 +506,7 @@ impl crate::App {
             ui,
             iconed(ui, theme::icon::STACK_PLUS, tr("Add to Collection")),
             |ui| {
-                for (name, file) in collections::list() {
+                for (name, file) in collections::saved_collections() {
                     if icon_button(ui, theme::icon::STACK, &name).clicked() {
                         self.add_to_collection(ui.ctx(), &file);
                     }
