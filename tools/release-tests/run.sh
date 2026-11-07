@@ -20,6 +20,27 @@
 # files of samples.txt are downloaded once to ~/.cache/glimt-samples.
 set -e
 cd "$(git rev-parse --show-toplevel)"
+# An interrupted run left its container and its image of 2 to 3 GB, which docker image prune
+# never removes, as the image has a name. They go however the run ends.
+image=glimt-release-tests:$$
+leave() {
+    # By the whole name, so another run's containers, of a pid that starts with this one's, stay.
+    docker ps -a --format '{{.Names}}' | grep -E "^glimt-release-tests-$$(-[a-z0-9]+)?\$" |
+        xargs docker rm -f >/dev/null 2>&1
+    docker rmi -f $image >/dev/null 2>&1
+}
+trap leave EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+# The build folders of removed worktrees fill Docker's disk, and a run with too little room
+# fails halfway through its builds, so they go first and the room left is checked.
+tools/check.sh --clean || true
+free=$(docker run --rm -v glimt-target:/target rust:1 df -Pk /target |
+    awk 'NR == 2 { print int($4 / 1048576) }') || free=
+if [ -n "$free" ] && [ "$free" -lt 25 ]; then
+    echo "Docker has $free GB free, and a run needs about 25 GB: see docker system df"
+    exit 1
+fi
 new=${1:-HEAD}
 old=${2:-$(git describe --tags --abbrev=0 "$new^")}
 work=${XDG_CACHE_HOME:-$HOME/.cache}/glimt-release-tests
@@ -79,14 +100,13 @@ summary = '\nif [ $FAILED -gt 0 ]; then echo "$FAILED checks failed"; exit 1; fi
 for k, run in enumerate(runs + [timings]):
     open(f"{work}/part-{k}.sh", "w").write(head + start + "\n".join(run) + summary)
 PY
-image=glimt-release-tests:$$
 status=0
 docker run --name glimt-release-tests-$$ -e STEP=prepare -e OLD_COMMIT="$(git rev-parse "$old^{commit}")" \
     -v "$work:/t" -v glimt-target:/work-target -v glimt-cargo:/usr/local/cargo/registry \
     rust:1 bash /t/tests.sh || status=$?
 docker commit glimt-release-tests-$$ $image >/dev/null || status=1
 docker rm glimt-release-tests-$$ >/dev/null
-[ $status = 0 ] || { docker rmi $image >/dev/null 2>&1; echo "FAIL preparing the tests"; exit 1; }
+[ $status = 0 ] || { echo "FAIL preparing the tests"; exit 1; }
 set +e
 # part: K. --privileged gives the container a loop device, for the FAT file system of a camera
 # card that tests.sh mounts, and /dev/fuse, for the rclone and sftp:// folders. Only the parts
@@ -94,7 +114,8 @@ set +e
 # loop devices.
 part() {
     privileged=$(grep -q '^card=/mnt/card\|^fuse=yes' "$work/part-$1.sh" && echo --privileged)
-    docker run --rm $privileged --shm-size=1g -e STEP=run -e SCRIPT=/t/part-$1.sh -e QUICK="${QUICK:-}" \
+    docker run --rm --name glimt-release-tests-$$-$1 $privileged --shm-size=1g \
+        -e STEP=run -e SCRIPT=/t/part-$1.sh -e QUICK="${QUICK:-}" \
         -v "$work:/t" -v "$samples:/samples:ro" $image bash /t/tests.sh > "$work/part-$1.log" 2>&1
 }
 pids=""
@@ -103,10 +124,10 @@ failed=0
 for p in $pids; do wait $p || failed=1; done
 part $parts || failed=1
 for k in $(seq 0 $parts); do grep -v '^ *$' "$work/part-$k.log" | grep -v 'checks failed$'; done
-docker run --rm -e STEP=audit -v "$work:/t" -v glimt-cargo:/usr/local/cargo/registry $image \
+docker run --rm --name glimt-release-tests-$$-audit -e STEP=audit \
+    -v "$work:/t" -v glimt-cargo:/usr/local/cargo/registry $image \
     bash /t/tests.sh > "$work/audit.log" 2>&1 || failed=1
 cat "$work/audit.log"
-docker rmi $image >/dev/null
 echo "-- not tested here, by hand: the Flatpak (two windows with Ctrl+N, --remote next to the"
 echo "   focused one, --remote-all next to both, --remote-all quit)"
 fails=$(cat "$work"/part-*.log "$work/audit.log" | grep -c '^FAIL')

@@ -25,21 +25,29 @@ name=$(folder "$here")
 # each, until the disk is full. --clean keeps those of the worktrees git still knows and
 # run.sh's own (the two builds and the last release's binaries), and removes the rest. A clone
 # of the repository elsewhere is not in this list, so its folder goes and is built again.
-if [ "${1:-}" = --clean ]; then
-    trees=$(git worktree list --porcelain) ||
-        { echo "git worktree list failed: nothing removed"; exit 2; }
-    keep="release-tests-new release-tests-old old-builds"
+# A checkout's first check does the same (below), so new worktrees do not fill it between runs.
+kept() {
+    local trees tree keep="release-tests-new release-tests-old old-builds"
+    trees=$(git worktree list --porcelain) || return 1
     while IFS= read -r tree; do
         keep="$keep $(folder "$tree")"
     done < <(printf '%s\n' "$trees" | sed -n 's/^worktree //p')
-    exec docker run --rm -v glimt-target:/target -w /target glimt-check sh -c '
-        for d in *; do
-            [ -d "$d" ] || continue
-            case " $1 " in *" $d "*) continue ;; esac
-            echo "removing $d ($(du -sh "$d" | cut -f1))"
-            rm -rf "$d"
-        done
-        df -h /target | tail -1' sh "$keep"
+    printf '%s' "$keep"
+}
+# The script that removes them, run in /target with the folders to keep as $1.
+sweep='for d in *; do
+        [ -d "$d" ] || continue
+        case " $1 " in *" $d "*) continue ;; esac
+        echo "removing $d ($(du -sh "$d" | cut -f1))"
+        rm -rf "$d"
+    done
+    df -h /target | tail -1'
+if [ "${1:-}" = --clean ]; then
+    keep=$(kept) || { echo "git worktree list failed: nothing removed"; exit 2; }
+    # rust:1 has the same shell tools, for a disk freed by removing glimt-check too.
+    base=glimt-check
+    docker image inspect glimt-check >/dev/null 2>&1 || base=rust:1
+    exec docker run --rm -v glimt-target:/target -w /target "$base" sh -c "$sweep" sh "$keep"
 fi
 # The image is checked against rust:1 once a day, and built again when rust:1 has moved on, so
 # its clippy keeps up with CI's stable. Without the network the image there is used.
@@ -61,6 +69,13 @@ DOCKERFILE
         docker image prune -f >/dev/null
     fi
     mkdir -p "$HOME/.cache" && touch "$stamp"
+fi
+# This checkout's first check makes a new build folder, so the folders of the worktrees removed
+# since the last one go first. It is done before waiting for a turn, so the worktrees it keeps
+# are those git knows at the moment it removes the others.
+if keep=$(kept); then
+    docker run --rm -v glimt-target:/target -w /target glimt-check \
+        sh -c '[ -d "$2" ] || { '"$sweep"'; }' sh "$keep" "$name"
 fi
 # A turn among the others: each slot is a file locked by the docker command that runs the
 # checks. The kernel lets go of the lock when that process ends, however it ends, so no slot is
