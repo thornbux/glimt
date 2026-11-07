@@ -2712,7 +2712,7 @@ mod tests {
         // held back while other work changes its files, except those that change none. A copy
         // only reads them, and keywords never wait, because an edit would be lost. Their job
         // holds back the rest instead.
-        let ops: [(&str, Op, Check); 10] = [
+        let ops: [(&str, Op, Check); 11] = [
             (
                 "move",
                 |app, ctx, d| app.transfer(ctx, vec![d.join("a.png")], d.join("sub"), false),
@@ -2853,6 +2853,21 @@ mod tests {
                     );
                 },
                 |_, d| side(&d.join("a.png")).contains("Tag"),
+            ),
+            (
+                "save orientation",
+                |app, ctx, d| {
+                    // The fixture's image is square. A wide one shows the turn in its size.
+                    image::RgbImage::new(8, 4).save(d.join("a.png")).unwrap();
+                    app.viewing.turn((1, false), d.join("a.png"));
+                    app.save_orientation(ctx);
+                },
+                |app, d| {
+                    let a = d.join("a.png");
+                    image::image_dimensions(&a).ok() == Some((4, 8))
+                        && side(&a) == "a"
+                        && (!cfg!(feature = "marks") || stars(app, &a) == 3)
+                },
             ),
         ];
         for (name, op, check) in ops {
@@ -2998,10 +3013,16 @@ mod tests {
             "export_frames",
             "write_sidecars",
             "rename_folder",
+            "save_orientation",
         ];
         const OUTSIDE: &[(&str, &str)] = &[
             ("start_job", "the start itself"),
             ("background", "the start itself"),
+            ("new", "Job::new, the start itself"),
+            (
+                "print",
+                "a new PDF of its own, no file of the user's changed: writes_a_pdf",
+            ),
             (
                 "plugins_menu",
                 "a program of the user's that holds its files; a_hold_holds_its_files_back",
@@ -3048,6 +3069,8 @@ mod tests {
                     "self.start_job_of(",
                     "self.background(",
                     "self.hold(",
+                    // Work that starts its own thread counts itself as writing the user's files.
+                    "Working::new(&crate::files::file_io::WRITING)",
                 ];
                 if starts.iter().any(|s| line.contains(s)) && !line.trim_start().starts_with("//") {
                     found.insert(function.clone());
