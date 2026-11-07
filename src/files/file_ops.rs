@@ -898,7 +898,7 @@ impl crate::App {
             // moved brings the old names.
             self.folder.relist_later();
         }
-        self.exif_follow_list();
+        self.index_new_names();
         #[cfg(feature = "marks")]
         self.marks.follow_files(pairs, copied);
     }

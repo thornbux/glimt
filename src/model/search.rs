@@ -46,12 +46,12 @@ pub(crate) struct Search {
     /// Why a re: search pattern is not a valid pattern, shown under the search field.
     error: Option<String>,
     /// The search field takes the focus when it is next drawn (/).
-    focus: bool,
+    wants_focus: bool,
     /// The rows among the matches of the shown file and of the file a slideshow of several
     /// panes steps from, as (file, row). They are found once for each image and search, not in
     /// every frame, because the matches can be 300,000 long.
     match_rows: std::cell::Cell<[Option<FileRow>; 2]>,
-    match_rx: Receiving<u64>,
+    match_size_rx: Receiving<u64>,
     /// When to sum the matches' size, once the search has stayed the same for a moment.
     match_size_due: Option<Instant>,
     /// The EXIF text of each file in the folder, in lowercase, for "exif:" searches. It is
@@ -59,7 +59,7 @@ pub(crate) struct Search {
     exif_index: Option<HashMap<OsString, String>>,
     /// The files whose keywords or comment changed after they were indexed. The next "exif:"
     /// search reads only these files again, not the whole folder.
-    exif_stale: HashSet<OsString>,
+    exif_to_read_again: HashSet<OsString>,
     exif_index_rx: Receiving<HashMap<OsString, String>>,
     /// Set when the index being read is no longer wanted (another folder), so the thread stops.
     exif_index_stop: Arc<AtomicBool>,
@@ -80,18 +80,18 @@ impl Search {
     /// The files' EXIF text is read again at the next "exif:" search, as their keywords or
     /// comment changed.
     pub(crate) fn read_exif_again(&mut self, names: impl IntoIterator<Item = OsString>) {
-        self.exif_stale.extend(names);
+        self.exif_to_read_again.extend(names);
     }
 
-    /// Whether an "exif:" search holds back files whose keywords are still being written.
-    pub(crate) fn holds_exif_reads(&self) -> bool {
-        !self.exif_stale.is_empty() && self.query.contains("exif:")
+    /// Whether an "exif:" search waits for files whose keywords are still being written.
+    pub(crate) fn exif_search_waits_for_writes(&self) -> bool {
+        !self.exif_to_read_again.is_empty() && self.query.contains("exif:")
     }
 
     /// Drops the EXIF index of the folder and stops its reading, because another folder opens.
     pub(crate) fn forget_exif_index(&mut self) {
         self.exif_index = None;
-        self.exif_stale.clear();
+        self.exif_to_read_again.clear();
         self.exif_index_rx = Receiving::none();
         // Its reading of every file ends, because no one waits for it now.
         self.exif_index_stop.store(true, Ordering::Relaxed);
@@ -99,12 +99,12 @@ impl Search {
 
     /// Adds the sums of the matches' size that came to `size`.
     pub(crate) fn receive_match_size(&mut self, size: &mut u64) {
-        add_sent_sizes(&mut self.match_rx, size);
+        add_sent_sizes(&mut self.match_size_rx, size);
     }
 
     /// Whether the matches' size is summed.
     pub(crate) fn match_size_known(&self) -> bool {
-        self.match_rx.is_none() && self.match_size_due.is_none()
+        self.match_size_rx.is_none() && self.match_size_due.is_none()
     }
 
     /// The row of `file` among the matches. `find` looks it up only for a file other than the
@@ -138,11 +138,11 @@ impl Search {
     }
 
     pub(crate) fn reads_exif_again(&self, name: &str) -> bool {
-        self.exif_stale.contains(std::ffi::OsStr::new(name))
+        self.exif_to_read_again.contains(std::ffi::OsStr::new(name))
     }
 
     pub(crate) fn has_nothing_to_read_again(&self) -> bool {
-        self.exif_stale.is_empty()
+        self.exif_to_read_again.is_empty()
     }
 
     pub(crate) fn reads_index(&self) -> bool {
@@ -205,7 +205,7 @@ impl crate::App {
                     changed = true;
                 }
                 let field = ui.add(edit.desired_width(ui.available_width()));
-                if std::mem::take(&mut self.search.focus) {
+                if std::mem::take(&mut self.search.wants_focus) {
                     field.request_focus();
                 }
                 changed |= field.changed();
@@ -239,7 +239,7 @@ impl crate::App {
         // The size of the matches is summed in the background. A new search drops the receiver,
         // which stops the old sum.
         self.list.set_match_size(0);
-        self.search.match_rx = Receiving::none();
+        self.search.match_size_rx = Receiving::none();
         // It is not summed at each letter typed, because each would copy every match's name,
         // 500,000 for an "a".
         let wait = std::time::Duration::from_millis(200);
@@ -248,7 +248,7 @@ impl crate::App {
     }
 
     /// The size of the matches, in the background, once the search has stayed the same a moment.
-    pub(crate) fn match_size(&mut self, ctx: &egui::Context) {
+    pub(crate) fn sum_match_size(&mut self, ctx: &egui::Context) {
         let Some(due) = self.search.match_size_due else {
             return;
         };
@@ -270,7 +270,7 @@ impl crate::App {
                 .filter_map(|n| Some(dir.join(n).metadata().ok()?.len()));
             send_sizes(sizes, tx, &ctx);
         });
-        self.search.match_rx = Receiving::of(rx);
+        self.search.match_size_rx = Receiving::of(rx);
     }
 
     /// Takes the exif: search index once it is read, and runs the search again with it.
@@ -291,17 +291,17 @@ impl crate::App {
             None => self.search.exif_index = Some(index),
         }
         // The index was read from the list as it was, so names that came since are read too.
-        self.exif_follow_list();
+        self.index_new_names();
         self.update_search(ctx);
     }
 
     /// Makes the next search read the names in the list that the `exif:` index has not read
     /// (renamed, moved or copied in, new in a folder read again, or from subfolders turned on),
     /// as it reads edited ones. Before, a name it lacked was found by no `exif:` search at all.
-    pub(crate) fn exif_follow_list(&mut self) {
+    pub(crate) fn index_new_names(&mut self) {
         if let Some(index) = &self.search.exif_index {
             let missing = self.list.files().iter().filter(|n| !index.contains_key(*n));
-            self.search.exif_stale.extend(missing.cloned());
+            self.search.exif_to_read_again.extend(missing.cloned());
         }
     }
 
@@ -423,11 +423,11 @@ impl crate::App {
         let writing = self.file_operations.is_writing_sidecars();
         if !writing
             && self.search.exif_index.is_some()
-            && !self.search.exif_stale.is_empty()
+            && !self.search.exif_to_read_again.is_empty()
             && self.search.exif_index_rx.is_none()
         {
             let (tx, rx) = mpsc::channel();
-            let names: Vec<OsString> = self.search.exif_stale.drain().collect();
+            let names: Vec<OsString> = self.search.exif_to_read_again.drain().collect();
             let (dir, ctx) = (self.folder.dir().to_path_buf(), ctx.clone());
             let pointer = Working::new(&self.busy);
             self.search.exif_index_stop = Arc::default();
@@ -443,7 +443,7 @@ impl crate::App {
             if self.search.exif_index_rx.is_none() {
                 // Marks made while keywords are written are kept for after this first index.
                 if !writing {
-                    self.search.exif_stale.clear();
+                    self.search.exif_to_read_again.clear();
                 }
                 let (tx, rx) = mpsc::channel();
                 let (dir, files, ctx) = (
@@ -545,7 +545,7 @@ impl crate::App {
         ctx.input_mut(|i| (i.events).retain(|e| *e != egui::Event::Text("/".into())));
         // The focus is given when the field is drawn, because egui drops the focus on a widget
         // not drawn yet.
-        self.search.focus = true;
+        self.search.wants_focus = true;
     }
 }
 
@@ -589,12 +589,12 @@ fn score<T: Copy + PartialEq>(name: &[T], query: &[T], word: impl Fn(T) -> bool)
 pub fn parse(query: &str) -> Option<Query> {
     let tokens: Vec<&str> = query.split_whitespace().collect();
     let mut at = 0;
-    let parsed = or(&tokens, &mut at, 0);
+    let parsed = parse_or(&tokens, &mut at, 0);
     // A stray ")" ends a group that was not opened, and the rest is read on.
     let mut parts: Vec<Query> = parsed.into_iter().collect();
     while at < tokens.len() {
         at += 1;
-        parts.extend(or(&tokens, &mut at, 0));
+        parts.extend(parse_or(&tokens, &mut at, 0));
     }
     match parts.len() {
         0 => None,
@@ -607,11 +607,11 @@ fn prefixed(t: &str) -> bool {
     PREFIXES.iter().any(|p| t.starts_with(p))
 }
 
-/// Groups joined by `|`, up to a `)` or the end, inside `depth` groups.
-fn or(tokens: &[&str], at: &mut usize, depth: usize) -> Option<Query> {
+/// Parses groups joined by `|`, up to a `)` or the end, inside `depth` groups.
+fn parse_or(tokens: &[&str], at: &mut usize, depth: usize) -> Option<Query> {
     let mut parts: Vec<Query> = Vec::new();
     loop {
-        parts.extend(and(tokens, at, depth));
+        parts.extend(parse_and(tokens, at, depth));
         match tokens.get(*at) {
             Some(&"|") => *at += 1,
             _ => break,
@@ -624,8 +624,9 @@ fn or(tokens: &[&str], at: &mut usize, depth: usize) -> Option<Query> {
     }
 }
 
-/// Terms and groups one after the other, up to a `|`, a `)` or the end, inside `depth` groups.
-fn and(tokens: &[&str], at: &mut usize, depth: usize) -> Option<Query> {
+/// Parses terms and groups one after the other, up to a `|`, a `)` or the end, inside `depth`
+/// groups.
+fn parse_and(tokens: &[&str], at: &mut usize, depth: usize) -> Option<Query> {
     let mut parts: Vec<Query> = Vec::new();
     // Words after a term belong to it, and after a group they start a search of the names.
     let mut open_term = false;
@@ -634,7 +635,7 @@ fn and(tokens: &[&str], at: &mut usize, depth: usize) -> Option<Query> {
             "|" | ")" => break,
             "(" | "-(" if depth < MAX_NESTING => {
                 *at += 1;
-                let inner = or(tokens, at, depth + 1);
+                let inner = parse_or(tokens, at, depth + 1);
                 if tokens.get(*at) == Some(&")") {
                     *at += 1;
                 }

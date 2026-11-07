@@ -1158,7 +1158,7 @@ impl crate::App {
         // refill at place 0 would drop the decode of the image shown.
         let shown = found.unwrap_or(0);
         self.list.set_shown(shown);
-        self.exif_follow_list();
+        self.index_new_names();
         let panes = (panes.iter())
             .filter_map(|n| self.list.files().iter().position(|f| f == n))
             .collect();
