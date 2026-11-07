@@ -1561,7 +1561,8 @@ mod tests {
     }
 
     /// Blocks and a JPEG broken in thousands of ways, as a damaged or crafted file has them:
-    /// read without a panic, and turned upright without writing past the block.
+    /// read without a panic, cut for a copy within the block, and turned upright without
+    /// writing past the block.
     #[test]
     fn survives_broken_blocks() {
         // Many text fields that all name the same large part of the block: each is read only up
@@ -1590,6 +1591,8 @@ mod tests {
                 super::orientation(&block);
                 super::adobe_rgb(&block);
                 let len = block.len();
+                let copy = super::derived_block(&block);
+                assert!(copy.is_none_or(|c| c.len() <= len));
                 let _ = super::set_upright(&mut block, (1, 1));
                 assert_eq!(block.len(), len);
             }
