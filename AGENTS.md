@@ -213,11 +213,17 @@ of that part. The exceptions are the tables of one arm per action (`Action::engl
   ignores an extra Shift when matching), handle it in `App::run`, and add it to a menu with
   `menu_item`/`menu_toggle`. Name what it acts on in `Action::target`: the selection (`App::targets`), the
   shown image, or no file. A menu about the selection, such as the file list's right-click menu
-  (`file_menu`), offers only actions on the selection.
+  (`file_menu`), offers only actions on the selection. `targets()` returns `None` when the search
+  hides every selected file, and the action then stops: the shown image must not stand in for
+  the files the user picked. A feature or dialog that selects the files it acts on (Find
+  Duplicates, Check Images, Rename Many) does so with `select_for_action`, which refuses while
+  the search hides any of them.
 - **A setting:** one line `name: Type = default` in `config!`; values are read with `FromStr`
   and written with `Display`. Add a checkbox in Preferences, and clamp ranges in
   `Config::parse`. Settings stay in `Config` even when their feature is not built in, so saving
-  never drops them.
+  never drops them. A setting with a setter (`set_…`, or `toggle_setting` for a View toggle) is
+  written only by that one setter, also from Preferences, so it does what the menu does besides
+  (`source_rules::settings_change_through_their_setters`).
 - **A format:** built in when the `image` crate reads it with no new dependency (its feature in
   `Cargo.toml`, the extension in `listing::EXTS`, a test in `decode.rs`). Otherwise a decoder
   plugin in `examples/decoders` (`src/images/decoder_plugins.rs`), with a check in `tests.sh`, not code or a
