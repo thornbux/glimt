@@ -29,7 +29,7 @@ impl crate::App {
         self.receive_listing(ctx, std::time::Duration::ZERO);
         self.receive_sizes();
         self.receive_exif_index(ctx);
-        self.receive_deleted(ctx);
+        self.receive_operation_report(ctx);
         self.selection_size(ctx);
         self.match_size(ctx);
         self.receive_file_work(ctx);

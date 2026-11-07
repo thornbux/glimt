@@ -3,7 +3,7 @@
 
 #[cfg(feature = "video")]
 use crate::files::external::is_video;
-use crate::files::file_ops::Deleted;
+use crate::files::file_ops::OperationReport;
 use crate::images::decode;
 use crate::images::save;
 use crate::images::save::{CopyAs, Format};
@@ -181,21 +181,21 @@ impl crate::App {
         how: CopyAs,
         to: PathBuf,
     ) {
-        let deleted = self.work.deleted_sender();
+        let report_tx = self.work.report_sender();
         self.background(ctx, vec![path.clone(), to.clone()], move || {
             Some(match decode::survive(|| save::save_as(&path, &how, &to)) {
                 Ok(new) => {
                     // Saved over a file the dialog let it replace, maybe one in the list. The copy
                     // gets the marks and stars of the original, as it got its sidecar, unless
                     // it was stripped.
-                    let _ = deleted.send(Deleted {
-                        relist: true,
+                    let _ = report_tx.send(OperationReport {
+                        read_folder_again: true,
                         overwritten: vec![new.clone()],
                         moved: (!how.strip)
                             .then(|| (path.clone(), new.clone()))
                             .into_iter()
                             .collect(),
-                        copied: true,
+                        is_copy: true,
                         ..Default::default()
                     });
                     tf!("Saved {file}", file = new.display())

@@ -12,8 +12,8 @@ use std::path::{Path, PathBuf};
 /// moved, the sidecars that went with them, when it began (the trash may hold older files of the
 /// same names, which are not these), and what went with them elsewhere: their marks and stars,
 /// and their places in the collection shown. Recorded as it happens, never found out later: by
-/// the move's thread, and the marks by `receive_deleted` as it forgets them, which is the one
-/// way an `Undo::Trash` reaches `App::undo`. `since` has no default: one left out would take an
+/// the move's thread, and the marks by `receive_operation_report` as it forgets them, which is the
+/// one way an `Undo::Trash` reaches `App::undo`. `since` has no default: one left out would take an
 /// older file of the same name from the trash.
 pub(crate) struct Thrown {
     pub(crate) files: Vec<PathBuf>,

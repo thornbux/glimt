@@ -4,7 +4,7 @@
 use crate::features::print::{PrintJob, PrintTo};
 use crate::files::config::xdg_dir;
 use crate::files::external::{Login, command};
-use crate::files::file_ops::{Deleted, NOT_ON_FAT, fat_type};
+use crate::files::file_ops::{NOT_ON_FAT, OperationReport, fat_type};
 use crate::model::listing::pattern_name;
 use crate::support::format::count;
 use crate::support::lang::tr;
@@ -644,12 +644,12 @@ impl crate::App {
             // In the background, as a share that stopped answering would hold the window until
             // create_dir returns; `folder_made` reads the folder again.
             Prompt::NewFolder => {
-                let deleted_tx = self.work.deleted_sender();
+                let report_tx = self.work.report_sender();
                 self.background(ctx, Vec::new(), move || {
                     if let Err(e) = std::fs::create_dir(&target) {
                         return Some(format!("{display}: {e}", display = target.display()));
                     }
-                    let _ = deleted_tx.send(Deleted {
+                    let _ = report_tx.send(OperationReport {
                         folder_made: Some(target),
                         ..Default::default()
                     });
@@ -716,7 +716,7 @@ impl crate::App {
             return;
         }
         let plans = self.work.take_cut_short();
-        let deleted = self.work.deleted_sender();
+        let report_tx = self.work.report_sender();
         self.background(ctx, touches, move || {
             let (mut renamed, mut left) = (0, 0);
             let mut moved = Vec::new();
@@ -733,8 +733,8 @@ impl crate::App {
             }
             // One report when the steps are done, which also reads the folder again: read
             // before, the list would show the names of the middle.
-            let _ = deleted.send(Deleted {
-                relist: true,
+            let _ = report_tx.send(OperationReport {
+                read_folder_again: true,
                 moved,
                 ..Default::default()
             });

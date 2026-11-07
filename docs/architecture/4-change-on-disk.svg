@@ -1,4 +1,4 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 946" width="1200" height="946" role="img" aria-label="How Glimt changes a file on disk safely. An action passes none_saving, which refuses while other work touches the same files. The job runs in its own thread and changes the disk only through one function per kind of change: trash, put_file, rename_never_over, replace_existing and replace_name, each writing whole under a hidden temporary name and renaming, never over another file. The result comes back as Deleted: the list, marks, stars and collection entries follow, and Undo is kept; Rename Many's journal puts names right after a crash.">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 946" width="1200" height="946" role="img" aria-label="How Glimt changes a file on disk safely. An action passes none_saving, which refuses while other work touches the same files. The job runs in its own thread and changes the disk only through one function per kind of change: trash, put_file, rename_never_over, replace_existing and replace_name, each writing whole under a hidden temporary name and renaming, never over another file. The result comes back as an OperationReport: the list, marks, stars and collection entries follow, and Undo is kept; Rename Many's journal puts names right after a crash.">
   <title>A change on disk, safely</title>
   <defs>
     <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
@@ -168,7 +168,7 @@
     <text x="30" y="760" font-size="14" font-weight="700">Back in the window, Undo, and after a crash</text>
     <g font-size="12">
       <rect x="30" y="770" width="400" height="150" rx="6" fill="#fef3e2" stroke="#d08a1a" stroke-width="1.5"/>
-      <text x="42" y="791" font-size="13" font-weight="700"><tspan font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace">receive_deleted</tspan>  <tspan font-weight="400" font-size="12" fill="#57606a">a Deleted over deleted_tx</tspan></text>
+      <text x="42" y="791" font-size="13" font-weight="700"><tspan font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace">receive_operation_report</tspan>  <tspan font-weight="400" font-size="12" fill="#57606a">an OperationReport</tspan></text>
       <text x="42" y="813">files gone leave the list; moved ones take their new name</text>
       <text x="42" y="831">marks.forget, marks.put: marks and stars follow the file</text>
       <text x="42" y="849">forget_in_collection: a collection's entry goes with it</text>

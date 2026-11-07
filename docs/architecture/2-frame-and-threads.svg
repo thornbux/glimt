@@ -21,7 +21,7 @@
     <text x="34" y="124" font-size="12" fill="#57606a">takes what the threads sent since the last frame (ui/workers.rs)</text>
     <g font-size="12" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace">
       <text x="34" y="144">receive_decoded · receive_thumbs</text>
-      <text x="34" y="160">receive_listing · receive_deleted</text>
+      <text x="34" y="160">receive_listing · receive_operation_report</text>
       <text x="34" y="176">receive_file_work · receive_remote</text>
       <text x="34" y="192">notices_rx · receive_lightroom · …</text>
     </g>
@@ -91,7 +91,7 @@
     <rect x="650" y="428" width="490" height="78" rx="6" fill="#f1f1e4" stroke="#7a7a2a" stroke-width="1.5"/>
     <text x="664" y="448" font-size="13"><tspan font-weight="700">File jobs</tspan> (files/file_ops.rs; progress and Stop between files)</text>
     <text x="664" y="466" font-size="12" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace">delete_now · transfer · rename_in_background · save_orientation</text>
-    <text x="664" y="484" font-size="12">→ deleted_tx: Deleted · saved_tx: (path, result) · notices_tx: text</text>
+    <text x="664" y="484" font-size="12">→ report_tx: OperationReport · saved_tx: (path, result) · notices_tx</text>
 
     <rect x="650" y="516" width="490" height="82" rx="6" fill="#f1f1e4" stroke="#7a7a2a" stroke-width="1.5"/>
     <text x="664" y="536" font-size="13" font-weight="700">Writer threads</text>

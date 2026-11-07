@@ -65,25 +65,25 @@ pub(crate) struct Renamed {
 /// forgotten. Last come the Undo it makes possible, the marks an Undo puts back, and the files
 /// changed or written over.
 ///
-/// This is the one report of what happened to files on disk. `receive_deleted` is the one place
-/// that brings along everything that follows a file: marks, the collection, a turn not saved,
-/// decoded images, thumbnails, details and the `exif:` index. It is one message, so nothing
-/// depends on the order in which two messages would arrive.
+/// This is the one report of what happened to files on disk. `receive_operation_report` is the one
+/// place that brings along everything that follows a file: marks, the collection, a turn not saved,
+/// decoded images, thumbnails, details and the `exif:` index. It is one message, so nothing depends
+/// on the order in which two messages would arrive.
 #[derive(Default)]
-pub(crate) struct Deleted {
-    pub(crate) paths: Vec<PathBuf>,
+pub(crate) struct OperationReport {
+    pub(crate) requested: Vec<PathBuf>,
     pub(crate) gone: Vec<PathBuf>,
-    pub(crate) failed: bool,
+    pub(crate) any_failed: bool,
     pub(crate) moved: Vec<(PathBuf, PathBuf)>,
-    pub(crate) copied: bool,
+    pub(crate) is_copy: bool,
     /// Whether the folder is to be read again, because a plugin edited files in it or a repair
     /// renamed them.
-    pub(crate) relist: bool,
+    pub(crate) read_folder_again: bool,
     /// What Undo puts back, when this was a move to the trash or a move.
     pub(crate) undo: Option<Undo>,
     /// Whether `undo` is what an Undo from the trash could not put back. It is kept only when no
     /// operation that finished meanwhile left an Undo of its own, which is newer.
-    pub(crate) undo_left: bool,
+    pub(crate) is_undo_remainder: bool,
     /// The marks and stars to put back, for files that Undo brought back from the trash.
     pub(crate) restored_marks: Vec<(PathBuf, (u8, u8))>,
     /// The files a plugin changed in place. What is shown of them is read again. (A turn that
@@ -216,10 +216,10 @@ pub(crate) struct Work {
     /// The names being deleted in the background. They are kept out of refreshed listings
     /// until the delete is done.
     deleting: HashSet<OsString>,
-    /// What deletes, moves and copies report (`Deleted`). A plugin and Move Folder to Trash
+    /// What deletes, moves and copies report (`OperationReport`). A plugin and Move Folder to Trash
     /// send it too, only for the list to be read again.
-    deleted_tx: mpsc::Sender<Deleted>,
-    deleted_rx: mpsc::Receiver<Deleted>,
+    report_tx: mpsc::Sender<OperationReport>,
+    report_rx: mpsc::Receiver<OperationReport>,
     /// Those still being saved.
     saving: HashSet<PathBuf>,
     /// The PNG and WebP files saved turned in the background. A plugin sends its files here
@@ -247,7 +247,7 @@ impl Work {
     /// A `Work` with nothing running. It looks in the background for Rename Many's steps that a
     /// crash cut short.
     pub(crate) fn new() -> Self {
-        let (deleted_tx, deleted_rx) = mpsc::channel();
+        let (report_tx, report_rx) = mpsc::channel();
         let (saved_tx, saved_rx) = mpsc::channel();
         let (tx, cut_short_rx) = mpsc::channel();
         std::thread::spawn(move || {
@@ -259,8 +259,8 @@ impl Work {
             renaming: None,
             renaming_rx: Receiving::none(),
             deleting: HashSet::new(),
-            deleted_tx,
-            deleted_rx,
+            report_tx,
+            report_rx,
             saving: HashSet::new(),
             saved_tx,
             saved_rx,
@@ -274,8 +274,8 @@ impl Work {
     }
 
     /// Where deletes, moves and copies report what they did.
-    pub(crate) fn deleted_sender(&self) -> mpsc::Sender<Deleted> {
-        self.deleted_tx.clone()
+    pub(crate) fn report_sender(&self) -> mpsc::Sender<OperationReport> {
+        self.report_tx.clone()
     }
 
     /// Lets go of the jobs and the `background` work that ended. True when the last job
@@ -567,7 +567,7 @@ impl crate::App {
     }
 
     /// Deletes the files at `targets` in the background, to the trash or for good, as a job
-    /// with progress and Stop. The list follows when `receive_deleted` hears back.
+    /// with progress and Stop. The list follows when `receive_operation_report` hears back.
     pub(crate) fn delete_now(&mut self, ctx: &egui::Context, trash: bool, targets: Vec<usize>) {
         let paths: Vec<PathBuf> = targets.iter().map(|&i| self.path(i)).collect();
         let Some(job) = self.start_job(tr("Deleting"), paths.len(), paths.clone()) else {
@@ -578,7 +578,7 @@ impl crate::App {
             .extend(targets.iter().map(|&i| self.list.files()[i].clone()));
         self.remove_indices(ctx, &targets);
         let (tx, ctx) = (self.notices_tx.clone(), ctx.clone());
-        let (freed_tx, deleted_tx) = (self.status.freed_sender(), self.work.deleted_tx.clone());
+        let (freed_tx, report_tx) = (self.status.freed_sender(), self.work.report_tx.clone());
         let collection = self.folder.collection().map(Path::to_path_buf);
         let pointer = Working::new(&self.busy);
         std::thread::spawn(move || {
@@ -673,13 +673,13 @@ impl crate::App {
             });
             let refused = trash && !errors.is_empty() && !job.stopped();
             // Those not reached after Stop are still there, as after a failure.
-            let _ = deleted_tx.send(Deleted {
+            let _ = report_tx.send(OperationReport {
                 untrashable: refused
                     .then(|| left_by_trash(&paths, crate::files::file_io::mount_type))
                     .flatten(),
-                paths,
+                requested: paths,
                 gone,
-                failed: !errors.is_empty() || job.stopped(),
+                any_failed: !errors.is_empty() || job.stopped(),
                 undo,
                 ..Default::default()
             });
@@ -692,23 +692,23 @@ impl crate::App {
     /// Receives what deletes and moves report. Files that moved take their marks along. Files
     /// that are gone leave the list, the marks and Find Duplicates. After a failure, the folder
     /// is read again instead.
-    pub(crate) fn receive_deleted(&mut self, ctx: &egui::Context) {
-        for Deleted {
-            paths,
+    pub(crate) fn receive_operation_report(&mut self, ctx: &egui::Context) {
+        for OperationReport {
+            requested,
             gone,
-            failed,
+            any_failed,
             moved,
-            copied,
-            relist,
+            is_copy,
+            read_folder_again,
             undo,
-            undo_left,
+            is_undo_remainder,
             restored_marks,
             changed,
             overwritten,
             folder_renamed,
             folder_made,
             untrashable,
-        } in self.work.deleted_rx.try_iter().collect::<Vec<_>>()
+        } in self.work.report_rx.try_iter().collect::<Vec<_>>()
         {
             if let Some((kind, files)) = untrashable {
                 let now = self.folder.listings();
@@ -737,7 +737,7 @@ impl crate::App {
             self.marks.forget(&overwritten);
             // The moves are handled before their sources are taken for deleted files, so the
             // marks go along first.
-            self.paths_moved(moved, copied);
+            self.paths_moved(moved, is_copy);
             self.written_anew(&changed);
             self.files_changed(ctx, &changed);
             self.files_changed(ctx, &overwritten);
@@ -758,7 +758,7 @@ impl crate::App {
             };
             #[cfg(not(feature = "marks"))]
             drop(restored_marks);
-            if undo.is_some() && !(undo_left && self.work.undo.is_some()) {
+            if undo.is_some() && !(is_undo_remainder && self.work.undo.is_some()) {
                 self.work.undo = undo;
             }
             if let Some(dups) = &mut self.dups {
@@ -771,7 +771,7 @@ impl crate::App {
             // was left and opened again meanwhile, so its listing may still have files that are
             // gone now.
             let mut unknown = false;
-            for p in &paths {
+            for p in &requested {
                 let Ok(rel) = p.strip_prefix(self.folder.dir()) else {
                     continue;
                 };
@@ -780,7 +780,11 @@ impl crate::App {
             // The files that are still there come back into the list, from its folder or from
             // the collection's file. A listing that started before the files went still has
             // them, so the folder is read again after it.
-            if unknown || failed || relist || (!paths.is_empty() && self.folder.is_listing()) {
+            if unknown
+                || any_failed
+                || read_folder_again
+                || (!requested.is_empty() && self.folder.is_listing())
+            {
                 self.folder.relist_later();
             }
         }
@@ -909,7 +913,8 @@ impl crate::App {
         let Some(job) = self.start_job(doing, paths.len(), touches) else {
             return;
         };
-        // In a collection, the entries follow the files that got there, in `receive_deleted`.
+        // In a collection, the entries follow the files that got there, in
+        // `receive_operation_report`.
         if !keep && self.folder.collection().is_none() {
             self.moving_out(ctx, &paths, &dest);
         }
@@ -918,7 +923,7 @@ impl crate::App {
             self.status.freed_sender(),
             ctx.clone(),
         );
-        let deleted_tx = self.work.deleted_tx.clone();
+        let report_tx = self.work.report_tx.clone();
         let same_dir = paths.first().and_then(|p| p.parent()) == Some(self.folder.dir());
         // When the files go into the folder, or into one below it in the list with subfolders,
         // they join the list. Both paths are real, as `listing::walk` lists a folder reached
@@ -982,16 +987,16 @@ impl crate::App {
             // A move takes the files out of `deleting`. The folder is read again for files that
             // joined it, or that failed to go, were refused or were not reached after Stop. A
             // copy to another folder does not change the list.
-            let relist = (listed || !keep) && (listed || failed);
+            let read_folder_again = (listed || !keep) && (listed || failed);
             let undo = (!keep && !put.is_empty())
                 .then(|| Undo::Move(put.iter().filter_map(moved).collect()));
-            let _ = deleted_tx.send(Deleted {
-                paths: if keep { Vec::new() } else { paths },
+            let _ = report_tx.send(OperationReport {
+                requested: if keep { Vec::new() } else { paths },
                 gone,
-                failed,
+                any_failed: failed,
                 moved: put,
-                copied: keep,
-                relist,
+                is_copy: keep,
+                read_folder_again,
                 undo,
                 ..Default::default()
             });
@@ -1301,14 +1306,14 @@ impl crate::App {
         }
         // This runs in the background, because a folder on a share that stopped answering
         // would hold the window until the rename returns. What follows it comes back through
-        // `deleted_tx`.
-        let deleted_tx = self.work.deleted_tx.clone();
+        // `report_tx`.
+        let report_tx = self.work.report_tx.clone();
         self.background(ctx, vec![old.clone()], move || {
             // Never over an empty folder of that name, also one made since the look.
             if let Err(e) = rename_never_over(&old, &new) {
                 return Some(format!("{display}: {e}", display = new.display()));
             }
-            let _ = deleted_tx.send(Deleted {
+            let _ = report_tx.send(OperationReport {
                 folder_renamed: Some((old, new)),
                 ..Default::default()
             });
@@ -1349,7 +1354,7 @@ impl crate::App {
         {
             self.visit(ctx, parent.to_path_buf());
         }
-        let deleted_tx = self.work.deleted_tx.clone();
+        let report_tx = self.work.report_tx.clone();
         let collection = self.folder.collection().map(Path::to_path_buf);
         self.background(ctx, vec![dir.clone()], move || {
             let since = std::time::SystemTime::now();
@@ -1374,10 +1379,10 @@ impl crate::App {
                     collection: collection.zip(Some(removed)),
                 })
             });
-            let _ = deleted_tx.send(Deleted {
-                paths: vec![dir],
+            let _ = report_tx.send(OperationReport {
+                requested: vec![dir],
                 gone,
-                failed: error.is_some(),
+                any_failed: error.is_some(),
                 undo,
                 ..Default::default()
             });
@@ -1412,7 +1417,7 @@ impl crate::App {
             self.notice = Some(tr("Nothing to undo").into());
             return;
         };
-        let deleted_tx = self.work.deleted_tx.clone();
+        let report_tx = self.work.report_tx.clone();
         match undo {
             Undo::Rename(pairs) => {
                 let (mut now, mut before, mut ids) = (Vec::new(), Vec::new(), Vec::new());
@@ -1426,9 +1431,9 @@ impl crate::App {
             Undo::Move(pairs) => drop(self.background(ctx, touches, move || {
                 let (back, errors) = move_back(pairs);
                 let files = count(back.len(), "file");
-                let _ = deleted_tx.send(Deleted {
+                let _ = report_tx.send(OperationReport {
                     moved: back,
-                    relist: true,
+                    read_folder_again: true,
                     ..Default::default()
                 });
                 Some(match errors.first() {
@@ -1476,10 +1481,10 @@ impl crate::App {
                         }),
                     })
                 });
-                let _ = deleted_tx.send(Deleted {
-                    relist: true,
+                let _ = report_tx.send(OperationReport {
+                    read_folder_again: true,
                     undo,
-                    undo_left: true,
+                    is_undo_remainder: true,
                     restored_marks: marks,
                     ..Default::default()
                 });
@@ -1615,7 +1620,7 @@ impl crate::App {
         let Some(job) = self.start_job(tr("Exporting"), 1, vec![to.clone()]) else {
             return;
         };
-        let deleted = self.work.deleted_tx.clone();
+        let report_tx = self.work.report_tx.clone();
         self.background(ctx, Vec::new(), move || {
             // One frame saved over the animation itself would put a still in its place and take
             // the animation's sidecar, marks and stars with it. It is refused, as Save As
@@ -1674,7 +1679,7 @@ impl crate::App {
             };
             // One frame saved over a file the dialog let it replace, maybe one in the list.
             if only.is_some() && saved.as_ref().is_ok_and(|&n| n > 0) {
-                let _ = deleted.send(Deleted {
+                let _ = report_tx.send(OperationReport {
                     overwritten: vec![to.clone()],
                     ..Default::default()
                 });
@@ -3443,12 +3448,12 @@ mod tests {
             .save(dir.join("sub/new.png"))
             .unwrap();
         std::fs::rename(dir.join("sub/new.png"), &moved).unwrap();
-        let over = super::Deleted {
+        let over = super::OperationReport {
             overwritten: vec![moved.clone()],
             ..Default::default()
         };
-        app.work.deleted_tx.send(over).unwrap();
-        app.receive_deleted(&ctx);
+        app.work.report_tx.send(over).unwrap();
+        app.receive_operation_report(&ctx);
         app.undo(&ctx);
         let refused =
             |app: &crate::App| (app.notice.as_deref()).is_some_and(|n| n.contains("Undo failed"));
@@ -3468,13 +3473,13 @@ mod tests {
         let (mut app, ctx) = app_on(&dir);
         app.work.deleting.insert("a.png".into());
         app.remove_indices(&ctx, &[0]);
-        let refused = super::Deleted {
-            paths: vec![dir.join("a.png")],
-            failed: true,
+        let refused = super::OperationReport {
+            requested: vec![dir.join("a.png")],
+            any_failed: true,
             untrashable: Some(("fuse.rclone".into(), vec![dir.join("a.png")])),
             ..Default::default()
         };
-        app.work.deleted_tx.send(refused).unwrap();
+        app.work.report_tx.send(refused).unwrap();
         let asked = (0..250).any(|_| {
             app.poll_background(&ctx);
             // Auto refresh sees a change in every frame, as in a sync folder taking uploads.
@@ -3552,20 +3557,20 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         image::RgbImage::new(2, 2).save(dir.join("a.png")).unwrap();
         let (mut app, ctx) = app_on(&dir);
-        let refused = |files: Vec<PathBuf>| super::Deleted {
+        let refused = |files: Vec<PathBuf>| super::OperationReport {
             untrashable: Some(("fuse.rclone".into(), files)),
             ..Default::default()
         };
         // A refusal comes with the delete failed, which has the folder read again. A file of
         // another folder, and one of a subfolder the list does not show, are told, not asked.
-        let elsewhere = super::Deleted {
-            failed: true,
+        let elsewhere = super::OperationReport {
+            any_failed: true,
             ..refused(vec![
                 PathBuf::from("/elsewhere/a.png"),
                 dir.join("sub/b.png"),
             ])
         };
-        app.work.deleted_tx.send(elsewhere).unwrap();
+        app.work.report_tx.send(elsewhere).unwrap();
         assert!(settle(&mut app, &ctx, |app| app.notice.is_some()));
         assert!(!app.modal_open());
         let told = app.notice.take().unwrap();
@@ -3573,15 +3578,15 @@ mod tests {
         // The delete takes the file out of the list as it starts, as `delete_now` does.
         app.work.deleting.insert("a.png".into());
         app.remove_indices(&ctx, &[0]);
-        let failed = super::Deleted {
-            paths: vec![dir.join("a.png")],
-            failed: true,
+        let failed = super::OperationReport {
+            requested: vec![dir.join("a.png")],
+            any_failed: true,
             ..refused(vec![dir.join("a.png")])
         };
-        app.work.deleted_tx.send(failed).unwrap();
+        app.work.report_tx.send(failed).unwrap();
         // The same file refused again, by a second Delete, is counted once.
         app.work
-            .deleted_tx
+            .report_tx
             .send(refused(vec![dir.join("a.png")]))
             .unwrap();
         assert!(settle(&mut app, &ctx, |app| app.modal_open()));
@@ -3615,7 +3620,7 @@ mod tests {
             .notices_rx
             .recv_timeout(std::time::Duration::from_secs(5));
         assert!(told.is_ok());
-        app.receive_deleted(&ctx);
+        app.receive_operation_report(&ctx);
         assert!(matches!(app.work.undo, Some(super::Undo::Move(_))));
         std::fs::remove_dir_all(dir).unwrap();
     }
@@ -3930,12 +3935,12 @@ mod tests {
         let b = dir.join("b.png");
         #[cfg(feature = "marks")]
         app.marks.rate(std::slice::from_ref(&b), 3);
-        let over = super::Deleted {
+        let over = super::OperationReport {
             overwritten: vec![b.clone()],
             ..Default::default()
         };
-        app.work.deleted_tx.send(over).unwrap();
-        app.receive_deleted(&ctx);
+        app.work.report_tx.send(over).unwrap();
+        app.receive_operation_report(&ctx);
         assert!(app.search.reads_exif_again("b.png"));
         #[cfg(feature = "marks")]
         assert_eq!(app.marks.get(&b), (0, 0));
