@@ -340,7 +340,7 @@ fn lock_sidecars_in<'a>(
 
 /// The folder of the lock files, where there is a runtime folder.
 fn lock_dir() -> Option<PathBuf> {
-    crate::features::remote::dir().map(|d| d.join("sidecar-locks"))
+    crate::features::remote::runtime_dir().map(|d| d.join("sidecar-locks"))
 }
 
 fn lock_file(dir: &Path, side: &Path) -> Option<std::fs::File> {
