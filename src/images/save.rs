@@ -314,9 +314,11 @@ fn pixels(path: &Path, how: &CopyAs) -> Result<(image::DynamicImage, Option<Vec<
 }
 
 /// A frame or page `img`, in sRGB, as the PNG that Save This Frame and Export Frames write.
-/// It goes through `encode` as every copy does, so a 32-bit float page is written in 16 bits.
-/// Before, such a page was written as it was, which PNG refuses, and the export stopped.
-pub fn frame_png(img: image::DynamicImage) -> Result<Vec<u8>, String> {
+/// It is turned as the view showed it (`how`), as Save As turns its copy. Before, a frame
+/// saved from a turned view came out unturned. It goes through `encode` as every copy does, so
+/// a 32-bit float page is written in 16 bits.
+pub fn frame_png(img: image::DynamicImage, how: &CopyAs) -> Result<Vec<u8>, String> {
+    let img = turned(img, how.turns, how.mirrored);
     encode(Path::new(""), img, None, None, None, Kind::Png, false, 0)
 }
 

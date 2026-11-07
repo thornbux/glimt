@@ -43,12 +43,14 @@ pub(crate) enum Pick {
     Lightroom,
     /// The folder to put a backup of Glimt's own files in.
     BackUp,
-    /// Where to save frame (or page) number .1 of the file .0, as PNG.
-    SaveFrame(PathBuf, usize),
+    /// Where to save frame (or page) number .1 of the file .0, as PNG, turned as the view
+    /// showed it (.2).
+    SaveFrame(PathBuf, usize, save::CopyAs),
     /// Save As: where to save the copy .1 of the file .0, starting at the name .2.
     SaveAs(PathBuf, save::CopyAs, PathBuf),
-    /// The folder for every frame (or page) of the file, as PNG files.
-    ExportFrames(PathBuf),
+    /// The folder for every frame (or page) of the file .0, as PNG files turned as the view
+    /// showed it (.1).
+    ExportFrames(PathBuf, save::CopyAs),
 }
 
 /// What the one-line text dialog is asking for.
@@ -244,7 +246,7 @@ impl crate::App {
             Pick::Lightroom => tr("Import Lightroom Catalog"),
             Pick::BackUp => tr("Back Up Glimt's Data To"),
             Pick::SaveFrame(..) => tr("Save This Frame as PNG"),
-            Pick::ExportFrames(_) => tr("Export Every Frame To"),
+            Pick::ExportFrames(..) => tr("Export Every Frame To"),
             Pick::SaveAs(..) => tr("Save As"),
         };
         let notices = self.notices_tx.clone();
@@ -315,7 +317,7 @@ impl crate::App {
                 |p| p.with_extension("pdf"),
             ),
             // "name-frame-3.png" beside the file.
-            Pick::SaveFrame(path, k) => {
+            Pick::SaveFrame(path, k, _) => {
                 path.with_file_name(save::stem_and(path, &format!("-frame-{}.png", k + 1)))
             }
             Pick::SaveAs(_, _, start) => start.clone(),
@@ -378,10 +380,12 @@ impl crate::App {
                 }
                 (Pick::Lightroom, Some(file)) => self.read_lightroom(ctx, file),
                 (Pick::BackUp, Some(dir)) => self.back_up(ctx, dir),
-                (Pick::SaveFrame(path, k), Some(file)) => {
-                    self.export_frames(ctx, path, Some(k), file)
+                (Pick::SaveFrame(path, k, how), Some(file)) => {
+                    self.export_frames(ctx, path, Some(k), file, how)
                 }
-                (Pick::ExportFrames(path), Some(dir)) => self.export_frames(ctx, path, None, dir),
+                (Pick::ExportFrames(path, how), Some(dir)) => {
+                    self.export_frames(ctx, path, None, dir, how)
+                }
                 (Pick::SaveAs(path, how, _), Some(to)) => self.save_as_to(ctx, path, how, to),
             }
         }
@@ -1300,7 +1304,8 @@ mod tests {
         std::fs::write(&list, entry).unwrap();
         let (mut app, ctx) = app_on(&d);
         app.open(&ctx, list);
-        let start = app.dialog_start(&super::Pick::SaveFrame(image.clone(), 2));
+        let how = app.shown_copy();
+        let start = app.dialog_start(&super::Pick::SaveFrame(image.clone(), 2, how));
         assert_eq!(start, images.join("a-frame-3.png"));
         std::fs::remove_dir_all(d).unwrap();
     }

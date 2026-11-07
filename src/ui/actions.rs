@@ -1067,10 +1067,12 @@ impl crate::App {
             Action::Print => self.open_print(ctx),
             Action::SaveFrame if self.frame_count() > 1 => {
                 let k = self.shown_frame();
-                self.pick(ctx, false, Pick::SaveFrame(self.path(self.list.cur()), k));
+                let (path, how) = (self.path(self.list.cur()), self.shown_copy());
+                self.pick(ctx, false, Pick::SaveFrame(path, k, how));
             }
             Action::ExportFrames if self.frame_count() > 1 => {
-                self.pick(ctx, true, Pick::ExportFrames(self.path(self.list.cur())));
+                let (path, how) = (self.path(self.list.cur()), self.shown_copy());
+                self.pick(ctx, true, Pick::ExportFrames(path, how));
             }
             Action::SaveFrame | Action::ExportFrames => {}
             Action::Rename if self.targets().len() > 1 => {

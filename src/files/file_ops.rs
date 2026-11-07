@@ -1568,15 +1568,17 @@ impl crate::App {
     }
 
     /// Save frame `only` of `path` as the PNG `to`, or every frame as PNG files in a new folder
-    /// in `to` (never over a file), in the background, at full size.
+    /// in `to` (never over a file), in the background, at full size. Each is turned as `how`,
+    /// the view's copy when the action started, says.
     pub(crate) fn export_frames(
         &mut self,
         ctx: &egui::Context,
         path: PathBuf,
         only: Option<usize>,
         to: PathBuf,
+        how: crate::images::save::CopyAs,
     ) {
-        let rotate = self.config.exif_rotate;
+        let rotate = how.rotate;
         // A job, so closing waits for it (or stops it between frames), as for copies.
         let Some(job) = self.start_job(tr("Exporting"), 1, vec![to.clone()]) else {
             return;
@@ -1626,7 +1628,7 @@ impl crate::App {
                         // let it replace. That file's sidecar is not the frame's, so a frame is
                         // saved without one. Every frame goes into the new folder, where it never
                         // replaces a file.
-                        crate::images::save::frame_png(img)
+                        crate::images::save::frame_png(img, &how)
                             .and_then(|png| {
                                 let replace = only.is_some();
                                 crate::images::save::land(&path, &file, &png, replace, true)
@@ -2702,7 +2704,10 @@ mod tests {
             ),
             (
                 "save frame over b",
-                |app, ctx, d| app.export_frames(ctx, d.join("g.gif"), Some(0), d.join("b.png")),
+                |app, ctx, d| {
+                    let how = app.shown_copy();
+                    app.export_frames(ctx, d.join("g.gif"), Some(0), d.join("b.png"), how)
+                },
                 |app, d| {
                     !crate::metadata::xmp::sidecar(&d.join("b.png")).exists()
                         && (!cfg!(feature = "marks") || stars(app, &d.join("b.png")) == 0)
@@ -2833,7 +2838,8 @@ mod tests {
         drop(enc);
         std::os::unix::fs::symlink(d.join("nowhere"), d.join("g-frames")).unwrap();
         let (mut app, ctx) = app_on(&d);
-        app.export_frames(&ctx, gif, None, d.clone());
+        let how = app.shown_copy();
+        app.export_frames(&ctx, gif, None, d.clone(), how);
         let saved = |_: &crate::App| {
             ["g-001.png", "g-002.png"]
                 .iter()
@@ -2841,6 +2847,31 @@ mod tests {
         };
         assert!(settle(&mut app, &ctx, saved));
         assert!(!d.join("nowhere").exists());
+        std::fs::remove_dir_all(d).unwrap();
+    }
+
+    /// Save This Frame turns the frame as the view shows it, as Save As turns its copy.
+    /// Before, a frame saved from a view turned a quarter came out lying down.
+    #[test]
+    fn a_frame_is_saved_turned_as_shown() {
+        let d = std::env::temp_dir().join(format!("glimt-turned-frame-{}", std::process::id()));
+        std::fs::create_dir_all(&d).unwrap();
+        let gif = d.join("g.gif");
+        let mut enc = image::codecs::gif::GifEncoder::new(std::fs::File::create(&gif).unwrap());
+        for c in [10u8, 200] {
+            let pixel = image::Rgba([c, c, c, 255]);
+            let frame = image::Frame::new(image::RgbaImage::from_pixel(4, 2, pixel));
+            enc.encode_frame(frame).unwrap();
+        }
+        drop(enc);
+        // The GIF is the only file, so it is the one shown.
+        let (mut app, ctx) = app_on(&d);
+        app.turn(crate::ui::actions::Action::RotateCw);
+        let how = app.shown_copy();
+        let out = d.join("frame.png");
+        app.export_frames(&ctx, gif, Some(1), out.clone(), how);
+        assert!(settle(&mut app, &ctx, |_| out.exists()));
+        assert_eq!(image::image_dimensions(&out).unwrap(), (2, 4));
         std::fs::remove_dir_all(d).unwrap();
     }
 
@@ -2856,7 +2887,8 @@ mod tests {
         tiff.write_image::<RGB32Float>(2, 2, &[0.5; 12]).unwrap();
         tiff.write_image::<Gray8>(2, 2, &[9; 4]).unwrap();
         let (mut app, ctx) = app_on(&d);
-        app.export_frames(&ctx, tif, None, d.clone());
+        let how = app.shown_copy();
+        app.export_frames(&ctx, tif, None, d.clone(), how);
         let saved = |_: &crate::App| {
             ["f-001.png", "f-002.png"]
                 .iter()
