@@ -137,7 +137,7 @@ impl crate::App {
         // Back on while a random slideshow still reads its list, which random off asked for in
         // sort order: read again, shuffled whole.
         if on && self.slideshow.whole_shuffle && self.folder.is_listing() {
-            return self.list(ctx);
+            return self.start_listing(ctx);
         }
         if !on {
             // A collection back in its own order, which shuffling left only in its file.
@@ -169,12 +169,12 @@ impl crate::App {
                 // A listing on its way (a random slideshow's, a refresh's) would bring the order
                 // it was asked for: read again, in the saved order now shown.
                 if self.folder.is_listing() {
-                    self.list(ctx);
+                    self.start_listing(ctx);
                 }
                 return;
             }
             // Back to the chosen sort order; listing keeps the shown image.
-            self.list(ctx);
+            self.start_listing(ctx);
             return;
         }
         // A copy, not taken: the textures and the shown image's zoom are kept by the names in
@@ -200,7 +200,7 @@ impl crate::App {
             self.folder.set_recursive(true);
             self.slideshow.shuffled = self.config.slideshow_random;
             self.slideshow.whole_shuffle = self.slideshow.shuffled;
-            self.list(ctx);
+            self.start_listing(ctx);
         } else if self.config.slideshow_random != self.slideshow.shuffled {
             self.shuffle_list(ctx, self.config.slideshow_random);
         }
@@ -223,7 +223,7 @@ impl crate::App {
         if self.folder.recursive() != self.config.show_subfolders {
             self.folder.set_recursive(self.config.show_subfolders);
             self.slideshow.shuffled = false;
-            self.list(ctx);
+            self.start_listing(ctx);
         } else if self.slideshow.shuffled {
             self.shuffle_list(ctx, false);
         }
@@ -458,7 +458,7 @@ mod tests {
         app.start_slideshow(&ctx);
         assert!(app.slideshow.shuffled && app.list.files() != order);
         // A refresh on its way.
-        app.list(&ctx);
+        app.start_listing(&ctx);
         app.set_random_order(&ctx, false);
         assert!(settle(&mut app, &ctx, |a| !a.folder.is_listing()
             && a.status.folder_total().is_some()));

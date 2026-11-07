@@ -505,7 +505,7 @@ mod tests {
         let job = crate::support::threads::Working::new(&app.busy);
         assert!(!app.pointer_hides(true));
         drop(job);
-        app.list(&ctx);
+        app.start_listing(&ctx);
         assert!(app.folder.is_listing() && !app.pointer_hides(true));
         assert!(settle(&mut app, &ctx, |a| a.pointer_hides(true)));
         app.prefs.show();

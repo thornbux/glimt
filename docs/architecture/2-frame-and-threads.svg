@@ -34,8 +34,8 @@
     <text x="34" y="292" font-size="14" font-weight="700" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace">run(ctx, action)</text>
     <text x="176" y="292" font-size="12" fill="#57606a">one match arm per Action (ui/actions.rs)</text>
     <g font-size="12">
-      <text x="34" y="323">Open, Refresh (F5), a sort → App::list</text>
-      <text x="34" y="397">a folder opened → App::watch</text>
+      <text x="34" y="323">Open, Refresh (F5), a sort → App::start_listing</text>
+      <text x="34" y="397">a folder opened → App::start_watching</text>
       <text x="34" y="471">Delete, Move, Copy, Rename, save a turn → start_job</text>
       <text x="34" y="559">a setting, a mark, keywords → write_later, write_sidecars</text>
     </g>

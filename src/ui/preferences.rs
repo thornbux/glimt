@@ -1023,7 +1023,7 @@ impl crate::App {
         ui.weak(tr("Previews need ffmpeg"));
         if checkbox(ui, &mut c.list_videos, tr("Show videos in the file list")).changed() {
             changed = true;
-            self.list(ctx);
+            self.start_listing(ctx);
         }
         ui.horizontal(|ui| {
             ui.label(tr("Player (Enter):"));

@@ -47,11 +47,11 @@ impl crate::App {
         if self.working() {
             ctx.set_cursor_icon(egui::CursorIcon::Progress);
         }
-        if self.folder.changed() && self.config.auto_refresh {
+        if self.folder.changed_on_disk() && self.config.auto_refresh {
             self.folder.relist_later();
         }
         if self.folder.wants_relist() && !self.folder.is_listing() {
-            self.list(ctx);
+            self.start_listing(ctx);
         }
         self.receive_lightroom();
         self.receive_renames(ctx);

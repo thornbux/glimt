@@ -3,7 +3,7 @@
 
 use crate::files::config::{sort_folders_from, sort_folders_path};
 use crate::files::external::is_video;
-use crate::model::folder::drain;
+use crate::model::folder::add_sent_sizes;
 use crate::model::listing::{SORTS, Types, list_folder};
 use crate::support::format::{count, local_time, middle_cut, size_text, thousands};
 use crate::support::lang::tr;
@@ -449,7 +449,7 @@ impl StatusBar {
             Took::Gone => self.selected_size = Some(0),
             Took::Nothing => {}
         }
-        drain(&mut self.size_rx, &mut self.total_size);
+        add_sent_sizes(&mut self.size_rx, &mut self.total_size);
     }
 
     /// The position "[n/m]" of image `idx` among `total`. `make` makes it only when another image
@@ -594,7 +594,7 @@ impl crate::App {
         self.config.show_subfolders = on;
         self.config.save();
         self.folder.show_subfolders(on);
-        self.list(ctx);
+        self.start_listing(ctx);
     }
 
     pub(crate) fn receive_thumbs(&mut self, ctx: &egui::Context) {
@@ -1174,7 +1174,7 @@ impl crate::App {
         });
         if changed {
             self.config.save();
-            self.list(ctx);
+            self.start_listing(ctx);
         }
     }
 
@@ -1202,7 +1202,7 @@ impl crate::App {
             // A chosen order replaces a shuffled one (kept after a random slideshow).
             self.slideshow.unshuffle();
             self.folder.sort_again();
-            self.list(ctx);
+            self.start_listing(ctx);
         }
     }
 

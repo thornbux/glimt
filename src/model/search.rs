@@ -3,7 +3,7 @@
 //! together, at the start of a word or early in the name, rank first. Here is also the EXIF
 //! index that `exif:` terms search, with each file's fields and keywords as one line.
 
-use crate::model::folder::{drain, send_sizes};
+use crate::model::folder::{add_sent_sizes, send_sizes};
 use crate::model::list::FileRow;
 use crate::support::lang::tr;
 use crate::support::threads::small_alloc_threads;
@@ -99,7 +99,7 @@ impl Search {
 
     /// Adds the sums of the matches' size that came to `size`.
     pub(crate) fn receive_match_size(&mut self, size: &mut u64) {
-        drain(&mut self.match_rx, size);
+        add_sent_sizes(&mut self.match_rx, size);
     }
 
     /// Whether the matches' size is summed.

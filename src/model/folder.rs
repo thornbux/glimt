@@ -59,23 +59,24 @@ pub(crate) struct Folder {
     /// The images of the tree found so far, as it is read, a folder of it at a time.
     part_rx: Receiving<Vec<OsString>>,
     /// The next listing shows a tree's images as they are found (a folder opened).
-    list_parts: bool,
+    lists_tree_in_parts: bool,
     /// What the list shown was read and sorted as: the folder, the order, ascending, case and
     /// subfolders.
     listed_as: Option<(PathBuf, listing::Sort, bool, bool, bool)>,
-    /// The image that the first part of a tree went to by itself. The whole list goes to its
+    /// The image the first part of a tree showed by itself. The whole list then goes to its
     /// first image instead.
-    went_to: Option<OsString>,
+    first_part_shown: Option<OsString>,
     /// Set to stop the listing of the tree before, when another one starts.
     listing_stop: Arc<AtomicBool>,
     /// Whether the folder changed while a listing was running. It is listed again when the
     /// listing is done.
-    relist: bool,
+    relist_when_done: bool,
     /// How many whole listings were taken since the start. Work that waits for the folder to be
     /// read again waits for this to grow.
-    listings: u64,
-    /// The generation of the folder watcher. Opening another folder ends the old thread.
-    watching: Arc<AtomicUsize>,
+    whole_listings: u64,
+    /// The generation of the folder watcher, which each new watcher counts up. Opening another
+    /// folder ends the old thread.
+    watcher_generation: Arc<AtomicUsize>,
     /// The watcher saw the folder change.
     changed_tx: mpsc::Sender<()>,
     changed_rx: mpsc::Receiver<()>,
@@ -126,13 +127,13 @@ impl Folder {
             listing_version: 0,
             subdirs_rx: Receiving::none(),
             part_rx: Receiving::none(),
-            list_parts: false,
+            lists_tree_in_parts: false,
             listed_as: None,
-            went_to: None,
+            first_part_shown: None,
             listing_stop: Arc::default(),
-            relist: false,
-            listings: 0,
-            watching: Arc::new(AtomicUsize::new(0)),
+            relist_when_done: false,
+            whole_listings: 0,
+            watcher_generation: Arc::new(AtomicUsize::new(0)),
             changed_tx,
             changed_rx,
             recent,
@@ -176,7 +177,7 @@ impl Folder {
     /// found, when it is on.
     pub(crate) fn show_subfolders(&mut self, on: bool) {
         self.recursive = on;
-        self.list_parts = on;
+        self.lists_tree_in_parts = on;
     }
 
     /// The folders shown together as one list. It is empty when one folder or a collection is
@@ -236,22 +237,22 @@ impl Folder {
     /// Has the folder read again once the listing that runs is done, or at once when none
     /// runs.
     pub(crate) fn relist_later(&mut self) {
-        self.relist = true;
+        self.relist_when_done = true;
     }
 
     /// Whether the folder is to be read again.
     pub(crate) fn wants_relist(&self) -> bool {
-        self.relist
+        self.relist_when_done
     }
 
     /// Returns how many whole listings were taken since the start, so a later count means the
     /// list was read again since.
-    pub(crate) fn listings(&self) -> u64 {
-        self.listings
+    pub(crate) fn whole_listings(&self) -> u64 {
+        self.whole_listings
     }
 
     /// Whether the folder watcher saw the folder change since this was last asked.
-    pub(crate) fn changed(&self) -> bool {
+    pub(crate) fn changed_on_disk(&self) -> bool {
         self.changed_rx.try_iter().count() > 0
     }
 
@@ -414,7 +415,7 @@ impl Listing {
         // in a downloaded list was kept, shown as broken, and Delete sent the whole folder to
         // the trash. Until this listing has come, `are_free_to_change` holds every file operation
         // back.
-        let sizes = keep_found(&mut files, |f| {
+        let sizes = keep_files_with_size(&mut files, |f| {
             let meta = self.dir.join(f).metadata().ok()?;
             meta.is_file().then_some(meta.len())
         });
@@ -572,9 +573,9 @@ impl crate::App {
         self.folder.dir = dir.clone();
         self.remember_recent(&dir);
         self.replace_files(ctx, shown.iter().cloned().collect(), shown);
-        self.folder.list_parts = true;
-        self.list(ctx);
-        self.watch(ctx);
+        self.folder.lists_tree_in_parts = true;
+        self.start_listing(ctx);
+        self.start_watching(ctx);
         self.title(ctx);
     }
 
@@ -662,7 +663,9 @@ impl crate::App {
         }
         self.folder.opened_type = Types::NONE;
         // The old folder's watcher ends. A folder opened next starts its own (watch()).
-        self.folder.watching.fetch_add(1, Ordering::Relaxed);
+        self.folder
+            .watcher_generation
+            .fetch_add(1, Ordering::Relaxed);
         self.broken_files.clear();
         self.folder.subdirs.clear();
         self.file_operations.forget_deleting();
@@ -717,7 +720,7 @@ impl crate::App {
         let first = files.first().cloned();
         self.replace_files(ctx, files, first);
         self.list.set_unchecked_entries(true);
-        self.list(ctx);
+        self.start_listing(ctx);
         self.title(ctx);
     }
 
@@ -756,7 +759,7 @@ impl crate::App {
         self.folder.dir = PathBuf::from("/");
         self.folder.folders = folders;
         self.replace_files(ctx, Vec::new(), None);
-        self.list(ctx);
+        self.start_listing(ctx);
         self.title(ctx);
     }
 
@@ -821,7 +824,7 @@ impl crate::App {
 
     /// Reads the folder (and then the sizes) in the background, and `receive_listing` merges it
     /// in. A collection is checked for files that are gone instead.
-    pub(crate) fn list(&mut self, ctx: &egui::Context) {
+    pub(crate) fn start_listing(&mut self, ctx: &egui::Context) {
         let (tx, rx) = mpsc::channel();
         let (size_tx, size_rx) = mpsc::channel();
         let (list_dir, ctx2, types) = (self.folder.dir.clone(), ctx.clone(), self.types());
@@ -850,7 +853,7 @@ impl crate::App {
         );
         let same = Some((self.folder.dir.clone(), by, ascending, case, recursive));
         let before = (exif
-            && !self.folder.list_parts
+            && !self.folder.lists_tree_in_parts
             && !self.slideshow.is_shuffled()
             && collection.is_none())
         .then_some(())
@@ -871,8 +874,9 @@ impl crate::App {
         // again (a refresh) keeps its whole list on screen until the new one is read, instead of
         // shrinking and growing. They are not sent in random order either, because a list in
         // name order would take the shuffled one's place.
-        let parts = std::mem::take(&mut self.folder.list_parts) && !self.slideshow.is_shuffled();
-        self.folder.went_to = None;
+        let parts =
+            std::mem::take(&mut self.folder.lists_tree_in_parts) && !self.slideshow.is_shuffled();
+        self.folder.first_part_shown = None;
         let listing = Listing {
             dir: list_dir,
             types,
@@ -898,16 +902,20 @@ impl crate::App {
         self.folder.listing_rx = Receiving::of(rx);
         self.folder.listing_version = self.list.version();
         self.status.sum_folder(size_rx);
-        self.folder.relist = false;
+        self.folder.relist_when_done = false;
     }
 
     /// Poll the folder's modification time once a second in the background (one `stat`, no
     /// repaint unless it changed). Adding, removing or renaming a file changes it.
     /// The thread ends when another folder is opened.
-    pub(crate) fn watch(&mut self, ctx: &egui::Context) {
-        let generation = self.folder.watching.fetch_add(1, Ordering::Relaxed) + 1;
-        let (watching, tx, ctx, dir) = (
-            self.folder.watching.clone(),
+    pub(crate) fn start_watching(&mut self, ctx: &egui::Context) {
+        let generation = self
+            .folder
+            .watcher_generation
+            .fetch_add(1, Ordering::Relaxed)
+            + 1;
+        let (watcher_generation, tx, ctx, dir) = (
+            self.folder.watcher_generation.clone(),
             self.folder.changed_tx.clone(),
             ctx.clone(),
             self.folder.dir.clone(),
@@ -915,10 +923,10 @@ impl crate::App {
         std::thread::spawn(move || {
             let mtime = || std::fs::metadata(&dir).and_then(|m| m.modified()).ok();
             let mut last = mtime();
-            while watching.load(Ordering::Relaxed) == generation {
+            while watcher_generation.load(Ordering::Relaxed) == generation {
                 std::thread::sleep(std::time::Duration::from_secs(1));
                 let now = mtime();
-                if now != last && watching.load(Ordering::Relaxed) == generation {
+                if now != last && watcher_generation.load(Ordering::Relaxed) == generation {
                     last = now;
                     let _ = tx.send(());
                     ctx.request_repaint();
@@ -936,7 +944,7 @@ impl crate::App {
         // Of the tree's images so far, only the last part that came is used, one list a frame
         // at most.
         if let Took::Answer(part) = self.folder.part_rx.latest() {
-            self.take_files(ctx, part, false);
+            self.take_listed_files(ctx, part, false);
         }
         let (dirs, files) = match self.folder.listing_rx.wait(wait) {
             Took::Answer(listed) => listed,
@@ -954,18 +962,18 @@ impl crate::App {
         // as it is now is read instead. This holds for every edit, because each one changes
         // the list's version.
         if self.folder.collection.is_some() && self.list.version() != self.folder.listing_version {
-            return self.list(ctx);
+            return self.start_listing(ctx);
         }
         self.folder.subdirs_rx.clear();
         self.folder.part_rx.clear();
-        self.folder.listings += 1;
+        self.folder.whole_listings += 1;
         // Several folders shown together are listed as "/" with no subfolders, which are not
         // the tree's.
         if self.folder.collection.is_none() && self.folder.folders.is_empty() {
             self.tree.read(self.folder.dir.clone(), dirs.clone());
         }
         self.folder.subdirs = dirs;
-        self.take_files(ctx, files, true);
+        self.take_listed_files(ctx, files, true);
         self.list.set_unchecked_entries(false);
         let c = &self.config;
         self.folder.listed_as = (self.folder.collection.is_none()
@@ -985,7 +993,12 @@ impl crate::App {
     /// Takes the images of the folder read in the background as the list. That is all of them
     /// when `whole`, and otherwise those of a tree found so far. The shown image and the
     /// selection stay.
-    pub(crate) fn take_files(&mut self, ctx: &egui::Context, files: Vec<OsString>, whole: bool) {
+    pub(crate) fn take_listed_files(
+        &mut self,
+        ctx: &egui::Context,
+        files: Vec<OsString>,
+        whole: bool,
+    ) {
         // Files still being deleted in the background must not come back with a refresh.
         let mut files = files;
         self.file_operations.leave_out_deleting(&mut files);
@@ -1023,7 +1036,7 @@ impl crate::App {
         // whole list, in the order asked for, starts at its first image instead, unless the
         // user chose another one meanwhile.
         let mut shown = self.list.files().get(self.list.shown()).cloned();
-        if whole && shown.is_some() && std::mem::take(&mut self.folder.went_to) == shown {
+        if whole && shown.is_some() && std::mem::take(&mut self.folder.first_part_shown) == shown {
             shown = None;
         }
         let first = self.list.files().is_empty() && !whole;
@@ -1034,7 +1047,7 @@ impl crate::App {
             .collect();
         self.replace_files(ctx, files, shown);
         if first {
-            self.folder.went_to = self.list.files().get(self.list.shown()).cloned();
+            self.folder.first_part_shown = self.list.files().get(self.list.shown()).cloned();
         }
         self.reselect(ctx, &picked);
         if whole && std::mem::take(&mut self.folder.sort_collection) {
@@ -1253,7 +1266,7 @@ impl crate::App {
         self.config.save();
         // Read again, and scrolled back to the open folder.
         self.tree.read_again_and_reopen();
-        self.list(ctx);
+        self.start_listing(ctx);
     }
 
     /// F5. The folder is read and sorted anew (also in an EXIF date order whose names stayed),
@@ -1271,14 +1284,14 @@ impl crate::App {
         self.refill();
         self.thumbs_changed();
         self.status.forget_size();
-        self.list(ctx);
+        self.start_listing(ctx);
     }
 }
 
 /// Keeps the `files` that `size` finds, and returns their sizes in the order kept. `size` is
 /// called once for each file, because a collection of 500,000 entries on a share would
 /// otherwise take a second system call for each.
-fn keep_found(
+fn keep_files_with_size(
     files: &mut Vec<OsString>,
     mut size: impl FnMut(&OsString) -> Option<u64>,
 ) -> Vec<u64> {
@@ -1307,7 +1320,7 @@ pub(crate) fn send_sizes(
 
 /// Adds the partial sums from `send_sizes` that have arrived. `rx` becomes `None` when the sum
 /// is done.
-pub(crate) fn drain(rx: &mut Receiving<u64>, total: &mut u64) {
+pub(crate) fn add_sent_sizes(rx: &mut Receiving<u64>, total: &mut u64) {
     while let Took::Answer(sum) = rx.next() {
         *total += sum;
     }
@@ -1371,7 +1384,7 @@ mod tests {
         let files = ["0.png", "a.png", "b.png", "c.png"]
             .map(Into::into)
             .to_vec();
-        app.take_files(&ctx, files, true);
+        app.take_listed_files(&ctx, files, true);
         app.search.set_query("");
         app.update_search(&ctx);
         assert_eq!(app.list.selected(), &[1, 2].into());
@@ -1511,11 +1524,11 @@ mod tests {
                 .collect()
         };
         assert_eq!(names(&app), ["a.png", "b.png"]);
-        app.list(&ctx);
+        app.start_listing(&ctx);
         app.run(&ctx, crate::ui::actions::Action::MoveLast);
         assert!(settle(&mut app, &ctx, |app| !app.folder.is_listing()));
         assert_eq!(names(&app), ["b.png", "a.png"]);
-        app.list(&ctx);
+        app.start_listing(&ctx);
         app.remove_from_collection(&ctx);
         assert!(settle(&mut app, &ctx, |app| !app.folder.is_listing()));
         assert_eq!(names(&app), ["b.png"]);
@@ -1563,7 +1576,7 @@ mod tests {
         let (a, c) = (d.join("a.png"), d.join("c.png"));
         // Renamed on disk, the refresh reads, and only then the rename is reported.
         std::fs::rename(&a, &c).unwrap();
-        app.list(&ctx);
+        app.start_listing(&ctx);
         assert!(settle(&mut app, &ctx, |app| app
             .folder
             .listing_rx
@@ -1593,7 +1606,7 @@ mod tests {
         }
         let (mut app, ctx) = app_on(&dir);
         app.config.sort = crate::model::listing::Sort::ExifOriginal;
-        app.list(&ctx);
+        app.start_listing(&ctx);
         assert!(settle(&mut app, &ctx, |app| app
             .folder
             .listing_rx
@@ -1644,7 +1657,7 @@ mod tests {
         app.config.sort = crate::model::listing::Sort::Name;
         app.config.sort_case_sensitive = true;
         app.folder.sort_collection = true;
-        app.list(&ctx);
+        app.start_listing(&ctx);
         assert!(settle(&mut app, &ctx, |a| a.folder.listing_rx.is_none()));
         let names: Vec<String> = (app.list.files().iter())
             .map(|f| {
@@ -1681,7 +1694,7 @@ mod tests {
         let (mut app, ctx) = app_on(&first);
         app.config.sort = crate::model::listing::Sort::Name;
         app.folder.sort_again();
-        app.list(&ctx);
+        app.start_listing(&ctx);
         app.open_collection(&ctx, second.clone());
         assert!(settle(&mut app, &ctx, |a| !a.folder.is_listing()));
         assert_eq!(std::fs::read_to_string(&second).unwrap(), before);
@@ -1791,7 +1804,7 @@ mod tests {
     fn a_collection_is_checked_with_one_call_per_entry() {
         let mut files: Vec<std::ffi::OsString> = vec!["a.jpg".into(), "gone.jpg".into()];
         let mut calls = 0;
-        let sizes = super::keep_found(&mut files, |f| {
+        let sizes = super::keep_files_with_size(&mut files, |f| {
             calls += 1;
             (f != "gone.jpg").then_some(7)
         });

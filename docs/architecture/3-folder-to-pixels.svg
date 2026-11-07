@@ -14,7 +14,7 @@
     <text x="30" y="86" font-size="14" font-weight="700">1. A folder becomes a List</text>
     <g font-size="12">
       <rect x="30" y="96" width="196" height="122" rx="6" fill="#e8f0fe" stroke="#3b6fd8" stroke-width="1.5"/>
-      <text x="42" y="117" font-size="13" font-weight="700" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace">open → list()</text>
+      <text x="42" y="117" font-size="13" font-weight="700" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace">open → start_listing()</text>
       <text x="42" y="137">File → Open, a folder</text>
       <text x="42" y="153">dropped, the folder tree,</text>
       <text x="42" y="169">or --remote open</text>
@@ -30,9 +30,9 @@
 
       <rect x="502" y="96" width="196" height="122" rx="6" fill="#e8f0fe" stroke="#3b6fd8" stroke-width="1.5"/>
       <text x="514" y="117" font-size="13" font-weight="700" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace">receive_listing</text>
-      <text x="514" y="137">take_files: a tree comes</text>
-      <text x="514" y="153">in parts (the latest part);</text>
-      <text x="514" y="169">same names: list kept,</text>
+      <text x="514" y="137">take_listed_files: a tree</text>
+      <text x="514" y="153">comes in parts (the latest</text>
+      <text x="514" y="169">part); same names: list kept,</text>
       <text x="514" y="185">else replace_files</text>
       <text x="514" y="207" fill="#57606a">UI thread, next frame</text>
 

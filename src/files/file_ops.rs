@@ -235,7 +235,7 @@ pub(crate) struct FileOperations {
     /// so they can be put right. They are read in the background.
     cut_short_rx: Receiving<Vec<journal::CutShort>>,
     /// The type of the mount and the files the trash refused there, to ask about once the
-    /// folder is read again, and the count of listings (`Folder::listings`) when they came.
+    /// folder is read again, and the count of listings (`Folder::whole_listings`) when they came.
     /// The files left the list when the delete started, and only a newer listing brings them
     /// back.
     untrashable: Option<(String, Vec<PathBuf>, u64)>,
@@ -726,7 +726,7 @@ impl crate::App {
             .collect::<Vec<_>>()
         {
             if let Some((kind, files)) = untrashable {
-                let now = self.folder.listings();
+                let now = self.folder.whole_listings();
                 match &mut self.file_operations.untrashable {
                     // The question names the mount of the first refusal. A file refused twice
                     // is asked about once.
@@ -807,7 +807,7 @@ impl crate::App {
         // back, and for any other dialog to close, which keeps the keys meant for it. It does
         // not wait for the folder to be still, because a folder that changes all the time, such
         // as a sync folder taking in uploads with auto refresh on, never is.
-        let listed = self.folder.listings();
+        let listed = self.folder.whole_listings();
         if !self.dialog_open()
             && (self.file_operations.untrashable.as_ref())
                 .is_some_and(|(_, _, since)| listed > *since)
@@ -1167,12 +1167,12 @@ impl crate::App {
             self.follow_moved_paths(pairs, false);
         }
         if self.folder.collection().is_some() {
-            return self.list(ctx);
+            return self.start_listing(ctx);
         }
         // When the list changed meanwhile, its numbers now point at other files, so it is read
         // again.
         if job.list_version != self.list.version() {
-            return self.list(ctx);
+            return self.start_listing(ctx);
         }
         // When the image shown at the start is still shown (the user may have moved on), it
         // stays shown under its new name, with any turn not saved yet, while the list is read
@@ -1187,7 +1187,7 @@ impl crate::App {
             let shown = self.list.shown();
             self.rename_in_list(ctx, vec![(shown, rel.as_os_str().to_owned())]);
         }
-        self.list(ctx)
+        self.start_listing(ctx)
     }
 
     /// Writes the view's rotation into the shown file in the background, and then shows the
@@ -1363,7 +1363,7 @@ impl crate::App {
         match self.folder.dir_renamed(&old, &new) {
             // The shown file is under the new name now, also for a turn not saved yet.
             Some(dir) => self.visit(ctx, dir),
-            None => self.list(ctx),
+            None => self.start_listing(ctx),
         }
     }
 
@@ -3781,7 +3781,7 @@ mod tests {
         for n in [first[0], y] {
             std::fs::write(crate::metadata::xmp::sidecar(&d.join(n)), n).unwrap();
         }
-        app.list(&ctx);
+        app.start_listing(&ctx);
         assert!(settle(&mut app, &ctx, |app| !app.folder.is_listing()));
         let at =
             |app: &crate::App, n: &str| (app.list.files().iter()).position(|f| f == n).unwrap();
@@ -3820,7 +3820,7 @@ mod tests {
         let path = app.path(app.list.shown());
         app.forget_names(std::slice::from_ref(&path));
         assert!(!shown(&app));
-        app.list(&ctx);
+        app.start_listing(&ctx);
         assert!(settle(&mut app, &ctx, |a| !a.working() && shown(a)));
         std::fs::remove_dir_all(dir).unwrap();
     }
