@@ -70,7 +70,7 @@ pub(crate) struct List {
     /// The images in `dir`, file name only (the full path is built on demand by `path`): saves
     /// memory in large folders, where the path would otherwise be repeated for every file.
     files: Vec<OsString>,
-    cur: usize,
+    shown: usize,
     /// Selected files (Ctrl/Shift+click in the file list) that Delete acts on. They are always
     /// files the list shows, so while searching they are matches only. No action then acts on
     /// a file the search hides.
@@ -84,7 +84,7 @@ pub(crate) struct List {
     /// Where the Shift selection made by the keys last ended (file index), while nothing else
     /// changed the selection or the search since: the selection is then that range.
     range_end: Option<usize>,
-    /// The images of a layout's panes after the first, which shows `cur`.
+    /// The images of a layout's panes after the first, which shows `shown`.
     panes: Vec<usize>,
     slots: HashMap<usize, Slot>,
     decode_errors: HashMap<usize, String>,
@@ -125,8 +125,8 @@ impl List {
     }
 
     /// The place of the shown image in the list.
-    pub(crate) fn cur(&self) -> usize {
-        self.cur
+    pub(crate) fn shown(&self) -> usize {
+        self.shown
     }
 
     /// The selected files, by their places in the list.
@@ -243,8 +243,8 @@ impl List {
     }
 
     /// Shows the image at place `i`.
-    pub(crate) fn set_cur(&mut self, i: usize) {
-        self.cur = i;
+    pub(crate) fn set_shown(&mut self, i: usize) {
+        self.shown = i;
     }
 
     /// Gives the file at place `i` the name `name`, because it was renamed or moved within the
@@ -319,7 +319,7 @@ impl List {
     /// whether the selection changed.
     pub(crate) fn right_click(&mut self, i: usize) -> bool {
         let others = !self.selected.is_empty() || !self.hidden_selected.is_empty();
-        let outside = !self.selected.contains(&i) && (i != self.cur || others);
+        let outside = !self.selected.contains(&i) && (i != self.shown || others);
         if outside {
             self.select_one(i);
         }
@@ -361,8 +361,8 @@ impl List {
     }
 
     /// Where a Shift selection started. When none has, it starts at the shown image.
-    pub(crate) fn anchor_or_cur(&mut self) -> usize {
-        *self.anchor.get_or_insert(self.cur)
+    pub(crate) fn anchor_or_shown(&mut self) -> usize {
+        *self.anchor.get_or_insert(self.shown)
     }
 
     /// Notes where the Shift selection made by the keys ended, or that the selection is no
@@ -571,7 +571,7 @@ mod tests {
     fn every_field_is_carried_or_reset_on_a_new_list() {
         const FATE: &[(&str, &str)] = &[
             ("files", "the new list"),
-            ("cur", "carried by name: the file shown"),
+            ("shown", "carried by name: the file shown"),
             (
                 "selected",
                 "carried by name by the callers that keep it (reselect)",

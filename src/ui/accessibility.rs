@@ -18,11 +18,11 @@ impl App {
         } else {
             // Read in the background, as for the info panel: here once for each image.
             self.want_exif(ui.ctx());
-            let path = self.path(self.list.cur());
+            let path = self.path(self.list.shown());
             let place = self.spoken_place();
             // The name the list shows, not the whole path a collection's entry holds.
-            let mut text = format!("{}, {place}", self.name(self.list.cur()));
-            if let Some(e) = self.list.decode_errors().get(&self.list.cur()) {
+            let mut text = format!("{}, {place}", self.name(self.list.shown()));
+            if let Some(e) = self.list.decode_errors().get(&self.list.shown()) {
                 text += &crate::tf!(", could not be shown: {e}", e);
             }
             #[cfg(feature = "marks")]
@@ -74,8 +74,8 @@ impl App {
     pub(crate) fn spoken_place(&self) -> String {
         use crate::support::format::thousands;
         let (row, total) = match self.list.matches() {
-            Some(m) => (self.cur_row(m), m.len()),
-            None => (Some(self.list.cur()), self.list.files().len()),
+            Some(m) => (self.shown_row(m), m.len()),
+            None => (Some(self.list.shown()), self.list.files().len()),
         };
         match row {
             Some(row) => crate::tf!(
@@ -123,7 +123,7 @@ mod tests {
         assert_eq!(app.spoken_place(), "1 of 5");
         app.list.set_matches(Some(vec![1, 2, 3]));
         assert_eq!(app.spoken_place(), "not among the matches");
-        app.list.set_cur(2);
+        app.list.set_shown(2);
         assert_eq!(app.spoken_place(), "2 of 3");
         std::fs::remove_dir_all(&dir).unwrap();
     }

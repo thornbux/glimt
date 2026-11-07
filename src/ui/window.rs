@@ -327,12 +327,12 @@ impl crate::App {
     /// are all empty.
     pub(crate) fn title_text(&self) -> String {
         let (name, path) = match (
-            self.list.files().get(self.list.cur()),
+            self.list.files().get(self.list.shown()),
             self.folder.collection(),
         ) {
             (Some(_), _) => (
-                self.name(self.list.cur()).into_owned(),
-                self.path(self.list.cur()).display().to_string(),
+                self.name(self.list.shown()).into_owned(),
+                self.path(self.list.shown()).display().to_string(),
             ),
             (None, Some(file)) => (file.display().to_string(), file.display().to_string()),
             (None, None) => (
@@ -341,8 +341,8 @@ impl crate::App {
             ),
         };
         // The shown image's own folder: a collection and several folders are listed as "/".
-        let folder = match self.list.files().get(self.list.cur()) {
-            Some(_) => self.path(self.list.cur()).parent().map(Path::to_path_buf),
+        let folder = match self.list.files().get(self.list.shown()) {
+            Some(_) => self.path(self.list.shown()).parent().map(Path::to_path_buf),
             None => self
                 .folder
                 .collection()

@@ -161,8 +161,8 @@ impl crate::App {
     /// the background, or the shown image still decoded.
     pub(crate) fn working(&self) -> bool {
         let decoding = !self.list.files().is_empty()
-            && !self.list.slots().contains_key(&self.list.cur())
-            && !self.list.decode_errors().contains_key(&self.list.cur());
+            && !self.list.slots().contains_key(&self.list.shown())
+            && !self.list.decode_errors().contains_key(&self.list.shown());
         decoding || self.working_besides_image()
     }
 

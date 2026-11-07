@@ -181,7 +181,7 @@ impl crate::App {
     /// Ask the EXIF reader for the shown image (once per image) and take what has arrived.
     pub(crate) fn want_exif(&mut self, ctx: &egui::Context) {
         self.reread_when_written();
-        let path = self.path(self.list.cur());
+        let path = self.path(self.list.shown());
         // An image shown again while its own save still waits behind a long job (a Lightroom
         // import) is read once the save is written, or the panel would show it without the save.
         if self.info_panel.exif_asked.as_ref() != Some(&path)
@@ -239,9 +239,9 @@ impl crate::App {
                 egui::ScrollArea::vertical().show(ui, |ui| {
                     egui::Grid::new("exif rows").num_columns(2).show(ui, |ui| {
                         ui.weak(tr("File"));
-                        ui.label(self.name(self.list.cur()));
+                        ui.label(self.name(self.list.shown()));
                         ui.end_row();
-                        if let Some(s) = self.list.slots().get(&self.list.cur()) {
+                        if let Some(s) = self.list.slots().get(&self.list.shown()) {
                             ui.weak(tr("Dimensions"));
                             ui.label(format!("{} × {}", s.orig[0], s.orig[1]));
                             ui.end_row();
@@ -276,7 +276,7 @@ impl crate::App {
     /// Keywords and comment of the shown image, as in Geeqie's info sidebar, with its alt text and
     /// extended description.
     pub(crate) fn meta_fields(&mut self, ui: &mut egui::Ui) {
-        let path = self.path(self.list.cur());
+        let path = self.path(self.list.shown());
         // While the file is to be read again, its fields show it as it was: an edit there would
         // write that over what changed it.
         if self.info_panel.reread_after_write.is_some() {
@@ -338,7 +338,7 @@ impl crate::App {
     /// The keyword tree as in Geeqie's sidebar: a box for each keyword, ticked when the shown
     /// image has it; a click sets it on the selected images (or the shown one), or takes it off.
     pub(crate) fn keyword_tree(&mut self, ui: &mut egui::Ui) {
-        let path = self.path(self.list.cur());
+        let path = self.path(self.list.shown());
         let Some((have, paths)) = (self.info_panel.meta.as_ref())
             .filter(|m| m.path == path)
             .map(|m| (m.saved.keywords.clone(), m.paths.clone()))
@@ -426,7 +426,7 @@ impl crate::App {
         let Some(targets) = self.targets() else {
             return;
         };
-        if targets.contains(&self.list.cur())
+        if targets.contains(&self.list.shown())
             && let Some(edit) = &mut self.info_panel.meta
         {
             xmp::set_tag(&mut edit.saved.keywords, &mut edit.paths, &tag, on);
@@ -466,7 +466,7 @@ impl crate::App {
     /// it was before the edit, and a later edit would then save the edit away again.
     pub(crate) fn read_info_again(&mut self, ctx: &egui::Context) {
         self.save_meta(ctx);
-        let path = self.path(self.list.cur());
+        let path = self.path(self.list.shown());
         let writes = self.file_operations.jobs_writing_sidecar_of(&path);
         self.info_panel.reread_after_write = Some((path, writes));
         self.reread_when_written();
@@ -479,7 +479,7 @@ impl crate::App {
         let Some((file, writes)) = &self.info_panel.reread_after_write else {
             return;
         };
-        if *file != self.path(self.list.cur()) {
+        if *file != self.path(self.list.shown()) {
             self.info_panel.reread_after_write = None;
         } else if writes.iter().all(|w| w.strong_count() <= 1) {
             self.info_panel.reread_after_write = None;
@@ -570,7 +570,7 @@ impl crate::App {
         let Some(targets) = self.targets() else {
             return;
         };
-        if targets.contains(&self.list.cur())
+        if targets.contains(&self.list.shown())
             && let Some(edit) = &mut self.info_panel.meta
         {
             xmp::add_to(&mut edit.saved.keywords, &keywords);
@@ -615,7 +615,7 @@ impl crate::App {
         if self.info_panel.exif_window && !self.list.files().is_empty() {
             self.want_exif(ctx);
             let mut open = true;
-            let title = tf!("EXIF: {name}", name = self.name(self.list.cur()));
+            let title = tf!("EXIF: {name}", name = self.name(self.list.shown()));
             egui::Window::new(title)
                 .id(egui::Id::unique("exif window"))
                 .open(&mut open)

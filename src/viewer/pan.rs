@@ -336,7 +336,7 @@ impl crate::App {
                             let at = top + egui::vec2(j as f32 * cell.x, y);
                             let rect = egui::Rect::from_min_size(at, cell);
                             self.list.pan_thumb(i);
-                            let r = self.file_cell(ui, i, rect, i == self.list.cur());
+                            let r = self.file_cell(ui, i, rect, i == self.list.shown());
                             if r.clicked() {
                                 show = Some(i);
                             }

@@ -29,7 +29,7 @@ impl crate::App {
     /// grid came back.
     fn crop_shown(&self, crop: &Crop) -> bool {
         !self.panel.area_grid_shown()
-            && self.is_file(self.list.cur(), &crop.path)
+            && self.is_file(self.list.shown(), &crop.path)
             && self.shown_copy() == crop.how
     }
 
@@ -38,15 +38,15 @@ impl crate::App {
     pub(crate) fn start_crop(&mut self) {
         // The part is chosen over the image, so a crop from the grid in the image area opens it.
         self.panel.open_from_grid();
-        let cur = self.list.cur();
+        let shown = self.list.shown();
         #[cfg(feature = "video")]
-        if (self.list.files().get(cur)).is_some_and(|f| is_video(Path::new(f))) {
+        if (self.list.files().get(shown)).is_some_and(|f| is_video(Path::new(f))) {
             self.notice = Some(tr("A video is not cropped").into());
             return;
         }
-        if self.list.slots().contains_key(&cur) {
+        if self.list.slots().contains_key(&shown) {
             self.viewing.start_crop(Crop {
-                path: self.path(cur),
+                path: self.path(shown),
                 how: self.shown_copy(),
                 anchor: egui::Pos2::ZERO,
                 part: None,
@@ -147,7 +147,8 @@ impl crate::App {
         let Some(crop) = self.viewing.take_crop().filter(|c| self.crop_shown(c)) else {
             return;
         };
-        let (Some(part), Some(slot)) = (crop.part, self.list.slots().get(&self.list.cur())) else {
+        let (Some(part), Some(slot)) = (crop.part, self.list.slots().get(&self.list.shown()))
+        else {
             return;
         };
         let [w, h] = slot.orig;

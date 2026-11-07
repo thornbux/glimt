@@ -69,7 +69,7 @@ impl crate::App {
             self.notice = Some(tr("Random order is on: R turns it off to move images").into());
             return;
         }
-        let shown = self.list.files().get(self.list.cur()).cloned();
+        let shown = self.list.files().get(self.list.shown()).cloned();
         // The images moved stay selected when they were, and so do the selected images that the
         // search hides. A row dragged from outside the selection takes the selection's place, as a
         // click on it would, so the hidden selected images are let go with the rest. That is so
@@ -113,7 +113,7 @@ impl crate::App {
             return;
         }
         let folder = (!self.list.files().is_empty())
-            .then(|| self.path(self.list.cur()))
+            .then(|| self.path(self.list.shown()))
             .and_then(|p| p.parent().map(Path::to_path_buf));
         if let Some(folder) = folder.or_else(std::env::home_dir) {
             self.visit(ctx, folder);

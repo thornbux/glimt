@@ -65,13 +65,13 @@ pub struct SaveAs {
 impl crate::App {
     /// File → Save As (Ctrl+Shift+S): the dialog for the shown image.
     pub(crate) fn start_save_as(&mut self) {
-        let cur = self.list.cur();
+        let shown = self.list.shown();
         #[cfg(feature = "video")]
-        if (self.list.files().get(cur)).is_some_and(|f| is_video(Path::new(f))) {
+        if (self.list.files().get(shown)).is_some_and(|f| is_video(Path::new(f))) {
             self.notice = Some(tr("A video is not saved as an image").into());
             return;
         }
-        let Some(slot) = self.list.slots().get(&cur) else {
+        let Some(slot) = self.list.slots().get(&shown) else {
             return;
         };
         let [w, h] = slot.orig;
@@ -82,7 +82,7 @@ impl crate::App {
         };
         let mut choice = self.save_as_last;
         // The quality starts at the one in Preferences for its format.
-        let path = self.path(cur);
+        let path = self.path(shown);
         choice.quality = match choice.format.unwrap_or_else(|| Format::of(&path)) {
             Format::WebPLossy => self.config.webp_quality,
             _ => self.config.jpeg_quality,

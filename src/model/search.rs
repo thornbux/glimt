@@ -108,11 +108,11 @@ impl Search {
     }
 
     /// The row of `file` among the matches. `find` looks it up only for a file other than the
-    /// two kept, the shown file `cur` and one other.
+    /// two kept, which are the file shown (`shown`) and one other.
     pub(crate) fn row_of(
         &self,
         file: usize,
-        cur: usize,
+        shown: usize,
         find: impl FnOnce() -> Option<usize>,
     ) -> Option<usize> {
         let mut rows = self.match_rows.get();
@@ -120,7 +120,7 @@ impl Search {
             return *row;
         }
         let row = find();
-        rows[(file != cur) as usize] = Some((file, row));
+        rows[(file != shown) as usize] = Some((file, row));
         self.match_rows.set(rows);
         row
     }
@@ -166,7 +166,7 @@ impl crate::App {
             {
                 self.search.query.clear();
                 self.update_search(ui.ctx());
-                self.panel.scroll_to_current();
+                self.panel.scroll_to_shown();
             }
             // The field has a fixed ID, so the X button appearing in front of it does not make
             // it a new widget, which would lose the focus after the first letter.
@@ -801,7 +801,7 @@ mod tests {
         assert_eq!(app.targets(), Some(vec![2]));
         // Ctrl+click adds the shown image the first time, but not when the search hides it.
         app.list.clear_selection();
-        app.list.add_to_selection([app.list.cur(), 3]);
+        app.list.add_to_selection([app.list.shown(), 3]);
         app.list.toggle_selected(0);
         app.list.set_selected(1, true);
         app.set_selection(&ctx, [0, 1, 2].into());

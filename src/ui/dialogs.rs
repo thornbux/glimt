@@ -632,14 +632,14 @@ impl crate::App {
         }
         if matches!(prompt, Prompt::Rename)
             && !self.list.files().is_empty()
-            && !self.are_free_to_change(&[self.path(self.list.cur())])
+            && !self.are_free_to_change(&[self.path(self.list.shown())])
         {
             return;
         }
         // A renamed file stays in its own folder, also a subfolder in the list with subfolders.
         let target = match prompt {
             Prompt::Rename if !self.list.files().is_empty() => {
-                self.path(self.list.cur()).with_file_name(text)
+                self.path(self.list.shown()).with_file_name(text)
             }
             Prompt::NewFolder => match self.dialogs.take_folder() {
                 Some(dir) => dir.join(text),
@@ -664,7 +664,7 @@ impl crate::App {
                 });
             }
             Prompt::Rename if self.list.files().is_empty() => {}
-            Prompt::Rename if target == self.path(self.list.cur()) => {}
+            Prompt::Rename if target == self.path(self.list.shown()) => {}
             Prompt::RenameMany => self.rename_many(ctx, text),
             Prompt::NewCollection
             | Prompt::RenameCollection
@@ -674,7 +674,7 @@ impl crate::App {
             // As Rename Many: in its thread, never over a file or another file's sidecar
             // there; `renamed` puts the list right.
             Prompt::Rename => {
-                self.rename_in_background(ctx, vec![self.path(self.list.cur())], vec![target]);
+                self.rename_in_background(ctx, vec![self.path(self.list.shown())], vec![target]);
             }
         }
     }

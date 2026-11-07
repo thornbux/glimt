@@ -49,7 +49,7 @@
       <text x="1026" y="117" fill="#57606a">model/list.rs</text>
       <text x="986" y="137">files: Vec&lt;OsString&gt;,</text>
       <text x="986" y="153">names only, no paths;</text>
-      <text x="986" y="169">cur, selected, panes;</text>
+      <text x="986" y="169">shown, selected, panes;</text>
       <text x="986" y="185">slots: the decoded images</text>
     </g>
     <g font-size="12" fill="#57606a" text-anchor="middle">
@@ -67,7 +67,7 @@
       <rect x="30" y="278" width="196" height="166" rx="6" fill="#e6f4ea" stroke="#2e8b57" stroke-width="1.5"/>
       <text x="42" y="299" font-size="13" font-weight="700" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace">refill()</text>
       <text x="42" y="319">the window to keep: the</text>
-      <text x="42" y="335">shown image (List::cur),</text>
+      <text x="42" y="335">shown image (List::shown),</text>
       <text x="42" y="351">the compared one, panes,</text>
       <text x="42" y="367">then preload on each side</text>
       <text x="42" y="391">keep_slots drops the rest</text>

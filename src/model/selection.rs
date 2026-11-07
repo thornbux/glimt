@@ -68,7 +68,7 @@ impl crate::App {
             return;
         }
         let idx = idx.min(self.list.files().len() - 1);
-        if idx != self.list.cur() {
+        if idx != self.list.shown() {
             self.show(ctx, idx);
         } else if self.list.decode_errors().contains_key(&idx) {
             self.list.forget_decode_error(idx);
@@ -89,17 +89,17 @@ impl crate::App {
         let saved = self.config.save_orientation && self.viewing.is_turned();
         self.leave_image(ctx);
         let notice = if saved { self.notice.take() } else { None };
-        self.list.set_cur(idx.min(self.list.files().len() - 1));
+        self.list.set_shown(idx.min(self.list.files().len() - 1));
         self.notice = notice;
         // A failure of before (a share away for a moment) is tried again now that the image is
         // shown again, not kept for the rest of the session.
-        self.list.forget_decode_error(self.list.cur());
+        self.list.forget_decode_error(self.list.shown());
         // Geeqie's "keep zoom": the next image at the same zoom and place, to compare a series.
         if !self.config.keep_zoom {
             self.zoom.fit();
         }
         self.decoding.image_opened();
-        self.panel.scroll_to_current();
+        self.panel.scroll_to_shown();
         // Every image gets the full delay, also when the user moves back or forward by hand.
         self.slideshow.restart_delay();
         self.refill();
@@ -107,13 +107,13 @@ impl crate::App {
     }
 
     /// The shown image is left: its rotation saved (with Save Orientation on) or dropped, and a
-    /// TIFF page other than the first let go. Called while `dir` and `cur` still name the image,
+    /// TIFF page other than the first let go. Called while `dir` and `shown` still name the image,
     /// so before the folder or the list changes.
     pub(crate) fn leave_image(&mut self, ctx: &egui::Context) {
         // A TIFF shown at another page than the first: its decoded page must not stay for when
         // it is shown again from the first page.
         if self.viewing.page() > 0 {
-            self.list.forget_slot(self.list.cur());
+            self.list.forget_slot(self.list.shown());
         }
         if self.config.save_orientation && self.viewing.is_turned() {
             self.save_orientation(ctx);
@@ -126,7 +126,7 @@ impl crate::App {
     /// while searching); clamped at the ends, or going round with `wrap`. A file the search
     /// hides counts as being before the first row.
     pub(crate) fn step(&self, delta: isize, wrap: bool) -> Option<usize> {
-        self.step_from(self.list.cur(), delta, wrap)
+        self.step_from(self.list.shown(), delta, wrap)
     }
 
     /// As `step`, from file `from`.
@@ -143,25 +143,27 @@ impl crate::App {
 
     /// The row of the shown file among the search matches `m`. Returns `None` if the search hides
     /// it.
-    pub(crate) fn cur_row(&self, m: &[usize]) -> Option<usize> {
-        self.row_of(m, self.list.cur())
+    pub(crate) fn shown_row(&self, m: &[usize]) -> Option<usize> {
+        self.row_of(m, self.list.shown())
     }
 
     /// The row of `file` among the search matches `m`, kept for the shown file and one other.
     pub(crate) fn row_of(&self, m: &[usize], file: usize) -> Option<usize> {
-        (self.search).row_of(file, self.list.cur(), || m.iter().position(|&i| i == file))
+        (self.search).row_of(file, self.list.shown(), || {
+            m.iter().position(|&i| i == file)
+        })
     }
 
     /// The shown image's place in the list as shown: "[3/16]", "[–/12]" if a search hides it.
     pub(crate) fn place(&self) -> String {
         match self.list.matches() {
-            Some(m) => match self.cur_row(m) {
+            Some(m) => match self.shown_row(m) {
                 Some(row) => format!("[{}/{}]", thousands(row + 1), thousands(m.len())),
                 None => format!("[–/{}]", thousands(m.len())),
             },
             None => format!(
                 "[{}/{}]",
-                thousands(self.list.cur() + 1),
+                thousands(self.list.shown() + 1),
                 thousands(self.list.files().len())
             ),
         }
@@ -344,7 +346,7 @@ impl crate::App {
             return None;
         }
         Some(match self.list.selected().is_empty() {
-            true => vec![self.list.cur()],
+            true => vec![self.list.shown()],
             false => self.list.selected().iter().copied().collect(),
         })
     }
@@ -355,7 +357,7 @@ impl crate::App {
             .selected()
             .first()
             .copied()
-            .unwrap_or(self.list.cur())
+            .unwrap_or(self.list.shown())
     }
 
     /// First, Previous, Next and Last, along the list as shown (the search matches while
@@ -377,8 +379,8 @@ impl crate::App {
         // a file manager; moving without Shift clears it.
         let shift = ctx.input(|i| i.modifiers.shift);
         if shift {
-            let anchor = self.list.anchor_or_cur();
-            if !self.move_range_end(anchor, self.list.cur(), to) {
+            let anchor = self.list.anchor_or_shown();
+            if !self.move_range_end(anchor, self.list.shown(), to) {
                 self.list.clear_selection();
                 self.select_range(anchor, to);
             }
@@ -431,16 +433,16 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let (mut app, ctx) = app_on(&dir);
         app.list.set_files(vec!["a.png".into(), "b.png".into()]);
-        app.list.set_cur(1);
+        app.list.set_shown(1);
         app.viewing.turn((1, false), dir.join("b.png"));
         app.move_along(&ctx, crate::ui::actions::Action::Next);
-        assert_eq!((app.list.cur(), app.viewing.orient()), (1, (1, false)));
+        assert_eq!((app.list.shown(), app.viewing.orient()), (1, (1, false)));
         app.go(&ctx, 1);
         assert_eq!(app.viewing.orient(), (1, false));
-        app.list.set_cur(0);
+        app.list.set_shown(0);
         app.viewing.turn((1, false), dir.join("a.png"));
         app.go_to_pane(&ctx, crate::ui::actions::Action::PaneLeft);
-        assert_eq!((app.list.cur(), app.viewing.orient()), (0, (1, false)));
+        assert_eq!((app.list.shown(), app.viewing.orient()), (0, (1, false)));
         app.shuffle_list(&ctx, true);
         assert_eq!(app.viewing.orient(), (1, false));
         // A decode of the shown image that failed is tried again when it is gone to again.
@@ -472,9 +474,9 @@ mod tests {
         assert!(!app.asking_about_selection());
         assert!(app.notice.take().is_some());
         assert!(app.remote_query("selection").is_empty());
-        let cur = app.list.cur();
-        assert!(app.list.right_click(cur));
-        assert_eq!(app.targets(), Some(vec![cur]));
+        let shown = app.list.shown();
+        assert!(app.list.right_click(shown));
+        assert_eq!(app.targets(), Some(vec![shown]));
         assert!(app.list.hidden_selected().is_empty());
         std::fs::remove_dir_all(dir).unwrap();
     }

@@ -1096,7 +1096,7 @@ impl crate::App {
         let Some(steps) = self.start_job(tr("Renaming"), from.len(), touches) else {
             return;
         };
-        let shown = from.iter().position(|f| self.is_file(self.list.cur(), f));
+        let shown = from.iter().position(|f| self.is_file(self.list.shown(), f));
         let job = RenameJob {
             list_version: self.list.version(),
             from: from.clone(),
@@ -1177,11 +1177,11 @@ impl crate::App {
         if let Some(k) = job.shown
             && !failed
             && left_alone.binary_search(&k).is_err()
-            && self.is_file(self.list.cur(), &job.from[k])
+            && self.is_file(self.list.shown(), &job.from[k])
             && let Ok(rel) = job.to[k].strip_prefix(self.folder.dir())
         {
-            let cur = self.list.cur();
-            self.rename_in_list(ctx, vec![(cur, rel.as_os_str().to_owned())]);
+            let shown = self.list.shown();
+            self.rename_in_list(ctx, vec![(shown, rel.as_os_str().to_owned())]);
         }
         self.list(ctx)
     }
@@ -1250,9 +1250,9 @@ impl crate::App {
             return;
         }
         for path in paths {
-            if self.is_file(self.list.cur(), path) {
+            if self.is_file(self.list.shown(), path) {
                 self.viewing.drop_turn();
-                self.list.forget_decodes_of(self.list.cur());
+                self.list.forget_decodes_of(self.list.shown());
                 self.read_info_again(ctx);
             }
         }
@@ -1754,7 +1754,7 @@ impl crate::App {
     /// File → Set as Wallpaper. It sets the shown image through the desktop portal, in the
     /// background.
     pub(crate) fn set_wallpaper(&mut self) {
-        let (path, tx) = (self.path(self.list.cur()), self.notices_tx.clone());
+        let (path, tx) = (self.path(self.list.shown()), self.notices_tx.clone());
         std::thread::spawn(move || {
             if let Err(e) = external::set_wallpaper(&path) {
                 let _ = tx.send(tf!("Could not set the wallpaper: {e}", e));
@@ -1790,7 +1790,7 @@ impl crate::App {
         if let Some(name) = self
             .list
             .files()
-            .get(self.list.cur())
+            .get(self.list.shown())
             .and_then(|f| Path::new(f).file_name())
             .map(|n| n.to_string_lossy().into_owned())
             && let Some(asked) = self.ask_about_targets()
@@ -3811,9 +3811,9 @@ mod tests {
     fn a_renamed_shown_image_is_decoded_again() {
         let dir = contract_folder("decode-again");
         let (mut app, ctx) = app_on(&dir);
-        let shown = |a: &crate::App| a.list.slots().contains_key(&a.list.cur());
+        let shown = |a: &crate::App| a.list.slots().contains_key(&a.list.shown());
         assert!(settle(&mut app, &ctx, |a| !a.working() && shown(a)));
-        let path = app.path(app.list.cur());
+        let path = app.path(app.list.shown());
         app.forget_names(std::slice::from_ref(&path));
         assert!(!shown(&app));
         app.list(&ctx);

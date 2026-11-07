@@ -697,7 +697,7 @@ impl crate::App {
         if self.list.files().is_empty() {
             return;
         }
-        let (path, tx) = (self.path(self.list.cur()), self.notices_tx.clone());
+        let (path, tx) = (self.path(self.list.shown()), self.notices_tx.clone());
         let mut words = plugins::words(player);
         std::thread::spawn(move || {
             // The player stays open as long as it plays, waited for in this thread.
@@ -781,7 +781,7 @@ impl crate::App {
     /// The View menu's toggles of a setting: the path bar, toolbar, panels, overlay, icons,
     /// histogram scale and animation. A stepped through an animation plays it on instead.
     pub(crate) fn toggle_setting(&mut self, action: Action) {
-        self.panel.scroll_to_current();
+        self.panel.scroll_to_shown();
         let c = &mut self.config;
         let flag = match action {
             Action::PathBar => &mut c.path_bar,

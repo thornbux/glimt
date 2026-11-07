@@ -147,7 +147,7 @@ impl crate::App {
                 .filter(|_| !self.folder.sorts_collection())
                 && let Ok(saved) = collections::load(file)
             {
-                let shown = self.list.files().get(self.list.cur()).cloned();
+                let shown = self.list.files().get(self.list.shown()).cloned();
                 let files: Vec<PathBuf> =
                     (0..self.list.files().len()).map(|i| self.path(i)).collect();
                 // The saved entries by their real paths, the names the list has.
@@ -179,8 +179,8 @@ impl crate::App {
         // A copy, not taken: the textures and the shown image's zoom are kept by the names in
         // the list as it is.
         let mut files = self.list.files().to_vec();
-        let shown = files[self.list.cur()].clone();
-        files.swap(0, self.list.cur());
+        let shown = files[self.list.shown()].clone();
+        files.swap(0, self.list.shown());
         shuffle(&mut files[1..]);
         // New panes from the new order: kept, a slideshow one image at a time would still stand
         // at the end of the round and shuffle again on every frame.
@@ -249,9 +249,9 @@ impl crate::App {
         let n = self.list.panes().len() + 1;
         let turns = n > 1 && self.one_at_a_time();
         let (from, delta) = match n {
-            1 => (self.list.cur(), 1),
+            1 => (self.list.shown(), 1),
             _ if turns => (self.list.last_slide(), 1),
-            _ => (self.list.cur(), n),
+            _ => (self.list.shown(), n),
         };
         let delay = std::time::Duration::from_secs(self.config.slideshow_delay);
         let left = delay.saturating_sub(last.elapsed());
@@ -486,7 +486,7 @@ mod tests {
             if shuffled_first {
                 app.shuffle_list(&ctx, true);
             }
-            let shown = app.list.files()[app.list.cur()].clone();
+            let shown = app.list.files()[app.list.shown()].clone();
             app.start_slideshow(&ctx);
             assert!(settle(&mut app, &ctx, |a| !a.folder.is_listing()));
             assert!(

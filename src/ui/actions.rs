@@ -1008,7 +1008,7 @@ impl crate::App {
         }
         // An action on a file does nothing in an empty list. It is refused here, once, rather than
         // by a guard in each arm, which a new action could leave out and then panic on
-        // `self.path(self.list.cur())` with no file.
+        // `self.path(self.list.shown())` with no file.
         if self.list.files().is_empty() && action.target() != Target::NoFile {
             if action == Action::NewCollection {
                 self.notice = Some(tr("No images for a collection here").into());
@@ -1199,11 +1199,11 @@ impl crate::App {
             Action::Print => self.open_print(ctx),
             Action::SaveFrame if self.frame_count() > 1 => {
                 let k = self.shown_frame();
-                let (path, how) = (self.path(self.list.cur()), self.shown_copy());
+                let (path, how) = (self.path(self.list.shown()), self.shown_copy());
                 self.pick(ctx, false, Pick::SaveFrame(path, k, how));
             }
             Action::ExportFrames if self.frame_count() > 1 => {
-                let (path, how) = (self.path(self.list.cur()), self.shown_copy());
+                let (path, how) = (self.path(self.list.shown()), self.shown_copy());
                 self.pick(ctx, true, Pick::ExportFrames(path, how));
             }
             Action::SaveFrame | Action::ExportFrames => {}
@@ -1343,7 +1343,7 @@ impl crate::App {
 
     /// Select → Copy Image: the shown image's pixels to the clipboard, decoded in the background.
     pub(crate) fn copy_image(&mut self, ctx: &egui::Context) {
-        let (path, how) = (self.path(self.list.cur()), self.shown_copy());
+        let (path, how) = (self.path(self.list.shown()), self.shown_copy());
         let (tx, ctx) = (self.notices_tx.clone(), ctx.clone());
         let (clip_tx, clip_rx) = mpsc::channel();
         self.file_operations.copy_image_from(clip_rx);
@@ -1944,7 +1944,7 @@ mod tests {
         assert!(menu.contains("self.open_with_menu(ui)"));
         let open_with = body("open_with_menu");
         assert!(
-            open_with.contains("first_target()") && !open_with.contains("list.cur()"),
+            open_with.contains("first_target()") && !open_with.contains("list.shown()"),
             "Open With asks about the first selected file (first_target), not the shown one"
         );
     }

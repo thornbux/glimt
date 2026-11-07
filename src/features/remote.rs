@@ -283,7 +283,7 @@ impl crate::App {
     pub(crate) fn remote_query(&self, command: &str) -> Vec<u8> {
         use std::os::unix::ffi::OsStringExt;
         let files = match command.trim() {
-            "current" => vec![self.list.cur()],
+            "current" => vec![self.list.shown()],
             // When the search hides every selected file, the answer names none of them, and
             // not the shown image in their place.
             _ => self.quiet_targets().unwrap_or_default(),
@@ -866,18 +866,18 @@ mod tests {
         app.list
             .set_files(["a.png", "b.png", "c.png"].map(Into::into).to_vec());
         app.remote_command(&ctx, "run Next");
-        assert_eq!(app.list.cur(), 1);
+        assert_eq!(app.list.shown(), 1);
         app.remote_command(&ctx, "run Last");
-        assert_eq!(app.list.cur(), 2);
+        assert_eq!(app.list.shown(), 2);
         // The renamed command by its new and its old word, and the renamed action by its old
         // name.
         app.remote_command(&ctx, "previous");
-        assert_eq!(app.list.cur(), 1);
+        assert_eq!(app.list.shown(), 1);
         app.remote_command(&ctx, "prev");
-        assert_eq!(app.list.cur(), 0);
+        assert_eq!(app.list.shown(), 0);
         app.remote_command(&ctx, "run Next");
         app.remote_command(&ctx, "run Prev");
-        assert_eq!(app.list.cur(), 0);
+        assert_eq!(app.list.shown(), 0);
         app.remote_command(&ctx, "run Last");
         app.config.confirm_trash = false;
         app.remote_command(&ctx, "run Delete");
@@ -886,13 +886,13 @@ mod tests {
         assert!(!app.asking_about_selection());
         // Nor a script's action while a dialog asks the user: the Rename prompt stays.
         app.remote_command(&ctx, "run First");
-        assert_eq!(app.list.cur(), 0);
+        assert_eq!(app.list.shown(), 0);
         let asked = crate::ui::dialogs::Asked::new(0, vec!["a.png".into()], None);
         let rename = crate::ui::dialogs::Prompt::Rename;
         app.dialogs.ask_about(asked, rename, "a.png".into());
         app.remote_command(&ctx, "run WindowTitle");
         app.remote_command(&ctx, "run Last");
-        assert_eq!(app.list.cur(), 0);
+        assert_eq!(app.list.shown(), 0);
         assert!(app.dialogs.asks_about_files());
         assert_eq!(app.list.files().len(), 3);
         assert!(dir.join("c.png").exists());
