@@ -1731,10 +1731,10 @@ impl crate::App {
             ui.horizontal(|ui| {
                 let n = self.list.files().len();
                 let size = size_text(
-                    self.status
+                    self.status_bar
                         .size_rx
                         .is_none()
-                        .then_some(self.status.total_size),
+                        .then_some(self.status_bar.total_size),
                 );
                 let mut left = match self.list.matches() {
                     _ if self.folder.is_listing() => tr("Reading folder…").to_owned(),
@@ -1755,7 +1755,7 @@ impl crate::App {
                 };
                 if !self.list.selected().is_empty() {
                     let m = thousands(self.list.selected().len());
-                    let size = size_text(self.status.selected_size);
+                    let size = size_text(self.status_bar.selected_size);
                     left += &tf!(", {m} selected ({size})", m, size);
                 }
                 let mut hidden = String::new();
@@ -1787,64 +1787,73 @@ impl crate::App {
                     }
                 }
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if n == 0 {
-                        return;
-                    }
-                    // As in Geeqie, "( 4000 x 3000 ) 2,345,678 bytes [3/16]" comes first, then
-                    // the zoom. With several panes, it tells about the one under the pointer.
-                    let (idx, scale) = (self.status.pane_info.get(self.status.pane).copied())
-                        .filter(|p| p.0 < n)
-                        .unwrap_or((self.list.shown(), Some(self.zoom.scale_shown())));
-                    let path = self.path(idx);
-                    if self.status.shown_size.as_ref().is_none_or(|c| c.0 != path) {
-                        // shortcut: one stat in the UI thread per image change; move it to
-                        // a thread if slow network folders make browsing stutter.
-                        let bytes = std::fs::metadata(&path).map_or(0, |m| m.len());
-                        self.status.shown_size = Some((path, bytes));
-                    }
-                    let bytes = self.status.shown_size.as_ref().map_or(0, |c| c.1);
-                    let position = if idx == self.list.shown() {
-                        self.position_text()
-                    } else {
-                        self.position_text_of(idx)
-                    };
-                    let bytes = tf!("{n} bytes", n = thousands(bytes as usize));
-                    match self.list.loaded_images().get(&idx) {
-                        Some(loaded) => {
-                            let [w, h] = loaded.original_size;
-                            if let Some(scale) = scale {
-                                ui.label(format!("{} %", (scale * 100.0).round()));
-                                ui.separator();
-                            }
-                            let page = if loaded.pages > 1 && idx == self.list.shown() {
-                                tf!(
-                                    " page {n}/{pages}",
-                                    n = self.viewing.page() + 1,
-                                    pages = loaded.pages
-                                )
-                            } else if let Some(k) =
-                                self.viewing.frame().filter(|_| idx == self.list.shown())
-                            {
-                                tf!(
-                                    " frame {n}/{frames}",
-                                    n = k + 1,
-                                    frames = loaded.frames.len()
-                                )
-                            } else {
-                                String::new()
-                            };
-                            ui.label(format!("( {w} x {h} ) {bytes} {position}{page}"));
-                        }
-                        None => {
-                            ui.label(format!("{bytes} {position}"));
-                        }
-                    }
-                    if self.status.grid != [1, 1] {
-                        pane_map(ui, self.status.grid, self.status.pane);
-                    }
+                    self.status_of_shown_image(ui, n);
                 });
             });
         });
+    }
+
+    /// The status bar's right side: the size, place and zoom of the shown image, or of the pane
+    /// under the pointer, in a list of `n` files.
+    fn status_of_shown_image(&mut self, ui: &mut egui::Ui, n: usize) {
+        if n == 0 {
+            return;
+        }
+        // As in Geeqie, "( 4000 x 3000 ) 2,345,678 bytes [3/16]" comes first, then
+        // the zoom. With several panes, it tells about the one under the pointer.
+        let (idx, scale) = (self.status_bar.pane_info.get(self.status_bar.pane).copied())
+            .filter(|p| p.0 < n)
+            .unwrap_or((self.list.shown(), Some(self.zoom.scale_shown())));
+        let path = self.path(idx);
+        if self
+            .status_bar
+            .shown_size
+            .as_ref()
+            .is_none_or(|c| c.0 != path)
+        {
+            // shortcut: one stat in the UI thread per image change; move it to
+            // a thread if slow network folders make browsing stutter.
+            let bytes = std::fs::metadata(&path).map_or(0, |m| m.len());
+            self.status_bar.shown_size = Some((path, bytes));
+        }
+        let bytes = self.status_bar.shown_size.as_ref().map_or(0, |c| c.1);
+        let position = if idx == self.list.shown() {
+            self.position_text()
+        } else {
+            self.position_text_of(idx)
+        };
+        let bytes = tf!("{n} bytes", n = thousands(bytes as usize));
+        match self.list.loaded_images().get(&idx) {
+            Some(loaded) => {
+                let [w, h] = loaded.original_size;
+                if let Some(scale) = scale {
+                    ui.label(format!("{} %", (scale * 100.0).round()));
+                    ui.separator();
+                }
+                let page = if loaded.pages > 1 && idx == self.list.shown() {
+                    tf!(
+                        " page {n}/{pages}",
+                        n = self.viewing.page() + 1,
+                        pages = loaded.pages
+                    )
+                } else if let Some(k) = self.viewing.frame().filter(|_| idx == self.list.shown()) {
+                    tf!(
+                        " frame {n}/{frames}",
+                        n = k + 1,
+                        frames = loaded.frames.len()
+                    )
+                } else {
+                    String::new()
+                };
+                ui.label(format!("( {w} x {h} ) {bytes} {position}{page}"));
+            }
+            None => {
+                ui.label(format!("{bytes} {position}"));
+            }
+        }
+        if self.status_bar.grid != [1, 1] {
+            pane_map(ui, self.status_bar.grid, self.status_bar.pane);
+        }
     }
 }
 

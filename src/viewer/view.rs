@@ -35,7 +35,7 @@ pub(crate) type Shown = (egui::TextureHandle, [usize; 2]);
 /// offset of a zoomed image, whether it was zoomed, and the pointer over it, measured from the
 /// image's centre.
 #[derive(Clone, Copy)]
-pub(crate) struct View {
+pub(crate) struct ImageArea {
     area: egui::Rect,
     ppp: f32,
     scale: f32,
@@ -611,7 +611,7 @@ impl crate::App {
     /// The image shown next to the current one when comparing. It is the other of two selected
     /// files, and otherwise the next image.
     pub(crate) fn compare_other(&self) -> Option<usize> {
-        if !self.compare {
+        if !self.is_comparing {
             return None;
         }
         // With two selected, it is the other of them. They are not collected first, because
@@ -661,7 +661,7 @@ impl crate::App {
         self.config.layout = layout.to_owned();
         self.config.save();
         // Comparing is a layout of its own.
-        self.compare = false;
+        self.is_comparing = false;
         self.refill();
     }
 
@@ -959,7 +959,7 @@ impl crate::App {
             fit.min(1.0)
         };
         // When zoomed, it shows the same part of the image, as large as this window allows.
-        let (scale, pan) = match self.last_view {
+        let (scale, pan) = match self.last_image_area {
             Some(v) if v.zoomed => {
                 let k = (area.width() * ppp / (v.area.width() * v.ppp))
                     .min(area.height() * ppp / (v.area.height() * v.ppp));
@@ -977,7 +977,7 @@ impl crate::App {
         paint_turned(ui, tex, rect, self.viewing.turn, egui::Color32::WHITE);
         // Where the pointer is over the main window's image, to point things out.
         if self.config.projector_pointer
-            && let Some(v) = self.last_view
+            && let Some(v) = self.last_image_area
             && let Some(at) = v.pointer
         {
             let at = area.center() + pan + at * (scale / ppp) / (v.scale / v.ppp);
@@ -1063,7 +1063,8 @@ impl crate::App {
             }))
             .show(ui, |ui| {
                 let [cols, rows] = layout_grid(&self.config.layout);
-                let (panes, area, right) = pane_rects(ui.max_rect(), [cols, rows], self.compare);
+                let (panes, area, right) =
+                    pane_rects(ui.max_rect(), [cols, rows], self.is_comparing);
                 // The wheel and dragging work over every pane, and the compared half.
                 let several = panes.len() > 1 || right.is_some();
                 let input = if several { ui.max_rect() } else { area };
@@ -1281,7 +1282,7 @@ impl crate::App {
         } else {
             [cols, rows]
         };
-        self.status.panes_shown(pane, grid, shown);
+        self.status_bar.panes_shown(pane, grid, shown);
         if panes.len() > 1 && self.config.layout_names && !self.list.files().is_empty() {
             let shown = std::iter::once(self.list.shown()).chain(self.list.panes().iter().copied());
             for (rect, i) in panes.iter().zip(shown) {
@@ -1395,7 +1396,7 @@ impl crate::App {
             let pointer = (ctx.pointer_hover_pos())
                 .filter(|p| area.contains(*p))
                 .map(|p| p - centre);
-            self.last_view = Some(View {
+            self.last_image_area = Some(ImageArea {
                 area,
                 ppp,
                 scale,
@@ -1600,8 +1601,8 @@ impl crate::App {
 
     /// E. It shows two images side by side, in one pane.
     pub(crate) fn toggle_compare(&mut self) {
-        self.compare = !self.compare;
-        if self.compare && self.config.layout != "1" {
+        self.is_comparing = !self.is_comparing;
+        if self.is_comparing && self.config.layout != "1" {
             self.config.layout = "1".into();
             self.config.save();
         }

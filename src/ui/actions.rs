@@ -11,10 +11,11 @@ use crate::support::format::count;
 use crate::support::lang::tr;
 use crate::support::threads::Working;
 use crate::ui::dialogs::{Pick, Prompt};
-use crate::viewer::pan::Pan;
+use crate::viewer::pan::PanView;
 use crate::viewer::view::LAYOUTS;
 use crate::{
-    features::remote, files::config, images::save, model::collections, own_program, tf, ui::help,
+    features::remote, files::config, images::save, model::collections, new_window_program, tf,
+    ui::help,
 };
 use eframe::egui;
 use std::collections::HashSet;
@@ -1053,8 +1054,10 @@ impl crate::App {
                     self.move_in_collection(ctx, picked, order)
                 }
             }
-            Action::FindDuplicates => drop(self.dups.get_or_insert_with(FindDuplicates::new)),
-            Action::CheckImages => drop(self.check.get_or_insert(None)),
+            Action::FindDuplicates => {
+                self.find_duplicates.get_or_insert_with(FindDuplicates::new);
+            }
+            Action::CheckImages => drop(self.check_images.get_or_insert(None)),
             Action::BackUp => self.pick(ctx, true, Pick::BackUp),
             // A kiosk shows only the image.
             Action::FocusSearch if self.window.is_kiosk() => {}
@@ -1107,7 +1110,7 @@ impl crate::App {
             Action::Preferences if config::locked() => {
                 self.notice = Some(tr("The settings are locked (--lock-settings)").into());
             }
-            Action::Preferences => self.prefs.show(),
+            Action::Preferences => self.preferences.show(),
             Action::Help => self.help = Some(help::Page::Manual),
             Action::Shortcuts => self.help = Some(help::Page::Shortcuts),
             Action::KeyboardMap => self.help = Some(help::Page::Keymap),
@@ -1135,9 +1138,9 @@ impl crate::App {
                 self.info_panel.focus_keywords();
             }
             Action::PanView => {
-                self.pan_window = match self.pan_window {
+                self.pan_view = match self.pan_view {
                     Some(_) => None,
-                    None => Some(Pan::default()),
+                    None => Some(PanView::default()),
                 }
             }
             Action::OneImage => self.set_layout("1"),
@@ -1318,7 +1321,7 @@ impl crate::App {
     pub(crate) fn new_window(&mut self) {
         let exe = std::env::current_exe().map(|exe| {
             let var = std::env::var_os;
-            own_program(exe, var("APPDIR"), var("APPIMAGE"))
+            new_window_program(exe, var("APPDIR"), var("APPIMAGE"))
         });
         // After an update (or a rebuild) Linux reports the running binary as
         // "/path/glimt (deleted)"; the new one is at the same path.
@@ -1344,7 +1347,7 @@ impl crate::App {
     /// Select → Copy Image: the shown image's pixels to the clipboard, decoded in the background.
     pub(crate) fn copy_image(&mut self, ctx: &egui::Context) {
         let (path, how) = (self.path(self.list.shown()), self.shown_copy());
-        let (tx, ctx) = (self.notices_tx.clone(), ctx.clone());
+        let (tx, ctx) = (self.notice_sender.clone(), ctx.clone());
         let (clip_tx, clip_rx) = mpsc::channel();
         self.file_operations.copy_image_from(clip_rx);
         let pointer = Working::new(&self.busy);
@@ -1390,15 +1393,14 @@ impl crate::App {
         }
         // Escape closes the pan view. It is read before the shortcuts, and nothing else is done
         // with it then.
-        if self.pan_window.is_some() && !self.dialog_open() && self.answers(ctx, egui::Key::Escape)
-        {
-            self.pan_window = None;
+        if self.pan_view.is_some() && !self.dialog_open() && self.answers(ctx, egui::Key::Escape) {
+            self.pan_view = None;
         }
         // And the Check Images window: a check still running is stopped with it.
-        if self.check.is_some()
+        if self.check_images.is_some()
             && !self.dialog_open()
             && self.answers(ctx, egui::Key::Escape)
-            && let Some(Some(check)) = self.check.take()
+            && let Some(Some(check)) = self.check_images.take()
         {
             check.stop();
         }
@@ -1451,17 +1453,17 @@ impl crate::App {
     pub(crate) fn focus_ring(&mut self, ctx: &egui::Context) {
         let pressed = ctx.input(|i| {
             if i.key_pressed(egui::Key::Tab) {
-                self.focus_by_keys = true;
+                self.is_focus_from_keys = true;
             }
             i.pointer.any_pressed()
         });
         if pressed {
-            self.focus_by_keys = false;
+            self.is_focus_from_keys = false;
         }
         let Some(id) = ctx.memory(|m| m.focused()) else {
             return;
         };
-        if Some(id) == self.image_id || ctx.text_edit_focused() {
+        if Some(id) == self.image_area_id || ctx.text_edit_focused() {
             return;
         }
         // A click puts the focus Tab gave away, also on the widget clicked, where egui keeps it:
@@ -1470,7 +1472,7 @@ impl crate::App {
             ctx.memory_mut(|m| m.surrender_focus(id));
             return;
         }
-        if !self.focus_by_keys {
+        if !self.is_focus_from_keys {
             return;
         }
         if let Some(widget) = ctx.read_response(id) {

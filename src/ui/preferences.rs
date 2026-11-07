@@ -165,7 +165,7 @@ const START: &[&str] = &[
 
 /// The Preferences window: open or not, its search, and the action whose key is being chosen.
 #[derive(Default)]
-pub(crate) struct Prefs {
+pub(crate) struct Preferences {
     /// Edit → Preferences is open.
     open: bool,
     /// Preferences changed while the pointer is down: saved when it is let go.
@@ -178,7 +178,7 @@ pub(crate) struct Prefs {
     capturing: Option<Action>,
 }
 
-impl Prefs {
+impl Preferences {
     /// Opens Preferences with an empty search, because a search from last time would hide
     /// settings without saying why. The search field takes the keys.
     pub(crate) fn show(&mut self) {
@@ -195,16 +195,16 @@ impl Prefs {
 impl crate::App {
     /// Edit → Preferences: every setting, saved when one changes; Esc closes it.
     pub(crate) fn preferences_window(&mut self, ctx: &egui::Context) {
-        let mut open = self.prefs.open;
+        let mut open = self.preferences.open;
         // Esc closes Preferences (shortcuts are off while it is open), unless a dialog on top
         // of it is the one Esc is meant for; a search in its field is cleared first.
         if open
             && !self.modal_open()
-            && self.prefs.capturing.is_none()
+            && self.preferences.capturing.is_none()
             && ctx.input(|i| i.key_pressed(egui::Key::Escape))
         {
-            open = !self.prefs.query.trim().is_empty();
-            self.prefs.query.clear();
+            open = !self.preferences.query.trim().is_empty();
+            self.preferences.query.clear();
         }
         let mut keys_drawn = false;
         egui::Window::new(tr("Preferences"))
@@ -216,16 +216,16 @@ impl crate::App {
                 // takes its own space instead of covering the text.
                 ui.spacing_mut().scroll = egui::style::ScrollStyle::solid();
                 // Above the settings, so it stays when they scroll.
-                let search = egui::TextEdit::singleline(&mut self.prefs.query)
+                let search = egui::TextEdit::singleline(&mut self.preferences.query)
                     .hint_text(tr("Search the settings"))
                     .desired_width(f32::INFINITY);
                 let search = ui.add(search);
                 // Until it has it: the window's first frame only measures it.
-                if self.prefs.focus_search {
+                if self.preferences.focus_search {
                     search.request_focus();
-                    self.prefs.focus_search = !search.has_focus();
+                    self.preferences.focus_search = !search.has_focus();
                 }
-                let query = self.prefs.query.to_lowercase();
+                let query = self.preferences.query.to_lowercase();
                 let shown = sections_shown(&query);
                 if !shown.contains(&true) {
                     ui.weak(tr("No setting has these words"));
@@ -292,18 +292,18 @@ impl crate::App {
                         changed |= self.window_settings(ui, ctx);
                     }
                     // Saved once a slider is let go, not in every frame it is dragged.
-                    self.prefs.unsaved |= changed;
-                    if self.prefs.unsaved && !ctx.input(|i| i.pointer.any_down()) {
-                        self.prefs.unsaved = false;
+                    self.preferences.unsaved |= changed;
+                    if self.preferences.unsaved && !ctx.input(|i| i.pointer.any_down()) {
+                        self.preferences.unsaved = false;
                         self.config.save();
                     }
                 });
             });
-        self.prefs.open = open;
+        self.preferences.open = open;
         // A key is chosen only while its row is drawn. Closing the window or the header ends
         // the choosing, so a key pressed later in another field is not taken for the action.
         if !keys_drawn {
-            self.prefs.capturing = None;
+            self.preferences.capturing = None;
         }
     }
 
@@ -770,7 +770,7 @@ impl crate::App {
             ))
             .clicked()
         {
-            let (tx, ctx) = (self.notices_tx.clone(), ctx.clone());
+            let (tx, ctx) = (self.notice_sender.clone(), ctx.clone());
             let pointer = Working::new(&self.busy);
             std::thread::spawn(move || {
                 let (removed, seen) = thumbs::remove_orphaned_thumbnails();
@@ -914,10 +914,10 @@ impl crate::App {
     /// Preferences → Keyboard shortcuts: every action with a key, which can be changed (the next
     /// key press) or reset to Geeqie's.
     pub(crate) fn key_settings(&mut self, ui: &mut egui::Ui, query: &str) {
-        if let Some(action) = self.prefs.capturing {
+        if let Some(action) = self.preferences.capturing {
             let pressed = ui.input(pressed_key);
             if let Some((key, mods)) = pressed {
-                self.prefs.capturing = None;
+                self.preferences.capturing = None;
                 if key != egui::Key::Escape {
                     let mods = egui::Modifiers {
                         mac_cmd: false,
@@ -967,7 +967,7 @@ impl crate::App {
                             .format_shortcut(&egui::KeyboardShortcut::new(s.1, s.2))
                     })
                     .collect();
-                if self.prefs.capturing == Some(action) {
+                if self.preferences.capturing == Some(action) {
                     ui.strong(tr("Press a key (Esc cancels)"));
                 } else {
                     ui.label(keys.join(", "));
@@ -980,7 +980,7 @@ impl crate::App {
                     )
                     .clicked()
                     {
-                        self.prefs.capturing = Some(action);
+                        self.preferences.capturing = Some(action);
                     }
                     let own = self.config.keys.0.iter().any(|k| k.0 == action);
                     if own && crate::ui::menus::small_button(ui, tr("Reset")).clicked() {
@@ -1269,21 +1269,21 @@ mod tests {
             };
             let _ = ctx.run_ui(input, |ui| app.preferences_window(ui.ctx()));
         };
-        app.prefs.show();
-        app.prefs.query = "zoom".into();
+        app.preferences.show();
+        app.preferences.query = "zoom".into();
         escape(&mut app);
-        assert!(app.prefs.open && app.prefs.query.is_empty());
+        assert!(app.preferences.open && app.preferences.query.is_empty());
         escape(&mut app);
-        assert!(!app.prefs.open);
-        app.prefs.show();
-        app.prefs.query = "  ".into();
+        assert!(!app.preferences.open);
+        app.preferences.show();
+        app.preferences.query = "  ".into();
         escape(&mut app);
-        assert!(!app.prefs.open && app.prefs.query.is_empty());
+        assert!(!app.preferences.open && app.preferences.query.is_empty());
         // A dialog on top of Preferences takes the Esc, and Preferences stays open.
-        app.prefs.show();
+        app.preferences.show();
         app.dialogs.ask_trash_folder(&dir);
         escape(&mut app);
-        assert!(app.prefs.open);
+        assert!(app.preferences.open);
         std::fs::remove_dir_all(dir).unwrap();
     }
 
@@ -1334,21 +1334,21 @@ mod tests {
             let _ = ctx.run_ui(input, |ui| app.preferences_window(ui.ctx()));
         };
         // The header starts closed.
-        app.prefs.open = true;
-        app.prefs.capturing = Some(Action::Next);
+        app.preferences.open = true;
+        app.preferences.capturing = Some(Action::Next);
         frame(&mut app);
-        assert_eq!(app.prefs.capturing, None);
+        assert_eq!(app.preferences.capturing, None);
         // A search for the action opens the header, so its row is drawn and the choosing stays.
-        app.prefs.query = "next image".into();
-        app.prefs.capturing = Some(Action::Next);
+        app.preferences.query = "next image".into();
+        app.preferences.capturing = Some(Action::Next);
         frame(&mut app);
-        assert_eq!(app.prefs.capturing, Some(Action::Next));
+        assert_eq!(app.preferences.capturing, Some(Action::Next));
         // A closed window fades out first, drawing its rows a few frames more.
-        app.prefs.open = false;
+        app.preferences.open = false;
         for _ in 0..30 {
             frame(&mut app);
         }
-        assert_eq!(app.prefs.capturing, None);
+        assert_eq!(app.preferences.capturing, None);
         std::fs::remove_dir_all(dir).unwrap();
     }
 }

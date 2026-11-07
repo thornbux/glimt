@@ -451,7 +451,7 @@ impl crate::App {
             self.info_panel.exif_window_open(),
             Action::ExifWindow,
         );
-        menu_toggle(ui, act, self.pan_window.is_some(), Action::PanView);
+        menu_toggle(ui, act, self.pan_view.is_some(), Action::PanView);
         menu_toggle(ui, act, c.osd, Action::FullScreenInfo);
         menu_item(ui, act, Action::Histogram);
         menu_toggle(ui, act, c.histogram_log, Action::HistogramLog);
@@ -598,7 +598,7 @@ impl crate::App {
                 self.plugins_running.clone(),
             );
             let report_tx = self.file_operations.report_sender();
-            let (tx, ctx) = (self.notices_tx.clone(), ui.ctx().clone());
+            let (tx, ctx) = (self.notice_sender.clone(), ui.ctx().clone());
             // A plugin may be an editor that stays open for hours: not waited for at closing,
             // and no busy pointer meanwhile, as for Open With.
             std::thread::spawn(move || {
@@ -651,7 +651,7 @@ impl crate::App {
                 {
                     // Each selected file (or the shown one), the chooser asking for each.
                     let files: Vec<PathBuf> = targets.iter().map(|&i| self.path(i)).collect();
-                    let tx = self.notices_tx.clone();
+                    let tx = self.notice_sender.clone();
                     std::thread::spawn(move || {
                         // Cancel ends them all, not only the one asked about.
                         for path in files {
@@ -678,7 +678,7 @@ impl crate::App {
                 && let Some(targets) = self.targets()
             {
                 let files: Vec<PathBuf> = targets.iter().map(|&i| self.path(i)).collect();
-                let tx = self.notices_tx.clone();
+                let tx = self.notice_sender.clone();
                 // The chosen application may stay open, so it is waited for in a thread of its own.
                 std::thread::spawn(move || {
                     let mut gio = external::host_command("gio");
@@ -697,7 +697,7 @@ impl crate::App {
         if self.list.files().is_empty() {
             return;
         }
-        let (path, tx) = (self.path(self.list.shown()), self.notices_tx.clone());
+        let (path, tx) = (self.path(self.list.shown()), self.notice_sender.clone());
         let mut words = plugins::command_words(player);
         std::thread::spawn(move || {
             // The player stays open as long as it plays, waited for in this thread.

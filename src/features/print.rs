@@ -262,7 +262,7 @@ impl crate::App {
     /// File → Print. The dialog chooses the printer or a PDF, the paper, and images or contact
     /// sheets.
     pub(crate) fn print_dialog(&mut self, ctx: &egui::Context) {
-        if let Some(mut dialog) = self.print_window.take() {
+        if let Some(mut dialog) = self.print_dialog.take() {
             self.receive_print_answers(ctx, &mut dialog);
             self.ask_captions(ctx, &mut dialog);
             let mut go = false;
@@ -297,7 +297,7 @@ impl crate::App {
             if go {
                 self.start_print_job(ctx, dialog);
             } else if !modal.should_close() {
-                self.print_window = Some(dialog);
+                self.print_dialog = Some(dialog);
             }
         }
     }
@@ -382,7 +382,7 @@ impl crate::App {
                 ctx2.request_repaint();
             }
         });
-        self.print_window = Some(PrintDialog {
+        self.print_dialog = Some(PrintDialog {
             previews: vec![None; paths.len().min(MAX_PREVIEWS)],
             sizes: vec![None; paths.len().min(MAX_PREVIEWS)],
             decoded: false,
@@ -428,10 +428,10 @@ impl crate::App {
     pub(crate) fn print(&mut self, ctx: &egui::Context, job: PrintJob, to: PrintTo) {
         if to.is_an_image() {
             let text = tr("Not saved over an image: choose a name ending in .pdf");
-            let _ = self.notices_tx.send(text.into());
+            let _ = self.notice_sender.send(text.into());
             return;
         }
-        let (tx, ctx) = (self.notices_tx.clone(), ctx.clone());
+        let (tx, ctx) = (self.notice_sender.clone(), ctx.clone());
         let pointer = Working::new(&self.busy);
         // A PDF half made would be lost, its temporary file left beside the one chosen.
         let writing = Working::new(&crate::files::file_io::WRITING);
@@ -1394,9 +1394,7 @@ mod tests {
             copies: 1,
         };
         app.print(&ctx, job, super::PrintTo::File(link.clone()));
-        let told = app
-            .notices_rx
-            .recv_timeout(std::time::Duration::from_secs(5));
+        let told = app.notices.recv_timeout(std::time::Duration::from_secs(5));
         assert!(told.is_ok());
         assert_eq!(std::fs::read_to_string(&secret).unwrap(), "keep");
         let pdf = std::fs::symlink_metadata(&link).unwrap();
@@ -1422,9 +1420,7 @@ mod tests {
             copies: 1,
         };
         app.print(&ctx, job, super::PrintTo::File(jpg.clone()));
-        let told = app
-            .notices_rx
-            .recv_timeout(std::time::Duration::from_secs(5));
+        let told = app.notices.recv_timeout(std::time::Duration::from_secs(5));
         assert!(told.is_ok());
         assert_eq!(std::fs::read(&jpg).unwrap(), before);
         std::fs::remove_dir_all(dir).unwrap();

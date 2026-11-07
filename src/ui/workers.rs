@@ -55,7 +55,7 @@ impl crate::App {
         }
         self.receive_lightroom();
         self.receive_renames(ctx);
-        while let Ok(msg) = self.notices_rx.try_recv() {
+        while let Ok(msg) = self.notices.try_recv() {
             self.notice = Some(msg);
             ctx.request_repaint();
         }
@@ -130,7 +130,7 @@ impl crate::App {
 
     /// A Lightroom catalog read: the import dialog opens.
     fn receive_lightroom(&mut self) {
-        match self.lightroom_rx.take() {
+        match self.lightroom_catalog.take() {
             Took::Nothing => {}
             Took::Gone => self.stopped(tr("Reading the Lightroom catalog")),
             Took::Answer(Ok(catalog)) => {

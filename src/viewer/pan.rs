@@ -59,7 +59,7 @@ impl Month {
 
 /// The pan view's window (Ctrl+J). Closed, the days being made for it are not read on.
 #[derive(Default)]
-pub(crate) struct Pan {
+pub(crate) struct PanView {
     /// Days from the EXIF dates instead of the file dates.
     exif: bool,
     /// The days, and the version of the file list they are for (`List::version`).
@@ -86,7 +86,7 @@ pub(crate) struct Pan {
     jump: Option<usize>,
 }
 
-impl Pan {
+impl PanView {
     /// The view's tabs (Timeline, Calendar), EXIF date, and how many images and days, for the
     /// list at `version`.
     fn tabs(&mut self, ui: &mut egui::Ui, version: usize) {
@@ -169,7 +169,7 @@ impl Pan {
     }
 }
 
-impl Drop for Pan {
+impl Drop for PanView {
     fn drop(&mut self) {
         self.days_stop.store(true, Ordering::Relaxed);
     }
@@ -185,7 +185,7 @@ impl crate::App {
         view.sort_unstable();
         view.dedup();
         self.thumbs.pan_view_shows(view);
-        let Some(mut pan) = self.pan_window.take() else {
+        let Some(mut pan) = self.pan_view.take() else {
             return;
         };
         self.pan_days(ctx, &mut pan);
@@ -220,13 +220,13 @@ impl crate::App {
             self.show_file(ctx, i);
         }
         if open && !close {
-            self.pan_window = Some(pan);
+            self.pan_view = Some(pan);
         }
     }
 
     /// The Pan view's days made in the background when the list changed, also only its order,
     /// and taken as they come.
-    fn pan_days(&mut self, ctx: &egui::Context, pan: &mut Pan) {
+    fn pan_days(&mut self, ctx: &egui::Context, pan: &mut PanView) {
         // The days again when the list changed, also only its order; only the visible rows are
         // drawn.
         let stale = (pan.days.as_ref()).is_none_or(|d| d.1 != self.list.version());
@@ -287,7 +287,7 @@ impl crate::App {
     fn pan_timeline(
         &mut self,
         ui: &mut egui::Ui,
-        pan: &mut Pan,
+        pan: &mut PanView,
         cell: egui::Vec2,
     ) -> (Option<usize>, bool) {
         let (mut show, mut close) = (None, false);
@@ -594,7 +594,7 @@ fn by_day<K: Ord>(keys: Vec<Option<K>>, mut day: impl FnMut(&K) -> String) -> Ve
 
 /// The rows of `days` with `columns` thumbnails to a row, each with its top; and the height of
 /// them all. Made again only when the number of columns or the cell size changes
-/// (`Pan::lay_out`).
+/// (`PanView::lay_out`).
 pub fn layout(days: &[Day], columns: usize, heading: f32, cell: f32) -> (Vec<(f32, Row)>, f32) {
     let (mut rows, mut y) = (Vec::new(), 0.0);
     for (d, (_, list)) in days.iter().enumerate() {
@@ -695,9 +695,9 @@ mod tests {
     /// as names turned on under the thumbnails do.
     #[test]
     fn the_rows_follow_the_cell_size() {
-        let mut pan = Pan::default();
+        let mut pan = PanView::default();
         pan.days = Some((vec![("2024-01-01".into(), vec![0, 1, 2, 3])], 1));
-        let pitch = |pan: &Pan| pan.rows[2].0 - pan.rows[1].0;
+        let pitch = |pan: &PanView| pan.rows[2].0 - pan.rows[1].0;
         pan.lay_out(2, 26.0, egui::vec2(100.0, 100.0));
         assert_eq!(pitch(&pan), 100.0);
         pan.lay_out(2, 26.0, egui::vec2(100.0, 118.0));
@@ -709,7 +709,7 @@ mod tests {
     /// goes. Days of another version of the list are not touched.
     #[test]
     fn the_days_follow_a_delete() {
-        let mut pan = Pan::default();
+        let mut pan = PanView::default();
         let days = vec![
             ("2024-01-01".into(), vec![0, 2]),
             ("2024-01-02".into(), vec![1]),
@@ -725,7 +725,7 @@ mod tests {
     /// sends afterwards come at the new places, through every delete made meanwhile.
     #[test]
     fn the_days_being_read_follow_a_delete() {
-        let mut pan = Pan::default();
+        let mut pan = PanView::default();
         let (_tx, rx) = mpsc::channel();
         (pan.days_rx, pan.gone) = (Receiving::of(rx), (Vec::new(), 5));
         pan.days = Some((vec![("2024-01-01".into(), vec![2, 3])], 5));
@@ -762,12 +762,12 @@ mod tests {
         let (mut app, ctx) = crate::support::test_support::app_on(&dir);
         app.list
             .set_files((0..3).map(|i| format!("{i}.png").into()).collect());
-        let mut pan = Pan::default();
+        let mut pan = PanView::default();
         let days = vec![("2024-01-01".into(), vec![0, 1, 2])];
         pan.days = Some((days, app.list.version()));
-        app.pan_window = Some(pan);
+        app.pan_view = Some(pan);
         app.remove_indices(&ctx, &[1]);
-        let pan = app.pan_window.as_ref().unwrap();
+        let pan = app.pan_view.as_ref().unwrap();
         let days = vec![("2024-01-01".into(), vec![0, 1])];
         assert_eq!(pan.days, Some((days, app.list.version())));
         std::fs::remove_dir_all(&dir).unwrap();

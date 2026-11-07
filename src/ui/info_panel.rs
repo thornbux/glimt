@@ -508,7 +508,7 @@ impl crate::App {
             (edit.alt, edit.extended) =
                 (alt_text.text.clone(), alt_text.extended_description.clone());
             edit.alt_text = alt_text.clone();
-            let (path, tx) = (edit.path.clone(), self.notices_tx.clone());
+            let (path, tx) = (edit.path.clone(), self.notice_sender.clone());
             // A sidecar job like the keywords': Move, Rename and Delete wait for it.
             self.write_sidecars(
                 ctx,
@@ -544,7 +544,7 @@ impl crate::App {
         }
         edit.keywords = edit.saved.keywords_text();
         edit.comment = edit.saved.comment.clone();
-        let (path, tx) = (edit.path.clone(), self.notices_tx.clone());
+        let (path, tx) = (edit.path.clone(), self.notice_sender.clone());
         // A sidecar job, so that a Move, Rename or Delete of the file waits until it has
         // landed, instead of leaving the new keywords behind under the old name.
         self.write_sidecars(

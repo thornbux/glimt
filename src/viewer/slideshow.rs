@@ -465,7 +465,7 @@ mod tests {
         assert!(run_background_until(&mut app, &ctx, |a| !a
             .folder
             .is_listing()
-            && a.status.folder_total().is_some()));
+            && a.status_bar.folder_total().is_some()));
         assert_eq!(app.list.files(), order);
         std::fs::remove_dir_all(&d).unwrap();
     }
@@ -515,9 +515,9 @@ mod tests {
             assert!(run_background_until(&mut app, &ctx, |a| !a
                 .folder
                 .is_listing()
-                && a.status.folder_total().is_some()));
+                && a.status_bar.folder_total().is_some()));
             assert_eq!(app.list.files(), order);
-            assert!(app.status.folder_total() > Some(0), "size");
+            assert!(app.status_bar.folder_total() > Some(0), "size");
             std::fs::remove_dir_all(&d).unwrap();
         }
     }

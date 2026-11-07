@@ -16,8 +16,8 @@ use crate::files::config::{Config, WindowState, parse_last_dir, state_path};
 use crate::files::file_io::write_atomic;
 use crate::model::list::List;
 use crate::support::threads::{HAS_ONE_MALLOC_ARENA, Receiving, cores, set_cpu_use, thread_cpu_us};
-use crate::viewer::pan::Pan;
-use crate::viewer::view::View;
+use crate::viewer::pan::PanView;
+use crate::viewer::view::ImageArea;
 use crate::viewer::view::frame_at;
 use eframe::egui;
 use std::collections::HashSet;
@@ -81,7 +81,7 @@ struct App {
     search: crate::model::search::Search,
     /// The status bar's numbers. It holds the shown image's size and place, the folder's total,
     /// and the size of the selection.
-    status: crate::ui::file_list::StatusBar,
+    status_bar: crate::ui::file_list::StatusBar,
     /// Files Check Images found broken, marked in the list until another list is shown.
     broken_files: HashSet<OsString>,
     #[cfg(feature = "marks")]
@@ -96,15 +96,15 @@ struct App {
     /// The zoom, and where the zoomed image is in the view.
     zoom: crate::viewer::view::Zoom,
     /// Whether two images are shown side by side (E), the shown one and `compare_other`.
-    compare: bool,
+    is_comparing: bool,
     /// What the image area showed in the last frame, for the projector to show the same.
-    last_view: Option<View>,
+    last_image_area: Option<ImageArea>,
     /// The image area. It keeps the keyboard focus for a screen reader, because a widget with
     /// the focus would take the keys from the shortcuts.
-    image_id: Option<egui::Id>,
+    image_area_id: Option<egui::Id>,
     /// Whether the focus was last moved by Tab rather than by the mouse. Its ring shows only
     /// then, as in GNOME.
-    focus_by_keys: bool,
+    is_focus_from_keys: bool,
     /// The slideshow. It knows whether it runs, its order, and the pane it changes next.
     slideshow: crate::viewer::slideshow::Slideshow,
     /// The window. It holds the remembered window state, the kiosk, the projector, the screen
@@ -116,8 +116,8 @@ struct App {
     /// The message shown over the image, until the next image.
     notice: Option<String>,
     /// Messages from background tasks (deleting, copying), to become the notice.
-    notices_tx: crate::support::threads::Notices,
-    notices_rx: mpsc::Receiver<String>,
+    notice_sender: crate::support::threads::Notices,
+    notices: mpsc::Receiver<String>,
 
     // ---- Menus, dialogs and windows ----
     /// The small dialogs. They ask for a name, confirm a delete or the trashing of a folder,
@@ -125,7 +125,7 @@ struct App {
     dialogs: crate::ui::dialogs::Dialogs,
     /// The Preferences window. It knows whether it is open, its search, and the action whose
     /// key is being chosen.
-    prefs: crate::ui::preferences::Prefs,
+    preferences: crate::ui::preferences::Preferences,
     /// Open With's programs for each file type, read in the background.
     open_with: crate::ui::menus::OpenWith,
     /// Edit → Plugins, read at start.
@@ -135,21 +135,21 @@ struct App {
     /// The help page open (F1), if any.
     help: Option<crate::ui::help::Page>,
     /// File → Print's dialog, while open.
-    print_window: Option<PrintDialog>,
+    print_dialog: Option<PrintDialog>,
     /// A Lightroom catalog being read, then imported with the folders where its root folders
     /// are now.
-    lightroom_rx: Receiving<Result<crate::metadata::lightroom::Catalog, String>>,
+    lightroom_catalog: Receiving<Result<crate::metadata::lightroom::Catalog, String>>,
     lightroom: Option<crate::metadata::lightroom::Import>,
     /// The pan view's window (Ctrl+J), while it is open.
-    pan_window: Option<Pan>,
+    pan_view: Option<PanView>,
     /// File → Save As. It holds the dialog while it is open, and the answers given last.
     save_as: Option<crate::viewer::save_as::SaveAs>,
-    save_as_last: crate::viewer::save_as::Choice,
+    save_as_choices: crate::viewer::save_as::SaveAsChoices,
     /// The Find Duplicates window, while open.
-    dups: Option<FindDuplicates>,
+    find_duplicates: Option<FindDuplicates>,
     /// The Check Images window. `None` means it is closed, and `Some(None)` means it is open
     /// but not started.
-    check: Option<Option<ImageCheck>>,
+    check_images: Option<Option<ImageCheck>>,
     /// Commands from --remote, and the selects that wait until the list is read.
     remote: crate::features::remote::Listener,
 }
@@ -159,12 +159,12 @@ impl App {
 
     fn new(cc: &eframe::CreationContext, path: Option<PathBuf>, start: Start) -> Self {
         let (config, problems) = Config::load_checked();
-        Self::with(&cc.egui_ctx, config, &problems, path, start)
+        Self::with_config(&cc.egui_ctx, config, &problems, path, start)
     }
 
     /// The window's state from the settings `new` reads, or a test gives, so a test makes an
     /// `App` on `egui::Context::default()` with settings of its own.
-    fn with(
+    fn with_config(
         ctx: &egui::Context,
         mut config: Config,
         problems: &[String],
@@ -213,7 +213,7 @@ impl App {
         // kiosk listens too, because --remote quit is its way out.
         let listen =
             config.remote_control || crate::features::remote::given_name().is_some() || start.kiosk;
-        let (notices_tx, notices_rx) = crate::support::threads::Notices::new(ctx);
+        let (notice_sender, notices) = crate::support::threads::Notices::new(ctx);
         let mut app = App {
             ctx: ctx.clone(),
             desktop: crate::ui::theme::FromDesktop::new(ctx, config.desktop_profile),
@@ -225,37 +225,37 @@ impl App {
             tree: crate::ui::file_list::Tree::default(),
             thumbs,
             search: crate::model::search::Search::default(),
-            status: crate::ui::file_list::StatusBar::default(),
+            status_bar: crate::ui::file_list::StatusBar::default(),
             broken_files: HashSet::new(),
             #[cfg(feature = "marks")]
             marks: crate::metadata::marks::Marks::load(),
             decoding,
             viewing: crate::viewer::view::Viewing::default(),
             zoom: crate::viewer::view::Zoom::default(),
-            compare: false,
-            last_view: None,
-            image_id: None,
-            focus_by_keys: false,
+            is_comparing: false,
+            last_image_area: None,
+            image_area_id: None,
+            is_focus_from_keys: false,
             slideshow: crate::viewer::slideshow::Slideshow::new(start.slideshow),
             window: crate::ui::window::Window::new(start.kiosk),
             info_panel: crate::ui::info_panel::InfoPanel::new(ctx),
             notice: screen_error.or_else(|| config_notice(problems)),
-            notices_tx,
-            notices_rx,
+            notice_sender,
+            notices,
             dialogs: crate::ui::dialogs::Dialogs::default(),
-            prefs: crate::ui::preferences::Prefs::default(),
+            preferences: crate::ui::preferences::Preferences::default(),
             open_with: crate::ui::menus::OpenWith::default(),
             plugins: crate::features::plugins::find(),
             plugins_running: crate::features::plugins::RunningPlugins::default(),
             help: None,
-            print_window: None,
-            lightroom_rx: Receiving::none(),
+            print_dialog: None,
+            lightroom_catalog: Receiving::none(),
             lightroom: None,
-            pan_window: None,
+            pan_view: None,
             save_as: None,
-            save_as_last: Default::default(),
-            dups: None,
-            check: None,
+            save_as_choices: Default::default(),
+            find_duplicates: None,
+            check_images: None,
             remote: crate::features::remote::Listener::new(ctx, listen),
             config,
         };
@@ -422,7 +422,11 @@ unsafe extern "C" {
 /// is in the AppImage's mount, which goes away when this window closes. Otherwise it is the
 /// binary. Every program started from an AppImage inherits its APPIMAGE variable, so the
 /// variable counts only when the binary is inside APPDIR.
-fn own_program(exe: PathBuf, appdir: Option<OsString>, appimage: Option<OsString>) -> PathBuf {
+fn new_window_program(
+    exe: PathBuf,
+    appdir: Option<OsString>,
+    appimage: Option<OsString>,
+) -> PathBuf {
     match (appdir, appimage) {
         (Some(dir), Some(image)) if exe.starts_with(&dir) => PathBuf::from(image),
         _ => exe,
@@ -570,15 +574,19 @@ mod tests {
         use std::path::PathBuf;
         let os = |s: &str| Some(std::ffi::OsString::from(s));
         let inside = PathBuf::from("/tmp/.mount_ab12/usr/bin/glimt");
-        let got = super::own_program(inside, os("/tmp/.mount_ab12"), os("/home/u/glimt.AppImage"));
+        let got =
+            super::new_window_program(inside, os("/tmp/.mount_ab12"), os("/home/u/glimt.AppImage"));
         assert_eq!(got, PathBuf::from("/home/u/glimt.AppImage"));
         let installed = PathBuf::from("/usr/bin/glimt");
-        let got = super::own_program(
+        let got = super::new_window_program(
             installed.clone(),
             os("/tmp/.mount_cd34"),
             os("/home/u/Term.AppImage"),
         );
         assert_eq!(got, installed);
-        assert_eq!(super::own_program(installed.clone(), None, None), installed);
+        assert_eq!(
+            super::new_window_program(installed.clone(), None, None),
+            installed
+        );
     }
 }

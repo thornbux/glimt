@@ -18,7 +18,7 @@ use std::path::PathBuf;
 
 /// What the Save As dialog asks; kept from one use to the next while Glimt runs.
 #[derive(Clone, Copy)]
-pub struct Choice {
+pub struct SaveAsChoices {
     /// `None`: as the original.
     format: Option<Format>,
     /// 0 the original size, 1 the longest side in pixels, 2 a percentage.
@@ -29,9 +29,9 @@ pub struct Choice {
     strip: bool,
 }
 
-impl Default for Choice {
+impl Default for SaveAsChoices {
     fn default() -> Self {
-        Choice {
+        SaveAsChoices {
             format: None,
             size: 0,
             long: 1920,
@@ -42,7 +42,7 @@ impl Default for Choice {
     }
 }
 
-impl Choice {
+impl SaveAsChoices {
     /// The longest side asked for, if smaller than the image's `long` side.
     fn long_side(&self, long: usize) -> Option<u32> {
         let side = match self.size {
@@ -59,7 +59,7 @@ pub struct SaveAs {
     path: PathBuf,
     how: CopyAs,
     orig: [usize; 2],
-    choice: Choice,
+    choice: SaveAsChoices,
 }
 
 impl crate::App {
@@ -80,7 +80,7 @@ impl crate::App {
         } else {
             [w, h]
         };
-        let mut choice = self.save_as_last;
+        let mut choice = self.save_as_choices;
         // The quality starts at the one in Preferences for its format.
         let path = self.path(shown);
         choice.quality = match choice.format.unwrap_or_else(|| Format::of(&path)) {
@@ -144,7 +144,7 @@ impl crate::App {
                 }
             });
         });
-        self.save_as_last = dialog.choice;
+        self.save_as_choices = dialog.choice;
         if go {
             let c = dialog.choice;
             let [w, h] = dialog.orig;

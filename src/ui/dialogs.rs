@@ -309,7 +309,7 @@ impl crate::App {
             Pick::ExportFrames(..) => tr("Export Every Frame To"),
             Pick::SaveAs(..) => tr("Save As"),
         };
-        let notices = self.notices_tx.clone();
+        let notices = self.notice_sender.clone();
         std::thread::spawn(move || {
             #[allow(clippy::disallowed_methods)] // waits for the user, in its own thread
             let zenity = || {
@@ -933,7 +933,7 @@ impl crate::App {
     /// Returns whether Preferences or a modal dialog is open. The keys then go there, not to
     /// the shortcuts.
     pub(crate) fn dialog_open(&self) -> bool {
-        self.prefs.is_open() || self.modal_open()
+        self.preferences.is_open() || self.modal_open()
     }
 
     /// Returns whether a modal dialog is open, which takes Esc before anything under it. This
@@ -944,7 +944,7 @@ impl crate::App {
             || self.dialogs.confirm_folder
             || self.dialogs.prompt.is_some()
             || self.folder.asks_login()
-            || self.print_window.is_some()
+            || self.print_dialog.is_some()
             || self.lightroom.is_some()
             || self.save_as.is_some()
             || !self.file_operations.cut_short().is_empty()
@@ -1003,7 +1003,7 @@ impl crate::App {
         [before, now]
             .into_iter()
             .flatten()
-            .any(|f| Some(f) != self.image_id)
+            .any(|f| Some(f) != self.image_area_id)
     }
 
     /// Notes the widget with the keyboard focus as the frame ends, for `answers` in the next.

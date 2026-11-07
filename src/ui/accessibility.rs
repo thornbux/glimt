@@ -12,7 +12,7 @@ impl App {
     /// keeps the focus while nothing else has it and no dialog is open, so browsing reads out
     /// the next image.
     pub fn speak_image(&mut self, ui: &egui::Ui, response: &egui::Response) {
-        self.image_id = Some(response.id);
+        self.image_area_id = Some(response.id);
         let text = if self.list.files().is_empty() {
             crate::support::lang::tr("No images").to_owned()
         } else {

@@ -148,11 +148,11 @@
       <rect x="826" y="347" width="10" height="10" fill="#d08a1a"/><text x="844" y="356">panel</text><text x="956" y="356">ui::file_list::Panel</text>
       <rect x="826" y="366" width="10" height="10" fill="#d08a1a"/><text x="844" y="375">tree</text><text x="956" y="375">ui::file_list::Tree</text>
       <rect x="826" y="385" width="10" height="10" fill="#d08a1a"/><text x="844" y="394">thumbs</text><text x="956" y="394">ui::file_list::Thumbs</text>
-      <rect x="826" y="404" width="10" height="10" fill="#d08a1a"/><text x="844" y="413">status</text><text x="956" y="413">ui::file_list::StatusBar</text>
+      <rect x="826" y="404" width="10" height="10" fill="#d08a1a"/><text x="844" y="413">status_bar</text><text x="956" y="413">ui::file_list::StatusBar</text>
       <rect x="826" y="423" width="10" height="10" fill="#d08a1a"/><text x="844" y="432">window</text><text x="956" y="432">ui::window::Window</text>
-      <rect x="826" y="442" width="10" height="10" fill="#d08a1a"/><text x="844" y="451">info</text><text x="956" y="451">ui::info_panel::Info</text>
+      <rect x="826" y="442" width="10" height="10" fill="#d08a1a"/><text x="844" y="451">info_panel</text><text x="956" y="451">ui::info_panel::InfoPanel</text>
       <rect x="826" y="461" width="10" height="10" fill="#d08a1a"/><text x="844" y="470">dialogs</text><text x="956" y="470">ui::dialogs::Dialogs</text>
-      <rect x="826" y="480" width="10" height="10" fill="#d08a1a"/><text x="844" y="489">prefs</text><text x="956" y="489">ui::preferences::Prefs</text>
+      <rect x="826" y="480" width="10" height="10" fill="#d08a1a"/><text x="844" y="489">preferences</text><text x="956" y="489">ui::preferences::Preferences</text>
       <rect x="826" y="499" width="10" height="10" fill="#8e44ad"/><text x="844" y="508">remote</text><text x="956" y="508">features::remote::Listener</text>
       <text x="844" y="527" fill="#57606a">…</text><text x="956" y="527" fill="#57606a">and a few more</text>
     </g>

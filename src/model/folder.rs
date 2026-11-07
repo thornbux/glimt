@@ -658,7 +658,7 @@ impl crate::App {
     pub(crate) fn forget_old_list(&mut self) {
         // A check still running would find names of the old list, so it is stopped and its
         // window closed.
-        if let Some(Some(check)) = self.check.take() {
+        if let Some(Some(check)) = self.check_images.take() {
             check.stop();
         }
         self.folder.opened_type = Types::NONE;
@@ -901,7 +901,7 @@ impl crate::App {
         });
         self.folder.listing_rx = Receiving::of(rx);
         self.folder.listing_version = self.list.version();
-        self.status.sum_folder(size_rx);
+        self.status_bar.sum_folder(size_rx);
         self.folder.relist_when_done = false;
     }
 
@@ -1225,7 +1225,7 @@ impl crate::App {
         // image and the neighbours are counted among the matches, not in the whole folder.
         self.update_search(ctx);
         self.list_changed(ctx);
-        if let Some(pan) = &mut self.pan_window {
+        if let Some(pan) = &mut self.pan_view {
             pan.follow(removed, version, self.list.version());
         }
         if gone && !self.list.files().is_empty() {
@@ -1238,7 +1238,7 @@ impl crate::App {
     }
 
     pub(crate) fn receive_sizes(&mut self) {
-        self.status.receive();
+        self.status_bar.receive();
         let mut size = self.list.match_size();
         self.search.receive_match_size(&mut size);
         self.list.set_match_size(size);
@@ -1283,7 +1283,7 @@ impl crate::App {
         // are made again too.
         self.refill();
         self.thumbs_changed();
-        self.status.forget_size();
+        self.status_bar.forget_size();
         self.start_listing(ctx);
     }
 }
@@ -1441,7 +1441,7 @@ mod tests {
         }
         let (mut app, ctx) = app_on(&dir);
         app.show_file(&ctx, 5);
-        app.compare = true;
+        app.is_comparing = true;
         app.search.set_query("re:0[59]");
         app.update_search(&ctx);
         app.refill();

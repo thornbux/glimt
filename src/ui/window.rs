@@ -508,9 +508,9 @@ mod tests {
         app.start_listing(&ctx);
         assert!(app.folder.is_listing() && !app.pointer_hides(true));
         assert!(run_background_until(&mut app, &ctx, |a| a.pointer_hides(true)));
-        app.prefs.show();
+        app.preferences.show();
         assert!(!app.pointer_hides(true));
-        app.prefs = Default::default();
+        app.preferences = Default::default();
         app.config.hide_pointer = false;
         assert!(!app.pointer_hides(true));
         std::fs::remove_dir_all(dir).unwrap();
@@ -610,9 +610,9 @@ mod tests {
         assert!(!pass(&mut app, vec![], true));
         // A dialog keeps it.
         app.window.pointer_moved = long_ago();
-        app.prefs.show();
+        app.preferences.show();
         assert!(!pass(&mut app, vec![], true));
-        app.prefs = Default::default();
+        app.preferences = Default::default();
         assert!(pass(&mut app, vec![], true));
         std::fs::remove_dir_all(dir).unwrap();
     }

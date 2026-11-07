@@ -183,24 +183,28 @@ impl crate::App {
     /// The Find Duplicates window: compares the images of the list in the background, and
     /// lists the groups found; checked files can go to the trash.
     pub(crate) fn duplicates_window(&mut self, ctx: &egui::Context) {
-        let Some(mut dups) = self.dups.take() else {
+        let Some(mut find_duplicates) = self.find_duplicates.take() else {
             return;
         };
-        match dups.groups_rx.take() {
+        match find_duplicates.groups_rx.take() {
             Took::Nothing => {}
             Took::Gone => {
-                dups.searched = 0;
+                find_duplicates.searched = 0;
                 self.stopped(tr("Find Duplicates"));
             }
             Took::Answer(groups) => {
                 // Stopped: no result, not "0 groups" as if every image had been compared.
-                if dups.progress.is_cancelled.load(Ordering::Relaxed) {
-                    dups.searched = 0;
+                if find_duplicates
+                    .progress
+                    .is_cancelled
+                    .load(Ordering::Relaxed)
+                {
+                    find_duplicates.searched = 0;
                 }
-                dups.groups = groups;
-                dups.sizes.clear();
-                dups.checked.clear();
-                dups.remove(&HashSet::new());
+                find_duplicates.groups = groups;
+                find_duplicates.sizes.clear();
+                find_duplicates.checked.clear();
+                find_duplicates.remove(&HashSet::new());
             }
         }
         let (mut open, mut start, mut trash, mut show) = (true, false, false, None);
@@ -213,27 +217,35 @@ impl crate::App {
                         "Among the {count} in the list, compare by",
                         count = count(self.list.files().len(), "image")
                     ));
-                    let label = ALL.iter().find(|a| a.0 == dups.by).map_or("", |a| a.1);
+                    let label = ALL
+                        .iter()
+                        .find(|a| a.0 == find_duplicates.by)
+                        .map_or("", |a| a.1);
                     egui::ComboBox::from_id_salt("compare by")
                         .selected_text(tr(label))
                         .show_ui(ui, |ui| {
                             for (by, label) in ALL {
-                                crate::ui::menus::choice(ui, &mut dups.by, by, tr(label));
+                                crate::ui::menus::choice(
+                                    ui,
+                                    &mut find_duplicates.by,
+                                    by,
+                                    tr(label),
+                                );
                             }
                         });
-                    if dups.groups_rx.is_some() {
+                    if find_duplicates.groups_rx.is_some() {
                         if crate::ui::menus::button(ui, tr("Stop")).clicked() {
-                            dups.stop();
+                            find_duplicates.stop();
                         }
                     } else {
                         let on = self.list.files().len() > 1;
                         start = crate::ui::menus::button_enabled(ui, on, tr("Find")).clicked();
                     }
                 });
-                if dups.groups_rx.is_some() {
+                if find_duplicates.groups_rx.is_some() {
                     let (done, total) = (
-                        dups.progress.done.load(Ordering::Relaxed),
-                        dups.progress.total.load(Ordering::Relaxed),
+                        find_duplicates.progress.done.load(Ordering::Relaxed),
+                        find_duplicates.progress.total.load(Ordering::Relaxed),
                     );
                     ui.label(tf!(
                         "Comparing… {done} of {total}",
@@ -243,7 +255,7 @@ impl crate::App {
                     ctx.request_repaint_after(std::time::Duration::from_millis(100));
                     return;
                 }
-                if dups.searched == 0 {
+                if find_duplicates.searched == 0 {
                     if !self.folder.recursive() {
                         ui.weak(tr(
                             "Include Subfolders in the View menu searches the folders below too.",
@@ -251,10 +263,10 @@ impl crate::App {
                     }
                     return;
                 }
-                trash = dups.results(ui, &mut show);
+                trash = find_duplicates.results(ui, &mut show);
             });
         if start {
-            self.start_find(ctx, &mut dups);
+            self.start_find(ctx, &mut find_duplicates);
         }
         if let Some(path) = show {
             match (0..self.list.files().len()).find(|&i| self.is_file(i, &path)) {
@@ -263,24 +275,27 @@ impl crate::App {
             }
         }
         if trash {
-            self.trash_checked(ctx, &dups);
+            self.trash_checked(ctx, &find_duplicates);
         }
         if open {
-            self.dups = Some(dups);
+            self.find_duplicates = Some(find_duplicates);
         } else {
-            dups.progress.is_cancelled.store(true, Ordering::Relaxed);
+            find_duplicates
+                .progress
+                .is_cancelled
+                .store(true, Ordering::Relaxed);
         }
     }
 
-    /// Find: the images of the list compared by `dups.by` in the background.
-    fn start_find(&mut self, ctx: &egui::Context, dups: &mut FindDuplicates) {
+    /// Find: the images of the list compared by `find_duplicates.by` in the background.
+    fn start_find(&mut self, ctx: &egui::Context, find_duplicates: &mut FindDuplicates) {
         let paths: Vec<PathBuf> = (0..self.list.files().len()).map(|i| self.path(i)).collect();
         let (tx, ctx) = (mpsc::channel(), ctx.clone());
-        let (by, progress) = (dups.by, Arc::new(Progress::default()));
+        let (by, progress) = (find_duplicates.by, Arc::new(Progress::default()));
         let (rotate, save) = (self.config.exif_rotate, self.config.save_thumbnails);
-        dups.searched = paths.len();
-        dups.progress = progress.clone();
-        dups.groups_rx = Receiving::of(tx.1);
+        find_duplicates.searched = paths.len();
+        find_duplicates.progress = progress.clone();
+        find_duplicates.groups_rx = Receiving::of(tx.1);
         let sender = tx.0;
         std::thread::spawn(move || {
             let _ = sender.send(find(paths, by, rotate, save, &progress));
@@ -290,16 +305,16 @@ impl crate::App {
 
     /// Move to Trash: the checked files of the list, through the usual delete with its
     /// confirmation.
-    fn trash_checked(&mut self, ctx: &egui::Context, dups: &FindDuplicates) {
+    fn trash_checked(&mut self, ctx: &egui::Context, find_duplicates: &FindDuplicates) {
         let checked = (0..self.list.files().len())
-            .filter(|&i| dups.checked.contains(&self.path(i)))
+            .filter(|&i| find_duplicates.checked.contains(&self.path(i)))
             .collect();
         if !self.select_for_action(ctx, checked) {
             return;
         }
         // With none selected the delete takes the shown image: only when the list still has
         // every checked file, else it would be another one, or too few.
-        if self.list.selected().len() == dups.checked.len() {
+        if self.list.selected().len() == find_duplicates.checked.len() {
             self.request_delete(ctx, true);
         } else {
             self.notice = Some(tr("The checked files are no longer all in the list").into());
@@ -726,9 +741,9 @@ mod tests {
             .set_files(["a.png", "b.png", "c.png"].map(Into::into).to_vec());
         app.list.select([2].into());
         app.list.set_matches(Some(vec![1, 2]));
-        let mut dups = super::FindDuplicates::new();
-        dups.checked = [dir.join("a.png"), dir.join("b.png")].into();
-        app.trash_checked(&ctx, &dups);
+        let mut find_duplicates = super::FindDuplicates::new();
+        find_duplicates.checked = [dir.join("a.png"), dir.join("b.png")].into();
+        app.trash_checked(&ctx, &find_duplicates);
         let hides = "The search hides files this would act on: clear it first";
         assert_eq!(app.notice.as_deref(), Some(crate::support::lang::tr(hides)));
         assert_eq!(app.list.selected(), &[2].into());
@@ -798,13 +813,18 @@ mod tests {
         assert!(super::checksum(&file, &p).is_none());
         assert!(!super::same_bytes(&file, &file, &p));
         std::fs::remove_dir_all(dir).unwrap();
-        let mut dups = FindDuplicates::new();
+        let mut find_duplicates = FindDuplicates::new();
         let (_tx, rx) = std::sync::mpsc::channel();
-        dups.groups_rx = Receiving::of(rx);
-        dups.searched = 5;
-        dups.stop();
-        assert!(dups.progress.is_cancelled.load(Ordering::Relaxed));
-        assert!(!dups.groups_rx.is_some() && dups.searched == 0);
+        find_duplicates.groups_rx = Receiving::of(rx);
+        find_duplicates.searched = 5;
+        find_duplicates.stop();
+        assert!(
+            find_duplicates
+                .progress
+                .is_cancelled
+                .load(Ordering::Relaxed)
+        );
+        assert!(!find_duplicates.groups_rx.is_some() && find_duplicates.searched == 0);
     }
 
     use super::*;
@@ -1043,7 +1063,8 @@ mod tests {
 
     #[test]
     fn finds_duplicates() {
-        let dir = std::env::temp_dir().join(format!("glimt-test-dups-{}", std::process::id()));
+        let dir =
+            std::env::temp_dir().join(format!("glimt-test-find_duplicates-{}", std::process::id()));
         std::fs::create_dir_all(dir.join("sub")).unwrap();
         let (a, b, c, d) = (
             dir.join("a.png"),
