@@ -2284,7 +2284,7 @@ pub(crate) fn new_place(path: &Path, moved: &HashMap<&Path, &Path>) -> Option<Pa
 
 #[cfg(test)]
 mod tests {
-    use crate::support::test_support::{app_on, contract_folder, settle};
+    use crate::support::test_support::{app_on, contract_folder, run_background_until};
 
     /// Nothing is deleted while a list is read, as its entries are not yet checked to be files
     /// then. A folder named in the list was moved to the trash as one of its entries.
@@ -2302,7 +2302,9 @@ mod tests {
         let sub = (app.list.files().iter()).position(|f| std::path::Path::new(f).ends_with("sub"));
         app.delete_now(&ctx, false, vec![sub.unwrap()]);
         assert!(app.notice.is_some() && app.list.files().len() == 2);
-        assert!(settle(&mut app, &ctx, |a| !a.folder.is_listing()));
+        assert!(run_background_until(&mut app, &ctx, |a| !a
+            .folder
+            .is_listing()));
         assert_eq!(app.list.files().len(), 1);
         std::fs::remove_dir_all(d).unwrap();
     }
@@ -2406,7 +2408,7 @@ mod tests {
         }
         let (mut app, ctx) = app_on(&d);
         let listed = |a: &crate::App| a.list.files().len() == 2;
-        assert!(settle(&mut app, &ctx, listed));
+        assert!(run_background_until(&mut app, &ctx, listed));
         let files = vec![d.join("a.png"), d.join("12:30.png")];
         let card = d.join("card").canonicalize().unwrap();
         super::test_mount(&card, Some("vfat"));
@@ -2415,21 +2417,21 @@ mod tests {
             app.transfer(&ctx, files.clone(), d.join("card"), keep);
             // Refused before the files left the list, so the view stays where it was.
             assert!(listed(&app), "the refused files left the list");
-            assert!(settle(&mut app, &ctx, |a| a.notice.is_some() && !a.working()));
+            assert!(run_background_until(&mut app, &ctx, |a| a.notice.is_some() && !a.working()));
             let told = app.notice.clone().unwrap_or_default();
             assert!(
                 told.contains("\"12:30.png\"") && told.contains("vfat"),
                 "{told}"
             );
             assert!(!d.join("card/a.png").exists() && d.join("a.png").exists());
-            assert!(settle(&mut app, &ctx, listed));
+            assert!(run_background_until(&mut app, &ctx, listed));
         }
         super::test_mount(&card, Some("ext4"));
         app.transfer(&ctx, files, d.join("card"), true);
-        assert!(settle(&mut app, &ctx, |_| d
+        assert!(run_background_until(&mut app, &ctx, |_| d
             .join("card/12:30.png")
             .exists()));
-        assert!(settle(&mut app, &ctx, |a| !a.working()));
+        assert!(run_background_until(&mut app, &ctx, |a| !a.working()));
         super::test_mount(&card, None);
         std::fs::remove_dir_all(d).unwrap();
     }
@@ -2450,7 +2452,7 @@ mod tests {
         }
         let (mut app, ctx) = app_on(&d);
         let listed = |a: &crate::App| a.list.files().len() == 2;
-        assert!(settle(&mut app, &ctx, listed));
+        assert!(run_background_until(&mut app, &ctx, listed));
         let card = d.join("media/CARD").canonicalize().unwrap();
         super::test_mount(&card, Some("vfat"));
         let files = vec![d.join("a.png"), d.join("12:30.png")];
@@ -2458,7 +2460,7 @@ mod tests {
             app.notice = None;
             app.transfer(&ctx, files.clone(), d.join("card"), keep);
             assert!(listed(&app), "the refused files left the list");
-            assert!(settle(&mut app, &ctx, |a| a.notice.is_some() && !a.working()));
+            assert!(run_background_until(&mut app, &ctx, |a| a.notice.is_some() && !a.working()));
             let told = app.notice.clone().unwrap_or_default();
             assert!(
                 told.contains("\"12:30.png\"") && told.contains("vfat"),
@@ -2467,7 +2469,7 @@ mod tests {
             assert!(!card.join("a.png").exists() && !card.join("12:30.png").exists());
         }
         app.transfer(&ctx, files, d.join("media/CARD/.."), true);
-        assert!(settle(&mut app, &ctx, |a| !a.working()));
+        assert!(run_background_until(&mut app, &ctx, |a| !a.working()));
         super::test_mount(&card, None);
         assert!(d.join("media/12:30.png").exists(), "{:?}", app.notice);
         std::fs::remove_dir_all(d).unwrap();
@@ -2500,16 +2502,19 @@ mod tests {
             names.sort();
             names
         };
-        assert!(settle(&mut app, &ctx, |a| names(a) == ["a.png", "b.png"]));
+        assert!(run_background_until(&mut app, &ctx, |a| names(a) == ["a.png", "b.png"]));
         app.transfer(&ctx, vec![tree.join("a.png")], tree.join("in"), false);
-        assert!(settle(&mut app, &ctx, |a| !a.working()
+        assert!(run_background_until(&mut app, &ctx, |a| !a.working()
             && names(a) == ["b.png", "inner/a.png"]));
         app.transfer(&ctx, vec![tree.join("b.png")], tree.join("out"), false);
-        assert!(settle(&mut app, &ctx, |a| !a.working()
+        assert!(run_background_until(&mut app, &ctx, |a| !a.working()
             && names(a) == ["inner/a.png"]));
         assert!(d.join("beside/b.png").exists());
         app.refresh(&ctx);
-        assert!(settle(&mut app, &ctx, |a| !a.folder.is_listing() && !a.working()));
+        assert!(run_background_until(&mut app, &ctx, |a| !a
+            .folder
+            .is_listing()
+            && !a.working()));
         assert_eq!(names(&app), ["inner/a.png"]);
         std::fs::remove_dir_all(d).unwrap();
     }
@@ -2530,7 +2535,7 @@ mod tests {
             told.contains("\"12:30\"") && told.contains("exfat"),
             "{told}"
         );
-        assert!(settle(&mut app, &ctx, |a| !a.working()));
+        assert!(run_background_until(&mut app, &ctx, |a| !a.working()));
         assert!(d.join("sub").is_dir() && !d.join("12:30").exists());
         std::fs::remove_dir_all(d).unwrap();
     }
@@ -2847,7 +2852,7 @@ mod tests {
                     // This waits only when the operation started. When it was held back, it
                     // says so, and there is nothing to wait for.
                     if app.notice.is_none() {
-                        settle(app, ctx, |app| app.file_operations.undo.is_some());
+                        run_background_until(app, ctx, |app| app.file_operations.undo.is_some());
                     }
                     app.undo(ctx);
                 },
@@ -2866,7 +2871,7 @@ mod tests {
                     // This waits only when the operation started. When it was held back, it
                     // says so, and there is nothing to wait for.
                     if app.notice.is_none() {
-                        settle(app, ctx, |app| app.file_operations.undo.is_some());
+                        run_background_until(app, ctx, |app| app.file_operations.undo.is_some());
                     }
                     app.undo(ctx);
                 },
@@ -2912,7 +2917,7 @@ mod tests {
                     // This waits only when the operation started. When it was held back, it
                     // says so, and there is nothing to wait for.
                     if app.notice.is_none() {
-                        settle(app, ctx, |app| app.file_operations.undo.is_some());
+                        run_background_until(app, ctx, |app| app.file_operations.undo.is_some());
                     }
                     app.undo(ctx);
                 },
@@ -3015,7 +3020,7 @@ mod tests {
                 assert!(before && app.notice.is_some(), "{name}: not held back");
             }
             go.send(()).unwrap();
-            assert!(settle(&mut app, &ctx, |app| app
+            assert!(run_background_until(&mut app, &ctx, |app| app
                 .file_operations
                 .background_paths
                 .iter()
@@ -3024,7 +3029,7 @@ mod tests {
             app.notice = None;
             op(&mut app, &ctx, &d);
             assert!(
-                settle(&mut app, &ctx, |app| check(app, &d)),
+                run_background_until(&mut app, &ctx, |app| check(app, &d)),
                 "{name}: what follows the file"
             );
             // After "rename folder" the folder is there only under its new name.
@@ -3079,7 +3084,7 @@ mod tests {
                 .iter()
                 .all(|f| d.join("g-frames-2").join(f).exists())
         };
-        assert!(settle(&mut app, &ctx, saved));
+        assert!(run_background_until(&mut app, &ctx, saved));
         assert!(!d.join("nowhere").exists());
         std::fs::remove_dir_all(d).unwrap();
     }
@@ -3104,7 +3109,7 @@ mod tests {
         let how = app.shown_copy();
         let out = d.join("frame.png");
         app.export_frames(&ctx, gif, Some(1), out.clone(), how);
-        assert!(settle(&mut app, &ctx, |_| out.exists()));
+        assert!(run_background_until(&mut app, &ctx, |_| out.exists()));
         assert_eq!(image::image_dimensions(&out).unwrap(), (2, 4));
         std::fs::remove_dir_all(d).unwrap();
     }
@@ -3128,7 +3133,7 @@ mod tests {
                 .iter()
                 .all(|f| d.join("f-frames").join(f).exists())
         };
-        assert!(settle(&mut app, &ctx, saved));
+        assert!(run_background_until(&mut app, &ctx, saved));
         std::fs::remove_dir_all(d).unwrap();
     }
 
@@ -3254,7 +3259,7 @@ mod tests {
         )]));
         app.open(&ctx, empty.clone());
         app.undo(&ctx);
-        assert!(settle(&mut app, &ctx, |a| !a.working()));
+        assert!(run_background_until(&mut app, &ctx, |a| !a.working()));
         std::fs::remove_dir_all(dir).unwrap();
     }
 
@@ -3300,7 +3305,7 @@ mod tests {
                     dir.join("b.png")
                 }
             };
-            assert!(settle(&mut app, &ctx, |app| app
+            assert!(run_background_until(&mut app, &ctx, |app| app
                 .file_operations
                 .undo
                 .is_some()
@@ -3313,7 +3318,7 @@ mod tests {
             replace(&now, in_place);
             app.notice = None;
             app.undo(&ctx);
-            assert!(settle(&mut app, &ctx, |app| !app.working() && refused(app)));
+            assert!(run_background_until(&mut app, &ctx, |app| !app.working() && refused(app)));
             assert!(
                 !a.exists(),
                 "{kind}, in place {in_place}: the other file was put back as a.png"
@@ -3339,21 +3344,21 @@ mod tests {
         image::RgbImage::new(2, 2).save(&a).unwrap();
         let (mut app, ctx) = app_on(&dir);
         app.rename_in_background(&ctx, vec![a.clone()], vec![b.clone()]);
-        assert!(settle(&mut app, &ctx, |app| app
+        assert!(run_background_until(&mut app, &ctx, |app| app
             .file_operations
             .undo
             .is_some()
             && !app.working()));
         std::fs::write(&a, b"another").unwrap();
         app.undo(&ctx);
-        assert!(settle(&mut app, &ctx, |app| !app.working() && app.notice.is_some()));
+        assert!(run_background_until(&mut app, &ctx, |app| !app.working() && app.notice.is_some()));
         assert!(
             b.exists() && app.file_operations.undo.is_some(),
             "the Undo was lost"
         );
         std::fs::remove_file(&a).unwrap();
         app.undo(&ctx);
-        assert!(settle(&mut app, &ctx, |app| !app.working() && a.exists()));
+        assert!(run_background_until(&mut app, &ctx, |app| !app.working() && a.exists()));
         assert!(!b.exists() && app.file_operations.undo.is_none());
         std::fs::remove_dir_all(dir).unwrap();
     }
@@ -3371,7 +3376,7 @@ mod tests {
         let (mut app, ctx) = app_on(&dir);
         let (a, b) = (dir.join("a.png"), dir.join("b.png"));
         app.transfer(&ctx, vec![a.clone(), b.clone()], dir.join("sub"), false);
-        assert!(settle(&mut app, &ctx, |app| app
+        assert!(run_background_until(&mut app, &ctx, |app| app
             .file_operations
             .undo
             .is_some()
@@ -3381,18 +3386,18 @@ mod tests {
         std::fs::write(dir.join("sub/new"), b"another").unwrap();
         std::fs::rename(dir.join("sub/new"), &moved).unwrap();
         app.undo(&ctx);
-        assert!(settle(&mut app, &ctx, |app| !app.working() && b.exists()));
+        assert!(run_background_until(&mut app, &ctx, |app| !app.working() && b.exists()));
         assert!(!a.exists(), "the other file was moved back as a.png");
         assert_eq!(std::fs::read(&moved).unwrap(), b"another");
         // A file Glimt itself wrote anew there (a turn saved) is still the one to move back.
         app.transfer(&ctx, vec![b.clone()], dir.join("sub"), false);
-        assert!(settle(&mut app, &ctx, |app| !b.exists() && !app.working()));
+        assert!(run_background_until(&mut app, &ctx, |app| !b.exists() && !app.working()));
         let saved = dir.join("sub/b.png");
         std::fs::copy(&saved, dir.join("sub/new")).unwrap();
         std::fs::rename(dir.join("sub/new"), &saved).unwrap();
         app.written_anew(std::slice::from_ref(&saved));
         app.undo(&ctx);
-        assert!(settle(&mut app, &ctx, |app| !app.working() && b.exists()));
+        assert!(run_background_until(&mut app, &ctx, |app| !app.working() && b.exists()));
         std::fs::remove_dir_all(dir).unwrap();
     }
 
@@ -3407,7 +3412,7 @@ mod tests {
         image::RgbImage::new(2, 2).save(&a).unwrap();
         let (mut app, ctx) = app_on(&dir);
         app.transfer(&ctx, vec![a.clone()], dir.join("sub"), false);
-        assert!(settle(&mut app, &ctx, |app| app
+        assert!(run_background_until(&mut app, &ctx, |app| app
             .file_operations
             .undo
             .is_some()
@@ -3423,7 +3428,7 @@ mod tests {
         copy.set_modified(time).unwrap();
         std::fs::rename(dir.join("sub/new"), &moved).unwrap();
         app.undo(&ctx);
-        assert!(settle(&mut app, &ctx, |app| !app.working() && a.exists()));
+        assert!(run_background_until(&mut app, &ctx, |app| !app.working() && a.exists()));
         std::fs::remove_dir_all(dir).unwrap();
     }
 
@@ -3474,7 +3479,7 @@ mod tests {
         image::RgbImage::new(2, 2).save(&a).unwrap();
         let (mut app, ctx) = app_on(&dir.join("real"));
         app.transfer(&ctx, vec![a.clone()], dir.join("real/sub"), false);
-        assert!(settle(&mut app, &ctx, |app| app
+        assert!(run_background_until(&mut app, &ctx, |app| app
             .file_operations
             .undo
             .is_some()
@@ -3485,7 +3490,7 @@ mod tests {
         std::fs::rename(dir.join("real/sub/new"), &saved).unwrap();
         app.written_anew(std::slice::from_ref(&saved));
         app.undo(&ctx);
-        assert!(settle(&mut app, &ctx, |app| !app.working() && a.exists()));
+        assert!(run_background_until(&mut app, &ctx, |app| !app.working() && a.exists()));
         std::fs::remove_dir_all(dir).unwrap();
     }
 
@@ -3500,7 +3505,7 @@ mod tests {
         image::RgbImage::new(2, 2).save(&a).unwrap();
         let (mut app, ctx) = app_on(&dir);
         app.transfer(&ctx, vec![a.clone()], dir.join("sub"), false);
-        assert!(settle(&mut app, &ctx, |app| app
+        assert!(run_background_until(&mut app, &ctx, |app| app
             .file_operations
             .undo
             .is_some()
@@ -3520,7 +3525,7 @@ mod tests {
         app.undo(&ctx);
         let refused =
             |app: &crate::App| (app.notice.as_deref()).is_some_and(|n| n.contains("Undo failed"));
-        assert!(settle(&mut app, &ctx, |app| !app.working() && refused(app)));
+        assert!(run_background_until(&mut app, &ctx, |app| !app.working() && refused(app)));
         assert!(!a.exists(), "the other image was moved back as a.png");
         assert!(moved.exists());
         std::fs::remove_dir_all(dir).unwrap();
@@ -3634,7 +3639,9 @@ mod tests {
             ])
         };
         app.file_operations.report_tx.send(elsewhere).unwrap();
-        assert!(settle(&mut app, &ctx, |app| app.notice.is_some()));
+        assert!(run_background_until(&mut app, &ctx, |app| app
+            .notice
+            .is_some()));
         assert!(!app.modal_open());
         let told = app.notice.take().unwrap();
         assert!(told.contains("2 files (fuse.rclone)"), "{told}");
@@ -3652,7 +3659,7 @@ mod tests {
             .report_tx
             .send(refused(vec![dir.join("a.png")]))
             .unwrap();
-        assert!(settle(&mut app, &ctx, |app| app.modal_open()));
+        assert!(run_background_until(&mut app, &ctx, |app| app.modal_open()));
         assert_eq!(app.dialogs.asked_names(), ["a.png"]);
         assert_eq!(app.asked_targets(), Some(vec![0]));
         std::fs::remove_dir_all(dir).unwrap();
@@ -3712,7 +3719,10 @@ mod tests {
         }));
         app.undo(&ctx);
         assert!(app.file_operations.undo.is_none());
-        assert!(settle(&mut app, &ctx, |a| a.file_operations.undo.is_some()));
+        assert!(run_background_until(&mut app, &ctx, |a| a
+            .file_operations
+            .undo
+            .is_some()));
         let Some(super::Undo::Trash(trash_move)) = &app.file_operations.undo else {
             panic!("the Undo was lost");
         };
@@ -3738,7 +3748,7 @@ mod tests {
                 std::thread::sleep(std::time::Duration::from_millis(300));
                 assert!(file.exists(), "{} gone while held", file.display());
                 drop(lock);
-                assert!(settle(app, &ctx, |app| idle(app) && !file.exists()));
+                assert!(run_background_until(app, &ctx, |app| idle(app) && !file.exists()));
             };
         let (a, b) = (d.join("a.png"), d.join("b.png"));
         waits(&mut app, &a, &|app| {
@@ -3750,7 +3760,9 @@ mod tests {
             app.rename_in_background(&ctx, vec![b.clone()], vec![c.clone()])
         });
         assert!(c.exists() && d.join("c.png.xmp").exists());
-        assert!(settle(&mut app, &ctx, |app| !app.folder.is_listing()));
+        assert!(run_background_until(&mut app, &ctx, |app| !app
+            .folder
+            .is_listing()));
         waits(&mut app, &c, &|app| {
             let at = (app.list.files().iter())
                 .position(|f| f == "c.png")
@@ -3784,7 +3796,9 @@ mod tests {
             std::fs::write(crate::metadata::xmp::sidecar(&d.join(n)), n).unwrap();
         }
         app.start_listing(&ctx);
-        assert!(settle(&mut app, &ctx, |app| !app.folder.is_listing()));
+        assert!(run_background_until(&mut app, &ctx, |app| !app
+            .folder
+            .is_listing()));
         let at =
             |app: &crate::App, n: &str| (app.list.files().iter()).position(|f| f == n).unwrap();
         let mut all: Vec<usize> = first.iter().map(|n| at(&app, n)).collect();
@@ -3793,7 +3807,7 @@ mod tests {
         let lock = crate::metadata::xmp::lock_sidecar(&y);
         app.delete_now(&ctx, false, all);
         assert!(
-            settle(&mut app, &ctx, |_| first
+            run_background_until(&mut app, &ctx, |_| first
                 .iter()
                 .all(|n| !d.join(n).exists())),
             "the first chunk waits not for the second"
@@ -3801,7 +3815,7 @@ mod tests {
         assert!(y.exists() && crate::metadata::xmp::sidecar(&y).exists());
         assert!(z.exists(), "the second chunk is one");
         drop(lock);
-        assert!(settle(&mut app, &ctx, |app| idle(app)
+        assert!(run_background_until(&mut app, &ctx, |app| idle(app)
             && !y.exists()
             && !z.exists()));
         assert!(
@@ -3818,12 +3832,12 @@ mod tests {
         let dir = contract_folder("decode-again");
         let (mut app, ctx) = app_on(&dir);
         let shown = |a: &crate::App| a.list.loaded_images().contains_key(&a.list.shown());
-        assert!(settle(&mut app, &ctx, |a| !a.working() && shown(a)));
+        assert!(run_background_until(&mut app, &ctx, |a| !a.working() && shown(a)));
         let path = app.path(app.list.shown());
         app.forget_names(std::slice::from_ref(&path));
         assert!(!shown(&app));
         app.start_listing(&ctx);
-        assert!(settle(&mut app, &ctx, |a| !a.working() && shown(a)));
+        assert!(run_background_until(&mut app, &ctx, |a| !a.working() && shown(a)));
         std::fs::remove_dir_all(dir).unwrap();
     }
 
@@ -3834,7 +3848,7 @@ mod tests {
     fn a_name_moved_or_gone_forgets_what_was_kept_of_it() {
         let dir = contract_folder("forget");
         let (mut app, ctx) = app_on(&dir);
-        assert!(settle(&mut app, &ctx, |a| !a.working()));
+        assert!(run_background_until(&mut app, &ctx, |a| !a.working()));
         for name in ["a.png", "b.png", "c.png"] {
             app.list.remember_size_and_date(name.into(), (1, 1));
             app.broken_files.insert(name.into());
@@ -3875,12 +3889,14 @@ mod tests {
         // A folder by the sidecar's name cannot be removed as a file.
         std::fs::create_dir(crate::metadata::xmp::sidecar(&a)).unwrap();
         let (mut app, ctx) = app_on(&dir);
-        assert!(settle(&mut app, &ctx, |a| !a.folder.is_listing()));
+        assert!(run_background_until(&mut app, &ctx, |a| !a
+            .folder
+            .is_listing()));
         app.notice = None;
         app.delete_now(&ctx, false, vec![0]);
         let told =
             |app: &crate::App| (app.notice.as_deref()).is_some_and(|n| n.contains("a.png.xmp"));
-        assert!(settle(&mut app, &ctx, told));
+        assert!(run_background_until(&mut app, &ctx, told));
         assert!(!a.exists());
         std::fs::remove_dir_all(dir).unwrap();
     }
@@ -3898,7 +3914,7 @@ mod tests {
         let (mut app, ctx) = app_on(&dir);
         app.delete_now(&ctx, false, vec![0]);
         let gone = |p: &std::path::Path| std::fs::symlink_metadata(p).is_err();
-        assert!(settle(&mut app, &ctx, |_| gone(&a) && gone(&side)));
+        assert!(run_background_until(&mut app, &ctx, |_| gone(&a) && gone(&side)));
         std::fs::remove_dir_all(dir).unwrap();
     }
 
@@ -3930,7 +3946,9 @@ mod tests {
     fn makes_a_new_folder_in_the_background() {
         let d = contract_folder("new-folder");
         let (mut app, ctx) = app_on(&d);
-        assert!(settle(&mut app, &ctx, |a| !a.folder.is_listing()));
+        assert!(run_background_until(&mut app, &ctx, |a| !a
+            .folder
+            .is_listing()));
         app.run(&ctx, crate::ui::actions::Action::NewFolder);
         // Another folder opened while the dialog is open, by a script, say, does not change
         // where the new folder is made.
@@ -3939,14 +3957,14 @@ mod tests {
         app.open(&ctx, other.clone());
         app.answer_prompt(&ctx, crate::ui::dialogs::Prompt::NewFolder, "trip");
         app.open(&ctx, d.clone());
-        assert!(settle(&mut app, &ctx, |a| {
+        assert!(run_background_until(&mut app, &ctx, |a| {
             !a.folder.is_listing() && a.folder.subdirs().iter().any(|s| s.ends_with("trip"))
         }));
         assert!(d.join("trip").is_dir() && !other.join("trip").exists());
         // When the folder is there already, a notice says so, and nothing else is made.
         app.run(&ctx, crate::ui::actions::Action::NewFolder);
         app.answer_prompt(&ctx, crate::ui::dialogs::Prompt::NewFolder, "trip");
-        assert!(settle(&mut app, &ctx, |a| a.notice.is_some()));
+        assert!(run_background_until(&mut app, &ctx, |a| a.notice.is_some()));
         std::fs::remove_dir_all(d).unwrap();
     }
 
@@ -4032,16 +4050,16 @@ mod tests {
             (app.file_operations.jobs.iter()).all(|j| std::sync::Arc::strong_count(j) == 1)
         };
         app.rename_in_background(&ctx, vec![d.join("a.png")], vec![d.join("c.png")]);
-        assert!(settle(&mut app, &ctx, |app| idle(app)
+        assert!(run_background_until(&mut app, &ctx, |app| idle(app)
             && entries(&gqv).contains("c.png")
             && !entries(&gqv).contains("a.png")));
         app.transfer(&ctx, vec![d.join("c.png")], d.join("sub"), false);
-        assert!(settle(&mut app, &ctx, |app| idle(app)
+        assert!(run_background_until(&mut app, &ctx, |app| idle(app)
             && entries(&gqv).contains("sub/c.png")));
         // When a folder is renamed in the background, its images in the collection follow.
         app.dialogs.act_on_folder(d.join("sub"));
         app.rename_folder(&ctx, "moved");
-        assert!(settle(&mut app, &ctx, |app| idle(app)
+        assert!(run_background_until(&mut app, &ctx, |app| idle(app)
             && entries(&gqv).contains("moved/c.png")));
         assert!(d.join("moved/c.png").exists());
         let b = app
@@ -4051,7 +4069,7 @@ mod tests {
             .position(|f| std::path::Path::new(f).ends_with("b.png"))
             .unwrap();
         app.delete_now(&ctx, false, vec![b]);
-        assert!(settle(&mut app, &ctx, |_| !entries(&gqv).contains("b.png")));
+        assert!(run_background_until(&mut app, &ctx, |_| !entries(&gqv).contains("b.png")));
         std::fs::remove_dir_all(d).unwrap();
     }
 
@@ -4080,14 +4098,17 @@ mod tests {
         let has = |app: &crate::App, want: &[&str]| idle(app) && entries(app) == want;
         app.list.select([0, 1].into_iter().collect());
         app.rename_many(&ctx, "x#");
-        assert!(settle(&mut app, &ctx, |app| has(
+        assert!(run_background_until(&mut app, &ctx, |app| has(
             app,
             &["x1.png", "x2.png"]
         )));
         app.undo(&ctx);
-        assert!(settle(&mut app, &ctx, |app| has(app, &["a.png", "b.png"])));
+        assert!(run_background_until(&mut app, &ctx, |app| has(
+            app,
+            &["a.png", "b.png"]
+        )));
         app.transfer(&ctx, vec![d.join("a.png")], d.join("sub"), false);
-        assert!(settle(&mut app, &ctx, |app| has(
+        assert!(run_background_until(&mut app, &ctx, |app| has(
             app,
             &["sub/a.png", "b.png"]
         ) && app
@@ -4099,14 +4120,25 @@ mod tests {
         let at = |app: &crate::App| {
             (0..app.list.files().len()).find(|&i| app.path(i) == d.join("a.png"))
         };
-        assert!(settle(&mut app, &ctx, |app| has(app, &["a.png", "b.png"])
-            && at(app).is_some()));
+        assert!(run_background_until(&mut app, &ctx, |app| has(
+            app,
+            &["a.png", "b.png"]
+        ) && at(app)
+            .is_some()));
         let a = at(&app).unwrap();
         app.delete_now(&ctx, true, vec![a]);
-        assert!(settle(&mut app, &ctx, |app| has(app, &["b.png"])
-            && app.file_operations.undo.is_some()));
+        assert!(run_background_until(&mut app, &ctx, |app| has(
+            app,
+            &["b.png"]
+        ) && app
+            .file_operations
+            .undo
+            .is_some()));
         app.undo(&ctx);
-        assert!(settle(&mut app, &ctx, |app| has(app, &["a.png", "b.png"])));
+        assert!(run_background_until(&mut app, &ctx, |app| has(
+            app,
+            &["a.png", "b.png"]
+        )));
         empty_trash_of(&d);
         std::fs::remove_dir_all(d).unwrap();
     }

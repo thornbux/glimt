@@ -159,7 +159,7 @@ holds only its `mod` lines, and a new module goes into the folder of what it doe
 | `src/files/journal.rs` | Rename Many's steps on disk while they run, put right at the next start after a crash |
 | `src/support.rs` | **The support/ folder:** what the rest is built on: threads, text for the user, the languages, and what the tests use |
 | `src/support/test_hooks.rs` | The release tests' hook (feature `test-hooks`): where a widget with a text was drawn, for `glimt --remote where LABEL`, and `noted`, which every widget the tests click goes through |
-| `src/support/test_support.rs` | What tests start from, built only for tests: `app_on` (a `crate::App` on a folder without a window), `settle`, `contract_folder`, and `broken` for the parsers' `survives_broken_*` tests; each module's tests use them, so a test sits beside the code it tests |
+| `src/support/test_support.rs` | What tests start from, built only for tests: `app_on` (a `crate::App` on a folder without a window), `run_background_until`, `contract_folder`, and `broken` for the parsers' `survives_broken_*` tests; each module's tests use them, so a test sits beside the code it tests |
 | `src/support/threads.rs` | How many threads for each kind of work (the CPU use level, `background_threads`, `thumb_threads`, `small_alloc_threads`), `in_parts`, `Receiving`/`Took` for a background thread's answer, `Working` for work counted while it runs |
 | `src/support/format.rs` | Text for the user: `human_size`, `size_text`, `thousands`, `count`, `middle_cut`, `local_time` (the trash's date form too), `fill_template` |
 | `src/support/lang.rs` | The interface's languages: the `.po` files, `tr`/`tf!`, each language's plural rule |

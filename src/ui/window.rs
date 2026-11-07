@@ -443,7 +443,7 @@ fn window_shown(ctx: &egui::Context) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use crate::support::test_support::{app_on, contract_folder, settle};
+    use crate::support::test_support::{app_on, contract_folder, run_background_until};
 
     /// A kiosk that may close lets Quit through, but still refuses what changes the settings.
     #[test]
@@ -498,7 +498,7 @@ mod tests {
     fn hides_the_pointer_only_when_nothing_goes_on() {
         let dir = contract_folder("pointer");
         let (mut app, ctx) = app_on(&dir);
-        assert!(settle(&mut app, &ctx, |a| !a.working()));
+        assert!(run_background_until(&mut app, &ctx, |a| !a.working()));
         app.config.hide_pointer = true;
         assert!(app.pointer_hides(true));
         assert!(!app.pointer_hides(false));
@@ -507,7 +507,7 @@ mod tests {
         drop(job);
         app.start_listing(&ctx);
         assert!(app.folder.is_listing() && !app.pointer_hides(true));
-        assert!(settle(&mut app, &ctx, |a| a.pointer_hides(true)));
+        assert!(run_background_until(&mut app, &ctx, |a| a.pointer_hides(true)));
         app.prefs.show();
         assert!(!app.pointer_hides(true));
         app.prefs = Default::default();
@@ -545,14 +545,14 @@ mod tests {
         assert!(app.file_operations.is_saving(&a));
         // The save's thread lets go of the file just after it tells the result.
         let over = |app: &crate::App| !app.file_operations.is_saving(&a);
-        assert!(settle(&mut app, &ctx, over));
+        assert!(run_background_until(&mut app, &ctx, over));
         close(&mut app);
         assert!(!app.file_operations.is_saving(&a));
         // A turn made after that, while the window waits for other work, is saved.
         app.viewing.set_turn((2, false), a.clone());
         close(&mut app);
         assert!(app.file_operations.is_saving(&a));
-        assert!(settle(&mut app, &ctx, over));
+        assert!(run_background_until(&mut app, &ctx, over));
         std::fs::remove_dir_all(dir).unwrap();
     }
 

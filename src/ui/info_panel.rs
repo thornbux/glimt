@@ -691,7 +691,7 @@ pub(crate) fn spawn_exif_reader(
 
 #[cfg(test)]
 mod tests {
-    use crate::support::test_support::{app_on, settle};
+    use crate::support::test_support::{app_on, run_background_until};
 
     /// Keywords added to the selection show in the panel at once, and they stay after the
     /// writer is done, so a later edit in the panel keeps them.
@@ -717,7 +717,7 @@ mod tests {
         assert!(shown(&app));
         let written =
             |_: &crate::App| crate::metadata::xmp::read(&dir.join("a.png")).keywords == ["beach"];
-        assert!(settle(&mut app, &ctx, written));
+        assert!(run_background_until(&mut app, &ctx, written));
         assert!(shown(&app));
         std::fs::remove_dir_all(&dir).unwrap();
     }
@@ -767,9 +767,11 @@ mod tests {
         image::RgbImage::new(4, 4).save(&file).unwrap();
         image::RgbImage::new(4, 4).save(dir.join("b.png")).unwrap();
         let (mut app, ctx) = app_on(&dir);
-        assert!(crate::support::test_support::settle(&mut app, &ctx, |a| !a
-            .folder
-            .is_listing()));
+        assert!(crate::support::test_support::run_background_until(
+            &mut app,
+            &ctx,
+            |a| !a.folder.is_listing()
+        ));
         app.show_file(&ctx, 0);
         read_panel(&mut app, &ctx);
         // A long sidecar job of another file runs meanwhile. It holds the one sidecar thread
@@ -791,7 +793,7 @@ mod tests {
         assert!(!enabled, "the waiting panel's fields can be edited");
         drop(other);
         let written = |a: &crate::App| !a.file_operations.is_writing_sidecars();
-        assert!(crate::support::test_support::settle(
+        assert!(crate::support::test_support::run_background_until(
             &mut app, &ctx, written
         ));
         app.want_exif(&ctx);
@@ -823,9 +825,11 @@ mod tests {
         image::RgbImage::new(4, 4).save(&a).unwrap();
         image::RgbImage::new(4, 4).save(&b).unwrap();
         let (mut app, ctx) = app_on(&dir);
-        assert!(crate::support::test_support::settle(&mut app, &ctx, |a| !a
-            .folder
-            .is_listing()));
+        assert!(crate::support::test_support::run_background_until(
+            &mut app,
+            &ctx,
+            |a| !a.folder.is_listing()
+        ));
         app.show_file(&ctx, 0);
         read_panel(&mut app, &ctx);
         let other = app.start_job_of("Other", 1, true, vec![b.clone()]).unwrap();

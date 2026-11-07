@@ -866,7 +866,9 @@ mod tests {
         assert_eq!(app.targets(), None);
         assert_eq!(typed(&mut app, &["exif:canon", ""]), [0, 1].into());
         let read = |a: &crate::App| a.search.exif_index.is_some();
-        assert!(crate::support::test_support::settle(&mut app, &ctx, read));
+        assert!(crate::support::test_support::run_background_until(
+            &mut app, &ctx, read
+        ));
         std::fs::remove_dir_all(&dir).unwrap();
     }
 

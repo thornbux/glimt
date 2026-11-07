@@ -334,14 +334,14 @@ mod tests {
     #[cfg(feature = "marks")]
     #[test]
     fn a_crop_gets_the_stars_of_its_image() {
-        use crate::support::test_support::{app_on, settle};
+        use crate::support::test_support::{app_on, run_background_until};
         let dir =
             std::env::temp_dir().join(format!("glimt-test-crop-stars-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let a = dir.join("a.png");
         image::RgbImage::new(8, 8).save(&a).unwrap();
         let (mut app, ctx) = app_on(&dir);
-        assert!(settle(&mut app, &ctx, |a| a
+        assert!(run_background_until(&mut app, &ctx, |a| a
             .list
             .loaded_images()
             .contains_key(&0)));
@@ -355,7 +355,11 @@ mod tests {
         }
         app.save_crop(&ctx);
         let new = dir.join("a-cropped.png");
-        assert!(settle(&mut app, &ctx, |app| app.marks.get(&new).1 == 4));
+        assert!(run_background_until(&mut app, &ctx, |app| app
+            .marks
+            .get(&new)
+            .1
+            == 4));
         // Copied, not moved: the original keeps its stars.
         assert_eq!(app.marks.get(&a).1, 4);
         std::fs::remove_dir_all(dir).unwrap();

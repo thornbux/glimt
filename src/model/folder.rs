@@ -1338,7 +1338,7 @@ pub(crate) fn total_size(paths: &[PathBuf]) -> u64 {
 
 #[cfg(test)]
 mod tests {
-    use crate::support::test_support::{app_on, contract_folder, settle};
+    use crate::support::test_support::{app_on, contract_folder, run_background_until};
 
     /// A slideshow of one pane at a time goes on from the image it showed last after the list
     /// is read again or put in another order. It started from the top after every change.
@@ -1350,7 +1350,11 @@ mod tests {
             image::RgbImage::new(4, 4).save(dir.join(name)).unwrap();
         }
         let (mut app, ctx) = app_on(&dir);
-        assert!(settle(&mut app, &ctx, |a| a.list.files().len() == 5));
+        assert!(run_background_until(&mut app, &ctx, |a| a
+            .list
+            .files()
+            .len()
+            == 5));
         app.config.layout = "2x1".into();
         app.config.layout_turns = "2x1".into();
         app.start_slideshow(&ctx);
@@ -1376,7 +1380,11 @@ mod tests {
             image::RgbImage::new(4, 4).save(dir.join(name)).unwrap();
         }
         let (mut app, ctx) = app_on(&dir);
-        assert!(settle(&mut app, &ctx, |a| a.list.files().len() == 3));
+        assert!(run_background_until(&mut app, &ctx, |a| a
+            .list
+            .files()
+            .len()
+            == 3));
         app.set_selection(&ctx, [0, 1].into());
         app.search.set_query("b.png");
         app.update_search(&ctx);
@@ -1440,7 +1448,7 @@ mod tests {
         let both = |a: &crate::App, x, y| {
             a.list.loaded_images().contains_key(&x) && a.list.loaded_images().contains_key(&y)
         };
-        assert!(settle(&mut app, &ctx, |a| both(a, 5, 9)));
+        assert!(run_background_until(&mut app, &ctx, |a| both(a, 5, 9)));
         app.remove_indices(&ctx, &[0]);
         assert_eq!((app.list.shown(), app.compare_other()), (4, Some(8)));
         assert!(both(&app, 4, 8));
@@ -1470,7 +1478,9 @@ mod tests {
         std::fs::write(&file, format!("#GQview collection\n\"{}\"\n", a.display())).unwrap();
         let (mut app, ctx) = app_on(&dir);
         app.open(&ctx, file);
-        assert!(settle(&mut app, &ctx, |a| !a.folder.is_listing()
+        assert!(run_background_until(&mut app, &ctx, |a| !a
+            .folder
+            .is_listing()
             && !a.list.files().is_empty()));
         app.search.set_query("apple");
         app.update_search(&ctx);
@@ -1490,7 +1500,9 @@ mod tests {
             image::RgbImage::new(4, 4).save(dir.join(name)).unwrap();
         }
         let (mut app, ctx) = app_on(&dir);
-        assert!(settle(&mut app, &ctx, |a| !a.folder.is_listing()));
+        assert!(run_background_until(&mut app, &ctx, |a| !a
+            .folder
+            .is_listing()));
         let version = app.list.version();
         app.open(&ctx, dir.join("b.png"));
         assert_eq!((app.list.shown(), app.list.version()), (1, version));
@@ -1526,11 +1538,15 @@ mod tests {
         assert_eq!(names(&app), ["a.png", "b.png"]);
         app.start_listing(&ctx);
         app.run(&ctx, crate::ui::actions::Action::MoveLast);
-        assert!(settle(&mut app, &ctx, |app| !app.folder.is_listing()));
+        assert!(run_background_until(&mut app, &ctx, |app| !app
+            .folder
+            .is_listing()));
         assert_eq!(names(&app), ["b.png", "a.png"]);
         app.start_listing(&ctx);
         app.remove_from_collection(&ctx);
-        assert!(settle(&mut app, &ctx, |app| !app.folder.is_listing()));
+        assert!(run_background_until(&mut app, &ctx, |app| !app
+            .folder
+            .is_listing()));
         assert_eq!(names(&app), ["b.png"]);
         std::fs::remove_dir_all(d).unwrap();
     }
@@ -1551,7 +1567,11 @@ mod tests {
         std::os::unix::fs::symlink(dir.join("a"), dir.join("link")).unwrap();
         let (mut app, ctx) = app_on(&dir);
         app.open_folders(&ctx, vec![dir.join("link"), dir.join("b/x.png")]);
-        assert!(settle(&mut app, &ctx, |a| a.list.files().len() == 2));
+        assert!(run_background_until(&mut app, &ctx, |a| a
+            .list
+            .files()
+            .len()
+            == 2));
         let real = dir.canonicalize().unwrap();
         let want: Vec<std::path::PathBuf> = vec![real.join("a/x.png"), real.join("b/x.png")];
         let mut got: Vec<std::path::PathBuf> = (0..2).map(|i| app.path(i)).collect();
@@ -1577,7 +1597,7 @@ mod tests {
         // Renamed on disk, the refresh reads, and only then the rename is reported.
         std::fs::rename(&a, &c).unwrap();
         app.start_listing(&ctx);
-        assert!(settle(&mut app, &ctx, |app| app
+        assert!(run_background_until(&mut app, &ctx, |app| app
             .folder
             .listing_rx
             .is_none()));
@@ -1585,7 +1605,7 @@ mod tests {
         let has_c = |app: &crate::App| {
             (app.list.files().iter()).any(|f| std::path::Path::new(f).ends_with("c.png"))
         };
-        assert!(settle(&mut app, &ctx, |app| app
+        assert!(run_background_until(&mut app, &ctx, |app| app
             .folder
             .listing_rx
             .is_none()
@@ -1607,7 +1627,7 @@ mod tests {
         let (mut app, ctx) = app_on(&dir);
         app.config.sort = crate::model::listing::Sort::ExifOriginal;
         app.start_listing(&ctx);
-        assert!(settle(&mut app, &ctx, |app| app
+        assert!(run_background_until(&mut app, &ctx, |app| app
             .folder
             .listing_rx
             .is_none()));
@@ -1626,12 +1646,15 @@ mod tests {
         image::RgbImage::new(4, 4).save(dir.join("a.png")).unwrap();
         let (mut app, ctx) = app_on(&dir);
         let shown = app.list.shown();
-        assert!(settle(&mut app, &ctx, |a| a
+        assert!(run_background_until(&mut app, &ctx, |a| a
             .list
             .loaded_images()
             .contains_key(&shown)));
         app.run(&ctx, crate::ui::actions::Action::Refresh);
-        assert!(settle(&mut app, &ctx, |a| a.folder.listing_rx.is_none()));
+        assert!(run_background_until(&mut app, &ctx, |a| a
+            .folder
+            .listing_rx
+            .is_none()));
         let asked = |a: &crate::App| {
             a.list.loaded_images().contains_key(&shown)
                 || a.list.decodes_pending().keys().any(|k| k.0 == shown)
@@ -1658,7 +1681,10 @@ mod tests {
         app.config.sort_case_sensitive = true;
         app.folder.sort_collection = true;
         app.start_listing(&ctx);
-        assert!(settle(&mut app, &ctx, |a| a.folder.listing_rx.is_none()));
+        assert!(run_background_until(&mut app, &ctx, |a| a
+            .folder
+            .listing_rx
+            .is_none()));
         let names: Vec<String> = (app.list.files().iter())
             .map(|f| {
                 std::path::Path::new(f)
@@ -1696,7 +1722,9 @@ mod tests {
         app.folder.sort_again();
         app.start_listing(&ctx);
         app.open_collection(&ctx, second.clone());
-        assert!(settle(&mut app, &ctx, |a| !a.folder.is_listing()));
+        assert!(run_background_until(&mut app, &ctx, |a| !a
+            .folder
+            .is_listing()));
         assert_eq!(std::fs::read_to_string(&second).unwrap(), before);
         let names: Vec<&std::ffi::OsStr> = (app.list.files().iter())
             .map(|f| std::path::Path::new(f).file_name().unwrap())
@@ -1791,7 +1819,9 @@ mod tests {
         let (mut app, ctx) = app_on(&dir);
         app.open_collection(&ctx, dir.join("c.gqv"));
         app.show_file(&ctx, 1);
-        assert!(settle(&mut app, &ctx, |a| !a.folder.is_listing()));
+        assert!(run_background_until(&mut app, &ctx, |a| !a
+            .folder
+            .is_listing()));
         assert_eq!(app.list.shown(), 1);
         let real = dir.canonicalize().unwrap().join("real/b.png");
         assert_eq!(app.path(1), real);

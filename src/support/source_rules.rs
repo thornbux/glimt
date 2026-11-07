@@ -482,9 +482,9 @@ fn tests_use_temporary_names_of_their_own() {
 }
 
 /// A test sits in the tests of the module whose code it tests. Once main.rs's tests module held
-/// what such tests start from (`app_on`, `settle`), and that drew every test that needed a whole
-/// `App` into main.rs. Those helpers are in test_support.rs now, and only the tests of main.rs's
-/// own code stay in main.rs.
+/// what such tests start from (`app_on`, `run_background_until`), and that drew every test that
+/// needed a whole `App` into main.rs. Those helpers are in test_support.rs now, and only the tests
+/// of main.rs's own code stay in main.rs.
 #[test]
 fn tests_sit_beside_their_code() {
     const OWN: &[&str] = &[

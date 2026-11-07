@@ -377,7 +377,7 @@ pub(crate) fn next_slide(
 
 #[cfg(test)]
 mod tests {
-    use crate::support::test_support::{app_on, settle};
+    use crate::support::test_support::{app_on, run_background_until};
 
     /// A random slideshow with subfolders, without Repeat, started on the last image: it does
     /// not end before its list is read, and stopped before that, the list comes back in sort
@@ -416,7 +416,9 @@ mod tests {
                 app.set_random_order(&ctx, false);
                 app.set_random_order(&ctx, true);
             }
-            assert!(settle(&mut app, &ctx, |a| !a.folder.is_listing()));
+            assert!(run_background_until(&mut app, &ctx, |a| !a
+                .folder
+                .is_listing()));
             if stop {
                 assert_eq!(app.list.files(), sorted);
             } else {
@@ -460,7 +462,9 @@ mod tests {
         // A refresh on its way.
         app.start_listing(&ctx);
         app.set_random_order(&ctx, false);
-        assert!(settle(&mut app, &ctx, |a| !a.folder.is_listing()
+        assert!(run_background_until(&mut app, &ctx, |a| !a
+            .folder
+            .is_listing()
             && a.status.folder_total().is_some()));
         assert_eq!(app.list.files(), order);
         std::fs::remove_dir_all(&d).unwrap();
@@ -494,7 +498,9 @@ mod tests {
             }
             let shown = app.list.files()[app.list.shown()].clone();
             app.start_slideshow(&ctx);
-            assert!(settle(&mut app, &ctx, |a| !a.folder.is_listing()));
+            assert!(run_background_until(&mut app, &ctx, |a| !a
+                .folder
+                .is_listing()));
             assert!(
                 app.slideshow.shuffled && app.list.files() != order,
                 "R first: {shuffled_first}"
@@ -506,7 +512,9 @@ mod tests {
             app.stop_slideshow(&ctx);
             app.start_slideshow(&ctx);
             app.set_random_order(&ctx, false);
-            assert!(settle(&mut app, &ctx, |a| !a.folder.is_listing()
+            assert!(run_background_until(&mut app, &ctx, |a| !a
+                .folder
+                .is_listing()
                 && a.status.folder_total().is_some()));
             assert_eq!(app.list.files(), order);
             assert!(app.status.folder_total() > Some(0), "size");

@@ -645,13 +645,17 @@ mod tests {
         let a = dir.join("a.png");
         image::RgbImage::new(2, 2).save(&a).unwrap();
         let (mut app, ctx) = crate::support::test_support::app_on(&dir);
-        assert!(crate::support::test_support::settle(&mut app, &ctx, |a| !a
-            .folder
-            .is_listing()));
+        assert!(crate::support::test_support::run_background_until(
+            &mut app,
+            &ctx,
+            |a| !a.folder.is_listing()
+        ));
         let file = dir.join("trip.gqv");
         app.add_to_collection(&ctx, &file);
         let told = |app: &crate::App| app.notice.as_deref().is_some_and(|n| n.contains("trip"));
-        assert!(crate::support::test_support::settle(&mut app, &ctx, told));
+        assert!(crate::support::test_support::run_background_until(
+            &mut app, &ctx, told
+        ));
         assert_eq!(super::load(&file).unwrap(), [a]);
         std::fs::remove_dir_all(dir).unwrap();
     }

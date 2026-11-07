@@ -1870,7 +1870,7 @@ mod tests {
     /// panicked on the next frame.
     #[test]
     fn every_view_draws_after_the_last_file_goes() {
-        use crate::support::test_support::{app_on, settle};
+        use crate::support::test_support::{app_on, run_background_until};
         const OPENS_A_VIEW: &[Action] = &[
             Action::Projector,
             Action::ThumbnailGrid,
@@ -1902,7 +1902,7 @@ mod tests {
             // Crop and Save As start from the image decoded for the view, which a frame asks
             // for.
             frame(&mut app);
-            assert!(settle(&mut app, &ctx, |app| !app
+            assert!(run_background_until(&mut app, &ctx, |app| !app
                 .list
                 .loaded_images()
                 .is_empty()));
@@ -1911,7 +1911,10 @@ mod tests {
             std::fs::remove_dir_all(&dir).unwrap();
             std::fs::create_dir_all(&dir).unwrap();
             app.run(&ctx, Action::Refresh);
-            assert!(settle(&mut app, &ctx, |app| app.list.files().is_empty()));
+            assert!(run_background_until(&mut app, &ctx, |app| app
+                .list
+                .files()
+                .is_empty()));
             frame(&mut app);
             frame(&mut app);
         }
