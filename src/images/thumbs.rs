@@ -10,7 +10,7 @@ const SIZES: [(u32, &str); 2] = [(128, "normal"), (256, "large")];
 
 /// Markers of files no thumbnail could be made of, as the spec says: tried again by a new
 /// version, or when the file changes.
-const FAILED: &str = concat!("fail/glimt-", env!("CARGO_PKG_VERSION"));
+const FAILED_DIR: &str = concat!("fail/glimt-", env!("CARGO_PKG_VERSION"));
 
 /// The thumbnail of `path`: from the cache if it is newer than the file, else made from the image.
 pub fn thumbnail(
@@ -41,7 +41,7 @@ fn thumbnail_in(
     });
     let uri = format!("file://{}", uri_path(path));
     let file = cache.as_ref().map(|c| cache_file(c, folder, &uri));
-    let failed = cache.as_ref().map(|c| cache_file(c, FAILED, &uri));
+    let failed = cache.as_ref().map(|c| cache_file(c, FAILED_DIR, &uri));
     if let (Some(file), Some(failed), Some(stamp)) = (&file, &failed, stamp) {
         // The shared cache holds thumbnails turned upright, so with Auto Rotate off it is not
         // read: the list would show turned what the image shows as stored. Whether a file can
@@ -71,11 +71,14 @@ fn thumbnail_in(
         && !path.starts_with(cache)
     {
         match &made {
-            Ok(img) if rotate => drop(write(file, img, &uri, stamp)),
+            Ok(img) if rotate => drop(write_thumbnail(file, img, &uri, stamp)),
             Ok(_) => {}
-            Err(e) if worth_marking(path, e) => {
-                drop(write(failed, &image::RgbaImage::new(1, 1), &uri, stamp))
-            }
+            Err(e) if should_mark_failed(path, e) => drop(write_thumbnail(
+                failed,
+                &image::RgbaImage::new(1, 1),
+                &uri,
+                stamp,
+            )),
             Err(_) => {}
         }
     }
@@ -112,11 +115,11 @@ fn read_cached(file: &Path, (mtime, size): (u64, u64)) -> Option<image::RgbaImag
         .map(|i| i.into_rgba8())
 }
 
-/// Write a thumbnail as the spec says: PNG with Thumb::URI, Thumb::MTime and Thumb::Size of
+/// Writes a thumbnail as the spec says: PNG with Thumb::URI, Thumb::MTime and Thumb::Size of
 /// `stamp` (the time and size), mode 600, and renamed into place so other programs never read a
 /// half-written file.
 #[allow(clippy::disallowed_methods)] // the cache's own file, replaced on purpose
-fn write(
+fn write_thumbnail(
     file: &Path,
     img: &image::RgbaImage,
     uri: &str,
@@ -171,18 +174,18 @@ fn cache_dir() -> Option<std::path::PathBuf> {
     crate::files::config::host_xdg_dir("XDG_CACHE_HOME", ".cache", "thumbnails")
 }
 
-/// Remove the cached thumbnails of files that are gone: (removed, looked at). A thumbnail is
-/// removed only when the file's folder is still there, so thumbnails of a disk that is not
-/// plugged in are kept.
-pub fn clean() -> (usize, usize) {
-    cache_dir().map_or((0, 0), |cache| clean_in(&cache))
+/// Removes the cached thumbnails of files that are gone, and returns (removed, looked at). A
+/// thumbnail is removed only when the file's folder is still there, so thumbnails of a disk that is
+/// not plugged in are kept.
+pub fn remove_orphaned_thumbnails() -> (usize, usize) {
+    cache_dir().map_or((0, 0), |cache| remove_orphaned_thumbnails_in(&cache))
 }
 
-/// `clean` in the thumbnail cache `cache`. Older Glimts' folders of failure markers are of no
-/// use to this one, so each of them goes whole and counts as one removed.
-fn clean_in(cache: &Path) -> (usize, usize) {
+/// `remove_orphaned_thumbnails` in the thumbnail cache `cache`. Older Glimts' folders of failure
+/// markers are of no use to this one, so each of them goes whole and counts as one removed.
+fn remove_orphaned_thumbnails_in(cache: &Path) -> (usize, usize) {
     let (mut removed, mut seen) = (0, 0);
-    let own = Path::new(FAILED).file_name();
+    let own = Path::new(FAILED_DIR).file_name();
     for entry in (std::fs::read_dir(cache.join("fail")).into_iter().flatten()).flatten() {
         let name = entry.file_name();
         // remove_dir_all removes a link there, never what it points to.
@@ -194,7 +197,7 @@ fn clean_in(cache: &Path) -> (usize, usize) {
             (seen, removed) = (seen + 1, removed + 1);
         }
     }
-    for folder in SIZES.map(|s| s.1).into_iter().chain([FAILED]) {
+    for folder in SIZES.map(|s| s.1).into_iter().chain([FAILED_DIR]) {
         for entry in std::fs::read_dir(cache.join(folder))
             .into_iter()
             .flatten()
@@ -287,14 +290,14 @@ fn md5(data: &[u8]) -> [u8; 16] {
     out
 }
 
-/// Whether a file that gave `error` is marked as having no thumbnail. Not when ffmpeg or a
+/// Returns whether a file that gave `error` is marked as having no thumbnail. Not when ffmpeg or a
 /// decoder plugin is not there: it may be installed later; nor when the file could not be read
 /// (a share or a stick away for a moment): the system's errors say "(os error N)", a file that
 /// is no picture does not. A program that read from such a share says so in its own words, or
 /// was ended by the time limit while the share woke up, and is not marked either. Others are
 /// marked, or tried again on every visit (2,000 TypeScript sources named .ts, which are video
 /// endings too, would start ffmpeg 4,000 times).
-fn worth_marking(path: &Path, error: &str) -> bool {
+fn should_mark_failed(path: &Path, error: &str) -> bool {
     let away = [
         crate::files::external::TIMED_OUT,
         "Input/output error",
@@ -339,7 +342,7 @@ mod tests {
         let img = image::RgbaImage::new(2, 2);
         let thumb = |name: &str, of: &std::path::Path| {
             let uri = format!("file://{}", super::uri_path(of));
-            super::write(&cache.join("normal").join(name), &img, &uri, (1, 1)).unwrap();
+            super::write_thumbnail(&cache.join("normal").join(name), &img, &uri, (1, 1)).unwrap();
         };
         thumb("kept.png", &photos.join("kept.png"));
         thumb("gone.png", &photos.join("gone.png"));
@@ -350,12 +353,12 @@ mod tests {
             std::fs::create_dir_all(fail.join(folder)).unwrap();
             std::fs::write(fail.join(folder).join("x.png"), "x").unwrap();
         }
-        std::fs::create_dir_all(cache.join(super::FAILED)).unwrap();
-        assert_eq!(super::clean_in(&cache), (2, 4));
+        std::fs::create_dir_all(cache.join(super::FAILED_DIR)).unwrap();
+        assert_eq!(super::remove_orphaned_thumbnails_in(&cache), (2, 4));
         assert!(
             !fail.join("glimt-0.1.0").exists() && fail.join("gnome-thumbnail-factory").exists()
         );
-        assert!(cache.join(super::FAILED).exists());
+        assert!(cache.join(super::FAILED_DIR).exists());
         let left: Vec<_> = (std::fs::read_dir(cache.join("normal")).unwrap())
             .map(|e| e.unwrap().file_name().into_string().unwrap())
             .collect();
@@ -374,15 +377,18 @@ mod tests {
         // A photo whose share went away for a moment is tried again; a broken one is not.
         let jpg = std::path::Path::new("/a.jpg");
         let away = std::io::Error::from_raw_os_error(5).to_string();
-        assert!(!super::worth_marking(jpg, &away));
+        assert!(!super::should_mark_failed(jpg, &away));
         // So is a video whose program said the share failed, or ran out of time while it woke.
         let mp4 = std::path::Path::new("/a.mp4");
-        assert!(!super::worth_marking(mp4, "/a.mp4: Input/output error"));
-        assert!(!super::worth_marking(
+        assert!(!super::should_mark_failed(
+            mp4,
+            "/a.mp4: Input/output error"
+        ));
+        assert!(!super::should_mark_failed(
             mp4,
             crate::files::external::TIMED_OUT
         ));
-        assert!(super::worth_marking(
+        assert!(super::should_mark_failed(
             jpg,
             "Format error decoding Jpeg: invalid marker"
         ));
@@ -441,7 +447,8 @@ mod tests {
             std::thread::current().id()
         ));
         std::os::unix::fs::symlink(&victim, &tmp).unwrap();
-        super::write(&file, &image::RgbaImage::new(2, 2), "file:///a.jpg", (7, 1)).unwrap();
+        super::write_thumbnail(&file, &image::RgbaImage::new(2, 2), "file:///a.jpg", (7, 1))
+            .unwrap();
         assert_eq!(std::fs::read_to_string(&victim).unwrap(), "keep");
         assert!(file.is_file() && !tmp.exists());
         std::fs::remove_dir_all(dir).unwrap();
@@ -452,7 +459,7 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("glimt-thumbs-{}", std::process::id()));
         let file = super::cache_file(&dir, "normal", "file:///a%20b.jpg");
         let img = image::RgbaImage::from_pixel(4, 3, image::Rgba([1, 2, 3, 255]));
-        super::write(&file, &img, "file:///a%20b.jpg", (42, 9)).unwrap();
+        super::write_thumbnail(&file, &img, "file:///a%20b.jpg", (42, 9)).unwrap();
         assert_eq!(super::read_cached(&file, (42, 9)).unwrap(), img);
         assert!(super::read_cached(&file, (43, 9)).is_none());
         assert!(super::read_cached(&file, (42, 10)).is_none());
@@ -478,7 +485,7 @@ mod tests {
             "file://{}",
             super::uri_path(std::path::Path::new("/a b/æ.jpg"))
         );
-        super::write(&named, &img, &uri, (1, 1)).unwrap();
+        super::write_thumbnail(&named, &img, &uri, (1, 1)).unwrap();
         assert_eq!(super::thumb_source(&named), Some("/a b/æ.jpg".into()));
         std::fs::remove_dir_all(dir).unwrap();
     }
@@ -520,7 +527,7 @@ mod tests {
         let make = || super::thumbnail_in(Some(cache.clone()), &broken, false, true, false);
         assert!(make().unwrap_err() != "no thumbnail could be made before");
         let uri = format!("file://{}", super::uri_path(&broken));
-        assert!(super::cache_file(&cache, super::FAILED, &uri).is_file());
+        assert!(super::cache_file(&cache, super::FAILED_DIR, &uri).is_file());
         assert_eq!(make().unwrap_err(), "no thumbnail could be made before");
         std::fs::remove_dir_all(dir).unwrap();
     }

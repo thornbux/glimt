@@ -142,7 +142,7 @@
       <text x="676" y="523" fill="#57606a">in a thumbnail worker (images/thumbs.rs)</text>
       <text x="514" y="543">cache_file: the MD5 of the file's URI in ~/.cache/thumbnails;</text>
       <text x="514" y="559">read_cached when it is newer than the file,</text>
-      <text x="514" y="575">else decode::decode_shrunk → to_srgb → write (if save_thumbnails)</text>
+      <text x="514" y="575">else decode_shrunk → to_srgb → write_thumbnail (if save_thumbnails)</text>
       <text x="514" y="599">then srgb_to_display for this screen, and a ColorImage</text>
 
       <rect x="974" y="502" width="196" height="122" rx="6" fill="#fef3e2" stroke="#d08a1a" stroke-width="1.5"/>

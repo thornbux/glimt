@@ -773,7 +773,7 @@ impl crate::App {
             let (tx, ctx) = (self.notices_tx.clone(), ctx.clone());
             let pointer = Working::new(&self.busy);
             std::thread::spawn(move || {
-                let (removed, seen) = thumbs::clean();
+                let (removed, seen) = thumbs::remove_orphaned_thumbnails();
                 let _ = tx.send(tf!(
                     "Removed {removed} of {seen} thumbnails",
                     removed = thousands(removed),
