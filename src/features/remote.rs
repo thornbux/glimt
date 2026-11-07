@@ -220,7 +220,9 @@ impl crate::App {
             }
             #[cfg(feature = "test-hooks")]
             Some(reply) if command.starts_with("where ") => {
-                let _ = reply.send(test_hooks::position(command.trim_start_matches("where ")));
+                let _ = reply.send(test_hooks::label_position(
+                    command.trim_start_matches("where "),
+                ));
             }
             Some(reply) => drop(reply.send(self.remote_query(command))),
             None => self.remote_command(ctx, command),
