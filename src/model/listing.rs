@@ -692,7 +692,8 @@ mod tests {
             super::real_dir(&dir.join("link/..")),
             real.parent().unwrap()
         );
-        // A folder that is not there is only made absolute.
+        // A folder that is not there keeps the real path of the folders above it that are
+        // there, and the rest as written: here only / is there.
         assert_eq!(
             super::real_dir(std::path::Path::new("/no/such")),
             std::path::Path::new("/no/such")
