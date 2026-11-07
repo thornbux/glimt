@@ -1389,6 +1389,38 @@ fn keys_answer_through_one_place() {
         // The projector's own window has no widget that takes the focus.
         ("viewer/view.rs", "projector_window"),
     ];
+    // Any key is read only in these functions, whatever key it is. A key read anywhere else,
+    // such as by a new view's own arrows, would be taken while a dialog is open or a text field
+    // has the focus, or after the shortcut that has it.
+    const PRESSED: &[(&str, &str)] = &[
+        // The keys read before the shortcuts: Enter in the grid, a zoomed image's arrows, and
+        // ↑ and ↓ for the icon grid's rows (`set_row_step`).
+        ("ui/actions.rs", "read_keys"),
+        // Tab, which only shows where the focus went, and takes no key from anyone.
+        ("ui/actions.rs", "focus_ring"),
+        ("ui/dialogs.rs", "entered"),
+        ("ui/preferences.rs", "preferences_window"),
+        ("viewer/view.rs", "projector_window"),
+    ];
+    const KEY_READS: &[(&str, &[(&str, &str)])] = &[
+        ("key_pressed(", PRESSED),
+        ("consume_key(", &[("ui/actions.rs", "read_keys")]),
+        // The shortcuts' table, read in one place.
+        ("consume_shortcut(", &[("ui/actions.rs", "shortcut")]),
+        // The events themselves: a dialog's answer, the focus that Enter or Esc took away, and
+        // a key being chosen in Preferences.
+        (
+            "Event::Key {",
+            &[
+                ("ui/dialogs.rs", "answers"),
+                ("ui/dialogs.rs", "focus_held"),
+                ("ui/preferences.rs", "pressed_key"),
+            ],
+        ),
+        ("key_down(", &[]),
+        ("key_released(", &[]),
+        ("num_presses(", &[]),
+    ];
     let mut wrong = Vec::new();
     for (file, text) in rust_sources() {
         let lines = code_lines(&text);
@@ -1432,6 +1464,53 @@ fn keys_answer_through_one_place() {
     ] {
         assert!(!names_enter_or_esc(answer), "caught an answer: {answer}");
     }
+    let wrong = outside_their_homes(KEY_READS);
+    assert!(
+        wrong.is_empty(),
+        "a key read outside its homes (read it in App::read_keys, before the shortcut that \
+         would take it, and only while no dialog is open and no widget has the focus):\n{}",
+        wrong.join("\n")
+    );
+    let planted = "fn grid() {\n    if i.key_down(egui::Key::A) {}\n}\n";
+    assert_eq!(
+        outside_homes_in("ui/file_list.rs", planted, KEY_READS),
+        ["ui/file_list.rs:2 (key_down()"]
+    );
+}
+
+/// Every modal dialog is in `App::modal_open`, the one list of what is open. The shortcuts in
+/// `read_keys` wait while it says a dialog is open, and Esc goes to the dialog first. A modal
+/// left out of it would let a key under it run an action on the files while the dialog asks
+/// about them. A modal is named with `Id::unique("…")`, and its name, with `_` for a space or a
+/// dash, is in the list's code, such as "confirm-delete" in `confirm_delete`.
+#[test]
+fn every_modal_is_in_modal_open() {
+    let dialogs = code_lines(&source("ui/dialogs.rs"));
+    let start = (dialogs.iter())
+        .position(|l| function_name(l) == Some("modal_open"))
+        .unwrap();
+    let list = dialogs[start..=block_end(&dialogs, start).unwrap()].join("\n");
+    let mut wrong = Vec::new();
+    for (file, text) in rust_sources() {
+        let lines = code_lines(&text);
+        let end = tests_start(&lines);
+        for (i, raw) in text.lines().take(end).enumerate() {
+            if !lines[i].contains("Modal::new(") {
+                continue;
+            }
+            let name = (raw.split_once("Modal::new(egui::Id::unique(\""))
+                .and_then(|(_, rest)| rest.split_once('"'))
+                .map(|(name, _)| name.replace([' ', '-'], "_"));
+            if !name.is_some_and(|n| list.contains(&n)) {
+                wrong.push(format!("{file}:{}", i + 1));
+            }
+        }
+    }
+    assert!(
+        wrong.is_empty(),
+        "a modal not in App::modal_open, or not named with egui::Id::unique(\"…\"):\n{}",
+        wrong.join("\n")
+    );
 }
 
 /// Every module lives in the folder of what it does, so `src/` itself holds only main.rs, cli.rs
