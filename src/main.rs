@@ -131,7 +131,7 @@ struct App {
     /// Edit → Plugins, read at start.
     plugins: Vec<crate::features::plugins::Plugin>,
     /// The plugins running, for Stop in their menu.
-    plugins_running: crate::features::plugins::Running,
+    plugins_running: crate::features::plugins::RunningPlugins,
     /// The help page open (F1), if any.
     help: Option<crate::ui::help::Page>,
     /// File → Print's dialog, while open.
@@ -246,7 +246,7 @@ impl App {
             prefs: crate::ui::preferences::Prefs::default(),
             open_with: crate::ui::menus::OpenWith::default(),
             plugins: crate::features::plugins::find(),
-            plugins_running: crate::features::plugins::Running::default(),
+            plugins_running: crate::features::plugins::RunningPlugins::default(),
             help: None,
             print_window: None,
             lightroom_rx: Receiving::none(),

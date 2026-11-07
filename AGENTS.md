@@ -131,7 +131,7 @@ holds only its `mod` lines, and a new module goes into the folder of what it doe
 | `src/features.rs` | **The features/ folder:** features with a window or a job of their own: Find Duplicates, Check Images, printing, plugins and remote control |
 | `src/features/check.rs` | File → Check Images: every image decoded in the background, the broken ones listed |
 | `src/features/duplicates.rs` | Find Duplicates: groups by checksum, name, size, dimensions or likeness, and its window |
-| `src/features/plugins.rs` | Plugins: desktop files whose command runs on the selected files; `desktop_files` and `values`, which decoder_plugins.rs reads with too |
+| `src/features/plugins.rs` | Plugins: desktop files whose command runs on the selected files; `desktop_files` and `desktop_entry_values`, which decoder_plugins.rs reads with too |
 | `src/features/print.rs` | Printing: a PDF of the images, sent to `lp` or saved, and the print dialog |
 | `src/features/remote.rs` | `--remote`, `--remote-all` and `--name`: a socket for each Glimt in `$XDG_RUNTIME_DIR/glimt`, `COMMANDS`, the sender (`client`) and the listener |
 | `src/images.rs` | **The images/ folder:** from a file to pixels and back: decoding, RAW, colour, video, decoder plugins, thumbnails and saving |

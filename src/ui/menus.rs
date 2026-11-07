@@ -574,7 +574,7 @@ impl crate::App {
             };
             let plugin = self.plugins[k].clone();
             let (files, left): (Vec<PathBuf>, Vec<PathBuf>) =
-                (targets.iter().map(|&i| self.path(i))).partition(|p| plugin.takes(p));
+                (targets.iter().map(|&i| self.path(i))).partition(|p| plugin.accepts(p));
             let name = &plugin.name;
             if files.is_empty() {
                 self.notice = Some(tf!("{name} takes none of these files", name));
@@ -698,7 +698,7 @@ impl crate::App {
             return;
         }
         let (path, tx) = (self.path(self.list.shown()), self.notices_tx.clone());
-        let mut words = plugins::words(player);
+        let mut words = plugins::command_words(player);
         std::thread::spawn(move || {
             // The player stays open as long as it plays, waited for in this thread.
             let run = |name: &str, mut cmd: std::process::Command| {
