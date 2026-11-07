@@ -427,7 +427,7 @@ msgid "Set as Wallpaper"
 msgstr ""
 
 #: src/ui/actions.rs
-msgid "Show EXIF Panel"
+msgid "Show Info Panel"
 msgstr ""
 
 #: src/ui/actions.rs
@@ -1809,7 +1809,7 @@ msgid "Show marks and stars in the file list"
 msgstr ""
 
 #: src/ui/preferences.rs
-msgid "Show the EXIF panel (Ctrl+K; reads a little from each image shown)"
+msgid "Show the info panel (Ctrl+K; reads a little from each image shown)"
 msgstr ""
 
 #: src/ui/preferences.rs
@@ -2623,7 +2623,7 @@ msgid "none, sRGB"
 msgstr ""
 
 #: src/ui/preferences.rs
-msgid "Fields: %name%, %path%, %position%, %dimensions%, %marks%, %keywords%, %comment%, and each label of the EXIF panel, such as %Camera% or %ISO%. A | starts a part, left out when its fields are empty."
+msgid "Fields: %name%, %path%, %position%, %dimensions%, %marks%, %keywords%, %comment%, and each label of the info panel, such as %Camera% or %ISO%. A | starts a part, left out when its fields are empty."
 msgstr ""
 
 #: src/ui/preferences.rs

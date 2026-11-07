@@ -445,7 +445,12 @@ impl crate::App {
         menu_toggle(ui, act, c.grid_names, Action::GridNames);
         menu_toggle(ui, act, c.info_panel, Action::InfoPanel);
         menu_toggle(ui, act, c.sort_manager, Action::SortManager);
-        menu_toggle(ui, act, self.info.exif_window_open(), Action::ExifWindow);
+        menu_toggle(
+            ui,
+            act,
+            self.info_panel.exif_window_open(),
+            Action::ExifWindow,
+        );
         menu_toggle(ui, act, self.pan_window.is_some(), Action::PanView);
         menu_toggle(ui, act, c.osd, Action::FullScreenInfo);
         menu_item(ui, act, Action::Histogram);
@@ -1085,7 +1090,7 @@ mod tests {
     }
 
     /// An action that is not a View toggle changes no setting. Any action it did not know
-    /// turned the EXIF panel on or off.
+    /// turned the info panel on or off.
     #[test]
     fn only_a_view_toggle_changes_its_setting() {
         let dir = std::env::temp_dir().join(format!("glimt-test-toggle-{}", std::process::id()));

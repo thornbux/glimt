@@ -405,8 +405,8 @@ msgid "Select None"
 msgstr "Niets selecteren"
 
 #: src/ui/actions.rs
-msgid "Show EXIF Panel"
-msgstr "EXIF-paneel tonen"
+msgid "Show Info Panel"
+msgstr "Infopaneel tonen"
 
 #: src/ui/actions.rs
 msgid "Show Folder Path"
@@ -1647,8 +1647,8 @@ msgid "Show marks and stars in the file list"
 msgstr "Markeringen en sterren tonen in de bestandslijst"
 
 #: src/ui/preferences.rs
-msgid "Show the EXIF panel (Ctrl+K; reads a little from each image shown)"
-msgstr "Het EXIF-paneel tonen (Ctrl+K; leest een beetje uit elke getoonde afbeelding)"
+msgid "Show the info panel (Ctrl+K; reads a little from each image shown)"
+msgstr "Het infopaneel tonen (Ctrl+K; leest een beetje uit elke getoonde afbeelding)"
 
 #: src/ui/preferences.rs
 msgid "Show the file list as icons (Ctrl+I)"
@@ -2602,8 +2602,8 @@ msgid "none, sRGB"
 msgstr "geen, sRGB"
 
 #: src/ui/preferences.rs
-msgid "Fields: %name%, %path%, %position%, %dimensions%, %marks%, %keywords%, %comment%, and each label of the EXIF panel, such as %Camera% or %ISO%. A | starts a part, left out when its fields are empty."
-msgstr "Velden: %name%, %path%, %position%, %dimensions%, %marks%, %keywords%, %comment% en elk label van het EXIF-paneel met de Engelse naam, zoals %Camera% of %ISO%. Een | begint een deel, dat wordt weggelaten als de velden ervan leeg zijn."
+msgid "Fields: %name%, %path%, %position%, %dimensions%, %marks%, %keywords%, %comment%, and each label of the info panel, such as %Camera% or %ISO%. A | starts a part, left out when its fields are empty."
+msgstr "Velden: %name%, %path%, %position%, %dimensions%, %marks%, %keywords%, %comment% en elk label van het infopaneel met de Engelse naam, zoals %Camera% of %ISO%. Een | begint een deel, dat wordt weggelaten als de velden ervan leeg zijn."
 
 #: src/ui/preferences.rs
 msgid "Window title \"Glimt - image name\" (off: \"image name - Glimt\")"

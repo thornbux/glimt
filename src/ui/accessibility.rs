@@ -16,7 +16,7 @@ impl App {
         let text = if self.list.files().is_empty() {
             crate::support::lang::tr("No images").to_owned()
         } else {
-            // Read in the background, as for the EXIF panel: here once for each image.
+            // Read in the background, as for the info panel: here once for each image.
             self.want_exif(ui.ctx());
             let path = self.path(self.list.cur());
             let place = self.spoken_place();
@@ -32,7 +32,7 @@ impl App {
                     crate::support::format::count(stars as usize, "star")
                 );
             }
-            if let Some(meta) = self.info.meta_of(&path) {
+            if let Some(meta) = self.info_panel.meta_of(&path) {
                 if !meta.saved.keywords.is_empty() {
                     let keywords = meta.saved.keywords.join(", ");
                     text += &crate::tf!(", keywords: {keywords}", keywords);

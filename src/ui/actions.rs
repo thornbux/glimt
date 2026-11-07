@@ -673,7 +673,7 @@ impl Action {
             Thumbnails => "Show Thumbnails",
             ThumbnailGrid => "Thumbnails in Image Area",
             GridNames => "Show File Names Under Thumbnails",
-            InfoPanel => "Show EXIF Panel",
+            InfoPanel => "Show Info Panel",
             SortManager => "Show Sort Manager",
             ExifWindow => "EXIF Window",
             FocusKeywords => "Keywords and Comment",
@@ -1127,12 +1127,12 @@ impl crate::App {
             // An animation: stopped at the frame before or after the one shown, which A plays on.
             Action::NextPage | Action::PrevPage if self.animated() => self.step_frame(action),
             Action::NextPage | Action::PrevPage => self.step_page(action),
-            Action::ExifWindow => self.info.toggle_exif_window(),
+            Action::ExifWindow => self.info_panel.toggle_exif_window(),
             Action::FocusKeywords => {
                 if !self.config.info_panel {
                     self.toggle_setting(Action::InfoPanel);
                 }
-                self.info.focus_keywords();
+                self.info_panel.focus_keywords();
             }
             Action::PanView => {
                 self.pan_window = match self.pan_window {

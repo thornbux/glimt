@@ -51,7 +51,7 @@ const IMAGE: &[&str] = &[
     "Auto rotate images using EXIF (Alt+X)",
     "Brightness",
     "Default",
-    "Fields: %name%, %path%, %position%, %dimensions%, %marks%, %keywords%, %comment%, and each label of the EXIF panel, such as %Camera% or %ISO%. A | starts a part, left out when its fields are empty.",
+    "Fields: %name%, %path%, %position%, %dimensions%, %marks%, %keywords%, %comment%, and each label of the info panel, such as %Camera% or %ISO%. A | starts a part, left out when its fields are empty.",
     "Enlarge small images to fit the window",
     "Hide the pointer in full screen when the mouse is still",
     "Histogram (K):",
@@ -95,7 +95,7 @@ const FILE_LIST: &[&str] = &[
     "Show file size and date in the file list",
     "Show folders as a tree (Ctrl+T)",
     "Show marks and stars in the file list",
-    "Show the EXIF panel (Ctrl+K; reads a little from each image shown)",
+    "Show the info panel (Ctrl+K; reads a little from each image shown)",
     "Show the file list as icons (Ctrl+I)",
     "Show File Names Under Thumbnails",
     "Show thumbnails in the file list (T)",
@@ -264,7 +264,7 @@ impl crate::App {
                     if shown[4] {
                         section(ui, theme::icon::LIST, tr(FILE_LIST[0]));
                         changed |= self.list_settings(ui, ctx);
-                        self.exif_panel_setting(ui);
+                        self.info_panel_setting(ui);
                         changed |= self.search_settings(ui, ctx);
                         changed |= self.refresh_setting(ui);
                         changed |= self.cache_settings(ui, ctx);
@@ -786,7 +786,7 @@ impl crate::App {
         changed
     }
 
-    /// Preferences: the toolbar, folder path, search field, EXIF panel and full-screen info.
+    /// Preferences: the toolbar, folder path, search field, info panel and full-screen info.
     pub(crate) fn bar_settings(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) -> bool {
         let mut changed = false;
         self.toggle_box(
@@ -829,9 +829,9 @@ impl crate::App {
         }
     }
 
-    /// Preferences → File list: the EXIF panel.
-    fn exif_panel_setting(&mut self, ui: &mut egui::Ui) {
-        let exif = tr("Show the EXIF panel (Ctrl+K; reads a little from each image shown)");
+    /// Preferences → File list: the info panel.
+    fn info_panel_setting(&mut self, ui: &mut egui::Ui) {
+        let exif = tr("Show the info panel (Ctrl+K; reads a little from each image shown)");
         self.toggle_box(ui, self.config.info_panel, Action::InfoPanel, exif);
     }
 
@@ -854,7 +854,7 @@ impl crate::App {
         }
         ui.weak(tr(
             "Fields: %name%, %path%, %position%, %dimensions%, %marks%, %keywords%, %comment%, \
-             and each label of the EXIF panel, such as %Camera% or %ISO%. A | starts a part, \
+             and each label of the info panel, such as %Camera% or %ISO%. A | starts a part, \
              left out when its fields are empty.",
         ));
         if crate::ui::menus::button(ui, tr("Default")).clicked() {

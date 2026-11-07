@@ -405,8 +405,8 @@ msgid "Select None"
 msgstr "Odznacz wszystko"
 
 #: src/ui/actions.rs
-msgid "Show EXIF Panel"
-msgstr "Pokaż panel EXIF"
+msgid "Show Info Panel"
+msgstr "Pokaż panel informacji"
 
 #: src/ui/actions.rs
 msgid "Show Folder Path"
@@ -1647,8 +1647,8 @@ msgid "Show marks and stars in the file list"
 msgstr "Pokaż znaczniki i gwiazdki na liście plików"
 
 #: src/ui/preferences.rs
-msgid "Show the EXIF panel (Ctrl+K; reads a little from each image shown)"
-msgstr "Pokaż panel EXIF (Ctrl+K; czyta trochę z każdego pokazanego obrazu)"
+msgid "Show the info panel (Ctrl+K; reads a little from each image shown)"
+msgstr "Pokaż panel informacji (Ctrl+K; czyta trochę z każdego pokazanego obrazu)"
 
 #: src/ui/preferences.rs
 msgid "Show the file list as icons (Ctrl+I)"
@@ -2613,8 +2613,8 @@ msgid "none, sRGB"
 msgstr "brak, sRGB"
 
 #: src/ui/preferences.rs
-msgid "Fields: %name%, %path%, %position%, %dimensions%, %marks%, %keywords%, %comment%, and each label of the EXIF panel, such as %Camera% or %ISO%. A | starts a part, left out when its fields are empty."
-msgstr "Pola: %name%, %path%, %position%, %dimensions%, %marks%, %keywords%, %comment% oraz każda etykieta panelu EXIF pod angielską nazwą, np. %Camera% lub %ISO%. Znak | zaczyna część, pomijaną, gdy jej pola są puste."
+msgid "Fields: %name%, %path%, %position%, %dimensions%, %marks%, %keywords%, %comment%, and each label of the info panel, such as %Camera% or %ISO%. A | starts a part, left out when its fields are empty."
+msgstr "Pola: %name%, %path%, %position%, %dimensions%, %marks%, %keywords%, %comment% oraz każda etykieta panelu informacji pod angielską nazwą, np. %Camera% lub %ISO%. Znak | zaczyna część, pomijaną, gdy jej pola są puste."
 
 #: src/ui/preferences.rs
 msgid "Window title \"Glimt - image name\" (off: \"image name - Glimt\")"

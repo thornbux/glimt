@@ -19,7 +19,7 @@ use std::sync::mpsc;
 /// A file's EXIF from the reader thread.
 pub(crate) struct ExifRead {
     path: PathBuf,
-    /// The EXIF panel's rows, and every field for the EXIF window.
+    /// The info panel's rows, and every field for the EXIF window.
     rows: Vec<(&'static str, String)>,
     all: Vec<(&'static str, String, String)>,
     /// Keywords and comment, their keyword tree paths, and the alt text and description.
@@ -29,7 +29,7 @@ pub(crate) struct ExifRead {
 }
 
 /// Keywords, comment, alt text and extended description of the shown image as being edited in
-/// the EXIF panel, and as last read or saved, to tell whether they changed.
+/// the info panel, and as last read or saved, to tell whether they changed.
 pub(crate) struct MetaEdit {
     pub(crate) path: PathBuf,
     keywords: String,
@@ -101,18 +101,18 @@ impl KeywordNode {
 }
 
 /// The info panel and the EXIF window: what is read of the shown image, and what is being edited.
-pub(crate) struct Info {
+pub(crate) struct InfoPanel {
     /// To the EXIF reader thread, and its answers.
     exif_jobs: mpsc::Sender<PathBuf>,
     exif_rx: mpsc::Receiver<ExifRead>,
-    /// The file the EXIF panel asked for last, and the panel's rows as read for a file.
+    /// The file the info panel asked for last, and the panel's rows as read for a file.
     exif_asked: Option<PathBuf>,
     exif: Option<(PathBuf, Vec<(&'static str, String)>)>,
     /// Every EXIF field of the shown image, for the EXIF window (Ctrl+E).
     exif_all: Vec<(&'static str, String, String)>,
     /// View → EXIF Window is open.
     exif_window: bool,
-    /// Keywords, comment, alt text and extended description in the EXIF panel; saved when a field
+    /// Keywords, comment, alt text and extended description in the info panel; saved when a field
     /// loses the focus, or another image is shown.
     meta: Option<MetaEdit>,
     /// The file whose panel is to be read once the sidecar jobs that write it are over
@@ -122,17 +122,17 @@ pub(crate) struct Info {
     reread_after_write: Option<(PathBuf, Vec<std::sync::Weak<crate::files::file_ops::Job>>)>,
     /// Alt+K: put the focus in the keywords field when the panel shows next.
     focus_keywords: bool,
-    /// The keyword tree (Geeqie's), as paths "Places|Norway|Oslo", sorted; in the EXIF panel.
+    /// The keyword tree (Geeqie's), as paths "Places|Norway|Oslo", sorted; in the info panel.
     keyword_tree: Vec<String>,
     /// A path being typed to add to the keyword tree.
     new_keyword: String,
 }
 
-impl Info {
+impl InfoPanel {
     /// The EXIF reader started, and the keyword tree read from its file.
     pub(crate) fn new(ctx: &egui::Context) -> Self {
         let (exif_jobs, exif_rx) = spawn_exif_reader(ctx);
-        Info {
+        InfoPanel {
             exif_jobs,
             exif_rx,
             exif_asked: None,
@@ -149,7 +149,7 @@ impl Info {
         }
     }
 
-    /// The EXIF panel's row `label` of `path`, when that is the file read.
+    /// The info panel's row `label` of `path`, when that is the file read.
     pub(crate) fn exif_row(&self, path: &Path, label: &str) -> Option<&str> {
         let (_, rows) = self.exif.as_ref().filter(|e| e.0 == path)?;
         rows.iter().find(|r| r.0 == label).map(|r| r.1.as_str())
@@ -184,19 +184,23 @@ impl crate::App {
         let path = self.path(self.list.cur());
         // An image shown again while its own save still waits behind a long job (a Lightroom
         // import) is read once the save is written, or the panel would show it without the save.
-        if self.info.exif_asked.as_ref() != Some(&path) && self.info.reread_after_write.is_none() {
+        if self.info_panel.exif_asked.as_ref() != Some(&path)
+            && self.info_panel.reread_after_write.is_none()
+        {
             let writes = self.work.writes_of(&path);
             if !writes.is_empty() {
                 // The wait ends by forgetting the panel, so the image before keeps its edit.
                 self.save_meta(ctx);
-                self.info.reread_after_write = Some((path.clone(), writes));
+                self.info_panel.reread_after_write = Some((path.clone(), writes));
             }
         }
-        if self.info.exif_asked.as_ref() != Some(&path) && self.info.reread_after_write.is_none() {
-            let _ = self.info.exif_jobs.send(path.clone());
-            self.info.exif_asked = Some(path);
+        if self.info_panel.exif_asked.as_ref() != Some(&path)
+            && self.info_panel.reread_after_write.is_none()
+        {
+            let _ = self.info_panel.exif_jobs.send(path.clone());
+            self.info_panel.exif_asked = Some(path);
         }
-        let done: Vec<ExifRead> = self.info.exif_rx.try_iter().collect();
+        let done: Vec<ExifRead> = self.info_panel.exif_rx.try_iter().collect();
         for ExifRead {
             path,
             rows,
@@ -207,9 +211,9 @@ impl crate::App {
         } in done
         {
             // Kept while being edited: the reader may answer for the image again.
-            if self.info.meta.as_ref().is_none_or(|m| m.path != path) {
+            if self.info_panel.meta.as_ref().is_none_or(|m| m.path != path) {
                 self.save_meta(ctx);
-                self.info.meta = Some(MetaEdit {
+                self.info_panel.meta = Some(MetaEdit {
                     path: path.clone(),
                     keywords: meta.keywords_text(),
                     comment: meta.comment.clone(),
@@ -220,13 +224,13 @@ impl crate::App {
                     access,
                 });
             }
-            self.info.exif = Some((path, rows));
-            self.info.exif_all = all;
+            self.info_panel.exif = Some((path, rows));
+            self.info_panel.exif_all = all;
         }
     }
 
     /// File and EXIF details of the shown image, read in the background (Ctrl+K).
-    pub(crate) fn exif_panel(&mut self, ui: &mut egui::Ui) {
+    pub(crate) fn info_panel(&mut self, ui: &mut egui::Ui) {
         self.want_exif(ui.ctx());
         egui::Panel::right("exif")
             .resizable(true)
@@ -244,7 +248,7 @@ impl crate::App {
                         }
                         // The old rows stay until the new ones arrive, so the panel does not
                         // flicker.
-                        for (label, value) in self.info.exif.iter().flat_map(|e| &e.1) {
+                        for (label, value) in self.info_panel.exif.iter().flat_map(|e| &e.1) {
                             ui.weak(tr(label));
                             // The place opens on a map in the browser.
                             if *label == "GPS" {
@@ -275,10 +279,10 @@ impl crate::App {
         let path = self.path(self.list.cur());
         // While the file is to be read again, its fields show it as it was: an edit there would
         // write that over what changed it.
-        if self.info.reread_after_write.is_some() {
+        if self.info_panel.reread_after_write.is_some() {
             ui.disable();
         }
-        let Some(edit) = self.info.meta.as_mut().filter(|m| m.path == path) else {
+        let Some(edit) = self.info_panel.meta.as_mut().filter(|m| m.path == path) else {
             return;
         };
         ui.weak(tr("Keywords"));
@@ -287,7 +291,7 @@ impl crate::App {
                 .hint_text(tr("Separated by commas"))
                 .desired_width(f32::INFINITY),
         );
-        if std::mem::take(&mut self.info.focus_keywords) {
+        if std::mem::take(&mut self.info_panel.focus_keywords) {
             keywords.request_focus();
         }
         ui.weak(tr("Comment"));
@@ -335,19 +339,19 @@ impl crate::App {
     /// image has it; a click sets it on the selected images (or the shown one), or takes it off.
     pub(crate) fn keyword_tree(&mut self, ui: &mut egui::Ui) {
         let path = self.path(self.list.cur());
-        let Some((have, paths)) = (self.info.meta.as_ref())
+        let Some((have, paths)) = (self.info_panel.meta.as_ref())
             .filter(|m| m.path == path)
             .map(|m| (m.saved.keywords.clone(), m.paths.clone()))
         else {
             return;
         };
-        if self.info.reread_after_write.is_some() {
+        if self.info_panel.reread_after_write.is_some() {
             ui.disable();
         }
         ui.separator();
         ui.weak(tr("Keyword tree"));
         let mut root = KeywordNode::default();
-        for p in &self.info.keyword_tree {
+        for p in &self.info_panel.keyword_tree {
             root.insert(p);
         }
         let (mut tick, mut drop) = (None, None);
@@ -358,17 +362,17 @@ impl crate::App {
         let layout = egui::Layout::right_to_left(egui::Align::Center);
         ui.allocate_ui_with_layout(row, layout, |ui| {
             let add = crate::ui::menus::button(ui, tr("Add")).clicked();
-            let field = egui::TextEdit::singleline(&mut self.info.new_keyword)
+            let field = egui::TextEdit::singleline(&mut self.info_panel.new_keyword)
                 .hint_text(tr("Places|Norway|Oslo"))
                 .desired_width(ui.available_width());
             let enter = entered(&ui.add(field));
-            if (add || enter) && !self.info.new_keyword.trim().is_empty() {
-                let new = std::mem::take(&mut self.info.new_keyword);
+            if (add || enter) && !self.info_panel.new_keyword.trim().is_empty() {
+                let new = std::mem::take(&mut self.info_panel.new_keyword);
                 self.change_keyword_tree(vec![new], None);
             }
         });
         // The image's own keywords that the tree does not have yet, at its top.
-        let names: HashSet<String> = (self.info.keyword_tree.iter())
+        let names: HashSet<String> = (self.info_panel.keyword_tree.iter())
             .map(|p| p.rsplit('|').next().unwrap_or(p).to_lowercase())
             .collect();
         let missing: Vec<String> = (have.iter())
@@ -396,8 +400,8 @@ impl crate::App {
         // Locked settings (--lock-settings, a kiosk): the tree changes for this session only,
         // as the other settings do, and the file is not written.
         let Some(p) = keyword_tree_path().filter(|_| !config::locked()) else {
-            self.info.keyword_tree =
-                xmp::keyword_tree_changed(&self.info.keyword_tree, add, remove);
+            self.info_panel.keyword_tree =
+                xmp::keyword_tree_changed(&self.info_panel.keyword_tree, add, remove);
             return;
         };
         // One that cannot be read is not written over: its keywords would be lost.
@@ -410,7 +414,7 @@ impl crate::App {
             ((tree.join("\n") + "\n").into_bytes(), tree)
         };
         match crate::files::file_io::edit_shared(&p, change) {
-            Ok(tree) => self.info.keyword_tree = tree,
+            Ok(tree) => self.info_panel.keyword_tree = tree,
             Err(e) => self.notice = Some(tf!("Could not save the keyword tree: {e}", e)),
         }
     }
@@ -423,7 +427,7 @@ impl crate::App {
             return;
         };
         if targets.contains(&self.list.cur())
-            && let Some(edit) = &mut self.info.meta
+            && let Some(edit) = &mut self.info_panel.meta
         {
             xmp::set_tag(&mut edit.saved.keywords, &mut edit.paths, &tag, on);
             edit.keywords = edit.saved.keywords_text();
@@ -464,7 +468,7 @@ impl crate::App {
         self.save_meta(ctx);
         let path = self.path(self.list.cur());
         let writes = self.work.writes_of(&path);
-        self.info.reread_after_write = Some((path, writes));
+        self.info_panel.reread_after_write = Some((path, writes));
         self.reread_when_written();
     }
 
@@ -472,16 +476,16 @@ impl crate::App {
     /// it and they are over. Jobs of other files do not hold it up.
     /// Another image shown meanwhile is read for itself, so its edit is never dropped by this.
     fn reread_when_written(&mut self) {
-        let Some((file, writes)) = &self.info.reread_after_write else {
+        let Some((file, writes)) = &self.info_panel.reread_after_write else {
             return;
         };
         if *file != self.path(self.list.cur()) {
-            self.info.reread_after_write = None;
+            self.info_panel.reread_after_write = None;
         } else if writes.iter().all(|w| w.strong_count() <= 1) {
-            self.info.reread_after_write = None;
-            self.info.meta = None;
-            self.info.exif = None;
-            self.info.exif_asked = None;
+            self.info_panel.reread_after_write = None;
+            self.info_panel.meta = None;
+            self.info_panel.exif = None;
+            self.info_panel.exif_asked = None;
         }
     }
 
@@ -490,7 +494,7 @@ impl crate::App {
     /// window's, as a sidecar on a slow share would hold the window up for its read, write and
     /// sync. The fields show what was saved at once; a failure is told.
     pub(crate) fn save_meta(&mut self, ctx: &egui::Context) {
-        let Some(edit) = &mut self.info.meta else {
+        let Some(edit) = &mut self.info_panel.meta else {
             return;
         };
         let access = xmp::Access {
@@ -519,7 +523,7 @@ impl crate::App {
                 |_, _| None,
             );
         }
-        let Some(edit) = &mut self.info.meta else {
+        let Some(edit) = &mut self.info_panel.meta else {
             return;
         };
         // Fields as they were shown are no change, also when splitting them again at commas
@@ -567,7 +571,7 @@ impl crate::App {
             return;
         };
         if targets.contains(&self.list.cur())
-            && let Some(edit) = &mut self.info.meta
+            && let Some(edit) = &mut self.info_panel.meta
         {
             xmp::add_to(&mut edit.saved.keywords, &keywords);
             edit.keywords = edit.saved.keywords_text();
@@ -608,7 +612,7 @@ impl crate::App {
 
     /// View → EXIF Window (Ctrl+E): every EXIF field of the shown image.
     pub(crate) fn exif_fields_window(&mut self, ctx: &egui::Context) {
-        if self.info.exif_window && !self.list.files().is_empty() {
+        if self.info_panel.exif_window && !self.list.files().is_empty() {
             self.want_exif(ctx);
             let mut open = true;
             let title = tf!("EXIF: {name}", name = self.name(self.list.cur()));
@@ -618,14 +622,14 @@ impl crate::App {
                 .default_size([560.0, 600.0])
                 .vscroll(true)
                 .show(ctx, |ui| {
-                    if self.info.exif_all.is_empty() {
+                    if self.info_panel.exif_all.is_empty() {
                         ui.weak(tr("No EXIF data"));
                     }
                     egui::Grid::new("exif all")
                         .striped(true)
                         .num_columns(3)
                         .show(ui, |ui| {
-                            for (group, name, value) in &self.info.exif_all {
+                            for (group, name, value) in &self.info_panel.exif_all {
                                 ui.weak(tr(group));
                                 ui.label(name);
                                 ui.label(value);
@@ -633,7 +637,7 @@ impl crate::App {
                             }
                         });
                 });
-            self.info.exif_window = open;
+            self.info_panel.exif_window = open;
         }
     }
 }
@@ -699,14 +703,14 @@ mod tests {
         // The panel asks in each frame it is drawn, and takes the answer then.
         for _ in 0..500 {
             app.want_exif(&ctx);
-            if app.info.meta.is_some() {
+            if app.info_panel.meta.is_some() {
                 break;
             }
             std::thread::sleep(std::time::Duration::from_millis(10));
         }
         app.add_keywords(&ctx, vec!["beach".into()]);
         let shown = |app: &crate::App| {
-            let edit = app.info.meta.as_ref().unwrap();
+            let edit = app.info_panel.meta.as_ref().unwrap();
             edit.saved.keywords == ["beach"] && edit.keywords.contains("beach")
         };
         assert!(shown(&app));
@@ -721,7 +725,7 @@ mod tests {
     fn read_panel(app: &mut crate::App, ctx: &eframe::egui::Context) {
         for _ in 0..500 {
             app.want_exif(ctx);
-            if app.info.meta.is_some() {
+            if app.info_panel.meta.is_some() {
                 return;
             }
             std::thread::sleep(std::time::Duration::from_millis(10));
@@ -743,7 +747,10 @@ mod tests {
         crate::metadata::xmp::add_keywords(&file, &["beach".into()]).unwrap();
         app.files_changed(&ctx, std::slice::from_ref(&file));
         read_panel(&mut app, &ctx);
-        assert_eq!(app.info.meta.as_ref().unwrap().saved.keywords, ["beach"]);
+        assert_eq!(
+            app.info_panel.meta.as_ref().unwrap().saved.keywords,
+            ["beach"]
+        );
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
@@ -770,10 +777,10 @@ mod tests {
         let (other, hold) = std::sync::mpsc::channel::<()>();
         let b = vec![dir.join("b.png")];
         app.write_sidecars(&ctx, "Other", b, move |_| hold.recv().is_err(), |_, _| None);
-        app.info.meta.as_mut().unwrap().keywords = "sea".into();
+        app.info_panel.meta.as_mut().unwrap().keywords = "sea".into();
         app.files_changed(&ctx, std::slice::from_ref(&file));
         app.want_exif(&ctx);
-        assert!(app.info.meta.is_some() && app.info.reread_after_write.is_some());
+        assert!(app.info_panel.meta.is_some() && app.info_panel.reread_after_write.is_some());
         // Its fields show the file as it was, so they cannot be edited while it waits.
         let mut enabled = true;
         let _ = ctx.run_ui(Default::default(), |ui| {
@@ -787,15 +794,18 @@ mod tests {
             &mut app, &ctx, written
         ));
         app.want_exif(&ctx);
-        assert!(app.info.reread_after_write.is_none());
+        assert!(app.info_panel.reread_after_write.is_none());
         read_panel(&mut app, &ctx);
-        assert_eq!(app.info.meta.as_ref().unwrap().saved.keywords, ["sea"]);
+        assert_eq!(
+            app.info_panel.meta.as_ref().unwrap().saved.keywords,
+            ["sea"]
+        );
         // Another image shown while the wait runs ends it, and its own panel is read.
         let other = app.start_job_of("Other", 1, true, Vec::new()).unwrap();
         app.files_changed(&ctx, std::slice::from_ref(&file));
         app.go(&ctx, 1);
         app.want_exif(&ctx);
-        assert!(app.info.reread_after_write.is_none());
+        assert!(app.info_panel.reread_after_write.is_none());
         drop(other);
         std::fs::remove_dir_all(&dir).unwrap();
     }
@@ -821,7 +831,7 @@ mod tests {
         app.files_changed(&ctx, std::slice::from_ref(&a));
         app.want_exif(&ctx);
         assert!(
-            app.info.reread_after_write.is_none(),
+            app.info_panel.reread_after_write.is_none(),
             "it waits for b.png's job"
         );
         drop(other);
@@ -831,20 +841,20 @@ mod tests {
         app.go(&ctx, 1);
         app.want_exif(&ctx);
         assert!(
-            app.info.reread_after_write.is_none(),
+            app.info_panel.reread_after_write.is_none(),
             "b.png waits for a.png's job"
         );
         app.go(&ctx, 0);
         app.want_exif(&ctx);
         assert!(
-            app.info.reread_after_write.is_some(),
+            app.info_panel.reread_after_write.is_some(),
             "a.png is read before its save"
         );
-        assert_ne!(app.info.exif_asked.as_ref(), Some(&a));
+        assert_ne!(app.info_panel.exif_asked.as_ref(), Some(&a));
         drop(writing);
         app.want_exif(&ctx);
-        assert!(app.info.reread_after_write.is_none());
-        assert_eq!(app.info.exif_asked.as_ref(), Some(&a));
+        assert!(app.info_panel.reread_after_write.is_none());
+        assert_eq!(app.info_panel.exif_asked.as_ref(), Some(&a));
         std::fs::remove_dir_all(&dir).unwrap();
     }
 }

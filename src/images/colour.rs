@@ -357,7 +357,7 @@ pub fn set_intent(name: &str) {
     set_colour(|c| c.intent = intent);
 }
 
-/// The profile an image is shown from, for the EXIF panel: its own (by name), Adobe RGB from
+/// The profile an image is shown from, for the info panel: its own (by name), Adobe RGB from
 /// its EXIF, or the one taken for images without a profile.
 pub fn colour_source(path: &Path) -> String {
     use moxcms::{ColorProfile, ProfileText};

@@ -821,7 +821,7 @@ impl crate::App {
     pub(crate) fn overlay(&mut self, ui: &mut egui::Ui, area: egui::Rect) {
         self.want_exif(ui.ctx());
         let path = self.path(self.list.cur());
-        let meta = self.info.meta_of(&path).map(|m| &m.saved);
+        let meta = self.info_panel.meta_of(&path).map(|m| &m.saved);
         let text = fill_template(&self.config.osd_template, |field| match field {
             "name" => self.name(self.list.cur()).to_string(),
             "path" => path.display().to_string(),
@@ -833,7 +833,7 @@ impl crate::App {
             "keywords" => meta.map(|m| m.keywords.join(", ")).unwrap_or_default(),
             "comment" => meta.map(|m| m.comment.clone()).unwrap_or_default(),
             label => self
-                .info
+                .info_panel
                 .exif_row(&path, label)
                 .map(|value| crate::metadata::exif::shown(label, value).to_owned())
                 .unwrap_or_default(),

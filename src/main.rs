@@ -112,7 +112,7 @@ struct App {
     window: crate::ui::window::Window,
     /// The info panel and the EXIF window. They hold what was read of the shown image and
     /// what is being edited.
-    info: crate::ui::info_panel::Info,
+    info_panel: crate::ui::info_panel::InfoPanel,
     /// The message shown over the image, until the next image.
     notice: Option<String>,
     /// Messages from background tasks (deleting, copying), to become the notice.
@@ -238,7 +238,7 @@ impl App {
             focus_by_keys: false,
             slideshow: crate::viewer::slideshow::Slideshow::new(start.slideshow),
             window: crate::ui::window::Window::new(start.kiosk),
-            info: crate::ui::info_panel::Info::new(ctx),
+            info_panel: crate::ui::info_panel::InfoPanel::new(ctx),
             notice: screen_error.or_else(|| config_notice(problems)),
             notices_tx,
             notices_rx,
@@ -331,7 +331,7 @@ impl App {
             self.sort_manager(ui);
         }
         if !bare && self.config.info_panel && !self.list.files().is_empty() {
-            self.exif_panel(ui);
+            self.info_panel(ui);
         } else {
             // The panel was hidden while a field had the focus, so the field never lost it.
             self.save_meta(ui.ctx());
