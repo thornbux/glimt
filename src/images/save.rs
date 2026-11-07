@@ -137,9 +137,9 @@ enum Kind {
 /// across and down is swapped (`png_with_chunks`).
 type Metadata = (Option<Vec<u8>>, Option<Vec<u8>>, bool);
 
-/// What tells one file or folder from every other, as `file_key` gives it: its device and
+/// What tells one file or folder from every other, as `file_id` gives it: its device and
 /// inode, or its real path where the file system gives every file inode 0.
-pub(crate) type FileKey = Result<(u64, u64), std::path::PathBuf>;
+pub(crate) type FileId = Result<(u64, u64), std::path::PathBuf>;
 
 /// How a file Glimt writes came from the image it was made from, which decides what it keeps of
 /// that image's metadata. Every writer of such a file goes through `derived_metadata`,
@@ -466,7 +466,10 @@ pub(crate) fn same_file(a: &Path, b: &Path) -> bool {
     use std::os::unix::fs::MetadataExt;
     let named = |p: &Path| {
         let m = std::fs::metadata(p).ok()?;
-        Some((meta_key(p, &m), (m.len(), m.mtime(), m.mtime_nsec())))
+        Some((
+            file_id_from_metadata(p, &m),
+            (m.len(), m.mtime(), m.mtime_nsec()),
+        ))
     };
     match (named(a), named(b)) {
         (Some(x), Some(y)) => same_named(x, y),
@@ -481,11 +484,11 @@ pub(crate) fn same_file(a: &Path, b: &Path) -> bool {
 /// for a second name of the same file. Where the file system gives no inode, two names that
 /// differ only in case are one file when the file system ignores case (`case_folded`).
 fn same_named(
-    (key_a, at_a): (FileKey, (u64, i64, i64)),
-    (key_b, at_b): (FileKey, (u64, i64, i64)),
+    (id_a, at_a): (FileId, (u64, i64, i64)),
+    (id_b, at_b): (FileId, (u64, i64, i64)),
 ) -> bool {
     at_a == at_b
-        && match (key_a, key_b) {
+        && match (id_a, id_b) {
             (Err(a), Err(b)) => a == b || case_folded(&a, &b),
             (a, b) => a == b,
         }
@@ -531,28 +534,28 @@ fn case_folded(a: &Path, b: &Path) -> bool {
     listed != [true, true]
 }
 
-/// Returns what tells the file or folder at `path` from every other (`FileKey`). Every
+/// Returns what tells the file or folder at `path` from every other (`FileId`). Every
 /// comparison of two files or folders by who they are goes through it. Returns `None` when the
 /// file cannot be looked up.
-pub(crate) fn file_key(path: &Path) -> Option<FileKey> {
-    Some(meta_key(path, &std::fs::metadata(path).ok()?))
+pub(crate) fn file_id(path: &Path) -> Option<FileId> {
+    Some(file_id_from_metadata(path, &std::fs::metadata(path).ok()?))
 }
 
-/// Returns the key of `path` from its metadata `meta`, which the caller looked up itself, for
+/// Returns the id of `path` from its metadata `meta`, which the caller looked up itself, for
 /// example without following a link. The inode is read here and in no other place, so no
 /// comparison can take inode 0 for one file (clippy.toml refuses the inode elsewhere).
 #[allow(clippy::disallowed_methods)] // the one place an inode tells files apart
-pub(crate) fn meta_key(path: &Path, meta: &std::fs::Metadata) -> FileKey {
+pub(crate) fn file_id_from_metadata(path: &Path, meta: &std::fs::Metadata) -> FileId {
     use std::os::unix::fs::MetadataExt;
-    key_of(path, (meta.dev(), meta.ino()))
+    file_id_from_inode(path, (meta.dev(), meta.ino()))
 }
 
-/// Returns the key of `path` from its device and inode, `id`. The pair is the same however the
+/// Returns the id of `path` from its device and inode, `id`. The pair is the same however the
 /// file is reached, through a link, a hard link or a bind mount, where its real path differs.
 /// But sshfs with `-o use_ino` and some other mounts give every file inode 0, so the pair
 /// would make all their files one, and the real path tells them apart instead. A test gives
 /// such ids through this function.
-pub(crate) fn key_of(path: &Path, id: (u64, u64)) -> FileKey {
+pub(crate) fn file_id_from_inode(path: &Path, id: (u64, u64)) -> FileId {
     match id.1 {
         0 => Err(crate::model::listing::real_dir(path)),
         _ => Ok(id),
@@ -2248,10 +2251,13 @@ mod tests {
         std::fs::write(&a, "x").unwrap();
         std::fs::write(&b, "x").unwrap();
         std::os::unix::fs::symlink("a.jpg", &link).unwrap();
-        let key = |p: &std::path::Path| super::key_of(p, (1, 0));
-        assert_ne!(key(&a), key(&b));
-        assert_eq!(key(&a), key(&link));
-        assert_eq!(super::key_of(&a, (1, 7)), super::key_of(&b, (1, 7)));
+        let file_id = |p: &std::path::Path| super::file_id_from_inode(p, (1, 0));
+        assert_ne!(file_id(&a), file_id(&b));
+        assert_eq!(file_id(&a), file_id(&link));
+        assert_eq!(
+            super::file_id_from_inode(&a, (1, 7)),
+            super::file_id_from_inode(&b, (1, 7))
+        );
         assert!(super::same_file(&a, &link) && !super::same_file(&a, &b));
         std::fs::remove_dir_all(dir).unwrap();
     }

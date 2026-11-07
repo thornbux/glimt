@@ -182,8 +182,8 @@
       <text x="457" y="829">folders and puts them and their sidecars back;</text>
       <text x="457" y="845">marks.restore gives back their marks and stars</text>
       <text x="457" y="867">Move: put_file back; Rename: rename_files_of back</text>
-      <text x="457" y="883">to the old names. Each only where the file's FileId</text>
-      <text x="457" y="899">still matches what was moved or renamed</text>
+      <text x="457" y="883">to the old names. Each only where the file's</text>
+      <text x="457" y="899">fingerprint still matches what was moved or renamed</text>
 
       <rect x="820" y="770" width="350" height="150" rx="6" fill="#fef3e2" stroke="#d08a1a" stroke-width="1.5"/>
       <text x="832" y="791" font-size="13" font-weight="700">Rename Many's journal <tspan font-weight="400" font-size="12" fill="#57606a">files/journal.rs</tspan></text>

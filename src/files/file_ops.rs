@@ -103,20 +103,22 @@ pub(crate) struct OperationReport {
     pub(crate) untrashable: Option<(String, Vec<PathBuf>)>,
 }
 
-/// A file's (device and inode, size, modification time in seconds and nanoseconds). The inode
-/// stays the same through a rename on one disk. FAT, exFAT and FUSE without use_ino may give the
-/// same file another inode later, so there the size and time tell the file instead. The device
-/// and inode are `None` where the file system gives every file inode 0 (`save::meta_key`), and
-/// then only the size and time tell the file.
-pub(crate) type FileId = (Option<(u64, u64)>, u64, (i64, i64));
+/// A file's fingerprint: (device and inode, size, modification time in seconds and nanoseconds).
+/// The inode stays the same through a rename on one disk. FAT, exFAT and FUSE without use_ino may
+/// give the same file another inode later, so there the size and time tell the file instead. The
+/// device and inode are `None` where the file system gives every file inode 0
+/// (`save::file_id_from_metadata`), and then only the size and time tell the file.
+pub(crate) type FileFingerprint = (Option<(u64, u64)>, u64, (i64, i64));
 
-/// A file moved or renamed, `(from, to, id)`, as Undo puts it back. The id is the file's at
-/// `to`. When Glimt itself writes the file anew there (a turn saved), it takes the new id.
-pub(crate) type Moved = (PathBuf, PathBuf, FileId);
+/// A file moved or renamed, `(from, to, fingerprint)`, as Undo puts it back. The fingerprint is
+/// the file's at `to`. When Glimt itself writes the file anew there (a turn saved), it takes
+/// the new fingerprint.
+pub(crate) type Moved = (PathBuf, PathBuf, FileFingerprint);
 
 /// What Edit → Undo puts back. It is the last files or folder moved to the trash, the last
-/// files moved, or the last files renamed, each `(from, to, id)`. The id is the file's
-/// `FileId` at `to`, so an Undo leaves alone a file that another program put there since.
+/// files moved, or the last files renamed, each `(from, to, fingerprint)`. The fingerprint
+/// is the file's `FileFingerprint` at `to`, so an Undo leaves alone a file that another program put
+/// there since.
 pub(crate) enum Undo {
     Trash(Thrown),
     Move(Vec<Moved>),
@@ -1070,14 +1072,14 @@ impl crate::App {
     }
 
     /// Renames `from` to `to` in the background, as `rename_in_background` says. An Undo gives
-    /// the ids the files at `from` had after the rename it undoes, and each file that another
-    /// has replaced since is left alone.
+    /// the fingerprints the files at `from` had after the rename it undoes, and each file that
+    /// another has replaced since is left alone.
     fn rename_files_of(
         &mut self,
         ctx: &egui::Context,
         from: Vec<PathBuf>,
         to: Vec<PathBuf>,
-        ids: Option<Vec<FileId>>,
+        fingerprints: Option<Vec<FileFingerprint>>,
     ) {
         // A camera card refuses some characters. Saying so before the job starts names the
         // reason, where a rename that fails halfway would only give the system's error.
@@ -1097,13 +1099,13 @@ impl crate::App {
             from: from.clone(),
             to: to.clone(),
             shown,
-            undoing: ids.is_some(),
+            undoing: fingerprints.is_some(),
         };
         let (tx, rx) = mpsc::channel();
         let ctx = ctx.clone();
         let pointer = Working::new(&self.busy);
         std::thread::spawn(move || {
-            let _ = tx.send(rename_undoable(from, to, ids, &steps));
+            let _ = tx.send(rename_undoable(from, to, fingerprints, &steps));
             drop(steps);
             drop(pointer);
             ctx.request_repaint();
@@ -1251,8 +1253,8 @@ impl crate::App {
     }
 
     /// Keeps `paths` as the files an Undo of a move or rename puts back, although Glimt wrote
-    /// them anew in place (a turn saved, a plugin's change) and so gave them new ids. A file
-    /// written over by another image (Save As, Save This Frame) is not one of them, so it does
+    /// them anew in place (a turn saved, a plugin's change) and so gave them new fingerprints. A
+    /// file written over by another image (Save As, Save This Frame) is not one of them, so it does
     /// not come here.
     pub(crate) fn written_anew(&mut self, paths: &[PathBuf]) {
         if let Some(Undo::Move(pairs) | Undo::Rename(pairs)) = &mut self.file_operations.undo {
@@ -1275,9 +1277,11 @@ impl crate::App {
                         && to.file_name().is_some_and(|n| moved.contains(n))
                         && to.canonicalize().is_ok_and(|t| real.contains(&t)))
             };
-            // The file takes its new id, so a file put there later is still told apart. One
-            // that is gone has nothing left to put back.
-            pairs.retain_mut(|(_, to, id)| !same(to) || file_id(to).map(|now| *id = now).is_some());
+            // The file takes its new fingerprint, so a file put there later is still told apart.
+            // One that is gone has nothing left to put back.
+            pairs.retain_mut(|(_, to, old)| {
+                !same(to) || fingerprint(to).map(|now| *old = now).is_some()
+            });
         }
     }
 
@@ -1430,13 +1434,13 @@ impl crate::App {
         let report_tx = self.file_operations.report_tx.clone();
         match undo {
             Undo::Rename(pairs) => {
-                let (mut now, mut before, mut ids) = (Vec::new(), Vec::new(), Vec::new());
-                for (from, to, id) in pairs {
+                let (mut now, mut before, mut fingerprints) = (Vec::new(), Vec::new(), Vec::new());
+                for (from, to, fingerprint) in pairs {
                     before.push(from);
                     now.push(to);
-                    ids.push(id);
+                    fingerprints.push(fingerprint);
                 }
-                self.rename_files_of(ctx, now, before, Some(ids));
+                self.rename_files_of(ctx, now, before, Some(fingerprints));
             }
             Undo::Move(pairs) => drop(self.background(ctx, touches, move || {
                 let (back, errors) = move_back(pairs);
@@ -1970,20 +1974,22 @@ pub(crate) fn taken(to: &Path, ours: &HashSet<&PathBuf>) -> Option<PathBuf> {
         .find(|p| there(p) && !ours.contains(p))
 }
 
-/// Renames `from` to `to` as `rename_files` does, for a rename's thread. When `ids` are given
-/// (an Undo), each file at `from` that is no longer the one with its id is left out, so a file
-/// that another program put at the name since keeps it. Returns how it went, with the places
-/// left out and the Undo it leaves: of a rename that went through, or of an Undo that failed,
-/// what it still has to put back.
+/// Renames `from` to `to` as `rename_files` does, for a rename's thread. When `fingerprints` are
+/// given (an Undo), each file at `from` that is no longer the one with its fingerprint is left out,
+/// so a file that another program put at the name since keeps it. Returns how it went, with the
+/// places left out and the Undo it leaves: of a rename that went through, or of an Undo that
+/// failed, what it still has to put back.
 fn rename_undoable(
     from: Vec<PathBuf>,
     to: Vec<PathBuf>,
-    ids: Option<Vec<FileId>>,
+    fingerprints: Option<Vec<FileFingerprint>>,
     job: &Job,
 ) -> Renamed {
-    let refused: Vec<usize> = match &ids {
-        Some(ids) => (0..from.len())
-            .filter(|&k| !file_id(&from[k]).is_some_and(|now| same_id(ids[k], now)))
+    let refused: Vec<usize> = match &fingerprints {
+        Some(fingerprints) => (0..from.len())
+            .filter(|&k| {
+                !fingerprint(&from[k]).is_some_and(|now| same_fingerprint(fingerprints[k], now))
+            })
             .collect(),
         None => Vec::new(),
     };
@@ -1999,7 +2005,7 @@ fn rename_undoable(
     // An Undo that failed put the names back, so what it still has to do is the rename it was
     // asked to undo, from the old name to the name the file has now. A file left under a
     // hidden name has nothing at its name, so it drops out here and the journal repairs it.
-    let undo = match (ids.is_some(), result.is_ok()) {
+    let undo = match (fingerprints.is_some(), result.is_ok()) {
         (false, true) => pairs.iter().filter_map(moved).collect(),
         (true, false) => (pairs.iter())
             .filter_map(|(now, before)| moved(&(before.clone(), now.clone())))
@@ -2129,10 +2135,10 @@ pub(crate) fn rename_files(from: Vec<PathBuf>, to: Vec<PathBuf>, job: &Job) -> R
 /// pairs moved back, `(now, before)`, and the errors to tell.
 fn move_back(pairs: Vec<Moved>) -> (Vec<(PathBuf, PathBuf)>, Vec<String>) {
     let (mut errors, mut back) = (Vec::new(), Vec::new());
-    for (from, to, id) in pairs {
+    for (from, to, at_move) in pairs {
         let _lock = xmp::lock_sidecar(&to);
         // Another program may have put another file at `to` since the move.
-        if !file_id(&to).is_some_and(|now| same_id(id, now)) {
+        if !fingerprint(&to).is_some_and(|now| same_fingerprint(at_move, now)) {
             let other = tr("another file has taken its place");
             errors.push(format!("{}: {other}", to.display()));
             continue;
@@ -2154,27 +2160,27 @@ fn move_back(pairs: Vec<Moved>) -> (Vec<(PathBuf, PathBuf)>, Vec<String>) {
     (back, errors)
 }
 
-/// Returns a file just moved or renamed from `from` to `to` with its id, for Undo. Returns
+/// Returns a file just moved or renamed from `from` to `to` with its fingerprint, for Undo. Returns
 /// `None` when nothing is at `to` any more.
 fn moved((from, to): &(PathBuf, PathBuf)) -> Option<Moved> {
-    Some((from.clone(), to.clone(), file_id(to)?))
+    Some((from.clone(), to.clone(), fingerprint(to)?))
 }
 
-/// Returns the id of the file or link at `path`, or `None` when nothing is there.
-fn file_id(path: &Path) -> Option<FileId> {
+/// Returns the fingerprint of the file or link at `path`, or `None` when nothing is there.
+fn fingerprint(path: &Path) -> Option<FileFingerprint> {
     use std::os::unix::fs::MetadataExt;
     let m = std::fs::symlink_metadata(path).ok()?;
-    let key = crate::images::save::meta_key(path, &m).ok();
+    let key = crate::images::save::file_id_from_metadata(path, &m).ok();
     Some((key, m.len(), (m.mtime(), m.mtime_nsec())))
 }
 
-/// Whether ids `a` and `b` are of the same file, the one rule Undo tells its own file by. The
-/// size and modification time must be the same, and the device too, or both have no inode.
-/// The inode alone says nothing: a file system gives a freed inode to the next new file, so a
-/// file copied in at the name after the first one was deleted may have the same inode. The
-/// inode itself may differ, as FAT gives the same file another one later. Glimt's own rewrites
-/// of the file (a turn saved) update the id through `written_anew`, so they still match.
-fn same_id(a: FileId, b: FileId) -> bool {
+/// Returns whether fingerprints `a` and `b` are of the same file, the one rule Undo tells its own
+/// file by. The size and modification time must be the same, and the device too, or both have no
+/// inode. The inode alone says nothing: a file system gives a freed inode to the next new file, so
+/// a file copied in at the name after the first one was deleted may have the same inode. The inode
+/// itself may differ, as FAT gives the same file another one later. Glimt's own rewrites of the
+/// file (a turn saved) update the fingerprint through `written_anew`, so they still match.
+fn same_fingerprint(a: FileFingerprint, b: FileFingerprint) -> bool {
     (a.1, a.2) == (b.1, b.2)
         && match (a.0, b.0) {
             (Some(x), Some(y)) => x.0 == y.0,
@@ -2196,12 +2202,11 @@ fn ours_but_case(
     in_the_way: impl Iterator<Item = PathBuf>,
     listed: impl Fn(&Path) -> Option<HashSet<OsString>>,
 ) -> Result<(), String> {
-    let id = file_id;
     let folded = |p: &Path| p.to_string_lossy().to_lowercase();
     // It is built once, so a rename of 20,000 files on a card does not compare every pair.
-    let ours: HashSet<(String, FileId)> = from
+    let ours: HashSet<(String, FileFingerprint)> = from
         .iter()
-        .filter_map(|f| Some((folded(f), id(f)?)))
+        .filter_map(|f| Some((folded(f), fingerprint(f)?)))
         .collect();
     // Each folder is read once, and only on this rare path. One that cannot be read counts as
     // listing every name, so nothing is taken for ours that might not be.
@@ -2212,7 +2217,7 @@ fn ours_but_case(
         let own_name = names
             .as_ref()
             .is_none_or(|n| at.file_name().is_none_or(|f| n.contains(f)));
-        if own_name || !id(&at).is_some_and(|i| ours.contains(&(folded(&at), i))) {
+        if own_name || !fingerprint(&at).is_some_and(|i| ours.contains(&(folded(&at), i))) {
             return Err(tf!(
                 "{name} exists already; nothing renamed",
                 name = at.display()
@@ -3217,11 +3222,11 @@ mod tests {
         std::fs::create_dir_all(&empty).unwrap();
         image::RgbImage::new(2, 2).save(dir.join("a.png")).unwrap();
         let (mut app, ctx) = app_on(&dir);
-        let id = super::file_id(&dir.join("a.png")).unwrap();
+        let fingerprint = super::fingerprint(&dir.join("a.png")).unwrap();
         app.file_operations.undo = Some(super::Undo::Rename(vec![(
             dir.join("b.png"),
             dir.join("a.png"),
-            id,
+            fingerprint,
         )]));
         app.open(&ctx, empty.clone());
         app.undo(&ctx);
@@ -3403,29 +3408,32 @@ mod tests {
     /// inodes 0 were equal, so any file there was taken for the moved one and moved back.
     #[test]
     fn undo_of_a_move_tells_files_without_inodes_apart() {
-        // `file_id` gives no device and inode where `save::meta_key` gives a path for inode 0.
-        assert!(crate::images::save::key_of(std::path::Path::new("/a"), (1, 0)).is_err());
+        // `fingerprint` gives no device and inode where `save::file_id_from_metadata` gives a path
+        // for inode 0.
+        assert!(
+            crate::images::save::file_id_from_inode(std::path::Path::new("/a"), (1, 0)).is_err()
+        );
         let (moved, other) = ((None, 1, (5, 0)), (None, 7, (9, 0)));
         assert!(
-            !super::same_id(moved, other),
+            !super::same_fingerprint(moved, other),
             "another file was taken for the moved one"
         );
-        assert!(super::same_id(moved, moved));
+        assert!(super::same_fingerprint(moved, moved));
         // An inode that changed (FAT) still leaves the size and time to tell the file.
-        assert!(super::same_id(
+        assert!(super::same_fingerprint(
             (Some((1, 2)), 1, (5, 0)),
             (Some((1, 3)), 1, (5, 0))
         ));
-        assert!(!super::same_id(
+        assert!(!super::same_fingerprint(
             (Some((1, 2)), 1, (5, 0)),
             (Some((1, 3)), 7, (9, 0))
         ));
-        assert!(!super::same_id(
+        assert!(!super::same_fingerprint(
             (Some((1, 2)), 1, (5, 0)),
             (Some((2, 2)), 1, (5, 0))
         ));
         // A freed inode given to another file at the name is not the moved file.
-        assert!(!super::same_id(
+        assert!(!super::same_fingerprint(
             (Some((1, 2)), 1, (5, 0)),
             (Some((1, 2)), 7, (9, 0))
         ));

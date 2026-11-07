@@ -2,7 +2,7 @@
 //! stars, collections, plugins and decoders, copied into a new folder.
 
 use crate::files::config::xdg_dir;
-use crate::images::save::{FileKey, file_key};
+use crate::images::save::{FileId, file_id};
 use crate::support::format::{count, local_time};
 use crate::support::lang::tr;
 use std::path::{Path, PathBuf};
@@ -27,18 +27,18 @@ pub fn own_folders() -> Vec<(&'static str, PathBuf)> {
 /// link into a dotfiles repository is backed up too. A link that leads nowhere is left out.
 pub fn copy_tree(from: &Path, to: &Path) -> std::io::Result<usize> {
     std::fs::create_dir_all(to)?;
-    let mut above = Vec::from_iter(file_key(from));
+    let mut above = Vec::from_iter(file_id(from));
     copy_into(from, to, &ids_above(to), &mut above)
 }
 
 /// Copies what is in `from` to `to`, made. `target` holds the folders the copy goes into, and
-/// `above` the folders being copied that hold `from`, by `file_key`.
+/// `above` the folders being copied that hold `from`, by `file_id`.
 #[allow(clippy::disallowed_methods)] // copies into a backup folder made new for it
 fn copy_into(
     from: &Path,
     to: &Path,
-    target: &[FileKey],
-    above: &mut Vec<FileKey>,
+    target: &[FileId],
+    above: &mut Vec<FileId>,
 ) -> std::io::Result<usize> {
     std::fs::create_dir_all(to)?;
     let mut files = 0;
@@ -46,7 +46,7 @@ fn copy_into(
         let entry = entry?;
         let (source, dest) = (entry.path(), to.join(entry.file_name()));
         if source.is_dir() {
-            let Some(id) = file_key(&source) else {
+            let Some(id) = file_id(&source) else {
                 continue;
             };
             // A link to a folder that holds the backup would copy the backup into itself.
@@ -92,7 +92,7 @@ pub(crate) fn back_up_to(dir: &Path) -> Result<String, String> {
     }
     // Inside one of the folders it copies, the backup would copy itself until paths are too long.
     let target = ids_above(dir);
-    let inside_own = |d: &Path| file_key(d).is_some_and(|id| target.contains(&id));
+    let inside_own = |d: &Path| file_id(d).is_some_and(|id| target.contains(&id));
     if let Some((_, inside)) = own.iter().find(|(_, d)| inside_own(d)) {
         return Err(crate::tf!(
             "A backup cannot go inside {folder}, which it copies",
@@ -132,13 +132,13 @@ pub(crate) fn back_up_to(dir: &Path) -> Result<String, String> {
     }
 }
 
-/// Returns the folders that hold `path`, itself among them, by `file_key`: those above it
+/// Returns the folders that hold `path`, itself among them, by `file_id`: those above it
 /// as it is written, and those above the place it really is when a link leads there.
-fn ids_above(path: &Path) -> Vec<FileKey> {
+fn ids_above(path: &Path) -> Vec<FileId> {
     let written = std::path::absolute(path).unwrap_or_else(|_| path.to_owned());
     let real = path.canonicalize().unwrap_or_else(|_| written.clone());
     (written.ancestors().chain(real.ancestors()))
-        .filter_map(file_key)
+        .filter_map(file_id)
         .collect()
 }
 

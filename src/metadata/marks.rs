@@ -189,7 +189,7 @@ enum Change {
 
 /// Returns the inode and time of `file`, which show that the file at the path changed since,
 /// or `None` when it cannot be looked up.
-#[allow(clippy::disallowed_methods)] // never tells two files apart, which is save::file_key's
+#[allow(clippy::disallowed_methods)] // never tells two files apart, which is save::file_id's
 fn seen(file: &Path) -> Option<Seen> {
     use std::os::unix::fs::MetadataExt;
     let m = std::fs::metadata(file).ok()?;
