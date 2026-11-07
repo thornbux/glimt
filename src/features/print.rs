@@ -219,7 +219,18 @@ impl PrintTo {
             videos: true,
             hidden: true,
         };
-        matches!(self, PrintTo::File(file) if crate::model::listing::is_listed(file, every))
+        self.is_listed_by(|file| crate::model::listing::is_listed(file, every))
+    }
+
+    /// Whether this is a file that `listed` lists, and whose name does not end in ".pdf". A
+    /// decoder plugin for PDFs makes every PDF listed, but a PDF written over a PDF is what the
+    /// user chose, so such a name is never refused.
+    fn is_listed_by(&self, listed: impl Fn(&Path) -> bool) -> bool {
+        let pdf = |file: &Path| {
+            file.extension()
+                .is_some_and(|e| e.eq_ignore_ascii_case("pdf"))
+        };
+        matches!(self, PrintTo::File(file) if !pdf(file) && listed(file))
     }
 }
 
@@ -1399,6 +1410,17 @@ mod tests {
         assert!(told.is_ok());
         assert_eq!(std::fs::read(&jpg).unwrap(), before);
         std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A name ending in ".pdf" is written even when a decoder plugin for PDFs lists it, while
+    /// another listed name is still refused.
+    #[test]
+    fn prints_over_a_listed_pdf() {
+        let to = |name: &str| super::PrintTo::File(std::path::PathBuf::from(name));
+        assert!(!to("first.pdf").is_listed_by(|_| true));
+        assert!(!to("FIRST.PDF").is_listed_by(|_| true));
+        assert!(to("a.jpg").is_listed_by(|_| true));
+        assert!(!to("a.jpg").is_listed_by(|_| false));
     }
 
     /// Five images four to a page make two pages with five images, each with its name, and

@@ -929,6 +929,35 @@ for v in new old; do
     else note "old: $current shown after Ctrl, $shifted after Shift"; fi
 done
 
+section "Ctrl+ and Shift+double-click in the side panel's file list: open the file clicked"
+for v in new old; do
+    as_version $v
+    d=/tmp/side-ctrl-open-$v
+    mkdir -p $d
+    for c in a b c; do convert -size 300x200 xc:red $d/$c.jpg; done
+    config auto_refresh=false
+    start $d/a.jpg
+    at=$(where c.jpg)
+    if [ -n "$at" ]; then
+        xdotool mousemove ${at% *} ${at#* } keydown ctrl click --repeat 2 --delay 100 1 \
+            keyup ctrl 2>/dev/null
+        sleep 1
+    fi
+    current=$(remote current 2>/dev/null | tr -d '\0')
+    at=$(where b.jpg)
+    if [ -n "$at" ]; then
+        xdotool mousemove ${at% *} ${at#* } keydown shift click --repeat 2 --delay 100 1 \
+            keyup shift 2>/dev/null
+        sleep 1
+    fi
+    shifted=$(remote current 2>/dev/null | tr -d '\0')
+    quit
+    if [ $v = new ]; then
+        expect "Ctrl: the file double-clicked is shown" "$current" "$d/c.jpg"
+        expect "Shift: the file double-clicked is shown" "$shifted" "$d/b.jpg"
+    else note "old: $current shown after Ctrl, $shifted after Shift"; fi
+done
+
 section "--remote select while Delete asks: the answer deletes the file it asked about only"
 for v in new old; do
     as_version $v
