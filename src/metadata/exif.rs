@@ -87,12 +87,7 @@ impl Tiff<'_> {
             .filter_map(|i| {
                 let e = offset + 2 + i * 12;
                 let (tag, kind, count) = (self.u16(e)?, self.u16(e + 2)?, self.u32(e + 4)?);
-                let size = match kind {
-                    SHORT => 2,
-                    LONG | SLONG => 4,
-                    RATIONAL | SRATIONAL => 8,
-                    _ => 1,
-                };
+                let size = width(kind);
                 // Values of up to four bytes are stored in the entry itself.
                 let at = if size * count as usize <= 4 {
                     e + 8
@@ -774,6 +769,38 @@ fn raw(path: &Path) -> Option<Vec<u8>> {
     decoded(path, &mut dec)
 }
 
+/// Reads the EXIF block of `path` as a file made from its image keeps it (`save::Derived`). It
+/// is read as the panel reads it (`raw`), so a copy of a HEIC, AVIF, JPEG XL or RAW photo keeps
+/// the EXIF the panel shows. Before, a copy read it only through the image crate, which cannot
+/// open those, and lost it. The block is made a bare TIFF block, because a JPEG's encoder puts
+/// its own "Exif\0\0" before it and a PNG's eXIf chunk must start with the TIFF header. It is
+/// cut to the directories that IFD0, Exif, GPS and Interop are and the values they name. The
+/// thumbnail (IFD1), which a copy drops anyway, and a RAW's or HEIC's picture after the block
+/// are left out. Returns `None` when there is no block.
+pub fn derived(path: &Path) -> Option<Vec<u8>> {
+    let raw = raw(path)?;
+    let (t, ifd0, exif, gps) = ifds(&raw)?;
+    let offset = |ifd: &Ifd, tag| Some(t.int(find(ifd, tag)?)? as usize);
+    let interop_at = offset(&exif, INTEROP_IFD);
+    let interop = interop_at.map(|at| t.ifd(at)).unwrap_or_default();
+    let dirs = [
+        (t.u32(4).map(|at| at as usize), &ifd0),
+        (offset(&ifd0, EXIF_IFD), &exif),
+        (offset(&ifd0, GPS_IFD), &gps),
+        (interop_at, &interop),
+    ];
+    let mut end = 8;
+    for (at, ifd) in dirs {
+        let Some(at) = at else { continue };
+        let n = t.u16(at).unwrap_or(0) as usize;
+        end = end.max(at.saturating_add(6 + 12 * n));
+        for (_, e) in ifd {
+            end = end.max(e.at.saturating_add(width(e.kind) * e.count as usize));
+        }
+    }
+    Some(t.data[..end.min(t.data.len())].to_vec())
+}
+
 /// Reads the EXIF block of `path` through `dec`, the image crate's decoder of it. A PNG keeps
 /// EXIF in an eXIf chunk, which the decoder reads, or in the text chunk that exiv2 (digiKam,
 /// GIMP) and older ImageMagick write (`png_text`). This is the one reader of an EXIF block the
@@ -857,6 +884,16 @@ fn raw_profile(text: &str) -> Option<Vec<u8>> {
         .collect::<Option<Vec<u8>>>()?;
     let at = (bytes.windows(4)).position(|w| w == b"II*\0" || w == b"MM\0*")?;
     Some(bytes[at..].to_vec())
+}
+
+/// The size in bytes of one value of the TIFF type `kind`.
+fn width(kind: u16) -> usize {
+    match kind {
+        SHORT | 8 => 2,
+        LONG | SLONG | 11 | 13 => 4,
+        RATIONAL | SRATIONAL | 12 => 8,
+        _ => 1,
+    }
 }
 
 /// The TIFF block with its IFD0, Exif and GPS directories.

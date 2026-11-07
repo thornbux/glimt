@@ -61,6 +61,10 @@ const DROPPED_PNG_TEXT: [&[u8]; 4] = [
     b"Raw profile type 8bim",
 ];
 
+/// The largest EXIF block a JPEG holds. Its APP1 segment holds 65,533 bytes, and the encoder
+/// puts six of them, "Exif\0\0", before the block.
+const MAX_JPEG_EXIF: usize = 65_527;
+
 /// How a copy of an image is made (Edit → Crop, File → Save As). It is made as the view shows
 /// it (turned by `turns` and `mirrored`, by EXIF with `rotate`, and the page `page` of a TIFF),
 /// as a part of it, smaller, and in a format. `App::shown_copy` makes it from the view, for
@@ -543,13 +547,15 @@ fn derived_metadata(
     size: (u32, u32),
     how: Derived,
 ) -> Result<Metadata, String> {
-    let (mut exif, mut xmp, stored) = crate::images::decode::image_reader(path)
+    // The EXIF block comes from the panel's reader, also for the formats the image crate
+    // cannot open.
+    let mut exif = exif::derived(path);
+    let (mut xmp, stored) = crate::images::decode::image_reader(path)
         .ok()
         .and_then(|r| r.into_decoder().ok())
         .map(|mut d| {
-            let exif = exif::decoded(path, &mut d);
             let stored = rotate.then(|| exif::stored_orientation(&mut d, exif.as_deref()));
-            (exif, d.xmp_metadata().ok().flatten(), stored)
+            (d.xmp_metadata().ok().flatten(), stored)
         })
         .unwrap_or_default();
     if let Some(exif) = &mut exif {
@@ -741,6 +747,8 @@ fn encode(
             if let Some(icc) = icc {
                 let _ = enc.set_icc_profile(icc);
             }
+            // A block larger than an APP1 segment holds is left out rather than fail the copy.
+            let exif = exif.filter(|e| e.len() <= MAX_JPEG_EXIF);
             match exif.map(|e| enc.set_exif_metadata(e)) {
                 Some(Err(e)) => Err(image::ImageError::Unsupported(e)),
                 _ => img.write_with_encoder(enc),
@@ -1566,6 +1574,83 @@ mod tests {
             strip: false,
         };
         kept(&super::save_cropped(&file, &how).unwrap());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A copy of a HEIC or RAW photo takes the EXIF the panel shows, which the image crate
+    /// cannot read from them, as a bare TIFF block cut to what its directories name. Before, a
+    /// copy of such a photo had no EXIF, and a RAW's whole 1 MB head would not fit a JPEG.
+    #[test]
+    fn a_copy_of_a_heic_or_raw_keeps_its_exif() {
+        use crate::support::test_support::CANON_EXIF;
+        let dir = std::env::temp_dir().join(format!("glimt-heic-exif-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let picture = vec![0x55; 200_000];
+        let heic = [
+            &b"\0\0\0\x18ftypheic\0\0\0\0mif1heic\0\0\0\x10"[..],
+            b"Exif\0\0",
+            CANON_EXIF,
+            &picture,
+        ];
+        let raw = [CANON_EXIF, &picture];
+        let mut files = vec![("a.nef", raw.concat())];
+        // A HEIC is read only when built with it.
+        if cfg!(feature = "heic") {
+            files.push(("a.heic", heic.concat()));
+        }
+        for (name, bytes) in files {
+            let file = dir.join(name);
+            std::fs::write(&file, bytes).unwrap();
+            let (exif, _, _) =
+                super::derived_metadata(&file, true, 0, (4, 4), super::Derived::Copy).unwrap();
+            let exif = exif.expect(name);
+            assert_eq!(exif.len(), CANON_EXIF.len(), "{name}");
+            assert!(
+                exif.starts_with(b"MM\0*") && exif.ends_with(b"03:04:05\0"),
+                "{name}"
+            );
+            let upright = image::metadata::Orientation::from_exif_chunk(&exif);
+            assert_eq!(upright, Some(image::metadata::Orientation::NoTransforms));
+        }
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A WebP whose EXIF chunk starts with "Exif\0\0", as some programs write it, gives a
+    /// JPEG or PNG copy an EXIF block that starts with its TIFF header. Before, a JPEG copy had
+    /// the header twice and a PNG copy an eXIf chunk no program reads.
+    #[test]
+    fn a_copy_of_a_webp_with_an_exif_header_has_one() {
+        use crate::support::test_support::CANON_EXIF;
+        use image::{ImageDecoder, ImageEncoder};
+        let dir = std::env::temp_dir().join(format!("glimt-webp-exif-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("a.webp");
+        let mut out = std::fs::File::create(&file).unwrap();
+        let mut enc = image::codecs::webp::WebPEncoder::new_lossless(&mut out);
+        enc.set_exif_metadata([&b"Exif\0\0"[..], CANON_EXIF].concat())
+            .unwrap();
+        image::RgbImage::new(4, 4).write_with_encoder(enc).unwrap();
+        for format in [super::Format::Jpeg, super::Format::Png] {
+            let how = super::CopyAs {
+                page: 0,
+                rotate: true,
+                turns: 0,
+                mirrored: false,
+                crop: None,
+                long_side: None,
+                format: Some(format),
+                jpeg_quality: 90,
+                webp_quality: 90,
+                strip: false,
+            };
+            let to = super::save_as(&file, &how, &dir.join("b")).unwrap();
+            let mut dec = image::ImageReader::open(&to)
+                .unwrap()
+                .into_decoder()
+                .unwrap();
+            let exif = dec.exif_metadata().unwrap().expect("an EXIF block");
+            assert!(exif.starts_with(b"MM\0*"), "{}", to.display());
+        }
         std::fs::remove_dir_all(dir).unwrap();
     }
 

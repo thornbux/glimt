@@ -1069,16 +1069,27 @@ fn a_home_ends_at_the_next_top_level_item() {
 /// would skip what `derived_xmp` drops. The panel reads it in `xmp::embedded`. The EXIF block
 /// is read through `exif::decoded`, which also sees a PNG's EXIF in a text chunk. Before, a
 /// turned or copied PNG lost EXIF that only such a chunk held, because the save read the eXIf
-/// chunk alone. The orientation an image is turned upright by is read through
-/// `exif::stored_orientation`, so the view and a turned or copied file take the one the panel
-/// shows. The view once took the decoder's alone and showed a PNG with its orientation in a
-/// text chunk unturned. The view's Adobe RGB check takes the same block as its orientation, and
-/// the colour line reads it through `decoded` too, so a PNG with its ColorSpace only in a text
-/// chunk is shown and named as Adobe RGB. A RAW's preview is a JPEG, read on its own.
+/// chunk alone. A derived file takes its EXIF block from `exif::derived`, the panel's reader,
+/// and never from `exif::decoded`, which reads only what the image crate opens. Before, a copy
+/// of a HEIC, AVIF, JPEG XL or RAW photo lost the EXIF the panel showed. The orientation an
+/// image is turned upright by is read through `exif::stored_orientation`, so the view and a
+/// turned or copied file take the one the panel shows. The view once took the decoder's alone
+/// and showed a PNG with its orientation in a text chunk unturned. The view's Adobe RGB check
+/// takes the same block as its orientation, and the colour line reads it through `decoded`
+/// too, so a PNG with its ColorSpace only in a text chunk is shown and named as Adobe RGB. A
+/// RAW's preview is a JPEG, read on its own.
 #[test]
 fn derived_files_take_metadata_in_one_place() {
     const HOMES: &[(&str, &[(&str, &str)])] = &[
         ("set_upright(", &[("images/save.rs", "derived_metadata")]),
+        ("exif::derived(", &[("images/save.rs", "derived_metadata")]),
+        (
+            "exif::decoded(",
+            &[
+                ("images/decode.rs", "load_unturned"),
+                ("images/colour.rs", "colour_source"),
+            ],
+        ),
         (
             ".exif_metadata()",
             &[("metadata/exif.rs", "decoded"), ("images/raw.rs", "exif")],
