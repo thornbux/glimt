@@ -1459,7 +1459,7 @@ else
         echo "sidecar $n" >$card/IMG_$n.JPG.xmp
     done
     # What each file holds, to follow it to its new name.
-    held() { echo "$(md5sum <$1 | cut -c1-32) $(cat $1.xmp)"; }
+    lock_sidecar() { echo "$(md5sum <$1 | cut -c1-32) $(cat $1.xmp)"; }
     want=$(for n in 3 2 1; do held $card/IMG_$n.JPG; done)
     # Sorted by name, descending: IMG_3 becomes img_1, IMG_2 img_2 (its case only) and IMG_1
     # img_3, which takes the name IMG_3 had on FAT.

@@ -123,11 +123,11 @@ pub(crate) enum Undo {
     Rename(Vec<Moved>),
 }
 
-/// Files held for work that is not a job (`App::hold`). Other operations on them wait while it
-/// lives. The work moves it into its thread, so the hold ends when the work does, also when the
-/// thread panics.
-pub(crate) struct Hold {
-    /// The files, counted by `touched` while this lives. It is never read, only held.
+/// Files held back for work that is not a job (`App::hold_back_while_writing`). Other
+/// operations on them wait while it lives. The work moves it into its thread, so the files are
+/// let go when the work ends, also when the thread panics.
+pub(crate) struct HeldBackFiles {
+    /// The files, counted by `touched` while this lives. It is never read.
     _paths: Arc<Vec<PathBuf>>,
 }
 
@@ -602,7 +602,7 @@ impl crate::App {
                 // written meanwhile would make a sidecar under the name of a photo that is no
                 // longer there. They are held only for the chunk, so a sidecar write in another
                 // window waits for one chunk rather than the whole job.
-                let _held = xmp::held_all(chunk);
+                let _locks = xmp::lock_sidecars(chunk);
                 if trash {
                     if let Err(e) = crate::files::trash::trash(chunk) {
                         errors.push(e);
@@ -956,7 +956,7 @@ impl crate::App {
                 // sidecar as a write does, so a write that waited lands on no old name. A copy
                 // does not hold it, because the photo stays. A move to another disk holds it
                 // while the photo is copied, which only makes writes under the same lock wait.
-                let _held = (!keep).then(|| xmp::held(path));
+                let _lock = (!keep).then(|| xmp::lock_sidecar(path));
                 if let Some(at) = taken(&target, &HashSet::new()) {
                     failed(&at, std::io::ErrorKind::AlreadyExists.into());
                 } else if let Err(e) = put_file(path, &target, keep) {
@@ -1516,17 +1516,17 @@ impl crate::App {
 
     // ---- Work in the background: sidecars, frames, the backup and other jobs ----
 
-    /// Holds `paths` for work that is not a job, once they are free to change. Other operations
-    /// on them wait while the returned `Hold` lives, so the work moves it into its thread.
-    /// Returns `None`, with a notice, while something else works on them. Work on none of the
-    /// user's files (an empty `paths`) is never held back and holds nothing.
-    pub(crate) fn hold(&mut self, paths: Vec<PathBuf>) -> Option<Hold> {
+    /// Holds `paths` back for work that is not a job, once they are free to change. Other
+    /// operations on them wait while the returned `HeldBackFiles` lives, so the work moves it into
+    /// its thread. Returns `None`, with a notice, while something else works on them. Work on none
+    /// of the user's files (an empty `paths`) is never held back and holds nothing.
+    pub(crate) fn hold_back_while_writing(&mut self, paths: Vec<PathBuf>) -> Option<HeldBackFiles> {
         if !paths.is_empty() && !self.none_saving(&paths) {
             return None;
         }
         let held = Arc::new(paths);
         self.file_operations.touching.push(held.clone());
-        Some(Hold { _paths: held })
+        Some(HeldBackFiles { _paths: held })
     }
 
     /// Runs `work`, which writes files and changes `touches`, in a thread of its own. The busy
@@ -1543,14 +1543,14 @@ impl crate::App {
         // Work that changes none of the user's files (within a job that holds them, or on
         // Glimt's own collections) waits for nothing. A Lightroom import's collections were
         // refused while its own keywords were being written.
-        let Some(hold) = self.hold(touches) else {
+        let Some(held_back) = self.hold_back_while_writing(touches) else {
             return false;
         };
         let (tx, ctx) = (self.notices_tx.clone(), ctx.clone());
         let pointer = Working::new(&self.busy);
         let writing = Working::new(&crate::files::file_io::WRITING);
         std::thread::spawn(move || {
-            let _writing = (writing, hold);
+            let _writing = (writing, held_back);
             if let Some(text) = work() {
                 let _ = tx.send(text);
             }
@@ -2020,7 +2020,7 @@ fn rename_undoable(
 pub(crate) fn rename_files(from: Vec<PathBuf>, to: Vec<PathBuf>, job: &Job) -> Result<(), String> {
     // The sidecars are held as a sidecar write holds them, from before the look at which files
     // have one. Otherwise a keyword written meanwhile would land on an old name.
-    let _held = xmp::held_all(&from);
+    let _locks = xmp::lock_sidecars(&from);
     // Sidecars go with their files, through the same steps.
     let (mut from, mut to) = (from, to);
     let sides: Vec<(PathBuf, PathBuf)> = (from.iter().zip(&to))
@@ -2130,7 +2130,7 @@ pub(crate) fn rename_files(from: Vec<PathBuf>, to: Vec<PathBuf>, job: &Job) -> R
 fn move_back(pairs: Vec<Moved>) -> (Vec<(PathBuf, PathBuf)>, Vec<String>) {
     let (mut errors, mut back) = (Vec::new(), Vec::new());
     for (from, to, id) in pairs {
-        let _held = xmp::held(&to);
+        let _lock = xmp::lock_sidecar(&to);
         // Another program may have put another file at `to` since the move.
         if !file_id(&to).is_some_and(|now| same_id(id, now)) {
             let other = tr("another file has taken its place");
@@ -3175,7 +3175,7 @@ mod tests {
                     "self.start_job(",
                     "self.start_job_of(",
                     "self.background(",
-                    "self.hold(",
+                    "self.hold_back_while_writing(",
                     // Work that starts its own thread counts itself as writing the user's files.
                     "Working::new(&crate::files::file_io::WRITING)",
                 ];
@@ -3701,11 +3701,11 @@ mod tests {
         };
         let waits =
             |app: &mut crate::App, file: &std::path::Path, start: &dyn Fn(&mut crate::App)| {
-                let held = crate::metadata::xmp::held(file);
+                let lock = crate::metadata::xmp::lock_sidecar(file);
                 start(app);
                 std::thread::sleep(std::time::Duration::from_millis(300));
                 assert!(file.exists(), "{} gone while held", file.display());
-                drop(held);
+                drop(lock);
                 assert!(settle(app, &ctx, |app| idle(app) && !file.exists()));
             };
         let (a, b) = (d.join("a.png"), d.join("b.png"));
@@ -3731,8 +3731,9 @@ mod tests {
         // they are deleted for good: a chunk of 100 files in other lock slots, and then two
         // more, of which the second is held. The first of the two waits too, because it is in
         // the same chunk. (There is not one gio call and one taking of the locks per file.)
-        let slot =
-            |n: &str| crate::metadata::xmp::lock_slot(&crate::metadata::xmp::sidecar(&d.join(n)));
+        let slot = |n: &str| {
+            crate::metadata::xmp::sidecar_lock_number(&crate::metadata::xmp::sidecar(&d.join(n)))
+        };
         let names: Vec<String> = (0..400).map(|k| format!("d{k:03}.png")).collect();
         let y = &names[0];
         let first: Vec<&String> = names
@@ -3757,7 +3758,7 @@ mod tests {
         let mut all: Vec<usize> = first.iter().map(|n| at(&app, n)).collect();
         all.extend([at(&app, z), at(&app, y)]);
         let (x, y, z) = (d.join(first[0]), d.join(y), d.join(z));
-        let held = crate::metadata::xmp::held(&y);
+        let lock = crate::metadata::xmp::lock_sidecar(&y);
         app.delete_now(&ctx, false, all);
         assert!(
             settle(&mut app, &ctx, |_| first
@@ -3767,7 +3768,7 @@ mod tests {
         );
         assert!(y.exists() && crate::metadata::xmp::sidecar(&y).exists());
         assert!(z.exists(), "the second chunk is one");
-        drop(held);
+        drop(lock);
         assert!(settle(&mut app, &ctx, |app| idle(app)
             && !y.exists()
             && !z.exists()));
@@ -4075,19 +4076,19 @@ mod tests {
         std::fs::remove_dir_all(d).unwrap();
     }
 
-    /// Files held by `hold`, as a plugin running on them holds them, hold back every other
-    /// operation on them until the hold ends.
+    /// Files held back by `hold_back_while_writing`, as a plugin running on them is, hold back
+    /// every other operation on them until they are let go.
     #[test]
-    fn a_hold_holds_its_files_back() {
+    fn held_back_files_hold_back_other_operations() {
         let dir = std::env::temp_dir().join(format!("glimt-test-hold-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let a = dir.join("a.png");
         image::RgbImage::new(2, 2).save(&a).unwrap();
         let (mut app, _ctx) = crate::support::test_support::app_on(&dir);
-        let hold = app.hold(vec![a.clone()]).unwrap();
+        let held_back = app.hold_back_while_writing(vec![a.clone()]).unwrap();
         assert!(!app.none_saving(std::slice::from_ref(&a)));
-        assert!(app.hold(vec![a.clone()]).is_none());
-        drop(hold);
+        assert!(app.hold_back_while_writing(vec![a.clone()]).is_none());
+        drop(held_back);
         assert!(app.none_saving(std::slice::from_ref(&a)));
         std::fs::remove_dir_all(dir).unwrap();
     }

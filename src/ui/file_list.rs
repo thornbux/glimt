@@ -1572,7 +1572,7 @@ impl crate::App {
             && (self.folder.collection().is_none() || !cells.iter().any(|c| c.1.contains(p)))
         {
             let before = if add {
-                self.list.selected_and_held()
+                self.list.selected_with_hidden()
             } else {
                 Default::default()
             };
@@ -1758,8 +1758,8 @@ impl crate::App {
                     left += &tf!(", {m} selected ({size})", m, size);
                 }
                 let mut hidden = String::new();
-                if !self.list.held_back().is_empty() {
-                    let h = thousands(self.list.held_back().len());
+                if !self.list.hidden_selected().is_empty() {
+                    let h = thousands(self.list.hidden_selected().len());
                     hidden = tf!(", {h} selected but hidden by the search", h);
                     left += &hidden;
                 }

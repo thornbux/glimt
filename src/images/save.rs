@@ -245,25 +245,25 @@ pub(crate) fn replace_with_sidecar(
     out: Vec<u8>,
     how: Derived,
 ) -> Result<(), String> {
-    replace_holding_sidecar(real, named, out, |held| derive_sidecar(held, named, how))
+    replace_with_sidecar_locked(real, named, out, |lock| derive_sidecar(lock, named, how))
 }
 
 /// Replaces the image at `real` with `out` after `step` changed the sidecar of `named`. The
-/// sidecar's lock (`xmp::held`) is held from the step until the image has its new name. A move
-/// in another window holds the same lock, so it moves the image and its sidecar together, both
-/// before the step or both after the image is replaced. Before, the lock was let go after the
-/// step, and a rename in that moment took the changed sidecar to the new name while the image,
-/// found gone, was left as it was.
-fn replace_holding_sidecar(
+/// sidecar's lock (`xmp::lock_sidecar`) is held from the step until the image has its new name. A
+/// move in another window holds the same lock, so it moves the image and its sidecar together, both
+/// before the step or both after the image is replaced. Before, the lock was let go after the step,
+/// and a rename in that moment took the changed sidecar to the new name while the image, found
+/// gone, was left as it was.
+fn replace_with_sidecar_locked(
     real: &Path,
     named: &Path,
     out: Vec<u8>,
-    step: impl FnOnce(&crate::metadata::xmp::Held) -> Result<(), String>,
+    step: impl FnOnce(&crate::metadata::xmp::SidecarLock) -> Result<(), String>,
 ) -> Result<(), String> {
-    let held = std::cell::OnceCell::new();
+    let lock = std::cell::OnceCell::new();
     let before = || {
-        let held = held.get_or_init(|| crate::metadata::xmp::held(named));
-        step(held).map_err(std::io::Error::other)
+        let lock = lock.get_or_init(|| crate::metadata::xmp::lock_sidecar(named));
+        step(lock).map_err(std::io::Error::other)
     };
     crate::files::file_io::replace_existing(real, out, before).map_err(|e| e.to_string())
 }
@@ -403,7 +403,7 @@ pub(crate) fn save_copy_with_sidecar(
     // before the lock is taken, because that is the slow part on a share, and other sidecars of
     // the lock's slot would wait for it. The lock is taken before the image takes its name and is
     // held until the copy's sidecar is in place.
-    let mut held = None;
+    let mut lock = None;
     // The sidecar is read before the copy is written, so one that cannot be read leaves no copy
     // behind. A sidecar that is a link counts as none, because what it points to (a private key)
     // is not the photo's.
@@ -431,7 +431,7 @@ pub(crate) fn save_copy_with_sidecar(
                 new,
                 |f| f.write_all(out),
                 || {
-                    held = Some(crate::metadata::xmp::held(new));
+                    lock = Some(crate::metadata::xmp::lock_sidecar(new));
                     remove_side()
                 },
             )?;
@@ -445,7 +445,7 @@ pub(crate) fn save_copy_with_sidecar(
                 new,
                 |f| f.write_all(out),
                 |tmp| {
-                    held = Some(crate::metadata::xmp::held(new));
+                    lock = Some(crate::metadata::xmp::lock_sidecar(new));
                     crate::files::file_io::rename_never_over(tmp, new)
                 },
             )?;
@@ -663,11 +663,11 @@ pub(crate) fn derived_xmp(xmp: &[u8], how: Derived) -> Vec<u8> {
 /// by its old orientation. It is called after the new image is written whole and before it
 /// takes the name (`replace_with_sidecar`): a sidecar that cannot be written then leaves the
 /// image as it was, and a failed image write leaves the sidecar. Only a sidecar of its own,
-/// readable as text and with something to change, is written, under its lock `held`. A link or
+/// readable as text and with something to change, is written, under its lock `lock`. A link or
 /// one that cannot be read is left alone, as the panel leaves it. The sidecar is the one of the
 /// name the list shows, which is the one Glimt's panel reads, also for a link to a photo.
 fn derive_sidecar(
-    held: &crate::metadata::xmp::Held,
+    lock: &crate::metadata::xmp::SidecarLock,
     path: &Path,
     how: Derived,
 ) -> Result<(), String> {
@@ -676,7 +676,7 @@ fn derive_sidecar(
     if text.is_none_or(|x| derived_xmp(&x, how) == x) {
         return Ok(());
     }
-    crate::metadata::xmp::update_held(held, path, true, |x| {
+    crate::metadata::xmp::update_locked_sidecar(lock, path, true, |x| {
         String::from_utf8(derived_xmp(x.as_bytes(), how)).ok()
     })
 }
@@ -2175,7 +2175,7 @@ mod tests {
         let (a, b) = (dir.join("a.png"), dir.join("b.png"));
         std::fs::write(&a, b"a").unwrap();
         std::fs::write(crate::metadata::xmp::sidecar(&a), "a's").unwrap();
-        let held = crate::metadata::xmp::held(&b);
+        let lock = crate::metadata::xmp::lock_sidecar(&b);
         let saver = {
             let (a, b) = (a.clone(), b.clone());
             std::thread::spawn(move || super::save_copy_with_sidecar(&a, &b, b"x", false, false))
@@ -2193,7 +2193,7 @@ mod tests {
         assert!(written(), "the image waited for the sidecar's lock");
         std::thread::sleep(std::time::Duration::from_millis(100));
         assert!(!b.exists(), "saved while the sidecar was held");
-        drop(held);
+        drop(lock);
         saver.join().unwrap().unwrap();
         let side = std::fs::read_to_string(crate::metadata::xmp::sidecar(&b)).unwrap();
         assert_eq!(side, "a's");
@@ -2291,7 +2291,7 @@ mod tests {
     /// the image, found gone, was not turned.
     #[test]
     fn a_move_during_the_sidecar_step_waits_for_the_image() {
-        use crate::metadata::xmp::{held, sidecar, update_held};
+        use crate::metadata::xmp::{lock_sidecar, sidecar, update_locked_sidecar};
         let dir = std::env::temp_dir().join(format!("glimt-test-side-move-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let (a, b) = (dir.join("a.png"), dir.join("b.png"));
@@ -2305,20 +2305,20 @@ mod tests {
             // Glimt's moves do.
             std::thread::spawn(move || {
                 went.recv().unwrap();
-                let _held = held(&a);
+                let _lock = lock_sidecar(&a);
                 std::fs::rename(&a, &b).unwrap();
                 std::fs::rename(sidecar(&a), sidecar(&b)).unwrap();
                 done.send(()).unwrap();
             })
         };
-        let step = |held: &crate::metadata::xmp::Held| {
-            update_held(held, &a, true, |_| Some("new side".into()))?;
+        let step = |lock: &crate::metadata::xmp::SidecarLock| {
+            update_locked_sidecar(lock, &a, true, |_| Some("new side".into()))?;
             go.send(()).unwrap();
             // A move that is not held back lands now, before the image is looked at again.
             let _ = moved.recv_timeout(std::time::Duration::from_millis(200));
             Ok(())
         };
-        let replaced = super::replace_holding_sidecar(&a, &a, b"new".to_vec(), step);
+        let replaced = super::replace_with_sidecar_locked(&a, &a, b"new".to_vec(), step);
         mover.join().unwrap();
         assert!(replaced.is_ok(), "{replaced:?}");
         assert_eq!(std::fs::read_to_string(&b).unwrap(), "new");

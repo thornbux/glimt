@@ -1319,7 +1319,7 @@ mod tests {
         let hides =
             crate::support::lang::tr("The search hides files this would act on: clear it first");
         assert_eq!(app.notice.as_deref(), Some(hides));
-        assert_eq!(app.list.selected_and_held(), [0, 1].into());
+        assert_eq!(app.list.selected_with_hidden(), [0, 1].into());
         let dir_of = crate::model::collections::dir().unwrap();
         assert!(!dir_of.join(format!("{other}.gqv")).exists());
         app.list.set_matches(None);

@@ -65,7 +65,7 @@
       <rect x="30" y="328" width="220" height="132" rx="6" fill="#ffffff" stroke="#7a7a2a" stroke-width="1.5"/>
       <text x="42" y="349" font-size="13" font-weight="700" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace">delete_now</text>
       <text x="42" y="369">in chunks of 100, Stop between;</text>
-      <text x="42" y="385">xmp::held_all locks the sidecars;</text>
+      <text x="42" y="385">xmp::lock_sidecars locks the sidecars;</text>
       <text x="42" y="401">trash::trash, or remove_file</text>
       <text x="42" y="417">for good; the sidecars go the</text>
       <text x="42" y="433">same way</text>

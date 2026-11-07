@@ -132,14 +132,14 @@ impl Drop for Answering {
     }
 }
 
-/// Commands from --remote, and selects held back until the list is read.
+/// Commands from --remote, and the selects that wait until the list is read.
 pub(crate) struct Listener {
     /// Commands from `glimt --remote`.
     rx: mpsc::Receiver<(String, Option<remote::Reply>)>,
     /// A `--remote select` that came while the folder was being read or while Delete or Rename
     /// asked, and every command after it. They are done in the order they came, once neither
     /// is the case.
-    waiting_select: Vec<(String, Option<remote::Reply>)>,
+    waiting_selects: Vec<(String, Option<remote::Reply>)>,
 }
 
 impl Listener {
@@ -151,7 +151,7 @@ impl Listener {
         }
         Listener {
             rx,
-            waiting_select: Vec::new(),
+            waiting_selects: Vec::new(),
         }
     }
 }
@@ -166,35 +166,35 @@ impl crate::App {
         // dialog asking about the selection (Delete, Rename) is answered for the files it asked
         // about, not for a selection a script put in its place meanwhile.
         let busy = |app: &Self| app.folder.is_listing() || app.asking_about_selection();
-        // Those held back are done in the order they came, until one (an `open`) makes the
+        // The waiting ones are done in the order they came, until one (an `open`) makes the
         // window busy again. Each gets its own answer, from the list as it was when it was sent.
-        while !self.remote.waiting_select.is_empty() && !busy(self) {
-            let (command, reply) = self.remote.waiting_select.remove(0);
+        while !self.remote.waiting_selects.is_empty() && !busy(self) {
+            let (command, reply) = self.remote.waiting_selects.remove(0);
             self.remote_one(ctx, &command, reply);
         }
         while let Ok((command, reply)) = self.remote.rx.try_recv() {
             let select = reply.is_some() && command.starts_with("select ");
-            let wait = (may_relist(&command) && !self.remote.waiting_select.is_empty())
+            let wait = (may_relist(&command) && !self.remote.waiting_selects.is_empty())
                 || (select && busy(self));
             if !wait {
                 self.remote_one(ctx, &command, reply);
-            } else if self.remote.waiting_select.len() < 64 {
-                self.remote.waiting_select.push((command, reply));
+            } else if self.remote.waiting_selects.len() < 64 {
+                self.remote.waiting_selects.push((command, reply));
             }
             // When more than that are waiting, the answer is dropped, and the client is told
             // "no answer" (serve), so the script tries again.
         }
     }
 
-    /// Answers each select still held back at closing, with all its paths and none of them
+    /// Answers each select still waiting at closing, with all its paths and none of them
     /// selected. Left without an answer, the closed socket would read as "all found". It also
     /// answers those sent just before and not yet taken from the channel, and a query is
     /// answered as usual (current, selection).
-    pub(crate) fn answer_held_selects(&mut self) {
+    pub(crate) fn answer_waiting_selects(&mut self) {
         let sent: Vec<_> = self.remote.rx.try_iter().collect();
-        let held = std::mem::take(&mut self.remote.waiting_select);
+        let waiting = std::mem::take(&mut self.remote.waiting_selects);
         let ctx = self.ctx.clone();
-        for (command, reply) in held.into_iter().chain(sent) {
+        for (command, reply) in waiting.into_iter().chain(sent) {
             let Some(reply) = reply else { continue };
             match command.strip_prefix("select ") {
                 Some(paths) => {
@@ -411,8 +411,8 @@ pub fn name_fits(name: &str) -> bool {
     socket(name).is_none_or(|p| p.as_os_str().len() <= 107)
 }
 
-/// Returns whether `command` may read the folder again or open another, so that behind a select
-/// held back it waits its turn, and the select is answered for the list it was sent to: another
+/// Returns whether `command` may read the folder again or open another, so that behind a waiting
+/// select it waits its turn, and the select is answered for the list it was sent to: another
 /// script's open, subfolders, a slideshow with its subfolders, and run, whose Up, Home, Back or
 /// Refresh read a folder. Other queries and commands are done at once, as without it.
 fn may_relist(command: &str) -> bool {
@@ -899,7 +899,7 @@ mod tests {
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
-    /// The commands that can change the list wait behind a held select, run among them, and the
+    /// The commands that can change the list wait behind a waiting select, run among them, and the
     /// others do not.
     #[test]
     fn what_may_change_the_list_waits_behind_a_select() {
@@ -1087,11 +1087,11 @@ mod tests {
         std::fs::remove_dir_all(dir).unwrap();
     }
 
-    /// Two `--remote select` held back while the folder is read each get their answer. The
+    /// Two `--remote select` waiting while the folder is read each get their answer. The
     /// second took the first one's place, and the first script got no answer, which it read as
     /// every file found.
     #[test]
-    fn selects_held_back_each_get_their_answer() {
+    fn waiting_selects_each_get_their_answer() {
         let dir = std::env::temp_dir().join(format!("glimt-test-selects-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         image::RgbImage::new(4, 4).save(dir.join("a.png")).unwrap();
@@ -1117,11 +1117,11 @@ mod tests {
         std::fs::remove_dir_all(dir).unwrap();
     }
 
-    /// A command after a select held back waits its turn, so another script's `open` does not
+    /// A command after a waiting select waits its turn, so another script's `open` does not
     /// run first and leave the select answered for the other folder. When more than 64 are
     /// waiting, the client is told to try again.
     #[test]
-    fn commands_behind_a_held_select_wait_their_turn() {
+    fn commands_behind_a_waiting_select_wait_their_turn() {
         let dir = std::env::temp_dir().join(format!("glimt-test-turn-{}", std::process::id()));
         let other = dir.join("other");
         std::fs::create_dir_all(&other).unwrap();
@@ -1146,7 +1146,7 @@ mod tests {
             tx.send((select.clone(), Some(reply))).unwrap();
             more.push(answer);
         }
-        // A query is answered at once, also behind a held select.
+        // A query is answered at once, also behind a waiting select.
         let (reply, current) = std::sync::mpsc::channel();
         tx.send(("current".to_owned(), Some(reply))).unwrap();
         app.receive_remote(&ctx);
@@ -1163,15 +1163,15 @@ mod tests {
             "a.png found in its own folder"
         );
         assert_eq!(app.folder.dir(), other);
-        // Closing with selects still held, and one sent just before, tells each that none of
+        // Closing with selects still waiting, and one sent just before, tells each that none of
         // its paths was selected.
         let (reply, closing) = std::sync::mpsc::channel();
         app.remote
-            .waiting_select
+            .waiting_selects
             .push((select.clone(), Some(reply)));
         let (reply, late) = std::sync::mpsc::channel();
         tx.send((select.clone(), Some(reply))).unwrap();
-        app.answer_held_selects();
+        app.answer_waiting_selects();
         assert!(String::from_utf8_lossy(&closing.try_recv().unwrap()).contains("a.png"));
         assert!(String::from_utf8_lossy(&late.try_recv().unwrap()).contains("a.png"));
         std::fs::remove_dir_all(dir).unwrap();

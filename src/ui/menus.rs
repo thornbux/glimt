@@ -590,7 +590,7 @@ impl crate::App {
             }
             // A turned image still being saved would be written over the plugin's edit. The
             // files are held while the plugin runs, so a delete, move or rename of them waits.
-            let Some(hold) = self.hold(files.clone()) else {
+            let Some(held_back) = self.hold_back_while_writing(files.clone()) else {
                 return;
             };
             let (dir, running) = (
@@ -603,7 +603,7 @@ impl crate::App {
             // and no busy pointer meanwhile, as for Open With.
             std::thread::spawn(move || {
                 let result = plugin.run(&files, &dir, &running);
-                drop(hold);
+                drop(held_back);
                 let _ = report_tx.send(OperationReport {
                     read_folder_again: true,
                     changed: files,

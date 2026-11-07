@@ -243,8 +243,8 @@ impl crate::App {
 
     /// Selects the files at `places` for an action to act on, as Find Duplicates, Check
     /// Images, a dialog's answer and `--remote select` do. Returns false, with a notice and the
-    /// selection left as it was, when the search hides any of them. The search would hold those
-    /// back, and the action would then act on fewer files than meant, or on the shown image.
+    /// selection left as it was, when the search hides any of them. The search would keep those
+    /// apart, and the action would then act on fewer files than meant, or on the shown image.
     pub(crate) fn select_for_action(
         &mut self,
         ctx: &egui::Context,
@@ -328,7 +328,7 @@ impl crate::App {
     /// Says how many selected files the search hides, which an action on the selection
     /// leaves out. Returns `None` when the search hides none of them.
     pub(crate) fn left_out(&self) -> Option<String> {
-        let files = match self.list.held_back().len() {
+        let files = match self.list.hidden_selected().len() {
             0 => return None,
             n => count(n, "file"),
         };
@@ -340,7 +340,7 @@ impl crate::App {
 
     /// The files of `targets()`, without the notice, for a query that changes nothing.
     pub(crate) fn quiet_targets(&self) -> Option<Vec<usize>> {
-        if self.list.only_held_back() {
+        if self.list.only_hidden_selected() {
             return None;
         }
         Some(match self.list.selected().is_empty() {
@@ -464,7 +464,7 @@ mod tests {
         app.list.select([1].into());
         app.search.set_query("cherry");
         app.update_search(&ctx);
-        assert!(app.list.only_held_back());
+        assert!(app.list.only_hidden_selected());
         assert_eq!(app.targets(), None);
         assert!(app.notice.take().is_some());
         // Neither the delete's question nor a query names the shown image.
@@ -475,7 +475,7 @@ mod tests {
         let cur = app.list.cur();
         assert!(app.list.right_click(cur));
         assert_eq!(app.targets(), Some(vec![cur]));
-        assert!(app.list.held_back().is_empty());
+        assert!(app.list.hidden_selected().is_empty());
         std::fs::remove_dir_all(dir).unwrap();
     }
 

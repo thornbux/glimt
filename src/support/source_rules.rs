@@ -1281,7 +1281,7 @@ fn an_image_and_its_sidecar_change_together() {
             "replace_existing(",
             &[
                 ("files/file_io.rs", ""),
-                ("images/save.rs", "replace_holding_sidecar"),
+                ("images/save.rs", "replace_with_sidecar_locked"),
             ],
         ),
     ];

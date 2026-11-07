@@ -70,17 +70,17 @@ impl crate::App {
             return;
         }
         let shown = self.list.files().get(self.list.cur()).cloned();
-        // The images moved stay selected when they were, and so do the selected images that
-        // the search holds back. A row dragged from outside the selection takes the selection's
-        // place, as a click on it would, so the held-back images are let go with the rest. That
-        // is so also when only held-back images were selected. With nothing selected at all, the
+        // The images moved stay selected when they were, and so do the selected images that the
+        // search hides. A row dragged from outside the selection takes the selection's place, as a
+        // click on it would, so the hidden selected images are let go with the rest. That is so
+        // also when only hidden selected images were selected. With nothing selected at all, the
         // moved images stay unselected.
         let selected = self.list.selected();
-        let any = !selected.is_empty() || !self.list.held_back().is_empty();
+        let any = !selected.is_empty() || !self.list.hidden_selected().is_empty();
         let replaced = any && !picked.iter().all(|i| selected.contains(i));
         let moved = picked.iter().filter(|_| !selected.is_empty() || replaced);
-        let held = self.list.held_back().iter().filter(|_| !replaced);
-        let names: HashSet<OsString> = (moved.chain(held))
+        let hidden = self.list.hidden_selected().iter().filter(|_| !replaced);
+        let names: HashSet<OsString> = (moved.chain(hidden))
             .map(|&i| self.list.files()[i].clone())
             .collect();
         let files: Vec<OsString> = order
@@ -581,11 +581,11 @@ pub(crate) fn dropped(n: usize, picked: &HashSet<usize>, to: usize) -> Vec<usize
 #[cfg(test)]
 mod tests {
     /// A collection's row dragged from outside the selection is selected alone afterwards, as a
-    /// click on it would leave it. The selected images that the search held back stayed
-    /// selected with it, though the rest of the selection was let go. When only held-back
-    /// images were selected, they stayed, and the dragged row was not selected.
+    /// click on it would leave it. The selected images that the search hid stayed selected with it,
+    /// though the rest of the selection was let go. When only hidden selected images were selected,
+    /// they stayed, and the dragged row was not selected.
     #[test]
-    fn a_row_dragged_from_outside_the_selection_lets_the_held_back_go() {
+    fn a_row_dragged_from_outside_the_selection_lets_the_hidden_selected_go() {
         use std::collections::{BTreeSet, HashSet};
         let d = crate::support::test_support::contract_folder("drag-held");
         image::RgbImage::new(2, 2).save(d.join("c.png")).unwrap();
@@ -598,11 +598,11 @@ mod tests {
             assert_eq!(app.list.files().len(), 3);
             app.list.select(first);
             app.list.set_matches(Some(vec![1, 2]));
-            assert_eq!(app.list.held_back(), &BTreeSet::from([0]));
+            assert_eq!(app.list.hidden_selected(), &BTreeSet::from([0]));
             let picked = HashSet::from([2]);
             let order = super::dropped(3, &picked, 0);
             app.move_in_collection(&ctx, picked, order);
-            let names: Vec<_> = (app.list.selected_and_held().into_iter())
+            let names: Vec<_> = (app.list.selected_with_hidden().into_iter())
                 .map(|i| app.list.files()[i].clone())
                 .collect();
             assert_eq!(names.len(), 1, "{names:?}");

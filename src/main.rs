@@ -150,7 +150,7 @@ struct App {
     /// The Check Images window. `None` means it is closed, and `Some(None)` means it is open
     /// but not started.
     check: Option<Option<Check>>,
-    /// Commands from --remote, and selects held back until the list is read.
+    /// Commands from --remote, and the selects that wait until the list is read.
     remote: crate::features::remote::Listener,
 }
 
@@ -357,8 +357,8 @@ impl eframe::App for App {
         // The listener closes to new clients first, because a client coming after the answers
         // would get none.
         crate::features::remote::close();
-        self.answer_held_selects();
-        crate::features::remote::stop(|| self.answer_held_selects());
+        self.answer_waiting_selects();
+        crate::features::remote::stop(|| self.answer_waiting_selects());
         let ctx = self.ctx.clone();
         self.save_meta(&ctx);
         // shortcut: the path is stored as UTF-8, lossless for ordinary paths; store its bytes

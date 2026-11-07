@@ -1028,7 +1028,7 @@ impl crate::App {
         let first = self.list.files().is_empty() && !whole;
         // A refresh keeps the selection, so Delete or Move after it still acts on what was
         // picked. The files that the search holds back stay selected too.
-        let picked: HashSet<OsString> = (self.list.selected_and_held().iter())
+        let picked: HashSet<OsString> = (self.list.selected_with_hidden().iter())
             .filter_map(|&i| self.list.files().get(i).cloned())
             .collect();
         self.replace_files(ctx, files, shown);
