@@ -141,7 +141,7 @@
 
       <rect x="720" y="514" width="220" height="138" rx="6" fill="#f6f8fa" stroke="#1f2328" stroke-width="1.5"/>
       <text x="732" y="535" font-size="13" font-weight="700" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace">replace_existing</text>
-      <text x="732" y="555">writable(): a read-only file is</text>
+      <text x="732" y="555">check_writable(): read-only is</text>
       <text x="732" y="571">refused; the new image written</text>
       <text x="732" y="587">whole beside it; still there?</text>
       <text x="732" y="603">then the sidecar step, then</text>

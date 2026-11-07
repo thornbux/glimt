@@ -213,7 +213,7 @@ pub fn save_rotated(
     // Through a symlink, the new file is renamed over the file it points to, not over the link.
     let path = &std::fs::canonicalize(path).map_err(|e| e.to_string())?;
     // A read-only file is refused before the whole image is decoded and encoded for nothing.
-    crate::files::file_io::writable(path).map_err(|e| e.to_string())?;
+    crate::files::file_io::check_writable(path).map_err(|e| e.to_string())?;
     let png = has_ext(path, &["png"]);
     if !png && !has_ext(path, &["webp"]) {
         return Err(tr("only JPEG, PNG and WebP can store the rotation").into());

@@ -2061,7 +2061,7 @@ pub(crate) fn rename_files(from: Vec<PathBuf>, to: Vec<PathBuf>, job: &Job) -> R
         // It has this Glimt's name, because Flatpak windows can share a process ID.
         f.with_file_name(format!(
             ".glimt-rename-{}-{k}",
-            crate::files::file_io::own_tag()
+            crate::files::file_io::instance_tag()
         ))
     };
     let mut moves: Vec<(PathBuf, PathBuf)> = Vec::new();
@@ -2250,7 +2250,7 @@ fn names_in(dir: &Path) -> Option<HashSet<OsString>> {
 fn sidecar_writer() -> &'static mpsc::Sender<crate::files::file_io::QueuedWrite> {
     static WRITER: std::sync::OnceLock<mpsc::Sender<crate::files::file_io::QueuedWrite>> =
         std::sync::OnceLock::new();
-    WRITER.get_or_init(crate::files::file_io::serial)
+    WRITER.get_or_init(crate::files::file_io::start_ordered_worker)
 }
 
 /// `(from, to)` pairs to look up by the old path.

@@ -16,7 +16,7 @@ static SAVE_ERROR: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None
 pub static WRITING: std::sync::LazyLock<std::sync::Arc<std::sync::atomic::AtomicUsize>> =
     std::sync::LazyLock::new(Default::default);
 
-/// A write queued for a `serial` thread.
+/// A write queued for a `start_ordered_worker` thread.
 pub type QueuedWrite = Box<dyn FnOnce() + Send>;
 
 /// A line of /proc/self/mountinfo: one mount.
@@ -49,7 +49,7 @@ pub(crate) fn rename_never_over(from: &Path, to: &Path) -> std::io::Result<()> {
             // shortcut: a file that another program puts at `to` between the look and the
             // rename is written over. rclone, s3fs and MTP offer no way to rename without that
             // race; do more if one of them gains RENAME_NOREPLACE or hard links.
-            Err(_) => std::fs::rename(from, to).map_err(|e| plain(e, to)),
+            Err(_) => std::fs::rename(from, to).map_err(|e| explain_rename_error(e, to)),
         },
         done => done,
     }
@@ -75,7 +75,7 @@ fn unlink_linked(from: &Path, to: &Path) -> std::io::Result<()> {
 /// `to` as Glimt does, which some shares, cloud folders and phones cannot. The words name the
 /// type of the mount (fuse.rclone, cifs …), and the system's own words follow in brackets. The
 /// kind stays, so callers still match on it.
-fn plain(e: std::io::Error, to: &Path) -> std::io::Error {
+fn explain_rename_error(e: std::io::Error, to: &Path) -> std::io::Error {
     // EXDEV, ENOSYS and EOPNOTSUPP are what such file systems answer to a rename. EPERM is not
     // among them, because a folder with the sticky bit or a file made immutable gives it on any
     // file system.
@@ -368,12 +368,14 @@ pub fn write_later(work: impl FnOnce() + Send + 'static) {
         let _writing = writing;
         let _ = crate::support::threads::caught(work);
     };
-    let _ = WRITER.get_or_init(serial).send(Box::new(counted));
+    let _ = WRITER
+        .get_or_init(start_ordered_worker)
+        .send(Box::new(counted));
 }
 
 /// A thread that does the work sent to it one after another, in that order. One that panics
 /// does not end it, or every later work sent would be lost.
-pub fn serial() -> std::sync::mpsc::Sender<QueuedWrite> {
+pub fn start_ordered_worker() -> std::sync::mpsc::Sender<QueuedWrite> {
     let (works, rx) = std::sync::mpsc::channel::<QueuedWrite>();
     std::thread::spawn(move || {
         for work in rx {
@@ -450,11 +452,12 @@ pub fn replace_name_with(
     write: impl FnOnce(&mut std::fs::File) -> std::io::Result<()>,
     before: impl FnOnce() -> std::io::Result<()>,
 ) -> std::io::Result<()> {
-    writable(path)?;
+    check_writable(path)?;
     #[allow(clippy::disallowed_methods)] // replaces on purpose, the name and never a link's target
-    let land =
-        |tmp: &Path| before().and_then(|_| std::fs::rename(tmp, path).map_err(|e| plain(e, path)));
-    write_beside(&tmp_path(path), path, write, land)
+    let give_name = |tmp: &Path| {
+        before().and_then(|_| std::fs::rename(tmp, path).map_err(|e| explain_rename_error(e, path)))
+    };
+    write_beside(&tmp_path(path), path, write, give_name)
 }
 
 /// Writes `bytes` to `path` beside it and renames it, through a link to the file it points to.
@@ -481,7 +484,7 @@ fn replace(
     // goes in those microseconds comes back. renameat2 with RENAME_EXCHANGE if that is ever seen.
     there()?;
     if existing {
-        writable(path)?;
+        check_writable(path)?;
     }
     #[allow(clippy::disallowed_methods)] // replaces on purpose: the one writer of a file again
     write_beside(&tmp_path(path), path, write, |tmp| {
@@ -490,7 +493,7 @@ fn replace(
         there()
             .and_then(|_| before())
             .and_then(|_| there())
-            .and_then(|_| std::fs::rename(tmp, path).map_err(|e| plain(e, path)))
+            .and_then(|_| std::fs::rename(tmp, path).map_err(|e| explain_rename_error(e, path)))
     })
 }
 
@@ -502,7 +505,7 @@ fn replace(
 /// passes, because the link itself is replaced, and so does a name that is not there yet.
 /// Glimt's own files (`replace_file`) are not asked, as before. A turn saved asks it first too,
 /// before the slow work of encoding the image.
-pub(crate) fn writable(path: &Path) -> std::io::Result<()> {
+pub(crate) fn check_writable(path: &Path) -> std::io::Result<()> {
     use std::os::unix::ffi::OsStrExt;
     let Some(meta) = std::fs::symlink_metadata(path).ok().filter(|m| m.is_file()) else {
         return Ok(());
@@ -519,9 +522,9 @@ pub(crate) fn writable(path: &Path) -> std::io::Result<()> {
     }
 }
 
-/// A file written whole at `tmp` beside `path` (`new_beside`), on disk, and then given its name
-/// by `land`; `tmp` removed when anything fails. On disk before the rename: after a crash the
-/// old file or the new one, never an empty one. No folder made: a sidecar or a collection whose
+/// A file written whole at `tmp` beside `path` (`create_temp_beside`), on disk, and then given its
+/// name by `give_name`; `tmp` removed when anything fails. On disk before the rename: after a crash
+/// the old file or the new one, never an empty one. No folder made: a sidecar or a collection whose
 /// folder was renamed meanwhile is not written into a new one of the old name. The one
 /// temp-and-rename for every file Glimt writes: settings, sidecars, collections, a PDF, a
 /// thumbnail.
@@ -529,11 +532,11 @@ pub fn write_beside(
     tmp: &Path,
     path: &Path,
     write: impl FnOnce(&mut std::fs::File) -> std::io::Result<()>,
-    land: impl FnOnce(&Path) -> std::io::Result<()>,
+    give_name: impl FnOnce(&Path) -> std::io::Result<()>,
 ) -> std::io::Result<()> {
-    let result = new_beside(tmp, path)
+    let result = create_temp_beside(tmp, path)
         .and_then(|mut f| write(&mut f).and_then(|_| f.sync_all()))
-        .and_then(|_| land(tmp));
+        .and_then(|_| give_name(tmp));
     if result.is_err() {
         #[allow(clippy::disallowed_methods)] // the temporary file, not finished
         let _ = std::fs::remove_file(tmp);
@@ -565,12 +568,12 @@ pub fn create_file(path: &Path, bytes: impl AsRef<[u8]>) -> std::io::Result<()> 
 pub fn tmp_path(path: &Path) -> PathBuf {
     static MADE: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
     let k = MADE.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-    path.with_file_name(format!(".glimt-tmp-{}-{k}", own_tag()))
+    path.with_file_name(format!(".glimt-tmp-{}-{k}", instance_tag()))
 }
 
 /// This Glimt's instance ID and a random number of its own, for the names of its temporary
 /// files: two Glimts with one process ID (two computers with one home, two containers) differ.
-pub fn own_tag() -> &'static str {
+pub fn instance_tag() -> &'static str {
     use std::hash::{BuildHasher, Hasher};
     static OWN: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
         // Random for each process: the standard library seeds its hash keys from the system.
@@ -586,7 +589,7 @@ pub fn own_tag() -> &'static str {
 /// or a list kept private, 0600, stays so). Made private first when `path` is there, and given
 /// those before a byte is written: no one else can open it meanwhile. A new file as usual.
 #[allow(clippy::disallowed_methods)] // the one way a new file is made, under its temporary name
-pub fn new_beside(tmp: &Path, path: &Path) -> std::io::Result<std::fs::File> {
+pub fn create_temp_beside(tmp: &Path, path: &Path) -> std::io::Result<std::fs::File> {
     use std::os::unix::fs::OpenOptionsExt;
     // Made new, never opened: a link left or planted at `tmp` would be followed and the file
     // it points to emptied.
@@ -633,7 +636,7 @@ mod tests {
         let kind = super::file_system_type(&std::env::temp_dir()).unwrap();
         for errno in [18, 38, 95] {
             let raw = std::io::Error::from_raw_os_error(errno);
-            let told = super::plain(std::io::Error::from_raw_os_error(errno), &to);
+            let told = super::explain_rename_error(std::io::Error::from_raw_os_error(errno), &to);
             assert_eq!(told.kind(), raw.kind());
             let text = told.to_string();
             assert!(text.contains("does not allow this rename") && text.contains(&raw.to_string()));
@@ -641,7 +644,7 @@ mod tests {
         }
         // Permission denied, and EPERM, which a sticky folder or an immutable file gives.
         for errno in [13, 1] {
-            let denied = super::plain(std::io::Error::from_raw_os_error(errno), &to);
+            let denied = super::explain_rename_error(std::io::Error::from_raw_os_error(errno), &to);
             assert_eq!(denied.raw_os_error(), Some(errno));
         }
     }
@@ -1014,7 +1017,7 @@ mod tests {
         drop(super::file_lock(&photo));
         let tmp = super::tmp_path(&photo);
         symlink(&victim, &tmp).unwrap();
-        drop(super::new_beside(&tmp, &photo).unwrap());
+        drop(super::create_temp_beside(&tmp, &photo).unwrap());
         assert_eq!(std::fs::read_to_string(&victim).unwrap(), "keep");
         std::fs::remove_dir_all(dir).unwrap();
     }

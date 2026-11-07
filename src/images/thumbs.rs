@@ -131,7 +131,7 @@ fn write(
     // This Glimt and the thread in the name: several workers and windows may write at once.
     let tmp = file.with_extension(format!(
         "{}.{:?}.tmp",
-        crate::files::file_io::own_tag(),
+        crate::files::file_io::instance_tag(),
         std::thread::current().id()
     ));
     // Encoded in memory first: the encoder writes its last chunk when it is dropped, where a
@@ -437,7 +437,7 @@ mod tests {
         std::fs::write(&victim, "keep").unwrap();
         let tmp = file.with_extension(format!(
             "{}.{:?}.tmp",
-            crate::files::file_io::own_tag(),
+            crate::files::file_io::instance_tag(),
             std::thread::current().id()
         ));
         std::os::unix::fs::symlink(&victim, &tmp).unwrap();
