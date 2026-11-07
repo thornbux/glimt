@@ -606,7 +606,7 @@ impl crate::App {
     /// its frame, and another photo stood under its play button.
     pub(crate) fn placeholder(&self) -> Option<(egui::TextureHandle, [usize; 2], bool)> {
         let name = self.list.files().get(self.list.shown())?;
-        if let Some(t) = self.thumbs.made(name) {
+        if let Some(t) = self.thumbs.thumbnail_of(name) {
             return Some((t.clone(), t.size(), true));
         }
         if is_video(Path::new(name)) {

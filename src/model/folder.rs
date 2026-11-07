@@ -827,7 +827,7 @@ impl crate::App {
     pub(crate) fn start_listing(&mut self, ctx: &egui::Context) {
         let (tx, rx) = mpsc::channel();
         let (size_tx, size_rx) = mpsc::channel();
-        let (list_dir, ctx2, types) = (self.folder.dir.clone(), ctx.clone(), self.types());
+        let (list_dir, ctx2, types) = (self.folder.dir.clone(), ctx.clone(), self.shown_types());
         let c = &self.config;
         let (by, ascending, case) = (c.sort, c.sort_ascending, c.sort_case_sensitive);
         let (recursive, shuffled) = (self.folder.recursive, self.slideshow.shuffles_whole());
@@ -970,7 +970,8 @@ impl crate::App {
         // Several folders shown together are listed as "/" with no subfolders, which are not
         // the tree's.
         if self.folder.collection.is_none() && self.folder.folders.is_empty() {
-            self.tree.read(self.folder.dir.clone(), dirs.clone());
+            self.tree
+                .add_subfolders(self.folder.dir.clone(), dirs.clone());
         }
         self.folder.subdirs = dirs;
         self.take_listed_files(ctx, files, true);
@@ -1238,7 +1239,7 @@ impl crate::App {
     }
 
     pub(crate) fn receive_sizes(&mut self) {
-        self.status_bar.receive();
+        self.status_bar.receive_sizes();
         let mut size = self.list.match_size();
         self.search.receive_match_size(&mut size);
         self.list.set_match_size(size);

@@ -162,7 +162,7 @@ mod tests {
         (app.list).set_files(["a.png", "b.png"].map(Into::into).to_vec());
         ctx.enable_accesskit();
         let status = |app: &mut crate::App, grid: bool| {
-            if grid != app.panel.area_grid_shown() {
+            if grid != app.panel.is_area_grid_shown() {
                 app.panel.toggle_area_grid();
             }
             let mut found = None;

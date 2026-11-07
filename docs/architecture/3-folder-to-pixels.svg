@@ -131,7 +131,7 @@
       <text x="42" y="543">only the rows on screen</text>
       <text x="42" y="559">(show_rows) ask;</text>
       <text x="42" y="575">sync_thumb_source picks</text>
-      <text x="42" y="591">the size (THUMBS)</text>
+      <text x="42" y="591">the size (THUMB_SIZES)</text>
 
       <rect x="266" y="502" width="196" height="122" rx="6" fill="#fef3e2" stroke="#d08a1a" stroke-width="1.5"/>
       <text x="278" y="523" font-size="13" font-weight="700" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace">Thumbs::ask</text>

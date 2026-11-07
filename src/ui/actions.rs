@@ -1406,7 +1406,10 @@ impl crate::App {
         }
         // A zoomed image larger than the window: the arrow keys move it, as in Geeqie; along a
         // side where it fits they still browse.
-        if !self.dialog_open() && !typing && !self.zoom.is_fitted() && !self.panel.area_grid_shown()
+        if !self.dialog_open()
+            && !typing
+            && !self.zoom.is_fitted()
+            && !self.panel.is_area_grid_shown()
         {
             let step = 100.0;
             let max = self.zoom.pan_room();
@@ -1426,7 +1429,7 @@ impl crate::App {
         }
         // Enter in the grid in the image area shows the image there. It is read before PlayVideo
         // takes the key.
-        if self.panel.area_grid_shown()
+        if self.panel.is_area_grid_shown()
             && !self.dialog_open()
             && self.answers(ctx, egui::Key::Enter)
         {

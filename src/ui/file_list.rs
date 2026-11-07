@@ -25,17 +25,17 @@ use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
 /// Thumbnail box in the file list, in points (Geeqie's default 96×72).
-pub(crate) const THUMBS: [egui::Vec2; 3] = [
+pub(crate) const THUMB_SIZES: [egui::Vec2; 3] = [
     egui::vec2(96.0, 72.0),
     egui::vec2(128.0, 96.0),
     egui::vec2(192.0, 144.0),
 ];
 
 /// What a cell of the thumbnail grid adds to the thumbnail, which has its name below.
-pub(crate) const CELL_EXTRA: egui::Vec2 = egui::vec2(8.0, 26.0);
+pub(crate) const CELL_PADDING: egui::Vec2 = egui::vec2(8.0, 26.0);
 
 /// What a cell adds to the thumbnail without the name: the same margin all round.
-const CELL_EXTRA_NO_NAME: egui::Vec2 = egui::vec2(8.0, 8.0);
+const CELL_PADDING_NO_NAME: egui::Vec2 = egui::vec2(8.0, 8.0);
 
 /// Whether thumbnails come from the freedesktop "large" cache, for big ones or a scaled
 /// screen. The workers read it.
@@ -66,7 +66,7 @@ pub(crate) struct RubberBand {
 
 /// The files whose thumbnails are on screen, for the thumbnail workers to make first. `[0]` is
 /// for the file list, and `[1]` for pan view.
-pub(crate) type ThumbView = Arc<Mutex<[Vec<usize>; 2]>>;
+pub(crate) type OnScreenFiles = Arc<Mutex<[Vec<usize>; 2]>>;
 
 /// The thumbnails for the file list. It holds those made, those being made, and the workers
 /// that make them.
@@ -78,21 +78,21 @@ pub(crate) struct Thumbs {
     /// dropped, also when it comes after the later one's: the workers run side by side.
     pending: HashMap<OsString, u64>,
     /// The number of the last request made.
-    asked: u64,
+    last_request_number: u64,
     /// (image index, file, request number)
-    jobs: mpsc::Sender<(usize, PathBuf, u64)>,
+    requests: mpsc::Sender<(usize, PathBuf, u64)>,
     /// The answers as (file, request number, thumbnail). The outer `None` means it was skipped
     /// because it scrolled out of view.
-    rx: mpsc::Receiver<(PathBuf, u64, Option<Option<egui::ColorImage>>)>,
+    answers: mpsc::Receiver<(PathBuf, u64, Option<Option<egui::ColorImage>>)>,
     /// The files the file list (or film strip) shows, with some rows around them, and those pan
     /// view shows, both sorted. A thumbnail job for another file is skipped. It holds files
     /// rather than a range, because the matches of a search, or pan view's days, are spread
     /// over the whole folder.
-    view: ThumbView,
+    on_screen: OnScreenFiles,
     /// The rows the file list showed last, in the list as shown. Thumbnails near them are kept.
     list_rows: std::ops::Range<usize>,
     /// Workers write new thumbnails to the shared cache (Preferences).
-    save: Arc<AtomicBool>,
+    saves_to_cache: Arc<AtomicBool>,
 }
 
 impl Thumbs {
@@ -104,23 +104,24 @@ impl Thumbs {
         rotate: &Arc<AtomicBool>,
         save: bool,
     ) -> Self {
-        let view: ThumbView = Arc::default();
-        let save = Arc::new(AtomicBool::new(save));
-        let (jobs, rx) = spawn_thumbnailers(ctx, workers, rotate, &view, &save);
+        let on_screen: OnScreenFiles = Arc::default();
+        let saves_to_cache = Arc::new(AtomicBool::new(save));
+        let (requests, answers) =
+            spawn_thumbnailers(ctx, workers, rotate, &on_screen, &saves_to_cache);
         Thumbs {
             textures: HashMap::new(),
             pending: HashMap::new(),
-            asked: 0,
-            jobs,
-            rx,
-            view,
+            last_request_number: 0,
+            requests,
+            answers,
+            on_screen,
             list_rows: 0..0,
-            save,
+            saves_to_cache,
         }
     }
 
     /// The thumbnail of `name`, if one was made.
-    pub(crate) fn made(&self, name: &OsStr) -> Option<&egui::TextureHandle> {
+    pub(crate) fn thumbnail_of(&self, name: &OsStr) -> Option<&egui::TextureHandle> {
         self.textures.get(name)?.as_ref()
     }
 
@@ -141,9 +142,10 @@ impl Thumbs {
     /// unless it is being made already.
     fn ask(&mut self, name: &OsStr, i: usize, path: PathBuf) {
         if !self.pending.contains_key(name) {
-            self.asked += 1;
-            self.pending.insert(name.to_owned(), self.asked);
-            let _ = self.jobs.send((i, path, self.asked));
+            self.last_request_number += 1;
+            self.pending
+                .insert(name.to_owned(), self.last_request_number);
+            let _ = self.requests.send((i, path, self.last_request_number));
         }
     }
 
@@ -159,12 +161,12 @@ impl Thumbs {
 
     /// Whether the workers write new thumbnails to the shared cache.
     pub(crate) fn save_to_cache(&self, save: bool) {
-        self.save.store(save, Ordering::Relaxed);
+        self.saves_to_cache.store(save, Ordering::Relaxed);
     }
 
     /// The files pan view shows, sorted, for the workers to make.
     pub(crate) fn pan_view_shows(&self, files: Vec<usize>) {
-        self.view.lock().unwrap()[1] = files;
+        self.on_screen.lock().unwrap()[1] = files;
     }
 
     /// The rows the file list showed last.
@@ -177,9 +179,9 @@ impl Thumbs {
 /// and whether it scrolls to the shown image.
 pub(crate) struct Panel {
     /// View → Hide File List. It shows only the image, as in full screen but in a window.
-    hidden: bool,
+    is_hidden: bool,
     /// The columns of the icon grid in the last frame. It is 1 when the list is rows or hidden.
-    grid_cols: usize,
+    grid_columns: usize,
     /// How far Previous and Next move this frame. It is a row of the icon grid for ↑ and ↓, and
     /// otherwise 1.
     row_step: isize,
@@ -207,8 +209,8 @@ enum AreaGrid {
 impl Default for Panel {
     fn default() -> Self {
         Panel {
-            hidden: false,
-            grid_cols: 1,
+            is_hidden: false,
+            grid_columns: 1,
             row_step: 1,
             scroll_to_shown: true,
             scroll_now: false,
@@ -220,16 +222,16 @@ impl Default for Panel {
 impl Panel {
     /// View → Hide File List, or showing it again.
     pub(crate) fn toggle_hidden(&mut self) {
-        self.hidden = !self.hidden;
+        self.is_hidden = !self.is_hidden;
     }
 
     /// The file list shows again, as for a search.
     pub(crate) fn show(&mut self) {
-        self.hidden = false;
+        self.is_hidden = false;
     }
 
     pub(crate) fn is_hidden(&self) -> bool {
-        self.hidden
+        self.is_hidden
     }
 
     /// The file list scrolls to the shown image on the next frame.
@@ -243,20 +245,24 @@ impl Panel {
     /// hidden), the scroll waits for the first frame that draws one. The list then shows the
     /// image shown when it comes back.
     pub(crate) fn start_frame(&mut self, lists: bool) {
-        self.grid_cols = 1;
+        self.grid_columns = 1;
         self.scroll_now = lists && std::mem::take(&mut self.scroll_to_shown);
     }
 
     /// Sets how far Previous and Next move, a row of the icon grid for ↑ and ↓, and otherwise
     /// one image.
     pub(crate) fn set_row_step(&mut self, vertical: bool) {
-        self.row_step = if vertical { self.grid_cols as isize } else { 1 };
+        self.row_step = if vertical {
+            self.grid_columns as isize
+        } else {
+            1
+        };
     }
 
     /// Whether the lists drawn now scroll to the shown image. A scroll asked for while this
     /// frame draws is made at once, and again in the next frame for the lists drawn before it
     /// was asked.
-    fn scrolls(&self) -> bool {
+    fn scrolls_to_shown_image(&self) -> bool {
         self.scroll_now || self.scroll_to_shown
     }
 
@@ -275,12 +281,12 @@ impl Panel {
     }
 
     /// Whether the image area shows the grid of thumbnails instead of the image.
-    pub(crate) fn area_grid_shown(&self) -> bool {
+    pub(crate) fn is_area_grid_shown(&self) -> bool {
         self.area_grid == AreaGrid::Shown
     }
 
     /// Whether the grid is on, shown or behind an image opened from it.
-    pub(crate) fn area_grid_on(&self) -> bool {
+    pub(crate) fn is_area_grid_on(&self) -> bool {
         self.area_grid != AreaGrid::Off
     }
 
@@ -307,12 +313,13 @@ impl Panel {
 pub(crate) struct Tree {
     /// The subfolders of each folder for the folder tree. It is `None` while they are read.
     children: HashMap<PathBuf, Option<Vec<PathBuf>>>,
-    tx: mpsc::Sender<(PathBuf, Vec<PathBuf>)>,
-    rx: mpsc::Receiver<(PathBuf, Vec<PathBuf>)>,
+    /// The subfolders read in the background, as (folder, its subfolders).
+    subfolders_sender: mpsc::Sender<(PathBuf, Vec<PathBuf>)>,
+    subfolders_read: mpsc::Receiver<(PathBuf, Vec<PathBuf>)>,
     /// The folder the tree was last opened up to. The tree opens again when the folder changes.
-    shown: PathBuf,
-    /// The folders open in the tree.
-    open: HashSet<PathBuf>,
+    opened_up_to: PathBuf,
+    /// The folders expanded in the tree.
+    expanded: HashSet<PathBuf>,
 }
 
 impl Default for Tree {
@@ -320,10 +327,10 @@ impl Default for Tree {
         let (tx, rx) = mpsc::channel();
         Tree {
             children: HashMap::new(),
-            tx,
-            rx,
-            shown: PathBuf::new(),
-            open: HashSet::new(),
+            subfolders_sender: tx,
+            subfolders_read: rx,
+            opened_up_to: PathBuf::new(),
+            expanded: HashSet::new(),
         }
     }
 }
@@ -338,11 +345,11 @@ impl Tree {
     /// Every folder is read again, and the tree opens up to the open folder once more.
     pub(crate) fn read_again_and_reopen(&mut self) {
         self.children.clear();
-        self.shown = PathBuf::new();
+        self.opened_up_to = PathBuf::new();
     }
 
     /// The subfolders of `dir`, read with the folder's listing.
-    pub(crate) fn read(&mut self, dir: PathBuf, subfolders: Vec<PathBuf>) {
+    pub(crate) fn add_subfolders(&mut self, dir: PathBuf, subfolders: Vec<PathBuf>) {
         self.children.insert(dir, Some(subfolders));
     }
 
@@ -362,23 +369,23 @@ pub(crate) struct StatusBar {
     shown_size: Option<(PathBuf, u64)>,
     /// Image and scale in each pane of the last frame, the pane the status bar tells about (the
     /// one under the pointer, else the first) and the panes as [columns, rows].
-    pane_info: Vec<(usize, Option<f32>)>,
+    pane_images: Vec<(usize, Option<f32>)>,
     pane: usize,
-    grid: [usize; 2],
+    pane_layout: [usize; 2],
     /// The position "[n/m]" of an image in another pane than the first, by image and list length.
     position_text: Option<(usize, usize, String)>,
     /// Total size of the images in the folder, summed in the background after listing.
     /// Only sums are sent (no per-file table), so memory use does not grow with the folder.
     total_size: u64,
     /// The partial sums from the background. It is `None` once all have arrived.
-    size_rx: Receiving<u64>,
+    folder_sums: Receiving<u64>,
     /// Bytes freed by deletions in the background.
-    freed_tx: mpsc::Sender<u64>,
-    freed_rx: mpsc::Receiver<u64>,
+    freed_sender: mpsc::Sender<u64>,
+    freed_bytes: mpsc::Receiver<u64>,
     /// The size of the selected files. It is worked out in the background when the selection
     /// changes.
     selected_size: Option<u64>,
-    selected_rx: Receiving<u64>,
+    selection_sum: Receiving<u64>,
     /// When to work out that size, once the selection has stayed the same for a moment.
     selected_size_due: Option<Instant>,
 }
@@ -388,16 +395,16 @@ impl Default for StatusBar {
         let (freed_tx, freed_rx) = mpsc::channel();
         StatusBar {
             shown_size: None,
-            pane_info: Vec::new(),
+            pane_images: Vec::new(),
             pane: 0,
-            grid: [1, 1],
+            pane_layout: [1, 1],
             position_text: None,
             total_size: 0,
-            size_rx: Receiving::none(),
-            freed_tx,
-            freed_rx,
+            folder_sums: Receiving::none(),
+            freed_sender: freed_tx,
+            freed_bytes: freed_rx,
             selected_size: None,
-            selected_rx: Receiving::none(),
+            selection_sum: Receiving::none(),
             selected_size_due: None,
         }
     }
@@ -415,7 +422,7 @@ pub(crate) enum SizeDue {
 impl StatusBar {
     /// Where the background tells of bytes freed by a delete.
     pub(crate) fn freed_sender(&self) -> mpsc::Sender<u64> {
-        self.freed_tx.clone()
+        self.freed_sender.clone()
     }
 
     /// The shown file's size is read again, as it changed.
@@ -425,31 +432,31 @@ impl StatusBar {
 
     /// The folder's total, summed anew from `sums`.
     pub(crate) fn sum_folder(&mut self, sums: mpsc::Receiver<u64>) {
-        self.size_rx = Receiving::of(sums);
+        self.folder_sums = Receiving::of(sums);
         self.total_size = 0;
     }
 
     /// The folder's total, once every sum has come.
     pub(crate) fn folder_total(&self) -> Option<u64> {
-        self.size_rx.is_none().then_some(self.total_size)
+        self.folder_sums.is_none().then_some(self.total_size)
     }
 
     /// Takes what the background sent: the bytes freed, the selection's size and the folder's
     /// sums.
-    pub(crate) fn receive(&mut self) {
-        while let Ok(freed) = self.freed_rx.try_recv() {
+    pub(crate) fn receive_sizes(&mut self) {
+        while let Ok(freed) = self.freed_bytes.try_recv() {
             // shortcut: a delete while the sum is still being computed can make it slightly off;
             // fine for a status bar figure.
             self.total_size = self.total_size.saturating_sub(freed);
         }
-        match self.selected_rx.take() {
+        match self.selection_sum.take() {
             Took::Answer(size) => self.selected_size = Some(size),
             // When the summing thread broke, the size is none, instead of "calculating…" for
             // good.
             Took::Gone => self.selected_size = Some(0),
             Took::Nothing => {}
         }
-        add_sent_sizes(&mut self.size_rx, &mut self.total_size);
+        add_sent_sizes(&mut self.folder_sums, &mut self.total_size);
     }
 
     /// The position "[n/m]" of image `idx` among `total`. `make` makes it only when another image
@@ -483,7 +490,7 @@ impl StatusBar {
     pub(crate) fn selection_changed(&mut self, any: bool) -> std::time::Duration {
         let wait = std::time::Duration::from_millis(200);
         self.selected_size = None;
-        self.selected_rx = Receiving::none();
+        self.selection_sum = Receiving::none();
         self.selected_size_due = any.then(|| Instant::now() + wait);
         wait
     }
@@ -501,14 +508,14 @@ impl StatusBar {
     }
 
     /// The selection's size, known already.
-    pub(crate) fn selection_is(&mut self, size: u64) {
+    pub(crate) fn set_selection_size(&mut self, size: u64) {
         self.selected_size = Some(size);
-        self.selected_rx = Receiving::none();
+        self.selection_sum = Receiving::none();
     }
 
     /// The selection's size, summed in the background.
     pub(crate) fn sum_selection(&mut self, sum: mpsc::Receiver<u64>) {
-        self.selected_rx = Receiving::of(sum);
+        self.selection_sum = Receiving::of(sum);
     }
 
     /// Keeps what the image area showed: the pane the status bar tells about, the panes as
@@ -516,12 +523,12 @@ impl StatusBar {
     pub(crate) fn panes_shown(
         &mut self,
         pane: usize,
-        grid: [usize; 2],
+        pane_layout: [usize; 2],
         panes: Vec<(usize, Option<f32>)>,
     ) {
         self.pane = pane;
-        self.grid = grid;
-        self.pane_info = panes;
+        self.pane_layout = pane_layout;
+        self.pane_images = panes;
     }
 }
 
@@ -530,7 +537,7 @@ impl crate::App {
 
     /// The thumbnail box in the file list, by the size chosen in Preferences.
     pub(crate) fn thumb(&self) -> egui::Vec2 {
-        THUMBS[self.config.thumb_size.min(2) as usize]
+        THUMB_SIZES[self.config.thumb_size.min(2) as usize]
     }
 
     /// Takes thumbnails from the freedesktop "large" cache when the box is wider than a
@@ -556,9 +563,9 @@ impl crate::App {
     /// so the setting is read here and not passed by each view as its form.
     pub(crate) fn cell(&self) -> egui::Vec2 {
         let extra = if self.config.grid_names {
-            CELL_EXTRA
+            CELL_PADDING
         } else {
-            CELL_EXTRA_NO_NAME
+            CELL_PADDING_NO_NAME
         };
         self.thumb() + extra
     }
@@ -598,7 +605,7 @@ impl crate::App {
     }
 
     pub(crate) fn receive_thumbs(&mut self, ctx: &egui::Context) {
-        while let Ok((path, n, result)) = self.thumbs.rx.try_recv() {
+        while let Ok((path, n, result)) = self.thumbs.answers.try_recv() {
             // The name is the one the list has, with its folders in a slideshow with
             // subfolders.
             let Ok(name) = path.strip_prefix(self.folder.dir()).map(Path::as_os_str) else {
@@ -871,7 +878,7 @@ impl crate::App {
         if !shown.is_empty() {
             let mut view = shown.clone();
             view.sort_unstable();
-            self.thumbs.view.lock().unwrap()[0] = view;
+            self.thumbs.on_screen.lock().unwrap()[0] = view;
             let row = match self.list.matches() {
                 Some(m) => self.shown_row(m).unwrap_or(0),
                 None => self.list.shown(),
@@ -931,14 +938,14 @@ impl crate::App {
     /// Folders as a tree from /, opened up to the current folder. Subfolders are read in the
     /// background when a folder is opened in the tree.
     pub(crate) fn folder_tree(&mut self, ui: &mut egui::Ui, open_dir: &mut Option<PathBuf>) {
-        while let Ok((dir, subdirs)) = self.tree.rx.try_recv() {
+        while let Ok((dir, subdirs)) = self.tree.subfolders_read.try_recv() {
             self.tree.children.insert(dir, Some(subdirs));
         }
         // Opened up to the folder shown when that changes.
-        let follow = self.tree.shown != self.folder.dir();
+        let follow = self.tree.opened_up_to != self.folder.dir();
         if follow {
             self.tree
-                .open
+                .expanded
                 .extend(self.folder.dir().ancestors().map(Path::to_path_buf));
         }
         // The open folders are rows, so only those on screen are drawn, also when a folder of
@@ -951,7 +958,7 @@ impl crate::App {
         let mut stack = vec![(0, Path::new("/"))];
         while let Some((depth, path)) = stack.pop() {
             rows.push((depth, path));
-            if !self.tree.open.contains(path) {
+            if !self.tree.expanded.contains(path) {
                 continue;
             }
             match tree.get(path) {
@@ -970,7 +977,7 @@ impl crate::App {
             let step = row_h + ui.spacing().item_spacing.y;
             let top = i as f32 * step - ui.available_height() / 2.0;
             area = area.vertical_scroll_offset(top.max(0.0));
-            self.tree.shown = self.folder.dir().to_path_buf();
+            self.tree.opened_up_to = self.folder.dir().to_path_buf();
         }
         let mut toggled = None;
         area.show_rows(ui, row_h, rows.len(), |ui, range| {
@@ -980,7 +987,7 @@ impl crate::App {
                     if path.as_os_str().is_empty() {
                         return drop(ui.label("…"));
                     }
-                    let open = self.tree.open.contains(path);
+                    let open = self.tree.expanded.contains(path);
                     let caret = match open {
                         true => theme::icon::CARET_DOWN,
                         false => theme::icon::CARET_RIGHT,
@@ -1010,9 +1017,9 @@ impl crate::App {
         drop(rows);
         self.tree.children = tree;
         if let Some(path) = toggled
-            && !self.tree.open.remove(&path)
+            && !self.tree.expanded.remove(&path)
         {
-            self.tree.open.insert(path);
+            self.tree.expanded.insert(path);
         }
         let folders = Types {
             hidden: self.config.show_hidden,
@@ -1020,7 +1027,7 @@ impl crate::App {
         };
         for dir in unread {
             self.tree.children.insert(dir.clone(), None);
-            let (tx, ctx) = (self.tree.tx.clone(), ui.ctx().clone());
+            let (tx, ctx) = (self.tree.subfolders_sender.clone(), ui.ctx().clone());
             std::thread::spawn(move || {
                 let subdirs = list_folder(&dir, folders).0;
                 let _ = tx.send((dir, subdirs));
@@ -1142,7 +1149,7 @@ impl crate::App {
 
     /// The file types the list shows, from the Types menu.
     /// The type of a file opened directly is listed too, in its folder.
-    pub(crate) fn types(&self) -> Types {
+    pub(crate) fn shown_types(&self) -> Types {
         let o = self.folder.opened_type();
         Types {
             images: self.config.list_images || o.images,
@@ -1238,7 +1245,7 @@ impl crate::App {
     pub(crate) fn side_panel(&mut self, ctx: &egui::Context, ui: &mut egui::Ui) {
         let (mut open_dir, mut go_to, mut list_act, mut opened) = (None, None, None, None);
         // The grid in the image area has the thumbnails, so the list has names.
-        let form = if self.panel.area_grid_on() {
+        let form = if self.panel.is_area_grid_on() {
             [false, false]
         } else {
             [self.config.icons, self.config.thumbnails]
@@ -1392,11 +1399,11 @@ impl crate::App {
         } else {
             1
         };
-        self.panel.grid_cols = cols;
+        self.panel.grid_columns = cols;
         let mut area = egui::ScrollArea::vertical()
             .id_salt("files")
             .auto_shrink(false);
-        if self.panel.scrolls()
+        if self.panel.scrolls_to_shown_image()
             && let Some(row) = row_of(self.list.shown(), self.list.matches()).map(|r| r / cols)
         {
             // Scroll only when the current image is out of view, and centre it.
@@ -1425,8 +1432,8 @@ impl crate::App {
             // the other.
             let clip = ui.clip_rect();
             let mine = match pointer {
-                Some(p) if self.panel.area_grid_shown() && icons => p.x >= clip.left(),
-                Some(p) if self.panel.area_grid_shown() => p.x <= clip.right(),
+                Some(p) if self.panel.is_area_grid_shown() && icons => p.x >= clip.left(),
+                Some(p) if self.panel.is_area_grid_shown() => p.x <= clip.right(),
                 _ => true,
             };
             if mine {
@@ -1471,7 +1478,7 @@ impl crate::App {
                 self.drag_rubber_band(ui, &cells, row_h, first_row);
             }
             // The list drawn last drops, once the row under the pointer has set the target.
-            if icons || !self.panel.area_grid_shown() {
+            if icons || !self.panel.is_area_grid_shown() {
                 self.drop_dragged(ctx);
             }
         });
@@ -1489,7 +1496,7 @@ impl crate::App {
             None => near.collect(),
         };
         view.sort_unstable();
-        self.thumbs.view.lock().unwrap()[0] = view;
+        self.thumbs.on_screen.lock().unwrap()[0] = view;
         self.thumbs.list_rows = rows.clone();
         self.trim_thumbs(rows);
     }
@@ -1548,7 +1555,7 @@ impl crate::App {
         let pitch = row_h + ui.spacing().item_spacing.y;
         let origin = ui.max_rect().min - egui::vec2(0.0, first_row as f32 * pitch);
         let (cell, gap) = (self.cell(), ui.spacing().item_spacing.x);
-        let cols = self.panel.grid_cols.max(1);
+        let cols = self.panel.grid_columns.max(1);
         let count = self
             .list
             .matches()
@@ -1609,8 +1616,8 @@ impl crate::App {
         let band = egui::Rect::from_two_pos(start, p);
         // Every cell under it, also those scrolled out of view, from where they are in the grid.
         let rel = band.translate(-origin.to_vec2());
-        let rows = touched(rel.top(), rel.bottom(), pitch, row_h);
-        let columns = touched(rel.left(), rel.right(), cell.x + gap, cell.x);
+        let rows = places_overlapped(rel.top(), rel.bottom(), pitch, row_h);
+        let columns = places_overlapped(rel.left(), rel.right(), cell.x + gap, cell.x);
         // The selection is made again only when the rectangle touches other cells, because the
         // selection before it may be large (Ctrl+A in a big folder, then Ctrl and a rectangle),
         // and frames come many times a second.
@@ -1732,7 +1739,7 @@ impl crate::App {
                 let n = self.list.files().len();
                 let size = size_text(
                     self.status_bar
-                        .size_rx
+                        .folder_sums
                         .is_none()
                         .then_some(self.status_bar.total_size),
                 );
@@ -1801,9 +1808,13 @@ impl crate::App {
         }
         // As in Geeqie, "( 4000 x 3000 ) 2,345,678 bytes [3/16]" comes first, then
         // the zoom. With several panes, it tells about the one under the pointer.
-        let (idx, scale) = (self.status_bar.pane_info.get(self.status_bar.pane).copied())
-            .filter(|p| p.0 < n)
-            .unwrap_or((self.list.shown(), Some(self.zoom.scale_shown())));
+        let (idx, scale) = (self
+            .status_bar
+            .pane_images
+            .get(self.status_bar.pane)
+            .copied())
+        .filter(|p| p.0 < n)
+        .unwrap_or((self.list.shown(), Some(self.zoom.scale_shown())));
         let path = self.path(idx);
         if self
             .status_bar
@@ -1851,8 +1862,8 @@ impl crate::App {
                 ui.label(format!("{bytes} {position}"));
             }
         }
-        if self.status_bar.grid != [1, 1] {
-            pane_map(ui, self.status_bar.grid, self.status_bar.pane);
+        if self.status_bar.pane_layout != [1, 1] {
+            pane_map(ui, self.status_bar.pane_layout, self.status_bar.pane);
         }
     }
 }
@@ -1883,7 +1894,7 @@ pub(crate) fn speak_item(response: &egui::Response, marked: bool, name: &str) {
 
 /// The places along a row or column of items `size` long, one every `step`, that the span
 /// `lo..hi` (from the first item's start) overlaps.
-pub(crate) fn touched(lo: f32, hi: f32, step: f32, size: f32) -> std::ops::Range<usize> {
+pub(crate) fn places_overlapped(lo: f32, hi: f32, step: f32, size: f32) -> std::ops::Range<usize> {
     let first = ((lo - size) / step).floor() + 1.0;
     first.max(0.0) as usize..(hi / step).ceil().max(0.0) as usize
 }
@@ -1900,27 +1911,30 @@ mod tests {
         let mut panel = Panel::default();
         panel.start_frame(true);
         assert!(
-            panel.scrolls(),
+            panel.scrolls_to_shown_image(),
             "the first frame scrolls to the first image"
         );
         panel.start_frame(true);
-        assert!(!panel.scrolls());
+        assert!(!panel.scrolls_to_shown_image());
         panel.scroll_to_shown();
-        assert!(panel.scrolls());
+        assert!(panel.scrolls_to_shown_image());
         panel.start_frame(true);
-        assert!(panel.scrolls());
+        assert!(panel.scrolls_to_shown_image());
         panel.start_frame(true);
-        assert!(!panel.scrolls());
+        assert!(!panel.scrolls_to_shown_image());
         // Frames without a list (the list hidden, full screen) keep the scroll for the first
         // frame that draws one again.
         panel.scroll_to_shown();
         panel.start_frame(false);
         panel.start_frame(false);
-        assert_eq!(panel.grid_cols, 1);
+        assert_eq!(panel.grid_columns, 1);
         panel.start_frame(true);
-        assert!(panel.scrolls(), "the list scrolls once it is drawn again");
+        assert!(
+            panel.scrolls_to_shown_image(),
+            "the list scrolls once it is drawn again"
+        );
         panel.start_frame(true);
-        assert!(!panel.scrolls());
+        assert!(!panel.scrolls_to_shown_image());
     }
 
     /// G shows the grid in the image area and Enter an image from it. Esc goes back to the
@@ -1932,18 +1946,18 @@ mod tests {
         let (mut app, ctx) = crate::support::test_support::app_on(&dir);
         use crate::ui::actions::Action::{Escape, ThumbnailGrid};
         app.run(&ctx, Escape);
-        assert!(!app.panel.area_grid_on());
+        assert!(!app.panel.is_area_grid_on());
         app.run(&ctx, ThumbnailGrid);
-        assert!(app.panel.area_grid_shown());
+        assert!(app.panel.is_area_grid_shown());
         app.panel.open_from_grid();
-        assert!(app.panel.area_grid_on() && !app.panel.area_grid_shown());
+        assert!(app.panel.is_area_grid_on() && !app.panel.is_area_grid_shown());
         app.run(&ctx, Escape);
-        assert!(app.panel.area_grid_shown());
+        assert!(app.panel.is_area_grid_shown());
         app.panel.open_from_grid();
         app.run(&ctx, ThumbnailGrid);
-        assert!(app.panel.area_grid_shown());
+        assert!(app.panel.is_area_grid_shown());
         app.run(&ctx, ThumbnailGrid);
-        assert!(!app.panel.area_grid_on());
+        assert!(!app.panel.is_area_grid_on());
         std::fs::remove_dir_all(dir).unwrap();
     }
 
@@ -1975,9 +1989,9 @@ mod tests {
         use crate::ui::actions::Action::{Escape, Slideshow, ThumbnailGrid};
         app.run(&ctx, ThumbnailGrid);
         app.run(&ctx, Slideshow);
-        assert!(app.panel.area_grid_on() && !app.panel.area_grid_shown());
+        assert!(app.panel.is_area_grid_on() && !app.panel.is_area_grid_shown());
         app.run(&ctx, Escape);
-        assert!(app.panel.area_grid_shown() && !app.slideshow.is_running());
+        assert!(app.panel.is_area_grid_shown() && !app.slideshow.is_running());
         std::fs::remove_dir_all(dir).unwrap();
     }
 
@@ -1985,10 +1999,10 @@ mod tests {
     /// gap from 101 to 109 touches none, and one above the grid none.
     #[test]
     fn finds_the_cells_a_rectangle_touches() {
-        use super::touched;
-        assert_eq!(touched(50.0, 230.0, 110.0, 100.0), 0..3);
-        assert_eq!(touched(101.0, 109.0, 110.0, 100.0), 1..1);
-        assert_eq!(touched(-80.0, -10.0, 110.0, 100.0), 0..0);
+        use super::places_overlapped;
+        assert_eq!(places_overlapped(50.0, 230.0, 110.0, 100.0), 0..3);
+        assert_eq!(places_overlapped(101.0, 109.0, 110.0, 100.0), 1..1);
+        assert_eq!(places_overlapped(-80.0, -10.0, 110.0, 100.0), 0..0);
     }
 
     /// Thumbnails are kept by rows of the list as shown. With search matches spread over a
@@ -2018,10 +2032,10 @@ mod tests {
         let mut thumbs = super::Thumbs::new(&ctx, 0, &Default::default(), false);
         let name = std::ffi::OsStr::new("a.jpg");
         thumbs.ask(name, 0, "a.jpg".into());
-        let old = thumbs.asked;
+        let old = thumbs.last_request_number;
         thumbs.forget(name);
         thumbs.ask(name, 0, "a.jpg".into());
-        let new = thumbs.asked;
+        let new = thumbs.last_request_number;
         assert!(thumbs.answered(name, new), "the new answer is dropped");
         assert!(
             !thumbs.answered(name, old),
@@ -2031,6 +2045,6 @@ mod tests {
         thumbs.forget(name);
         thumbs.ask(name, 0, "a.jpg".into());
         assert!(!thumbs.answered(name, new));
-        assert!(thumbs.answered(name, thumbs.asked));
+        assert!(thumbs.answered(name, thumbs.last_request_number));
     }
 }

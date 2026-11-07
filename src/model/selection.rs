@@ -290,7 +290,7 @@ impl crate::App {
         if self.list.selected().len() == self.list.files().len()
             && let Some(total) = self.status_bar.folder_total()
         {
-            return self.status_bar.selection_is(total);
+            return self.status_bar.set_selection_size(total);
         }
         // The paths made in the thread: only the names are copied here.
         let names: Vec<OsString> = self

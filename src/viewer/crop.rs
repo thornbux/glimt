@@ -28,7 +28,7 @@ impl crate::App {
     /// check, as Auto Rotate first was. A part behind the grid is never saved, whatever way the
     /// grid came back.
     fn crop_shown(&self, crop: &Crop) -> bool {
-        !self.panel.area_grid_shown()
+        !self.panel.is_area_grid_shown()
             && self.is_file(self.list.shown(), &crop.path)
             && self.shown_copy() == crop.how
     }
@@ -266,7 +266,7 @@ mod tests {
         assert!(!app.viewing.is_cropping());
         // And Crop chosen in the grid opens the image, where the part is chosen.
         app.start_crop();
-        assert!(app.panel.area_grid_on() && !app.panel.area_grid_shown());
+        assert!(app.panel.is_area_grid_on() && !app.panel.is_area_grid_shown());
         std::fs::remove_dir_all(dir).unwrap();
     }
 
@@ -287,7 +287,7 @@ mod tests {
         };
         app.viewing.start_crop(crop);
         app.run(&ctx, crate::ui::actions::Action::Escape);
-        assert!(app.panel.area_grid_shown() && !app.viewing.is_cropping());
+        assert!(app.panel.is_area_grid_shown() && !app.viewing.is_cropping());
         std::fs::remove_dir_all(dir).unwrap();
     }
 

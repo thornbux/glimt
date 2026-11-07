@@ -299,7 +299,7 @@ impl App {
         // The icon grid sets the row step again in the file list, and the next frame's ↑ and ↓
         // read it. The scroll to the shown image waits while no list is drawn.
         self.panel
-            .start_frame(!bare || self.panel.area_grid_shown());
+            .start_frame(!bare || self.panel.is_area_grid_shown());
         // A drag's drop target is set again by the row under the pointer, in whichever list,
         // so a drag let go elsewhere ends where it is.
         if let Some(to) = self.list.drag_target_mut() {
@@ -336,7 +336,7 @@ impl App {
             // The panel was hidden while a field had the focus, so the field never lost it.
             self.save_meta(ui.ctx());
         }
-        if self.panel.area_grid_shown() {
+        if self.panel.is_area_grid_shown() {
             self.area_grid(ctx, ui);
         } else {
             self.image_area(ctx, ui, fullscreen, bare);

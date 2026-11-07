@@ -437,7 +437,7 @@ impl crate::App {
         menu_toggle(ui, act, c.icons, Action::Icons);
         // Ticked only while the grid shows: from an image opened from it, the item goes back to
         // the grid, as G and Esc do.
-        let grid = self.panel.area_grid_shown();
+        let grid = self.panel.is_area_grid_shown();
         menu_toggle(ui, act, grid, Action::ThumbnailGrid);
         let size = iconed(ui, theme::icon::SIZE, tr("Thumbnail Size"));
         submenu(ui, size, |ui| self.thumb_size_setting(ui));

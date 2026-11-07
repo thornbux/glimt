@@ -6,7 +6,7 @@ use crate::images::decode::color_image;
 use crate::support::lang::tr;
 use crate::support::threads::{CPU_CHANGED, Took, cores, thumb_threads};
 use crate::ui::file_list::LARGE_THUMBS;
-use crate::ui::file_list::ThumbView;
+use crate::ui::file_list::OnScreenFiles;
 use crate::{features::remote, images::thumbs, malloc_trim, metadata::lightroom, tf};
 use eframe::egui;
 use std::path::PathBuf;
@@ -183,7 +183,7 @@ pub(crate) fn spawn_thumbnailers(
     ctx: &egui::Context,
     workers: usize,
     rotate: &Arc<AtomicBool>,
-    view: &ThumbView,
+    on_screen: &OnScreenFiles,
     save: &Arc<AtomicBool>,
 ) -> (
     mpsc::Sender<(usize, PathBuf, u64)>,
@@ -195,10 +195,10 @@ pub(crate) fn spawn_thumbnailers(
     // As many as there are cores; CPU use (thumb_threads) says how many take jobs, so it
     // changes without a restart.
     for k in 0..cores() {
-        let (rx, tx, view, rotate, save, ctx) = (
+        let (rx, tx, on_screen, rotate, save, ctx) = (
             thumb_rx.clone(),
             thumbs_tx.clone(),
-            view.clone(),
+            on_screen.clone(),
             rotate.clone(),
             save.clone(),
             ctx.clone(),
@@ -213,7 +213,8 @@ pub(crate) fn spawn_thumbnailers(
                 let Ok((idx, path, n)) = rx.lock().unwrap().recv() else {
                     return;
                 };
-                let wanted = (view.lock().unwrap().iter()).any(|v| v.binary_search(&idx).is_ok());
+                let wanted =
+                    (on_screen.lock().unwrap().iter()).any(|v| v.binary_search(&idx).is_ok());
                 let result = wanted.then(|| {
                     let (rotate, save) =
                         (rotate.load(Ordering::Relaxed), save.load(Ordering::Relaxed));
