@@ -609,14 +609,14 @@ fn load_unturned(path: &Path, rotate: bool, max: Option<[u32; 2]>) -> Result<Unt
         dec => dec?,
     };
     // One EXIF block, as the info panel reads it, gives both the turn and the colour space.
-    let exif = exif::decoded(path, &mut dec);
+    let exif = exif::block_from_decoder(path, &mut dec);
     let turn = match rotate {
         true => exif::stored_orientation(&mut dec, exif.as_deref()),
         false => upright,
     };
     // Without a profile, the EXIF may say Adobe RGB (a camera set to it).
     let icc = dec.icc_profile().ok().flatten().or_else(|| {
-        let adobe = exif::adobe_rgb(exif.as_deref()?);
+        let adobe = exif::is_adobe_rgb(exif.as_deref()?);
         adobe.then(|| ADOBE_RGB.clone())
     });
     let mut img = from_decoder(dec)?;
@@ -743,7 +743,7 @@ pub fn scaled(
     img.apply_orientation(orientation);
     let icc = dec.icc_profile().or_else(|| {
         let exif = dec.exif_data()?;
-        exif::adobe_rgb(exif).then(|| ADOBE_RGB.clone())
+        exif::is_adobe_rgb(exif).then(|| ADOBE_RGB.clone())
     });
     Some((img, icc, [uw as usize, uh as usize]))
 }

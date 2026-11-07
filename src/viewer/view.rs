@@ -861,7 +861,7 @@ impl crate::App {
             label => self
                 .info_panel
                 .exif_row(&path, label)
-                .map(|value| crate::metadata::exif::shown(label, value).to_owned())
+                .map(|value| crate::metadata::exif::shown_value(label, value).to_owned())
                 .unwrap_or_default(),
         });
         if text.is_empty() {

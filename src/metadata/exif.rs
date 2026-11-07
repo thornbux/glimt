@@ -72,13 +72,13 @@ type Ifd = Vec<(u16, Entry)>;
 
 struct Tiff<'a> {
     data: &'a [u8],
-    little: bool,
+    is_little_endian: bool,
 }
 
 impl Tiff<'_> {
     fn u16(&self, at: usize) -> Option<u16> {
         let b: [u8; 2] = self.data.get(at..at + 2)?.try_into().ok()?;
-        Some(if self.little {
+        Some(if self.is_little_endian {
             u16::from_le_bytes(b)
         } else {
             u16::from_be_bytes(b)
@@ -87,7 +87,7 @@ impl Tiff<'_> {
 
     fn u32(&self, at: usize) -> Option<u32> {
         let b: [u8; 4] = self.data.get(at..at + 4)?.try_into().ok()?;
-        Some(if self.little {
+        Some(if self.is_little_endian {
             u32::from_le_bytes(b)
         } else {
             u32::from_be_bytes(b)
@@ -101,14 +101,21 @@ impl Tiff<'_> {
             .filter_map(|i| {
                 let e = offset + 2 + i * 12;
                 let (tag, kind, count) = (self.u16(e)?, self.u16(e + 2)?, self.u32(e + 4)?);
-                let size = width(kind);
+                let size = type_size(kind);
                 // Values of up to four bytes are stored in the entry itself.
                 let at = if size * count as usize <= 4 {
                     e + 8
                 } else {
                     self.u32(e + 8)? as usize
                 };
-                Some((tag, Entry { kind, count, at }))
+                Some((
+                    tag,
+                    Entry {
+                        field_type: kind,
+                        count,
+                        value_offset: at,
+                    },
+                ))
             })
             .collect()
     }
@@ -116,7 +123,7 @@ impl Tiff<'_> {
     fn text(&self, e: Entry) -> Option<String> {
         let bytes = self
             .data
-            .get(e.at..e.at + (e.count as usize).min(MAX_TEXT))?;
+            .get(e.value_offset..e.value_offset + (e.count as usize).min(MAX_TEXT))?;
         let text = String::from_utf8_lossy(bytes);
         let text = text.trim_end_matches('\0').trim();
         (!text.is_empty()).then(|| text.to_owned())
@@ -130,12 +137,12 @@ impl Tiff<'_> {
             let more = if e.count as usize > n { " …" } else { "" };
             items.join(" ") + more
         };
-        match e.kind {
+        match e.field_type {
             ASCII => self.text(e).unwrap_or_default(),
             BYTE | UNDEFINED => {
                 let bytes = self
                     .data
-                    .get(e.at..e.at + (e.count as usize).min(256))
+                    .get(e.value_offset..e.value_offset + (e.count as usize).min(256))
                     .unwrap_or(&[]);
                 let text = String::from_utf8_lossy(bytes);
                 let text = text.trim_end_matches('\0').trim();
@@ -149,19 +156,19 @@ impl Tiff<'_> {
             }
             SHORT => list(
                 (0..n)
-                    .filter_map(|i| self.u16(e.at + 2 * i))
+                    .filter_map(|i| self.u16(e.value_offset + 2 * i))
                     .map(|v| v.to_string())
                     .collect(),
             ),
             LONG | SLONG => list(
                 (0..n)
-                    .filter_map(|i| self.u32(e.at + 4 * i))
+                    .filter_map(|i| self.u32(e.value_offset + 4 * i))
                     .map(|v| v.to_string())
                     .collect(),
             ),
             RATIONAL | SRATIONAL => list(
                 (0..n)
-                    .filter_map(|i| self.ratio(e, i))
+                    .filter_map(|i| self.rational(e, i))
                     .map(|v| format!("{}", (v * 10000.0).round() / 10000.0))
                     .collect(),
             ),
@@ -174,23 +181,23 @@ impl Tiff<'_> {
         if e.count == 0 {
             return None;
         }
-        match e.kind {
-            SHORT => self.u16(e.at).map(u32::from),
-            LONG | SLONG | IFD => self.u32(e.at),
+        match e.field_type {
+            SHORT => self.u16(e.value_offset).map(u32::from),
+            LONG | SLONG | IFD => self.u32(e.value_offset),
             _ => None,
         }
     }
 
     /// Rational number `i` of the entry (signed for SRATIONAL).
-    fn ratio(&self, e: Entry, i: usize) -> Option<f64> {
+    fn rational(&self, e: Entry, i: usize) -> Option<f64> {
         // Only the values the entry has: a GPS position of one value read its minutes and
         // seconds from whatever followed.
         if i >= e.count as usize {
             return None;
         }
-        let at = e.at + i * 8;
+        let at = e.value_offset + i * 8;
         let (n, d) = (self.u32(at)?, self.u32(at + 4)?);
-        let (n, d) = if e.kind == SRATIONAL {
+        let (n, d) = if e.field_type == SRATIONAL {
             (n as i32 as f64, d as i32 as f64)
         } else {
             (n as f64, d as f64)
@@ -202,9 +209,9 @@ impl Tiff<'_> {
 /// A tag's type, count and where its value starts.
 #[derive(Clone, Copy)]
 struct Entry {
-    kind: u16,
+    field_type: u16,
     count: u32,
-    at: usize,
+    value_offset: usize,
 }
 
 /// The entry for `tag` in `ifd`.
@@ -224,14 +231,14 @@ fn find(ifd: &[(u16, Entry)], tag: u16) -> Option<Entry> {
 
 /// (label, value) rows for the panel, in display order; empty if the file has no EXIF.
 pub fn read(path: &Path) -> Vec<(&'static str, String)> {
-    raw(path).map_or_else(Vec::new, |raw| parse(&raw))
+    read_exif_block(path).map_or_else(Vec::new, |raw| parse(&raw))
 }
 
 /// `read` of `path`, and every field of IFD0, the Exif and the GPS directory for the EXIF
 /// window (unknown tags by number), from one reading of its EXIF block: on a network share
 /// each reading of a large photo costs.
 pub fn read_and_all(path: &Path) -> (Vec<(&'static str, String)>, Vec<Field>) {
-    raw(path).map_or_else(Default::default, |raw| (parse(&raw), fields(&raw)))
+    read_exif_block(path).map_or_else(Default::default, |raw| (parse(&raw), fields(&raw)))
 }
 
 /// Every field of an EXIF block, for the EXIF window.
@@ -354,7 +361,7 @@ fn tag_name(gps: bool, tag: u16) -> Option<&'static str> {
 pub fn date(path: &Path, digitized: bool) -> Option<String> {
     // A decoder panicking on one file must not end the sort or the Pan view that asked.
     crate::support::threads::caught(|| {
-        let raw = raw(path)?;
+        let raw = read_exif_block(path)?;
         let (t, _, exif, _) = ifds(&raw)?;
         let tag = if digitized { 0x9004 } else { 0x9003 };
         let mut date = t.text(exif.iter().find(|(t2, _)| *t2 == tag)?.1)?;
@@ -370,7 +377,7 @@ pub fn date(path: &Path, digitized: bool) -> Option<String> {
 /// Whether the EXIF block says the pixels are Adobe RGB without an ICC profile, as cameras set
 /// to Adobe RGB do: ColorSpace 2, or "uncalibrated" with the Interoperability index R03 (R98 is
 /// sRGB). Read as Geeqie reads it.
-pub fn adobe_rgb(raw: &[u8]) -> bool {
+pub fn is_adobe_rgb(raw: &[u8]) -> bool {
     let Some((t, _, exif, _)) = ifds(raw) else {
         return false;
     };
@@ -392,7 +399,7 @@ pub fn orientation(raw: &[u8]) -> Option<image::metadata::Orientation> {
     image::metadata::Orientation::from_exif(t.int(e)? as u8)
 }
 
-fn mul(a: [i8; 4], b: [i8; 4]) -> [i8; 4] {
+fn compose_orientations(a: [i8; 4], b: [i8; 4]) -> [i8; 4] {
     [
         a[0] * b[0] + a[1] * b[2],
         a[0] * b[1] + a[1] * b[3],
@@ -406,10 +413,10 @@ fn mul(a: [i8; 4], b: [i8; 4]) -> [i8; 4] {
 pub fn turned(o: u8, turns: u8, mirrored: bool) -> u8 {
     let mut m = ORIENTATIONS[(o.clamp(1, 8) - 1) as usize];
     if mirrored {
-        m = mul([-1, 0, 0, 1], m);
+        m = compose_orientations([-1, 0, 0, 1], m);
     }
     for _ in 0..turns % 4 {
-        m = mul([0, -1, 1, 0], m);
+        m = compose_orientations([0, -1, 1, 0], m);
     }
     ORIENTATIONS
         .iter()
@@ -456,18 +463,18 @@ fn oriented(
         Some(&(_, start, len)) => {
             let block = data.get(start..start + len).ok_or("cut off")?;
             let (t, ifd0, _, _) = ifds(block).ok_or("unreadable EXIF")?;
-            let little = t.little;
+            let little = t.is_little_endian;
             let found = find(&ifd0, ORIENTATION);
             match found {
                 // One value, so it sits in the entry itself, inside the block.
-                Some(e) if e.kind == SHORT && e.count == 1 => {
+                Some(e) if e.field_type == SHORT && e.count == 1 => {
                     // Read first, which keeps the write inside the block: an entry at its very end
                     // has no room for its value.
-                    let old = t.u16(e.at).ok_or("cut off")?;
+                    let old = t.u16(e.value_offset).ok_or("cut off")?;
                     let shown = if rotate { old as u8 } else { 1 };
                     new = turned(shown, turns, mirrored) as u16;
                     // Offsets count from the TIFF header, which ends the block as `t.data` does.
-                    let at = start + len - t.data.len() + e.at;
+                    let at = start + len - t.data.len() + e.value_offset;
                     let bytes = if little {
                         new.to_le_bytes()
                     } else {
@@ -553,18 +560,18 @@ pub fn set_upright(block: &mut [u8], size: (u32, u32)) -> Result<(), String> {
         .into_iter()
         .filter_map(|(tag, value)| {
             let e = find(&exif, tag).filter(|e| e.count == 1)?;
-            let bytes = match (e.kind, t.little) {
+            let bytes = match (e.field_type, t.is_little_endian) {
                 (SHORT, true) => u16::try_from(value).ok()?.to_le_bytes().to_vec(),
                 (SHORT, false) => u16::try_from(value).ok()?.to_be_bytes().to_vec(),
                 (LONG, true) => value.to_le_bytes().to_vec(),
                 (LONG, false) => value.to_be_bytes().to_vec(),
                 _ => return None,
             };
-            Some((e.at, bytes))
+            Some((e.value_offset, bytes))
         })
         .collect();
     let found = find(&ifd0, ORIENTATION);
-    if found.is_some_and(|e| e.kind != SHORT) {
+    if found.is_some_and(|e| e.field_type != SHORT) {
         return Err("unusual orientation field".into());
     }
     // Offsets count from the TIFF header, after any "Exif\0\0" before it.
@@ -579,9 +586,9 @@ pub fn set_upright(block: &mut [u8], size: (u32, u32)) -> Result<(), String> {
         let ifd1 = t.ifd(o as usize);
         // A JPEG thumbnail (offset and length), or an uncompressed one's strips, each of them.
         let nth = |e: Entry, i: usize| {
-            let size = if e.kind == SHORT { 2 } else { 4 };
+            let size = if e.field_type == SHORT { 2 } else { 4 };
             t.int(Entry {
-                at: e.at + i * size,
+                value_offset: e.value_offset + i * size,
                 ..e
             })
         };
@@ -596,7 +603,7 @@ pub fn set_upright(block: &mut [u8], size: (u32, u32)) -> Result<(), String> {
         };
         [parts(0x0201, 0x0202), parts(0x0111, 0x0117)].concat()
     });
-    let little = t.little;
+    let little = t.is_little_endian;
     for (at, len) in thumbnail.into_iter().flatten() {
         let start = head + at as usize;
         if let Some(bytes) = block.get_mut(start..start.saturating_add(len as usize)) {
@@ -614,7 +621,7 @@ pub fn set_upright(block: &mut [u8], size: (u32, u32)) -> Result<(), String> {
     let Some(e) = found else {
         return Ok(());
     };
-    let at = head + e.at;
+    let at = head + e.value_offset;
     let one = if little {
         1u16.to_le_bytes()
     } else {
@@ -710,7 +717,7 @@ fn add_orientation(
     let block = data.get(..start + len).ok_or("cut off")?;
     let read = Tiff {
         data: block,
-        little,
+        is_little_endian: little,
     };
     let ifd = tiff + read.u32(tiff + 4).ok_or("cut off")? as usize;
     let n = read.u16(ifd).ok_or("cut off")? as usize;
@@ -728,7 +735,14 @@ fn add_orientation(
     entry.extend([0, 0]);
     list.push(entry);
     // Fields are sorted by tag.
-    list.sort_by_key(|e| Tiff { data: e, little }.u16(0).unwrap_or(0));
+    list.sort_by_key(|e| {
+        Tiff {
+            data: e,
+            is_little_endian: little,
+        }
+        .u16(0)
+        .unwrap_or(0)
+    });
     let tiff_len = len - 6;
     let mut added = vec![0; tiff_len % 2]; // word aligned
     let new_ifd = (tiff_len + added.len()) as u32;
@@ -745,7 +759,7 @@ fn add_orientation(
     Ok(())
 }
 
-fn raw(path: &Path) -> Option<Vec<u8>> {
+fn read_exif_block(path: &Path) -> Option<Vec<u8>> {
     if crate::model::listing::has_ext(path, crate::images::raw::EXTS) {
         return crate::images::raw::exif(path);
     }
@@ -753,7 +767,7 @@ fn raw(path: &Path) -> Option<Vec<u8>> {
     if crate::model::listing::has_ext(path, crate::model::listing::JXL_EXTS) {
         let file = std::io::BufReader::new(crate::images::decode::open_regular(path).ok()?);
         let mut dec = jxl_oxide::integration::JxlDecoder::new(file).ok()?;
-        return decoded(path, &mut dec);
+        return block_from_decoder(path, &mut dec);
     }
     // HEIC and AVIF keep the EXIF block as an item of its own, "Exif\0\0" and a TIFF header.
     // From the first MB, where it usually is, before the whole file; a MB of it at most.
@@ -788,19 +802,19 @@ fn raw(path: &Path) -> Option<Vec<u8>> {
         .ok()?
         .into_decoder()
         .ok()?;
-    decoded(path, &mut dec)
+    block_from_decoder(path, &mut dec)
 }
 
-/// Reads the EXIF block of `path` as a file made from its image keeps it (`how`). It is read
-/// as the panel reads it (`raw`), so a copy of a HEIC, AVIF, JPEG XL or RAW photo keeps the
+/// Reads the EXIF block of `path` as a file made from its image keeps it (`how`). It is read as the
+/// panel reads it (`read_exif_block`), so a copy of a HEIC, AVIF, JPEG XL or RAW photo keeps the
 /// EXIF the panel shows. Before, a copy read it only through the image crate, which cannot open
-/// those, and lost it. The block is made a bare TIFF block, because a JPEG's encoder puts its
-/// own "Exif\0\0" before it and a PNG's eXIf chunk must start with the TIFF header. A turned
-/// image keeps the rest of its block whole, because it is the user's own file and the cut would
-/// lose what lies past the values it follows, such as a SubIFDs directory or a maker note's
-/// data. Only a copy is cut (`derived_block`). Returns `None` when there is no block.
+/// those, and lost it. The block is made a bare TIFF block, because a JPEG's encoder puts its own
+/// "Exif\0\0" before it and a PNG's eXIf chunk must start with the TIFF header. A turned image
+/// keeps the rest of its block whole, because it is the user's own file and the cut would lose what
+/// lies past the values it follows, such as a SubIFDs directory or a maker note's data. Only a copy
+/// is cut (`derived_block`). Returns `None` when there is no block.
 pub fn derived(path: &Path, how: crate::images::save::Derived) -> Option<Vec<u8>> {
-    let raw = raw(path)?;
+    let raw = read_exif_block(path)?;
     match how {
         crate::images::save::Derived::Copy => derived_block(&raw),
         _ => Some(ifds(&raw)?.0.data.to_vec()),
@@ -831,7 +845,10 @@ fn derived_block(raw: &[u8]) -> Option<Vec<u8>> {
         let n = t.u16(at).unwrap_or(0) as usize;
         end = end.max(at.saturating_add(6 + 12 * n));
         for (_, e) in ifd {
-            end = end.max(e.at.saturating_add(width(e.kind) * e.count as usize));
+            end = end.max(
+                e.value_offset
+                    .saturating_add(type_size(e.field_type) * e.count as usize),
+            );
         }
     }
     Some(t.data[..end.min(t.data.len())].to_vec())
@@ -845,7 +862,7 @@ fn drop_pixel_fields(data: &mut [u8]) {
     let Some((t, _, _, _)) = ifds(data) else {
         return;
     };
-    let (little, at) = (t.little, t.u32(4).unwrap_or(0) as usize);
+    let (little, at) = (t.is_little_endian, t.u32(4).unwrap_or(0) as usize);
     let n = t.u16(at).unwrap_or(0) as usize;
     let Some(entries) = data.get_mut(at..at.saturating_add(6 + 12 * n)) else {
         return;
@@ -872,18 +889,18 @@ fn drop_pixel_fields(data: &mut [u8]) {
 /// EXIF in an eXIf chunk, which the decoder reads, or in the text chunk that exiv2 (digiKam,
 /// GIMP) and older ImageMagick write (`png_text`). This is the one reader of an EXIF block the
 /// image crate decodes, so the panel, the date sort and a copy or turned file all see the same.
-pub fn decoded(path: &Path, dec: &mut impl image::ImageDecoder) -> Option<Vec<u8>> {
+pub fn block_from_decoder(path: &Path, dec: &mut impl image::ImageDecoder) -> Option<Vec<u8>> {
     let png = || crate::model::listing::has_ext(path, &["png"]);
     (dec.exif_metadata().ok().flatten()).or_else(|| png().then(|| png_exif(path)).flatten()?)
 }
 
-/// Reads the orientation that the image `dec` decodes is turned upright by. It is the
-/// decoder's own, or else the one in `exif`, the EXIF block `decoded` read of it, as the info
-/// panel reads it. It is the one reader of it, so the view, a turned or copied file and the
-/// info panel agree. The decoder finds none in a PNG's text chunk, nor in an EXIF block that
-/// starts with "Exif\0\0", as some programs write a WebP's. Before, such a photo was shown
-/// unturned while the panel said "Rotate 90 CW". The caller reads `exif` once for this and
-/// its other uses, because for a PNG without an eXIf chunk `decoded` opens the file again.
+/// Reads the orientation that the image `dec` decodes is turned upright by. It is the decoder's
+/// own, or else the one in `exif`, the EXIF block `block_from_decoder` read of it, as the info
+/// panel reads it. It is the one reader of it, so the view, a turned or copied file and the info
+/// panel agree. The decoder finds none in a PNG's text chunk, nor in an EXIF block that starts with
+/// "Exif\0\0", as some programs write a WebP's. Before, such a photo was shown unturned while the
+/// panel said "Rotate 90 CW". The caller reads `exif` once for this and its other uses, because for
+/// a PNG without an eXIf chunk `block_from_decoder` opens the file again.
 pub fn stored_orientation(dec: &mut impl image::ImageDecoder, exif: Option<&[u8]>) -> Orientation {
     let own = dec.orientation().unwrap_or(Orientation::NoTransforms);
     if own != Orientation::NoTransforms {
@@ -954,7 +971,7 @@ fn raw_profile(text: &str) -> Option<Vec<u8>> {
 }
 
 /// The size in bytes of one value of the TIFF type `kind`.
-fn width(kind: u16) -> usize {
+fn type_size(kind: u16) -> usize {
     match kind {
         SHORT | 8 => 2,
         LONG | SLONG | 11 | IFD => 4,
@@ -976,7 +993,10 @@ fn ifds(raw: &[u8]) -> Option<(Tiff<'_>, Ifd, Ifd, Ifd)> {
         Some(b"MM") => false,
         _ => return None,
     };
-    let t = Tiff { data, little };
+    let t = Tiff {
+        data,
+        is_little_endian: little,
+    };
     let ifd0 = t.ifd(t.u32(4)? as usize);
     let sub = |tag: u16| {
         let e = ifd0.iter().find(|(t2, _)| *t2 == tag)?.1;
@@ -1011,12 +1031,12 @@ fn parse(raw: &[u8]) -> Vec<(&'static str, String)> {
     );
     let taken = find(&exif, 0x9003).or_else(|| find(&ifd0, 0x0132));
     rows.extend(taken.and_then(|e| t.text(e)).map(|d| ("Taken", d)));
-    if let Some(s) = find(&exif, 0x829a).and_then(|e| t.ratio(e, 0)) {
+    if let Some(s) = find(&exif, 0x829a).and_then(|e| t.rational(e, 0)) {
         rows.push(("Exposure", exposure(s)));
     }
     rows.extend(
         find(&exif, 0x829d)
-            .and_then(|e| t.ratio(e, 0))
+            .and_then(|e| t.rational(e, 0))
             .map(|f| ("Aperture", format!("f/{f:.1}"))),
     );
     rows.extend(
@@ -1024,7 +1044,7 @@ fn parse(raw: &[u8]) -> Vec<(&'static str, String)> {
             .and_then(|e| t.int(e))
             .map(|iso| ("ISO", iso.to_string())),
     );
-    if let Some(mm) = find(&exif, 0x920a).and_then(|e| t.ratio(e, 0)) {
+    if let Some(mm) = find(&exif, 0x920a).and_then(|e| t.rational(e, 0)) {
         // One decimal, none for whole numbers: "2.8 mm", "24 mm".
         let mm = (mm * 10.0).round() / 10.0;
         let full_frame = find(&exif, 0xa405)
@@ -1036,7 +1056,7 @@ fn parse(raw: &[u8]) -> Vec<(&'static str, String)> {
         };
         rows.push(("Focal length", text));
     }
-    if let Some(ev) = find(&exif, 0x9204).and_then(|e| t.ratio(e, 0)) {
+    if let Some(ev) = find(&exif, 0x9204).and_then(|e| t.rational(e, 0)) {
         rows.push(("Exposure bias", format!("{ev:+.1} EV")));
     }
     if let Some(flash) = find(&exif, 0x9209).and_then(|e| t.int(e)) {
@@ -1046,8 +1066,8 @@ fn parse(raw: &[u8]) -> Vec<(&'static str, String)> {
     let coord = |value: u16, reference: u16, negative: &str| -> Option<f64> {
         let e = find(&gps, value)?;
         // Minutes and seconds left out (one value only, against the standard): whole degrees.
-        let part = |i| t.ratio(e, i).unwrap_or(0.0);
-        let deg = t.ratio(e, 0)? + part(1) / 60.0 + part(2) / 3600.0;
+        let part = |i| t.rational(e, i).unwrap_or(0.0);
+        let deg = t.rational(e, 0)? + part(1) / 60.0 + part(2) / 3600.0;
         let sign = find(&gps, reference)
             .and_then(|r| t.text(r))
             .is_some_and(|r| r == negative);
@@ -1061,7 +1081,7 @@ fn parse(raw: &[u8]) -> Vec<(&'static str, String)> {
 
 /// Returns a row's value as the panel shows it, with the flash's in the language in use. The
 /// rows keep English, which the exif: search and the templates' %Flash% read.
-pub fn shown<'a>(label: &str, value: &'a str) -> &'a str {
+pub fn shown_value<'a>(label: &str, value: &'a str) -> &'a str {
     match (label, value) {
         ("Flash", "Fired") => crate::support::lang::tr("Fired"),
         ("Flash", "No") => crate::support::lang::tr("No"),
@@ -1080,7 +1100,7 @@ mod tests {
         let seed = b"\0\0\0\x18ftypheic\0\0\0\0mif1heic\0\0\0\x10Exif\0\0MM\0*\0\0\0\x08\0\0";
         for bytes in crate::support::test_support::broken(seed) {
             std::fs::write(&file, &bytes).unwrap();
-            let _ = super::raw(&file);
+            let _ = super::read_exif_block(&file);
         }
         std::fs::remove_dir_all(dir).unwrap();
     }
@@ -1100,7 +1120,11 @@ mod tests {
             ("iTXt", "Raw profile type APP1", &prefixed[..]),
         ] {
             png_with_raw_profile(&file, chunk, key, block);
-            assert_eq!(raw(&file).as_deref(), Some(CANON_EXIF), "{chunk}");
+            assert_eq!(
+                read_exif_block(&file).as_deref(),
+                Some(CANON_EXIF),
+                "{chunk}"
+            );
             assert_eq!(date(&file, false).as_deref(), Some("2020:01:02 03:04:05"));
         }
         // An eXIf chunk is read by the png crate too.
@@ -1109,10 +1133,10 @@ mod tests {
         let mut enc = image::codecs::png::PngEncoder::new(std::fs::File::create(&file).unwrap());
         enc.set_exif_metadata(exif.to_vec()).unwrap();
         image::RgbImage::new(2, 2).write_with_encoder(enc).unwrap();
-        assert_eq!(raw(&file).as_deref(), Some(&exif[..]));
+        assert_eq!(read_exif_block(&file).as_deref(), Some(&exif[..]));
         // Another key's text is not taken for EXIF.
         png_with_raw_profile(&file, "zTXt", "Raw profile type iptc", CANON_EXIF);
-        assert_eq!(raw(&file), None);
+        assert_eq!(read_exif_block(&file), None);
         std::fs::remove_dir_all(dir).unwrap();
     }
 
@@ -1146,7 +1170,7 @@ mod tests {
         let png = std::fs::read(&file).unwrap();
         for bytes in broken(&png) {
             std::fs::write(&file, &bytes).unwrap();
-            let _ = raw(&file);
+            let _ = read_exif_block(&file);
         }
         for text in broken(b"\nexif\n      14\n4d4d002a00000008\n00000000aabb\n") {
             let _ = raw_profile(&String::from_utf8_lossy(&text));
@@ -1242,11 +1266,11 @@ mod tests {
             d.extend(b"\0\0\0\0");
             d
         };
-        assert!(super::adobe_rgb(&block(2, b"R98\0")));
-        assert!(super::adobe_rgb(&block(0xffff, b"R03\0")));
-        assert!(!super::adobe_rgb(&block(0xffff, b"R98\0")));
-        assert!(!super::adobe_rgb(&block(1, b"R03\0")));
-        assert!(!super::adobe_rgb(b"junk"));
+        assert!(super::is_adobe_rgb(&block(2, b"R98\0")));
+        assert!(super::is_adobe_rgb(&block(0xffff, b"R03\0")));
+        assert!(!super::is_adobe_rgb(&block(0xffff, b"R98\0")));
+        assert!(!super::is_adobe_rgb(&block(1, b"R03\0")));
+        assert!(!super::is_adobe_rgb(b"junk"));
     }
 
     /// The EXIF block from the head of a JPEG; past the head, as after big other segments, from
@@ -1674,7 +1698,7 @@ mod tests {
                 super::parse(&block);
                 super::fields(&block);
                 super::orientation(&block);
-                super::adobe_rgb(&block);
+                super::is_adobe_rgb(&block);
                 let len = block.len();
                 let copy = super::derived_block(&block);
                 assert!(copy.is_none_or(|c| c.len() <= len));

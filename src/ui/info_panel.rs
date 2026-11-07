@@ -261,7 +261,7 @@ impl crate::App {
                                     ));
                                 }
                             } else {
-                                ui.label(exif::shown(label, value));
+                                ui.label(exif::shown_value(label, value));
                             }
                             ui.end_row();
                         }
