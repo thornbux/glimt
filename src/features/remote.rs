@@ -161,7 +161,8 @@ impl crate::App {
             // Behind a select held back, what can change the list it is answered for waits its
             // turn: another script's `open`, subfolders, or a slideshow with its subfolders.
             // Other queries and commands are done at once, as without it.
-            let lists = ["open ", "subfolders", "slideshow"];
+            // run takes Up, Home, Back, Refresh and others that read the folder again.
+            let lists = ["open ", "subfolders", "slideshow", "run "];
             let relists = lists.iter().any(|c| command.starts_with(c));
             let wait =
                 (relists && !self.remote.waiting_select.is_empty()) || (select && busy(self));
@@ -241,6 +242,9 @@ impl crate::App {
             "subfolders on" => return self.set_subfolders(ctx, true),
             "subfolders off" => return self.set_subfolders(ctx, false),
             "title" => return self.set_window_title(ctx, ""),
+            // Not while a dialog asks the user, as the keys are not: an action then could take
+            // the dialog's place (WindowTitle) or its focus while the user types.
+            _ if command.trim().starts_with("run ") && self.dialog_open() => None,
             other if other.starts_with("run ") => Action::for_script(other["run ".len()..].trim()),
             other if other.starts_with("title ") => {
                 return self.set_window_title(ctx, other["title ".len()..].trim());
@@ -838,6 +842,15 @@ mod tests {
         app.remote_command(&ctx, "run DeletePermanently");
         app.remote_command(&ctx, "run NoSuchAction");
         assert!(!app.asking_about_selection());
+        // Nor a script's action while a dialog asks the user: the Rename prompt stays.
+        app.remote_command(&ctx, "run First");
+        assert_eq!(app.list.cur(), 0);
+        app.dialogs
+            .ask(crate::ui::dialogs::Prompt::Rename, "a.png".into());
+        app.remote_command(&ctx, "run WindowTitle");
+        app.remote_command(&ctx, "run Last");
+        assert_eq!(app.list.cur(), 0);
+        assert!(app.dialogs.asks_about_files());
         assert_eq!(app.list.files().len(), 3);
         assert!(dir.join("c.png").exists());
         std::fs::remove_dir_all(&dir).unwrap();
