@@ -1,5 +1,7 @@
 # The names in keys= of the settings file as of 1.0: the actions and the keys. Never taken
-# out or changed; new ones are added below (see AGENTS.md and the test in actions.rs).
+# out or changed; new ones are added below (see AGENTS.md and the test in actions.rs). A
+# renamed action keeps its line, RENAMED_ACTIONS in actions.rs maps it to the new name, and
+# the new name is added below.
 A
 AboveEachOther
 Animate
@@ -175,3 +177,14 @@ ExportFrames
 Shortcuts
 KeyboardMap
 About
+HideFileList
+FullScreenInfo
+PlayVideo
+SlideshowFaster
+SlideshowSlower
+FocusKeywords
+CopyTo
+MoveTo
+NextFilter
+InfoPanel
+Previous

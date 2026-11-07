@@ -1077,7 +1077,7 @@ impl crate::App {
                 if (self.list.files().get(self.list.cur())).is_some_and(|f| is_video(Path::new(f)))
                     && play_button(ui, area)
                 {
-                    later = Some(Action::Play);
+                    later = Some(Action::PlayVideo);
                 }
                 // With several panes, the name is shown in each pane or in none (after the panes
                 // are drawn), rather than the shown image's details in one.
@@ -1455,7 +1455,7 @@ impl crate::App {
             self.zoom.wheel += notches;
             if self.zoom.wheel.abs() >= 1.0 {
                 let up = self.zoom.wheel > 0.0;
-                step = Some(if up { Action::Prev } else { Action::Next });
+                step = Some(if up { Action::Previous } else { Action::Next });
                 self.zoom.wheel = 0.0;
             }
         }

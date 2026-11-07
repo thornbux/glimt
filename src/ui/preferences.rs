@@ -832,14 +832,14 @@ impl crate::App {
     /// Preferences → File list: the EXIF panel.
     fn exif_panel_setting(&mut self, ui: &mut egui::Ui) {
         let exif = tr("Show the EXIF panel (Ctrl+K; reads a little from each image shown)");
-        self.toggle_box(ui, self.config.info_panel, Action::ExifPanel, exif);
+        self.toggle_box(ui, self.config.info_panel, Action::InfoPanel, exif);
     }
 
     /// Preferences → Image: the full screen info and its template.
     fn info_settings(&mut self, ui: &mut egui::Ui) -> bool {
         let mut changed = false;
         let osd = tr("Show image info in full screen (I)");
-        self.toggle_box(ui, self.config.osd, Action::Overlay, osd);
+        self.toggle_box(ui, self.config.osd, Action::FullScreenInfo, osd);
         let c = &mut self.config;
         ui.label(tr("Image info template:"));
         // Kept on one line in the config file, with \n for each new line.

@@ -47,13 +47,6 @@ choices (`on|off`, from `COMMANDS`); `--remote`'s exit codes (`NOT_SENT`, `NOT_T
 the command-line options of `START_OPTIONS` with `--remote` and `--remote-all`. `config::tests::frozen_names_are_kept`
 fails when one is taken out or renamed, when a `NAMED` list gains a value anywhere but at its
 end, and until a new one is added at the end of that file.
-
-A name that fails a reader (0.74.0 renamed a few) is renamed only through a table of old
-names, one for each kind, beside the code that reads it: `config::RENAMED_SETTINGS` and
-`config::RENAMED_STATE`. Glimt reads the old name too, forever, and writes only the new one;
-when a file holds both, the new one counts. The old line stays in the frozen file and the new
-name is added at its end, and the test takes an old name only when its table maps it to a
-name that is read now.
 `the_parser_takes_every_frozen_option` fails when an option that the help lists is neither
 taken by `Start::parse` nor answered by `cli::answered` (through `cli::Command::named`) or by
 `--remote`. Not pinned, and so kept by hand: the window's own reading of each `--remote`
@@ -62,9 +55,17 @@ names of the full screen info, the print caption and the window title (`name`, `
 `position`, `dimensions`, `marks`, `keywords`, `comment`, `File size`, `folder`, `app`, and
 the EXIF labels that the first two fall through to), the files Glimt owns, and the desktop
 file formats of plugins and decoders. Never rename an `Action` variant or rely on a changed key
-name: they are the `keys=` format, pinned by `src/keys-1.0.txt` and its test, every action
-(also one without a default key) and every default key; new ones go at the end of that file,
-and the test fails until a new action is there.
+name outside the table below: they are the `keys=` format, pinned by `src/keys-1.0.txt` and
+its test, every action (also one without a default key) and every default key; new ones go at
+the end of that file, and the test fails until a new action is there.
+
+A frozen name that fails a reader (0.74.0 renamed a few) is renamed only through a table of
+old names, one for each kind, beside the code that reads it: `config::RENAMED_SETTINGS`,
+`config::RENAMED_STATE` and `actions::RENAMED_ACTIONS` (for `keys=` and `--remote run`).
+Glimt reads the old name too, forever, and writes only the new one; when a settings or state
+file holds both, the new one counts. The old line stays in the frozen file and the new name is
+added at its end, and the tests take an old name only when its table maps it to a name that
+is read now.
 
 ## Language
 
@@ -116,7 +117,7 @@ holds only its `mod` lines, and a new module goes into the folder of what it doe
 | `src/viewer/save_as.rs` | File → Save As: its dialog, and `App::shown_copy`, the copy of the image as shown that Crop and Save As start from |
 | `src/viewer/pan.rs` | Pan view: the list by day, its rows, the timeline and the calendar |
 | `src/ui.rs` | **The ui/ folder:** the window around the image: actions and keys, menus, dialogs, the side panel, the info panel, Preferences, help, the window, the look, the screen reader and the background work each frame collects |
-| `src/ui/actions.rs` | The `Action` enum with its menu labels, the `SHORTCUTS` table, the user's own keys (variants are stored by name, never rename one); `run`, which does each action, and reading the keys |
+| `src/ui/actions.rs` | The `Action` enum with its menu labels, the `SHORTCUTS` table, the user's own keys (variants are stored by name, renamed only through `RENAMED_ACTIONS`); `run`, which does each action, and reading the keys |
 | `src/ui/dialogs.rs` | The file chooser (zenity or kdialog, `Pick`), `dialog_open`, and the small dialogs: a name asked for (`Prompt`), a delete confirmed, a share's login, a job cut short |
 | `src/ui/file_list.rs` | The side panel: the folder list, the file list or icon grid with its thumbnails (their sizes, `THUMBS`, `MAX_THUMBS`), dragging, the rubber band, and the status bar |
 | `src/ui/info_panel.rs` | The info panel (Ctrl+K) and what it edits: EXIF, keywords and the keyword tree, comment, alt text, marks; the EXIF reader thread |
@@ -242,7 +243,7 @@ function, type or field is or does from its name alone, without reading its body
 
 Older names that break this are renamed in 0.74.0's naming review, and before that whenever
 the code they name changes. `Action` variants and the names in `src/frozen-1.0.txt` keep their
-names, as *Frozen in 1.x* says.
+names, or change only through a table of old names, as *Frozen in 1.x* says.
 
 A function is at most 120 lines outside the tests (`source_rules::functions_stay_short`): a
 longer one is split into functions named for what each part does, beside it or in the module

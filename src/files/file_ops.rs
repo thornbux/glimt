@@ -1713,7 +1713,7 @@ impl crate::App {
         };
         let paths = targets.iter().map(|&i| self.path(i)).collect();
         let purpose = match action {
-            Action::Copy => Pick::CopyTo(paths),
+            Action::CopyTo => Pick::CopyTo(paths),
             _ => Pick::MoveTo(paths),
         };
         self.pick(ctx, true, purpose);

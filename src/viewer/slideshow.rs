@@ -322,7 +322,11 @@ impl crate::App {
 
     /// Ctrl+= and Ctrl+-: the slideshow's delay a second shorter or longer.
     pub(crate) fn change_delay(&mut self, ctx: &egui::Context, action: Action) {
-        let step = if action == Action::Faster { -1 } else { 1 };
+        let step = if action == Action::SlideshowFaster {
+            -1
+        } else {
+            1
+        };
         self.config.slideshow_delay = self
             .config
             .slideshow_delay

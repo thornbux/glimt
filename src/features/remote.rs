@@ -225,7 +225,7 @@ impl crate::App {
         let fullscreen = ctx.input(|i| i.viewport().fullscreen).unwrap_or(false);
         let action = match command.trim() {
             "next" => Some(Action::Next),
-            "prev" => Some(Action::Prev),
+            "prev" => Some(Action::Previous),
             "first" => Some(Action::First),
             "last" => Some(Action::Last),
             // With on or off, a script can count on the state, and nothing happens when it is so

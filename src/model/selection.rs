@@ -366,7 +366,7 @@ impl crate::App {
         let row = self.panel.row_step();
         let delta = match action {
             Action::First => -isize::MAX / 2,
-            Action::Prev => -row,
+            Action::Previous => -row,
             Action::Next => row,
             _ => isize::MAX / 2,
         };

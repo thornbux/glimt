@@ -52,7 +52,7 @@ pub const SHORTCUTS: &[(Action, egui::Modifiers, egui::Key)] = {
         (Rotate180, SHIFT, Key::R),
         (Mirror, SHIFT, Key::M),
         (Flip, SHIFT, Key::F),
-        (ViewFilter, SHIFT, Key::G),
+        (NextFilter, SHIFT, Key::G),
         (RotateCw, NONE, Key::CloseBracket),
         (RotateCcw, NONE, Key::OpenBracket),
         (DeletePermanently, SHIFT, Key::Delete),
@@ -65,8 +65,8 @@ pub const SHORTCUTS: &[(Action, egui::Modifiers, egui::Key)] = {
         (Undo, CTRL, Key::Z),
         // Before Ctrl+C (copy to a folder), which would also match with Shift.
         (CopyImage, CTRL_SHIFT, Key::C),
-        (Copy, CTRL, Key::C),
-        (Move, CTRL, Key::M),
+        (CopyTo, CTRL, Key::C),
+        (MoveTo, CTRL, Key::M),
         (CloseWindow, CTRL, Key::W),
         (Quit, CTRL, Key::Q),
         (First, NONE, Key::Home),
@@ -75,10 +75,10 @@ pub const SHORTCUTS: &[(Action, egui::Modifiers, egui::Key)] = {
         (PaneRight, ALT, Key::ArrowRight),
         (PaneUp, ALT, Key::ArrowUp),
         (PaneDown, ALT, Key::ArrowDown),
-        (Prev, NONE, Key::Backspace),
-        (Prev, NONE, Key::PageUp),
-        (Prev, NONE, Key::ArrowLeft),
-        (Prev, NONE, Key::ArrowUp),
+        (Previous, NONE, Key::Backspace),
+        (Previous, NONE, Key::PageUp),
+        (Previous, NONE, Key::ArrowLeft),
+        (Previous, NONE, Key::ArrowUp),
         (Next, NONE, Key::Space),
         (Next, NONE, Key::PageDown),
         (Next, NONE, Key::ArrowRight),
@@ -99,10 +99,10 @@ pub const SHORTCUTS: &[(Action, egui::Modifiers, egui::Key)] = {
         (FullScreen, NONE, Key::F),
         (FullScreen, NONE, Key::V),
         (FullScreen, NONE, Key::F11),
-        (HideTools, CTRL, Key::H),
+        (HideFileList, CTRL, Key::H),
         (Thumbnails, NONE, Key::T),
         (ThumbnailGrid, NONE, Key::G),
-        (Overlay, NONE, Key::I),
+        (FullScreenInfo, NONE, Key::I),
         (Histogram, NONE, Key::K),
         (HistogramLog, NONE, Key::J),
         (Compare, NONE, Key::E),
@@ -149,9 +149,9 @@ pub const SHORTCUTS: &[(Action, egui::Modifiers, egui::Key)] = {
         (Mark5, NONE, Key::Num5),
         #[cfg(feature = "marks")]
         (Mark6, NONE, Key::Num6),
-        (ExifPanel, CTRL, Key::K),
+        (InfoPanel, CTRL, Key::K),
         (ExifWindow, CTRL, Key::E),
-        (Keywords, ALT, Key::K),
+        (FocusKeywords, ALT, Key::K),
         (PanView, CTRL, Key::J),
         (FolderTree, CTRL, Key::T),
         (Refresh, NONE, Key::F5),
@@ -160,9 +160,9 @@ pub const SHORTCUTS: &[(Action, egui::Modifiers, egui::Key)] = {
         (Slideshow, NONE, Key::S),
         (Pause, NONE, Key::P),
         (RandomOrder, NONE, Key::R),
-        (Faster, CTRL, Key::Equals),
-        (Slower, CTRL, Key::Minus),
-        (Play, NONE, Key::Enter),
+        (SlideshowFaster, CTRL, Key::Equals),
+        (SlideshowSlower, CTRL, Key::Minus),
+        (PlayVideo, NONE, Key::Enter),
         (Escape, NONE, Key::Escape),
         (Escape, NONE, Key::Q),
         (NewWindow, CTRL, Key::N),
@@ -190,13 +190,13 @@ pub static KEYS_TEST: std::sync::Mutex<()> = std::sync::Mutex::new(());
 /// window.
 pub(crate) const KIOSK_ACTIONS: &[Action] = &[
     Action::Next,
-    Action::Prev,
+    Action::Previous,
     Action::First,
     Action::Last,
     Action::Slideshow,
     Action::Pause,
-    Action::Faster,
-    Action::Slower,
+    Action::SlideshowFaster,
+    Action::SlideshowSlower,
     Action::RandomOrder,
     Action::ZoomIn,
     Action::ZoomOut,
@@ -205,7 +205,7 @@ pub(crate) const KIOSK_ACTIONS: &[Action] = &[
     Action::FitWidth,
     Action::FitHeight,
     Action::FitFill,
-    Action::Overlay,
+    Action::FullScreenInfo,
     Action::Histogram,
     Action::HistogramLog,
     Action::Compare,
@@ -243,7 +243,6 @@ pub(crate) const SCRIPT_ACTIONS: &[Action] = &[
     Action::Escape,
     Action::ExifRotate,
     Action::ExifWindow,
-    Action::Faster,
     Action::First,
     Action::FitFill,
     Action::FitHeight,
@@ -252,10 +251,11 @@ pub(crate) const SCRIPT_ACTIONS: &[Action] = &[
     Action::FolderTree,
     Action::Forward,
     Action::FullScreen,
+    Action::FullScreenInfo,
     Action::GridNames,
     Action::Help,
     Action::HiddenFiles,
-    Action::HideTools,
+    Action::HideFileList,
     Action::Histogram,
     Action::HistogramLog,
     Action::Home,
@@ -265,6 +265,7 @@ pub(crate) const SCRIPT_ACTIONS: &[Action] = &[
     Action::Last,
     Action::NewWindow,
     Action::Next,
+    Action::NextFilter,
     Action::NextLayout,
     Action::NextPage,
     Action::OneImage,
@@ -273,7 +274,6 @@ pub(crate) const SCRIPT_ACTIONS: &[Action] = &[
     Action::OpenFolder,
     Action::OpenFolders,
     Action::OpenRecursive,
-    Action::Overlay,
     Action::PanView,
     Action::PaneDown,
     Action::PaneLeft,
@@ -282,8 +282,8 @@ pub(crate) const SCRIPT_ACTIONS: &[Action] = &[
     Action::PathBar,
     Action::Pause,
     Action::Preferences,
-    Action::Prev,
     Action::PrevPage,
+    Action::Previous,
     Action::Projector,
     Action::ProjectorPointer,
     Action::Quit,
@@ -293,13 +293,13 @@ pub(crate) const SCRIPT_ACTIONS: &[Action] = &[
     Action::SelectNone,
     Action::Shortcuts,
     Action::Slideshow,
-    Action::Slower,
+    Action::SlideshowFaster,
+    Action::SlideshowSlower,
     Action::Subfolders,
     Action::ThumbnailGrid,
     Action::Thumbnails,
     Action::Toolbar,
     Action::Up,
-    Action::ViewFilter,
     Action::WindowTitle,
     Action::Zoom1To1,
     Action::ZoomFit,
@@ -319,8 +319,26 @@ pub(crate) const SCRIPT_ACTIONS: &[Action] = &[
     Action::SelectMark6,
 ];
 
+/// The actions renamed in 0.74.0, as (old name, new name). The keys= setting and
+/// `glimt --remote run` take the old names too, forever, so users' settings and scripts keep
+/// working, and only the new names are written and listed.
+pub(crate) const RENAMED_ACTIONS: [(&str, &str); 11] = [
+    ("HideTools", "HideFileList"),
+    ("Overlay", "FullScreenInfo"),
+    ("Play", "PlayVideo"),
+    ("Faster", "SlideshowFaster"),
+    ("Slower", "SlideshowSlower"),
+    ("Keywords", "FocusKeywords"),
+    ("Copy", "CopyTo"),
+    ("Move", "MoveTo"),
+    ("ViewFilter", "NextFilter"),
+    ("ExifPanel", "InfoPanel"),
+    ("Prev", "Previous"),
+];
+
 /// Everything the user can do from a menu or a shortcut. The variants' names are stored in the
-/// settings for the user's own keys (`{a:?}`): renaming one loses those keys.
+/// settings for the user's own keys (`{a:?}`). A variant is renamed only through
+/// `RENAMED_ACTIONS`, because otherwise the users' keys for it would be lost.
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub enum Action {
     OpenFile,
@@ -329,18 +347,18 @@ pub enum Action {
     OpenRecursive,
     NewFolder,
     Rename,
-    Copy,
-    Move,
+    CopyTo,
+    MoveTo,
     OpenWith,
     SetWallpaper,
-    Play,
+    PlayVideo,
     Delete,
     DeletePermanently,
     Undo,
     CloseWindow,
     Quit,
     First,
-    Prev,
+    Previous,
     Next,
     Last,
     Back,
@@ -356,7 +374,7 @@ pub enum Action {
     CopyFiles,
     Preferences,
     ExifRotate,
-    ViewFilter,
+    NextFilter,
     RotateCw,
     RotateCcw,
     Rotate180,
@@ -373,8 +391,8 @@ pub enum Action {
     FitHeight,
     FitFill,
     FullScreen,
-    HideTools,
-    Overlay,
+    HideFileList,
+    FullScreenInfo,
     Histogram,
     HistogramLog,
     Compare,
@@ -447,9 +465,9 @@ pub enum Action {
     Thumbnails,
     ThumbnailGrid,
     GridNames,
-    ExifPanel,
+    InfoPanel,
     ExifWindow,
-    Keywords,
+    FocusKeywords,
     SortManager,
     PanView,
     FolderTree,
@@ -457,8 +475,8 @@ pub enum Action {
     Slideshow,
     Pause,
     RandomOrder,
-    Faster,
-    Slower,
+    SlideshowFaster,
+    SlideshowSlower,
     Escape,
     NewWindow,
     WindowTitle,
@@ -478,15 +496,16 @@ impl Action {
     /// src/keys-1.0.txt, or `None` when there is no such action or it is not in
     /// `SCRIPT_ACTIONS`.
     pub fn for_script(name: &str) -> Option<Action> {
+        let name = action_name_now(name);
         (SCRIPT_ACTIONS.iter())
             .find(|a| format!("{a:?}") == name)
             .copied()
     }
 
-    /// Whether this build does something for the action. Play needs the video feature; without
-    /// it, Enter is not taken by an action that does nothing.
+    /// Whether this build does something for the action. PlayVideo needs the video feature, so
+    /// without it Enter is not taken by an action that does nothing.
     pub fn in_build(self) -> bool {
-        self != Action::Play || cfg!(feature = "video")
+        self != Action::PlayVideo || cfg!(feature = "video")
     }
 
     /// For the marks actions: 'm' (toggle mark), 's' (select by mark) or 'r' (stars), and the
@@ -537,18 +556,18 @@ impl Action {
             OpenRecursive => "Open Folder Recursive…",
             NewFolder => "New Folder…",
             Rename => "Rename…",
-            Copy => "Copy…",
-            Move => "Move…",
+            CopyTo => "Copy…",
+            MoveTo => "Move…",
             OpenWith => "Open With Default App",
             SetWallpaper => "Set as Wallpaper",
-            Play => "Play Video",
+            PlayVideo => "Play Video",
             Delete => "Delete…",
             DeletePermanently => "Delete Permanently…",
             Undo => "Undo",
             CloseWindow => "Close Window",
             Quit => "Quit",
             First => "First Image",
-            Prev => "Previous Image",
+            Previous => "Previous Image",
             Next => "Next Image",
             Last => "Last Image",
             Back => "Back",
@@ -564,7 +583,7 @@ impl Action {
             CopyFiles => "Copy Files to Clipboard",
             Preferences => "Preferences…",
             ExifRotate => "Auto Rotate Using EXIF",
-            ViewFilter => "Next Filter",
+            NextFilter => "Next Filter",
             RotateCw => "Rotate Clockwise",
             RotateCcw => "Rotate Counterclockwise",
             Rotate180 => "Rotate 180°",
@@ -581,8 +600,8 @@ impl Action {
             FitHeight => "Fit the Height",
             FitFill => "Fill the View",
             FullScreen => "Full Screen",
-            HideTools => "Hide File List",
-            Overlay => "Show Image Info in Full Screen",
+            HideFileList => "Hide File List",
+            FullScreenInfo => "Show Image Info in Full Screen",
             Histogram => "Histogram: Off, RGB, Brightness",
             HistogramLog => "Logarithmic Histogram",
             Compare => "Compare Side by Side",
@@ -654,18 +673,18 @@ impl Action {
             Thumbnails => "Show Thumbnails",
             ThumbnailGrid => "Thumbnails in Image Area",
             GridNames => "Show File Names Under Thumbnails",
-            ExifPanel => "Show EXIF Panel",
+            InfoPanel => "Show EXIF Panel",
             SortManager => "Show Sort Manager",
             ExifWindow => "EXIF Window",
-            Keywords => "Keywords and Comment",
+            FocusKeywords => "Keywords and Comment",
             PanView => "Pan View",
             FolderTree => "Show Folder Tree",
             Refresh => "Refresh",
             Slideshow => "Start/Stop Slideshow",
             Pause => "Pause Slideshow",
             RandomOrder => "Random Order",
-            Faster => "Faster",
-            Slower => "Slower",
+            SlideshowFaster => "Faster",
+            SlideshowSlower => "Slower",
             Escape => "Stop Slideshow, Leave Full Screen",
             NewWindow => "New Window",
             WindowTitle => "Set Window Title…",
@@ -692,18 +711,18 @@ impl Action {
             NewFolder => "\u{e258}",                        // folder-plus
             Rename | RenameCollection => "\u{e3b4}",        // pencil-simple
             WindowTitle => "\u{e3b4}",                      // pencil-simple
-            Copy => "\u{e1ca}",                             // copy
-            Move | Forward | PaneRight => "\u{e06c}",       // arrow-right
+            CopyTo => "\u{e1ca}",                           // copy
+            MoveTo | Forward | PaneRight => "\u{e06c}",     // arrow-right
             OpenWith => "\u{e5de}",                         // arrow-square-out
             SetWallpaper => "\u{e32e}",                     // monitor
-            Play => "\u{e792}",                             // film-strip
+            PlayVideo => "\u{e792}",                        // film-strip
             Delete | TrashCollection => "\u{e4a6}",         // trash
             DeletePermanently => "\u{e4f8}",                // x-circle
             Undo => "\u{e08a}",                             // arrow-u-up-left
             CloseWindow => "\u{e4fa}",                      // x-square
             Quit => "\u{e3da}",                             // power
             First => "\u{e5a4}",                            // skip-back
-            Prev => "\u{e138}",                             // caret-left
+            Previous => "\u{e138}",                         // caret-left
             Next => "\u{e13a}",                             // caret-right
             Last => "\u{e5a6}",                             // skip-forward
             Back | PaneLeft => "\u{e058}",                  // arrow-left
@@ -718,7 +737,7 @@ impl Action {
             CopyFiles => "\u{e710}",                        // files
             Preferences => "\u{e270}",                      // gear
             ExifRotate | Rotate180 | Refresh => "\u{e094}", // arrows-clockwise
-            ViewFilter | NextLayout => "\u{e83c}",          // swap
+            NextFilter | NextLayout => "\u{e83c}",          // swap
             RotateCw => "\u{e036}",                         // arrow-clockwise
             RotateCcw => "\u{e038}",                        // arrow-counter-clockwise
             Mirror => "\u{ed6a}",                           // flip-horizontal
@@ -734,8 +753,8 @@ impl Action {
             FitHeight => "\u{eb04}",                        // arrows-vertical
             FitFill => "\u{e0a2}",                          // arrows-out
             FullScreen => "\u{e0a6}",                       // arrows-out-simple
-            HideTools => "\u{ec24}",                        // sidebar-simple
-            Overlay | GridNames => "\u{e1a8}",              // subtitles
+            HideFileList => "\u{ec24}",                     // sidebar-simple
+            FullScreenInfo | GridNames => "\u{e1a8}",       // subtitles
             Histogram => "\u{e150}",                        // chart-bar
             HistogramLog => "\u{ebe4}",                     // function
             Compare => "\u{e546}",                          // columns
@@ -797,16 +816,16 @@ impl Action {
             PathBar => "\u{e89c}",                          // signpost
             Thumbnails => "\u{e836}",                       // images
             ThumbnailGrid => "\u{e464}",                    // squares-four
-            ExifPanel | About => "\u{e2ce}",                // info
+            InfoPanel | About => "\u{e2ce}",                // info
             ExifWindow | SaveFrame => "\u{e10e}",           // camera
-            Keywords => "\u{e478}",                         // tag
+            FocusKeywords => "\u{e478}",                    // tag
             SortManager => "\u{e444}",                      // sort-ascending
             PanView => "\u{e7b4}",                          // calendar-dots
             Slideshow => "\u{e3d0}",                        // play
             Pause => "\u{e39e}",                            // pause
             RandomOrder => "\u{e422}",                      // shuffle
-            Faster => "\u{e6a6}",                           // fast-forward
-            Slower => "\u{e6a8}",                           // rewind
+            SlideshowFaster => "\u{e6a6}",                  // fast-forward
+            SlideshowSlower => "\u{e6a8}",                  // rewind
             Escape => "\u{e4f6}",                           // x
             NewWindow => "\u{e0f6}",                        // browsers
             Projector => "\u{e658}",                        // projector-screen
@@ -824,29 +843,29 @@ impl Action {
     pub(crate) fn target(self) -> Target {
         use Action::*;
         match self {
-            Rename | Copy | Move | Delete | DeletePermanently | CopyPath | CopyPathUnquoted
+            Rename | CopyTo | MoveTo | Delete | DeletePermanently | CopyPath | CopyPathUnquoted
             | CopyFiles | NewCollection | RemoveFromCollection | MoveEarlier | MoveLater
             | MoveFirst | MoveLast | Print => Target::Selection,
             #[cfg(feature = "marks")]
             Mark1 | Mark2 | Mark3 | Mark4 | Mark5 | Mark6 | Rate0 | Rate1 | Rate2 | Rate3
             | Rate4 | Rate5 => Target::Selection,
-            OpenWith | SetWallpaper | Play | CopyImage | RotateCw | RotateCcw | Rotate180
+            OpenWith | SetWallpaper | PlayVideo | CopyImage | RotateCw | RotateCcw | Rotate180
             | Mirror | Flip | SaveOrientation | Crop | SaveAs | SaveFrame | ExportFrames => {
                 Target::Shown
             }
             OpenFile | OpenFolder | OpenFolders | OpenRecursive | NewFolder | Undo
-            | CloseWindow | Quit | First | Prev | Next | Last | Back | Forward | Home | Up
-            | SelectAll | SelectNone | InvertSelection | Preferences | ExifRotate | ViewFilter
+            | CloseWindow | Quit | First | Previous | Next | Last | Back | Forward | Home | Up
+            | SelectAll | SelectNone | InvertSelection | Preferences | ExifRotate | NextFilter
             | ZoomIn | ZoomOut | Zoom1To1 | ZoomFit | FitWidth | FitHeight | FitFill
-            | FullScreen | HideTools | Overlay | Histogram | HistogramLog | Compare | OneImage
-            | AboveEachOther | NextLayout | PaneLeft | PaneRight | PaneUp | PaneDown | Animate
-            | Subfolders | HiddenFiles | OpenCollection | ImportLightroom | RenameCollection
-            | TrashCollection | FindDuplicates | CheckImages | BackUp | FocusSearch | NextPage
-            | PrevPage | Icons | Toolbar | PathBar | Thumbnails | ThumbnailGrid | GridNames
-            | ExifPanel | ExifWindow | Keywords | SortManager | PanView | FolderTree | Refresh
-            | Slideshow | Pause | RandomOrder | Faster | Slower | Escape | NewWindow
-            | WindowTitle | Projector | ProjectorPointer | Help | Shortcuts | KeyboardMap
-            | About => Target::NoFile,
+            | FullScreen | HideFileList | FullScreenInfo | Histogram | HistogramLog | Compare
+            | OneImage | AboveEachOther | NextLayout | PaneLeft | PaneRight | PaneUp | PaneDown
+            | Animate | Subfolders | HiddenFiles | OpenCollection | ImportLightroom
+            | RenameCollection | TrashCollection | FindDuplicates | CheckImages | BackUp
+            | FocusSearch | NextPage | PrevPage | Icons | Toolbar | PathBar | Thumbnails
+            | ThumbnailGrid | GridNames | InfoPanel | ExifWindow | FocusKeywords | SortManager
+            | PanView | FolderTree | Refresh | Slideshow | Pause | RandomOrder
+            | SlideshowFaster | SlideshowSlower | Escape | NewWindow | WindowTitle | Projector
+            | ProjectorPointer | Help | Shortcuts | KeyboardMap | About => Target::NoFile,
             #[cfg(feature = "marks")]
             SelectMark1 | SelectMark2 | SelectMark3 | SelectMark4 | SelectMark5 | SelectMark6 => {
                 Target::NoFile
@@ -903,6 +922,7 @@ impl std::str::FromStr for Keys {
             };
             // An item this build cannot use, for an action it does not know or with a key it
             // cannot read, is kept as it is for the build that wrote it.
+            let name = action_name_now(name);
             match (
                 SHORTCUTS.iter().find(|s| format!("{:?}", s.0) == name),
                 combo_of(combo),
@@ -1039,19 +1059,19 @@ impl crate::App {
             // A kiosk shows only the image.
             Action::FocusSearch if self.window.is_kiosk() => {}
             Action::FocusSearch => self.focus_search_field(ctx, fullscreen),
-            Action::Copy | Action::Move => self.pick_copy_or_move(ctx, action),
+            Action::CopyTo | Action::MoveTo => self.pick_copy_or_move(ctx, action),
             // The default application; the Open With submenu lists the others.
             Action::OpenWith => self.launch(""),
             Action::SetWallpaper => self.set_wallpaper(),
             // Enter: videos play in a player (images have nothing to play).
-            Action::Play => self.play_video(ctx),
+            Action::PlayVideo => self.play_video(ctx),
             Action::Delete => self.request_delete(ctx, self.config.delete_to_trash),
             Action::DeletePermanently => self.request_delete(ctx, false),
             Action::Undo => self.undo(ctx),
             Action::CloseWindow | Action::Quit => {
                 ctx.send_viewport_cmd(egui::ViewportCommand::Close)
             }
-            Action::First | Action::Prev | Action::Next | Action::Last => {
+            Action::First | Action::Previous | Action::Next | Action::Last => {
                 self.move_along(ctx, action)
             }
             Action::Back | Action::Forward => self.back_or_forward(ctx, action),
@@ -1108,9 +1128,9 @@ impl crate::App {
             Action::NextPage | Action::PrevPage if self.animated() => self.step_frame(action),
             Action::NextPage | Action::PrevPage => self.step_page(action),
             Action::ExifWindow => self.info.toggle_exif_window(),
-            Action::Keywords => {
+            Action::FocusKeywords => {
                 if !self.config.info_panel {
-                    self.toggle_setting(Action::ExifPanel);
+                    self.toggle_setting(Action::InfoPanel);
                 }
                 self.info.focus_keywords();
             }
@@ -1157,9 +1177,9 @@ impl crate::App {
             }
             Action::PathBar
             | Action::Toolbar
-            | Action::ExifPanel
+            | Action::InfoPanel
             | Action::SortManager
-            | Action::Overlay
+            | Action::FullScreenInfo
             | Action::Icons
             | Action::FolderTree
             | Action::HistogramLog
@@ -1207,7 +1227,7 @@ impl crate::App {
                 self.config.save();
             }
             Action::ExifRotate => self.set_exif_rotate(!self.config.exif_rotate),
-            Action::ViewFilter => {
+            Action::NextFilter => {
                 self.set_view_filter((self.config.view_filter + 1) % FILTERS.len())
             }
             // Mirroring or flipping what is on screen after a turn: mirror the image first and
@@ -1227,7 +1247,7 @@ impl crate::App {
             Action::FullScreen => {
                 ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(!fullscreen))
             }
-            Action::HideTools => self.panel.toggle_hidden(),
+            Action::HideFileList => self.panel.toggle_hidden(),
             Action::Refresh => self.refresh(ctx),
             Action::Slideshow if self.slideshow.is_running() => self.stop_slideshow(ctx),
             Action::Slideshow => self.start_slideshow(ctx),
@@ -1238,7 +1258,7 @@ impl crate::App {
             }
             Action::Pause => {}
             Action::RandomOrder => self.set_random_order(ctx, !self.config.slideshow_random),
-            Action::Faster | Action::Slower => self.change_delay(ctx, action),
+            Action::SlideshowFaster | Action::SlideshowSlower => self.change_delay(ctx, action),
             // As in Geeqie, Escape never quits; it stops the slideshow and leaves full screen.
             Action::Escape => self.escape(ctx, fullscreen),
         }
@@ -1402,7 +1422,8 @@ impl crate::App {
                 }
             });
         }
-        // Enter in the grid in the image area shows the image there, read before Play takes it.
+        // Enter in the grid in the image area shows the image there. It is read before PlayVideo
+        // takes the key.
         if self.panel.area_grid_shown()
             && !self.dialog_open()
             && self.answers(ctx, egui::Key::Enter)
@@ -1511,6 +1532,14 @@ pub fn shortcut_text(ctx: &egui::Context, action: Action) -> Option<String> {
     Some(ctx.format_shortcut(&egui::KeyboardShortcut::new(mods, key)))
 }
 
+/// Returns the name an action has now: the new name of one renamed in `RENAMED_ACTIONS`, and
+/// `name` itself for every other.
+fn action_name_now(name: &str) -> &str {
+    (RENAMED_ACTIONS.iter())
+        .find(|r| r.0 == name)
+        .map_or(name, |r| r.1)
+}
+
 /// Returns the key of a Copy or Cut event (C or X), which egui-winit sends for Ctrl+C and
 /// Ctrl+X instead of a key press, or `None` for any other event.
 pub(crate) fn clipboard_key(e: &egui::Event) -> Option<egui::Key> {
@@ -1536,42 +1565,42 @@ mod tests {
         Action::CheckImages,
         Action::CloseWindow,
         Action::Compare,
-        Action::Copy,
         Action::CopyFiles,
         Action::CopyImage,
         Action::CopyPath,
         Action::CopyPathUnquoted,
+        Action::CopyTo,
         Action::Crop,
         Action::Delete,
         Action::DeletePermanently,
         Action::Escape,
-        Action::ExifPanel,
         Action::ExifRotate,
         Action::ExifWindow,
         Action::ExportFrames,
-        Action::Faster,
         Action::FindDuplicates,
         Action::First,
         Action::FitFill,
         Action::FitHeight,
         Action::FitWidth,
         Action::Flip,
+        Action::FocusKeywords,
         Action::FocusSearch,
         Action::FolderTree,
         Action::Forward,
         Action::FullScreen,
+        Action::FullScreenInfo,
         Action::GridNames,
         Action::Help,
         Action::HiddenFiles,
-        Action::HideTools,
+        Action::HideFileList,
         Action::Histogram,
         Action::HistogramLog,
         Action::Home,
         Action::Icons,
         Action::ImportLightroom,
+        Action::InfoPanel,
         Action::InvertSelection,
         Action::KeyboardMap,
-        Action::Keywords,
         Action::Last,
         #[cfg(feature = "marks")]
         Action::Mark1,
@@ -1586,15 +1615,16 @@ mod tests {
         #[cfg(feature = "marks")]
         Action::Mark6,
         Action::Mirror,
-        Action::Move,
         Action::MoveEarlier,
         Action::MoveFirst,
         Action::MoveLast,
         Action::MoveLater,
+        Action::MoveTo,
         Action::NewCollection,
         Action::NewFolder,
         Action::NewWindow,
         Action::Next,
+        Action::NextFilter,
         Action::NextLayout,
         Action::NextPage,
         Action::OneImage,
@@ -1604,7 +1634,6 @@ mod tests {
         Action::OpenFolders,
         Action::OpenRecursive,
         Action::OpenWith,
-        Action::Overlay,
         Action::PanView,
         Action::PaneDown,
         Action::PaneLeft,
@@ -1612,10 +1641,10 @@ mod tests {
         Action::PaneUp,
         Action::PathBar,
         Action::Pause,
-        Action::Play,
+        Action::PlayVideo,
         Action::Preferences,
-        Action::Prev,
         Action::PrevPage,
+        Action::Previous,
         Action::Print,
         Action::Projector,
         Action::ProjectorPointer,
@@ -1660,7 +1689,8 @@ mod tests {
         Action::SetWallpaper,
         Action::Shortcuts,
         Action::Slideshow,
-        Action::Slower,
+        Action::SlideshowFaster,
+        Action::SlideshowSlower,
         Action::SortManager,
         Action::Subfolders,
         Action::ThumbnailGrid,
@@ -1669,7 +1699,6 @@ mod tests {
         Action::TrashCollection,
         Action::Undo,
         Action::Up,
-        Action::ViewFilter,
         Action::WindowTitle,
         Action::Zoom1To1,
         Action::ZoomFit,
@@ -1687,14 +1716,14 @@ mod tests {
         let changes_files: &[Action] = &[
             // These change files only through a window or panel that the user then clicks or
             // types in, or they start another program. A script may not open the way to that
-            // either. ExifPanel shows the keyword tree and the marks, which one click changes.
-            ExifPanel,
+            // either. InfoPanel shows the keyword tree and the marks, which one click changes.
+            InfoPanel,
             FindDuplicates,
-            Keywords,
+            FocusKeywords,
             OpenWith,
-            Play,
+            PlayVideo,
             SortManager,
-            Copy,
+            CopyTo,
             Crop,
             Delete,
             DeletePermanently,
@@ -1702,7 +1731,7 @@ mod tests {
             Flip,
             ImportLightroom,
             Mirror,
-            Move,
+            MoveTo,
             MoveEarlier,
             MoveFirst,
             MoveLast,
@@ -1847,9 +1876,9 @@ mod tests {
             Action::ThumbnailGrid,
             Action::PanView,
             Action::ExifWindow,
-            Action::Keywords,
+            Action::FocusKeywords,
             Action::NextLayout,
-            Action::Overlay,
+            Action::FullScreenInfo,
             Action::Histogram,
             Action::Slideshow,
             Action::Crop,
@@ -1860,7 +1889,7 @@ mod tests {
             Action::Preferences,
             Action::Help,
             Action::FullScreen,
-            Action::HideTools,
+            Action::HideFileList,
         ];
         let dir = std::env::temp_dir().join(format!("glimt-test-view-gone-{}", std::process::id()));
         for &action in OPENS_A_VIEW {
@@ -2053,12 +2082,26 @@ mod tests {
                 .collect::<Vec<_>>()
                 .join("\n")
         );
+        // An old name passes when RENAMED_ACTIONS maps it to an action's name now.
         for name in frozen {
             assert!(
-                now.contains(name),
+                now.contains(super::action_name_now(name)),
                 "{name} is gone: it is in users' keys= since 1.0"
             );
         }
+    }
+
+    /// Each renamed action is read by its old name in keys= and by `--remote run`, and only its
+    /// new name is written.
+    #[test]
+    fn old_action_names_are_read_and_only_new_ones_written() {
+        use super::Keys;
+        for (old, new) in super::RENAMED_ACTIONS {
+            let keys: Keys = format!("{old}=Ctrl+F12").parse().unwrap();
+            assert_eq!(keys.to_string(), format!("{new}=Ctrl+F12"), "{old}");
+            assert_eq!(Action::for_script(old), Action::for_script(new), "{old}");
+        }
+        assert_eq!(Action::for_script("Prev"), Some(Action::Previous));
     }
 
     /// Own keys survive the config file, and replace the defaults of their action.
@@ -2077,8 +2120,8 @@ mod tests {
         assert_eq!(keys.to_string().parse::<Keys>().unwrap(), keys);
         *super::OWN_KEYS.write().unwrap() = keys.0.clone();
         let all = super::shortcuts();
-        // Play has no shortcut in a build without video, so Enter is free there.
-        let play = all.iter().any(|s| s.0 == Action::Play);
+        // PlayVideo has no shortcut in a build without video, so Enter is free there.
+        let play = all.iter().any(|s| s.0 == Action::PlayVideo);
         assert_eq!(play, cfg!(feature = "video"));
         let next: Vec<_> = all.iter().filter(|s| s.0 == Action::Next).collect();
         assert_eq!(next.len(), 1);
@@ -2128,11 +2171,11 @@ mod tests {
         };
         assert_eq!(
             pressed(super::CTRL, egui::Event::Copy),
-            Some(super::Action::Copy)
+            Some(super::Action::CopyTo)
         );
         assert_eq!(
             pressed(egui::Modifiers::NONE, egui::Event::Copy),
-            Some(super::Action::Copy)
+            Some(super::Action::CopyTo)
         );
         // The Cut key is Ctrl+X, which no action has by default, not X (Zoom to Fit).
         assert_eq!(pressed(egui::Modifiers::NONE, egui::Event::Cut), None);
