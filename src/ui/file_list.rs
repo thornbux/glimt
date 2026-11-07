@@ -1087,8 +1087,10 @@ impl crate::App {
                             let on = !here && !self.list.files().is_empty();
                             let button =
                                 crate::ui::menus::button_enabled(ui, on, &name.to_string_lossy());
-                            if button.on_hover_text(dir.display().to_string()).clicked() {
-                                let paths = self.targets().iter().map(|&i| self.path(i)).collect();
+                            if button.on_hover_text(dir.display().to_string()).clicked()
+                                && let Some(targets) = self.targets()
+                            {
+                                let paths = targets.iter().map(|&i| self.path(i)).collect();
                                 self.transfer(ui.ctx(), paths, dir, !self.config.sort_move);
                             }
                         });
@@ -1712,11 +1714,7 @@ impl crate::App {
         }
         // A right-click on a file outside the selection selects just that file, as in a file
         // manager, and the menu acts on the selection.
-        if row.secondary_clicked()
-            && !self.list.selected().contains(&i)
-            && (i != self.list.cur() || !self.list.selected().is_empty())
-        {
-            self.list.select_one(i);
+        if row.secondary_clicked() && self.list.right_click(i) {
             self.selection_changed(ctx);
         }
         go_to

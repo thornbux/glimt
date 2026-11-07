@@ -2835,3 +2835,7 @@ msgstr "Un file system {kind}, come sulla scheda di una fotocamera, non consente
 #: src/ui/menus.rs
 msgid "Thumbnail Size"
 msgstr "Dimensione delle miniature"
+
+#: src/model/selection.rs
+msgid "The search hides files this would act on: clear it first"
+msgstr "La ricerca nasconde file su cui questo agirebbe: cancellala prima"

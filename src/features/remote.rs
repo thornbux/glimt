@@ -264,7 +264,9 @@ impl crate::App {
         use std::os::unix::ffi::OsStringExt;
         let files = match command.trim() {
             "current" => vec![self.list.cur()],
-            _ => self.targets(),
+            // When the search hides every selected file, the answer names none of them, and
+            // not the shown image in their place.
+            _ => self.quiet_targets().unwrap_or_default(),
         };
         (files.into_iter().filter(|&i| i < self.list.files().len()))
             .flat_map(|i| {

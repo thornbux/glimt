@@ -2857,3 +2857,7 @@ msgstr "Souborový systém {kind}, jako na paměťové kartě fotoaparátu, nepo
 #: src/ui/menus.rs
 msgid "Thumbnail Size"
 msgstr "Velikost náhledů"
+
+#: src/model/selection.rs
+msgid "The search hides files this would act on: clear it first"
+msgstr "Hledání skrývá soubory, kterých by se to týkalo: nejprve ho vymažte"

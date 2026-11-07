@@ -2835,3 +2835,7 @@ msgstr "{kind}-tiedostojärjestelmä, kuten kameran muistikortilla, ei salli nim
 #: src/ui/menus.rs
 msgid "Thumbnail Size"
 msgstr "Pienoiskuvien koko"
+
+#: src/model/selection.rs
+msgid "The search hides files this would act on: clear it first"
+msgstr "Haku piilottaa tiedostoja, joihin tämä kohdistuisi: tyhjennä se ensin"

@@ -419,7 +419,9 @@ impl crate::App {
     /// off, in the background; the shown image's keywords show it at once.
     pub(crate) fn tag_files(&mut self, ctx: &egui::Context, tag: String, on: bool) {
         self.save_meta(ctx);
-        let targets = self.targets();
+        let Some(targets) = self.targets() else {
+            return;
+        };
         if targets.contains(&self.list.cur())
             && let Some(edit) = &mut self.info.meta
         {
@@ -561,7 +563,9 @@ impl crate::App {
         // once, as tag_files does. When it read them back from the file instead, it could read
         // the file before the writer reached it, and a later edit saved them away again.
         self.save_meta(ctx);
-        let targets = self.targets();
+        let Some(targets) = self.targets() else {
+            return;
+        };
         if targets.contains(&self.list.cur())
             && let Some(edit) = &mut self.info.meta
         {

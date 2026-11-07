@@ -2,6 +2,7 @@
 
 use crate::model::folder::total_size;
 use crate::support::format::thousands;
+use crate::support::lang::tr;
 use crate::ui::actions::Action;
 use crate::ui::file_list::SizeDue;
 use crate::viewer::view::Viewing;
@@ -291,13 +292,28 @@ impl crate::App {
         self.status.sum_selection(rx);
     }
 
-    /// File operations act on the selected files, otherwise on the shown image. Sorted.
-    pub(crate) fn targets(&self) -> Vec<usize> {
-        if self.list.selected().is_empty() {
-            vec![self.list.cur()]
-        } else {
-            self.list.selected().iter().copied().collect()
+    /// The files that an action on the selection acts on: the selected files, otherwise the
+    /// shown image, sorted. This is the one place that decides it. Returns `None`, with a
+    /// notice, when every selected file is one the search hides, because the shown image
+    /// would then stand in for files the user picked.
+    pub(crate) fn targets(&mut self) -> Option<Vec<usize>> {
+        let targets = self.quiet_targets();
+        if targets.is_none() {
+            self.notice =
+                Some(tr("The search hides files this would act on: clear it first").into());
         }
+        targets
+    }
+
+    /// The files of `targets()`, without the notice, for a query that changes nothing.
+    pub(crate) fn quiet_targets(&self) -> Option<Vec<usize>> {
+        if self.list.only_held_back() {
+            return None;
+        }
+        Some(match self.list.selected().is_empty() {
+            true => vec![self.list.cur()],
+            false => self.list.selected().iter().copied().collect(),
+        })
     }
 
     /// The first of `targets()`, without copying a selection that may hold every file.
@@ -399,6 +415,34 @@ mod tests {
         app.go(&ctx, 0);
         assert!(!app.list.decode_errors().contains_key(&0));
         assert_eq!(app.viewing.orient(), (1, false));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// When the search hides every selected file, an action on the selection acts on none of
+    /// them, and not on the shown image in their place: it is refused with a notice. A
+    /// right-click on the shown image selects it, so its menu acts on it.
+    #[test]
+    fn a_selection_the_search_hides_is_not_the_shown_image() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-hidden-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let (mut app, ctx) = app_on(&dir);
+        let names = ["apple.jpg", "banana.jpg", "cherry.jpg"];
+        app.list.set_files(names.iter().map(Into::into).collect());
+        app.list.select([1].into());
+        app.search.set_query("cherry");
+        app.update_search(&ctx);
+        assert!(app.list.only_held_back());
+        assert_eq!(app.targets(), None);
+        assert!(app.notice.take().is_some());
+        // Neither the delete's question nor a query names the shown image.
+        app.run(&ctx, crate::ui::actions::Action::Delete);
+        assert!(!app.asking_about_selection());
+        assert!(app.notice.take().is_some());
+        assert!(app.remote_query("selection").is_empty());
+        let cur = app.list.cur();
+        assert!(app.list.right_click(cur));
+        assert_eq!(app.targets(), Some(vec![cur]));
+        assert!(app.list.held_back().is_empty());
         std::fs::remove_dir_all(dir).unwrap();
     }
 

@@ -321,8 +321,11 @@ impl crate::App {
     /// asked for the printers, and the first page's images are decoded small for the preview,
     /// in the background.
     pub(crate) fn open_print(&mut self, ctx: &egui::Context) {
+        let Some(targets) = self.targets() else {
+            return;
+        };
         let (tx, rx) = mpsc::channel();
-        let paths: Vec<PathBuf> = self.targets().iter().map(|&i| self.path(i)).collect();
+        let paths: Vec<PathBuf> = targets.iter().map(|&i| self.path(i)).collect();
         let first: Vec<PathBuf> = paths.iter().take(PREVIEWED).cloned().collect();
         let (shown_tx, shown_rx) = mpsc::channel();
         let (rotate, ctx2) = (self.config.exif_rotate, ctx.clone());

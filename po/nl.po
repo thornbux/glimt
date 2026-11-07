@@ -2835,3 +2835,7 @@ msgstr "Een {kind}-bestandssysteem, zoals op de geheugenkaart van een camera, st
 #: src/ui/menus.rs
 msgid "Thumbnail Size"
 msgstr "Grootte van miniaturen"
+
+#: src/model/selection.rs
+msgid "The search hides files this would act on: clear it first"
+msgstr "De zoekopdracht verbergt bestanden waarop dit zou werken: wis die eerst"

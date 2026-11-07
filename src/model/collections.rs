@@ -123,7 +123,10 @@ impl crate::App {
     /// in the background, because Select All in a large folder adds hundreds of thousands of
     /// files, and a home folder on a share may be slow to write.
     pub(crate) fn add_to_collection(&mut self, ctx: &egui::Context, file: &Path) {
-        let paths: Vec<PathBuf> = self.targets().iter().map(|&i| self.path(i)).collect();
+        let Some(targets) = self.targets() else {
+            return;
+        };
+        let paths: Vec<PathBuf> = targets.iter().map(|&i| self.path(i)).collect();
         let file = file.to_path_buf();
         self.background(ctx, Vec::new(), move || {
             let name = file.file_stem().unwrap_or_default().to_string_lossy();
@@ -203,7 +206,9 @@ impl crate::App {
     /// Collection → Remove: the targets out of the collection's file at once; the files stay where
     /// they are.
     pub(crate) fn remove_from_collection(&mut self, ctx: &egui::Context) {
-        let targets = self.targets();
+        let Some(targets) = self.targets() else {
+            return;
+        };
         // Out of the collection's file here, at once: the files stay where they are.
         let out: HashSet<PathBuf> = targets.iter().map(|&i| self.path(i)).collect();
         self.edit_collection(|all| all.retain(|p| !out.contains(p)));

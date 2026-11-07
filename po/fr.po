@@ -2835,3 +2835,7 @@ msgstr "Un système de fichiers {kind}, comme sur la carte d'un appareil photo, 
 #: src/ui/menus.rs
 msgid "Thumbnail Size"
 msgstr "Taille des vignettes"
+
+#: src/model/selection.rs
+msgid "The search hides files this would act on: clear it first"
+msgstr "La recherche masque des fichiers concernés : effacez-la d'abord"

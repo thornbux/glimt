@@ -408,10 +408,11 @@ impl crate::App {
         } else {
             self.config.confirm_delete
         } {
-            self.ask_about_targets();
-            self.dialogs.confirm_delete(trash);
-        } else {
-            self.delete_now(ctx, trash, self.targets());
+            if self.ask_about_targets() {
+                self.dialogs.confirm_delete(trash);
+            }
+        } else if let Some(targets) = self.targets() {
+            self.delete_now(ctx, trash, targets);
         }
     }
 
@@ -431,13 +432,14 @@ impl crate::App {
 
     /// Keeps the targets' names when a dialog about them opens. A folder that another program
     /// writes to is read again every second, and that can give them other places in the list.
-    pub(crate) fn ask_about_targets(&mut self) {
-        let names = self
-            .targets()
-            .iter()
-            .map(|&i| self.list.files()[i].clone())
-            .collect();
-        self.dialogs.asked_about(self.list_place(), names);
+    /// Returns false, with a notice, when there are no targets, and the dialog must not open.
+    pub(crate) fn ask_about_targets(&mut self) -> bool {
+        let Some(targets) = self.targets() else {
+            return false;
+        };
+        let names = targets.iter().map(|&i| self.list.files()[i].clone());
+        self.dialogs.asked_about(self.list_place(), names.collect());
+        true
     }
 
     /// The places now of the files the dialog asked about that are still in the list. Returns
@@ -468,7 +470,7 @@ impl crate::App {
     /// shown image would stand in for all of them.
     pub(crate) fn select_asked(&mut self, ctx: &egui::Context, found: Vec<usize>) -> bool {
         self.set_selection(ctx, found.iter().copied().collect());
-        if self.targets() == found {
+        if self.quiet_targets().as_ref() == Some(&found) {
             return true;
         }
         self.notice =
@@ -1026,7 +1028,9 @@ impl crate::App {
     /// If a new name is taken by a file outside the selection, nothing is renamed. When new
     /// names swap with old ones, the files go through temporary names.
     pub(crate) fn rename_many(&mut self, ctx: &egui::Context, pattern: &str) {
-        let targets = self.targets();
+        let Some(targets) = self.targets() else {
+            return;
+        };
         let from: Vec<PathBuf> = targets.iter().map(|&i| self.path(i)).collect();
         if !self.none_saving(&from) {
             return;
@@ -1677,7 +1681,10 @@ impl crate::App {
     /// Copy or Move. It copies or moves the targets to a folder that the file chooser asks
     /// for.
     pub(crate) fn pick_copy_or_move(&mut self, ctx: &egui::Context, action: Action) {
-        let paths = self.targets().iter().map(|&i| self.path(i)).collect();
+        let Some(targets) = self.targets() else {
+            return;
+        };
+        let paths = targets.iter().map(|&i| self.path(i)).collect();
         let purpose = match action {
             Action::Copy => Pick::CopyTo(paths),
             _ => Pick::MoveTo(paths),
@@ -1700,8 +1707,10 @@ impl crate::App {
     /// Copy Path Unquoted.
     pub(crate) fn copy_paths(&mut self, ctx: &egui::Context, action: Action) {
         let quote = action == Action::CopyPath;
-        let paths: Vec<String> = self
-            .targets()
+        let Some(targets) = self.targets() else {
+            return;
+        };
+        let paths: Vec<String> = targets
             .iter()
             .map(|&i| self.path(i).to_string_lossy().into_owned())
             .map(|p| if quote { format!("\"{p}\"") } else { p })
@@ -1724,10 +1733,10 @@ impl crate::App {
             .files()
             .get(self.list.cur())
             .and_then(|f| Path::new(f).file_name())
+            .map(|n| n.to_string_lossy().into_owned())
+            && self.ask_about_targets()
         {
-            self.dialogs
-                .ask(Prompt::Rename, name.to_string_lossy().into_owned());
-            self.ask_about_targets();
+            self.dialogs.ask(Prompt::Rename, name);
         }
     }
 }
