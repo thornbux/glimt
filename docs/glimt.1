@@ -211,6 +211,18 @@ until it closes; without the text, the one in Preferences again.
 .B quit
 Close Glimt.
 .TP
+.BI run " ACTION"
+Do an action by its name, as in the
+.B keys=
+setting and Preferences \(-> Keyboard, for example
+.B run ZoomIn
+or
+.BR "run ThumbnailGrid" .
+Only the actions that change no file, sidecar, mark or collection are taken (showing,
+browsing, selecting, the panels and windows, the settings and the clipboard);
+.B glimt \-\-help
+lists them. Any other name exits with 2.
+.TP
 .B current
 Print the path of the image shown.
 .TP

@@ -1021,6 +1021,24 @@ for v in new old; do
     else note "old: $got"; fi
 done
 
+section "--remote run ACTION: an action for scripts runs, one that changes files is refused"
+for v in new old; do
+    as_version $v
+    d=/tmp/remote-run-$v
+    mkdir -p $d
+    for f in a b c; do convert -size 64x64 xc:red $d/$f.png; done
+    config confirm_trash=false
+    start $d/a.png
+    remote run Next >/dev/null 2>&1; sleep 1
+    shown=$(remote current 2>/dev/null | tr -d '\0' | sed "s|$d/||")
+    remote run Delete >/dev/null 2>&1; refused=$?
+    sleep 1
+    quit
+    got="$shown $refused $(ls $d | tr '\n' ' ')"
+    if [ $v = new ]; then expect "b shown, Delete refused with 2, every file kept" "$got" "b.png 2 a.png b.png c.png "
+    else note "old: $got"; fi
+done
+
 section "--remote select while Preferences is open: answered at once"
 for v in new old; do
     as_version $v
