@@ -423,8 +423,10 @@ pub fn edit(file: &Path, new: bool, change: impl FnOnce(&mut Vec<PathBuf>)) -> s
 /// list and the marks, stars and `--remote select` know the file by, with the entry as written.
 /// An image named twice, also through a link, is given once. Each folder is looked up once, so a
 /// collection of 500,000 images in a few folders costs a few lookups.
-// shortcut: realpath looks at the disk, and Remove and a reorder edit the collection in the UI
-// thread; a folder on a share that stopped answering holds the window, as opening it does.
+// shortcut: realpath looks at the disk, and opening a collection and every edit of it (Remove,
+// a reorder, a move followed, random order turned off) do it in the UI thread; a collection
+// with an entry on a share that stopped answering holds the window until the share answers.
+// Move the edits to file_io::write_later if that is seen.
 pub fn by_real_path(entries: &[PathBuf]) -> Vec<(PathBuf, &PathBuf)> {
     let mut folders: std::collections::HashMap<&Path, PathBuf> = Default::default();
     let mut seen = HashSet::new();
