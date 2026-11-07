@@ -233,3 +233,4 @@ setting sort_case_sensitive
 setting search_case_sensitive
 setting list_videos
 state window_position
+remote previous

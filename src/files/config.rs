@@ -1269,18 +1269,25 @@ mod tests {
         assert!(written.contains("window_position=10,20\n") && !written.contains("window_pos="));
     }
 
-    /// Returns the line of src/frozen-1.0.txt as the code names it now. A setting or a window
-    /// state key renamed in its table of old names gets its new name, and every other line is
-    /// returned as it is.
+    /// Returns the line of src/frozen-1.0.txt as the code names it now. A setting, a window
+    /// state key or a --remote command renamed in its table of old names gets its new name, and
+    /// every other line is returned as it is.
     fn frozen_name_now(line: &str) -> String {
         let (kind, name) = line.split_once(' ').unwrap_or((line, ""));
+        // A remote command's line may have a word of its choice after the command's own.
+        let (name, rest) = match kind {
+            "remote" => name.split_once(' ').map_or((name, ""), |(n, r)| (n, r)),
+            _ => (name, ""),
+        };
         let table: &[(&str, &str)] = match kind {
             "setting" => &super::RENAMED_SETTINGS,
             "state" => &super::RENAMED_STATE,
+            "remote" => &crate::features::remote::RENAMED_COMMANDS,
             _ => &[],
         };
         match table.iter().find(|r| r.0 == name) {
-            Some((_, new)) => format!("{kind} {new}"),
+            Some((_, new)) if rest.is_empty() => format!("{kind} {new}"),
+            Some((_, new)) => format!("{kind} {new} {rest}"),
             None => line.to_owned(),
         }
     }

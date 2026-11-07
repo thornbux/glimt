@@ -1076,6 +1076,22 @@ for v in new old; do
     else note "old: $got"; fi
 done
 
+section "--remote previous, and the words from before 0.74.0: prev and run Prev still taken"
+d=/tmp/remote-previous
+mkdir -p $d
+for f in a b c d; do convert -size 64x64 xc:red $d/$f.png; done
+config
+start $d/d.png; sleep 2
+remote previous >/dev/null 2>&1; sleep 1
+after_previous=$(remote current 2>/dev/null | tr -d '\0' | sed "s|$d/||")
+remote prev >/dev/null 2>&1; sleep 1
+after_prev=$(remote current 2>/dev/null | tr -d '\0' | sed "s|$d/||")
+remote run Prev >/dev/null 2>&1; sleep 1
+after_run=$(remote current 2>/dev/null | tr -d '\0' | sed "s|$d/||")
+quit
+expect "previous, prev and run Prev each one image back" "$after_previous $after_prev $after_run" \
+    "c.png b.png a.png"
+
 section "--remote select while Preferences is open: answered at once"
 for v in new old; do
     as_version $v
