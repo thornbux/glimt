@@ -1395,8 +1395,12 @@ impl crate::App {
         }
     }
 
-    /// The notice at the foot of `area`, wrapped to it, on a dark band so it reads over any image.
+    /// Paints the notice at the foot of `area`, wrapped to it, on a dark band so it reads over
+    /// any image. This is the one place a notice is shown, so a screen reader hears every
+    /// notice from here.
     pub(crate) fn paint_notice(&self, ui: &egui::Ui, area: egui::Rect) {
+        #[cfg(feature = "accessibility")]
+        crate::ui::accessibility::speak_notice(ui, area, self.notice.as_deref());
         if let Some(notice) = &self.notice {
             let (font, red) = (egui::FontId::proportional(16.0), egui::Color32::LIGHT_RED);
             let width = (area.width() - 48.0).max(80.0);

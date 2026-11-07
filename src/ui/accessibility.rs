@@ -1,6 +1,7 @@
 //! Screen readers such as Orca (`cargo build --features accessibility`): eframe's AccessKit
 //! gives them the menus, buttons, lists and dialogs; here the shown image gets a text, read
-//! again each time the user browses. Built without the feature, none of this is in Glimt.
+//! again each time the user browses, and the notices are read out as they come. Built without
+//! the feature, none of this is in Glimt.
 
 use crate::App;
 use eframe::egui;
@@ -87,6 +88,24 @@ impl App {
     }
 }
 
+/// Gives a screen reader `notice`, the text shown at the foot of `area`, as a status that it
+/// reads out when the text changes, without moving the focus. The status is there in every
+/// frame, empty while there is no notice, because a screen reader reads a change in a status
+/// it knows, not always one that appears with its text.
+pub(crate) fn speak_notice(ui: &egui::Ui, area: egui::Rect, notice: Option<&str>) {
+    let id = egui::Id::unique("glimt-notice");
+    // A line along the area's foot, where the notice shows, and not an empty box, which a
+    // screen reader may leave out as outside what it is in.
+    let at = egui::Rect::from_min_max(
+        area.left_bottom() - egui::vec2(0.0, 1.0),
+        area.right_bottom(),
+    );
+    let response = ui.interact(at, id, egui::Sense::hover());
+    let text = notice.unwrap_or_default();
+    response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Status, true, text));
+    (ui.ctx()).accesskit_node_builder(id, |node| node.set_live(egui::accesskit::Live::Polite));
+}
+
 #[cfg(test)]
 mod tests {
     use crate::support::test_support::app_on;
@@ -129,6 +148,47 @@ mod tests {
         let said = |role, text| (nodes.iter()).any(|n| n.role() == role && n.label() == Some(text));
         assert!(said(egui::Role::Image, "a.png, 1 of 3"));
         assert!(said(egui::Role::ListItem, "b.png"));
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// A notice is a status that a screen reader reads out as it comes, over the image and over
+    /// the grid in the image area, and the status stays, empty, while there is no notice.
+    #[test]
+    fn notices_are_read_out() {
+        let name = format!("glimt-test-speak-notice-{}", std::process::id());
+        let dir = std::env::temp_dir().join(name);
+        std::fs::create_dir_all(&dir).unwrap();
+        let (mut app, ctx) = app_on(&dir);
+        (app.list).set_files(["a.png", "b.png"].map(Into::into).to_vec());
+        ctx.enable_accesskit();
+        let status = |app: &mut crate::App, grid: bool| {
+            if grid != app.panel.area_grid_shown() {
+                app.panel.toggle_area_grid();
+            }
+            let mut found = None;
+            for _ in 0..2 {
+                let out = ctx.run_ui(Default::default(), |ui| match grid {
+                    true => app.area_grid(&ctx, ui),
+                    false => app.image_area(&ctx, ui, false, true),
+                });
+                let update = out.platform_output.accesskit_update.map(|u| u.nodes);
+                for (_, node) in update.into_iter().flatten() {
+                    if node.role() == egui::Role::Status {
+                        let live = node.live() == Some(egui::accesskit::Live::Polite);
+                        found = Some((node.label().unwrap_or_default().to_owned(), live));
+                    }
+                }
+            }
+            found
+        };
+        assert_eq!(status(&mut app, false), Some((String::new(), true)));
+        app.notice = Some("Copied 1 file".into());
+        assert_eq!(
+            status(&mut app, false),
+            Some(("Copied 1 file".into(), true))
+        );
+        app.notice = Some("Moved 1 file".into());
+        assert_eq!(status(&mut app, true), Some(("Moved 1 file".into(), true)));
         std::fs::remove_dir_all(&dir).unwrap();
     }
 }

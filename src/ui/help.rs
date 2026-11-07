@@ -578,7 +578,8 @@ const MANUAL: &[(&str, &str)] = &[
          keywords, comment and extended description, again each time you browse: the image area \
          keeps the keyboard focus while nothing else has it, and the arrow keys and every shortcut \
          still work there. The grid of thumbnails in the image area (G) reads out the chosen \
-         image the same way.\n\n\
+         image the same way. The notices at the foot of the image, such as a copy that failed \
+         or an action the search stops, are read out as they come, without moving the focus.\n\n\
          Tab moves to the panels and menus, and a ring in the accent colour shows where the \
          keyboard focus is; a click puts it away. Write the alt text yourself in the EXIF panel, \
          or let a plugin write it (see Plugins).",
