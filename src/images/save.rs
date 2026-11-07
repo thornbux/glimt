@@ -454,7 +454,27 @@ pub(crate) fn land(
 /// never saved over the image it is made from (Save As, Save This Frame), and Rename Many's
 /// repair tells a step done from one not done by it.
 pub(crate) fn same_file(a: &Path, b: &Path) -> bool {
-    matches!((file_key(a), file_key(b)), (Some(x), Some(y)) if x == y)
+    use std::os::unix::fs::MetadataExt;
+    let named = |p: &Path| {
+        let m = std::fs::metadata(p).ok()?;
+        Some((meta_key(p, &m), (m.len(), m.mtime(), m.mtime_nsec())))
+    };
+    match (named(a), named(b)) {
+        (Some(x), Some(y)) => same_named(x, y),
+        _ => false,
+    }
+}
+
+/// Whether two names, each by its key and its (size, modification time in seconds and
+/// nanoseconds), are of one file. One file has one size and time under every name. The size
+/// and time are compared too because NFSv3 with `nohide` and overlayfs without `xino` can give
+/// two files the same device and inode, and Rename Many's repair removes a name that it takes
+/// for a second name of the same file.
+fn same_named(
+    (key_a, at_a): (FileKey, (u64, i64, i64)),
+    (key_b, at_b): (FileKey, (u64, i64, i64)),
+) -> bool {
+    at_a == at_b && key_a == key_b
 }
 
 /// Returns what tells the file or folder at `path` from every other (`FileKey`). Every
@@ -2036,6 +2056,18 @@ mod tests {
         assert_eq!(super::key_of(&a, (1, 7)), super::key_of(&b, (1, 7)));
         assert!(super::same_file(&a, &link) && !super::same_file(&a, &b));
         std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// Two files that a file system gives the same device and inode (NFSv3 with `nohide`,
+    /// overlayfs without `xino`) are still two files when their size or time differs. Before,
+    /// Rename Many's repair took such a file for a second name of the one it renamed and
+    /// removed it.
+    #[test]
+    fn files_sharing_an_inode_by_mistake_are_told_apart() {
+        let (one, other) = ((3, 1_700_000_000, 5), (4, 1_700_000_000, 5));
+        assert!(super::same_named((Ok((1, 7)), one), (Ok((1, 7)), one)));
+        assert!(!super::same_named((Ok((1, 7)), one), (Ok((1, 7)), other)));
+        assert!(!super::same_named((Ok((1, 7)), one), (Ok((1, 8)), one)));
     }
 
     /// A move in another window that comes during a turn's sidecar step waits until the image
