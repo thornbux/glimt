@@ -1,0 +1,153 @@
+# What users' settings files and scripts name, frozen in 1.x (see "Frozen in 1.x" in
+# AGENTS.md): the settings' keys, the values of the settings that take a name (in the order of
+# config::NAMED, because a value's place is the number it was written as before), the --remote
+# commands and the command-line options. A line is never taken out or changed. New ones are
+# added at the end, as the test frozen_names_are_kept in config.rs says.
+setting preload
+setting delay
+setting remember_dir
+setting keep_recent
+setting trash
+setting confirm_delete
+setting confirm_trash
+setting delete_key
+setting random
+setting enlarge
+setting slideshow_repeat
+setting fade
+setting layout
+setting layout_turns
+setting layout_names
+setting animate
+setting color_management
+setting screen_profile
+setting desktop_profile
+setting input_profile
+setting own_profile
+setting rendering_intent
+setting language
+setting show_marks
+setting keys
+setting remote_control
+setting xmp_stars
+setting show_subfolders
+setting slideshow_subfolders
+setting save_orientation
+setting webp_quality
+setting jpeg_quality
+setting keep_zoom
+setting fit_mode
+setting wheel_zoom
+setting thumbnails
+setting save_thumbnails
+setting exif_panel
+setting sort_manager
+setting sort_move
+setting folder_tree
+setting toolbar
+setting low_memory
+setting decode_threads
+setting cpu_use
+setting animation_mb
+setting path_bar
+setting remember_window
+setting follow_contrast
+setting ui_scale
+setting follow_text_scale
+setting lightroom_keywords
+setting inhibit_screensaver
+setting app_name_first
+setting window_title
+setting file_details
+setting sort
+setting sort_ascending
+setting sort_case
+setting toolbar_icons
+setting view_filter
+setting search_bar
+setting osd
+setting osd_template
+setting histogram
+setting histogram_log
+setting thumb_size
+setting grid_names
+setting icons
+setting background
+setting checkerboard
+setting projector_pointer
+setting hide_pointer
+setting theme
+setting fuzzy_search
+setting search_case
+setting auto_refresh
+setting exif_rotate
+setting list_images
+setting list_raw
+setting show_hidden
+setting videos
+setting video_player
+setting print_printer
+setting print_paper
+setting print_orientation
+setting print_caption
+setting print_template
+setting print_per_page
+setting print_margin
+setting print_scale
+setting print_fill
+setting print_header
+setting print_footer
+setting print_two_sided
+value fade off
+value fade short
+value fade long
+value fit_mode whole
+value fit_mode width
+value fit_mode height
+value fit_mode fill
+value histogram off
+value histogram rgb
+value histogram brightness
+value thumb_size small
+value thumb_size medium
+value thumb_size large
+value toolbar_icons small
+value toolbar_icons medium
+value toolbar_icons large
+value view_filter none
+value view_filter greyscale
+value view_filter inverted
+value view_filter contrast
+value cpu_use saving
+value cpu_use balanced
+value cpu_use full
+remote next
+remote prev
+remote first
+remote last
+remote slideshow
+remote random
+remote fullscreen
+remote subfolders
+remote open
+remote title
+remote quit
+remote run
+remote current
+remote selection
+remote select
+option --slideshow
+option --random
+option --fullscreen
+option --kiosk
+option --lock-settings
+option --layout
+option --fade
+option --name
+option --check-config
+option --back-up
+option -V
+option --version
+option -h
+option --help
+option --

@@ -35,10 +35,14 @@ These stay as they are until a 2.0: the command-line options,
 the `--remote` commands with their answers and exit codes, the settings file's keys and values
 (a list of choices grows at its end only, `config::NAMED`), the files Glimt owns, and the
 desktop file formats of plugins and decoders. Add; never take away or change a meaning. A
-setting that goes out of use keeps being read and ignored. Never rename an `Action` variant or
-rely on a changed key name: they are the `keys=` format, pinned by `src/keys-1.0.txt` and its
-test, every action (also one without a default key) and every default key; new ones go at the
-end of that file, and the test fails until a new action is there.
+setting that goes out of use keeps being read and ignored. `src/frozen-1.0.txt` pins the
+settings' keys, each `config::NAMED` list's values in order, the `--remote` command words and
+the command-line options; `config::tests::frozen_names_are_kept` fails when one is taken out
+or renamed, when a `NAMED` list gains a value anywhere but at its end, and until a new one is
+added at the end of that file. Never rename an `Action` variant or rely on a changed key
+name: they are the `keys=` format, pinned by `src/keys-1.0.txt` and its test, every action
+(also one without a default key) and every default key; new ones go at the end of that file,
+and the test fails until a new action is there.
 
 ## Language
 

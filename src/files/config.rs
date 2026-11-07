@@ -1122,4 +1122,57 @@ mod tests {
             super::WindowState::parse(&String::from_utf8_lossy(&bytes));
         }
     }
+
+    /// The names that users' settings files and scripts hold are frozen in 1.x: the settings'
+    /// keys, the values of the named settings in their order, the --remote commands and the
+    /// command-line options. src/frozen-1.0.txt pins them. Before, a rename passed every test,
+    /// because the man page they were checked against was changed with it.
+    #[test]
+    fn frozen_names_are_kept() {
+        let text = super::Config::default().to_text();
+        let mut now: Vec<String> = (text.lines())
+            .filter_map(|line| Some(format!("setting {}", line.split_once('=')?.0)))
+            .collect();
+        for (key, values) in super::NAMED {
+            now.extend(values.iter().map(|v| format!("value {key} {v}")));
+        }
+        // The release tests' "where" is left out, because only their build has it.
+        let commands = crate::features::remote::COMMANDS.iter().map(|c| c.0);
+        let words = commands
+            .filter_map(|c| c.split(' ').next())
+            .filter(|&w| w != "where");
+        now.extend(words.map(|w| format!("remote {w}")));
+        let options = crate::cli::START_OPTIONS
+            .iter()
+            .flat_map(|o| o.0.split(", "));
+        now.extend(options.filter_map(|o| Some(format!("option {}", o.split(' ').next()?))));
+        let frozen: Vec<&str> = (include_str!("../frozen-1.0.txt").lines())
+            .filter(|l| !l.starts_with('#') && !l.is_empty())
+            .collect();
+        let gone: Vec<&&str> = frozen
+            .iter()
+            .filter(|f| !now.iter().any(|n| n == **f))
+            .collect();
+        assert!(
+            gone.is_empty(),
+            "frozen in 1.x, so bring these back: {gone:?}"
+        );
+        let new: Vec<&String> = now
+            .iter()
+            .filter(|n| !frozen.contains(&n.as_str()))
+            .collect();
+        assert!(
+            new.is_empty(),
+            "add these at the end of src/frozen-1.0.txt: {new:?}"
+        );
+        // A named value's place is the number it was written as before 1.0, so a list grows
+        // only at its end. The pinned values must therefore come in the list's own order.
+        for (key, values) in super::NAMED {
+            let prefix = format!("value {key} ");
+            let pinned: Vec<&str> = (frozen.iter())
+                .filter_map(|l| l.strip_prefix(prefix.as_str()))
+                .collect();
+            assert_eq!(pinned, values, "{key} gains values only at its end");
+        }
+    }
 }
