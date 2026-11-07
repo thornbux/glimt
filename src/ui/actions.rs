@@ -3,7 +3,7 @@
 
 use crate::features::duplicates::FindDuplicates;
 use crate::images::colour::FILTERS;
-use crate::images::decode::{catch_panic, color_image};
+use crate::images::decode::{catch_panic_as_error, color_image};
 #[cfg(feature = "marks")]
 use crate::metadata::marks;
 #[cfg(feature = "marks")]
@@ -1354,7 +1354,7 @@ impl crate::App {
         std::thread::spawn(move || {
             // A decoder that panics on a broken file must not end the thread: the busy pointer
             // would stay for good.
-            match catch_panic(|| save::shown_image(&path, &how)) {
+            match catch_panic_as_error(|| save::shown_image(&path, &how)) {
                 Ok(img) => drop(clip_tx.send(color_image(img))),
                 Err(e) => drop(tx.send(tf!("Could not copy the image: {e}", e))),
             }

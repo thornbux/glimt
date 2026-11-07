@@ -171,7 +171,7 @@
       <text x="44" y="732"><tspan font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace">read_limited, read_text, open_regular</tspan>: a size cap, and no pipe or device.</text>
       <text x="44" y="752"><tspan font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace">from_decoder, from_memory</tspan>: the only ways into the image crate;</text>
       <text x="44" y="768">clippy.toml refuses image::open, load_from_memory and the rest.</text>
-      <text x="44" y="788"><tspan font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace">catch_panic</tspan>: a decoder that panics fails one image, not its worker thread.</text>
+      <text x="44" y="788"><tspan font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace">catch_panic_as_error</tspan>: a decoder that panics fails one image, not its worker thread.</text>
     </g>
 
     <rect x="610" y="652" width="560" height="156" rx="6" fill="#f6f8fa" stroke="#57606a" stroke-width="1.5"/>

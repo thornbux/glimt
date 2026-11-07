@@ -48,7 +48,7 @@ the command-line options of `START_OPTIONS` with `--remote` and `--remote-all`. 
 fails when one is taken out or renamed, when a `NAMED` list gains a value anywhere but at its
 end, and until a new one is added at the end of that file.
 `the_parser_takes_every_frozen_option` fails when an option that the help lists is neither
-taken by `Start::parse` nor answered by `cli::answered` (through `cli::Command::named`) or by
+taken by `Start::parse` nor answered by `cli::answer_without_window` (through `cli::Command::named`) or by
 `--remote`. Not pinned, and so kept by hand: the window's own reading of each `--remote`
 command (`remote_command` matches the words again), what the commands print, the `%field%`
 names of the full screen info, the print caption and the window title (`name`, `path`,
@@ -102,7 +102,7 @@ holds only its `mod` lines, and a new module goes into the folder of what it doe
 | File | Contents |
 |---|---|
 | `src/main.rs` | The app: `App` and its parts (each a struct in the module whose code uses it, such as `slideshow::Slideshow` or `file_ops::FileOperations`), starting up, the frame (`eframe::App`) and `main()`. The window's parts are each in a module of their own below, as `impl crate::App` blocks |
-| `src/cli.rs` | The command line: the start options (`Start`, `START_OPTIONS`) and the commands that answer without a window (`answered`: --help, --version, --check-config, --back-up) |
+| `src/cli.rs` | The command line: the start options (`Start`, `START_OPTIONS`) and the commands that answer without a window (`answer_without_window`: --help, --version, --check-config, --back-up) |
 | `src/model.rs` | **The model/ folder:** what is open: the file list, listing and opening folders and collections, the search and the selection |
 | `src/model/list.rs` | The model of what is open: `List`, the file list with everything that holds a place in it, and `LoadedImage`, an image decoded for the view |
 | `src/model/folder.rs` | Opening a folder, a collection or several folders, listing them, following changes, the sizes summed for the status bar (`send_sizes`, `receive_sizes`) |

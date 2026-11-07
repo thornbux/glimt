@@ -19,7 +19,7 @@
     <rect x="510" y="76" width="280" height="80" rx="6" fill="#ffffff" stroke="#1f2328" stroke-width="1.5"/>
     <text x="524" y="100" font-size="15" font-weight="700" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace">cli.rs</text>
     <text x="524" y="121" font-size="13">Start, START_OPTIONS: the options</text>
-    <text x="524" y="141" font-size="13">answered: --help, --version, …</text>
+    <text x="524" y="141" font-size="13">answer_without_window: --help, …</text>
 
     <line x1="255" y1="156" x2="255" y2="190" stroke="#1f2328" stroke-width="1.5" marker-end="url(#arrow)"/>
     <text x="265" y="178" font-size="12" fill="#57606a">calls the methods the modules below add to App</text>

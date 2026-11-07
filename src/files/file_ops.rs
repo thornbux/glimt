@@ -6,7 +6,7 @@
 use crate::files::external;
 use crate::files::file_io::{put_file, rename_never_over};
 use crate::files::trash::{TrashMove, restore, trash_dirs};
-use crate::images::decode::catch_panic;
+use crate::images::decode::catch_panic_as_error;
 use crate::images::save::save_rotated;
 use crate::model::folder::total_size;
 use crate::model::listing::pattern_name;
@@ -1232,7 +1232,7 @@ impl crate::App {
         let writing = Working::new(&crate::files::file_io::WRITING);
         std::thread::spawn(move || {
             let _writing = writing;
-            let result = catch_panic(|| match jpeg {
+            let result = catch_panic_as_error(|| match jpeg {
                 true => exif::write_orientation(&path, turns, mirrored, rotate),
                 false => save_rotated(&path, rotate, turns, mirrored, quality),
             });
@@ -1683,7 +1683,7 @@ impl crate::App {
             let saved = if made.is_err() {
                 Err(tf!("Could not make {folder}", folder = folder.display()))
             } else {
-                decode::catch_panic(|| {
+                decode::catch_panic_as_error(|| {
                     decode::each_frame(&path, only, rotate, |k, img| {
                         if job.is_stopped() {
                             return Err(job.stopped_text());

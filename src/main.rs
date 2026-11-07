@@ -266,8 +266,8 @@ impl App {
                 app.open(ctx, ".".into());
                 app.mount(ctx, uri.to_owned());
             }
-            None if !start.more.is_empty() => {
-                let all = std::iter::once(path).chain(start.more.iter().cloned());
+            None if !start.more_paths.is_empty() => {
+                let all = std::iter::once(path).chain(start.more_paths.iter().cloned());
                 app.open_folders(ctx, all.collect());
             }
             None => app.open(ctx, path),
@@ -465,7 +465,7 @@ fn main() -> eframe::Result {
             std::process::exit(2);
         }
     };
-    if cli::answered(&start, &args_os) {
+    if cli::answer_without_window(&start, &args_os) {
         return Ok(());
     }
     let args: Vec<String> = (args_os.iter())
@@ -481,7 +481,7 @@ fn main() -> eframe::Result {
         crate::features::remote::REMOTE_ALL,
     ];
     if !command.is_some_and(|a| remote.contains(&a.as_str())) {
-        start.more = args_os.iter().skip(1).map(PathBuf::from).collect();
+        start.more_paths = args_os.iter().skip(1).map(PathBuf::from).collect();
     }
     let to_all = command.is_some_and(|a| a == remote[1]);
     if command.is_some_and(|a| a == remote[0]) || to_all {

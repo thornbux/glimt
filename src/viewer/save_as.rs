@@ -184,7 +184,7 @@ impl crate::App {
         let report_tx = self.file_operations.report_sender();
         self.run_in_background(ctx, vec![path.clone(), to.clone()], move || {
             Some(
-                match decode::catch_panic(|| save::save_as(&path, &copy_as, &to)) {
+                match decode::catch_panic_as_error(|| save::save_as(&path, &copy_as, &to)) {
                     Ok(new) => {
                         // Saved over a file the dialog let it replace, maybe one in the list. The
                         // copy gets the marks and stars of the original, as it got its sidecar,

@@ -4,7 +4,7 @@
 //! images on a page make a contact sheet, as in Geeqie.
 
 use crate::files::config::Config;
-use crate::images::decode::catch_panic;
+use crate::images::decode::catch_panic_as_error;
 use crate::support::format::count;
 use crate::support::lang::tr;
 use crate::support::threads::{Receiving, Took, Working};
@@ -369,7 +369,7 @@ impl crate::App {
             for (k, path) in first.iter().enumerate() {
                 // The preview is in the colours of the print, so a photo with its own profile
                 // looks as on paper.
-                let small = catch_panic(|| {
+                let small = catch_panic_as_error(|| {
                     let (img, icc, size) = decode::decode_shrunk(path, [PREVIEW_PX; 2], rotate)?;
                     Ok((crate::images::colour::to_srgb(img, icc.as_deref()), size))
                 });
@@ -445,7 +445,7 @@ impl crate::App {
                 // The image is shrunk before it goes to sRGB, because a 45 MP photo with its own
                 // profile would otherwise need two full-size buffers. A JPEG is decoded at a
                 // fraction when that is enough.
-                let img = catch_panic(|| {
+                let img = catch_panic_as_error(|| {
                     let (img, icc, size) = decode::decode_shrunk(path, [max, max], job.rotate)?;
                     Ok((crate::images::colour::to_srgb(img, icc.as_deref()), size))
                 });

@@ -4,7 +4,7 @@
 
 use crate::files::config::Config;
 use crate::files::external::is_video;
-use crate::images::decode::{Decoded, catch_panic, decode, histogram};
+use crate::images::decode::{Decoded, catch_panic_as_error, decode, histogram};
 use crate::model::list::LoadedImage;
 use crate::support::format::fill_template;
 use crate::support::lang::tr;
@@ -1882,12 +1882,14 @@ pub(crate) fn spawn_decoders(
                 }
                 let rotated = auto_rotate.load(Ordering::Relaxed);
                 // The histogram here too, so the UI thread never walks the pixels.
-                let result = Some(catch_panic(|| decode(&path, max_box, rotated, page)).map(
-                    |(frames, orig, pages)| {
-                        let hist = histogram(&frames[0].0);
-                        (frames, orig, hist, pages)
-                    },
-                ));
+                let result = Some(
+                    catch_panic_as_error(|| decode(&path, max_box, rotated, page)).map(
+                        |(frames, orig, pages)| {
+                            let hist = histogram(&frames[0].0);
+                            (frames, orig, hist, pages)
+                        },
+                    ),
+                );
                 let _ = done_tx.send(Decoded {
                     rotated,
                     path,
