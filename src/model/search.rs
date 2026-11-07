@@ -21,6 +21,11 @@ use std::time::Instant;
 
 const PREFIXES: [&str; 4] = ["exif:", "re:", "mark:", "stars:"];
 
+/// How deep groups may nest in a search. A `(` deeper than this is an ordinary word, so text
+/// pasted with thousands of them cannot overflow the stack of the parser, of the search through
+/// the tree, or of dropping the tree. Nobody types groups this deep.
+const MAX_NESTING: usize = 32;
+
 /// A search as a tree. Terms (`exif:canon`, `re:png$`, a fuzzy name) are combined with and (one
 /// after the other), or (`|`) and not (`-` before a prefixed term, or `-(` before a group).
 #[derive(Debug, PartialEq)]
@@ -576,16 +581,16 @@ fn score<T: Copy + PartialEq>(name: &[T], query: &[T], word: impl Fn(T) -> bool)
 /// stays one term. Words before the first prefix of a group search the names. `|` binds
 /// loosest, and `(`, `-(` and `)` group, all as words of their own, so a regular expression
 /// keeps its own parentheses and bars (`re:^(IMG|DSC)`). A `)` too many is left out, and a
-/// missing one is assumed.
+/// missing one is assumed. A group nested deeper than `MAX_NESTING` is read as words.
 pub fn parse(query: &str) -> Option<Query> {
     let tokens: Vec<&str> = query.split_whitespace().collect();
     let mut at = 0;
-    let parsed = or(&tokens, &mut at);
+    let parsed = or(&tokens, &mut at, 0);
     // A stray ")" ends a group that was not opened, and the rest is read on.
     let mut parts: Vec<Query> = parsed.into_iter().collect();
     while at < tokens.len() {
         at += 1;
-        parts.extend(or(&tokens, &mut at));
+        parts.extend(or(&tokens, &mut at, 0));
     }
     match parts.len() {
         0 => None,
@@ -598,11 +603,11 @@ fn prefixed(t: &str) -> bool {
     PREFIXES.iter().any(|p| t.starts_with(p))
 }
 
-/// Groups joined by `|`, up to a `)` or the end.
-fn or(tokens: &[&str], at: &mut usize) -> Option<Query> {
+/// Groups joined by `|`, up to a `)` or the end, inside `depth` groups.
+fn or(tokens: &[&str], at: &mut usize, depth: usize) -> Option<Query> {
     let mut parts: Vec<Query> = Vec::new();
     loop {
-        parts.extend(and(tokens, at));
+        parts.extend(and(tokens, at, depth));
         match tokens.get(*at) {
             Some(&"|") => *at += 1,
             _ => break,
@@ -615,17 +620,17 @@ fn or(tokens: &[&str], at: &mut usize) -> Option<Query> {
     }
 }
 
-/// Terms and groups one after the other, up to a `|`, a `)` or the end.
-fn and(tokens: &[&str], at: &mut usize) -> Option<Query> {
+/// Terms and groups one after the other, up to a `|`, a `)` or the end, inside `depth` groups.
+fn and(tokens: &[&str], at: &mut usize, depth: usize) -> Option<Query> {
     let mut parts: Vec<Query> = Vec::new();
     // Words after a term belong to it, and after a group they start a search of the names.
     let mut open_term = false;
     while let Some(&token) = tokens.get(*at) {
         match token {
             "|" | ")" => break,
-            "(" | "-(" => {
+            "(" | "-(" if depth < MAX_NESTING => {
                 *at += 1;
-                let inner = or(tokens, at);
+                let inner = or(tokens, at, depth + 1);
                 if tokens.get(*at) == Some(&")") {
                     *at += 1;
                 }
@@ -924,6 +929,30 @@ mod tests {
         );
         assert_eq!(p("| ( ) |"), None);
         assert_eq!(p("  "), None);
+    }
+
+    /// A search of 100,000 nested groups, as pasted text may be, is read with its groups cut
+    /// off at `MAX_NESTING`. Before, the parser and the search through the tree called
+    /// themselves once for each group, and the window's stack overflowed.
+    #[test]
+    fn deep_groups_are_read_as_words() {
+        use super::Query;
+        fn depth(q: &Query) -> usize {
+            match q {
+                Query::Term(_) => 1,
+                Query::Not(inner) => 1 + depth(inner),
+                Query::And(parts) | Query::Or(parts) => {
+                    1 + parts.iter().map(depth).max().unwrap_or(0)
+                }
+            }
+        }
+        for open in ["( ", "-( "] {
+            let query = super::parse(&(open.repeat(100_000) + "mark:2 a")).unwrap();
+            assert!(depth(&query) <= super::MAX_NESTING + 2, "{open}");
+        }
+        // Up to the limit, a group is a group.
+        let nested = "-( ".repeat(super::MAX_NESTING) + "mark:2";
+        assert!(!format!("{:?}", super::parse(&nested)).contains("-("));
     }
 
     /// Searches broken in thousands of ways are read without a panic or an endless loop.
