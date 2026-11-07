@@ -2,6 +2,7 @@
 //! file, one quoted path per line, kept in `$XDG_DATA_HOME/glimt/collections`; Geeqie's own
 //! collections can be opened too.
 
+use crate::model::listing::real_dir;
 use crate::support::lang::tr;
 use crate::ui::actions::Action;
 use crate::ui::menus::{icon_button, iconed, menu_item, scroll_menu, submenu};
@@ -385,13 +386,23 @@ pub fn edit(file: &Path, new: bool, change: impl FnOnce(&mut Vec<PathBuf>)) -> s
         Err(e) if new && e.kind() == std::io::ErrorKind::NotFound => (Vec::new(), true),
         read => (read?, false),
     };
-    let mut all = parse(&text);
+    // The change sees each entry by its real path, the name the list and every operation give
+    // the file. An entry named through a link was else never found: Remove left it in the file,
+    // and a reorder put it last. An entry the change leaves is written as the user spelled it.
+    let written = parse(&text);
+    let (mut all, spelled): (Vec<PathBuf>, std::collections::HashMap<PathBuf, &PathBuf>) =
+        (by_real_path(&written).into_iter())
+            .map(|(real, w)| (real.clone(), (real, w)))
+            .unzip();
     let before = all.clone();
     change(&mut all);
     // Nothing changed (an unrelated folder renamed): the file stays as it is.
     if all == before {
         return Ok(());
     }
+    let all: Vec<PathBuf> = (all.into_iter())
+        .map(|p| spelled.get(&p).map_or(p, |&w| w.clone()))
+        .collect();
     // Written whole or not at all; a new one never lands over a collection another window made
     // meanwhile. What else the file held (Geeqie's #geometry line) goes back in.
     let out = to_text(&all, &other_lines(&text));
@@ -401,6 +412,27 @@ pub fn edit(file: &Path, new: bool, change: impl FnOnce(&mut Vec<PathBuf>)) -> s
         true => crate::files::file_io::create_file(file, out),
         false => crate::files::file_io::replace_name(file, out),
     }
+}
+
+/// Gives each of a collection's `entries` its real path (`listing::real_path`), the name the
+/// list and the marks, stars and `--remote select` know the file by, with the entry as written.
+/// An image named twice, also through a link, is given once. Each folder is looked up once, so a
+/// collection of 500,000 images in a few folders costs a few lookups.
+// shortcut: realpath looks at the disk, and Remove and a reorder edit the collection in the UI
+// thread; a folder on a share that stopped answering holds the window, as opening it does.
+pub fn by_real_path(entries: &[PathBuf]) -> Vec<(PathBuf, &PathBuf)> {
+    let mut folders: std::collections::HashMap<&Path, PathBuf> = Default::default();
+    let mut seen = HashSet::new();
+    (entries.iter())
+        .map(|p| match (p.parent(), p.file_name()) {
+            (Some(dir), Some(name)) => {
+                let real = folders.entry(dir).or_insert_with(|| real_dir(dir));
+                (real.join(name), p)
+            }
+            _ => (p.clone(), p),
+        })
+        .filter(|(real, _)| seen.insert(real.clone()))
+        .collect()
 }
 
 /// The lines of a collection that are not Glimt's to write: neither the header and the end
@@ -669,6 +701,35 @@ mod tests {
         assert!(!std::fs::symlink_metadata(&file).unwrap().is_symlink());
         assert_eq!(super::load(&file).unwrap(), [PathBuf::from("/b.jpg")]);
         assert!(!std::fs::read_to_string(&file).unwrap().contains("secret"));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// An edit finds an entry named through a link by its real path, the name the list gives
+    /// it, and writes the entries it leaves as the user spelled them. Compared as written, the
+    /// entry was never found: Remove left it in the file, and a reorder put it last.
+    #[test]
+    fn an_edit_finds_an_entry_named_through_a_link() {
+        let dir =
+            std::env::temp_dir().join(format!("glimt-test-gqv-spelled-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join("real")).unwrap();
+        std::os::unix::fs::symlink(dir.join("real"), dir.join("link")).unwrap();
+        let (real, file) = (dir.canonicalize().unwrap().join("real"), dir.join("c.gqv"));
+        let spelled = [
+            dir.join("real/b.jpg"),
+            dir.join("link/a.jpg"),
+            dir.join("real/c.jpg"),
+        ];
+        let text: String = spelled
+            .iter()
+            .map(|p| format!("\"{}\"\n", p.display()))
+            .collect();
+        std::fs::write(&file, format!("#GQview collection\n{text}#end\n")).unwrap();
+        let ours = ["a.jpg", "b.jpg", "c.jpg"].map(|n| real.join(n));
+        super::edit(&file, false, |all| super::reorder(all, &ours)).unwrap();
+        let order = [&spelled[1], &spelled[0], &spelled[2]].map(|p| p.to_path_buf());
+        assert_eq!(super::load(&file).unwrap(), order);
+        super::edit(&file, false, |all| all.retain(|p| *p != ours[0])).unwrap();
+        assert_eq!(super::load(&file).unwrap(), &order[1..]);
         std::fs::remove_dir_all(dir).unwrap();
     }
 
