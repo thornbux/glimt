@@ -2840,6 +2840,14 @@ msgstr "Miniaturestørrelse"
 msgid "The search hides files this would act on: clear it first"
 msgstr "Søgningen skjuler filer, som dette ville gælde: ryd den først"
 
+#: src/ui/menus.rs
+msgid "{name} takes none of these files"
+msgstr "{name} tager ingen af disse filer"
+
+#: src/ui/menus.rs
+msgid "{name} leaves out {files} of a type it does not take"
+msgstr "{name} springer {files} over af en type, den ikke tager"
+
 #: src/model/selection.rs
 msgid "Not included, as the search hides them: {files}"
 msgstr "Ikke medtaget, da søgningen skjuler dem: {files}"

@@ -4,6 +4,7 @@
 //! a running Geeqie for things with `geeqie --remote`. Decoder plugins' desktop files are read
 //! with the same `desktop_files` and `values`.
 
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 /// The plugins running, by name and process ID, for Stop in Edit → Plugins: one may be an
@@ -17,9 +18,29 @@ pub struct Plugin {
     exec: String,
     /// The folder of the desktop file: a program there is found without being on the PATH.
     dir: PathBuf,
+    /// The MIME types of the files it takes, from the desktop file's MimeType=, such as
+    /// image/x-canon-cr2 or image/*. Empty, it takes every file.
+    types: Vec<String>,
 }
 
 impl Plugin {
+    /// Returns whether the plugin takes `path`: every file when its desktop file names no
+    /// MimeType, otherwise a file whose extension has one of those types in the desktop's
+    /// MIME database. A file of a type the database does not know is not taken then.
+    pub fn takes(&self, path: &Path) -> bool {
+        if self.types.is_empty() {
+            return true;
+        }
+        let ext = path.extension().map(|e| e.to_string_lossy().to_lowercase());
+        let Some(mime) = ext.and_then(|e| mime_types().get(&e)) else {
+            return false;
+        };
+        (self.types.iter()).any(|t| match t.strip_suffix("/*") {
+            Some(major) => mime.split('/').next() == Some(major),
+            None => t == mime,
+        })
+    }
+
     /// Run the plugin on `files` and wait for it: once for each file with %f or %u, once for all
     /// with %F or %U, and once in `folder` without any. Each run is in `running` while it runs;
     /// one taken out of it there was stopped, and the runs after it are not made. The error
@@ -148,11 +169,67 @@ fn parse(text: &str, dir: &Path) -> Option<Plugin> {
     if value("Hidden") == Some("true") || value("NoDisplay") == Some("true") {
         return None;
     }
+    let types = value("MimeType").unwrap_or_default().split(';');
     Some(Plugin {
         name: value("Name")?.to_owned(),
         exec: value("Exec")?.to_owned(),
         dir: dir.to_owned(),
+        types: types.filter(|t| !t.is_empty()).map(str::to_owned).collect(),
     })
+}
+
+/// The MIME type of each file name extension, lowercase, from shared-mime-info's `mime/globs2`
+/// in the XDG data folders, read once. The user's own folder comes first, as the spec says.
+// shortcut: read whole in the window's thread at the first plugin run, some 100 kB; in the
+// background if it is ever slow.
+fn mime_types() -> &'static HashMap<String, String> {
+    static TYPES: std::sync::OnceLock<HashMap<String, String>> = std::sync::OnceLock::new();
+    TYPES.get_or_init(|| {
+        let home = crate::files::config::xdg_dir("XDG_DATA_HOME", ".local/share", "mime");
+        let dirs = std::env::var("XDG_DATA_DIRS").unwrap_or("/usr/local/share:/usr/share".into());
+        let all = home
+            .into_iter()
+            .chain(absolute_dirs(&dirs).map(|d| d.join("mime")));
+        let mut types = HashMap::new();
+        for dir in all {
+            let Ok(text) = crate::images::decode::read_text(dir.join("globs2")) else {
+                continue;
+            };
+            for (ext, mime) in globs(&text) {
+                types.entry(ext).or_insert(mime);
+            }
+        }
+        types
+    })
+}
+
+/// The extensions and their MIME types in the text of a globs2 file, whose lines are
+/// `weight:type:glob`, the heaviest first, as `*.cr2`. A glob that is more than an extension,
+/// or a line that is not of that form, is passed over. Returns each extension once, lowercase,
+/// with the type of its heaviest line.
+fn globs(text: &str) -> HashMap<String, String> {
+    let mut found: HashMap<String, (u32, String)> = HashMap::new();
+    for line in text.lines().filter(|l| !l.starts_with('#')) {
+        let mut parts = line.split(':');
+        let (Some(weight), Some(mime), Some(glob)) = (parts.next(), parts.next(), parts.next())
+        else {
+            continue;
+        };
+        let (Ok(weight), Some(ext)) = (weight.parse::<u32>(), glob.strip_prefix("*.")) else {
+            continue;
+        };
+        if ext.is_empty() || ext.contains(['*', '?', '[', '.']) || !mime.contains('/') {
+            continue;
+        }
+        let ext = ext.to_lowercase();
+        if found.get(&ext).is_none_or(|(w, _)| weight > *w) {
+            found.insert(ext, (weight, mime.to_owned()));
+        }
+    }
+    found
+        .into_iter()
+        .map(|(ext, (_, mime))| (ext, mime))
+        .collect()
 }
 
 /// The words of a desktop file's Exec line or the video player's command: separated by spaces,
@@ -203,6 +280,50 @@ mod tests {
                 std::path::Path::new("/tmp"),
             );
         }
+    }
+
+    /// globs2 broken in thousands of ways: no panic.
+    #[test]
+    fn survives_broken_globs() {
+        let seed = b"# comment\n50:image/jpeg:*.jpg\n50:image/x-canon-cr2:*.cr2:cs\n10:a/b:*.x\n";
+        for bytes in crate::support::test_support::broken(seed) {
+            super::globs(&String::from_utf8_lossy(&bytes));
+        }
+    }
+
+    /// A plugin with MimeType= takes the files of those types, a type such as image/* all of
+    /// its kind, and one of an unknown type none; without MimeType it takes every file.
+    #[test]
+    fn takes_the_types_it_names() {
+        let text = "60:image/x-canon-cr2:*.cr2\n50:image/jpeg:*.jpg\n50:image/jpeg:*.jpeg\n\
+                    40:text/plain:*.jpg\n50:video/mp4:*.mp4\n50:image/x:*.tar.gz\n10:bad\n";
+        let types = super::globs(text);
+        assert_eq!(types.get("jpg").map(String::as_str), Some("image/jpeg"));
+        assert_eq!(
+            types.get("cr2").map(String::as_str),
+            Some("image/x-canon-cr2")
+        );
+        assert_eq!(types.get("tar.gz"), None);
+        assert_eq!(types.len(), 4);
+        let dir = std::path::Path::new("/tmp");
+        let raw = super::parse(
+            "[Desktop Entry]\nName=R\nExec=r\nMimeType=image/x-canon-cr2;\n",
+            dir,
+        );
+        let raw = raw.unwrap();
+        assert_eq!(raw.types, ["image/x-canon-cr2"]);
+        let any = super::parse("[Desktop Entry]\nName=A\nExec=a\n", dir).unwrap();
+        assert!(any.takes(std::path::Path::new("/x/notes.weird")));
+        let images = super::parse("[Desktop Entry]\nName=I\nExec=i\nMimeType=image/*\n", dir);
+        let images = images.unwrap();
+        // The database of this computer: a JPEG is an image everywhere it is installed, and
+        // no type is known for a made-up extension.
+        if super::mime_types().contains_key("jpg") {
+            assert!(images.takes(std::path::Path::new("/x/a.JPG")));
+            assert!(!raw.takes(std::path::Path::new("/x/a.jpg")));
+        }
+        assert!(!images.takes(std::path::Path::new("/x/a.no-such-type")));
+        assert!(!images.takes(std::path::Path::new("/x/no-extension")));
     }
 
     /// The files where %F stands, %% as a %, other field codes left out.

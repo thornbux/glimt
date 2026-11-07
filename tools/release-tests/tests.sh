@@ -2593,6 +2593,27 @@ quit
 expect "the plugin ran on a.png, and --remote current answered meanwhile" "$ran $answer" "$d/a.png $d/a.png"
 expect "Stop Stamp in Edit → Plugins ended the plugin" "$left" "ended"
 
+section "a plugin with MimeType=: given only the selected files of its types, the others counted"
+for v in new old; do
+    as_version $v
+    d=/tmp/plugin-types-$v
+    mkdir -p $d $XDG_DATA_HOME/glimt/plugins
+    convert -size 64x64 xc:red $d/a.png
+    convert -size 64x64 xc:red $d/b.jpg
+    printf '#!/bin/sh\necho "$@" >>%s/ran\n' $d >/tmp/stub/pngonly; chmod +x /tmp/stub/pngonly
+    printf '[Desktop Entry]\nName=PngOnly\nExec=pngonly %%F\nMimeType=image/png;\n' \
+        >$XDG_DATA_HOME/glimt/plugins/pngonly.desktop
+    config
+    start $d/a.png; sleep 2
+    remote select $d/a.png $d/b.jpg >/dev/null 2>&1
+    menu Edit Plugins PngOnly; sleep 2
+    quit
+    rm -f $XDG_DATA_HOME/glimt/plugins/pngonly.desktop
+    got=$(sed "s|$d/||g" $d/ran 2>/dev/null)
+    if [ $v = new ]; then expect "the plugin ran on a.png only" "$got" "a.png"
+    else note "old: $got"; fi
+done
+
 section "zoom and fit keys, the wheel and a drag: 1:1 (z), fit (x), the width (h), the height (w), + and -"
 d=/tmp/zoom-keys
 mkdir -p $d

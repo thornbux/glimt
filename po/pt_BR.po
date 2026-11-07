@@ -2851,6 +2851,14 @@ msgstr "Tamanho das miniaturas"
 msgid "The search hides files this would act on: clear it first"
 msgstr "A busca oculta arquivos aos quais isto se aplicaria: limpe-a primeiro"
 
+#: src/ui/menus.rs
+msgid "{name} takes none of these files"
+msgstr "{name} não aceita nenhum destes arquivos"
+
+#: src/ui/menus.rs
+msgid "{name} leaves out {files} of a type it does not take"
+msgstr "{name} deixa de fora {files} de um tipo que não aceita"
+
 #: src/model/selection.rs
 msgid "Not included, as the search hides them: {files}"
 msgstr "Não incluídos, pois a busca os oculta: {files}"

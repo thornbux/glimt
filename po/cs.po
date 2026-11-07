@@ -2862,6 +2862,14 @@ msgstr "Velikost náhledů"
 msgid "The search hides files this would act on: clear it first"
 msgstr "Hledání skrývá soubory, kterých by se to týkalo: nejprve ho vymažte"
 
+#: src/ui/menus.rs
+msgid "{name} takes none of these files"
+msgstr "{name} nepřijímá žádný z těchto souborů"
+
+#: src/ui/menus.rs
+msgid "{name} leaves out {files} of a type it does not take"
+msgstr "{name} vynechá {files} typu, který nepřijímá"
+
 #: src/model/selection.rs
 msgid "Not included, as the search hides them: {files}"
 msgstr "Nezahrnuto, protože je hledání skrývá: {files}"

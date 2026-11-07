@@ -2840,6 +2840,14 @@ msgstr "Taille des vignettes"
 msgid "The search hides files this would act on: clear it first"
 msgstr "La recherche masque des fichiers concernés : effacez-la d'abord"
 
+#: src/ui/menus.rs
+msgid "{name} takes none of these files"
+msgstr "{name} ne prend aucun de ces fichiers"
+
+#: src/ui/menus.rs
+msgid "{name} leaves out {files} of a type it does not take"
+msgstr "{name} laisse de côté {files} d'un type qu'il ne prend pas"
+
 #: src/model/selection.rs
 msgid "Not included, as the search hides them: {files}"
 msgstr "Non inclus, car la recherche les masque : {files}"

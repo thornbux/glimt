@@ -7,6 +7,7 @@ use crate::files::file_ops::Deleted;
 use crate::images::colour::{
     COLOR_MANAGEMENT, FILTERS, VIEW_FILTER, set_colour, set_input, set_intent, set_screen,
 };
+use crate::support::format::count;
 use crate::support::lang::tr;
 use crate::support::test_hooks::noted;
 use crate::support::threads::{Receiving, Took};
@@ -567,13 +568,27 @@ impl crate::App {
             let Some(targets) = self.targets() else {
                 return;
             };
-            let files: Vec<PathBuf> = targets.iter().map(|&i| self.path(i)).collect();
+            let plugin = self.plugins[k].clone();
+            let (files, left): (Vec<PathBuf>, Vec<PathBuf>) =
+                (targets.iter().map(|&i| self.path(i))).partition(|p| plugin.takes(p));
+            let name = &plugin.name;
+            if files.is_empty() {
+                self.notice = Some(tf!("{name} takes none of these files", name));
+                return;
+            }
+            if !left.is_empty() {
+                let files = count(left.len(), "file");
+                self.notice = Some(tf!(
+                    "{name} leaves out {files} of a type it does not take",
+                    name,
+                    files
+                ));
+            }
             // A turned image still being saved would be written over the plugin's edit. The
             // files are held while the plugin runs, so a delete, move or rename of them waits.
             let Some(hold) = self.hold(files.clone()) else {
                 return;
             };
-            let plugin = self.plugins[k].clone();
             let (dir, running) = (
                 self.folder.dir().to_path_buf(),
                 self.plugins_running.clone(),
