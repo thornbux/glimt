@@ -59,7 +59,7 @@ pub mod icon {
 }
 
 /// The themes that come with Glimt; "Desktop" sets nothing.
-const BUILT_IN: [(&str, &str); 6] = [
+pub(crate) const BUILT_IN: [(&str, &str); 6] = [
     ("Desktop", ""),
     ("Light", include_str!("../../themes/Light.theme")),
     ("Dark", include_str!("../../themes/Dark.theme")),

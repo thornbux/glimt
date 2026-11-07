@@ -116,8 +116,14 @@ impl Start {
                     args.remove(0);
                     break;
                 }
-                "--help" | "-h" | "--version" | "-V" | "--remote" | "--remote-all"
-                | "--check-config" | "--back-up" => break,
+                "--help"
+                | "-h"
+                | "--version"
+                | "-V"
+                | remote::REMOTE
+                | remote::REMOTE_ALL
+                | "--check-config"
+                | "--back-up" => break,
                 a if a.starts_with("--") => return Err(format!("unknown option {a}")),
                 _ => break,
             }

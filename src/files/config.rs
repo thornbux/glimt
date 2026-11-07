@@ -150,6 +150,9 @@ const NAMED: [(&str, &[&str]); 7] = [
     ("cpu_use", &["saving", "balanced", "full"]),
 ];
 
+/// The key of the last folder in the window state file, beside `WindowState`'s keys.
+pub const LAST_DIR: &str = "last_dir";
+
 /// The administrator's lock. While this file is there, every Glimt starts with --lock-settings.
 pub const LOCK_FILE: &str = "/etc/glimt/lock-settings";
 
@@ -734,7 +737,7 @@ pub fn test_home() -> PathBuf {
 }
 
 pub fn parse_last_dir(state: &str) -> Option<PathBuf> {
-    state_value(state, "last_dir").map(PathBuf::from)
+    state_value(state, LAST_DIR).map(PathBuf::from)
 }
 
 pub fn state_value<'a>(state: &'a str, key: &str) -> Option<&'a str> {
@@ -1124,28 +1127,13 @@ mod tests {
     }
 
     /// The names that users' settings files and scripts hold are frozen in 1.x: the settings'
-    /// keys, the values of the named settings in their order, the --remote commands and the
-    /// command-line options. src/frozen-1.0.txt pins them. Before, a rename passed every test,
-    /// because the man page they were checked against was changed with it.
+    /// keys and the values that name something, the window state's keys, the --remote commands
+    /// with their words and exit codes, and the command-line options. src/frozen-1.0.txt pins
+    /// them. Before, a rename passed every test, because the man page they were checked
+    /// against was changed with it.
     #[test]
     fn frozen_names_are_kept() {
-        let text = super::Config::default().to_text();
-        let mut now: Vec<String> = (text.lines())
-            .filter_map(|line| Some(format!("setting {}", line.split_once('=')?.0)))
-            .collect();
-        for (key, values) in super::NAMED {
-            now.extend(values.iter().map(|v| format!("value {key} {v}")));
-        }
-        // The release tests' "where" is left out, because only their build has it.
-        let commands = crate::features::remote::COMMANDS.iter().map(|c| c.0);
-        let words = commands
-            .filter_map(|c| c.split(' ').next())
-            .filter(|&w| w != "where");
-        now.extend(words.map(|w| format!("remote {w}")));
-        let options = crate::cli::START_OPTIONS
-            .iter()
-            .flat_map(|o| o.0.split(", "));
-        now.extend(options.filter_map(|o| Some(format!("option {}", o.split(' ').next()?))));
+        let now = names_now();
         let frozen: Vec<&str> = (include_str!("../frozen-1.0.txt").lines())
             .filter(|l| !l.starts_with('#') && !l.is_empty())
             .collect();
@@ -1173,6 +1161,111 @@ mod tests {
                 .filter_map(|l| l.strip_prefix(prefix.as_str()))
                 .collect();
             assert_eq!(pinned, values, "{key} gains values only at its end");
+        }
+    }
+
+    /// Returns every frozen name as the code holds it now, one line each as in
+    /// src/frozen-1.0.txt.
+    fn names_now() -> Vec<String> {
+        let text = super::Config::default().to_text();
+        let mut now: Vec<String> = (text.lines())
+            .filter_map(|line| Some(format!("setting {}", line.split_once('=')?.0)))
+            .collect();
+        for (key, values) in super::NAMED {
+            now.extend(values.iter().map(|v| format!("value {key} {v}")));
+        }
+        now.extend(named_values());
+        let window = super::WindowState {
+            size: Some(eframe::egui::vec2(1000.0, 700.0)),
+            pos: Some(eframe::egui::pos2(0.0, 0.0)),
+            maximized: true,
+        };
+        let state = format!("{}=/x\n{}", super::LAST_DIR, window.to_text());
+        let keys = state.lines().filter_map(|l| l.split_once('='));
+        now.extend(keys.map(|(key, _)| format!("state {key}")));
+        now.extend(remote_names());
+        let options = crate::cli::START_OPTIONS
+            .iter()
+            .flat_map(|o| o.0.split(", "));
+        now.extend(options.filter_map(|o| Some(format!("option {}", o.split(' ').next()?))));
+        let remote = [
+            crate::features::remote::REMOTE,
+            crate::features::remote::REMOTE_ALL,
+        ];
+        now.extend(remote.map(|o| format!("option {o}")));
+        now
+    }
+
+    /// Returns the values of the settings that name something outside `NAMED`. They are
+    /// written by name, so their order does not count.
+    fn named_values() -> Vec<String> {
+        use crate::features::print::{ORIENTATIONS, PAPERS};
+        let layouts = crate::viewer::view::LAYOUTS.map(|l| l.0).to_vec();
+        let lists: [(&str, Vec<&str>); 8] = [
+            ("sort", crate::model::listing::SORTS.map(|s| s.1).to_vec()),
+            ("layout", layouts.clone()),
+            // The layout_turns setting is a list of layouts, separated by commas.
+            ("layout_turns", layouts),
+            (
+                "rendering_intent",
+                crate::images::colour::INTENTS.map(|i| i.0).to_vec(),
+            ),
+            ("print_paper", PAPERS.map(|p| p.0).to_vec()),
+            ("print_orientation", ORIENTATIONS.map(|o| o.0).to_vec()),
+            ("theme", crate::ui::theme::BUILT_IN.map(|t| t.0).to_vec()),
+            (
+                "language",
+                crate::support::lang::LANGUAGES
+                    .iter()
+                    .map(|l| l.0)
+                    .collect(),
+            ),
+        ];
+        (lists.iter())
+            .flat_map(|(key, values)| values.iter().map(move |v| format!("value {key} {v}")))
+            .collect()
+    }
+
+    /// Returns the --remote commands, the words that each takes from a choice ("on|off"), and
+    /// the exit codes. The release tests' "where" is left out, because only their build has it.
+    fn remote_names() -> Vec<String> {
+        use crate::features::remote::{COMMANDS, NOT_SENT, NOT_TAKEN};
+        let mut now = Vec::new();
+        for (usage, _) in COMMANDS {
+            let mut words = usage.split(' ');
+            let command = words.next().unwrap_or_default();
+            if command == "where" {
+                continue;
+            }
+            now.push(format!("remote {command}"));
+            let choice = words.next().filter(|w| w.contains('|')).unwrap_or_default();
+            let choices = choice.trim_matches(['[', ']']).split('|');
+            now.extend(
+                (choices.filter(|w| !w.is_empty())).map(|w| format!("remote {command} {w}")),
+            );
+        }
+        now.push(format!("exit not_sent {NOT_SENT}"));
+        now.push(format!("exit not_taken {NOT_TAKEN}"));
+        now
+    }
+
+    /// The parser takes every start option that --help lists, and --remote and --remote-all.
+    /// Before, an option renamed in the parser alone passed, because only the help was pinned.
+    #[test]
+    fn the_parser_takes_every_frozen_option() {
+        let remote = [
+            crate::features::remote::REMOTE,
+            crate::features::remote::REMOTE_ALL,
+        ];
+        let usages = (crate::cli::START_OPTIONS.iter().map(|o| o.0)).chain(remote);
+        for usage in usages {
+            for option in usage.split(", ") {
+                let (name, value) = option.split_once(' ').unwrap_or((option, ""));
+                // The value given is the first choice, or the word that --help shows for it.
+                let value = value.trim_matches(['[', ']']).split('|').next();
+                let args = vec![name.into(), value.unwrap_or_default().into()];
+                assert!(crate::cli::Start::parse(args).is_ok(), "{name}");
+            }
         }
     }
 }

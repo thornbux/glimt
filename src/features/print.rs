@@ -27,6 +27,14 @@ pub const PAPERS: [(&str, [f32; 2]); 7] = [
     ("13 × 18 cm", [368.5, 510.24]),
 ];
 
+/// The values of print_orientation, which the print dialog writes. Another value turns the
+/// paper by the image, as "auto" does.
+pub const ORIENTATIONS: [(&str, Orientation); 3] = [
+    ("auto", Orientation::Auto),
+    ("portrait", Orientation::Portrait),
+    ("landscape", Orientation::Landscape),
+];
+
 /// Room for the caption below the image, at 9 points.
 const CAPTION: f32 = 18.0;
 
@@ -70,13 +78,10 @@ pub enum Orientation {
 }
 
 impl Orientation {
-    /// The orientation from the setting: "portrait", "landscape", or otherwise by the image.
+    /// Returns the orientation that the print_orientation setting names. An unknown value
+    /// gives `Auto`.
     pub fn from(setting: &str) -> Self {
-        match setting {
-            "portrait" => Self::Portrait,
-            "landscape" => Self::Landscape,
-            _ => Self::Auto,
-        }
+        (ORIENTATIONS.iter().find(|o| o.0 == setting)).map_or(Self::Auto, |o| o.1)
     }
 }
 
@@ -1038,11 +1043,10 @@ fn print_fields(ui: &mut egui::Ui, dialog: &mut PrintDialog, c: &mut Config) {
             });
         ui.end_row();
         ui.label(tr("Orientation:"));
-        let turns = [
-            ("auto", tr("Automatic")),
-            ("portrait", tr("Portrait")),
-            ("landscape", tr("Landscape")),
-        ];
+        let labels = [tr("Automatic"), tr("Portrait"), tr("Landscape")];
+        let turns: Vec<(&str, &str)> = (print::ORIENTATIONS.iter().map(|o| o.0))
+            .zip(labels)
+            .collect();
         let shown = (turns.iter())
             .find(|t| t.0 == c.print_orientation)
             .map_or(turns[0].1, |t| t.1);

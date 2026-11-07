@@ -74,6 +74,17 @@ pub const COMMANDS: &[(&str, &str)] = &[
     ),
 ];
 
+/// The options that send a command, to the Glimt used last or to every one.
+pub const REMOTE: &str = "--remote";
+pub const REMOTE_ALL: &str = "--remote-all";
+
+/// The exit code of `glimt --remote` when a command cannot be sent: unknown, with the wrong
+/// arguments, or with a path that cannot go in the text sent.
+pub const NOT_SENT: i32 = 2;
+
+/// The exit code of `glimt --remote` when no Glimt takes the command, or none answers it.
+pub const NOT_TAKEN: i32 = 1;
+
 /// The most files `select` takes, because the window finds them in its own thread.
 pub const MAX_SELECT: usize = 100_000;
 
@@ -520,14 +531,14 @@ pub fn client(
 ) -> Option<PathBuf> {
     if !known(words) {
         eprintln!("glimt: no such command, or not with these arguments; glimt --help lists them");
-        std::process::exit(2);
+        std::process::exit(NOT_SENT);
     }
     if words[0] == "run" && Action::for_script(&words[1]).is_none() {
         eprintln!(
             "glimt: {} is not an action a script may run; glimt --help lists them",
             words[1]
         );
-        std::process::exit(2);
+        std::process::exit(NOT_SENT);
     }
     let mut command = words.join(" ");
     // select sends whole paths after a NUL each, because names may hold spaces. A line ends
@@ -535,7 +546,7 @@ pub fn client(
     if words.first().is_some_and(|w| w == "select") {
         if paths.len() > MAX_SELECT {
             eprintln!("glimt: select takes at most {} files", MAX_SELECT);
-            std::process::exit(2);
+            std::process::exit(NOT_SENT);
         }
         let mut sent = Vec::new();
         for p in paths {
@@ -546,7 +557,7 @@ pub fn client(
                 Some(text) => sent.push(text.to_owned()),
                 None => {
                     eprintln!("glimt: cannot send {p:?}: not UTF-8, or a line break in it");
-                    std::process::exit(2);
+                    std::process::exit(NOT_SENT);
                 }
             }
         }
@@ -565,7 +576,7 @@ pub fn client(
             return Some(path.into());
         }
         eprintln!("glimt: cannot send {path:?}: not UTF-8");
-        std::process::exit(2);
+        std::process::exit(NOT_SENT);
     }
     // The running Glimt has another working folder, so the full path is sent.
     if let Some(path) = command.strip_prefix("open ") {
@@ -576,7 +587,7 @@ pub fn client(
     // command of its own, such as quit.
     if command.contains('\n') {
         eprintln!("glimt: cannot send a line break in a command or file name");
-        std::process::exit(2);
+        std::process::exit(NOT_SENT);
     }
     let sent = match (name, to_all) {
         (_, true) => send_all(&command) > 0,
@@ -584,7 +595,7 @@ pub fn client(
         (None, false) => send(&command),
     };
     if unanswered() {
-        std::process::exit(1);
+        std::process::exit(NOT_TAKEN);
     }
     if sent {
         return None;
@@ -596,7 +607,7 @@ pub fn client(
                 Some(name) => eprintln!("No Glimt named {name} is running"),
                 None => eprintln!("Glimt is not running"),
             }
-            std::process::exit(1);
+            std::process::exit(NOT_TAKEN);
         }
     }
 }
