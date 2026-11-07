@@ -241,9 +241,9 @@ impl crate::App {
                         ui.weak(tr("File"));
                         ui.label(self.name(self.list.shown()));
                         ui.end_row();
-                        if let Some(s) = self.list.slots().get(&self.list.shown()) {
+                        if let Some(s) = self.list.loaded_images().get(&self.list.shown()) {
                             ui.weak(tr("Dimensions"));
-                            ui.label(format!("{} × {}", s.orig[0], s.orig[1]));
+                            ui.label(format!("{} × {}", s.original_size[0], s.original_size[1]));
                             ui.end_row();
                         }
                         // The old rows stay until the new ones arrive, so the panel does not

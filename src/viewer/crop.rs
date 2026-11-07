@@ -44,7 +44,7 @@ impl crate::App {
             self.notice = Some(tr("A video is not cropped").into());
             return;
         }
-        if self.list.slots().contains_key(&shown) {
+        if self.list.loaded_images().contains_key(&shown) {
             self.viewing.start_crop(Crop {
                 path: self.path(shown),
                 how: self.shown_copy(),
@@ -147,11 +147,12 @@ impl crate::App {
         let Some(crop) = self.viewing.take_crop().filter(|c| self.crop_shown(c)) else {
             return;
         };
-        let (Some(part), Some(slot)) = (crop.part, self.list.slots().get(&self.list.shown()))
+        let (Some(part), Some(loaded)) =
+            (crop.part, self.list.loaded_images().get(&self.list.shown()))
         else {
             return;
         };
-        let [w, h] = slot.orig;
+        let [w, h] = loaded.original_size;
         let pixels = if crop.how.turns % 2 == 1 {
             [h, w]
         } else {
@@ -340,7 +341,10 @@ mod tests {
         let a = dir.join("a.png");
         image::RgbImage::new(8, 8).save(&a).unwrap();
         let (mut app, ctx) = app_on(&dir);
-        assert!(settle(&mut app, &ctx, |a| a.list.slots().contains_key(&0)));
+        assert!(settle(&mut app, &ctx, |a| a
+            .list
+            .loaded_images()
+            .contains_key(&0)));
         app.marks.rate(std::slice::from_ref(&a), 4);
         app.start_crop();
         if let Some(crop) = app.viewing.crop_mut() {

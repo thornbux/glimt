@@ -71,10 +71,10 @@ impl crate::App {
             self.notice = Some(tr("A video is not saved as an image").into());
             return;
         }
-        let Some(slot) = self.list.slots().get(&shown) else {
+        let Some(loaded) = self.list.loaded_images().get(&shown) else {
             return;
         };
-        let [w, h] = slot.orig;
+        let [w, h] = loaded.original_size;
         let orig = if self.viewing.is_sideways() {
             [h, w]
         } else {

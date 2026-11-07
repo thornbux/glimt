@@ -5,7 +5,7 @@ use crate::files::config::sort_folders_from;
 use crate::files::config::sort_folders_path;
 use crate::files::external::Mounted;
 use crate::files::external::{Login, gio_mount};
-use crate::model::list::{List, Slot};
+use crate::model::list::{List, LoadedImage};
 use crate::model::listing::{
     Types, is_listed, list_folder, list_tree, merge_shuffled, shuffle, sort_files, walk,
 };
@@ -1124,11 +1124,12 @@ impl crate::App {
         if !still {
             self.leave_image(ctx);
         }
-        // The slots are kept by name, so the neighbours read ahead stay, after a refresh as
-        // after a delete.
-        let mut slots: HashMap<OsString, Slot> = (self.list.take_slots().into_iter())
-            .filter_map(|(i, s)| Some((self.list.files().get(i)?.clone(), s)))
-            .collect();
+        // The decoded images are kept by name, so the neighbours read ahead stay, after a refresh
+        // as after a delete.
+        let mut loaded_images: HashMap<OsString, LoadedImage> =
+            (self.list.take_loaded_images().into_iter())
+                .filter_map(|(i, s)| Some((self.list.files().get(i)?.clone(), s)))
+                .collect();
         // The panes are kept by name too, because their places belong to other files in the
         // new list, but their files do not change.
         let panes: Vec<OsString> = (self.list.panes().iter())
@@ -1155,16 +1156,16 @@ impl crate::App {
         // One pass over the list for a handful of textures.
         let mut kept = Vec::new();
         for (i, name) in self.list.files().iter().enumerate() {
-            if slots.is_empty() {
+            if loaded_images.is_empty() {
                 break;
             }
-            if let Some(slot) = slots.remove(name) {
-                kept.push((i, slot));
+            if let Some(loaded) = loaded_images.remove(name) {
+                kept.push((i, loaded));
             }
         }
-        for (i, slot) in kept {
-            if self.is_file(i, &slot.path) {
-                self.list.keep_slot(i, slot);
+        for (i, loaded) in kept {
+            if self.is_file(i, &loaded.path) {
+                self.list.keep_loaded_image(i, loaded);
             }
         }
         for (full, job) in jobs {
@@ -1172,8 +1173,8 @@ impl crate::App {
                 self.list.ask_decode((shown, full), job);
             }
         }
-        // The search runs first, after the slots are carried over, because with Compare on the
-        // selection refills, and the compared image and the neighbours are counted among the
+        // The search runs first, after the decoded images are carried over, because with Compare on
+        // the selection refills, and the compared image and the neighbours are counted among the
         // matches, not in the whole folder.
         self.update_search(ctx);
         self.selection_changed(ctx);
@@ -1424,7 +1425,7 @@ mod tests {
         app.update_search(&ctx);
         app.refill();
         let both = |a: &crate::App, x, y| {
-            a.list.slots().contains_key(&x) && a.list.slots().contains_key(&y)
+            a.list.loaded_images().contains_key(&x) && a.list.loaded_images().contains_key(&y)
         };
         assert!(settle(&mut app, &ctx, |a| both(a, 5, 9)));
         app.remove_indices(&ctx, &[0]);
@@ -1614,12 +1615,12 @@ mod tests {
         let shown = app.list.shown();
         assert!(settle(&mut app, &ctx, |a| a
             .list
-            .slots()
+            .loaded_images()
             .contains_key(&shown)));
         app.run(&ctx, crate::ui::actions::Action::Refresh);
         assert!(settle(&mut app, &ctx, |a| a.folder.listing_rx.is_none()));
         let asked = |a: &crate::App| {
-            a.list.slots().contains_key(&shown)
+            a.list.loaded_images().contains_key(&shown)
                 || a.list.decodes_pending().keys().any(|k| k.0 == shown)
         };
         assert!(asked(&app), "the image shown decoded again");

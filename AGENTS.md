@@ -104,7 +104,7 @@ holds only its `mod` lines, and a new module goes into the folder of what it doe
 | `src/main.rs` | The app: `App` and its parts (each a struct in the module whose code uses it, such as `slideshow::Slideshow` or `file_ops::FileOperations`), starting up, the frame (`eframe::App`) and `main()`. The window's parts are each in a module of their own below, as `impl crate::App` blocks |
 | `src/cli.rs` | The command line: the start options (`Start`, `START_OPTIONS`) and the commands that answer without a window (`answered`: --help, --version, --check-config, --back-up) |
 | `src/model.rs` | **The model/ folder:** what is open: the file list, listing and opening folders and collections, the search and the selection |
-| `src/model/list.rs` | The model of what is open: `List`, the file list with everything that holds a place in it, and `Slot`, an image decoded for the view |
+| `src/model/list.rs` | The model of what is open: `List`, the file list with everything that holds a place in it, and `LoadedImage`, an image decoded for the view |
 | `src/model/folder.rs` | Opening a folder, a collection or several folders, listing them, following changes, the sizes summed for the status bar (`send_sizes`, `receive_sizes`) |
 | `src/model/selection.rs` | Moving through the list (next, previous, a page, random) and the selection |
 | `src/model/listing.rs` | Image extensions, reading a folder or tree, sorting (`Sort`, `natural_cmp`), the Types menu, `pattern_name` for Rename Many |

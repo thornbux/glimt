@@ -1,4 +1,4 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 830" width="1200" height="830" role="img" aria-label="From a folder to pixels in Glimt. A listing thread reads the folder without a stat per file; replace_files makes a new List and carries the shown file, selection and decoded slots over by name. refill asks the decode workers for the shown image and its neighbours at the size of the view; decode shrinks and converts to the screen with to_display. Thumbnails come from the freedesktop cache or are made, converted with to_srgb for the cache. Every decode checks fits_decode_limit before it allocates.">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 830" width="1200" height="830" role="img" aria-label="From a folder to pixels in Glimt. A listing thread reads the folder without a stat per file; replace_files makes a new List and carries the shown file, selection and decoded images over by name. refill asks the decode workers for the shown image and its neighbours at the size of the view; decode shrinks and converts to the screen with to_display. Thumbnails come from the freedesktop cache or are made, converted with to_srgb for the cache. Every decode checks fits_decode_limit before it allocates.">
   <title>From a folder to pixels</title>
   <defs>
     <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
@@ -42,7 +42,7 @@
       <text x="750" y="153">a new List, version + 1;</text>
       <text x="750" y="169">carried over by name: the</text>
       <text x="750" y="185">shown file, the selection,</text>
-      <text x="750" y="201">decoded Slots, panes</text>
+      <text x="750" y="201">decoded images, panes</text>
 
       <rect x="974" y="96" width="196" height="122" rx="6" fill="#ffffff" stroke="#3b6fd8" stroke-width="2.5"/>
       <text x="986" y="117" font-size="13" font-weight="700" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace">List</text>
@@ -50,7 +50,8 @@
       <text x="986" y="137">files: Vec&lt;OsString&gt;,</text>
       <text x="986" y="153">names only, no paths;</text>
       <text x="986" y="169">shown, selected, panes;</text>
-      <text x="986" y="185">slots: the decoded images</text>
+      <text x="986" y="185">loaded_images: the</text>
+      <text x="986" y="201">decoded images</text>
     </g>
     <g font-size="12" fill="#57606a" text-anchor="middle">
       <line x1="226" y1="157" x2="264" y2="157" stroke="#1f2328" stroke-width="1.5" marker-end="url(#arrow)"/>
@@ -70,7 +71,8 @@
       <text x="42" y="335">shown image (List::shown),</text>
       <text x="42" y="351">the compared one, panes,</text>
       <text x="42" y="367">then preload on each side</text>
-      <text x="42" y="391">keep_slots drops the rest</text>
+      <text x="42" y="391">keep_loaded_images</text>
+      <text x="42" y="407">drops the rest</text>
       <text x="42" y="425" fill="#57606a">viewer/view.rs</text>
 
       <rect x="266" y="278" width="196" height="166" rx="6" fill="#e6f4ea" stroke="#2e8b57" stroke-width="1.5"/>
@@ -95,15 +97,15 @@
       <rect x="738" y="278" width="196" height="166" rx="6" fill="#e6f4ea" stroke="#2e8b57" stroke-width="1.5"/>
       <text x="750" y="299" font-size="13" font-weight="700" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace">receive_decoded</text>
       <text x="750" y="319">a texture is made, and a</text>
-      <text x="750" y="335" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace">Slot { tex, orig, hist }</text>
-      <text x="750" y="351">goes into List::slots;</text>
+      <text x="750" y="335" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace">LoadedImage</text>
+      <text x="750" y="351">goes into List::loaded_images;</text>
       <text x="750" y="367">an answer to a job no</text>
       <text x="750" y="383">longer pending is dropped</text>
       <text x="750" y="425" fill="#57606a">UI thread, next frame</text>
 
       <rect x="974" y="278" width="196" height="166" rx="6" fill="#e6f4ea" stroke="#2e8b57" stroke-width="1.5"/>
       <text x="986" y="299" font-size="13" font-weight="700" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace">image_area</text>
-      <text x="986" y="319">paints the Slot, or the</text>
+      <text x="986" y="319">paints the LoadedImage, or the</text>
       <text x="986" y="335">last image drawn until it</text>
       <text x="986" y="351">comes; zoomed past what</text>
       <text x="986" y="367">it covers, it asks again</text>
@@ -117,9 +119,9 @@
       <text x="718" y="354">mpsc</text>
       <line x1="934" y1="361" x2="972" y2="361" stroke="#1f2328" stroke-width="1.5" marker-end="url(#arrow)"/>
     </g>
-    <!-- receive_decoded puts the Slot in the List -->
+    <!-- receive_decoded puts the LoadedImage in the List -->
     <polyline points="836,278 836,244 1072,244 1072,220" fill="none" stroke="#1f2328" stroke-width="1.5" marker-end="url(#arrow)"/>
-    <text x="846" y="238" font-size="12" fill="#57606a">Slot into List::slots</text>
+    <text x="846" y="238" font-size="12" fill="#57606a">LoadedImage into List::loaded_images</text>
 
     <!-- Lane 3 -->
     <text x="30" y="492" font-size="14" font-weight="700">3. Thumbnails in the file list and the icon grid</text>

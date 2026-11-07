@@ -1301,7 +1301,7 @@ impl crate::App {
     /// that changes what a name holds calls this: a change in place, a move, a rename, a delete.
     pub(crate) fn forget_names(&mut self, paths: &[PathBuf]) {
         for path in paths {
-            self.list.keep_slots(|_, s| s.path != *path);
+            self.list.keep_loaded_images(|_, s| s.path != *path);
             if let Ok(name) = path.strip_prefix(self.folder.dir()) {
                 let name = name.as_os_str();
                 self.thumbs.forget(name);
@@ -3811,7 +3811,7 @@ mod tests {
     fn a_renamed_shown_image_is_decoded_again() {
         let dir = contract_folder("decode-again");
         let (mut app, ctx) = app_on(&dir);
-        let shown = |a: &crate::App| a.list.slots().contains_key(&a.list.shown());
+        let shown = |a: &crate::App| a.list.loaded_images().contains_key(&a.list.shown());
         assert!(settle(&mut app, &ctx, |a| !a.working() && shown(a)));
         let path = app.path(app.list.shown());
         app.forget_names(std::slice::from_ref(&path));

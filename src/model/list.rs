@@ -1,5 +1,5 @@
 //! The model of what is open: the file list with everything that holds a place in it
-//! (`List`), and the decoded images (`Slot`).
+//! (`List`), and the decoded images (`LoadedImage`).
 
 use crate::images::decode::HistogramCounts;
 use crate::ui::file_list::RubberBand;
@@ -9,29 +9,29 @@ use std::ffi::OsString;
 use std::path::PathBuf;
 
 /// An image decoded for the view: the shown one or a neighbour read ahead, at the size shown or
-/// (`full`) at full resolution.
-pub(crate) struct Slot {
-    pub(crate) tex: egui::TextureHandle,
+/// (`is_full_resolution`) at full resolution.
+pub(crate) struct LoadedImage {
+    pub(crate) texture: egui::TextureHandle,
     /// The file the texture was made from; decides whether it can be kept when the file list
     /// changes.
     pub(crate) path: PathBuf,
-    pub(crate) full: bool,
+    pub(crate) is_full_resolution: bool,
     /// Original size after EXIF rotation.
-    pub(crate) orig: [usize; 2],
+    pub(crate) original_size: [usize; 2],
     /// Frames of an animated GIF or WebP with their delays in ms; empty for a still image.
-    pub(crate) anim: Vec<(egui::TextureHandle, u32)>,
+    pub(crate) frames: Vec<(egui::TextureHandle, u32)>,
     /// Of the decoded image (the first frame of an animation).
-    pub(crate) hist: Box<HistogramCounts>,
+    pub(crate) histogram: Box<HistogramCounts>,
     /// Pages of a multi-page TIFF; 1 for other files.
     pub(crate) pages: usize,
     /// The box it was decoded into (`decode_box`): decoded again only for a larger one.
     pub(crate) decoded_for: [u32; 2],
 }
 
-impl Slot {
+impl LoadedImage {
     /// Whether any pixel of the (first) frame is less than opaque.
     pub(crate) fn transparent(&self) -> bool {
-        self.hist[4][..255].iter().any(|&n| n > 0)
+        self.histogram[4][..255].iter().any(|&n| n > 0)
     }
 
     /// The frame to show `t` after the image was opened; asks for a repaint when the next is due.
@@ -44,14 +44,14 @@ impl Slot {
         if let Some(left) = left {
             ctx.request_repaint_after(std::time::Duration::from_millis(left as u64));
         }
-        self.anim.get(k).map_or(&self.tex, |f| &f.0)
+        self.frames.get(k).map_or(&self.texture, |f| &f.0)
     }
 
     /// The frame shown `t` after the start, and the milliseconds it still has.
     pub(crate) fn frame_at(&self, t: std::time::Duration) -> (usize, Option<u32>) {
-        let total: u32 = self.anim.iter().map(|f| f.1).sum();
+        let total: u32 = self.frames.iter().map(|f| f.1).sum();
         let mut at = (t.as_millis() % total.max(1) as u128) as u32;
-        for (k, (_, ms)) in self.anim.iter().enumerate() {
+        for (k, (_, ms)) in self.frames.iter().enumerate() {
             if at < *ms {
                 return (k, Some(ms - at));
             }
@@ -64,7 +64,7 @@ impl Slot {
 /// The file list and everything that holds a place in it: made anew when the list is another
 /// (`replace_files`), so nothing indexed into one list can outlive it, whatever field comes
 /// next. What follows a file from one list to the next (the shown image, the selection, the
-/// panes, the decoded slots) is carried over by name there, in the one place.
+/// panes, the decoded images) is carried over by name there, in the one place.
 #[derive(Default)]
 pub(crate) struct List {
     /// The images in `dir`, file name only (the full path is built on demand by `path`): saves
@@ -86,7 +86,7 @@ pub(crate) struct List {
     range_end: Option<usize>,
     /// The images of a layout's panes after the first, which shows `shown`.
     panes: Vec<usize>,
-    slots: HashMap<usize, Slot>,
+    loaded_images: HashMap<usize, LoadedImage>,
     decode_errors: HashMap<usize, String>,
     /// Decodes asked for, with the number of the job: only its result is taken, so one asked
     /// for before the list, the page, the look or the file changed is dropped; and the box it
@@ -165,8 +165,8 @@ impl List {
     }
 
     /// The decoded images, by their places in the list.
-    pub(crate) fn slots(&self) -> &HashMap<usize, Slot> {
-        &self.slots
+    pub(crate) fn loaded_images(&self) -> &HashMap<usize, LoadedImage> {
+        &self.loaded_images
     }
 
     /// Why images could not be decoded, by their places in the list.
@@ -276,7 +276,7 @@ impl List {
             idx += 1;
             removed.binary_search(&(idx - 1)).is_err()
         });
-        self.slots = without_indices(std::mem::take(&mut self.slots), removed);
+        self.loaded_images = without_indices(std::mem::take(&mut self.loaded_images), removed);
         self.decode_errors = without_indices(std::mem::take(&mut self.decode_errors), removed);
         self.panes.clear();
     }
@@ -392,36 +392,39 @@ impl List {
     }
 
     /// Takes the decoded images, by their places, to carry them into a new list by name.
-    pub(crate) fn take_slots(&mut self) -> HashMap<usize, Slot> {
-        std::mem::take(&mut self.slots)
+    pub(crate) fn take_loaded_images(&mut self) -> HashMap<usize, LoadedImage> {
+        std::mem::take(&mut self.loaded_images)
     }
 
-    /// Keeps the decoded image `slot` at place `i`.
-    pub(crate) fn keep_slot(&mut self, i: usize, slot: Slot) {
-        self.slots.insert(i, slot);
+    /// Keeps the decoded image `loaded` at place `i`.
+    pub(crate) fn keep_loaded_image(&mut self, i: usize, loaded: LoadedImage) {
+        self.loaded_images.insert(i, loaded);
     }
 
     /// Lets go of the decoded image at place `i`.
-    pub(crate) fn forget_slot(&mut self, i: usize) {
-        self.slots.remove(&i);
+    pub(crate) fn forget_loaded_image(&mut self, i: usize) {
+        self.loaded_images.remove(&i);
     }
 
     /// Keeps only the decoded images for which `keep` says so.
-    pub(crate) fn keep_slots(&mut self, mut keep: impl FnMut(&usize, &Slot) -> bool) {
-        self.slots.retain(|i, s| keep(i, s));
+    pub(crate) fn keep_loaded_images(
+        &mut self,
+        mut keep: impl FnMut(&usize, &LoadedImage) -> bool,
+    ) {
+        self.loaded_images.retain(|i, s| keep(i, s));
     }
 
     /// Keeps only the images decoded at full resolution, and the decodes at full resolution
     /// asked for, so the others are decoded again to a new size.
     pub(crate) fn keep_full_only(&mut self) {
-        self.slots.retain(|_, s| s.full);
+        self.loaded_images.retain(|_, s| s.is_full_resolution);
         self.decodes_pending.retain(|&(_, full), _| full);
     }
 
     /// Lets go of every decoded image, every decode asked for and every decode error, so all
     /// are decoded again.
     pub(crate) fn forget_decoded(&mut self) {
-        self.slots.clear();
+        self.loaded_images.clear();
         self.decodes_pending.clear();
         self.decode_errors.clear();
     }
@@ -583,7 +586,7 @@ mod tests {
             ("anchor", "reset"),
             ("range_end", "reset"),
             ("panes", "carried by name"),
-            ("slots", "carried by name"),
+            ("loaded_images", "carried by name"),
             ("decode_errors", "reset: decoded again"),
             (
                 "decodes_pending",

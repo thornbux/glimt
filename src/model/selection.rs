@@ -113,7 +113,7 @@ impl crate::App {
         // A TIFF shown at another page than the first: its decoded page must not stay for when
         // it is shown again from the first page.
         if self.viewing.page() > 0 {
-            self.list.forget_slot(self.list.shown());
+            self.list.forget_loaded_image(self.list.shown());
         }
         if self.config.save_orientation && self.viewing.is_turned() {
             self.save_orientation(ctx);

@@ -1902,7 +1902,10 @@ mod tests {
             // Crop and Save As start from the image decoded for the view, which a frame asks
             // for.
             frame(&mut app);
-            assert!(settle(&mut app, &ctx, |app| !app.list.slots().is_empty()));
+            assert!(settle(&mut app, &ctx, |app| !app
+                .list
+                .loaded_images()
+                .is_empty()));
             app.run(&ctx, action);
             frame(&mut app);
             std::fs::remove_dir_all(&dir).unwrap();

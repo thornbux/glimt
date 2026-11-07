@@ -1808,23 +1808,27 @@ impl crate::App {
                         self.place_of(idx)
                     };
                     let bytes = tf!("{n} bytes", n = thousands(bytes as usize));
-                    match self.list.slots().get(&idx) {
-                        Some(slot) => {
-                            let [w, h] = slot.orig;
+                    match self.list.loaded_images().get(&idx) {
+                        Some(loaded) => {
+                            let [w, h] = loaded.original_size;
                             if let Some(scale) = scale {
                                 ui.label(format!("{} %", (scale * 100.0).round()));
                                 ui.separator();
                             }
-                            let page = if slot.pages > 1 && idx == self.list.shown() {
+                            let page = if loaded.pages > 1 && idx == self.list.shown() {
                                 tf!(
                                     " page {n}/{pages}",
                                     n = self.viewing.page() + 1,
-                                    pages = slot.pages
+                                    pages = loaded.pages
                                 )
                             } else if let Some(k) =
                                 self.viewing.frame().filter(|_| idx == self.list.shown())
                             {
-                                tf!(" frame {n}/{frames}", n = k + 1, frames = slot.anim.len())
+                                tf!(
+                                    " frame {n}/{frames}",
+                                    n = k + 1,
+                                    frames = loaded.frames.len()
+                                )
                             } else {
                                 String::new()
                             };
