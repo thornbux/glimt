@@ -359,7 +359,7 @@ impl crate::App {
             ui.label(tr("Language"));
             if chosen {
                 changed = true;
-                lang::set(&self.config.language);
+                lang::set_language(&self.config.language);
             }
         });
         let follow = tr("High Contrast when the desktop asks for high contrast");

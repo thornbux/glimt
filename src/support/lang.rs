@@ -15,7 +15,7 @@ macro_rules! tf {
     (@value $name:ident = $value:expr) => { $value };
     (@value $name:ident) => { $name };
     ($text:literal $(, $name:ident $(= $value:expr)?)* $(,)?) => {
-        $crate::support::lang::fill(
+        $crate::support::lang::fill_placeholders(
             $crate::support::lang::tr($text),
             &[$((stringify!($name), &$crate::tf!(@value $name $(= $value)?) as &dyn ::std::fmt::Display)),*],
         )
@@ -61,7 +61,7 @@ pub const LANGUAGES: &[(&str, &str, &[&str], &str)] = &[
 ];
 
 /// The translation in use; `None` for English.
-static CURRENT: RwLock<Option<&'static Table>> = RwLock::new(None);
+static CURRENT_TRANSLATION: RwLock<Option<&'static Translation>> = RwLock::new(None);
 
 /// The most forms a noun has in a translation built in (Polish: one, few, many).
 const FORMS: usize = 4;
@@ -69,7 +69,7 @@ const FORMS: usize = 4;
 /// A translation, parsed: each English text and its translation, and each noun of `count`
 /// with its forms; `code` picks the form.
 #[derive(Default)]
-struct Table {
+struct Translation {
     code: &'static str,
     texts: HashMap<String, String>,
     plurals: HashMap<String, Vec<String>>,
@@ -93,31 +93,33 @@ fn plural_form(code: &str, n: usize) -> usize {
 }
 
 /// Use the language of `setting` (a code of `LANGUAGES`, "en"), or with "" the system's.
-pub fn set(setting: &str) {
+pub fn set_language(setting: &str) {
     let code = match setting {
         "" => from_env(),
         code => Some(code.to_owned()),
     };
-    let table = code.and_then(|code| {
+    let chosen = code.and_then(|code| {
         let k = LANGUAGES.iter().position(|l| l.0 == code)?;
-        Some(table(k))
+        Some(translation(k))
     });
-    *CURRENT.write().unwrap_or_else(|e| e.into_inner()) = table;
+    *CURRENT_TRANSLATION
+        .write()
+        .unwrap_or_else(|e| e.into_inner()) = chosen;
 }
 
 /// Each translation parsed once, the first time it is chosen, and kept: its texts are handed
 /// out as `&'static str`.
-fn table(k: usize) -> &'static Table {
-    static TABLES: std::sync::Mutex<Vec<Option<&'static Table>>> =
+fn translation(k: usize) -> &'static Translation {
+    static TRANSLATIONS: std::sync::Mutex<Vec<Option<&'static Translation>>> =
         std::sync::Mutex::new(Vec::new());
-    let mut tables = TABLES.lock().unwrap_or_else(|e| e.into_inner());
-    tables.resize(LANGUAGES.len(), None);
-    tables[k].get_or_insert_with(|| {
-        let table = Table {
+    let mut translations = TRANSLATIONS.lock().unwrap_or_else(|e| e.into_inner());
+    translations.resize(LANGUAGES.len(), None);
+    translations[k].get_or_insert_with(|| {
+        let parsed = Translation {
             code: LANGUAGES[k].0,
             ..parse(LANGUAGES[k].3)
         };
-        Box::leak(Box::new(table))
+        Box::leak(Box::new(parsed))
     })
 }
 
@@ -153,23 +155,27 @@ fn language(locale: &str) -> Option<String> {
 
 /// `en` in the language in use, or itself when that has no translation of it.
 pub fn tr(en: &'static str) -> &'static str {
-    let current = CURRENT.read().unwrap_or_else(|e| e.into_inner());
+    let current = CURRENT_TRANSLATION
+        .read()
+        .unwrap_or_else(|e| e.into_inner());
     match *current {
-        Some(table) => table.texts.get(en).map_or(en, |t| t.as_str()),
+        Some(translation) => translation.texts.get(en).map_or(en, |t| t.as_str()),
         None => en,
     }
 }
 
 /// Returns the group separator and the decimal mark of the language in use, for numbers such
 /// as "1.200 Dateien" and "2,3 MB".
-pub fn number_marks() -> (&'static str, &'static str) {
-    let current = CURRENT.read().unwrap_or_else(|e| e.into_inner());
-    marks_of((*current).map_or("en", |t| t.code))
+pub fn number_separators() -> (&'static str, &'static str) {
+    let current = CURRENT_TRANSLATION
+        .read()
+        .unwrap_or_else(|e| e.into_inner());
+    number_separators_of((*current).map_or("en", |t| t.code))
 }
 
 /// Returns the group separator and decimal mark of the language `code`. Most languages here
 /// group with a no-break space or a full stop and write a decimal comma.
-fn marks_of(code: &str) -> (&'static str, &'static str) {
+fn number_separators_of(code: &str) -> (&'static str, &'static str) {
     match code {
         "en" => (",", "."),
         "da" | "de" | "es" | "is" | "it" | "nl" | "pt_BR" => (".", ","),
@@ -179,10 +185,12 @@ fn marks_of(code: &str) -> (&'static str, &'static str) {
 
 /// The form of `noun` for `n` of it: "image" or "images", or the translation's form.
 pub fn plural(noun: &'static str, n: usize) -> std::borrow::Cow<'static, str> {
-    let current = CURRENT.read().unwrap_or_else(|e| e.into_inner());
-    if let Some(table) = *current
-        && let Some(forms) = table.plurals.get(noun)
-        && let Some(form) = forms.get(plural_form(table.code, n))
+    let current = CURRENT_TRANSLATION
+        .read()
+        .unwrap_or_else(|e| e.into_inner());
+    if let Some(translation) = *current
+        && let Some(forms) = translation.plurals.get(noun)
+        && let Some(form) = forms.get(plural_form(translation.code, n))
     {
         return form.as_str().into();
     }
@@ -193,7 +201,7 @@ pub fn plural(noun: &'static str, n: usize) -> std::borrow::Cow<'static, str> {
 }
 
 /// `template` with each `{name}` replaced by its value from `values`; others stay as they are.
-pub fn fill(template: &str, values: &[(&str, &dyn std::fmt::Display)]) -> String {
+pub fn fill_placeholders(template: &str, values: &[(&str, &dyn std::fmt::Display)]) -> String {
     let mut out = String::with_capacity(template.len());
     let mut rest = template;
     while let Some(open) = rest.find('{') {
@@ -218,8 +226,8 @@ pub fn fill(template: &str, values: &[(&str, &dyn std::fmt::Display)]) -> String
 
 /// The `.po` file's entries: msgid and msgstr, and msgid_plural with msgstr[0], [1] …; the
 /// header, untranslated ones and those marked fuzzy left out, as gettext does.
-fn parse(po: &str) -> Table {
-    let mut table = Table::default();
+fn parse(po: &str) -> Translation {
+    let mut translation = Translation::default();
     let (mut fuzzy, mut field, mut id, mut id_plural) = (false, "", String::new(), None);
     let mut strs: Vec<Option<String>> = vec![None; FORMS];
     let mut entries = Vec::new();
@@ -283,17 +291,17 @@ fn parse(po: &str) -> Table {
             .collect();
         match id_plural {
             Some(_) if forms.len() >= 2 => {
-                table.plurals.insert(id, forms);
+                translation.plurals.insert(id, forms);
             }
             None if !forms.is_empty() => {
-                table
+                translation
                     .texts
                     .insert(id, forms.into_iter().next().unwrap_or_default());
             }
             _ => {}
         }
     }
-    table
+    translation
 }
 
 /// The text of a quoted `.po` string, its escapes read: \" \\ \n \t.
@@ -323,11 +331,11 @@ mod tests {
     /// Every language has its own marks for numbers, and English keeps its comma and point.
     #[test]
     fn numbers_take_the_language_marks() {
-        assert_eq!(super::marks_of("en"), (",", "."));
-        assert_eq!(super::marks_of("de"), (".", ","));
-        assert_eq!(super::marks_of("no_nb"), ("\u{a0}", ","));
+        assert_eq!(super::number_separators_of("en"), (",", "."));
+        assert_eq!(super::number_separators_of("de"), (".", ","));
+        assert_eq!(super::number_separators_of("no_nb"), ("\u{a0}", ","));
         for l in super::LANGUAGES {
-            assert_ne!(super::marks_of(l.0), (",", "."), "{}", l.0);
+            assert_ne!(super::number_separators_of(l.0), (",", "."), "{}", l.0);
         }
     }
 
@@ -385,10 +393,13 @@ msgstr[1] "bilder"
     fn fills_in_values() {
         let (n, e) = (3, "full disk");
         assert_eq!(
-            super::fill("{n} left: {e}", &[("n", &n), ("e", &e)]),
+            super::fill_placeholders("{n} left: {e}", &[("n", &n), ("e", &e)]),
             "3 left: full disk"
         );
-        assert_eq!(super::fill("{x} {n} {", &[("n", &n)]), "{x} 3 {");
+        assert_eq!(
+            super::fill_placeholders("{x} {n} {", &[("n", &n)]),
+            "{x} 3 {"
+        );
         let name = "a.jpg";
         assert_eq!(
             crate::tf!("Could not save {name}: {e}", name, e = e),

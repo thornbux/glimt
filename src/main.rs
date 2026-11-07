@@ -171,7 +171,7 @@ impl App {
         path: Option<PathBuf>,
         start: Start,
     ) -> Self {
-        crate::support::lang::set(&config.language);
+        crate::support::lang::set_language(&config.language);
         // Start options are kept, as choosing them in the View menu would.
         if let Some(layout) = start.layout {
             config.layout = layout.into();
