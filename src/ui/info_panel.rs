@@ -433,14 +433,14 @@ impl crate::App {
             edit.keywords = edit.saved.keywords_text();
         }
         let paths: Vec<PathBuf> = targets.iter().map(|&i| self.path(i)).collect();
-        let doing = match on {
+        let activity = match on {
             true => tr("Setting keywords"),
             false => tr("Taking keywords off"),
         };
         let (n, written) = (paths.len(), tag.clone());
         self.write_sidecars(
             ctx,
-            doing,
+            activity,
             paths,
             move |path| xmp::tag_file(path, &written, on).is_ok(),
             move |failed, job| match () {
@@ -448,7 +448,7 @@ impl crate::App {
                     "The keyword could not be saved for {count}",
                     count = count(failed, "file")
                 )),
-                _ if job.stopped() => Some(job.stopped_text()),
+                _ if job.is_stopped() => Some(job.stopped_text()),
                 // One sentence, so each language can put the words in its own order.
                 _ if n > 1 => Some(match on {
                     true => tf!("{tag} set on {count}", tag, count = count(n, "file")),
@@ -589,7 +589,7 @@ impl crate::App {
                     "Keywords could not be saved for {count}",
                     count = count(failed, "file")
                 )),
-                _ if job.stopped() => Some(job.stopped_text()),
+                _ if job.is_stopped() => Some(job.stopped_text()),
                 _ => Some(tf!("Keywords added to {count}", count = count(n, "file"))),
             },
         );

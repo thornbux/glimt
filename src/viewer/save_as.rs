@@ -182,7 +182,7 @@ impl crate::App {
         to: PathBuf,
     ) {
         let report_tx = self.file_operations.report_sender();
-        self.background(ctx, vec![path.clone(), to.clone()], move || {
+        self.run_in_background(ctx, vec![path.clone(), to.clone()], move || {
             Some(match decode::survive(|| save::save_as(&path, &how, &to)) {
                 Ok(new) => {
                     // Saved over a file the dialog let it replace, maybe one in the list. The copy

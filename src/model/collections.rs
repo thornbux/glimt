@@ -96,7 +96,7 @@ impl crate::App {
     /// the window still shows that collection, it shows the shown image's folder after.
     pub(crate) fn trash_collection(&mut self, ctx: &egui::Context, file: PathBuf) {
         let shown = self.folder.collection() == Some(file.as_path());
-        if !self.background(ctx, vec![file.clone()], move || {
+        if !self.run_in_background(ctx, vec![file.clone()], move || {
             let name = file
                 .file_stem()
                 .unwrap_or_default()
@@ -129,7 +129,7 @@ impl crate::App {
         };
         let paths: Vec<PathBuf> = targets.iter().map(|&i| self.path(i)).collect();
         let file = file.to_path_buf();
-        self.background(ctx, Vec::new(), move || {
+        self.run_in_background(ctx, Vec::new(), move || {
             let name = file.file_stem().unwrap_or_default().to_string_lossy();
             Some(match append(&file, &paths) {
                 Ok(n) => tf!("{n} added to the collection \"{name}\"", n, name),
@@ -769,7 +769,7 @@ mod tests {
         let base = dir.canonicalize().unwrap().join("base");
         let pairs = [(base.join("pics"), base.join("new"))];
         std::fs::rename(&pairs[0].0, &pairs[0].1).unwrap();
-        let moved = crate::files::file_ops::moves(&pairs);
+        let moved = crate::files::file_ops::moves_by_source(&pairs);
         super::edit(&file, false, |all| {
             for p in all {
                 if let Some(to) = crate::files::file_ops::new_place(p, &moved) {

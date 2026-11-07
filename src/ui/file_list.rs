@@ -1768,7 +1768,7 @@ impl crate::App {
                 ui.separator();
                 // The release tests look for the hidden count on its own.
                 crate::support::test_hooks::noted(&ui.label(left), &hidden);
-                if let Some((job, jobs)) = self.file_operations.jobs_shown() {
+                if let Some((job, jobs)) = self.file_operations.first_job_and_count() {
                     ui.separator();
                     let more = match jobs - 1 {
                         0 => String::new(),
@@ -1776,7 +1776,7 @@ impl crate::App {
                     };
                     ui.label(tf!(
                         "{doing} {done} of {total}…{more}",
-                        doing = tr(job.doing),
+                        doing = tr(job.activity),
                         done = thousands(job.done.load(Ordering::Relaxed)),
                         total = thousands(job.total),
                         more

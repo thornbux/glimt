@@ -44,7 +44,7 @@ pub(crate) struct Window {
     pointer_moved: std::time::Instant,
     /// Window → Set Window Title: this window's title template; empty, the one in Preferences.
     title: String,
-    /// Close asked for while files were being written (`work_left`): 1, it waits for them; 2,
+    /// Close asked for while files were being written (`is_writing`): 1, it waits for them; 2,
     /// they are stopped after the file at hand and it waits for that; a third close ends at once.
     closing: u8,
     /// The image and turn that a close last tried to save. A close saves a turn only when it
@@ -182,7 +182,7 @@ impl crate::App {
         // Files still being copied, moved, renamed or saved: closed when they are done, not
         // halfway; a second close stops them after the file at hand, a third does not wait.
         if ctx.input(|i| i.viewport().close_requested())
-            && self.work_left()
+            && self.is_writing()
             && self.window.closing < 2
         {
             ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);

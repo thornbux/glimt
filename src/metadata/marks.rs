@@ -124,7 +124,7 @@ impl Marks {
     pub fn follow_folder(&mut self, from: PathBuf, to: PathBuf) {
         self.refresh();
         let pairs = vec![(from, to)];
-        let moved = crate::files::file_ops::moves(&pairs);
+        let moved = crate::files::file_ops::moves_by_source(&pairs);
         let inside: Vec<(PathBuf, PathBuf)> = (self.map.keys())
             .filter_map(|k| {
                 let dir = crate::files::file_ops::new_place(k.parent()?, &moved)?;

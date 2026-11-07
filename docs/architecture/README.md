@@ -40,7 +40,7 @@ paths: `to_display` for the screen, `to_srgb` for anything that leaves Glimt.
 
 ![A change on disk, safely](4-change-on-disk.svg)
 
-Read this before you touch a file operation. Every operation first passes `none_saving`, which
+Read this before you touch a file operation. Every operation first passes `are_free_to_change`, which
 refuses it while other work changes the same files. The job then runs in a thread and changes the
 disk only through one function for each kind of change. Each of these writes the new file whole
 under a hidden name and renames it, and none renames over another file. The answer comes back to

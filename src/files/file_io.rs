@@ -419,8 +419,8 @@ pub fn replace_file(path: &Path, bytes: impl AsRef<[u8]>) -> std::io::Result<()>
 /// `replace_file` for a file of the user's that must still be there: a turned image, whose
 /// save takes a while. Deleted, moved or renamed meanwhile, it is not made again under its old
 /// name by the save landing late; the save is refused instead. The one place this holds for
-/// every operation, whether or not it asked `none_saving` first. The step `before` runs after
-/// the file is found writable and still there and the new version is written whole, just
+/// every operation, whether or not it asked `are_free_to_change` first. The step `before` runs
+/// after the file is found writable and still there and the new version is written whole, just
 /// before the rename. The image's sidecar is changed there, so a write that fails (a read-only
 /// file, a full disk) leaves the file and its sidecar as they were.
 pub fn replace_existing(

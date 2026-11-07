@@ -1302,7 +1302,7 @@ impl crate::App {
                             "The stars could not be written to the XMP sidecar of {count}",
                             count = count(failed, "file")
                         )),
-                        _ if job.stopped() => Some(job.stopped_text()),
+                        _ if job.is_stopped() => Some(job.stopped_text()),
                         _ => None,
                     },
                 );

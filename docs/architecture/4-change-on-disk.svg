@@ -1,4 +1,4 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 946" width="1200" height="946" role="img" aria-label="How Glimt changes a file on disk safely. An action passes none_saving, which refuses while other work touches the same files. The job runs in its own thread and changes the disk only through one function per kind of change: trash, put_file, rename_never_over, replace_existing and replace_name, each writing whole under a hidden temporary name and renaming, never over another file. The result comes back as an OperationReport: the list, marks, stars and collection entries follow, and Undo is kept; Rename Many's journal puts names right after a crash.">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 946" width="1200" height="946" role="img" aria-label="How Glimt changes a file on disk safely. An action passes are_free_to_change, which refuses while other work touches the same files. The job runs in its own thread and changes the disk only through one function per kind of change: trash, put_file, rename_never_over, replace_existing and replace_name, each writing whole under a hidden temporary name and renaming, never over another file. The result comes back as an OperationReport: the list, marks, stars and collection entries follow, and Undo is kept; Rename Many's journal puts names right after a crash.">
   <title>A change on disk, safely</title>
   <defs>
     <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
@@ -36,14 +36,14 @@
 
     <!-- 2. The gate -->
     <rect x="30" y="140" width="1140" height="150" rx="6" fill="#f1f1e4" stroke="#7a7a2a" stroke-width="1.5"/>
-    <text x="44" y="162" font-size="14" font-weight="700"><tspan font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace">start_job · background → none_saving(paths)</tspan>   <tspan font-weight="400" font-size="12" fill="#57606a">files/file_ops.rs, on the UI thread</tspan></text>
+    <text x="44" y="162" font-size="14" font-weight="700"><tspan font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace">start_job · run_in_background → are_free_to_change(paths)</tspan>   <tspan font-weight="400" font-size="12" fill="#57606a">files/file_ops.rs, on the UI thread</tspan></text>
     <g font-size="12">
       <text x="44" y="184">Refuses the operation while other work could cross it:</text>
       <text x="56" y="202">• a turn of one of these files is still being saved (file_operations.saving)</text>
       <text x="56" y="218">• keywords or stars are being written (a sidecars job still alive)</text>
       <text x="56" y="234">• Rename Many runs (file_operations.renaming), or the list's names are not yet checked</text>
-      <text x="56" y="250">• a running job or held work touches a path, a folder above it, or a file in it (touched)</text>
-      <text x="44" y="276">Passed: an Arc&lt;Job&gt; with progress and Stop, in file_operations.jobs and the status bar. Save a turn asks touched itself; keywords are never refused.</text>
+      <text x="56" y="250">• a running job or held work touches a path, a folder above it, or a file in it (is_changed_by_running_work)</text>
+      <text x="44" y="276">Passed: an Arc&lt;Job&gt; with progress and Stop, in file_operations.jobs and the status bar. Save a turn asks is_changed_by_running_work itself; keywords are never refused.</text>
     </g>
     <rect x="890" y="172" width="266" height="70" rx="6" fill="#fdeaea" stroke="#c0392b" stroke-width="1.5"/>
     <text x="902" y="192" font-size="12" font-weight="700" fill="#9b2c20">Refused: a notice, nothing done</text>

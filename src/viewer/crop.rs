@@ -162,7 +162,7 @@ impl crate::App {
         };
         let path = crop.path;
         let report_tx = self.file_operations.report_sender();
-        self.background(ctx, vec![path.clone()], move || {
+        self.run_in_background(ctx, vec![path.clone()], move || {
             let saved =
                 crate::images::decode::survive(|| crate::images::save::save_cropped(&path, &how));
             Some(match saved {

@@ -63,7 +63,7 @@ struct App {
     file_operations: crate::files::file_ops::FileOperations,
     /// The count of work still running in the background, for the busy pointer. Deletes,
     /// copies and moves, printing, Check Images, Rename Many, the Lightroom import, plugins and
-    /// every `background` count.
+    /// every `run_in_background` count.
     busy: Arc<AtomicUsize>,
 
     // ---- The side panel ----

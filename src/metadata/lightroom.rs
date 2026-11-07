@@ -441,13 +441,13 @@ impl crate::App {
                     "Lightroom's stars or keywords not written to the sidecars of {count}",
                     count = count(failed, "image")
                 )),
-                _ if job.stopped() => Some(job.stopped_text()),
+                _ if job.is_stopped() => Some(job.stopped_text()),
                 _ => None,
             },
         );
         // The collections: one of the same name gets the images it lacks, nothing is lost.
         // The collections' own files, each edited under its lock.
-        self.background(ctx, Vec::new(), move || {
+        self.run_in_background(ctx, Vec::new(), move || {
             let dir = collections::dir();
             if let Some(dir) = &dir {
                 let _ = std::fs::create_dir_all(dir);

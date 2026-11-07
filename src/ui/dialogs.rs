@@ -628,7 +628,7 @@ impl crate::App {
         }
         if matches!(prompt, Prompt::Rename)
             && !self.list.files().is_empty()
-            && !self.none_saving(&[self.path(self.list.cur())])
+            && !self.are_free_to_change(&[self.path(self.list.cur())])
         {
             return;
         }
@@ -648,7 +648,7 @@ impl crate::App {
             // create_dir returns; `folder_made` reads the folder again.
             Prompt::NewFolder => {
                 let report_tx = self.file_operations.report_sender();
-                self.background(ctx, Vec::new(), move || {
+                self.run_in_background(ctx, Vec::new(), move || {
                     if let Err(e) = std::fs::create_dir(&target) {
                         return Some(format!("{display}: {e}", display = target.display()));
                     }
@@ -715,12 +715,12 @@ impl crate::App {
         let touches: Vec<PathBuf> = (self.file_operations.cut_short().iter())
             .flat_map(|(_, moves, _)| moves.iter().flat_map(|(a, b)| [a.clone(), b.clone()]))
             .collect();
-        if !self.none_saving(&touches) {
+        if !self.are_free_to_change(&touches) {
             return;
         }
         let plans = self.file_operations.take_cut_short();
         let report_tx = self.file_operations.report_sender();
-        self.background(ctx, touches, move || {
+        self.run_in_background(ctx, touches, move || {
             let (mut renamed, mut left) = (0, 0);
             let mut moved = Vec::new();
             for (plan, moves, done) in &plans {

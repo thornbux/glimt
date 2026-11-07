@@ -412,7 +412,8 @@ impl Listing {
             .collect();
         // A list keeps only files, as `listing::kind` does in a folder. A folder or `/` named
         // in a downloaded list was kept, shown as broken, and Delete sent the whole folder to
-        // the trash. Until this listing has come, `none_saving` holds every file operation back.
+        // the trash. Until this listing has come, `are_free_to_change` holds every file operation
+        // back.
         let sizes = keep_found(&mut files, |f| {
             let meta = self.dir.join(f).metadata().ok()?;
             meta.is_file().then_some(meta.len())

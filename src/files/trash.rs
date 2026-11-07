@@ -103,7 +103,7 @@ pub(crate) fn restore(
         // The rule of Copy, Move and Rename: a sidecar alone at the name (written by another
         // program, or synced in) takes it too, as the file would come back with its keywords.
         // The file's own sidecar, which the move could not take along, is no other file's.
-        if let Some(at) = crate::files::file_ops::taken(path, &left) {
+        if let Some(at) = crate::files::file_ops::name_in_the_way(path, &left) {
             error.get_or_insert(tf!("{name} exists already", name = at.display()));
             continue;
         }
