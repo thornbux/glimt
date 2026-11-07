@@ -366,7 +366,7 @@ impl eframe::App for App {
         let mut state = String::new();
         if self.config.remember_dir {
             let last = self.folder.collection().unwrap_or(self.folder.dir());
-            state += &format!("last_dir={}\n", last.display());
+            state += &format!("{}={}\n", crate::files::config::LAST_DIR, last.display());
         }
         if self.config.remember_window {
             state += &self.window.state_text();
@@ -472,11 +472,15 @@ fn main() -> eframe::Result {
     // After `--` the first argument is a file, also when it is named --remote.
     let command = args.first().filter(|_| !start.files_only);
     // With glimt DIR DIR …, the images of every folder are shown in one list.
-    if !command.is_some_and(|a| a.starts_with("--remote")) {
+    let remote = [
+        crate::features::remote::REMOTE,
+        crate::features::remote::REMOTE_ALL,
+    ];
+    if !command.is_some_and(|a| remote.contains(&a.as_str())) {
         start.more = args_os.iter().skip(1).map(PathBuf::from).collect();
     }
-    let to_all = command.is_some_and(|a| a == "--remote-all");
-    if command.is_some_and(|a| a == "--remote") || to_all {
+    let to_all = command.is_some_and(|a| a == remote[1]);
+    if command.is_some_and(|a| a == remote[0]) || to_all {
         let paths = args_os.get(2..).unwrap_or_default();
         match crate::features::remote::client(&args[1..], paths, start.name.as_deref(), to_all) {
             Some(path) => arg = Some(path),

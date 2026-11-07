@@ -1,7 +1,8 @@
 # What users' settings files and scripts name, frozen in 1.x (see "Frozen in 1.x" in
-# AGENTS.md): the settings' keys, the values of the settings that take a name (in the order of
-# config::NAMED, because a value's place is the number it was written as before), the --remote
-# commands and the command-line options. A line is never taken out or changed. New ones are
+# AGENTS.md): the settings' keys, the values of the settings that take a name (those of
+# config::NAMED in its order, because a value's place is the number it was written as before),
+# the window state's keys, the --remote commands with the words of their choices and the exit
+# codes, and the command-line options. A line is never taken out or changed. New ones are
 # added at the end, as the test frozen_names_are_kept in config.rs says.
 setting preload
 setting delay
@@ -151,3 +152,69 @@ option --version
 option -h
 option --help
 option --
+value sort name
+value sort number
+value sort date
+value sort created
+value sort exif_original
+value sort exif_digitized
+value sort size
+value sort extension
+value layout 1
+value layout 2x1
+value layout 1x2
+value layout 2x2
+value layout_turns 1
+value layout_turns 2x1
+value layout_turns 1x2
+value layout_turns 2x2
+value rendering_intent perceptual
+value rendering_intent relative
+value rendering_intent saturation
+value rendering_intent absolute
+value print_paper A4
+value print_paper Letter
+value print_paper A3
+value print_paper A5
+value print_paper Legal
+value print_paper 10 × 15 cm
+value print_paper 13 × 18 cm
+value print_orientation auto
+value print_orientation portrait
+value print_orientation landscape
+value theme Desktop
+value theme Light
+value theme Dark
+value theme Nord
+value theme High Contrast
+value theme Contrast
+value language cs
+value language da
+value language de
+value language es
+value language fr
+value language is
+value language it
+value language nl
+value language no_nb
+value language no_nn
+value language pl
+value language pt_BR
+value language fi
+value language sv
+state last_dir
+state maximized
+state window_size
+state window_pos
+remote slideshow on
+remote slideshow off
+remote random on
+remote random off
+remote fullscreen on
+remote fullscreen off
+remote subfolders on
+remote subfolders off
+exit not_sent 2
+exit not_taken 1
+option --remote
+option --remote-all
