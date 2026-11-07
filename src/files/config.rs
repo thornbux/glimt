@@ -1201,7 +1201,7 @@ mod tests {
     fn named_values() -> Vec<String> {
         use crate::features::print::{ORIENTATIONS, PAPERS};
         let layouts = crate::viewer::view::LAYOUTS.map(|l| l.0).to_vec();
-        let lists: [(&str, Vec<&str>); 8] = [
+        let lists: [(&str, Vec<&str>); 9] = [
             ("sort", crate::model::listing::SORTS.map(|s| s.1).to_vec()),
             ("layout", layouts.clone()),
             // The layout_turns setting is a list of layouts, separated by commas.
@@ -1218,7 +1218,12 @@ mod tests {
                 crate::support::lang::LANGUAGES
                     .iter()
                     .map(|l| l.0)
+                    .chain([crate::support::lang::ENGLISH])
                     .collect(),
+            ),
+            (
+                "input_profile",
+                crate::images::colour::INPUT_PROFILES.map(|p| p.0).to_vec(),
             ),
         ];
         (lists.iter())
