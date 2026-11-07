@@ -4196,7 +4196,7 @@ rm -rf $d
 section "as a Flatpak: the host's programs asked of flatpak-spawn, the fallbacks taken on the host"
 # A stand-in flatpak-spawn runs the host command here, as the real one does on the host, its
 # flags (--host, --env=…) dropped; Glimt takes itself for a Flatpak from FLATPAK_ID. So the
-# one place that asks what the host has (host_has) and every fallback it decides run here.
+# one place that asks what the host has (host_has_program) and every fallback it decides run here.
 cat >/tmp/stub/flatpak-spawn <<'STUB'
 #!/bin/sh
 while [ "${1#-}" != "$1" ]; do shift; done

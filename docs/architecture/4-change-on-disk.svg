@@ -72,7 +72,7 @@
 
       <rect x="260" y="328" width="220" height="132" rx="6" fill="#ffffff" stroke="#7a7a2a" stroke-width="1.5"/>
       <text x="272" y="349" font-size="13" font-weight="700" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace">transfer</text>
-      <text x="272" y="369">per file, xmp::held on a move;</text>
+      <text x="272" y="369">per move, xmp::lock_sidecar;</text>
       <text x="272" y="385" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace">put_file(from, to, keep)</text>
       <text x="272" y="401">then xmp::follow moves or</text>
       <text x="272" y="417">copies the sidecar after it</text>
