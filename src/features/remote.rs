@@ -618,6 +618,7 @@ pub fn listen(tx: mpsc::Sender<(String, Option<Reply>)>, ctx: eframe::egui::Cont
             .recursive(true)
             .mode(0o700)
             .create(dir);
+        #[allow(clippy::disallowed_methods)] // the runtime folder of the sockets
         let _ = std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700));
         // A folder made by another user meanwhile, between the look in `dir` and here, is not
         // used.
@@ -738,6 +739,7 @@ fn claim(path: &std::path::Path) -> Result<UnixListener, Option<std::io::Error>>
     if UnixStream::connect(path).is_ok() {
         return Err(None);
     }
+    #[allow(clippy::disallowed_methods)] // a socket left by a Glimt gone
     let _ = std::fs::remove_file(path);
     UnixListener::bind(path).map_err(Some)
 }
@@ -807,6 +809,7 @@ pub fn close() {
     if LISTENING.load(std::sync::atomic::Ordering::Relaxed)
         && let Some(path) = socket(socket_id())
     {
+        #[allow(clippy::disallowed_methods)] // this Glimt's own socket
         let _ = std::fs::remove_file(path);
     }
 }

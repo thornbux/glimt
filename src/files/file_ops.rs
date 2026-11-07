@@ -610,6 +610,8 @@ impl crate::App {
                     }
                 } else {
                     for p in chunk {
+                        #[allow(clippy::disallowed_methods)]
+                        // Delete without the trash, the one place
                         if let Err(e) = std::fs::remove_file(p) {
                             errors.push(format!("{display}: {e}", display = p.display()));
                         }
@@ -629,6 +631,7 @@ impl crate::App {
                     }
                 } else {
                     for s in &side {
+                        #[allow(clippy::disallowed_methods)] // the deleted file's sidecar
                         if let Err(e) = std::fs::remove_file(s) {
                             errors.push(format!("{display}: {e}", display = s.display()));
                         }

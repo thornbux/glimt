@@ -374,6 +374,7 @@ impl eframe::App for App {
         // When there is nothing to keep, the old folder and window go too, so a later start
         // does not use them.
         match state_path() {
+            #[allow(clippy::disallowed_methods)] // Glimt's own state file
             Some(p) if state.is_empty() => drop(std::fs::remove_file(p)),
             Some(p) => write_atomic(&p, &state),
             None => {}

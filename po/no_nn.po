@@ -1879,6 +1879,10 @@ msgid "No image could be read: nothing printed"
 msgstr "Ingen bilete kunne lesast: ingenting skrive ut"
 
 #: src/features/print.rs
+msgid "Not saved over an image: choose a name ending in .pdf"
+msgstr "Ikkje lagra over eit bilete: vel eit namn som sluttar på .pdf"
+
+#: src/features/print.rs
 msgid "No printers found"
 msgstr "Fann ingen skrivarar"
 

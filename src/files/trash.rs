@@ -137,6 +137,7 @@ pub(crate) fn restore(
         .filter(|s| !paired.contains(*s))
         .filter_map(|s| find(s));
     steps.extend(rest.map(|s| (s, false, None)));
+    #[allow(clippy::disallowed_methods)] // the .trashinfo of a file put back
     let put_back = |t: &Trashed| {
         rename_never_over(&t.file, &t.from)
             .map(|()| drop(std::fs::remove_file(&t.info)))
@@ -249,9 +250,11 @@ fn trash_by_hand(path: &Path, trash: &Path) -> std::io::Result<()> {
             .and_then(|()| rename_never_over(path, &files.join(&taken)));
         match moved {
             Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
+                #[allow(clippy::disallowed_methods)] // the .trashinfo made just now
                 let _ = std::fs::remove_file(&trashinfo);
             }
             Err(e) => {
+                #[allow(clippy::disallowed_methods)] // the .trashinfo made just now
                 let _ = std::fs::remove_file(&trashinfo);
                 return Err(e);
             }

@@ -1727,6 +1727,10 @@ msgid "No image could be read: nothing printed"
 msgstr "Ingen bild kunde läsas: inget skrevs ut"
 
 #: src/features/print.rs
+msgid "Not saved over an image: choose a name ending in .pdf"
+msgstr "Inte sparad över en bild: välj ett namn som slutar på .pdf"
+
+#: src/features/print.rs
 msgid "No printers found"
 msgstr "Inga skrivare hittades"
 
