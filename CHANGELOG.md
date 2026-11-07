@@ -5,6 +5,24 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.73.0] - 2026-11-07
+
+### Fixed
+
+- Print to File saved the PDF over an image when the name chosen was an image's, such as
+  `a.jpg`; it now asks for a name ending in .pdf.
+- A double-click in the side panel's file list with Ctrl or Shift held did not open the file
+  clicked.
+
+### Changed
+
+- Checks that keep Glimt's rules in one place and fail when new code goes around them: the
+  names frozen in 1.x (settings and their values, `--remote` commands, options and exit codes)
+  are pinned in `src/frozen-1.0.txt`; clippy refuses the calls that delete or change a file
+  outside Glimt's own ways; every file operation, also the trash, its Undo and a folder renamed,
+  is in the file contract; every key read, modal and view of the file list has its one place;
+  and a dialog about files opens only with the files it asks about.
+
 ## [0.72.0] - 2026-11-07
 
 ### Added
@@ -3013,7 +3031,8 @@ The first release. Glimt is not 1.0 yet: it is in daily use, but expect rough ed
 - Remote control from the command line: `glimt --remote` and `--remote-all`.
 - Remembers the folder, window size and position.
 
-[Unreleased]: https://github.com/thornbux/glimt/compare/v0.72.0...HEAD
+[Unreleased]: https://github.com/thornbux/glimt/compare/v0.73.0...HEAD
+[0.73.0]: https://github.com/thornbux/glimt/compare/v0.72.0...v0.73.0
 [0.72.0]: https://github.com/thornbux/glimt/compare/v0.71.0...v0.72.0
 [0.71.0]: https://github.com/thornbux/glimt/compare/v0.70.0...v0.71.0
 [0.70.0]: https://github.com/thornbux/glimt/compare/v0.69.0...v0.70.0
