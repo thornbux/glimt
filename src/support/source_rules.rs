@@ -997,25 +997,26 @@ fn copies_of_settings_have_one_writer() {
 /// changed only through that setter, in every file, so each place that changes it does what
 /// the menu does besides. Preferences wrote the names under the thumbnails directly and skipped
 /// the scroll to the shown image, and Keywords and Comment turned the EXIF panel on the same way.
+/// Each setting has one setter, and a setter writes no other's setting, as it would skip what
+/// that one does.
 #[test]
 fn settings_change_through_their_setters() {
-    let ident = |c: char| c.is_alphanumeric() || c == '_';
     let sources = rust_sources();
-    let mut guarded = Vec::new();
-    for (_, code) in &sources {
-        let code = code_lines(code).join("\n");
-        for (at, _) in code.match_indices("fn set_") {
-            guarded.extend(fields_set(function_body(&code[at..])));
-        }
-    }
-    let menus = code_lines(&source("ui/menus.rs")).join("\n");
-    let toggle = function_body(&menus[menus.find("fn toggle_setting(").unwrap()..]);
-    for (k, _) in toggle.match_indices("&mut c.") {
-        let name: String = toggle[k + 7..].chars().take_while(|&c| ident(c)).collect();
-        // A on a stepped animation plays it on and leaves the setting, which a checkbox in
-        // Preferences must not.
-        if name != "animate" {
-            guarded.push(name);
+    // Each setting that has a setter, with the file and the name of every setter that writes it.
+    let mut setters: std::collections::HashMap<String, Vec<(&str, String)>> = Default::default();
+    for (file, text) in &sources {
+        for (function, _, field) in config_writes(text) {
+            // A on a stepped animation plays it on and leaves the setting, which a checkbox in
+            // Preferences must not.
+            let toggle = function == "toggle_setting" && field != "animate";
+            if !function.starts_with("set_") && !toggle {
+                continue;
+            }
+            let theirs = setters.entry(field).or_default();
+            let setter = (file.as_str(), function);
+            if !theirs.contains(&setter) {
+                theirs.push(setter);
+            }
         }
     }
     for name in [
@@ -1026,11 +1027,19 @@ fn settings_change_through_their_setters() {
         "show_subfolders",
         "exif_panel",
     ] {
-        assert!(
-            guarded.iter().any(|g| g == name),
-            "{name} has no setter found"
-        );
+        assert!(setters.contains_key(name), "{name} has no setter found");
     }
+    // One setter to a setting, so a new `set_…` that writes another's setting is seen too.
+    let mut shared: Vec<String> = (setters.iter())
+        .filter(|(_, s)| s.len() > 1)
+        .map(|(field, s)| format!("{field}: {s:?}"))
+        .collect();
+    shared.sort();
+    assert!(
+        shared.is_empty(),
+        "settings written by more than one setter:\n{}",
+        shared.join("\n")
+    );
     // Two places write a setting on purpose. A folder opened with its subfolders is listed with
     // them, where the setter would first list the folder before it again. Compare shows one
     // pane, where `set_layout` would turn Compare off.
@@ -1041,35 +1050,13 @@ fn settings_change_through_their_setters() {
     let mut wrong = Vec::new();
     // The settings file's own reader fills the fields it reads.
     for (file, text) in sources.iter().filter(|(f, _)| f != "files/config.rs") {
-        let lines = code_lines(text);
-        let mut function = String::new();
-        for (i, line) in lines[..tests_start(&lines)].iter().enumerate() {
-            if line.starts_with(|c: char| c.is_alphabetic()) {
-                function.clear();
-            }
-            if let Some(name) = function_name(line) {
-                function = name.to_owned();
-            }
-            // The setters themselves write their fields.
-            let meant = MEANT.contains(&(file.as_str(), function.as_str()));
-            if function.starts_with("set_") || function == "toggle_setting" || meant {
+        for (function, line, field) in config_writes(text) {
+            let Some(theirs) = setters.get(&field) else {
                 continue;
-            }
-            for name in &guarded {
-                for field in [format!("c.{name}"), format!("self.config.{name}")] {
-                    for (at, _) in line.match_indices(&field) {
-                        let after = &line[at + field.len()..];
-                        if line[..at].ends_with(ident) || after.starts_with(ident) {
-                            continue;
-                        }
-                        let after = after.trim_start();
-                        let written =
-                            (after.strip_prefix('=')).is_some_and(|r| !r.starts_with(['=', '>']));
-                        if written || line[..at].ends_with("&mut ") {
-                            wrong.push(format!("{file}:{} ({field})", i + 1));
-                        }
-                    }
-                }
+            };
+            let own = theirs.contains(&(file.as_str(), function.clone()));
+            if !own && !MEANT.contains(&(file.as_str(), function.as_str())) {
+                wrong.push(format!("{file}:{line} ({field} in {function})"));
             }
         }
     }
@@ -1080,65 +1067,76 @@ fn settings_change_through_their_setters() {
     );
 }
 
-/// The setter test sees a field set as `c.X =` after `let c = &mut self.config`, and the
-/// whole body of a setter with a block inside it or at the top level.
+/// The setter test sees a setting written however it is written: assigned, added to, or taken
+/// as `&mut`, also through `&mut self.config` bound to any name, but not compared or read.
 #[test]
-fn a_setters_fields_are_found_however_it_is_written() {
-    let code = code_only(
-        "fn set_a(&mut self) {\n    if on {\n        x();\n    }\n    self.config.a = 1;\n}\n\
-         fn set_b(&mut self) {\n    let c = &mut self.config;\n    c.b = \"}\";\n    \
-         c.d == 2;\n}\nfn other(&mut self) {\n    self.config.e = 3;\n}\n",
-    );
-    let found: Vec<String> = (code.match_indices("fn set_"))
-        .flat_map(|(at, _)| fields_set(function_body(&code[at..])))
+fn a_setting_is_seen_written_however_it_is_written() {
+    let code = "fn set_a(&mut self) {\n    if on {\n        x();\n    }\n    self.config.a = 1;\n}\n\
+         fn b(&mut self) {\n    let mut cfg = &mut self.config;\n    cfg.b += \"}\";\n    \
+         cfg.d == 2;\n    let f = &mut cfg.f;\n    x.g = 3;\n    self.config.h -= 1;\n}\n";
+    let found = config_writes(code);
+    let found: Vec<_> = found
+        .iter()
+        .map(|(f, l, s)| (f.as_str(), *l, s.as_str()))
         .collect();
-    assert_eq!(found, ["a", "b"]);
+    assert_eq!(
+        found,
+        [
+            ("set_a", 5, "a"),
+            ("b", 9, "b"),
+            ("b", 11, "f"),
+            ("b", 13, "h")
+        ]
+    );
 }
 
-/// `text` with its comments and the insides of its literals blanked, so a brace or a field
-/// in a string is not taken for code.
-fn code_only(text: &str) -> String {
-    code_lines(text).join("\n")
-}
-
-/// Returns `code`, which starts at a function's `fn`, up to the `}` that ends the function.
-fn function_body(code: &str) -> &str {
-    let mut depth = 0;
-    for (i, c) in code.char_indices() {
-        match c {
-            '{' => depth += 1,
-            '}' if depth == 1 => return &code[..=i],
-            '}' => depth -= 1,
-            ';' if depth == 0 => return &code[..=i],
-            _ => {}
-        }
-    }
-    code
-}
-
-/// Returns the settings that `body` assigns: `self.config.X = …`, or `c.X = …` when `c` is
-/// `&mut self.config` there.
-fn fields_set(body: &str) -> Vec<String> {
+/// Returns each place outside the tests in `text` where a setting is written, as the function,
+/// the line's number and the setting. A setting is written when it is assigned (`=`, `+=` and
+/// the like) or taken as `&mut`, as `self.config.X` or through a name that the function bound
+/// to `&mut self.config`.
+fn config_writes(text: &str) -> Vec<(String, usize, String)> {
     let ident = |c: char| c.is_alphanumeric() || c == '_';
-    let mut fields = vec!["self.config."];
-    if body.contains("let c = &mut self.config;") {
-        fields.push("c.");
-    }
-    let mut set = Vec::new();
-    for field in fields {
-        for (k, _) in body.match_indices(field) {
-            if body[..k].ends_with(|c: char| ident(c) || c == '.') {
-                continue;
-            }
-            let rest = &body[k + field.len()..];
+    const ASSIGN: &[&str] = &[
+        "=", "+=", "-=", "*=", "/=", "%=", "|=", "&=", "^=", "<<=", ">>=",
+    ];
+    let lines = code_lines(text);
+    let mut function = String::new();
+    let mut prefixes = Vec::new();
+    let mut writes = Vec::new();
+    for (i, line) in lines[..tests_start(&lines)].iter().enumerate() {
+        // A top-level line starts a new item, so its bindings end there.
+        if line.starts_with(|c: char| c.is_alphabetic()) {
+            function.clear();
+            prefixes = vec!["self.config.".to_owned()];
+        }
+        if let Some(name) = function_name(line) {
+            function = name.to_owned();
+            prefixes = vec!["self.config.".to_owned()];
+        }
+        let bound = line.trim().strip_prefix("let ");
+        if let Some(rest) = bound.filter(|r| r.ends_with("= &mut self.config;")) {
+            let rest = rest.strip_prefix("mut ").unwrap_or(rest);
             let name: String = rest.chars().take_while(|&c| ident(c)).collect();
-            let after = rest[name.len()..].trim_start();
-            if after.starts_with('=') && !after.starts_with("==") {
-                set.push(name);
+            prefixes.push(format!("{name}."));
+        }
+        for prefix in &prefixes {
+            for (at, _) in line.match_indices(prefix.as_str()) {
+                if line[..at].ends_with(|c: char| ident(c) || c == '.') {
+                    continue;
+                }
+                let rest = &line[at + prefix.len()..];
+                let name: String = rest.chars().take_while(|&c| ident(c)).collect();
+                let after = rest[name.len()..].trim_start();
+                let assigned = ASSIGN.iter().any(|op| after.starts_with(op))
+                    && !after.starts_with("==")
+                    && !after.starts_with("=>");
+                if !name.is_empty() && (assigned || line[..at].ends_with("&mut ")) {
+                    writes.push((function.clone(), i + 1, name));
+                }
             }
         }
     }
-    set
+    writes
 }
 
 /// Returns each place outside the tests where a text of `homes` is written in code outside the
