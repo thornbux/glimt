@@ -303,13 +303,26 @@ pub fn list_tree(
 
 /// Returns `dir` in the form Glimt keeps and compares folders by: its real path, with its links
 /// followed and its `..` worked out, as other programs (the trash, `--remote select`'s client)
-/// record it too. Returns the path made absolute when it cannot be looked up.
+/// record it too. A folder that is not there (renamed, or a link to it renamed) gets the real
+/// path of the deepest folder above it that is, with the rest as written.
 // shortcut: realpath looks at the disk, which holds the caller's thread on a share that stopped
 // answering; the window calls it once per folder opened or moved to, as `App::open` always did.
 pub fn real_dir(dir: &Path) -> PathBuf {
-    std::fs::canonicalize(dir)
-        .or_else(|_| std::path::absolute(dir))
-        .unwrap_or_else(|_| dir.to_path_buf())
+    let Ok(dir) = std::path::absolute(dir) else {
+        return dir.to_path_buf();
+    };
+    // Made absolute only, a folder renamed under a link (/home on /var/home) kept the link's
+    // name, and the rename's old path, its real one, was another folder to a collection's entry.
+    for above in dir.ancestors() {
+        if let Ok(real) = std::fs::canonicalize(above) {
+            let rest = dir.strip_prefix(above).unwrap_or(Path::new(""));
+            return match rest.as_os_str().is_empty() {
+                true => real,
+                false => real.join(rest),
+            };
+        }
+    }
+    dir
 }
 
 /// Returns `path` in the form Glimt keeps and compares files by: its folder's real path

@@ -690,8 +690,14 @@ impl crate::App {
         };
         self.leave_image(ctx);
         let root = Path::new("/");
-        let files: Vec<OsString> = (paths.iter())
-            .filter_map(|p| Some(p.strip_prefix(root).ok()?.as_os_str().to_owned()))
+        // Each entry is named by its real path from the start, as the listing names it. Named as
+        // written until then, an entry through a link was another name to the listing: the image
+        // gone to and the selection were lost, and the view went back to the first image.
+        // shortcut: one realpath per folder of the collection in the UI thread, as opening
+        // several folders does; a folder on a share that stopped answering holds the window
+        // until it answers. Move it to the listing if collections of many shares are opened.
+        let files: Vec<OsString> = (collections::by_real_path(&paths).into_iter())
+            .filter_map(|(p, _)| Some(p.strip_prefix(root).ok()?.as_os_str().to_owned()))
             .collect();
         // When the same collection is read again (F5), a delete still running keeps its names,
         // so a failed delete brings its images back.
@@ -1740,6 +1746,39 @@ mod tests {
             let missing = app.remote_select(&ctx, &format!("select {}\0", real.display()));
             assert!(missing.is_empty(), "{file}");
         }
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A collection's entries through a link are named by their real paths as soon as it opens,
+    /// so the image gone to before the listing comes stays shown. Named as written until then,
+    /// the listing's real names were other files, and the view went back to the first image.
+    #[test]
+    fn a_collection_through_a_link_keeps_the_image_gone_to_when_listed() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-gqv-keep-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join("real")).unwrap();
+        for name in ["a.png", "b.png"] {
+            image::RgbImage::new(4, 4)
+                .save(dir.join("real").join(name))
+                .unwrap();
+        }
+        std::os::unix::fs::symlink(dir.join("real"), dir.join("link")).unwrap();
+        let link = dir.join("link");
+        std::fs::write(
+            dir.join("c.gqv"),
+            format!(
+                "#GQview collection\n\"{}\"\n\"{}\"\n",
+                link.join("a.png").display(),
+                link.join("b.png").display()
+            ),
+        )
+        .unwrap();
+        let (mut app, ctx) = app_on(&dir);
+        app.open_collection(&ctx, dir.join("c.gqv"));
+        app.go(&ctx, 1);
+        assert!(settle(&mut app, &ctx, |a| !a.folder.is_listing()));
+        assert_eq!(app.list.cur(), 1);
+        let real = dir.canonicalize().unwrap().join("real/b.png");
+        assert_eq!(app.path(1), real);
         std::fs::remove_dir_all(dir).unwrap();
     }
 

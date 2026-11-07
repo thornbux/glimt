@@ -423,8 +423,10 @@ pub fn edit(file: &Path, new: bool, change: impl FnOnce(&mut Vec<PathBuf>)) -> s
 /// list and the marks, stars and `--remote select` know the file by, with the entry as written.
 /// An image named twice, also through a link, is given once. Each folder is looked up once, so a
 /// collection of 500,000 images in a few folders costs a few lookups.
-// shortcut: realpath looks at the disk, and Remove and a reorder edit the collection in the UI
-// thread; a folder on a share that stopped answering holds the window, as opening it does.
+// shortcut: realpath looks at the disk, and opening a collection and every edit of it (Remove,
+// a reorder, a move followed, random order turned off) do it in the UI thread; a collection
+// with an entry on a share that stopped answering holds the window until the share answers.
+// Move the edits to file_io::write_later if that is seen.
 pub fn by_real_path(entries: &[PathBuf]) -> Vec<(PathBuf, &PathBuf)> {
     let mut folders: std::collections::HashMap<&Path, PathBuf> = Default::default();
     let mut seen = HashSet::new();
@@ -748,6 +750,35 @@ mod tests {
         let got = super::load(&dir.join("show.m3u")).unwrap();
         let here = std::env::current_dir().unwrap().join(&dir);
         assert_eq!(got, [here.join("a.jpg"), here.join("sub/b.jpg")]);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// An entry written through a link above a folder (/home on /var/home) follows the folder
+    /// when it is renamed, by the real path the rename names it with. The entry's folder was
+    /// gone, so its path was only made absolute, kept the link's name and never matched.
+    #[test]
+    fn an_entry_through_a_link_follows_its_folder_renamed() {
+        let dir =
+            std::env::temp_dir().join(format!("glimt-test-gqv-follow-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join("base/pics")).unwrap();
+        std::os::unix::fs::symlink(dir.join("base"), dir.join("top")).unwrap();
+        let file = dir.join("c.gqv");
+        let entry = dir.join("top/pics/a.jpg");
+        let text = format!("#GQview collection\n\"{}\"\n#end\n", entry.display());
+        std::fs::write(&file, text).unwrap();
+        let base = dir.canonicalize().unwrap().join("base");
+        let pairs = [(base.join("pics"), base.join("new"))];
+        std::fs::rename(&pairs[0].0, &pairs[0].1).unwrap();
+        let moved = crate::files::file_ops::moves(&pairs);
+        super::edit(&file, false, |all| {
+            for p in all {
+                if let Some(to) = crate::files::file_ops::new_place(p, &moved) {
+                    *p = to;
+                }
+            }
+        })
+        .unwrap();
+        assert_eq!(super::load(&file).unwrap(), [base.join("new/a.jpg")]);
         std::fs::remove_dir_all(dir).unwrap();
     }
 
