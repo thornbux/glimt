@@ -619,7 +619,7 @@ fn derived_metadata(
 ) -> Result<Metadata, String> {
     // The EXIF block comes from the panel's reader, also for the formats the image crate
     // cannot open.
-    let mut exif = exif::derived(path);
+    let mut exif = exif::derived(path, how);
     let (mut xmp, stored) = crate::images::decode::image_reader(path)
         .ok()
         .and_then(|r| r.into_decoder().ok())
@@ -1252,6 +1252,31 @@ mod tests {
         std::fs::remove_dir_all(dir).unwrap();
     }
 
+    /// A JPEG is written also when its EXIF block is larger than an APP1 segment holds, without
+    /// the block, and a block that fits is kept. A RAW's EXIF can be that large.
+    #[test]
+    fn a_jpeg_is_written_without_an_exif_block_too_large() {
+        use crate::support::test_support::CANON_EXIF;
+        use image::ImageDecoder;
+        let exif_of = |exif: Vec<u8>| {
+            let img = image::RgbImage::new(2, 2).into();
+            let kind = super::Kind::Jpeg(90);
+            let path = std::path::Path::new("");
+            let out = super::encode(path, img, None, Some(exif), None, kind, false, 90);
+            let reader = image::ImageReader::new(std::io::Cursor::new(out.unwrap()));
+            let mut dec = reader
+                .with_guessed_format()
+                .unwrap()
+                .into_decoder()
+                .unwrap();
+            dec.exif_metadata().unwrap()
+        };
+        assert_eq!(exif_of(CANON_EXIF.to_vec()).as_deref(), Some(CANON_EXIF));
+        let mut large = CANON_EXIF.to_vec();
+        large.resize(super::MAX_JPEG_EXIF + 1, 0);
+        assert_eq!(exif_of(large), None);
+    }
+
     /// A derived file is written from pixels its format holds: a float image as a 16-bit PNG,
     /// and grey as a grey JPEG. Before, a PNG of a 32-bit float TIFF failed to be written.
     #[test]
@@ -1690,6 +1715,34 @@ mod tests {
             let upright = image::metadata::Orientation::from_exif_chunk(&exif);
             assert_eq!(upright, Some(image::metadata::Orientation::NoTransforms));
         }
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A PNG turned keeps its whole EXIF block, also what lies past the values its directories
+    /// name, and an Exif directory named by a pointer of type IFD (13), as libtiff writes it.
+    /// Before, the turned file got the block cut as for a copy, which lost both, and with them
+    /// the date the photo was taken.
+    #[test]
+    fn a_turned_png_keeps_its_whole_exif() {
+        use crate::support::test_support::CANON_EXIF;
+        use image::ImageEncoder;
+        let dir = std::env::temp_dir().join(format!("glimt-turned-exif-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let mut block = [CANON_EXIF, b"a SubIFDs directory"].concat();
+        // The Exif pointer's type, LONG (4), is made IFD (13).
+        block[37] = 13;
+        let file = dir.join("a.png");
+        let mut out = std::fs::File::create(&file).unwrap();
+        let mut enc = image::codecs::png::PngEncoder::new(&mut out);
+        enc.set_exif_metadata(block.clone()).unwrap();
+        image::RgbImage::new(4, 4).write_with_encoder(enc).unwrap();
+        let (exif, _, _) =
+            super::derived_metadata(&file, true, 0, (4, 4), super::Derived::Turned).unwrap();
+        let exif = exif.unwrap();
+        assert_eq!(exif.len(), block.len());
+        assert!(exif.ends_with(b"03:04:05\0a SubIFDs directory"));
+        let upright = image::metadata::Orientation::from_exif_chunk(&exif);
+        assert_eq!(upright, Some(image::metadata::Orientation::NoTransforms));
         std::fs::remove_dir_all(dir).unwrap();
     }
 
