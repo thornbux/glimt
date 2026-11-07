@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 
 /// Each marks file as this window's marks hold it: as read, or as its own write left it when
 /// no other window had written since. A refresh that finds it so reads nothing.
-static KNOWN: std::sync::Mutex<std::collections::BTreeMap<PathBuf, Option<Seen>>> =
+static KNOWN_STAMPS: std::sync::Mutex<std::collections::BTreeMap<PathBuf, Option<FileStamp>>> =
     std::sync::Mutex::new(std::collections::BTreeMap::new());
 
 /// Changes sent to the writer and not yet in the file, each counted by a `Working` held until
@@ -19,19 +19,21 @@ static WRITING: std::sync::LazyLock<std::sync::Arc<std::sync::atomic::AtomicUsiz
 #[derive(Default)]
 pub struct Marks {
     /// Mark bits (bit 0 = mark 1) and stars, by path; files with neither are left out.
-    map: HashMap<PathBuf, (u8, u8)>,
+    by_path: HashMap<PathBuf, (u8, u8)>,
 }
 
 impl Marks {
     pub fn load() -> Self {
-        let file = file();
+        let file = marks_file();
         if let Some(f) = &file {
-            known().insert(f.clone(), seen(f));
+            known_stamps().insert(f.clone(), file_stamp(f));
         }
         let text = file
             .and_then(|f| crate::images::decode::read_limited(f).ok())
             .unwrap_or_default();
-        Marks { map: parse(&text) }
+        Marks {
+            by_path: parse(&text),
+        }
     }
 
     /// Read the file again unless it is as this window's marks hold it: what another Glimt
@@ -42,22 +44,22 @@ impl Marks {
         if WRITING.load(std::sync::atomic::Ordering::Relaxed) > 0 {
             return;
         }
-        let Some(file) = file() else { return };
+        let Some(file) = marks_file() else { return };
         // As read, or changed only by this window's own writes: not read again on every mark key
         // in a file of 500,000 marked.
-        if known().get(&file) != Some(&seen(&file)) {
+        if known_stamps().get(&file) != Some(&file_stamp(&file)) {
             *self = Self::load();
         }
     }
 
     /// Every file with a mark or stars, and them.
     pub fn marked(&self) -> impl Iterator<Item = (&Path, (u8, u8))> {
-        self.map.iter().map(|(p, &v)| (p.as_path(), v))
+        self.by_path.iter().map(|(p, &v)| (p.as_path(), v))
     }
 
     /// (mark bits, stars) of `path`.
     pub fn get(&self, path: &Path) -> (u8, u8) {
-        self.map.get(path).copied().unwrap_or_default()
+        self.by_path.get(path).copied().unwrap_or_default()
     }
 
     /// Toggle mark `n` (1–6) as Geeqie does: set on all of `paths`, or off if all have it.
@@ -85,7 +87,7 @@ impl Marks {
         let gone: std::collections::HashSet<&Path> = paths.iter().map(PathBuf::as_path).collect();
         // Each marked file and the folders above it, not every path deleted: a few thousand
         // marked against 100 files at a time to the trash.
-        let marked: Vec<PathBuf> = (self.map.keys())
+        let marked: Vec<PathBuf> = (self.by_path.keys())
             .filter(|k| k.ancestors().any(|a| gone.contains(a)))
             .cloned()
             .collect();
@@ -125,7 +127,7 @@ impl Marks {
         self.refresh();
         let pairs = vec![(from, to)];
         let moved = crate::files::file_ops::moves_by_source(&pairs);
-        let inside: Vec<(PathBuf, PathBuf)> = (self.map.keys())
+        let inside: Vec<(PathBuf, PathBuf)> = (self.by_path.keys())
             .filter_map(|k| {
                 let dir = crate::files::file_ops::new_place(k.parent()?, &moved)?;
                 Some((k.clone(), dir.join(k.file_name()?)))
@@ -142,24 +144,24 @@ impl Marks {
         keep: bool,
     ) {
         let pairs: Vec<(PathBuf, PathBuf)> = (pairs.into_iter())
-            .filter(|(from, to)| self.map.contains_key(from) || self.map.contains_key(to))
+            .filter(|(from, to)| self.by_path.contains_key(from) || self.by_path.contains_key(to))
             .chain(inside)
             .collect();
         if !pairs.is_empty() {
-            follow_pairs(&mut self.map, &pairs, keep);
+            follow_pairs(&mut self.by_path, &pairs, keep);
             save(Edit::Follow(pairs, keep));
         }
     }
 
     fn change(&mut self, paths: &[PathBuf], change: Change) {
-        apply(&mut self.map, paths, change);
+        apply(&mut self.by_path, paths, change);
         save(Edit::Change(paths.to_vec(), change));
     }
 }
 
 /// A marks file told apart from another: every write makes a new file (a new inode), and two
 /// writes in the same tick of the clock have the same time.
-type Seen = (u64, std::time::SystemTime);
+type FileStamp = (u64, std::time::SystemTime);
 
 // The marks file of one test, on its thread: the tests run side by side, and one that writes
 // the shared file would change what the others read back.
@@ -190,19 +192,20 @@ enum Change {
 /// Returns the inode and time of `file`, which show that the file at the path changed since,
 /// or `None` when it cannot be looked up.
 #[allow(clippy::disallowed_methods)] // never tells two files apart, which is save::file_id's
-fn seen(file: &Path) -> Option<Seen> {
+fn file_stamp(file: &Path) -> Option<FileStamp> {
     use std::os::unix::fs::MetadataExt;
     let m = std::fs::metadata(file).ok()?;
     Some((m.ino(), m.modified().ok()?))
 }
 
-fn known() -> std::sync::MutexGuard<'static, std::collections::BTreeMap<PathBuf, Option<Seen>>> {
-    KNOWN
+fn known_stamps()
+-> std::sync::MutexGuard<'static, std::collections::BTreeMap<PathBuf, Option<FileStamp>>> {
+    KNOWN_STAMPS
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
-fn file() -> Option<PathBuf> {
+fn marks_file() -> Option<PathBuf> {
     #[cfg(test)]
     if let Some(file) = TEST_FILE.with(|f| f.borrow().clone()) {
         return Some(file);
@@ -279,7 +282,7 @@ fn save(edit: Edit) {
     let writing = crate::support::threads::Working::new(&WRITING);
     crate::files::file_io::write_later(move || {
         let _writing = writing;
-        if let Some(file) = file() {
+        if let Some(file) = marks_file() {
             write(&file, &[edit]);
         }
     });
@@ -291,7 +294,7 @@ fn write(file: &Path, changes: &[Edit]) {
     // is not written over with these changes alone, as every other mark would be lost.
     let edit = |bytes: &[u8]| {
         // Under the lock: no other window wrote since this one read or wrote it.
-        let ours = known().get(file) == Some(&seen(file));
+        let ours = known_stamps().get(file) == Some(&file_stamp(file));
         let mut map = parse(bytes);
         for change in changes {
             apply_edit(&mut map, change);
@@ -302,10 +305,12 @@ fn write(file: &Path, changes: &[Edit]) {
     // Ours alone, the window's marks are the file now; else it is read again.
     // shortcut: the file is looked at just after the lock is let go; a window that wrote in that
     // moment goes unseen until the file changes again.
-    let now = matches!(result, Ok(true)).then(|| seen(file)).flatten();
+    let now = matches!(result, Ok(true))
+        .then(|| file_stamp(file))
+        .flatten();
     match now {
-        Some(now) => drop(known().insert(file.to_path_buf(), Some(now))),
-        None => drop(known().remove(file)),
+        Some(now) => drop(known_stamps().insert(file.to_path_buf(), Some(now))),
+        None => drop(known_stamps().remove(file)),
     }
     if let Err(e) = result {
         crate::files::file_io::save_failed(crate::tf!(
@@ -503,7 +508,7 @@ mod tests {
         assert_eq!(super::text(m.get(&b)), "★★★  2");
         m.toggle(&both, 2);
         assert_eq!(m.get(&a), (0, 0));
-        assert!(!m.map.contains_key(&a));
+        assert!(!m.by_path.contains_key(&a));
         assert_eq!(
             super::parse_line(b"5\t9\t/x y.jpg"),
             Some((PathBuf::from("/x y.jpg"), (5, 5)))
@@ -610,7 +615,7 @@ mod tests {
         let a = std::path::PathBuf::from("/a.jpg");
         m.toggle(std::slice::from_ref(&a), 2);
         m.rate(&[a], 3);
-        for text in crate::support::test_support::broken(&super::to_text(&m.map)) {
+        for text in crate::support::test_support::broken(&super::to_text(&m.by_path)) {
             super::parse(&text);
         }
         super::TEST_FILE.with(|f| *f.borrow_mut() = None);
