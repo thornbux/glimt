@@ -5,9 +5,9 @@ use std::collections::HashMap;
 use zbus::blocking::{Connection, MessageIterator};
 use zbus::zvariant::{OwnedValue, Value};
 
-const DEST: &str = "org.freedesktop.portal.Desktop";
+const PORTAL_BUS_NAME: &str = "org.freedesktop.portal.Desktop";
 
-const PATH: &str = "/org/freedesktop/portal/desktop";
+const PORTAL_OBJECT_PATH: &str = "/org/freedesktop/portal/desktop";
 
 /// How long a request waits for the portal's answer. The user may sit in a dialog for long,
 /// but a portal backend that died after the call never answers, and the work waiting on it holds
@@ -32,7 +32,7 @@ where
     let e = |e: zbus::Error| e.to_string();
     let sender = conn.unique_name().ok_or("no D-Bus name")?;
     let sender = sender.trim_start_matches(':').replace('.', "_");
-    let handle = format!("{PATH}/request/{sender}/{token}");
+    let handle = format!("{PORTAL_OBJECT_PATH}/request/{sender}/{token}");
     // The portal's changes of owner are listened for before the Ping, so that a restart right
     // after it is not missed.
     let owners = MessageIterator::for_match_rule(owner_rule().map_err(e)?, conn, Some(4));
@@ -40,18 +40,30 @@ where
     // The portal's unique name is the sender of its answer to a Ping, which also starts it.
     let peer = Some("org.freedesktop.DBus.Peer");
     let pong = conn
-        .call_method(Some(DEST), PATH, peer, "Ping", &())
+        .call_method(Some(PORTAL_BUS_NAME), PORTAL_OBJECT_PATH, peer, "Ping", &())
         .map_err(e)?;
     let owner = pong.header().sender().ok_or("no D-Bus name")?.to_string();
     let rule = response_rule(&owner, &handle).map_err(e)?;
     let responses = MessageIterator::for_match_rule(rule, conn, Some(1)).map_err(e)?;
     let mut responses = responses.into_inner();
-    conn.call_method(Some(DEST), PATH, Some(interface), method, body)
-        .map_err(e)?;
+    conn.call_method(
+        Some(PORTAL_BUS_NAME),
+        PORTAL_OBJECT_PATH,
+        Some(interface),
+        method,
+        body,
+    )
+    .map_err(e)?;
     let stop = || {
         // The dialog, if one is still open, goes too, so it cannot act after the time is up.
         let request = Some("org.freedesktop.portal.Request");
-        let _ = conn.call_method(Some(DEST), handle.as_str(), request, "Close", &());
+        let _ = conn.call_method(
+            Some(PORTAL_BUS_NAME),
+            handle.as_str(),
+            request,
+            "Close",
+            &(),
+        );
         // A closed request sends no Response. Closing the connection ends the wait for one.
         let _ = conn.clone().close();
     };
@@ -64,7 +76,7 @@ where
         };
         answer_or_loss(&mut responses, &mut owners, lost)
     };
-    let Some(message) = within(ANSWER_LIMIT, wait, stop) else {
+    let Some(message) = with_time_limit(ANSWER_LIMIT, wait, stop) else {
         return Err("no answer from the portal".into());
     };
     let message = message.map_err(|()| "the portal restarted and lost the request")?;
@@ -98,7 +110,7 @@ fn owner_rule() -> zbus::Result<zbus::MatchRule<'static>> {
         .sender("org.freedesktop.DBus")?
         .interface("org.freedesktop.DBus")?
         .member("NameOwnerChanged")?
-        .arg(0, DEST)?;
+        .arg(0, PORTAL_BUS_NAME)?;
     Ok(rule.build())
 }
 
@@ -115,7 +127,7 @@ fn portal_lost(change: &zbus::message::Message, owner: &str) -> bool {
     let Ok((name, _, new)) = body.deserialize::<(&str, &str, &str)>() else {
         return false;
     };
-    from_bus && name == DEST && new != owner
+    from_bus && name == PORTAL_BUS_NAME && new != owner
 }
 
 /// Waits on both `responses` and `owners` at once, without a thread for each, as a blocking
@@ -150,7 +162,7 @@ where
 /// Runs `wait` in a thread of its own. Returns what it gives, or `None` when it takes longer
 /// than `limit`. Then `stop` is called to end the wait, and the thread is given a second to
 /// end, so that it is not left blocked for good.
-fn within<T: Send + 'static>(
+fn with_time_limit<T: Send + 'static>(
     limit: std::time::Duration,
     wait: impl FnOnce() -> T + Send + 'static,
     stop: impl FnOnce(),
@@ -165,14 +177,14 @@ fn within<T: Send + 'static>(
     answer
 }
 
-/// A token for a request, new for each.
-fn token() -> String {
+/// Returns a token for a request, new for each.
+fn request_token() -> String {
     use std::sync::atomic::{AtomicU32, Ordering};
-    static N: AtomicU32 = AtomicU32::new(0);
+    static TOKENS_MADE: AtomicU32 = AtomicU32::new(0);
     format!(
         "glimt{}_{}",
         std::process::id(),
-        N.fetch_add(1, Ordering::Relaxed)
+        TOKENS_MADE.fetch_add(1, Ordering::Relaxed)
     )
 }
 
@@ -198,7 +210,7 @@ pub fn print(
         ("n-copies", Value::from(copies.as_str())),
         ("duplex", Value::from(duplex)),
     ]);
-    let ask = token();
+    let ask = request_token();
     let options = HashMap::from([("handle_token", Value::from(ask.as_str()))]);
     let none: HashMap<&str, Value> = HashMap::new();
     let body = ("", title, settings, none, options);
@@ -216,7 +228,7 @@ pub fn print(
         .ok_or("no token from the print dialog")?;
     // The PDF in a file of no name, so nothing is left behind: removed once open, and read by
     // the portal through its descriptor.
-    let at = std::env::temp_dir().join(format!("{}.pdf", token()));
+    let at = std::env::temp_dir().join(format!("{}.pdf", request_token()));
     #[allow(clippy::disallowed_methods)] // a file of no name, which only the portal reads
     let mut file = std::fs::File::options()
         .read(true)
@@ -233,7 +245,7 @@ pub fn print(
     }
     use std::io::Seek;
     file.rewind().map_err(|e| e.to_string())?;
-    let send = token();
+    let send = request_token();
     let options = HashMap::from([
         ("handle_token", Value::from(send.as_str())),
         ("token", Value::from(ticket)),
@@ -252,7 +264,7 @@ pub fn print(
 pub fn inhibit_idle(reason: &str) -> Result<std::sync::mpsc::Sender<()>, String> {
     let e = |e: zbus::Error| e.to_string();
     let conn = Connection::session().map_err(e)?;
-    let token = token();
+    let token = request_token();
     let options = HashMap::from([
         ("handle_token", Value::from(token.as_str())),
         ("reason", Value::from(reason)),
@@ -260,8 +272,8 @@ pub fn inhibit_idle(reason: &str) -> Result<std::sync::mpsc::Sender<()>, String>
     // 8: idle.
     let body = ("", 8u32, options);
     let reply = (conn.call_method(
-        Some(DEST),
-        PATH,
+        Some(PORTAL_BUS_NAME),
+        PORTAL_OBJECT_PATH,
         Some("org.freedesktop.portal.Inhibit"),
         "Inhibit",
         &body,
@@ -273,7 +285,13 @@ pub fn inhibit_idle(reason: &str) -> Result<std::sync::mpsc::Sender<()>, String>
         // Until the sender is dropped; the connection, and with it the inhibition, lives here.
         let _ = rx.recv();
         let request = Some("org.freedesktop.portal.Request");
-        let _ = conn.call_method(Some(DEST), handle.as_str(), request, "Close", &());
+        let _ = conn.call_method(
+            Some(PORTAL_BUS_NAME),
+            handle.as_str(),
+            request,
+            "Close",
+            &(),
+        );
     });
     Ok(tx)
 }
@@ -286,7 +304,7 @@ pub fn open_with(path: &std::path::Path) -> Result<bool, String> {
     // Only for its descriptor, which says which file: the portal opens it itself. It is
     // opened as every file is, so a pipe named in a collection is refused rather than waited on.
     let file = crate::images::decode::open_regular(path).map_err(|e| e.to_string())?;
-    let token = token();
+    let token = request_token();
     let options = HashMap::from([
         ("handle_token", Value::from(token.as_str())),
         ("ask", Value::from(true)),
@@ -333,7 +351,7 @@ mod tests {
             signal.build(&(name, ":1.4", new)).unwrap()
         };
         let bus = "org.freedesktop.DBus";
-        let portal = super::DEST;
+        let portal = super::PORTAL_BUS_NAME;
         assert!(super::portal_lost(&change(bus, portal, ":1.9"), ":1.5"));
         assert!(super::portal_lost(&change(bus, portal, ""), ":1.5"));
         assert!(!super::portal_lost(&change(bus, portal, ":1.5"), ":1.5"));
@@ -400,11 +418,11 @@ mod tests {
         let limit = std::time::Duration::from_millis(100);
         // The stop sends the answer, while the channel stays open for the whole test.
         let stop = || keep.send(()).unwrap();
-        assert_eq!(super::within(limit, wait, stop), None);
+        assert_eq!(super::with_time_limit(limit, wait, stop), None);
         assert!(
             ended.load(Ordering::SeqCst),
             "the waiting thread is left blocked"
         );
-        assert_eq!(super::within(limit, || 7, || ()), Some(7));
+        assert_eq!(super::with_time_limit(limit, || 7, || ()), Some(7));
     }
 }
