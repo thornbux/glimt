@@ -619,7 +619,7 @@ fn derived_metadata(
 ) -> Result<Metadata, String> {
     // The EXIF block comes from the panel's reader, also for the formats the image crate
     // cannot open.
-    let mut exif = exif::derived(path);
+    let mut exif = exif::derived(path, how);
     let (mut xmp, stored) = crate::images::decode::image_reader(path)
         .ok()
         .and_then(|r| r.into_decoder().ok())
@@ -1690,6 +1690,34 @@ mod tests {
             let upright = image::metadata::Orientation::from_exif_chunk(&exif);
             assert_eq!(upright, Some(image::metadata::Orientation::NoTransforms));
         }
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A PNG turned keeps its whole EXIF block, also what lies past the values its directories
+    /// name, and an Exif directory named by a pointer of type IFD (13), as libtiff writes it.
+    /// Before, the turned file got the block cut as for a copy, which lost both, and with them
+    /// the date the photo was taken.
+    #[test]
+    fn a_turned_png_keeps_its_whole_exif() {
+        use crate::support::test_support::CANON_EXIF;
+        use image::ImageEncoder;
+        let dir = std::env::temp_dir().join(format!("glimt-turned-exif-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let mut block = [CANON_EXIF, b"a SubIFDs directory"].concat();
+        // The Exif pointer's type, LONG (4), is made IFD (13).
+        block[37] = 13;
+        let file = dir.join("a.png");
+        let mut out = std::fs::File::create(&file).unwrap();
+        let mut enc = image::codecs::png::PngEncoder::new(&mut out);
+        enc.set_exif_metadata(block.clone()).unwrap();
+        image::RgbImage::new(4, 4).write_with_encoder(enc).unwrap();
+        let (exif, _, _) =
+            super::derived_metadata(&file, true, 0, (4, 4), super::Derived::Turned).unwrap();
+        let exif = exif.unwrap();
+        assert_eq!(exif.len(), block.len());
+        assert!(exif.ends_with(b"03:04:05\0a SubIFDs directory"));
+        let upright = image::metadata::Orientation::from_exif_chunk(&exif);
+        assert_eq!(upright, Some(image::metadata::Orientation::NoTransforms));
         std::fs::remove_dir_all(dir).unwrap();
     }
 

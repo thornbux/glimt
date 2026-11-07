@@ -777,17 +777,28 @@ fn raw(path: &Path) -> Option<Vec<u8>> {
     decoded(path, &mut dec)
 }
 
-/// Reads the EXIF block of `path` as a file made from its image keeps it (`save::Derived`). It
-/// is read as the panel reads it (`raw`), so a copy of a HEIC, AVIF, JPEG XL or RAW photo keeps
-/// the EXIF the panel shows. Before, a copy read it only through the image crate, which cannot
-/// open those, and lost it. The block is made a bare TIFF block, because a JPEG's encoder puts
-/// its own "Exif\0\0" before it and a PNG's eXIf chunk must start with the TIFF header. It is
-/// cut to the directories that IFD0, Exif, GPS and Interop are and the values they name. The
-/// thumbnail (IFD1), which a copy drops anyway, and a RAW's or HEIC's picture after the block
-/// are left out. Returns `None` when there is no block.
-pub fn derived(path: &Path) -> Option<Vec<u8>> {
+/// Reads the EXIF block of `path` as a file made from its image keeps it (`how`). It is read
+/// as the panel reads it (`raw`), so a copy of a HEIC, AVIF, JPEG XL or RAW photo keeps the
+/// EXIF the panel shows. Before, a copy read it only through the image crate, which cannot open
+/// those, and lost it. The block is made a bare TIFF block, because a JPEG's encoder puts its
+/// own "Exif\0\0" before it and a PNG's eXIf chunk must start with the TIFF header. A turned
+/// image keeps the rest of its block whole, because it is the user's own file and the cut would
+/// lose what lies past the values it follows, such as a SubIFDs directory or a maker note's
+/// data. Only a copy is cut (`derived_block`). Returns `None` when there is no block.
+pub fn derived(path: &Path, how: crate::images::save::Derived) -> Option<Vec<u8>> {
     let raw = raw(path)?;
-    let (t, ifd0, exif, gps) = ifds(&raw)?;
+    match how {
+        crate::images::save::Derived::Copy => derived_block(&raw),
+        _ => Some(ifds(&raw)?.0.data.to_vec()),
+    }
+}
+
+/// Cuts the EXIF block `raw` to what a copy keeps of it: a bare TIFF block of the directories
+/// that IFD0, Exif, GPS and Interop are and the values they name. The thumbnail (IFD1), which a
+/// copy drops anyway, and a RAW's or HEIC's picture after the block are left out. Returns
+/// `None` for a block without a TIFF header.
+fn derived_block(raw: &[u8]) -> Option<Vec<u8>> {
+    let (t, ifd0, exif, gps) = ifds(raw)?;
     let offset = |ifd: &Ifd, tag| Some(t.int(find(ifd, tag)?)? as usize);
     let interop_at = offset(&exif, INTEROP_IFD);
     let interop = interop_at.map(|at| t.ifd(at)).unwrap_or_default();
