@@ -241,7 +241,6 @@ pub(crate) const SCRIPT_ACTIONS: &[Action] = &[
     Action::CopyPath,
     Action::CopyPathUnquoted,
     Action::Escape,
-    Action::ExifPanel,
     Action::ExifRotate,
     Action::ExifWindow,
     Action::Faster,
@@ -1685,8 +1684,10 @@ mod tests {
     fn every_action_is_decided_for_scripts() {
         use Action::*;
         let changes_files: &[Action] = &[
-            // These change files only through a window or panel the user then clicks or types
-            // in, or start another program; a script may not open the way to that either.
+            // These change files only through a window or panel that the user then clicks or
+            // types in, or they start another program. A script may not open the way to that
+            // either. ExifPanel shows the keyword tree and the marks, which one click changes.
+            ExifPanel,
             FindDuplicates,
             Keywords,
             OpenWith,

@@ -158,14 +158,8 @@ impl crate::App {
         }
         while let Ok((command, reply)) = self.remote.rx.try_recv() {
             let select = reply.is_some() && command.starts_with("select ");
-            // Behind a select held back, what can change the list it is answered for waits its
-            // turn: another script's `open`, subfolders, or a slideshow with its subfolders.
-            // Other queries and commands are done at once, as without it.
-            // run takes Up, Home, Back, Refresh and others that read the folder again.
-            let lists = ["open ", "subfolders", "slideshow", "run "];
-            let relists = lists.iter().any(|c| command.starts_with(c));
-            let wait =
-                (relists && !self.remote.waiting_select.is_empty()) || (select && busy(self));
+            let wait = (may_relist(&command) && !self.remote.waiting_select.is_empty())
+                || (select && busy(self));
             if !wait {
                 self.remote_one(ctx, &command, reply);
             } else if self.remote.waiting_select.len() < 64 {
@@ -398,6 +392,16 @@ pub fn valid_name(name: &str) -> bool {
 /// a Flatpak its folder alone takes some 60.
 pub fn name_fits(name: &str) -> bool {
     socket(name).is_none_or(|p| p.as_os_str().len() <= 107)
+}
+
+/// Returns whether `command` may read the folder again or open another, so that behind a select
+/// held back it waits its turn, and the select is answered for the list it was sent to: another
+/// script's open, subfolders, a slideshow with its subfolders, and run, whose Up, Home, Back or
+/// Refresh read a folder. Other queries and commands are done at once, as without it.
+fn may_relist(command: &str) -> bool {
+    ["open ", "subfolders", "slideshow", "run "]
+        .iter()
+        .any(|c| command.starts_with(c))
 }
 
 /// Whether `words` is one of `COMMANDS`, with a path where it takes one and none where it does
@@ -854,6 +858,24 @@ mod tests {
         assert_eq!(app.list.files().len(), 3);
         assert!(dir.join("c.png").exists());
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// The commands that can change the list wait behind a held select, run among them, and the
+    /// others do not.
+    #[test]
+    fn what_may_change_the_list_waits_behind_a_select() {
+        for command in [
+            "open /a",
+            "subfolders on",
+            "slideshow",
+            "run Up",
+            "run Refresh",
+        ] {
+            assert!(super::may_relist(command), "{command}");
+        }
+        for command in ["next", "current", "selection", "title x", "quit"] {
+            assert!(!super::may_relist(command), "{command}");
+        }
     }
 
     /// Only the commands Glimt knows go out, with a path only where one is taken.
