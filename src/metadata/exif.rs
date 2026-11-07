@@ -34,6 +34,17 @@ const SRATIONAL: u16 = 10;
 /// A directory's offset, as libtiff writes the Exif and GPS pointers.
 const IFD: u16 = 13;
 
+/// The fields of IFD0 that describe the stored pixels of the file the block came from: their
+/// size, layout, strips, tiles, thumbnail and the SubIFDs of a RAW. A copy has pixels of its
+/// own, so its block drops them, and the DNG fields (`DNG_FIELDS`) with them.
+const PIXEL_FIELDS: [u16; 23] = [
+    0x00fe, 0x00ff, 0x0100, 0x0101, 0x0102, 0x0103, 0x0106, 0x0111, 0x0115, 0x0116, 0x0117, 0x0118,
+    0x0119, 0x011c, 0x0142, 0x0143, 0x0144, 0x0145, 0x014a, 0x0152, 0x0153, 0x0201, 0x0202,
+];
+
+/// The tags of the DNG specification, which describe a RAW's pixels and how to develop them.
+const DNG_FIELDS: std::ops::RangeInclusive<u16> = 0xc612..=0xcd3f;
+
 /// The longest text read from one field. A description or a comment is far shorter. Without a
 /// cap, a crafted block of 1,500 fields all naming the same megabyte would take gigabytes.
 const MAX_TEXT: usize = 4096;
@@ -797,11 +808,14 @@ pub fn derived(path: &Path, how: crate::images::save::Derived) -> Option<Vec<u8>
 }
 
 /// Cuts the EXIF block `raw` to what a copy keeps of it: a bare TIFF block of the directories
-/// that IFD0, Exif, GPS and Interop are and the values they name. The thumbnail (IFD1), which a
-/// copy drops anyway, and a RAW's or HEIC's picture after the block are left out. Returns
+/// that IFD0, Exif, GPS and Interop are and the values they name, without the fields of IFD0
+/// that describe the stored pixels (`drop_pixel_fields`). The thumbnail (IFD1), which a copy
+/// drops anyway, and a RAW's or HEIC's picture after the block are left out. Returns
 /// `None` for a block without a TIFF header.
 fn derived_block(raw: &[u8]) -> Option<Vec<u8>> {
-    let (t, ifd0, exif, gps) = ifds(raw)?;
+    let mut data = ifds(raw)?.0.data.to_vec();
+    drop_pixel_fields(&mut data);
+    let (t, ifd0, exif, gps) = ifds(&data)?;
     let offset = |ifd: &Ifd, tag| Some(t.int(find(ifd, tag)?)? as usize);
     let interop_at = offset(&exif, INTEROP_IFD);
     let interop = interop_at.map(|at| t.ifd(at)).unwrap_or_default();
@@ -821,6 +835,37 @@ fn derived_block(raw: &[u8]) -> Option<Vec<u8>> {
         }
     }
     Some(t.data[..end.min(t.data.len())].to_vec())
+}
+
+/// Removes from IFD0 of the bare TIFF block `data` the fields that describe the stored pixels
+/// of the file it came from (`PIXEL_FIELDS`, `DNG_FIELDS`). The entries kept move up, and the
+/// space left, with the pointer to IFD1, is cleared. Before, a copy of a RAW said it had the
+/// RAW's size, strips and SubIFDs. A directory that runs past the block is left as it is.
+fn drop_pixel_fields(data: &mut [u8]) {
+    let Some((t, _, _, _)) = ifds(data) else {
+        return;
+    };
+    let (little, at) = (t.little, t.u32(4).unwrap_or(0) as usize);
+    let n = t.u16(at).unwrap_or(0) as usize;
+    let Some(entries) = data.get_mut(at..at.saturating_add(6 + 12 * n)) else {
+        return;
+    };
+    let tag = |e: &[u8]| match little {
+        true => u16::from_le_bytes([e[0], e[1]]),
+        false => u16::from_be_bytes([e[0], e[1]]),
+    };
+    let kept: Vec<u8> = (entries[2..2 + 12 * n].chunks(12))
+        .filter(|e| !PIXEL_FIELDS.contains(&tag(e)) && !DNG_FIELDS.contains(&tag(e)))
+        .flatten()
+        .copied()
+        .collect();
+    let count = (kept.len() / 12) as u16;
+    entries[..2].copy_from_slice(&match little {
+        true => count.to_le_bytes(),
+        false => count.to_be_bytes(),
+    });
+    entries[2..].fill(0);
+    entries[2..2 + kept.len()].copy_from_slice(&kept);
 }
 
 /// Reads the EXIF block of `path` through `dec`, the image crate's decoder of it. A PNG keeps
@@ -1461,6 +1506,46 @@ mod tests {
         );
         let copy = super::derived_block(&block).unwrap();
         assert!(copy.ends_with(b"03:04:05\0"));
+    }
+
+    /// A copy's block drops the fields of IFD0 that describe the stored pixels of a RAW, such
+    /// as its size, its SubIFDs and the DNG version, and keeps the camera and the date.
+    #[test]
+    fn a_copy_drops_the_fields_of_the_raw_pixels() {
+        let entry = |d: &mut Vec<u8>, tag: u16, kind: u16, count: u32, value: u32| {
+            d.extend(tag.to_le_bytes());
+            d.extend(kind.to_le_bytes());
+            d.extend(count.to_le_bytes());
+            d.extend(value.to_le_bytes());
+        };
+        // IFD0 at 8: five entries (2 + 5*12 + 4 = 66 bytes), then the make at 74.
+        let mut d = b"II*\0\x08\0\0\0".to_vec();
+        d.extend(5u16.to_le_bytes());
+        entry(&mut d, 0x0100, 3, 1, 4000);
+        entry(&mut d, 0x010f, 2, 6, 74);
+        entry(&mut d, 0x014a, 4, 1, 118);
+        entry(&mut d, 0x8769, 4, 1, 80);
+        entry(&mut d, 0xc612, 1, 4, 0x0104);
+        d.extend(0u32.to_le_bytes());
+        d.extend(b"Canon\0");
+        // The Exif IFD at 80 with the date at 98, then the SubIFD at 118.
+        d.extend(1u16.to_le_bytes());
+        entry(&mut d, 0x9003, 2, 20, 98);
+        d.extend(0u32.to_le_bytes());
+        d.extend(b"2020:01:02 03:04:05\0");
+        d.extend(1u16.to_le_bytes());
+        entry(&mut d, 0x0100, 3, 1, 6000);
+        d.extend(0u32.to_le_bytes());
+        let copy = super::derived_block(&d).unwrap();
+        let (_, ifd0, _, _) = super::ifds(&copy).unwrap();
+        let tags: Vec<u16> = ifd0.iter().map(|f| f.0).collect();
+        assert_eq!(tags, [0x010f, 0x8769]);
+        let rows = super::parse(&copy);
+        assert!(rows.contains(&("Camera", "Canon".into())), "{rows:?}");
+        assert!(
+            rows.contains(&("Taken", "2020:01:02 03:04:05".into())),
+            "{rows:?}"
+        );
     }
 
     /// A PNG's or WebP's EXIF that cannot be read stays as it is when the image is saved turned.
