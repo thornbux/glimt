@@ -5,7 +5,7 @@
 
 use crate::files::external;
 use crate::files::file_io::{put_file, rename_never_over};
-use crate::files::trash::{Thrown, restore, trash_dirs};
+use crate::files::trash::{TrashMove, restore, trash_dirs};
 use crate::images::decode::survive;
 use crate::images::save::save_rotated;
 use crate::model::folder::total_size;
@@ -120,7 +120,7 @@ pub(crate) type Moved = (PathBuf, PathBuf, FileFingerprint);
 /// is the file's `FileFingerprint` at `to`, so an Undo leaves alone a file that another program put
 /// there since.
 pub(crate) enum Undo {
-    Trash(Thrown),
+    Trash(TrashMove),
     Move(Vec<Moved>),
     Rename(Vec<Moved>),
 }
@@ -667,7 +667,7 @@ impl crate::App {
             let (sides_gone, sidecars_left): (Vec<PathBuf>, Vec<PathBuf>) =
                 (sides.into_iter()).partition(|s| std::fs::symlink_metadata(s).is_err());
             let undo = (trash && !gone.is_empty()).then(|| {
-                Undo::Trash(Thrown {
+                Undo::Trash(TrashMove {
                     files: gone.clone(),
                     // Only the sidecars that are gone count, because a sidecar gio could not
                     // move is still there. Those are kept apart, as they are still the files'.
@@ -761,8 +761,8 @@ impl crate::App {
                 let mut undo = undo;
                 let forgotten = self.marks.forget(&gone);
                 // Added to, not replaced: an Undo that put nothing back sends its marks back.
-                if let Some(Undo::Trash(thrown)) = &mut undo {
-                    thrown.marks.extend(forgotten);
+                if let Some(Undo::Trash(trash_move)) = &mut undo {
+                    trash_move.marks.extend(forgotten);
                 }
                 self.marks.restore(restored_marks);
                 undo
@@ -1395,7 +1395,7 @@ impl crate::App {
                 Err(e) => (Vec::new(), Some(e)),
             };
             let undo = (!gone.is_empty()).then(|| {
-                Undo::Trash(Thrown {
+                Undo::Trash(TrashMove {
                     files: gone.clone(),
                     sidecars: Vec::new(),
                     sidecars_left: Vec::new(),
@@ -1429,7 +1429,7 @@ impl crate::App {
             Some(Undo::Move(pairs)) => (pairs.iter())
                 .flat_map(|(from, to, _)| [from.clone(), to.clone()])
                 .collect(),
-            Some(Undo::Trash(thrown)) => thrown.files.clone(),
+            Some(Undo::Trash(trash_move)) => trash_move.files.clone(),
             Some(Undo::Rename(pairs)) => (pairs.iter())
                 .flat_map(|(from, to, _)| [from.clone(), to.clone()])
                 .collect(),
@@ -1470,13 +1470,13 @@ impl crate::App {
                     None => tf!("{files} moved back", files),
                 })
             })),
-            Undo::Trash(thrown) => drop(self.run_in_background(ctx, touches, move || {
-                let (back, mut error) = restore(&thrown, trash_dirs);
+            Undo::Trash(trash_move) => drop(self.run_in_background(ctx, touches, move || {
+                let (back, mut error) = restore(&trash_move, trash_dirs);
                 // What went with the files comes back with them: their places in the
                 // collection, their marks and their stars.
                 let set: HashSet<&Path> = back.iter().map(PathBuf::as_path).collect();
                 let returned = |p: &Path| p.ancestors().any(|a| set.contains(a));
-                if let Some((file, removed)) = &thrown.collection {
+                if let Some((file, removed)) = &trash_move.collection {
                     let removed: Vec<_> = (removed.iter())
                         .filter(|(_, p)| returned(p))
                         .cloned()
@@ -1487,18 +1487,18 @@ impl crate::App {
                 }
                 // Those not put back (a name taken, a rename that failed) stay to be undone
                 // again, with their marks and places, which would be lost with this Undo.
-                let (marks, kept) = (thrown.marks.into_iter()).partition(|(p, _)| returned(p));
-                let left: Vec<PathBuf> = (thrown.files.into_iter())
+                let (marks, kept) = (trash_move.marks.into_iter()).partition(|(p, _)| returned(p));
+                let left: Vec<PathBuf> = (trash_move.files.into_iter())
                     .filter(|p| !returned(p))
                     .collect();
                 let undo = (!left.is_empty()).then(|| {
-                    Undo::Trash(Thrown {
+                    Undo::Trash(TrashMove {
                         files: left,
-                        sidecars: thrown.sidecars,
-                        sidecars_left: thrown.sidecars_left,
-                        since: thrown.since,
+                        sidecars: trash_move.sidecars,
+                        sidecars_left: trash_move.sidecars_left,
+                        since: trash_move.since,
                         marks: kept,
-                        collection: (thrown.collection).map(|(file, removed)| {
+                        collection: (trash_move.collection).map(|(file, removed)| {
                             (
                                 file,
                                 removed.into_iter().filter(|(_, p)| !returned(p)).collect(),
@@ -3662,7 +3662,7 @@ mod tests {
         let a = dir.join("a.png");
         image::RgbImage::new(2, 2).save(&a).unwrap();
         let (mut app, ctx) = app_on(&dir);
-        app.file_operations.undo = Some(super::Undo::Trash(crate::files::trash::Thrown {
+        app.file_operations.undo = Some(super::Undo::Trash(crate::files::trash::TrashMove {
             files: vec![a.clone()],
             sidecars: Vec::new(),
             sidecars_left: Vec::new(),
@@ -3696,7 +3696,7 @@ mod tests {
         let (a, b) = (dir.join("a.png"), dir.join("b.png"));
         let (mut app, ctx) = app_on(&dir);
         let gqv = dir.join("c.gqv");
-        app.file_operations.undo = Some(super::Undo::Trash(crate::files::trash::Thrown {
+        app.file_operations.undo = Some(super::Undo::Trash(crate::files::trash::TrashMove {
             files: vec![a.clone(), b.clone()],
             sidecars: Vec::new(),
             sidecars_left: Vec::new(),
@@ -3707,12 +3707,12 @@ mod tests {
         app.undo(&ctx);
         assert!(app.file_operations.undo.is_none());
         assert!(settle(&mut app, &ctx, |a| a.file_operations.undo.is_some()));
-        let Some(super::Undo::Trash(thrown)) = &app.file_operations.undo else {
+        let Some(super::Undo::Trash(trash_move)) = &app.file_operations.undo else {
             panic!("the Undo was lost");
         };
-        assert_eq!(thrown.files, [a.clone(), b]);
-        assert_eq!(thrown.marks, [(a.clone(), (1, 3))]);
-        assert_eq!(thrown.collection, Some((gqv, vec![(0, a)])));
+        assert_eq!(trash_move.files, [a.clone(), b]);
+        assert_eq!(trash_move.marks, [(a.clone(), (1, 3))]);
+        assert_eq!(trash_move.collection, Some((gqv, vec![(0, a)])));
         std::fs::remove_dir_all(dir).unwrap();
     }
 
