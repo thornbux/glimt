@@ -202,13 +202,16 @@ impl SharedMetadata {
     }
 
     /// Returns the new EXIF block (`exif::shared_block`) and XMP packet of a copy that keeps
-    /// the tags `keeps` keeps, and always the orientation and the colour space. Each is `None`
-    /// when nothing of it is kept.
+    /// the tags `keeps` keeps, and always the orientation and the colour space. With
+    /// `keeps_hdr_headroom`, a copy that leaves out an iPhone's maker note keeps its HDR
+    /// headroom and gain, which its gain map needs. Each is `None` when nothing of it is kept.
     pub(crate) fn written(
         &self,
         keeps: &dyn Fn(&str) -> bool,
+        keeps_hdr_headroom: bool,
     ) -> (Option<Vec<u8>>, Option<Vec<u8>>) {
-        let exif = (self.exif.as_deref()).and_then(|raw| exif::shared_block(raw, keeps));
+        let exif = (self.exif.as_deref())
+            .and_then(|raw| exif::shared_block(raw, keeps, keeps_hdr_headroom));
         let mut kept = self.xmp.clone();
         kept.list
             .retain(|(name, ..)| ALWAYS_SHARED_XMP.contains(&name.as_str()) || keeps(name));

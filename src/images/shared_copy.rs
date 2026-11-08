@@ -819,6 +819,33 @@ const MPF: &str = "Extra images (MPF)";
 /// image after the main one that an HDR screen brightens the main image with.
 const GAIN_MAP_NAMESPACE: &str = "http://ns.adobe.com/hdr-gain-map/1.0/";
 
+/// The XMP property that marks an iPhone's HDR gain map as one (exiftool's XMP-HDRGainMap).
+/// How much the gain map brightens the image is in the main image's maker note instead
+/// (`exif::apple_hdr_maker_note`).
+const APPLE_GAIN_MAP_VERSION: &str = "HDRGainMap:HDRGainMapVersion";
+
+/// The XMP that a copy of a gain map keeps (`gain_map_xmp`): each prefix, by the namespace it is
+/// written with, and the starts of the names of its properties that are kept. Ultra HDR's
+/// properties and Apple's HDRGainMap ones each say only how the gain map brightens the image,
+/// and Apple's apdi ones say that the image is a gain map and how its pixels are stored.
+const GAIN_MAP_PROPERTIES: [(&str, &str, &[&str]); 3] = [
+    ("hdrgm", GAIN_MAP_NAMESPACE, &["hdrgm:"]),
+    (
+        "HDRGainMap",
+        "http://ns.apple.com/HDRGainMap/1.0/",
+        &["HDRGainMap:"],
+    ),
+    (
+        "apdi",
+        "http://ns.apple.com/pixeldatainfo/1.0/",
+        &[
+            "apdi:AuxiliaryImageType",
+            "apdi:NativeFormat",
+            "apdi:StoredFormat",
+        ],
+    ),
+];
+
 /// The XMP property of a main image that lists the images after it, by their kinds and sizes
 /// (Google's container): a gain map, or the video of a motion photo.
 const CONTAINER_DIRECTORY: &str = "Container:Directory";
@@ -1180,13 +1207,15 @@ impl<'a> Walked<'a> {
     }
 }
 
-/// The HDR gain map of a JPEG (Ultra HDR, or ISO 21496-1's), walked as a JPEG of its own, and
-/// the attributes of the main image's and its entries in the MPF index. A copy that leaves out
-/// the images after the main one keeps it, without its metadata, as it decides how the image
-/// looks on an HDR screen (`gain_map_copy`).
+/// The HDR gain map of a JPEG (Ultra HDR, ISO 21496-1's or an iPhone's), walked as a JPEG of its
+/// own, and the attributes of the main image's and its entries in the MPF index. A copy that
+/// leaves out the images after the main one keeps it, without its metadata, as it decides how
+/// the image looks on an HDR screen (`gain_map_copy`).
 struct GainMap<'a> {
     image: Walked<'a>,
     attributes: [u32; 2],
+    /// Whether it is an iPhone's, whose brightness is in the main image's maker note.
+    is_apple: bool,
 }
 
 /// Returns the names of the tags of `path` that a copy for sharing can keep or leave out,
@@ -1225,6 +1254,9 @@ pub(crate) fn copy(path: &Path, kept: &HashSet<String>) -> Result<Option<Vec<u8>
             Some(gain_map) if !keeps(MPF) => Some(gain_map_copy(gain_map)?),
             _ => None,
         };
+        // An iPhone's gain map is shown only with the headroom in the main image's maker note.
+        let keeps_hdr_headroom =
+            gain_map.is_some() && walked.gain_map.as_ref().is_some_and(|g| g.is_apple);
         if let Some(gain_map) = &gain_map {
             let (element, namespaces) = container_directory(gain_map.len());
             metadata.replace_property(CONTAINER_DIRECTORY, element, namespaces);
@@ -1239,7 +1271,7 @@ pub(crate) fn copy(path: &Path, kept: &HashSet<String>) -> Result<Option<Vec<u8>
                 keeps(tag) && (has_video || !is_motion_photo_flag(tag))
             }
         };
-        let (exif, xmp) = metadata.written(&keeps_property);
+        let (exif, xmp) = metadata.written(&keeps_property, keeps_hdr_headroom);
         assembled(walked, &keeps, exif, xmp, gain_map)
     })?
     .transpose()
@@ -1429,9 +1461,10 @@ fn walk_jpeg(data: &[u8]) -> Option<Walked<'_>> {
 }
 
 /// Returns the HDR gain map of the JPEG `data`, walked as `walked`: the first image after the
-/// main one that its MPF index names and that is marked as a gain map, by its XMP (Ultra HDR,
-/// `GAIN_MAP_NAMESPACE`) or by an APP2 segment of ISO 21496-1 (`ISO_GAIN_MAP_NAME`). Returns
-/// `None` when it has none, or when the index or that image cannot be read.
+/// main one that its MPF index names and that is marked as a gain map, by its XMP (Ultra HDR's
+/// `GAIN_MAP_NAMESPACE`, or Apple's `APPLE_GAIN_MAP_VERSION`) or by an APP2 segment of
+/// ISO 21496-1 (`ISO_GAIN_MAP_NAME`). Returns `None` when it has none, or when the index or
+/// that image cannot be read.
 fn gain_map<'a>(data: &'a [u8], walked: &Walked) -> Option<GainMap<'a>> {
     let is_index = |p: &&Part| p.tag.as_deref() == Some(MPF) && p.bytes.get(4..8) == Some(b"MPF\0");
     let index = walked.parts.iter().find(is_index)?;
@@ -1451,13 +1484,23 @@ fn gain_map<'a>(data: &'a [u8], walked: &Walked) -> Option<GainMap<'a>> {
             let image = walk_jpeg_segments(bytes)?;
             let xmp = image.xmp.and_then(|x| std::str::from_utf8(x).ok());
             let is_ultra_hdr = xmp.is_some_and(|x| x.contains(GAIN_MAP_NAMESPACE));
+            let is_apple = xmp.is_some_and(|x| {
+                let properties = crate::metadata::xmp::properties(x).list;
+                properties
+                    .iter()
+                    .any(|(name, ..)| name == APPLE_GAIN_MAP_VERSION)
+            });
             let is_iso_segment = |p: &Part| {
                 p.bytes.starts_with(&[0xff, 0xe2])
                     && (p.bytes.get(4..)).is_some_and(|b| b.starts_with(ISO_GAIN_MAP_NAME))
             };
             let is_iso = image.parts.iter().any(is_iso_segment);
             let attributes = [entries[0][0], attribute];
-            (is_ultra_hdr || is_iso).then_some(GainMap { image, attributes })
+            (is_ultra_hdr || is_iso || is_apple).then_some(GainMap {
+                image,
+                attributes,
+                is_apple,
+            })
         })
 }
 
@@ -1962,17 +2005,24 @@ fn gain_map_copy(gain_map: &GainMap) -> Result<Vec<u8>, String> {
     assembled(&gain_map.image, &|_| false, None, xmp, None)
 }
 
-/// Returns a new XMP packet of the gain map properties (hdrgm) of the gain map's packet `xmp`,
-/// or `None` when it has none. A property of one value is written as an attribute, as readers
-/// of gain maps (Android's and Chrome's) look for one there, and a value for each colour as
-/// the element it is.
+/// Returns a new XMP packet of the gain map properties of the gain map's packet `xmp`
+/// (`GAIN_MAP_PROPERTIES`), or `None` when it has none. A property of one value is written as
+/// an attribute, as readers of gain maps (Android's and Chrome's) look for one there, and a
+/// value for each colour as the element it is. Every property is in one rdf:Description, as
+/// Chrome looks for Apple's two namespaces on the same one.
 /// shortcut: an element written with another prefix or with attributes of its own is left out;
-/// write it with the hdrgm prefix if a gain map is found that has one.
+/// write it with its namespace's prefix if a gain map is found that has one.
 fn gain_map_xmp(xmp: &[u8]) -> Option<Vec<u8>> {
     let properties = crate::metadata::xmp::properties(std::str::from_utf8(xmp).ok()?);
     let (mut attributes, mut elements) = (String::new(), String::new());
+    let mut namespaces_used = Vec::new();
     for (name, element, _) in &properties.list {
-        let Some(local) = name.strip_prefix("hdrgm:") else {
+        // A name that ends with ":" keeps every property of its namespace.
+        let is_kept =
+            |kept: &&str| *name == **kept || (kept.ends_with(':') && name.starts_with(*kept));
+        let Some(&(prefix, uri, _)) =
+            (GAIN_MAP_PROPERTIES.iter()).find(|(_, _, kept)| kept.iter().any(is_kept))
+        else {
             continue;
         };
         let value = (element.split_once('>'))
@@ -1980,19 +2030,25 @@ fn gain_map_xmp(xmp: &[u8]) -> Option<Vec<u8>> {
             .map(|(value, _)| value);
         match value {
             Some(value) if !value.contains('<') => {
-                attributes += &format!(" hdrgm:{local}=\"{}\"", value.replace('"', "&quot;"));
+                attributes += &format!(" {name}=\"{}\"", value.replace('"', "&quot;"));
             }
             _ if element.starts_with(&format!("<{name}>")) => elements += element,
-            _ => {}
+            _ => continue,
+        }
+        if !namespaces_used.contains(&(prefix, uri)) {
+            namespaces_used.push((prefix, uri));
         }
     }
-    if attributes.is_empty() && elements.is_empty() {
+    if namespaces_used.is_empty() {
         return None;
     }
+    let namespaces: String = (namespaces_used.iter())
+        .map(|(prefix, uri)| format!(" xmlns:{prefix}=\"{uri}\""))
+        .collect();
     let packet = format!(
         "<x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><rdf:RDF \
          xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\"><rdf:Description \
-         rdf:about=\"\" xmlns:hdrgm=\"{GAIN_MAP_NAMESPACE}\"{attributes}>{elements}\
+         rdf:about=\"\"{namespaces}{attributes}>{elements}\
          </rdf:Description></rdf:RDF></x:xmpmeta>"
     );
     Some(packet.into_bytes())
@@ -2025,10 +2081,11 @@ fn container_directory(length: usize) -> (String, crate::metadata::xmp::Namespac
 }
 
 /// Whether the XMP property `name` of a main image describes the images after it: the gain map
-/// (hdrgm) or the list of them (`CONTAINER_DIRECTORY`). They say only how the image looks and
-/// where those images are, so they are no tags, and a copy keeps them while it has the images.
+/// (hdrgm, or Apple's HDRGainMap) or the list of them (`CONTAINER_DIRECTORY`). They say only
+/// how the image looks and where those images are, so they are no tags, and a copy keeps them
+/// while it has the images.
 fn is_property_of_images_after(name: &str) -> bool {
-    name.starts_with("hdrgm:") || name == CONTAINER_DIRECTORY
+    name.starts_with("hdrgm:") || name.starts_with("HDRGainMap:") || name == CONTAINER_DIRECTORY
 }
 
 /// Whether the XMP property `name` says that the image is a motion photo, with a video after
@@ -2782,12 +2839,74 @@ mod tests {
             .collect()
     }
 
-    /// Returns an Ultra HDR JPEG: a main image of 16×16 and a gain map of 8×8 after it, each with
-    /// the test EXIF block, which has GPS, and with the XMP of a gain map. It is indexed by an MPF
-    /// segment and by the main XMP's directory. With `is_iso`, the gain map is marked only by
-    /// ISO 21496-1's APP2 segment, which the main image has too, and neither has XMP. Returns
-    /// the gain map's image data too.
-    fn ultra_hdr(is_iso: bool) -> (Vec<u8>, Vec<u8>) {
+    /// How the gain map of a test file (`hdr_jpeg`) is marked as one.
+    #[derive(Clone, Copy, PartialEq)]
+    enum Marking {
+        /// By Ultra HDR's hdrgm XMP, with the main XMP's directory of the images.
+        UltraHdr,
+        /// Only by ISO 21496-1's APP2 segment, which the main image has too, and by no XMP.
+        Iso,
+        /// As an iPhone marks it: by Apple's XMP in the gain map, and by the HDR headroom and
+        /// gain in the main image's maker note (`apple_exif_block`).
+        Apple,
+    }
+
+    /// The maker note of the Apple test file, as an iPhone writes it, big-endian with offsets
+    /// from its own start: a text of its own (tag 8) that no copy may keep, then the HDR
+    /// headroom (33) of 3/2 and the HDR gain (48) of 1/4, as signed rationals.
+    fn apple_maker_note() -> Vec<u8> {
+        let mut d = b"Apple iOS\0\0\x01MM".to_vec();
+        // The directory is at 14, with three entries, to 56. The text is at 56, the values at
+        // 72 and 80.
+        d.extend(3u16.to_be_bytes());
+        for (tag, kind, count, at) in [(8u16, 2u16, 16u32, 56u32), (33, 10, 1, 72), (48, 10, 1, 80)]
+        {
+            [tag, kind].iter().for_each(|v| d.extend(v.to_be_bytes()));
+            [count, at].iter().for_each(|v| d.extend(v.to_be_bytes()));
+        }
+        d.extend(0u32.to_be_bytes());
+        d.extend(b"APPLE-SECRET-ID\0");
+        d.extend(APPLE_HDR_VALUES);
+        d
+    }
+
+    /// The HDR headroom of 3/2 and the HDR gain of 1/4 of `apple_maker_note`, one after the
+    /// other.
+    const APPLE_HDR_VALUES: &[u8] = b"\0\0\0\x03\0\0\0\x02\0\0\0\x01\0\0\0\x04";
+
+    /// The EXIF block of the main image of the Apple test file, big-endian: the iPhone's maker
+    /// note (`apple_maker_note`) in the Exif directory and the test's map datum in the GPS one.
+    fn apple_exif_block() -> Vec<u8> {
+        let entry = |d: &mut Vec<u8>, tag: u16, kind: u16, count: u32, value: u32| {
+            d.extend(tag.to_be_bytes());
+            d.extend(kind.to_be_bytes());
+            d.extend(count.to_be_bytes());
+            d.extend(value.to_be_bytes());
+        };
+        let maker_note = apple_maker_note();
+        let gps_at = 56 + maker_note.len() as u32;
+        // IFD0 is at 8, to 38, the Exif directory at 38, to 56, and the maker note at 56.
+        let mut d = b"MM\0*\0\0\0\x08".to_vec();
+        d.extend(2u16.to_be_bytes());
+        entry(&mut d, 0x8769, 4, 1, 38);
+        entry(&mut d, 0x8825, 4, 1, gps_at);
+        d.extend(0u32.to_be_bytes());
+        d.extend(1u16.to_be_bytes());
+        entry(&mut d, 0x927c, 7, maker_note.len() as u32, 56);
+        d.extend(0u32.to_be_bytes());
+        d.extend(&maker_note);
+        // The GPS directory follows, and its map datum after it.
+        d.extend(1u16.to_be_bytes());
+        entry(&mut d, 0x0012, 2, 14, gps_at + 18);
+        d.extend(0u32.to_be_bytes());
+        d.extend(b"WGS-84-SECRET\0");
+        d
+    }
+
+    /// Returns a JPEG with an HDR gain map: a main image of 16×16 and a gain map of 8×8 after
+    /// it, each with an EXIF block that has GPS, indexed by an MPF segment. The gain map is
+    /// marked as `marking` says. Returns the gain map's image data too.
+    fn hdr_jpeg(marking: Marking) -> (Vec<u8>, Vec<u8>) {
         let encode = |size: u32| {
             let mut jpeg = Vec::new();
             let encoder = image::codecs::jpeg::JpegEncoder::new_with_quality(&mut jpeg, 90);
@@ -2799,7 +2918,9 @@ mod tests {
         let (main, gain_map) = (encode(16), encode(8));
         let gain_map_scans =
             gain_map[crate::metadata::exif::jpeg_scan_start(&gain_map).unwrap()..].to_vec();
-        let exif = super::jpeg_segment(0xe1, &[&b"Exif\0\0"[..], &exif_block()].concat());
+        let exif_of =
+            |block: Vec<u8>| super::jpeg_segment(0xe1, &[&b"Exif\0\0"[..], &block].concat());
+        let exif = exif_of(exif_block());
         let xmp =
             |text: &str| super::jpeg_segment(0xe1, &[super::XMP_NAME, text.as_bytes()].concat());
         let rdf = "<x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><rdf:RDF \
@@ -2809,11 +2930,24 @@ mod tests {
             "{rdf} hdrgm:Version=\"1.0\" hdrgm:GainMapMax=\"2.3\" hdrgm:HDRCapacityMax=\"2.3\"/>\
              </rdf:RDF></x:xmpmeta>"
         );
+        // Apple's XMP is written with elements, as an iPhone writes it, and with a place that no
+        // copy may keep.
+        let apple_xmp = "<x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><rdf:RDF \
+            xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\"><rdf:Description \
+            rdf:about=\"\" xmlns:HDRGainMap=\"http://ns.apple.com/HDRGainMap/1.0/\" \
+            xmlns:apdi=\"http://ns.apple.com/pixeldatainfo/1.0/\" \
+            xmlns:exif=\"http://ns.adobe.com/exif/1.0/\" exif:GPSLatitude=\"59,55.123N\">\
+            <HDRGainMap:HDRGainMapVersion>131072</HDRGainMap:HDRGainMapVersion>\
+            <apdi:NativeFormat>1278226488</apdi:NativeFormat>\
+            <apdi:AuxiliaryImageType>urn:com:apple:photo:2020:aux:hdrgainmap\
+            </apdi:AuxiliaryImageType><apdi:StoredFormat>1278226488</apdi:StoredFormat>\
+            </rdf:Description></rdf:RDF></x:xmpmeta>";
         let iso =
             |values: &[u8]| super::jpeg_segment(0xe2, &[super::ISO_GAIN_MAP_NAME, values].concat());
-        let marked = match is_iso {
-            true => iso(b"\0\0\0\0ISO-GAIN-MAP-VALUES"),
-            false => xmp(&gain_map_xmp),
+        let marked = match marking {
+            Marking::Iso => iso(b"\0\0\0\0ISO-GAIN-MAP-VALUES"),
+            Marking::UltraHdr => xmp(&gain_map_xmp),
+            Marking::Apple => xmp(apple_xmp),
         };
         let gain_map = [&gain_map[..2], &exif, &marked, &gain_map[2..]].concat();
         let main_xmp = format!(
@@ -2827,11 +2961,11 @@ mod tests {
              </rdf:RDF></x:xmpmeta>",
             gain_map.len()
         );
-        let main_marked = match is_iso {
-            true => iso(b"\0\0\0\0"),
-            false => xmp(&main_xmp),
+        let head = match marking {
+            Marking::Iso => [&main[..2], &exif, &iso(b"\0\0\0\0")].concat(),
+            Marking::UltraHdr => [&main[..2], &exif, &xmp(&main_xmp)].concat(),
+            Marking::Apple => [&main[..2], &exif_of(apple_exif_block())].concat(),
         };
-        let head = [&main[..2], &exif, &main_marked].concat();
         let mpf_at = head.len();
         let primary_size =
             head.len() + super::jpeg_segment(0xe2, &mpf(0, 0, 0)).len() + main.len() - 2;
@@ -2852,7 +2986,7 @@ mod tests {
     #[test]
     fn an_ultra_hdr_gain_map_stays_without_its_metadata() {
         let dir = folder("ultrahdr");
-        let (original, gain_map_scans) = ultra_hdr(false);
+        let (original, gain_map_scans) = hdr_jpeg(Marking::UltraHdr);
         let path = dir.join("hdr.jpg");
         std::fs::write(&path, &original).unwrap();
         let found = super::tags_of(&path).unwrap().unwrap();
@@ -2895,7 +3029,7 @@ mod tests {
     #[test]
     fn an_iso_gain_map_stays_without_its_metadata() {
         let dir = folder("isogainmap");
-        let (original, gain_map_scans) = ultra_hdr(true);
+        let (original, gain_map_scans) = hdr_jpeg(Marking::Iso);
         let path = dir.join("hdr.jpg");
         std::fs::write(&path, &original).unwrap();
         let found = super::tags_of(&path).unwrap().unwrap();
@@ -2918,6 +3052,63 @@ mod tests {
         let pixels = |b: &[u8]| image::load_from_memory(b).unwrap().to_rgba8();
         assert!(pixels(&original) == pixels(&copy));
         assert_eq!(pixels(&copy[gain.1..]).dimensions(), (8, 8));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// An iPhone's gain map stays as Ultra HDR's does when Place is left out: its image data
+    /// and Apple's XMP that marks it, without its EXIF or the place in its XMP, at the place
+    /// the new MPF index names. The main image keeps a maker note of only the HDR headroom and
+    /// gain, which readers of Apple's gain maps need, and nothing else of the maker's.
+    #[test]
+    fn an_iphone_gain_map_stays_without_its_metadata() {
+        let dir = folder("iphonegainmap");
+        let (original, gain_map_scans) = hdr_jpeg(Marking::Apple);
+        let path = dir.join("iphone.jpg");
+        std::fs::write(&path, &original).unwrap();
+        let found = super::tags_of(&path).unwrap().unwrap();
+        assert!(found.iter().any(|t| t == "MakerNote"), "{found:?}");
+        let mut left_out = super::LeftOut::default();
+        left_out.set_group(super::Group::Place, true);
+        let copy = super::copy(&path, &left_out.kept(&found)).unwrap().unwrap();
+        let has = |text: &[u8]| copy.windows(text.len()).any(|w| w == text);
+        let had = |text: &[u8]| original.windows(text.len()).any(|w| w == text);
+        for text in [&b"WGS-84-SECRET"[..], b"59,55.123N", b"APPLE-SECRET-ID"] {
+            assert!(had(text), "{}", String::from_utf8_lossy(text));
+            assert!(
+                !has(text),
+                "{} is in the copy",
+                String::from_utf8_lossy(text)
+            );
+        }
+        assert!(has(&gain_map_scans), "the gain map's image data is gone");
+        for text in [
+            &b"HDRGainMap:HDRGainMapVersion=\"131072\""[..],
+            b"apdi:AuxiliaryImageType=\"urn:com:apple:photo:2020:aux:hdrgainmap\"",
+            b"xmlns:HDRGainMap=\"http://ns.apple.com/HDRGainMap/1.0/\"",
+            b"xmlns:apdi=\"http://ns.apple.com/pixeldatainfo/1.0/\"",
+        ] {
+            assert!(
+                has(text),
+                "{} is not in the copy",
+                String::from_utf8_lossy(text)
+            );
+        }
+        // A maker note of the headroom (33) and the gain (48) alone, its offsets from its start.
+        let mut maker_note = b"Apple iOS\0\0\x01MM\0\x02".to_vec();
+        maker_note.extend(b"\0\x21\0\x0a\0\0\0\x01\0\0\0\x2c\0\x30\0\x0a\0\0\0\x01\0\0\0\x34");
+        maker_note.extend([0; 4]);
+        maker_note.extend(APPLE_HDR_VALUES);
+        assert!(has(&maker_note), "the maker note's HDR headroom is gone");
+        let images = mp_images(&copy);
+        let (primary, gain) = (images[0], images[1]);
+        assert_eq!(
+            (primary.1, gain.1, gain.1 + gain.0),
+            (0, primary.0, copy.len())
+        );
+        let pixels = |b: &[u8]| image::load_from_memory(b).unwrap().to_rgba8();
+        assert!(pixels(&original) == pixels(&copy));
+        assert_eq!(pixels(&copy[gain.1..]).dimensions(), (8, 8));
+        assert!(!found.iter().any(|t| t.starts_with("HDRGainMap:")));
         std::fs::remove_dir_all(dir).unwrap();
     }
 
@@ -3225,7 +3416,9 @@ mod tests {
             .unwrap();
         let webp = crate::images::save::webp_with_chunk(&webp, b"XMP ", b"<x/>", 8, 8).unwrap();
         let keeps = |_: &str| true;
-        for seed in [jpeg, png, webp, ultra_hdr(false).0, ultra_hdr(true).0] {
+        let markings = [Marking::UltraHdr, Marking::Iso, Marking::Apple];
+        let hdr = markings.map(|m| hdr_jpeg(m).0);
+        for seed in [jpeg, png, webp].into_iter().chain(hdr) {
             for data in crate::support::test_support::broken(&seed) {
                 if let Ok(Some(walked)) = super::walk(&data) {
                     let gain_map = walked.gain_map.as_deref().map(super::gain_map_copy);
@@ -3314,7 +3507,7 @@ mod tests {
             .write_with_encoder(image::codecs::webp::WebPEncoder::new_lossless(&mut webp))
             .unwrap();
         let webp = crate::images::save::webp_with_chunk(&webp, b"XMP ", XMP.as_bytes(), 16, 16);
-        let jpeg = ultra_hdr(false).0;
+        let jpeg = hdr_jpeg(Marking::UltraHdr).0;
         // The first read takes the main image's first scan, but not the gain map after it.
         let first_read = crate::metadata::exif::jpeg_scan_start(&jpeg).unwrap() as u64 + 16;
         for data in crate::support::test_support::broken(&jpeg) {

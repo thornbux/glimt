@@ -169,3 +169,28 @@ tags" reads the selected files, where the last choice is kept, and the code stru
   and `Container:Directory` keep their names.
 - Dynamic Depth's directory, whose `Container` prefix has another URI, is not taken for Ultra
   HDR's, which is known by its URI. A test pins this.
+
+## After audit round "0.77: iPhone gain map" (2026-11-08)
+
+The user decided that an iPhone's HDR gain map is kept as Ultra HDR's is, not left out with
+the extra images as round 3 said.
+
+- Apple marks the gain map, an auxiliary image that the MPF index names, by its XMP:
+  `HDRGainMap:HDRGainMapVersion` (namespace `http://ns.apple.com/HDRGainMap/1.0/`), with
+  `apdi:AuxiliaryImageType` `urn:com:apple:photo:2020:aux:hdrgainmap`, `apdi:NativeFormat` and
+  `apdi:StoredFormat` (`http://ns.apple.com/pixeldatainfo/1.0/`), from exiftool's XMP2.pl.
+  Glimt takes an image after the main one with `HDRGainMapVersion` as a gain map.
+- How bright the gain map may make the image is not in the gain map but in the main image's
+  Apple maker note: tag 33 (HDRHeadroom) and tag 48 (HDRGain), signed rationals, from
+  exiftool's Apple.pm and Apple's "Applying Apple HDR effect to your photos". Chrome (Skia's
+  `SkExif.cpp` and `getGainmapInfoApple`) shows an Apple gain map only when tag 33 is there,
+  in a maker note that starts with `Apple iOS\0\0\x01MM` and whose offsets count from its
+  start. `HDRGainMap:HDRGainMapHeadroom` in the gain map's XMP, when there is one, takes its
+  place.
+- The copy keeps the gain map's image data and only those XMP properties (`hdrgm:`,
+  `HDRGainMap:` and the three `apdi:` ones), with a new MPF index, as for Ultra HDR. When the
+  maker note is left out, the main image's new EXIF holds a new maker note of the same form
+  with only tags 33 and 48, numbers that say nothing of the place, the camera or the owner
+  (`exif::apple_hdr_maker_note`). Nothing else of the maker note is kept.
+- `HDRGainMap:` properties of the main image are no tags, as `hdrgm:` ones are not: they are
+  kept while the gain map is.

@@ -52,6 +52,17 @@ const MAX_TEXT: usize = 4096;
 /// The name Copy for Sharing gives the EXIF thumbnail (IFD1), a small JPEG of the whole photo.
 pub const EXIF_THUMBNAIL: &str = "EXIF thumbnail";
 
+/// The tag of the maker note, the camera maker's own block in the Exif directory.
+const MAKER_NOTE: u16 = 0x927c;
+
+/// The start of an iPhone's maker note: the maker, a version and the byte order (big-endian).
+/// Its directory follows, and its offsets count from the start of the maker note.
+const APPLE_MAKER_NOTE_HEADER: &[u8] = b"Apple iOS\0\0\x01MM";
+
+/// The tags of an iPhone's maker note that say how bright its HDR gain map may make the photo:
+/// HDRHeadroom (33) and HDRGain (48), each a signed rational (exiftool's Apple.pm).
+const APPLE_HDR_TAGS: [u16; 2] = [33, 48];
+
 /// EXIF orientations 1–8 as 2×2 matrices on (x, y) with y down: what to do with the stored
 /// pixels to show them upright.
 const ORIENTATIONS: [[i8; 4]; 8] = [
@@ -1002,11 +1013,17 @@ pub fn shared_tag_names(raw: &[u8]) -> Vec<String> {
 /// `raw` is in it: each value is copied on its own into a block made new, so the bytes of a tag
 /// left out cannot linger in it. The block is written in `raw`'s byte order, so the values are
 /// copied as they are. The EXIF thumbnail (IFD1) is in it, as a JPEG, only when `keeps` keeps
-/// `EXIF_THUMBNAIL`. Returns `None` when `raw` has no TIFF header or nothing is kept.
+/// `EXIF_THUMBNAIL`. With `keeps_hdr_headroom`, a maker note left out of an iPhone's photo is
+/// written new with only its HDR headroom and gain (`apple_hdr_maker_note`), which its gain map
+/// needs. Returns `None` when `raw` has no TIFF header or nothing is kept.
 /// shortcut: a kept MakerNote moves to where the new block puts it, so a maker note that points
 /// at offsets from the TIFF header (Canon) loses them, as in every tool that writes a new block;
 /// move its offsets too if users need a maker note kept whole.
-pub fn shared_block(raw: &[u8], keeps: &dyn Fn(&str) -> bool) -> Option<Vec<u8>> {
+pub fn shared_block(
+    raw: &[u8],
+    keeps: &dyn Fn(&str) -> bool,
+    keeps_hdr_headroom: bool,
+) -> Option<Vec<u8>> {
     let (t, ifd0, exif, gps) = ifds(raw)?;
     let value = |e: &Entry| {
         let len = type_size(e.field_type).checked_mul(e.count as usize)?;
@@ -1024,6 +1041,13 @@ pub fn shared_block(raw: &[u8], keeps: &dyn Fn(&str) -> bool) -> Option<Vec<u8>>
                 .position(|d| *d == dir)
                 .unwrap_or(0);
             dirs[at].extend(value(&e).map(|v| (tag, e.field_type, e.count, v)));
+        } else if keeps_hdr_headroom
+            && dir == "Exif"
+            && tag == MAKER_NOTE
+            && !dirs[1].iter().any(|kept| kept.0 == MAKER_NOTE)
+        {
+            let maker_note = value(&e).and_then(|v| apple_hdr_maker_note(&v));
+            dirs[1].extend(maker_note.map(|v| (tag, UNDEFINED, v.len() as u32, v)));
         }
     }
     let interop = find(&exif, INTEROP_IFD).and_then(|e| t.int(e));
@@ -1034,6 +1058,49 @@ pub fn shared_block(raw: &[u8], keeps: &dyn Fn(&str) -> bool) -> Option<Vec<u8>>
     }
     let thumbnail = keeps(EXIF_THUMBNAIL).then(|| exif_thumbnail(&t)).flatten();
     write_block(t.is_little_endian, dirs, thumbnail)
+}
+
+/// Makes a new iPhone maker note that holds only the HDR headroom and gain
+/// (`APPLE_HDR_TAGS`) of the maker note `maker_note`. Chrome and Apple read them to show the
+/// photo's HDR gain map, and they are numbers that say nothing of the place, the camera or the
+/// owner. Every other tag of the maker note is left out. Returns `None` when `maker_note` is no
+/// iPhone's (`APPLE_MAKER_NOTE_HEADER`) or has no HDR headroom.
+fn apple_hdr_maker_note(maker_note: &[u8]) -> Option<Vec<u8>> {
+    if !maker_note.starts_with(APPLE_MAKER_NOTE_HEADER) {
+        return None;
+    }
+    let t = Tiff {
+        data: maker_note,
+        is_little_endian: false,
+    };
+    let mut kept: Vec<(u16, &[u8])> = Vec::new();
+    for (tag, e) in t.ifd(APPLE_MAKER_NOTE_HEADER.len()) {
+        // A crafted note may name a tag twice; the first is taken, as Chrome takes it.
+        let is_new = !kept.iter().any(|(seen, _)| *seen == tag);
+        if is_new
+            && APPLE_HDR_TAGS.contains(&tag)
+            && (e.field_type, e.count) == (SRATIONAL, 1)
+            && let Some(value) = maker_note.get(e.value_offset..e.value_offset.saturating_add(8))
+        {
+            kept.push((tag, value));
+        }
+    }
+    if !kept.iter().any(|(tag, _)| *tag == APPLE_HDR_TAGS[0]) {
+        return None;
+    }
+    kept.sort_by_key(|(tag, _)| *tag);
+    let values_at = APPLE_MAKER_NOTE_HEADER.len() + 2 + 12 * kept.len() + 4;
+    let mut out = APPLE_MAKER_NOTE_HEADER.to_vec();
+    out.extend((kept.len() as u16).to_be_bytes());
+    for (i, (tag, _)) in kept.iter().enumerate() {
+        out.extend(tag.to_be_bytes());
+        out.extend(SRATIONAL.to_be_bytes());
+        out.extend(1u32.to_be_bytes());
+        out.extend(((values_at + 8 * i) as u32).to_be_bytes());
+    }
+    out.extend([0; 4]);
+    kept.iter().for_each(|(_, value)| out.extend(*value));
+    Some(out)
 }
 
 /// Writes a new TIFF block of the directories `dirs` (IFD0, Exif, GPS, Interop and IFD1, whose
@@ -2025,14 +2092,14 @@ mod tests {
         let names = super::shared_tag_names(&block);
         assert!(names.contains(&"Make".into()) && names.contains(&super::EXIF_THUMBNAIL.into()));
         let keeps = |name: &str| name == "ExposureTime";
-        let shared = super::shared_block(&block, &keeps).unwrap();
+        let shared = super::shared_block(&block, &keeps, false).unwrap();
         let has = |b: &[u8], text: &[u8]| b.windows(text.len()).any(|w| w == text);
         assert!(!has(&shared, b"Canon") && !has(&shared, b"THMB"));
         let rows = super::parse(&shared);
         assert!(rows.contains(&("Exposure", "1/250 s".into())), "{rows:?}");
         assert_eq!(super::orientation(&shared).map(|o| o.to_exif()), Some(6));
         let keeps = |name: &str| name == super::EXIF_THUMBNAIL;
-        let shared = super::shared_block(&block, &keeps).unwrap();
+        let shared = super::shared_block(&block, &keeps, false).unwrap();
         let (t, ..) = super::ifds(&shared).unwrap();
         assert_eq!(super::exif_thumbnail(&t), Some(&b"THMB"[..]));
     }
@@ -2066,7 +2133,7 @@ mod tests {
         entry(&mut d, 0x0012, 2, 14, 116);
         d.extend(0u32.to_be_bytes());
         d.extend(b"WGS-84-SECRET\0");
-        let shared = super::shared_block(&d, &|_| false).unwrap();
+        let shared = super::shared_block(&d, &|_| false, false).unwrap();
         let has = |text: &[u8]| shared.windows(text.len()).any(|w| w == text);
         assert!(has(b"R98\0") && !has(b"WGS-84-SECRET"));
     }
@@ -2098,8 +2165,8 @@ mod tests {
         for seed in [sample(), mm.to_vec()] {
             for mut block in crate::support::test_support::broken(&seed) {
                 super::shared_tag_names(&block);
-                super::shared_block(&block, &|_| true);
-                super::shared_block(&block, &|_| false);
+                super::shared_block(&block, &|_| true, true);
+                super::shared_block(&block, &|_| false, true);
                 super::parse(&block);
                 super::fields(&block);
                 super::orientation(&block);
@@ -2110,6 +2177,19 @@ mod tests {
                 let _ = super::set_upright(&mut block, (1, 1));
                 assert_eq!(block.len(), len);
             }
+        }
+        // An iPhone's maker note of only the HDR headroom and gain is made again as it is, and
+        // a broken one gives at most as much.
+        let apple = b"Apple iOS\0\0\x01MM\0\x02\0\x21\0\x0a\0\0\0\x01\0\0\0\x2c\
+                      \0\x30\0\x0a\0\0\0\x01\0\0\0\x34\0\0\0\0\
+                      \0\0\0\x03\0\0\0\x02\0\0\0\x01\0\0\0\x04";
+        assert_eq!(
+            super::apple_hdr_maker_note(apple).as_deref(),
+            Some(&apple[..])
+        );
+        for note in crate::support::test_support::broken(apple) {
+            let new = super::apple_hdr_maker_note(&note);
+            assert!(new.is_none_or(|n| n.len() <= apple.len()));
         }
         let mut jpeg = Vec::new();
         let mut out = std::io::Cursor::new(&mut jpeg);

@@ -210,9 +210,11 @@ const MANUAL: &[(&str, &str)] = &[
          for the file's exact bytes, which every copy changes, so they would call it tampered \
          with. Remove All ticks every box. The orientation and the \
          colour profile are always kept, as without them the copy would look different, and so \
-         is an HDR photo's gain map (Ultra HDR, or one marked as ISO 21496-1 says), the image \
-         after the main one that brightens it on an HDR screen, without its own metadata. The \
-         gain maps of other forms, such as an iPhone's, go with the extra images. The dialog \
+         is an HDR photo's gain map (Ultra HDR, an iPhone's, or one marked as ISO 21496-1 \
+         says), the image after the main one that brightens it on an HDR screen, without its \
+         own metadata. For an iPhone's, the maker note keeps only the two numbers that say how \
+         bright the photo may get (the HDR headroom and gain), also when it is left out. The \
+         dialog \
          starts with what you left out last time, but a tag you untick under a ticked group is \
          kept for this copy only: the next time the group leaves out all of it again. Copy… \
          asks for the folder. A copy has \

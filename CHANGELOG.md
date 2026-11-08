@@ -5,6 +5,14 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- Copy for Sharing keeps an iPhone's HDR gain map as it keeps an Ultra HDR one, so the copy
+  still shows brighter highlights on an HDR screen. The gain map keeps its image data and
+  Apple's few words that mark it, without its own EXIF or other tags, and the main image keeps
+  the two numbers of its maker note that say how bright it may get (the HDR headroom and gain),
+  without the rest of the maker note. Before, the gain map went with the extra images.
+
 ## [0.76.0] - 2026-11-08
 
 ### Changed

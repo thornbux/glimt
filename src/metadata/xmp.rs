@@ -31,7 +31,7 @@ const SLASHED_TREE_LISTS: [(&str, &str, &str); 2] = [
 /// The namespaces whose properties Copy for Sharing names by the prefix here, whatever prefix a
 /// packet binds them to (`properties`). A packet may write Exif's GPS as `ns1:GPSLatitude`,
 /// and the old `xap:` is `xmp:`, so a name by the prefix as written would miss its group.
-const KNOWN_NAMESPACES: [(&str, &str); 28] = [
+const KNOWN_NAMESPACES: [(&str, &str); 30] = [
     ("dc", "http://purl.org/dc/elements/1.1/"),
     ("xmp", "http://ns.adobe.com/xap/1.0/"),
     ("xmpMM", "http://ns.adobe.com/xap/1.0/mm/"),
@@ -65,6 +65,9 @@ const KNOWN_NAMESPACES: [(&str, &str); 28] = [
     ("acdsee", "http://ns.acdsee.com/iptc/1.0/"),
     ("darktable", "http://darktable.sf.net/"),
     ("hdrgm", "http://ns.adobe.com/hdr-gain-map/1.0/"),
+    // Apple's marks of an iPhone's HDR gain map.
+    ("HDRGainMap", "http://ns.apple.com/HDRGainMap/1.0/"),
+    ("apdi", "http://ns.apple.com/pixeldatainfo/1.0/"),
     ("Container", "http://ns.google.com/photos/1.0/container/"),
     ("Item", "http://ns.google.com/photos/1.0/container/item/"),
 ];
