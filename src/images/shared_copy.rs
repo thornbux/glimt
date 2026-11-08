@@ -649,24 +649,31 @@ fn read_without_image_data(path: &Path) -> std::io::Result<Option<Vec<u8>>> {
     }
     match container_of(&head) {
         None => Ok(None),
-        Some(Container::Jpeg) => jpeg_without_scans(path, file, metadata.len()).map(Some),
+        Some(Container::Jpeg) => jpeg_without_scans(file, metadata.len(), 1 << 18).map(Some),
         Some(container) => {
             chunks_without_image_data(file, head, metadata.len(), container).map(Some)
         }
     }
 }
 
-/// Reads the JPEG `path` of `size` bytes up to its first scan, from a quarter of a MB on and
-/// more only when its segments are longer. An end of image (EOI) stands for the scans, and one
-/// byte more after it when the file `file` does not end in one, so the walk sees that something
-/// follows the image. A file read whole is given as it is.
+/// Reads the JPEG `file` of `size` bytes up to its first scan, from its first `first_read` bytes
+/// on (a quarter of a MB for a file) and more only when its segments are longer. An end of
+/// image (EOI) stands for the scans, and one byte more after it when the file does not end in
+/// one, so the walk sees that something follows the image. A file read whole is given as it is.
 /// shortcut: what follows the first scan is not read, so a comment between the scans of a
 /// progressive JPEG is not listed, and a copy leaves it out; read the scans too if one matters.
-fn jpeg_without_scans(path: &Path, mut file: std::fs::File, size: u64) -> std::io::Result<Vec<u8>> {
-    use std::io::{Read, Seek};
-    let mut cap: u64 = 1 << 18;
+fn jpeg_without_scans(
+    mut file: impl std::io::Read + std::io::Seek,
+    size: u64,
+    first_read: u64,
+) -> std::io::Result<Vec<u8>> {
+    use std::io::Read;
+    let mut cap = first_read.max(1);
     loop {
-        let head = read_head(path, cap)?;
+        file.rewind()?;
+        let mut head = Vec::new();
+        #[allow(clippy::disallowed_methods)] // bounded by take
+        (&mut file).take(cap).read_to_end(&mut head)?;
         if head.len() as u64 >= size || cap >= MAX_DECODE_BYTES {
             return Ok(head);
         }
@@ -690,7 +697,7 @@ fn jpeg_without_scans(path: &Path, mut file: std::fs::File, size: u64) -> std::i
 /// most to the file's size `size`. Returns an error when what is read would be larger than a
 /// decode reads (`MAX_DECODE_BYTES`).
 fn chunks_without_image_data(
-    file: std::fs::File,
+    file: impl std::io::Read + std::io::Seek,
     head: [u8; 12],
     size: u64,
     container: Container,
@@ -2236,6 +2243,58 @@ mod tests {
                 super::iim_properties(data);
             }
             super::iim_properties(&data);
+        }
+    }
+
+    /// The readers of a file without its image data, which the list of tags reads, never panic
+    /// on files broken in thousands of ways, nor does the walk of what they read. A JPEG's first
+    /// read is a small one, so its later reads and the look at its end are taken too.
+    #[test]
+    fn survives_broken_heads_without_image_data() {
+        use super::Container;
+        let mut png = Vec::new();
+        picture()
+            .write_with_encoder(image::codecs::png::PngEncoder::new(&mut png))
+            .unwrap();
+        let text = |t: &[u8]| super::png_chunk(b"tEXt", t);
+        let end = png.len() - 12;
+        let png = [
+            &png[..33],
+            &text(b"Author\0Kari"),
+            &png[33..end],
+            &text(b"Comment\0late"),
+            &png[end..],
+        ];
+        let mut webp = Vec::new();
+        picture()
+            .write_with_encoder(image::codecs::webp::WebPEncoder::new_lossless(&mut webp))
+            .unwrap();
+        let webp = crate::images::save::webp_with_chunk(&webp, b"XMP ", XMP.as_bytes(), 16, 16);
+        let jpeg = ultra_hdr().0;
+        // The first read takes the main image's first scan, but not the gain map after it.
+        let first_read = crate::metadata::exif::jpeg_scan_start(&jpeg).unwrap() as u64 + 16;
+        for data in crate::support::test_support::broken(&jpeg) {
+            let file = std::io::Cursor::new(&data);
+            if let Ok(head) = super::jpeg_without_scans(file, data.len() as u64, first_read) {
+                let _ = super::walk(&head);
+            }
+        }
+        for (seed, container) in [
+            (png.concat(), Container::Png),
+            (webp.unwrap(), Container::WebP),
+        ] {
+            for data in crate::support::test_support::broken(&seed) {
+                let Some(head) = data.get(..12) else {
+                    continue;
+                };
+                let mut file = std::io::Cursor::new(&data);
+                file.set_position(12);
+                let head = head.try_into().unwrap();
+                let size = data.len() as u64;
+                if let Ok(read) = super::chunks_without_image_data(file, head, size, container) {
+                    let _ = super::walk(&read);
+                }
+            }
         }
     }
 }
