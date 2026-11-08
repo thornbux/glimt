@@ -12,6 +12,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 - Inside, the check that every modal dialog is in the one list of what is open compares the
   modal's name with whole names in that list, so a new modal named "confirm" no longer passes
   on `confirm_delete`, and it reads a call that is split over several lines.
+- Inside, the check that keys are read in one place also sees the keys held down
+  (`keys_down`).
 
 ## [0.74.0] - 2026-11-08
 

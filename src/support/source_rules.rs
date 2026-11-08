@@ -2010,6 +2010,8 @@ fn keys_answer_through_one_place() {
             ],
         ),
         ("key_down(", &[]),
+        // The set of keys held down, a field of the input that a key is read from too.
+        ("keys_down", &[]),
         ("key_released(", &[]),
         ("num_presses(", &[]),
     ];
@@ -2067,6 +2069,11 @@ fn keys_answer_through_one_place() {
     assert_eq!(
         outside_homes_in("ui/file_list.rs", planted, KEY_READS),
         ["ui/file_list.rs:2 (key_down()"]
+    );
+    let planted = "fn grid() {\n    if i.keys_down.contains(&egui::Key::A) {}\n}\n";
+    assert_eq!(
+        outside_homes_in("ui/file_list.rs", planted, KEY_READS),
+        ["ui/file_list.rs:2 (keys_down)"]
     );
 }
 
