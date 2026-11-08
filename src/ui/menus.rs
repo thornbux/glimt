@@ -530,12 +530,12 @@ impl crate::App {
     /// Edit → Tools: run one on the selected files, or the shown one, in the background. The
     /// files are read again afterwards, as tools change them.
     pub(crate) fn tools_menu(&mut self, ui: &mut egui::Ui) {
-        scroll_menu(ui, with_icon(ui, theme::icon::TOOL, tr("Plugins")), |ui| {
+        scroll_menu(ui, with_icon(ui, theme::icon::TOOL, tr("Tools")), |ui| {
             ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Extend);
             // The new folder only: the old one of `tools::RENAMED_FOLDERS` is still read.
             let dir = xdg_dir("XDG_DATA_HOME", ".local/share", "glimt").map(|d| d.join("tools"));
             if self.tools.is_empty() {
-                ui.weak(tr("No plugins"));
+                ui.weak(tr("No tools"));
             }
             let mut chosen = None;
             for (k, tool) in self.tools.iter().enumerate() {
@@ -562,7 +562,7 @@ impl crate::App {
                 }
             }
             ui.separator();
-            if icon_button(ui, theme::icon::FOLDER_OPEN, tr("Open the Plugins Folder"))
+            if icon_button(ui, theme::icon::FOLDER_OPEN, tr("Open the Tools Folder"))
                 .on_hover_text(tr(
                     "Desktop files there, as Geeqie's, show in this menu after a restart",
                 ))

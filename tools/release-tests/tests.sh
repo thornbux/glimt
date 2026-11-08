@@ -2645,32 +2645,33 @@ left=$(kill -0 $GPID 2>/dev/null && echo running || echo ended)
 quit
 expect "Ctrl+Q refused, --remote quit taken (the control)" "$stays $left" "running ended"
 
-section "Edit → Plugins from the menu: the plugin runs on the shown file, Glimt answering meanwhile"
-d=/tmp/plugin-menu
-mkdir -p $d $XDG_DATA_HOME/glimt/plugins
+section "Edit → Tools from the menu: the tool runs on the shown file, Glimt answering meanwhile"
+d=/tmp/tool-menu
+mkdir -p $d $XDG_DATA_HOME/glimt/tools
 convert -size 64x64 xc:red $d/a.png
-# The plugin stays, as an editor would.
+# The tool stays, as an editor would.
 printf '#!/bin/sh\necho "$@" >>%s/ran\nsleep 20\n' $d >/tmp/stub/stamp; chmod +x /tmp/stub/stamp
-printf '[Desktop Entry]\nName=Stamp\nExec=stamp %%f\n' >$XDG_DATA_HOME/glimt/plugins/stamp.desktop
+printf '[Desktop Entry]\nName=Stamp\nExec=stamp %%f\n' >$XDG_DATA_HOME/glimt/tools/stamp.desktop
 config
 start $d/a.png; sleep 2
-menu Edit Plugins; sleep 1
-shot plugins-menu
+menu Edit Tools; sleep 1
+shot tools-menu
 menu Stamp; sleep 2
 ran=$(cat $d/ran 2>/dev/null)
 answer=$(remote current 2>/dev/null | tr -d '\0')
 # Still running, it has Stop in the menu, which ends it with its sleep.
-menu Edit Plugins "Stop Stamp"
+menu Edit Tools "Stop Stamp"
 until_ok "! pgrep -f /tmp/stub/stamp" 5
 left=$(pgrep -f /tmp/stub/stamp >/dev/null && echo running || echo ended)
 quit
-expect "the plugin ran on a.png, and --remote current answered meanwhile" "$ran $answer" "$d/a.png $d/a.png"
-expect "Stop Stamp in Edit → Plugins ended the plugin" "$left" "ended"
+expect "the tool ran on a.png, and --remote current answered meanwhile" "$ran $answer" "$d/a.png $d/a.png"
+expect "Stop Stamp in Edit → Tools ended the tool" "$left" "ended"
 
-section "a plugin with MimeType=: given only the selected files of its types, the others counted"
+# In the folder's old name, plugins, which every version reads: NEW still reads it.
+section "a tool with MimeType= in the old plugins folder: given only the selected files of its types"
 for v in new old; do
     as_version $v
-    d=/tmp/plugin-types-$v
+    d=/tmp/tool-types-$v
     mkdir -p $d $XDG_DATA_HOME/glimt/plugins
     convert -size 64x64 xc:red $d/a.png
     convert -size 64x64 xc:red $d/b.jpg
@@ -2680,11 +2681,12 @@ for v in new old; do
     config
     start $d/a.png; sleep 2
     remote select $d/a.png $d/b.jpg >/dev/null 2>&1
-    menu Edit Plugins PngOnly; sleep 2
+    # The menu was Plugins before 0.75.0.
+    menu Edit $([ $v = old ] && echo Plugins || echo Tools) PngOnly; sleep 2
     quit
     rm -f $XDG_DATA_HOME/glimt/plugins/pngonly.desktop
     got=$(sed "s|$d/||g" $d/ran 2>/dev/null)
-    if [ $v = new ]; then expect "the plugin ran on a.png only" "$got" "a.png"
+    if [ $v = new ]; then expect "the tool in plugins/ ran on a.png only" "$got" "a.png"
     else note "old: $got"; fi
 done
 

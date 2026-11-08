@@ -50,7 +50,7 @@ It reads JPEG, PNG, WebP, GIF (also animated), TIFF (also with several pages), B
 (each size as a page), QOI, PNM (PBM, PGM, PPM, PAM), Radiance HDR (tone-mapped) and TIFF
 under other names (Zeiss LSM, gel scans; also grey TIFFs of floats, stretched), and camera RAW
 files by their embedded preview. Builds with optional features also read videos, HEIC, AVIF, JPEG XL and SVG. Other
-formats (DICOM, FITS, microscope files …) are read through decoder plugins (see FILES).
+formats (DICOM, FITS, microscope files …) are read through formats you add (see FILES).
 .SH OPTIONS
 .TP
 .B \-\-slideshow
@@ -156,8 +156,8 @@ in its window, but not a setting it does not know, which a newer Glimt beside it
 written.
 .TP
 .BI "\-\-back\-up " FOLDER
-Copy Glimt's own folders (settings, marks and stars, collections, keyword tree, plugins and
-decoders; not the thumbnails) to a new folder
+Copy Glimt's own folders (settings, marks and stars, collections, keyword tree, tools and
+added formats; not the thumbnails) to a new folder
 .I glimt\-backup\-DATE
 in
 .IR FOLDER ,
@@ -340,17 +340,23 @@ Keywords, comment, alt text and extended description, and (if chosen) stars of
 .IR file ,
 next to it, read by darktable and digiKam too.
 .TP
-.I $XDG_DATA_HOME/glimt/plugins
-Plugins: desktop files whose command runs on the selected files (default
-.IR ~/.local/share/glimt/plugins ).
+.I $XDG_DATA_HOME/glimt/tools
+Tools (Edit \(-> Tools): desktop files whose command runs on the selected files (default
+.IR ~/.local/share/glimt/tools ).
+The folder's old name,
+.IR plugins ,
+is still read.
 .TP
 .I $XDG_STATE_HOME/glimt/renames
 A Rename Many while it runs, so that one cut short by a crash is put right at the next start.
 .TP
-.I $XDG_DATA_HOME/glimt/decoders
-Decoder plugins: desktop files whose command turns a file of a format Glimt does not read itself
+.I $XDG_DATA_HOME/glimt/formats
+Added formats: desktop files whose command turns a file of a format Glimt does not read itself
 into an image on its standard output (default
-.IR ~/.local/share/glimt/decoders ).
+.IR ~/.local/share/glimt/formats ).
+The folder's old name,
+.IR decoders ,
+is still read.
 .TP
 .I $XDG_DATA_HOME/glimt/collections
 Collections, as Geeqie .gqv files (default

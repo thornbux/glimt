@@ -1175,7 +1175,7 @@ msgid "No images in folder"
 msgstr ""
 
 #: src/main.rs
-msgid "No plugins"
+msgid "No tools"
 msgstr ""
 
 #: src/main.rs
@@ -1207,7 +1207,7 @@ msgid "Open Recent"
 msgstr ""
 
 #: src/main.rs
-msgid "Open the Plugins Folder"
+msgid "Open the Tools Folder"
 msgstr ""
 
 #: src/main.rs
@@ -1235,7 +1235,7 @@ msgid "Places|Norway|Oslo"
 msgstr ""
 
 #: src/main.rs
-msgid "Plugins"
+msgid "Tools"
 msgstr ""
 
 #: src/main.rs

@@ -1165,8 +1165,8 @@ msgid "No images in folder"
 msgstr "Nenhuma imagem na pasta"
 
 #: src/main.rs
-msgid "No plugins"
-msgstr "Nenhum plugin"
+msgid "No tools"
+msgstr "Nenhuma ferramenta"
 
 #: src/main.rs
 msgid "No such folder: {folder}"
@@ -1197,8 +1197,8 @@ msgid "Open Recent"
 msgstr "Abrir recente"
 
 #: src/main.rs
-msgid "Open the Plugins Folder"
-msgstr "Abrir a pasta de plugins"
+msgid "Open the Tools Folder"
+msgstr "Abrir a pasta de ferramentas"
 
 #: src/main.rs
 msgid "Open Themes Folder"
@@ -1225,8 +1225,8 @@ msgid "Places|Norway|Oslo"
 msgstr "Lugares|Brasil|Rio de Janeiro"
 
 #: src/main.rs
-msgid "Plugins"
-msgstr "Plugins"
+msgid "Tools"
+msgstr "Ferramentas"
 
 #: src/main.rs
 msgid "Put the old names back"

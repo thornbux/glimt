@@ -1165,8 +1165,8 @@ msgid "No images in folder"
 msgstr "Ingen bilete i mappa"
 
 #: src/main.rs
-msgid "No plugins"
-msgstr "Ingen tillegg"
+msgid "No tools"
+msgstr "Ingen verktøy"
 
 #: src/main.rs
 msgid "No such folder: {folder}"
@@ -1197,8 +1197,8 @@ msgid "Open Recent"
 msgstr "Opna nyleg brukt"
 
 #: src/main.rs
-msgid "Open the Plugins Folder"
-msgstr "Opna tilleggsmappa"
+msgid "Open the Tools Folder"
+msgstr "Opna verktøymappa"
 
 #: src/main.rs
 msgid "Open Themes Folder"
@@ -1225,8 +1225,8 @@ msgid "Places|Norway|Oslo"
 msgstr "Stader|Noreg|Oslo"
 
 #: src/main.rs
-msgid "Plugins"
-msgstr "Tillegg"
+msgid "Tools"
+msgstr "Verktøy"
 
 #: src/main.rs
 msgid "Put the old names back"

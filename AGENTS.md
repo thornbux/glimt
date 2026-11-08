@@ -61,8 +61,9 @@ the end of that file, and the test fails until a new action is there.
 
 A frozen name that fails a reader (0.74.0 renamed a few) is renamed only through a table of
 old names, one for each kind, beside the code that reads it: `config::RENAMED_SETTINGS`,
-`config::RENAMED_STATE`, `actions::RENAMED_ACTIONS` (for `keys=` and `--remote run`) and
-`remote::RENAMED_COMMANDS`. Glimt reads the old name too, forever, and writes only the new
+`config::RENAMED_STATE`, `actions::RENAMED_ACTIONS` (for `keys=` and `--remote run`),
+`remote::RENAMED_COMMANDS` and `tools::RENAMED_FOLDERS` (0.75.0's folders of tools and added
+formats, which Glimt opens and creates only under the new name). Glimt reads the old name too, forever, and writes only the new
 one; when a settings or state file holds both, the new one counts. The old line stays in the
 frozen file and the new name is added at its end, and the tests take an old name only when its
 table maps it to a name that is read now.
