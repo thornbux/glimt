@@ -1307,6 +1307,33 @@ mod tests {
         assert!(written.contains("window_position=10,20\n") && !written.contains("window_pos="));
     }
 
+    /// No old name in a table of old names is a setting, a window state key or a --remote
+    /// command now. One given an old name later would otherwise be read as the name it was
+    /// renamed to, and never under its own.
+    #[test]
+    fn old_names_are_not_names_now() {
+        use crate::features::remote::{COMMANDS, RENAMED_COMMANDS};
+        let now = names_now();
+        for (kind, table) in [
+            ("setting", &super::RENAMED_SETTINGS[..]),
+            ("state", &super::RENAMED_STATE[..]),
+        ] {
+            for (old, _) in table {
+                assert!(
+                    !now.contains(&format!("{kind} {old}")),
+                    "{kind} {old} is an old name in a table of old names, so it is no name now"
+                );
+            }
+        }
+        // The commands are read from `COMMANDS` itself, which also has the release tests' "where".
+        for (old, _) in RENAMED_COMMANDS {
+            assert!(
+                !(COMMANDS.iter()).any(|(usage, _)| usage.split(' ').next() == Some(old)),
+                "remote {old} is an old name in RENAMED_COMMANDS, so it is no command now"
+            );
+        }
+    }
+
     /// Returns the line of src/frozen-1.0.txt as the code names it now. A setting, a window
     /// state key or a --remote command renamed in its table of old names gets its new name, and
     /// every other line is returned as it is.
