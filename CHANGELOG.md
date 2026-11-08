@@ -10,6 +10,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 - `glimt --remote run ACTION` does nothing while a text field has the focus, as the keys do
   nothing then, so a script no longer takes the focus from the search field or a name being
   typed, or shows another image under the keywords being typed.
+- A screen reader reads out a notice again when it is given again with the same text, such as
+  a second refused action; before, it heard only the first.
 
 ### Changed
 
