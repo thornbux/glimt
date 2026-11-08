@@ -192,7 +192,22 @@ const MANUAL: &[(&str, &str)] = &[
          pixels, or a percentage; never larger), at a quality of your choice. Remove EXIF and GPS \
          leaves out the camera, date and place, the XMP and the sidecar, for sharing. The file \
          dialog asks where; the image itself is never replaced. From a RAW file its built-in \
-         preview is saved; an animation is not saved.",
+         preview is saved; an animation is not saved.\n\n\
+         File → Copy for Sharing… copies the selected JPEG, PNG and WebP images into a folder \
+         you choose, without the metadata you leave out, to publish them. The pixels are copied \
+         as they are, so nothing is lost. The dialog lists the tags the images have, in groups: \
+         place (GPS), camera and lens with their serial numbers, date and time, photographer and \
+         copyright, software, keywords, comment and alt text, and the preview inside the file. \
+         A group's box leaves out all of it; Show lists its tags, each with a box of its own. \
+         More tags holds every other tag, and whole blocks such as a phone's extra images (MPF) \
+         and content credentials (C2PA). Remove All ticks every box. The orientation and the \
+         colour profile are always kept, as without them the copy would look different. The \
+         dialog starts with what you left out last time. Copy… asks for the folder.\n\n\
+         Glimt's sidecar is not copied, but what it says goes into the copy's own XMP, so alt \
+         text written in Glimt reaches the published copy; its tags are in the dialog like the \
+         others. IPTC keywords, caption, creator and place go into the copy's XMP too. Other \
+         formats are not copied, and a file whose name the folder already has is skipped; the \
+         notice at the end counts both. The originals are never changed.",
     ),
     (
         "Slideshow",
@@ -770,6 +785,12 @@ const DIFFERENCES: &[(&str, &str, &str)] = &[
         "Save As (Ctrl+Shift+S)",
         "File → Save As…: another format (JPEG, PNG, WebP), smaller, without EXIF and GPS",
         "None; a plugin (Edit → Plugins) can convert or resize",
+    ),
+    (
+        "Copy for Sharing",
+        "File → Copy for Sharing…: copies of the selection without the tags left out (place, \
+         camera, dates …), the image data unchanged, the sidecar's alt text inside",
+        "None; a plugin (Edit → Plugins) can run exiftool",
     ),
     (
         "Print (Ctrl+P)",
