@@ -17,6 +17,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 - Preferences has no checkbox for the window title "Glimt - image name" any more: the custom
   window title says the same with `%app% - %name%`. A settings file with `app_name_first=true`
   gets that title once, unless it has a title of its own.
+- The light theme for low vision is called High Contrast Light instead of Contrast, so its name
+  says what it is beside High Contrast. A settings file with `theme=Contrast` still gets it.
 
 ### Fixed
 

@@ -109,7 +109,7 @@ impl crate::App {
                 "Desktop" => theme::icon::MONITOR,
                 "Nord" => theme::icon::SNOWFLAKE,
                 theme::HIGH_CONTRAST => theme::icon::HALF,
-                "Contrast" => theme::icon::HALF_TILT,
+                theme::HIGH_CONTRAST_LIGHT => theme::icon::HALF_TILT,
                 _ => theme::icon::BRUSH,
             };
             // Chosen again too, so a theme file just edited shows.

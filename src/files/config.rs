@@ -508,6 +508,7 @@ impl Config {
         c.toolbar_icons = c.toolbar_icons.min(2);
         c.view_filter = c.view_filter.min(3);
         move_app_name_first(&mut c.app_name_first, &mut c.window_title);
+        c.theme = crate::ui::theme::theme_name_now(&c.theme).to_owned();
         c
     }
 
@@ -1221,6 +1222,9 @@ mod tests {
         ] {
             assert!(text.contains(line), "{text}");
         }
+        // A built-in theme is read by its old name too, and written by its new one.
+        let theme = Config::parse("theme=Contrast").to_text();
+        assert!(theme.contains("\ntheme=High Contrast Light\n"), "{theme}");
         let (_, problems) = Config::parse_checked("fade=9\nfit_mode=wide");
         assert!(problems[0].contains("long is used") && problems[1].contains("not a value"));
         for (k, (name, _, _)) in super::FADES.iter().enumerate() {
@@ -1416,6 +1420,12 @@ mod tests {
                 );
             }
         }
+        for (old, _) in crate::ui::theme::RENAMED_THEMES {
+            assert!(
+                !now.contains(&format!("value theme {old}")),
+                "{old} is an old name in RENAMED_THEMES, so it is no theme now"
+            );
+        }
         // The commands are read from `COMMANDS` itself, which also has the release tests' "where".
         for (old, _) in RENAMED_COMMANDS {
             assert!(
@@ -1442,9 +1452,15 @@ mod tests {
             "remote" => &crate::features::remote::RENAMED_COMMANDS,
             _ => &[],
         };
+        // A built-in theme renamed in RENAMED_THEMES is the value of the theme setting now.
+        let rest = match (kind, name) {
+            ("value", "theme") => crate::ui::theme::theme_name_now(rest),
+            _ => rest,
+        };
         match table.iter().find(|r| r.0 == name) {
             Some((_, new)) if rest.is_empty() => format!("{kind} {new}"),
             Some((_, new)) => format!("{kind} {new} {rest}"),
+            None if kind == "value" => format!("{kind} {name} {rest}"),
             None => line.to_owned(),
         }
     }

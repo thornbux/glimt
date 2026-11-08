@@ -2521,8 +2521,8 @@ msgid "High Contrast"
 msgstr "Høg kontrast"
 
 #: src/ui/theme.rs
-msgid "Contrast"
-msgstr "Kontrast"
+msgid "High Contrast Light"
+msgstr "Høg kontrast, lyst"
 
 #: src/images/colour.rs
 msgid "Greyscale"

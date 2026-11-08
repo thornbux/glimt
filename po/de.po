@@ -2510,8 +2510,8 @@ msgid "High Contrast"
 msgstr "Hoher Kontrast"
 
 #: src/ui/theme.rs
-msgid "Contrast"
-msgstr "Kontrast"
+msgid "High Contrast Light"
+msgstr "Hoher Kontrast, hell"
 
 #: src/images/colour.rs
 msgid "Greyscale"

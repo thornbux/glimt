@@ -503,7 +503,7 @@ const MANUAL: &[(&str, &str)] = &[
          - Light\n\
          - Desktop (light or dark and the accent colour as the desktop)\n\
          - Nord\n\
-         - for low vision, High Contrast (white on black) and Contrast (black on white), both with \
+         - for low vision, High Contrast (white on black) and High Contrast Light (black on white), both with \
          larger text.\n\n\
          Themes are small text files:\n\n\
          - Save as Theme… writes the look shown as one to edit\n\
