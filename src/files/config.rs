@@ -752,7 +752,7 @@ pub fn xdg_dir(var: &str, home_fallback: &str, app: &str) -> Option<PathBuf> {
 /// The base folder from an XDG variable's value `set`, or else `home` joined with
 /// `home_fallback`. A relative folder is ignored, as the XDG spec says. An empty
 /// $XDG_DATA_HOME would otherwise be the current folder, where a downloaded folder could hold
-/// plugins and decoders. Returns `None` when neither gives an absolute folder.
+/// tools and added formats. Returns `None` when neither gives an absolute folder.
 fn xdg_base(
     set: Option<std::ffi::OsString>,
     home: Option<std::ffi::OsString>,

@@ -1,7 +1,8 @@
-//! Decoder plugins: programs that turn a file of a format Glimt does not read itself (JPEG 2000,
+//! Added formats: programs that turn a file of a format Glimt does not read itself (JPEG 2000,
 //! FITS, DICOM, OpenEXR …) into an image, so they need no code or library in Glimt. Each is a
-//! desktop file in `glimt/decoders` in the XDG data folders (`~/.local/share/glimt/decoders`
-//! first), read once at start:
+//! desktop file in `glimt/formats` in the XDG data folders (`~/.local/share/glimt/formats`
+//! first), or in the folder's old name `glimt/decoders` (`tools::RENAMED_FOLDERS`), read once
+//! at start:
 //!
 //! ```text
 //! [Glimt Decoder]
@@ -17,7 +18,8 @@
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-pub struct Decoder {
+/// A format added by a desktop file, and the program that reads it.
+pub struct AddedFormat {
     pub name: String,
     /// The endings it takes, with their dot and in lower case: ".jp2", ".nii.gz".
     exts: Vec<String>,
@@ -26,9 +28,9 @@ pub struct Decoder {
     dir: PathBuf,
 }
 
-impl Decoder {
-    /// Returns whether a file named `name` (in lower case) is of this decoder's format: by the end
-    /// of the name, so an ending of two parts (".nii.gz") is found too.
+impl AddedFormat {
+    /// Returns whether a file named `name` (in lower case) is of this format: by the end of the
+    /// name, so an ending of two parts (".nii.gz") is found too.
     fn handles_name(&self, name: &str) -> bool {
         (self.exts.iter()).any(|e| name.ends_with(e.as_str()) && name != e)
     }
@@ -72,16 +74,17 @@ impl Decoder {
     }
 }
 
-/// Returns the installed decoders, read once, by the names of their files: when two take the same
-/// ending, the one first by name does. A desktop file in the user's folder hides one of the same
-/// name in the system's. New ones are seen after a restart, as plugins are.
-pub fn installed_decoders() -> &'static [Decoder] {
-    static ALL: std::sync::OnceLock<Vec<Decoder>> = std::sync::OnceLock::new();
+/// Returns the installed formats, read once, in the order of their files' names without
+/// ".desktop". When two take the same ending, the one first by name does, so dicom.desktop comes
+/// before dicom-imagemagick.desktop. A desktop file in the user's folder hides one of the same
+/// name in the system's. New ones are seen after a restart, as tools are.
+pub fn installed_formats() -> &'static [AddedFormat] {
+    static ALL: std::sync::OnceLock<Vec<AddedFormat>> = std::sync::OnceLock::new();
     ALL.get_or_init(|| {
-        (crate::features::plugins::desktop_files("decoders").into_iter())
+        (crate::features::tools::desktop_files("formats").into_iter())
             .filter_map(|(path, text)| {
-                let decoder = parse(&text, path.parent()?)?;
-                Some((path.file_name()?.to_owned(), decoder))
+                let format = parse(&text, path.parent()?)?;
+                Some((path.file_stem()?.to_owned(), format))
             })
             .collect::<std::collections::BTreeMap<_, _>>()
             .into_values()
@@ -89,20 +92,20 @@ pub fn installed_decoders() -> &'static [Decoder] {
     })
 }
 
-/// The decoder of a desktop file. Returns `None` without a name, extensions, or %f in its command
-/// (also inside a word, as ImageMagick's %f[0] for a file's first frame).
-fn parse(text: &str, dir: &Path) -> Option<Decoder> {
-    let value = crate::features::plugins::desktop_entry_values(text);
+/// The added format of a desktop file. Returns `None` without a name, extensions, or %f in its
+/// command (also inside a word, as ImageMagick's %f[0] for a file's first frame).
+fn parse(text: &str, dir: &Path) -> Option<AddedFormat> {
+    let value = crate::features::tools::desktop_entry_values(text);
     let exts: Vec<String> = (value("Extensions")?.split(';'))
         .map(|e| e.trim().trim_start_matches('.').to_lowercase())
         .filter(|e| !e.is_empty())
         .map(|e| format!(".{e}"))
         .collect();
-    let exec = crate::features::plugins::command_words(value("Exec")?);
+    let exec = crate::features::tools::command_words(value("Exec")?);
     if exts.is_empty() || !exec.iter().any(|w| w.contains("%f")) {
         return None;
     }
-    Some(Decoder {
+    Some(AddedFormat {
         name: value("Name")?.to_owned(),
         exts,
         exec,
@@ -110,10 +113,10 @@ fn parse(text: &str, dir: &Path) -> Option<Decoder> {
     })
 }
 
-/// The decoder for `path`, by its extension, unless Glimt reads that format itself.
-pub fn for_path(path: &Path) -> Option<&'static Decoder> {
-    // No decoders, as for most: no work for each file of a folder of 500,000.
-    if installed_decoders().is_empty() {
+/// The added format of `path`, by its extension, unless Glimt reads that format itself.
+pub fn for_path(path: &Path) -> Option<&'static AddedFormat> {
+    // No added formats, as for most: no work for each file of a folder of 500,000.
+    if installed_formats().is_empty() {
         return None;
     }
     if crate::model::listing::built_in_format(path) {
@@ -121,7 +124,7 @@ pub fn for_path(path: &Path) -> Option<&'static Decoder> {
     }
     // Lossy: a name in another encoding (a Latin-1 "røntgen.dcm") still has its ending.
     let name = path.file_name()?.to_string_lossy().to_lowercase();
-    installed_decoders().iter().find(|d| d.handles_name(&name))
+    installed_formats().iter().find(|f| f.handles_name(&name))
 }
 
 #[cfg(test)]
@@ -129,13 +132,14 @@ mod tests {
     use std::path::Path;
     use std::time::Duration;
 
-    /// A decoder file read, a program run on a file of its own format and its image taken; one that
-    /// takes too long stopped, also when it ignores TERM; a file without %f or extensions left out.
+    /// A format's desktop file read, a program run on a file of its format and its image taken;
+    /// one that takes too long stopped, also when it ignores TERM; a file without %f or
+    /// extensions left out.
     #[test]
     fn decodes_through_a_program() {
-        let dir = std::env::temp_dir().join(format!("glimt-test-decoders-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("glimt-test-formats-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
-        // A PPM under another name: `cat` is the decoder, the path given inside a word (x%f).
+        // A PPM under another name: `cat` is the program, the path given inside a word (x%f).
         let file = dir.join("a picture.xyz");
         image::RgbImage::new(6, 3)
             .write_to(
@@ -158,7 +162,7 @@ mod tests {
         );
         let img = cat.decode(&file).unwrap();
         assert_eq!((img.width(), img.height()), (6, 3));
-        // Nothing written: an error that names the decoder.
+        // Nothing written: an error that names the format.
         let empty = super::parse("Name=Empty\nExtensions=xyz\nExec=true %f", &dir).unwrap();
         assert!(empty.decode(&file).unwrap_err().starts_with("Empty"));
         let slow = "Name=Slow\nExtensions=xyz\nExec=sh -c \"sleep 30\" %f";
@@ -187,9 +191,9 @@ mod tests {
         std::fs::remove_dir_all(dir).unwrap();
     }
 
-    /// Decoder files broken in thousands of ways: read without a panic.
+    /// A format's desktop files broken in thousands of ways: read without a panic.
     #[test]
-    fn survives_broken_decoder_files() {
+    fn survives_broken_format_files() {
         let seed = b"[Glimt Decoder]\nName=JPEG 2000\nExtensions=jp2;j2k\n\
                      Exec=ffmpeg -v error -i \"%f\" -f image2pipe -vcodec ppm -\n";
         for bytes in crate::support::test_support::broken(seed) {

@@ -470,7 +470,7 @@ impl crate::App {
     }
 
     /// Reads the shown image's EXIF, keywords, comment and alt text again, after something else
-    /// changed them, such as a plugin. An edit in the panel that is not saved yet is saved
+    /// changed them, such as a tool. An edit in the panel that is not saved yet is saved
     /// first, so it is not lost. While a sidecar job still writes the file, the panel is read
     /// again only once that job is over (`request_and_take_exif`): read at once, it could show
     /// the file as it was before the edit, and a later edit would then save the edit away again.
@@ -746,7 +746,7 @@ mod tests {
         panic!("the panel never read the file");
     }
 
-    /// When something else changes the shown file, such as a plugin that describes it, the
+    /// When something else changes the shown file, such as a tool that describes it, the
     /// panel shows its new keywords, not those it read before.
     #[test]
     fn a_changed_shown_file_is_read_again_in_the_info_panel() {
@@ -772,7 +772,7 @@ mod tests {
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
-    /// An edit not saved yet when a plugin changes the shown file is saved, and the panel keeps
+    /// An edit not saved yet when a tool changes the shown file is saved, and the panel keeps
     /// showing it, not to be edited, until no sidecar job runs, then reads the file again with
     /// the edit in. Another image shown meanwhile ends the wait.
     #[test]

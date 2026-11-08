@@ -91,7 +91,7 @@
       <text x="514" y="351">(1/2, 1/4 or 1/8 of a JPEG),</text>
       <text x="514" y="367">or load_unturned: RAW</text>
       <text x="514" y="383">preview, ffmpeg, SVG, JXL,</text>
-      <text x="514" y="399">decoder plugin, image crate</text>
+      <text x="514" y="399">added format, image crate</text>
       <text x="514" y="423" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace">→ shrink → to_display</text>
 
       <rect x="738" y="278" width="196" height="166" rx="6" fill="#e6f4ea" stroke="#2e8b57" stroke-width="1.5"/>

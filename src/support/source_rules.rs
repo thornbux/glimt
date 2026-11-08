@@ -7,7 +7,8 @@
 use std::path::Path;
 
 /// The names that 0.74.0's naming review retired, because a reader new to the code could not tell
-/// from them what they hold or do. Beside each is the name that took its place, which is the one
+/// from them what they hold or do, and the names of plugins and decoder plugins, which 0.75.0
+/// renamed tools and added formats. Beside each is the name that took its place, which is the one
 /// to use. `retired_names_stay_gone` fails when one comes back in the code, or in backticks in a
 /// comment, which always names code. These names are retired in every file: names of more than one
 /// word, abbreviations and private images. An everyday word is in `RETIRED_IN_FILE` instead. A name
@@ -212,6 +213,18 @@ const RETIRED_NAMES: &[&str] = &[
     "forget_decoded",    // forget_loaded_images
     "request_exif",      // request_and_take_exif
     "lightroom_catalog", // lightroom_catalog_answer
+    // 0.75.0: plugins became tools, and decoder plugins added formats.
+    "plugin",                        // tool
+    "plugins",                       // tools
+    "Plugin",                        // Tool
+    "PLUGIN",                        // TOOL
+    "RunningPlugins",                // RunningTools
+    "plugins_menu",                  // tools_menu
+    "plugins_running",               // tools_running
+    "reads_and_runs_a_plugin",       // reads_and_runs_a_tool
+    "decoder_plugins",               // added_formats
+    "installed_decoders",            // installed_formats
+    "survives_broken_decoder_files", // survives_broken_format_files
 ];
 
 /// The everyday words that 0.74.0's naming review retired, each in every file where it was a name
@@ -231,8 +244,6 @@ const RETIRED_IN_FILE: &[(&str, &str)] = &[
     ("features/duplicates.rs", "parallel"), // on_all_cores
     ("features/duplicates.rs", "parts"),    // part_means
     ("features/duplicates.rs", "stopped"),  // is_stopped, tell_background_stopped
-    ("features/plugins.rs", "Running"),     // RunningPlugins
-    ("features/plugins.rs", "takes"),       // handles_name
     ("features/print.rs", "CAPTION"),       // CAPTION_HEIGHT
     ("features/print.rs", "LIMIT"),         // PROGRAM_TIME_LIMIT
     ("features/print.rs", "MM"),            // POINTS_PER_MM
@@ -252,6 +263,8 @@ const RETIRED_IN_FILE: &[(&str, &str)] = &[
     ("features/remote.rs", "live"),         // live_sockets
     ("features/remote.rs", "queued"),       // has_waiting_client
     ("features/remote.rs", "unanswered"),   // timed_out
+    ("features/tools.rs", "Running"),       // RunningTools
+    ("features/tools.rs", "takes"),         // handles_name
     ("files/backup.rs", "FileKey"),         // FileId
     ("files/config.rs", "LOCKED"),          // SETTINGS_LOCKED
     ("files/config.rs", "SAVED"),           // LAST_SAVED_TEXT
@@ -307,6 +320,10 @@ const RETIRED_IN_FILE: &[(&str, &str)] = &[
     ("files/trash.rs", "Thrown"),           // TrashMove
     ("files/trash.rs", "Trashed"),          // TrashEntry
     ("files/trash.rs", "thrown"),           // trash_move
+    ("images/added_formats.rs", "Decoder"), // AddedFormat
+    ("images/added_formats.rs", "LIMIT"),   // PROGRAM_TIME_LIMIT
+    ("images/added_formats.rs", "decoder"), // format
+    ("images/added_formats.rs", "takes"),   // handles_name
     ("images/colour.rs", "limited"),        // short_output_of
     ("images/colour.rs", "set_up"),         // set_up_colour
     ("images/decode.rs", "Small"),          // ShrunkImage
@@ -315,8 +332,6 @@ const RETIRED_IN_FILE: &[(&str, &str)] = &[
     ("images/decode.rs", "heif"),           // decode_heif
     ("images/decode.rs", "open_file"),      // open_regular_with_metadata
     ("images/decode.rs", "survive"),        // catch_panic_as_error
-    ("images/decoder_plugins.rs", "LIMIT"), // PROGRAM_TIME_LIMIT
-    ("images/decoder_plugins.rs", "takes"), // handles_name
     ("images/save.rs", "FileKey"),          // FileId
     ("images/save.rs", "Held"),             // SidecarLock
     ("images/save.rs", "Kind"),             // Encoding
@@ -335,7 +350,7 @@ const RETIRED_IN_FILE: &[(&str, &str)] = &[
     ("main.rs", "Info"),                    // InfoPanel
     ("main.rs", "Notices"),                 // NoticeSender
     ("main.rs", "Pan"),                     // PanView
-    ("main.rs", "Running"),                 // RunningPlugins
+    ("main.rs", "Running"),                 // RunningTools
     ("main.rs", "View"),                    // ImageArea
     ("main.rs", "Work"),                    // FileOperations, QueuedWrite
     ("main.rs", "act"),                     // chosen
@@ -1149,8 +1164,7 @@ fn retired_names_stay_gone() {
     }
     assert!(
         wrong.is_empty(),
-        "names retired in 0.74.0 (RETIRED_NAMES and RETIRED_IN_FILE say what took their \
-         place):\n{}",
+        "retired names (RETIRED_NAMES and RETIRED_IN_FILE say what took their place):\n{}",
         wrong.join("\n")
     );
 }
@@ -1175,6 +1189,12 @@ fn retired_names_are_found_in_code_and_in_backticks() {
     assert_eq!(
         retired_names_in("viewer/view.rs", "let slots = 1;\n"),
         ["viewer/view.rs:1: slots"]
+    );
+    // The names of 0.75.0's tools and added formats: their old folders stay in strings.
+    let text = "use crate::images::decoder_plugins;\nlet plugins = [\"plugins\"];\n";
+    assert_eq!(
+        retired_names_in("ui/menus.rs", text),
+        ["ui/menus.rs:1: decoder_plugins", "ui/menus.rs:2: plugins"]
     );
 }
 

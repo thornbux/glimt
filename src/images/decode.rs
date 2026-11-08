@@ -592,8 +592,8 @@ fn load_unturned(path: &Path, rotate: bool, max: Option<[u32; 2]>) -> Result<Unt
         let img = from_decoder(dec)?;
         return Ok((img, icc, upright, None));
     }
-    if let Some(decoder) = crate::images::decoder_plugins::for_path(path) {
-        return Ok((decoder.decode(path)?, None, upright, None));
+    if let Some(added) = crate::images::added_formats::for_path(path) {
+        return Ok((added.decode(path)?, None, upright, None));
     }
     let dec = image_reader(path)
         .map_err(|e| e.to_string())?
@@ -778,7 +778,7 @@ pub fn from_decoder(dec: impl ImageDecoder) -> Result<image::DynamicImage, Strin
 }
 
 /// Decodes an image held in memory, of the format its bytes tell, after `fits_decode_limit`. It is
-/// the one way bytes are decoded (a decoder plugin's or ffmpeg's output, an ICO's image, a cached
+/// the one way bytes are decoded (an added format's or ffmpeg's output, an ICO's image, a cached
 /// thumbnail). Clippy refuses the image crate's `load_from_memory`.
 pub fn from_memory(bytes: &[u8]) -> Result<image::DynamicImage, String> {
     let reader = image::ImageReader::new(std::io::Cursor::new(bytes)).with_guessed_format();
@@ -1776,7 +1776,7 @@ mod tests {
 
     /// A header that claims 40000×40000 is refused by every way a file is decoded, before
     /// anything of that size is allocated: the JPEG scaled to 1/2 for a view zoomed on a large
-    /// screen, the image crate, an animation, and the bytes of a decoder plugin or ffmpeg.
+    /// screen, the image crate, an animation, and the bytes of an added format or ffmpeg.
     #[test]
     fn refuses_a_header_that_claims_too_much() {
         let mut jpeg = Vec::new();

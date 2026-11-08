@@ -121,23 +121,23 @@ holds only its `mod` lines, and a new module goes into the folder of what it doe
 | `src/ui/dialogs.rs` | The file chooser (zenity or kdialog, `Pick`), `dialog_open`, and the small dialogs: a name asked for (`Prompt`), a delete confirmed, a share's login, a job cut short |
 | `src/ui/file_list.rs` | The side panel: the folder list, the file list or icon grid with its thumbnails (their sizes, `THUMB_SIZES`, `MAX_THUMBS`), dragging, the rubber band, and the status bar |
 | `src/ui/info_panel.rs` | The info panel (Ctrl+K) and what it edits: EXIF, keywords and the keyword tree, comment, alt text, marks; the EXIF reader thread |
-| `src/ui/menus.rs` | The menu bar and the toolbar, the menus that change settings, Plugins and Open With, and the helpers every menu is drawn with (`menu_item`, `scroll_menu`, `with_icon`) |
+| `src/ui/menus.rs` | The menu bar and the toolbar, the menus that change settings, Tools and Open With, and the helpers every menu is drawn with (`menu_item`, `scroll_menu`, `with_icon`) |
 | `src/ui/window.rs` | The window's size, place and title, the pointer hidden in full screen, and the screen saver kept off |
 | `src/ui/workers.rs` | The thumbnail workers, what the window collects from every background job each frame (`poll_background`), and whether work is running (`working`) |
 | `src/ui/accessibility.rs` | Optional screen reader support: the shown image as text for Orca (AccessKit) |
 | `src/ui/help.rs` | Help Manual, Keyboard Shortcuts, Keyboard Map, About, `DIFFERENCES` |
 | `src/ui/preferences.rs` | Edit → Preferences: the window and its sections |
 | `src/ui/theme.rs` | The look: Inter and Phosphor fonts, themes (`themes/*.theme` built in, own ones in `~/.config/glimt/themes`), the desktop's dark style and accent |
-| `src/features.rs` | **The features/ folder:** features with a window or a job of their own: Find Duplicates, Check Images, printing, plugins and remote control |
+| `src/features.rs` | **The features/ folder:** features with a window or a job of their own: Find Duplicates, Check Images, printing, tools and remote control |
 | `src/features/check.rs` | File → Check Images: every image decoded in the background, the broken ones listed |
 | `src/features/duplicates.rs` | Find Duplicates: groups by checksum, name, size, dimensions or likeness, and its window |
-| `src/features/plugins.rs` | Plugins: desktop files whose command runs on the selected files; `desktop_files` and `desktop_entry_values`, which decoder_plugins.rs reads with too |
+| `src/features/tools.rs` | Tools (Geeqie's plugins): desktop files whose command runs on the selected files; `desktop_files` and `desktop_entry_values`, which added_formats.rs reads with too, and `RENAMED_FOLDERS`, the folders' old names (`plugins`, `decoders`), still read |
 | `src/features/print.rs` | Printing: a PDF of the images, sent to `lp` or saved, and the print dialog |
 | `src/features/remote.rs` | `--remote`, `--remote-all` and `--name`: a socket for each Glimt in `$XDG_RUNTIME_DIR/glimt`, `COMMANDS`, the sender (`client`) and the listener |
-| `src/images.rs` | **The images/ folder:** from a file to pixels and back: decoding, RAW, colour, video, decoder plugins, thumbnails and saving |
+| `src/images.rs` | **The images/ folder:** from a file to pixels and back: decoding, RAW, colour, video, added formats, thumbnails and saving |
 | `src/images/decode.rs` | An image file to pixels at the size shown: scaled JPEG, animations, the histogram; `read_limited`, `read_text` and `read_head`, the one way a file is read whole |
 | `src/images/svg.rs` | SVG and SVGZ through resvg (feature `svg`): `load`, with limits on the text unpacked, the pictures linked and entities that grow |
-| `src/images/decoder_plugins.rs` | Decoder plugins: programs in `glimt/decoders` that turn other formats into images |
+| `src/images/added_formats.rs` | Added formats: programs in `glimt/formats` that turn other formats into images |
 | `src/images/colour.rs` | Colour management: ICC profiles, the screen profile (also from colord), rendering intent |
 | `src/images/save.rs` | Saving a turned image with its EXIF and XMP, also lossy WebP; copies of the shown image (`CopyAs`, `copy_bytes`, `shown_image`), `save_copy_with_sidecar`, the one way a copy and its sidecar are saved, and `Derived` with `derived_xmp`, what a turned image, a copy and their sidecars keep of the metadata |
 | `src/images/raw.rs` | Camera RAW: the largest embedded JPEG preview |
