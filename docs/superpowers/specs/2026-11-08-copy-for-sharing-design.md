@@ -124,3 +124,15 @@ tags" reads the selected files, where the last choice is kept, and the code stru
 - An Ultra HDR gain map (the MPF image with hdrgm XMP) is kept without its EXIF or other tags,
   with only its hdrgm XMP and a new MPF index, so the copy looks the same on an HDR screen.
 - Content credentials (C2PA) are never carried: every copy changes the bytes they sign.
+
+## After audit round 3 (2026-11-08)
+
+- A tag's groups come from an allow-list, as a block's do: a tag known by its name
+  (`KNOWN_NAMES`, EXIF's names also as exif:, exifEX: and tiff:), its namespace
+  (`KNOWN_NAMESPACES`) or as a block gets the groups its words or `GROUP_EXCEPTIONS` give.
+  Any other tag may say anything, so it is in every group: it goes when any group is ticked.
+  The dialog lists it under More tags only, where unticking it keeps it, and a note says so.
+- A gain map marked only by ISO 21496-1's APP2 segment is kept as Ultra HDR's is. Other forms,
+  such as Apple's, go with the extra images.
+- A copy without a motion photo's video keeps none of its GCamera MotionPhoto or MicroVideo
+  flags.
