@@ -802,6 +802,10 @@ const UNKNOWN_BLOCKS: [&str; 5] = [
     "Exif 0x",
 ];
 
+/// The start of the word in a choice (`LeftOut`) that keeps one tag of a group left out whole,
+/// followed by the tag's name.
+const KEEP_PREFIX: &str = "keep:";
+
 /// The tag of a JPEG's JFXX segment, a thumbnail beside the JFIF header, and of a thumbnail
 /// inside the JFIF header itself (`add_jfif`).
 const JFIF_THUMBNAIL: &str = "JFIF thumbnail";
@@ -1004,10 +1008,12 @@ impl Group {
     }
 }
 
-/// What Copy for Sharing leaves out, as the user ticked it: the names of single tags, and the
-/// keys of whole groups (`Group::key`). A tag of a group left out whole is left out also when it
-/// was not seen before, so a new GPS field cannot slip through. The dialog starts with the
-/// choice made last time, kept in `config::sharing_path` one word to a line.
+/// What Copy for Sharing leaves out, as the user ticked it: the names of single tags, the keys
+/// of whole groups (`Group::key`), and the tags kept out of a group left out whole, each after
+/// `KEEP_PREFIX`. A tag of a group left out whole is left out also when it was not seen before,
+/// so a new GPS field cannot slip through. Keeping one tag leaves the group's key in place for
+/// that reason. The dialog starts with the choice made last time, kept in
+/// `config::sharing_path` one word to a line.
 #[derive(Clone, Default, PartialEq, Debug)]
 pub(crate) struct LeftOut {
     words: BTreeSet<String>,
@@ -1032,7 +1038,7 @@ impl LeftOut {
     /// Counts again which groups have a tag left out (`has_left_out`).
     fn count_groups(&mut self) {
         self.has_left_out = [false; 8];
-        for word in &self.words {
+        for word in self.words.iter().filter(|w| !w.starts_with(KEEP_PREFIX)) {
             let groups = Group::of_key(word).map_or_else(|| Group::groups_of(word), |g| vec![g]);
             for group in groups {
                 self.has_left_out[group as usize] = true;
@@ -1045,11 +1051,14 @@ impl LeftOut {
         self.words.iter().map(|w| format!("{w}\n")).collect()
     }
 
-    /// Whether the tag `tag` is left out: by its name, by any of its groups left out whole, or
-    /// as a block that can hold a tag of a group that has one left out (`BLOCKS`).
+    /// Whether the tag `tag` is left out: by its name or by any of its groups left out whole,
+    /// unless it is kept on its own (`KEEP_PREFIX`), or as a block that can hold a tag of a
+    /// group that has one left out (`BLOCKS`).
     pub(crate) fn is_left_out(&self, tag: &str) -> bool {
-        self.words.contains(tag)
-            || (Group::groups_of(tag).iter()).any(|g| self.words.contains(g.key()))
+        let is_kept = self.words.contains(&format!("{KEEP_PREFIX}{tag}"));
+        (!is_kept
+            && (self.words.contains(tag)
+                || (Group::groups_of(tag).iter()).any(|g| self.words.contains(g.key()))))
             || (block_groups(tag).iter()).any(|g| self.has_left_out[*g as usize])
     }
 
@@ -1058,32 +1067,36 @@ impl LeftOut {
         self.words.contains(group.key())
     }
 
-    /// Leaves the tag `tag` out, or keeps it. A tag kept out of groups left out whole leaves
-    /// the other tags of `found` in those groups out one by one instead.
-    pub(crate) fn set_tag(&mut self, tag: &str, left_out: bool, found: &[String]) {
+    /// Leaves the tag `tag` out, or keeps it. A tag of a group left out whole is kept by a word
+    /// of its own (`KEEP_PREFIX`), and the group stays left out for every other tag.
+    pub(crate) fn set_tag(&mut self, tag: &str, left_out: bool) {
+        let keep = format!("{KEEP_PREFIX}{tag}");
         if left_out {
+            self.words.remove(&keep);
             self.words.insert(tag.to_owned());
         } else {
             self.words.remove(tag);
-            for group in Group::groups_of(tag) {
-                if self.words.remove(group.key()) {
-                    let is_other = |t: &&String| *t != tag && Group::groups_of(t).contains(&group);
-                    self.words.extend(found.iter().filter(is_other).cloned());
-                }
+            if (Group::groups_of(tag).iter()).any(|g| self.words.contains(g.key())) {
+                self.words.insert(keep);
             }
         }
         self.count_groups();
     }
 
-    /// Leaves the whole group `group` out, or keeps every tag the dialog lists under it
-    /// (`Group::lists`).
+    /// Leaves the whole group `group` out, also the tags of it that were kept on their own, or
+    /// keeps every tag the dialog lists under it (`Group::lists`).
     pub(crate) fn set_group(&mut self, group: Group, left_out: bool) {
         if left_out {
             self.words.insert(group.key().to_owned());
+            let is_kept_of_group = |w: &String| {
+                (w.strip_prefix(KEEP_PREFIX)).is_some_and(|t| Group::groups_of(t).contains(&group))
+            };
+            self.words.retain(|w| !is_kept_of_group(w));
         } else {
-            // The other groups' keys stay, though `Group::groups_of` puts no key in a group.
-            let is_key = |w: &str| w.starts_with("group:");
-            (self.words).retain(|w| w != group.key() && (is_key(w) || !group.lists(w)));
+            // The other groups' keys stay, though `Group::groups_of` puts no key in a group,
+            // and so do the tags kept on their own, which may be kept out of another group.
+            let is_not_a_tag = |w: &str| w.starts_with("group:") || w.starts_with(KEEP_PREFIX);
+            (self.words).retain(|w| w != group.key() && (is_not_a_tag(w) || !group.lists(w)));
         }
         self.count_groups();
     }
@@ -2179,7 +2192,7 @@ mod tests {
         }
         let mut left_out = super::LeftOut::default();
         left_out.set_group(super::Group::Place, true);
-        left_out.set_tag("BodySerialNumber", true, &found);
+        left_out.set_tag("BodySerialNumber", true);
         super::copy(&path, &left_out.kept(&found)).unwrap().unwrap()
     }
 
@@ -2298,8 +2311,8 @@ mod tests {
     }
 
     /// A choice keeps what it says: a group left out whole leaves out a tag never seen before,
-    /// a tag kept out of it leaves the others out one by one, and Remove All leaves out every
-    /// tag. It reads back from its text as it was.
+    /// also after one tag of it is kept, and Remove All leaves out every tag. It reads back
+    /// from its text as it was.
     #[test]
     fn the_choice_leaves_out_what_was_ticked() {
         let found: Vec<String> = ["GPSLatitude", "GPSAltitude", "Make", "xmp:Rating"]
@@ -2309,9 +2322,10 @@ mod tests {
         let mut left_out = super::LeftOut::default();
         left_out.set_group(super::Group::Place, true);
         assert!(left_out.is_left_out("GPS 0x001e") && left_out.is_left_out("exif:GPSSpeed"));
-        left_out.set_tag("GPSAltitude", false, &found);
+        left_out.set_tag("GPSAltitude", false);
         assert!(left_out.is_left_out("GPSLatitude") && !left_out.is_left_out("GPSAltitude"));
-        assert!(!left_out.is_group_left_out(super::Group::Place));
+        assert!(left_out.is_group_left_out(super::Group::Place));
+        assert!(left_out.is_left_out("GPS 0x001e") && left_out.is_left_out("exif:GPSSpeed"));
         let kept = left_out.kept(&found);
         let want: HashSet<String> = ["GPSAltitude", "Make", "xmp:Rating"]
             .iter()
@@ -2402,15 +2416,15 @@ mod tests {
             "Image 0x8649",
         ];
         assert!(blocks.iter().all(|b| !left_out.is_left_out(b)));
-        left_out.set_tag("GPSAltitude", true, &[]);
+        left_out.set_tag("GPSAltitude", true);
         for block in blocks {
             assert!(left_out.is_left_out(block), "{block} is kept");
         }
         assert!(!left_out.is_left_out(super::JFIF_THUMBNAIL) && !left_out.is_left_out("Make"));
-        left_out.set_tag(crate::metadata::exif::EXIF_THUMBNAIL, true, &[]);
+        left_out.set_tag(crate::metadata::exif::EXIF_THUMBNAIL, true);
         assert!(left_out.is_left_out(super::JFIF_THUMBNAIL));
         let mut dated = super::LeftOut::default();
-        dated.set_tag("DateTime", true, &[]);
+        dated.set_tag("DateTime", true);
         assert!(dated.is_left_out("xmpMM:DerivedFrom") && !dated.is_left_out("Make"));
         for (tag, group) in [
             ("drone-dji:GpsLatitude", Place),
@@ -2507,16 +2521,13 @@ mod tests {
     }
 
     /// A tag of two groups that is kept out of one group left out whole stays kept, and the
-    /// other tags of that group are left out one by one instead.
+    /// other tags of that group are still left out.
     #[test]
     fn a_tag_of_two_groups_can_be_kept() {
-        let found: Vec<String> = ["GPSDateStamp", "DateTimeOriginal", "GPSLatitude"]
-            .map(str::to_owned)
-            .to_vec();
         let mut left_out = super::LeftOut::default();
         left_out.set_group(super::Group::Date, true);
         assert!(left_out.is_left_out("GPSDateStamp"));
-        left_out.set_tag("GPSDateStamp", false, &found);
+        left_out.set_tag("GPSDateStamp", false);
         assert!(!left_out.is_left_out("GPSDateStamp"));
         assert!(left_out.is_left_out("DateTimeOriginal") && !left_out.is_left_out("GPSLatitude"));
     }
@@ -2526,13 +2537,12 @@ mod tests {
     #[test]
     fn an_unknown_tag_goes_with_any_group() {
         let tag = "madeup:Whatever";
-        let found = [tag, "GPSLatitude"].map(str::to_owned).to_vec();
         let mut left_out = super::LeftOut::default();
         assert!(!left_out.is_left_out(tag));
         left_out.set_group(super::Group::Place, true);
         assert!(left_out.is_left_out(tag));
         assert!(super::Group::Other.lists(tag) && !super::Group::Place.lists(tag));
-        left_out.set_tag(tag, false, &found);
+        left_out.set_tag(tag, false);
         assert!(!left_out.is_left_out(tag) && left_out.is_left_out("GPSLatitude"));
     }
 
@@ -2574,6 +2584,30 @@ mod tests {
             }
         }
         assert!(wrong.is_empty(), "{wrong:?}");
+    }
+
+    /// Unticking one tag of a group ticked whole keeps that tag only. The saved choice still
+    /// has every group ticked, so a GPS field that the next photos have and these did not is
+    /// left out, and the copy of these photos is the same as before.
+    #[test]
+    fn unticking_one_tag_keeps_its_groups_ticked() {
+        use super::Group::{Date, Place};
+        let tag = "madeup:Whatever";
+        let found = [tag, "GPSLatitude", "DateTimeOriginal", "Make"].map(str::to_owned);
+        let mut left_out = super::LeftOut::default();
+        left_out.set_group(Place, true);
+        left_out.set_group(Date, true);
+        left_out.set_tag(tag, false);
+        let kept: HashSet<String> = [tag, "Make"].map(str::to_owned).into();
+        assert_eq!(left_out.kept(&found), kept);
+        let saved = super::LeftOut::parse(&left_out.text());
+        assert!(saved.is_group_left_out(Place) && saved.is_group_left_out(Date));
+        assert!(saved.is_left_out("GPSAltitude") && saved.is_left_out("exif:GPSSpeed"));
+        assert!(!saved.is_left_out(tag) && saved.kept(&found) == kept);
+        // Ticking the group again leaves the tag out again.
+        let mut ticked = saved.clone();
+        ticked.set_group(Place, true);
+        assert!(ticked.is_left_out(tag));
     }
 
     /// The tags that audit round 3 found in More tags, from digiKam, Lightroom, ACDSee,

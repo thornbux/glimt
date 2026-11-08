@@ -148,3 +148,7 @@ tags" reads the selected files, where the last choice is kept, and the code stru
 - A known prefix bound to another namespace, or to none, names its property by that namespace
   in braces (`{urn:other}Make`), so it is not taken for the known property and goes with every
   group.
+- Unticking one tag of a group ticked whole keeps that tag by a word of its own (`keep:NAME`)
+  and leaves the group ticked, so the saved choice still leaves out a GPS field that the next
+  photos have. Before, the group's box was unticked and its tags were listed one by one.
+  Ticking the group again leaves the tag out again.
