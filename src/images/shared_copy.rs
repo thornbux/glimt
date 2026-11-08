@@ -821,10 +821,15 @@ pub(crate) fn copy(path: &Path, kept: &HashSet<String>) -> Result<Option<Vec<u8>
             let (element, namespaces) = container_directory(gain_map.len());
             metadata.replace_property(CONTAINER_DIRECTORY, element, namespaces);
         }
-        let has_images_after = gain_map.is_some() || keeps(MPF) || keeps(AFTER_IMAGE);
-        let keeps_property = |tag: &str| match is_property_of_images_after(tag) {
-            true => has_images_after,
-            false => keeps(tag),
+        // A motion photo's video is among the images after the main one, never the gain map.
+        let has_video = keeps(MPF) || keeps(AFTER_IMAGE);
+        let has_images_after = gain_map.is_some() || has_video;
+        let keeps_property = |tag: &str| {
+            if is_property_of_images_after(tag) {
+                has_images_after
+            } else {
+                keeps(tag) && (has_video || !is_motion_photo_flag(tag))
+            }
         };
         let (exif, xmp) = metadata.written(&keeps_property);
         assembled(walked, &keeps, exif, xmp, gain_map)
@@ -1618,6 +1623,14 @@ fn is_property_of_images_after(name: &str) -> bool {
     name.starts_with("hdrgm:") || name == CONTAINER_DIRECTORY
 }
 
+/// Whether the XMP property `name` says that the image is a motion photo, with a video after
+/// it: Google's flags, its version, and where the video's frame of the photo is (GCamera, also
+/// written with the prefix Camera), and the same of the older micro video and of other makers.
+/// A copy without the video must not claim one, so it keeps them only with the video.
+fn is_motion_photo_flag(name: &str) -> bool {
+    name.contains(":MotionPhoto") || name.contains(":MicroVideo")
+}
+
 /// Returns a new MPF segment, big-endian, whose index names the main image of `main_size`
 /// bytes and the gain map of `gain_map_size` bytes at `offset` from the segment's TIFF header,
 /// with their attributes `attributes`. It is `MPF_SEGMENT_SIZE` bytes long.
@@ -2346,6 +2359,64 @@ mod tests {
         let pixels = |b: &[u8]| image::load_from_memory(b).unwrap().to_rgba8();
         assert!(pixels(&original) == pixels(&copy));
         assert_eq!(pixels(&copy[gain.1..]).dimensions(), (8, 8));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A motion photo copied without its video, as any tag left out leaves out what follows
+    /// the image, does not claim a video: its flags and the directory's item of the video go,
+    /// though Camera is kept. Copied with nothing left out, it keeps all of them.
+    #[test]
+    fn a_motion_photo_without_its_video_says_no_video() {
+        let dir = folder("motion");
+        let mut jpeg = Vec::new();
+        let encoder = image::codecs::jpeg::JpegEncoder::new_with_quality(&mut jpeg, 90);
+        picture().write_with_encoder(encoder).unwrap();
+        let video = b"\0\0\0\x18ftypmp42-THE-VIDEO";
+        let xmp = format!(
+            "<x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><rdf:RDF \
+             xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\"><rdf:Description \
+             rdf:about=\"\" xmlns:Camera=\"http://ns.google.com/photos/1.0/camera/\" \
+             xmlns:Container=\"http://ns.google.com/photos/1.0/container/\" \
+             xmlns:Item=\"http://ns.google.com/photos/1.0/container/item/\" \
+             Camera:MotionPhoto=\"1\" Camera:MotionPhotoVersion=\"1\" \
+             Camera:MotionPhotoPresentationTimestampUs=\"512000\">\
+             <Container:Directory><rdf:Seq><rdf:li \
+             rdf:parseType=\"Resource\"><Container:Item Item:Semantic=\"Primary\" \
+             Item:Mime=\"image/jpeg\"/></rdf:li><rdf:li rdf:parseType=\"Resource\">\
+             <Container:Item Item:Semantic=\"MotionPhoto\" Item:Mime=\"video/mp4\" \
+             Item:Length=\"{}\"/></rdf:li></rdf:Seq></Container:Directory></rdf:Description>\
+             </rdf:RDF></x:xmpmeta>",
+            video.len()
+        );
+        let xmp = super::jpeg_segment(0xe1, &[super::XMP_NAME, xmp.as_bytes()].concat());
+        let original = [&jpeg[..2], &xmp, &jpeg[2..], video].concat();
+        let path = dir.join("PXL_MP.jpg");
+        std::fs::write(&path, &original).unwrap();
+        let found = super::tags_of(&path).unwrap().unwrap();
+        assert!(
+            found.iter().any(|t| t == "GCamera:MotionPhoto"),
+            "{found:?}"
+        );
+        let has = |b: &[u8], text: &[u8]| b.windows(text.len()).any(|w| w == text);
+        let claims = [
+            &b":MotionPhoto"[..],
+            b"MotionPhotoVersion",
+            b"512000",
+            b"video/mp4",
+        ];
+        let whole = super::copy(&path, &super::LeftOut::default().kept(&found));
+        let whole = whole.unwrap().unwrap();
+        assert!(has(&whole, b"THE-VIDEO") && claims.iter().all(|c| has(&whole, c)));
+        let mut left_out = super::LeftOut::default();
+        left_out.set_group(super::Group::Place, true);
+        let kept = left_out.kept(&found);
+        assert!(kept.contains("GCamera:MotionPhoto"));
+        let copy = super::copy(&path, &kept).unwrap().unwrap();
+        assert!(!has(&copy, b"THE-VIDEO"), "the video is in the copy");
+        for claim in claims {
+            let claim_text = String::from_utf8_lossy(claim);
+            assert!(!has(&copy, claim), "{claim_text} is in the copy");
+        }
         std::fs::remove_dir_all(dir).unwrap();
     }
 
