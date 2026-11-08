@@ -830,6 +830,43 @@ for v in new old; do
     else note "old: exit $status in $ms ms, current '$current', shown $shown"; fi
 done
 
+section "--remote quit to a minimized window while copying: it waits, and ends once the copies are whole"
+# eframe runs no ui for a minimized window. In 0.76.0 before its fix, a close there met no guard,
+# so the window ended halfway through the copy.
+for v in new old; do
+    as_version $v
+    d=/tmp/quit-hidden-$v
+    mkdir -p $d/to
+    # 240 names of one file: as much to copy as a fast machine needs to be still at it.
+    head -c 25000000 /dev/urandom >$d/000.jpg
+    for i in $(seq -w 1 239); do ln $d/000.jpg $d/$i.jpg; done
+    config
+    start $d
+    sleep 2
+    key ctrl+a
+    answer $d/to
+    key ctrl+c
+    for i in $(seq 200); do [ -n "$(ls -A $d/to)" ] && break; sleep 0.05; done
+    # Minimized as in the section before.
+    xprop -id $WIN -f _NET_WM_STATE 32a -set _NET_WM_STATE _NET_WM_STATE_HIDDEN
+    xdotool windowunmap $WIN 2>/dev/null
+    sleep 0.5
+    remote quit >/dev/null 2>&1
+    sleep 1
+    waited=$(kill -0 $GPID 2>/dev/null && echo waits || echo closed)
+    for i in $(seq 240); do kill -0 $GPID 2>/dev/null || break; sleep 0.5; done
+    ended=$(kill -0 $GPID 2>/dev/null && echo runs || echo ended)
+    quit
+    whole=$(find $d/to -name '*.jpg' -size 24415k | wc -l)
+    parts=$(ls -A $d/to | grep -c glimt-tmp)
+    rm -rf $d    # 6 GB
+    if [ $v = new ]; then
+        expect "the minimized window waits for the copies" "$waited" waits
+        expect "it ends once they are done, still minimized" "$ended" ended
+        expect "all 240 copies whole, no hidden ones left" "$whole $parts" "240 0"
+    else note "old: $waited, then $ended, $whole whole, $parts hidden"; fi
+done
+
 section "thumbnails in the image area (G): ↓ moves a row, Enter shows the image, Esc the grid"
 for v in new old; do
     as_version $v
