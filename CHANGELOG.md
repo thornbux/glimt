@@ -9,6 +9,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 - Edit → Undo (Ctrl+Z) pressed while a delete to the trash or a move is still running says to
   try again in a moment, instead of undoing the operation before it.
+- Copy Path puts a backslash before `$`, `` ` ``, `"` and `\` in the quoted path, so a file
+  name such as `$(command).jpg` pasted into a terminal runs nothing.
 
 ## [0.75.0] - 2026-11-08
 

@@ -1805,7 +1805,7 @@ impl crate::App {
         let paths: Vec<String> = targets
             .iter()
             .map(|&i| self.path(i).to_string_lossy().into_owned())
-            .map(|p| if quote { format!("\"{p}\"") } else { p })
+            .map(|p| if quote { quoted_for_shell(&p) } else { p })
             .collect();
         ctx.copy_text(paths.join(" "));
     }
@@ -1831,6 +1831,21 @@ impl crate::App {
             self.dialogs.ask_about(asked, Prompt::Rename, name);
         }
     }
+}
+
+/// Returns `path` in double quotes, as Geeqie's Copy Path gives it, with a backslash before each
+/// `$`, `` ` ``, `"` and `\`. A shell still reads those inside double quotes, so a file name
+/// such as `$(command).jpg` would run its command when the path is pasted into a terminal.
+fn quoted_for_shell(path: &str) -> String {
+    let mut quoted = String::from('"');
+    for c in path.chars() {
+        if matches!(c, '$' | '`' | '"' | '\\') {
+            quoted.push('\\');
+        }
+        quoted.push(c);
+    }
+    quoted.push('"');
+    quoted
 }
 
 /// Puts the entries `removed` from a collection back into `all`, which is what is left, each at
@@ -3408,6 +3423,16 @@ mod tests {
             std::fs::remove_file(&now).unwrap();
         }
         std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// Copy Path quotes a path so that a shell gives back the name, and runs nothing in it.
+    #[test]
+    fn copy_path_quotes_what_a_shell_reads() {
+        assert_eq!(super::quoted_for_shell("/p/a b.jpg"), r#""/p/a b.jpg""#);
+        assert_eq!(
+            super::quoted_for_shell(r#"/p/$(id)`id`"x\.jpg"#),
+            r#""/p/\$(id)\`id\`\"x\\.jpg""#
+        );
     }
 
     /// Ctrl+Z while a move to the trash still runs waits for it, rather than undoing the move
