@@ -3806,6 +3806,82 @@ for v in new old; do
     else note "old: $(ls $d/out | tr '\n' ' ')"; fi
 done
 
+section "File → Copy for Sharing… of real photos (samples.txt): no place, serial or keyword left; gain maps kept"
+# The samples are a Pixel's Ultra HDR, an iPhone's HDR with Apple's gain map, a DJI drone's
+# photo, a Lightroom export with its keyword tree and one with content credentials. Only NEW is
+# run: the section checks what a copy holds, which tells nothing new about OLD.
+note "old: not run, the copies of NEW only are checked"
+d=/tmp/sharing-real
+mkdir -p $d/in $d/all $d/place
+for name in ultrahdr-pixel.jpg iphone-gain-map.jpg dji-drone.jpg lightroom-keywords.jpg c2pa.jpg; do
+    if [ -f /samples/$name ]; then cp /samples/$name $d/in/; else fail "$name not downloaded"; fi
+done
+# copy_shared FOLDER GROUP…: copies every sample into FOLDER, with Remove All when no GROUP is
+# named, and else with each GROUP's box ticked. The choice starts empty each time.
+copy_shared() {
+    local out=$1; shift
+    rm -f $XDG_STATE_HOME/glimt/sharing
+    answer $out
+    config
+    start $d/in
+    sleep 2
+    remote select $d/in/* >/dev/null
+    sleep 1
+    menu File "Copy for Sharing…"
+    until_ok '[ -n "$(where "Remove All")" ]' 30
+    if [ $# = 0 ]; then menu "Remove All"; else menu "$@"; fi
+    shot sharing-real-$(basename $out)
+    menu "Copy…"
+    for name in $(ls $d/in); do until_file $out/$name 30; done
+    sleep 1
+    quit
+}
+# The tags of FILE and of the images after its main one, one to a line, as [Group:Group] Tag,
+# without the file's name and folder, which are not in the file.
+all_tags() { exiftool -a -ee3 -G0:1 -s "$1" 2>/dev/null | grep -v '^\[File:'; }
+# What Remove All and Place must leave out, as all_tags prints it.
+place_tags='gps|latitude|longitude|altitude'
+private_tags="$place_tags|serial|makernote|^\[(MakerNotes|JUMBF)|keywords|hierarchicalsubject|tagslist|\] *Subject "
+copy_shared $d/all
+copy_shared $d/place Place
+samples=$(ls $d/in | tr '\n' ' ')
+expect "every sample copied with Remove All" "$(ls $d/all | tr '\n' ' ')" "$samples"
+expect "every sample copied with Place" "$(ls $d/place | tr '\n' ' ')" "$samples"
+for name in $(ls $d/in); do
+    in=$d/in/$name all=$d/all/$name place=$d/place/$name
+    expect_empty "$name, Remove All: no place, serial number, maker note, credentials or keyword" \
+        "$(all_tags $all | grep -iE "$private_tags")"
+    expect "$name, Remove All: the orientation kept" \
+        "o=$(exiftool -s3 -n -Orientation $all)" "o=$(exiftool -s3 -n -Orientation $in)"
+    expect "$name, Remove All: the colour profile kept" \
+        "p=$(exiftool -s3 -ProfileDescription $all)" "p=$(exiftool -s3 -ProfileDescription $in)"
+    expect_empty "$name, Place: no place of any kind, in no image of the file" \
+        "$(all_tags $place | grep -iE "$place_tags")"
+    expect "$name, Place: the camera's make kept" \
+        "make=$(exiftool -s3 -Make $place)" "make=$(exiftool -s3 -Make $in)"
+    # -quiet, as ImageMagick warns of the XMP of Lightroom's export after the number.
+    for copy in $all $place; do
+        expect "$name, $(basename $(dirname $copy)): the main image's pixels unchanged" \
+            "$(compare -quiet -metric AE $in $copy null: 2>&1 | cut -d' ' -f1)" 0
+    done
+done
+# The gain maps: the index of the images after the main one, and the gain map marked as such.
+for copy in $d/all $d/place; do
+    kind=$(basename $copy)
+    expect "ultrahdr-pixel.jpg, $kind: two images in the MPF index" \
+        "$(exiftool -s3 -NumberOfImages $copy/ultrahdr-pixel.jpg)" 2
+    expect "ultrahdr-pixel.jpg, $kind: the gain map's hdrgm marking kept" \
+        "$(exiftool -a -ee3 -G3 -s -XMP-hdrgm:GainMapMax $copy/ultrahdr-pixel.jpg | grep -c Doc)" 1
+    # Kept only once 077-iphone-gain-map is merged, which reads Apple's marking of a gain map.
+    expect "iphone-gain-map.jpg, $kind: two images in the MPF index" \
+        "$(exiftool -s3 -NumberOfImages $copy/iphone-gain-map.jpg)" 2
+    expect "iphone-gain-map.jpg, $kind: the gain map's Apple marking kept" \
+        "$(exiftool -a -ee3 -s3 -XMP-apdi:AuxiliaryImageType $copy/iphone-gain-map.jpg)" \
+        urn:com:apple:photo:2020:aux:hdrgainmap
+done
+expect "the originals unchanged" "$(cd $d/in && md5sum * | md5sum)" \
+    "$(cd /samples && md5sum $(ls $d/in) | md5sum)"
+
 section "/ puts the cursor in the search field, without typing itself there"
 d=/tmp/slash
 mkdir -p $d
