@@ -254,6 +254,13 @@ fn print_help() {
         .map(|a| format!("{a:?}"))
         .collect();
     println!("\nActions for run:\n  {}", actions.join(" "));
+    println!(
+        "\nExit status of --remote: 0 done, {} no Glimt took it or none answered in time, {} \
+         it cannot be sent, {} a window did not do it (the reason on standard error)",
+        remote::NOT_TAKEN,
+        remote::NOT_SENT,
+        remote::NOT_DONE
+    );
 }
 
 #[cfg(test)]

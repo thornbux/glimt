@@ -1095,6 +1095,25 @@ for v in new old; do
     else note "old: $got"; fi
 done
 
+section "--remote run while a text field has the focus: not done, exit 3 and the reason"
+for v in new old; do
+    as_version $v
+    d=/tmp/remote-not-done-$v
+    mkdir -p $d
+    for f in a b; do convert -size 64x64 xc:red $d/$f.png; done
+    config
+    start $d/a.png; sleep 1
+    remote run FocusSearch >/dev/null 2>&1; sleep 1
+    remote run Next >/dev/null 2>/tmp/remote-not-done-$v.err; status=$?
+    sleep 1
+    shown=$(remote current 2>/dev/null | tr -d '\0' | sed "s|$d/||")
+    quit
+    told=$(grep -c "not done" /tmp/remote-not-done-$v.err)
+    got="$status $told $shown"
+    if [ $v = new ]; then expect "Next not done: exit 3, the reason told, a.png still shown" "$got" "3 1 a.png"
+    else note "old: $got"; fi
+done
+
 section "--remote previous, and the words from before 0.74.0: prev and run Prev still taken"
 d=/tmp/remote-previous
 mkdir -p $d

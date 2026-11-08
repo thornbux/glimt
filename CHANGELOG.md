@@ -21,6 +21,10 @@ and versions follow [Semantic Versioning](https://semver.org/).
   says what it is beside High Contrast. A settings file with `theme=Contrast` still gets it.
 - The action Previous Page is named `PreviousPage` in `keys=` and `glimt --remote run`, beside
   `NextPage`, instead of `PrevPage`. The old name is still read.
+- `glimt --remote` waits for the window's answer to every command, and exits with 3 when the
+  command was not done: a `run` refused while a dialog is open or a text field has the focus,
+  or a command the window does not know, with the reason on standard error. Before, it exited
+  with 0, as if it had been done. `--remote-all` exits with 3 when any window did not do it.
 
 ### Fixed
 

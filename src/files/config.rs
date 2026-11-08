@@ -1535,7 +1535,7 @@ mod tests {
     /// Returns the --remote commands, the words that each takes from a choice ("on|off"), and
     /// the exit codes. The release tests' "where" is left out, because only their build has it.
     fn remote_names() -> Vec<String> {
-        use crate::features::remote::{COMMANDS, NOT_SENT, NOT_TAKEN};
+        use crate::features::remote::{COMMANDS, NOT_DONE, NOT_SENT, NOT_TAKEN};
         let mut now = Vec::new();
         for (usage, _) in COMMANDS {
             let mut words = usage.split(' ');
@@ -1552,6 +1552,7 @@ mod tests {
         }
         now.push(format!("exit not_sent {NOT_SENT}"));
         now.push(format!("exit not_taken {NOT_TAKEN}"));
+        now.push(format!("exit not_done {NOT_DONE}"));
         now
     }
 
