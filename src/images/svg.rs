@@ -3,7 +3,7 @@
 //! in a child process of Glimt's own program, which has a limit of memory and time, because
 //! what resvg allocates and how long it takes are set by the file, not by Glimt.
 
-use crate::images::decode::{MAX_DECODE_BYTES, read_limited};
+use crate::images::decode::{DECODE_BUDGET, read_limited};
 use std::path::Path;
 
 /// The environment variable that makes Glimt draw the SVG it names for the Glimt that started
@@ -14,13 +14,9 @@ pub const DRAW_SVG: &str = "GLIMT_DRAW_SVG";
 /// "WIDTH HEIGHT". Without it, the SVG is drawn at its own size.
 const DRAW_SVG_BOX: &str = "GLIMT_DRAW_SVG_BOX";
 
-/// The memory a drawing child may take, as much as one decode may. resvg draws each group with
-/// opacity, a filter, a mask or a clip into a layer of its own, of up to 25 times the canvas,
-/// and nested groups each keep theirs while the inner ones are drawn. So a file of 1 KB could
-/// otherwise take gigabytes, and the system would end Glimt for it. Patterns, filters and a
-/// `<use>` repeated a million times are more ways to the same end. A child that needs more is
-/// ended, and the window only tells why.
-const CHILD_MEMORY: u64 = MAX_DECODE_BYTES;
+/// The memory a drawing child may take besides four times its picture (`child_memory`). It
+/// holds the program itself, the parsed SVG and the pictures it links to.
+const CHILD_MEMORY_BESIDES_PICTURE: u64 = 256 << 20;
 
 /// The longest side a drawing has, in pixels, because an SVG may claim any size.
 const LONGEST_SIDE: u32 = 8192;
@@ -168,22 +164,29 @@ pub fn load(
 }
 
 /// Draws an SVG as `load` does, in a child process of Glimt's own program that may take
-/// `CHILD_MEMORY` and is ended after `limit`. The child is `/proc/self/exe`, which is this
+/// `child_memory` and is ended after `limit`. The child is `/proc/self/exe`, which is this
 /// program also when its file has been replaced by an update since it started.
 fn draw_in_child(
     path: &Path,
     max: Option<[u32; 2]>,
     limit: std::time::Duration,
 ) -> Result<(image::DynamicImage, Option<[usize; 2]>), String> {
-    // The picture is at most the box, or the longest side squared, with a pixel more on each
-    // side where the size is rounded up.
-    let side = |s: u32| u64::from(s.min(LONGEST_SIDE)) + 1;
-    let [w, h] = max.unwrap_or([LONGEST_SIDE; 2]);
-    let picture = side(w) * side(h) * 4;
+    let picture = largest_picture(max);
     // What the child may take, and the picture as read here, count against the decodes'
     // shared budget while it draws.
-    let _reserved =
-        crate::images::decode::reserve_from_budget(CHILD_MEMORY + picture.min(CHILD_MEMORY))?;
+    let _reserved = crate::images::decode::reserve_from_budget(child_memory(max) + picture)?;
+    draw_in_child_outside_budget(path, max, limit)
+}
+
+/// Draws an SVG as `draw_in_child` does, without taking its memory from the decodes' budget
+/// first. The tests that draw at the largest size call it, so that they do not hold the budget
+/// that the other tests' decodes wait for.
+fn draw_in_child_outside_budget(
+    path: &Path,
+    max: Option<[u32; 2]>,
+    limit: std::time::Duration,
+) -> Result<(image::DynamicImage, Option<[usize; 2]>), String> {
+    let picture = largest_picture(max);
     let mut command = crate::files::external::stoppable_command("/proc/self/exe");
     command.args(CHILD_ARGS).env(DRAW_SVG, path);
     if let Some([w, h]) = max {
@@ -192,6 +195,29 @@ fn draw_in_child(
     let mut child = command.spawn().map_err(|e| format!("SVG: {e}"))?;
     let (out, errors, _) = crate::files::external::output_of(&mut child, picture + 4096, limit);
     read_child_answer(out.ok_or("SVG too large")?, &errors)
+}
+
+/// Returns the bytes of the largest picture that an SVG drawn to fit `max` can have: the box,
+/// or the longest side squared without a box, with a pixel more on each side where the size is
+/// rounded up.
+fn largest_picture(max: Option<[u32; 2]>) -> u64 {
+    let side = |s: u32| u64::from(s.min(LONGEST_SIDE)) + 1;
+    let [w, h] = max.unwrap_or([LONGEST_SIDE; 2]);
+    side(w) * side(h) * 4
+}
+
+/// Returns the memory that a drawing child may take for an SVG drawn to fit `max`. resvg draws
+/// each group with opacity, a filter, a mask or a clip into a layer of its own, and a clip
+/// takes another picture and a mask besides. One such group over the whole SVG then needs
+/// about three and a quarter pictures, and the child gets four. Nested groups each keep their
+/// layer while the inner ones are drawn, so a file of 1 KB could otherwise take gigabytes, and
+/// the system would end Glimt for it. Patterns, filters and a `<use>` repeated a million times
+/// are more ways to the same end. A child that needs more is ended, and the window only tells
+/// why. Before, every child got 512 MB, which a large SVG with one clip group needs more than,
+/// and an icon's thumbnail far less.
+fn child_memory(max: Option<[u32; 2]>) -> u64 {
+    let picture = largest_picture(max);
+    (4 * picture + CHILD_MEMORY_BESIDES_PICTURE).min(DECODE_BUDGET - picture)
 }
 
 /// Returns the picture that a drawing child wrote on its output `out`, with its own size, or
@@ -236,15 +262,15 @@ fn read_child_answer(
 }
 
 /// Draws the SVG at `path` (from `DRAW_SVG`) for the Glimt that started this process, under the
-/// limit of `CHILD_MEMORY`, and writes the picture, or why there is none, on the output.
+/// limit of `child_memory`, and writes the picture, or why there is none, on the output.
 /// Returns the exit code.
 pub fn draw_for_parent(path: &std::ffi::OsStr) -> i32 {
     use std::io::Write;
-    limit_this_process(CHILD_MEMORY);
     let max = std::env::var(DRAW_SVG_BOX).ok().and_then(|text| {
         let (w, h) = text.split_once(' ')?;
         Some([w.parse().ok()?, h.parse().ok()?])
     });
+    limit_this_process(child_memory(max));
     let mut out = std::io::stdout().lock();
     let written = match draw(Path::new(path), max) {
         Ok((img, own)) => {
@@ -419,6 +445,38 @@ mod tests {
         let [r, g, b, a] = img.to_rgba8().get_pixel(25, 25).0;
         assert_eq!([r, g, b], [255, 0, 0]);
         assert!((60..=68).contains(&a), "{a}");
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// An SVG with a clip group and an opacity group over the whole of it is drawn at the
+    /// largest size, as a zoom to 100 % or Save As asks for. Before, the child had 512 MB
+    /// whatever the size, and a clip group at 8192 pixels needs some 830 MB.
+    #[test]
+    fn draws_a_clipped_svg_at_the_largest_size() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-svg-clip-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let svg = |w: u32, h: u32| {
+            format!(
+                "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"{w}\" height=\"{h}\">\
+                 <clipPath id=\"c\"><circle cx=\"{}\" cy=\"{}\" r=\"{w}\"/></clipPath>\
+                 <g clip-path=\"url(#c)\"><rect width=\"{w}\" height=\"{h}\" fill=\"red\"/></g>\
+                 <g opacity=\"0.5\"><rect width=\"{w}\" height=\"{h}\" fill=\"blue\"/></g></svg>",
+                w / 2,
+                h / 2
+            )
+        };
+        let limit = crate::files::external::PROGRAM_TIME_LIMIT;
+        let file = dir.join("icon.svg");
+        std::fs::write(&file, svg(100, 100)).unwrap();
+        let (img, _) =
+            super::draw_in_child_outside_budget(&file, Some([16384, 16384]), limit).unwrap();
+        assert_eq!((img.width(), img.height()), (8192, 8192));
+        drop(img);
+        // A poster as Save As draws it, at its own size.
+        let file = dir.join("poster.svg");
+        std::fs::write(&file, svg(8000, 6000)).unwrap();
+        let (img, _) = super::draw_in_child_outside_budget(&file, None, limit).unwrap();
+        assert_eq!((img.width(), img.height()), (8000, 6000));
         std::fs::remove_dir_all(dir).unwrap();
     }
 

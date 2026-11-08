@@ -94,7 +94,9 @@ and versions follow [Semantic Versioning](https://semver.org/).
   bytes when the tree changes, and the rest of the tree shows at the start instead of none.
 - An SVG made to take gigabytes of memory, or to keep drawing for hours, no longer ends Glimt
   or keeps a decoder busy for good. SVGs are drawn in a process of their own, which may take
-  512 MB and 30 seconds, and one that needs more is told as not shown.
+  four times the picture it draws and 256 MB besides, and 30 seconds, and one that needs more
+  is told as not shown. A zoom to 100 % draws an SVG at the size the status bar gives it, not
+  at the largest size the graphics card takes, so an icon no longer takes 256 MB.
 - The images decoded at the same time (the view's, the thumbnails, Print and Check Images) take
   at most 2 GB together. A folder of images that each claim nearly the limit of one decode no
   longer takes gigabytes at once; such an image waits until there is room.
