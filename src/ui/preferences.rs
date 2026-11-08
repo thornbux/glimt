@@ -839,7 +839,12 @@ impl crate::App {
     fn info_settings(&mut self, ui: &mut egui::Ui) -> bool {
         let mut changed = false;
         let osd = tr("Show image info in full screen (I)");
-        self.toggle_box(ui, self.config.osd, Action::FullScreenInfo, osd);
+        self.toggle_box(
+            ui,
+            self.config.full_screen_info,
+            Action::FullScreenInfo,
+            osd,
+        );
         let c = &mut self.config;
         ui.label(tr("Image info template:"));
         // Kept on one line in the config file, with \n for each new line.
@@ -848,7 +853,7 @@ impl crate::App {
             .desired_rows(3)
             .desired_width(f32::INFINITY)
             .hint_text("%name%  %position%");
-        if ui.add_enabled(c.osd, field).changed() {
+        if ui.add_enabled(c.full_screen_info, field).changed() {
             c.osd_template = text.replace('\n', "\\n");
             changed = true;
         }

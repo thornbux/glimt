@@ -1120,7 +1120,11 @@ impl crate::App {
                 }
                 // With several panes, the name is shown in each pane or in none (after the panes
                 // are drawn), rather than the shown image's details in one.
-                if panes.len() == 1 && bare && self.config.osd && !self.list.files().is_empty() {
+                if panes.len() == 1
+                    && bare
+                    && self.config.full_screen_info
+                    && !self.list.files().is_empty()
+                {
                     self.paint_full_screen_info(ui, area);
                 }
                 if self.config.histogram > 0 {

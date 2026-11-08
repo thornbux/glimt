@@ -234,3 +234,4 @@ setting search_case_sensitive
 setting list_videos
 state window_position
 remote previous
+setting full_screen_info

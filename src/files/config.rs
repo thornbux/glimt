@@ -150,10 +150,10 @@ const NAMED: [(&str, &[&str]); 7] = [
     ("cpu_use", &["saving", "balanced", "full"]),
 ];
 
-/// The settings renamed in 0.74.0, as (old key, new key). A settings file is read by the old
-/// keys too, forever, so the users' files keep working, and only the new keys are written. When
-/// a file holds both keys of a setting, the value of the new key is the one used.
-const RENAMED_SETTINGS: [(&str, &str); 8] = [
+/// The settings renamed in 0.74.0 and later, as (old key, new key). A settings file is read by
+/// the old keys too, forever, so the users' files keep working, and only the new keys are
+/// written. When a file holds both keys of a setting, the value of the new key is the one used.
+const RENAMED_SETTINGS: [(&str, &str); 9] = [
     ("trash", "delete_to_trash"),
     ("delay", "slideshow_delay"),
     ("random", "slideshow_random"),
@@ -162,6 +162,8 @@ const RENAMED_SETTINGS: [(&str, &str); 8] = [
     ("sort_case", "sort_case_sensitive"),
     ("search_case", "search_case_sensitive"),
     ("exif_panel", "info_panel"),
+    // 0.76.0: "OSD" is jargon that the menus and the action had already dropped.
+    ("osd", "full_screen_info"),
 ];
 
 /// The window state's keys renamed in 0.74.0, as (old key, new key). They are read as the
@@ -394,7 +396,7 @@ config! {
     search_bar: bool = true,
     /// Name, position and a few EXIF fields over the image in full screen (I), as Geeqie's
     /// image overlay.
-    osd: bool = true,
+    full_screen_info: bool = true,
     /// What the full screen info shows (OSD_TEMPLATE).
     osd_template: String = OSD_TEMPLATE.to_owned(),
     /// The histogram in the corner of the image (K): off, rgb or brightness, as an index.
@@ -1286,11 +1288,14 @@ mod tests {
         let defaults = Config::default().to_text();
         for (old, new) in super::RENAMED_SETTINGS {
             let value = super::value_in(&defaults, new);
-            // Another value than the default: a bool turned, or a number one larger.
+            // Another value than the default: a bool turned, a number one larger, or a text with
+            // a letter more.
             let other = match value.as_str() {
                 "true" => "false".to_owned(),
                 "false" => "true".to_owned(),
-                number => (number.parse::<u64>().unwrap() + 1).to_string(),
+                text => text
+                    .parse::<u64>()
+                    .map_or_else(|_| format!("{text}x"), |n| (n + 1).to_string()),
             };
             let text = format!("{old}={other}\n");
             let written = Config::parse(&text).to_text();
