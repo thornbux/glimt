@@ -771,6 +771,12 @@ const DIFFERENCES: &[(&str, &str, &str)] = &[
         "Drag and drop in the collection window",
     ),
     (
+        "Deleting in a collection",
+        "A file deleted takes its entry out of the collection shown; Undo (Ctrl+Z) puts it back \
+         in its place. Other collections keep theirs",
+        "The collection keeps the entry of a deleted file",
+    ),
+    (
         "Close Window (Ctrl+W)",
         "Same as Quit (one window per process)",
         "Closes one of several windows",
