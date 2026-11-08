@@ -362,19 +362,24 @@ pub fn write_xmp(path: &Path, stars: u8) -> Result<(), String> {
 /// `xmp` with its rating set to `stars`, as an attribute of its first rdf:Description. Returns
 /// `None` if it has no rdf:Description to put it in.
 fn set_rating(xmp: &str, stars: u8) -> Option<String> {
+    use crate::metadata::xmp::{first_description, without_property};
+    const XMP: &str = "http://ns.adobe.com/xap/1.0/";
+    // The rating is written with the prefix that the sidecar binds to XMP's namespace, such as
+    // an old packet's xap, so it is the same property as the rating there.
+    let (_, declared) = first_description(xmp)?;
+    let prefix = (declared.iter().find(|(_, uri)| *uri == XMP)).map_or("xmp", |(p, _)| *p);
+    let rating = format!("{prefix}:Rating");
     // The rating it has goes first, in whatever form and quotes it was written, so the sidecar
     // never holds two, which darktable and digiKam refuse as broken XML.
-    let xmp = &crate::metadata::xmp::without_property(xmp, "xmp:Rating");
-    let at = xmp.find("<rdf:Description")? + "<rdf:Description".len();
-    // Declared on this Description or above it, as in xmp::set_keywords_and_comment.
-    let tag_end = at + xmp[at..].find('>')?;
-    let ns = if xmp[..tag_end].contains("xmlns:xmp=") {
-        ""
-    } else {
-        " xmlns:xmp=\"http://ns.adobe.com/xap/1.0/\""
+    let xmp = &without_property(&without_property(xmp, "xmp:Rating"), &rating);
+    let (_, declared) = first_description(xmp)?;
+    let ns = match declared.iter().any(|(p, _)| *p == prefix) {
+        true => String::new(),
+        false => format!(" xmlns:xmp=\"{XMP}\""),
     };
+    let at = xmp.find("<rdf:Description")? + "<rdf:Description".len();
     Some(format!(
-        "{}{ns} xmp:Rating=\"{stars}\"{}",
+        "{}{ns} {rating}=\"{stars}\"{}",
         &xmp[..at],
         &xmp[at..]
     ))
@@ -590,6 +595,22 @@ mod tests {
         assert_eq!(
             super::set_rating("<xmp:Rating>5</xmp:Rating><rdf:Description>", 0).unwrap(),
             r#"<rdf:Description xmlns:xmp="http://ns.adobe.com/xap/1.0/" xmp:Rating="0">"#
+        );
+        // An old packet's xap prefix and a declaration with spaces around its equals sign are
+        // read as the reader reads them, so the rating is neither written twice nor declared
+        // twice.
+        let xap = r#"<rdf:Description xmlns:xap = "http://ns.adobe.com/xap/1.0/" xap:Rating="3">"#;
+        assert_eq!(
+            super::set_rating(xap, 4).unwrap(),
+            r#"<rdf:Description xap:Rating="4" xmlns:xap = "http://ns.adobe.com/xap/1.0/">"#
+        );
+        let spaced = r#"<rdf:Description xmlns:xmp = "http://ns.adobe.com/xap/1.0/">"#;
+        assert_eq!(
+            super::set_rating(spaced, 1)
+                .unwrap()
+                .matches("xmlns:")
+                .count(),
+            1
         );
         assert_eq!(super::set_rating("nothing", 1), None);
         super::TEST_FILE.with(|f| *f.borrow_mut() = None);

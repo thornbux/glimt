@@ -48,6 +48,27 @@ and versions follow [Semantic Versioning](https://semver.org/).
   `glimt a.jpg --fullscreen` starts in full screen, rather than showing the current folder
   together with a.jpg's. Any other argument there is still a file or folder, and after `--`
   every argument is.
+- An edit of the keywords field in the info panel changes only the keywords added or taken out
+  there. Keywords that another window, a Lightroom import or a background job wrote to the
+  shown image after the panel read it are kept, and so is a keyword that holds a comma.
+- A keyword hierarchy that only the image holds, as a JPEG exported from Lightroom, goes whole
+  into the sidecar that adding a keyword makes, so its box in the keyword tree stays ticked and
+  other programs still read it as a hierarchy. Taking Oslo out of Places|Norway|Oslo keeps
+  Places|Norway, instead of writing Norway as a keyword at the top of the tree.
+- A keyword taken out or added in Glimt shows so in digiKam. digiKam reads its own keyword
+  lists (digiKam:TagsList, and those of Microsoft, MediaPro and ACDSee) before dc:subject, so
+  Glimt now takes them out when it writes the keywords, and keeps their hierarchy in
+  lr:hierarchicalSubject.
+- A comment, alt text or extended description in several languages keeps them all when it is
+  edited. The panel shows the default language (x-default), or else the first, and an edit
+  replaces only that one; before, it showed the first and wrote it alone as the default.
+- A control character in a comment or keyword, such as a form feed pasted from a PDF, is left
+  out of the sidecar. Written there, it made the sidecar unreadable for darktable and digiKam.
+- A sidecar whose namespace is declared with spaces around the equals sign, or whose first
+  description has a '>' in a value, keeps being XML when keywords or stars are written. An old
+  packet's xap:Rating is changed instead of getting a second rating beside it.
+- A line of the keyword tree file (`~/.config/glimt/keywords`) that is not UTF-8 keeps its
+  bytes when the tree changes, and the rest of the tree shows at the start instead of none.
 
 ## [0.75.0] - 2026-11-08
 

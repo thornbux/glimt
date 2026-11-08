@@ -6,7 +6,7 @@ use crate::files::external::open_url;
 use crate::images::colour::colour_source;
 #[cfg(feature = "marks")]
 use crate::metadata::marks;
-use crate::metadata::xmp::KeywordsAndComment;
+use crate::metadata::xmp::{KeywordChange, KeywordsAndComment};
 use crate::support::format::{count, human_size, thousands};
 use crate::support::lang::tr;
 use crate::ui::dialogs::entered;
@@ -143,8 +143,8 @@ impl InfoPanel {
             metadata_edit: None,
             keywords_take_focus: false,
             keyword_tree: (keyword_tree_path()
-                .and_then(|p| crate::images::decode::read_text(p).ok()))
-            .map_or_else(Vec::new, |t| xmp::keyword_paths(t.lines())),
+                .and_then(|p| crate::images::decode::read_limited(p).ok()))
+            .map_or_else(Vec::new, |file| xmp::keyword_tree_of(&file)),
             new_keyword: String::new(),
         }
     }
@@ -414,15 +414,8 @@ impl crate::App {
                 xmp::keyword_tree_changed(&self.info_panel.keyword_tree, add, remove);
             return;
         };
-        // One that cannot be read is not written over: its keywords would be lost.
-        let change = |old: &[u8]| {
-            let on_disk: Vec<String> = String::from_utf8_lossy(old)
-                .lines()
-                .map(str::to_owned)
-                .collect();
-            let tree = xmp::keyword_tree_changed(&on_disk, add, remove);
-            ((tree.join("\n") + "\n").into_bytes(), tree)
-        };
+        // A file that cannot be read is not written over, because its keywords would be lost.
+        let change = |old: &[u8]| xmp::keyword_tree_file_changed(old, add, remove);
         match crate::files::file_io::edit_shared(&p, change) {
             Ok(tree) => self.info_panel.keyword_tree = tree,
             Err(e) => self.notice = Some(tf!("Could not save the keyword tree: {e}", e)),
@@ -543,12 +536,19 @@ impl crate::App {
         if edit.keywords == edit.saved.keywords_text() && edit.comment == edit.saved.comment {
             return;
         }
-        // Only what was edited: keywords set on this file in the background meanwhile stay.
-        let keywords = (edit.keywords != edit.saved.keywords_text())
-            .then(|| KeywordsAndComment::parse_keywords(&edit.keywords));
+        // Only what was edited is sent: the keywords added and taken out, not the whole list.
+        // The writer applies them to the file as it is then, so keywords that another window or
+        // a background job set since the panel read it stay. Both sides are split at commas the
+        // same way, so a keyword that holds one ("Smith, John") and was not touched stays whole.
+        let keywords = (edit.keywords != edit.saved.keywords_text()).then(|| {
+            KeywordChange::between(
+                &KeywordsAndComment::parse_keywords(&edit.saved.keywords_text()),
+                &KeywordsAndComment::parse_keywords(&edit.keywords),
+            )
+        });
         let comment = (edit.comment != edit.saved.comment).then(|| edit.comment.trim().to_owned());
-        if let Some(k) = &keywords {
-            edit.saved.keywords = k.clone();
+        if let Some(change) = &keywords {
+            change.apply(&mut edit.saved.keywords);
         }
         if let Some(c) = &comment {
             edit.saved.comment = c.clone();
@@ -744,6 +744,29 @@ mod tests {
             std::thread::sleep(std::time::Duration::from_millis(10));
         }
         panic!("the panel never read the file");
+    }
+
+    /// A keyword written to the shown file behind the panel's back, as another window or a
+    /// Lightroom import does, stays when the user then edits the keywords field.
+    #[test]
+    fn an_edit_in_the_panel_keeps_keywords_written_meanwhile() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-kw-behind-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("a.png");
+        image::RgbImage::new(4, 4).save(&file).unwrap();
+        let (mut app, ctx) = app_on(&dir);
+        read_panel(&mut app, &ctx);
+        crate::metadata::xmp::add_keywords(&file, &["Oslo".into()]).unwrap();
+        app.info_panel.metadata_edit.as_mut().unwrap().keywords = "beach".into();
+        app.save_metadata_edit(&ctx);
+        assert!(run_background_until(&mut app, &ctx, |a| {
+            !a.file_operations.is_writing_sidecars()
+        }));
+        assert_eq!(
+            crate::metadata::xmp::read(&file).keywords,
+            ["Oslo", "beach"]
+        );
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     /// When something else changes the shown file, such as a tool that describes it, the
