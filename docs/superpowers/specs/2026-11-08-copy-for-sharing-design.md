@@ -136,3 +136,19 @@ tags" reads the selected files, where the last choice is kept, and the code stru
   such as Apple's, go with the extra images.
 - A copy without a motion photo's video keeps none of its GCamera MotionPhoto or MicroVideo
   flags.
+
+## After audit round 4 (2026-11-08)
+
+- No namespace is known whole, as any of them can hold a blob of other tags (Google's maker
+  notes in GCamera, darktable's history, a Lightroom mask's name). `KNOWN_NAMES` lists each
+  property of aux, PLUS, MediaPro, DJI, GCamera, GPano, xmpRights, crs and darktable that is
+  known, from exiftool's tables; every other property of them is in every group.
+- A history that names the files it was made from is Photographer as well as Date and
+  Software, as `xmpMM:DerivedFrom` is: digiKam's `ImageHistory` and Photoshop's `History`.
+- A known prefix bound to another namespace, or to none, names its property by that namespace
+  in braces (`{urn:other}Make`), so it is not taken for the known property and goes with every
+  group.
+- Unticking one tag of a group ticked whole keeps that tag by a word of its own (`keep:NAME`)
+  and leaves the group ticked, so the saved choice still leaves out a GPS field that the next
+  photos have. Before, the group's box was unticked and its tags were listed one by one.
+  Ticking the group again leaves the tag out again.

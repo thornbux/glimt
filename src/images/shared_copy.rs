@@ -19,10 +19,11 @@ use std::path::Path;
 /// (its namespace's prefix and its own name) in lower case. A tag with words of several groups
 /// is in each of them: GPSDateStamp says where and when, and a file name such as
 /// PXL_20231004_142355 holds the date, while a path names the user. A known tag with none of
-/// them is in More tags, unless `GROUP_EXCEPTIONS` says otherwise. Exif's auxiliary namespace
-/// (aux:) holds the lens and serial numbers, PLUS (plus:) holds the licence and its owner, and
-/// DJI's namespace (drone-dji:) says where the drone flew and which way it and its camera
-/// pointed.
+/// them is in More tags, unless `GROUP_EXCEPTIONS` says otherwise. A prefix here counts only
+/// for the properties of its namespace that `KNOWN_NAMES` lists: those of Exif's auxiliary
+/// namespace (aux:) say which camera and lens, those of PLUS (plus:) give the licence and its
+/// owner, and those of DJI's namespace (drone-dji:) say where the drone flew and which way it
+/// and its camera pointed.
 const GROUP_WORDS: [(Group, &[&str]); 7] = [
     (
         Group::Place,
@@ -105,8 +106,9 @@ const GROUP_EXCEPTIONS: &[(&str, &[Group])] = &[
         "GCamera:MicroVideoPresentationTimestampUs",
         &[Group::Camera],
     ),
-    // Google's own maker note, which may hold anything.
-    ("GCamera:HdrPlusMakernote", &Group::ALL),
+    // The version of Camera Raw and the program that converted a raw file.
+    ("crs:Version", &[Group::Software]),
+    ("crs:Converter", &[Group::Software]),
     ("CameraOwnerName", &[Group::Photographer]),
     ("aux:OwnerName", &[Group::Photographer]),
     ("dc:publisher", &[Group::Photographer]),
@@ -121,12 +123,22 @@ const GROUP_EXCEPTIONS: &[(&str, &[Group])] = &[
     ("HostComputer", &[Group::Software]),
     ("xmp:CreatorTool", &[Group::Software]),
     // The files a photo was made from, by their paths, names and dates, and the programs.
+    // digiKam's history names the original's folder and file, and Photoshop's history log
+    // names each file it opened and saved.
     (
         "xmpMM:DerivedFrom",
         &[Group::Date, Group::Photographer, Group::Software],
     ),
     (
         "xmpMM:Ingredients",
+        &[Group::Date, Group::Photographer, Group::Software],
+    ),
+    (
+        "digiKam:ImageHistory",
+        &[Group::Date, Group::Photographer, Group::Software],
+    ),
+    (
+        "photoshop:History",
         &[Group::Date, Group::Photographer, Group::Software],
     ),
     ("ImageDescription", &[Group::Keywords]),
@@ -174,10 +186,10 @@ const GROUP_EXCEPTIONS: &[(&str, &[Group])] = &[
 
 /// The names of the tags that are known to say nothing beyond the groups their words give
 /// (`GROUP_WORDS`), or nothing of any group when they have none. They are EXIF's names, also in
-/// their XMP spellings (`local_name`), and the properties that phones, cameras, Lightroom,
-/// Photoshop, digiKam and ACDSee write. A tag that is not known by its name, its namespace
-/// (`KNOWN_NAMESPACES`) or as a block (`BLOCKS`) may say anything, so it goes with every group
-/// (`Group::groups_of`).
+/// their XMP spellings (`local_name`), and the properties that phones, cameras, drones,
+/// Lightroom, Photoshop, digiKam, darktable and ACDSee write, each by its own name. A tag that
+/// is not known by its name or as a block (`BLOCKS`) may say anything, so it goes with every
+/// group (`Group::groups_of`).
 const KNOWN_NAMES: &[&str] = &[
     // EXIF, TIFF and CIPA's EXIF 2.3 and 3.0 in XMP (exifEX:), by their names in EXIF.
     "ProcessingSoftware",
@@ -315,7 +327,6 @@ const KNOWN_NAMES: &[&str] = &[
     "photoshop:DateCreated",
     "photoshop:Credit",
     "photoshop:AuthorsPosition",
-    "photoshop:History",
     "photoshop:ColorMode",
     "photoshop:ICCProfile",
     "photoshop:LegacyIPTCDigest",
@@ -332,7 +343,6 @@ const KNOWN_NAMES: &[&str] = &[
     // digiKam's and ACDSee's.
     "digiKam:CaptionsAuthorNames",
     "digiKam:CaptionsDateTimeStamps",
-    "digiKam:ImageHistory",
     "digiKam:LensCorrectionSettings",
     "MicrosoftPhoto:LastKeywordXMP",
     "MicrosoftPhoto:LastKeywordIPTC",
@@ -347,24 +357,406 @@ const KNOWN_NAMES: &[&str] = &[
     "acdsee:datetime",
     "acdsee:rating",
     "acdsee:tagged",
-];
-
-/// The namespaces, by their prefixes, whose every property is known to say nothing beyond the
-/// groups its words give (`GROUP_WORDS`), or nothing of any group when it has none: Exif's
-/// auxiliary namespace, PLUS, iView MediaPro, DJI's drones, Google's camera and panoramas,
-/// XMP's rights, and the develop settings of Camera Raw and darktable.
-/// shortcut: a develop setting is in no group, though a Lightroom mask can have a name the user
-/// typed; put such a property in `GROUP_EXCEPTIONS` if users name people there.
-const KNOWN_NAMESPACES: [&str; 9] = [
-    "aux:",
-    "plus:",
-    "mediapro:",
-    "drone-dji:",
-    "GCamera:",
-    "GPano:",
-    "xmpRights:",
-    "crs:",
-    "darktable:",
+    // Exif's auxiliary namespace, from exiftool's aux table. The owner's name is an exception.
+    "aux:Firmware",
+    "aux:FlashCompensation",
+    "aux:ImageNumber",
+    "aux:LensInfo",
+    "aux:Lens",
+    "aux:SerialNumber",
+    "aux:LensSerialNumber",
+    "aux:LensID",
+    "aux:ApproximateFocusDistance",
+    "aux:IsMergedPanorama",
+    "aux:IsMergedHDR",
+    "aux:DistortionCorrectionAlreadyApplied",
+    "aux:VignetteCorrectionAlreadyApplied",
+    "aux:LateralChromaticAberrationCorrectionAlreadyApplied",
+    "aux:LensDistortInfo",
+    "aux:NeutralDensityFactor",
+    "aux:EnhanceDetailsAlreadyApplied",
+    "aux:EnhanceDetailsVersion",
+    "aux:EnhanceSuperResolutionAlreadyApplied",
+    "aux:EnhanceSuperResolutionVersion",
+    "aux:EnhanceSuperResolutionScale",
+    "aux:EnhanceDenoiseAlreadyApplied",
+    "aux:EnhanceDenoiseVersion",
+    "aux:EnhanceDenoiseLumaAmount",
+    "aux:FujiRatingAlreadyApplied",
+    // PLUS, the licence of the image, from exiftool's PLUS table. Its free texts (the notes,
+    // the other conditions, Custom1 to Custom10) and the model's age may say anything.
+    "plus:Version",
+    "plus:Licensee",
+    "plus:EndUser",
+    "plus:Licensor",
+    "plus:MediaSummaryCode",
+    "plus:LicenseStartDate",
+    "plus:LicenseEndDate",
+    "plus:MediaConstraints",
+    "plus:RegionConstraints",
+    "plus:ProductOrServiceConstraints",
+    "plus:ImageFileConstraints",
+    "plus:ImageAlterationConstraints",
+    "plus:ImageDuplicationConstraints",
+    "plus:PropertyReleaseStatus",
+    "plus:PropertyReleaseID",
+    "plus:CreditLineRequired",
+    "plus:AdultContentWarning",
+    "plus:TermsAndConditionsURL",
+    "plus:ImageType",
+    "plus:LicensorImageID",
+    "plus:FileNameAsDelivered",
+    "plus:ImageFileFormatAsDelivered",
+    "plus:ImageFileSizeAsDelivered",
+    "plus:CopyrightStatus",
+    "plus:CopyrightRegistrationNumber",
+    "plus:FirstPublicationDate",
+    "plus:CopyrightOwner",
+    "plus:CopyrightOwnerImageID",
+    "plus:ImageCreator",
+    "plus:ImageCreatorImageID",
+    "plus:ImageSupplier",
+    "plus:ImageSupplierImageID",
+    "plus:LicenseeImageID",
+    "plus:LicenseID",
+    "plus:LicensorTransactionID",
+    "plus:LicenseeTransactionID",
+    "plus:LicenseeProjectReference",
+    "plus:LicenseTransactionDate",
+    "plus:Reuse",
+    "plus:OtherLicenseDocuments",
+    "plus:DataMining",
+    // iView MediaPro's, from exiftool's table. Its user fields may say anything.
+    "mediapro:Event",
+    "mediapro:Status",
+    "mediapro:People",
+    "mediapro:CatalogSets",
+    // DJI's drones: where the drone flew and which way it and its camera pointed, from
+    // exiftool's DJI XMP table, and the time of the shot. Its calibration and own data are not.
+    "drone-dji:AbsoluteAltitude",
+    "drone-dji:RelativeAltitude",
+    "drone-dji:GimbalRollDegree",
+    "drone-dji:GimbalYawDegree",
+    "drone-dji:GimbalPitchDegree",
+    "drone-dji:FlightRollDegree",
+    "drone-dji:FlightYawDegree",
+    "drone-dji:FlightPitchDegree",
+    "drone-dji:GpsLatitude",
+    "drone-dji:GpsLongtitude",
+    "drone-dji:GpsLongitude",
+    "drone-dji:Latitude",
+    "drone-dji:Longitude",
+    "drone-dji:FlightXSpeed",
+    "drone-dji:FlightYSpeed",
+    "drone-dji:FlightZSpeed",
+    "drone-dji:CamReverse",
+    "drone-dji:GimbalReverse",
+    "drone-dji:RtkFlag",
+    "drone-dji:RtkStdLon",
+    "drone-dji:RtkStdLat",
+    "drone-dji:RtkStdHgt",
+    "drone-dji:UTCAtExposure",
+    // Google's camera: the flags of a motion photo, a burst and a portrait, from exiftool's
+    // GCamera table. Its maker notes and its shot log may hold anything.
+    "GCamera:MotionPhoto",
+    "GCamera:MotionPhotoVersion",
+    "GCamera:MicroVideo",
+    "GCamera:MicroVideoVersion",
+    "GCamera:MicroVideoOffset",
+    "GCamera:BurstID",
+    "GCamera:BurstPrimary",
+    "GCamera:SpecialTypeID",
+    "GCamera:PortraitVersion",
+    "GCamera:PortraitNote",
+    "GCamera:DisableAutoCreation",
+    "GCamera:DisableSuggestedAction",
+    // Google's panoramas, from exiftool's GPano table.
+    "GPano:UsePanoramaViewer",
+    "GPano:CaptureSoftware",
+    "GPano:StitchingSoftware",
+    "GPano:ProjectionType",
+    "GPano:PosePitchDegrees",
+    "GPano:PoseRollDegrees",
+    "GPano:InitialViewHeadingDegrees",
+    "GPano:InitialViewPitchDegrees",
+    "GPano:InitialViewRollDegrees",
+    "GPano:InitialHorizontalFOVDegrees",
+    "GPano:InitialVerticalFOVDegrees",
+    "GPano:FirstPhotoDate",
+    "GPano:LastPhotoDate",
+    "GPano:SourcePhotosCount",
+    "GPano:ExposureLockUsed",
+    "GPano:CroppedAreaImageWidthPixels",
+    "GPano:CroppedAreaImageHeightPixels",
+    "GPano:FullPanoWidthPixels",
+    "GPano:FullPanoHeightPixels",
+    "GPano:CroppedAreaLeftPixels",
+    "GPano:CroppedAreaTopPixels",
+    "GPano:InitialCameraDolly",
+    "GPano:LargestValidInteriorRectLeft",
+    "GPano:LargestValidInteriorRectTop",
+    "GPano:LargestValidInteriorRectWidth",
+    "GPano:LargestValidInteriorRectHeight",
+    // XMP's rights, from exiftool's xmpRights table.
+    "xmpRights:Certificate",
+    "xmpRights:Marked",
+    "xmpRights:Owner",
+    "xmpRights:UsageTerms",
+    "xmpRights:WebStatement",
+    // darktable's plain values. Its history holds the camera's and the lens's names in the
+    // settings of its modules.
+    "darktable:xmp_version",
+    "darktable:history_end",
+    "darktable:import_timestamp",
+    "darktable:change_timestamp",
+    "darktable:export_timestamp",
+    "darktable:print_timestamp",
+    "darktable:auto_presets_applied",
+    // The develop settings of Camera Raw and Lightroom, from exiftool's crs table. Their masks,
+    // which the user can name, a preset's names and the cache's path are not here.
+    "crs:AlreadyApplied",
+    "crs:AutoBrightness",
+    "crs:AutoContrast",
+    "crs:AutoExposure",
+    "crs:AutoShadows",
+    "crs:BlueHue",
+    "crs:BlueSaturation",
+    "crs:Brightness",
+    "crs:CameraProfile",
+    "crs:ChromaticAberrationB",
+    "crs:ChromaticAberrationR",
+    "crs:ColorNoiseReduction",
+    "crs:Contrast",
+    "crs:CropTop",
+    "crs:CropLeft",
+    "crs:CropBottom",
+    "crs:CropRight",
+    "crs:CropAngle",
+    "crs:CropWidth",
+    "crs:CropHeight",
+    "crs:CropUnits",
+    "crs:Exposure",
+    "crs:GreenHue",
+    "crs:GreenSaturation",
+    "crs:HasCrop",
+    "crs:HasSettings",
+    "crs:LuminanceSmoothing",
+    "crs:MoireFilter",
+    "crs:RawFileName",
+    "crs:RedHue",
+    "crs:RedSaturation",
+    "crs:Saturation",
+    "crs:Shadows",
+    "crs:ShadowTint",
+    "crs:Sharpness",
+    "crs:Smoothness",
+    "crs:Temperature",
+    "crs:Tint",
+    "crs:ToneCurve",
+    "crs:ToneCurveName",
+    "crs:VignetteAmount",
+    "crs:VignetteMidpoint",
+    "crs:WhiteBalance",
+    "crs:CameraProfileDigest",
+    "crs:Clarity",
+    "crs:ConvertToGrayscale",
+    "crs:Defringe",
+    "crs:FillLight",
+    "crs:HighlightRecovery",
+    "crs:HueAdjustmentAqua",
+    "crs:HueAdjustmentBlue",
+    "crs:HueAdjustmentGreen",
+    "crs:HueAdjustmentMagenta",
+    "crs:HueAdjustmentOrange",
+    "crs:HueAdjustmentPurple",
+    "crs:HueAdjustmentRed",
+    "crs:HueAdjustmentYellow",
+    "crs:IncrementalTemperature",
+    "crs:IncrementalTint",
+    "crs:LuminanceAdjustmentAqua",
+    "crs:LuminanceAdjustmentBlue",
+    "crs:LuminanceAdjustmentGreen",
+    "crs:LuminanceAdjustmentMagenta",
+    "crs:LuminanceAdjustmentOrange",
+    "crs:LuminanceAdjustmentPurple",
+    "crs:LuminanceAdjustmentRed",
+    "crs:LuminanceAdjustmentYellow",
+    "crs:ParametricDarks",
+    "crs:ParametricHighlights",
+    "crs:ParametricHighlightSplit",
+    "crs:ParametricLights",
+    "crs:ParametricMidtoneSplit",
+    "crs:ParametricShadows",
+    "crs:ParametricShadowSplit",
+    "crs:SaturationAdjustmentAqua",
+    "crs:SaturationAdjustmentBlue",
+    "crs:SaturationAdjustmentGreen",
+    "crs:SaturationAdjustmentMagenta",
+    "crs:SaturationAdjustmentOrange",
+    "crs:SaturationAdjustmentPurple",
+    "crs:SaturationAdjustmentRed",
+    "crs:SaturationAdjustmentYellow",
+    "crs:SharpenDetail",
+    "crs:SharpenEdgeMasking",
+    "crs:SharpenRadius",
+    "crs:SplitToningBalance",
+    "crs:SplitToningHighlightHue",
+    "crs:SplitToningHighlightSaturation",
+    "crs:SplitToningShadowHue",
+    "crs:SplitToningShadowSaturation",
+    "crs:Vibrance",
+    "crs:GrayMixerRed",
+    "crs:GrayMixerOrange",
+    "crs:GrayMixerYellow",
+    "crs:GrayMixerGreen",
+    "crs:GrayMixerAqua",
+    "crs:GrayMixerBlue",
+    "crs:GrayMixerPurple",
+    "crs:GrayMixerMagenta",
+    "crs:RetouchInfo",
+    "crs:RedEyeInfo",
+    "crs:CropUnit",
+    "crs:PostCropVignetteAmount",
+    "crs:PostCropVignetteMidpoint",
+    "crs:PostCropVignetteFeather",
+    "crs:PostCropVignetteRoundness",
+    "crs:PostCropVignetteStyle",
+    "crs:ProcessVersion",
+    "crs:LensProfileEnable",
+    "crs:LensProfileSetup",
+    "crs:LensProfileName",
+    "crs:LensProfileFilename",
+    "crs:LensProfileDigest",
+    "crs:LensProfileDistortionScale",
+    "crs:LensProfileChromaticAberrationScale",
+    "crs:LensProfileVignettingScale",
+    "crs:LensManualDistortionAmount",
+    "crs:PerspectiveVertical",
+    "crs:PerspectiveHorizontal",
+    "crs:PerspectiveRotate",
+    "crs:PerspectiveScale",
+    "crs:CropConstrainToWarp",
+    "crs:LuminanceNoiseReductionDetail",
+    "crs:LuminanceNoiseReductionContrast",
+    "crs:ColorNoiseReductionDetail",
+    "crs:GrainAmount",
+    "crs:GrainSize",
+    "crs:GrainFrequency",
+    "crs:AutoLateralCA",
+    "crs:Exposure2012",
+    "crs:Contrast2012",
+    "crs:Highlights2012",
+    "crs:Highlight2012",
+    "crs:Shadows2012",
+    "crs:Whites2012",
+    "crs:Blacks2012",
+    "crs:Clarity2012",
+    "crs:PostCropVignetteHighlightContrast",
+    "crs:ToneCurveName2012",
+    "crs:ToneCurveRed",
+    "crs:ToneCurveGreen",
+    "crs:ToneCurveBlue",
+    "crs:ToneCurvePV2012",
+    "crs:ToneCurvePV2012Red",
+    "crs:ToneCurvePV2012Green",
+    "crs:ToneCurvePV2012Blue",
+    "crs:DefringePurpleAmount",
+    "crs:DefringePurpleHueLo",
+    "crs:DefringePurpleHueHi",
+    "crs:DefringeGreenAmount",
+    "crs:DefringeGreenHueLo",
+    "crs:DefringeGreenHueHi",
+    "crs:AutoWhiteVersion",
+    "crs:ColorNoiseReductionSmoothness",
+    "crs:PerspectiveAspect",
+    "crs:PerspectiveUpright",
+    "crs:UprightVersion",
+    "crs:UprightCenterMode",
+    "crs:UprightCenterNormX",
+    "crs:UprightCenterNormY",
+    "crs:UprightFocalMode",
+    "crs:UprightFocalLength35mm",
+    "crs:UprightPreview",
+    "crs:UprightTransformCount",
+    "crs:UprightDependentDigest",
+    "crs:UprightGuidedDependentDigest",
+    "crs:UprightTransform_0",
+    "crs:UprightTransform_1",
+    "crs:UprightTransform_2",
+    "crs:UprightTransform_3",
+    "crs:UprightTransform_4",
+    "crs:UprightTransform_5",
+    "crs:UprightFourSegments_0",
+    "crs:UprightFourSegments_1",
+    "crs:UprightFourSegments_2",
+    "crs:UprightFourSegments_3",
+    "crs:What",
+    "crs:LensProfileMatchKeyExifMake",
+    "crs:LensProfileMatchKeyExifModel",
+    "crs:LensProfileMatchKeyCameraModelName",
+    "crs:LensProfileMatchKeyLensInfo",
+    "crs:LensProfileMatchKeyLensID",
+    "crs:LensProfileMatchKeyLensName",
+    "crs:LensProfileMatchKeyIsRaw",
+    "crs:LensProfileMatchKeySensorFormatFactor",
+    "crs:DefaultAutoTone",
+    "crs:DefaultAutoGray",
+    "crs:DefaultsSpecificToSerial",
+    "crs:DefaultsSpecificToISO",
+    "crs:DNGIgnoreSidecars",
+    "crs:NegativeCacheMaximumSize",
+    "crs:NegativeCacheLargePreviewSize",
+    "crs:JPEGHandling",
+    "crs:TIFFHandling",
+    "crs:Dehaze",
+    "crs:ToneMapStrength",
+    "crs:PerspectiveX",
+    "crs:PerspectiveY",
+    "crs:UprightFourSegmentsCount",
+    "crs:AutoTone",
+    "crs:Texture",
+    "crs:OverrideLookVignette",
+    "crs:GrainSeed",
+    "crs:ClipboardOrientation",
+    "crs:ClipboardAspectRatio",
+    "crs:PresetType",
+    "crs:UUID",
+    "crs:SupportsAmount",
+    "crs:SupportsColor",
+    "crs:SupportsMonochrome",
+    "crs:SupportsHighDynamicRange",
+    "crs:SupportsNormalDynamicRange",
+    "crs:SupportsSceneReferred",
+    "crs:SupportsOutputReferred",
+    "crs:CameraModelRestriction",
+    "crs:ColorGradeMidtoneHue",
+    "crs:ColorGradeMidtoneSat",
+    "crs:ColorGradeShadowLum",
+    "crs:ColorGradeMidtoneLum",
+    "crs:ColorGradeHighlightLum",
+    "crs:ColorGradeBlending",
+    "crs:ColorGradeGlobalHue",
+    "crs:ColorGradeGlobalSat",
+    "crs:ColorGradeGlobalLum",
+    "crs:LensProfileIsEmbedded",
+    "crs:AutoToneDigest",
+    "crs:AutoToneDigestNoSat",
+    "crs:ToggleStyleDigest",
+    "crs:ToggleStyleAmount",
+    "crs:CompatibleVersion",
+    "crs:HDREditMode",
+    "crs:SDRBrightness",
+    "crs:SDRContrast",
+    "crs:SDRHighlights",
+    "crs:SDRShadows",
+    "crs:SDRWhites",
+    "crs:SDRBlend",
+    "crs:LensBlur",
+    "crs:DepthMapInfo",
+    "crs:PointColors",
+    "crs:ColorVariance",
+    "crs:CropConstrainToUnitSquare",
+    "crs:HDRMaxValue",
 ];
 
 /// The prefixes of the XMP spellings of EXIF's names (`local_name`): Exif's, CIPA's and TIFF's
@@ -409,6 +801,10 @@ const UNKNOWN_BLOCKS: [&str; 5] = [
     "Image 0x",
     "Exif 0x",
 ];
+
+/// The start of the word in a choice (`LeftOut`) that keeps one tag of a group left out whole,
+/// followed by the tag's name.
+const KEEP_PREFIX: &str = "keep:";
 
 /// The tag of a JPEG's JFXX segment, a thumbnail beside the JFIF header, and of a thumbnail
 /// inside the JFIF header itself (`add_jfif`).
@@ -612,10 +1008,12 @@ impl Group {
     }
 }
 
-/// What Copy for Sharing leaves out, as the user ticked it: the names of single tags, and the
-/// keys of whole groups (`Group::key`). A tag of a group left out whole is left out also when it
-/// was not seen before, so a new GPS field cannot slip through. The dialog starts with the
-/// choice made last time, kept in `config::sharing_path` one word to a line.
+/// What Copy for Sharing leaves out, as the user ticked it: the names of single tags, the keys
+/// of whole groups (`Group::key`), and the tags kept out of a group left out whole, each after
+/// `KEEP_PREFIX`. A tag of a group left out whole is left out also when it was not seen before,
+/// so a new GPS field cannot slip through. Keeping one tag leaves the group's key in place for
+/// that reason. The dialog starts with the choice made last time, kept in
+/// `config::sharing_path` one word to a line.
 #[derive(Clone, Default, PartialEq, Debug)]
 pub(crate) struct LeftOut {
     words: BTreeSet<String>,
@@ -640,7 +1038,7 @@ impl LeftOut {
     /// Counts again which groups have a tag left out (`has_left_out`).
     fn count_groups(&mut self) {
         self.has_left_out = [false; 8];
-        for word in &self.words {
+        for word in self.words.iter().filter(|w| !w.starts_with(KEEP_PREFIX)) {
             let groups = Group::of_key(word).map_or_else(|| Group::groups_of(word), |g| vec![g]);
             for group in groups {
                 self.has_left_out[group as usize] = true;
@@ -653,11 +1051,14 @@ impl LeftOut {
         self.words.iter().map(|w| format!("{w}\n")).collect()
     }
 
-    /// Whether the tag `tag` is left out: by its name, by any of its groups left out whole, or
-    /// as a block that can hold a tag of a group that has one left out (`BLOCKS`).
+    /// Whether the tag `tag` is left out: by its name or by any of its groups left out whole,
+    /// unless it is kept on its own (`KEEP_PREFIX`), or as a block that can hold a tag of a
+    /// group that has one left out (`BLOCKS`).
     pub(crate) fn is_left_out(&self, tag: &str) -> bool {
-        self.words.contains(tag)
-            || (Group::groups_of(tag).iter()).any(|g| self.words.contains(g.key()))
+        let is_kept = self.words.contains(&format!("{KEEP_PREFIX}{tag}"));
+        (!is_kept
+            && (self.words.contains(tag)
+                || (Group::groups_of(tag).iter()).any(|g| self.words.contains(g.key()))))
             || (block_groups(tag).iter()).any(|g| self.has_left_out[*g as usize])
     }
 
@@ -666,32 +1067,36 @@ impl LeftOut {
         self.words.contains(group.key())
     }
 
-    /// Leaves the tag `tag` out, or keeps it. A tag kept out of groups left out whole leaves
-    /// the other tags of `found` in those groups out one by one instead.
-    pub(crate) fn set_tag(&mut self, tag: &str, left_out: bool, found: &[String]) {
+    /// Leaves the tag `tag` out, or keeps it. A tag of a group left out whole is kept by a word
+    /// of its own (`KEEP_PREFIX`), and the group stays left out for every other tag.
+    pub(crate) fn set_tag(&mut self, tag: &str, left_out: bool) {
+        let keep = format!("{KEEP_PREFIX}{tag}");
         if left_out {
+            self.words.remove(&keep);
             self.words.insert(tag.to_owned());
         } else {
             self.words.remove(tag);
-            for group in Group::groups_of(tag) {
-                if self.words.remove(group.key()) {
-                    let is_other = |t: &&String| *t != tag && Group::groups_of(t).contains(&group);
-                    self.words.extend(found.iter().filter(is_other).cloned());
-                }
+            if (Group::groups_of(tag).iter()).any(|g| self.words.contains(g.key())) {
+                self.words.insert(keep);
             }
         }
         self.count_groups();
     }
 
-    /// Leaves the whole group `group` out, or keeps every tag the dialog lists under it
-    /// (`Group::lists`).
+    /// Leaves the whole group `group` out, also the tags of it that were kept on their own, or
+    /// keeps every tag the dialog lists under it (`Group::lists`).
     pub(crate) fn set_group(&mut self, group: Group, left_out: bool) {
         if left_out {
             self.words.insert(group.key().to_owned());
+            let is_kept_of_group = |w: &String| {
+                (w.strip_prefix(KEEP_PREFIX)).is_some_and(|t| Group::groups_of(t).contains(&group))
+            };
+            self.words.retain(|w| !is_kept_of_group(w));
         } else {
-            // The other groups' keys stay, though `Group::groups_of` puts no key in a group.
-            let is_key = |w: &str| w.starts_with("group:");
-            (self.words).retain(|w| w != group.key() && (is_key(w) || !group.lists(w)));
+            // The other groups' keys stay, though `Group::groups_of` puts no key in a group,
+            // and so do the tags kept on their own, which may be kept out of another group.
+            let is_not_a_tag = |w: &str| w.starts_with("group:") || w.starts_with(KEEP_PREFIX);
+            (self.words).retain(|w| w != group.key() && (is_not_a_tag(w) || !group.lists(w)));
         }
         self.count_groups();
     }
@@ -1242,14 +1647,12 @@ fn local_name(tag: &str) -> &str {
 }
 
 /// Whether the tag `tag` is known to say nothing beyond the groups its words give: by its name
-/// (`KNOWN_NAMES`, and EXIF's GPS tags, named or not), by its namespace (`KNOWN_NAMESPACES`),
-/// or as a block (`BLOCKS`, `UNKNOWN_BLOCKS`), which goes with the groups it can hold anyway.
+/// (`KNOWN_NAMES`, and EXIF's GPS tags, named or not), or as a block (`BLOCKS`,
+/// `UNKNOWN_BLOCKS`), which goes with the groups it can hold anyway. No namespace is known
+/// whole, because any namespace can hold a blob of other tags under a name of its own.
 fn is_known(tag: &str) -> bool {
     let local = local_name(tag);
-    KNOWN_NAMES.contains(&local)
-        || local.starts_with("GPS")
-        || KNOWN_NAMESPACES.iter().any(|n| tag.starts_with(n))
-        || !block_groups(tag).is_empty()
+    KNOWN_NAMES.contains(&local) || local.starts_with("GPS") || !block_groups(tag).is_empty()
 }
 
 /// Returns the resources of a Photoshop block, each as (its ID, its whole bytes, its data).
@@ -1789,7 +2192,7 @@ mod tests {
         }
         let mut left_out = super::LeftOut::default();
         left_out.set_group(super::Group::Place, true);
-        left_out.set_tag("BodySerialNumber", true, &found);
+        left_out.set_tag("BodySerialNumber", true);
         super::copy(&path, &left_out.kept(&found)).unwrap().unwrap()
     }
 
@@ -1908,8 +2311,8 @@ mod tests {
     }
 
     /// A choice keeps what it says: a group left out whole leaves out a tag never seen before,
-    /// a tag kept out of it leaves the others out one by one, and Remove All leaves out every
-    /// tag. It reads back from its text as it was.
+    /// also after one tag of it is kept, and Remove All leaves out every tag. It reads back
+    /// from its text as it was.
     #[test]
     fn the_choice_leaves_out_what_was_ticked() {
         let found: Vec<String> = ["GPSLatitude", "GPSAltitude", "Make", "xmp:Rating"]
@@ -1919,9 +2322,10 @@ mod tests {
         let mut left_out = super::LeftOut::default();
         left_out.set_group(super::Group::Place, true);
         assert!(left_out.is_left_out("GPS 0x001e") && left_out.is_left_out("exif:GPSSpeed"));
-        left_out.set_tag("GPSAltitude", false, &found);
+        left_out.set_tag("GPSAltitude", false);
         assert!(left_out.is_left_out("GPSLatitude") && !left_out.is_left_out("GPSAltitude"));
-        assert!(!left_out.is_group_left_out(super::Group::Place));
+        assert!(left_out.is_group_left_out(super::Group::Place));
+        assert!(left_out.is_left_out("GPS 0x001e") && left_out.is_left_out("exif:GPSSpeed"));
         let kept = left_out.kept(&found);
         let want: HashSet<String> = ["GPSAltitude", "Make", "xmp:Rating"]
             .iter()
@@ -2012,15 +2416,15 @@ mod tests {
             "Image 0x8649",
         ];
         assert!(blocks.iter().all(|b| !left_out.is_left_out(b)));
-        left_out.set_tag("GPSAltitude", true, &[]);
+        left_out.set_tag("GPSAltitude", true);
         for block in blocks {
             assert!(left_out.is_left_out(block), "{block} is kept");
         }
         assert!(!left_out.is_left_out(super::JFIF_THUMBNAIL) && !left_out.is_left_out("Make"));
-        left_out.set_tag(crate::metadata::exif::EXIF_THUMBNAIL, true, &[]);
+        left_out.set_tag(crate::metadata::exif::EXIF_THUMBNAIL, true);
         assert!(left_out.is_left_out(super::JFIF_THUMBNAIL));
         let mut dated = super::LeftOut::default();
-        dated.set_tag("DateTime", true, &[]);
+        dated.set_tag("DateTime", true);
         assert!(dated.is_left_out("xmpMM:DerivedFrom") && !dated.is_left_out("Make"));
         for (tag, group) in [
             ("drone-dji:GpsLatitude", Place),
@@ -2090,7 +2494,7 @@ mod tests {
             ("xmpMM:PreservedFileName", &[Date, Photographer]),
             ("Software", &[Software]),
             ("xmp:CreatorTool", &[Software]),
-            ("photoshop:History", &[Date, Software]),
+            ("photoshop:History", &[Date, Photographer, Software]),
             ("dc:subject", &[Keywords]),
             ("XPKeywords", &[Keywords]),
             ("Iptc4xmpCore:AltTextAccessibility", &[Keywords]),
@@ -2117,16 +2521,13 @@ mod tests {
     }
 
     /// A tag of two groups that is kept out of one group left out whole stays kept, and the
-    /// other tags of that group are left out one by one instead.
+    /// other tags of that group are still left out.
     #[test]
     fn a_tag_of_two_groups_can_be_kept() {
-        let found: Vec<String> = ["GPSDateStamp", "DateTimeOriginal", "GPSLatitude"]
-            .map(str::to_owned)
-            .to_vec();
         let mut left_out = super::LeftOut::default();
         left_out.set_group(super::Group::Date, true);
         assert!(left_out.is_left_out("GPSDateStamp"));
-        left_out.set_tag("GPSDateStamp", false, &found);
+        left_out.set_tag("GPSDateStamp", false);
         assert!(!left_out.is_left_out("GPSDateStamp"));
         assert!(left_out.is_left_out("DateTimeOriginal") && !left_out.is_left_out("GPSLatitude"));
     }
@@ -2136,22 +2537,86 @@ mod tests {
     #[test]
     fn an_unknown_tag_goes_with_any_group() {
         let tag = "madeup:Whatever";
-        let found = [tag, "GPSLatitude"].map(str::to_owned).to_vec();
         let mut left_out = super::LeftOut::default();
         assert!(!left_out.is_left_out(tag));
         left_out.set_group(super::Group::Place, true);
         assert!(left_out.is_left_out(tag));
         assert!(super::Group::Other.lists(tag) && !super::Group::Place.lists(tag));
-        left_out.set_tag(tag, false, &found);
+        left_out.set_tag(tag, false);
         assert!(!left_out.is_left_out(tag) && left_out.is_left_out("GPSLatitude"));
     }
 
+    /// No namespace is known whole, because any of them can hold a blob of other tags: Google's
+    /// maker notes in GCamera, darktable's develop history and a Lightroom mask's name. Each of
+    /// these goes with any group ticked, while the properties known by name keep their groups.
+    #[test]
+    fn a_namespace_is_never_known_whole() {
+        use super::Group::{self, Camera, Date, Other, Photographer};
+        let unknown = [
+            "GCamera:hdrp_makernote",
+            "GCamera:PortraitRequest",
+            "GCamera:shot_log_data",
+            "GCamera:HdrPlusMakernote",
+            "darktable:history",
+            "crs:MaskGroupBasedCorrections",
+            "crs:MadeUpMaskName",
+        ];
+        let known: [(&str, &[Group]); 6] = [
+            ("GCamera:MotionPhoto", &[Camera]),
+            ("crs:Exposure2012", &[Other]),
+            ("darktable:import_timestamp", &[Date]),
+            ("plus:Licensee", &[Photographer]),
+            ("aux:Lens", &[Camera]),
+            ("drone-dji:GimbalPitchDegree", &[super::Group::Place]),
+        ];
+        let tags = (unknown.iter().map(|t| (*t, &Group::ALL[..]))).chain(known);
+        let mut wrong = Vec::new();
+        for (tag, groups) in tags {
+            if super::LeftOut::default().is_left_out(tag) {
+                wrong.push(format!("{tag} with nothing ticked"));
+            }
+            for group in Group::ALL {
+                let mut left_out = super::LeftOut::default();
+                left_out.set_group(group, true);
+                if left_out.is_left_out(tag) != groups.contains(&group) {
+                    wrong.push(format!("{tag} with {group:?}"));
+                }
+            }
+        }
+        assert!(wrong.is_empty(), "{wrong:?}");
+    }
+
+    /// Unticking one tag of a group ticked whole keeps that tag only. The saved choice still
+    /// has every group ticked, so a GPS field that the next photos have and these did not is
+    /// left out, and the copy of these photos is the same as before.
+    #[test]
+    fn unticking_one_tag_keeps_its_groups_ticked() {
+        use super::Group::{Date, Place};
+        let tag = "madeup:Whatever";
+        let found = [tag, "GPSLatitude", "DateTimeOriginal", "Make"].map(str::to_owned);
+        let mut left_out = super::LeftOut::default();
+        left_out.set_group(Place, true);
+        left_out.set_group(Date, true);
+        left_out.set_tag(tag, false);
+        let kept: HashSet<String> = [tag, "Make"].map(str::to_owned).into();
+        assert_eq!(left_out.kept(&found), kept);
+        let saved = super::LeftOut::parse(&left_out.text());
+        assert!(saved.is_group_left_out(Place) && saved.is_group_left_out(Date));
+        assert!(saved.is_left_out("GPSAltitude") && saved.is_left_out("exif:GPSSpeed"));
+        assert!(!saved.is_left_out(tag) && saved.kept(&found) == kept);
+        // Ticking the group again leaves the tag out again.
+        let mut ticked = saved.clone();
+        ticked.set_group(Place, true);
+        assert!(ticked.is_left_out(tag));
+    }
+
     /// The tags that audit round 3 found in More tags, from digiKam, Lightroom, ACDSee,
-    /// Photoshop, EXIF 3.0 and DJI, go with the groups they say something of, and only those.
+    /// Photoshop, EXIF 3.0 and DJI, and the histories that round 4 found too few groups for, go
+    /// with the groups they say something of, and only those.
     #[test]
     fn the_tags_of_round_3_go_with_their_groups() {
-        use super::Group::{self, Date, Keywords, Photographer, Place};
-        let tags: [(&str, &[Group]); 15] = [
+        use super::Group::{self, Date, Keywords, Photographer, Place, Software};
+        let tags: [(&str, &[Group]); 17] = [
             ("MP:RegionInfo", &[Keywords]),
             ("Iptc4xmpExt:Event", &[Keywords]),
             ("Iptc4xmpExt:OrganisationInImageName", &[Keywords]),
@@ -2167,6 +2632,9 @@ mod tests {
             ("drone-dji:FlightYawDegree", &[Place]),
             ("drone-dji:GimbalYawDegree", &[Place]),
             ("drone-dji:UTCAtExposure", &[Place, Date]),
+            // Round 4: a history that names the files it was made from, by path or name.
+            ("digiKam:ImageHistory", &[Date, Photographer, Software]),
+            ("photoshop:History", &[Date, Photographer, Software]),
         ];
         let mut wrong = Vec::new();
         for (tag, groups) in tags {

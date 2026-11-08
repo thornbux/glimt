@@ -120,7 +120,7 @@ impl SharingDialog {
             for tag in tags {
                 let mut is_left_out = self.left_out.is_left_out(tag);
                 if checkbox(ui, &mut is_left_out, tag).changed() {
-                    self.left_out.set_tag(tag, is_left_out, found);
+                    self.left_out.set_tag(tag, is_left_out);
                 }
             }
         });
