@@ -17,7 +17,7 @@ impl App {
             crate::support::lang::tr("No images").to_owned()
         } else {
             // Read in the background, as for the info panel: here once for each image.
-            self.request_exif(ui.ctx());
+            self.request_and_take_exif(ui.ctx());
             let path = self.path(self.list.shown());
             let place = self.spoken_place();
             // The name the list shows, not the whole path a collection's entry holds.

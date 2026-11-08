@@ -26,7 +26,7 @@ const RETIRED_NAMES: &[&str] = &[
     "image_id",      // image_area_id
     "notices_tx",    // notice_sender
     "notices_rx",    // notices
-    "lightroom_rx",  // lightroom_catalog
+    "lightroom_rx",  // lightroom_catalog_answer
     "save_as_last",  // save_as_choices
     "own_program",   // new_window_program
     // The image area (viewer/view.rs).
@@ -60,7 +60,7 @@ const RETIRED_NAMES: &[&str] = &[
     "exif_jobs",          // exif_requests
     "exif_rx",            // exif_answers
     "exif_window",        // is_exif_window_open
-    "want_exif",          // request_exif
+    "want_exif",          // request_and_take_exif
     "meta_of",            // metadata_edit_of
     "save_meta",          // save_metadata_edit
     "tag_files",          // set_keyword_on_files
@@ -194,17 +194,24 @@ const RETIRED_NAMES: &[&str] = &[
     "marks_of",       // number_separators_of
     "qualifiers_off", // without_qualifiers
     // Found missing in 0.74.0's first audit.
-    "clean_in",       // remove_orphaned_thumbnails_in
-    "deleted_rx",     // report_rx
-    "jobs_shown",     // first_job_and_count
-    "list_place",     // opened_folder_hash
-    "other_lines",    // non_entry_lines
-    "root_now",       // typed_root_folder
-    "take_lightroom", // takes_lightroom_stars
-    "undo_left",      // is_undo_remainder
-    "move_held",      // move_lock
-    "has_access",     // has_alt_text
-    "is_unlocked",    // take_lock_if_free
+    "clean_in",          // remove_orphaned_thumbnails_in
+    "deleted_rx",        // report_rx
+    "jobs_shown",        // first_job_and_count
+    "list_place",        // opened_folder_hash
+    "other_lines",       // non_entry_lines
+    "root_now",          // typed_root_folder
+    "take_lightroom",    // takes_lightroom_stars
+    "undo_left",         // is_undo_remainder
+    "move_held",         // move_lock
+    "has_access",        // has_alt_text
+    "is_unlocked",       // take_lock_if_free
+    "background_paths",  // held_back_files
+    "renamed_in_place",  // note_names_changed
+    "places_changed",    // forget_places
+    "keep_full_only",    // keep_full_resolution_only
+    "forget_decoded",    // forget_loaded_images
+    "request_exif",      // request_and_take_exif
+    "lightroom_catalog", // lightroom_catalog_answer
 ];
 
 /// The everyday words that 0.74.0's naming review retired, each in the file where it was retired.
@@ -255,7 +262,8 @@ const RETIRED_IN_FILE: &[(&str, &str)] = &[
     ("files/file_ops.rs", "hold"),          // hold_back_while_writing
     ("files/file_ops.rs", "ids"),           // fingerprints
     ("files/file_ops.rs", "taken"),         // name_in_the_way
-    ("files/file_ops.rs", "touching"),      // background_paths
+    ("files/file_ops.rs", "touches"),       // held_back_files
+    ("files/file_ops.rs", "touching"),      // held_back_files
     ("files/journal.rs", "begin"),          // start_journal
     ("files/journal.rs", "free"),           // take_lock_if_free
     ("files/journal.rs", "interrupted"),    // cut_short_plans
@@ -283,6 +291,7 @@ const RETIRED_IN_FILE: &[(&str, &str)] = &[
     ("images/thumbs.rs", "FAILED"),         // FAILED_DIR
     ("images/thumbs.rs", "clean"),          // remove_orphaned_thumbnails
     ("main.rs", "desktop"),                 // desktop_settings, read_desktop_look
+    ("main.rs", "Notices"),                 // NoticeSender
     ("main.rs", "with"),                    // with_config
     ("metadata/exif.rs", "mul"),            // compose_orientations
     ("metadata/exif.rs", "ratio"),          // rational
@@ -315,6 +324,8 @@ const RETIRED_IN_FILE: &[(&str, &str)] = &[
     ("model/list.rs", "hist"),              // histogram
     ("model/list.rs", "shows"),             // shows_file
     ("model/list.rs", "slots"),             // loaded_images
+    ("model/list.rs", "after"),             // replacing
+    ("model/list.rs", "transparent"),       // has_transparency
     ("model/search.rs", "and"),             // parse_and
     ("model/search.rs", "or"),              // parse_or
     ("model/selection.rs", "go"),           // show_file
@@ -325,7 +336,9 @@ const RETIRED_IN_FILE: &[(&str, &str)] = &[
     ("support/test_hooks.rs", "LAST"),      // LAST_FRAME
     ("support/test_hooks.rs", "note"),      // note_label
     ("support/test_support.rs", "settle"),  // repair_cut_short, run_background_until
+    ("support/threads.rs", "Notices"),      // NoticeSender
     ("support/threads.rs", "caught"),       // catch_panic
+    ("ui/dialogs.rs", "touches"),           // held_back_files
     ("ui/dialogs.rs", "unchanged"),         // is_unchanged
     ("ui/file_list.rs", "THUMBS"),          // THUMB_SIZES
     ("ui/file_list.rs", "ThumbView"),       // OnScreenFiles

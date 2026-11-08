@@ -116,7 +116,7 @@ struct App {
     /// The message shown over the image, until the next image.
     notice: Option<String>,
     /// Messages from background tasks (deleting, copying), to become the notice.
-    notice_sender: crate::support::threads::Notices,
+    notice_sender: crate::support::threads::NoticeSender,
     notices: mpsc::Receiver<String>,
 
     // ---- Menus, dialogs and windows ----
@@ -138,7 +138,7 @@ struct App {
     print_dialog: Option<PrintDialog>,
     /// A Lightroom catalog being read, then imported with the folders where its root folders
     /// are now.
-    lightroom_catalog: Receiving<Result<crate::metadata::lightroom::Catalog, String>>,
+    lightroom_catalog_answer: Receiving<Result<crate::metadata::lightroom::Catalog, String>>,
     lightroom: Option<crate::metadata::lightroom::Import>,
     /// The pan view's window (Ctrl+J), while it is open.
     pan_view: Option<PanView>,
@@ -213,7 +213,7 @@ impl App {
         // kiosk listens too, because --remote quit is its way out.
         let listen =
             config.remote_control || crate::features::remote::given_name().is_some() || start.kiosk;
-        let (notice_sender, notices) = crate::support::threads::Notices::new(ctx);
+        let (notice_sender, notices) = crate::support::threads::NoticeSender::new(ctx);
         let mut app = App {
             ctx: ctx.clone(),
             desktop_settings: crate::ui::theme::DesktopSettings::new(ctx, config.desktop_profile),
@@ -249,7 +249,7 @@ impl App {
             plugins_running: crate::features::plugins::RunningPlugins::default(),
             help: None,
             print_dialog: None,
-            lightroom_catalog: Receiving::none(),
+            lightroom_catalog_answer: Receiving::none(),
             lightroom: None,
             pan_view: None,
             save_as: None,

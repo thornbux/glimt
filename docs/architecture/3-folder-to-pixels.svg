@@ -38,7 +38,7 @@
 
       <rect x="738" y="96" width="196" height="122" rx="6" fill="#e8f0fe" stroke="#3b6fd8" stroke-width="1.5"/>
       <text x="750" y="117" font-size="13" font-weight="700" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace">replace_files</text>
-      <text x="750" y="137" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace">List::after(&amp;old, files)</text>
+      <text x="750" y="137" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace">List::replacing(old, …)</text>
       <text x="750" y="153">a new List, version + 1;</text>
       <text x="750" y="169">carried over by name: the</text>
       <text x="750" y="185">shown file, the selection,</text>

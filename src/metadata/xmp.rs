@@ -449,11 +449,11 @@ pub(crate) fn is_link(path: &Path) -> bool {
 }
 
 /// Copy or move the sidecar of `from`, if it has one, with the file that went to `to`.
-pub fn follow(from: &Path, to: &Path, copy: bool) -> std::io::Result<()> {
+pub fn follow(from: &Path, to: &Path, is_copy: bool) -> std::io::Result<()> {
     let (side, to) = (sidecar(from), sidecar(to));
     // A link is no sidecar to copy. Moved, it goes as itself on the same disk, or it stays.
     if is_link(&side) {
-        return match copy {
+        return match is_copy {
             true => Ok(()),
             false => crate::files::file_io::rename_never_over(&side, &to).or(Ok(())),
         };
@@ -465,8 +465,8 @@ pub fn follow(from: &Path, to: &Path, copy: bool) -> std::io::Result<()> {
     // over a sidecar there, which belongs to another file or is a copy kept on purpose. A
     // sidecar that cannot be moved (someone else's in a shared folder) is copied, so the
     // keywords go with the photo.
-    match crate::files::file_io::put_file(&side, &to, copy) {
-        Err(_) if !copy => crate::files::file_io::put_file(&side, &to, true),
+    match crate::files::file_io::put_file(&side, &to, is_copy) {
+        Err(_) if !is_copy => crate::files::file_io::put_file(&side, &to, true),
         done => done,
     }
 }

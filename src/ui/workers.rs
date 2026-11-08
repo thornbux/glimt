@@ -130,7 +130,7 @@ impl crate::App {
 
     /// A Lightroom catalog read: the import dialog opens.
     fn receive_lightroom(&mut self) {
-        match self.lightroom_catalog.take() {
+        match self.lightroom_catalog_answer.take() {
             Took::Nothing => {}
             Took::Gone => self.tell_background_stopped(tr("Reading the Lightroom catalog")),
             Took::Answer(Ok(catalog)) => {

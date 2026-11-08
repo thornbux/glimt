@@ -255,10 +255,10 @@ fn rename_noreplace(from: &Path, to: &Path) -> std::io::Result<()> {
     }
 }
 
-/// Copy (`keep`) or move `from` to `to`, never over a file there, also one another window put
+/// Copy (`is_copy`) or move `from` to `to`, never over a file there, also one another window put
 /// there a moment ago: a copy is written under a hidden name and then renamed, a move is a
 /// rename, both with `rename_never_over`; a move to another file system is a copy and an unlink.
-pub(crate) fn put_file(from: &Path, to: &Path, keep: bool) -> std::io::Result<()> {
+pub(crate) fn put_file(from: &Path, to: &Path, is_copy: bool) -> std::io::Result<()> {
     use std::io::ErrorKind::{AlreadyExists, CrossesDevices};
     use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt};
     let copy = || -> std::io::Result<()> {
@@ -299,7 +299,7 @@ pub(crate) fn put_file(from: &Path, to: &Path, keep: bool) -> std::io::Result<()
         let _ = std::fs::remove_file(&part);
         copied
     };
-    if keep {
+    if is_copy {
         return copy();
     }
     match rename_never_over(from, to) {

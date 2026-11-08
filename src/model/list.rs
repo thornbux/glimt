@@ -30,7 +30,7 @@ pub(crate) struct LoadedImage {
 
 impl LoadedImage {
     /// Whether any pixel of the (first) frame is less than opaque.
-    pub(crate) fn transparent(&self) -> bool {
+    pub(crate) fn has_transparency(&self) -> bool {
         self.histogram[4][..255].iter().any(|&n| n > 0)
     }
 
@@ -223,7 +223,7 @@ impl List {
     /// A new list of `files`. Nothing of the list before is in it but its version, which goes
     /// up, so what was worked out from the old places can tell that it is old, and whether its
     /// entries are still unchecked.
-    pub(crate) fn after(old: &List, files: Vec<OsString>) -> List {
+    pub(crate) fn replacing(old: &List, files: Vec<OsString>) -> List {
         List {
             files,
             version: old.version + 1,
@@ -257,7 +257,7 @@ impl List {
 
     /// Marks the list as another, because names in it changed in place. What was made for the
     /// old names (the matches, Pan view's days) is then made again.
-    pub(crate) fn renamed_in_place(&mut self) {
+    pub(crate) fn note_names_changed(&mut self) {
         self.version += 1;
     }
 
@@ -284,7 +284,7 @@ impl List {
     /// Lets go of everything that holds a place in the list, because files were taken out of
     /// it and its places shifted: the selection, the anchor, a rectangle or a collection drag,
     /// and the decodes in flight. The version goes up.
-    pub(crate) fn places_changed(&mut self) {
+    pub(crate) fn forget_places(&mut self) {
         self.version += 1;
         self.selected.clear();
         self.hidden_selected.clear();
@@ -417,14 +417,14 @@ impl List {
 
     /// Keeps only the images decoded at full resolution, and the decodes at full resolution
     /// asked for, so the others are decoded again to a new size.
-    pub(crate) fn keep_full_only(&mut self) {
+    pub(crate) fn keep_full_resolution_only(&mut self) {
         self.loaded_images.retain(|_, s| s.is_full_resolution);
         self.decodes_pending.retain(|&(_, full), _| full);
     }
 
     /// Lets go of every decoded image, every decode asked for and every decode error, so all
     /// are decoded again.
-    pub(crate) fn forget_decoded(&mut self) {
+    pub(crate) fn forget_loaded_images(&mut self) {
         self.loaded_images.clear();
         self.decodes_pending.clear();
         self.decode_errors.clear();
@@ -568,7 +568,7 @@ fn without_indices<T>(map: HashMap<usize, T>, removed: &[usize]) -> HashMap<usiz
 #[cfg(test)]
 mod tests {
     /// Every field of `List` says what becomes of it when a new list replaces the old one
-    /// (`List::after` and `App::replace_files`). A slideshow's last slide was dropped, because
+    /// (`List::replacing` and `App::replace_files`). A slideshow's last slide was dropped, because
     /// nobody chose for it. A new field fails here until it is carried by name or its reset is
     /// meant, and written in this table.
     #[test]
@@ -604,8 +604,8 @@ mod tests {
                 "reset: pan view names them again in its next frame",
             ),
             ("sizes_and_dates", "reset: read again as the rows are drawn"),
-            ("version", "goes up in List::after"),
-            ("has_unchecked_entries", "carried by List::after"),
+            ("version", "goes up in List::replacing"),
+            ("has_unchecked_entries", "carried by List::replacing"),
         ];
         let sources = crate::support::source_rules::sources();
         let text = &sources

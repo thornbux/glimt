@@ -179,7 +179,7 @@ impl crate::App {
     // ---- EXIF, keywords, comment and marks ----
 
     /// Ask the EXIF reader for the shown image (once per image) and take what has arrived.
-    pub(crate) fn request_exif(&mut self, ctx: &egui::Context) {
+    pub(crate) fn request_and_take_exif(&mut self, ctx: &egui::Context) {
         self.reread_when_written();
         let path = self.path(self.list.shown());
         // An image shown again while its own save still waits behind a long job (a Lightroom
@@ -236,7 +236,7 @@ impl crate::App {
 
     /// File and EXIF details of the shown image, read in the background (Ctrl+K).
     pub(crate) fn info_panel(&mut self, ui: &mut egui::Ui) {
-        self.request_exif(ui.ctx());
+        self.request_and_take_exif(ui.ctx());
         egui::Panel::right("exif")
             .resizable(true)
             .default_size(240.0)
@@ -472,8 +472,8 @@ impl crate::App {
     /// Reads the shown image's EXIF, keywords, comment and alt text again, after something else
     /// changed them, such as a plugin. An edit in the panel that is not saved yet is saved
     /// first, so it is not lost. While a sidecar job still writes the file, the panel is read
-    /// again only once that job is over (`request_exif`): read at once, it could show the file as
-    /// it was before the edit, and a later edit would then save the edit away again.
+    /// again only once that job is over (`request_and_take_exif`): read at once, it could show
+    /// the file as it was before the edit, and a later edit would then save the edit away again.
     pub(crate) fn read_info_again(&mut self, ctx: &egui::Context) {
         self.save_metadata_edit(ctx);
         let path = self.path(self.list.shown());
@@ -626,7 +626,7 @@ impl crate::App {
     /// View → EXIF Window (Ctrl+E): every EXIF field of the shown image.
     pub(crate) fn exif_fields_window(&mut self, ctx: &egui::Context) {
         if self.info_panel.is_exif_window_open && !self.list.files().is_empty() {
-            self.request_exif(ctx);
+            self.request_and_take_exif(ctx);
             let mut open = true;
             let title = tf!("EXIF: {name}", name = self.name(self.list.shown()));
             egui::Window::new(title)
@@ -715,7 +715,7 @@ mod tests {
         let (mut app, ctx) = app_on(&dir);
         // The panel asks in each frame it is drawn, and takes the answer then.
         for _ in 0..500 {
-            app.request_exif(&ctx);
+            app.request_and_take_exif(&ctx);
             if app.info_panel.metadata_edit.is_some() {
                 break;
             }
@@ -737,7 +737,7 @@ mod tests {
     /// Waits for the info panel to read the shown file, as it does in each frame it is drawn.
     fn read_panel(app: &mut crate::App, ctx: &eframe::egui::Context) {
         for _ in 0..500 {
-            app.request_exif(ctx);
+            app.request_and_take_exif(ctx);
             if app.info_panel.metadata_edit.is_some() {
                 return;
             }
@@ -799,7 +799,7 @@ mod tests {
         app.write_sidecars(&ctx, "Other", b, move |_| hold.recv().is_err(), |_, _| None);
         app.info_panel.metadata_edit.as_mut().unwrap().keywords = "sea".into();
         app.files_changed(&ctx, std::slice::from_ref(&file));
-        app.request_exif(&ctx);
+        app.request_and_take_exif(&ctx);
         assert!(
             app.info_panel.metadata_edit.is_some() && app.info_panel.reread_after_write.is_some()
         );
@@ -815,7 +815,7 @@ mod tests {
         assert!(crate::support::test_support::run_background_until(
             &mut app, &ctx, written
         ));
-        app.request_exif(&ctx);
+        app.request_and_take_exif(&ctx);
         assert!(app.info_panel.reread_after_write.is_none());
         read_panel(&mut app, &ctx);
         assert_eq!(
@@ -831,7 +831,7 @@ mod tests {
         let other = app.start_job_of("Other", 1, true, Vec::new()).unwrap();
         app.files_changed(&ctx, std::slice::from_ref(&file));
         app.show_file(&ctx, 1);
-        app.request_exif(&ctx);
+        app.request_and_take_exif(&ctx);
         assert!(app.info_panel.reread_after_write.is_none());
         drop(other);
         std::fs::remove_dir_all(&dir).unwrap();
@@ -858,7 +858,7 @@ mod tests {
         read_panel(&mut app, &ctx);
         let other = app.start_job_of("Other", 1, true, vec![b.clone()]).unwrap();
         app.files_changed(&ctx, std::slice::from_ref(&a));
-        app.request_exif(&ctx);
+        app.request_and_take_exif(&ctx);
         assert!(
             app.info_panel.reread_after_write.is_none(),
             "it waits for b.png's job"
@@ -868,20 +868,20 @@ mod tests {
             .start_job_of("Saving", 1, true, vec![a.clone()])
             .unwrap();
         app.show_file(&ctx, 1);
-        app.request_exif(&ctx);
+        app.request_and_take_exif(&ctx);
         assert!(
             app.info_panel.reread_after_write.is_none(),
             "b.png waits for a.png's job"
         );
         app.show_file(&ctx, 0);
-        app.request_exif(&ctx);
+        app.request_and_take_exif(&ctx);
         assert!(
             app.info_panel.reread_after_write.is_some(),
             "a.png is read before its save"
         );
         assert_ne!(app.info_panel.exif_asked.as_ref(), Some(&a));
         drop(writing);
-        app.request_exif(&ctx);
+        app.request_and_take_exif(&ctx);
         assert!(app.info_panel.reread_after_write.is_none());
         assert_eq!(app.info_panel.exif_asked.as_ref(), Some(&a));
         std::fs::remove_dir_all(&dir).unwrap();
