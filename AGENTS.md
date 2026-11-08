@@ -98,7 +98,9 @@ the new one; when a settings or state file holds both, the new one counts. The o
 in the frozen file and the new name is added at its end, and the tests take an old name only
 when its table maps it to a name that is read now. A setting that is retired keeps its key: its
 value is read once into the setting that took its place, and it is written as its default from
-then on (`app_name_first`, moved into `window_title` by `config::move_app_name_first`).
+then on (`app_name_first`, moved into `window_title`). Every old value, a retired setting's
+and a renamed theme's, is mapped in one function, `config::old_values_mapped`, which
+`Config::parse`, `parse_checked` and the save's `merged` all call.
 
 ## Language
 

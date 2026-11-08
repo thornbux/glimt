@@ -18,7 +18,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
   window title says the same with `%app% - %name%`. A settings file with `app_name_first=true`
   gets that title once, unless it has a title of its own.
 - The light theme for low vision is called High Contrast Light instead of Contrast, so its name
-  says what it is beside High Contrast. A settings file with `theme=Contrast` still gets it.
+  says what it is beside High Contrast. A settings file with `theme=Contrast` still gets it,
+  without a problem told, and the next save writes the new name.
 - The action Previous Page is named `PreviousPage` in `keys=` and `glimt --remote run`, beside
   `NextPage`, instead of `PrevPage`. The old name is still read.
 - `glimt --remote` waits for the window's answer to every command, and exits with 3 when the

@@ -507,8 +507,7 @@ impl Config {
         c.slideshow_delay = c.slideshow_delay.clamp(1, MAX_SLIDESHOW_DELAY);
         c.toolbar_icons = c.toolbar_icons.min(2);
         c.view_filter = c.view_filter.min(3);
-        move_app_name_first(&mut c.app_name_first, &mut c.window_title);
-        c.theme = crate::ui::theme::theme_name_now(&c.theme).to_owned();
+        old_values_mapped(&mut c);
         c
     }
 
@@ -562,7 +561,7 @@ impl Config {
                 // When the setting is set again later, that later line is the one checked.
                 Some(true) if later => {}
                 Some(true) => {
-                    move_app_name_first(&mut alone.app_name_first, &mut alone.window_title);
+                    old_values_mapped(&mut alone);
                     let wanted = value_in(&alone.to_text(), now);
                     if wanted != used(now) {
                         problems.push(format!(
@@ -841,6 +840,15 @@ fn old_key_overridden(key: &str, text: &str) -> bool {
     now != key && (text.lines()).any(|l| l.split_once('=').is_some_and(|(k, _)| k.trim() == now))
 }
 
+/// Maps the old values in `c` to what they are now: the retired app_name_first=true moved
+/// into the window title, and the old name of a built-in theme (`RENAMED_THEMES`). `parse`,
+/// `parse_checked` and `merged` all map them here, so a file with an old value is read without
+/// a problem, and a save writes the new value.
+fn old_values_mapped(c: &mut Config) {
+    move_app_name_first(&mut c.app_name_first, &mut c.window_title);
+    c.theme = crate::ui::theme::theme_name_now(&c.theme).to_owned();
+}
+
 /// Moves the retired app_name_first=true into the window title it stood for, when the user has
 /// no title of their own. The setting is false afterwards, so it is moved only once, and a
 /// title the user empties later stays empty.
@@ -909,13 +917,19 @@ fn merged(ours: &str, saved: &str, on_disk: &str) -> String {
             theirs.entry(new.to_owned()).or_insert(value);
         }
     }
-    // The retired app_name_first=true on disk is moved into the window title there too, so a
-    // save writes that title and app_name_first=false, and the move is not made again.
-    if theirs.get("app_name_first").is_some_and(|v| v == "true") {
-        let mut title = theirs.remove("window_title").unwrap_or_default();
-        move_app_name_first(&mut true, &mut title);
-        theirs.insert("window_title".to_owned(), title);
-        theirs.insert("app_name_first".to_owned(), "false".to_owned());
+    // The old values on disk are mapped as `Config::parse` maps them, so a save writes the new
+    // ones and the old ones are read only once. These are the retired app_name_first=true, moved
+    // into the window title, and the old name of a theme.
+    let mut disk = Config::default();
+    for (key, value) in &theirs {
+        disk.set(key, value);
+    }
+    let before = disk.to_text();
+    old_values_mapped(&mut disk);
+    for (was, now) in before.lines().zip(disk.to_text().lines()) {
+        if let Some((key, value)) = now.split_once('=').filter(|_| was != now) {
+            theirs.insert(key.to_owned(), value.to_owned());
+        }
     }
     let line = |l: &str| -> String {
         let value = l
@@ -1339,6 +1353,26 @@ mod tests {
         emptied.window_title.clear();
         let written = super::merged(&emptied.to_text(), &saved, &written);
         assert_eq!(Config::parse(&written).window_title, "");
+    }
+
+    /// A built-in theme's old name is no problem for --check-config or the window, and a save
+    /// writes the new name in its place. Before, `parse_checked` told `theme=Contrast` as out of
+    /// range at every start, and a save kept the old name, as it was the same value there.
+    #[test]
+    fn an_old_theme_name_is_read_without_a_problem_and_saved_new() {
+        use super::Config;
+        for (old, new) in crate::ui::theme::RENAMED_THEMES {
+            let text = format!("theme={old}\n");
+            let (config, problems) = Config::parse_checked(&text);
+            assert_eq!(
+                (config.theme.as_str(), problems),
+                (new, Vec::<String>::new())
+            );
+            let saved = config.to_text();
+            let written = super::merged(&saved, &saved, &text);
+            assert!(written.contains(&format!("theme={new}\n")), "{written}");
+            assert!(!written.contains(&format!("theme={old}\n")), "{written}");
+        }
     }
 
     /// Each renamed setting is read by its old key too, and a file with both keys has the value
