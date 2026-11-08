@@ -1320,7 +1320,7 @@ fn logo(ctx: &egui::Context) -> Option<egui::TextureHandle> {
     if let Some(logo) = ctx.data(|d| d.get_temp::<egui::TextureHandle>(id)) {
         return Some(logo);
     }
-    let img = crate::images::decode::from_memory(crate::LOGO)
+    let img = crate::images::decode::decode_glimts_own_image(crate::LOGO)
         .ok()?
         .into_rgba8();
     let size = [img.width() as usize, img.height() as usize];

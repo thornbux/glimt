@@ -1889,12 +1889,16 @@ pub(crate) fn spawn_decoders(
                     return;
                 };
                 // This cancels work, skipping images the user has already moved past.
-                let wanted = {
+                let (wanted, is_shown) = {
                     let w = kept_images.lock().unwrap();
                     let n = full_resolution_count.load(Ordering::Relaxed);
-                    w.contains(&index)
-                        && (!full_resolution || w.iter().take(n).any(|&i| i == index))
+                    let wanted = w.contains(&index)
+                        && (!full_resolution || w.iter().take(n).any(|&i| i == index));
+                    (wanted, w.first() == Some(&index))
                 };
+                // The shown image takes its bytes of the decodes' budget before the thumbnails
+                // and the images read ahead.
+                crate::images::decode::let_this_thread_go_first(is_shown);
                 if !wanted {
                     let _ = done_tx.send(Decoded {
                         rotated: false,

@@ -99,7 +99,10 @@ and versions follow [Semantic Versioning](https://semver.org/).
   at the largest size the graphics card takes, so an icon no longer takes 256 MB.
 - The images decoded at the same time (the view's, the thumbnails, Print and Check Images) take
   at most 2 GB together. A folder of images that each claim nearly the limit of one decode no
-  longer takes gigabytes at once; such an image waits until there is room.
+  longer takes gigabytes at once; such an image waits until there is room. The images take
+  their turns, so a large one is not passed by smaller ones for good, and the shown image goes
+  before the thumbnails and the images read ahead. Glimt's own logo in About takes nothing
+  from them, so About no longer waits for a large image being decoded.
 - An SVG shows only the pictures in its own folder or below it, as a browser shows an SVG used
   as an image, not a picture named by its whole path or through `..`.
 - A thumbnail in the shared cache that is larger than its size (128 or 256 pixels), as another

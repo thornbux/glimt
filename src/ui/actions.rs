@@ -1861,6 +1861,11 @@ mod tests {
             Action::BackUp,
             Action::NewWindow,
             Action::OpenWith,
+            // These open the home folder and the temporary folder, with their subfolders once
+            // Include Subfolders is on, so the test would decode every file of the other tests
+            // there, and hold the decodes' budget while a slow SVG of theirs was drawn.
+            Action::Home,
+            Action::Up,
         ];
         let dir = std::env::temp_dir().join(format!("glimt-test-empty-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
