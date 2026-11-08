@@ -21,6 +21,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 - A comment, alt text or extended description in several languages keeps them all when it is
   edited. The panel shows the default language (x-default), or else the first, and an edit
   replaces only that one; before, it showed the first and wrote it alone as the default.
+- A control character in a comment or keyword, such as a form feed pasted from a PDF, is left
+  out of the sidecar. Written there, it made the sidecar unreadable for darktable and digiKam.
 
 ## [0.75.0] - 2026-11-08
 
