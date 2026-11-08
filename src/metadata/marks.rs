@@ -196,7 +196,7 @@ fn known_stamps()
         .unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
-fn marks_file() -> Option<PathBuf> {
+pub(crate) fn marks_file() -> Option<PathBuf> {
     #[cfg(test)]
     if let Some(file) = TEST_FILE.with(|f| f.borrow().clone()) {
         return Some(file);

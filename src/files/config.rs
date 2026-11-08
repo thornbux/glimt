@@ -1488,6 +1488,7 @@ mod tests {
         now.extend(remote_names());
         now.extend(template_fields());
         now.extend(theme_keys());
+        now.extend(owned_files());
         // The actions a script may run with --remote run. One taken out of the list would
         // break every script that runs it.
         let script = crate::ui::actions::SCRIPT_ACTIONS.iter();
@@ -1578,6 +1579,56 @@ mod tests {
         let filled = filled.map(|f| format!("field {f}")).collect();
         std::fs::remove_dir_all(dir).unwrap();
         filled
+    }
+
+    /// Returns a "file" line for each file and folder that Glimt owns, from the functions and
+    /// tables that name them, with its XDG folder as a variable. The tests' XDG folders are
+    /// in `test_home`, under the folder of each variable's default in the home folder.
+    fn owned_files() -> Vec<String> {
+        let shown = |path: Option<std::path::PathBuf>| {
+            let path = path.unwrap();
+            let rest = path
+                .strip_prefix(super::test_home())
+                .unwrap()
+                .to_string_lossy();
+            let folders = [
+                (".config", "$XDG_CONFIG_HOME"),
+                (".local/state", "$XDG_STATE_HOME"),
+                (".local/share", "$XDG_DATA_HOME"),
+            ];
+            let (home, var) = folders.iter().find(|f| rest.starts_with(f.0)).unwrap();
+            format!("file {var}{}", &rest[home.len()..])
+        };
+        let mut files = vec![
+            shown(super::config_path()),
+            shown(super::keyword_tree_path()),
+            shown(super::sort_folders_path()),
+            shown(crate::ui::theme::own_themes_dir()),
+            shown(super::state_path()),
+            shown(super::recent_path()),
+            shown(super::sharing_path()),
+            shown(crate::files::journal::journal_dir()),
+            shown(crate::model::collections::collections_dir()),
+        ];
+        #[cfg(feature = "marks")]
+        files.push(shown(crate::metadata::marks::marks_file()));
+        // The marks file is pinned also in a build without the marks feature.
+        #[cfg(not(feature = "marks"))]
+        files.push("file $XDG_STATE_HOME/glimt/marks".to_owned());
+        let data = super::xdg_dir("XDG_DATA_HOME", ".local/share", "glimt");
+        for (old, new) in crate::features::tools::RENAMED_FOLDERS {
+            files.push(shown(data.as_ref().map(|d| d.join(new))));
+            files.push(shown(data.as_ref().map(|d| d.join(old))));
+        }
+        files.push(format!("file {}", super::LOCK_FILE));
+        let runtime = "$XDG_RUNTIME_DIR/glimt";
+        let socket = crate::features::remote::socket_name("NAME");
+        files.push(format!("file {runtime}/{socket}"));
+        files.push(format!(
+            "file {runtime}/{}",
+            crate::features::remote::FOCUSED_FILE
+        ));
+        files
     }
 
     /// Returns a "theme_key" line for each key of a theme file, as Save as Theme writes one,

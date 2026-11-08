@@ -100,6 +100,9 @@ pub const NOT_DONE: i32 = 3;
 /// answer of a command is empty, and that of a query is paths, which start with "/".
 const NOT_DONE_ANSWER: &str = "not done: ";
 
+/// The file in the runtime folder that holds the name of the Glimt that had the focus last.
+pub const FOCUSED_FILE: &str = "focused";
+
 /// The most files `select` takes, because the window finds them in its own thread.
 pub const MAX_SELECT: usize = 100_000;
 
@@ -577,7 +580,13 @@ fn socket_id() -> &'static str {
 }
 
 fn socket(id: &str) -> Option<PathBuf> {
-    runtime_dir().map(|d| d.join(format!("glimt-{id}.sock")))
+    runtime_dir().map(|d| d.join(socket_name(id)))
+}
+
+/// Returns the name of the socket of the Glimt named `id` (its --name or process ID) in the
+/// runtime folder.
+pub fn socket_name(id: &str) -> String {
+    format!("glimt-{id}.sock")
 }
 
 /// Send `command` to the socket at `path`, and print what it answers to standard output. A
@@ -632,7 +641,7 @@ fn live_sockets(dir: Option<PathBuf>) -> Vec<PathBuf> {
 /// Sends `command` to the Glimt used last, or else to another one. Returns false if none runs.
 pub fn send(command: &str) -> bool {
     let last = runtime_dir()
-        .and_then(|d| crate::images::decode::read_text(d.join("focused")).ok())
+        .and_then(|d| crate::images::decode::read_text(d.join(FOCUSED_FILE)).ok())
         .and_then(|id| socket(id.trim()));
     if last.is_some_and(|p| send_and_print_answer(&p, command)) {
         return true;
@@ -951,7 +960,7 @@ pub fn mark_focused() {
     if let Some(d) = runtime_dir() {
         // The file is written whole and never truncated first, because a `--remote` reading it
         // meanwhile got an empty name.
-        let _ = crate::files::file_io::replace_file(&d.join("focused"), socket_id());
+        let _ = crate::files::file_io::replace_file(&d.join(FOCUSED_FILE), socket_id());
     }
 }
 
