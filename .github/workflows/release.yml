@@ -125,6 +125,15 @@ jobs:
           ln -s usr/bin/glimt "$app/AppRun"
           ARCH=x86_64 ./appimagetool --appimage-extract-and-run --runtime-file runtime \
               "$app" "glimt-$VERSION-x86_64.AppImage"
+      - name: Smoke test of the AppImage
+        # Glimt draws an SVG in a child process of /proc/self/exe, which is in the AppImage's
+        # mount. A New Window must start the AppImage again, so it keeps drawing after the
+        # first window closed. A failure here stops the release job, which publishes.
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq xvfb fuse3 libgl1-mesa-dri libegl1 libgl1 \
+              libxkbcommon-x11-0 libxcursor1 libxrandr2 libxi6 libx11-xcb1
+          tools/package-smoke.sh --second-window "./glimt-$VERSION-x86_64.AppImage"
       - name: .deb
         run: cargo deb --no-build --target "$TARGET" -o "glimt_${VERSION}_amd64.deb"
       - name: .rpm
@@ -202,6 +211,13 @@ jobs:
               build-flatpak flatpak/io.github.thornbux.Glimt.yml
           flatpak build-bundle repo "glimt-${TAG#v}-x86_64.flatpak" io.github.thornbux.Glimt \
               --runtime-repo=https://dl.flathub.org/repo/flathub.flatpakrepo
+      - name: Smoke test of the bundle
+        # The bundle installed as a user installs it, and an SVG drawn in the sandbox, in a
+        # child process of /proc/self/exe. A failure here stops flatpak-publish.
+        run: |
+          flatpak install --user -y --noninteractive --bundle glimt-*.flatpak
+          dbus-run-session -- tools/package-smoke.sh flatpak run --nosocket=wayland \
+              --nosocket=fallback-x11 --socket=x11 io.github.thornbux.Glimt
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: flatpak
