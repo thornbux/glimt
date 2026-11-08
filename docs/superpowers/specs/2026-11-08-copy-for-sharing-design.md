@@ -103,3 +103,15 @@ and it encodes the pixels again (a JPEG loses quality).
 
 The dialog's layout within these rules, the tag lists of each group in detail, how "More
 tags" reads the selected files, where the last choice is kept, and the code structure.
+
+## After audit round 1 (2026-11-08)
+
+- A block that is not a single tag (MPF extra images, data after the image, MakerNote,
+  Photoshop resources, C2PA, other APPn segments and chunks, XMLPacket, IPTC-NAA, PNG raw
+  profiles, unnamed EXIF tags) goes as soon as any tag of a group it can carry is left out
+  (`shared_copy::BLOCKS`, `UNKNOWN_BLOCKS`); one it is unsure of counts as carrying every group.
+  The JFIF thumbnail is a Preview; the Interop directory keeps only its index and version.
+- XMP properties are named by their namespace, and any name with gps, latitude, longitude or
+  altitude in it is in Place.
+- The tags are listed from the head of each file (up to its image data), and a format other
+  than JPEG, PNG and WebP is known from its first bytes, so a large selection lists quickly.
