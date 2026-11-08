@@ -2913,6 +2913,10 @@ msgid "A block that can hold tags of several groups, such as the extra images or
 msgstr "Un bloc qui peut contenir des balises de plusieurs groupes, comme les images supplémentaires ou la note du fabricant, est omis dès qu'une balise de ces groupes l'est."
 
 #: src/features/copy_for_sharing.rs
+msgid "A tag that Glimt does not know is listed under More tags, and is left out when any group is ticked, unless it is unticked there."
+msgstr "Une balise que Glimt ne connaît pas figure sous Autres balises et est omise dès qu'un groupe est coché, sauf si elle y est décochée."
+
+#: src/features/copy_for_sharing.rs
 msgid "Always kept: the orientation, so the image is not shown on its side, and the colour profile, so its colours do not change."
 msgstr "Toujours conservés : l'orientation, pour que l'image ne s'affiche pas de côté, et le profil de couleur, pour que ses couleurs ne changent pas."
 

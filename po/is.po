@@ -2913,6 +2913,10 @@ msgid "A block that can hold tags of several groups, such as the extra images or
 msgstr "Blokk sem getur geymt merki úr fleiri hópum, svo sem aukamyndirnar eða athugasemd framleiðanda, er skilin eftir þegar eitthvert merki þeirra hópa er skilið eftir."
 
 #: src/features/copy_for_sharing.rs
+msgid "A tag that Glimt does not know is listed under More tags, and is left out when any group is ticked, unless it is unticked there."
+msgstr "Merki sem Glimt þekkir ekki er sýnt undir Fleiri merki og er skilið eftir þegar hakað er við einhvern hóp, nema hakið sé tekið af því þar."
+
+#: src/features/copy_for_sharing.rs
 msgid "Always kept: the orientation, so the image is not shown on its side, and the colour profile, so its colours do not change."
 msgstr "Alltaf haldið: stefnunni, svo myndin birtist ekki á hlið, og litasniðinu, svo litirnir breytist ekki."
 

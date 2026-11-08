@@ -203,13 +203,17 @@ const MANUAL: &[(&str, &str)] = &[
          any of their boxes is ticked: GPSDateStamp is under place and date, and a file name, \
          which can hold the date and in a path your name, under date and photographer. More \
          tags holds every other tag, and whole blocks such as a phone's extra images (MPF) or \
-         the maker note. A block goes as soon as any tag of a group it can hold is left out, as \
+         the maker note. A tag that Glimt does not know is listed there too, but may say \
+         anything, so it goes when any group's box is ticked; untick it there to keep it. A \
+         block goes as soon as any tag of a group it can hold is left out, as \
          it may hold that tag again. Content credentials (C2PA) are never copied: they vouch \
          for the file's exact bytes, which every copy changes, so they would call it tampered \
          with. Remove All ticks every box. The orientation and the \
          colour profile are always kept, as without them the copy would look different, and so \
-         is an HDR photo's gain map (Ultra HDR), the image after the main one that brightens it \
-         on an HDR screen, without its own metadata. The dialog starts with what you left out last time. Copy… asks for the folder. A copy has \
+         is an HDR photo's gain map (Ultra HDR, or one marked as ISO 21496-1 says), the image \
+         after the main one that brightens it on an HDR screen, without its own metadata. The \
+         gain maps of other forms, such as an iPhone's, go with the extra images. The dialog \
+         starts with what you left out last time. Copy… asks for the folder. A copy has \
          the original's file name, which can hold the date (IMG_20231004_…), also when Date and \
          time is left out.\n\n\
          Glimt's sidecar is not copied, but what it says goes into the copy's own XMP, so alt \

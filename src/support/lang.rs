@@ -576,6 +576,7 @@ msgstr[1] "bilder"
                 "images/shared_copy.rs",
                 &[
                     "const GROUP_EXCEPTIONS",
+                    "const KNOWN_NAMES",
                     "const UNKNOWN_BLOCKS",
                     "JFIF thumbnail",
                     "Extra images",
