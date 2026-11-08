@@ -896,7 +896,8 @@ fn read_without_image_data(path: &Path) -> std::io::Result<Option<Vec<u8>>> {
         None => Ok(None),
         Some(Container::Jpeg) => jpeg_without_scans(file, metadata.len(), 1 << 18).map(Some),
         Some(container) => {
-            chunks_without_image_data(file, head, metadata.len(), container).map(Some)
+            let limit = MAX_DECODE_BYTES;
+            chunks_without_image_data(file, head, metadata.len(), container, limit).map(Some)
         }
     }
 }
@@ -939,13 +940,14 @@ fn jpeg_without_scans(
 /// Reads a PNG's or a WebP's chunks from `file`, after its first 12 bytes `head`, without those
 /// of image data. Each of those stands as an empty chunk, and its data is skipped with a seek.
 /// A PNG is read up to its end (IEND), a WebP up to the end its RIFF header gives, and both at
-/// most to the file's size `size`. Returns an error when what is read would be larger than a
-/// decode reads (`MAX_DECODE_BYTES`).
+/// most to the file's size `size`. Returns an error when what is read would be larger than
+/// `limit` bytes, which is what a decode reads (`MAX_DECODE_BYTES`) except in the tests.
 fn chunks_without_image_data(
     file: impl std::io::Read + std::io::Seek,
     head: [u8; 12],
     size: u64,
     container: Container,
+    limit: u64,
 ) -> std::io::Result<Vec<u8>> {
     use std::io::Read;
     let is_png = container == Container::Png;
@@ -982,7 +984,7 @@ fn chunks_without_image_data(
             true => u64::from(is_png) * 4,
             false => whole.min(end - at - 8),
         };
-        if out.len() as u64 + 8 + kept > MAX_DECODE_BYTES {
+        if out.len() as u64 + 8 + kept > limit {
             return Err(std::io::Error::other("its metadata is too large"));
         }
         if is_image {
@@ -2685,8 +2687,9 @@ mod tests {
         }
     }
 
-    /// A PNG of empty image chunks without end is read no further than a decode reads, as each
-    /// of them adds to what is read, so a crafted file of gigabytes cannot fill the memory.
+    /// A PNG of empty image chunks without end is read no further than the limit, as each of
+    /// them adds to what is read, so a crafted file of gigabytes cannot fill the memory. The
+    /// test's limit is a MB, not the 512 MB a decode reads, so it runs in milliseconds.
     #[test]
     fn a_flood_of_empty_image_chunks_is_too_large() {
         /// A PNG of `size` bytes, read at `at`: its signature and then empty IDAT chunks
@@ -2721,10 +2724,12 @@ mod tests {
                 Ok(self.at)
             }
         }
-        let size = super::MAX_DECODE_BYTES + 1200;
+        let limit = 1 << 20;
+        let size = limit + 1200;
         let file = EmptyChunks { at: 12, size };
         let head = *b"\x89PNG\r\n\x1a\n\0\0\0\0";
-        let read = super::chunks_without_image_data(file, head, size, super::Container::Png);
+        let png = super::Container::Png;
+        let read = super::chunks_without_image_data(file, head, size, png, limit);
         assert!(read.is_err(), "{} bytes read", read.map_or(0, |r| r.len()));
     }
 
@@ -2773,7 +2778,13 @@ mod tests {
                 file.set_position(12);
                 let head = head.try_into().unwrap();
                 let size = data.len() as u64;
-                if let Ok(read) = super::chunks_without_image_data(file, head, size, container) {
+                if let Ok(read) = super::chunks_without_image_data(
+                    file,
+                    head,
+                    size,
+                    container,
+                    super::MAX_DECODE_BYTES,
+                ) {
                     let _ = super::walk(&read);
                 }
             }
