@@ -16,6 +16,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 - A JPEG whose EXIF orientation is not one of the eight values is turned from upright when its
   orientation is saved, as the view shows it. Before, a value of 9 or more was taken as 8, and
   the saved file showed another turn than the view.
+- Marks and stars that another window set a moment before a move or delete in this one now
+  follow the file or go with it too, also while this window's own marks are still being saved.
 
 ## [0.75.0] - 2026-11-08
 
