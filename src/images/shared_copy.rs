@@ -824,16 +824,36 @@ const GAIN_MAP_NAMESPACE: &str = "http://ns.adobe.com/hdr-gain-map/1.0/";
 /// (`exif::apple_hdr_maker_note`).
 const APPLE_GAIN_MAP_VERSION: &str = "HDRGainMap:HDRGainMapVersion";
 
+/// Ultra HDR's gain map properties (Adobe's hdrgm), which say only how the gain map brightens
+/// the image. They are listed by name, as a namespace kept whole would keep whatever a file
+/// puts in it, a place among them.
+const ULTRA_HDR_PROPERTIES: &[&str] = &[
+    "hdrgm:Version",
+    "hdrgm:BaseRenditionIsHDR",
+    "hdrgm:GainMapMin",
+    "hdrgm:GainMapMax",
+    "hdrgm:Gamma",
+    "hdrgm:OffsetSDR",
+    "hdrgm:OffsetHDR",
+    "hdrgm:HDRCapacityMin",
+    "hdrgm:HDRCapacityMax",
+];
+
+/// Apple's HDRGainMap properties that exiftool knows, which say only how the gain map
+/// brightens the image, listed by name as `ULTRA_HDR_PROPERTIES` are.
+const APPLE_GAIN_MAP_PROPERTIES: &[&str] =
+    &[APPLE_GAIN_MAP_VERSION, "HDRGainMap:HDRGainMapHeadroom"];
+
 /// The XMP that a copy of a gain map keeps (`gain_map_xmp`): each prefix, by the namespace it is
-/// written with, and the starts of the names of its properties that are kept. Ultra HDR's
-/// properties and Apple's HDRGainMap ones each say only how the gain map brightens the image,
-/// and Apple's apdi ones say that the image is a gain map and how its pixels are stored.
+/// written with, and the names of its properties that are kept. Ultra HDR's properties and
+/// Apple's HDRGainMap ones each say only how the gain map brightens the image, and Apple's apdi
+/// ones say that the image is a gain map and how its pixels are stored.
 const GAIN_MAP_PROPERTIES: [(&str, &str, &[&str]); 3] = [
-    ("hdrgm", GAIN_MAP_NAMESPACE, &["hdrgm:"]),
+    ("hdrgm", GAIN_MAP_NAMESPACE, ULTRA_HDR_PROPERTIES),
     (
         "HDRGainMap",
         "http://ns.apple.com/HDRGainMap/1.0/",
-        &["HDRGainMap:"],
+        APPLE_GAIN_MAP_PROPERTIES,
     ),
     (
         "apdi",
@@ -1140,8 +1160,9 @@ impl LeftOut {
         self.count_groups();
     }
 
-    /// Leaves every tag out. The orientation and the colour profile are still kept, as they are
-    /// not tags of the choice.
+    /// Leaves every tag out. The orientation, the colour profile and an HDR photo's gain map are
+    /// still kept, as they are not tags of the choice. An iPhone's gain map also keeps the HDR
+    /// headroom and gain of the maker note (`exif::apple_hdr_maker_note`).
     pub(crate) fn remove_all(&mut self) {
         Group::ALL.iter().for_each(|g| self.set_group(*g, true));
     }
@@ -2028,11 +2049,8 @@ fn gain_map_xmp(xmp: &[u8]) -> Option<Vec<u8>> {
     let (mut attributes, mut elements) = (String::new(), String::new());
     let mut namespaces_used = Vec::new();
     for (name, element, _) in &properties.list {
-        // A name that ends with ":" keeps every property of its namespace.
-        let is_kept =
-            |kept: &&str| *name == **kept || (kept.ends_with(':') && name.starts_with(*kept));
         let Some(&(prefix, uri, _)) =
-            (GAIN_MAP_PROPERTIES.iter()).find(|(_, _, kept)| kept.iter().any(is_kept))
+            (GAIN_MAP_PROPERTIES.iter()).find(|(_, _, kept)| kept.contains(&name.as_str()))
         else {
             continue;
         };
@@ -2092,11 +2110,14 @@ fn container_directory(length: usize) -> (String, crate::metadata::xmp::Namespac
 }
 
 /// Whether the XMP property `name` of a main image describes the images after it: the gain map
-/// (hdrgm, or Apple's HDRGainMap) or the list of them (`CONTAINER_DIRECTORY`). They say only
-/// how the image looks and where those images are, so they are no tags, and a copy keeps them
-/// while it has the images.
+/// (`ULTRA_HDR_PROPERTIES`, `APPLE_GAIN_MAP_PROPERTIES`) or the list of them
+/// (`CONTAINER_DIRECTORY`). They say only how the image looks and where those images are, so
+/// they are no tags, and a copy keeps them while it has the images. Any other property of the
+/// same namespaces is a tag like any other.
 fn is_property_of_images_after(name: &str) -> bool {
-    name.starts_with("hdrgm:") || name.starts_with("HDRGainMap:") || name == CONTAINER_DIRECTORY
+    ULTRA_HDR_PROPERTIES.contains(&name)
+        || APPLE_GAIN_MAP_PROPERTIES.contains(&name)
+        || name == CONTAINER_DIRECTORY
 }
 
 /// Whether the XMP property `name` says that the image is a motion photo, with a video after
@@ -2955,14 +2976,18 @@ mod tests {
             "{rdf} hdrgm:Version=\"1.0\" hdrgm:GainMapMax=\"2.3\" hdrgm:HDRCapacityMax=\"2.3\"/>\
              </rdf:RDF></x:xmpmeta>"
         );
-        // Apple's XMP is written with elements, as an iPhone writes it, and with a place that no
-        // copy may keep.
+        // Apple's XMP is written with elements, as an iPhone writes it, and with places that no
+        // copy may keep: one of its own, and one in a property of each gain map namespace.
         let apple_xmp = "<x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><rdf:RDF \
             xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\"><rdf:Description \
             rdf:about=\"\" xmlns:HDRGainMap=\"http://ns.apple.com/HDRGainMap/1.0/\" \
             xmlns:apdi=\"http://ns.apple.com/pixeldatainfo/1.0/\" \
+            xmlns:hdrgm=\"http://ns.adobe.com/hdr-gain-map/1.0/\" \
             xmlns:exif=\"http://ns.adobe.com/exif/1.0/\" exif:GPSLatitude=\"59,55.123N\">\
             <HDRGainMap:HDRGainMapVersion>131072</HDRGainMap:HDRGainMapVersion>\
+            <HDRGainMap:Note><rdf:Description exif:GPSLongitude=\"10,44.567E\"/>\
+            </HDRGainMap:Note><hdrgm:Note><rdf:Description exif:GPSLongitude=\"11,22.333E\"/>\
+            </hdrgm:Note>\
             <apdi:NativeFormat>1278226488</apdi:NativeFormat>\
             <apdi:AuxiliaryImageType>urn:com:apple:photo:2020:aux:hdrgainmap\
             </apdi:AuxiliaryImageType><apdi:StoredFormat>1278226488</apdi:StoredFormat>\
@@ -2986,10 +3011,22 @@ mod tests {
              </rdf:RDF></x:xmpmeta>",
             gain_map.len()
         );
+        // An iPhone's main image has no XMP. This one has a place in Apple's namespace.
+        let apple_main_xmp = format!(
+            "{rdf} xmlns:HDRGainMap=\"http://ns.apple.com/HDRGainMap/1.0/\" \
+             xmlns:exif=\"http://ns.adobe.com/exif/1.0/\"><HDRGainMap:Note><rdf:Description \
+             exif:GPSLongitude=\"12,33.444E\"/></HDRGainMap:Note></rdf:Description>\
+             </rdf:RDF></x:xmpmeta>"
+        );
         let head = match marking {
             Marking::Iso => [&main[..2], &exif, &iso(b"\0\0\0\0")].concat(),
             Marking::UltraHdr => [&main[..2], &exif, &xmp(&main_xmp)].concat(),
-            Marking::Apple => [&main[..2], &exif_of(apple_exif_block())].concat(),
+            Marking::Apple => [
+                &main[..2],
+                &exif_of(apple_exif_block()),
+                &xmp(&apple_main_xmp),
+            ]
+            .concat(),
         };
         let mpf_at = head.len();
         let primary_size =
@@ -3097,7 +3134,11 @@ mod tests {
         let copy = super::copy(&path, &left_out.kept(&found)).unwrap().unwrap();
         let has = |text: &[u8]| copy.windows(text.len()).any(|w| w == text);
         let had = |text: &[u8]| original.windows(text.len()).any(|w| w == text);
-        for text in [&b"WGS-84-SECRET"[..], b"59,55.123N", b"APPLE-SECRET-ID"] {
+        let places = [&b"10,44.567E"[..], b"11,22.333E", b"12,33.444E"];
+        for text in [&b"WGS-84-SECRET"[..], b"59,55.123N", b"APPLE-SECRET-ID"]
+            .into_iter()
+            .chain(places)
+        {
             assert!(had(text), "{}", String::from_utf8_lossy(text));
             assert!(
                 !has(text),
@@ -3133,7 +3174,11 @@ mod tests {
         let pixels = |b: &[u8]| image::load_from_memory(b).unwrap().to_rgba8();
         assert!(pixels(&original) == pixels(&copy));
         assert_eq!(pixels(&copy[gain.1..]).dimensions(), (8, 8));
-        assert!(!found.iter().any(|t| t.starts_with("HDRGainMap:")));
+        // Only the properties that say how the gain map brightens the image are no tags.
+        let apple_tags: Vec<_> = (found.iter())
+            .filter(|t| t.starts_with("HDRGainMap:"))
+            .collect();
+        assert_eq!(apple_tags, ["HDRGainMap:Note"]);
         std::fs::remove_dir_all(dir).unwrap();
     }
 
