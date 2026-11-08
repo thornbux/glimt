@@ -16,6 +16,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
   sort or a shuffle it reads only the files that are new, rather than every file again, which
   took minutes in a large folder with EXIF date. A folder that a sync client keeps adding to
   now gets its whole timeline.
+- A network share that answers late is no longer opened over the folder you opened while
+  waiting for it.
 
 ## [0.75.0] - 2026-11-08
 

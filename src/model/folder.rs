@@ -676,6 +676,12 @@ impl crate::App {
         self.slideshow.take_whole_shuffle();
         self.thumbs.forget_all();
         self.search.forget_exif_index();
+        // A share that answers late is not opened over the folder the user went to meanwhile.
+        // Its own success opens it through here too, after its answer was taken.
+        if self.folder.is_mounting() {
+            self.folder.mounting_rx = Receiving::none();
+            self.notice = None;
+        }
         // The Pan view's dates are by name in the old folder.
         if let Some(pan) = &mut self.pan_view {
             pan.forget_dates();
@@ -1844,5 +1850,26 @@ mod tests {
             (f != "gone.jpg").then_some(7)
         });
         assert_eq!((files, sizes, calls), (vec!["a.jpg".into()], vec![7], 2));
+    }
+
+    /// A share mounted after the user opened another folder is not opened over it. Before, a
+    /// mount that stalled for half a minute took the window back to the share, and the files
+    /// selected meanwhile were gone.
+    #[test]
+    fn a_late_mount_leaves_the_folder_opened_since() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-mount-{}", std::process::id()));
+        let (here, share) = (dir.join("here"), dir.join("share"));
+        std::fs::create_dir_all(&here).unwrap();
+        std::fs::create_dir_all(&share).unwrap();
+        let (mut app, ctx) = app_on(&dir);
+        let (tx, rx) = std::sync::mpsc::channel();
+        app.folder.mounting_rx = crate::support::threads::Receiving::of(rx);
+        app.visit(&ctx, here.clone());
+        let mounted = (Ok(share), crate::files::external::Login::default());
+        // The window no longer waits for it, so the answer may find no one to take it.
+        let _ = tx.send(mounted);
+        app.receive_mount(&ctx);
+        assert_eq!(app.folder.dir(), here.canonicalize().unwrap());
+        std::fs::remove_dir_all(dir).unwrap();
     }
 }
