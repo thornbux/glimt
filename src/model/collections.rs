@@ -248,6 +248,33 @@ pub fn saved_collections() -> Vec<(String, PathBuf)> {
     all
 }
 
+/// Makes the entries of every saved collection follow the files or folders moved `(from, to)`,
+/// as Geeqie's collection manager does, so an entry never stays on a name that another file
+/// takes later. The `open` collection is left out, because the window has changed it already,
+/// and a second pass would move a swapped entry back. It runs in the writer thread, because it
+/// reads every saved collection, and a collection that holds none of the files is not written.
+// shortcut: each move reads every saved collection whole; keep an index of their entries if
+// someone keeps thousands of large collections.
+pub(crate) fn follow_in_saved_collections(pairs: &[(PathBuf, PathBuf)], open: Option<&Path>) {
+    let (pairs, open) = (pairs.to_vec(), open.map(Path::to_path_buf));
+    crate::files::file_io::write_later(move || {
+        use crate::files::file_ops::{moves_by_source, new_place};
+        let moved = moves_by_source(&pairs);
+        let is_open = |file: &Path| {
+            (open.as_deref()).is_some_and(|o| crate::images::save::same_file(o, file))
+        };
+        for (_, file) in saved_collections().into_iter().filter(|(_, f)| !is_open(f)) {
+            let _ = edit(&file, false, |all| {
+                for p in all {
+                    if let Some(to) = new_place(p, &moved) {
+                        *p = to;
+                    }
+                }
+            });
+        }
+    });
+}
+
 /// `name` trimmed, if it can be the name of a collection's file.
 fn valid_collection_name(name: &str) -> Result<&str, String> {
     let name = name.trim();
