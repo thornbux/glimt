@@ -1,14 +1,17 @@
 //! Checks of the source itself, run as tests: the layout AGENTS.md describes under "Code
 //! layout", so a file cannot drift from it unnoticed. They read each file as code only
 //! (`code_lines`: comments and the insides of literals blanked), so a string or a comment is
-//! never taken for an item, an import or a function.
+//! never taken for an item, an import or a function. Only `retired_names_stay_gone` also reads
+//! the comments, for the names of code in backticks there (`comment_lines`).
 
 use std::path::Path;
 
 /// The names that 0.74.0's naming review retired, because a reader new to the code could not tell
 /// from them what they hold or do. Beside each is the name that took its place, which is the one
-/// to use. `retired_names_stay_gone` fails when one comes back as a name in the code. A name that
-/// is now another thing's right name (`status`, `shown`, `turn`) is not here, nor are the old
+/// to use. `retired_names_stay_gone` fails when one comes back in the code, or in backticks in a
+/// comment, which always names code. These names are retired in every file: names of more than one
+/// word, abbreviations and private images. An everyday word is in `RETIRED_IN_FILE` instead. A name
+/// that is now another thing's right name (`status`, `shown`, `turn`) is not here, nor are the old
 /// names of settings and actions, which the `RENAMED_*` tables still read from users' files.
 const RETIRED_NAMES: &[&str] = &[
     // The window's parts (main.rs).
@@ -25,31 +28,22 @@ const RETIRED_NAMES: &[&str] = &[
     "notices_rx",    // notices
     "lightroom_rx",  // lightroom_catalog
     "save_as_last",  // save_as_choices
-    "Choice",        // SaveAsChoices
     "own_program",   // new_window_program
     // The image area (viewer/view.rs).
     "full_ok",       // full_resolution_count
     "set_rotate",    // set_auto_rotate
-    "refill",        // refill_preload
     "one_at_a_time", // changes_one_pane_at_a_time
     "paint_other",   // paint_compared
     "compare_other", // compared_image
-    "orient",        // turn
     "files_gen",     // version, list_version
     // The slideshow, Save As and pan view (viewer/).
-    "Slide",         // SlideStep
-    "Hold",          // SlideStep::Wait, HeldBackFiles
     "at_start",      // start_after_listing
     "whole_shuffle", // shuffle_next_listing_whole
     "days_stop",     // stop_reading_days
-    "jump",          // scroll_to_day
     "add_gone",      // add_removed
     "as_read",       // read_days
     "ymd",           // parse_date
-    "Place",         // SlideshowPosition, Section
     // The side panel and the status bar (ui/file_list.rs).
-    "ThumbView",          // OnScreenFiles
-    "THUMBS",             // THUMB_SIZES
     "CELL_EXTRA",         // CELL_PADDING
     "CELL_EXTRA_NO_NAME", // CELL_PADDING_NO_NAME
     "grid_cols",          // grid_columns
@@ -67,17 +61,14 @@ const RETIRED_NAMES: &[&str] = &[
     "exif_rx",            // exif_answers
     "exif_window",        // is_exif_window_open
     "want_exif",          // request_exif
-    "MetaEdit",           // MetadataEdit
     "meta_of",            // metadata_edit_of
     "save_meta",          // save_metadata_edit
     "tag_files",          // set_keyword_on_files
     "exif_panel_setting", // info_panel_setting
     // The look and the window (ui/theme.rs, ui/window.rs).
-    "FromDesktop",   // DesktopSettings
     "look_rx",       // look_answer
     "screen_rx",     // screen_profile_answer
     "ask_screen",    // ask_screen_profile
-    "built_in",      // is_built_in
     "Ender",         // InhibitorStop
     "inhibit_on",    // inhibit_asked
     "kiosk_quit",    // kiosk_may_quit
@@ -89,7 +80,6 @@ const RETIRED_NAMES: &[&str] = &[
     "window_shown",  // is_window_visible
     // The dialogs, menus, actions and Preferences (ui/).
     "asked_for",       // asked
-    "unchanged",       // is_unchanged
     "prompt_answered", // take_prompt_answer
     "answer_prompt",   // act_on_prompt_answer
     "delete_shown",    // delete_dialog_opened_at
@@ -103,21 +93,16 @@ const RETIRED_NAMES: &[&str] = &[
     "OWN_KEYS",        // USER_KEYS
     "use_own_keys",    // use_user_keys
     "in_build",        // is_in_build
-    "unsaved",         // has_unsaved
     "focus_search",    // search_takes_focus
-    "capturing",       // key_being_chosen_for
     // What is open: the list, the folder, the search and collections (model/).
     "cur",               // shown
     "set_cur",           // set_shown
     "cur_row",           // shown_row
     "anchor_or_cur",     // anchor_or_shown
-    "Slot",              // LoadedImage
-    "slots",             // loaded_images
     "take_slots",        // take_loaded_images
     "keep_slot",         // keep_loaded_image
     "keep_slots",        // keep_loaded_images
     "forget_slot",       // forget_loaded_image
-    "details",           // sizes_and_dates
     "remember_details",  // remember_size_and_date
     "forget_details",    // forget_sizes_and_dates
     "forget_details_of", // forget_size_and_date_of
@@ -129,10 +114,8 @@ const RETIRED_NAMES: &[&str] = &[
     "place_of",          // position_text_of
     "only_held_back",    // only_hidden_selected
     "selected_and_held", // selected_with_hidden
-    "listings",          // whole_listings
     "list_parts",        // lists_tree_in_parts
     "relist",            // relist_when_done, read_folder_again
-    "watching",          // watcher_generation
     "went_to",           // first_part_shown
     "take_files",        // take_listed_files
     "keep_found",        // keep_files_with_size
@@ -140,16 +123,11 @@ const RETIRED_NAMES: &[&str] = &[
     "exif_stale",        // exif_to_read_again
     "holds_exif_reads",  // exif_search_waits_for_writes
     "exif_follow_list",  // index_new_names
-    "LISTS",             // LIST_EXTS
     "edit_told",         // edit_open_collection
     // How files change on disk (files/).
-    "Deleted",         // OperationReport
     "deleted_sender",  // report_sender
     "deleted_tx",      // report_tx
     "receive_deleted", // receive_operation_report
-    "Work",            // FileOperations, QueuedWrite
-    "land",            // save_copy_with_sidecar
-    "Renamed",         // RenameOutcome
     "take_renamed",    // take_rename_outcome
     "let_go_of_ended", // drop_ended_jobs
     "none_saving",     // are_free_to_change
@@ -165,98 +143,221 @@ const RETIRED_NAMES: &[&str] = &[
     "fs_type_in_udev", // file_system_type_in_udev
     "new_beside",      // create_temp_beside
     "own_tag",         // instance_tag
-    "serial",          // start_ordered_worker
-    "writable",        // check_writable
-    "settle",          // repair_cut_short, run_background_until
-    "interrupted",     // cut_short_plans
-    "Thrown",          // TrashMove
-    "Trashed",         // TrashEntry
     "own_dir",         // is_usable_top_trash
     "trash_name",      // name_in_trash
     "Dog",             // WatchdogState
     "dog",             // watchdog
-    "limited",         // short_output_of
     "host_has",        // host_has_program
-    "heif",            // decode_heif
-    "DEST",            // PORTAL_BUS_NAME
     "DEFAULT_DELAY",   // DEFAULT_SLIDESHOW_DELAY
     "MAX_DELAY",       // MAX_SLIDESHOW_DELAY
     // From a file to pixels and back (images/).
-    "survive",                 // catch_panic_as_error
     "Hist",                    // HistogramCounts
     "jpeg_ends",               // is_whole_jpeg_file
     "whole_jpeg",              // is_whole_jpeg
     "quarter_turn",            // is_quarter_turn
-    "open_file",               // open_regular_with_metadata
     "read_opened",             // read_open_file
     "MAX_DECODE",              // MAX_DECODE_BYTES
     "MAX_ANIMATION",           // MAX_ANIMATION_BYTES
-    "Kind",                    // Encoding
     "stem_and",                // stem_with_suffix
-    "FileKey",                 // FileId
     "file_key",                // file_id
     "meta_key",                // file_id_from_metadata
     "key_of",                  // file_id_from_inode
     "replace_holding_sidecar", // replace_with_sidecar_locked
     "like_srgb",               // is_like_srgb
-    "set_up",                  // set_up_colour
-    "FAILED",                  // FAILED_DIR
     "worth_marking",           // should_mark_failed
-    "clean",                   // remove_orphaned_thumbnails
     // What is said about an image (metadata/).
-    "Meta",         // KeywordsAndComment
-    "Access",       // AltText
     "parse_access", // parse_alt_text
     "write_access", // write_alt_text
     "set_access",   // set_alt_text
-    "Held",         // SidecarLock
     "held_in",      // lock_sidecar_in
     "held_all",     // lock_sidecars
     "held_all_in",  // lock_sidecars_in
     "update_held",  // update_locked_sidecar
-    "SLOTS",        // SIDECAR_LOCKS
     "lock_slot",    // sidecar_lock_number
-    "locks",        // lock_dir
     "adobe_rgb",    // is_adobe_rgb
-    "mul",          // compose_orientations
-    "ratio",        // rational
-    "Seen",         // FileStamp
     "put_folder",   // follow_folder
     "put_known",    // follow_known
-    "NEEDS",        // NEEDS_SQLITE3
     // The features with a window of their own (features/).
-    "parallel",            // on_all_cores
     "in_block",            // block_matches
-    "SIDE",                // SIGNATURE_SIDE
     "Fed",                 // WatchdogWriter
-    "CAPTION",             // CAPTION_HEIGHT
     "PAGE_TEXT",           // PAGE_TEXT_HEIGHT
-    "PREVIEWED",           // MAX_PREVIEWS
     "layout_of",           // layout_from_settings
-    "Running",             // RunningPlugins
-    "ANSWERING",           // UNFINISHED_ANSWERS
-    "Answering",           // UnfinishedAnswer
-    "UNANSWERED",          // TIMED_OUT
-    "unanswered",          // timed_out
-    "ME",                  // INSTANCE_ID
-    "claim",               // bind_socket
-    "queued",              // has_waiting_client
     "own_or_none",         // is_own_or_missing
     "dir_of_another",      // is_another_users_dir
-    "deliver",             // send_and_print_answer
     "remote_one",          // handle_remote
     "waiting_select",      // waiting_selects
     "answer_held_selects", // answer_waiting_selects
     // What the rest is built on (support/).
     "CPU_USE",        // CPU_USE_LEVEL
     "ONE_ARENA",      // HAS_ONE_MALLOC_ARENA
-    "Table",          // Translation
-    "CURRENT",        // CURRENT_TRANSLATION
     "number_marks",   // number_separators
     "marks_of",       // number_separators_of
-    "LABELS",         // THIS_FRAME
-    "LAST",           // LAST_FRAME
     "qualifiers_off", // without_qualifiers
+    // Found missing in 0.74.0's first audit.
+    "clean_in",       // remove_orphaned_thumbnails_in
+    "deleted_rx",     // report_rx
+    "jobs_shown",     // first_job_and_count
+    "list_place",     // opened_folder_hash
+    "other_lines",    // non_entry_lines
+    "root_now",       // typed_root_folder
+    "take_lightroom", // takes_lightroom_stars
+    "undo_left",      // is_undo_remainder
+    "move_held",      // move_lock
+    "has_access",     // has_alt_text
+];
+
+/// The everyday words that 0.74.0's naming review retired, each in the file where it was retired.
+/// Elsewhere such a word may be the right name of something else, as `ratio` of an aspect ratio.
+const RETIRED_IN_FILE: &[(&str, &str)] = &[
+    ("cli.rs", "more"),                     // more_paths
+    ("features/check.rs", "Check"),         // ImageCheck
+    ("features/duplicates.rs", "Item"),     // Picture
+    ("features/duplicates.rs", "SIDE"),     // SIGNATURE_SIDE
+    ("features/duplicates.rs", "cancel"),   // is_cancelled
+    ("features/duplicates.rs", "parallel"), // on_all_cores
+    ("features/duplicates.rs", "parts"),    // part_means
+    ("features/plugins.rs", "Running"),     // RunningPlugins
+    ("features/plugins.rs", "values"),      // desktop_entry_values
+    ("features/print.rs", "CAPTION"),       // CAPTION_HEIGHT
+    ("features/print.rs", "MM"),            // POINTS_PER_MM
+    ("features/print.rs", "PREVIEWED"),     // MAX_PREVIEWS
+    ("features/remote.rs", "ANSWERING"),    // UNFINISHED_ANSWERS
+    ("features/remote.rs", "Answering"),    // UnfinishedAnswer
+    ("features/remote.rs", "ME"),           // INSTANCE_ID
+    ("features/remote.rs", "UNANSWERED"),   // TIMED_OUT
+    ("features/remote.rs", "claim"),        // bind_socket
+    ("features/remote.rs", "deliver"),      // send_and_print_answer
+    ("features/remote.rs", "known"),        // is_known_command
+    ("features/remote.rs", "live"),         // live_sockets
+    ("features/remote.rs", "queued"),       // has_waiting_client
+    ("features/remote.rs", "unanswered"),   // timed_out
+    ("files/config.rs", "LOCKED"),          // SETTINGS_LOCKED
+    ("files/config.rs", "SAVED"),           // LAST_SAVED_TEXT
+    ("files/config.rs", "pos"),             // position
+    ("files/external.rs", "LIMIT"),         // PROGRAM_TIME_LIMIT
+    ("files/external.rs", "failure"),       // failure_text
+    ("files/external.rs", "heif"),          // decode_heif
+    ("files/external.rs", "knows"),         // is_program_found
+    ("files/external.rs", "limited"),       // short_output_of
+    ("files/external.rs", "upright"),       // upright_size
+    ("files/file_io.rs", "Work"),           // FileOperations, QueuedWrite
+    ("files/file_io.rs", "land"),           // save_copy_with_sidecar
+    ("files/file_io.rs", "plain"),          // explain_rename_error
+    ("files/file_io.rs", "serial"),         // start_ordered_worker
+    ("files/file_io.rs", "writable"),       // check_writable
+    ("files/file_ops.rs", "Deleted"),       // OperationReport
+    ("files/file_ops.rs", "Hold"),          // SlideStep::Wait, HeldBackFiles
+    ("files/file_ops.rs", "Renamed"),       // RenameOutcome
+    ("files/file_ops.rs", "Work"),          // FileOperations, QueuedWrite
+    ("files/file_ops.rs", "did"),           // count_done
+    ("files/file_ops.rs", "doing"),         // activity
+    ("files/file_ops.rs", "hold"),          // hold_back_while_writing
+    ("files/file_ops.rs", "ids"),           // fingerprints
+    ("files/file_ops.rs", "taken"),         // name_in_the_way
+    ("files/file_ops.rs", "touching"),      // background_paths
+    ("files/journal.rs", "begin"),          // start_journal
+    ("files/journal.rs", "free"),           // is_unlocked
+    ("files/journal.rs", "interrupted"),    // cut_short_plans
+    ("files/journal.rs", "linked"),         // is_linked
+    ("files/journal.rs", "settle"),         // repair_cut_short, run_background_until
+    ("files/portal.rs", "DEST"),            // PORTAL_BUS_NAME
+    ("files/portal.rs", "PATH"),            // PORTAL_OBJECT_PATH
+    ("files/portal.rs", "within"),          // with_time_limit
+    ("files/trash.rs", "Thrown"),           // TrashMove
+    ("files/trash.rs", "Trashed"),          // TrashEntry
+    ("files/trash.rs", "thrown"),           // trash_move
+    ("images/colour.rs", "set_up"),         // set_up_colour
+    ("images/decode.rs", "Small"),          // ShrunkImage
+    ("images/decode.rs", "fits"),           // fits_decode_limit
+    ("images/decode.rs", "open_file"),      // open_regular_with_metadata
+    ("images/decode.rs", "survive"),        // catch_panic_as_error
+    ("images/decoder_plugins.rs", "takes"), // handles_name
+    ("images/save.rs", "FileKey"),          // FileId
+    ("images/save.rs", "Kind"),             // Encoding
+    ("images/save.rs", "Next"),             // ForwardSearch
+    ("images/save.rs", "held"),             // lock, lock_sidecar
+    ("images/save.rs", "land"),             // save_copy_with_sidecar
+    ("images/save.rs", "smaller"),          // shrink_to_long_side
+    ("images/save.rs", "without"),          // without_thumbnails, without_property
+    ("images/thumbs.rs", "FAILED"),         // FAILED_DIR
+    ("images/thumbs.rs", "clean"),          // remove_orphaned_thumbnails
+    ("main.rs", "desktop"),                 // desktop_settings, read_desktop_look
+    ("main.rs", "with"),                    // with_config
+    ("metadata/exif.rs", "mul"),            // compose_orientations
+    ("metadata/exif.rs", "ratio"),          // rational
+    ("metadata/lightroom.rs", "COLUMN"),    // COLUMN_END
+    ("metadata/lightroom.rs", "NEEDS"),     // NEEDS_SQLITE3
+    ("metadata/lightroom.rs", "ROW"),       // ROW_END
+    ("metadata/lightroom.rs", "chain"),     // names_from_top
+    ("metadata/lightroom.rs", "differ"),    // differing_stars
+    ("metadata/lightroom.rs", "members"),   // collection_images
+    ("metadata/lightroom.rs", "tagged"),    // image_keyword_ids
+    ("metadata/marks.rs", "Seen"),          // FileStamp
+    ("metadata/marks.rs", "seen"),          // file_stamp
+    ("metadata/xmp.rs", "Access"),          // AltText
+    ("metadata/xmp.rs", "Held"),            // SidecarLock
+    ("metadata/xmp.rs", "Meta"),            // KeywordsAndComment
+    ("metadata/xmp.rs", "SLOTS"),           // SIDECAR_LOCKS
+    ("metadata/xmp.rs", "leaf"),            // keyword_of_path
+    ("metadata/xmp.rs", "locks"),           // lock_dir
+    ("metadata/xmp.rs", "same"),            // same_keyword
+    ("model/collections.rs", "LISTS"),      // LIST_EXTS
+    ("model/collections.rs", "lexical"),    // lexically_normal
+    ("model/collections.rs", "valid"),      // valid_collection_name
+    ("model/folder.rs", "drain"),           // add_sent_sizes
+    ("model/folder.rs", "listings"),        // whole_listings
+    ("model/folder.rs", "watch"),           // start_watching
+    ("model/folder.rs", "watching"),        // watcher_generation
+    ("model/list.rs", "Slot"),              // LoadedImage
+    ("model/list.rs", "anim"),              // frames
+    ("model/list.rs", "details"),           // sizes_and_dates
+    ("model/list.rs", "hist"),              // histogram
+    ("model/list.rs", "shows"),             // shows_file
+    ("model/list.rs", "slots"),             // loaded_images
+    ("model/search.rs", "and"),             // parse_and
+    ("model/search.rs", "or"),              // parse_or
+    ("model/selection.rs", "go"),           // show_file
+    ("support/lang.rs", "CURRENT"),         // CURRENT_TRANSLATION
+    ("support/lang.rs", "Table"),           // Translation
+    ("support/source_rules.rs", "Place"),   // SlideshowPosition, Section
+    ("support/test_hooks.rs", "LABELS"),    // THIS_FRAME
+    ("support/test_hooks.rs", "LAST"),      // LAST_FRAME
+    ("support/test_hooks.rs", "note"),      // note_label
+    ("support/test_support.rs", "settle"),  // repair_cut_short, run_background_until
+    ("support/threads.rs", "caught"),       // catch_panic
+    ("ui/dialogs.rs", "unchanged"),         // is_unchanged
+    ("ui/file_list.rs", "THUMBS"),          // THUMB_SIZES
+    ("ui/file_list.rs", "ThumbView"),       // OnScreenFiles
+    ("ui/file_list.rs", "made"),            // thumbnail_of
+    ("ui/file_list.rs", "place"),           // position_text
+    ("ui/file_list.rs", "scrolls"),         // scrolls_to_shown_image
+    ("ui/info_panel.rs", "Info"),           // InfoPanel
+    ("ui/info_panel.rs", "MetaEdit"),       // MetadataEdit
+    ("ui/info_panel.rs", "access"),         // alt_text
+    ("ui/menus.rs", "act"),                 // chosen
+    ("ui/menus.rs", "launch"),              // open_shown_in
+    ("ui/preferences.rs", "capturing"),     // key_being_chosen_for
+    ("ui/preferences.rs", "unsaved"),       // has_unsaved
+    ("ui/theme.rs", "Desktop"),             // DesktopLook
+    ("ui/theme.rs", "FromDesktop"),         // DesktopSettings
+    ("ui/theme.rs", "built_in"),            // is_built_in
+    ("ui/window.rs", "closing"),            // close_requests
+    ("ui/workers.rs", "stopped"),           // is_stopped, tell_background_stopped
+    ("viewer/pan.rs", "Pan"),               // PanView
+    ("viewer/pan.rs", "calendar"),          // shows_calendar
+    ("viewer/pan.rs", "each"),              // map_files_in_parallel
+    ("viewer/pan.rs", "jump"),              // scroll_to_day
+    ("viewer/save_as.rs", "Choice"),        // SaveAsChoices
+    ("viewer/slideshow.rs", "Hold"),        // SlideStep::Wait, HeldBackFiles
+    ("viewer/slideshow.rs", "Slide"),       // SlideStep
+    ("viewer/view.rs", "Shown"),            // ShownTexture
+    ("viewer/view.rs", "View"),             // ImageArea
+    ("viewer/view.rs", "orient"),           // turn
+    ("viewer/view.rs", "overlay"),          // paint_full_screen_info
+    ("viewer/view.rs", "refill"),           // refill_preload
+    ("viewer/view.rs", "rotation"),         // auto_rotate
+    ("viewer/view.rs", "sent"),             // last_request_number
+    ("viewer/view.rs", "wheel"),            // wheel_notches
 ];
 
 /// Where a top-level item stands in a file's order, as AGENTS.md gives it under "Within a
@@ -386,6 +487,22 @@ pub(crate) fn code_lines(text: &str) -> Vec<String> {
         }
     }
     code.lines().map(|l| l.trim_end().to_owned()).collect()
+}
+
+/// `text`'s comments only, by line: the code and the literals blanked, so a word in a string is
+/// never taken for one in a comment.
+fn comment_lines(text: &str) -> Vec<String> {
+    let chars: Vec<char> = text.chars().collect();
+    let mut comments = String::with_capacity(text.len());
+    let mut i = 0;
+    while i < chars.len() {
+        let end = literal_end(&chars, i).unwrap_or(i + 1);
+        let is_comment = chars[i] == '/' && end > i + 1;
+        let keep = |&c: &char| if is_comment || c == '\n' { c } else { ' ' };
+        comments.extend(chars[i..end].iter().map(keep));
+        i = end;
+    }
+    comments.lines().map(str::to_owned).collect()
 }
 
 /// Where the comment or literal that starts at `i` ends (one past its last character); `None`
@@ -843,25 +960,66 @@ fn parts_keep_their_fields() {
     );
 }
 
-/// A name that 0.74.0's naming review retired stays out of the code, so the next change does
-/// not bring it back by habit or by copying older code. Only code is read: a comment or a text
-/// may still say the old word.
+/// The retired names in `text`, the file `file`, each as "file:line: name". It reads the code, and
+/// the words in backticks in the comments, as a word in backticks always names code. A comment
+/// may still say an old word in plain prose.
+fn retired_names_in(file: &str, text: &str) -> Vec<String> {
+    let is_retired =
+        |word: &str| RETIRED_NAMES.contains(&word) || RETIRED_IN_FILE.contains(&(file, word));
+    let word_list = |part: &str| -> Vec<String> {
+        (part.split(|c: char| c != '_' && !c.is_alphanumeric()))
+            .filter(|word| is_retired(word))
+            .map(str::to_owned)
+            .collect()
+    };
+    let mut found = Vec::new();
+    for (i, line) in code_lines(text).iter().enumerate() {
+        found.extend(
+            word_list(line)
+                .into_iter()
+                .map(|w| format!("{file}:{}: {w}", i + 1)),
+        );
+    }
+    for (i, line) in comment_lines(text).iter().enumerate() {
+        let in_backticks = line.split('`').skip(1).step_by(2);
+        for word in in_backticks.flat_map(word_list) {
+            found.push(format!("{file}:{}: `{word}` in a comment", i + 1));
+        }
+    }
+    found
+}
+
+/// A name that 0.74.0's naming review retired stays out of the code and out of the comments'
+/// names of code, so the next change does not bring it back by habit or by copying older code.
 #[test]
 fn retired_names_stay_gone() {
-    let retired: std::collections::HashSet<&str> = RETIRED_NAMES.iter().copied().collect();
     let mut wrong = Vec::new();
     for (file, text) in rust_sources() {
-        for (i, line) in code_lines(&text).iter().enumerate() {
-            let words = line.split(|c: char| c != '_' && !c.is_alphanumeric());
-            for word in words.filter(|w| retired.contains(w)) {
-                wrong.push(format!("{file}:{}: {word}", i + 1));
-            }
-        }
+        wrong.extend(retired_names_in(&file, &text));
     }
     assert!(
         wrong.is_empty(),
-        "names retired in 0.74.0 (RETIRED_NAMES says what took their place):\n{}",
+        "names retired in 0.74.0 (RETIRED_NAMES and RETIRED_IN_FILE say what took their \
+         place):\n{}",
         wrong.join("\n")
+    );
+}
+
+/// The guard finds a retired name in code and in backticks in a comment, and an everyday word
+/// only in the file where it was retired. Plain prose and texts may say the old word.
+#[test]
+fn retired_names_are_found_in_code_and_in_backticks() {
+    let text = "// Under `claim`'s lock, and cur in prose.\nlet cur = ratio(\"cur\");\n";
+    assert_eq!(
+        retired_names_in("features/remote.rs", text),
+        [
+            "features/remote.rs:2: cur",
+            "features/remote.rs:1: `claim` in a comment"
+        ]
+    );
+    assert_eq!(
+        retired_names_in("metadata/exif.rs", text),
+        ["metadata/exif.rs:2: cur", "metadata/exif.rs:2: ratio"]
     );
 }
 
