@@ -188,6 +188,19 @@ impl SharedMetadata {
         exif.unwrap_or_default().into_iter().chain(xmp).collect()
     }
 
+    /// Puts the element `element` in place of the XMP property `name`, with the namespaces
+    /// `namespaces` that bind its prefixes, when there is such a property.
+    pub(crate) fn replace_property(
+        &mut self,
+        name: &str,
+        element: String,
+        namespaces: crate::metadata::xmp::Namespaces,
+    ) {
+        if let Some(property) = self.xmp.list.iter_mut().find(|(n, ..)| n == name) {
+            (property.1, property.2) = (element, namespaces);
+        }
+    }
+
     /// Returns the new EXIF block (`exif::shared_block`) and XMP packet of a copy that keeps
     /// the tags `keeps` keeps, and always the orientation and the colour space. Each is `None`
     /// when nothing of it is kept.

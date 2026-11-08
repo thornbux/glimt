@@ -197,6 +197,21 @@ const JFIF_THUMBNAIL: &str = "JFIF thumbnail";
 /// second image or HDR gain map, each with an EXIF block of its own.
 const MPF: &str = "Extra images (MPF)";
 
+/// The namespace of the XMP that describes an HDR gain map (Ultra HDR, Adobe's gain maps): the
+/// image after the main one that an HDR screen brightens the main image with.
+const GAIN_MAP_NAMESPACE: &str = "http://ns.adobe.com/hdr-gain-map/1.0/";
+
+/// The XMP property of a main image that lists the images after it, by their kinds and sizes
+/// (Google's container): a gain map, or the video of a motion photo.
+const CONTAINER_DIRECTORY: &str = "Container:Directory";
+
+/// The start of a JPEG's APP2 segment of the ISO 21496-1 metadata of a gain map. It says only
+/// how the gain map brightens the image, so every copy keeps it.
+const ISO_GAIN_MAP_NAME: &[u8] = b"urn:iso:std:iso:ts:21496:-1\0";
+
+/// The size of the MPF segment that a copy with a gain map writes new (`mpf_segment`).
+const MPF_SEGMENT_SIZE: usize = 90;
+
 /// The tag of what follows a JPEG's main image when no MPF segment indexes it.
 const AFTER_IMAGE: &str = "Data after the image";
 
@@ -493,6 +508,8 @@ struct Walked<'a> {
     iim: Properties,
     /// Where a JPEG's main image ends and what follows it starts, when anything does.
     image_end: Option<usize>,
+    /// The HDR gain map among the images after a JPEG's main one, when it has one.
+    gain_map: Option<Box<GainMap<'a>>>,
 }
 
 impl<'a> Walked<'a> {
@@ -505,6 +522,7 @@ impl<'a> Walked<'a> {
             xmp: None,
             iim: Properties::default(),
             image_end: None,
+            gain_map: None,
         }
     }
 
@@ -518,6 +536,15 @@ impl<'a> Walked<'a> {
     }
 }
 
+/// The HDR gain map of a JPEG (Ultra HDR), walked as a JPEG of its own, and the attributes of
+/// the main image's and its entries in the MPF index. A copy that leaves out the images after
+/// the main one keeps it, without its metadata, as it decides how the image looks on an HDR
+/// screen (`gain_map_copy`).
+struct GainMap<'a> {
+    image: Walked<'a>,
+    attributes: [u32; 2],
+}
+
 /// Returns the names of the tags of `path` that a copy for sharing can keep or leave out,
 /// sorted, each once: those of its EXIF, its XMP, its sidecar and its IPTC, and its other parts
 /// with a tag. Returns `None` for a file that is not a JPEG, PNG or WebP, and an error for one
@@ -529,6 +556,7 @@ pub(crate) fn tags_of(path: &Path) -> Result<Option<Vec<String>>, String> {
     };
     with_walked(path, &data, |walked, metadata| {
         let mut tags = metadata.tag_names();
+        tags.retain(|t| !is_property_of_images_after(t));
         tags.extend(walked.parts.iter().filter_map(|p| p.tag.clone()));
         tags.sort();
         tags.dedup();
@@ -547,9 +575,23 @@ pub(crate) fn copy(path: &Path, kept: &HashSet<String>) -> Result<Option<Vec<u8>
     }
     let data = crate::images::decode::read_limited(path).map_err(|e| e.to_string())?;
     let keeps = |tag: &str| kept.contains(tag);
-    with_walked(path, &data, |walked, metadata| {
-        let (exif, xmp) = metadata.written(&keeps);
-        assembled(walked, &keeps, exif, xmp)
+    with_walked(path, &data, |walked, mut metadata| {
+        // A copy that leaves out the images after the main one still keeps the gain map.
+        let gain_map = match &walked.gain_map {
+            Some(gain_map) if !keeps(MPF) => Some(gain_map_copy(gain_map)?),
+            _ => None,
+        };
+        if let Some(gain_map) = &gain_map {
+            let (element, namespaces) = container_directory(gain_map.len());
+            metadata.replace_property(CONTAINER_DIRECTORY, element, namespaces);
+        }
+        let has_images_after = gain_map.is_some() || keeps(MPF) || keeps(AFTER_IMAGE);
+        let keeps_property = |tag: &str| match is_property_of_images_after(tag) {
+            true => has_images_after,
+            false => keeps(tag),
+        };
+        let (exif, xmp) = metadata.written(&keeps_property);
+        assembled(walked, &keeps, exif, xmp, gain_map)
     })?
     .transpose()
 }
@@ -560,14 +602,14 @@ pub(crate) fn copy(path: &Path, kept: &HashSet<String>) -> Result<Option<Vec<u8>
 fn with_walked<T>(
     path: &Path,
     data: &[u8],
-    then: impl FnOnce(&Walked, &SharedMetadata) -> T,
+    then: impl FnOnce(&Walked, SharedMetadata) -> T,
 ) -> Result<Option<T>, String> {
     let Some(mut walked) = walk(data)? else {
         return Ok(None);
     };
     let iim = std::mem::take(&mut walked.iim);
     let metadata = shared_metadata(path, walked.exif, walked.xmp, iim)?;
-    Ok(Some(then(&walked, &metadata)))
+    Ok(Some(then(&walked, metadata)))
 }
 
 /// Returns the container that the first bytes `head` of a file say it is in, or `None` when
@@ -714,11 +756,46 @@ fn chunks_without_image_data(
     Ok(out)
 }
 
+/// Walks a JPEG (`walk_jpeg_segments`) and finds its HDR gain map (`gain_map`). Returns `None`
+/// when a segment's length runs past the file.
+fn walk_jpeg(data: &[u8]) -> Option<Walked<'_>> {
+    let mut walked = walk_jpeg_segments(data)?;
+    walked.gain_map = gain_map(data, &walked).map(Box::new);
+    Some(walked)
+}
+
+/// Returns the HDR gain map of the JPEG `data`, walked as `walked`: the first image after the
+/// main one that its MPF index names and whose XMP is of a gain map (`GAIN_MAP_NAMESPACE`).
+/// Returns `None` when it has none, or when the index or that image cannot be read.
+fn gain_map<'a>(data: &'a [u8], walked: &Walked) -> Option<GainMap<'a>> {
+    let is_index = |p: &&Part| p.tag.as_deref() == Some(MPF) && p.bytes.get(4..8) == Some(b"MPF\0");
+    let index = walked.parts.iter().find(is_index)?;
+    let entries = crate::metadata::exif::mp_entries(&index.bytes[4..])?;
+    // The offsets count from the index's TIFF header, after its marker, length and "MPF\0".
+    let tiff_header = index.from + 8;
+    let image_end = walked.image_end?;
+    entries
+        .iter()
+        .skip(1)
+        .find_map(|&[attribute, size, offset]| {
+            let start = tiff_header.checked_add(offset as usize)?;
+            let bytes = data.get(start..start.checked_add(size as usize)?)?;
+            if start < image_end || container_of(bytes) != Some(Container::Jpeg) {
+                return None;
+            }
+            let image = walk_jpeg_segments(bytes)?;
+            let xmp = image.xmp.and_then(|x| std::str::from_utf8(x).ok())?;
+            let attributes = [entries[0][0], attribute];
+            xmp.contains(GAIN_MAP_NAMESPACE)
+                .then_some(GainMap { image, attributes })
+        })
+}
+
 /// Walks a JPEG: each segment up to the end of its image (EOI), each scan with its data, and
 /// what follows the image. Bytes between segments that are no marker, which some phones and
 /// editors write, are skipped to the next marker as decoders skip them, and are not copied.
 /// Returns `None` when a segment's length runs past the file.
-fn walk_jpeg(data: &[u8]) -> Option<Walked<'_>> {
+fn walk_jpeg_segments(data: &[u8]) -> Option<Walked<'_>> {
     let mut walked = Walked::new(Container::Jpeg);
     walked.add(data, 0, 2, None);
     let (mut at, mut has_mpf) = (2, false);
@@ -807,7 +884,7 @@ fn add_jpeg_segment<'a>(walked: &mut Walked<'a>, data: &'a [u8], at: usize, end:
             return;
         }
         0xe1 if body.starts_with(b"http://ns.adobe.com/xmp/extension/\0") => return,
-        0xe2 if body.starts_with(b"ICC_PROFILE\0") => None,
+        0xe2 if body.starts_with(b"ICC_PROFILE\0") || body.starts_with(ISO_GAIN_MAP_NAME) => None,
         0xe2 if body.starts_with(b"MPF\0") => Some(MPF.to_owned()),
         0xeb if body.starts_with(b"JP") => Some(C2PA.to_owned()),
         0xed if body.starts_with(PHOTOSHOP_NAME) => {
@@ -1094,12 +1171,14 @@ fn walk_webp(data: &[u8]) -> Option<Walked<'_>> {
 }
 
 /// Makes the copy of the file `walked`: its parts that `keeps` keeps, with the new EXIF block
-/// `exif` and XMP packet `xmp` where the container has them.
+/// `exif` and XMP packet `xmp` where the container has them. A JPEG's gain map copied on its own
+/// (`gain_map_copy`), `gain_map`, follows the main image, with a new MPF index of the two.
 fn assembled(
     walked: &Walked,
     keeps: &dyn Fn(&str) -> bool,
     exif: Option<Vec<u8>>,
     xmp: Option<Vec<u8>>,
+    gain_map: Option<Vec<u8>>,
 ) -> Result<Vec<u8>, String> {
     let kept: Vec<&Part> = (walked.parts.iter())
         .filter(|p| p.tag.as_deref().is_none_or(keeps))
@@ -1119,7 +1198,23 @@ fn assembled(
             if let Some(xmp) = xmp.filter(|x| 2 + XMP_NAME.len() + x.len() <= 0xffff) {
                 out.extend(jpeg_segment(0xe1, &[XMP_NAME, &xmp[..]].concat()));
             }
+            // The index is written once the main image's size is known, in a segment of the
+            // same size.
+            let index_at = gain_map.is_some().then(|| {
+                out.extend(mpf_segment([0; 2], 0, 0, 0));
+                out.len() - MPF_SEGMENT_SIZE
+            });
             jpeg_rest(&mut out, rest, walked.image_end);
+            if let (Some(at), Some(gain_map), Some(found)) = (index_at, gain_map, &walked.gain_map)
+            {
+                let size = |n: usize| u32::try_from(n).map_err(|_| "too large".to_owned());
+                let (main, length) = (size(out.len())?, size(gain_map.len())?);
+                // The gain map's offset counts from the index's TIFF header.
+                let offset = size(out.len() - at - 8)?;
+                let index = mpf_segment(found.attributes, main, length, offset);
+                out[at..at + MPF_SEGMENT_SIZE].copy_from_slice(&index);
+                out.extend(gain_map);
+            }
         }
         Container::Png => {
             if let Some(exif) = exif {
@@ -1165,6 +1260,105 @@ fn jpeg_rest(out: &mut Vec<u8>, rest: &[&Part], image_end: Option<usize>) {
             new_end as u32,
         );
     }
+}
+
+/// Makes the copy of the gain map `gain_map`: its image data and the parts that decide how it
+/// looks, with only its gain map's XMP (`gain_map_xmp`), and without its EXIF or any other tag.
+fn gain_map_copy(gain_map: &GainMap) -> Result<Vec<u8>, String> {
+    let xmp = gain_map.image.xmp.and_then(gain_map_xmp);
+    assembled(&gain_map.image, &|_| false, None, xmp, None)
+}
+
+/// Returns a new XMP packet of the gain map properties (hdrgm) of the gain map's packet `xmp`,
+/// or `None` when it has none. A property of one value is written as an attribute, as readers
+/// of gain maps (Android's and Chrome's) look for one there, and a value for each colour as
+/// the element it is.
+/// shortcut: an element written with another prefix or with attributes of its own is left out;
+/// write it with the hdrgm prefix if a gain map is found that has one.
+fn gain_map_xmp(xmp: &[u8]) -> Option<Vec<u8>> {
+    let properties = crate::metadata::xmp::properties(std::str::from_utf8(xmp).ok()?);
+    let (mut attributes, mut elements) = (String::new(), String::new());
+    for (name, element, _) in &properties.list {
+        let Some(local) = name.strip_prefix("hdrgm:") else {
+            continue;
+        };
+        let value = (element.split_once('>'))
+            .and_then(|(_, rest)| rest.rsplit_once("</"))
+            .map(|(value, _)| value);
+        match value {
+            Some(value) if !value.contains('<') => {
+                attributes += &format!(" hdrgm:{local}=\"{}\"", value.replace('"', "&quot;"));
+            }
+            _ if element.starts_with(&format!("<{name}>")) => elements += element,
+            _ => {}
+        }
+    }
+    if attributes.is_empty() && elements.is_empty() {
+        return None;
+    }
+    let packet = format!(
+        "<x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><rdf:RDF \
+         xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\"><rdf:Description \
+         rdf:about=\"\" xmlns:hdrgm=\"{GAIN_MAP_NAMESPACE}\"{attributes}>{elements}\
+         </rdf:Description></rdf:RDF></x:xmpmeta>"
+    );
+    Some(packet.into_bytes())
+}
+
+/// Returns a new `CONTAINER_DIRECTORY` property of a main image followed by a gain map of
+/// `length` bytes, as its element and the namespaces it uses.
+fn container_directory(length: usize) -> (String, crate::metadata::xmp::Namespaces) {
+    let item = |attributes: &str| {
+        format!(
+            "<rdf:li rdf:parseType=\"Resource\"><Container:Item {attributes} \
+             Item:Mime=\"image/jpeg\"/></rdf:li>"
+        )
+    };
+    let primary = item("Item:Semantic=\"Primary\"");
+    let gain_map = item(&format!(
+        "Item:Semantic=\"GainMap\" Item:Length=\"{length}\""
+    ));
+    let element = format!(
+        "<{CONTAINER_DIRECTORY}><rdf:Seq>{primary}{gain_map}</rdf:Seq></{CONTAINER_DIRECTORY}>"
+    );
+    let namespaces = [
+        ("Container", "http://ns.google.com/photos/1.0/container/"),
+        ("Item", "http://ns.google.com/photos/1.0/container/item/"),
+    ];
+    let namespaces = namespaces
+        .map(|(p, u)| (p.to_owned(), u.to_owned()))
+        .to_vec();
+    (element, crate::metadata::xmp::Namespaces::new(namespaces))
+}
+
+/// Whether the XMP property `name` of a main image describes the images after it: the gain map
+/// (hdrgm) or the list of them (`CONTAINER_DIRECTORY`). They say only how the image looks and
+/// where those images are, so they are no tags, and a copy keeps them while it has the images.
+fn is_property_of_images_after(name: &str) -> bool {
+    name.starts_with("hdrgm:") || name == CONTAINER_DIRECTORY
+}
+
+/// Returns a new MPF segment, big-endian, whose index names the main image of `main_size`
+/// bytes and the gain map of `gain_map_size` bytes at `offset` from the segment's TIFF header,
+/// with their attributes `attributes`. It is `MPF_SEGMENT_SIZE` bytes long.
+fn mpf_segment(attributes: [u32; 2], main_size: u32, gain_map_size: u32, offset: u32) -> Vec<u8> {
+    // The header and a directory of three entries: the version, the number of images, and the
+    // index of 32 bytes, which follows the directory at 50.
+    let mut mpf = b"MPF\0MM\0*\0\0\0\x08\0\x03".to_vec();
+    mpf.extend(b"\xb0\0\0\x07\0\0\0\x040100");
+    mpf.extend(b"\xb0\x01\0\x04\0\0\0\x01\0\0\0\x02");
+    mpf.extend(b"\xb0\x02\0\x07\0\0\0\x20\0\0\0\x32\0\0\0\0");
+    let images = [
+        (attributes[0], main_size, 0),
+        (attributes[1], gain_map_size, offset),
+    ];
+    for (attribute, size, at) in images {
+        for value in [attribute, size, at] {
+            mpf.extend(value.to_be_bytes());
+        }
+        mpf.extend([0; 4]);
+    }
+    jpeg_segment(0xe2, &mpf)
 }
 
 /// Returns the JPEG segment of marker `marker` with the contents `body`, which fit in one.
@@ -1643,6 +1837,142 @@ mod tests {
         assert!(left_out.is_left_out("DateTimeOriginal") && !left_out.is_left_out("GPSLatitude"));
     }
 
+    /// The contents of an MPF segment, big-endian, that indexes a main image of `primary_size`
+    /// bytes and a gain map of `gain_map_size` bytes at `offset` from its TIFF header.
+    fn mpf(primary_size: u32, gain_map_size: u32, offset: u32) -> Vec<u8> {
+        let mut d = b"MPF\0MM\0*\0\0\0\x08\0\x03".to_vec();
+        d.extend(b"\xb0\0\0\x07\0\0\0\x040100");
+        d.extend(b"\xb0\x01\0\x04\0\0\0\x01\0\0\0\x02");
+        d.extend(b"\xb0\x02\0\x07\0\0\0\x20\0\0\0\x32\0\0\0\0");
+        for (attribute, size, at) in [
+            (0x0003_0000u32, primary_size, 0),
+            (0, gain_map_size, offset),
+        ] {
+            [attribute, size, at]
+                .iter()
+                .for_each(|v| d.extend(v.to_be_bytes()));
+            d.extend([0; 4]);
+        }
+        d
+    }
+
+    /// Returns the sizes and offsets of the images that the MPF segment of the JPEG `jpeg`
+    /// indexes, each as (size, where it starts in `jpeg`). The test files' segments are
+    /// big-endian, as `mpf` writes them.
+    fn mp_images(jpeg: &[u8]) -> Vec<(usize, usize)> {
+        let at = jpeg.windows(4).position(|w| w == b"MPF\0").unwrap() + 4;
+        let u16_at = |i: usize| u16::from_be_bytes([jpeg[i], jpeg[i + 1]]) as usize;
+        let u32_at = |i: usize| u32::from_be_bytes(jpeg[i..i + 4].try_into().unwrap()) as usize;
+        let ifd = at + u32_at(at + 4);
+        let entry = (0..u16_at(ifd))
+            .map(|i| ifd + 2 + 12 * i)
+            .find(|e| u16_at(*e) == 0xb002)
+            .unwrap();
+        let index = at + u32_at(entry + 8);
+        (0..u32_at(entry + 4) / 16)
+            .map(|i| index + 16 * i)
+            .map(|e| match u32_at(e + 8) {
+                0 => (u32_at(e + 4), 0),
+                offset => (u32_at(e + 4), at + offset),
+            })
+            .collect()
+    }
+
+    /// Returns an Ultra HDR JPEG: a main image of 16×16 and a gain map of 8×8 after it, each with
+    /// the test EXIF block, which has GPS, and with the XMP of a gain map. It is indexed by an MPF
+    /// segment and by the main XMP's directory. Returns the gain map's image data too.
+    fn ultra_hdr() -> (Vec<u8>, Vec<u8>) {
+        let encode = |size: u32| {
+            let mut jpeg = Vec::new();
+            let encoder = image::codecs::jpeg::JpegEncoder::new_with_quality(&mut jpeg, 90);
+            image::RgbImage::from_fn(size, size, |x, _| image::Rgb([x as u8 * 9, 40, 99]))
+                .write_with_encoder(encoder)
+                .unwrap();
+            jpeg
+        };
+        let (main, gain_map) = (encode(16), encode(8));
+        let gain_map_scans =
+            gain_map[crate::metadata::exif::jpeg_scan_start(&gain_map).unwrap()..].to_vec();
+        let exif = super::jpeg_segment(0xe1, &[&b"Exif\0\0"[..], &exif_block()].concat());
+        let xmp =
+            |text: &str| super::jpeg_segment(0xe1, &[super::XMP_NAME, text.as_bytes()].concat());
+        let rdf = "<x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><rdf:RDF \
+            xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\"><rdf:Description \
+            rdf:about=\"\" xmlns:hdrgm=\"http://ns.adobe.com/hdr-gain-map/1.0/\"";
+        let gain_map_xmp = format!(
+            "{rdf} hdrgm:Version=\"1.0\" hdrgm:GainMapMax=\"2.3\" hdrgm:HDRCapacityMax=\"2.3\"/>\
+             </rdf:RDF></x:xmpmeta>"
+        );
+        let gain_map = [&gain_map[..2], &exif, &xmp(&gain_map_xmp), &gain_map[2..]].concat();
+        let main_xmp = format!(
+            "{rdf} xmlns:Container=\"http://ns.google.com/photos/1.0/container/\" \
+             xmlns:Item=\"http://ns.google.com/photos/1.0/container/item/\" \
+             hdrgm:Version=\"1.0\"><Container:Directory><rdf:Seq><rdf:li \
+             rdf:parseType=\"Resource\"><Container:Item Item:Semantic=\"Primary\" \
+             Item:Mime=\"image/jpeg\"/></rdf:li><rdf:li rdf:parseType=\"Resource\">\
+             <Container:Item Item:Semantic=\"GainMap\" Item:Mime=\"image/jpeg\" \
+             Item:Length=\"{}\"/></rdf:li></rdf:Seq></Container:Directory></rdf:Description>\
+             </rdf:RDF></x:xmpmeta>",
+            gain_map.len()
+        );
+        let head = [&main[..2], &exif, &xmp(&main_xmp)].concat();
+        let mpf_at = head.len();
+        let primary_size =
+            head.len() + super::jpeg_segment(0xe2, &mpf(0, 0, 0)).len() + main.len() - 2;
+        let offset = (primary_size - mpf_at - 8) as u32;
+        let mpf = super::jpeg_segment(
+            0xe2,
+            &mpf(primary_size as u32, gain_map.len() as u32, offset),
+        );
+        let original = [&head, &mpf, &main[2..], &gain_map].concat();
+        assert_eq!(mp_images(&original)[1], (gain_map.len(), primary_size));
+        (original, gain_map_scans)
+    }
+
+    /// An Ultra HDR photo keeps its gain map, the second image that brightens it on an HDR
+    /// screen, when Place is left out: the gain map's image data and its hdrgm XMP stay and its
+    /// EXIF with the GPS goes. The index (MPF) and the main XMP's directory point at the gain
+    /// map where it now is, and its XMP and the main image's hdrgm:Version are no tags.
+    #[test]
+    fn an_ultra_hdr_gain_map_stays_without_its_metadata() {
+        let dir = folder("ultrahdr");
+        let (original, gain_map_scans) = ultra_hdr();
+        let path = dir.join("hdr.jpg");
+        std::fs::write(&path, &original).unwrap();
+        let found = super::tags_of(&path).unwrap().unwrap();
+        let mut left_out = super::LeftOut::default();
+        left_out.set_group(super::Group::Place, true);
+        let copy = super::copy(&path, &left_out.kept(&found)).unwrap().unwrap();
+        let has = |text: &[u8]| copy.windows(text.len()).any(|w| w == text);
+        assert!(!has(b"WGS-84-SECRET"), "the GPS is in the copy");
+        assert!(has(&gain_map_scans), "the gain map's image data is gone");
+        assert!(
+            has(b"hdrgm:GainMapMax=\"2.3\""),
+            "the gain map's XMP is gone"
+        );
+        let images = mp_images(&copy);
+        let (primary, gain) = (images[0], images[1]);
+        assert_eq!(
+            (primary.1, gain.1, gain.1 + gain.0),
+            (0, primary.0, copy.len())
+        );
+        assert!(copy[primary.0 - 2..].starts_with(b"\xff\xd9\xff\xd8"));
+        let length = format!("Item:Length=\"{}\"", gain.0);
+        assert!(
+            has(length.as_bytes()) && has(b"hdrgm:Version"),
+            "the main XMP lost its gain map"
+        );
+        let pixels = |b: &[u8]| image::load_from_memory(b).unwrap().to_rgba8();
+        assert!(pixels(&original) == pixels(&copy));
+        assert_eq!(pixels(&copy[gain.1..]).dimensions(), (8, 8));
+        assert!(
+            !found
+                .iter()
+                .any(|t| t.starts_with("hdrgm:") || t.starts_with("Container:"))
+        );
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
     /// A thumbnail inside a JPEG's JFIF header is a tag of the preview group: it goes with
     /// Remove All and leaves the header with no thumbnail, and kept it moves into a JFXX
     /// segment of its own.
@@ -1844,10 +2174,13 @@ mod tests {
             .unwrap();
         let webp = crate::images::save::webp_with_chunk(&webp, b"XMP ", b"<x/>", 8, 8).unwrap();
         let keeps = |_: &str| true;
-        for seed in [jpeg, png, webp] {
+        for seed in [jpeg, png, webp, ultra_hdr().0] {
             for data in crate::support::test_support::broken(&seed) {
                 if let Ok(Some(walked)) = super::walk(&data) {
-                    let _ = super::assembled(&walked, &keeps, Some(vec![0; 9]), Some(vec![1; 9]));
+                    let gain_map = walked.gain_map.as_deref().map(super::gain_map_copy);
+                    let gain_map = gain_map.and_then(Result::ok);
+                    let (exif, xmp) = (Some(vec![0; 9]), Some(vec![1; 9]));
+                    let _ = super::assembled(&walked, &keeps, exif, xmp, gain_map);
                 }
             }
         }

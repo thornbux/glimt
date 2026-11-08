@@ -1111,15 +1111,7 @@ fn write_block(little: bool, mut dirs: [NewIfd; 5], thumbnail: Option<&[u8]>) ->
 /// `mpf` is the segment's contents, from "MPF\0". Returns `None`, with nothing changed, when its
 /// index cannot be read.
 pub fn shift_mp_offsets(mpf: &mut [u8], by: i64, first_size: u32) -> Option<()> {
-    let (start, n, little) = {
-        let (t, ifd0, _, _) = ifds(mpf.get(4..)?)?;
-        let e = find(&ifd0, 0xb002).filter(|e| e.field_type == UNDEFINED)?;
-        (
-            4 + e.value_offset,
-            e.count as usize / 16,
-            t.is_little_endian,
-        )
-    };
+    let (start, n, little) = mp_index(mpf)?;
     let index = mpf.get_mut(start..start.checked_add(16 * n)?)?;
     let read = |b: &[u8]| {
         let b = [b[0], b[1], b[2], b[3]];
@@ -1152,6 +1144,41 @@ pub fn shift_mp_offsets(mpf: &mut [u8], by: i64, first_size: u32) -> Option<()> 
         }
     }
     Some(())
+}
+
+/// Returns where the index of the MPF segment `mpf` (its contents, from "MPF\0") starts in it,
+/// how many entries of 16 bytes it has, and whether they are little-endian. Returns `None` when
+/// the index cannot be read.
+fn mp_index(mpf: &[u8]) -> Option<(usize, usize, bool)> {
+    let (t, ifd0, _, _) = ifds(mpf.get(4..)?)?;
+    let e = find(&ifd0, 0xb002).filter(|e| e.field_type == UNDEFINED)?;
+    Some((
+        4 + e.value_offset,
+        e.count as usize / 16,
+        t.is_little_endian,
+    ))
+}
+
+/// Returns the entries of the index of the MPF segment `mpf` (its contents, from "MPF\0"), one
+/// for each image: its attribute, its size, and its offset from the segment's TIFF header,
+/// which is 0 for the main image. Returns `None` when the index cannot be read.
+pub fn mp_entries(mpf: &[u8]) -> Option<Vec<[u32; 3]>> {
+    let (start, n, little) = mp_index(mpf)?;
+    let index = mpf.get(start..start.checked_add(16 * n)?)?;
+    let read = |b: &[u8]| {
+        let b = [b[0], b[1], b[2], b[3]];
+        if little {
+            u32::from_le_bytes(b)
+        } else {
+            u32::from_be_bytes(b)
+        }
+    };
+    let entries = index.chunks(16);
+    Some(
+        entries
+            .map(|e| [read(&e[..4]), read(&e[4..8]), read(&e[8..12])])
+            .collect(),
+    )
 }
 
 /// Reads the EXIF block of `path` through `dec`, the image crate's decoder of it. A PNG keeps

@@ -205,8 +205,9 @@ const MANUAL: &[(&str, &str)] = &[
          tags holds every other tag, and whole blocks such as a phone's extra images (MPF) or \
          the maker note. A block goes as soon as any tag of a group it can hold is left out, as \
          it may hold that tag again. Remove All ticks every box. The orientation and the \
-         colour profile are always kept, as without them the copy would look different. The \
-         dialog starts with what you left out last time. Copy… asks for the folder. A copy has \
+         colour profile are always kept, as without them the copy would look different, and so \
+         is an HDR photo's gain map (Ultra HDR), the image after the main one that brightens it \
+         on an HDR screen, without its own metadata. The dialog starts with what you left out last time. Copy… asks for the folder. A copy has \
          the original's file name, which can hold the date (IMG_20231004_…), also when Date and \
          time is left out.\n\n\
          Glimt's sidecar is not copied, but what it says goes into the copy's own XMP, so alt \
