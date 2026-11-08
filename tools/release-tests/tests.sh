@@ -3279,6 +3279,10 @@ time.sleep(20)" &
     for x in $(seq 1100 4 1240); do xdotool mousemove $x 500; done
     sleep 1
     menu Animals; sleep 2            # the second window: the Animals keyword
+    # The first window is raised before its key, as a window manager raises the window it
+    # focuses. Xvfb has none, and eframe runs no frame for a covered window, so the key waited
+    # unread. Since 0.76.0 the window takes --remote quit while covered, so the key was lost.
+    xdotool windowraise $first_win
     WIN=$first_win; key alt+3; sleep 2   # the first window: three stars
     during=$(cat $d/a.jpg.xmp 2>/dev/null | wc -c)
     wait $locker
