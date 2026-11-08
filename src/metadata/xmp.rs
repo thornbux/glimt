@@ -848,9 +848,12 @@ fn set_comment(xmp: &str, comment: &str, say_empty: bool) -> Option<String> {
 }
 
 /// `xmp` with each list of `SLASHED_TREE_LISTS` that it has, or that `lists_in_image` names,
-/// written again from its lr:hierarchicalSubject with "/" between the levels. A list the image
-/// has is written also when it is empty, because if it were left out, the image's own would be
-/// read in its place. Returns `None` if `xmp` has no rdf:Description.
+/// written again from its lr:hierarchicalSubject with "/" between the levels. A path with a "/"
+/// inside a level is left out of them. digiKam has no escape for it there and would read the
+/// "/" as one more level. It reads lr:hierarchicalSubject itself with the "/" kept in the
+/// level, as a backslash. A list the image has is written also when it is empty, because if it
+/// were left out, the image's own would be read in its place. Returns `None` if `xmp` has no
+/// rdf:Description.
 fn with_slashed_tree_lists(xmp: String, lists_in_image: &[&str]) -> Option<String> {
     let paths = list_items(&xmp, "lr:hierarchicalSubject");
     let mut xmp = xmp;
@@ -859,7 +862,7 @@ fn with_slashed_tree_lists(xmp: String, lists_in_image: &[&str]) -> Option<Strin
             continue;
         }
         let mut add = format!("\n   <{list}>\n    <rdf:{container}>\n");
-        for p in &paths {
+        for p in paths.iter().filter(|p| !p.contains('/')) {
             add += &format!("     <rdf:li>{}</rdf:li>\n", escape(&p.replace('|', "/")));
         }
         add += &format!("    </rdf:{container}>\n   </{list}>");
@@ -1486,6 +1489,24 @@ mod tests {
         assert_eq!(read(&file).keywords, ["Oslo", "Beach"]);
         assert_eq!(tree_paths(&file), ["Places|Oslo", "Beach"]);
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// A keyword level with a "/" in it, as Lightroom allows, is kept out of digiKam's and
+    /// Windows' lists, where the "/" would be one more level: Music|AC/DC would be the tag DC
+    /// under AC. lr:hierarchicalSubject keeps it.
+    #[test]
+    fn a_slash_inside_a_level_stays_out_of_the_slashed_lists() {
+        let xmp = r#"<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF><rdf:Description rdf:about=""
+    xmlns:lr="http://ns.adobe.com/lightroom/1.0/" xmlns:digiKam="http://www.digikam.org/ns/1.0/">
+   <digiKam:TagsList><rdf:Seq><rdf:li>Old</rdf:li></rdf:Seq></digiKam:TagsList>
+   <lr:hierarchicalSubject><rdf:Bag><rdf:li>Music|AC/DC</rdf:li><rdf:li>Places|Oslo</rdf:li></rdf:Bag></lr:hierarchicalSubject>
+  </rdf:Description></rdf:RDF></x:xmpmeta>"#;
+        let written = with_slashed_tree_lists(xmp.to_owned(), &[]).unwrap();
+        assert_eq!(list_items(&written, "digiKam:TagsList"), ["Places/Oslo"]);
+        assert_eq!(
+            list_items(&written, "lr:hierarchicalSubject"),
+            ["Music|AC/DC", "Places|Oslo"]
+        );
     }
 
     /// A path that only digiKam's TagsList holds stays after an edit of the comment and of the
