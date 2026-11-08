@@ -2712,6 +2712,34 @@ mod tests {
         assert!(wrong.is_empty(), "{wrong:?}");
     }
 
+    /// Ultra HDR's directory is known by its namespace's URI, and Dynamic Depth's, whose
+    /// Container prefix is bound to another URI, is not taken for it: neither nested in its
+    /// Device:Container, as the Dynamic Depth spec writes it, nor on its own.
+    #[test]
+    fn only_ultra_hdrs_directory_is_the_gain_maps() {
+        let names = |container: &str, element: &str| {
+            let xmp = format!(
+                "<rdf:Description rdf:about=\"\" xmlns:Container=\"{container}\" \
+                 xmlns:Device=\"http://ns.google.com/photos/dd/1.0/device/\">{element}\
+                 </rdf:Description>"
+            );
+            let read = crate::metadata::xmp::properties(&xmp);
+            (read.list.into_iter())
+                .map(|(name, ..)| name)
+                .collect::<Vec<_>>()
+        };
+        let directory = "<Container:Directory><rdf:Seq/></Container:Directory>";
+        let ultra_hdr = names("http://ns.google.com/photos/1.0/container/", directory);
+        assert_eq!(ultra_hdr, [super::CONTAINER_DIRECTORY]);
+        assert!(super::is_property_of_images_after(&ultra_hdr[0]));
+        let depth = "http://ns.google.com/photos/dd/1.0/container/";
+        let nested = format!("<Device:Container>{directory}</Device:Container>");
+        for name in names(depth, directory).iter().chain(&names(depth, &nested)) {
+            assert!(!super::is_property_of_images_after(name), "{name}");
+            assert_eq!(super::Group::groups_of(name).len(), super::Group::ALL.len());
+        }
+    }
+
     /// The contents of an MPF segment, big-endian, that indexes a main image of `primary_size`
     /// bytes and a gain map of `gain_map_size` bytes at `offset` from its TIFF header.
     fn mpf(primary_size: u32, gain_map_size: u32, offset: u32) -> Vec<u8> {
