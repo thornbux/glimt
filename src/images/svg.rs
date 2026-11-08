@@ -107,21 +107,7 @@ fn svg_images() -> resvg::usvg::ImageHrefResolver<'static> {
             // takes none for an SVG shown as an image. One from ~/Downloads could otherwise
             // show a picture from anywhere in the home folder, which a copy or a print then
             // passes on, and a path under /net would mount a share.
-            use std::path::Component::{CurDir, Normal};
-            let relative = Path::new(href);
-            if !relative
-                .components()
-                .all(|c| matches!(c, Normal(_) | CurDir))
-            {
-                return None;
-            }
-            // A link on the way may lead out of the folder, as an archive keeps links, so the
-            // real path of the picture must be in the real folder.
-            let folder = opts.resources_dir.as_deref()?.canonicalize().ok()?;
-            let file = folder.join(relative).canonicalize().ok()?;
-            if !file.starts_with(&folder) {
-                return None;
-            }
+            let file = file_below(opts.resources_dir.as_deref()?, Path::new(href))?;
             let meta = std::fs::metadata(&file).ok().filter(|m| m.is_file())?;
             if meta.len() > 64 << 20 {
                 return None;
@@ -133,6 +119,33 @@ fn svg_images() -> resvg::usvg::ImageHrefResolver<'static> {
             data_too("text/plain", std::sync::Arc::new(bytes), opts)
         }),
     }
+}
+
+/// Returns `relative` joined to `folder` when it names a file in the folder or below it, with
+/// no `..`, no whole path and no link on the way. Returns `None` otherwise. A link may lead out
+/// of the folder, as an archive keeps links. Each part is looked at with `symlink_metadata`,
+/// which follows no link, so a link to a share under /net does not mount it. Before, the path
+/// was made real first, which mounted the share before the picture was refused.
+// shortcut: a part swapped for a link after this check is followed by the read; open each part
+// beneath the folder (openat2 with RESOLVE_BENEATH) if that race matters.
+fn file_below(folder: &Path, relative: &Path) -> Option<std::path::PathBuf> {
+    use std::path::Component::{CurDir, Normal};
+    let mut path = folder.to_path_buf();
+    for part in relative.components() {
+        match part {
+            CurDir => continue,
+            Normal(name) => path.push(name),
+            _ => return None,
+        }
+        if std::fs::symlink_metadata(&path)
+            .ok()?
+            .file_type()
+            .is_symlink()
+        {
+            return None;
+        }
+    }
+    Some(path)
 }
 
 /// Whether the entities an SVG defines may grow its text past 64 MB once usvg expands them.
@@ -861,13 +874,18 @@ mod tests {
         assert!(!from_inner("../p.jpg"));
         assert!(!from_inner(&dir.join("p.jpg").to_string_lossy()));
         assert!(!from_inner(&dir.join("in/q.jpg").to_string_lossy()));
-        // Nor through a link in the folder that leads out of it, to a folder or to a file,
-        // while a link that stays inside is followed.
+        // Nor through a link in the folder, to a folder or to a file, also one that stays
+        // inside, because the link is not followed to see where it leads. A link to a share
+        // would mount it. A real subfolder is taken.
         std::os::unix::fs::symlink(&dir, dir.join("in/out")).unwrap();
         std::os::unix::fs::symlink(dir.join("p.jpg"), dir.join("in/p.jpg")).unwrap();
         std::os::unix::fs::symlink(dir.join("in/q.jpg"), dir.join("in/r.jpg")).unwrap();
+        std::fs::create_dir_all(dir.join("in/real")).unwrap();
+        std::fs::copy(dir.join("p.jpg"), dir.join("in/real/s.jpg")).unwrap();
+        std::os::unix::fs::symlink(dir.join("in/real"), dir.join("in/linked")).unwrap();
         assert!(!from_inner("out/p.jpg") && !from_inner("p.jpg"));
-        assert!(from_inner("r.jpg"));
+        assert!(!from_inner("r.jpg") && !from_inner("linked/s.jpg"));
+        assert!(from_inner("real/s.jpg") && from_inner("./real/./s.jpg"));
         std::fs::remove_dir_all(dir).unwrap();
     }
 

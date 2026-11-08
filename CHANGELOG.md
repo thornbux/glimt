@@ -123,8 +123,9 @@ and versions follow [Semantic Versioning](https://semver.org/).
   before the thumbnails and the images read ahead. Glimt's own logo in About takes nothing
   from them, so About no longer waits for a large image being decoded.
 - An SVG shows only the pictures in its own folder or below it, as a browser shows an SVG used
-  as an image, not a picture named by its whole path, through `..` or through a link that
-  leads out of the folder, as an archive may unpack one.
+  as an image, not a picture named by its whole path, through `..` or through a link, as an
+  archive may unpack one. A link is not followed even to see where it leads, so a link to a
+  network share does not mount it.
 - A thumbnail in the shared cache that is larger than its size (128 or 256 pixels), as another
   program may write one, is made again rather than used at its size.
 - A file whose thumbnail runs out of time twice (a video or SVG made to stall) is marked as
