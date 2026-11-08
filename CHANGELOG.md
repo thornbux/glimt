@@ -5,6 +5,11 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- The Help Manual names every order of the sort menu (file creation date and the two EXIF
+  dates were missing), and says that a tool still running is stopped from Edit → Tools.
+
 ## [0.76.0] - 2026-11-08
 
 ### Changed

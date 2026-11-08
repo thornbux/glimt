@@ -309,8 +309,8 @@ const MANUAL: &[(&str, &str)] = &[
          exif:nikon ), and -( … ) leaves a group out; a regular expression keeps its own \
          (re:^(IMG|DSC)). The words after a prefix belong to it, so a search of the names comes \
          first. Combined, the list is in its own order.\n\n\
-         The sort menu at the bottom left sorts by name, number, date, EXIF date, size or \
-         extension; the Types menu beside it chooses what the list shows: images, RAW files and \
+         The sort menu at the bottom left sorts by name, number, date, file creation date, \
+         EXIF date original, EXIF date digitized, size or extension; the Types menu beside it chooses what the list shows: images, RAW files and \
          videos.",
     ),
     (
@@ -367,6 +367,8 @@ const MANUAL: &[(&str, &str)] = &[
          those shared-mime-info names, not their aliases or parent types. The folder's old name, \
          ~/.local/share/glimt/plugins, is still read; a desktop file of the same name in tools \
          comes first.\n\n\
+         A tool that is still running, such as an editor left open, is listed at the bottom of \
+         the menu as Stop and its name, which ends it and what it started.\n\n\
          /usr/share/doc/glimt/examples/tools (examples/tools in the tar.gz and the \
          source) has one that writes a description of each image as its \
          comment and alt text, made by a model on this computer, and one that reads the alt text \
@@ -1352,5 +1354,23 @@ mod tests {
             "{}",
             row.1
         );
+    }
+
+    /// The manual's sort sentence names every order of the Sort menu, so a new order is not
+    /// left out of it.
+    #[test]
+    fn the_manual_names_every_sort_order() {
+        let sentence = super::MANUAL
+            .iter()
+            .find_map(|(_, text)| text.split("The sort menu").nth(1))
+            .and_then(|rest| rest.split(';').next())
+            .unwrap();
+        for (_, _, label) in crate::model::listing::SORTS {
+            let order = label.strip_prefix("Sort by ").unwrap();
+            assert!(
+                sentence.contains(order),
+                "the manual's sort list lacks {order}"
+            );
+        }
     }
 }
