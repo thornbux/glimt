@@ -496,7 +496,8 @@ its Print to File shows the PDF), full screen (an Inhibit call to the portal, an
 in `dbus-monitor`), Open With → Choose Application… (the chooser, cancelled), a video and a
 HEIC (the runtime's ffmpeg), File → Set as Wallpaper (the wallpaper portal), and a tool, which
 without the host permission says how to give it and with it runs; the AppImage, with a second window (Ctrl+N)
-that stays when the first one closes.
+that stays when the first one closes; Orca, which reads a notice shown twice aloud twice (an
+action refused twice, such as a setting changed under `--lock-settings`).
 
 The window's logic (the list, the selection, file operations and what follows them) is tested
 without a window: `crate::support::test_support::app_on(dir)` makes an `App` on `egui::Context::default()`
