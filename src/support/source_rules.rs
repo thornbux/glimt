@@ -204,6 +204,7 @@ const RETIRED_NAMES: &[&str] = &[
     "undo_left",      // is_undo_remainder
     "move_held",      // move_lock
     "has_access",     // has_alt_text
+    "is_unlocked",    // take_lock_if_free
 ];
 
 /// The everyday words that 0.74.0's naming review retired, each in the file where it was retired.
@@ -256,7 +257,7 @@ const RETIRED_IN_FILE: &[(&str, &str)] = &[
     ("files/file_ops.rs", "taken"),         // name_in_the_way
     ("files/file_ops.rs", "touching"),      // background_paths
     ("files/journal.rs", "begin"),          // start_journal
-    ("files/journal.rs", "free"),           // is_unlocked
+    ("files/journal.rs", "free"),           // take_lock_if_free
     ("files/journal.rs", "interrupted"),    // cut_short_plans
     ("files/journal.rs", "linked"),         // is_linked
     ("files/journal.rs", "settle"),         // repair_cut_short, run_background_until
