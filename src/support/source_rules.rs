@@ -2109,8 +2109,10 @@ fn keys_answer_through_one_place() {
 /// `read_keys` wait while it says a dialog is open, and Esc goes to the dialog first. A modal
 /// left out of it would let a key under it run an action on the files while the dialog asks
 /// about them. A modal is named with `Id::unique("…")`, and its name, with `_` for a space or a
-/// dash, is a whole name in the list's code, such as "confirm-delete" for `confirm_delete`.
-/// Before, a part of a name counted, so a new modal named "confirm" passed on `confirm_delete`.
+/// dash, is the last name of a term of the list, such as "confirm-delete" for
+/// `self.dialogs.confirm_delete.is_some()`. Before, a part of a name counted, so a new modal
+/// named "confirm" passed on `confirm_delete`, and then any word did, so "folder" passed on
+/// `self.folder.asks_login()`.
 #[test]
 fn every_modal_is_in_modal_open() {
     let dialogs = code_lines(&source("ui/dialogs.rs"));
@@ -2132,20 +2134,34 @@ fn every_modal_is_in_modal_open() {
         egui::Modal::new(\n        egui::Id::unique(\"login\"),\n    );\n    \
         Modal::new(Id::unique(\"confirm-delete\"));\n    Modal::new(\n        \
         egui::Id::unique(\n            \"asks login\",\n        ),\n    );\n    \
-        Modal::new(id);\n}\n";
+        Modal::new(id);\n    Modal::new(Id::unique(\"folder\"));\n}\n";
     assert_eq!(
         modals_outside_in("a.rs", planted, list),
-        ["a.rs:2 (confirm)", "a.rs:3 (login)", "a.rs:12 ()"]
+        [
+            "a.rs:2 (confirm)",
+            "a.rs:3 (login)",
+            "a.rs:12 ()",
+            "a.rs:13 (folder)"
+        ]
     );
 }
 
-/// Returns each modal in `text`, the source of `file`, whose name is not a whole name in
-/// `list`, the code of `App::modal_open`, as "file:line (name)". A modal that is not named
-/// with `Id::unique("…")` is returned with an empty name. The call is read with its lines
-/// joined, so a call that rustfmt splits over several lines is still seen.
+/// Returns each modal in `text`, the source of `file`, whose name is not the last name of a
+/// `||` term of `list`, the code of `App::modal_open`, as "file:line (name)". A modal that is
+/// not named with `Id::unique("…")` is returned with an empty name. The call is read with its
+/// lines joined, so a call that rustfmt splits over several lines is still seen.
 fn modals_outside_in(file: &str, text: &str, list: &str) -> Vec<String> {
-    let names: Vec<&str> = list
-        .split(|c: char| !(c.is_alphanumeric() || c == '_'))
+    // Only the last name counts, such as `asks_login` in `self.folder.asks_login()`. A word
+    // before it, such as `folder` or `dialogs`, names what holds the dialog, not a dialog.
+    let names: Vec<&str> = (list.split("||"))
+        .map(|term| {
+            let term = term.trim_end_matches(|c: char| c == '}' || c.is_whitespace());
+            let term = term
+                .trim_end_matches(".is_some()")
+                .trim_end_matches(".is_empty()");
+            let term = term.trim_end_matches("()");
+            term.rsplit('.').next().unwrap_or_default()
+        })
         .collect();
     let lines = code_lines(text);
     let raw: Vec<&str> = text.lines().collect();

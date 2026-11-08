@@ -646,7 +646,8 @@ const MANUAL: &[(&str, &str)] = &[
          of them changes a file. run ACTION does an action by its name in your own keys, such \
          as glimt --remote run ZoomIn or run ThumbnailGrid; glimt --help lists the actions it \
          takes, which are those that change no file, sidecar, mark or collection, not even \
-         through a window you then click in, and it does nothing while a dialog asks you.\n\n\
+         through a window you then click in, and it does nothing while a dialog asks you or you \
+         type in a text field.\n\n\
          They reach only the Glimt windows of the same user on this computer, through a private \
          socket, never over the network; for another computer, run the command there (ssh). \
          Several can be told apart by name: start them with glimt --name left and glimt --name \

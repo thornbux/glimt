@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 
 /// Glimt's own folders, to back up, with their names in a backup: its settings, keyword tree,
 /// sort folders and themes (config), marks and stars (state), and collections, tools and
-/// decoders (data). Thumbnails are not: they are made again.
+/// added formats (data). Thumbnails are not: they are made again.
 pub fn own_folders() -> Vec<(&'static str, PathBuf)> {
     [
         ("config", xdg_dir("XDG_CONFIG_HOME", ".config", "glimt")),

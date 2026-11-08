@@ -262,7 +262,9 @@ impl crate::App {
             "title" => return self.set_window_title(ctx, ""),
             // Not while a dialog asks the user or a text field has the focus, as the keys are
             // not then either. An action could take the dialog's place (WindowTitle), or take
-            // the focus from the field the user types in (FocusSearch).
+            // the focus from the field the user types in (FocusSearch). Only `run` waits, as it
+            // stands for the keys. The named commands (next, open, select, …) are a remote
+            // control's buttons, which must not stop because a field kept the focus.
             _ if command.trim().starts_with("run ")
                 && (self.dialog_open() || ctx.text_edit_focused()) =>
             {
@@ -943,7 +945,8 @@ mod tests {
 
     /// A script's `run` does nothing while a text field has the focus, as the keys do nothing
     /// then. Before, `run FocusSearch` or `run Next` from a script took the focus from the
-    /// field the user typed in, or changed what the field was about.
+    /// field the user typed in, or changed what the field was about. The named commands still
+    /// act, as a remote control's buttons.
     #[test]
     fn run_does_nothing_while_a_text_field_has_the_focus() {
         let dir =
@@ -951,7 +954,7 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let (mut app, ctx) = app_on(&dir);
         app.list
-            .set_files(["a.png", "b.png"].map(Into::into).to_vec());
+            .set_files(["a.png", "b.png", "c.png"].map(Into::into).to_vec());
         let mut text = String::new();
         let mut field = None;
         for _ in 0..2 {
@@ -966,9 +969,11 @@ mod tests {
         app.remote_command(&ctx, "run Next");
         assert_eq!(app.list.shown(), 0);
         assert_eq!(ctx.memory(|m| m.focused()), field);
+        app.remote_command(&ctx, "next");
+        assert_eq!(app.list.shown(), 1);
         ctx.memory_mut(|m| m.surrender_focus(field.unwrap()));
         app.remote_command(&ctx, "run Next");
-        assert_eq!(app.list.shown(), 1);
+        assert_eq!(app.list.shown(), 2);
         std::fs::remove_dir_all(&dir).unwrap();
     }
 

@@ -63,10 +63,10 @@ A frozen name that fails a reader (0.74.0 renamed a few) is renamed only through
 old names, one for each kind, beside the code that reads it: `config::RENAMED_SETTINGS`,
 `config::RENAMED_STATE`, `actions::RENAMED_ACTIONS` (for `keys=` and `--remote run`),
 `remote::RENAMED_COMMANDS` and `tools::RENAMED_FOLDERS` (0.75.0's folders of tools and added
-formats, which Glimt opens and creates only under the new name). Glimt reads the old name too, forever, and writes only the new
-one; when a settings or state file holds both, the new one counts. The old line stays in the
-frozen file and the new name is added at its end, and the tests take an old name only when its
-table maps it to a name that is read now.
+formats, which Glimt creates only under the new name). Glimt reads the old name too, forever,
+and writes only the new one; when a settings or state file holds both, the new one counts. The
+old line stays in the frozen file and the new name is added at its end, and the tests take an
+old name only when its table maps it to a name that is read now.
 
 ## Language
 
@@ -496,7 +496,8 @@ its Print to File shows the PDF), full screen (an Inhibit call to the portal, an
 in `dbus-monitor`), Open With → Choose Application… (the chooser, cancelled), a video and a
 HEIC (the runtime's ffmpeg), File → Set as Wallpaper (the wallpaper portal), and a tool, which
 without the host permission says how to give it and with it runs; the AppImage, with a second window (Ctrl+N)
-that stays when the first one closes.
+that stays when the first one closes; Orca, which reads a notice shown twice aloud twice (an
+action refused twice, such as a setting changed under `--lock-settings`).
 
 The window's logic (the list, the selection, file operations and what follows them) is tested
 without a window: `crate::support::test_support::app_on(dir)` makes an `App` on `egui::Context::default()`

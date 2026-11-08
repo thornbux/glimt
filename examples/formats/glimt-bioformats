@@ -31,8 +31,8 @@ def bfconvert():
 
 
 def main(path):
-    # Glimt stops a format's program that takes too long with TERM: as an exit, so the folder below is
-    # removed and bfconvert stopped, not left in /tmp.
+    # Glimt stops a format's program that takes too long with TERM: as an exit, so the folder
+    # below is removed and bfconvert stopped, not left in /tmp.
     signal.signal(signal.SIGTERM, lambda *_: sys.exit(1))
     with tempfile.TemporaryDirectory(prefix="glimt-bioformats-") as out:
         made = subprocess.run(

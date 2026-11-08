@@ -9,7 +9,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 - `glimt --remote run ACTION` does nothing while a text field has the focus, as the keys do
   nothing then, so a script no longer takes the focus from the search field or a name being
-  typed, or shows another image under the keywords being typed.
+  typed. The named commands, such as `next` and `open`, still act, as a remote control's
+  buttons.
 - A screen reader reads out a notice again when it is given again with the same text, such as
   a second refused action; before, it heard only the first.
 
@@ -19,11 +20,15 @@ and versions follow [Semantic Versioning](https://semver.org/).
   ~/.local/share/glimt/tools (/usr/share/glimt/tools for the system). Decoder plugins, which
   let Glimt open more formats, are called formats, in ~/.local/share/glimt/formats. The old
   folders, plugins and decoders, still work and are always read; a desktop file of the same
-  name in the new folder comes first. The desktop files keep their format.
+  name in the new folder comes first. The desktop files keep their format. Edit → Tools →
+  Open the Tools Folder opens the old folder while there is no new one.
+- Added formats that take the same file ending are tried in the order of their names without
+  ".desktop", so raw.desktop now comes before raw-dcraw.desktop, which came first before.
 - The examples are in examples/tools and examples/formats (/usr/share/doc/glimt/examples/ in
   the packages), each desktop file named for the program it runs: describe.desktop runs
   glimt-describe, and the ImageMagick ones are dicom-imagemagick.desktop and
-  fits-imagemagick.desktop.
+  fits-imagemagick.desktop. A copy of a renamed example next to the old copy shows twice, as
+  in Edit → Tools: remove the old one.
 - Inside, the check that the file list is drawn only by its known views also watches the
   functions that draw one row or cell of it, which a new view could call directly.
 - Inside, the check that every modal dialog is in the one list of what is open compares the
