@@ -204,7 +204,12 @@ start() {
     xdotool windowfocus $WIN 2>/dev/null
     xdotool mousemove 800 400 2>/dev/null
 }
-key() { xdotool windowfocus $WIN 2>/dev/null; xdotool key "$@" 2>/dev/null; sleep 0.6; }
+# The window is raised as well as focused, as a window manager does: Xvfb has none, and eframe
+# runs no frame for a covered window, so a key sent to one would wait unread.
+key() {
+    xdotool windowraise $WIN 2>/dev/null; xdotool windowfocus $WIN 2>/dev/null
+    xdotool key "$@" 2>/dev/null; sleep 0.6
+}
 # A click on each text in turn (a menu, then its item), by the text, not by a place that every
 # change to the look would move: the test-hooks build's `--remote where` says where the text
 # was drawn, and xdotool clicks there. A text NEW does not show fails, as every check after it
