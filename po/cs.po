@@ -2340,8 +2340,8 @@ msgid "Custom window title (empty: \"image name - Glimt\"):"
 msgstr "Vlastní název okna (prázdné: „název obrázku - Glimt“):"
 
 #: src/ui/preferences.rs
-msgid "Fields: %name%, %path%, %folder% and %app%. A | starts a part, left out when its fields are empty."
-msgstr "Pole: %name%, %path%, %folder% a %app%. Znak | začíná část, která se vynechá, když jsou její pole prázdná."
+msgid "Fields: %name%, %path%, %folder%, %app% and %id%. A | starts a part, left out when its fields are empty."
+msgstr "Pole: %name%, %path%, %folder%, %app% a %id%. Znak | začíná část, která se vynechá, když jsou její pole prázdná."
 
 #: src/ui/actions.rs
 msgid "Set Window Title…"
@@ -2352,8 +2352,8 @@ msgid "Show File Names Under Thumbnails"
 msgstr "Zobrazit názvy souborů pod náhledy"
 
 #: src/main.rs
-msgid "Title of this window (%name%, %path%, %folder%, %app%; empty: as in Preferences):"
-msgstr "Název tohoto okna (%name%, %path%, %folder%, %app%; prázdné: jako v Předvolbách):"
+msgid "Title of this window (%name%, %path%, %folder%, %app%, %id%; empty: as in Preferences):"
+msgstr "Název tohoto okna (%name%, %path%, %folder%, %app%, %id%; prázdné: jako v Předvolbách):"
 
 #: src/metadata/xmp.rs
 msgid "{name} is a link: not written through"

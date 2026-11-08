@@ -579,7 +579,8 @@ const MANUAL: &[(&str, &str)] = &[
          and the other info panel labels, | between parts that are left out when empty, \\n for a \
          new line, %% for a %.\n\n\
          Preferences → Custom window title makes the window's title from a template of %name%, \
-         %path%, %folder% and %app%, such as %app%: %folder%. Window → Set Window Title… gives \
+         %path%, %folder%, %app% and %id% (what glimt --name or --remote reaches it by), such as \
+         %app%: %folder%. Window → Set Window Title… gives \
          this window a template of its own until it closes, as glimt --remote title does.\n\n\
          Moving the pointer to the bottom shows a film strip of the images around the shown one; a \
          click on one shows it. Thumbnails are read from ~/.cache/thumbnails, which the file \
@@ -953,8 +954,8 @@ const DIFFERENCES: &[(&str, &str, &str)] = &[
     ),
     (
         "Window title",
-        "\"name - Glimt\", or a template of %name%, %path%, %folder% and \
-         %app% (Preferences), or one window's own (Window → Set Window Title…)",
+        "\"name - Glimt\", or a template of %name%, %path%, %folder%, \
+         %app% and %id% (Preferences), or one window's own (Window → Set Window Title…)",
         "The image name and Geeqie; no title of the user's own",
     ),
     (

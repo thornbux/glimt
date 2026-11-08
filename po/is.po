@@ -2318,8 +2318,8 @@ msgid "Custom window title (empty: \"image name - Glimt\"):"
 msgstr "Eigin gluggatitill (tómt: „heiti myndar - Glimt“):"
 
 #: src/ui/preferences.rs
-msgid "Fields: %name%, %path%, %folder% and %app%. A | starts a part, left out when its fields are empty."
-msgstr "Reitir: %name%, %path%, %folder% og %app%. | byrjar hluta, sem er sleppt þegar reitir hans eru tómir."
+msgid "Fields: %name%, %path%, %folder%, %app% and %id%. A | starts a part, left out when its fields are empty."
+msgstr "Reitir: %name%, %path%, %folder%, %app% og %id%. | byrjar hluta, sem er sleppt þegar reitir hans eru tómir."
 
 #: src/ui/actions.rs
 msgid "Set Window Title…"
@@ -2330,8 +2330,8 @@ msgid "Show File Names Under Thumbnails"
 msgstr "Sýna skráarheiti undir smámyndum"
 
 #: src/main.rs
-msgid "Title of this window (%name%, %path%, %folder%, %app%; empty: as in Preferences):"
-msgstr "Titill þessa glugga (%name%, %path%, %folder%, %app%; tómt: eins og í kjörstillingum):"
+msgid "Title of this window (%name%, %path%, %folder%, %app%, %id%; empty: as in Preferences):"
+msgstr "Titill þessa glugga (%name%, %path%, %folder%, %app%, %id%; tómt: eins og í kjörstillingum):"
 
 #: src/metadata/xmp.rs
 msgid "{name} is a link: not written through"

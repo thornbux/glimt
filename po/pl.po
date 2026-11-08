@@ -2329,8 +2329,8 @@ msgid "Custom window title (empty: \"image name - Glimt\"):"
 msgstr "Własny tytuł okna (puste: «nazwa obrazu - Glimt»):"
 
 #: src/ui/preferences.rs
-msgid "Fields: %name%, %path%, %folder% and %app%. A | starts a part, left out when its fields are empty."
-msgstr "Pola: %name%, %path%, %folder% i %app%. Znak | zaczyna część, pomijaną, gdy jej pola są puste."
+msgid "Fields: %name%, %path%, %folder%, %app% and %id%. A | starts a part, left out when its fields are empty."
+msgstr "Pola: %name%, %path%, %folder%, %app% i %id%. Znak | zaczyna część, pomijaną, gdy jej pola są puste."
 
 #: src/ui/actions.rs
 msgid "Set Window Title…"
@@ -2341,8 +2341,8 @@ msgid "Show File Names Under Thumbnails"
 msgstr "Pokaż nazwy plików pod miniaturami"
 
 #: src/main.rs
-msgid "Title of this window (%name%, %path%, %folder%, %app%; empty: as in Preferences):"
-msgstr "Tytuł tego okna (%name%, %path%, %folder%, %app%; puste: jak w Preferencjach):"
+msgid "Title of this window (%name%, %path%, %folder%, %app%, %id%; empty: as in Preferences):"
+msgstr "Tytuł tego okna (%name%, %path%, %folder%, %app%, %id%; puste: jak w Preferencjach):"
 
 #: src/metadata/xmp.rs
 msgid "{name} is a link: not written through"

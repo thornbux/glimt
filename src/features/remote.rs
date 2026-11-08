@@ -48,7 +48,7 @@ pub const COMMANDS: &[(&str, &str)] = &[
     ),
     (
         "title [TEXT…]",
-        "This window's title, a template as in Preferences (%name%, %path%, %folder%, %app%); without the text, the one in Preferences",
+        "This window's title, a template as in Preferences (%name%, %path%, %folder%, %app%, %id%); without the text, the one in Preferences",
     ),
     ("quit", "Close Glimt"),
     (
@@ -582,8 +582,9 @@ fn was_not_done() -> bool {
     WAS_NOT_DONE.load(std::sync::atomic::Ordering::Relaxed)
 }
 
-/// The socket's name, which is the --name, or the process ID.
-fn socket_id() -> &'static str {
+/// The ID that this Glimt listens as, which is its --name or else its process ID. The %id% of
+/// the window title shows it.
+pub fn socket_id() -> &'static str {
     given_name().unwrap_or_else(instance_id)
 }
 

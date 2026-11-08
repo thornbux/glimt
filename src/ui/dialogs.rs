@@ -508,8 +508,8 @@ impl crate::App {
                 Prompt::RenameFolder => tr("New folder name:").to_owned(),
                 Prompt::SaveTheme => tr("Name of the new theme:").to_owned(),
                 Prompt::WindowTitle => tr(
-                    "Title of this window (%name%, %path%, %folder%, %app%; empty: as in \
-                     Preferences):",
+                    "Title of this window (%name%, %path%, %folder%, %app%, %id%; empty: as \
+                     in Preferences):",
                 )
                 .to_owned(),
                 Prompt::RenameCollection => tr("New name of the collection:").to_owned(),

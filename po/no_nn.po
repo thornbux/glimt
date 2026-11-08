@@ -2329,8 +2329,8 @@ msgid "Custom window title (empty: \"image name - Glimt\"):"
 msgstr "Eigen vindaugstittel (tom: «biletnamn - Glimt»):"
 
 #: src/ui/preferences.rs
-msgid "Fields: %name%, %path%, %folder% and %app%. A | starts a part, left out when its fields are empty."
-msgstr "Felt: %name%, %path%, %folder% og %app%. Ein | startar ein del, som blir utelaten når felta i han er tomme."
+msgid "Fields: %name%, %path%, %folder%, %app% and %id%. A | starts a part, left out when its fields are empty."
+msgstr "Felt: %name%, %path%, %folder%, %app% og %id%. Ein | startar ein del, som blir utelaten når felta i han er tomme."
 
 #: src/ui/actions.rs
 msgid "Set Window Title…"
@@ -2341,8 +2341,8 @@ msgid "Show File Names Under Thumbnails"
 msgstr "Vis filnamn under miniatyrbilete"
 
 #: src/main.rs
-msgid "Title of this window (%name%, %path%, %folder%, %app%; empty: as in Preferences):"
-msgstr "Tittel på dette vindauget (%name%, %path%, %folder%, %app%; tom: som i Innstillingar):"
+msgid "Title of this window (%name%, %path%, %folder%, %app%, %id%; empty: as in Preferences):"
+msgstr "Tittel på dette vindauget (%name%, %path%, %folder%, %app%, %id%; tom: som i Innstillingar):"
 
 #: src/metadata/xmp.rs
 msgid "{name} is a link: not written through"
