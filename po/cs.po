@@ -837,6 +837,10 @@ msgid "There already, so they get only the images they lack: {names}."
 msgstr "Už existují, takže dostanou jen obrázky, které jim chybí: {names}."
 
 #: src/metadata/lightroom.rs
+msgid "Not found and left out: {count}. Import again once their drive is mounted."
+msgstr "Nenalezeno a vynecháno: {count}. Importujte znovu, až bude jejich disk připojen."
+
+#: src/metadata/lightroom.rs
 msgid "Where the catalog's folders are now (empty: left out):"
 msgstr "Kde jsou složky katalogu nyní (prázdné: vynechat):"
 

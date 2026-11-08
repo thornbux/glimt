@@ -42,7 +42,10 @@ and versions follow [Semantic Versioning](https://semver.org/).
   and could later show another file that took that name.
 - Import Lightroom Catalog takes only the images that are there now. The stars of a photo
   deleted long ago no longer wait on its name for the next photo of that name, and a catalog
-  from elsewhere can no longer have a sidecar written beside a file that is no image.
+  from elsewhere can no longer have a sidecar written beside a file that is no image. It looks
+  for them in the background, so the window does not stand still for a catalog on a share,
+  and says how many it did not find, so that their drive can be mounted and the import done
+  again.
 - A JPEG whose EXIF orientation is not one of the eight values is turned from upright when its
   orientation is saved, as the view shows it. Before, a value of 9 or more was taken as 8, and
   the saved file showed another turn than the view.
@@ -51,11 +54,13 @@ and versions follow [Semantic Versioning](https://semver.org/).
 - Edit → Undo (Ctrl+Z) pressed while a delete to the trash or a move is still running says to
   try again in a moment, instead of undoing the operation before it.
 - Copy Path puts a backslash before `$`, `` ` ``, `"` and `\` in the quoted path, so a file
-  name such as `$(command).jpg` pasted into a terminal runs nothing.
+  name such as `$(command).jpg` pasted into a terminal runs nothing. A `!` goes in single
+  quotes, `"a"'!'"b.jpg"`, so bash and zsh do not put an earlier command line in its place.
 - Rename and Rename Many refuse a new name that is another file's sidecar, such as `a.jpg.xmp`
   beside `a.jpg`, which would have made the renamed image that file's sidecar.
 - A last folder whose name holds a line break is not remembered, rather than written into the
-  window state as two lines.
+  window state as two lines. A keyword with a line break, which a sidecar can hold, is not put
+  into the keyword tree, whose file would read it back as two.
 - Two backups made at the same moment each get a folder of their own.
 - A program Glimt runs for its answer is no longer signalled by its time limit after it has
   ended, when a program it left behind keeps its errors open.
@@ -73,20 +78,22 @@ and versions follow [Semantic Versioning](https://semver.org/).
   every argument is.
 - An edit of the keywords field in the info panel changes only the keywords added or taken out
   there. Keywords that another window, a Lightroom import or a background job wrote to the
-  shown image after the panel read it are kept, and so is a keyword that holds a comma.
+  shown image after the panel read it are kept, and so is a keyword that holds a comma. Such a
+  keyword ("Smith, John") is taken out or changed whole when it is edited in the field.
 - A keyword hierarchy that only the image holds, as a JPEG exported from Lightroom, goes whole
   into the sidecar that adding a keyword makes, so its box in the keyword tree stays ticked and
   other programs still read it as a hierarchy. Taking Oslo out of Places|Norway|Oslo keeps
   Places|Norway, instead of writing Norway as a keyword at the top of the tree.
 - A keyword taken out or added in Glimt shows so in digiKam. digiKam reads its own keyword
-  lists (digiKam:TagsList, and those of Microsoft, MediaPro and ACDSee) before dc:subject, so
-  Glimt now takes them out when it writes the keywords, and keeps their hierarchy in
-  lr:hierarchicalSubject.
+  list (digiKam:TagsList) and Microsoft's before dc:subject, so Glimt now writes them again
+  from the keyword tree it writes, also over the image's own. A hierarchy that only one of
+  these lists holds is kept and written into each. An edit of the comment alone leaves every
+  keyword list as it is, and MediaPro's catalog sets and ACDSee's categories stay.
 - A comment, alt text or extended description in several languages keeps them all when it is
   edited. The panel shows the default language (x-default), or else the first, and an edit
   replaces only that one; before, it showed the first and wrote it alone as the default.
-- A control character in a comment or keyword, such as a form feed pasted from a PDF, is left
-  out of the sidecar. Written there, it made the sidecar unreadable for darktable and digiKam.
+- A control character in a comment or keyword, such as a form feed pasted from a PDF, or the
+  noncharacter U+FFFE or U+FFFF, is left out of the sidecar. Written there, it made the sidecar unreadable for darktable and digiKam.
 - A sidecar whose namespace is declared with spaces around the equals sign, or whose first
   description has a '>' in a value, keeps being XML when keywords or stars are written. An old
   packet's xap:Rating is changed instead of getting a second rating beside it.

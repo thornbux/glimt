@@ -320,6 +320,9 @@ of that part. The exceptions are the tables of one arm per action (`Action::engl
   other work changes its files), and its function with that entry's name in `IN_CONTRACT`.
   `every_file_operation_is_in_the_contract` fails until it is there or in `OUTSIDE` with the
   reason it is not, and also when a name in `IN_CONTRACT` has no entry in `contract_ops()`.
+  One that leaves an Undo takes `undo_on_the_way` when it starts and holds it in its thread
+  until its report is sent, so Ctrl+Z waits for it
+  (`source_rules::operations_that_leave_an_undo_make_undo_wait`).
 - **State for a feature:** a field in the struct of the part it belongs to (`self.slideshow`,
   `self.folder`, `self.file_operations`, …), or a struct of its own in the feature's module held by one
   field in `App`; never loose fields in `App` (`source_rules::app_stays_small`). The fields of

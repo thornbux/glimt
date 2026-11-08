@@ -538,11 +538,12 @@ impl crate::App {
         }
         // Only what was edited is sent: the keywords added and taken out, not the whole list.
         // The writer applies them to the file as it is then, so keywords that another window or
-        // a background job set since the panel read it stay. Both sides are split at commas the
-        // same way, so a keyword that holds one ("Smith, John") and was not touched stays whole.
+        // a background job set since the panel read it stay. The change is made from the saved
+        // keywords themselves, so one that holds a comma ("Smith, John") stays whole when it was
+        // not touched, and is taken out whole when it was.
         let keywords = (edit.keywords != edit.saved.keywords_text()).then(|| {
             KeywordChange::between(
-                &KeywordsAndComment::parse_keywords(&edit.saved.keywords_text()),
+                &edit.saved.keywords,
                 &KeywordsAndComment::parse_keywords(&edit.keywords),
             )
         });

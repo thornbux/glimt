@@ -3,6 +3,7 @@
 //! lines. They follow files that Glimt copies, moves and renames, and go with those it deletes;
 //! files renamed or moved outside Glimt lose them.
 
+use crate::files::config::fits_on_a_line;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
@@ -268,10 +269,9 @@ fn apply_edit(map: &mut HashMap<PathBuf, (u8, u8)>, edit: &Edit) {
 fn to_text(map: &HashMap<PathBuf, (u8, u8)>) -> Vec<u8> {
     let mut text = Vec::new();
     for (path, (bits, stars)) in map {
-        let path = path.as_os_str().as_encoded_bytes();
-        if !path.contains(&b'\n') {
+        if fits_on_a_line(path) {
             text.extend(format!("{bits}\t{stars}\t").as_bytes());
-            text.extend(path);
+            text.extend(path.as_os_str().as_encoded_bytes());
             text.push(b'\n');
         }
     }
@@ -306,8 +306,14 @@ fn write(file: &Path, changes: &[Edit]) {
         // Under the lock: no other window wrote since this one read or wrote it.
         let ours = known_stamps().get(file) == Some(&file_stamp(file));
         let mut map = parse(bytes);
+        let before = map.clone();
         for change in changes {
             apply_edit(&mut map, change);
+        }
+        // An edit that changes no mark, as a move of files without marks, leaves the file as
+        // it is. So it is not written again, and the other windows do not read it again.
+        if map == before {
+            return (bytes.to_vec(), ours);
         }
         let mut text = to_text(&map);
         text.extend(unread_lines(bytes));
@@ -565,6 +571,30 @@ mod tests {
             assert!(text.contains(line), "{line:?} not in {text:?}");
         }
         super::TEST_FILE.with(|f| *f.borrow_mut() = None);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A move of a file without marks leaves the marks file alone: it is not written again,
+    /// so its stamp stays and the other windows do not read it again. Before, every move,
+    /// rename and delete wrote the whole file.
+    #[test]
+    fn an_edit_that_changes_nothing_writes_nothing() {
+        let dir =
+            std::env::temp_dir().join(format!("glimt-test-marks-same-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("marks");
+        std::fs::write(&file, "1\t0\t/a.jpg\n").unwrap();
+        let stamp = || {
+            use std::os::unix::fs::MetadataExt;
+            let meta = std::fs::metadata(&file).unwrap();
+            (meta.ino(), meta.mtime_nsec())
+        };
+        let before = stamp();
+        let pairs = vec![("/b.jpg".into(), "/c.jpg".into())];
+        super::write(&file, &[super::Edit::Follow(pairs, false)]);
+        super::write(&file, &[super::Edit::Forget(vec!["/d.jpg".into()])]);
+        assert_eq!(stamp(), before);
+        assert_eq!(std::fs::read_to_string(&file).unwrap(), "1\t0\t/a.jpg\n");
         std::fs::remove_dir_all(dir).unwrap();
     }
 

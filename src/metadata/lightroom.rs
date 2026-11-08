@@ -8,12 +8,12 @@ use crate::metadata::marks;
 use crate::model::listing::{Types, is_listed};
 use crate::support::format::count;
 use crate::support::lang::tr;
-use crate::support::threads::{Receiving, Working};
+use crate::support::threads::{Receiving, Took, Working};
 use crate::{metadata::xmp, model::collections, tf};
 use eframe::egui;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
-use std::sync::mpsc;
+use std::sync::{Arc, mpsc};
 
 /// The tables `QUERY` reads, in lower case as SQLite matches names.
 const TABLES: &str = "'aglibraryrootfolder', 'adobe_images', 'aglibraryfile', 'aglibraryfolder', \
@@ -166,11 +166,11 @@ impl Catalog {
         best.into_iter().collect()
     }
 
-    /// What importing `catalog` with its root folders `now` would do. Made once, when Next is
-    /// clicked: it goes through every image of the self.
-    // shortcut: made in the window's thread, with a look at each file, a short pause for a
-    // catalog of some 100,000 images; in a thread with the busy pointer when that is too long.
-    pub(crate) fn plan(&self, now: &[String], stars_here: impl Fn(&Path) -> u8) -> Plan {
+    /// What importing the catalog with its root folders `now` would do. It is made once, when
+    /// Next is clicked, in a thread of its own (`start_planning`), because it looks at every
+    /// image of the catalog on disk. How many stars differ from Glimt's is counted in the window
+    /// when it comes (`differing_stars`).
+    pub(crate) fn plan(&self, now: &[String]) -> Plan {
         let now: Vec<PathBuf> = now.iter().map(|s| typed_root_folder(s)).collect();
         let mut paths = self.paths(&now);
         // Only the images that are there now get stars, keywords and a place in a collection.
@@ -183,7 +183,9 @@ impl Catalog {
             videos: true,
             hidden: true,
         };
-        paths.retain(|_, path| is_listed(path, every_type) && path.is_file());
+        paths.retain(|_, path| is_listed(path, every_type));
+        let named = paths.len();
+        paths.retain(|_, path| path.is_file());
         let collections = self.collections(&paths);
         let there: HashSet<String> = collections::saved_collections()
             .into_iter()
@@ -197,22 +199,14 @@ impl Catalog {
         let stars = self.stars(&paths);
         #[cfg(not(feature = "marks"))]
         let stars = Vec::new();
-        #[cfg(feature = "marks")]
-        let differing_stars = (stars.iter())
-            .filter(|(p, n)| ![0, *n].contains(&stars_here(p)))
-            .count();
-        #[cfg(not(feature = "marks"))]
-        let differing_stars = {
-            let _ = stars_here;
-            0
-        };
         Plan {
+            not_found: named - paths.len(),
             collections,
             existing,
             keywords: self.keyword_paths(),
             image_keywords: self.image_keywords(&paths),
             stars,
-            differing_stars,
+            differing_stars: 0,
             takes_lightroom_stars: false,
         }
     }
@@ -221,9 +215,11 @@ impl Catalog {
 /// A Lightroom catalog read, the folders where its root folders are now, and once Next is
 /// clicked what importing it will do.
 pub(crate) struct Import {
-    catalog: Catalog,
+    catalog: Arc<Catalog>,
     root_folders_now: Vec<String>,
     plan: Option<Plan>,
+    /// The plan while its thread makes it.
+    planning: Receiving<Plan>,
 }
 
 impl Import {
@@ -232,14 +228,18 @@ impl Import {
     pub(crate) fn new(catalog: Catalog) -> Self {
         let root_folders_now = roots_now(&catalog);
         Import {
-            catalog,
+            catalog: Arc::new(catalog),
             root_folders_now,
             plan: None,
+            planning: Receiving::none(),
         }
     }
 }
 
 pub(crate) struct Plan {
+    /// How many images of the catalog are not there now, so that they are left out. Their
+    /// drive may not be mounted.
+    not_found: usize,
     collections: Vec<(String, Vec<PathBuf>)>,
     /// The names of those that are there already.
     existing: Vec<String>,
@@ -275,6 +275,7 @@ impl crate::App {
         let Some(mut lr) = self.lightroom.take() else {
             return;
         };
+        self.take_plan_of(&mut lr);
         let (mut next, mut back, mut go) = (false, false, false);
         let modal = egui::Modal::new(egui::Id::unique("lightroom")).show(ctx, |ui| {
             ui.strong(tr("Import from Lightroom"));
@@ -306,7 +307,9 @@ impl crate::App {
                          stars to the marks. Smart collections are left out.",
                     ));
                     ui.horizontal(|ui| {
-                        next = crate::ui::menus::button(ui, tr("Next")).clicked();
+                        // Next is not taken again while the plan is being made.
+                        next = crate::ui::menus::button(ui, tr("Next")).clicked()
+                            && lr.planning.is_none();
                         if crate::ui::menus::button(ui, tr("Cancel (Esc)")).clicked() {
                             ui.close();
                         }
@@ -319,6 +322,13 @@ impl crate::App {
                         keywords = count(plan.keywords.len(), "keyword"),
                         images = count(plan.stars.len(), "image")
                     ));
+                    if plan.not_found > 0 {
+                        ui.label(tf!(
+                            "Not found and left out: {count}. Import again once their drive is \
+                             mounted.",
+                            count = count(plan.not_found, "image")
+                        ));
+                    }
                     if !plan.existing.is_empty() {
                         let mut names = plan.existing[..plan.existing.len().min(5)].join(", ");
                         if plan.existing.len() > 5 {
@@ -366,11 +376,7 @@ impl crate::App {
             }
         });
         if next {
-            #[cfg(feature = "marks")]
-            let stars_here = |p: &Path| self.marks.get(p).1;
-            #[cfg(not(feature = "marks"))]
-            let stars_here = |_: &Path| 0;
-            lr.plan = Some(lr.catalog.plan(&lr.root_folders_now, stars_here));
+            self.start_planning(ctx, &mut lr);
         }
         if back {
             lr.plan = None;
@@ -379,6 +385,47 @@ impl crate::App {
             Some(plan) if go => self.import_lightroom(ctx, plan),
             _ if !modal.should_close() => self.lightroom = Some(lr),
             _ => {}
+        }
+    }
+
+    /// Makes the plan of `lr` in a thread of its own, with the busy pointer, because it looks
+    /// at each image of the catalog on disk, which takes long on a share. The dialog takes it
+    /// when it comes.
+    fn start_planning(&mut self, ctx: &egui::Context, lr: &mut Import) {
+        let (tx, rx) = mpsc::channel();
+        let (catalog, now) = (lr.catalog.clone(), lr.root_folders_now.clone());
+        let (ctx, pointer) = (ctx.clone(), Working::new(&self.busy));
+        std::thread::spawn(move || {
+            let _ = tx.send(catalog.plan(&now));
+            drop(pointer);
+            ctx.request_repaint();
+        });
+        lr.planning = Receiving::of(rx);
+    }
+
+    /// Takes the plan of `lr` when its thread has made it, with the stars that differ counted.
+    fn take_plan_of(&mut self, lr: &mut Import) {
+        match lr.planning.take() {
+            Took::Answer(mut plan) => {
+                plan.differing_stars = self.differing_stars(&plan.stars);
+                lr.plan = Some(plan);
+            }
+            Took::Gone => self.tell_background_stopped(tr("Import from Lightroom")),
+            Took::Nothing => {}
+        }
+    }
+
+    /// Returns how many of the images in `stars` have other stars in Glimt than in Lightroom.
+    /// An image without stars in Glimt does not count.
+    fn differing_stars(&self, stars: &[(PathBuf, u8)]) -> usize {
+        #[cfg(feature = "marks")]
+        return (stars.iter())
+            .filter(|(p, n)| ![0, *n].contains(&self.marks.get(p).1))
+            .count();
+        #[cfg(not(feature = "marks"))]
+        {
+            let _ = stars;
+            0
         }
     }
 
@@ -735,13 +782,46 @@ mod tests {
             "w\x1f12\x1f30\x1f\x1f".to_owned(),
         ];
         let catalog = super::parse(rows.join("\x1e").as_bytes());
-        let plan = catalog.plan(&[dir.display().to_string()], |_| 0);
+        let plan = catalog.plan(&[dir.display().to_string()]);
         let a = dir.join("a.jpg");
         assert_eq!(plan.collections, [("Trip".to_owned(), vec![a.clone()])]);
         let with_keywords: Vec<&PathBuf> = plan.image_keywords.iter().map(|k| &k.0).collect();
         assert_eq!(with_keywords, [&a]);
         #[cfg(feature = "marks")]
         assert_eq!(plan.stars, [(a.clone(), 4)]);
+        // The photo that is gone is told, so its drive can be mounted and the import done again.
+        assert_eq!(plan.not_found, 1);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// The plan is made in a thread of its own, which looks at each image on disk, and the
+    /// window counts the stars that differ when it comes. Before, Next made it in the window's
+    /// thread, which stood still for a catalog of photos on a share.
+    #[test]
+    fn the_plan_is_made_in_the_background() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-lrthread-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let a = dir.join("a.jpg");
+        std::fs::write(&a, b"").unwrap();
+        let rows = [
+            format!("r\x1f1\x1f{}/\x1f\x1f", dir.display()),
+            "i\x1f10\x1f1\x1fa.jpg\x1f4".to_owned(),
+        ];
+        let (mut app, ctx) = crate::support::test_support::app_on(&dir);
+        #[cfg(feature = "marks")]
+        app.marks.rate(std::slice::from_ref(&a), 2);
+        let mut lr = super::Import::new(super::parse(rows.join("\x1e").as_bytes()));
+        lr.root_folders_now = vec![dir.display().to_string()];
+        app.start_planning(&ctx, &mut lr);
+        assert!(lr.plan.is_none() && lr.planning.is_some());
+        let took = std::time::Instant::now();
+        while lr.plan.is_none() {
+            assert!(took.elapsed().as_secs() < 5, "no plan came");
+            std::thread::sleep(std::time::Duration::from_millis(10));
+            app.take_plan_of(&mut lr);
+        }
+        let plan = lr.plan.unwrap();
+        assert_eq!(plan.differing_stars, usize::from(cfg!(feature = "marks")));
         std::fs::remove_dir_all(dir).unwrap();
     }
 

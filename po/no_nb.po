@@ -837,6 +837,10 @@ msgid "There already, so they get only the images they lack: {names}."
 msgstr "Finnes allerede, så de får bare bildene de mangler: {names}."
 
 #: src/metadata/lightroom.rs
+msgid "Not found and left out: {count}. Import again once their drive is mounted."
+msgstr "Ikke funnet og utelatt: {count}. Importer igjen når disken deres er montert."
+
+#: src/metadata/lightroom.rs
 msgid "Where the catalog's folders are now (empty: left out):"
 msgstr "Hvor katalogens mapper er nå (tom: utelates):"
 
