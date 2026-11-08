@@ -110,11 +110,12 @@ and versions follow [Semantic Versioning](https://semver.org/).
   bytes when the tree changes, and the rest of the tree shows at the start instead of none.
 - An SVG made to take gigabytes of memory, or to keep drawing for hours, no longer ends Glimt
   or keeps a decoder busy for good. SVGs are drawn in a process of their own, which may take
-  four times the picture it draws and 256 MB besides, and 30 seconds, and one that needs more
-  is told as not shown. The process also ends with Glimt, when Glimt quits or is killed while
-  it draws, and at 30 seconds of processor time of its own. A zoom to 100 % draws an SVG at the size the status bar gives it, not
-  at the largest size the graphics card takes, so an icon no longer takes 256 MB. The system's
-  fonts are read once for all of them, not again for each SVG with text.
+  four times the picture it draws and 512 MB besides, and 30 seconds, and one that needs more
+  is told as not shown. So that a photo linked or embedded in an SVG fits there, an SVG shows
+  linked pictures of at most 32 megapixels each and 96 MB of files together, where it took
+  256 MB of them before. The process also ends with Glimt, when Glimt quits or is killed while
+  it draws, and at 30 seconds of processor time of its own. The system's fonts are read once
+  for all of them, not again for each SVG with text.
 - The images decoded at the same time (the view's, the thumbnails, Print and Check Images) take
   at most 2 GB together. A folder of images that each claim nearly the limit of one decode no
   longer takes gigabytes at once; such an image waits until there is room. The images take
@@ -122,8 +123,9 @@ and versions follow [Semantic Versioning](https://semver.org/).
   before the thumbnails and the images read ahead. Glimt's own logo in About takes nothing
   from them, so About no longer waits for a large image being decoded.
 - An SVG shows only the pictures in its own folder or below it, as a browser shows an SVG used
-  as an image, not a picture named by its whole path, through `..` or through a link that
-  leads out of the folder, as an archive may unpack one.
+  as an image, not a picture named by its whole path, through `..` or through a link, as an
+  archive may unpack one. A link is not followed even to see where it leads, so a link to a
+  network share does not mount it.
 - A thumbnail in the shared cache that is larger than its size (128 or 256 pixels), as another
   program may write one, is made again rather than used at its size.
 - A file whose thumbnail runs out of time twice (a video or SVG made to stall) is marked as

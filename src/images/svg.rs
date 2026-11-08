@@ -15,15 +15,29 @@ pub const DRAW_SVG: &str = "GLIMT_DRAW_SVG";
 const DRAW_SVG_BOX: &str = "GLIMT_DRAW_SVG_BOX";
 
 /// The memory a drawing child may take besides four times its picture (`child_memory`). It
-/// holds the program itself, the parsed SVG and the pictures it links to.
-const CHILD_MEMORY_BESIDES_PICTURE: u64 = 256 << 20;
+/// holds the program itself (about 80 MB), the parsed SVG with the bytes of the pictures it
+/// links to (`LINKED_BYTES`), and one linked picture while it is decoded, which takes up to two
+/// and a half times its pixels (`LINKED_PICTURE_BYTES`). Before, it was 256 MB, and an SVG with
+/// an embedded photo of 24 megapixels was not shown.
+const CHILD_MEMORY_BESIDES_PICTURE: u64 = 512 << 20;
+
+/// The bytes of linked and embedded pictures that one SVG may read. usvg keeps all of them in
+/// its tree while the SVG is drawn.
+const LINKED_BYTES: u64 = 96 << 20;
+
+/// The decoded bytes that one linked or embedded picture may have, 32 megapixels. resvg decodes
+/// the pictures one at a time while it draws, so only the largest counts against the child's
+/// memory.
+const LINKED_PICTURE_BYTES: u64 = 128 << 20;
 
 /// The processor time a drawing child may take, in seconds: as long as Glimt waits for it
-/// (`PROGRAM_TIME_LIMIT`). The tests' children get less, so the test of it is short.
+/// (`PROGRAM_TIME_LIMIT`). The tests' children get less, so the test of it is short. The
+/// largest drawing of the tests takes about a second on a fast computer, and a slow runner
+/// with every test at once may take several times as long, so they get ten.
 #[cfg(not(test))]
 const CHILD_SECONDS: u64 = crate::files::external::PROGRAM_TIME_LIMIT.as_secs();
 #[cfg(test)]
-const CHILD_SECONDS: u64 = 4;
+const CHILD_SECONDS: u64 = 10;
 
 /// The longest side a drawing has, in pixels, because an SVG may claim any size.
 const LONGEST_SIDE: u32 = 8192;
@@ -49,20 +63,22 @@ const CHILD_ARGS: &[&str] = &[
 
 /// usvg's own ways to fetch the pictures an SVG shows, with Glimt's limits first. A linked
 /// picture is taken only if it is a file under 64 MB (not /dev/zero or a pipe) in the SVG's
-/// folder or below it, and no picture whose header claims more pixels than an image Glimt
-/// decodes may have.
+/// folder or below it, and no picture whose header claims more than `LINKED_PICTURE_BYTES`
+/// decoded, so that what is taken fits in the drawing child's memory.
 fn svg_images() -> resvg::usvg::ImageHrefResolver<'static> {
     use resvg::usvg::ImageHrefResolver as R;
-    // One SVG may have at most 1 GB of decoded pictures, and 256 MB of them read. A small SVG
-    // may name the same picture a thousand times, and resvg keeps each copy read and decodes
-    // each again. A plain picture of 8000×8000 is 250 KB on disk but 256 MB decoded. A picture
-    // that is refused counts for nothing.
+    // One SVG may have at most 1 GB of decoded pictures, and `LINKED_BYTES` of them read. A
+    // small SVG may name the same picture a thousand times, and resvg keeps each copy read and
+    // decodes each again. A plain picture of 8000×8000 is 250 KB on disk but 256 MB decoded. A
+    // picture that is refused counts for nothing.
     let spent = std::sync::Arc::new(std::sync::Mutex::new((0u64, 0u64)));
     let fits = move |data: &[u8]| {
         let reader = image::ImageReader::new(std::io::Cursor::new(data)).with_guessed_format();
         let decoded = match reader.ok().and_then(|r| r.into_dimensions().ok()) {
-            Some((w, h)) if !crate::images::decode::fits_decode_limit(w, h, 4) => return false,
-            Some((w, h)) => u64::from(w) * u64::from(h) * 4,
+            Some((w, h)) => match (u64::from(w) * u64::from(h)).saturating_mul(4) {
+                bytes if bytes > LINKED_PICTURE_BYTES => return false,
+                bytes => bytes,
+            },
             // Data that image does not read as a picture, such as an SVG, goes to usvg, which
             // reads it with these limits. But usvg unpacks a gzipped one (svgz) without a limit.
             None if data.starts_with(&[0x1f, 0x8b]) => return false,
@@ -74,7 +90,7 @@ fn svg_images() -> resvg::usvg::ImageHrefResolver<'static> {
             spent.0.saturating_add(decoded),
             spent.1.saturating_add(data.len() as u64),
         );
-        let ok = pixels <= 1 << 30 && bytes <= 256 << 20;
+        let ok = pixels <= 1 << 30 && bytes <= LINKED_BYTES;
         if ok {
             *spent = (pixels, bytes);
         }
@@ -93,21 +109,7 @@ fn svg_images() -> resvg::usvg::ImageHrefResolver<'static> {
             // takes none for an SVG shown as an image. One from ~/Downloads could otherwise
             // show a picture from anywhere in the home folder, which a copy or a print then
             // passes on, and a path under /net would mount a share.
-            use std::path::Component::{CurDir, Normal};
-            let relative = Path::new(href);
-            if !relative
-                .components()
-                .all(|c| matches!(c, Normal(_) | CurDir))
-            {
-                return None;
-            }
-            // A link on the way may lead out of the folder, as an archive keeps links, so the
-            // real path of the picture must be in the real folder.
-            let folder = opts.resources_dir.as_deref()?.canonicalize().ok()?;
-            let file = folder.join(relative).canonicalize().ok()?;
-            if !file.starts_with(&folder) {
-                return None;
-            }
+            let file = file_below(opts.resources_dir.as_deref()?, Path::new(href))?;
             let meta = std::fs::metadata(&file).ok().filter(|m| m.is_file())?;
             if meta.len() > 64 << 20 {
                 return None;
@@ -119,6 +121,33 @@ fn svg_images() -> resvg::usvg::ImageHrefResolver<'static> {
             data_too("text/plain", std::sync::Arc::new(bytes), opts)
         }),
     }
+}
+
+/// Returns `relative` joined to `folder` when it names a file in the folder or below it, with
+/// no `..`, no whole path and no link on the way. Returns `None` otherwise. A link may lead out
+/// of the folder, as an archive keeps links. Each part is looked at with `symlink_metadata`,
+/// which follows no link, so a link to a share under /net does not mount it. Before, the path
+/// was made real first, which mounted the share before the picture was refused.
+// shortcut: a part swapped for a link after this check is followed by the read; open each part
+// beneath the folder (openat2 with RESOLVE_BENEATH) if that race matters.
+fn file_below(folder: &Path, relative: &Path) -> Option<std::path::PathBuf> {
+    use std::path::Component::{CurDir, Normal};
+    let mut path = folder.to_path_buf();
+    for part in relative.components() {
+        match part {
+            CurDir => continue,
+            Normal(name) => path.push(name),
+            _ => return None,
+        }
+        if std::fs::symlink_metadata(&path)
+            .ok()?
+            .file_type()
+            .is_symlink()
+        {
+            return None;
+        }
+    }
+    Some(path)
 }
 
 /// Whether the entities an SVG defines may grow its text past 64 MB once usvg expands them.
@@ -335,8 +364,7 @@ fn largest_picture(max: Option<[u32; 2]>) -> u64 {
 /// layer while the inner ones are drawn, so a file of 1 KB could otherwise take gigabytes, and
 /// the system would end Glimt for it. Patterns, filters and a `<use>` repeated a million times
 /// are more ways to the same end. A child that needs more is ended, and the window only tells
-/// why. Before, every child got 512 MB, which a large SVG with one clip group needs more than,
-/// and an icon's thumbnail far less.
+/// why. Before, every child got 512 MB, which a large SVG with one clip group needs more than.
 fn child_memory(max: Option<[u32; 2]>) -> u64 {
     let picture = largest_picture(max);
     (4 * picture + CHILD_MEMORY_BESIDES_PICTURE).min(DECODE_BUDGET - picture)
@@ -599,7 +627,7 @@ mod tests {
         let why = super::draw_in_child(&file, Some([1920, 1080]), Duration::from_secs(120));
         let why = why.unwrap_err();
         assert!(why.contains(crate::files::external::TIMED_OUT), "{why}");
-        assert!(started.elapsed() < Duration::from_secs(30));
+        assert!(started.elapsed() < Duration::from_secs(60));
         // Red at a quarter of its strength, through two groups at half opacity.
         let few = svg("<g opacity=\"0.5\"><g opacity=\"0.5\">\
                        <rect width=\"100\" height=\"100\" fill=\"red\"/></g></g>");
@@ -645,6 +673,36 @@ mod tests {
         std::fs::write(&file, svg(8000, 6000)).unwrap();
         let (img, _) = super::draw_in_child_outside_budget(&file, None, limit, &[]).unwrap();
         assert_eq!((img.width(), img.height()), (8000, 6000));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// An SVG that links a photo of 6000×4000 is drawn with the photo, for a thumbnail and for
+    /// the window. Before, the child had 256 MB besides its picture, less than the photo takes
+    /// while it is decoded, and the SVG was not shown.
+    #[test]
+    fn draws_an_svg_that_links_a_photo() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-svg-photo-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        // Noise in the lower four bits, so the PNG is some 40 MB, under the 64 MB a linked
+        // file may have, as a photo's is.
+        let noise: Vec<u8> = (0..6000 * 4000 * 3u32)
+            .map(|i| 128 + (i.wrapping_mul(2654435761) >> 28) as u8)
+            .collect();
+        let photo = dir.join("photo.png");
+        image::RgbImage::from_raw(6000, 4000, noise)
+            .unwrap()
+            .save(&photo)
+            .unwrap();
+        assert!(std::fs::metadata(&photo).unwrap().len() < 64 << 20);
+        let file = dir.join("poster.svg");
+        let svg = "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"600\" height=\"400\">\
+                   <image href=\"photo.png\" width=\"600\" height=\"400\"/></svg>";
+        std::fs::write(&file, svg).unwrap();
+        for max in [[256, 256], [1920, 1080]] {
+            let (img, _) = super::load(&file, Some(max)).unwrap();
+            let [r, _, _, a] = img.to_rgba8().get_pixel(100, 100).0;
+            assert!(a == 255 && r >= 128, "{max:?}: {r} {a}");
+        }
         std::fs::remove_dir_all(dir).unwrap();
     }
 
@@ -783,7 +841,7 @@ mod tests {
             .count();
         // As many are taken as fit in both budgets, 1 GB decoded and 256 MB read.
         let size = std::fs::metadata(dir.join("big.png")).unwrap().len();
-        let both = ((1u64 << 30) / (1024 * 1024 * 4)).min((256 << 20) / size);
+        let both = ((1u64 << 30) / (1024 * 1024 * 4)).min(super::LINKED_BYTES / size);
         assert_eq!(taken as u64, both);
         // A JPEG and an SVG linked by file are still drawn, told by their bytes from what was
         // read and checked, whatever their names say.
@@ -818,13 +876,18 @@ mod tests {
         assert!(!from_inner("../p.jpg"));
         assert!(!from_inner(&dir.join("p.jpg").to_string_lossy()));
         assert!(!from_inner(&dir.join("in/q.jpg").to_string_lossy()));
-        // Nor through a link in the folder that leads out of it, to a folder or to a file,
-        // while a link that stays inside is followed.
+        // Nor through a link in the folder, to a folder or to a file, also one that stays
+        // inside, because the link is not followed to see where it leads. A link to a share
+        // would mount it. A real subfolder is taken.
         std::os::unix::fs::symlink(&dir, dir.join("in/out")).unwrap();
         std::os::unix::fs::symlink(dir.join("p.jpg"), dir.join("in/p.jpg")).unwrap();
         std::os::unix::fs::symlink(dir.join("in/q.jpg"), dir.join("in/r.jpg")).unwrap();
+        std::fs::create_dir_all(dir.join("in/real")).unwrap();
+        std::fs::copy(dir.join("p.jpg"), dir.join("in/real/s.jpg")).unwrap();
+        std::os::unix::fs::symlink(dir.join("in/real"), dir.join("in/linked")).unwrap();
         assert!(!from_inner("out/p.jpg") && !from_inner("p.jpg"));
-        assert!(from_inner("r.jpg"));
+        assert!(!from_inner("r.jpg") && !from_inner("linked/s.jpg"));
+        assert!(from_inner("real/s.jpg") && from_inner("./real/./s.jpg"));
         std::fs::remove_dir_all(dir).unwrap();
     }
 

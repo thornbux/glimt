@@ -153,22 +153,20 @@ impl BudgetState {
     }
 }
 
-/// The bytes that a decode outside a decode job took from the budget. They are given back when
-/// it is dropped. Inside a job it holds nothing, because the job holds the bytes.
+/// What a decode took from the budget (`reserve_from_budget`). Outside a decode job it holds the
+/// job that the reservation started, which gives the bytes back when it is dropped. Inside a
+/// job it holds nothing, because the job holds the bytes.
 pub struct BudgetReservation {
-    bytes: u64,
-}
-
-impl Drop for BudgetReservation {
-    fn drop(&mut self) {
-        BUDGET.give_back(self.bytes);
-    }
+    _job: Option<DecodeJobBudget>,
 }
 
 /// A decode job on this thread (`start_decode_job`). When the outermost one is dropped, the
 /// bytes that the job's decodes took are given back.
 pub struct DecodeJobBudget {
     is_outermost: bool,
+    /// The job's bytes are counted in this thread's `JOB_HOLDS`, so it is not sent to another
+    /// thread, where its drop would give back that thread's bytes.
+    _stays_on_its_thread: std::marker::PhantomData<*const ()>,
 }
 
 impl Drop for DecodeJobBudget {
@@ -187,7 +185,10 @@ pub fn start_decode_job() -> DecodeJobBudget {
     if is_outermost {
         JOB_HOLDS.set(Some(0));
     }
-    DecodeJobBudget { is_outermost }
+    DecodeJobBudget {
+        is_outermost,
+        _stays_on_its_thread: std::marker::PhantomData,
+    }
 }
 
 /// Takes `bytes` of the decodes' shared budget for a decode that is about to allocate them, and
@@ -195,22 +196,19 @@ pub fn start_decode_job() -> DecodeJobBudget {
 /// the budget. In a decode job, the job holds the most that one of its decodes asked for,
 /// because a decode's buffers are dropped before the next one starts (a scaled JPEG that falls
 /// back to a whole one). A job that needs more gives back what it holds before it waits, so two
-/// jobs never wait for each other.
+/// jobs never wait for each other. Outside a job, the reservation starts one, so a thread never
+/// waits for the budget while it holds some of it. Before, a second reservation beside the
+/// first waited behind a larger one in line, which waited for the first: a deadlock.
 pub fn reserve_from_budget(bytes: u64) -> Result<BudgetReservation, String> {
-    let goes_first = GOES_FIRST.get();
-    match JOB_HOLDS.get() {
-        None => BUDGET
-            .take(bytes, goes_first)
-            .map(|()| BudgetReservation { bytes }),
-        Some(held) if bytes <= held => Ok(BudgetReservation { bytes: 0 }),
-        Some(held) => {
-            BUDGET.give_back(held);
-            JOB_HOLDS.set(Some(0));
-            BUDGET.take(bytes, goes_first)?;
-            JOB_HOLDS.set(Some(bytes));
-            Ok(BudgetReservation { bytes: 0 })
-        }
+    let job = JOB_HOLDS.get().is_none().then(start_decode_job);
+    let held = JOB_HOLDS.get().unwrap_or(0);
+    if bytes > held {
+        BUDGET.give_back(held);
+        JOB_HOLDS.set(Some(0));
+        BUDGET.take(bytes, GOES_FIRST.get())?;
+        JOB_HOLDS.set(Some(bytes));
     }
+    Ok(BudgetReservation { _job: job })
 }
 
 /// Makes this thread's later decodes take their bytes of the budget before every other decode
@@ -1281,6 +1279,21 @@ mod tests {
         let decoded = rx.recv_timeout(std::time::Duration::from_secs(2));
         drop(whole);
         assert_eq!(decoded, Ok(true));
+    }
+
+    /// A second reservation outside a decode job, while the first is held, does not wait for
+    /// the first: together they need more than the budget. Before, it waited for good.
+    #[test]
+    fn a_reservation_outside_a_job_never_waits_for_itself() {
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let first = super::reserve_from_budget(super::DECODE_BUDGET / 2 + 1).unwrap();
+            let second = super::reserve_from_budget(super::DECODE_BUDGET / 2 + 2).unwrap();
+            drop((first, second));
+            tx.send(super::JOB_HOLDS.get()).unwrap();
+        });
+        let ended = rx.recv_timeout(std::time::Duration::from_secs(60));
+        assert_eq!(ended, Ok(None));
     }
 
     /// A decode job holds the most that one of its decodes asked for, not their sum, joins an
