@@ -86,6 +86,7 @@ pub(crate) fn middle_cut(text: &str, fits: impl Fn(&str) -> bool) -> String {
 }
 
 /// `template` (see FULL_SCREEN_INFO_TEMPLATE) with each `%field%` replaced by `value(field)`.
+/// A `%%` is a `%` of its own, not a field, so it never takes its part along.
 pub(crate) fn fill_template(template: &str, value: impl Fn(&str) -> String) -> String {
     let lines = template.split("\\n").filter_map(|line| {
         let parts: Vec<String> = (line.split('|'))
@@ -94,12 +95,18 @@ pub(crate) fn fill_template(template: &str, value: impl Fn(&str) -> String) -> S
                 while let Some(a) = rest.find('%')
                     && let Some(b) = rest[a + 1..].find('%')
                 {
-                    let v = value(&rest[a + 1..a + 1 + b]);
+                    out += &rest[..a];
+                    let field = &rest[a + 1..a + 1 + b];
+                    rest = &rest[a + b + 2..];
+                    // "%%" is a "%" of its own, not an empty field.
+                    if field.is_empty() {
+                        out.push('%');
+                        continue;
+                    }
+                    let v = value(field);
                     fields += 1;
                     filled += !v.is_empty() as usize;
-                    out += &rest[..a];
                     out += &v;
-                    rest = &rest[a + b + 2..];
                 }
                 out += rest;
                 (fields == 0 || filled > 0).then_some(out)
@@ -176,6 +183,12 @@ mod tests {
             "x a.jpg\n50%"
         );
         assert_eq!(fill(""), "");
+        // "%%" is a "%", which a part keeps, and not an empty field that takes it along.
+        assert_eq!(fill("50%% of 100%%"), "50% of 100%");
+        assert_eq!(
+            fill("%name% 100%%|%Taken% %%|%%%name%"),
+            "a.jpg 100% · %a.jpg"
+        );
     }
 
     #[test]

@@ -345,7 +345,7 @@ const MANUAL: &[(&str, &str)] = &[
          Fill each box cuts each image to its box instead of fitting it in. The text under each \
          image comes from a template, as the full screen info's: %name% by default, or %Taken%, \
          %Camera%, %keywords%, %comment% and the other fields. Text at the top and bottom of each \
-         page may hold %page% and %pages%.\n\n\
+         page may hold %page% and %pages%. In each of these templates %% is a %.\n\n\
          It goes to a printer through CUPS (lp), on both sides of the paper if the printer can, or \
          into a PDF file; in the Flatpak, the System print dialog choice hands it to the \
          desktop's own, which picks the printer. Every choice is remembered.",
@@ -575,7 +575,7 @@ const MANUAL: &[(&str, &str)] = &[
          In full screen, I shows or hides the name, place and EXIF over the image. Preferences → \
          Image info template says what it shows, in Geeqie's form: %name%, %keywords%, %Camera% \
          and the other info panel labels, | between parts that are left out when empty, \\n for a \
-         new line.\n\n\
+         new line, %% for a %.\n\n\
          Preferences → Custom window title makes the window's title from a template of %name%, \
          %path%, %folder% and %app%, such as %app%: %folder%. Window → Set Window Title… gives \
          this window a template of its own until it closes, as glimt --remote title does.\n\n\

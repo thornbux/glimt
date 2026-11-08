@@ -28,6 +28,9 @@ and versions follow [Semantic Versioning](https://semver.org/).
 - The example formats and the manual write `[Glimt Format]` as the desktop file's header,
   after 0.75.0 renamed decoders to formats. Files with `[Glimt Decoder]` are read as before, and
   the manual says that the other `%` codes in `Exec` are kept for later.
+- In the templates of the full screen info, the print caption, the page header and footer and
+  the window title, `%%` is a `%`. Before, it was an empty field, which could take its part of
+  the line along.
 
 ### Fixed
 

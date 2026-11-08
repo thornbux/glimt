@@ -705,10 +705,14 @@ fn centred(text: &str, size: f32, [x, y, width]: [f32; 3]) -> String {
     )
 }
 
-/// A page text with its numbers filled in.
+/// A page text with its numbers filled in, for %page% and %pages%. A `%%` is a `%`, as in the
+/// other templates (`format::fill_template`).
 fn page_text(text: &str, page: usize, pages: usize) -> String {
-    text.replace("%page%", &page.to_string())
-        .replace("%pages%", &pages.to_string())
+    let parts = text.split("%%").map(|part| {
+        part.replace("%page%", &page.to_string())
+            .replace("%pages%", &pages.to_string())
+    });
+    parts.collect::<Vec<_>>().join("%")
 }
 
 /// Writes a PDF of `pages` pages to `out`, with the images laid out by `layout`, each with its
@@ -1172,6 +1176,14 @@ mod tests {
         };
         assert_eq!(sides(&wide), "two-sided-short-edge");
         assert_eq!(sides(&Layout::new(PAPERS[0].1, 1)), "two-sided-long-edge");
+    }
+
+    /// A page's header and footer take %% for a %, as the other templates, so "100%%page%"
+    /// is not read as a page number after a %.
+    #[test]
+    fn page_text_takes_a_percent_sign() {
+        assert_eq!(super::page_text("%page%/%pages%", 2, 3), "2/3");
+        assert_eq!(super::page_text("100%% · %%page%", 2, 3), "100% · %page%");
     }
 
     /// Text on every page, with its numbers, gets room made for it, and the image moves down
