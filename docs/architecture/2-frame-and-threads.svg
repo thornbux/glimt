@@ -111,8 +111,8 @@
 
     <rect x="650" y="762" width="490" height="64" rx="6" fill="#f3e8fd" stroke="#8e44ad" stroke-width="1.5"/>
     <text x="664" y="782" font-size="13"><tspan font-weight="700">Remote listener</tspan> <tspan font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" font-size="12">remote::listen</tspan></text>
-    <text x="664" y="800" font-size="12">an accept thread, then serve() in a thread per client</text>
-    <text x="664" y="818" font-size="12">→ remote.rx: (command, reply) → receive_remote runs the Action</text>
+    <text x="664" y="800" font-size="12">an accept thread, serve() in a thread per client (16 at most)</text>
+    <text x="664" y="818" font-size="12">→ remote.rx: (command, reply) → receive_remote; every command answered</text>
 
     <rect x="650" y="850" width="320" height="36" rx="6" fill="#ffffff" stroke="#8e44ad" stroke-width="1.5" stroke-dasharray="5 3"/>
     <text x="664" y="873" font-size="12" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace">glimt --remote next</text>

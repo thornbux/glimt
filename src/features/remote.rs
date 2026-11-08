@@ -103,6 +103,14 @@ const NOT_DONE_ANSWER: &str = "not done: ";
 /// The most files `select` takes, because the window finds them in its own thread.
 pub const MAX_SELECT: usize = 100_000;
 
+/// The longest line of a command other than `select`, in bytes: room for a path or a title.
+/// Only `select` may be as long as its files take.
+const MOST_LINE: u64 = 64 * 1024;
+
+/// The most clients served at once, each by a thread of its own. Another waits in the socket's
+/// queue until one is done, or until its time limit tells it "no answer".
+const MOST_CLIENTS: usize = 16;
+
 /// How long a command and its answer may take. A client that sends nothing, or a window that
 /// does not answer, holds up the others no longer than this.
 const WAIT: std::time::Duration = std::time::Duration::from_secs(10);
@@ -795,22 +803,45 @@ pub fn listen(tx: mpsc::Sender<(String, Option<Reply>)>, ctx: eframe::egui::Cont
     );
     mark_focused();
     std::thread::spawn(move || {
-        for stream in listener.incoming().flatten() {
-            // Each client gets a thread of its own, so a client waiting for the window (a folder
-            // of 500,000 files still being read, a dialog open) holds up no other. The window's
-            // answer is waited for as long as it takes. The client has the one time limit, so
-            // there is one outcome when it runs out: "no answer" and exit 1, never an empty
-            // answer taken for "all found".
-            let (tx, ctx) = (tx.clone(), ctx.clone());
-            // The client is counted from here, before its query is read, so a client that came
-            // just before the socket went is waited for at closing too.
-            let client = UnfinishedAnswer::new();
-            std::thread::spawn(move || {
-                serve(stream, &tx, &ctx);
-                drop(client);
-            });
-        }
+        serve_clients(listener, MOST_CLIENTS, move |stream| {
+            serve(stream, &tx, &ctx)
+        });
     });
+}
+
+/// Takes the clients of `listener`, each served by `serve` in a thread of its own, and at most
+/// `most` at once. A thread for each client means that a client waiting for the window (a
+/// folder of 500,000 files still being read, a dialog open) holds up no other. The window's
+/// answer is waited for as long as it takes, and the client has the one time limit, so there is
+/// one outcome when it runs out: "no answer" and exit 1, never an empty answer taken for "all
+/// found". A client over `most` waits in the socket's queue, so clients that never end cannot
+/// take a thread each.
+fn serve_clients(
+    listener: UnixListener,
+    most: usize,
+    serve: impl Fn(UnixStream) + Clone + Send + 'static,
+) {
+    // A free place is a message in this channel: taken before a client is accepted, and given
+    // back when its thread is done.
+    let (free, places) = mpsc::channel();
+    for _ in 0..most {
+        let _ = free.send(());
+    }
+    while places.recv().is_ok() {
+        let Ok((stream, _)) = listener.accept() else {
+            let _ = free.send(());
+            continue;
+        };
+        // The client is counted from here, before its query is read, so a client that came
+        // just before the socket went is waited for at closing too.
+        let client = UnfinishedAnswer::new();
+        let (serve, free) = (serve.clone(), free.clone());
+        std::thread::spawn(move || {
+            serve(stream);
+            drop(client);
+            let _ = free.send(());
+        });
+    }
 }
 
 /// One client's commands, each passed to the window, and its answer to a query sent back.
@@ -824,10 +855,8 @@ fn serve(
     // A client may send as much as `select` may, and no more, so a client that sends without
     // end does not fill the memory.
     let most = MAX_SELECT as u64 * 4096 + 64;
-    for line in std::io::BufReader::new(std::io::Read::take(stream, most))
-        .lines()
-        .map_while(Result::ok)
-    {
+    let mut reader = std::io::BufReader::new(std::io::Read::take(stream, most));
+    while let Some(line) = read_command(&mut reader) {
         let line = command_now(line.trim_start());
         // Every command is answered, a query with what it asks and any other with whether it
         // was done, so a script knows when its `run` was refused.
@@ -855,6 +884,29 @@ fn serve(
         }
         drop(answering);
     }
+}
+
+/// Reads the next command, one line, from `reader`. A `select` may be as long as its files take,
+/// and any other command at most `MOST_LINE` bytes, so a client that sends without a line break
+/// holds no more memory than that. Returns `None` at the end, for a line too long or not UTF-8,
+/// and when the client sends nothing within its time limit.
+fn read_command(reader: &mut impl BufRead) -> Option<String> {
+    let mut line = Vec::new();
+    std::io::Read::take(&mut *reader, MOST_LINE)
+        .read_until(b'\n', &mut line)
+        .ok()?;
+    let ended = line.ends_with(b"\n");
+    if !ended && line.trim_ascii_start().starts_with(b"select ") {
+        reader.read_until(b'\n', &mut line).ok()?;
+    } else if !ended && line.len() as u64 >= MOST_LINE {
+        return None;
+    }
+    if line.is_empty() {
+        return None;
+    }
+    let line = line.strip_suffix(b"\n").unwrap_or(&line);
+    let line = line.strip_suffix(b"\r").unwrap_or(line);
+    String::from_utf8(line.to_vec()).ok()
 }
 
 /// Whether `dir` is there and not the user's own folder.
@@ -1289,6 +1341,54 @@ mod tests {
         client.read_to_end(&mut got).unwrap();
         assert!(super::not_done_reason(&got).is_some(), "{got:?}");
         std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A command line other than a select is read up to `MOST_LINE` bytes, and a longer one ends
+    /// the client, while a select may be as long as its files. Before, every line could be as
+    /// long as the longest select, some 400 MB, and ten clients sending without a line break
+    /// held 4 GB.
+    #[test]
+    fn a_command_line_is_cut_short_unless_it_is_a_select() {
+        let long = "x".repeat(super::MOST_LINE as usize + 10);
+        let read = |text: String| {
+            let mut reader = std::io::Cursor::new(text.into_bytes());
+            std::iter::from_fn(move || super::read_command(&mut reader)).collect::<Vec<_>>()
+        };
+        assert_eq!(read(format!("title {long}\nnext\n")), Vec::<String>::new());
+        let select = format!("select /{long}\0");
+        assert_eq!(
+            read(format!("{select}\r\nnext\n")),
+            [select.as_str(), "next"]
+        );
+        assert_eq!(read("next".into()), ["next"]);
+        assert_eq!(read(String::new()), Vec::<String>::new());
+    }
+
+    /// At most so many clients are served at once, each by a thread; the next waits until one
+    /// is done. Before, every client that connected got a thread of its own, with no end.
+    #[test]
+    fn serves_at_most_so_many_clients_at_once() {
+        let path = std::env::temp_dir().join(format!("glimt-clients-{}.sock", std::process::id()));
+        let _ = std::fs::remove_file(&path);
+        let listener = std::os::unix::net::UnixListener::bind(&path).unwrap();
+        let (started, starts) = std::sync::mpsc::channel();
+        // Each client is served until it closes.
+        let serve = move |mut stream: std::os::unix::net::UnixStream| {
+            let _ = started.send(());
+            let _ = std::io::copy(&mut stream, &mut std::io::sink());
+        };
+        std::thread::spawn(move || super::serve_clients(listener, 2, serve));
+        let connect = || std::os::unix::net::UnixStream::connect(&path).unwrap();
+        let (first, _second, _third) = (connect(), connect(), connect());
+        let wait = |ms| starts.recv_timeout(std::time::Duration::from_millis(ms));
+        assert!(wait(5000).is_ok() && wait(5000).is_ok());
+        assert!(wait(300).is_err(), "a third client was served beside two");
+        drop(first);
+        assert!(
+            wait(5000).is_ok(),
+            "the third client was not served when one was done"
+        );
+        std::fs::remove_file(path).unwrap();
     }
 
     /// A query whose answer the window drops (too many waiting) is not closed at once, because
