@@ -66,6 +66,10 @@ impl SharingDialog {
             self.left_out.remove_all();
         }
         ui.weak(tr("Ticked tags are left out of the copies."));
+        ui.weak(tr(
+            "A block that can hold tags of several groups, such as the extra images or the maker \
+             note, is left out when any tag of those groups is.",
+        ));
         egui::ScrollArea::vertical()
             .max_height(400.0)
             .show(ui, |ui| {

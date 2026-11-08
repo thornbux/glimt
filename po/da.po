@@ -2909,6 +2909,10 @@ msgid "Ticked tags are left out of the copies."
 msgstr "Afkrydsede tags udelades af kopierne."
 
 #: src/features/copy_for_sharing.rs
+msgid "A block that can hold tags of several groups, such as the extra images or the maker note, is left out when any tag of those groups is."
+msgstr "En blok, der kan rumme tags fra flere grupper, som de ekstra billeder eller producentens note, udelades, når et tag fra de grupper udelades."
+
+#: src/features/copy_for_sharing.rs
 msgid "Always kept: the orientation, so the image is not shown on its side, and the colour profile, so its colours do not change."
 msgstr "Altid med: retningen, så billedet ikke vises på siden, og farveprofilen, så farverne ikke ændres."
 

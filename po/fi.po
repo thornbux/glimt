@@ -2909,6 +2909,10 @@ msgid "Ticked tags are left out of the copies."
 msgstr "Valitut tunnisteet jätetään pois kopioista."
 
 #: src/features/copy_for_sharing.rs
+msgid "A block that can hold tags of several groups, such as the extra images or the maker note, is left out when any tag of those groups is."
+msgstr "Lohko, jossa voi olla useiden ryhmien tunnisteita, kuten lisäkuvat tai valmistajan huomautus, jätetään pois, kun jokin näiden ryhmien tunniste jätetään pois."
+
+#: src/features/copy_for_sharing.rs
 msgid "Always kept: the orientation, so the image is not shown on its side, and the colour profile, so its colours do not change."
 msgstr "Säilytetään aina: suunta, jotta kuva ei näy kyljellään, ja väriprofiili, jotta sen värit eivät muutu."
 

@@ -57,6 +57,7 @@ const TAG_GROUPS: &[(&str, Group)] = &[
     ("exif:DateTimeDigitized", Group::Date),
     ("tiff:DateTime", Group::Date),
     ("photoshop:DateCreated", Group::Date),
+    ("dc:date", Group::Date),
     ("Creation Time", Group::Date),
     ("tIME", Group::Date),
     ("date:create", Group::Date),
@@ -91,6 +92,9 @@ const TAG_GROUPS: &[(&str, Group)] = &[
     ("xmp:CreatorTool", Group::Software),
     ("xmpMM:History", Group::Software),
     ("photoshop:History", Group::Software),
+    ("xmpMM:DerivedFrom", Group::Software),
+    ("xmpMM:Ingredients", Group::Software),
+    ("xmpMM:PreservedFileName", Group::Software),
     ("ImageDescription", Group::Keywords),
     ("UserComment", Group::Keywords),
     ("ImageTitle", Group::Keywords),
@@ -112,13 +116,66 @@ const TAG_GROUPS: &[(&str, Group)] = &[
     ("photoshop:Instructions", Group::Keywords),
     ("exif:UserComment", Group::Keywords),
     ("tiff:ImageDescription", Group::Keywords),
+    ("digiKam:TagsList", Group::Keywords),
+    ("mwg-rs:Regions", Group::Keywords),
+    ("Iptc4xmpExt:PersonInImage", Group::Keywords),
     (EXIF_THUMBNAIL, Group::Preview),
     (JFIF_THUMBNAIL, Group::Preview),
     ("xmp:Thumbnails", Group::Preview),
     ("xap:Thumbnails", Group::Preview),
 ];
 
-/// The tag of a JPEG's JFXX segment, a thumbnail beside the JFIF header.
+/// The tags that are blocks of other tags, not a single tag, with the groups whose tags each
+/// can hold. A block is left out when any tag of one of its groups is (`LeftOut::is_left_out`),
+/// because it may hold that tag again: a phone's second image has its own EXIF with GPS, and
+/// a maker note can hold the city or the owner's name. When it is unclear what a block holds,
+/// it counts as holding every group. A part that only decides how the image looks, such as
+/// the JFIF header or the ICC profile, is no tag, and every copy keeps it. The Interop
+/// directory is not here either, as a copy takes only its own tags (`exif::shared_block`).
+const BLOCKS: &[(&str, &[Group])] = &[
+    (MPF, &Group::ALL),
+    (AFTER_IMAGE, &Group::ALL),
+    ("MakerNote", &Group::ALL),
+    (PHOTOSHOP_RESOURCES, &Group::ALL),
+    (C2PA, &Group::ALL),
+    ("XMLPacket", &Group::ALL),
+    ("IPTC-NAA", &Group::ALL),
+    (RAW_PROFILES, &Group::ALL),
+    (JFIF_THUMBNAIL, &[Group::Preview]),
+    ("xmpMM:History", &[Group::Software, Group::Date]),
+    // The paths and names of the files that a photo was made from. A path names the user, and
+    // a name such as PXL_20231004_142355 holds the date.
+    (
+        "xmpMM:DerivedFrom",
+        &[Group::Software, Group::Date, Group::Photographer],
+    ),
+    (
+        "xmpMM:Ingredients",
+        &[Group::Software, Group::Date, Group::Photographer],
+    ),
+    (
+        "xmpMM:PreservedFileName",
+        &[Group::Software, Group::Date, Group::Photographer],
+    ),
+];
+
+/// The starts of the names of tags whose contents are not known: a JPEG's other APPn
+/// segments, a PNG's and a WebP's other chunks, and the EXIF tags without a name. Each counts
+/// as a block that holds every group (`BLOCKS`).
+const UNKNOWN_BLOCKS: [&str; 5] = [
+    "JPEG APP",
+    "PNG chunk ",
+    "WebP chunk ",
+    "Image 0x",
+    "Exif 0x",
+];
+
+/// The words that make a tag one of Place, whatever its namespace or prefix: a drone's
+/// `drone-dji:GpsLatitude` and `AbsoluteAltitude` as much as EXIF's GPS directory.
+const PLACE_WORDS: [&str; 4] = ["gps", "latitude", "longitude", "altitude"];
+
+/// The tag of a JPEG's JFXX segment, a thumbnail beside the JFIF header, and of a thumbnail
+/// inside the JFIF header itself (`add_jfif`).
 const JFIF_THUMBNAIL: &str = "JFIF thumbnail";
 
 /// The tag of an MPF segment and of the images after the main one that it indexes: a phone's
@@ -259,24 +316,37 @@ impl Group {
         }
     }
 
-    /// The group of the tag named `tag`: by its name in `TAG_GROUPS`, or else by its prefix.
-    /// EXIF's GPS directory and XMP's exif:GPS properties say where, as do the IPTC's place
-    /// properties, Exif's auxiliary namespace (aux:) holds the lens and serial numbers, and the
-    /// rights namespaces say whose the photo is.
+    /// The group of the tag named `tag`: by its name in `TAG_GROUPS`, or else by its words and
+    /// its prefix. An XMP property's prefix is that of its namespace (`xmp::properties`), not
+    /// the one its packet wrote. A name with a word of `PLACE_WORDS` says where, as do the
+    /// IPTC's place properties. Exif's auxiliary namespace (aux:) holds the lens and serial
+    /// numbers, and the rights namespaces say whose the photo is.
     pub(crate) fn of(tag: &str) -> Group {
         if let Some(&(_, group)) = TAG_GROUPS.iter().find(|(name, _)| *name == tag) {
             return group;
         }
+        let lower = tag.to_ascii_lowercase();
         let starts = |prefixes: &[&str]| prefixes.iter().any(|p| tag.starts_with(p));
-        if starts(&["GPS", "exif:GPS", "Iptc4xmpExt:Location"]) {
+        if PLACE_WORDS.iter().any(|w| lower.contains(w))
+            || starts(&["Iptc4xmpExt:Location", "mediapro:Location"])
+        {
             Group::Place
+        } else if starts(&["exif:DateTime", "exif:SubSecTime", "exifEX:OffsetTime"]) {
+            Group::Date
         } else if starts(&["aux:"]) {
             Group::Camera
         } else if starts(&["xmpRights:", "plus:"]) {
             Group::Photographer
+        } else if starts(&["MicrosoftPhoto:LastKeyword", "mediapro:"]) {
+            Group::Keywords
         } else {
             Group::Other
         }
+    }
+
+    /// Returns the group whose key (`Group::key`) `word` is, or `None` when it names a tag.
+    fn of_key(word: &str) -> Option<Group> {
+        Group::ALL.into_iter().find(|g| g.key() == word)
     }
 }
 
@@ -287,14 +357,30 @@ impl Group {
 #[derive(Clone, Default, PartialEq, Debug)]
 pub(crate) struct LeftOut {
     words: BTreeSet<String>,
+    /// Whether each group, in the order of `Group::ALL`, has a tag left out or is left out
+    /// whole. A block (`BLOCKS`) goes with any group it can hold that has. It is counted again
+    /// after every change of `words`.
+    has_left_out: [bool; 8],
 }
 
 impl LeftOut {
     /// Reads a choice from the text of its file, one word to a line.
     pub(crate) fn parse(text: &str) -> LeftOut {
         let words = text.lines().map(str::trim).filter(|l| !l.is_empty());
-        LeftOut {
+        let mut left_out = LeftOut {
             words: words.map(str::to_owned).collect(),
+            has_left_out: [false; 8],
+        };
+        left_out.count_groups();
+        left_out
+    }
+
+    /// Counts again which groups have a tag left out (`has_left_out`).
+    fn count_groups(&mut self) {
+        self.has_left_out = [false; 8];
+        for word in &self.words {
+            let group = Group::of_key(word).unwrap_or_else(|| Group::of(word));
+            self.has_left_out[group as usize] = true;
         }
     }
 
@@ -303,9 +389,12 @@ impl LeftOut {
         self.words.iter().map(|w| format!("{w}\n")).collect()
     }
 
-    /// Whether the tag `tag` is left out, by its name or its whole group.
+    /// Whether the tag `tag` is left out: by its name, by its whole group, or as a block that
+    /// can hold a tag of a group that has one left out (`BLOCKS`).
     pub(crate) fn is_left_out(&self, tag: &str) -> bool {
-        self.words.contains(tag) || self.words.contains(Group::of(tag).key())
+        self.words.contains(tag)
+            || self.words.contains(Group::of(tag).key())
+            || (block_groups(tag).iter()).any(|g| self.has_left_out[*g as usize])
     }
 
     /// Whether the whole group `group` is left out.
@@ -318,14 +407,15 @@ impl LeftOut {
     pub(crate) fn set_tag(&mut self, tag: &str, left_out: bool, found: &[String]) {
         if left_out {
             self.words.insert(tag.to_owned());
-            return;
+        } else {
+            self.words.remove(tag);
+            let group = Group::of(tag);
+            if self.words.remove(group.key()) {
+                let others = found.iter().filter(|t| *t != tag && Group::of(t) == group);
+                self.words.extend(others.cloned());
+            }
         }
-        self.words.remove(tag);
-        let group = Group::of(tag);
-        if self.words.remove(group.key()) {
-            let others = found.iter().filter(|t| *t != tag && Group::of(t) == group);
-            self.words.extend(others.cloned());
-        }
+        self.count_groups();
     }
 
     /// Leaves the whole group `group` out, or keeps every tag of it.
@@ -337,6 +427,7 @@ impl LeftOut {
             let is_key = |w: &str| w.starts_with("group:");
             (self.words).retain(|w| w != group.key() && (is_key(w) || Group::of(w) != group));
         }
+        self.count_groups();
     }
 
     /// Leaves every tag out. The orientation and the colour profile are still kept, as they are
@@ -540,7 +631,7 @@ fn entropy_end(data: &[u8], mut at: usize) -> usize {
 fn add_jpeg_segment<'a>(walked: &mut Walked<'a>, data: &'a [u8], at: usize, end: usize) {
     let (marker, body) = (data[at + 1], &data[at + 4..end]);
     let tag = match marker {
-        0xe0 if body.starts_with(b"JFIF\0") => None,
+        0xe0 if body.starts_with(b"JFIF\0") => return add_jfif(walked, data, at, end),
         0xe0 if body.starts_with(b"JFXX\0") => Some(JFIF_THUMBNAIL.to_owned()),
         // The EXIF and XMP are written new of what is kept. Extended XMP, the rest of a packet
         // too long for one segment, is not carried.
@@ -563,6 +654,32 @@ fn add_jpeg_segment<'a>(walked: &mut Walked<'a>, data: &'a [u8], at: usize, end:
         _ => None,
     };
     walked.add(data, at, end, tag.as_deref());
+}
+
+/// Adds a JPEG's JFIF segment `data[at..end]` to `walked`. Its header decides how the image is
+/// shown, so every copy has it, but without the thumbnail it may hold (its width and height not
+/// 0). That thumbnail moves into a JFXX segment of its own under `JFIF_THUMBNAIL`, at 3 bytes a
+/// pixel (extension code 0x13), so it can be left out as the other previews can.
+fn add_jfif<'a>(walked: &mut Walked<'a>, data: &'a [u8], at: usize, end: usize) {
+    let body = &data[at + 4..end];
+    let Some(header) = body.get(..14) else {
+        return walked.add(data, at, end, None);
+    };
+    let (width, height) = (header[12], header[13]);
+    let pixels = body.get(14..14 + 3 * width as usize * height as usize);
+    walked.parts.push(Part {
+        bytes: Cow::Owned(jpeg_segment(0xe0, &[&header[..12], &[0, 0]].concat())),
+        from: at,
+        tag: None,
+    });
+    if let Some(pixels) = pixels.filter(|p| !p.is_empty()) {
+        let jfxx = [&b"JFXX\0\x13"[..], &[width, height], pixels].concat();
+        walked.parts.push(Part {
+            bytes: Cow::Owned(jpeg_segment(0xe0, &jfxx)),
+            from: at,
+            tag: Some(JFIF_THUMBNAIL.to_owned()),
+        });
+    }
 }
 
 /// Reads the Photoshop resources `resources` of a JPEG's APP13 segment at `at`: its IPTC IIM
@@ -596,6 +713,18 @@ fn add_photoshop(walked: &mut Walked, resources: &[u8], at: usize) {
         from: at,
         tag: Some(PHOTOSHOP_RESOURCES.to_owned()),
     });
+}
+
+/// Returns the groups whose tags the block `tag` can hold (`BLOCKS`, `UNKNOWN_BLOCKS`). Returns
+/// none when it is a single tag.
+fn block_groups(tag: &str) -> &'static [Group] {
+    if let Some(&(_, groups)) = BLOCKS.iter().find(|(name, _)| *name == tag) {
+        groups
+    } else if UNKNOWN_BLOCKS.iter().any(|p| tag.starts_with(p)) {
+        &Group::ALL
+    } else {
+        &[]
+    }
 }
 
 /// Returns the resources of a Photoshop block, each as (its ID, its whole bytes, its data).
@@ -1136,6 +1265,150 @@ mod tests {
         assert!(left_out.kept(&found).is_empty());
         left_out.set_group(super::Group::Other, false);
         assert_eq!(left_out.kept(&found), ["xmp:Rating".to_owned()].into());
+    }
+
+    /// Ticking only Place leaves no GPS anywhere in the copy: not in the EXIF of a phone's
+    /// second image (MPF) after the main one, not in a drone's own XMP properties
+    /// (`drone-dji:`), and not in Exif's GPS properties under another prefix (`ns1:`).
+    #[test]
+    fn place_alone_leaves_no_gps_anywhere() {
+        let dir = folder("place");
+        let encode = |size: u32| {
+            let mut jpeg = Vec::new();
+            let encoder = image::codecs::jpeg::JpegEncoder::new_with_quality(&mut jpeg, 90);
+            image::RgbImage::from_fn(size, size, |x, _| image::Rgb([x as u8 * 9, 40, 99]))
+                .write_with_encoder(encoder)
+                .unwrap();
+            jpeg
+        };
+        let (main, second) = (encode(16), encode(8));
+        let exif = super::jpeg_segment(0xe1, &[&b"Exif\0\0"[..], &exif_block()].concat());
+        let second = [&second[..2], &exif, &second[2..]].concat();
+        let mpf = b"MPF\0MM\0*\0\0\0\x08\0\x01\xb0\x02\0\x07\0\0\0\x20\0\0\0\x1a\0\0\0\0\
+            \x20\0\0\0\0\0\x01\0\0\0\0\0\0\x10\0\0\0\0\0\0\0\0";
+        let xmp = "<x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><rdf:RDF \
+            xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\"><rdf:Description \
+            rdf:about=\"\" xmlns:drone-dji=\"http://www.dji.com/drone-dji/1.0/\" \
+            xmlns:ns1=\"http://ns.adobe.com/exif/1.0/\" drone-dji:GpsLatitude=\"+59.9123\" \
+            drone-dji:GpsLongtitude=\"+10.7522\" drone-dji:RelativeAltitude=\"+87.5\" \
+            ns1:GPSAltitude=\"8750/100\" drone-dji:FlightRollDegree=\"+1.20\"/>\
+            </rdf:RDF></x:xmpmeta>";
+        let segments = [
+            super::jpeg_segment(0xe2, mpf),
+            super::jpeg_segment(0xe1, &[super::XMP_NAME, xmp.as_bytes()].concat()),
+        ]
+        .concat();
+        let original = [&main[..2], &segments, &main[2..], &second].concat();
+        let path = dir.join("drone.jpg");
+        std::fs::write(&path, &original).unwrap();
+        let found = super::tags_of(&path).unwrap().unwrap();
+        let mut left_out = super::LeftOut::default();
+        left_out.set_group(super::Group::Place, true);
+        let copy = super::copy(&path, &left_out.kept(&found)).unwrap().unwrap();
+        let has = |b: &[u8], text: &[u8]| b.windows(text.len()).any(|w| w == text);
+        for gps in [
+            &b"WGS-84-SECRET"[..],
+            b"59.9123",
+            b"10.7522",
+            b"87.5",
+            b"8750/100",
+        ] {
+            assert!(has(&original, gps));
+            let gps_text = String::from_utf8_lossy(gps);
+            assert!(!has(&copy, gps), "{gps_text} is in the copy");
+        }
+        // The roll is no place, so it stays.
+        assert!(has(&copy, b"+1.20"));
+        let pixels = |b: &[u8]| image::load_from_memory(b).unwrap().to_rgba8();
+        assert!(pixels(&original) == pixels(&copy));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A block that can hold tags of other groups is left out with any tag of those groups,
+    /// and the names that say where, when or who are in their groups whatever their prefix.
+    #[test]
+    fn blocks_go_with_any_group_they_can_carry() {
+        use super::Group::{Date, Keywords, Place, Software};
+        let mut left_out = super::LeftOut::default();
+        let blocks = [
+            super::MPF,
+            super::AFTER_IMAGE,
+            "MakerNote",
+            super::PHOTOSHOP_RESOURCES,
+            super::C2PA,
+            "XMLPacket",
+            "IPTC-NAA",
+            super::RAW_PROFILES,
+            "JPEG APP12",
+            "PNG chunk caBX",
+            "WebP chunk XYZW",
+            "Image 0x8649",
+        ];
+        assert!(blocks.iter().all(|b| !left_out.is_left_out(b)));
+        left_out.set_tag("GPSAltitude", true, &[]);
+        for block in blocks {
+            assert!(left_out.is_left_out(block), "{block} is kept");
+        }
+        assert!(!left_out.is_left_out(super::JFIF_THUMBNAIL) && !left_out.is_left_out("Make"));
+        left_out.set_tag(super::EXIF_THUMBNAIL, true, &[]);
+        assert!(left_out.is_left_out(super::JFIF_THUMBNAIL));
+        let mut dated = super::LeftOut::default();
+        dated.set_tag("DateTime", true, &[]);
+        assert!(dated.is_left_out("xmpMM:DerivedFrom") && !dated.is_left_out("Make"));
+        for (tag, group) in [
+            ("drone-dji:GpsLatitude", Place),
+            ("drone-dji:GpsLongtitude", Place),
+            ("drone-dji:AbsoluteAltitude", Place),
+            ("dc:date", Date),
+            ("exif:SubSecTimeOriginal", Date),
+            ("exifEX:OffsetTimeOriginal", Date),
+            ("digiKam:TagsList", Keywords),
+            ("MicrosoftPhoto:LastKeywordXMP", Keywords),
+            ("MicrosoftPhoto:LastKeywordIPTC", Keywords),
+            ("mwg-rs:Regions", Keywords),
+            ("Iptc4xmpExt:PersonInImage", Keywords),
+            ("xmpMM:DerivedFrom", Software),
+            ("xmpMM:Ingredients", Software),
+            ("xmpMM:PreservedFileName", Software),
+        ] {
+            assert_eq!(super::Group::of(tag), group, "{tag}");
+        }
+    }
+
+    /// A thumbnail inside a JPEG's JFIF header is a tag of the preview group: it goes with
+    /// Remove All and leaves the header with no thumbnail, and kept it moves into a JFXX
+    /// segment of its own.
+    #[test]
+    fn a_jfif_thumbnail_is_a_preview() {
+        let dir = folder("jfif");
+        let mut jpeg = Vec::new();
+        let encoder = image::codecs::jpeg::JpegEncoder::new_with_quality(&mut jpeg, 90);
+        picture().write_with_encoder(encoder).unwrap();
+        // The encoder's own JFIF header, if it wrote one, is replaced by one with a thumbnail of
+        // 2×1 pixels.
+        let rest = match jpeg[2..4] {
+            [0xff, 0xe0] => 4 + u16::from_be_bytes([jpeg[4], jpeg[5]]) as usize,
+            _ => 2,
+        };
+        let jfif = super::jpeg_segment(0xe0, b"JFIF\0\x01\x01\0\0\x01\0\x01\x02\x01TH-UMB");
+        let original = [&jpeg[..2], &jfif, &jpeg[rest..]].concat();
+        let path = dir.join("a.jpg");
+        std::fs::write(&path, &original).unwrap();
+        let found = super::tags_of(&path).unwrap().unwrap();
+        assert!(
+            found.iter().any(|t| t == super::JFIF_THUMBNAIL),
+            "{found:?}"
+        );
+        let has = |b: &[u8], text: &[u8]| b.windows(text.len()).any(|w| w == text);
+        let mut left_out = super::LeftOut::default();
+        let kept = super::copy(&path, &left_out.kept(&found)).unwrap().unwrap();
+        assert!(has(&kept, b"JFXX\0\x13\x02\x01TH-UMB"));
+        left_out.remove_all();
+        let copy = super::copy(&path, &left_out.kept(&found)).unwrap().unwrap();
+        assert!(!has(&copy, b"TH-UMB") && has(&copy, b"JFIF\0\x01\x01\0\0\x01\0\x01\0\0"));
+        let pixels = |b: &[u8]| image::load_from_memory(b).unwrap().to_rgba8();
+        assert!(pixels(&original) == pixels(&copy) && pixels(&original) == pixels(&kept));
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     /// The walkers of JPEG segments, PNG chunks and WebP chunks, and the copy made of what they

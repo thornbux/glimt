@@ -2920,6 +2920,10 @@ msgid "Ticked tags are left out of the copies."
 msgstr "Zaznaczone znaczniki są pomijane w kopiach."
 
 #: src/features/copy_for_sharing.rs
+msgid "A block that can hold tags of several groups, such as the extra images or the maker note, is left out when any tag of those groups is."
+msgstr "Blok, który może zawierać znaczniki kilku grup, np. dodatkowe obrazy lub notatka producenta, jest pomijany, gdy pominięty jest dowolny znacznik tych grup."
+
+#: src/features/copy_for_sharing.rs
 msgid "Always kept: the orientation, so the image is not shown on its side, and the colour profile, so its colours do not change."
 msgstr "Zawsze zachowane: orientacja, aby obraz nie był wyświetlany bokiem, i profil kolorów, aby jego kolory się nie zmieniły."
 

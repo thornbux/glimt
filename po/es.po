@@ -2909,6 +2909,10 @@ msgid "Ticked tags are left out of the copies."
 msgstr "Las etiquetas marcadas se omiten en las copias."
 
 #: src/features/copy_for_sharing.rs
+msgid "A block that can hold tags of several groups, such as the extra images or the maker note, is left out when any tag of those groups is."
+msgstr "Un bloque que puede contener etiquetas de varios grupos, como las imágenes adicionales o la nota del fabricante, se omite cuando se omite cualquier etiqueta de esos grupos."
+
+#: src/features/copy_for_sharing.rs
 msgid "Always kept: the orientation, so the image is not shown on its side, and the colour profile, so its colours do not change."
 msgstr "Siempre se conservan: la orientación, para que la imagen no se muestre de lado, y el perfil de color, para que sus colores no cambien."
 

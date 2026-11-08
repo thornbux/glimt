@@ -2909,6 +2909,10 @@ msgid "Ticked tags are left out of the copies."
 msgstr "Merki sem hakað er við eru skilin eftir úr afritunum."
 
 #: src/features/copy_for_sharing.rs
+msgid "A block that can hold tags of several groups, such as the extra images or the maker note, is left out when any tag of those groups is."
+msgstr "Blokk sem getur geymt merki úr fleiri hópum, svo sem aukamyndirnar eða athugasemd framleiðanda, er skilin eftir þegar eitthvert merki þeirra hópa er skilið eftir."
+
+#: src/features/copy_for_sharing.rs
 msgid "Always kept: the orientation, so the image is not shown on its side, and the colour profile, so its colours do not change."
 msgstr "Alltaf haldið: stefnunni, svo myndin birtist ekki á hlið, og litasniðinu, svo litirnir breytist ekki."
 

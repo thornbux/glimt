@@ -11,6 +11,39 @@ const ALT: &str = "Iptc4xmpCore:AltTextAccessibility";
 
 const EXTENDED: &str = "Iptc4xmpCore:ExtDescrAccessibility";
 
+/// The namespaces whose properties Copy for Sharing names by the prefix here, whatever prefix a
+/// packet binds them to (`properties`). A packet may write Exif's GPS as `ns1:GPSLatitude`,
+/// and the old `xap:` is `xmp:`, so a name by the prefix as written would miss its group.
+const KNOWN_NAMESPACES: [(&str, &str); 21] = [
+    ("dc", "http://purl.org/dc/elements/1.1/"),
+    ("xmp", "http://ns.adobe.com/xap/1.0/"),
+    ("xmpMM", "http://ns.adobe.com/xap/1.0/mm/"),
+    ("xmpRights", "http://ns.adobe.com/xap/1.0/rights/"),
+    ("xmpDM", "http://ns.adobe.com/xmp/1.0/DynamicMedia/"),
+    ("exif", "http://ns.adobe.com/exif/1.0/"),
+    ("aux", "http://ns.adobe.com/exif/1.0/aux/"),
+    ("exifEX", "http://cipa.jp/exif/1.0/"),
+    ("tiff", "http://ns.adobe.com/tiff/1.0/"),
+    ("photoshop", "http://ns.adobe.com/photoshop/1.0/"),
+    ("crs", "http://ns.adobe.com/camera-raw-settings/1.0/"),
+    ("lr", "http://ns.adobe.com/lightroom/1.0/"),
+    (
+        "Iptc4xmpCore",
+        "http://iptc.org/std/Iptc4xmpCore/1.0/xmlns/",
+    ),
+    ("Iptc4xmpExt", "http://iptc.org/std/Iptc4xmpExt/2008-02-29/"),
+    ("plus", "http://ns.useplus.org/ldf/xmp/1.0/"),
+    ("digiKam", "http://www.digikam.org/ns/1.0/"),
+    ("MicrosoftPhoto", "http://ns.microsoft.com/photo/1.0/"),
+    (
+        "mwg-rs",
+        "http://www.metadataworkinggroup.com/schemas/regions/",
+    ),
+    ("mediapro", "http://ns.iview-multimedia.com/mediapro/1.0/"),
+    ("drone-dji", "http://www.dji.com/drone-dji/1.0/"),
+    ("GPano", "http://ns.google.com/photos/1.0/panorama/"),
+];
+
 /// The 64 locks within this Glimt, by `sidecar_lock_number`.
 static SIDECAR_LOCKS: [std::sync::Mutex<()>; 64] = [const { std::sync::Mutex::new(()) }; 64];
 
@@ -55,7 +88,8 @@ pub struct AltText {
 
 /// The top-level properties of XMP packets, as Copy for Sharing reads them to write a new packet
 /// of those the user keeps (`packet`). Each property is held by its name ("dc:subject") with its
-/// element as written (`<dc:subject>…</dc:subject>`), and each namespace by its prefix.
+/// element as written (`<dc:subject>…</dc:subject>`), and each namespace by its prefix. The name
+/// has the prefix of its namespace in `KNOWN_NAMESPACES`, which may differ from the element's.
 #[derive(Clone, Default, Debug)]
 pub(crate) struct Properties {
     pub(crate) list: Vec<(String, String)>,
@@ -724,7 +758,7 @@ pub(crate) fn without_property(xmp: &str, tag: &str) -> String {
 /// for, so a packet written of them holds only elements. A Description is read up to what does
 /// not read as a property (a property cut off, or text between them), and the rest of it is not
 /// read. Each search goes on from where the last one ended, so a hostile packet takes linear
-/// time.
+/// time. A property is named by its namespace (`property_name`).
 pub(crate) fn properties(xmp: &str) -> Properties {
     let mut out = Properties::default();
     for (at, _) in xmp.match_indices("xmlns:") {
@@ -751,22 +785,23 @@ pub(crate) fn properties(xmp: &str) -> Properties {
                 && !name.starts_with("rdf:")
                 && !name.starts_with("xml:")
             {
+                let element = format!("<{name}>{value}</{name}>");
                 out.list
-                    .push((name.to_owned(), format!("<{name}>{value}</{name}>")));
+                    .push((property_name(name, &out.namespaces), element));
             }
         }
         from = gt + 1;
         if !head.ends_with('/') {
-            from = child_properties(xmp, from, &mut out.list);
+            from = child_properties(xmp, from, &mut out);
         }
     }
     out
 }
 
 /// Reads the elements in `xmp` from `from` on, as properties of the rdf:Description they are
-/// in, into `list`, up to the end of that Description or what does not read as an element.
-/// Returns where it stopped.
-fn child_properties(xmp: &str, mut from: usize, list: &mut Vec<(String, String)>) -> usize {
+/// in, into `read`, named by the namespaces it has read (`property_name`). It reads up to the
+/// end of that Description or what does not read as an element. Returns where it stopped.
+fn child_properties(xmp: &str, mut from: usize, read: &mut Properties) -> usize {
     loop {
         let rest = &xmp[from..];
         let text = rest.trim_start();
@@ -798,9 +833,24 @@ fn child_properties(xmp: &str, mut from: usize, list: &mut Vec<(String, String)>
             }
         };
         if name.contains(':') {
-            list.push((name.to_owned(), xmp[from..end].to_owned()));
+            let name = property_name(name, &read.namespaces);
+            read.list.push((name, xmp[from..end].to_owned()));
         }
         from = end;
+    }
+}
+
+/// Returns the name of the property written `name` in a packet that binds its prefixes as
+/// `namespaces` says. It has the prefix of its namespace in `KNOWN_NAMESPACES`, or else the
+/// prefix as written.
+fn property_name(name: &str, namespaces: &[(String, String)]) -> String {
+    let Some((prefix, local)) = name.split_once(':') else {
+        return name.to_owned();
+    };
+    let uri = namespaces.iter().find(|(p, _)| p == prefix).map(|(_, u)| u);
+    match uri.and_then(|u| KNOWN_NAMESPACES.iter().find(|(_, known)| known == u)) {
+        Some((known, _)) => format!("{known}:{local}"),
+        None => name.to_owned(),
     }
 }
 
@@ -1689,6 +1739,23 @@ mod tests {
         let again = super::properties(&written);
         assert_eq!(again.list, read.list);
         assert!(written.contains("xmlns:tiff=") && !written.contains("xml:lang"));
+    }
+
+    /// A property is named by its namespace, not by the prefix the packet gave it, so Exif's GPS
+    /// under "ns1:" is "exif:" and the old "xap:" is "xmp:".
+    #[test]
+    fn names_properties_by_their_namespace() {
+        let xmp = "<x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><rdf:RDF><rdf:Description \
+                   rdf:about=\"\" xmlns:ns1=\"http://ns.adobe.com/exif/1.0/\" \
+                   xmlns:xap=\"http://ns.adobe.com/xap/1.0/\" xmlns:my=\"urn:my\" \
+                   ns1:GPSLatitude=\"59,55N\" my:Thing=\"x\"><xap:CreateDate>2023\
+                   </xap:CreateDate></rdf:Description></rdf:RDF></x:xmpmeta>";
+        let read = super::properties(xmp);
+        let names: Vec<&str> = read.list.iter().map(|(n, _)| n.as_str()).collect();
+        assert_eq!(names, ["exif:GPSLatitude", "my:Thing", "xmp:CreateDate"]);
+        let written = String::from_utf8(super::packet(&read)).unwrap();
+        assert!(written.contains("xmlns:ns1=\"http://ns.adobe.com/exif/1.0/\""));
+        assert!(written.contains("<ns1:GPSLatitude>59,55N</ns1:GPSLatitude>"));
     }
 
     /// Packets broken in thousands of ways: their properties read, and a packet written of them,

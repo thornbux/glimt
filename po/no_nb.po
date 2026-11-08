@@ -2920,6 +2920,10 @@ msgid "Ticked tags are left out of the copies."
 msgstr "Avkryssede tagger utelates fra kopiene."
 
 #: src/features/copy_for_sharing.rs
+msgid "A block that can hold tags of several groups, such as the extra images or the maker note, is left out when any tag of those groups is."
+msgstr "En blokk som kan inneholde tagger fra flere grupper, som de ekstra bildene eller produsentens notat, utelates når en tagg fra disse gruppene utelates."
+
+#: src/features/copy_for_sharing.rs
 msgid "Always kept: the orientation, so the image is not shown on its side, and the colour profile, so its colours do not change."
 msgstr "Alltid med: retningen, så bildet ikke vises på siden, og fargeprofilen, så fargene ikke endres."
 
