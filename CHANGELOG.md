@@ -20,6 +20,10 @@ and versions follow [Semantic Versioning](https://semver.org/).
   waiting for it.
 - The projector's keys wait while a dialog is open in the main window, as the main window's
   do: Space there no longer moves to the next image behind the Delete question.
+- A start option after the file or folder is read as an option, as Geeqie reads its own:
+  `glimt a.jpg --fullscreen` starts in full screen, rather than showing the current folder
+  together with a.jpg's. Any other argument there is still a file or folder, and after `--`
+  every argument is.
 
 ## [0.75.0] - 2026-11-08
 
