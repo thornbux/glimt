@@ -560,7 +560,7 @@ impl crate::App {
 
     /// Decode the images and thumbnails again, to be shown in other colours.
     pub(crate) fn redecode(&mut self) {
-        self.list.forget_decoded();
+        self.list.forget_loaded_images();
         self.thumbs_changed();
         self.decoding.last_drawn = None;
         self.refill_preload();
@@ -776,7 +776,7 @@ impl crate::App {
             }
             None => 1.0,
         };
-        if self.config.checkerboard && loaded.transparent() {
+        if self.config.checkerboard && loaded.has_transparency() {
             paint_checker(&p, at, 0, alpha(shown));
         }
         p.image(loaded.texture.id(), at, uv, alpha(shown));
@@ -855,7 +855,7 @@ impl crate::App {
 
     /// Full screen info in the top left corner, from the template in Preferences.
     pub(crate) fn paint_full_screen_info(&mut self, ui: &mut egui::Ui, area: egui::Rect) {
-        self.request_exif(ui.ctx());
+        self.request_and_take_exif(ui.ctx());
         let path = self.path(self.list.shown());
         let meta = self.info_panel.metadata_edit_of(&path).map(|m| &m.saved);
         let text = fill_template(&self.config.osd_template, |field| match field {
@@ -931,7 +931,7 @@ impl crate::App {
                     // This happens only then. A projector smaller than the view shows the images
                     // it has, and dragging its edge decodes nothing again.
                     if grown {
-                        self.list.keep_full_only();
+                        self.list.keep_full_resolution_only();
                         self.refill_preload();
                     }
                 }
@@ -980,7 +980,7 @@ impl crate::App {
         };
         let rect =
             egui::Rect::from_center_size(area.center() + pan, egui::vec2(w, h) * scale / ppp);
-        if self.config.checkerboard && loaded.transparent() {
+        if self.config.checkerboard && loaded.has_transparency() {
             paint_checker(ui.painter(), rect, turns, egui::Color32::WHITE);
         }
         let tex = self.texture(loaded, ui.ctx());
@@ -1394,7 +1394,7 @@ impl crate::App {
                 }
                 None => 1.0,
             };
-            if self.config.checkerboard && loaded.transparent() {
+            if self.config.checkerboard && loaded.has_transparency() {
                 paint_checker(ui.painter(), rect, self.viewing.turn.0, alpha(shown));
             }
             paint_turned(ui, tex, rect, self.viewing.turn, alpha(shown));

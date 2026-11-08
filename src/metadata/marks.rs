@@ -110,14 +110,14 @@ impl Marks {
         }
     }
 
-    /// Files copied (`keep`) or moved and renamed `(from, to)`: the new ones get the marks. A
+    /// Files copied (`is_copy`) or moved and renamed `(from, to)`: the new ones get the marks. A
     /// folder renamed goes through `follow_folder`, so a report of files never stats them on the UI
     /// thread to find a folder among them.
-    pub fn follow_files(&mut self, pairs: Vec<(PathBuf, PathBuf)>, keep: bool) {
+    pub fn follow_files(&mut self, pairs: Vec<(PathBuf, PathBuf)>, is_copy: bool) {
         // From the file as it is: stars set in another window since this one last read it were
         // left behind on the old names, as this window did not know them.
         self.refresh();
-        self.follow_known(pairs, Vec::new(), keep);
+        self.follow_known(pairs, Vec::new(), is_copy);
     }
 
     /// The folder `from` renamed to `to` (Rename Folder): the files in it keep their marks under
@@ -141,15 +141,15 @@ impl Marks {
         &mut self,
         pairs: Vec<(PathBuf, PathBuf)>,
         inside: Vec<(PathBuf, PathBuf)>,
-        keep: bool,
+        is_copy: bool,
     ) {
         let pairs: Vec<(PathBuf, PathBuf)> = (pairs.into_iter())
             .filter(|(from, to)| self.by_path.contains_key(from) || self.by_path.contains_key(to))
             .chain(inside)
             .collect();
         if !pairs.is_empty() {
-            follow_pairs(&mut self.by_path, &pairs, keep);
-            save(Edit::Follow(pairs, keep));
+            follow_pairs(&mut self.by_path, &pairs, is_copy);
+            save(Edit::Follow(pairs, is_copy));
         }
     }
 
@@ -233,11 +233,11 @@ fn apply(map: &mut HashMap<PathBuf, (u8, u8)>, paths: &[PathBuf], change: Change
 }
 
 /// Gives the marks of each `from` to its `to`, and keeps them on `from` too for a copy
-/// (`keep`). All are taken before any is given, because in a Rename Many that swaps or shifts
+/// (`is_copy`). All are taken before any is given, because in a Rename Many that swaps or shifts
 /// names a `to` is another pair's `from`.
-fn follow_pairs(map: &mut HashMap<PathBuf, (u8, u8)>, pairs: &[(PathBuf, PathBuf)], keep: bool) {
+fn follow_pairs(map: &mut HashMap<PathBuf, (u8, u8)>, pairs: &[(PathBuf, PathBuf)], is_copy: bool) {
     let taken: Vec<Option<(u8, u8)>> = (pairs.iter())
-        .map(|(from, _)| match keep {
+        .map(|(from, _)| match is_copy {
             true => map.get(from).copied(),
             false => map.remove(from),
         })
@@ -253,7 +253,7 @@ fn follow_pairs(map: &mut HashMap<PathBuf, (u8, u8)>, pairs: &[(PathBuf, PathBuf
 fn apply_edit(map: &mut HashMap<PathBuf, (u8, u8)>, edit: &Edit) {
     match edit {
         Edit::Change(paths, change) => apply(map, paths, *change),
-        Edit::Follow(pairs, keep) => follow_pairs(map, pairs, *keep),
+        Edit::Follow(pairs, is_copy) => follow_pairs(map, pairs, *is_copy),
     }
 }
 

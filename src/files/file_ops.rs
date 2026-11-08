@@ -67,8 +67,8 @@ pub(crate) struct RenameOutcome {
 ///
 /// This is the one report of what happened to files on disk. `receive_operation_report` is the one
 /// place that brings along everything that follows a file: marks, the collection, a turn not saved,
-/// decoded images, thumbnails, details and the `exif:` index. It is one message, so nothing depends
-/// on the order in which two messages would arrive.
+/// decoded images, thumbnails, sizes and dates, and the `exif:` index. It is one message, so
+/// nothing depends on the order in which two messages would arrive.
 #[derive(Default)]
 pub(crate) struct OperationReport {
     pub(crate) requested: Vec<PathBuf>,
@@ -148,7 +148,7 @@ pub(crate) struct Job {
     /// or deleted while it runs.
     pub(crate) writes_sidecars: bool,
     /// The files and folders the job changes. No other operation starts on them while it runs.
-    pub(crate) touches: Vec<PathBuf>,
+    pub(crate) held_back_files: Vec<PathBuf>,
 }
 
 impl Job {
@@ -157,7 +157,7 @@ impl Job {
         activity: &'static str,
         total: usize,
         writes_sidecars: bool,
-        touches: Vec<PathBuf>,
+        held_back_files: Vec<PathBuf>,
     ) -> Job {
         Job {
             activity,
@@ -167,7 +167,7 @@ impl Job {
             started: Instant::now(),
             _writing: Working::new(&crate::files::file_io::WRITING),
             writes_sidecars,
-            touches,
+            held_back_files,
         }
     }
 
@@ -210,8 +210,9 @@ pub(crate) struct FileOperations {
     /// The file operations running, for the status bar. A job is over when its thread has let
     /// go of it.
     jobs: Vec<Arc<Job>>,
-    /// What `run_in_background` work changes, held by its thread as long as it runs.
-    background_paths: Vec<Arc<Vec<PathBuf>>>,
+    /// The files that `run_in_background` work changes, held back (`HeldBackFiles`) by its thread
+    /// as long as it runs.
+    held_back_files: Vec<Arc<Vec<PathBuf>>>,
     /// A Rename Many running in the background.
     renaming: Option<RenameJob>,
     renaming_rx: Receiving<RenameOutcome>,
@@ -259,7 +260,7 @@ impl FileOperations {
         });
         FileOperations {
             jobs: Vec::new(),
-            background_paths: Vec::new(),
+            held_back_files: Vec::new(),
             renaming: None,
             renaming_rx: Receiving::none(),
             deleting: HashSet::new(),
@@ -288,7 +289,7 @@ impl FileOperations {
         let any_writing = |jobs: &[Arc<Job>]| jobs.iter().any(|j| j.writes_sidecars);
         let were_writing = any_writing(&self.jobs);
         self.jobs.retain(|job| Arc::strong_count(job) > 1);
-        self.background_paths.retain(|t| Arc::strong_count(t) > 1);
+        self.held_back_files.retain(|t| Arc::strong_count(t) > 1);
         were_writing && !any_writing(&self.jobs)
     }
 
@@ -304,7 +305,7 @@ impl FileOperations {
     pub(crate) fn jobs_writing_sidecar_of(&self, file: &Path) -> Vec<std::sync::Weak<Job>> {
         (self.jobs.iter())
             .filter(|j| j.writes_sidecars && Arc::strong_count(j) > 1)
-            .filter(|j| j.touches.iter().any(|t| file.starts_with(t)))
+            .filter(|j| j.held_back_files.iter().any(|t| file.starts_with(t)))
             .map(Arc::downgrade)
             .collect()
     }
@@ -525,9 +526,9 @@ impl crate::App {
     fn is_changed_by_running_work(&self, paths: &[PathBuf]) -> bool {
         let running = (self.file_operations.jobs.iter())
             .filter(|j| Arc::strong_count(j) > 1)
-            .flat_map(|j| &j.touches)
+            .flat_map(|j| &j.held_back_files)
             .chain(
-                (self.file_operations.background_paths.iter())
+                (self.file_operations.held_back_files.iter())
                     .filter(|t| Arc::strong_count(t) > 1)
                     .flat_map(|t| t.iter()),
             );
@@ -546,15 +547,16 @@ impl crate::App {
         crate::files::file_io::WRITING.load(Ordering::Relaxed) > 0
     }
 
-    /// A file operation on `total` files that changes `touches`, shown in the status bar until its
-    /// thread drops it. Returns `None`, with a notice, while something else works on them.
+    /// A file operation on `total` files that changes `held_back_files`, shown in the status bar
+    /// until its thread drops it. Returns `None`, with a notice, while something else works on
+    /// them.
     pub(crate) fn start_job(
         &mut self,
         activity: &'static str,
         total: usize,
-        touches: Vec<PathBuf>,
+        held_back_files: Vec<PathBuf>,
     ) -> Option<Arc<Job>> {
-        self.start_job_of(activity, total, false, touches)
+        self.start_job_of(activity, total, false, held_back_files)
     }
 
     /// `start_job`, of the files' sidecars (`writes_sidecars`) or of the files themselves.
@@ -563,16 +565,19 @@ impl crate::App {
         activity: &'static str,
         total: usize,
         writes_sidecars: bool,
-        touches: Vec<PathBuf>,
+        held_back_files: Vec<PathBuf>,
     ) -> Option<Arc<Job>> {
         // Keywords and stars are never refused, because an edit made in the panel would be
         // lost. Instead, their job holds back every other operation (`are_free_to_change`'s
         // `writing`). A job that changes none of the user's files, such as a backup, is not
         // refused either.
-        if !writes_sidecars && !touches.is_empty() && !self.are_free_to_change(&touches) {
+        if !writes_sidecars
+            && !held_back_files.is_empty()
+            && !self.are_free_to_change(&held_back_files)
+        {
             return None;
         }
-        let job = Arc::new(Job::new(activity, total, writes_sidecars, touches));
+        let job = Arc::new(Job::new(activity, total, writes_sidecars, held_back_files));
         self.file_operations.jobs.push(job.clone());
         Some(job)
     }
@@ -847,10 +852,10 @@ impl crate::App {
     }
 
     /// Brings along what Glimt keeps about files or folders that were moved or renamed
-    /// `(from, to)`, or copied (`copied`). It is the one place every operation reports to. The
+    /// `(from, to)`, or copied (`is_copy`). It is the one place every operation reports to. The
     /// marks go along, to a copy too. When the files moved, a collection's entries of them, and
     /// of everything in a moved folder, take the new place, in the list and in its file.
-    pub(crate) fn follow_moved_paths(&mut self, pairs: Vec<(PathBuf, PathBuf)>, copied: bool) {
+    pub(crate) fn follow_moved_paths(&mut self, pairs: Vec<(PathBuf, PathBuf)>, is_copy: bool) {
         // No message of a delete has pairs, so each one skips the look at every name in the
         // list.
         if pairs.is_empty() {
@@ -859,16 +864,16 @@ impl crate::App {
         // Both names hold another file now, or none, so a moved file's caches would show under
         // the new name what an old file of that name had.
         let names: Vec<PathBuf> = (pairs.iter())
-            .flat_map(|(from, to)| [(!copied).then(|| from.clone()), Some(to.clone())])
+            .flat_map(|(from, to)| [(!is_copy).then(|| from.clone()), Some(to.clone())])
             .flatten()
             .collect();
         self.forget_names(&names);
         let moved = moves_by_source(&pairs);
         // A turn not saved yet goes with its file, saved under the new name.
-        if !copied && let Some(to) = new_place(self.viewing.turned_file(), &moved) {
+        if !is_copy && let Some(to) = new_place(self.viewing.turned_file(), &moved) {
             self.viewing.turned_file_moved(to);
         }
-        if !copied && self.folder.collection().is_some() {
+        if !is_copy && self.folder.collection().is_some() {
             let renamed: Vec<(usize, OsString)> = (0..self.list.files().len())
                 .filter_map(|i| {
                     let to = new_place(&self.path(i), &moved)?;
@@ -900,7 +905,7 @@ impl crate::App {
         }
         self.index_new_names();
         #[cfg(feature = "marks")]
-        self.marks.follow_files(pairs, copied);
+        self.marks.follow_files(pairs, is_copy);
     }
 
     /// Copies or moves `paths` into `dest` in the background. Existing files are never
@@ -910,28 +915,28 @@ impl crate::App {
         ctx: &egui::Context,
         paths: Vec<PathBuf>,
         dest: PathBuf,
-        keep: bool,
+        is_copy: bool,
     ) {
         // The folder by its real path (`~/card` → `/media/u/CARD`, `CARD/..` → `/media/u`), so
         // that its file system is the one the files go to, and a move into the folder shown
         // through a link is seen as one. It is checked before the files leave the list, so a
         // refused move keeps the view.
         let dest = crate::model::listing::real_dir(&dest);
-        if let Some(text) = refused_transfer(&paths, &dest, keep, file_system_type_or_test) {
+        if let Some(text) = refused_transfer(&paths, &dest, is_copy, file_system_type_or_test) {
             self.notice = Some(text);
             return;
         }
         // A copy changes none of the files it reads, but it holds them: a Rename Many that ran
         // meanwhile could hand it one photo with another photo's sidecar, and a move or delete
         // could take a file away halfway.
-        let touches = paths.clone();
-        let activity = tr(if keep { "Copying" } else { "Moving" });
-        let Some(job) = self.start_job(activity, paths.len(), touches) else {
+        let held_back_files = paths.clone();
+        let activity = tr(if is_copy { "Copying" } else { "Moving" });
+        let Some(job) = self.start_job(activity, paths.len(), held_back_files) else {
             return;
         };
         // In a collection, the entries follow the files that got there, in
         // `receive_operation_report`.
-        if !keep && self.folder.collection().is_none() {
+        if !is_copy && self.folder.collection().is_none() {
             self.moving_out(ctx, &paths, &dest);
         }
         let (tx, freed_tx, ctx) = (
@@ -948,7 +953,7 @@ impl crate::App {
             || (self.folder.recursive() && dest.starts_with(self.folder.dir()));
         let pointer = Working::new(&self.busy);
         std::thread::spawn(move || {
-            if !keep && same_dir {
+            if !is_copy && same_dir {
                 let _ = freed_tx.send(total_size(&paths));
             }
             let (mut errors, mut put) = (Vec::new(), Vec::new());
@@ -965,26 +970,26 @@ impl crate::App {
                 // sidecar as a write does, so a write that waited lands on no old name. A copy
                 // does not hold it, because the photo stays. A move to another disk holds it
                 // while the photo is copied, which only makes writes under the same lock wait.
-                let _lock = (!keep).then(|| xmp::lock_sidecar(path));
+                let _lock = (!is_copy).then(|| xmp::lock_sidecar(path));
                 if let Some(at) = name_in_the_way(&target, &HashSet::new()) {
                     failed(&at, std::io::ErrorKind::AlreadyExists.into());
-                } else if let Err(e) = put_file(path, &target, keep) {
+                } else if let Err(e) = put_file(path, &target, is_copy) {
                     failed(&target, e);
                 } else {
-                    if let Err(e) = xmp::follow(path, &target, keep) {
+                    if let Err(e) = xmp::follow(path, &target, is_copy) {
                         failed(&xmp::sidecar(&target), e);
                     }
                     put.push((path.clone(), target));
                 }
                 job.count_done(1);
             }
-            let gone: Vec<PathBuf> = match keep {
+            let gone: Vec<PathBuf> = match is_copy {
                 true => Vec::new(),
                 false => put.iter().map(|(from, _)| from.clone()).collect(),
             };
             let failed = !errors.is_empty() || job.is_stopped();
             if let Some(first) = errors.first() {
-                let verb = tr(if keep { "Copy" } else { "Move" });
+                let verb = tr(if is_copy { "Copy" } else { "Move" });
                 let _ = tx.send(tf!(
                     "{verb} failed ({count}): {first}",
                     verb,
@@ -993,7 +998,7 @@ impl crate::App {
                 ));
             } else if let Some(text) = job.report(|| {
                 let (files, folder) = (count(paths.len(), "file"), dest.display());
-                match keep {
+                match is_copy {
                     true => tf!("{files} copied to {folder}", files, folder),
                     false => tf!("{files} moved to {folder}", files, folder),
                 }
@@ -1003,15 +1008,15 @@ impl crate::App {
             // A move takes the files out of `deleting`. The folder is read again for files that
             // joined it, or that failed to go, were refused or were not reached after Stop. A
             // copy to another folder does not change the list.
-            let read_folder_again = (listed || !keep) && (listed || failed);
-            let undo = (!keep && !put.is_empty())
+            let read_folder_again = (listed || !is_copy) && (listed || failed);
+            let undo = (!is_copy && !put.is_empty())
                 .then(|| Undo::Move(put.iter().filter_map(with_fingerprint).collect()));
             let _ = report_tx.send(OperationReport {
-                requested: if keep { Vec::new() } else { paths },
+                requested: if is_copy { Vec::new() } else { paths },
                 gone,
                 any_failed: failed,
                 moved: put,
-                is_copy: keep,
+                is_copy,
                 read_folder_again,
                 undo,
                 ..Default::default()
@@ -1096,8 +1101,8 @@ impl crate::App {
         }
         // It is a job like every other writer. Closing waits for it, the status bar counts it,
         // and its Stop puts back the names done so far.
-        let touches = from.iter().chain(&to).cloned().collect();
-        let Some(steps) = self.start_job(tr("Renaming"), from.len(), touches) else {
+        let held_back_files = from.iter().chain(&to).cloned().collect();
+        let Some(steps) = self.start_job(tr("Renaming"), from.len(), held_back_files) else {
             return;
         };
         let shown = from.iter().position(|f| self.is_file(self.list.shown(), f));
@@ -1429,7 +1434,7 @@ impl crate::App {
         // This asks before the undo is taken, so one that is refused stays to be done again.
         // So do the files of a move to the trash that did not come back, which its thread
         // sends back.
-        let touches: Vec<PathBuf> = match &self.file_operations.undo {
+        let undone: Vec<PathBuf> = match &self.file_operations.undo {
             Some(Undo::Move(pairs)) => (pairs.iter())
                 .flat_map(|(from, to, _)| [from.clone(), to.clone()])
                 .collect(),
@@ -1439,7 +1444,7 @@ impl crate::App {
                 .collect(),
             None => Vec::new(),
         };
-        if !self.are_free_to_change(&touches) {
+        if !self.are_free_to_change(&undone) {
             return;
         }
         let Some(undo) = self.file_operations.undo.take() else {
@@ -1457,7 +1462,7 @@ impl crate::App {
                 }
                 self.rename_files_of(ctx, now, before, Some(fingerprints));
             }
-            Undo::Move(pairs) => drop(self.run_in_background(ctx, touches, move || {
+            Undo::Move(pairs) => drop(self.run_in_background(ctx, undone, move || {
                 let (back, errors) = move_back(pairs);
                 let files = count(back.len(), "file");
                 let _ = report_tx.send(OperationReport {
@@ -1474,7 +1479,7 @@ impl crate::App {
                     None => tf!("{files} moved back", files),
                 })
             })),
-            Undo::Trash(trash_move) => drop(self.run_in_background(ctx, touches, move || {
+            Undo::Trash(trash_move) => drop(self.run_in_background(ctx, undone, move || {
                 let (back, mut error) = restore(&trash_move, trash_dirs);
                 // What went with the files comes back with them: their places in the
                 // collection, their marks and their stars.
@@ -1546,25 +1551,25 @@ impl crate::App {
             return None;
         }
         let held = Arc::new(paths);
-        self.file_operations.background_paths.push(held.clone());
+        self.file_operations.held_back_files.push(held.clone());
         Some(HeldBackFiles { _paths: held })
     }
 
-    /// Runs `work`, which writes files and changes `touches`, in a thread of its own. The busy
-    /// pointer shows meanwhile, closing waits for it, and what it returns is told in the window.
-    /// It is not started, and a notice says so, while something else works on `touches`
-    /// (`are_free_to_change`). Returns whether it started. Work within a job passes no `touches`,
-    /// because its job holds them.
+    /// Runs `work`, which writes files and changes `held_back_files`, in a thread of its own. The
+    /// busy pointer shows meanwhile, closing waits for it, and what it returns is told in the
+    /// window. It is not started, and a notice says so, while something else works on
+    /// `held_back_files` (`are_free_to_change`). Returns whether it started. Work within a job
+    /// passes no `held_back_files`, because its job holds them.
     pub(crate) fn run_in_background(
         &mut self,
         ctx: &egui::Context,
-        touches: Vec<PathBuf>,
+        held_back_files: Vec<PathBuf>,
         work: impl FnOnce() -> Option<String> + Send + 'static,
     ) -> bool {
         // Work that changes none of the user's files (within a job that holds them, or on
         // Glimt's own collections) waits for nothing. A Lightroom import's collections were
         // refused while its own keywords were being written.
-        let Some(held_back) = self.hold_back_while_writing(touches) else {
+        let Some(held_back) = self.hold_back_while_writing(held_back_files) else {
             return false;
         };
         let (tx, ctx) = (self.notice_sender.clone(), ctx.clone());
@@ -1951,19 +1956,19 @@ fn not_renamed((name, kind): (String, String)) -> String {
 }
 
 /// Returns a notice when a file of `paths` has a name that the FAT or exFAT file system of
-/// `dest` refuses, so that a copy (`keep`) or a move into it refuses all before the first file.
+/// `dest` refuses, so that a copy (`is_copy`) or a move into it refuses all before the first file.
 /// Returns `None` when every name is allowed there. Every file goes into the one folder, so the
 /// first name with such a character decides, and the names after it are not looked at.
 fn refused_transfer(
     paths: &[PathBuf],
     dest: &Path,
-    keep: bool,
+    is_copy: bool,
     file_system_type: impl Fn(&Path) -> Option<String>,
 ) -> Option<String> {
     let odd = (paths.iter().filter_map(|p| p.file_name()))
         .find(|n| n.to_string_lossy().contains(NOT_ON_FAT))?;
     let (name, kind) = refused_on_fat(&[dest.join(odd)], file_system_type)?;
-    Some(match keep {
+    Some(match is_copy {
         true => tf!(
             "\"{name}\": a {kind} file system, as on a camera card, allows none of : ? * \" < > | \\ in a name. Nothing was copied.",
             name,
@@ -2412,9 +2417,9 @@ mod tests {
         let files = vec![d.join("a.png"), d.join("12:30.png")];
         let card = d.join("card").canonicalize().unwrap();
         super::test_mount(&card, Some("vfat"));
-        for keep in [true, false] {
+        for is_copy in [true, false] {
             app.notice = None;
-            app.transfer(&ctx, files.clone(), d.join("card"), keep);
+            app.transfer(&ctx, files.clone(), d.join("card"), is_copy);
             // Refused before the files left the list, so the view stays where it was.
             assert!(listed(&app), "the refused files left the list");
             assert!(run_background_until(&mut app, &ctx, |a| a.notice.is_some() && !a.working()));
@@ -2456,9 +2461,9 @@ mod tests {
         let card = d.join("media/CARD").canonicalize().unwrap();
         super::test_mount(&card, Some("vfat"));
         let files = vec![d.join("a.png"), d.join("12:30.png")];
-        for keep in [true, false] {
+        for is_copy in [true, false] {
             app.notice = None;
-            app.transfer(&ctx, files.clone(), d.join("card"), keep);
+            app.transfer(&ctx, files.clone(), d.join("card"), is_copy);
             assert!(listed(&app), "the refused files left the list");
             assert!(run_background_until(&mut app, &ctx, |a| a.notice.is_some() && !a.working()));
             let told = app.notice.clone().unwrap_or_default();
@@ -2735,7 +2740,7 @@ mod tests {
                 .collect()
         };
         let held = std::sync::Arc::new(many("busy"));
-        app.file_operations.background_paths.push(held.clone());
+        app.file_operations.held_back_files.push(held.clone());
         let asked = many("free");
         let start = std::time::Instant::now();
         assert!(app.are_free_to_change(&asked));
@@ -3022,7 +3027,7 @@ mod tests {
             go.send(()).unwrap();
             assert!(run_background_until(&mut app, &ctx, |app| app
                 .file_operations
-                .background_paths
+                .held_back_files
                 .iter()
                 .all(|t| std::sync::Arc::strong_count(t) == 1)));
             // Then it runs, and what follows the file comes along.
@@ -3770,22 +3775,22 @@ mod tests {
         assert!(!d.join("c.png.xmp").exists());
         // With many files, they are held a chunk (100) at a time, so a file held up by a
         // sidecar write holds up only its own chunk, and those before it go meanwhile. Here
-        // they are deleted for good: a chunk of 100 files in other lock slots, and then two
-        // more, of which the second is held. The first of the two waits too, because it is in
-        // the same chunk. (There is not one gio call and one taking of the locks per file.)
-        let slot = |n: &str| {
+        // they are deleted for good: a chunk of 100 files under other sidecar lock numbers, and
+        // then two more, of which the second is held. The first of the two waits too, because it
+        // is in the same chunk. (There is not one gio call and one taking of the locks per file.)
+        let lock_number = |n: &str| {
             crate::metadata::xmp::sidecar_lock_number(&crate::metadata::xmp::sidecar(&d.join(n)))
         };
         let names: Vec<String> = (0..400).map(|k| format!("d{k:03}.png")).collect();
         let y = &names[0];
         let first: Vec<&String> = names
             .iter()
-            .filter(|n| slot(n) != slot(y))
+            .filter(|n| lock_number(n) != lock_number(y))
             .take(100)
             .collect();
         assert_eq!(first.len(), 100);
         let z = (names.iter())
-            .find(|n| slot(n) != slot(y) && !first.contains(n))
+            .find(|n| lock_number(n) != lock_number(y) && !first.contains(n))
             .unwrap();
         for n in first.iter().copied().chain([y, z]) {
             std::fs::write(d.join(n), "").unwrap();
@@ -4090,7 +4095,7 @@ mod tests {
         };
         let idle = |app: &crate::App| {
             (app.file_operations.jobs.iter()).all(|j| std::sync::Arc::strong_count(j) == 1)
-                && (app.file_operations.background_paths.iter())
+                && (app.file_operations.held_back_files.iter())
                     .all(|t| std::sync::Arc::strong_count(t) == 1)
         };
         let has = |app: &crate::App, want: &[&str]| idle(app) && entries(app) == want;

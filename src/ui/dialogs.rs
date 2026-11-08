@@ -712,15 +712,15 @@ impl crate::App {
         });
         let Some(undo) = choice else { return };
         // Asked before the plans are taken: one held back is asked about again.
-        let touches: Vec<PathBuf> = (self.file_operations.cut_short().iter())
+        let held_back_files: Vec<PathBuf> = (self.file_operations.cut_short().iter())
             .flat_map(|(_, moves, _)| moves.iter().flat_map(|(a, b)| [a.clone(), b.clone()]))
             .collect();
-        if !self.are_free_to_change(&touches) {
+        if !self.are_free_to_change(&held_back_files) {
             return;
         }
         let plans = self.file_operations.take_cut_short();
         let report_tx = self.file_operations.report_sender();
-        self.run_in_background(ctx, touches, move || {
+        self.run_in_background(ctx, held_back_files, move || {
             let (mut renamed, mut left) = (0, 0);
             let mut moved = Vec::new();
             for (plan, moves, done) in &plans {

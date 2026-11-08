@@ -419,9 +419,9 @@ pub(crate) fn save_copy_with_sidecar(
     // The lock of the copy's sidecar is held, as every writer of a sidecar holds it. A keyword
     // written to the replaced file from another window then waits, rather than landing between
     // the old sidecar's removal and the new one's creation. The image is written beside its name
-    // before the lock is taken, because that is the slow part on a share, and other sidecars of
-    // the lock's slot would wait for it. The lock is taken before the image takes its name and is
-    // held until the copy's sidecar is in place.
+    // before the lock is taken, because that is the slow part on a share, and other sidecars with
+    // the same sidecar lock number would wait for it. The lock is taken before the image takes
+    // its name and is held until the copy's sidecar is in place.
     let mut lock = None;
     // The sidecar is read before the copy is written, so one that cannot be read leaves no copy
     // behind. A sidecar that is a link counts as none, because what it points to (a private key)

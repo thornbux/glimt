@@ -509,7 +509,7 @@ fn send_and_print_answer(path: &std::path::Path, command: &str) -> bool {
 /// listening on it, and removing it then would leave that Glimt without remote control.
 /// shortcut: the socket of a Glimt that crashed stays until the runtime folder is cleared at
 /// logout, and costs one refused connection each time; remove such sockets at start, under
-/// `claim`'s lock, if they ever pile up.
+/// `bind_socket`'s lock, if they ever pile up.
 fn live_sockets(dir: Option<PathBuf>) -> Vec<PathBuf> {
     let entries = dir.and_then(|d| std::fs::read_dir(d).ok());
     entries
@@ -678,7 +678,8 @@ pub fn listen(tx: mpsc::Sender<(String, Option<Reply>)>, ctx: eframe::egui::Cont
         Err(Some(e)) => return eprintln!("No remote control: {}: {e}", path.display()),
     };
     LISTENING.store(true, std::sync::atomic::Ordering::Relaxed);
-    // The accept thread below keeps the listener, so its number stays valid for `queued`.
+    // The accept thread below keeps the listener, so its number stays valid for
+    // `has_waiting_client`.
     LISTENER.store(
         std::os::fd::AsRawFd::as_raw_fd(&listener),
         std::sync::atomic::Ordering::Relaxed,
@@ -1063,7 +1064,7 @@ mod tests {
 
     /// A socket that does not answer is passed over by `--remote-all` but left in place. A
     /// Glimt between binding it and listening refuses connections just as a crashed one's
-    /// socket does, and `live` removed it, so that Glimt could not be reached.
+    /// socket does, and `live_sockets` removed it, so that Glimt could not be reached.
     #[test]
     fn a_socket_not_answering_is_left_alone() {
         let dir = std::env::temp_dir().join(format!("glimt-test-live-{}", std::process::id()));

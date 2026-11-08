@@ -1042,7 +1042,7 @@ impl crate::App {
         }
         let first = self.list.files().is_empty() && !whole;
         // A refresh keeps the selection, so Delete or Move after it still acts on what was
-        // picked. The files that the search holds back stay selected too.
+        // picked. The selected files that the search hides stay selected too.
         let picked: HashSet<OsString> = (self.list.selected_with_hidden().iter())
             .filter_map(|&i| self.list.files().get(i).cloned())
             .collect();
@@ -1066,7 +1066,7 @@ impl crate::App {
         for (i, name) in names {
             self.list.rename(i, name);
         }
-        self.list.renamed_in_place();
+        self.list.note_names_changed();
         self.update_search(ctx);
     }
 
@@ -1093,7 +1093,7 @@ impl crate::App {
     /// a collection drag, and the decodes in flight. Those have old places, so they are
     /// rejected by path when they arrive, and `refill_preload` asks for them again.
     pub(crate) fn list_changed(&mut self, ctx: &egui::Context) {
-        self.list.places_changed();
+        self.list.forget_places();
         self.selection_changed(ctx);
     }
 
@@ -1154,7 +1154,7 @@ impl crate::App {
         let last_slide = self.list.files().get(self.list.last_slide()).cloned();
         // A new List means every place held in the old one goes with it, whatever field holds
         // it. Only what is carried over by name above comes back.
-        self.list = List::after(&self.list, files);
+        self.list = List::replacing(&self.list, files);
         // The shown file is set before anything refills the list, because with Compare on a
         // `refill_preload` at place 0 would drop the decode of the image shown.
         let shown = found.unwrap_or(0);
@@ -1278,7 +1278,7 @@ impl crate::App {
         // stayed.
         self.folder.listed_as = None;
         self.tree.read_again();
-        self.list.forget_decoded();
+        self.list.forget_loaded_images();
         // The image is decoded again now, because a folder read again unchanged keeps its list
         // as it is and asks for nothing. The thumbnails and the size of a file edited elsewhere
         // are made again too.
@@ -1371,10 +1371,10 @@ mod tests {
         std::fs::remove_dir_all(dir).unwrap();
     }
 
-    /// A folder read again selects again by name the files a search holds back, so they come
+    /// A folder read again selects again by name the selected files a search hides, so they come
     /// back when the search is cleared, as they do without the new list.
     #[test]
-    fn a_new_list_keeps_the_files_a_search_holds_back() {
+    fn a_new_list_keeps_the_selected_files_a_search_hides() {
         let dir = std::env::temp_dir().join(format!("glimt-test-held-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         for name in ["a.png", "b.png", "c.png"] {

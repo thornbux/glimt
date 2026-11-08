@@ -125,17 +125,17 @@ impl Drop for Working {
 /// image. Sending also asks for a frame, because egui draws only when asked, and a notice sent
 /// without one waited in the channel until the mouse moved.
 #[derive(Clone)]
-pub(crate) struct Notices {
+pub(crate) struct NoticeSender {
     tx: mpsc::Sender<String>,
     ctx: eframe::egui::Context,
 }
 
-impl Notices {
+impl NoticeSender {
     /// Returns the sending half for the window's `ctx`, and the half the window reads.
     pub(crate) fn new(ctx: &eframe::egui::Context) -> (Self, mpsc::Receiver<String>) {
         let (tx, rx) = mpsc::channel();
         let ctx = ctx.clone();
-        (Notices { tx, ctx }, rx)
+        (NoticeSender { tx, ctx }, rx)
     }
 
     /// Sends `text` to the window and asks it to draw a frame. Returns an error only when the
@@ -259,8 +259,8 @@ mod tests {
         ctx.set_request_repaint_callback(move |_| {
             count.fetch_add(1, Ordering::Relaxed);
         });
-        let (notices, rx) = super::Notices::new(&ctx);
-        std::thread::spawn(move || notices.send("done".into()).unwrap())
+        let (notice_sender, rx) = super::NoticeSender::new(&ctx);
+        std::thread::spawn(move || notice_sender.send("done".into()).unwrap())
             .join()
             .unwrap();
         assert_eq!(rx.try_recv().as_deref(), Ok("done"));

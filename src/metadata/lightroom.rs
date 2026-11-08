@@ -253,7 +253,7 @@ impl crate::App {
             drop(pointer);
             ctx.request_repaint();
         });
-        self.lightroom_catalog = Receiving::of(rx);
+        self.lightroom_catalog_answer = Receiving::of(rx);
     }
 
     /// File → Import Lightroom Catalog: where the catalog's root folders are now; then what the

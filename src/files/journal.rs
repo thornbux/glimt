@@ -103,9 +103,12 @@ pub fn start_journal(dir: &Path, moves: &[(PathBuf, PathBuf)]) -> Option<Journal
     Some(plan)
 }
 
-/// Whether `file` can be locked. It is tried for a moment, because a program that another
-/// thread starts holds a copy of the descriptor, and its lock, until it runs.
-fn is_unlocked(file: &File) -> bool {
+/// Takes `file`'s lock if no other window holds it, and returns whether it got it. The lock is
+/// kept for as long as `file` stays open, which is what keeps a second window from working on
+/// the same plan, so a caller keeps `file` open while it works. It is tried for a moment,
+/// because a program that another thread starts holds a copy of the descriptor, and its lock,
+/// until it runs.
+fn take_lock_if_free(file: &File) -> bool {
     (0..10).any(|k| {
         if k > 0 {
             std::thread::sleep(std::time::Duration::from_millis(10));
@@ -127,7 +130,7 @@ pub fn cut_short_plans(dir: &Path) -> Vec<CutShort> {
             // before it lets go of the lock, so a file opened just before then is no longer linked.
             let file = crate::images::decode::open_regular(e.path())
                 .ok()
-                .filter(is_unlocked)
+                .filter(take_lock_if_free)
                 .filter(is_linked)?;
             let mut bytes = Vec::new();
             #[allow(clippy::disallowed_methods)] // bounded by take, and only a file
@@ -263,7 +266,7 @@ pub fn repair_cut_short(
     // that one let go.
     let _held = crate::images::decode::open_regular(plan)
         .ok()
-        .filter(is_unlocked)
+        .filter(take_lock_if_free)
         .filter(is_linked)?;
     let done = done.map(|d| done_by_names(moves, d));
     let mut first = 0;
