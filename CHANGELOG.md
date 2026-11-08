@@ -79,9 +79,10 @@ and versions follow [Semantic Versioning](https://semver.org/).
   other programs still read it as a hierarchy. Taking Oslo out of Places|Norway|Oslo keeps
   Places|Norway, instead of writing Norway as a keyword at the top of the tree.
 - A keyword taken out or added in Glimt shows so in digiKam. digiKam reads its own keyword
-  lists (digiKam:TagsList, and those of Microsoft, MediaPro and ACDSee) before dc:subject, so
-  Glimt now takes them out when it writes the keywords, and keeps their hierarchy in
-  lr:hierarchicalSubject.
+  list (digiKam:TagsList) and Microsoft's before dc:subject, so Glimt now writes them again
+  from the keyword tree it writes, also over the image's own. A hierarchy that only one of
+  these lists holds is kept and written into each. An edit of the comment alone leaves every
+  keyword list as it is, and MediaPro's catalog sets and ACDSee's categories stay.
 - A comment, alt text or extended description in several languages keeps them all when it is
   edited. The panel shows the default language (x-default), or else the first, and an edit
   replaces only that one; before, it showed the first and wrote it alone as the default.

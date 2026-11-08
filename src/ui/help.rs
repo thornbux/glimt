@@ -325,8 +325,8 @@ const MANUAL: &[(&str, &str)] = &[
          Places|Norway|Oslo and Add): a box is ticked when the image has that keyword, and a click \
          sets it on the selected images, or the shown one, or takes it off. The path goes into the \
          sidecar too, as lr:hierarchicalSubject, which darktable, digiKam and Lightroom read. \
-         digiKam's own keyword lists (digiKam:TagsList and those of Microsoft, MediaPro and \
-         ACDSee) are taken out when Glimt writes the keywords, so digiKam reads Glimt's. \
+         digiKam's own keyword list (digiKam:TagsList) and Microsoft's are read with it and \
+         written again from it when Glimt writes the keywords, so digiKam reads Glimt's. \
          Right-click a keyword to remove it from the tree, with the levels below it.\n\n\
          Below the comment, Alt text and Extended description are IPTC's fields for accessibility \
          (Iptc4xmpCore:AltTextAccessibility and ExtDescrAccessibility): what the picture shows, \

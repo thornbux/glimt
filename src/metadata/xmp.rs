@@ -12,16 +12,19 @@ const ALT: &str = "Iptc4xmpCore:AltTextAccessibility";
 
 const EXTENDED: &str = "Iptc4xmpCore:ExtDescrAccessibility";
 
-/// The keyword lists that digiKam reads before dc:subject, beside lr:hierarchicalSubject, in
-/// the order of its default settings (`DMetadataSettingsContainer::defaultTagValues`). Glimt
-/// does not write them, so it takes them out when it writes the keywords. Left in, they would
-/// still hold a keyword taken out, and lack one added, for digiKam, which then falls back to
-/// lr:hierarchicalSubject.
-const OTHER_KEYWORD_LISTS: [&str; 4] = [
-    "digiKam:TagsList",
-    "MicrosoftPhoto:LastKeywordXMP",
-    "mediapro:CatalogSets",
-    "acdsee:categories",
+/// The keyword tree lists that digiKam and Windows Photo Gallery keep beside
+/// lr:hierarchicalSubject, with "/" between the levels, each with its container and namespace.
+/// digiKam reads them before dc:subject. Glimt reads their paths with Lightroom's
+/// (`tree_paths_in`) and writes them again from the paths it writes (`with_slashed_tree_lists`),
+/// so they never hold a keyword taken out or lack one added. Media Pro's catalog sets and
+/// ACDSee's categories are not keywords, and stay as they are.
+const SLASHED_TREE_LISTS: [(&str, &str, &str); 2] = [
+    ("digiKam:TagsList", "Seq", "http://www.digikam.org/ns/1.0/"),
+    (
+        "MicrosoftPhoto:LastKeywordXMP",
+        "Bag",
+        "http://ns.microsoft.com/photo/1.0/",
+    ),
 ];
 
 /// The namespaces whose properties Copy for Sharing names by the prefix here, whatever prefix a
@@ -172,6 +175,14 @@ impl Properties {
     }
 }
 
+/// The fields a write of `write_keywords` changes. The others stay as the sidecar has them.
+#[derive(Clone, Copy, PartialEq)]
+enum Edited {
+    Keywords,
+    Comment,
+    Both,
+}
+
 /// A sidecar's lock while it is held. It holds the lock file, if it could be made, and the
 /// mutex in `SIDECAR_LOCKS` that its number picks.
 pub(crate) type SidecarLock = (Option<std::fs::File>, std::sync::MutexGuard<'static, ()>);
@@ -291,16 +302,19 @@ fn read_with_tree_paths(path: &Path) -> (KeywordsAndComment, Vec<String>) {
     source(path).map_or_else(Default::default, |x| (parse(&x), tree_paths_in(&x)))
 }
 
-/// The keyword tree paths that the XMP packet `xmp` holds. Without lr:hierarchicalSubject, they
-/// are digiKam's own paths (digiKam:TagsList, with "/" between the levels), so the hierarchy
-/// stays when the writers take that list out (`OTHER_KEYWORD_LISTS`).
+/// The keyword tree paths that the XMP packet `xmp` holds: those of lr:hierarchicalSubject and
+/// of the lists with "/" between the levels (`SLASHED_TREE_LISTS`), together. A program may have
+/// written one list and not the others, so a path that only one holds is kept, and the writers
+/// write it into each of them.
 fn tree_paths_in(xmp: &str) -> Vec<String> {
-    match list_items(xmp, "lr:hierarchicalSubject") {
-        paths if paths.is_empty() => {
-            unique((list_items(xmp, "digiKam:TagsList").into_iter()).map(|p| p.replace('/', "|")))
-        }
-        paths => unique(paths),
-    }
+    let slashed = (SLASHED_TREE_LISTS.iter())
+        .flat_map(|(list, ..)| list_items(xmp, list))
+        .map(|p| p.replace('/', "|"));
+    unique(
+        list_items(xmp, "lr:hierarchicalSubject")
+            .into_iter()
+            .chain(slashed),
+    )
 }
 
 /// The XMP the keywords and comment of `path` come from. It is the sidecar if that has them,
@@ -373,14 +387,18 @@ pub fn write_changed(
 ) -> Result<KeywordsAndComment, String> {
     let _lock = lock_sidecar(path);
     let (mut meta, paths) = read_with_tree_paths(path);
-    let keywords_only = comment.is_none();
+    let edited = match (&keywords, &comment) {
+        (_, None) => Edited::Keywords,
+        (None, Some(_)) => Edited::Comment,
+        (Some(_), Some(_)) => Edited::Both,
+    };
     if let Some(change) = keywords {
         change.apply(&mut meta.keywords);
     }
     if let Some(c) = comment {
         meta.comment = c;
     }
-    write_keywords(path, &meta, &paths, keywords_only)?;
+    write_keywords(path, &meta, &paths, edited)?;
     Ok(meta)
 }
 
@@ -398,30 +416,48 @@ pub fn add_keywords(path: &Path, keywords: &[String]) -> Result<(), String> {
     let _lock = lock_sidecar(path);
     let (mut meta, paths) = read_with_tree_paths(path);
     add_to(&mut meta.keywords, keywords);
-    write_keywords(path, &meta, &paths, true)
+    write_keywords(path, &meta, &paths, Edited::Keywords)
 }
 
-/// Writes the keywords of `meta` (and its comment too, unless `keywords_only`) and the keyword
-/// tree `paths` to the sidecar of `path`, with its lock held by the caller. It is the one way
-/// keywords are written. Every writer starts from the paths of `read_with_tree_paths`, which come
-/// from where the keywords come from, so a hierarchy that only the image holds is not flattened
-/// when its first sidecar is made. Keywords or a comment that the image holds itself and that
-/// were cleared are written as empty elements, because if they were left out, the image's own
-/// would be read again.
+/// Writes the fields of `meta` that were `edited`, and the keyword tree `paths`, to the sidecar
+/// of `path`, with its lock held by the caller. It is the one way keywords are written. An edit
+/// of the comment alone leaves every keyword list as the sidecar has it. Every writer starts
+/// from the paths of `read_with_tree_paths`, which come from where the keywords come from, so a
+/// hierarchy that only the image holds is not flattened when its first sidecar is made. Keywords
+/// or a comment that the image holds itself and that were cleared are written as empty elements,
+/// because if they were left out, the image's own would be read again.
 fn write_keywords(
     path: &Path,
     meta: &KeywordsAndComment,
     paths: &[String],
-    keywords_only: bool,
+    edited: Edited,
 ) -> Result<(), String> {
-    let own = embedded(path).is_some_and(|x| parse(&x) != KeywordsAndComment::default());
+    let inside = embedded(path);
+    let own = inside
+        .as_deref()
+        .is_some_and(|x| parse(x) != KeywordsAndComment::default());
+    // The image's own lists are countered in the sidecar, as its dc:subject is.
+    let lists_in_image: Vec<&str> = (SLASHED_TREE_LISTS.iter())
+        .map(|(list, ..)| *list)
+        .filter(|list| {
+            inside
+                .as_deref()
+                .is_some_and(|x| x.contains(&format!("<{list}")))
+        })
+        .collect();
     let only_if_there = *meta == KeywordsAndComment::default() && !own;
     update(path, only_if_there, |x| {
-        let x = with_paths(x.to_owned(), paths)?;
-        match keywords_only {
-            true => set_keywords(&x, meta, own),
-            false => set_keywords_and_comment(&x, meta, own),
+        // A sidecar without dc:subject takes the keywords that were read, so that a new one
+        // does not hide the image's.
+        if edited == Edited::Comment && x.contains("<dc:subject") {
+            return set_comment(x, &meta.comment, own);
         }
+        let x = with_paths(x.to_owned(), paths)?;
+        let x = match edited {
+            Edited::Keywords => set_keywords(&x, meta, own)?,
+            Edited::Comment | Edited::Both => set_keywords_and_comment(&x, meta, own)?,
+        };
+        with_slashed_tree_lists(x, &lists_in_image)
     })
 }
 
@@ -743,10 +779,7 @@ fn set_keywords_and_comment(
     say_empty: bool,
 ) -> Option<String> {
     let description = language_alternative(xmp, "dc:description", &meta.comment, say_empty);
-    let mut xmp = without_property(&without_property(xmp, "dc:subject"), "dc:description");
-    for list in OTHER_KEYWORD_LISTS {
-        xmp = without_property(&xmp, list);
-    }
+    let xmp = without_property(&without_property(xmp, "dc:subject"), "dc:description");
     let mut add = String::new();
     if meta.keywords.is_empty() && say_empty {
         add += "\n   <dc:subject>\n    <rdf:Bag/>\n   </dc:subject>";
@@ -796,6 +829,37 @@ fn tree_paths_for(keywords: &[String], paths: Vec<String>) -> Vec<String> {
     out
 }
 
+/// `xmp` with `comment` in place of its comment's language shown, and its other languages kept
+/// (`language_alternative`). An empty one is written as an empty element when `say_empty` is
+/// set. Returns `None` if `xmp` has no rdf:Description.
+fn set_comment(xmp: &str, comment: &str, say_empty: bool) -> Option<String> {
+    let description = language_alternative(xmp, "dc:description", comment, say_empty);
+    let xmp = without_property(xmp, "dc:description");
+    insert(xmp, &description, "dc", "http://purl.org/dc/elements/1.1/")
+}
+
+/// `xmp` with each list of `SLASHED_TREE_LISTS` that it has, or that `lists_in_image` names,
+/// written again from its lr:hierarchicalSubject with "/" between the levels. A list the image
+/// has is written also when it is empty, because if it were left out, the image's own would be
+/// read in its place. Returns `None` if `xmp` has no rdf:Description.
+fn with_slashed_tree_lists(xmp: String, lists_in_image: &[&str]) -> Option<String> {
+    let paths = list_items(&xmp, "lr:hierarchicalSubject");
+    let mut xmp = xmp;
+    for (list, container, uri) in SLASHED_TREE_LISTS {
+        if !xmp.contains(&format!("<{list}")) && !lists_in_image.contains(&list) {
+            continue;
+        }
+        let mut add = format!("\n   <{list}>\n    <rdf:{container}>\n");
+        for p in &paths {
+            add += &format!("     <rdf:li>{}</rdf:li>\n", escape(&p.replace('|', "/")));
+        }
+        add += &format!("    </rdf:{container}>\n   </{list}>");
+        let prefix = list.split(':').next().unwrap_or(list);
+        xmp = insert(without_property(&xmp, list), &add, prefix, uri)?;
+    }
+    Some(xmp)
+}
+
 /// `xmp` with lr:hierarchicalSubject holding `paths`, or without it if there are none.
 fn with_paths(xmp: String, paths: &[String]) -> Option<String> {
     let xmp = without_property(&xmp, "lr:hierarchicalSubject");
@@ -839,7 +903,7 @@ pub fn tag_file(path: &Path, tag: &str, on: bool) -> Result<(), String> {
     let _lock = lock_sidecar(path);
     let (mut meta, mut paths) = read_with_tree_paths(path);
     set_tag(&mut meta.keywords, &mut paths, tag, on);
-    write_keywords(path, &meta, &paths, true)
+    write_keywords(path, &meta, &paths, Edited::Keywords)
 }
 
 /// Sets the keyword tree paths `tags` on `path` in one write, as `tag` sets one. Each name goes
@@ -855,7 +919,7 @@ pub fn add_tags(path: &Path, tags: &[String]) -> Result<(), String> {
     if meta.keywords == keywords && paths == known {
         return Ok(());
     }
-    write_keywords(path, &meta, &paths, true)
+    write_keywords(path, &meta, &paths, Edited::Keywords)
 }
 
 /// `xmp` without property `tag` in any form it is written in (`save::xmp_without_property`).
@@ -1374,11 +1438,11 @@ mod tests {
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
-    /// A keyword taken out in Glimt is gone for digiKam too. digiKam reads its own TagsList
-    /// before dc:subject, so the writers take that list out, and its hierarchy goes into
-    /// lr:hierarchicalSubject, which digiKam reads next.
+    /// digiKam's lists follow a keyword added and one taken out. digiKam reads its own TagsList
+    /// before dc:subject, so the writers write it again from the paths they write, as they write
+    /// Windows' LastKeywordXMP. Before 0.76.0 the lists kept a keyword taken out.
     #[test]
-    fn digikams_own_keyword_list_follows_an_edit() {
+    fn digikams_own_keyword_lists_follow_an_edit() {
         let dir = std::env::temp_dir().join(format!("glimt-test-digikam-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let file = dir.join("a.jpg");
@@ -1395,12 +1459,94 @@ mod tests {
         )
         .unwrap();
         assert_eq!(tree_paths(&file), ["Places|Oslo", "Private"]);
+        let change = KeywordChange::between(&["Private".into()], &["Beach".into()]);
+        write_changed(&file, Some(change), None).unwrap();
+        let written = std::fs::read_to_string(sidecar(&file)).unwrap();
+        for list in ["digiKam:TagsList", "MicrosoftPhoto:LastKeywordXMP"] {
+            assert_eq!(
+                list_items(&written, list),
+                ["Places/Oslo", "Beach"],
+                "{list}"
+            );
+        }
+        assert_eq!(read(&file).keywords, ["Oslo", "Beach"]);
+        assert_eq!(tree_paths(&file), ["Places|Oslo", "Beach"]);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// A path that only digiKam's TagsList holds stays after an edit of the comment and of the
+    /// keywords, and goes into lr:hierarchicalSubject too. ACDSee's categories, which are not
+    /// keywords, stay as they are. Before, any edit took TagsList out, and People/Ann became
+    /// Ann at the top of the tree.
+    #[test]
+    fn a_hierarchy_that_only_one_list_holds_stays() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-tagslist-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("a.jpg");
+        std::fs::write(&file, b"").unwrap();
+        let categories = "<acdsee:categories>&lt;Categories&gt;People&lt;/Categories&gt;\
+            </acdsee:categories>";
+        std::fs::write(
+            sidecar(&file),
+            format!(
+                r#"<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF><rdf:Description rdf:about=""
+    xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:digiKam="http://www.digikam.org/ns/1.0/"
+    xmlns:lr="http://ns.adobe.com/lightroom/1.0/" xmlns:acdsee="http://ns.acdsee.com/iptc/1.0/">
+   <lr:hierarchicalSubject><rdf:Bag><rdf:li>Places|Oslo</rdf:li></rdf:Bag></lr:hierarchicalSubject>
+   <digiKam:TagsList><rdf:Seq><rdf:li>Places/Oslo</rdf:li><rdf:li>People/Ann</rdf:li></rdf:Seq></digiKam:TagsList>
+   <dc:subject><rdf:Bag><rdf:li>Oslo</rdf:li><rdf:li>Ann</rdf:li></rdf:Bag></dc:subject>
+   {categories}
+  </rdf:Description></rdf:RDF></x:xmpmeta>"#
+            ),
+        )
+        .unwrap();
+        write_changed(&file, None, Some("Trip".into())).unwrap();
+        let written = std::fs::read_to_string(sidecar(&file)).unwrap();
+        assert_eq!(
+            list_items(&written, "digiKam:TagsList"),
+            ["Places/Oslo", "People/Ann"]
+        );
+        assert_eq!(
+            list_items(&written, "lr:hierarchicalSubject"),
+            ["Places|Oslo"]
+        );
+        assert!(written.contains(categories));
+        assert_eq!(read(&file).comment, "Trip");
+        write_changed(&file, adding(&["Beach".into()]), None).unwrap();
+        let written = std::fs::read_to_string(sidecar(&file)).unwrap();
+        let paths = ["Places|Oslo", "People|Ann", "Beach"];
+        assert_eq!(list_items(&written, "lr:hierarchicalSubject"), paths);
+        assert_eq!(
+            list_items(&written, "digiKam:TagsList"),
+            ["Places/Oslo", "People/Ann", "Beach"]
+        );
+        assert!(written.contains(categories));
+        assert_eq!(read(&file).comment, "Trip");
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// A keyword taken out of a photo whose own XMP has digiKam's TagsList is taken out of that
+    /// list in the sidecar too, which is written even when it is left empty. Otherwise the
+    /// image's list would still hold the keyword for a program that reads both.
+    #[test]
+    fn the_images_own_tree_list_is_countered() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-own-list-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("a.jpg");
+        jpeg_with_xmp(
+            &file,
+            "<x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><rdf:RDF><rdf:Description rdf:about=\"\" \
+             xmlns:dc=\"http://purl.org/dc/elements/1.1/\" xmlns:digiKam=\"http://www.digikam.org/ns/1.0/\">\
+             <dc:subject><rdf:Bag><rdf:li>Private</rdf:li></rdf:Bag></dc:subject>\
+             <digiKam:TagsList><rdf:Seq><rdf:li>Private</rdf:li></rdf:Seq></digiKam:TagsList>\
+             </rdf:Description></rdf:RDF></x:xmpmeta>",
+        );
         let taken_out = KeywordChange::between(&["Private".into()], &[]);
         write_changed(&file, Some(taken_out), None).unwrap();
         let written = std::fs::read_to_string(sidecar(&file)).unwrap();
-        assert!(!written.contains("TagsList") && !written.contains("LastKeywordXMP"));
-        assert_eq!(read(&file).keywords, ["Oslo"]);
-        assert_eq!(tree_paths(&file), ["Places|Oslo"]);
+        assert!(written.contains("<digiKam:TagsList>"));
+        assert!(list_items(&written, "digiKam:TagsList").is_empty());
+        assert!(read(&file).keywords.is_empty());
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
