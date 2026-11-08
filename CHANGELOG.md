@@ -5,6 +5,12 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- An SVG made to take gigabytes of memory, or to keep drawing for hours, no longer ends Glimt
+  or keeps a decoder busy for good. SVGs are drawn in a process of their own, which may take
+  512 MB and 30 seconds, and one that needs more is told as not shown.
+
 ## [0.75.0] - 2026-11-08
 
 ### Added

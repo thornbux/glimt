@@ -1,8 +1,48 @@
 //! SVG and SVGZ through resvg (feature `svg`), with limits on what a file may make it do: the
-//! text unpacked, the pictures it links to, and entities that grow into gigabytes.
+//! text unpacked, the pictures it links to, and entities that grow into gigabytes. resvg draws
+//! in a child process of Glimt's own program, which has a limit of memory and time, because
+//! what resvg allocates and how long it takes are set by the file, not by Glimt.
 
-use crate::images::decode::read_limited;
+use crate::images::decode::{MAX_DECODE_BYTES, read_limited};
 use std::path::Path;
+
+/// The environment variable that makes Glimt draw the SVG it names for the Glimt that started
+/// it, write the picture on its output and end, instead of opening a window.
+pub const DRAW_SVG: &str = "GLIMT_DRAW_SVG";
+
+/// The environment variable with the box that the SVG of `DRAW_SVG` is drawn to fit, as
+/// "WIDTH HEIGHT". Without it, the SVG is drawn at its own size.
+const DRAW_SVG_BOX: &str = "GLIMT_DRAW_SVG_BOX";
+
+/// The memory a drawing child may take, as much as one decode may. resvg draws each group with
+/// opacity, a filter, a mask or a clip into a layer of its own, of up to 25 times the canvas,
+/// and nested groups each keep theirs while the inner ones are drawn. So a file of 1 KB could
+/// otherwise take gigabytes, and the system would end Glimt for it. Patterns, filters and a
+/// `<use>` repeated a million times are more ways to the same end. A child that needs more is
+/// ended, and the window only tells why.
+const CHILD_MEMORY: u64 = MAX_DECODE_BYTES;
+
+/// The longest side a drawing has, in pixels, because an SVG may claim any size.
+const LONGEST_SIDE: u32 = 8192;
+
+/// The mark in front of the picture on a drawing child's output.
+const PICTURE_MARK: &[u8] = b"GLIMT-SVG-PICTURE";
+
+/// The mark in front of the reason on a drawing child's output, when it has no picture.
+const ERROR_MARK: &[u8] = b"GLIMT-SVG-ERROR";
+
+/// The arguments a drawing child is started with, besides `DRAW_SVG`. Glimt's own program needs
+/// none. In the tests, the program is the test binary, and these make it run only the test
+/// `draws_for_the_parent`, which draws as Glimt's own child does.
+#[cfg(not(test))]
+const CHILD_ARGS: &[&str] = &[];
+#[cfg(test)]
+const CHILD_ARGS: &[&str] = &[
+    "--exact",
+    "images::svg::tests::draws_for_the_parent",
+    "--test-threads=1",
+    "--quiet",
+];
 
 /// usvg's own ways to fetch the pictures an SVG shows, with Glimt's limits first. A linked
 /// picture is taken only if it is a file under 64 MB (not /dev/zero or a pipe), and no picture
@@ -110,28 +150,126 @@ fn gunzip(data: &[u8], limit: u64) -> Result<Vec<u8>, String> {
     }
 }
 
-/// Draws an SVG with resvg, fitted in `max`, or else at its own size but at least 2048 pixels
-/// on the longer side, so that it stays sharp when fitted to the window. Returns the picture,
-/// and with `max` also the size it has without `max`, which the view counts as its own.
+/// Draws an SVG fitted in `max`, or else at its own size but at least 2048 pixels on the longer
+/// side, so that it stays sharp when fitted to the window. Returns the picture, and with `max`
+/// also the size it has without `max`, which the view counts as its own. It is drawn in a
+/// child process (`draw_in_child`), which is ended after `PROGRAM_TIME_LIMIT`.
 pub fn load(
     path: &Path,
     max: Option<[u32; 2]>,
 ) -> Result<(image::DynamicImage, Option<[usize; 2]>), String> {
-    use resvg::{tiny_skia, usvg};
-    use std::sync::Arc;
-    // The system fonts, for text in SVGs, are read once, because it takes tens of milliseconds.
-    static FONTS: std::sync::OnceLock<Arc<usvg::fontdb::Database>> = std::sync::OnceLock::new();
-    let fonts = FONTS.get_or_init(|| {
-        let mut db = usvg::fontdb::Database::new();
-        db.load_system_fonts();
-        Arc::new(db)
-    });
-    let options = usvg::Options {
-        resources_dir: path.parent().map(Path::to_path_buf),
-        fontdb: fonts.clone(),
-        image_href_resolver: svg_images(),
-        ..usvg::Options::default()
+    draw_in_child(path, max, crate::files::external::PROGRAM_TIME_LIMIT)
+}
+
+/// Draws an SVG as `load` does, in a child process of Glimt's own program that may take
+/// `CHILD_MEMORY` and is ended after `limit`. The child is `/proc/self/exe`, which is this
+/// program also when its file has been replaced by an update since it started.
+fn draw_in_child(
+    path: &Path,
+    max: Option<[u32; 2]>,
+    limit: std::time::Duration,
+) -> Result<(image::DynamicImage, Option<[usize; 2]>), String> {
+    // The picture is at most the box, or the longest side squared, with a pixel more on each
+    // side where the size is rounded up.
+    let side = |s: u32| u64::from(s.min(LONGEST_SIDE)) + 1;
+    let [w, h] = max.unwrap_or([LONGEST_SIDE; 2]);
+    let picture = side(w) * side(h) * 4;
+    let mut command = crate::files::external::stoppable_command("/proc/self/exe");
+    command.args(CHILD_ARGS).env(DRAW_SVG, path);
+    if let Some([w, h]) = max {
+        command.env(DRAW_SVG_BOX, format!("{w} {h}"));
+    }
+    let mut child = command.spawn().map_err(|e| format!("SVG: {e}"))?;
+    let (out, errors, _) = crate::files::external::output_of(&mut child, picture + 4096, limit);
+    read_child_answer(out.ok_or("SVG too large")?, &errors)
+}
+
+/// Returns the picture that a drawing child wrote on its output `out`, with its own size, or
+/// the reason the child gave. When it wrote neither, returns why it ended, from its `errors`.
+/// The marks are looked for in the first 4 KB, because in the tests the child's output starts
+/// with what the test binary itself says.
+fn read_child_answer(
+    mut out: Vec<u8>,
+    errors: &str,
+) -> Result<(image::DynamicImage, Option<[usize; 2]>), String> {
+    let head = &out[..out.len().min(4096)];
+    let find = |mark: &[u8]| head.windows(mark.len()).position(|w| w == mark);
+    if let Some(at) = find(ERROR_MARK) {
+        let text = &out[at + ERROR_MARK.len()..];
+        let end = text.iter().position(|&b| b == b'\n').unwrap_or(text.len());
+        return Err(String::from_utf8_lossy(&text[..end]).into_owned());
+    }
+    let Some(at) = find(PICTURE_MARK) else {
+        use crate::files::external::TIMED_OUT;
+        return Err(match errors {
+            e if e.contains(TIMED_OUT) => format!("drawing the SVG {TIMED_OUT}"),
+            // These are Rust's own words when an allocation fails, here past the limit.
+            e if e.contains("memory allocation of") => "SVG needs too much memory to draw".into(),
+            e => crate::files::external::last_line(e, "SVG could not be drawn"),
+        });
     };
+    let start = at + PICTURE_MARK.len();
+    let number = |k: usize| {
+        let bytes = out.get(start + 4 * k..start + 4 * k + 4)?;
+        Some(u32::from_le_bytes(bytes.try_into().ok()?))
+    };
+    let (Some(w), Some(h), Some(own_w), Some(own_h)) = (number(0), number(1), number(2), number(3))
+    else {
+        return Err("SVG cut short".into());
+    };
+    // The picture's bytes are moved to the front of what was read, not copied.
+    out.drain(..start + 16);
+    out.truncate(w as usize * h as usize * 4);
+    let img = image::RgbaImage::from_raw(w, h, out).ok_or("SVG cut short")?;
+    let own = (own_w > 0).then_some([own_w as usize, own_h as usize]);
+    Ok((img.into(), own))
+}
+
+/// Draws the SVG at `path` (from `DRAW_SVG`) for the Glimt that started this process, under the
+/// limit of `CHILD_MEMORY`, and writes the picture, or why there is none, on the output.
+/// Returns the exit code.
+pub fn draw_for_parent(path: &std::ffi::OsStr) -> i32 {
+    use std::io::Write;
+    limit_this_process(CHILD_MEMORY);
+    let max = std::env::var(DRAW_SVG_BOX).ok().and_then(|text| {
+        let (w, h) = text.split_once(' ')?;
+        Some([w.parse().ok()?, h.parse().ok()?])
+    });
+    let mut out = std::io::stdout().lock();
+    let written = match draw(Path::new(path), max) {
+        Ok((img, own)) => {
+            let [own_w, own_h] = own.map_or([0, 0], |[w, h]| [w as u32, h as u32]);
+            let numbers = [img.width(), img.height(), own_w, own_h].map(u32::to_le_bytes);
+            (out.write_all(PICTURE_MARK))
+                .and_then(|()| out.write_all(&numbers.concat()))
+                .and_then(|()| out.write_all(img.as_raw()))
+        }
+        Err(e) => writeln!(out, "{}{e}", String::from_utf8_lossy(ERROR_MARK)),
+    };
+    i32::from(written.and_then(|()| out.flush()).is_err())
+}
+
+/// Limits this process's memory (its address space) to `bytes`, so that an allocation past it
+/// fails and ends the process. Core dumps are turned off too, so such an end leaves no file.
+fn limit_this_process(bytes: u64) {
+    let limit = |max: u64| libc::rlimit {
+        rlim_cur: max,
+        rlim_max: max,
+    };
+    // SAFETY: setrlimit only reads the limit it is given, and it changes only this process.
+    unsafe {
+        libc::setrlimit(libc::RLIMIT_AS, &limit(bytes));
+        libc::setrlimit(libc::RLIMIT_CORE, &limit(0));
+    }
+}
+
+/// Draws an SVG with resvg in this process, as `load` describes. Only a drawing child calls it
+/// (`draw_for_parent`), under its limit of memory.
+fn draw(
+    path: &Path,
+    max: Option<[u32; 2]>,
+) -> Result<(image::RgbaImage, Option<[usize; 2]>), String> {
+    use resvg::{tiny_skia, usvg};
     let mut data = read_limited(path).map_err(|e| e.to_string())?;
     // usvg unpacks a .svgz without a limit, and 10 MB of zeros would be 10 GB.
     if data.starts_with(&[0x1f, 0x8b]) {
@@ -145,19 +283,33 @@ pub fn load(
     if entities_too_large(&data) {
         return Err("SVG whose entities would grow too large".into());
     }
+    // The system fonts are read for text, which takes tens of milliseconds in every child.
+    // shortcut: they are read only for an SVG with a text element, so text in an SVG that this
+    // one links to as a picture is not drawn; read them always if such files turn up.
+    let mut fonts = usvg::fontdb::Database::new();
+    if data.windows(5).any(|w| w == b"<text" || w == b":text") {
+        fonts.load_system_fonts();
+    }
+    let options = usvg::Options {
+        resources_dir: path.parent().map(Path::to_path_buf),
+        fontdb: std::sync::Arc::new(fonts),
+        image_href_resolver: svg_images(),
+        ..usvg::Options::default()
+    };
     let tree = usvg::Tree::from_data(&data, &options).map_err(|e| e.to_string())?;
     let size = tree.size();
-    // The longer side has at most 8192 pixels, because an SVG may claim any size, and the
-    // pixmap is 4 bytes per pixel (60000×60000 would be 14 GB).
+    // The longer side has at most `LONGEST_SIDE` pixels, because the pixmap is 4 bytes per
+    // pixel (60000×60000 would be 14 GB).
+    let longest = LONGEST_SIDE as f32;
     let longer = size.width().max(size.height());
-    let own = (2048.0 / longer).max(1.0).min(8192.0 / longer);
+    let own = (2048.0 / longer).max(1.0).min(longest / longer);
     // It is drawn at the size it is shown, not at 2048 and shrunk, because an SVG of a few
     // bytes may claim 100000×100000, which would be 256 MB for each image read ahead.
     let scale = match max {
         Some([w, h]) => (w as f32 / size.width()).min(h as f32 / size.height()),
         None => own,
     }
-    .min(8192.0 / longer);
+    .min(longest / longer);
     let own_size = |side: f32| (side * own).ceil().max(1.0) as usize;
     let own_size = max.map(|_| [own_size(size.width()), own_size(size.height())]);
     let (w, h) = (
@@ -182,11 +334,110 @@ pub fn load(
         }
     }
     let img = image::RgbaImage::from_raw(w.max(1), h.max(1), rgba).ok_or("SVG size mismatch")?;
-    Ok((image::DynamicImage::from(img), own_size))
+    Ok((img, own_size))
 }
 
 #[cfg(test)]
 mod tests {
+    use std::time::{Duration, Instant};
+
+    /// This is not a test of its own. The tests' `load` starts the test binary as its drawing
+    /// child, which runs only this, and it draws there as Glimt's own child does.
+    #[test]
+    fn draws_for_the_parent() {
+        if let Some(path) = std::env::var_os(super::DRAW_SVG) {
+            super::draw_for_parent(&path);
+        }
+    }
+
+    /// An SVG of 40 nested groups with opacity around a huge rectangle would make resvg keep 40
+    /// layers of 25 times the canvas, 8 GB for a window of 1920×1080, and one whose `<use>`
+    /// repeats a group 100,000 times would take minutes. Both are refused in seconds, by the
+    /// child's limits, and the test process (as Glimt) goes on. An SVG with a few such groups
+    /// is still drawn.
+    #[test]
+    fn refuses_an_svg_that_takes_too_much_memory_or_time() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-svg-cost-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let svg = |body: &str| {
+            format!(
+                "<svg xmlns=\"http://www.w3.org/2000/svg\" \
+                 xmlns:xlink=\"http://www.w3.org/1999/xlink\" width=\"100\" height=\"100\">\
+                 {body}</svg>"
+            )
+        };
+        let rect = "<rect x=\"-1e7\" y=\"-1e7\" width=\"2e7\" height=\"2e7\"/>";
+        let nested = svg(&format!(
+            "{}{rect}{}",
+            "<g opacity=\"0.9\">".repeat(40),
+            "</g>".repeat(40)
+        ));
+        let mut repeated = "<defs><rect id=\"g0\" width=\"100\" height=\"100\" \
+                            opacity=\"0.5\"/>"
+            .to_string();
+        // usvg itself refuses a million elements, so this is 100,000, still minutes of layers.
+        for level in 1..=5 {
+            let uses = format!("<use xlink:href=\"#g{}\"/>", level - 1).repeat(10);
+            repeated += &format!("<g id=\"g{level}\">{uses}</g>");
+        }
+        let repeated = svg(&(repeated + "</defs><use xlink:href=\"#g5\"/>"));
+        let limit = Duration::from_secs(5);
+        for (name, text) in [("nested.svg", nested), ("repeated.svg", repeated)] {
+            let file = dir.join(name);
+            std::fs::write(&file, text).unwrap();
+            let started = Instant::now();
+            let why = super::draw_in_child(&file, Some([1920, 1080]), limit).unwrap_err();
+            let ended = why == "SVG needs too much memory to draw"
+                || why.contains(crate::files::external::TIMED_OUT);
+            assert!(ended, "{name}: {why}");
+            assert!(
+                started.elapsed() < 2 * limit,
+                "{name}: {:?}",
+                started.elapsed()
+            );
+        }
+        // Red at a quarter of its strength, through two groups at half opacity.
+        let few = svg("<g opacity=\"0.5\"><g opacity=\"0.5\">\
+                       <rect width=\"100\" height=\"100\" fill=\"red\"/></g></g>");
+        let file = dir.join("few.svg");
+        std::fs::write(&file, few).unwrap();
+        let (img, own) = super::draw_in_child(&file, Some([50, 50]), limit).unwrap();
+        assert_eq!(
+            (img.width(), img.height(), own),
+            (50, 50, Some([2048, 2048]))
+        );
+        let [r, g, b, a] = img.to_rgba8().get_pixel(25, 25).0;
+        assert_eq!([r, g, b], [255, 0, 0]);
+        assert!((60..=68).contains(&a), "{a}");
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// What a drawing child wrote is read as its picture, its reason or its end, also after
+    /// other text in front, and a picture cut short is an error rather than a wrong image.
+    #[test]
+    fn reads_what_a_drawing_child_wrote() {
+        let mut out = b"running 1 test\n".to_vec();
+        out.extend(super::PICTURE_MARK);
+        for n in [2u32, 1, 0, 0] {
+            out.extend(n.to_le_bytes());
+        }
+        out.extend([1, 2, 3, 4, 5, 6, 7, 8, 9]);
+        let (img, own) = super::read_child_answer(out.clone(), "").unwrap();
+        assert_eq!(img.to_rgba8().into_raw(), [1, 2, 3, 4, 5, 6, 7, 8]);
+        assert_eq!(own, None);
+        out.truncate(out.len() - 2);
+        assert!(super::read_child_answer(out, "").is_err());
+        let mut out = super::ERROR_MARK.to_vec();
+        out.extend(b"SVG gzipped twice\n");
+        assert_eq!(
+            super::read_child_answer(out, "").unwrap_err(),
+            "SVG gzipped twice"
+        );
+        let timed_out = format!("x\n{}", crate::files::external::TIMED_OUT);
+        let why = super::read_child_answer(Vec::new(), &timed_out).unwrap_err();
+        assert!(why.contains(crate::files::external::TIMED_OUT), "{why}");
+    }
+
     /// A .svgz is unpacked only up to the limit, so a few KB of gzipped zeros cannot take
     /// gigabytes.
     #[test]
