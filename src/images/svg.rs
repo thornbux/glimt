@@ -45,8 +45,9 @@ const CHILD_ARGS: &[&str] = &[
 ];
 
 /// usvg's own ways to fetch the pictures an SVG shows, with Glimt's limits first. A linked
-/// picture is taken only if it is a file under 64 MB (not /dev/zero or a pipe), and no picture
-/// whose header claims more pixels than an image Glimt decodes may have.
+/// picture is taken only if it is a file under 64 MB (not /dev/zero or a pipe) in the SVG's
+/// folder or below it, and no picture whose header claims more pixels than an image Glimt
+/// decodes may have.
 fn svg_images() -> resvg::usvg::ImageHrefResolver<'static> {
     use resvg::usvg::ImageHrefResolver as R;
     // One SVG may have at most 1 GB of decoded pictures, and 256 MB of them read. A small SVG
@@ -85,14 +86,19 @@ fn svg_images() -> resvg::usvg::ImageHrefResolver<'static> {
                 .flatten()
         }),
         resolve_string: Box::new(move |href, opts| {
-            let file = match Path::new(href) {
-                p if p.is_absolute() => p.to_path_buf(),
-                p => opts
-                    .resources_dir
-                    .as_deref()
-                    .unwrap_or(Path::new("."))
-                    .join(p),
-            };
+            // A picture is taken only from the SVG's own folder and below, as a browser
+            // takes none for an SVG shown as an image. One from ~/Downloads could otherwise
+            // show a picture from anywhere in the home folder, which a copy or a print then
+            // passes on, and a path under /net would mount a share.
+            use std::path::Component::{CurDir, Normal};
+            let relative = Path::new(href);
+            if !relative
+                .components()
+                .all(|c| matches!(c, Normal(_) | CurDir))
+            {
+                return None;
+            }
+            let file = opts.resources_dir.as_deref()?.join(relative);
             let meta = std::fs::metadata(&file).ok().filter(|m| m.is_file())?;
             if meta.len() > 64 << 20 {
                 return None;
@@ -534,6 +540,19 @@ mod tests {
             kind("sub.svg"),
             Some(resvg::usvg::ImageKind::SVG(_))
         ));
+        // A picture outside the SVG's folder is not taken, by its whole path or through "..",
+        // though the same file is taken from inside the folder.
+        std::fs::create_dir_all(dir.join("in")).unwrap();
+        std::fs::copy(dir.join("p.jpg"), dir.join("in/q.jpg")).unwrap();
+        let inner = resvg::usvg::Options {
+            resources_dir: Some(dir.join("in")),
+            ..resvg::usvg::Options::default()
+        };
+        let from_inner = |href: &str| (fresh.resolve_string)(href, &inner).is_some();
+        assert!(from_inner("q.jpg") && from_inner("./q.jpg"));
+        assert!(!from_inner("../p.jpg"));
+        assert!(!from_inner(&dir.join("p.jpg").to_string_lossy()));
+        assert!(!from_inner(&dir.join("in/q.jpg").to_string_lossy()));
         std::fs::remove_dir_all(dir).unwrap();
     }
 

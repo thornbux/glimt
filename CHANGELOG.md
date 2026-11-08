@@ -13,6 +13,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 - The images decoded at the same time (the view's, the thumbnails, Print and Check Images) take
   at most 2 GB together. A folder of images that each claim nearly the limit of one decode no
   longer takes gigabytes at once; such an image waits until there is room.
+- An SVG shows only the pictures in its own folder or below it, as a browser shows an SVG used
+  as an image, not a picture named by its whole path or through `..`.
 
 ## [0.75.0] - 2026-11-08
 
