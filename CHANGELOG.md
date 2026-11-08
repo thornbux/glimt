@@ -5,6 +5,28 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.74.0] - 2026-11-08
+
+### Changed
+
+- Names that say what they hold or do, before they are frozen in 1.0. Settings: `trash` is
+  `delete_to_trash`, `delay` `slideshow_delay`, `random` `slideshow_random`, `own_profile`
+  `use_image_profile`, `videos` `list_videos`, `sort_case` and `search_case`
+  `sort_case_sensitive` and `search_case_sensitive`, and `exif_panel` `info_panel`. Actions in
+  `keys=` and `--remote run`: `HideTools` is `HideFileList`, `Overlay` `FullScreenInfo`, `Play`
+  `PlayVideo`, `Faster` and `Slower` `SlideshowFaster` and `SlideshowSlower`, `Keywords`
+  `FocusKeywords`, `Copy` and `Move` `CopyTo` and `MoveTo`, `ViewFilter` `NextFilter`,
+  `ExifPanel` `InfoPanel` and `Prev` `Previous`. `glimt --remote prev` is `glimt --remote
+  previous`. The old names are still read, always; Glimt writes the new ones, and the first
+  save takes the old keys out of the settings file. An older Glimt that shares the file then
+  uses its defaults for those eight settings, and `--remote-all previous` does not reach a
+  window of 0.73 or older, which still takes `prev`.
+- The EXIF panel is the info panel (View → Show Info Panel, Ctrl+K), as it also holds the
+  keywords, comment, alt text and marks.
+- `--check-config` says when a settings file sets a setting under both its old and new name.
+- Inside, about 450 names of the code were renamed so that a reader new to it knows what each
+  is from its name, and a check keeps the old ones from coming back.
+
 ## [0.73.0] - 2026-11-07
 
 ### Fixed
@@ -3031,7 +3053,8 @@ The first release. Glimt is not 1.0 yet: it is in daily use, but expect rough ed
 - Remote control from the command line: `glimt --remote` and `--remote-all`.
 - Remembers the folder, window size and position.
 
-[Unreleased]: https://github.com/thornbux/glimt/compare/v0.73.0...HEAD
+[Unreleased]: https://github.com/thornbux/glimt/compare/v0.74.0...HEAD
+[0.74.0]: https://github.com/thornbux/glimt/compare/v0.73.0...v0.74.0
 [0.73.0]: https://github.com/thornbux/glimt/compare/v0.72.0...v0.73.0
 [0.72.0]: https://github.com/thornbux/glimt/compare/v0.71.0...v0.72.0
 [0.71.0]: https://github.com/thornbux/glimt/compare/v0.70.0...v0.71.0
