@@ -676,6 +676,10 @@ impl crate::App {
         self.slideshow.take_whole_shuffle();
         self.thumbs.forget_all();
         self.search.forget_exif_index();
+        // The Pan view's dates are by name in the old folder.
+        if let Some(pan) = &mut self.pan_view {
+            pan.forget_dates();
+        }
         // A list's entries not yet checked are the old list's. A folder opened now is listed
         // whole, and open_collection marks its own entries again.
         self.list.set_unchecked_entries(false);

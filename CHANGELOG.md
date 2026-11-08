@@ -10,6 +10,13 @@ and versions follow [Semantic Versioning](https://semver.org/).
 - File → Open With Default App opens the selected files, as the Open With submenu beside it
   does, rather than only the shown image. It is in the file list's right-click menu too.
 
+### Fixed
+
+- Pan view keeps the dates it has read when the list changes: after a rename, a refresh, a new
+  sort or a shuffle it reads only the files that are new, rather than every file again, which
+  took minutes in a large folder with EXIF date. A folder that a sync client keeps adding to
+  now gets its whole timeline.
+
 ## [0.75.0] - 2026-11-08
 
 ### Added
