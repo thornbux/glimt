@@ -15,8 +15,20 @@ pub const DRAW_SVG: &str = "GLIMT_DRAW_SVG";
 const DRAW_SVG_BOX: &str = "GLIMT_DRAW_SVG_BOX";
 
 /// The memory a drawing child may take besides four times its picture (`child_memory`). It
-/// holds the program itself, the parsed SVG and the pictures it links to.
-const CHILD_MEMORY_BESIDES_PICTURE: u64 = 256 << 20;
+/// holds the program itself (about 80 MB), the parsed SVG with the bytes of the pictures it
+/// links to (`LINKED_BYTES`), and one linked picture while it is decoded, which takes up to two
+/// and a half times its pixels (`LINKED_PICTURE_BYTES`). Before, it was 256 MB, and an SVG with
+/// an embedded photo of 24 megapixels was not shown.
+const CHILD_MEMORY_BESIDES_PICTURE: u64 = 512 << 20;
+
+/// The bytes of linked and embedded pictures that one SVG may read. usvg keeps all of them in
+/// its tree while the SVG is drawn.
+const LINKED_BYTES: u64 = 96 << 20;
+
+/// The decoded bytes that one linked or embedded picture may have, 32 megapixels. resvg decodes
+/// the pictures one at a time while it draws, so only the largest counts against the child's
+/// memory.
+const LINKED_PICTURE_BYTES: u64 = 128 << 20;
 
 /// The processor time a drawing child may take, in seconds: as long as Glimt waits for it
 /// (`PROGRAM_TIME_LIMIT`). The tests' children get less, so the test of it is short.
@@ -49,20 +61,22 @@ const CHILD_ARGS: &[&str] = &[
 
 /// usvg's own ways to fetch the pictures an SVG shows, with Glimt's limits first. A linked
 /// picture is taken only if it is a file under 64 MB (not /dev/zero or a pipe) in the SVG's
-/// folder or below it, and no picture whose header claims more pixels than an image Glimt
-/// decodes may have.
+/// folder or below it, and no picture whose header claims more than `LINKED_PICTURE_BYTES`
+/// decoded, so that what is taken fits in the drawing child's memory.
 fn svg_images() -> resvg::usvg::ImageHrefResolver<'static> {
     use resvg::usvg::ImageHrefResolver as R;
-    // One SVG may have at most 1 GB of decoded pictures, and 256 MB of them read. A small SVG
-    // may name the same picture a thousand times, and resvg keeps each copy read and decodes
-    // each again. A plain picture of 8000×8000 is 250 KB on disk but 256 MB decoded. A picture
-    // that is refused counts for nothing.
+    // One SVG may have at most 1 GB of decoded pictures, and `LINKED_BYTES` of them read. A
+    // small SVG may name the same picture a thousand times, and resvg keeps each copy read and
+    // decodes each again. A plain picture of 8000×8000 is 250 KB on disk but 256 MB decoded. A
+    // picture that is refused counts for nothing.
     let spent = std::sync::Arc::new(std::sync::Mutex::new((0u64, 0u64)));
     let fits = move |data: &[u8]| {
         let reader = image::ImageReader::new(std::io::Cursor::new(data)).with_guessed_format();
         let decoded = match reader.ok().and_then(|r| r.into_dimensions().ok()) {
-            Some((w, h)) if !crate::images::decode::fits_decode_limit(w, h, 4) => return false,
-            Some((w, h)) => u64::from(w) * u64::from(h) * 4,
+            Some((w, h)) => match (u64::from(w) * u64::from(h)).saturating_mul(4) {
+                bytes if bytes > LINKED_PICTURE_BYTES => return false,
+                bytes => bytes,
+            },
             // Data that image does not read as a picture, such as an SVG, goes to usvg, which
             // reads it with these limits. But usvg unpacks a gzipped one (svgz) without a limit.
             None if data.starts_with(&[0x1f, 0x8b]) => return false,
@@ -74,7 +88,7 @@ fn svg_images() -> resvg::usvg::ImageHrefResolver<'static> {
             spent.0.saturating_add(decoded),
             spent.1.saturating_add(data.len() as u64),
         );
-        let ok = pixels <= 1 << 30 && bytes <= 256 << 20;
+        let ok = pixels <= 1 << 30 && bytes <= LINKED_BYTES;
         if ok {
             *spent = (pixels, bytes);
         }
@@ -335,8 +349,7 @@ fn largest_picture(max: Option<[u32; 2]>) -> u64 {
 /// layer while the inner ones are drawn, so a file of 1 KB could otherwise take gigabytes, and
 /// the system would end Glimt for it. Patterns, filters and a `<use>` repeated a million times
 /// are more ways to the same end. A child that needs more is ended, and the window only tells
-/// why. Before, every child got 512 MB, which a large SVG with one clip group needs more than,
-/// and an icon's thumbnail far less.
+/// why. Before, every child got 512 MB, which a large SVG with one clip group needs more than.
 fn child_memory(max: Option<[u32; 2]>) -> u64 {
     let picture = largest_picture(max);
     (4 * picture + CHILD_MEMORY_BESIDES_PICTURE).min(DECODE_BUDGET - picture)
@@ -648,6 +661,36 @@ mod tests {
         std::fs::remove_dir_all(dir).unwrap();
     }
 
+    /// An SVG that links a photo of 6000×4000 is drawn with the photo, for a thumbnail and for
+    /// the window. Before, the child had 256 MB besides its picture, less than the photo takes
+    /// while it is decoded, and the SVG was not shown.
+    #[test]
+    fn draws_an_svg_that_links_a_photo() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-svg-photo-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        // Noise in the lower four bits, so the PNG is some 40 MB, under the 64 MB a linked
+        // file may have, as a photo's is.
+        let noise: Vec<u8> = (0..6000 * 4000 * 3u32)
+            .map(|i| 128 + (i.wrapping_mul(2654435761) >> 28) as u8)
+            .collect();
+        let photo = dir.join("photo.png");
+        image::RgbImage::from_raw(6000, 4000, noise)
+            .unwrap()
+            .save(&photo)
+            .unwrap();
+        assert!(std::fs::metadata(&photo).unwrap().len() < 64 << 20);
+        let file = dir.join("poster.svg");
+        let svg = "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"600\" height=\"400\">\
+                   <image href=\"photo.png\" width=\"600\" height=\"400\"/></svg>";
+        std::fs::write(&file, svg).unwrap();
+        for max in [[256, 256], [1920, 1080]] {
+            let (img, _) = super::load(&file, Some(max)).unwrap();
+            let [r, _, _, a] = img.to_rgba8().get_pixel(100, 100).0;
+            assert!(a == 255 && r >= 128, "{max:?}: {r} {a}");
+        }
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
     /// A drawing child draws text with the fonts of the list its parent gives it, and reads no
     /// fonts of the system itself: with an empty list it draws no text, and with Inter's face
     /// on the list it draws in Inter. Before, each child read the system's fonts again.
@@ -783,7 +826,7 @@ mod tests {
             .count();
         // As many are taken as fit in both budgets, 1 GB decoded and 256 MB read.
         let size = std::fs::metadata(dir.join("big.png")).unwrap().len();
-        let both = ((1u64 << 30) / (1024 * 1024 * 4)).min((256 << 20) / size);
+        let both = ((1u64 << 30) / (1024 * 1024 * 4)).min(super::LINKED_BYTES / size);
         assert_eq!(taken as u64, both);
         // A JPEG and an SVG linked by file are still drawn, told by their bytes from what was
         // read and checked, whatever their names say.
