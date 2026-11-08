@@ -50,6 +50,9 @@ and versions follow [Semantic Versioning](https://semver.org/).
   waits for the files being copied, moved or saved, as a shown window does, and closes once
   they are done. Before, it ended at once, halfway through the job, and the marks of the files
   already moved stayed on their old names.
+- Import Lightroom Catalog drops a plan made for root folders that were changed while it was
+  being made, so Import never writes onto the files of the folders given first. Next makes a
+  plan for the folders as they are now.
 - A file renamed or moved in Glimt, or a folder of them, now keeps its place in every saved
   collection, as in Geeqie, not only in the one open. Before, an entry stayed on the old name
   and could later show another file that took that name.
