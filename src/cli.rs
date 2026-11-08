@@ -52,6 +52,20 @@ pub(crate) const START_OPTIONS: &[(&str, &str)] = &[
     ),
 ];
 
+/// The exit code of a command that was done: --check-config with nothing wrong, --back-up, and
+/// --remote. The exit codes are frozen in 1.x, as scripts read them.
+pub(crate) const DONE: i32 = 0;
+
+/// The exit code of --check-config when something is wrong in the settings file, or it cannot
+/// be read.
+pub(crate) const CHECK_CONFIG_PROBLEMS: i32 = 1;
+
+/// The exit code of --back-up when the backup fails.
+pub(crate) const BACK_UP_FAILED: i32 = 1;
+
+/// The exit code of --back-up without the folder to put the backup in.
+pub(crate) const BACK_UP_NO_FOLDER: i32 = 2;
+
 /// What the start options ask for.
 #[derive(Clone, Default)]
 pub(crate) struct Start {
@@ -205,21 +219,41 @@ pub(crate) fn answer_without_window(start: &Start, args_os: &[OsString]) -> bool
 
 /// glimt --check-config [FILE]: what is wrong in the settings file, or FILE; exit 1 if anything.
 fn check_config(file: Option<PathBuf>) -> ! {
+    let given = file.is_some();
     let Some(path) = file.or_else(config::config_path) else {
         eprintln!("glimt: no home folder, so no settings file");
-        std::process::exit(1);
+        std::process::exit(CHECK_CONFIG_PROBLEMS);
     };
-    let problems = match crate::images::decode::read_text(&path) {
+    match config_check(&path, given) {
+        Ok(line) => {
+            println!("{line}");
+            std::process::exit(DONE)
+        }
+        Err(problems) => {
+            for p in &problems {
+                eprintln!("{p}");
+            }
+            std::process::exit(CHECK_CONFIG_PROBLEMS)
+        }
+    }
+}
+
+/// Checks the settings file at `path` for --check-config. Returns the line that says it is
+/// fine, or a line for each problem. A settings file that is not there yet is fine, as Glimt
+/// then uses the defaults, unless `given` says that the command line named it.
+fn config_check(path: &Path, given: bool) -> Result<String, Vec<String>> {
+    let shown = path.display();
+    let problems = match crate::images::decode::read_text(path) {
         Ok(text) => Config::parse_checked(&text).1,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound && !given => {
+            return Ok(format!("{shown}: no settings file; the defaults are used"));
+        }
         Err(e) => vec![format!("cannot be read ({e})")],
     };
-    for p in &problems {
-        eprintln!("{}: {p}", path.display());
+    match problems.is_empty() {
+        true => Ok(format!("{shown}: OK")),
+        false => Err(problems.iter().map(|p| format!("{shown}: {p}")).collect()),
     }
-    if problems.is_empty() {
-        println!("{}: OK", path.display());
-    }
-    std::process::exit(!problems.is_empty() as i32)
 }
 
 /// Copies Glimt's data into a new folder in `dir` for glimt --back-up DIR. It ends Glimt with
@@ -227,13 +261,13 @@ fn check_config(file: Option<PathBuf>) -> ! {
 fn back_up(dir: Option<&OsString>) {
     let Some(dir) = dir else {
         eprintln!("glimt: --back-up takes the folder to put the backup in");
-        std::process::exit(2);
+        std::process::exit(BACK_UP_NO_FOLDER);
     };
     match crate::files::backup::back_up_to(Path::new(dir)) {
         Ok(done) => println!("{done}"),
         Err(e) => {
             eprintln!("glimt: {e}");
-            std::process::exit(1);
+            std::process::exit(BACK_UP_FAILED);
         }
     }
 }
@@ -254,6 +288,14 @@ fn print_help() {
         .map(|a| format!("{a:?}"))
         .collect();
     println!("\nActions for run:\n  {}", actions.join(" "));
+    println!(
+        "\nExit status of --remote: {} done, {} no Glimt took it or none answered in time, {} \
+         it cannot be sent, {} a window did not do it (the reason on standard error)",
+        DONE,
+        remote::NOT_TAKEN,
+        remote::NOT_SENT,
+        remote::NOT_DONE
+    );
 }
 
 #[cfg(test)]
@@ -306,6 +348,34 @@ mod tests {
         assert!(Start::parse(args(&["--fade", "slow"])).is_err());
         let (_, rest) = Start::parse(args(&["--version"])).unwrap();
         assert_eq!(rest, args(&["--version"]));
+    }
+
+    /// --check-config on a new account, with no settings file yet, says that the defaults are
+    /// used and exits with 0, as Glimt then starts without a problem. Before, it said that the
+    /// file cannot be read and exited with 1. A file named on the command line that is not
+    /// there is still a problem.
+    #[test]
+    fn checks_a_settings_file_that_is_not_there_yet() {
+        let dir =
+            std::env::temp_dir().join(format!("glimt-test-check-config-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let none = dir.join("config");
+        assert_eq!(
+            super::config_check(&none, false),
+            Ok(format!(
+                "{}: no settings file; the defaults are used",
+                none.display()
+            ))
+        );
+        assert!(super::config_check(&none, true).is_err());
+        std::fs::write(&none, "thumbnails=true\n").unwrap();
+        assert_eq!(
+            super::config_check(&none, false),
+            Ok(format!("{}: OK", none.display()))
+        );
+        std::fs::write(&none, "thumbnail=true\n").unwrap();
+        assert_eq!(super::config_check(&none, true).unwrap_err().len(), 1);
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     /// After `--` every argument is a file or folder, also `-h` or one named like an option.

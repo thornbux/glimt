@@ -1367,7 +1367,7 @@ mod tests {
             .len()
             == 5));
         app.config.layout = "2x1".into();
-        app.config.layout_turns = "2x1".into();
+        app.config.slideshow_one_image_at_a_time = "2x1".into();
         app.start_slideshow(&ctx);
         app.refill_preload();
         assert_eq!(app.list.panes(), [1]);

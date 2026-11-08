@@ -2331,7 +2331,7 @@ msgid "S starts and stops, R random order, Ctrl+= faster, Ctrl+- slower"
 msgstr ""
 
 #: src/ui/preferences.rs
-msgid "Custom window title (empty: as above):"
+msgid "Custom window title (empty: \"image name - Glimt\"):"
 msgstr ""
 
 #: src/ui/preferences.rs
@@ -2531,7 +2531,7 @@ msgid "High Contrast"
 msgstr ""
 
 #: src/ui/theme.rs
-msgid "Contrast"
+msgid "High Contrast Light"
 msgstr ""
 
 #: src/images/colour.rs
@@ -2624,10 +2624,6 @@ msgstr ""
 
 #: src/ui/preferences.rs
 msgid "Fields: %name%, %path%, %position%, %dimensions%, %marks%, %keywords%, %comment%, and each label of the info panel, such as %Camera% or %ISO%. A | starts a part, left out when its fields are empty."
-msgstr ""
-
-#: src/ui/preferences.rs
-msgid "Window title \"Glimt - image name\" (off: \"image name - Glimt\")"
 msgstr ""
 
 #: src/ui/preferences.rs

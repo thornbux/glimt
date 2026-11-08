@@ -189,3 +189,4 @@ NextFilter
 InfoPanel
 Previous
 CopyForSharing
+PreviousPage

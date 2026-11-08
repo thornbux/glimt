@@ -109,7 +109,7 @@ impl crate::App {
                 "Desktop" => theme::icon::MONITOR,
                 "Nord" => theme::icon::SNOWFLAKE,
                 theme::HIGH_CONTRAST => theme::icon::HALF,
-                "Contrast" => theme::icon::HALF_TILT,
+                theme::HIGH_CONTRAST_LIGHT => theme::icon::HALF_TILT,
                 _ => theme::icon::BRUSH,
             };
             // Chosen again too, so a theme file just edited shows.
@@ -453,7 +453,7 @@ impl crate::App {
             Action::ExifWindow,
         );
         menu_toggle(ui, chosen, self.pan_view.is_some(), Action::PanView);
-        menu_toggle(ui, chosen, c.osd, Action::FullScreenInfo);
+        menu_toggle(ui, chosen, c.full_screen_info, Action::FullScreenInfo);
         menu_item(ui, chosen, Action::Histogram);
         menu_toggle(ui, chosen, c.histogram_log, Action::HistogramLog);
         menu_item(ui, chosen, Action::Refresh);
@@ -777,7 +777,7 @@ impl crate::App {
         let flag = match action {
             Action::PathBar => &mut c.path_bar,
             Action::Toolbar => &mut c.toolbar,
-            Action::FullScreenInfo => &mut c.osd,
+            Action::FullScreenInfo => &mut c.full_screen_info,
             Action::Icons => &mut c.icons,
             Action::FolderTree => &mut c.folder_tree,
             Action::HistogramLog => &mut c.histogram_log,

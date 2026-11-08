@@ -112,7 +112,7 @@ pub const SHORTCUTS: &[(Action, egui::Modifiers, egui::Key)] = {
         (NextLayout, NONE, Key::L),
         (Animate, NONE, Key::A),
         (NextPage, CTRL, Key::PageDown),
-        (PrevPage, CTRL, Key::PageUp),
+        (PreviousPage, CTRL, Key::PageUp),
         // Alt+digit before the plain digit, which would also match with Alt.
         #[cfg(feature = "marks")]
         (Rate0, ALT, Key::Num0),
@@ -219,7 +219,7 @@ pub(crate) const KIOSK_ACTIONS: &[Action] = &[
     Action::PaneUp,
     Action::PaneDown,
     Action::NextPage,
-    Action::PrevPage,
+    Action::PreviousPage,
 ];
 
 /// The actions a script may run with `glimt --remote run ACTION`: showing, browsing, selecting,
@@ -283,8 +283,8 @@ pub(crate) const SCRIPT_ACTIONS: &[Action] = &[
     Action::PathBar,
     Action::Pause,
     Action::Preferences,
-    Action::PrevPage,
     Action::Previous,
+    Action::PreviousPage,
     Action::Projector,
     Action::ProjectorPointer,
     Action::Quit,
@@ -320,10 +320,10 @@ pub(crate) const SCRIPT_ACTIONS: &[Action] = &[
     Action::SelectMark6,
 ];
 
-/// The actions renamed in 0.74.0, as (old name, new name). The keys= setting and
+/// The actions renamed in 0.74.0 and later, as (old name, new name). The keys= setting and
 /// `glimt --remote run` take the old names too, forever, so users' settings and scripts keep
 /// working, and only the new names are written and listed.
-pub(crate) const RENAMED_ACTIONS: [(&str, &str); 11] = [
+pub(crate) const RENAMED_ACTIONS: [(&str, &str); 12] = [
     ("HideTools", "HideFileList"),
     ("Overlay", "FullScreenInfo"),
     ("Play", "PlayVideo"),
@@ -335,6 +335,8 @@ pub(crate) const RENAMED_ACTIONS: [(&str, &str); 11] = [
     ("ViewFilter", "NextFilter"),
     ("ExifPanel", "InfoPanel"),
     ("Prev", "Previous"),
+    // 0.76.0: the same abbreviation as Prev, beside NextPage and the label Previous Page.
+    ("PrevPage", "PreviousPage"),
 ];
 
 /// Everything the user can do from a menu or a shortcut. The variants' names are stored in the
@@ -422,7 +424,7 @@ pub enum Action {
     BackUp,
     FocusSearch,
     NextPage,
-    PrevPage,
+    PreviousPage,
     // Marks 1–6 (keys 1–6), selecting by mark (Ctrl+1–6), 0–5 stars (Alt+0–5).
     #[cfg(feature = "marks")]
     Mark1,
@@ -632,7 +634,7 @@ impl Action {
             BackUp => "Back Up Glimt's Data…",
             FocusSearch => "Search File Names",
             NextPage => "Next Page",
-            PrevPage => "Previous Page",
+            PreviousPage => "Previous Page",
             #[cfg(feature = "marks")]
             Mark1 => "Mark 1",
             #[cfg(feature = "marks")]
@@ -777,7 +779,7 @@ impl Action {
             BackUp => "\u{e00c}",                           // archive
             FocusSearch => "\u{e30c}",                      // magnifying-glass
             NextPage => "\u{e12a}",                         // caret-double-right
-            PrevPage => "\u{e128}",                         // caret-double-left
+            PreviousPage => "\u{e128}",                     // caret-double-left
             #[cfg(feature = "marks")]
             Mark1 => "\u{e36a}", // number-circle-one
             #[cfg(feature = "marks")]
@@ -862,7 +864,7 @@ impl Action {
             | OneImage | AboveEachOther | NextLayout | PaneLeft | PaneRight | PaneUp | PaneDown
             | Animate | Subfolders | HiddenFiles | OpenCollection | ImportLightroom
             | RenameCollection | TrashCollection | FindDuplicates | CheckImages | BackUp
-            | FocusSearch | NextPage | PrevPage | Icons | Toolbar | PathBar | Thumbnails
+            | FocusSearch | NextPage | PreviousPage | Icons | Toolbar | PathBar | Thumbnails
             | ThumbnailGrid | GridNames | InfoPanel | ExifWindow | FocusKeywords | SortManager
             | PanView | FolderTree | Refresh | Slideshow | Pause | RandomOrder
             | SlideshowFaster | SlideshowSlower | Escape | NewWindow | WindowTitle | Projector
@@ -1143,8 +1145,10 @@ impl crate::App {
             Action::Subfolders => self.set_subfolders(ctx, !self.config.show_subfolders),
             Action::HiddenFiles => self.toggle_hidden_files(ctx),
             // An animation: stopped at the frame before or after the one shown, which A plays on.
-            Action::NextPage | Action::PrevPage if self.is_animated() => self.step_frame(action),
-            Action::NextPage | Action::PrevPage => self.step_page(action),
+            Action::NextPage | Action::PreviousPage if self.is_animated() => {
+                self.step_frame(action)
+            }
+            Action::NextPage | Action::PreviousPage => self.step_page(action),
             Action::ExifWindow => self.info_panel.toggle_exif_window(),
             Action::FocusKeywords => {
                 if !self.config.info_panel {
@@ -1658,8 +1662,8 @@ mod tests {
         Action::Pause,
         Action::PlayVideo,
         Action::Preferences,
-        Action::PrevPage,
         Action::Previous,
+        Action::PreviousPage,
         Action::Print,
         Action::Projector,
         Action::ProjectorPointer,

@@ -90,8 +90,29 @@ pub const NOT_SENT: i32 = 2;
 /// The exit code of `glimt --remote` when no Glimt takes the command, or none answers it.
 pub const NOT_TAKEN: i32 = 1;
 
+/// The exit code of `glimt --remote` when a window took the command but did not do it: a `run`
+/// refused while a dialog is open or a text field has the focus, or a command that window does
+/// not know (an older Glimt than the client). With `--remote-all` it is enough that one window
+/// did not do it.
+pub const NOT_DONE: i32 = 3;
+
+/// The start of the window's answer to a command it did not do, before the reason. Every other
+/// answer of a command is empty, and that of a query is paths, which start with "/".
+const NOT_DONE_ANSWER: &str = "not done: ";
+
+/// The file in the runtime folder that holds the name of the Glimt that had the focus last.
+pub const FOCUSED_FILE: &str = "focused";
+
 /// The most files `select` takes, because the window finds them in its own thread.
 pub const MAX_SELECT: usize = 100_000;
+
+/// The longest line of a command other than `select`, in bytes: room for a path or a title.
+/// Only `select` may be as long as its files take.
+const MOST_LINE: u64 = 64 * 1024;
+
+/// The most clients served at once, each by a thread of its own. Another waits in the socket's
+/// queue until one is done, or until its time limit tells it "no answer".
+const MOST_CLIENTS: usize = 16;
 
 /// How long a command and its answer may take. A client that sends nothing, or a window that
 /// does not answer, holds up the others no longer than this.
@@ -102,6 +123,9 @@ static GIVEN_NAME: std::sync::OnceLock<String> = std::sync::OnceLock::new();
 
 /// A window took a command but gave no answer in time.
 static TIMED_OUT: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// A window answered that it did not do the command.
+static WAS_NOT_DONE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 /// This Glimt listens on its socket, so it removes it when it closes.
 static LISTENING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
@@ -201,13 +225,19 @@ impl crate::App {
                     let paths = paths.split('\0').filter(|p| !p.is_empty());
                     let _ = reply.send(paths.flat_map(|p| p.bytes().chain([0])).collect());
                 }
+                // A command is not done as the window closes, and the client is told so.
+                None if !is_query(&command) => {
+                    let _ = reply.send(not_done_answer("this Glimt is closing"));
+                }
                 // Answered as at any other time (`where` too, in the release tests' build).
                 None => self.handle_remote(&ctx, &command, Some(reply)),
             }
         }
     }
 
-    /// One command from `glimt --remote`, with the answer to send if it asks for one.
+    /// One command from `glimt --remote`, with where to send its answer. A query is answered
+    /// with what it asks for, and any other command with nothing when it was done, or with
+    /// `NOT_DONE_ANSWER` and the reason when it was not.
     pub(crate) fn handle_remote(
         &mut self,
         ctx: &egui::Context,
@@ -224,8 +254,17 @@ impl crate::App {
                     command.trim_start_matches("where "),
                 ));
             }
-            Some(reply) => drop(reply.send(self.remote_query(command))),
-            None => self.remote_command(ctx, command),
+            Some(reply) if is_query(command) => drop(reply.send(self.remote_query(command))),
+            Some(reply) => {
+                let answer = match self.remote_command(ctx, command) {
+                    Ok(()) => Vec::new(),
+                    Err(why) => not_done_answer(&why),
+                };
+                let _ = reply.send(answer);
+            }
+            None => {
+                let _ = self.remote_command(ctx, command);
+            }
         }
     }
 
@@ -233,7 +272,13 @@ impl crate::App {
     /// slideshow, random and fullscreen (each with on or off, or without to go to the other),
     /// subfolders on|off, quit, open PATH, title with this window's own title, or without one
     /// to have the title in Preferences, and run ACTION with an action of `SCRIPT_ACTIONS`.
-    pub(crate) fn remote_command(&mut self, ctx: &egui::Context, command: &str) {
+    /// Returns the reason when the command is not done: a `run` refused, or a command this
+    /// window does not know, such as one of a newer Glimt.
+    pub(crate) fn remote_command(
+        &mut self,
+        ctx: &egui::Context,
+        command: &str,
+    ) -> Result<(), String> {
         let fullscreen = ctx.input(|i| i.viewport().fullscreen).unwrap_or(false);
         let command = command.trim_start();
         let action = match command.trim_end() {
@@ -247,8 +292,14 @@ impl crate::App {
             "slideshow off" if !self.slideshow.is_running() => None,
             "slideshow" | "slideshow on" | "slideshow off" => Some(Action::Slideshow),
             "random" => Some(Action::RandomOrder),
-            "random on" => return self.set_random_order(ctx, true),
-            "random off" => return self.set_random_order(ctx, false),
+            "random on" => {
+                self.set_random_order(ctx, true);
+                None
+            }
+            "random off" => {
+                self.set_random_order(ctx, false);
+                None
+            }
             "fullscreen on" if fullscreen => None,
             "fullscreen off" if !fullscreen => None,
             "fullscreen" | "fullscreen on" | "fullscreen off" => Some(Action::FullScreen),
@@ -257,9 +308,18 @@ impl crate::App {
                 self.window.let_kiosk_quit();
                 Some(Action::Quit)
             }
-            "subfolders on" => return self.set_subfolders(ctx, true),
-            "subfolders off" => return self.set_subfolders(ctx, false),
-            "title" => return self.set_window_title(ctx, ""),
+            "subfolders on" => {
+                self.set_subfolders(ctx, true);
+                None
+            }
+            "subfolders off" => {
+                self.set_subfolders(ctx, false);
+                None
+            }
+            "title" => {
+                self.set_window_title(ctx, "");
+                None
+            }
             // Not while a dialog asks the user or a text field has the focus, as the keys are
             // not then either. An action could take the dialog's place (WindowTitle), or take
             // the focus from the field the user types in (FocusSearch). Only `run` waits, as it
@@ -268,11 +328,16 @@ impl crate::App {
             _ if command.trim().starts_with("run ")
                 && (self.dialog_open() || ctx.text_edit_focused()) =>
             {
-                None
+                return Err("a dialog is open or a text field has the focus".into());
             }
-            other if other.starts_with("run ") => Action::for_script(other["run ".len()..].trim()),
+            other if other.starts_with("run ") => {
+                let name = other["run ".len()..].trim();
+                let action = Action::for_script(name);
+                Some(action.ok_or_else(|| format!("{name} is not an action a script may run"))?)
+            }
             other if other.starts_with("title ") => {
-                return self.set_window_title(ctx, other["title ".len()..].trim());
+                self.set_window_title(ctx, other["title ".len()..].trim());
+                None
             }
             other if other.starts_with("open ") => {
                 // The path is taken as it was sent, not trimmed, because a folder's name may end
@@ -283,11 +348,13 @@ impl crate::App {
                 }
                 None
             }
-            _ => None,
+            // The words of a newer Glimt, or a choice this one does not have.
+            other => return Err(format!("this Glimt does not know the command “{other}”")),
         };
         if let Some(action) = action {
             self.run(ctx, action);
         }
+        Ok(())
     }
 
     /// The answer to `glimt --remote current` or `selection`, the paths, each ending in a NUL
@@ -348,8 +415,21 @@ impl crate::App {
     }
 }
 
-/// Whether `command` is a command that answers. None of them changes a file. `select` only
-/// selects, and what is done with the selection is the user's to do in the window.
+/// Returns the window's answer to a command it did not do, with the reason `why`.
+fn not_done_answer(why: &str) -> Vec<u8> {
+    format!("{NOT_DONE_ANSWER}{why}\n").into_bytes()
+}
+
+/// Returns the reason in a window's answer `answer`, or `None` when the answer says that the
+/// command was done, or is a query's.
+fn not_done_reason(answer: &[u8]) -> Option<String> {
+    let why = answer.strip_prefix(NOT_DONE_ANSWER.as_bytes())?;
+    Some(String::from_utf8_lossy(why).trim_end().to_owned())
+}
+
+/// Whether `command` is a query, which answers with what it asks for. None of them changes a
+/// file. `select` only selects, and what is done with the selection is the user's to do in the
+/// window.
 fn is_query(command: &str) -> bool {
     matches!(command.trim(), "current" | "selection")
         || command.starts_with("select ")
@@ -489,16 +569,29 @@ pub fn timed_out() -> bool {
     TIMED_OUT.load(std::sync::atomic::Ordering::Relaxed)
 }
 
+/// Whether a window answered that it did not do the command.
+fn was_not_done() -> bool {
+    WAS_NOT_DONE.load(std::sync::atomic::Ordering::Relaxed)
+}
+
 /// The socket's name, which is the --name, or the process ID.
 fn socket_id() -> &'static str {
     given_name().unwrap_or_else(instance_id)
 }
 
 fn socket(id: &str) -> Option<PathBuf> {
-    runtime_dir().map(|d| d.join(format!("glimt-{id}.sock")))
+    runtime_dir().map(|d| d.join(socket_name(id)))
 }
 
-/// Send `command` to the socket at `path`, and print what it answers to standard output.
+/// Returns the name of the socket of the Glimt named `id` (its --name or process ID) in the
+/// runtime folder.
+pub fn socket_name(id: &str) -> String {
+    format!("glimt-{id}.sock")
+}
+
+/// Send `command` to the socket at `path`, and print what it answers to standard output. A
+/// command that the window did not do has its reason printed on standard error instead. A
+/// window of 0.75 or older closes without an answer to a command, which reads as done.
 fn send_and_print_answer(path: &std::path::Path, command: &str) -> bool {
     use std::io::Read;
     let Ok(mut s) = UnixStream::connect(path) else {
@@ -517,7 +610,13 @@ fn send_and_print_answer(path: &std::path::Path, command: &str) -> bool {
         eprintln!("glimt: no answer from {}: {e}", path.display());
         TIMED_OUT.store(true, std::sync::atomic::Ordering::Relaxed);
     }
-    let _ = std::io::stdout().write_all(&answer);
+    match not_done_reason(&answer) {
+        Some(why) => {
+            eprintln!("glimt: not done: {why}");
+            WAS_NOT_DONE.store(true, std::sync::atomic::Ordering::Relaxed);
+        }
+        None => drop(std::io::stdout().write_all(&answer)),
+    }
     true
 }
 
@@ -542,7 +641,7 @@ fn live_sockets(dir: Option<PathBuf>) -> Vec<PathBuf> {
 /// Sends `command` to the Glimt used last, or else to another one. Returns false if none runs.
 pub fn send(command: &str) -> bool {
     let last = runtime_dir()
-        .and_then(|d| crate::images::decode::read_text(d.join("focused")).ok())
+        .and_then(|d| crate::images::decode::read_text(d.join(FOCUSED_FILE)).ok())
         .and_then(|id| socket(id.trim()));
     if last.is_some_and(|p| send_and_print_answer(&p, command)) {
         return true;
@@ -567,9 +666,9 @@ pub fn send_all(command: &str) -> usize {
 
 /// `glimt --remote` and `--remote-all`. It sends `words` (the command and its arguments) to the
 /// Glimt used last, to the one of `name`, or to every one, and `paths` are `select`'s files,
-/// whole. Returns `None` once the command is sent and its answer printed, or the path to open
-/// when `open` finds no Glimt running. It exits with 2 for a command that cannot be sent, and
-/// with 1 when no Glimt takes it.
+/// whole. Returns `None` once the command is done and its answer printed, or the path to open
+/// when `open` finds no Glimt running. It exits with 2 for a command that cannot be sent, with
+/// 1 when no Glimt takes it, and with 3 when a window did not do it.
 pub fn client(
     words: &[String],
     paths: &[std::ffi::OsString],
@@ -651,6 +750,9 @@ pub fn client(
     if timed_out() {
         std::process::exit(NOT_TAKEN);
     }
+    if was_not_done() {
+        std::process::exit(NOT_DONE);
+    }
     if sent {
         return None;
     }
@@ -710,22 +812,45 @@ pub fn listen(tx: mpsc::Sender<(String, Option<Reply>)>, ctx: eframe::egui::Cont
     );
     mark_focused();
     std::thread::spawn(move || {
-        for stream in listener.incoming().flatten() {
-            // Each client gets a thread of its own, so a client waiting for the window (a folder
-            // of 500,000 files still being read, a dialog open) holds up no other. The window's
-            // answer is waited for as long as it takes. The client has the one time limit, so
-            // there is one outcome when it runs out: "no answer" and exit 1, never an empty
-            // answer taken for "all found".
-            let (tx, ctx) = (tx.clone(), ctx.clone());
-            // The client is counted from here, before its query is read, so a client that came
-            // just before the socket went is waited for at closing too.
-            let client = UnfinishedAnswer::new();
-            std::thread::spawn(move || {
-                serve(stream, &tx, &ctx);
-                drop(client);
-            });
-        }
+        serve_clients(listener, MOST_CLIENTS, move |stream| {
+            serve(stream, &tx, &ctx)
+        });
     });
+}
+
+/// Takes the clients of `listener`, each served by `serve` in a thread of its own, and at most
+/// `most` at once. A thread for each client means that a client waiting for the window (a
+/// folder of 500,000 files still being read, a dialog open) holds up no other. The window's
+/// answer is waited for as long as it takes, and the client has the one time limit, so there is
+/// one outcome when it runs out: "no answer" and exit 1, never an empty answer taken for "all
+/// found". A client over `most` waits in the socket's queue, so clients that never end cannot
+/// take a thread each.
+fn serve_clients(
+    listener: UnixListener,
+    most: usize,
+    serve: impl Fn(UnixStream) + Clone + Send + 'static,
+) {
+    // A free place is a message in this channel: taken before a client is accepted, and given
+    // back when its thread is done.
+    let (free, places) = mpsc::channel();
+    for _ in 0..most {
+        let _ = free.send(());
+    }
+    while places.recv().is_ok() {
+        let Ok((stream, _)) = listener.accept() else {
+            let _ = free.send(());
+            continue;
+        };
+        // The client is counted from here, before its query is read, so a client that came
+        // just before the socket went is waited for at closing too.
+        let client = UnfinishedAnswer::new();
+        let (serve, free) = (serve.clone(), free.clone());
+        std::thread::spawn(move || {
+            serve(stream);
+            drop(client);
+            let _ = free.send(());
+        });
+    }
 }
 
 /// One client's commands, each passed to the window, and its answer to a query sent back.
@@ -739,39 +864,58 @@ fn serve(
     // A client may send as much as `select` may, and no more, so a client that sends without
     // end does not fill the memory.
     let most = MAX_SELECT as u64 * 4096 + 64;
-    for line in std::io::BufReader::new(std::io::Read::take(stream, most))
-        .lines()
-        .map_while(Result::ok)
-    {
+    let mut reader = std::io::BufReader::new(std::io::Read::take(stream, most));
+    while let Some(line) = read_command(&mut reader) {
         let line = command_now(line.trim_start());
-        let (reply, answer) = match is_query(&line) {
-            true => {
-                let (reply, answer) = mpsc::channel();
-                (Some(reply), Some(answer))
-            }
-            false => (None, None),
-        };
+        // Every command is answered, a query with what it asks and any other with whether it
+        // was done, so a script knows when its `run` was refused.
+        let (reply, answer) = mpsc::channel();
         // The client is counted until its answer is written, because `stop` waits for that at
         // closing.
-        let answering = answer.is_some().then(UnfinishedAnswer::new);
-        if tx.send((line, reply)).is_err() {
+        let answering = UnfinishedAnswer::new();
+        if tx.send((line, Some(reply))).is_err() {
             return;
         }
         ctx.request_repaint();
-        if let (Some(answer), Some(out)) = (answer, out.as_mut()) {
-            match answer.recv() {
-                Ok(bytes) => drop(out.write_all(&bytes)),
-                // When the window dropped the answer (too many waiting, or closing), closing the
-                // connection now would make the client read nothing, "all found". Held open,
-                // its time limit says "no answer".
-                Err(_) => {
-                    drop(answering);
-                    return std::thread::sleep(WAIT + std::time::Duration::from_secs(1));
+        match answer.recv() {
+            Ok(bytes) => {
+                if let Some(out) = out.as_mut() {
+                    let _ = out.write_all(&bytes);
                 }
+            }
+            // When the window dropped the answer (too many waiting, or closing), closing the
+            // connection now would make the client read nothing, "all found" or "done". Held
+            // open, its time limit says "no answer".
+            Err(_) => {
+                drop(answering);
+                return std::thread::sleep(WAIT + std::time::Duration::from_secs(1));
             }
         }
         drop(answering);
     }
+}
+
+/// Reads the next command, one line, from `reader`. A `select` may be as long as its files take,
+/// and any other command at most `MOST_LINE` bytes, so a client that sends without a line break
+/// holds no more memory than that. Returns `None` at the end, for a line too long or not UTF-8,
+/// and when the client sends nothing within its time limit.
+fn read_command(reader: &mut impl BufRead) -> Option<String> {
+    let mut line = Vec::new();
+    std::io::Read::take(&mut *reader, MOST_LINE)
+        .read_until(b'\n', &mut line)
+        .ok()?;
+    let ended = line.ends_with(b"\n");
+    if !ended && line.trim_ascii_start().starts_with(b"select ") {
+        reader.read_until(b'\n', &mut line).ok()?;
+    } else if !ended && line.len() as u64 >= MOST_LINE {
+        return None;
+    }
+    if line.is_empty() {
+        return None;
+    }
+    let line = line.strip_suffix(b"\n").unwrap_or(&line);
+    let line = line.strip_suffix(b"\r").unwrap_or(line);
+    String::from_utf8(line.to_vec()).ok()
 }
 
 /// Whether `dir` is there and not the user's own folder.
@@ -816,7 +960,7 @@ pub fn mark_focused() {
     if let Some(d) = runtime_dir() {
         // The file is written whole and never truncated first, because a `--remote` reading it
         // meanwhile got an empty name.
-        let _ = crate::files::file_io::replace_file(&d.join("focused"), socket_id());
+        let _ = crate::files::file_io::replace_file(&d.join(FOCUSED_FILE), socket_id());
     }
 }
 
@@ -908,34 +1052,36 @@ mod tests {
         let (mut app, ctx) = app_on(&dir);
         app.list
             .set_files(["a.png", "b.png", "c.png"].map(Into::into).to_vec());
-        app.remote_command(&ctx, "run Next");
+        app.remote_command(&ctx, "run Next").unwrap();
         assert_eq!(app.list.shown(), 1);
-        app.remote_command(&ctx, "run Last");
+        app.remote_command(&ctx, "run Last").unwrap();
         assert_eq!(app.list.shown(), 2);
         // The renamed command by its new word (its old word is mapped where it comes in, as
         // `an_old_command_word_reaches_the_window_mapped` checks), and the renamed action by
         // its old name.
-        app.remote_command(&ctx, "previous");
+        app.remote_command(&ctx, "previous").unwrap();
         assert_eq!(app.list.shown(), 1);
-        app.remote_command(&ctx, "previous");
+        app.remote_command(&ctx, "previous").unwrap();
         assert_eq!(app.list.shown(), 0);
-        app.remote_command(&ctx, "run Next");
-        app.remote_command(&ctx, "run Prev");
+        app.remote_command(&ctx, "run Next").unwrap();
+        app.remote_command(&ctx, "run Prev").unwrap();
         assert_eq!(app.list.shown(), 0);
-        app.remote_command(&ctx, "run Last");
+        app.remote_command(&ctx, "run Last").unwrap();
         app.config.confirm_trash = false;
-        app.remote_command(&ctx, "run Delete");
-        app.remote_command(&ctx, "run DeletePermanently");
-        app.remote_command(&ctx, "run NoSuchAction");
+        // Each is told as not done, so the script does not take it as done.
+        app.remote_command(&ctx, "run Delete").unwrap_err();
+        app.remote_command(&ctx, "run DeletePermanently")
+            .unwrap_err();
+        app.remote_command(&ctx, "run NoSuchAction").unwrap_err();
         assert!(!app.asking_about_selection());
         // Nor a script's action while a dialog asks the user: the Rename prompt stays.
-        app.remote_command(&ctx, "run First");
+        app.remote_command(&ctx, "run First").unwrap();
         assert_eq!(app.list.shown(), 0);
         let asked = crate::ui::dialogs::Asked::new(0, vec!["a.png".into()], None);
         let rename = crate::ui::dialogs::Prompt::Rename;
         app.dialogs.ask_about(asked, rename, "a.png".into());
-        app.remote_command(&ctx, "run WindowTitle");
-        app.remote_command(&ctx, "run Last");
+        app.remote_command(&ctx, "run WindowTitle").unwrap_err();
+        app.remote_command(&ctx, "run Last").unwrap_err();
         assert_eq!(app.list.shown(), 0);
         assert!(app.dialogs.asks_about_files());
         assert_eq!(app.list.files().len(), 3);
@@ -965,14 +1111,14 @@ mod tests {
             });
         }
         assert!(ctx.text_edit_focused());
-        app.remote_command(&ctx, "run FocusSearch");
-        app.remote_command(&ctx, "run Next");
+        app.remote_command(&ctx, "run FocusSearch").unwrap_err();
+        app.remote_command(&ctx, "run Next").unwrap_err();
         assert_eq!(app.list.shown(), 0);
         assert_eq!(ctx.memory(|m| m.focused()), field);
-        app.remote_command(&ctx, "next");
+        app.remote_command(&ctx, "next").unwrap();
         assert_eq!(app.list.shown(), 1);
         ctx.memory_mut(|m| m.surrender_focus(field.unwrap()));
-        app.remote_command(&ctx, "run Next");
+        app.remote_command(&ctx, "run Next").unwrap();
         assert_eq!(app.list.shown(), 2);
         std::fs::remove_dir_all(&dir).unwrap();
     }
@@ -1055,23 +1201,36 @@ mod tests {
             writeln!(client, " {old}").unwrap();
         }
         drop(client);
-        super::serve(window, &tx, &ctx);
+        // The listener waits for each command's answer, so the window's part runs here.
+        let window_ctx = ctx.clone();
+        let server = std::thread::spawn(move || super::serve(window, &tx, &window_ctx));
         for (_, new) in super::RENAMED_COMMANDS {
             for _ in 0..2 {
-                assert_eq!(rx.try_recv().map(|(line, _)| line), Ok(new.to_string()));
+                let (line, reply) = rx.recv().unwrap();
+                assert_eq!(line, new.to_string());
+                let _ = reply.unwrap().send(Vec::new());
             }
         }
+        server.join().unwrap();
         let (tx, rx) = std::sync::mpsc::channel();
         let (mut client, window) = super::UnixStream::pair().unwrap();
         writeln!(client, "prev").unwrap();
         drop(client);
-        super::serve(window, &tx, &ctx);
+        let window_ctx = ctx.clone();
+        let server = std::thread::spawn(move || super::serve(window, &tx, &window_ctx));
         app.remote = super::Listener {
             rx,
             waiting_selects: Vec::new(),
         };
-        app.receive_remote(&ctx);
+        for _ in 0..500 {
+            app.receive_remote(&ctx);
+            if app.list.shown() == 0 {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
         assert_eq!(app.list.shown(), 0);
+        server.join().unwrap();
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
@@ -1142,6 +1301,103 @@ mod tests {
         assert!(!super::has_waiting_client(fd));
         assert!(!super::has_waiting_client(-1));
         let _ = std::fs::remove_file(path.with_extension("lock"));
+    }
+
+    /// Every command is answered: with nothing when the window did it, and with "not done:"
+    /// and the reason when it did not, as a `run` refused while a dialog is open or a command
+    /// the window does not know. Before, any command but a query was taken as done, so a script
+    /// went on after a refused `run`, and a newer client could not tell that an older window
+    /// did not know its command. The client reads the reason from the answer.
+    #[test]
+    fn a_command_not_done_is_told() {
+        use std::io::{Read, Write};
+        let dir = std::env::temp_dir().join(format!("glimt-test-not-done-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let (mut app, ctx) = app_on(&dir);
+        app.list
+            .set_files(["a.png", "b.png"].map(Into::into).to_vec());
+        let answer = |app: &mut crate::App, command: &str| {
+            let (reply, answer) = std::sync::mpsc::channel();
+            app.handle_remote(&ctx, command, Some(reply));
+            answer.try_recv().unwrap()
+        };
+        assert_eq!(answer(&mut app, "next"), b"");
+        assert_eq!(app.list.shown(), 1);
+        for command in ["nxet", "slideshow maybe", "run Delete", "run NoSuchAction"] {
+            let why = super::not_done_reason(&answer(&mut app, command));
+            assert!(why.is_some_and(|w| !w.is_empty()), "{command}");
+        }
+        let asked = crate::ui::dialogs::Asked::new(0, vec!["a.png".into()], None);
+        app.dialogs
+            .ask_about(asked, crate::ui::dialogs::Prompt::Rename, "a.png".into());
+        let refused = answer(&mut app, "run First");
+        assert_eq!(
+            super::not_done_reason(&refused).as_deref(),
+            Some("a dialog is open or a text field has the focus")
+        );
+        assert_eq!(app.list.shown(), 1);
+        // A query's answer of paths is never read as "not done".
+        assert_eq!(super::not_done_reason(b"/a/not done: x\0"), None);
+        // The listener writes the window's answer back to the client.
+        let (mut client, window) = std::os::unix::net::UnixStream::pair().unwrap();
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || super::serve(window, &tx, &eframe::egui::Context::default()));
+        writeln!(client, "nxet").unwrap();
+        client.shutdown(std::net::Shutdown::Write).unwrap();
+        let (line, reply) = rx.recv().unwrap();
+        app.handle_remote(&ctx, &line, reply);
+        let mut got = Vec::new();
+        client.read_to_end(&mut got).unwrap();
+        assert!(super::not_done_reason(&got).is_some(), "{got:?}");
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A command line other than a select is read up to `MOST_LINE` bytes, and a longer one ends
+    /// the client, while a select may be as long as its files. Before, every line could be as
+    /// long as the longest select, some 400 MB, and ten clients sending without a line break
+    /// held 4 GB.
+    #[test]
+    fn a_command_line_is_cut_short_unless_it_is_a_select() {
+        let long = "x".repeat(super::MOST_LINE as usize + 10);
+        let read = |text: String| {
+            let mut reader = std::io::Cursor::new(text.into_bytes());
+            std::iter::from_fn(move || super::read_command(&mut reader)).collect::<Vec<_>>()
+        };
+        assert_eq!(read(format!("title {long}\nnext\n")), Vec::<String>::new());
+        let select = format!("select /{long}\0");
+        assert_eq!(
+            read(format!("{select}\r\nnext\n")),
+            [select.as_str(), "next"]
+        );
+        assert_eq!(read("next".into()), ["next"]);
+        assert_eq!(read(String::new()), Vec::<String>::new());
+    }
+
+    /// At most so many clients are served at once, each by a thread; the next waits until one
+    /// is done. Before, every client that connected got a thread of its own, with no end.
+    #[test]
+    fn serves_at_most_so_many_clients_at_once() {
+        let path = std::env::temp_dir().join(format!("glimt-clients-{}.sock", std::process::id()));
+        let _ = std::fs::remove_file(&path);
+        let listener = std::os::unix::net::UnixListener::bind(&path).unwrap();
+        let (started, starts) = std::sync::mpsc::channel();
+        // Each client is served until it closes.
+        let serve = move |mut stream: std::os::unix::net::UnixStream| {
+            let _ = started.send(());
+            let _ = std::io::copy(&mut stream, &mut std::io::sink());
+        };
+        std::thread::spawn(move || super::serve_clients(listener, 2, serve));
+        let connect = || std::os::unix::net::UnixStream::connect(&path).unwrap();
+        let (first, _second, _third) = (connect(), connect(), connect());
+        let wait = |ms| starts.recv_timeout(std::time::Duration::from_millis(ms));
+        assert!(wait(5000).is_ok() && wait(5000).is_ok());
+        assert!(wait(300).is_err(), "a third client was served beside two");
+        drop(first);
+        assert!(
+            wait(5000).is_ok(),
+            "the third client was not served when one was done"
+        );
+        std::fs::remove_file(path).unwrap();
     }
 
     /// A query whose answer the window drops (too many waiting) is not closed at once, because

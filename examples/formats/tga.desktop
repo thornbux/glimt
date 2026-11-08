@@ -1,4 +1,4 @@
-[Glimt Decoder]
+[Glimt Format]
 Name=TGA (ImageMagick)
 Comment=TGA images from games and 3D programs, through ImageMagick
 Extensions=tga

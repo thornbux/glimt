@@ -2,7 +2,9 @@
 # AGENTS.md): the settings' keys, the values of the settings that take a name (those of
 # config::NAMED in its order, because a value's place is the number it was written as before),
 # the window state's keys, the --remote commands with the words of their choices and the exit
-# codes, and the command-line options. A line is never taken out or changed. New ones are
+# codes, the command-line options, the actions a script may run, the %field% names of the
+# templates, the keys of a theme file, the files Glimt owns and the group words of the sharing
+# file. A line is never taken out or changed. New ones are
 # added at the end, as the test frozen_names_are_kept in config.rs says. A name renamed later
 # keeps its line: the code's table of old names maps it to the new name, which is still read,
 # and the new name is added at the end.
@@ -234,3 +236,154 @@ setting search_case_sensitive
 setting list_videos
 state window_position
 remote previous
+setting full_screen_info
+setting full_screen_info_template
+setting slideshow_one_image_at_a_time
+value slideshow_one_image_at_a_time 1
+value slideshow_one_image_at_a_time 2x1
+value slideshow_one_image_at_a_time 1x2
+value slideshow_one_image_at_a_time 2x2
+value theme High Contrast Light
+exit not_done 3
+field name
+field path
+field position
+field dimensions
+field marks
+field keywords
+field comment
+field folder
+field app
+field page
+field pages
+field File size
+field Taken
+field Exposure
+field Aperture
+field ISO
+field Focal length
+script About
+script AboveEachOther
+script Animate
+script Back
+script CheckImages
+script CloseWindow
+script Compare
+script CopyFiles
+script CopyImage
+script CopyPath
+script CopyPathUnquoted
+script Escape
+script ExifRotate
+script ExifWindow
+script First
+script FitFill
+script FitHeight
+script FitWidth
+script FocusSearch
+script FolderTree
+script Forward
+script FullScreen
+script FullScreenInfo
+script GridNames
+script Help
+script HiddenFiles
+script HideFileList
+script Histogram
+script HistogramLog
+script Home
+script Icons
+script InvertSelection
+script KeyboardMap
+script Last
+script NewWindow
+script Next
+script NextFilter
+script NextLayout
+script NextPage
+script OneImage
+script OpenCollection
+script OpenFile
+script OpenFolder
+script OpenFolders
+script OpenRecursive
+script PanView
+script PaneDown
+script PaneLeft
+script PaneRight
+script PaneUp
+script PathBar
+script Pause
+script Preferences
+script Previous
+script PreviousPage
+script Projector
+script ProjectorPointer
+script Quit
+script RandomOrder
+script Refresh
+script SelectAll
+script SelectNone
+script Shortcuts
+script Slideshow
+script SlideshowFaster
+script SlideshowSlower
+script Subfolders
+script ThumbnailGrid
+script Thumbnails
+script Toolbar
+script Up
+script WindowTitle
+script Zoom1To1
+script ZoomFit
+script ZoomIn
+script ZoomOut
+script SelectMark1
+script SelectMark2
+script SelectMark3
+script SelectMark4
+script SelectMark5
+script SelectMark6
+theme_key dark
+theme_key accent
+theme_key panel
+theme_key window
+theme_key field
+theme_key faint
+theme_key hover
+theme_key active
+theme_key border
+theme_key text
+theme_key radius
+theme_key text_size
+file $XDG_CONFIG_HOME/glimt/config
+file $XDG_CONFIG_HOME/glimt/keywords
+file $XDG_CONFIG_HOME/glimt/sort-folders
+file $XDG_CONFIG_HOME/glimt/themes
+file $XDG_STATE_HOME/glimt/state
+file $XDG_STATE_HOME/glimt/recent
+file $XDG_STATE_HOME/glimt/sharing
+file $XDG_STATE_HOME/glimt/marks
+file $XDG_STATE_HOME/glimt/renames
+file $XDG_DATA_HOME/glimt/collections
+file $XDG_DATA_HOME/glimt/tools
+file $XDG_DATA_HOME/glimt/plugins
+file $XDG_DATA_HOME/glimt/formats
+file $XDG_DATA_HOME/glimt/decoders
+file /etc/glimt/lock-settings
+file $XDG_RUNTIME_DIR/glimt/glimt-NAME.sock
+file $XDG_RUNTIME_DIR/glimt/focused
+sharing group:place
+sharing group:camera
+sharing group:date
+sharing group:photographer
+sharing group:software
+sharing group:keywords
+sharing group:preview
+sharing group:other
+value print_printer System print dialog
+value print_printer ""
+exit done 0
+exit check_config_problems 1
+exit back_up_failed 1
+exit back_up_no_folder 2

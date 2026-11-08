@@ -1,4 +1,4 @@
-[Glimt Decoder]
+[Glimt Format]
 Name=Photoshop (ImageMagick)
 Comment=The picture of a Photoshop file as saved (its composite), through ImageMagick
 Extensions=psd;psb

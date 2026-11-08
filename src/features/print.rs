@@ -59,8 +59,12 @@ pub const PER_PAGE: [(usize, [usize; 2]); 7] = [
 ];
 
 /// The printer choice that hands the PDF to the desktop's print dialog (the print portal). It
-/// is the one in the Flatpak, which has no lpstat or lp.
+/// is the one in the Flatpak, which has no lpstat or lp. It is the English label, kept as the
+/// print_printer setting's value, so it never changes.
 pub const SYSTEM_DIALOG: &str = "System print dialog";
+
+/// The printer choice that saves a PDF file instead, kept as the print_printer setting's value.
+pub const PDF_FILE: &str = "";
 
 /// The most images the preview shows, which is the most on one page.
 const MAX_PREVIEWS: usize = 20;
@@ -343,7 +347,7 @@ impl crate::App {
             copies: dialog.copies,
         };
         match c.print_printer.clone() {
-            p if p.is_empty() => self.pick(ctx, false, Pick::SavePdf(job)),
+            p if p == PDF_FILE => self.pick(ctx, false, Pick::SavePdf(job)),
             p => self.print(ctx, job, PrintTo::Printer(p)),
         }
     }
@@ -705,10 +709,14 @@ fn centred(text: &str, size: f32, [x, y, width]: [f32; 3]) -> String {
     )
 }
 
-/// A page text with its numbers filled in.
-fn page_text(text: &str, page: usize, pages: usize) -> String {
-    text.replace("%page%", &page.to_string())
-        .replace("%pages%", &pages.to_string())
+/// A page text with its numbers filled in, for %page% and %pages%. A `%%` is a `%`, as in the
+/// other templates (`format::fill_template`).
+pub(crate) fn page_text(text: &str, page: usize, pages: usize) -> String {
+    let parts = text.split("%%").map(|part| {
+        part.replace("%page%", &page.to_string())
+            .replace("%pages%", &pages.to_string())
+    });
+    parts.collect::<Vec<_>>().join("%")
 }
 
 /// Writes a PDF of `pages` pages to `out`, with the images laid out by `layout`, each with its
@@ -1039,7 +1047,8 @@ fn print_fields(ui: &mut egui::Ui, dialog: &mut PrintDialog, c: &mut Config) {
                 for p in dialog.printers.iter().flatten() {
                     crate::ui::menus::choice(ui, &mut c.print_printer, p.clone(), &shown(p));
                 }
-                crate::ui::menus::choice(ui, &mut c.print_printer, String::new(), tr("PDF file"));
+                let pdf = PDF_FILE.to_owned();
+                crate::ui::menus::choice(ui, &mut c.print_printer, pdf, tr("PDF file"));
             });
         match &dialog.printers {
             None => drop(ui.spinner()),
@@ -1172,6 +1181,14 @@ mod tests {
         };
         assert_eq!(sides(&wide), "two-sided-short-edge");
         assert_eq!(sides(&Layout::new(PAPERS[0].1, 1)), "two-sided-long-edge");
+    }
+
+    /// A page's header and footer take %% for a %, as the other templates, so "100%%page%"
+    /// is not read as a page number after a %.
+    #[test]
+    fn page_text_takes_a_percent_sign() {
+        assert_eq!(super::page_text("%page%/%pages%", 2, 3), "2/3");
+        assert_eq!(super::page_text("100%% · %%page%", 2, 3), "100% · %page%");
     }
 
     /// Text on every page, with its numbers, gets room made for it, and the image moves down

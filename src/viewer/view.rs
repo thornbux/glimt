@@ -636,7 +636,10 @@ impl crate::App {
     /// The layout's slideshow changes one pane at a time.
     pub(crate) fn changes_one_pane_at_a_time(&self) -> bool {
         let layout = &self.config.layout;
-        self.config.layout_turns.split(',').any(|l| l == layout)
+        self.config
+            .slideshow_one_image_at_a_time
+            .split(',')
+            .any(|l| l == layout)
     }
 
     /// The panes after the first show the images that follow the shown one, except while a
@@ -718,13 +721,13 @@ impl crate::App {
             }
             if chosen != turns {
                 let layout = self.config.layout.clone();
-                let mut list: Vec<&str> = (self.config.layout_turns.split(','))
+                let mut list: Vec<&str> = (self.config.slideshow_one_image_at_a_time.split(','))
                     .filter(|l| !l.is_empty() && *l != layout)
                     .collect();
                 if chosen {
                     list.push(&layout);
                 }
-                self.config.layout_turns = list.join(",");
+                self.config.slideshow_one_image_at_a_time = list.join(",");
                 self.config.save();
                 self.refill_preload();
             }
@@ -855,25 +858,7 @@ impl crate::App {
 
     /// Full screen info in the top left corner, from the template in Preferences.
     pub(crate) fn paint_full_screen_info(&mut self, ui: &mut egui::Ui, area: egui::Rect) {
-        self.request_and_take_exif(ui.ctx());
-        let path = self.path(self.list.shown());
-        let meta = self.info_panel.metadata_edit_of(&path).map(|m| &m.saved);
-        let text = fill_template(&self.config.osd_template, |field| match field {
-            "name" => self.name(self.list.shown()).to_string(),
-            "path" => path.display().to_string(),
-            "position" => self.position_text(),
-            "dimensions" => (self.list.loaded_images().get(&self.list.shown()))
-                .map(|s| format!("{} × {}", s.original_size[0], s.original_size[1]))
-                .unwrap_or_default(),
-            "marks" => self.mark_text(self.list.shown()),
-            "keywords" => meta.map(|m| m.keywords.join(", ")).unwrap_or_default(),
-            "comment" => meta.map(|m| m.comment.clone()).unwrap_or_default(),
-            label => self
-                .info_panel
-                .exif_row(&path, label)
-                .map(|value| crate::metadata::exif::shown_value(label, value).to_owned())
-                .unwrap_or_default(),
-        });
+        let text = self.full_screen_info_text(ui.ctx());
         if text.is_empty() {
             return;
         }
@@ -885,6 +870,33 @@ impl crate::App {
         );
         p.rect_filled(at, 6.0, egui::Color32::from_black_alpha(150));
         p.galley(at.min + egui::vec2(10.0, 6.0), galley, egui::Color32::WHITE);
+    }
+
+    /// Returns the full screen info's text for the image shown, from the template in
+    /// Preferences. Its EXIF is asked for here, and its fields fill once it is read.
+    pub(crate) fn full_screen_info_text(&mut self, ctx: &egui::Context) -> String {
+        self.request_and_take_exif(ctx);
+        let path = self.path(self.list.shown());
+        let meta = self.info_panel.metadata_edit_of(&path).map(|m| &m.saved);
+        fill_template(
+            &self.config.full_screen_info_template,
+            |field| match field {
+                "name" => self.name(self.list.shown()).to_string(),
+                "path" => path.display().to_string(),
+                "position" => self.position_text(),
+                "dimensions" => (self.list.loaded_images().get(&self.list.shown()))
+                    .map(|s| format!("{} × {}", s.original_size[0], s.original_size[1]))
+                    .unwrap_or_default(),
+                "marks" => self.mark_text(self.list.shown()),
+                "keywords" => meta.map(|m| m.keywords.join(", ")).unwrap_or_default(),
+                "comment" => meta.map(|m| m.comment.clone()).unwrap_or_default(),
+                label => self
+                    .info_panel
+                    .exif_row(&path, label)
+                    .map(|value| crate::metadata::exif::shown_value(label, value).to_owned())
+                    .unwrap_or_default(),
+            },
+        )
     }
 
     /// Window → Projector. It is a second window, for another screen or a projector, with only
@@ -1120,7 +1132,11 @@ impl crate::App {
                 }
                 // With several panes, the name is shown in each pane or in none (after the panes
                 // are drawn), rather than the shown image's details in one.
-                if panes.len() == 1 && bare && self.config.osd && !self.list.files().is_empty() {
+                if panes.len() == 1
+                    && bare
+                    && self.config.full_screen_info
+                    && !self.list.files().is_empty()
+                {
                     self.paint_full_screen_info(ui, area);
                 }
                 if self.config.histogram > 0 {

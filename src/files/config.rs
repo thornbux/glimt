@@ -72,7 +72,7 @@ pub(crate) const MAX_SLIDESHOW_DELAY: u64 = 60;
 /// The full screen info, as Geeqie writes its overlay template. Fields are in percent signs,
 /// `|` stands between the parts of a line, and `\n` starts a new line. A part whose fields are
 /// all empty is left out. The default shows what Glimt always showed.
-pub(crate) const OSD_TEMPLATE: &str = "%name%  %position%\\n%dimensions%|%File size%|%Taken%|%Exposure%|%Aperture%|ISO %ISO%|\
+pub(crate) const FULL_SCREEN_INFO_TEMPLATE: &str = "%name%  %position%\\n%dimensions%|%File size%|%Taken%|%Exposure%|%Aperture%|ISO %ISO%|\
      %Focal length%|%marks%";
 
 /// Preferences → CPU use, as (name, hover text). Power saving makes thumbnails one at a time,
@@ -150,10 +150,10 @@ const NAMED: [(&str, &[&str]); 7] = [
     ("cpu_use", &["saving", "balanced", "full"]),
 ];
 
-/// The settings renamed in 0.74.0, as (old key, new key). A settings file is read by the old
-/// keys too, forever, so the users' files keep working, and only the new keys are written. When
-/// a file holds both keys of a setting, the value of the new key is the one used.
-const RENAMED_SETTINGS: [(&str, &str); 8] = [
+/// The settings renamed in 0.74.0 and later, as (old key, new key). A settings file is read by
+/// the old keys too, forever, so the users' files keep working, and only the new keys are
+/// written. When a file holds both keys of a setting, the value of the new key is the one used.
+const RENAMED_SETTINGS: [(&str, &str); 11] = [
     ("trash", "delete_to_trash"),
     ("delay", "slideshow_delay"),
     ("random", "slideshow_random"),
@@ -162,11 +162,19 @@ const RENAMED_SETTINGS: [(&str, &str); 8] = [
     ("sort_case", "sort_case_sensitive"),
     ("search_case", "search_case_sensitive"),
     ("exif_panel", "info_panel"),
+    // 0.76.0: "OSD" is jargon that the menus and the action had already dropped.
+    ("osd", "full_screen_info"),
+    ("osd_template", "full_screen_info_template"),
+    // 0.76.0: "turns" was a word of its own. The menu says One Image at a Time.
+    ("layout_turns", "slideshow_one_image_at_a_time"),
 ];
 
 /// The window state's keys renamed in 0.74.0, as (old key, new key). They are read as the
 /// keys of `RENAMED_SETTINGS` are.
 const RENAMED_STATE: [(&str, &str); 1] = [("window_pos", "window_position")];
+
+/// The window title that the retired app_name_first=true stood for.
+const APP_NAME_FIRST_TITLE: &str = "%app% - %name%";
 
 /// The key of the last folder in the window state file, beside `WindowState`'s keys.
 pub const LAST_DIR: &str = "last_dir";
@@ -285,7 +293,7 @@ config! {
     layout: String = String::from("1"),
     /// The layouts whose slideshow changes one image at a time, round the panes, separated by
     /// commas. The other layouts change all their images together.
-    layout_turns: String = String::new(),
+    slideshow_one_image_at_a_time: String = String::new(),
     /// Layouts with several panes show each image's file name in its pane.
     layout_names: bool = false,
     /// Animated GIF and WebP files play (A). When this is off, the first frame is shown.
@@ -376,10 +384,12 @@ config! {
     lightroom_keywords: bool = true,
     /// Keep the screen saver off while in full screen.
     inhibit_screensaver: bool = true,
-    /// Window title "Glimt - image name" instead of "image name - Glimt".
+    /// Retired in 0.76.0. It was the window title "Glimt - image name" instead of "image name -
+    /// Glimt". Its true is read once into `window_title` (`move_app_name_first`), and it is
+    /// written as false.
     app_name_first: bool = false,
     /// The window title, from a template of %name%, %path%, %folder% and %app%. When it is
-    /// empty, the title has the order above.
+    /// empty, the title is "image name - Glimt".
     window_title: String = String::new(),
     /// File list with size and date columns, as in Geeqie.
     file_details: bool = false,
@@ -394,9 +404,9 @@ config! {
     search_bar: bool = true,
     /// Name, position and a few EXIF fields over the image in full screen (I), as Geeqie's
     /// image overlay.
-    osd: bool = true,
-    /// What the full screen info shows (OSD_TEMPLATE).
-    osd_template: String = OSD_TEMPLATE.to_owned(),
+    full_screen_info: bool = true,
+    /// What the full screen info shows (FULL_SCREEN_INFO_TEMPLATE).
+    full_screen_info_template: String = FULL_SCREEN_INFO_TEMPLATE.to_owned(),
     /// The histogram in the corner of the image (K): off, rgb or brightness, as an index.
     histogram: u8 = 0,
     /// Logarithmic histogram (J), which shows the small counts better.
@@ -497,6 +507,8 @@ impl Config {
         c.slideshow_delay = c.slideshow_delay.clamp(1, MAX_SLIDESHOW_DELAY);
         c.toolbar_icons = c.toolbar_icons.min(2);
         c.view_filter = c.view_filter.min(3);
+        move_app_name_first(&mut c.app_name_first, &mut c.window_title);
+        c.theme = crate::ui::theme::theme_name_now(&c.theme).to_owned();
         c
     }
 
@@ -550,6 +562,7 @@ impl Config {
                 // When the setting is set again later, that later line is the one checked.
                 Some(true) if later => {}
                 Some(true) => {
+                    move_app_name_first(&mut alone.app_name_first, &mut alone.window_title);
                     let wanted = value_in(&alone.to_text(), now);
                     if wanted != used(now) {
                         problems.push(format!(
@@ -828,6 +841,15 @@ fn old_key_overridden(key: &str, text: &str) -> bool {
     now != key && (text.lines()).any(|l| l.split_once('=').is_some_and(|(k, _)| k.trim() == now))
 }
 
+/// Moves the retired app_name_first=true into the window title it stood for, when the user has
+/// no title of their own. The setting is false afterwards, so it is moved only once, and a
+/// title the user empties later stays empty.
+fn move_app_name_first(app_name_first: &mut bool, window_title: &mut String) {
+    if std::mem::take(app_name_first) && window_title.is_empty() {
+        *window_title = APP_NAME_FIRST_TITLE.to_owned();
+    }
+}
+
 /// The `value` of `key` as the code holds it. A name becomes its place in its list, and other
 /// values stay as given.
 fn by_number(key: &str, value: &str) -> String {
@@ -886,6 +908,14 @@ fn merged(ours: &str, saved: &str, on_disk: &str) -> String {
         if let Some(value) = theirs.remove(old) {
             theirs.entry(new.to_owned()).or_insert(value);
         }
+    }
+    // The retired app_name_first=true on disk is moved into the window title there too, so a
+    // save writes that title and app_name_first=false, and the move is not made again.
+    if theirs.get("app_name_first").is_some_and(|v| v == "true") {
+        let mut title = theirs.remove("window_title").unwrap_or_default();
+        move_app_name_first(&mut true, &mut title);
+        theirs.insert("window_title".to_owned(), title);
+        theirs.insert("app_name_first".to_owned(), "false".to_owned());
     }
     let line = |l: &str| -> String {
         let value = l
@@ -1103,7 +1133,7 @@ mod tests {
         assert!(Config::default().search_bar && !Config::parse("search_bar=false").search_bar);
         assert_eq!(Config::parse("toolbar_icons=1").toolbar_icons, 1);
         assert_eq!(Config::parse("toolbar_icons=9").toolbar_icons, 2);
-        assert!(Config::parse("app_name_first=true").app_name_first);
+        assert!(!Config::parse("app_name_first=true").app_name_first);
         let win = super::WindowState {
             size: Some(eframe::egui::vec2(1000.0, 700.5)),
             position: Some(eframe::egui::pos2(10.0, -20.0)),
@@ -1192,6 +1222,9 @@ mod tests {
         ] {
             assert!(text.contains(line), "{text}");
         }
+        // A built-in theme is read by its old name too, and written by its new one.
+        let theme = Config::parse("theme=Contrast").to_text();
+        assert!(theme.contains("\ntheme=High Contrast Light\n"), "{theme}");
         let (_, problems) = Config::parse_checked("fade=9\nfit_mode=wide");
         assert!(problems[0].contains("long is used") && problems[1].contains("not a value"));
         for (k, (name, _, _)) in super::FADES.iter().enumerate() {
@@ -1275,6 +1308,39 @@ mod tests {
         }
     }
 
+    /// The retired app_name_first=true becomes the window title it stood for, once: a title of
+    /// the user's own stays, a save writes the title and app_name_first=false, and a title
+    /// emptied afterwards stays empty. --check-config finds nothing wrong with the old line.
+    #[test]
+    fn app_name_first_is_read_once_into_the_window_title() {
+        use super::Config;
+        let old = "app_name_first=true\n";
+        let c = Config::parse(old);
+        assert_eq!(
+            (c.app_name_first, c.window_title.as_str()),
+            (false, "%app% - %name%")
+        );
+        let own = Config::parse("app_name_first=true\nwindow_title=%name%\n");
+        assert_eq!(own.window_title, "%name%");
+        assert_eq!(Config::parse_checked(old).1, Vec::<String>::new());
+        // Saved by a window that changed another setting: the title is written, not the old
+        // setting's true.
+        let saved = c.to_text();
+        let ours = saved.replace("thumbnails=true", "thumbnails=false");
+        let written = super::merged(&ours, &saved, old);
+        let again = Config::parse(&written);
+        assert_eq!(
+            (again.window_title.as_str(), again.thumbnails),
+            ("%app% - %name%", false)
+        );
+        assert!(written.contains("app_name_first=false\n"), "{written}");
+        // The user empties the title: it stays empty after a save and a load.
+        let mut emptied = Config::parse(&written);
+        emptied.window_title.clear();
+        let written = super::merged(&emptied.to_text(), &saved, &written);
+        assert_eq!(Config::parse(&written).window_title, "");
+    }
+
     /// Each renamed setting is read by its old key too, and a file with both keys has the value
     /// of the new one, wherever it stands. Only the new key is written, also by a save into the
     /// file on disk, which takes the old key's line out. --check-config finds nothing wrong with
@@ -1286,11 +1352,14 @@ mod tests {
         let defaults = Config::default().to_text();
         for (old, new) in super::RENAMED_SETTINGS {
             let value = super::value_in(&defaults, new);
-            // Another value than the default: a bool turned, or a number one larger.
+            // Another value than the default: a bool turned, a number one larger, or a text with
+            // a letter more.
             let other = match value.as_str() {
                 "true" => "false".to_owned(),
                 "false" => "true".to_owned(),
-                number => (number.parse::<u64>().unwrap() + 1).to_string(),
+                text => text
+                    .parse::<u64>()
+                    .map_or_else(|_| format!("{text}x"), |n| (n + 1).to_string()),
             };
             let text = format!("{old}={other}\n");
             let written = Config::parse(&text).to_text();
@@ -1351,6 +1420,12 @@ mod tests {
                 );
             }
         }
+        for (old, _) in crate::ui::theme::RENAMED_THEMES {
+            assert!(
+                !now.contains(&format!("value theme {old}")),
+                "{old} is an old name in RENAMED_THEMES, so it is no theme now"
+            );
+        }
         // The commands are read from `COMMANDS` itself, which also has the release tests' "where".
         for (old, _) in RENAMED_COMMANDS {
             assert!(
@@ -1361,24 +1436,32 @@ mod tests {
     }
 
     /// Returns the line of src/frozen-1.0.txt as the code names it now. A setting, a window
-    /// state key or a --remote command renamed in its table of old names gets its new name, and
-    /// every other line is returned as it is.
+    /// state key, a --remote command or an action renamed in its table of old names gets its
+    /// new name, as does the setting of a value line, and every other line is returned as it is.
     fn frozen_name_now(line: &str) -> String {
         let (kind, name) = line.split_once(' ').unwrap_or((line, ""));
-        // A remote command's line may have a word of its choice after the command's own.
+        // A remote command's line may have a word of its choice after the command's own, and a
+        // value line has its value after the setting's key.
         let (name, rest) = match kind {
-            "remote" => name.split_once(' ').map_or((name, ""), |(n, r)| (n, r)),
+            "remote" | "value" => name.split_once(' ').map_or((name, ""), |(n, r)| (n, r)),
             _ => (name, ""),
         };
         let table: &[(&str, &str)] = match kind {
-            "setting" => &super::RENAMED_SETTINGS,
+            "setting" | "value" => &super::RENAMED_SETTINGS,
             "state" => &super::RENAMED_STATE,
             "remote" => &crate::features::remote::RENAMED_COMMANDS,
+            "script" => &crate::ui::actions::RENAMED_ACTIONS,
             _ => &[],
+        };
+        // A built-in theme renamed in RENAMED_THEMES is the value of the theme setting now.
+        let rest = match (kind, name) {
+            ("value", "theme") => crate::ui::theme::theme_name_now(rest),
+            _ => rest,
         };
         match table.iter().find(|r| r.0 == name) {
             Some((_, new)) if rest.is_empty() => format!("{kind} {new}"),
             Some((_, new)) => format!("{kind} {new} {rest}"),
+            None if kind == "value" => format!("{kind} {name} {rest}"),
             None => line.to_owned(),
         }
     }
@@ -1403,6 +1486,23 @@ mod tests {
         let keys = state.lines().filter_map(|l| l.split_once('='));
         now.extend(keys.map(|(key, _)| format!("state {key}")));
         now.extend(remote_names());
+        now.extend(template_fields());
+        now.extend(theme_keys());
+        now.extend(owned_files());
+        // The print_printer setting's values that are no printer's name.
+        use crate::features::print::{PDF_FILE, SYSTEM_DIALOG};
+        now.push(format!("value print_printer {SYSTEM_DIALOG}"));
+        now.push(format!("value print_printer {PDF_FILE:?}"));
+        // The words of the groups that Copy for Sharing keeps in its file of the last choice.
+        let groups = crate::images::shared_copy::Group::ALL.iter();
+        now.extend(groups.map(|group| format!("sharing {}", group.key())));
+        // The actions a script may run with --remote run. One taken out of the list would
+        // break every script that runs it.
+        let script = crate::ui::actions::SCRIPT_ACTIONS.iter();
+        now.extend(script.map(|action| format!("script {action:?}")));
+        // The marks feature's actions are pinned also in a build without it.
+        #[cfg(not(feature = "marks"))]
+        now.extend((1..=6).map(|n| format!("script SelectMark{n}")));
         let options = crate::cli::START_OPTIONS
             .iter()
             .flat_map(|o| o.0.split(", "));
@@ -1415,6 +1515,180 @@ mod tests {
         now
     }
 
+    /// Returns a "field" line for each `%field%` that src/frozen-1.0.txt pins and that fills in
+    /// the templates it belongs to: the full screen info and the print caption, the window
+    /// title, or the page header and footer. They are filled for a PNG with every EXIF label
+    /// that the default full screen info shows, and with keywords and a comment in its sidecar.
+    /// A field renamed where it is read, or an EXIF label relabelled, so stops filling, and the
+    /// default full screen info would lose it unseen.
+    fn template_fields() -> Vec<String> {
+        let pinned: Vec<&str> = (include_str!("../frozen-1.0.txt").lines())
+            .filter_map(|l| l.strip_prefix("field "))
+            .collect();
+        // A folder for each call, as two tests ask for the names at once.
+        static CALLS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+        let call = CALLS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let dir =
+            std::env::temp_dir().join(format!("glimt-test-fields-{}-{call}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("a.png");
+        let out = std::fs::File::create(&file).unwrap();
+        let mut encoder = image::codecs::png::PngEncoder::new(out);
+        image::ImageEncoder::set_exif_metadata(&mut encoder, exif_of_every_label()).unwrap();
+        image::RgbImage::new(4, 2)
+            .write_with_encoder(encoder)
+            .unwrap();
+        use crate::metadata::xmp::{KeywordChange, write_changed};
+        let keywords = Some(KeywordChange::between(&[], &["Oslo".to_owned()]));
+        write_changed(&file, keywords, Some("Trip".into())).unwrap();
+        let (mut app, ctx) = crate::support::test_support::app_on(&dir);
+        #[cfg(feature = "marks")]
+        app.marks.toggle(std::slice::from_ref(&file), 1);
+        // Each field on a line of its own as "field:value"; a field left empty drops its line.
+        let template: Vec<String> = pinned.iter().map(|f| format!("{f}:%{f}%")).collect();
+        app.config.full_screen_info_template = template.join("\\n");
+        let mut full = String::new();
+        for _ in 0..250 {
+            app.poll_background(&ctx);
+            full = app.full_screen_info_text(&ctx);
+            if ["dimensions:", "ISO:", "keywords:"]
+                .iter()
+                .all(|f| full.contains(f))
+            {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+        let caption = crate::features::print::caption(&template.join("|"), &file, 0, 1, None);
+        let fills = |text: &str, separator: &str, field: &str| {
+            text.split(separator)
+                .any(|line| line.starts_with(&format!("{field}:")))
+        };
+        let untitled = app.title_text();
+        let mut in_title = |field: &str| {
+            app.config.window_title = format!("%{field}%");
+            app.title_text() != untitled
+        };
+        let filled = pinned.iter().copied().filter(|&field| {
+            let (in_full, in_caption) = (fills(&full, "\n", field), fills(&caption, " · ", field));
+            match field {
+                "page" | "pages" => {
+                    let template = format!("%{field}%");
+                    crate::features::print::page_text(&template, 2, 3) != template
+                }
+                "folder" | "app" => in_title(field),
+                // The marks are filled in a build with the marks feature.
+                "marks" => in_full || !cfg!(feature = "marks"),
+                "name" | "path" => in_full && in_caption && in_title(field),
+                _ => in_full && in_caption,
+            }
+        });
+        let filled = filled.map(|f| format!("field {f}")).collect();
+        std::fs::remove_dir_all(dir).unwrap();
+        filled
+    }
+
+    /// Returns a "file" line for each file and folder that Glimt owns, from the functions and
+    /// tables that name them, with its XDG folder as a variable. The tests' XDG folders are
+    /// in `test_home`, under the folder of each variable's default in the home folder.
+    fn owned_files() -> Vec<String> {
+        let shown = |path: Option<std::path::PathBuf>| {
+            let path = path.unwrap();
+            let rest = path
+                .strip_prefix(super::test_home())
+                .unwrap()
+                .to_string_lossy();
+            let folders = [
+                (".config", "$XDG_CONFIG_HOME"),
+                (".local/state", "$XDG_STATE_HOME"),
+                (".local/share", "$XDG_DATA_HOME"),
+            ];
+            let (home, var) = folders.iter().find(|f| rest.starts_with(f.0)).unwrap();
+            format!("file {var}{}", &rest[home.len()..])
+        };
+        let mut files = vec![
+            shown(super::config_path()),
+            shown(super::keyword_tree_path()),
+            shown(super::sort_folders_path()),
+            shown(crate::ui::theme::own_themes_dir()),
+            shown(super::state_path()),
+            shown(super::recent_path()),
+            shown(super::sharing_path()),
+            shown(crate::files::journal::journal_dir()),
+            shown(crate::model::collections::collections_dir()),
+        ];
+        #[cfg(feature = "marks")]
+        files.push(shown(crate::metadata::marks::marks_file()));
+        // The marks file is pinned also in a build without the marks feature.
+        #[cfg(not(feature = "marks"))]
+        files.push("file $XDG_STATE_HOME/glimt/marks".to_owned());
+        let data = super::xdg_dir("XDG_DATA_HOME", ".local/share", "glimt");
+        for (old, new) in crate::features::tools::RENAMED_FOLDERS {
+            files.push(shown(data.as_ref().map(|d| d.join(new))));
+            files.push(shown(data.as_ref().map(|d| d.join(old))));
+        }
+        files.push(format!("file {}", super::LOCK_FILE));
+        let runtime = "$XDG_RUNTIME_DIR/glimt";
+        let socket = crate::features::remote::socket_name("NAME");
+        files.push(format!("file {runtime}/{socket}"));
+        files.push(format!(
+            "file {runtime}/{}",
+            crate::features::remote::FOCUSED_FILE
+        ));
+        files
+    }
+
+    /// Returns a "theme_key" line for each key of a theme file, as Save as Theme writes one,
+    /// and checks that `Theme::parse` reads each of them. A key renamed in either would leave
+    /// the users' own theme files without it.
+    fn theme_keys() -> Vec<String> {
+        use crate::ui::theme::Theme;
+        let file = Theme::file_from(&eframe::egui::Context::default());
+        let lines = file.lines().filter(|l| !l.starts_with('#'));
+        let keys = lines.filter_map(|line| {
+            assert_ne!(
+                Theme::parse(line),
+                Theme::default(),
+                "{line} is written, not read"
+            );
+            Some(format!("theme_key {}", line.split_once('=')?.0))
+        });
+        keys.collect()
+    }
+
+    /// Returns an EXIF block (TIFF, little-endian) with the date taken, the exposure, the
+    /// aperture, the ISO and the focal length: every EXIF label of the default full screen info.
+    fn exif_of_every_label() -> Vec<u8> {
+        // A directory of (tag, type, count, value or offset) entries, and no next one.
+        let directory = |block: &mut Vec<u8>, entries: &[(u16, u16, u32, u32)]| {
+            block.extend((entries.len() as u16).to_le_bytes());
+            for (tag, kind, count, value) in entries {
+                block.extend(tag.to_le_bytes());
+                block.extend(kind.to_le_bytes());
+                block.extend(count.to_le_bytes());
+                block.extend(value.to_le_bytes());
+            }
+            block.extend(0u32.to_le_bytes());
+        };
+        let mut block = b"II*\0\x08\0\0\0".to_vec();
+        // IFD0 at 8 has one entry, the Exif IFD at 26, which has five; its values start at 92.
+        directory(&mut block, &[(0x8769, 4, 1, 26)]);
+        let exif = [
+            (0x829a, 5, 1, 112),
+            (0x829d, 5, 1, 120),
+            (0x8827, 3, 1, 400),
+            (0x9003, 2, 20, 92),
+            (0x920a, 5, 1, 128),
+        ];
+        directory(&mut block, &exif);
+        block.extend(b"2020:01:02 03:04:05\0");
+        // The exposure 1/250 s, the aperture f/2.8 and the focal length 50 mm.
+        for value in [1u32, 250, 28, 10, 50, 1] {
+            block.extend(value.to_le_bytes());
+        }
+        block
+    }
+
     /// Returns the values of the settings that name something outside `NAMED`. They are
     /// written by name, so their order does not count.
     fn named_values() -> Vec<String> {
@@ -1423,8 +1697,8 @@ mod tests {
         let lists: [(&str, Vec<&str>); 9] = [
             ("sort", crate::model::listing::SORTS.map(|s| s.1).to_vec()),
             ("layout", layouts.clone()),
-            // The layout_turns setting is a list of layouts, separated by commas.
-            ("layout_turns", layouts),
+            // This setting is a list of layouts, separated by commas.
+            ("slideshow_one_image_at_a_time", layouts),
             (
                 "rendering_intent",
                 crate::images::colour::INTENTS.map(|i| i.0).to_vec(),
@@ -1451,9 +1725,10 @@ mod tests {
     }
 
     /// Returns the --remote commands, the words that each takes from a choice ("on|off"), and
-    /// the exit codes. The release tests' "where" is left out, because only their build has it.
+    /// the exit codes, also those of --check-config and --back-up. The release tests' "where"
+    /// is left out, because only their build has it.
     fn remote_names() -> Vec<String> {
-        use crate::features::remote::{COMMANDS, NOT_SENT, NOT_TAKEN};
+        use crate::features::remote::{COMMANDS, NOT_DONE, NOT_SENT, NOT_TAKEN};
         let mut now = Vec::new();
         for (usage, _) in COMMANDS {
             let mut words = usage.split(' ');
@@ -1470,6 +1745,14 @@ mod tests {
         }
         now.push(format!("exit not_sent {NOT_SENT}"));
         now.push(format!("exit not_taken {NOT_TAKEN}"));
+        now.push(format!("exit not_done {NOT_DONE}"));
+        use crate::cli::{BACK_UP_FAILED, BACK_UP_NO_FOLDER, CHECK_CONFIG_PROBLEMS, DONE};
+        now.push(format!("exit done {DONE}"));
+        now.push(format!(
+            "exit check_config_problems {CHECK_CONFIG_PROBLEMS}"
+        ));
+        now.push(format!("exit back_up_failed {BACK_UP_FAILED}"));
+        now.push(format!("exit back_up_no_folder {BACK_UP_NO_FOLDER}"));
         now
     }
 

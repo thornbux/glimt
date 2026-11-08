@@ -139,13 +139,20 @@ control is off in Preferences.
 .BI \-\-remote " COMMAND"
 Send
 .I COMMAND
-to the Glimt window used last, on this computer. Exits with 2 for a command Glimt does not
-know, and with 1 when no Glimt runs or none answers within 10 seconds.
+to the Glimt window used last, on this computer, and wait for its answer. Exits with 0 when
+the command was done, with 2 for a command Glimt does not know, with 1 when no Glimt runs or
+none answers within 10 seconds, and with 3 when the window did not do it: a
+.B run
+refused while a dialog asks the user or a text field has the focus, or a command that window
+does not know, as an older Glimt; the reason is printed on standard error. A Glimt older than
+0.76.0 answers nothing to a command, which counts as done.
 .TP
 .BI \-\-remote\-all " COMMAND"
 Send
 .I COMMAND
-to every running Glimt of this user on this computer.
+to every running Glimt of this user on this computer. Exits as
+.B \-\-remote
+does, with 3 when any of them did not do it.
 .TP
 .BR \-h ", " \-\-help
 List the options and remote commands.
@@ -156,8 +163,11 @@ Tell what is wrong in the settings file, or in
 line by line: a line that is not
 .IR setting = value ,
 a setting that does not exist or is set twice, and a value that cannot be read or is out of
-range, with the value used instead. Prints OK and exits with 0 when nothing is wrong, else
-exits with 1, also when the file cannot be read. When it starts, Glimt tells the first of these
+range, with the value used instead. Prints OK and exits with 0 when nothing is wrong, and also
+when there is no settings file yet, as Glimt then uses the defaults; else exits with 1, also
+when the file cannot be read or a
+.I FILE
+given is not there. When it starts, Glimt tells the first of these
 in its window, but not a setting it does not know, which a newer Glimt beside it may have
 written.
 .TP
@@ -168,7 +178,10 @@ added formats; not the thumbnails) to a new folder
 in
 .IR FOLDER ,
 as File \(-> Back Up Glimt's Data does, without opening a window: for cron or a systemd
-timer. A second backup the same day goes beside the first. Prints where it went; exits with 1
+timer. A second backup the same day goes beside the first. Prints where it went and exits with
+0; exits with 2 without
+.IR FOLDER ,
+and with 1
 when
 .I FOLDER
 is no folder or lies inside Glimt's own folders, when there is nothing to back up, or when a
@@ -231,7 +244,9 @@ Only the actions that change no file, sidecar, mark or collection, not even thro
 the user then clicks in, are taken (showing, browsing, selecting, the panels and windows, the
 settings and the clipboard), and none while a dialog asks the user or a text field has the focus;
 .B glimt \-\-help
-lists them. Any other name exits with 2.
+lists them. Any other name exits with 2, and a
+.B run
+refused exits with 3.
 .TP
 .B current
 Print the path of the image shown.

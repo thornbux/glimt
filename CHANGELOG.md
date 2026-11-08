@@ -5,6 +5,36 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- File → Open With Default App opens the selected files, as the Open With submenu beside it
+  does, rather than only the shown image. It is in the file list's right-click menu too.
+- The settings file names the full screen info's setting `full_screen_info`, as the menu and
+  the action do, instead of `osd`, and its template `full_screen_info_template` instead of
+  `osd_template`. The old keys are still read.
+- The layouts whose slideshow changes one image at a time, as the menu says, are kept as
+  `slideshow_one_image_at_a_time` instead of `layout_turns`. The old key is still read.
+- Preferences has no checkbox for the window title "Glimt - image name" any more: the custom
+  window title says the same with `%app% - %name%`. A settings file with `app_name_first=true`
+  gets that title once, unless it has a title of its own.
+- The light theme for low vision is called High Contrast Light instead of Contrast, so its name
+  says what it is beside High Contrast. A settings file with `theme=Contrast` still gets it.
+- The action Previous Page is named `PreviousPage` in `keys=` and `glimt --remote run`, beside
+  `NextPage`, instead of `PrevPage`. The old name is still read.
+- `glimt --remote` waits for the window's answer to every command, and exits with 3 when the
+  command was not done: a `run` refused while a dialog is open or a text field has the focus,
+  or a command the window does not know, with the reason on standard error. Before, it exited
+  with 0, as if it had been done. `--remote-all` exits with 3 when any window did not do it.
+- The example formats and the manual write `[Glimt Format]` as the desktop file's header,
+  after 0.75.0 renamed decoders to formats. Files with `[Glimt Decoder]` are read as before, and
+  the manual says that the other `%` codes in `Exec` are kept for later.
+- In the templates of the full screen info, the print caption, the page header and footer and
+  the window title, `%%` is a `%`. Before, it was an empty field, which could take its part of
+  the line along.
+- The marks file keeps what this Glimt does not understand: marks above 6 and lines in another
+  form stay as they are when a mark is changed, so a later Glimt can add to the file without an
+  older one deleting it.
+
 ### Fixed
 
 - A file renamed or moved in Glimt, or a folder of them, now keeps its place in every saved
@@ -29,13 +59,6 @@ and versions follow [Semantic Versioning](https://semver.org/).
 - Two backups made at the same moment each get a folder of their own.
 - A program Glimt runs for its answer is no longer signalled by its time limit after it has
   ended, when a program it left behind keeps its errors open.
-### Changed
-
-- File → Open With Default App opens the selected files, as the Open With submenu beside it
-  does, rather than only the shown image. It is in the file list's right-click menu too.
-
-### Fixed
-
 - Pan view keeps the dates it has read when the list changes: after a rename, a refresh, a new
   sort or a shuffle it reads only the files that are new, rather than every file again, which
   took minutes in a large folder with EXIF date. A folder that a sync client keeps adding to
@@ -83,6 +106,12 @@ and versions follow [Semantic Versioning](https://semver.org/).
   having none, as a broken file is, instead of costing 30 seconds at every visit.
 - Export Frames saves at most the first 1,000 frames of an animation, as many as the view keeps,
   so an animation of a million tiny frames is not hours of work and gigabytes of files.
+- `glimt --check-config` on an account with no settings file yet says that the defaults are
+  used and exits with 0, as Glimt starts without a problem then. It said that the file cannot be
+  read and exited with 1. A FILE named on the command line that is not there still exits with 1.
+- Glimt's remote control serves at most 16 clients at once, and reads a command other than
+  `select` up to 64 KB, so a program that connects to its socket again and again, or sends
+  without end, can no longer take a thread for each and 400 MB of memory for each line.
 
 ## [0.75.0] - 2026-11-08
 

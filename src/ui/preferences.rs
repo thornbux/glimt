@@ -1,7 +1,9 @@
 //! Edit → Preferences: one window of every setting, in sections, saved when one changes (when
 //! a slider is let go). The settings themselves are `Config`'s (config.rs).
 
-use crate::files::config::{CPU_LEVELS, FADES, MAX_SLIDESHOW_DELAY, MEMORY_LEVELS, OSD_TEMPLATE};
+use crate::files::config::{
+    CPU_LEVELS, FADES, FULL_SCREEN_INFO_TEMPLATE, MAX_SLIDESHOW_DELAY, MEMORY_LEVELS,
+};
 use crate::images::colour::{INPUT_PROFILES, INTENTS};
 use crate::support::format::thousands;
 use crate::support::lang::tr;
@@ -153,14 +155,13 @@ const VIDEO: &[&str] = &[
 
 const START: &[&str] = &[
     "Start and system",
-    "Custom window title (empty: as above):",
+    "Custom window title (empty: \"image name - Glimt\"):",
     "Fields: %name%, %path%, %folder% and %app%. A | starts a part, left out when its fields are empty.",
     "Keep a list of recent folders (File → Open Recent)",
     "Keep the screen saver off in full screen",
     "Listen for glimt --remote commands (after restart)",
     "Remember the window size and position",
     "Start in the last used folder",
-    "Window title \"Glimt - image name\" (off: \"image name - Glimt\")",
 ];
 
 /// The Preferences window: open or not, its search, and the action whose key is being chosen.
@@ -838,18 +839,23 @@ impl crate::App {
     /// Preferences → Image: the full screen info and its template.
     fn info_settings(&mut self, ui: &mut egui::Ui) -> bool {
         let mut changed = false;
-        let osd = tr("Show image info in full screen (I)");
-        self.toggle_box(ui, self.config.osd, Action::FullScreenInfo, osd);
+        let label = tr("Show image info in full screen (I)");
+        self.toggle_box(
+            ui,
+            self.config.full_screen_info,
+            Action::FullScreenInfo,
+            label,
+        );
         let c = &mut self.config;
         ui.label(tr("Image info template:"));
         // Kept on one line in the config file, with \n for each new line.
-        let mut text = c.osd_template.replace("\\n", "\n");
+        let mut text = c.full_screen_info_template.replace("\\n", "\n");
         let field = egui::TextEdit::multiline(&mut text)
             .desired_rows(3)
             .desired_width(f32::INFINITY)
             .hint_text("%name%  %position%");
-        if ui.add_enabled(c.osd, field).changed() {
-            c.osd_template = text.replace('\n', "\\n");
+        if ui.add_enabled(c.full_screen_info, field).changed() {
+            c.full_screen_info_template = text.replace('\n', "\\n");
             changed = true;
         }
         ui.weak(tr(
@@ -858,7 +864,7 @@ impl crate::App {
              left out when its fields are empty.",
         ));
         if crate::ui::menus::button(ui, tr("Default")).clicked() {
-            c.osd_template = OSD_TEMPLATE.to_owned();
+            c.full_screen_info_template = FULL_SCREEN_INFO_TEMPLATE.to_owned();
             changed = true;
         }
         changed
@@ -882,12 +888,7 @@ impl crate::App {
         changed |= checkbox(ui, &mut c.remote_control, remote).changed();
         let inhibit = tr("Keep the screen saver off in full screen");
         changed |= checkbox(ui, &mut c.inhibit_screensaver, inhibit).changed();
-        let order = tr("Window title \"Glimt - image name\" (off: \"image name - Glimt\")");
-        if checkbox(ui, &mut c.app_name_first, order).changed() {
-            changed = true;
-            self.update_window_title(ctx);
-        }
-        ui.label(tr("Custom window title (empty: as above):"));
+        ui.label(tr("Custom window title (empty: \"image name - Glimt\"):"));
         let field = egui::TextEdit::singleline(&mut self.config.window_title)
             .desired_width(f32::INFINITY)
             .hint_text("%name% - %app%");

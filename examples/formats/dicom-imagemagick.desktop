@@ -1,4 +1,4 @@
-[Glimt Decoder]
+[Glimt Format]
 Name=DICOM (ImageMagick)
 Comment=DICOM through ImageMagick, for a computer without pydicom: dicom.desktop comes first by name, and takes these when both are there
 Extensions=dcm

@@ -1,4 +1,4 @@
-[Glimt Decoder]
+[Glimt Format]
 Name=FITS (ImageMagick)
 Comment=FITS through ImageMagick, for a computer without astropy: fits.desktop comes first by name, and takes these when both are there
 Extensions=fits;fit;fts

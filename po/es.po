@@ -2310,8 +2310,8 @@ msgid "Save As"
 msgstr "Guardar como"
 
 #: src/ui/preferences.rs
-msgid "Custom window title (empty: as above):"
-msgstr "Título de ventana propio (vacío: como arriba):"
+msgid "Custom window title (empty: \"image name - Glimt\"):"
+msgstr "Título de ventana propio (vacío: «nombre de la imagen - Glimt»):"
 
 #: src/ui/preferences.rs
 msgid "Fields: %name%, %path%, %folder% and %app%. A | starts a part, left out when its fields are empty."
@@ -2510,8 +2510,8 @@ msgid "High Contrast"
 msgstr "Alto contraste"
 
 #: src/ui/theme.rs
-msgid "Contrast"
-msgstr "Contraste"
+msgid "High Contrast Light"
+msgstr "Alto contraste claro"
 
 #: src/images/colour.rs
 msgid "Greyscale"
@@ -2604,10 +2604,6 @@ msgstr "ninguno, sRGB"
 #: src/ui/preferences.rs
 msgid "Fields: %name%, %path%, %position%, %dimensions%, %marks%, %keywords%, %comment%, and each label of the info panel, such as %Camera% or %ISO%. A | starts a part, left out when its fields are empty."
 msgstr "Campos: %name%, %path%, %position%, %dimensions%, %marks%, %keywords%, %comment% y cada etiqueta del panel de información por su nombre en inglés, como %Camera% o %ISO%. Una | empieza una parte, que se omite cuando sus campos están vacíos."
-
-#: src/ui/preferences.rs
-msgid "Window title \"Glimt - image name\" (off: \"image name - Glimt\")"
-msgstr "Título de ventana «Glimt - nombre de la imagen» (desactivado: «nombre de la imagen - Glimt»)"
 
 #: src/ui/preferences.rs
 msgid "A command line, such as mpv --fs; a path with spaces goes in \"quotes\""

@@ -69,11 +69,21 @@ pub(crate) const BUILT_IN: [(&str, &str); 6] = [
         "High Contrast",
         include_str!("../../themes/High Contrast.theme"),
     ),
-    ("Contrast", include_str!("../../themes/Contrast.theme")),
+    (
+        "High Contrast Light",
+        include_str!("../../themes/High Contrast Light.theme"),
+    ),
 ];
+
+/// The built-in themes renamed in 0.76.0, as (old name, new name). The theme setting is read by
+/// the old name too, forever, and only the new one is written.
+pub(crate) const RENAMED_THEMES: [(&str, &str); 1] = [("Contrast", "High Contrast Light")];
 
 /// The theme for those who ask the desktop for high contrast.
 pub const HIGH_CONTRAST: &str = "High Contrast";
+
+/// The light theme for low vision, black on white.
+pub const HIGH_CONTRAST_LIGHT: &str = "High Contrast Light";
 
 /// A theme: what a `.theme` file sets, as `key=value` lines; what it leaves out follows the
 /// desktop (light or dark, accent) or Glimt's defaults.
@@ -271,7 +281,14 @@ pub fn own_themes_dir() -> Option<std::path::PathBuf> {
     crate::files::config::xdg_dir("XDG_CONFIG_HOME", ".config", "glimt").map(|d| d.join("themes"))
 }
 
-/// The built-in themes, then the user's, by name.
+/// Returns the name a built-in theme has now: the new name of one renamed in `RENAMED_THEMES`,
+/// and `name` itself for every other.
+pub fn theme_name_now(name: &str) -> &str {
+    (RENAMED_THEMES.iter())
+        .find(|r| r.0 == name)
+        .map_or(name, |r| r.1)
+}
+
 /// Whether `name` is one of the themes built in.
 pub fn is_built_in(name: &str) -> bool {
     BUILT_IN.iter().any(|b| b.0 == name)

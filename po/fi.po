@@ -2310,8 +2310,8 @@ msgid "Save As"
 msgstr "Tallenna nimellä"
 
 #: src/ui/preferences.rs
-msgid "Custom window title (empty: as above):"
-msgstr "Oma ikkunan otsikko (tyhjä: kuten yllä):"
+msgid "Custom window title (empty: \"image name - Glimt\"):"
+msgstr "Oma ikkunan otsikko (tyhjä: ”kuvan nimi - Glimt”):"
 
 #: src/ui/preferences.rs
 msgid "Fields: %name%, %path%, %folder% and %app%. A | starts a part, left out when its fields are empty."
@@ -2510,8 +2510,8 @@ msgid "High Contrast"
 msgstr "Suuri kontrasti"
 
 #: src/ui/theme.rs
-msgid "Contrast"
-msgstr "Kontrasti"
+msgid "High Contrast Light"
+msgstr "Suuri kontrasti, vaalea"
 
 #: src/images/colour.rs
 msgid "Greyscale"
@@ -2604,10 +2604,6 @@ msgstr "ei mitään, sRGB"
 #: src/ui/preferences.rs
 msgid "Fields: %name%, %path%, %position%, %dimensions%, %marks%, %keywords%, %comment%, and each label of the info panel, such as %Camera% or %ISO%. A | starts a part, left out when its fields are empty."
 msgstr "Kentät: %name%, %path%, %position%, %dimensions%, %marks%, %keywords%, %comment% sekä jokainen tietopaneelin nimike englanninkielisellä nimellään, kuten %Camera% tai %ISO%. | aloittaa osan, joka jätetään pois, kun sen kentät ovat tyhjiä."
-
-#: src/ui/preferences.rs
-msgid "Window title \"Glimt - image name\" (off: \"image name - Glimt\")"
-msgstr "Ikkunan otsikko ”Glimt - kuvan nimi” (pois: ”kuvan nimi - Glimt”)"
 
 #: src/ui/preferences.rs
 msgid "A command line, such as mpv --fs; a path with spaces goes in \"quotes\""

@@ -23,5 +23,5 @@ dark style and the accent colour then follow the desktop, the rest Glimt's defau
 | `radius` | `0`–`20` | Roundness of corners |
 | `text_size` | `10`–`24` | Body text in points; the rest in proportion |
 
-High Contrast (white on black) and Contrast (black on white) are meant for low vision.
+High Contrast (white on black) and High Contrast Light (black on white) are meant for low vision.
 Themes are welcome as pull requests.

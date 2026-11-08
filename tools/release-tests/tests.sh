@@ -589,7 +589,7 @@ for v in new old; do
     slideshow=$(busy)
     quit
     # Four panes, one image at a time, no fade: a new round shuffles once, then goes on.
-    config slideshow_random=true slideshow_repeat=true slideshow_delay=1 fade=0 layout=2x2 layout_turns=2x2
+    config slideshow_random=true slideshow_repeat=true slideshow_delay=1 fade=0 layout=2x2 slideshow_one_image_at_a_time=2x2
     start --slideshow $d/show; sleep 4
     shot turns-a-$v
     turns=$(busy)
@@ -695,7 +695,7 @@ for v in new old; do
     convert -size 300x200 xc:red $d/a.png
     convert -size 300x200 xc:blue $d/b.png
     convert -size 300x200 xc:lime $d/c.png
-    config layout=2x1 layout_turns=2x1 slideshow_delay=60 auto_refresh=true
+    config layout=2x1 slideshow_one_image_at_a_time=2x1 slideshow_delay=60 auto_refresh=true
     start $d/a.png
     sleep 2
     key s; sleep 2                                  # a in the first pane, b in the second
@@ -1092,6 +1092,25 @@ for v in new old; do
     quit
     got="$shown $refused $(ls $d | tr '\n' ' ')"
     if [ $v = new ]; then expect "b shown, Delete refused with 2, every file kept" "$got" "b.png 2 a.png b.png c.png "
+    else note "old: $got"; fi
+done
+
+section "--remote run while a text field has the focus: not done, exit 3 and the reason"
+for v in new old; do
+    as_version $v
+    d=/tmp/remote-not-done-$v
+    mkdir -p $d
+    for f in a b; do convert -size 64x64 xc:red $d/$f.png; done
+    config
+    start $d/a.png; sleep 1
+    remote run FocusSearch >/dev/null 2>&1; sleep 1
+    remote run Next >/dev/null 2>/tmp/remote-not-done-$v.err; status=$?
+    sleep 1
+    shown=$(remote current 2>/dev/null | tr -d '\0' | sed "s|$d/||")
+    quit
+    told=$(grep -c "not done" /tmp/remote-not-done-$v.err)
+    got="$status $told $shown"
+    if [ $v = new ]; then expect "Next not done: exit 3, the reason told, a.png still shown" "$got" "3 1 a.png"
     else note "old: $got"; fi
 done
 
@@ -3946,7 +3965,7 @@ d=/tmp/osd
 mkdir -p $d
 convert -size 1600x1000 xc:red $d/a.jpg
 for t in empty:%comment% name:%name%; do
-    config "osd_template=${t#*:}"
+    config "full_screen_info_template=${t#*:}"
     start $d
     sleep 2
     key f

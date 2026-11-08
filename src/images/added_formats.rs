@@ -5,11 +5,15 @@
 //! at start:
 //!
 //! ```text
-//! [Glimt Decoder]
+//! [Glimt Format]
 //! Name=JPEG 2000
 //! Extensions=jp2;j2k
 //! Exec=ffmpeg -v error -f j2k_pipe -i %f -frames:v 1 -f image2pipe -vcodec ppm -
 //! ```
+//!
+//! The group's header is not checked, so files with the header that formats had before 0.76.0
+//! are read as well. In `Exec`, `%f` is the file, also inside a word, and `%%` is a `%`.
+//! The other `%` codes are kept for later meanings, so a file should not use them.
 //!
 //! The command gets the file's absolute path as one argument of its own, never through a shell,
 //! and writes the image (PNM, PNG, TIFF, BMP …) to its standard output. It has 30 seconds and
@@ -43,18 +47,7 @@ impl AddedFormat {
     fn run(&self, path: &Path, limit: Duration) -> Result<image::DynamicImage, String> {
         // Absolute, so the path never reads as an option or as ImageMagick's "format:" prefix.
         let path = std::path::absolute(path).map_err(|e| e.to_string())?;
-        let args: Vec<std::ffi::OsString> = (self.exec.iter())
-            .map(|w| {
-                let mut arg = std::ffi::OsString::new();
-                for (n, part) in w.split("%f").enumerate() {
-                    if n > 0 {
-                        arg.push(&path);
-                    }
-                    arg.push(part.replace("%%", "%"));
-                }
-                arg
-            })
-            .collect();
+        let args = self.arguments(&path);
         let program = PathBuf::from(&args[0]);
         let local = self.dir.join(&program);
         let program = if local.is_file() { local } else { program };
@@ -71,6 +64,23 @@ impl AddedFormat {
             return Err(format!("{}: {last}", self.name));
         }
         crate::images::decode::from_memory(&image).map_err(|e| format!("{}: {e}", self.name))
+    }
+
+    /// Returns the command's words for the file at `path`: `%f` is the path, also inside a
+    /// word, and `%%` is a `%`.
+    fn arguments(&self, path: &Path) -> Vec<std::ffi::OsString> {
+        (self.exec.iter())
+            .map(|w| {
+                let mut arg = std::ffi::OsString::new();
+                for (n, part) in w.split("%f").enumerate() {
+                    if n > 0 {
+                        arg.push(path);
+                    }
+                    arg.push(part.replace("%%", "%"));
+                }
+                arg
+            })
+            .collect()
     }
 }
 
@@ -198,6 +208,27 @@ mod tests {
                      Exec=ffmpeg -v error -i \"%f\" -f image2pipe -vcodec ppm -\n";
         for bytes in crate::support::test_support::broken(seed) {
             super::parse(&String::from_utf8_lossy(&bytes), Path::new("/"));
+        }
+    }
+
+    /// The desktop file of an added format is frozen in 1.x: Name, Extensions (separated by ;,
+    /// the dot optional, endings of two parts) and Exec, with %f for the file, also inside a
+    /// word, and %% for a %. Its first group is read whatever its header says, so both
+    /// [Glimt Format], which the examples write since 0.76.0, and [Glimt Decoder] are read.
+    #[test]
+    fn a_formats_desktop_keys_and_codes_are_kept() {
+        let dir = Path::new("/formats");
+        for header in ["[Glimt Format]", "[Glimt Decoder]"] {
+            let text =
+                format!("{header}\nName=Test\nExtensions=a; .B;nii.gz\nExec=conv %f[0] 100%%\n");
+            let format = super::parse(&text, dir).expect(header);
+            assert_eq!(format.name, "Test");
+            assert_eq!(format.exts, [".a", ".b", ".nii.gz"]);
+            let words = format.arguments(Path::new("/p/a.b"));
+            assert_eq!(
+                words,
+                ["conv", "/p/a.b[0]", "100%"].map(std::ffi::OsString::from)
+            );
         }
     }
 }
