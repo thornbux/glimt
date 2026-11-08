@@ -49,6 +49,9 @@ const DNG_FIELDS: std::ops::RangeInclusive<u16> = 0xc612..=0xcd3f;
 /// cap, a crafted block of 1,500 fields all naming the same megabyte would take gigabytes.
 const MAX_TEXT: usize = 4096;
 
+/// The name Copy for Sharing gives the EXIF thumbnail (IFD1), a small JPEG of the whole photo.
+pub const EXIF_THUMBNAIL: &str = "EXIF thumbnail";
+
 /// EXIF orientations 1–8 as 2×2 matrices on (x, y) with y down: what to do with the stored
 /// pixels to show them upright.
 const ORIENTATIONS: [[i8; 4]; 8] = [
@@ -61,6 +64,10 @@ const ORIENTATIONS: [[i8; 4]; 8] = [
     [0, -1, -1, 0],
     [0, 1, -1, 0],
 ];
+
+/// A directory being written into a new block (`shared_block`). It holds its entries as (tag,
+/// type, count, value), each value as its bytes in the block's byte order.
+type NewIfd = Vec<(u16, u16, u32, Vec<u8>)>;
 
 /// A field of the EXIF window: (directory, name, value).
 pub type Field = (&'static str, String, String);
@@ -283,6 +290,7 @@ fn tag_name(gps: bool, tag: u16) -> Option<&'static str> {
         });
     }
     Some(match tag {
+        0x000b => "ProcessingSoftware",
         0x010e => "ImageDescription",
         0x010f => "Make",
         0x0110 => "Model",
@@ -293,10 +301,13 @@ fn tag_name(gps: bool, tag: u16) -> Option<&'static str> {
         0x0131 => "Software",
         0x0132 => "DateTime",
         0x013b => "Artist",
+        0x013c => "HostComputer",
         0x0213 => "YCbCrPositioning",
+        0x02bc => "XMLPacket",
         0x8298 => "Copyright",
         0x829a => "ExposureTime",
         0x829d => "FNumber",
+        0x83bb => "IPTC-NAA",
         0x8822 => "ExposureProgram",
         0x8827 => "ISO",
         0x8830 => "SensitivityType",
@@ -322,6 +333,11 @@ fn tag_name(gps: bool, tag: u16) -> Option<&'static str> {
         0x9290 => "SubSecTime",
         0x9291 => "SubSecTimeOriginal",
         0x9292 => "SubSecTimeDigitized",
+        0x9c9b => "XPTitle",
+        0x9c9c => "XPComment",
+        0x9c9d => "XPAuthor",
+        0x9c9e => "XPKeywords",
+        0x9c9f => "XPSubject",
         0xa000 => "FlashpixVersion",
         0xa001 => "ColorSpace",
         0xa002 => "PixelXDimension",
@@ -350,6 +366,13 @@ fn tag_name(gps: bool, tag: u16) -> Option<&'static str> {
         0xa433 => "LensMake",
         0xa434 => "LensModel",
         0xa435 => "LensSerialNumber",
+        0xa436 => "ImageTitle",
+        0xa437 => "Photographer",
+        0xa438 => "ImageEditor",
+        0xa439 => "CameraFirmware",
+        0xa43a => "RAWDevelopingSoftware",
+        0xa43b => "ImageEditingSoftware",
+        0xa43c => "MetadataEditingSoftware",
         _ => return None,
     })
 }
@@ -812,7 +835,9 @@ fn read_exif_block(path: &Path) -> Option<Vec<u8>> {
 /// "Exif\0\0" before it and a PNG's eXIf chunk must start with the TIFF header. A turned image
 /// keeps the rest of its block whole, because it is the user's own file and the cut would lose what
 /// lies past the values it follows, such as a SubIFDs directory or a maker note's data. Only a copy
-/// is cut (`derived_block`). Returns `None` when there is no block.
+/// is cut (`derived_block`). A copy for sharing gets the whole block too, because it takes only
+/// the tags the user keeps into a block made new (`shared_block`). Returns `None` when there is
+/// no block.
 pub fn derived(path: &Path, how: crate::images::save::Derived) -> Option<Vec<u8>> {
     let raw = read_exif_block(path)?;
     match how {
@@ -883,6 +908,247 @@ fn drop_pixel_fields(data: &mut [u8]) {
     });
     entries[2..].fill(0);
     entries[2..2 + kept.len()].copy_from_slice(&kept);
+}
+
+/// Returns the name Copy for Sharing gives the tag `tag` of the directory `dir` ("Image", "Exif"
+/// or "GPS"). It is the tag's name in the EXIF window, or else the directory and the tag's
+/// number, so a tag without a name can still be left out.
+fn shared_tag_name(dir: &str, tag: u16) -> String {
+    tag_name(dir == "GPS", tag).map_or_else(|| format!("{dir} 0x{tag:04x}"), str::to_owned)
+}
+
+/// Whether the tag `tag` of the directory `dir` is in every copy for sharing, also after Remove
+/// All. The orientation keeps a photo upright, and the colour space says that a photo without a
+/// profile is Adobe RGB, so both decide how the copy looks.
+fn is_always_shared(dir: &str, tag: u16) -> bool {
+    (dir == "Image" && tag == ORIENTATION) || (dir == "Exif" && tag == 0xa001)
+}
+
+/// The tags of the directories IFD0, Exif and GPS that a copy for sharing can take, each with
+/// its directory's name. The pointers to the other directories are not tags of their own, and
+/// IFD0's fields of the stored pixels (`PIXEL_FIELDS`, `DNG_FIELDS`) are in no copy.
+fn shareable<'a>(
+    ifd0: &'a Ifd,
+    exif: &'a Ifd,
+    gps: &'a Ifd,
+) -> impl Iterator<Item = (&'static str, u16, Entry)> + 'a {
+    let dirs = [("Image", ifd0), ("Exif", exif), ("GPS", gps)];
+    dirs.into_iter().flat_map(|(dir, ifd)| {
+        (ifd.iter())
+            .filter(move |(tag, _)| {
+                let pointer = dir != "GPS" && matches!(*tag, EXIF_IFD | GPS_IFD | INTEROP_IFD);
+                let pixels =
+                    dir == "Image" && (PIXEL_FIELDS.contains(tag) || DNG_FIELDS.contains(tag));
+                !pointer && !pixels
+            })
+            .map(move |&(tag, e)| (dir, tag, e))
+    })
+}
+
+/// Returns the EXIF thumbnail of the block `t`: the JPEG that IFD1 points at, or `None` when the
+/// block has none or it lies past the block.
+fn exif_thumbnail<'a>(t: &Tiff<'a>) -> Option<&'a [u8]> {
+    let ifd0 = t.u32(4)? as usize;
+    let ifd1 = t.u32(ifd0 + 2 + 12 * t.u16(ifd0)? as usize)? as usize;
+    if ifd1 == 0 {
+        return None;
+    }
+    let ifd1 = t.ifd(ifd1);
+    let at = t.int(find(&ifd1, 0x0201)?)? as usize;
+    let len = t.int(find(&ifd1, 0x0202)?)? as usize;
+    t.data.get(at..at.checked_add(len)?)
+}
+
+/// Returns the names of the tags of the EXIF block `raw` that Copy for Sharing can leave out
+/// (`shared_tag_name`), and `EXIF_THUMBNAIL` when it has one. The tags every copy keeps
+/// (`is_always_shared`) are not among them. Returns nothing for a block without a TIFF header.
+pub fn shared_tag_names(raw: &[u8]) -> Vec<String> {
+    let Some((t, ifd0, exif, gps)) = ifds(raw) else {
+        return Vec::new();
+    };
+    let mut names: Vec<String> = shareable(&ifd0, &exif, &gps)
+        .filter(|&(dir, tag, _)| !is_always_shared(dir, tag))
+        .map(|(dir, tag, _)| shared_tag_name(dir, tag))
+        .collect();
+    if exif_thumbnail(&t).is_some() {
+        names.push(EXIF_THUMBNAIL.into());
+    }
+    names
+}
+
+/// Makes a new EXIF block for a copy for sharing. It holds the tags of `raw` that `keeps` keeps
+/// by their names (`shared_tag_name`), and always the orientation, the colour space and the
+/// Interop directory, which decide how the image looks. Nothing else of `raw` is in it: each
+/// value is copied on its own into a block made new, so the bytes of a tag left out cannot
+/// linger in it. The block is written in `raw`'s byte order, so the values are copied as they
+/// are. The EXIF thumbnail (IFD1) is in it, as a JPEG, only when `keeps` keeps
+/// `EXIF_THUMBNAIL`. Returns `None` when `raw` has no TIFF header or nothing is kept.
+/// shortcut: a kept MakerNote moves to where the new block puts it, so a maker note that points
+/// at offsets from the TIFF header (Canon) loses them, as in every tool that writes a new block;
+/// move its offsets too if users need a maker note kept whole.
+pub fn shared_block(raw: &[u8], keeps: &dyn Fn(&str) -> bool) -> Option<Vec<u8>> {
+    let (t, ifd0, exif, gps) = ifds(raw)?;
+    let value = |e: &Entry| {
+        let len = type_size(e.field_type).checked_mul(e.count as usize)?;
+        Some(
+            t.data
+                .get(e.value_offset..e.value_offset.checked_add(len)?)?
+                .to_vec(),
+        )
+    };
+    let mut dirs: [NewIfd; 5] = Default::default();
+    for (dir, tag, e) in shareable(&ifd0, &exif, &gps) {
+        if is_always_shared(dir, tag) || keeps(&shared_tag_name(dir, tag)) {
+            let at = ["Image", "Exif", "GPS"]
+                .iter()
+                .position(|d| *d == dir)
+                .unwrap_or(0);
+            dirs[at].extend(value(&e).map(|v| (tag, e.field_type, e.count, v)));
+        }
+    }
+    let interop = find(&exif, INTEROP_IFD).and_then(|e| t.int(e));
+    for (tag, e) in interop.map(|at| t.ifd(at as usize)).unwrap_or_default() {
+        dirs[3].extend(value(&e).map(|v| (tag, e.field_type, e.count, v)));
+    }
+    let thumbnail = keeps(EXIF_THUMBNAIL).then(|| exif_thumbnail(&t)).flatten();
+    write_block(t.is_little_endian, dirs, thumbnail)
+}
+
+/// Writes a new TIFF block of the directories `dirs` (IFD0, Exif, GPS, Interop and IFD1, whose
+/// entries are made here for `thumbnail`), in the byte order `little` says. The pointers between
+/// them are added for the directories that have entries. The directories come one after the
+/// other from byte 8, and the values longer than four bytes after them, the thumbnail first.
+/// Returns `None` when there is nothing to write.
+fn write_block(little: bool, mut dirs: [NewIfd; 5], thumbnail: Option<&[u8]>) -> Option<Vec<u8>> {
+    let p16 = |v: u16| {
+        if little {
+            v.to_le_bytes()
+        } else {
+            v.to_be_bytes()
+        }
+    };
+    let p32 = |v: u32| {
+        if little {
+            v.to_le_bytes()
+        } else {
+            v.to_be_bytes()
+        }
+    };
+    if let Some(jpeg) = thumbnail {
+        // The thumbnail's offset is set below, where the values start.
+        dirs[4] = vec![
+            (0x0103, SHORT, 1, p16(6).to_vec()),
+            (0x0201, LONG, 1, vec![0; 4]),
+            (0x0202, LONG, 1, p32(jpeg.len() as u32).to_vec()),
+        ];
+    }
+    for (from, to, tag) in [(3, 1, INTEROP_IFD), (1, 0, EXIF_IFD), (2, 0, GPS_IFD)] {
+        if !dirs[from].is_empty() {
+            dirs[to].push((tag, LONG, 1, vec![0; 4]));
+        }
+    }
+    if dirs.iter().all(Vec::is_empty) {
+        return None;
+    }
+    dirs.iter_mut().for_each(|d| d.sort_by_key(|e| e.0));
+    // Where each directory starts. IFD0 is always there, and the others only with entries.
+    let mut offsets = [0u32; 5];
+    let mut end = 8;
+    for (i, d) in dirs.iter().enumerate() {
+        if i == 0 || !d.is_empty() {
+            offsets[i] = end as u32;
+            end += 2 + 12 * d.len() + 4;
+        }
+    }
+    let mut values = thumbnail.map(<[u8]>::to_vec).unwrap_or_default();
+    let set = |d: &mut NewIfd, tag: u16, v: u32| {
+        (d.iter_mut().filter(|e| e.0 == tag)).for_each(|e| e.3 = p32(v).to_vec())
+    };
+    set(&mut dirs[4], 0x0201, end as u32);
+    set(&mut dirs[1], INTEROP_IFD, offsets[3]);
+    set(&mut dirs[0], EXIF_IFD, offsets[1]);
+    set(&mut dirs[0], GPS_IFD, offsets[2]);
+    let mut out = if little {
+        b"II*\0".to_vec()
+    } else {
+        b"MM\0*".to_vec()
+    };
+    out.extend(p32(8));
+    for (i, d) in dirs.iter().enumerate() {
+        if i != 0 && d.is_empty() {
+            continue;
+        }
+        out.extend(p16(d.len() as u16));
+        for (tag, kind, count, value) in d {
+            out.extend(p16(*tag));
+            out.extend(p16(*kind));
+            out.extend(p32(*count));
+            if value.len() <= 4 {
+                out.extend(value);
+                out.extend(&[0, 0, 0, 0][value.len()..]);
+            } else {
+                // Values start on an even offset, as TIFF asks.
+                values.extend(vec![0; values.len() % 2]);
+                out.extend(p32((end + values.len()) as u32));
+                values.extend(value);
+            }
+        }
+        // IFD0 leads to IFD1, the thumbnail's directory, when there is one.
+        let next = if i == 0 { offsets[4] } else { 0 };
+        out.extend(p32(next));
+    }
+    out.extend(values);
+    Some(out)
+}
+
+/// Moves the offsets of the images that the index of an MPF segment names (a phone's second
+/// image or gain map after the main one) by `by` bytes, and sets the size of the first, the
+/// main image, to `first_size`. A copy for sharing that keeps them calls it, because the
+/// metadata before the main image changed, while the images after it are copied as they are.
+/// `mpf` is the segment's contents, from "MPF\0". Returns `None`, with nothing changed, when its
+/// index cannot be read.
+pub fn shift_mp_offsets(mpf: &mut [u8], by: i64, first_size: u32) -> Option<()> {
+    let (start, n, little) = {
+        let (t, ifd0, _, _) = ifds(mpf.get(4..)?)?;
+        let e = find(&ifd0, 0xb002).filter(|e| e.field_type == UNDEFINED)?;
+        (
+            4 + e.value_offset,
+            e.count as usize / 16,
+            t.is_little_endian,
+        )
+    };
+    let index = mpf.get_mut(start..start.checked_add(16 * n)?)?;
+    let read = |b: &[u8]| {
+        let b = [b[0], b[1], b[2], b[3]];
+        if little {
+            u32::from_le_bytes(b)
+        } else {
+            u32::from_be_bytes(b)
+        }
+    };
+    let write = |v: u32| {
+        if little {
+            v.to_le_bytes()
+        } else {
+            v.to_be_bytes()
+        }
+    };
+    // The new offsets are found first, so an index that cannot take them is left as it was.
+    let mut moved = Vec::with_capacity(n);
+    for entry in index.chunks(16).skip(1) {
+        let offset = read(&entry[8..12]);
+        moved.push(match offset {
+            0 => 0,
+            _ => u32::try_from(offset as i64 + by).ok()?,
+        });
+    }
+    for (i, entry) in index.chunks_mut(16).enumerate() {
+        match i {
+            0 => entry[4..8].copy_from_slice(&write(first_size)),
+            _ => entry[8..12].copy_from_slice(&write(moved[i - 1])),
+        }
+    }
+    Some(())
 }
 
 /// Reads the EXIF block of `path` through `dec`, the image crate's decoder of it. A PNG keeps
@@ -1669,6 +1935,41 @@ mod tests {
         assert_eq!((size(0xa002), size(0xa003)), (Some(400), Some(50)));
     }
 
+    /// A block for sharing is made new of the tags kept: the exposure kept, the camera's make
+    /// and model are nowhere in it, and the orientation, which every copy keeps, is. A thumbnail
+    /// in IFD1 comes along only when it is kept, and is then where the new IFD1 says.
+    #[test]
+    fn a_shared_block_holds_only_what_is_kept() {
+        let mut block = sample();
+        // Orientation 6 in place of the model, and IFD1 after the Exif directory's values, with
+        // a JPEG thumbnail of four bytes (0x0201 at 160, 0x0202 of 4).
+        block[6 + 22..6 + 34].copy_from_slice(&[0x12, 1, 3, 0, 1, 0, 0, 0, 6, 0, 0, 0]);
+        let ifd1 = block.len() as u32 - 6;
+        block[6 + 46..6 + 50].copy_from_slice(&ifd1.to_le_bytes());
+        block.extend(2u16.to_le_bytes());
+        for (tag, value) in [(0x0201u16, ifd1 + 30), (0x0202, 4)] {
+            block.extend(tag.to_le_bytes());
+            block.extend(4u16.to_le_bytes());
+            block.extend(1u32.to_le_bytes());
+            block.extend(value.to_le_bytes());
+        }
+        block.extend([0; 4]);
+        block.extend(b"THMB");
+        let names = super::shared_tag_names(&block);
+        assert!(names.contains(&"Make".into()) && names.contains(&super::EXIF_THUMBNAIL.into()));
+        let keeps = |name: &str| name == "ExposureTime";
+        let shared = super::shared_block(&block, &keeps).unwrap();
+        let has = |b: &[u8], text: &[u8]| b.windows(text.len()).any(|w| w == text);
+        assert!(!has(&shared, b"Canon") && !has(&shared, b"THMB"));
+        let rows = super::parse(&shared);
+        assert!(rows.contains(&("Exposure", "1/250 s".into())), "{rows:?}");
+        assert_eq!(super::orientation(&shared).map(|o| o.to_exif()), Some(6));
+        let keeps = |name: &str| name == super::EXIF_THUMBNAIL;
+        let shared = super::shared_block(&block, &keeps).unwrap();
+        let (t, ..) = super::ifds(&shared).unwrap();
+        assert_eq!(super::exif_thumbnail(&t), Some(&b"THMB"[..]));
+    }
+
     /// Blocks and a JPEG broken in thousands of ways, as a damaged or crafted file has them:
     /// read without a panic, cut for a copy within the block, and turned upright without
     /// writing past the block.
@@ -1695,6 +1996,9 @@ mod tests {
                    \x01\x12\0\x03\0\0\0\x01\0\x06\0\0\0\0\0\0Canon\0";
         for seed in [sample(), mm.to_vec()] {
             for mut block in crate::support::test_support::broken(&seed) {
+                super::shared_tag_names(&block);
+                super::shared_block(&block, &|_| true);
+                super::shared_block(&block, &|_| false);
                 super::parse(&block);
                 super::fields(&block);
                 super::orientation(&block);

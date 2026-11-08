@@ -2870,3 +2870,75 @@ msgstr "Ikkje teke med, fordi søket gøymer dei: {files}"
 #: src/ui/file_list.rs
 msgid ", {h} selected but hidden by the search"
 msgstr ", {h} valde, men gøymde av søket"
+
+#: src/ui/actions.rs
+msgid "Copy for Sharing…"
+msgstr "Kopier for deling …"
+
+#: src/images/shared_copy.rs
+msgid "Place"
+msgstr "Stad"
+
+#: src/images/shared_copy.rs
+msgid "Camera and lens"
+msgstr "Kamera og objektiv"
+
+#: src/images/shared_copy.rs
+msgid "Date and time"
+msgstr "Dato og tid"
+
+#: src/images/shared_copy.rs
+msgid "Photographer and copyright"
+msgstr "Fotograf og opphavsrett"
+
+#: src/images/shared_copy.rs
+msgid "Software"
+msgstr "Programvare"
+
+#: src/images/shared_copy.rs
+msgid "Keywords, comment and alt text"
+msgstr "Nøkkelord, kommentar og alt-tekst"
+
+#: src/images/shared_copy.rs
+msgid "The preview inside the file"
+msgstr "Førehandsvisinga inne i fila"
+
+#: src/images/shared_copy.rs
+msgid "More tags"
+msgstr "Fleire taggar"
+
+#: src/features/copy_for_sharing.rs
+msgid "Reading the tags… {done} of {total}"
+msgstr "Les taggane … {done} av {total}"
+
+#: src/features/copy_for_sharing.rs
+msgid "Remove All"
+msgstr "Fjern alt"
+
+#: src/features/copy_for_sharing.rs
+msgid "Ticked tags are left out of the copies."
+msgstr "Avkryssa taggar vert utelatne frå kopiane."
+
+#: src/features/copy_for_sharing.rs
+msgid "Always kept: the orientation, so the image is not shown on its side, and the colour profile, so its colours do not change."
+msgstr "Alltid med: retninga, så biletet ikkje vert vist på sida, og fargeprofilen, så fargane ikkje vert endra."
+
+#: src/features/copy_for_sharing.rs
+msgid "Hide"
+msgstr "Gøym"
+
+#: src/features/copy_for_sharing.rs
+msgid "Show"
+msgstr "Vis"
+
+#: src/features/copy_for_sharing.rs
+msgid "; {files} not copied: only JPEG, PNG and WebP are"
+msgstr "; {files} ikkje kopierte: berre JPEG, PNG og WebP vert kopierte"
+
+#: src/features/copy_for_sharing.rs
+msgid "; {files} not copied: the folder has files of those names"
+msgstr "; {files} ikkje kopierte: mappa har filer med dei namna"
+
+#: src/features/copy_for_sharing.rs
+msgid "Reading the tags"
+msgstr "Lesing av taggane"

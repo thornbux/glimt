@@ -2859,3 +2859,75 @@ msgstr "Ei mukana, koska haku piilottaa ne: {files}"
 #: src/ui/file_list.rs
 msgid ", {h} selected but hidden by the search"
 msgstr ", {h} valittu mutta haun piilottama"
+
+#: src/ui/actions.rs
+msgid "Copy for Sharing…"
+msgstr "Kopioi jakamista varten…"
+
+#: src/images/shared_copy.rs
+msgid "Place"
+msgstr "Paikka"
+
+#: src/images/shared_copy.rs
+msgid "Camera and lens"
+msgstr "Kamera ja objektiivi"
+
+#: src/images/shared_copy.rs
+msgid "Date and time"
+msgstr "Päivämäärä ja aika"
+
+#: src/images/shared_copy.rs
+msgid "Photographer and copyright"
+msgstr "Valokuvaaja ja tekijänoikeus"
+
+#: src/images/shared_copy.rs
+msgid "Software"
+msgstr "Ohjelmisto"
+
+#: src/images/shared_copy.rs
+msgid "Keywords, comment and alt text"
+msgstr "Avainsanat, kommentti ja vaihtoehtoinen teksti"
+
+#: src/images/shared_copy.rs
+msgid "The preview inside the file"
+msgstr "Tiedoston sisäinen esikatselu"
+
+#: src/images/shared_copy.rs
+msgid "More tags"
+msgstr "Lisää tunnisteita"
+
+#: src/features/copy_for_sharing.rs
+msgid "Reading the tags… {done} of {total}"
+msgstr "Luetaan tunnisteita… {done} / {total}"
+
+#: src/features/copy_for_sharing.rs
+msgid "Remove All"
+msgstr "Poista kaikki"
+
+#: src/features/copy_for_sharing.rs
+msgid "Ticked tags are left out of the copies."
+msgstr "Valitut tunnisteet jätetään pois kopioista."
+
+#: src/features/copy_for_sharing.rs
+msgid "Always kept: the orientation, so the image is not shown on its side, and the colour profile, so its colours do not change."
+msgstr "Säilytetään aina: suunta, jotta kuva ei näy kyljellään, ja väriprofiili, jotta sen värit eivät muutu."
+
+#: src/features/copy_for_sharing.rs
+msgid "Hide"
+msgstr "Piilota"
+
+#: src/features/copy_for_sharing.rs
+msgid "Show"
+msgstr "Näytä"
+
+#: src/features/copy_for_sharing.rs
+msgid "; {files} not copied: only JPEG, PNG and WebP are"
+msgstr "; {files} jäi kopioimatta: vain JPEG, PNG ja WebP kopioidaan"
+
+#: src/features/copy_for_sharing.rs
+msgid "; {files} not copied: the folder has files of those names"
+msgstr "; {files} jäi kopioimatta: kansiossa on jo samannimisiä tiedostoja"
+
+#: src/features/copy_for_sharing.rs
+msgid "Reading the tags"
+msgstr "Luetaan tunnisteita"

@@ -2859,3 +2859,75 @@ msgstr "Nicht einbezogen, da die Suche sie verbirgt: {files}"
 #: src/ui/file_list.rs
 msgid ", {h} selected but hidden by the search"
 msgstr ", {h} ausgewählt, aber von der Suche verborgen"
+
+#: src/ui/actions.rs
+msgid "Copy for Sharing…"
+msgstr "Zum Teilen kopieren …"
+
+#: src/images/shared_copy.rs
+msgid "Place"
+msgstr "Ort"
+
+#: src/images/shared_copy.rs
+msgid "Camera and lens"
+msgstr "Kamera und Objektiv"
+
+#: src/images/shared_copy.rs
+msgid "Date and time"
+msgstr "Datum und Uhrzeit"
+
+#: src/images/shared_copy.rs
+msgid "Photographer and copyright"
+msgstr "Fotograf und Urheberrecht"
+
+#: src/images/shared_copy.rs
+msgid "Software"
+msgstr "Software"
+
+#: src/images/shared_copy.rs
+msgid "Keywords, comment and alt text"
+msgstr "Schlagwörter, Kommentar und Alternativtext"
+
+#: src/images/shared_copy.rs
+msgid "The preview inside the file"
+msgstr "Die Vorschau in der Datei"
+
+#: src/images/shared_copy.rs
+msgid "More tags"
+msgstr "Weitere Tags"
+
+#: src/features/copy_for_sharing.rs
+msgid "Reading the tags… {done} of {total}"
+msgstr "Lese die Tags … {done} von {total}"
+
+#: src/features/copy_for_sharing.rs
+msgid "Remove All"
+msgstr "Alle entfernen"
+
+#: src/features/copy_for_sharing.rs
+msgid "Ticked tags are left out of the copies."
+msgstr "Angekreuzte Tags werden in den Kopien weggelassen."
+
+#: src/features/copy_for_sharing.rs
+msgid "Always kept: the orientation, so the image is not shown on its side, and the colour profile, so its colours do not change."
+msgstr "Immer behalten: die Ausrichtung, damit das Bild nicht auf der Seite liegt, und das Farbprofil, damit sich seine Farben nicht ändern."
+
+#: src/features/copy_for_sharing.rs
+msgid "Hide"
+msgstr "Ausblenden"
+
+#: src/features/copy_for_sharing.rs
+msgid "Show"
+msgstr "Anzeigen"
+
+#: src/features/copy_for_sharing.rs
+msgid "; {files} not copied: only JPEG, PNG and WebP are"
+msgstr "; {files} nicht kopiert: nur JPEG, PNG und WebP werden kopiert"
+
+#: src/features/copy_for_sharing.rs
+msgid "; {files} not copied: the folder has files of those names"
+msgstr "; {files} nicht kopiert: der Ordner hat schon Dateien dieser Namen"
+
+#: src/features/copy_for_sharing.rs
+msgid "Reading the tags"
+msgstr "Lesen der Tags"

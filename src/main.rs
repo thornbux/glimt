@@ -310,6 +310,7 @@ impl App {
         self.print_dialog(ctx);
         self.lightroom_dialog(ctx);
         self.save_as_dialog(ctx);
+        self.sharing_dialog(ctx);
         self.cut_short_dialog(ctx);
         self.pan_view(ctx);
         self.exif_fields_window(ctx);

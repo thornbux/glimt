@@ -2859,3 +2859,75 @@ msgstr "Ikke medtaget, da søgningen skjuler dem: {files}"
 #: src/ui/file_list.rs
 msgid ", {h} selected but hidden by the search"
 msgstr ", {h} valgt, men skjult af søgningen"
+
+#: src/ui/actions.rs
+msgid "Copy for Sharing…"
+msgstr "Kopiér til deling …"
+
+#: src/images/shared_copy.rs
+msgid "Place"
+msgstr "Sted"
+
+#: src/images/shared_copy.rs
+msgid "Camera and lens"
+msgstr "Kamera og objektiv"
+
+#: src/images/shared_copy.rs
+msgid "Date and time"
+msgstr "Dato og tid"
+
+#: src/images/shared_copy.rs
+msgid "Photographer and copyright"
+msgstr "Fotograf og ophavsret"
+
+#: src/images/shared_copy.rs
+msgid "Software"
+msgstr "Software"
+
+#: src/images/shared_copy.rs
+msgid "Keywords, comment and alt text"
+msgstr "Nøgleord, kommentar og alt-tekst"
+
+#: src/images/shared_copy.rs
+msgid "The preview inside the file"
+msgstr "Forhåndsvisningen inde i filen"
+
+#: src/images/shared_copy.rs
+msgid "More tags"
+msgstr "Flere tags"
+
+#: src/features/copy_for_sharing.rs
+msgid "Reading the tags… {done} of {total}"
+msgstr "Læser tags … {done} af {total}"
+
+#: src/features/copy_for_sharing.rs
+msgid "Remove All"
+msgstr "Fjern alle"
+
+#: src/features/copy_for_sharing.rs
+msgid "Ticked tags are left out of the copies."
+msgstr "Afkrydsede tags udelades af kopierne."
+
+#: src/features/copy_for_sharing.rs
+msgid "Always kept: the orientation, so the image is not shown on its side, and the colour profile, so its colours do not change."
+msgstr "Altid med: retningen, så billedet ikke vises på siden, og farveprofilen, så farverne ikke ændres."
+
+#: src/features/copy_for_sharing.rs
+msgid "Hide"
+msgstr "Skjul"
+
+#: src/features/copy_for_sharing.rs
+msgid "Show"
+msgstr "Vis"
+
+#: src/features/copy_for_sharing.rs
+msgid "; {files} not copied: only JPEG, PNG and WebP are"
+msgstr "; {files} ikke kopieret: kun JPEG, PNG og WebP kopieres"
+
+#: src/features/copy_for_sharing.rs
+msgid "; {files} not copied: the folder has files of those names"
+msgstr "; {files} ikke kopieret: mappen har filer med de navne"
+
+#: src/features/copy_for_sharing.rs
+msgid "Reading the tags"
+msgstr "Læser tags"

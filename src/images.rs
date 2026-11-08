@@ -6,6 +6,7 @@ pub(crate) mod colour;
 pub(crate) mod decode;
 pub(crate) mod raw;
 pub(crate) mod save;
+pub(crate) mod shared_copy;
 #[cfg(feature = "svg")]
 pub(crate) mod svg;
 pub(crate) mod thumbs;

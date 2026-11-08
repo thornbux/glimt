@@ -3664,6 +3664,45 @@ expect "saved as b.jpg" "$files" "b.jpg "
 expect "a JPEG of 200 x 100" "$size" "JPEG 200 100"
 expect "the image itself unchanged" "$same" yes
 
+section "File → Copy for Sharing… with Remove All: no place, camera or keywords; pixels and orientation kept"
+for v in new old; do
+    as_version $v
+    d=/tmp/sharing-$v
+    mkdir -p $d/out
+    convert -size 64x48 gradient:red-blue -quality 92 $d/a.jpg
+    convert -size 64x48 gradient:green-blue $d/b.png
+    exiftool -q -q -overwrite_original -Orientation#=6 -Make=SecretMake -SerialNumber=SN-424242 \
+        -GPSLatitude=59.9 -GPSLatitudeRef=N -XMP-dc:Subject=secretword $d/a.jpg $d/b.png
+    sums=$(md5sum $d/a.jpg $d/b.png)
+    answer $d/out
+    config
+    start $d
+    sleep 2
+    remote select $d/a.jpg $d/b.png >/dev/null
+    sleep 1
+    menu File "Copy for Sharing…"; sleep 3
+    shot sharing-$v
+    menu "Remove All" "Copy…"
+    until_file $d/out/b.png 10
+    sleep 1
+    quit
+    if [ $v = new ]; then
+        expect "both images copied" "$(ls $d/out | tr '\n' ' ')" "a.jpg b.png "
+        expect_empty "no place, make, serial number or keyword anywhere in the copies" \
+            "$(grep -alE 'SecretMake|SN-424242|secretword' $d/out/*)"
+        for f in a.jpg b.png; do
+            expect_empty "$f: exiftool finds no place, make, serial number or keyword" \
+                "$(exiftool -s3 -GPSLatitude -Make -SerialNumber -Subject $d/out/$f)"
+            expect "$f: the orientation kept" "$(exiftool -s3 -n -Orientation $d/out/$f)" 6
+            expect "$f: the same pixels" \
+                "$(compare -metric AE $d/$f $d/out/$f null: 2>&1 | cut -d' ' -f1)" 0
+        done
+        expect "the originals unchanged" "$(md5sum $d/a.jpg $d/b.png)" "$sums"
+        expect "Remove All kept for the next time" \
+            "$(grep -c '^group:' $XDG_STATE_HOME/glimt/sharing 2>/dev/null)" 8
+    else note "old: $(ls $d/out | tr '\n' ' ')"; fi
+done
+
 section "/ puts the cursor in the search field, without typing itself there"
 d=/tmp/slash
 mkdir -p $d

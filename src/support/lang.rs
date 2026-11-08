@@ -568,6 +568,27 @@ msgstr[1] "bilder"
                 "keys, translated where shown",
             ),
             (
+                "metadata/exif.rs",
+                &["EXIF thumbnail"],
+                "a tag's name, shown as files name tags",
+            ),
+            (
+                "images/shared_copy.rs",
+                &[
+                    "const TAG_GROUPS",
+                    "JFIF thumbnail",
+                    "Extra images",
+                    "Data after",
+                    "Content credentials",
+                    "Photoshop resources",
+                    "Raw profiles",
+                    "JPEG comment",
+                    "PNG chunk",
+                    "WebP chunk",
+                ],
+                "tags' names, shown as files name tags",
+            ),
+            (
                 "ui/info_panel.rs",
                 &["File size", "Colour profile"],
                 "keys, translated where shown",

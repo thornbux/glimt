@@ -188,3 +188,4 @@ MoveTo
 NextFilter
 InfoPanel
 Previous
+CopyForSharing

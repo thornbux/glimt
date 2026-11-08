@@ -267,6 +267,7 @@ impl crate::App {
         self.recent_menu(ui);
         menu_item(ui, chosen, Action::NewFolder);
         menu_item(ui, chosen, Action::CopyTo);
+        menu_item(ui, chosen, Action::CopyForSharing);
         menu_item(ui, chosen, Action::MoveTo);
         menu_item(ui, chosen, Action::Rename);
         menu_item(ui, chosen, Action::OpenWith);
@@ -500,6 +501,7 @@ impl crate::App {
     pub(crate) fn file_menu(&mut self, ui: &mut egui::Ui, chosen: &mut Option<Action>) {
         for action in [
             Action::CopyTo,
+            Action::CopyForSharing,
             Action::MoveTo,
             Action::CopyPath,
             Action::CopyFiles,

@@ -2870,3 +2870,75 @@ msgstr "Pominięto, bo wyszukiwanie je ukrywa: {files}"
 #: src/ui/file_list.rs
 msgid ", {h} selected but hidden by the search"
 msgstr ", zaznaczono {h}, ale ukryte przez wyszukiwanie"
+
+#: src/ui/actions.rs
+msgid "Copy for Sharing…"
+msgstr "Kopiuj do udostępnienia…"
+
+#: src/images/shared_copy.rs
+msgid "Place"
+msgstr "Miejsce"
+
+#: src/images/shared_copy.rs
+msgid "Camera and lens"
+msgstr "Aparat i obiektyw"
+
+#: src/images/shared_copy.rs
+msgid "Date and time"
+msgstr "Data i godzina"
+
+#: src/images/shared_copy.rs
+msgid "Photographer and copyright"
+msgstr "Fotograf i prawa autorskie"
+
+#: src/images/shared_copy.rs
+msgid "Software"
+msgstr "Oprogramowanie"
+
+#: src/images/shared_copy.rs
+msgid "Keywords, comment and alt text"
+msgstr "Słowa kluczowe, komentarz i tekst alternatywny"
+
+#: src/images/shared_copy.rs
+msgid "The preview inside the file"
+msgstr "Podgląd wewnątrz pliku"
+
+#: src/images/shared_copy.rs
+msgid "More tags"
+msgstr "Więcej znaczników"
+
+#: src/features/copy_for_sharing.rs
+msgid "Reading the tags… {done} of {total}"
+msgstr "Odczyt znaczników… {done} z {total}"
+
+#: src/features/copy_for_sharing.rs
+msgid "Remove All"
+msgstr "Usuń wszystko"
+
+#: src/features/copy_for_sharing.rs
+msgid "Ticked tags are left out of the copies."
+msgstr "Zaznaczone znaczniki są pomijane w kopiach."
+
+#: src/features/copy_for_sharing.rs
+msgid "Always kept: the orientation, so the image is not shown on its side, and the colour profile, so its colours do not change."
+msgstr "Zawsze zachowane: orientacja, aby obraz nie był wyświetlany bokiem, i profil kolorów, aby jego kolory się nie zmieniły."
+
+#: src/features/copy_for_sharing.rs
+msgid "Hide"
+msgstr "Ukryj"
+
+#: src/features/copy_for_sharing.rs
+msgid "Show"
+msgstr "Pokaż"
+
+#: src/features/copy_for_sharing.rs
+msgid "; {files} not copied: only JPEG, PNG and WebP are"
+msgstr "; nie skopiowano: {files}, kopiowane są tylko JPEG, PNG i WebP"
+
+#: src/features/copy_for_sharing.rs
+msgid "; {files} not copied: the folder has files of those names"
+msgstr "; nie skopiowano: {files}, folder ma już pliki o tych nazwach"
+
+#: src/features/copy_for_sharing.rs
+msgid "Reading the tags"
+msgstr "Odczyt znaczników"

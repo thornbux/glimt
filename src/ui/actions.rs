@@ -490,6 +490,7 @@ pub enum Action {
     Shortcuts,
     KeyboardMap,
     About,
+    CopyForSharing,
 }
 
 impl Action {
@@ -698,6 +699,7 @@ impl Action {
             Shortcuts => "Keyboard Shortcuts",
             KeyboardMap => "Keyboard Map",
             About => "About Glimt",
+            CopyForSharing => "Copy for Sharing…",
         }
     }
 
@@ -832,7 +834,7 @@ impl Action {
             Projector => "\u{e658}",                        // projector-screen
             ProjectorPointer => "\u{e1dc}",                 // cursor
             Print => "\u{e3dc}",                            // printer
-            ExportFrames => "\u{eaf0}",                     // export
+            ExportFrames | CopyForSharing => "\u{eaf0}",    // export
             Help => "\u{e0e6}",                             // book-open
             Shortcuts => "\u{e2d8}",                        // keyboard
             KeyboardMap => "\u{e31a}",                      // map-trifold
@@ -846,7 +848,7 @@ impl Action {
         match self {
             Rename | CopyTo | MoveTo | Delete | DeletePermanently | CopyPath | CopyPathUnquoted
             | CopyFiles | NewCollection | RemoveFromCollection | MoveEarlier | MoveLater
-            | MoveFirst | MoveLast | Print => Target::Selection,
+            | MoveFirst | MoveLast | Print | CopyForSharing => Target::Selection,
             #[cfg(feature = "marks")]
             Mark1 | Mark2 | Mark3 | Mark4 | Mark5 | Mark6 | Rate0 | Rate1 | Rate2 | Rate3
             | Rate4 | Rate5 => Target::Selection,
@@ -1063,6 +1065,7 @@ impl crate::App {
             Action::FocusSearch if self.window.is_kiosk() => {}
             Action::FocusSearch => self.focus_search_field(ctx, fullscreen),
             Action::CopyTo | Action::MoveTo => self.pick_copy_or_move(ctx, action),
+            Action::CopyForSharing => self.start_copy_for_sharing(ctx),
             // The default application; the Open With submenu lists the others.
             Action::OpenWith => self.open_shown_in(""),
             Action::SetWallpaper => self.set_wallpaper(),
@@ -1571,6 +1574,7 @@ mod tests {
         Action::CloseWindow,
         Action::Compare,
         Action::CopyFiles,
+        Action::CopyForSharing,
         Action::CopyImage,
         Action::CopyPath,
         Action::CopyPathUnquoted,
@@ -1729,6 +1733,7 @@ mod tests {
             PlayVideo,
             SortManager,
             CopyTo,
+            CopyForSharing,
             Crop,
             Delete,
             DeletePermanently,

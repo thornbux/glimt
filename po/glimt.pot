@@ -2880,3 +2880,75 @@ msgstr ""
 #: src/ui/file_list.rs
 msgid ", {h} selected but hidden by the search"
 msgstr ""
+
+#: src/ui/actions.rs
+msgid "Copy for Sharing…"
+msgstr ""
+
+#: src/images/shared_copy.rs
+msgid "Place"
+msgstr ""
+
+#: src/images/shared_copy.rs
+msgid "Camera and lens"
+msgstr ""
+
+#: src/images/shared_copy.rs
+msgid "Date and time"
+msgstr ""
+
+#: src/images/shared_copy.rs
+msgid "Photographer and copyright"
+msgstr ""
+
+#: src/images/shared_copy.rs
+msgid "Software"
+msgstr ""
+
+#: src/images/shared_copy.rs
+msgid "Keywords, comment and alt text"
+msgstr ""
+
+#: src/images/shared_copy.rs
+msgid "The preview inside the file"
+msgstr ""
+
+#: src/images/shared_copy.rs
+msgid "More tags"
+msgstr ""
+
+#: src/features/copy_for_sharing.rs
+msgid "Reading the tags… {done} of {total}"
+msgstr ""
+
+#: src/features/copy_for_sharing.rs
+msgid "Remove All"
+msgstr ""
+
+#: src/features/copy_for_sharing.rs
+msgid "Ticked tags are left out of the copies."
+msgstr ""
+
+#: src/features/copy_for_sharing.rs
+msgid "Always kept: the orientation, so the image is not shown on its side, and the colour profile, so its colours do not change."
+msgstr ""
+
+#: src/features/copy_for_sharing.rs
+msgid "Hide"
+msgstr ""
+
+#: src/features/copy_for_sharing.rs
+msgid "Show"
+msgstr ""
+
+#: src/features/copy_for_sharing.rs
+msgid "; {files} not copied: only JPEG, PNG and WebP are"
+msgstr ""
+
+#: src/features/copy_for_sharing.rs
+msgid "; {files} not copied: the folder has files of those names"
+msgstr ""
+
+#: src/features/copy_for_sharing.rs
+msgid "Reading the tags"
+msgstr ""

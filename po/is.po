@@ -2859,3 +2859,75 @@ msgstr "Ekki með, því leitin felur þær: {files}"
 #: src/ui/file_list.rs
 msgid ", {h} selected but hidden by the search"
 msgstr ", {h} valdar en faldar af leitinni"
+
+#: src/ui/actions.rs
+msgid "Copy for Sharing…"
+msgstr "Afrita til deilingar…"
+
+#: src/images/shared_copy.rs
+msgid "Place"
+msgstr "Staður"
+
+#: src/images/shared_copy.rs
+msgid "Camera and lens"
+msgstr "Myndavél og linsa"
+
+#: src/images/shared_copy.rs
+msgid "Date and time"
+msgstr "Dagsetning og tími"
+
+#: src/images/shared_copy.rs
+msgid "Photographer and copyright"
+msgstr "Ljósmyndari og höfundarréttur"
+
+#: src/images/shared_copy.rs
+msgid "Software"
+msgstr "Hugbúnaður"
+
+#: src/images/shared_copy.rs
+msgid "Keywords, comment and alt text"
+msgstr "Efnisorð, athugasemd og alt-texti"
+
+#: src/images/shared_copy.rs
+msgid "The preview inside the file"
+msgstr "Forskoðunin inni í skránni"
+
+#: src/images/shared_copy.rs
+msgid "More tags"
+msgstr "Fleiri merki"
+
+#: src/features/copy_for_sharing.rs
+msgid "Reading the tags… {done} of {total}"
+msgstr "Les merkin… {done} af {total}"
+
+#: src/features/copy_for_sharing.rs
+msgid "Remove All"
+msgstr "Fjarlægja allt"
+
+#: src/features/copy_for_sharing.rs
+msgid "Ticked tags are left out of the copies."
+msgstr "Merki sem hakað er við eru skilin eftir úr afritunum."
+
+#: src/features/copy_for_sharing.rs
+msgid "Always kept: the orientation, so the image is not shown on its side, and the colour profile, so its colours do not change."
+msgstr "Alltaf haldið: stefnunni, svo myndin birtist ekki á hlið, og litasniðinu, svo litirnir breytist ekki."
+
+#: src/features/copy_for_sharing.rs
+msgid "Hide"
+msgstr "Fela"
+
+#: src/features/copy_for_sharing.rs
+msgid "Show"
+msgstr "Sýna"
+
+#: src/features/copy_for_sharing.rs
+msgid "; {files} not copied: only JPEG, PNG and WebP are"
+msgstr "; {files} ekki afritað: aðeins JPEG, PNG og WebP eru afrituð"
+
+#: src/features/copy_for_sharing.rs
+msgid "; {files} not copied: the folder has files of those names"
+msgstr "; {files} ekki afritað: mappan hefur skrár með þeim nöfnum"
+
+#: src/features/copy_for_sharing.rs
+msgid "Reading the tags"
+msgstr "Lestur merkjanna"
