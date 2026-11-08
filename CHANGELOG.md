@@ -8,7 +8,9 @@ and versions follow [Semantic Versioning](https://semver.org/).
 ### Changed
 
 - File → Open With Default App opens the selected files, as the Open With submenu beside it
-  does, rather than only the shown image. It is in the file list's right-click menu too.
+  does, rather than only the shown image. It is in the file list's right-click menu too. It
+  asks before it opens more than five, as Nautilus does, because each file starts a program of
+  its own, and in the Flatpak a Cancel in the desktop's chooser ends the rest.
 - The settings file names the full screen info's setting `full_screen_info`, as the menu and
   the action do, instead of `osd`, and its template `full_screen_info_template` instead of
   `osd_template`. The old keys are still read.

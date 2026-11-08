@@ -2957,3 +2957,11 @@ msgstr "; nezkopírováno: {files}, složka už má soubory těchto jmen"
 #: src/features/copy_for_sharing.rs
 msgid "Reading the tags"
 msgstr "Čtení štítků"
+
+#: src/ui/dialogs.rs
+msgid "Open {files}, each in its default application?"
+msgstr "Otevřít {files}, každý v jeho výchozí aplikaci?"
+
+#: src/ui/dialogs.rs
+msgid "Open (Enter)"
+msgstr "Otevřít (Enter)"

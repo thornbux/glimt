@@ -2946,3 +2946,11 @@ msgstr "; nie skopiowano: {files}, folder ma już pliki o tych nazwach"
 #: src/features/copy_for_sharing.rs
 msgid "Reading the tags"
 msgstr "Odczyt znaczników"
+
+#: src/ui/dialogs.rs
+msgid "Open {files}, each in its default application?"
+msgstr "Otworzyć {files}, każdy w jego domyślnym programie?"
+
+#: src/ui/dialogs.rs
+msgid "Open (Enter)"
+msgstr "Otwórz (Enter)"

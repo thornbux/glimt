@@ -23,6 +23,10 @@ use std::time::Instant;
 /// Where the popup IDs of the menu bar's menus are kept, for `scroll_menu` and `close_menus`.
 pub(crate) const BAR_MENUS: &str = "menu bar menus";
 
+/// The most files that Open With Default App opens without asking first, as many as Nautilus
+/// opens without asking.
+const OPENED_WITHOUT_ASKING: usize = 5;
+
 /// Open With's applications: each one's name and desktop file.
 type Apps = Vec<(String, PathBuf)>;
 
@@ -698,11 +702,16 @@ impl crate::App {
     }
 
     /// Opens the selected files, or the shown one, in the desktop's default application, as
-    /// the Open With submenu opens them in the one chosen there.
+    /// the Open With submenu opens them in the one chosen there. Each file starts a program of
+    /// its own, so more than a few are asked about first. Before, Ctrl+A and this started a
+    /// program for each of thousands of files.
     pub(crate) fn open_targets_in_default_app(&mut self) {
         if let Some(targets) = self.targets() {
             let files: Vec<PathBuf> = targets.iter().map(|&i| self.path(i)).collect();
-            self.open_in("", files);
+            match files.len() > OPENED_WITHOUT_ASKING {
+                true => self.dialogs.ask_open_files(files),
+                false => self.open_in("", files),
+            }
         }
     }
 
@@ -715,6 +724,11 @@ impl crate::App {
             for path in files {
                 if let Err(told) = open_one_in(&words, &path) {
                     let _ = tx.send(told);
+                    // In a Flatpak the default application is chosen through the desktop's
+                    // portal, and its Cancel is a failure of gio, which ends them all.
+                    if words.is_empty() && external::in_flatpak() {
+                        break;
+                    }
                 }
             }
         });

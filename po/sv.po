@@ -2935,3 +2935,11 @@ msgstr "; {files} inte kopierade: mappen har redan filer med de namnen"
 #: src/features/copy_for_sharing.rs
 msgid "Reading the tags"
 msgstr "Läser taggarna"
+
+#: src/ui/dialogs.rs
+msgid "Open {files}, each in its default application?"
+msgstr "Öppna {files}, var och en i sitt standardprogram?"
+
+#: src/ui/dialogs.rs
+msgid "Open (Enter)"
+msgstr "Öppna (Enter)"

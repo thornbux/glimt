@@ -2935,3 +2935,11 @@ msgstr "; {files} sin copiar: la carpeta ya tiene archivos con esos nombres"
 #: src/features/copy_for_sharing.rs
 msgid "Reading the tags"
 msgstr "Leyendo las etiquetas"
+
+#: src/ui/dialogs.rs
+msgid "Open {files}, each in its default application?"
+msgstr "¿Abrir {files}, cada uno en su aplicación predeterminada?"
+
+#: src/ui/dialogs.rs
+msgid "Open (Enter)"
+msgstr "Abrir (Enter)"

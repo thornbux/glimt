@@ -318,6 +318,7 @@ impl App {
         self.confirm_delete_dialog(ctx);
         self.confirm_folder_dialog(ctx);
         self.confirm_collection_dialog(ctx);
+        self.confirm_open_dialog(ctx);
         self.duplicates_window(ctx);
         self.check_window(ctx);
         crate::ui::help::window(ctx, &mut self.help);

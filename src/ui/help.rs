@@ -273,7 +273,8 @@ const MANUAL: &[(&str, &str)] = &[
          File → Open Recent has the last ten folders and collections opened, in every window; \
          Clear Recent there empties it, and Preferences can keep none at all.\n\n\
          File → Open With (also in the right-click menu) opens them in another application, such \
-         as GIMP, and Open With Default App in the desktop's own. File → Set as Wallpaper makes \
+         as GIMP, and Open With Default App in the desktop's own, after asking when there are \
+         more than five, as each starts a program of its own. File → Set as Wallpaper makes \
          the shown image the desktop's background, through the desktop portal (GNOME and KDE), \
          which keeps a copy of its own. Ctrl+Shift+C copies the image \
          itself to the clipboard, to paste into other programs. Select → Copy Files to Clipboard \

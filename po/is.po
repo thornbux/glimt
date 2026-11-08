@@ -2935,3 +2935,11 @@ msgstr "; {files} ekki afritað: mappan hefur skrár með þeim nöfnum"
 #: src/features/copy_for_sharing.rs
 msgid "Reading the tags"
 msgstr "Lestur merkjanna"
+
+#: src/ui/dialogs.rs
+msgid "Open {files}, each in its default application?"
+msgstr "Opna {files}, hverja í sjálfgefnu forriti sínu?"
+
+#: src/ui/dialogs.rs
+msgid "Open (Enter)"
+msgstr "Opna (Enter)"
