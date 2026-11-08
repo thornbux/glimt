@@ -52,6 +52,20 @@ pub(crate) const START_OPTIONS: &[(&str, &str)] = &[
     ),
 ];
 
+/// The exit code of a command that was done: --check-config with nothing wrong, --back-up, and
+/// --remote. The exit codes are frozen in 1.x, as scripts read them.
+pub(crate) const DONE: i32 = 0;
+
+/// The exit code of --check-config when something is wrong in the settings file, or it cannot
+/// be read.
+pub(crate) const CHECK_CONFIG_PROBLEMS: i32 = 1;
+
+/// The exit code of --back-up when the backup fails.
+pub(crate) const BACK_UP_FAILED: i32 = 1;
+
+/// The exit code of --back-up without the folder to put the backup in.
+pub(crate) const BACK_UP_NO_FOLDER: i32 = 2;
+
 /// What the start options ask for.
 #[derive(Clone, Default)]
 pub(crate) struct Start {
@@ -208,18 +222,18 @@ fn check_config(file: Option<PathBuf>) -> ! {
     let given = file.is_some();
     let Some(path) = file.or_else(config::config_path) else {
         eprintln!("glimt: no home folder, so no settings file");
-        std::process::exit(1);
+        std::process::exit(CHECK_CONFIG_PROBLEMS);
     };
     match config_check(&path, given) {
         Ok(line) => {
             println!("{line}");
-            std::process::exit(0)
+            std::process::exit(DONE)
         }
         Err(problems) => {
             for p in &problems {
                 eprintln!("{p}");
             }
-            std::process::exit(1)
+            std::process::exit(CHECK_CONFIG_PROBLEMS)
         }
     }
 }
@@ -247,13 +261,13 @@ fn config_check(path: &Path, given: bool) -> Result<String, Vec<String>> {
 fn back_up(dir: Option<&OsString>) {
     let Some(dir) = dir else {
         eprintln!("glimt: --back-up takes the folder to put the backup in");
-        std::process::exit(2);
+        std::process::exit(BACK_UP_NO_FOLDER);
     };
     match crate::files::backup::back_up_to(Path::new(dir)) {
         Ok(done) => println!("{done}"),
         Err(e) => {
             eprintln!("glimt: {e}");
-            std::process::exit(1);
+            std::process::exit(BACK_UP_FAILED);
         }
     }
 }
@@ -275,8 +289,9 @@ fn print_help() {
         .collect();
     println!("\nActions for run:\n  {}", actions.join(" "));
     println!(
-        "\nExit status of --remote: 0 done, {} no Glimt took it or none answered in time, {} \
+        "\nExit status of --remote: {} done, {} no Glimt took it or none answered in time, {} \
          it cannot be sent, {} a window did not do it (the reason on standard error)",
+        DONE,
         remote::NOT_TAKEN,
         remote::NOT_SENT,
         remote::NOT_DONE

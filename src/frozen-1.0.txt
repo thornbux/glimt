@@ -381,3 +381,7 @@ sharing group:preview
 sharing group:other
 value print_printer System print dialog
 value print_printer ""
+exit done 0
+exit check_config_problems 1
+exit back_up_failed 1
+exit back_up_no_folder 2

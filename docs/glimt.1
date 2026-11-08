@@ -178,7 +178,10 @@ added formats; not the thumbnails) to a new folder
 in
 .IR FOLDER ,
 as File \(-> Back Up Glimt's Data does, without opening a window: for cron or a systemd
-timer. A second backup the same day goes beside the first. Prints where it went; exits with 1
+timer. A second backup the same day goes beside the first. Prints where it went and exits with
+0; exits with 2 without
+.IR FOLDER ,
+and with 1
 when
 .I FOLDER
 is no folder or lies inside Glimt's own folders, when there is nothing to back up, or when a

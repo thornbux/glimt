@@ -1725,7 +1725,8 @@ mod tests {
     }
 
     /// Returns the --remote commands, the words that each takes from a choice ("on|off"), and
-    /// the exit codes. The release tests' "where" is left out, because only their build has it.
+    /// the exit codes, also those of --check-config and --back-up. The release tests' "where"
+    /// is left out, because only their build has it.
     fn remote_names() -> Vec<String> {
         use crate::features::remote::{COMMANDS, NOT_DONE, NOT_SENT, NOT_TAKEN};
         let mut now = Vec::new();
@@ -1745,6 +1746,13 @@ mod tests {
         now.push(format!("exit not_sent {NOT_SENT}"));
         now.push(format!("exit not_taken {NOT_TAKEN}"));
         now.push(format!("exit not_done {NOT_DONE}"));
+        use crate::cli::{BACK_UP_FAILED, BACK_UP_NO_FOLDER, CHECK_CONFIG_PROBLEMS, DONE};
+        now.push(format!("exit done {DONE}"));
+        now.push(format!(
+            "exit check_config_problems {CHECK_CONFIG_PROBLEMS}"
+        ));
+        now.push(format!("exit back_up_failed {BACK_UP_FAILED}"));
+        now.push(format!("exit back_up_no_folder {BACK_UP_NO_FOLDER}"));
         now
     }
 
