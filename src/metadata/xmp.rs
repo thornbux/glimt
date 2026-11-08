@@ -769,7 +769,10 @@ pub(crate) fn properties(xmp: &str) -> Properties {
         // would be searched to its end a million times. The cap is moved back to the start of
         // a letter, as a cut inside one would panic.
         let rest = &xmp[at + 6..xmp.floor_char_boundary(at + 1024)];
-        if let Some((prefix, uri)) = (rest.split_once('=')).and_then(|(p, v)| Some((p, quoted(v)?)))
+        // XML allows spaces around the "=", as in `xmlns:tiff = "…"`.
+        let declared = rest.split_once('=');
+        if let Some((prefix, uri)) =
+            declared.and_then(|(p, v)| Some((p.trim_end(), quoted(v.trim_start())?)))
             && is_name(prefix)
             && !prefix.contains(':')
             && !namespaces.iter().any(|(p, _)| p == prefix)
@@ -1819,6 +1822,27 @@ mod tests {
             let groups = crate::images::shared_copy::Group::groups_of(name);
             assert_eq!(groups.len(), crate::images::shared_copy::Group::ALL.len());
         }
+    }
+
+    /// A namespace declared with spaces around its "=", as XML allows, is read, so the
+    /// orientation and an HDR gain map's properties keep the names a copy for sharing always
+    /// keeps them by, and the copy's packet declares their namespaces.
+    #[test]
+    fn reads_a_namespace_with_spaces_around_its_equals_sign() {
+        let xmp = "<rdf:Description rdf:about=\"\" \
+                   xmlns:tiff = \"http://ns.adobe.com/tiff/1.0/\"\n\
+                   xmlns:hdrgm\t=\t'http://ns.adobe.com/hdr-gain-map/1.0/' \
+                   xmlns:Container =\"http://ns.google.com/photos/1.0/container/\" \
+                   tiff:Orientation=\"6\" hdrgm:Version=\"1.0\"><Container:Directory/>\
+                   </rdf:Description>";
+        let read = super::properties(xmp);
+        let names: Vec<&str> = read.list.iter().map(|(n, ..)| n.as_str()).collect();
+        assert_eq!(
+            names,
+            ["tiff:Orientation", "hdrgm:Version", "Container:Directory"]
+        );
+        let written = String::from_utf8(super::packet(&read)).unwrap();
+        assert!(written.contains("xmlns:tiff=\"http://ns.adobe.com/tiff/1.0/\""));
     }
 
     /// A name made from a namespace holds no control character, so it cannot add a line, and
