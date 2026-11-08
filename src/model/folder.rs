@@ -731,6 +731,7 @@ impl crate::App {
         self.replace_files(ctx, files, first);
         self.list.set_unchecked_entries(true);
         self.start_listing(ctx);
+        self.start_watching(ctx);
         self.update_window_title(ctx);
     }
 
@@ -915,9 +916,10 @@ impl crate::App {
         self.folder.relist_when_done = false;
     }
 
-    /// Poll the folder's modification time once a second in the background (one `stat`, no
-    /// repaint unless it changed). Adding, removing or renaming a file changes it.
-    /// The thread ends when another folder is opened.
+    /// Polls the folder's modification time once a second in the background (one `stat`, no
+    /// repaint unless it changed). Adding, removing or renaming a file changes it. For a
+    /// collection, its file is watched instead, so a move that another window follows in it
+    /// is read here too. The thread ends when another folder is opened.
     pub(crate) fn start_watching(&mut self, ctx: &egui::Context) {
         let generation = self
             .folder
@@ -928,7 +930,7 @@ impl crate::App {
             self.folder.watcher_generation.clone(),
             self.folder.changed_tx.clone(),
             ctx.clone(),
-            self.folder.dir.clone(),
+            (self.folder.collection.clone()).unwrap_or_else(|| self.folder.dir.clone()),
         );
         std::thread::spawn(move || {
             let mtime = || std::fs::metadata(&dir).and_then(|m| m.modified()).ok();
@@ -1354,6 +1356,32 @@ pub(crate) fn total_size(paths: &[PathBuf]) -> u64 {
 #[cfg(test)]
 mod tests {
     use crate::support::test_support::{app_on, contract_folder, run_background_until};
+
+    /// A collection open in this window follows a move that another window wrote into the
+    /// collection's file, because the window watches that file as it watches a folder. Before,
+    /// it kept the old names until it was opened again.
+    #[test]
+    fn a_collection_follows_its_file_changed_by_another_window() {
+        let dir = contract_folder("collection-watched");
+        let (mut app, ctx) = app_on(&dir.join("col.gqv"));
+        assert_eq!(app.list.files().len(), 2);
+        // The watcher reads the file's time when it starts, which is to be before the change.
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        // Another window moves a.png to c.png, and its writer follows it in the collection.
+        let (a, c) = (dir.join("a.png"), dir.join("c.png"));
+        std::fs::rename(&a, &c).unwrap();
+        let follow = |all: &mut Vec<std::path::PathBuf>| {
+            for p in all.iter_mut().filter(|p| p.ends_with("a.png")) {
+                *p = c.clone();
+            }
+        };
+        crate::model::collections::edit(&dir.join("col.gqv"), false, follow).unwrap();
+        let has_c = |app: &crate::App| {
+            (app.list.files().iter()).any(|f| std::path::Path::new(f).ends_with("c.png"))
+        };
+        assert!(run_background_until(&mut app, &ctx, has_c));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
 
     /// A slideshow of one pane at a time goes on from the image it showed last after the list
     /// is read again or put in another order. It started from the top after every change.

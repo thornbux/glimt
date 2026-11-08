@@ -1394,6 +1394,11 @@ impl crate::App {
             Some(dir) => self.visit(ctx, dir),
             None => self.start_listing(ctx),
         }
+        // The collection's file may have moved with the folder, and its watcher looks at the
+        // old name.
+        if self.folder.collection().is_some() {
+            self.start_watching(ctx);
+        }
     }
 
     /// Moves `folder_target` and everything in it to the trash, in the background. When the

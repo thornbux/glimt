@@ -11,6 +11,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
   before, so the marks and saved collections follow the files it moved.
 - An Undo of a delete puts back the marks and stars that another window set on those files a
   moment before, also when this window had not read them yet.
+- A collection open in one window follows the images that another window moves or renames,
+  as an open folder does, instead of keeping their old names until it is opened again.
 
 ## [0.76.0] - 2026-11-08
 

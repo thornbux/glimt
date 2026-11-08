@@ -567,6 +567,7 @@ impl crate::App {
             // The window follows only when it still shows the collection it asked about.
             Ok(new) if self.folder.collection() == Some(old.as_path()) => {
                 self.folder.collection_renamed(new);
+                self.start_watching(ctx);
                 self.update_window_title(ctx);
             }
             Ok(_) => {}
