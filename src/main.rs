@@ -395,13 +395,14 @@ impl eframe::App for App {
         );
     }
 
-    /// Takes the `--remote` commands. eframe calls this before each `ui`, and also while the
-    /// window is minimized or hidden, when it calls no `ui`. So a script gets its answer at
-    /// once, and does not wait until the window is shown again.
+    /// Guards a close of the window and takes the `--remote` commands. eframe calls this before
+    /// each `ui`, and also while the window is minimized or hidden, when it calls no `ui`. So a
+    /// script gets its answer at once, and a close meets the guard also while no `ui` runs.
     fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         // A `where` from the release tests is answered from the frame drawn last.
         #[cfg(feature = "test-hooks")]
         crate::support::test_hooks::begin_frame();
+        self.guard_close(ctx);
         self.receive_remote(ctx);
     }
 

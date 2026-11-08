@@ -218,8 +218,8 @@ pub(crate) struct Import {
     catalog: Arc<Catalog>,
     root_folders_now: Vec<String>,
     plan: Option<Plan>,
-    /// The plan while its thread makes it.
-    planning: Receiving<Plan>,
+    /// The plan while its thread makes it, with the folders it is made for.
+    planning: Receiving<(Vec<String>, Plan)>,
 }
 
 impl Import {
@@ -379,7 +379,9 @@ impl crate::App {
             self.start_planning(ctx, &mut lr);
         }
         if back {
+            // No plan still being made may bring the page back.
             lr.plan = None;
+            lr.planning.clear();
         }
         match lr.plan {
             Some(plan) if go => self.import_lightroom(ctx, plan),
@@ -396,7 +398,8 @@ impl crate::App {
         let (catalog, now) = (lr.catalog.clone(), lr.root_folders_now.clone());
         let (ctx, pointer) = (ctx.clone(), Working::new(&self.busy));
         std::thread::spawn(move || {
-            let _ = tx.send(catalog.plan(&now));
+            let plan = catalog.plan(&now);
+            let _ = tx.send((now, plan));
             drop(pointer);
             ctx.request_repaint();
         });
@@ -404,12 +407,15 @@ impl crate::App {
     }
 
     /// Takes the plan of `lr` when its thread has made it, with the stars that differ counted.
+    /// A plan made for other folders than the fields hold now is dropped, as the user changed
+    /// them while it was made, and Next makes a new one.
     fn take_plan_of(&mut self, lr: &mut Import) {
         match lr.planning.take() {
-            Took::Answer(mut plan) => {
+            Took::Answer((folders, mut plan)) if folders == lr.root_folders_now => {
                 plan.differing_stars = self.differing_stars(&plan.stars);
                 lr.plan = Some(plan);
             }
+            Took::Answer(_) => {}
             Took::Gone => self.tell_background_stopped(tr("Import from Lightroom")),
             Took::Nothing => {}
         }
@@ -822,6 +828,18 @@ mod tests {
         }
         let plan = lr.plan.unwrap();
         assert_eq!(plan.differing_stars, usize::from(cfg!(feature = "marks")));
+        // A folder changed while the plan is made: the plan for the old one is not shown, and
+        // Import cannot write onto the files of the folder given first.
+        lr.plan = None;
+        app.start_planning(&ctx, &mut lr);
+        lr.root_folders_now = vec![dir.join("other").display().to_string()];
+        let took = std::time::Instant::now();
+        while lr.planning.is_some() {
+            assert!(took.elapsed().as_secs() < 5, "no plan came");
+            std::thread::sleep(std::time::Duration::from_millis(10));
+            app.take_plan_of(&mut lr);
+        }
+        assert!(lr.plan.is_none());
         std::fs::remove_dir_all(dir).unwrap();
     }
 

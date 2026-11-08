@@ -25,7 +25,8 @@ decoding, thumbnails, file jobs, writing Glimt's own files, and the remote socke
 answers over an `mpsc` channel, held as a `Receiving<T>`, and calls `request_repaint`, so the
 next frame picks up the answer. The remote commands are taken in `App::logic` instead, which
 eframe runs before each frame and also while the window is minimized or hidden and draws no
-frame, so a script gets its answer at once.
+frame, so a script gets its answer at once. `App::logic` also guards a close of the window
+(`guard_close`), so a minimized window waits for its file jobs before it closes.
 
 ## 3. From a folder to pixels
 

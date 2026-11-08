@@ -74,7 +74,7 @@ impl AddedFormat {
         (self.exec.iter())
             .map(|w| {
                 let mut arg = std::ffi::OsString::new();
-                for piece in pieces(w, false) {
+                for piece in pieces(w, None) {
                     match piece {
                         Piece::Code("f") => arg.push(path),
                         Piece::Code(other) => arg.push(format!("%{other}")),
@@ -115,7 +115,7 @@ fn parse(text: &str, dir: &Path) -> Option<AddedFormat> {
         .map(|e| format!(".{e}"))
         .collect();
     let exec = crate::features::tools::command_words(value("Exec")?);
-    let has_file = |w: &String| pieces(w, false).any(|p| p == Piece::Code("f"));
+    let has_file = |w: &String| pieces(w, None).any(|p| p == Piece::Code("f"));
     if exts.is_empty() || !exec.iter().any(has_file) {
         return None;
     }
@@ -246,5 +246,15 @@ mod tests {
         );
         let text = "[Glimt Format]\nName=T\nExtensions=a\nExec=conv %%f\n";
         assert!(super::parse(text, dir).is_none());
+        // Words without `%%` are given as 0.75.0 gave them: `%f` the path, any other `%` kept.
+        let exec = "conv x%f %f[0] 100% %d% -vf scale=50%:-1 % %f%f";
+        let text = format!("[Glimt Format]\nName=T\nExtensions=a\nExec={exec}\n");
+        let words = super::parse(&text, dir)
+            .unwrap()
+            .arguments(Path::new("/p/a.a"));
+        let old: Vec<std::ffi::OsString> = (exec.split(' '))
+            .map(|w| w.split("%f").collect::<Vec<_>>().join("/p/a.a").into())
+            .collect();
+        assert_eq!(words, old);
     }
 }

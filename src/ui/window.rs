@@ -52,6 +52,12 @@ pub(crate) struct Window {
     /// differs, so a failed save is not tried again at every close, but a newer turn is saved.
     /// A save that worked forgets it, so the same turn made again is saved too.
     turn_tried_at_close: Option<(std::path::PathBuf, (u8, bool))>,
+    /// Whether `ui` ran since the last `logic`. eframe runs `logic` alone while the window is
+    /// minimized, and what the background sent meanwhile, such as a file job's report by which
+    /// marks follow the files, waits in its channel for the next `ui`.
+    ui_ran_since_logic: bool,
+    /// A close came while `ui` had not run, so the next `ui` takes what waits and closes again.
+    close_after_ui: bool,
 }
 
 impl Window {
@@ -71,6 +77,8 @@ impl Window {
             title_template: String::new(),
             close_requests: 0,
             turn_tried_at_close: None,
+            ui_ran_since_logic: true,
+            close_after_ui: false,
         }
     }
 
@@ -151,41 +159,56 @@ impl Window {
 }
 
 impl crate::App {
-    /// Keeps a kiosk in full screen and the screensaver off in full screen, and remembers the
-    /// window's size and place; whether the window is full screen.
-    pub(crate) fn track_window(&mut self, ctx: &egui::Context) -> bool {
-        let fullscreen = ctx.input(|i| i.viewport().fullscreen).unwrap_or(false);
+    /// Refuses or delays a close of the window, from the desktop, a key, a menu or
+    /// `--remote quit`. eframe runs `logic`, and so this, before every `ui`, and alone while the
+    /// window is minimized, so the guard holds there too. A kiosk stays open. A close that comes
+    /// while `ui` has not run waits for one `ui`, which takes what the background sent and
+    /// closes again. Otherwise keywords typed and a turn are saved, and a close while files are
+    /// written waits for them.
+    pub(crate) fn guard_close(&mut self, ctx: &egui::Context) {
+        let ui_ran = std::mem::replace(&mut self.window.ui_ran_since_logic, false);
+        if ctx.input(|i| i.viewport().close_requested()) {
+            self.refuse_or_delay_close(ctx, ui_ran);
+        }
+        // A minimized window runs no `ui` of its own, and `ui` is what closes the window once
+        // the files are written. So a close that waits asks eframe for a `ui` while hidden.
+        let hidden = ctx.input(|i| i.viewport().visible()) == Some(false);
+        if hidden && (self.window.close_requests > 0 || self.window.close_after_ui) {
+            ctx.send_viewport_cmd(egui::ViewportCommand::RequestPaintWhileHidden);
+            ctx.request_repaint();
+        }
+    }
+
+    /// Answers the close that `guard_close` saw. A kiosk cancels it. When `ui` has not run since
+    /// the last pass (`ui_ran`), it is put off until `ui` has run. Otherwise it waits while
+    /// files are written.
+    fn refuse_or_delay_close(&mut self, ctx: &egui::Context, ui_ran: bool) {
         if self.window.is_kiosk && !self.window.kiosk_may_quit {
-            // Closing the window is refused, and full screen comes back if the desktop ends it.
-            if ctx.input(|i| i.viewport().close_requested()) {
-                ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
-            }
-            if ctx.input(|i| i.viewport().fullscreen) == Some(false) {
-                ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(true));
-            }
+            ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
+            return;
+        }
+        if !ui_ran {
+            ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
+            self.window.close_after_ui = true;
+            return;
         }
         // Keywords typed and not yet saved, and with Save Orientation on a turn of the image
         // shown, are written now, so closing waits for them. The image is never left on the way
         // out, which is where a turn is saved otherwise. A turn is tried once. A save that
         // failed would otherwise start again at the Close sent when it ends, and count as the
         // user's second close.
-        if ctx.input(|i| i.viewport().close_requested()) {
-            self.save_metadata_edit(ctx);
-            let shown = Some((
-                self.viewing.turned_file().to_path_buf(),
-                self.viewing.turn(),
-            ));
-            if self.config.save_orientation && self.window.turn_tried_at_close != shown {
-                self.window.turn_tried_at_close = shown;
-                self.save_orientation(ctx);
-            }
+        self.save_metadata_edit(ctx);
+        let shown = Some((
+            self.viewing.turned_file().to_path_buf(),
+            self.viewing.turn(),
+        ));
+        if self.config.save_orientation && self.window.turn_tried_at_close != shown {
+            self.window.turn_tried_at_close = shown;
+            self.save_orientation(ctx);
         }
         // Files still being copied, moved, renamed or saved: closed when they are done, not
         // halfway; a second close stops them after the file at hand, a third does not wait.
-        if ctx.input(|i| i.viewport().close_requested())
-            && self.is_writing()
-            && self.window.close_requests < 2
-        {
+        if self.is_writing() && self.window.close_requests < 2 {
             ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
             self.window.close_requests += 1;
             if self.window.close_requests == 2 {
@@ -203,6 +226,24 @@ impl crate::App {
                 .into(),
             );
         }
+    }
+
+    /// Keeps a kiosk in full screen and the screensaver off in full screen, sends a close that
+    /// `guard_close` put off until `ui` ran, and remembers the window's size and place. Returns
+    /// whether the window is full screen.
+    pub(crate) fn track_window(&mut self, ctx: &egui::Context) -> bool {
+        self.window.ui_ran_since_logic = true;
+        if std::mem::take(&mut self.window.close_after_ui) {
+            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+        }
+        let fullscreen = ctx.input(|i| i.viewport().fullscreen).unwrap_or(false);
+        // Full screen comes back if the desktop ends it. `guard_close` refuses the close.
+        if self.window.is_kiosk
+            && !self.window.kiosk_may_quit
+            && ctx.input(|i| i.viewport().fullscreen) == Some(false)
+        {
+            ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(true));
+        }
         self.inhibit(fullscreen && self.config.inhibit_screensaver);
         // Geometry of the normal window only, so leaving full screen or maximized restores it.
         // The size from egui's own area: the viewport's inner_rect needs the window position,
@@ -216,7 +257,9 @@ impl crate::App {
             )
         });
         self.window.state.maximized = maximized;
-        if !fullscreen && !maximized {
+        // A `ui` that runs while the window is minimized does not tell its size.
+        let hidden = ctx.input(|i| i.viewport().visible()) == Some(false);
+        if !fullscreen && !maximized && !hidden {
             // In the desktop's units, as the window opens with them: egui's shrink with the
             // size chosen in Preferences, and a window kept at 200 % opened half as large.
             let zoom = ctx.zoom_factor();
@@ -534,7 +577,9 @@ mod tests {
                 viewports: std::iter::once((ViewportId::ROOT, info)).collect(),
                 ..Default::default()
             };
+            // As eframe runs a pass: `logic`, then `ui`.
             let _ = ctx.run_ui(input, |ui| {
+                app.guard_close(ui.ctx());
                 app.track_window(ui.ctx());
             });
         };
@@ -551,6 +596,61 @@ mod tests {
         close(&mut app);
         assert!(app.file_operations.is_saving(&a));
         assert!(run_background_until(&mut app, &ctx, over));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A close in a pass without `ui`, as eframe runs while the window is minimized, meets the
+    /// guard. It waits for one `ui`, which takes the jobs' reports, and is then sent again. A
+    /// close while files are written waits for them, and a kiosk stays open. In 0.76.0 before
+    /// this, `logic` sent no CancelClose, and `--remote quit` ended a minimized window mid-job.
+    #[test]
+    fn a_close_while_minimized_meets_the_guard() {
+        use eframe::egui::{RawInput, ViewportCommand, ViewportEvent, ViewportId, ViewportInfo};
+        let dir = contract_folder("close-minimized");
+        let (mut app, ctx) = app_on(&dir);
+        let minimized = |close: bool| {
+            let info = ViewportInfo {
+                minimized: Some(true),
+                events: if close {
+                    vec![ViewportEvent::Close]
+                } else {
+                    vec![]
+                },
+                ..Default::default()
+            };
+            RawInput {
+                viewports: std::iter::once((ViewportId::ROOT, info)).collect(),
+                ..Default::default()
+            }
+        };
+        let logic_only = |app: &mut crate::App, close: bool| {
+            let out = ctx.run_logic(&minimized(close), |ctx| app.guard_close(ctx));
+            (out.viewport_commands.get(&ViewportId::ROOT).cloned()).unwrap_or_default()
+        };
+        // The pass after the window was minimized runs no `ui`, so the next close waits for one.
+        let commands = logic_only(&mut app, false);
+        assert!(!commands.contains(&ViewportCommand::CancelClose));
+        let commands = logic_only(&mut app, true);
+        assert!(commands.contains(&ViewportCommand::CancelClose));
+        assert!(commands.contains(&ViewportCommand::RequestPaintWhileHidden));
+        let out = ctx.run_ui(minimized(false), |ui| {
+            app.guard_close(ui.ctx());
+            app.track_window(ui.ctx());
+        });
+        assert!(
+            out.viewport_output[&ViewportId::ROOT]
+                .commands
+                .contains(&ViewportCommand::Close)
+        );
+        // That close comes after a `ui`, and waits while files are written.
+        let writing = crate::support::threads::Working::new(&crate::files::file_io::WRITING);
+        let commands = logic_only(&mut app, true);
+        drop(writing);
+        assert!(commands.contains(&ViewportCommand::CancelClose));
+        assert!(commands.contains(&ViewportCommand::RequestPaintWhileHidden));
+        assert_eq!(app.window.close_requests, 1);
+        app.window.is_kiosk = true;
+        assert!(logic_only(&mut app, true).contains(&ViewportCommand::CancelClose));
         std::fs::remove_dir_all(dir).unwrap();
     }
 

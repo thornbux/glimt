@@ -878,9 +878,11 @@ fn serve(
     while let Some(line) = read_command(&mut reader) {
         let line = match line {
             Ok(line) => command_now(line.trim_start()),
-            // Told, as an end without an answer would read as done. The rest of the line is
-            // not read, so the client is served no more.
+            // Told, as an end without an answer would read as done. The rest of what the client
+            // sends is read first, up to `most`, because closing with bytes unread resets the
+            // connection, and the client then reads no answer.
             Err(why) => {
+                let _ = std::io::copy(&mut reader, &mut std::io::sink());
                 if let Some(out) = out.as_mut() {
                     let _ = out.write_all(&not_done_answer(why));
                 }
@@ -1424,6 +1426,27 @@ mod tests {
         );
         assert_eq!(read("next".into()), [Ok("next".into())]);
         assert!(read(String::new()).is_empty());
+    }
+
+    /// A line too long, longer too than the socket's buffer, reaches the client over a real
+    /// socket as "not done: too long". Before, the window closed with the rest unread, and the
+    /// client's write or read failed on the reset, so it exited with "no answer".
+    #[test]
+    fn a_line_too_long_is_answered_over_the_socket() {
+        use std::io::{Read, Write};
+        let (tx, _rx) = std::sync::mpsc::channel();
+        let (mut client, window) = super::UnixStream::pair().unwrap();
+        let ctx = eframe::egui::Context::default();
+        let server = std::thread::spawn(move || super::serve(window, &tx, &ctx));
+        let long = "x".repeat(4 * super::MOST_LINE as usize);
+        client
+            .write_all(format!("title {long}\n").as_bytes())
+            .unwrap();
+        client.shutdown(std::net::Shutdown::Write).unwrap();
+        let mut got = Vec::new();
+        client.read_to_end(&mut got).unwrap();
+        assert_eq!(super::not_done_reason(&got).as_deref(), Some("too long"));
+        server.join().unwrap();
     }
 
     /// At most so many clients are served at once, each by a thread; the next waits until one

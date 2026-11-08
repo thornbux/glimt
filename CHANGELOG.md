@@ -38,12 +38,21 @@ and versions follow [Semantic Versioning](https://semver.org/).
 - In the templates of the full screen info, the print caption, the page header and footer and
   the window title, `%%` is a `%`. Before, it was an empty field, which could take its part of
   the line along. In an added format's `Exec`, `%%f` is the text `%f`, not a `%` and the file.
+  A single `%` in the page header or footer still leaves the page numbers after it filled in,
+  as in `Scale 100% · page %page% of %pages%`.
 - The marks file keeps what this Glimt does not understand: marks above 6, and lines of two
   fields and a path that it cannot read, stay as they are when a mark is changed, so a later
   Glimt can add to the file without an older one deleting it. Other damaged lines still go.
 
 ### Fixed
 
+- A minimized window that is asked to close, from the taskbar or with `glimt --remote quit`,
+  waits for the files being copied, moved or saved, as a shown window does, and closes once
+  they are done. Before, it ended at once, halfway through the job, and the marks of the files
+  already moved stayed on their old names.
+- Import Lightroom Catalog drops a plan made for root folders that were changed while it was
+  being made, so Import never writes onto the files of the folders given first. Next makes a
+  plan for the folders as they are now.
 - A file renamed or moved in Glimt, or a folder of them, now keeps its place in every saved
   collection, as in Geeqie, not only in the one open. Before, an entry stayed on the old name
   and could later show another file that took that name.
@@ -97,7 +106,9 @@ and versions follow [Semantic Versioning](https://semver.org/).
   list (digiKam:TagsList) and Microsoft's before dc:subject, so Glimt now writes them again
   from the keyword tree it writes, also over the image's own. A hierarchy that only one of
   these lists holds is kept and written into each. An edit of the comment alone leaves every
-  keyword list as it is, and MediaPro's catalog sets and ACDSee's categories stay.
+  keyword list as it is, and MediaPro's catalog sets and ACDSee's categories stay. A keyword
+  with a "/" in its name, which Lightroom allows, stays out of these two lists, where the "/"
+  would be read as one more level.
 - A comment, alt text or extended description in several languages keeps them all when it is
   edited. The panel shows the default language (x-default), or else the first, and an edit
   replaces only that one; before, it showed the first and wrote it alone as the default.
