@@ -51,6 +51,10 @@ pub const COMMANDS: &[(&str, &str)] = &[
         "This window's title, a template as in Preferences (%name%, %path%, %folder%, %app%, %id%); without the text, the one in Preferences",
     ),
     (
+        "name [NAME]",
+        "Give this window a new --name, which --remote reaches it by from now on; without NAME, none, so its process ID does",
+    ),
+    (
         "identify",
         "Show this window's ID (%id%: its --name or process ID) large over the image for a few seconds",
     ),
@@ -125,12 +129,13 @@ const MOST_CLIENTS: usize = 16;
 /// does not answer, holds up the others no longer than this.
 const WAIT: std::time::Duration = std::time::Duration::from_secs(10);
 
-/// The name from `--name`, set before the window opens.
-static GIVEN_NAME: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+/// The name from `--name`, set before the window opens, or later by `--remote name` and Window
+/// → Set Window Name….
+static GIVEN_NAME: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
 
 /// The ID of the socket this Glimt listens on. It is `socket_id()`, or `NAME.ID` for a window
 /// that shares its --name with one that listens as `NAME` already.
-static LISTENING_AS: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+static LISTENING_AS: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
 
 /// A window took a command but gave no answer in time.
 static TIMED_OUT: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
@@ -172,6 +177,8 @@ impl Drop for UnfinishedAnswer {
 pub(crate) struct Listener {
     /// Commands from `glimt --remote`.
     rx: mpsc::Receiver<(String, Option<remote::Reply>)>,
+    /// The sender of `rx`, for a window that starts to listen when it is given a name.
+    tx: mpsc::Sender<(String, Option<remote::Reply>)>,
     /// A `--remote select` that came while the folder was being read or while Delete or Rename
     /// asked, and every command after it. They are done in the order they came, once neither
     /// is the case.
@@ -185,10 +192,11 @@ impl Listener {
     pub(crate) fn new(ctx: &egui::Context, listen: bool) -> Self {
         let (tx, rx) = mpsc::channel();
         if listen {
-            self::listen(tx, ctx.clone());
+            self::listen(tx.clone(), ctx.clone());
         }
         Listener {
             rx,
+            tx,
             waiting_selects: Vec::new(),
             identify_until: None,
         }
@@ -348,6 +356,14 @@ impl crate::App {
                 self.set_window_title(ctx, "");
                 None
             }
+            "name" => {
+                self.set_window_name(ctx, "")?;
+                None
+            }
+            other if other.starts_with("name ") => {
+                self.set_window_name(ctx, other["name ".len()..].trim())?;
+                None
+            }
             "identify" => {
                 self.remote.identify_until = Some(std::time::Instant::now() + IDENTIFY_TIME);
                 ctx.request_repaint();
@@ -390,6 +406,22 @@ impl crate::App {
             }
             self.run(ctx, action);
         }
+        Ok(())
+    }
+
+    /// Gives this window the --name `name`, or none when it is empty, and shows it in the title.
+    /// A window that did not listen, with remote control off, starts to with a name, as one
+    /// started with --name does. Returns the reason when the name cannot be taken.
+    pub(crate) fn set_window_name(
+        &mut self,
+        ctx: &egui::Context,
+        name: &str,
+    ) -> Result<(), String> {
+        remote::rename(Some(name).filter(|n| !n.is_empty()))?;
+        if !listening() && given_name().is_some() {
+            listen(self.remote.tx.clone(), ctx.clone());
+        }
+        self.update_window_title(ctx);
         Ok(())
     }
 
@@ -518,14 +550,19 @@ pub fn instance_id() -> &'static str {
     })
 }
 
+/// Locks `m`, also when a thread panicked while holding it, as the names in it stay whole.
+fn lock<T>(m: &std::sync::Mutex<T>) -> std::sync::MutexGuard<'_, T> {
+    m.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
 /// Listen as `name` instead of the process ID.
 pub fn set_name(name: String) {
-    let _ = GIVEN_NAME.set(name);
+    *lock(&GIVEN_NAME) = Some(name);
 }
 
 /// The `--name` given, if any.
-pub fn given_name() -> Option<&'static str> {
-    GIVEN_NAME.get().map(String::as_str)
+pub fn given_name() -> Option<String> {
+    lock(&GIVEN_NAME).clone()
 }
 
 /// Whether `name` is a process ID, which has only digits. With `--name` it reaches the Glimt of
@@ -579,6 +616,8 @@ pub fn is_known_command(words: &[String]) -> bool {
             Some(many) if many.trim_end_matches(']').ends_with('…') => {
                 words.len() >= 2 || many.starts_with('[')
             }
+            // One word in brackets may be left out.
+            Some(one) if one.starts_with('[') => words.len() <= 2,
             Some(_) => words.len() == 2,
             None => words.len() == 1,
         }
@@ -619,14 +658,14 @@ fn was_not_done() -> bool {
 
 /// The ID that this Glimt listens as, which is its --name or else its process ID. The %id% of
 /// the window title and `--remote identify` show it.
-pub fn socket_id() -> &'static str {
-    given_name().unwrap_or_else(instance_id)
+pub fn socket_id() -> String {
+    given_name().unwrap_or_else(|| instance_id().to_owned())
 }
 
 /// The ID of the socket that this Glimt listens on, which `--remote` reaches this window alone
 /// by. It is `socket_id()` until the socket is bound.
-fn own_socket_id() -> &'static str {
-    LISTENING_AS.get().map_or_else(socket_id, String::as_str)
+fn own_socket_id() -> String {
+    lock(&LISTENING_AS).clone().unwrap_or_else(socket_id)
 }
 
 /// Whether the socket at `path` is one of the windows of the --name `name`: the first one's
@@ -834,7 +873,7 @@ pub fn client(
 /// Listen for commands in the background and pass each line to `tx`, with where to answer for
 /// a query.
 pub fn listen(tx: mpsc::Sender<(String, Option<Reply>)>, ctx: eframe::egui::Context) {
-    let Some(path) = socket(socket_id()) else {
+    let Some(path) = socket(&socket_id()) else {
         return match runtime_dir_from(std::env::var_os("XDG_RUNTIME_DIR")) {
             None => eprintln!("No remote control: $XDG_RUNTIME_DIR is not set to a full path"),
             Some(_) => eprintln!("No remote control: its folder there is not this user's own"),
@@ -858,7 +897,7 @@ pub fn listen(tx: mpsc::Sender<(String, Option<Reply>)>, ctx: eframe::egui::Cont
     }
     // A window whose --name is taken already shares it, on a socket of its own: the name and
     // its process ID.
-    let mut id = socket_id().to_owned();
+    let mut id = socket_id();
     let mut bound = bind_socket(&path);
     if let (Err(None), Some(name)) = (&bound, given_name()) {
         id = format!("{name}.{}", instance_id());
@@ -871,7 +910,7 @@ pub fn listen(tx: mpsc::Sender<(String, Option<Reply>)>, ctx: eframe::egui::Cont
         }
         Err(Some(e)) => return eprintln!("No remote control as {id}: {e}"),
     };
-    let _ = LISTENING_AS.set(id);
+    *lock(&LISTENING_AS) = Some(id);
     LISTENING.store(true, std::sync::atomic::Ordering::Relaxed);
     // The accept thread below keeps the listener, so its number stays valid for
     // `has_waiting_client`.
@@ -1039,6 +1078,74 @@ fn bind_socket(path: &std::path::Path) -> Result<UnixListener, Option<std::io::E
     UnixListener::bind(path).map_err(Some)
 }
 
+/// Gives this Glimt the --name `name`, or no name for `None`, so that `--remote` reaches it by
+/// the new name, or by its process ID, from now on and no longer by the old one. A Glimt that
+/// listens keeps its socket and links it to the new ID before the old ID is removed, so it is
+/// never without remote control. The new name is shared, as at start, when another window has
+/// it already. Returns the reason when the name cannot be taken.
+pub fn rename(name: Option<&str>) -> Result<(), String> {
+    if let Some(n) = name
+        && (n.is_empty() || !valid_name(n) || !name_fits(n))
+    {
+        return Err("a name holds up to 64 letters, digits, - and _, not only digits".into());
+    }
+    if !listening() {
+        *lock(&GIVEN_NAME) = name.map(str::to_owned);
+        return Ok(());
+    }
+    let old = own_socket_id();
+    let from = socket(&old).ok_or("there is no runtime folder")?;
+    let ids = match name {
+        Some(n) => vec![n.to_owned(), format!("{n}.{}", instance_id())],
+        None => vec![instance_id().to_owned()],
+    };
+    for id in ids {
+        let Some(to) = socket(&id) else { continue };
+        if id != old {
+            match link_socket(&from, &to) {
+                Ok(()) => {}
+                Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
+                Err(e) => return Err(e.to_string()),
+            }
+            #[allow(clippy::disallowed_methods)] // this Glimt's own socket, linked anew
+            let _ = std::fs::remove_file(&from);
+        }
+        *lock(&GIVEN_NAME) = name.map(str::to_owned);
+        *lock(&LISTENING_AS) = Some(id);
+        // The window used last keeps that place under its new ID.
+        let focused =
+            runtime_dir().and_then(|d| crate::images::decode::read_text(d.join(FOCUSED_FILE)).ok());
+        if focused.is_some_and(|f| f.trim() == old) {
+            mark_focused();
+        }
+        return Ok(());
+    }
+    Err("a Glimt of that name and process ID runs already".into())
+}
+
+/// Links this Glimt's socket at `from` to `to` as well, never over a socket that a running
+/// Glimt answers on. One left by a Glimt gone is replaced, under the lock that `bind_socket`
+/// takes too.
+fn link_socket(from: &std::path::Path, to: &std::path::Path) -> std::io::Result<()> {
+    #[allow(clippy::disallowed_methods)] // a link to Glimt's own socket, never over a file
+    let first = std::fs::hard_link(from, to);
+    match first {
+        Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
+            #[allow(clippy::disallowed_methods)] // an empty lock file in the private runtime folder
+            let lock = std::fs::File::create(to.with_extension("lock"))?;
+            lock.lock()?;
+            if UnixStream::connect(to).is_ok() {
+                return Err(e);
+            }
+            #[allow(clippy::disallowed_methods)] // a socket left by a Glimt gone
+            let _ = std::fs::remove_file(to);
+            #[allow(clippy::disallowed_methods)] // a link to Glimt's own socket, never over a file
+            std::fs::hard_link(from, to)
+        }
+        other => other,
+    }
+}
+
 /// Marks that this Glimt got the focus, so `--remote` goes to it from now on.
 pub fn mark_focused() {
     if let Some(d) = runtime_dir() {
@@ -1102,7 +1209,7 @@ fn has_waiting_client(fd: i32) -> bool {
 /// Takes no new clients, by removing this Glimt's socket as it closes.
 pub fn close() {
     if LISTENING.load(std::sync::atomic::Ordering::Relaxed)
-        && let Some(path) = socket(own_socket_id())
+        && let Some(path) = socket(&own_socket_id())
     {
         #[allow(clippy::disallowed_methods)] // this Glimt's own socket
         let _ = std::fs::remove_file(path);
@@ -1137,6 +1244,36 @@ mod tests {
         assert!(!named("/run/glimt/glimt-4242.sock", "left"));
         assert!(named("/run/glimt/glimt-4242.sock", "4242"));
         assert!(!named("/run/glimt/focused", "focused"));
+    }
+
+    /// A window's socket is linked to its new name, so it answers there, but never over the
+    /// socket of a Glimt that answers. One left by a Glimt gone is replaced.
+    #[test]
+    fn a_new_name_links_the_socket() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-rename-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let (a, b, c) = (dir.join("a.sock"), dir.join("b.sock"), dir.join("c.sock"));
+        let _listener = std::os::unix::net::UnixListener::bind(&a).unwrap();
+        super::link_socket(&a, &b).unwrap();
+        assert!(std::os::unix::net::UnixStream::connect(&b).is_ok());
+        let taken = super::link_socket(&a, &b).unwrap_err();
+        assert_eq!(taken.kind(), std::io::ErrorKind::AlreadyExists);
+        drop(std::os::unix::net::UnixListener::bind(&c).unwrap());
+        super::link_socket(&a, &c).unwrap();
+        assert!(std::os::unix::net::UnixStream::connect(&c).is_ok());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// `name` takes one name or none, and a name that --name would refuse is not taken.
+    #[test]
+    fn name_takes_only_a_valid_name() {
+        let words = |s: &str| s.split(' ').map(String::from).collect::<Vec<_>>();
+        assert!(super::is_known_command(&words("name")));
+        assert!(super::is_known_command(&words("name left")));
+        assert!(!super::is_known_command(&words("name left right")));
+        for name in ["123", "a/b", "a.b"] {
+            assert!(super::rename(Some(name)).is_err(), "{name}");
+        }
     }
 
     /// `identify` shows the window's ID for a few seconds and is told as done, and the client
@@ -1357,6 +1494,7 @@ mod tests {
         let server = std::thread::spawn(move || super::serve(window, &tx, &window_ctx));
         app.remote = super::Listener {
             rx,
+            tx: std::sync::mpsc::channel().0,
             waiting_selects: Vec::new(),
             identify_until: None,
         };

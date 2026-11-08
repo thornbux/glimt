@@ -2947,3 +2947,15 @@ msgstr "Ouvrir {files}, chacun dans son application par défaut ?"
 #: src/ui/dialogs.rs
 msgid "Open (Enter)"
 msgstr "Ouvrir (Enter)"
+
+#: src/ui/actions.rs
+msgid "Set Window Name…"
+msgstr "Définir le nom de la fenêtre…"
+
+#: src/ui/dialogs.rs
+msgid "Name of this window, which glimt --name NAME --remote reaches it by (empty: its process ID):"
+msgstr "Nom de cette fenêtre, par lequel glimt --name NAME --remote l'atteint (vide : son ID de processus) :"
+
+#: src/ui/dialogs.rs
+msgid "Could not name this window: {why}"
+msgstr "Impossible de nommer cette fenêtre : {why}"

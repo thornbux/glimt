@@ -75,6 +75,8 @@ pub(crate) enum Prompt {
     SaveTheme,
     /// This window's own title, a template as in Preferences.
     WindowTitle,
+    /// This window's --name, which `--remote` reaches it by.
+    WindowName,
 }
 
 /// The files a dialog asks about, by their names in the list, where the list was, and how many
@@ -178,6 +180,11 @@ impl Dialogs {
     /// Asks for this window's own title, with `title` typed in already.
     pub(crate) fn ask_window_title(&mut self, title: String) {
         self.ask(Prompt::WindowTitle, title);
+    }
+
+    /// Asks for this window's --name, with `name` typed in already.
+    pub(crate) fn ask_window_name(&mut self, name: String) {
+        self.ask(Prompt::WindowName, name);
     }
 
     /// Opens the Copy for Sharing dialog `dialog`, or keeps it open after a frame drew it.
@@ -512,6 +519,11 @@ impl crate::App {
                      in Preferences):",
                 )
                 .to_owned(),
+                Prompt::WindowName => tr(
+                    "Name of this window, which glimt --name NAME --remote reaches it by \
+                     (empty: its process ID):",
+                )
+                .to_owned(),
                 Prompt::RenameCollection => tr("New name of the collection:").to_owned(),
                 Prompt::Rename => tr("New file name:").to_owned(),
                 Prompt::NewCollection => tf!(
@@ -583,10 +595,21 @@ impl crate::App {
         }
     }
 
+    /// Window → Set Window Name… was answered with `name`. The notice says why when the name is
+    /// not taken.
+    fn name_window(&mut self, ctx: &egui::Context, name: &str) {
+        if let Err(why) = self.set_window_name(ctx, name) {
+            self.notice = Some(tf!("Could not name this window: {why}", why));
+        }
+    }
+
     /// The text dialog was answered with `text`, trimmed.
     pub(crate) fn act_on_prompt_answer(&mut self, ctx: &egui::Context, prompt: Prompt, text: &str) {
         if let Prompt::WindowTitle = prompt {
             return self.set_window_title(ctx, text);
+        }
+        if let Prompt::WindowName = prompt {
+            return self.name_window(ctx, text);
         }
         if let Prompt::NewCollection = prompt {
             // The images it asked about, wherever a refresh put them, not the selection now.
@@ -692,7 +715,8 @@ impl crate::App {
             | Prompt::RenameCollection
             | Prompt::SaveTheme
             | Prompt::RenameFolder
-            | Prompt::WindowTitle => {}
+            | Prompt::WindowTitle
+            | Prompt::WindowName => {}
             // As Rename Many: in its thread, never over a file or another file's sidecar
             // there; `renamed` puts the list right.
             Prompt::Rename => {

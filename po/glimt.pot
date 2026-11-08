@@ -2968,3 +2968,15 @@ msgstr ""
 #: src/ui/dialogs.rs
 msgid "Open (Enter)"
 msgstr ""
+
+#: src/ui/actions.rs
+msgid "Set Window Name…"
+msgstr ""
+
+#: src/ui/dialogs.rs
+msgid "Name of this window, which glimt --name NAME --remote reaches it by (empty: its process ID):"
+msgstr ""
+
+#: src/ui/dialogs.rs
+msgid "Could not name this window: {why}"
+msgstr ""

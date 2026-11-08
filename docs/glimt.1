@@ -238,6 +238,18 @@ Give this window a title of its own, a template as in Preferences of
 .BR %name% ", " %path% ", " %folder% ", " %app% " and " %id% ,
 until it closes; without the text, the one in Preferences again.
 .TP
+.BI name " [NAME]"
+Give this window a new name, as
+.B \-\-name
+does at start, so that
+.B \-\-remote
+reaches it by that name from now on and no longer by the old one; it is shared when another
+window has it. Without
+.IR NAME ,
+the window has no name, and its process ID reaches it. A window that did not listen, with
+remote control off, starts to when it is given a name. Window \(-> Set Window Name… does
+the same.
+.TP
 .B identify
 Show this window's ID large over the image for a few seconds: its
 .B \-\-name

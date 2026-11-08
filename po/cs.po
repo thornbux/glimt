@@ -2969,3 +2969,15 @@ msgstr "Otevřít {files}, každý v jeho výchozí aplikaci?"
 #: src/ui/dialogs.rs
 msgid "Open (Enter)"
 msgstr "Otevřít (Enter)"
+
+#: src/ui/actions.rs
+msgid "Set Window Name…"
+msgstr "Nastavit jméno okna…"
+
+#: src/ui/dialogs.rs
+msgid "Name of this window, which glimt --name NAME --remote reaches it by (empty: its process ID):"
+msgstr "Jméno tohoto okna, podle kterého ho najde glimt --name NAME --remote (prázdné: jeho ID procesu):"
+
+#: src/ui/dialogs.rs
+msgid "Could not name this window: {why}"
+msgstr "Okno nelze pojmenovat: {why}"

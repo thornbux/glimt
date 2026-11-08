@@ -389,3 +389,5 @@ exit back_up_failed 1
 exit back_up_no_folder 2
 field id
 remote identify
+remote name
+script WindowName

@@ -2947,3 +2947,15 @@ msgstr "Opna {files}, hverja í sjálfgefnu forriti sínu?"
 #: src/ui/dialogs.rs
 msgid "Open (Enter)"
 msgstr "Opna (Enter)"
+
+#: src/ui/actions.rs
+msgid "Set Window Name…"
+msgstr "Setja heiti glugga…"
+
+#: src/ui/dialogs.rs
+msgid "Name of this window, which glimt --name NAME --remote reaches it by (empty: its process ID):"
+msgstr "Heiti þessa glugga, sem glimt --name NAME --remote nær honum með (tómt: auðkenni ferlis hans):"
+
+#: src/ui/dialogs.rs
+msgid "Could not name this window: {why}"
+msgstr "Ekki tókst að gefa glugganum heiti: {why}"

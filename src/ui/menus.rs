@@ -486,6 +486,7 @@ impl crate::App {
         menu_item(ui, chosen, Action::NewWindow);
         menu_item(ui, chosen, Action::CloseWindow);
         menu_item(ui, chosen, Action::WindowTitle);
+        menu_item(ui, chosen, Action::WindowName);
         ui.separator();
         menu_toggle(ui, chosen, self.window.has_projector(), Action::Projector);
         let pointer = self.config.projector_pointer;

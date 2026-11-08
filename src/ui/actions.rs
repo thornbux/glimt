@@ -308,6 +308,7 @@ pub(crate) const SCRIPT_ACTIONS: &[Action] = &[
     Action::Thumbnails,
     Action::Toolbar,
     Action::Up,
+    Action::WindowName,
     Action::WindowTitle,
     Action::Zoom1To1,
     Action::ZoomFit,
@@ -490,6 +491,8 @@ pub enum Action {
     Escape,
     NewWindow,
     WindowTitle,
+    /// Give this window a new --name, which `--remote` reaches it by (`remote::rename`).
+    WindowName,
     Projector,
     ProjectorPointer,
     Print,
@@ -699,6 +702,7 @@ impl Action {
             Escape => "Stop Slideshow, Leave Full Screen",
             NewWindow => "New Window",
             WindowTitle => "Set Window Title…",
+            WindowName => "Set Window Name…",
             Projector => "Projector",
             ProjectorPointer => "Show the Pointer on the Projector",
             Print => "Print…",
@@ -722,7 +726,7 @@ impl Action {
             OpenRecursive | FolderTree => "\u{e67c}",       // tree-structure
             NewFolder => "\u{e258}",                        // folder-plus
             Rename | RenameCollection => "\u{e3b4}",        // pencil-simple
-            WindowTitle => "\u{e3b4}",                      // pencil-simple
+            WindowTitle | WindowName => "\u{e3b4}",         // pencil-simple
             CopyTo => "\u{e1ca}",                           // copy
             MoveTo | Forward | PaneRight => "\u{e06c}",     // arrow-right
             OpenWith => "\u{e5de}",                         // arrow-square-out
@@ -874,8 +878,10 @@ impl Action {
             | FocusSearch | NextPage | PreviousPage | Icons | Toolbar | PathBar | Thumbnails
             | ThumbnailGrid | GridNames | InfoPanel | ExifWindow | FocusKeywords | SortManager
             | PanView | FolderTree | Refresh | Slideshow | Pause | RandomOrder
-            | SlideshowFaster | SlideshowSlower | Escape | NewWindow | WindowTitle | Projector
-            | ProjectorPointer | Help | Shortcuts | KeyboardMap | About => Target::NoFile,
+            | SlideshowFaster | SlideshowSlower | Escape | NewWindow | WindowTitle | WindowName
+            | Projector | ProjectorPointer | Help | Shortcuts | KeyboardMap | About => {
+                Target::NoFile
+            }
             #[cfg(feature = "marks")]
             SelectMark1 | SelectMark2 | SelectMark3 | SelectMark4 | SelectMark5 | SelectMark6 => {
                 Target::NoFile
@@ -1261,6 +1267,10 @@ impl crate::App {
             Action::WindowTitle => {
                 self.dialogs
                     .ask_window_title(self.window.title_template().to_owned());
+            }
+            Action::WindowName => {
+                let name = crate::features::remote::given_name().unwrap_or_default();
+                self.dialogs.ask_window_name(name);
             }
             Action::Projector => {
                 self.window.toggle_projector();
@@ -1739,6 +1749,7 @@ mod tests {
         Action::TrashCollection,
         Action::Undo,
         Action::Up,
+        Action::WindowName,
         Action::WindowTitle,
         Action::Zoom1To1,
         Action::ZoomFit,
