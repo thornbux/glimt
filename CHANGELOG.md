@@ -25,6 +25,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
   command was not done: a `run` refused while a dialog is open or a text field has the focus,
   or a command the window does not know, with the reason on standard error. Before, it exited
   with 0, as if it had been done. `--remote-all` exits with 3 when any window did not do it.
+  A minimized or hidden window answers at once too, and shows what the command changed once it
+  is shown again.
 - The example formats and the manual write `[Glimt Format]` as the desktop file's header,
   after 0.75.0 renamed decoders to formats. Files with `[Glimt Decoder]` are read as before, and
   the manual says that the other `%` codes in `Exec` are kept for later.

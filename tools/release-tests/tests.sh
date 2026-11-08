@@ -794,6 +794,42 @@ break.jpg")"
     else note "old: current '$current', folder $mode"; fi
 done
 
+section "--remote to a minimized window: answered at once, the image changes once it is shown"
+# eframe runs no ui for a minimized window. In 0.76.0 before its fix, the window answered only
+# in its ui, so every command waited 10 s for "no answer" and exited 1.
+for v in new old; do
+    as_version $v
+    d=/tmp/remote-hidden-$v
+    mkdir -p $d
+    convert -size 1200x800 xc:red $d/a.png
+    convert -size 1200x800 xc:blue $d/b.png
+    config auto_refresh=false
+    start $d/a.png
+    # Minimized as a window manager marks it, which is what eframe reads. The test display has
+    # no window manager, so the mark is set by hand, and the window is unmapped as well.
+    xprop -id $WIN -f _NET_WM_STATE 32a -set _NET_WM_STATE _NET_WM_STATE_HIDDEN
+    xdotool windowunmap $WIN 2>/dev/null
+    sleep 1
+    t0=$(date +%s%N)
+    remote next >/dev/null 2>&1
+    status=$?
+    ms=$(( ($(date +%s%N) - t0) / 1000000 ))
+    current=$(remote current 2>/dev/null | tr -d '\0')
+    xprop -id $WIN -remove _NET_WM_STATE
+    xdotool windowmap $WIN 2>/dev/null
+    sleep 2
+    xdotool windowfocus $WIN 2>/dev/null
+    settled remote-hidden-$v
+    shown=$(colour remote-hidden-$v 800 400)
+    quit
+    if [ $v = new ]; then
+        expect "next to a minimized window: exit 0" "$status" 0
+        expect "next answered at once (under 3 s: $ms ms)" "$([ $ms -lt 3000 ] && echo yes)" yes
+        expect "current answered while minimized" "$current" "$d/b.png"
+        expect "the next image is shown once the window is shown" "$shown" blue
+    else note "old: exit $status in $ms ms, current '$current', shown $shown"; fi
+done
+
 section "thumbnails in the image area (G): ↓ moves a row, Enter shows the image, Esc the grid"
 for v in new old; do
     as_version $v

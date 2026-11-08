@@ -23,7 +23,9 @@ background threads sent (`poll_background`). It then turns a key or a menu click
 `Action`, runs it, and draws. Anything slow runs in a thread of its own: listing a folder,
 decoding, thumbnails, file jobs, writing Glimt's own files, and the remote socket. Each thread
 answers over an `mpsc` channel, held as a `Receiving<T>`, and calls `request_repaint`, so the
-next frame picks up the answer.
+next frame picks up the answer. The remote commands are taken in `App::logic` instead, which
+eframe runs before each frame and also while the window is minimized or hidden and draws no
+frame, so a script gets its answer at once.
 
 ## 3. From a folder to pixels
 

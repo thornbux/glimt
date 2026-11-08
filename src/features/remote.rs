@@ -190,6 +190,11 @@ impl crate::App {
         // dialog asking about the selection (Delete, Rename) is answered for the files it asked
         // about, not for a selection a script put in its place meanwhile.
         let busy = |app: &Self| app.folder.is_listing() || app.asking_about_selection();
+        // A hidden window runs no `ui`, which takes the listing, so a waiting select takes it
+        // here. Otherwise the select would wait until the window is shown again.
+        if !self.remote.waiting_selects.is_empty() {
+            self.receive_listing(ctx, std::time::Duration::ZERO);
+        }
         // The waiting ones are done in the order they came, until one (an `open`) makes the
         // window busy again. Each gets its own answer, from the list as it was when it was sent.
         while !self.remote.waiting_selects.is_empty() && !busy(self) {

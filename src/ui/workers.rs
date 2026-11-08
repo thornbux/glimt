@@ -15,8 +15,8 @@ use std::sync::{Arc, Mutex, mpsc};
 
 impl crate::App {
     /// What the background threads and the rest of the desktop sent since the last frame: decoded
-    /// images and thumbnails, the folder listing, saves, remote commands, dropped files, mounts,
-    /// notices and the file dialog's answer.
+    /// images and thumbnails, the folder listing, saves, dropped files, mounts, notices and the
+    /// file dialog's answer. The remote commands are taken in `logic` (main.rs) instead.
     pub(crate) fn poll_background(&mut self, ctx: &egui::Context) {
         if let Some(error) = crate::files::file_io::take_save_error() {
             self.notice = Some(error);
@@ -38,7 +38,6 @@ impl crate::App {
             self.start_slideshow(ctx);
         }
         self.receive_focus(ctx);
-        self.receive_remote(ctx);
         if let Some(img) = self.file_operations.take_image() {
             ctx.copy_image(img);
         }
