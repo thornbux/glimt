@@ -11,6 +11,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
   try again in a moment, instead of undoing the operation before it.
 - Copy Path puts a backslash before `$`, `` ` ``, `"` and `\` in the quoted path, so a file
   name such as `$(command).jpg` pasted into a terminal runs nothing.
+- Rename and Rename Many refuse a new name that is another file's sidecar, such as `a.jpg.xmp`
+  beside `a.jpg`, which would have made the renamed image that file's sidecar.
 
 ## [0.75.0] - 2026-11-08
 

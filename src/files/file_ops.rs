@@ -2021,16 +2021,25 @@ fn refused_transfer(
 
 /// The name in the way of a file going to `to`, if any. It is `to` itself, or a sidecar at the
 /// new name that belongs to another file, whether or not the file has one of its own. (The
-/// photo would show that file's keywords and stars, and leave its own behind.) `ours` are the
-/// operation's own names, which a swap reuses. This is the one rule for Copy, Move, Rename and
-/// Rename Many.
+/// photo would show that file's keywords and stars, and leave its own behind.) It is also the
+/// file whose sidecar `to` would be (`a.jpg` for `a.jpg.xmp`), because that file would take
+/// this one for its sidecar, and delete or move it with itself. `ours` are the operation's own
+/// names, which a swap reuses. This is the one rule for Copy, Move, Rename and Rename Many.
 pub(crate) fn name_in_the_way(to: &Path, ours: &HashSet<&PathBuf>) -> Option<PathBuf> {
+    use std::os::unix::ffi::OsStrExt;
     // A name counts as taken also when it is a link that points nowhere, because nothing may be
     // made in its place.
     let there = |p: &PathBuf| std::fs::symlink_metadata(p).is_ok();
-    [to.to_path_buf(), xmp::sidecar(to)]
-        .into_iter()
-        .find(|p| there(p) && !ours.contains(p))
+    let sidecar_owner = (to.as_os_str().as_bytes().strip_suffix(b".xmp"))
+        .map(|owner| PathBuf::from(std::ffi::OsStr::from_bytes(owner)));
+    [
+        Some(to.to_path_buf()),
+        Some(xmp::sidecar(to)),
+        sidecar_owner,
+    ]
+    .into_iter()
+    .flatten()
+    .find(|p| there(p) && !ours.contains(p))
 }
 
 /// Renames `from` to `to` as `rename_files` does, for a rename's thread. When `fingerprints` are
@@ -2684,6 +2693,13 @@ mod tests {
         let (b, bx) = (p("b.jpg"), p("b.jpg.xmp"));
         let ours = std::collections::HashSet::from([&b, &bx]);
         assert_eq!(super::name_in_the_way(&p("b.jpg"), &ours), None);
+        // A file renamed to another file's sidecar name would become that file's sidecar.
+        assert_eq!(
+            super::name_in_the_way(&p("d.jpg.xmp"), &Default::default()),
+            Some(p("d.jpg"))
+        );
+        let refused = super::rename_files(vec![p("b.jpg")], vec![p("d.jpg.xmp")], &job);
+        assert!(refused.unwrap_err().contains("d.jpg exists already"));
         assert_eq!(
             (read("b.jpg"), read("c.jpg.xmp")),
             ("a".into(), "c's".into())
