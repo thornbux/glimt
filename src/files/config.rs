@@ -1487,6 +1487,7 @@ mod tests {
         now.extend(keys.map(|(key, _)| format!("state {key}")));
         now.extend(remote_names());
         now.extend(template_fields());
+        now.extend(theme_keys());
         // The actions a script may run with --remote run. One taken out of the list would
         // break every script that runs it.
         let script = crate::ui::actions::SCRIPT_ACTIONS.iter();
@@ -1577,6 +1578,24 @@ mod tests {
         let filled = filled.map(|f| format!("field {f}")).collect();
         std::fs::remove_dir_all(dir).unwrap();
         filled
+    }
+
+    /// Returns a "theme_key" line for each key of a theme file, as Save as Theme writes one,
+    /// and checks that `Theme::parse` reads each of them. A key renamed in either would leave
+    /// the users' own theme files without it.
+    fn theme_keys() -> Vec<String> {
+        use crate::ui::theme::Theme;
+        let file = Theme::file_from(&eframe::egui::Context::default());
+        let lines = file.lines().filter(|l| !l.starts_with('#'));
+        let keys = lines.filter_map(|line| {
+            assert_ne!(
+                Theme::parse(line),
+                Theme::default(),
+                "{line} is written, not read"
+            );
+            Some(format!("theme_key {}", line.split_once('=')?.0))
+        });
+        keys.collect()
     }
 
     /// Returns an EXIF block (TIFF, little-endian) with the date taken, the exposure, the

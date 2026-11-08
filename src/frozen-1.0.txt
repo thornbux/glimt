@@ -342,3 +342,15 @@ script SelectMark3
 script SelectMark4
 script SelectMark5
 script SelectMark6
+theme_key dark
+theme_key accent
+theme_key panel
+theme_key window
+theme_key field
+theme_key faint
+theme_key hover
+theme_key active
+theme_key border
+theme_key text
+theme_key radius
+theme_key text_size
