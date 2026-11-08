@@ -18,6 +18,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
   now gets its whole timeline.
 - A network share that answers late is no longer opened over the folder you opened while
   waiting for it.
+- The projector's keys wait while a dialog is open in the main window, as the main window's
+  do: Space there no longer moves to the next image behind the Delete question.
 
 ## [0.75.0] - 2026-11-08
 

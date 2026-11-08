@@ -964,6 +964,20 @@ impl crate::App {
         self.dialogs.asks_about_files()
     }
 
+    /// Reads the shortcut pressed this frame in `ctx`, which is the main window or the
+    /// projector. Returns `None` while a dialog is open, because the keys belong to the dialog
+    /// then. Every window reads its shortcuts here, so no window's keys get past a dialog.
+    pub(crate) fn shortcut_unless_dialog_open(&self, ctx: &egui::Context) -> Option<Action> {
+        if self.dialog_open() {
+            return None;
+        }
+        Self::shortcut(
+            ctx,
+            self.config.delete_key,
+            self.folder.collection().is_some(),
+        )
+    }
+
     /// The action for a shortcut pressed this frame, if any.
     /// `delete_key` false: the Delete key does nothing (Ctrl+D still deletes), as in Geeqie.
     pub(crate) fn shortcut(
@@ -1440,14 +1454,8 @@ impl crate::App {
         let vertical =
             ctx.input(|i| i.key_pressed(egui::Key::ArrowUp) || i.key_pressed(egui::Key::ArrowDown));
         self.panel.set_row_step(vertical);
-        (!self.dialog_open() && !typing)
-            .then(|| {
-                Self::shortcut(
-                    ctx,
-                    self.config.delete_key,
-                    self.folder.collection().is_some(),
-                )
-            })
+        (!typing)
+            .then(|| self.shortcut_unless_dialog_open(ctx))
             .flatten()
     }
 
@@ -2271,6 +2279,60 @@ mod tests {
                 .any(|s| s.0 == Action::NewWindow && super::same_keys(s, &ctrl_n.0[0]))
         );
         super::USER_KEYS.write().unwrap().clear();
+    }
+
+    /// A dialog in the main window holds the keys of every window. The projector once browsed
+    /// on with Space behind the Delete question, as it read its shortcuts without asking about
+    /// dialogs. Every window now reads them through `shortcut_unless_dialog_open`, and no code
+    /// outside the tests calls `shortcut` itself.
+    #[test]
+    fn no_window_reads_its_keys_past_a_dialog() {
+        use eframe::egui;
+        let dir =
+            std::env::temp_dir().join(format!("glimt-test-keys-dialog-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        for name in ["a.png", "b.png"] {
+            image::RgbImage::new(2, 2).save(dir.join(name)).unwrap();
+        }
+        let (mut app, ctx) = crate::support::test_support::app_on(&dir);
+        let listed = |a: &crate::App| !a.list.files().is_empty();
+        assert!(crate::support::test_support::run_background_until(
+            &mut app, &ctx, listed
+        ));
+        let space = |app: &crate::App| {
+            let key = egui::Event::Key {
+                key: egui::Key::Space,
+                physical_key: None,
+                pressed: true,
+                repeat: false,
+                modifiers: Default::default(),
+            };
+            ctx.begin_pass(egui::RawInput {
+                events: vec![key],
+                ..Default::default()
+            });
+            let action = app.shortcut_unless_dialog_open(&ctx);
+            let _ = ctx.end_pass();
+            action
+        };
+        assert_eq!(space(&app), Some(Action::Next));
+        app.run(&ctx, Action::DeletePermanently);
+        assert!(app.dialog_open());
+        assert_eq!(space(&app), None);
+        std::fs::remove_dir_all(&dir).unwrap();
+        let mut callers = Vec::new();
+        for (file, text) in crate::support::source_rules::rust_sources() {
+            let lines = crate::support::source_rules::code_lines(&text);
+            let end =
+                (lines.iter().position(|l| l.trim_start() == "mod tests {")).unwrap_or(lines.len());
+            let calls = lines[..end].iter().filter(|l| l.contains("::shortcut("));
+            callers.extend(calls.map(|_| file.clone()));
+        }
+        assert_eq!(
+            callers,
+            ["ui/actions.rs"],
+            "read a window's shortcuts with shortcut_unless_dialog_open"
+        );
     }
 
     /// Plain Ctrl+C comes from egui-winit as a Copy event, and so does the Copy key with no
