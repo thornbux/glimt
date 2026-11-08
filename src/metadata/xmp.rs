@@ -85,6 +85,38 @@ impl KeywordsAndComment {
     }
 }
 
+/// An edit of the keywords field: the keywords it added and those it took out. `write_changed`
+/// applies it to the keywords on disk, so keywords that another window or a background job set
+/// meanwhile stay, and so do keywords the edit did not touch, also one that holds a comma.
+#[derive(Clone, Default, PartialEq, Debug)]
+pub struct KeywordChange {
+    pub added: Vec<String>,
+    pub removed: Vec<String>,
+}
+
+impl KeywordChange {
+    /// The change from the keywords `before` to the keywords `after`. A keyword written in
+    /// another letter case counts as taken out and added, so the new spelling is written.
+    pub fn between(before: &[String], after: &[String]) -> Self {
+        let missing = |list: &[String], other: &[String]| -> Vec<String> {
+            (list.iter())
+                .filter(|k| !other.contains(k))
+                .cloned()
+                .collect()
+        };
+        KeywordChange {
+            added: missing(after, before),
+            removed: missing(before, after),
+        }
+    }
+
+    /// Takes the removed keywords out of `keywords` and adds the added ones at its end.
+    pub fn apply(&self, keywords: &mut Vec<String>) {
+        keywords.retain(|k| !self.removed.iter().any(|r| same_keyword(r, k)));
+        add_to(keywords, &self.added);
+    }
+}
+
 /// IPTC's fields for accessibility (Photo Metadata 2021), in XMP. They are a short text for
 /// someone who cannot see the picture, and a longer description of it. Web pages, publishing
 /// tools and screen readers use them. They are kept apart from the keywords and comment, which
@@ -312,21 +344,22 @@ fn embedded(path: &Path) -> Option<String> {
     String::from_utf8(bytes).ok()
 }
 
-/// Writes the fields that were edited (`None` means as it is on disk). They are read and
-/// written as one change, so keywords set in the background meanwhile stay, and everything else
-/// in the sidecar stays too. Keywords or a comment the image holds itself and that were cleared
-/// are written as empty elements, because if they were left out, the image's own would be read
-/// again. Returns the keywords and comment as written.
+/// Writes the fields that were edited (`None` means as it is on disk). The keywords' change is
+/// applied to the keywords on disk, read and written as one change under the sidecar's lock. So
+/// keywords that another window or a background job set since the panel read the file stay,
+/// and everything else in the sidecar stays too. Keywords or a comment the image holds itself
+/// and that were cleared are written as empty elements, because if they were left out, the
+/// image's own would be read again. Returns the keywords and comment as written.
 pub fn write_changed(
     path: &Path,
-    keywords: Option<Vec<String>>,
+    keywords: Option<KeywordChange>,
     comment: Option<String>,
 ) -> Result<KeywordsAndComment, String> {
     let _lock = lock_sidecar(path);
     let mut meta = read(path);
     let keywords_only = comment.is_none();
-    if let Some(k) = keywords {
-        meta.keywords = k;
+    if let Some(change) = keywords {
+        change.apply(&mut meta.keywords);
     }
     if let Some(c) = comment {
         meta.comment = c;
@@ -1167,6 +1200,31 @@ mod tests {
 
     use super::*;
 
+    /// The change that adds `keywords`, as an edit of the panel's empty field sends it.
+    fn adding(keywords: &[String]) -> Option<KeywordChange> {
+        Some(KeywordChange::between(&[], keywords))
+    }
+
+    /// An edit of the keywords field changes only the keywords it added or took out. A keyword
+    /// that another window or a Lightroom import wrote after the panel read the file stays, and
+    /// so does one that holds a comma, which the field would split in two.
+    #[test]
+    fn an_edit_keeps_keywords_written_after_the_panel_read() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-kw-change-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("a.jpg");
+        std::fs::write(&file, b"").unwrap();
+        write_changed(&file, adding(&["Smith, John".into(), "x".into()]), None).unwrap();
+        // The panel shows what it read, and then another window adds Oslo.
+        let shown = KeywordsAndComment::parse_keywords(&read(&file).keywords_text());
+        add_keywords(&file, &["Oslo".into()]).unwrap();
+        // The user adds beach and takes x out in the field.
+        let edited = KeywordsAndComment::parse_keywords("Smith, John, beach");
+        write_changed(&file, Some(KeywordChange::between(&shown, &edited)), None).unwrap();
+        assert_eq!(read(&file).keywords, ["Smith, John", "Oslo", "beach"]);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
     /// A JPEG with an empty APP1 segment followed by the XMP name gives no keywords, and no
     /// panic.
     #[test]
@@ -1191,14 +1249,7 @@ mod tests {
             keywords: vec!["x".into()],
             comment: String::new(),
         };
-        assert!(
-            write_changed(
-                &file,
-                Some(meta.keywords.clone()),
-                Some(meta.comment.clone())
-            )
-            .is_err()
-        );
+        assert!(write_changed(&file, adding(&meta.keywords), Some(meta.comment.clone())).is_err());
         assert_eq!(
             std::fs::read(sidecar(&file)).unwrap(),
             b"\xff\xfe not UTF-8"
@@ -1237,7 +1288,7 @@ mod tests {
         let theirs = "<x:xmpmeta><rdf:RDF><rdf:Description rdf:about=\"\"/></rdf:RDF></x:xmpmeta>";
         std::fs::write(&elsewhere, theirs).unwrap();
         std::os::unix::fs::symlink(&elsewhere, sidecar(&file)).unwrap();
-        let written = write_changed(&file, Some(vec!["x".into()]), None);
+        let written = write_changed(&file, adding(&["x".into()]), None);
         assert!(written.is_err_and(|e| e.contains("a link")));
         assert_eq!(std::fs::read_to_string(&elsewhere).unwrap(), theirs);
         let link = std::fs::symlink_metadata(sidecar(&file)).unwrap();
@@ -1251,7 +1302,7 @@ mod tests {
     fn no_sidecar_for_an_image_gone() {
         let dir = std::env::temp_dir().join(format!("glimt-test-gone-{}", std::process::id()));
         let file = dir.join("trip").join("a.jpg");
-        assert!(write_changed(&file, Some(vec!["x".into()]), None).is_err());
+        assert!(write_changed(&file, adding(&["x".into()]), None).is_err());
         assert!(!dir.exists());
     }
 
@@ -1376,7 +1427,12 @@ mod tests {
         bytes.extend(&base[2..]);
         std::fs::write(&file, bytes).unwrap();
         assert_eq!(read(&file), own);
-        write_changed(&file, Some(Vec::new()), Some(String::new())).unwrap();
+        write_changed(
+            &file,
+            Some(KeywordChange::between(&own.keywords, &[])),
+            Some(String::new()),
+        )
+        .unwrap();
         assert_eq!(read(&file), KeywordsAndComment::default());
         std::fs::remove_dir_all(dir).unwrap();
     }
@@ -1468,7 +1524,7 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let photo = dir.join("a.jpg");
         std::fs::write(&photo, b"").unwrap();
-        super::write_changed(&photo, Some(vec!["Mine".into()]), None).unwrap();
+        super::write_changed(&photo, adding(&["Mine".into()]), None).unwrap();
         let tags = ["Places|Norway|Oslo".to_owned(), "People|Ann".to_owned()];
         super::add_tags(&photo, &tags).unwrap();
         super::add_tags(&photo, &tags).unwrap();
@@ -1568,7 +1624,7 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let file = dir.join("a.jpg");
         std::fs::write(&file, b"").unwrap();
-        write_changed(&file, Some(vec!["a".into()]), None).unwrap();
+        write_changed(&file, adding(&["a".into()]), None).unwrap();
         tag_file(&file, "b", true).unwrap();
         let meta = write_changed(&file, None, Some("c".into())).unwrap();
         assert_eq!(
@@ -1611,7 +1667,7 @@ mod tests {
             keywords: vec!["x".into()],
             comment: "y".into(),
         };
-        write_changed(&a, Some(meta.keywords.clone()), Some(meta.comment.clone())).unwrap();
+        write_changed(&a, adding(&meta.keywords), Some(meta.comment.clone())).unwrap();
         assert_eq!(read(&a), meta);
         std::fs::rename(&a, &b).unwrap();
         follow(&a, &b, false).unwrap();
@@ -1625,12 +1681,7 @@ mod tests {
             keywords: vec!["other".into()],
             comment: String::new(),
         };
-        write_changed(
-            &a,
-            Some(other.keywords.clone()),
-            Some(other.comment.clone()),
-        )
-        .unwrap();
+        write_changed(&a, adding(&other.keywords), Some(other.comment.clone())).unwrap();
         assert!(follow(&b, &a, true).is_err());
         assert_eq!(read(&a), other);
         std::fs::remove_dir_all(&dir).unwrap();
@@ -1646,7 +1697,7 @@ mod tests {
         let (other, a) = (dir.join("other.png"), dir.join("a.png"));
         image::RgbaImage::new(2, 2).save(&other).unwrap();
         image::RgbaImage::new(2, 2).save(&a).unwrap();
-        write_changed(&other, Some(vec!["secret".into()]), None).unwrap();
+        write_changed(&other, adding(&["secret".into()]), None).unwrap();
         std::os::unix::fs::symlink(sidecar(&other), sidecar(&a)).unwrap();
         assert!(read(&a).keywords.is_empty(), "read through the link");
         assert!(

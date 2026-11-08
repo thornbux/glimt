@@ -5,6 +5,12 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- An edit of the keywords field in the info panel changes only the keywords added or taken out
+  there. Keywords that another window, a Lightroom import or a background job wrote to the
+  shown image after the panel read it are kept, and so is a keyword that holds a comma.
+
 ## [0.75.0] - 2026-11-08
 
 ### Added
