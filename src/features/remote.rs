@@ -847,6 +847,8 @@ fn serve_clients(
     while places.recv().is_ok() {
         let Ok((stream, _)) = listener.accept() else {
             let _ = free.send(());
+            // A lasting error, such as too many open files, would otherwise be a busy loop.
+            std::thread::sleep(std::time::Duration::from_millis(100));
             continue;
         };
         // The client is counted from here, before its query is read, so a client that came
