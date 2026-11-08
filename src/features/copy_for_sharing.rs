@@ -94,7 +94,9 @@ impl SharingDialog {
     /// Draws the group `group`, number `i` of `Group::ALL`: its checkbox, which leaves out the
     /// whole group, and Show or Hide for its tags of `found`, each with a checkbox of its own.
     fn draw_group(&mut self, ui: &mut egui::Ui, i: usize, group: Group, found: &[String]) {
-        let tags: Vec<&String> = found.iter().filter(|t| Group::of(t) == group).collect();
+        let tags: Vec<&String> = (found.iter())
+            .filter(|t| Group::groups_of(t).contains(&group))
+            .collect();
         ui.horizontal(|ui| {
             let mut is_left_out = self.left_out.is_group_left_out(group);
             if checkbox(ui, &mut is_left_out, group.name()).changed() {

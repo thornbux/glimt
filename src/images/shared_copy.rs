@@ -9,123 +9,144 @@
 
 use crate::images::decode::{MAX_DECODE_BYTES, open_regular_with_metadata, read_head};
 use crate::images::save::{MAX_JPEG_EXIF, SharedMetadata, crc32, shared_metadata};
-use crate::metadata::exif::EXIF_THUMBNAIL;
 use crate::metadata::xmp::Properties;
 use crate::support::lang::tr;
 use std::borrow::Cow;
 use std::collections::{BTreeSet, HashSet};
 use std::path::Path;
 
-/// The groups that tags with these names belong to. The names are the ones files give tags:
-/// EXIF's (`exif::tag_name`), XMP's, a PNG's text keywords, and a few for whole blocks. A name
-/// not here falls in a group by its prefix (`Group::of`), or in More tags.
-const TAG_GROUPS: &[(&str, Group)] = &[
-    ("photoshop:City", Group::Place),
-    ("photoshop:State", Group::Place),
-    ("photoshop:Country", Group::Place),
-    ("Iptc4xmpCore:Location", Group::Place),
-    ("Iptc4xmpCore:CountryCode", Group::Place),
-    ("Make", Group::Camera),
-    ("Model", Group::Camera),
-    ("LensMake", Group::Camera),
-    ("LensModel", Group::Camera),
-    ("LensSpecification", Group::Camera),
-    ("BodySerialNumber", Group::Camera),
-    ("LensSerialNumber", Group::Camera),
-    ("MakerNote", Group::Camera),
-    ("CameraFirmware", Group::Camera),
-    ("ImageUniqueID", Group::Camera),
-    ("tiff:Make", Group::Camera),
-    ("tiff:Model", Group::Camera),
-    ("exif:ImageUniqueID", Group::Camera),
-    ("exifEX:BodySerialNumber", Group::Camera),
-    ("exifEX:LensMake", Group::Camera),
-    ("exifEX:LensModel", Group::Camera),
-    ("exifEX:LensSerialNumber", Group::Camera),
-    ("exifEX:LensSpecification", Group::Camera),
-    ("exifEX:ImageUniqueID", Group::Camera),
-    ("DateTime", Group::Date),
-    ("DateTimeOriginal", Group::Date),
-    ("DateTimeDigitized", Group::Date),
-    ("OffsetTime", Group::Date),
-    ("OffsetTimeOriginal", Group::Date),
-    ("OffsetTimeDigitized", Group::Date),
-    ("SubSecTime", Group::Date),
-    ("SubSecTimeOriginal", Group::Date),
-    ("SubSecTimeDigitized", Group::Date),
-    ("xmp:CreateDate", Group::Date),
-    ("xmp:ModifyDate", Group::Date),
-    ("xmp:MetadataDate", Group::Date),
-    ("exif:DateTimeOriginal", Group::Date),
-    ("exif:DateTimeDigitized", Group::Date),
-    ("tiff:DateTime", Group::Date),
-    ("photoshop:DateCreated", Group::Date),
-    ("dc:date", Group::Date),
-    ("Creation Time", Group::Date),
-    ("tIME", Group::Date),
-    ("date:create", Group::Date),
-    ("date:modify", Group::Date),
-    ("date:timestamp", Group::Date),
-    ("Artist", Group::Photographer),
-    ("Copyright", Group::Photographer),
-    ("CameraOwnerName", Group::Photographer),
-    ("Photographer", Group::Photographer),
-    ("XPAuthor", Group::Photographer),
-    ("Author", Group::Photographer),
-    ("dc:creator", Group::Photographer),
-    ("dc:rights", Group::Photographer),
-    ("dc:publisher", Group::Photographer),
-    ("dc:contributor", Group::Photographer),
-    ("tiff:Artist", Group::Photographer),
-    ("tiff:Copyright", Group::Photographer),
-    ("exifEX:CameraOwnerName", Group::Photographer),
-    ("photoshop:Credit", Group::Photographer),
-    ("photoshop:AuthorsPosition", Group::Photographer),
-    ("photoshop:Source", Group::Photographer),
-    ("photoshop:CaptionWriter", Group::Photographer),
-    ("Iptc4xmpCore:CreatorContactInfo", Group::Photographer),
-    ("Software", Group::Software),
-    ("ProcessingSoftware", Group::Software),
-    ("HostComputer", Group::Software),
-    ("ImageEditor", Group::Software),
-    ("RAWDevelopingSoftware", Group::Software),
-    ("ImageEditingSoftware", Group::Software),
-    ("MetadataEditingSoftware", Group::Software),
-    ("tiff:Software", Group::Software),
-    ("xmp:CreatorTool", Group::Software),
-    ("xmpMM:History", Group::Software),
-    ("photoshop:History", Group::Software),
-    ("xmpMM:DerivedFrom", Group::Software),
-    ("xmpMM:Ingredients", Group::Software),
-    ("xmpMM:PreservedFileName", Group::Software),
-    ("ImageDescription", Group::Keywords),
-    ("UserComment", Group::Keywords),
-    ("ImageTitle", Group::Keywords),
-    ("XPTitle", Group::Keywords),
-    ("XPComment", Group::Keywords),
-    ("XPKeywords", Group::Keywords),
-    ("XPSubject", Group::Keywords),
-    ("Comment", Group::Keywords),
-    ("Description", Group::Keywords),
-    ("Title", Group::Keywords),
-    ("JPEG comment", Group::Keywords),
-    ("dc:subject", Group::Keywords),
-    ("dc:description", Group::Keywords),
-    ("dc:title", Group::Keywords),
-    ("lr:hierarchicalSubject", Group::Keywords),
-    ("Iptc4xmpCore:AltTextAccessibility", Group::Keywords),
-    ("Iptc4xmpCore:ExtDescrAccessibility", Group::Keywords),
-    ("photoshop:Headline", Group::Keywords),
-    ("photoshop:Instructions", Group::Keywords),
-    ("exif:UserComment", Group::Keywords),
-    ("tiff:ImageDescription", Group::Keywords),
-    ("digiKam:TagsList", Group::Keywords),
-    ("mwg-rs:Regions", Group::Keywords),
-    ("Iptc4xmpExt:PersonInImage", Group::Keywords),
-    (EXIF_THUMBNAIL, Group::Preview),
-    (JFIF_THUMBNAIL, Group::Preview),
-    ("xmp:Thumbnails", Group::Preview),
-    ("xap:Thumbnails", Group::Preview),
+/// The words that put a tag in a group, looked for in its whole name (its namespace's prefix
+/// and its own name) in lower case. A tag with words of several groups is in each of them:
+/// GPSDateStamp says where and when, and a file name such as PXL_20231004_142355 holds the date,
+/// while a path names the user. A name with none of them is in More tags, unless
+/// `GROUP_EXCEPTIONS` says otherwise. Exif's auxiliary namespace (aux:) holds the lens and serial
+/// numbers, and PLUS (plus:) holds the licence and its owner.
+const GROUP_WORDS: [(Group, &[&str]); 7] = [
+    (
+        Group::Place,
+        &[
+            "gps",
+            "latitude",
+            "longitude",
+            "altitude",
+            "location",
+            "city",
+            "country",
+        ],
+    ),
+    (
+        Group::Camera,
+        &[
+            "serial", "make", "model", "lens", "body", "camera", "firmware", "aux:",
+        ],
+    ),
+    (
+        Group::Date,
+        &[
+            "date",
+            "time",
+            "stamp",
+            "history",
+            "filename",
+            "derivedfrom",
+        ],
+    ),
+    (
+        Group::Photographer,
+        &[
+            "owner",
+            "author",
+            "creator",
+            "artist",
+            "copyright",
+            "rights",
+            "byline",
+            "credit",
+            "photographer",
+            "plus:",
+            "filename",
+            "derivedfrom",
+        ],
+    ),
+    (
+        Group::Software,
+        &["software", "tool", "history", "processing"],
+    ),
+    (Group::Keywords, &["keyword", "mediapro:"]),
+    (Group::Preview, &["thumbnail"]),
+];
+
+/// The tags whose groups are not those their words give (`GROUP_WORDS`), with the groups they
+/// are in instead. Some have no word of their group, such as a caption. Others have a word of
+/// a group they say nothing of: an exposure time is no date, the subject's location is a place
+/// in the picture, not on the map, and the camera's owner is a person, not the camera.
+const GROUP_EXCEPTIONS: &[(&str, &[Group])] = &[
+    ("photoshop:State", &[Group::Place]),
+    ("mediapro:Location", &[Group::Place]),
+    ("GPSProcessingMethod", &[Group::Place]),
+    ("exif:GPSProcessingMethod", &[Group::Place]),
+    ("SubjectLocation", &[Group::Other]),
+    ("exif:SubjectLocation", &[Group::Other]),
+    ("ExposureTime", &[Group::Other]),
+    ("exif:ExposureTime", &[Group::Other]),
+    ("ImageUniqueID", &[Group::Camera]),
+    ("exif:ImageUniqueID", &[Group::Camera]),
+    ("exifEX:ImageUniqueID", &[Group::Camera]),
+    // A position in the motion photo's video, in microseconds, not a date.
+    (
+        "GCamera:MotionPhotoPresentationTimestampUs",
+        &[Group::Camera],
+    ),
+    (
+        "GCamera:MicroVideoPresentationTimestampUs",
+        &[Group::Camera],
+    ),
+    ("CameraOwnerName", &[Group::Photographer]),
+    ("exifEX:CameraOwnerName", &[Group::Photographer]),
+    ("aux:OwnerName", &[Group::Photographer]),
+    ("dc:publisher", &[Group::Photographer]),
+    ("dc:contributor", &[Group::Photographer]),
+    ("photoshop:Source", &[Group::Photographer]),
+    ("photoshop:CaptionWriter", &[Group::Photographer]),
+    ("plus:ModelReleaseStatus", &[Group::Photographer]),
+    ("plus:ModelReleaseID", &[Group::Photographer]),
+    ("Iptc4xmpExt:ModelAge", &[Group::Keywords]),
+    ("Iptc4xmpExt:AddlModelInfo", &[Group::Keywords]),
+    ("HostComputer", &[Group::Software]),
+    ("ImageEditor", &[Group::Software]),
+    ("xmp:CreatorTool", &[Group::Software]),
+    // The files a photo was made from, by their paths, names and dates, and the programs.
+    (
+        "xmpMM:DerivedFrom",
+        &[Group::Date, Group::Photographer, Group::Software],
+    ),
+    (
+        "xmpMM:Ingredients",
+        &[Group::Date, Group::Photographer, Group::Software],
+    ),
+    ("ImageDescription", &[Group::Keywords]),
+    ("UserComment", &[Group::Keywords]),
+    ("ImageTitle", &[Group::Keywords]),
+    ("XPTitle", &[Group::Keywords]),
+    ("XPComment", &[Group::Keywords]),
+    ("XPSubject", &[Group::Keywords]),
+    ("Comment", &[Group::Keywords]),
+    ("Description", &[Group::Keywords]),
+    ("Title", &[Group::Keywords]),
+    (JPEG_COMMENT, &[Group::Keywords]),
+    ("dc:subject", &[Group::Keywords]),
+    ("dc:description", &[Group::Keywords]),
+    ("dc:title", &[Group::Keywords]),
+    ("lr:hierarchicalSubject", &[Group::Keywords]),
+    ("Iptc4xmpCore:AltTextAccessibility", &[Group::Keywords]),
+    ("Iptc4xmpCore:ExtDescrAccessibility", &[Group::Keywords]),
+    ("photoshop:Headline", &[Group::Keywords]),
+    ("photoshop:Instructions", &[Group::Keywords]),
+    ("exif:UserComment", &[Group::Keywords]),
+    ("tiff:ImageDescription", &[Group::Keywords]),
+    ("digiKam:TagsList", &[Group::Keywords]),
+    ("mwg-rs:Regions", &[Group::Keywords]),
+    ("Iptc4xmpExt:PersonInImage", &[Group::Keywords]),
 ];
 
 /// The tags that are blocks of other tags, not a single tag, with the groups whose tags each
@@ -146,18 +167,13 @@ const BLOCKS: &[(&str, &[Group])] = &[
     (RAW_PROFILES, &Group::ALL),
     (JFIF_THUMBNAIL, &[Group::Preview]),
     ("xmpMM:History", &[Group::Software, Group::Date]),
-    // The paths and names of the files that a photo was made from. A path names the user, and
-    // a name such as PXL_20231004_142355 holds the date.
+    // The files that a photo was made from, each with its path, name and date.
     (
         "xmpMM:DerivedFrom",
         &[Group::Software, Group::Date, Group::Photographer],
     ),
     (
         "xmpMM:Ingredients",
-        &[Group::Software, Group::Date, Group::Photographer],
-    ),
-    (
-        "xmpMM:PreservedFileName",
         &[Group::Software, Group::Date, Group::Photographer],
     ),
 ];
@@ -172,10 +188,6 @@ const UNKNOWN_BLOCKS: [&str; 5] = [
     "Image 0x",
     "Exif 0x",
 ];
-
-/// The words that make a tag one of Place, whatever its namespace or prefix: a drone's
-/// `drone-dji:GpsLatitude` and `AbsoluteAltitude` as much as EXIF's GPS directory.
-const PLACE_WORDS: [&str; 4] = ["gps", "latitude", "longitude", "altitude"];
 
 /// The tag of a JPEG's JFXX segment, a thumbnail beside the JFIF header, and of a thumbnail
 /// inside the JFIF header itself (`add_jfif`).
@@ -319,31 +331,27 @@ impl Group {
         }
     }
 
-    /// The group of the tag named `tag`: by its name in `TAG_GROUPS`, or else by its words and
-    /// its prefix. An XMP property's prefix is that of its namespace (`xmp::properties`), not
-    /// the one its packet wrote. A name with a word of `PLACE_WORDS` says where, as do the
-    /// IPTC's place properties. Exif's auxiliary namespace (aux:) holds the lens and serial
-    /// numbers, and the rights namespaces say whose the photo is.
-    pub(crate) fn of(tag: &str) -> Group {
-        if let Some(&(_, group)) = TAG_GROUPS.iter().find(|(name, _)| *name == tag) {
-            return group;
+    /// Returns the groups of the tag named `tag`, in the order of `Group::ALL`: those
+    /// `GROUP_EXCEPTIONS` gives it, or else those whose words (`GROUP_WORDS`) its name has, or
+    /// else More tags. An XMP property's prefix is that of its namespace (`xmp::properties`),
+    /// not the one its packet wrote. This is the one place that decides a tag's groups: the
+    /// dialog lists the tag under each, and the box of any of them leaves it out.
+    pub(crate) fn groups_of(tag: &str) -> Vec<Group> {
+        if let Some((_, groups)) = GROUP_EXCEPTIONS.iter().find(|(name, _)| *name == tag) {
+            return Group::ALL
+                .into_iter()
+                .filter(|g| groups.contains(g))
+                .collect();
         }
         let lower = tag.to_ascii_lowercase();
-        let starts = |prefixes: &[&str]| prefixes.iter().any(|p| tag.starts_with(p));
-        if PLACE_WORDS.iter().any(|w| lower.contains(w))
-            || starts(&["Iptc4xmpExt:Location", "mediapro:Location"])
-        {
-            Group::Place
-        } else if starts(&["exif:DateTime", "exif:SubSecTime", "exifEX:OffsetTime"]) {
-            Group::Date
-        } else if starts(&["aux:"]) {
-            Group::Camera
-        } else if starts(&["xmpRights:", "plus:"]) {
-            Group::Photographer
-        } else if starts(&["MicrosoftPhoto:LastKeyword", "mediapro:"]) {
-            Group::Keywords
+        let groups: Vec<Group> = (GROUP_WORDS.iter())
+            .filter(|(_, words)| words.iter().any(|w| lower.contains(w)))
+            .map(|(group, _)| *group)
+            .collect();
+        if groups.is_empty() {
+            vec![Group::Other]
         } else {
-            Group::Other
+            groups
         }
     }
 
@@ -382,8 +390,10 @@ impl LeftOut {
     fn count_groups(&mut self) {
         self.has_left_out = [false; 8];
         for word in &self.words {
-            let group = Group::of_key(word).unwrap_or_else(|| Group::of(word));
-            self.has_left_out[group as usize] = true;
+            let groups = Group::of_key(word).map_or_else(|| Group::groups_of(word), |g| vec![g]);
+            for group in groups {
+                self.has_left_out[group as usize] = true;
+            }
         }
     }
 
@@ -392,11 +402,11 @@ impl LeftOut {
         self.words.iter().map(|w| format!("{w}\n")).collect()
     }
 
-    /// Whether the tag `tag` is left out: by its name, by its whole group, or as a block that
-    /// can hold a tag of a group that has one left out (`BLOCKS`).
+    /// Whether the tag `tag` is left out: by its name, by any of its groups left out whole, or
+    /// as a block that can hold a tag of a group that has one left out (`BLOCKS`).
     pub(crate) fn is_left_out(&self, tag: &str) -> bool {
         self.words.contains(tag)
-            || self.words.contains(Group::of(tag).key())
+            || (Group::groups_of(tag).iter()).any(|g| self.words.contains(g.key()))
             || (block_groups(tag).iter()).any(|g| self.has_left_out[*g as usize])
     }
 
@@ -405,17 +415,18 @@ impl LeftOut {
         self.words.contains(group.key())
     }
 
-    /// Leaves the tag `tag` out, or keeps it. A tag kept out of a group left out whole leaves
-    /// the group's other tags of `found` out one by one instead.
+    /// Leaves the tag `tag` out, or keeps it. A tag kept out of groups left out whole leaves
+    /// the other tags of `found` in those groups out one by one instead.
     pub(crate) fn set_tag(&mut self, tag: &str, left_out: bool, found: &[String]) {
         if left_out {
             self.words.insert(tag.to_owned());
         } else {
             self.words.remove(tag);
-            let group = Group::of(tag);
-            if self.words.remove(group.key()) {
-                let others = found.iter().filter(|t| *t != tag && Group::of(t) == group);
-                self.words.extend(others.cloned());
+            for group in Group::groups_of(tag) {
+                if self.words.remove(group.key()) {
+                    let is_other = |t: &&String| *t != tag && Group::groups_of(t).contains(&group);
+                    self.words.extend(found.iter().filter(is_other).cloned());
+                }
             }
         }
         self.count_groups();
@@ -426,9 +437,10 @@ impl LeftOut {
         if left_out {
             self.words.insert(group.key().to_owned());
         } else {
-            // The other groups' keys stay, though `Group::of` puts no key in their groups.
+            // The other groups' keys stay, though `Group::groups_of` puts no key in a group.
             let is_key = |w: &str| w.starts_with("group:");
-            (self.words).retain(|w| w != group.key() && (is_key(w) || Group::of(w) != group));
+            let is_in_group = |w: &str| Group::groups_of(w).contains(&group);
+            (self.words).retain(|w| w != group.key() && (is_key(w) || !is_in_group(w)));
         }
         self.count_groups();
     }
@@ -1495,7 +1507,7 @@ mod tests {
     /// and the names that say where, when or who are in their groups whatever their prefix.
     #[test]
     fn blocks_go_with_any_group_they_can_carry() {
-        use super::Group::{Date, Keywords, Place, Software};
+        use super::Group::{Date, Keywords, Photographer, Place, Software};
         let mut left_out = super::LeftOut::default();
         let blocks = [
             super::MPF,
@@ -1517,7 +1529,7 @@ mod tests {
             assert!(left_out.is_left_out(block), "{block} is kept");
         }
         assert!(!left_out.is_left_out(super::JFIF_THUMBNAIL) && !left_out.is_left_out("Make"));
-        left_out.set_tag(super::EXIF_THUMBNAIL, true, &[]);
+        left_out.set_tag(crate::metadata::exif::EXIF_THUMBNAIL, true, &[]);
         assert!(left_out.is_left_out(super::JFIF_THUMBNAIL));
         let mut dated = super::LeftOut::default();
         dated.set_tag("DateTime", true, &[]);
@@ -1534,12 +1546,101 @@ mod tests {
             ("MicrosoftPhoto:LastKeywordIPTC", Keywords),
             ("mwg-rs:Regions", Keywords),
             ("Iptc4xmpExt:PersonInImage", Keywords),
-            ("xmpMM:DerivedFrom", Software),
-            ("xmpMM:Ingredients", Software),
-            ("xmpMM:PreservedFileName", Software),
         ] {
-            assert_eq!(super::Group::of(tag), group, "{tag}");
+            assert_eq!(super::Group::groups_of(tag), [group], "{tag}");
         }
+        for block in ["xmpMM:DerivedFrom", "xmpMM:Ingredients"] {
+            let groups = super::Group::groups_of(block);
+            assert_eq!(groups, [Date, Photographer, Software], "{block}");
+        }
+    }
+
+    /// Real tags, from exiftool's tables and from what phones, Lightroom and Windows write, are
+    /// left out by the box of each group they say something of, and by no other. A tag that
+    /// says when as well as where, or a file name that holds the date and a path that names the
+    /// user, goes with each of its groups.
+    #[test]
+    fn each_tag_goes_with_every_group_it_belongs_to() {
+        use super::Group::{self, Keywords};
+        use super::Group::{Camera, Date, Other, Photographer, Place, Preview, Software};
+        let tags: [(&str, &[Group]); 50] = [
+            ("DateTimeOriginal", &[Date]),
+            ("DateTime", &[Date]),
+            ("OffsetTimeOriginal", &[Date]),
+            ("SubSecTimeOriginal", &[Date]),
+            ("xmp:CreateDate", &[Date]),
+            ("xmp:MetadataDate", &[Date]),
+            ("photoshop:DateCreated", &[Date]),
+            ("MicrosoftPhoto:DateAcquired", &[Date]),
+            ("GPano:FirstPhotoDate", &[Date]),
+            ("GPano:LastPhotoDate", &[Date]),
+            ("tIME", &[Date]),
+            ("GPSDateStamp", &[Place, Date]),
+            ("GPSTimeStamp", &[Place, Date]),
+            ("exif:GPSTimeStamp", &[Place, Date]),
+            ("GPSLatitude", &[Place]),
+            ("GPSProcessingMethod", &[Place]),
+            ("drone-dji:AbsoluteAltitude", &[Place]),
+            ("photoshop:City", &[Place]),
+            ("photoshop:State", &[Place]),
+            ("Iptc4xmpCore:Location", &[Place]),
+            ("Iptc4xmpExt:LocationShown", &[Place]),
+            ("Make", &[Camera]),
+            ("LensModel", &[Camera]),
+            ("BodySerialNumber", &[Camera]),
+            ("aux:SerialNumber", &[Camera]),
+            ("aux:Lens", &[Camera]),
+            ("GCamera:MotionPhotoPresentationTimestampUs", &[Camera]),
+            ("aux:OwnerName", &[Photographer]),
+            ("CameraOwnerName", &[Photographer]),
+            ("Artist", &[Photographer]),
+            ("dc:creator", &[Photographer]),
+            ("dc:rights", &[Photographer]),
+            ("xmpRights:UsageTerms", &[Photographer]),
+            ("photoshop:Credit", &[Photographer]),
+            ("crs:RawFileName", &[Date, Photographer]),
+            ("xmpMM:PreservedFileName", &[Date, Photographer]),
+            ("Software", &[Software]),
+            ("xmp:CreatorTool", &[Software]),
+            ("photoshop:History", &[Date, Software]),
+            ("dc:subject", &[Keywords]),
+            ("XPKeywords", &[Keywords]),
+            ("Iptc4xmpCore:AltTextAccessibility", &[Keywords]),
+            (crate::metadata::exif::EXIF_THUMBNAIL, &[Preview]),
+            ("ExposureTime", &[Other]),
+            ("exif:ExposureTime", &[Other]),
+            ("SubjectDistance", &[Other]),
+            ("SubjectLocation", &[Other]),
+            ("FocalLength", &[Other]),
+            ("xmp:Rating", &[Other]),
+            ("xmpMM:DocumentID", &[Other]),
+        ];
+        let mut wrong = Vec::new();
+        for (tag, groups) in tags {
+            for group in Group::ALL {
+                let mut left_out = super::LeftOut::default();
+                left_out.set_group(group, true);
+                if left_out.is_left_out(tag) != groups.contains(&group) {
+                    wrong.push(format!("{tag} with {group:?}"));
+                }
+            }
+        }
+        assert!(wrong.is_empty(), "{wrong:?}");
+    }
+
+    /// A tag of two groups that is kept out of one group left out whole stays kept, and the
+    /// other tags of that group are left out one by one instead.
+    #[test]
+    fn a_tag_of_two_groups_can_be_kept() {
+        let found: Vec<String> = ["GPSDateStamp", "DateTimeOriginal", "GPSLatitude"]
+            .map(str::to_owned)
+            .to_vec();
+        let mut left_out = super::LeftOut::default();
+        left_out.set_group(super::Group::Date, true);
+        assert!(left_out.is_left_out("GPSDateStamp"));
+        left_out.set_tag("GPSDateStamp", false, &found);
+        assert!(!left_out.is_left_out("GPSDateStamp"));
+        assert!(left_out.is_left_out("DateTimeOriginal") && !left_out.is_left_out("GPSLatitude"));
     }
 
     /// A thumbnail inside a JPEG's JFIF header is a tag of the preview group: it goes with
