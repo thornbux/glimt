@@ -325,7 +325,11 @@ pub fn edit_shared<T>(
     let _held = file_lock(path);
     let old = read_or_none(path)?.unwrap_or_default();
     let (new, keep) = change(&old);
-    replace_file(path, new)?;
+    // A change that changes nothing is not written, so the file keeps its stamp and the other
+    // windows do not read it again.
+    if new != old {
+        replace_file(path, new)?;
+    }
     Ok(keep)
 }
 
