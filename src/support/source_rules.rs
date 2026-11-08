@@ -2074,7 +2074,8 @@ fn keys_answer_through_one_place() {
 /// `read_keys` wait while it says a dialog is open, and Esc goes to the dialog first. A modal
 /// left out of it would let a key under it run an action on the files while the dialog asks
 /// about them. A modal is named with `Id::unique("…")`, and its name, with `_` for a space or a
-/// dash, is in the list's code, such as "confirm-delete" in `confirm_delete`.
+/// dash, is a whole name in the list's code, such as "confirm-delete" for `confirm_delete`.
+/// Before, a part of a name counted, so a new modal named "confirm" passed on `confirm_delete`.
 #[test]
 fn every_modal_is_in_modal_open() {
     let dialogs = code_lines(&source("ui/dialogs.rs"));
@@ -2084,25 +2085,63 @@ fn every_modal_is_in_modal_open() {
     let list = dialogs[start..=block_end(&dialogs, start).unwrap()].join("\n");
     let mut wrong = Vec::new();
     for (file, text) in rust_sources() {
-        let lines = code_lines(&text);
-        let end = tests_start(&lines);
-        for (i, raw) in text.lines().take(end).enumerate() {
-            if !lines[i].contains("Modal::new(") {
-                continue;
-            }
-            let name = (raw.split_once("Modal::new(egui::Id::unique(\""))
-                .and_then(|(_, rest)| rest.split_once('"'))
-                .map(|(name, _)| name.replace([' ', '-'], "_"));
-            if !name.is_some_and(|n| list.contains(&n)) {
-                wrong.push(format!("{file}:{}", i + 1));
-            }
-        }
+        wrong.extend(modals_outside_in(&file, &text, &list));
     }
     assert!(
         wrong.is_empty(),
         "a modal not in App::modal_open, or not named with egui::Id::unique(\"…\"):\n{}",
         wrong.join("\n")
     );
+    let list = "self.dialogs.confirm_delete.is_some() || self.folder.asks_login()";
+    let planted = "fn ask() {\n    egui::Modal::new(egui::Id::unique(\"confirm\")).show();\n    \
+        egui::Modal::new(\n        egui::Id::unique(\"login\"),\n    );\n    \
+        Modal::new(Id::unique(\"confirm-delete\"));\n    Modal::new(\n        \
+        egui::Id::unique(\n            \"asks login\",\n        ),\n    );\n    \
+        Modal::new(id);\n}\n";
+    assert_eq!(
+        modals_outside_in("a.rs", planted, list),
+        ["a.rs:2 (confirm)", "a.rs:3 (login)", "a.rs:12 ()"]
+    );
+}
+
+/// Returns each modal in `text`, the source of `file`, whose name is not a whole name in
+/// `list`, the code of `App::modal_open`, as "file:line (name)". A modal that is not named
+/// with `Id::unique("…")` is returned with an empty name. The call is read with its lines
+/// joined, so a call that rustfmt splits over several lines is still seen.
+fn modals_outside_in(file: &str, text: &str, list: &str) -> Vec<String> {
+    let names: Vec<&str> = list
+        .split(|c: char| !(c.is_alphanumeric() || c == '_'))
+        .collect();
+    let lines = code_lines(text);
+    let raw: Vec<&str> = text.lines().collect();
+    let end = tests_start(&lines);
+    let mut wrong = Vec::new();
+    for (i, line) in lines[..end].iter().enumerate() {
+        // The code line says it is a call, not a word in a string, and the raw line has the name.
+        let Some(at) = (line.contains("Modal::new("))
+            .then(|| raw[i].find("Modal::new("))
+            .flatten()
+        else {
+            continue;
+        };
+        // The call with its next lines joined, each without its indent.
+        let call: String = (raw[i][at + "Modal::new(".len()..].chars())
+            .chain(
+                raw[i + 1..(i + 4).min(raw.len())]
+                    .iter()
+                    .flat_map(|l| l.trim().chars()),
+            )
+            .collect();
+        let name = (call.strip_prefix("egui::").unwrap_or(&call))
+            .strip_prefix("Id::unique(\"")
+            .and_then(|rest| rest.split_once('"'))
+            .map(|(name, _)| name);
+        let whole = name.is_some_and(|n| names.contains(&n.replace([' ', '-'], "_").as_str()));
+        if !whole {
+            wrong.push(format!("{file}:{} ({})", i + 1, name.unwrap_or("")));
+        }
+    }
+    wrong
 }
 
 /// Every module lives in the folder of what it does, so `src/` itself holds only main.rs, cli.rs
