@@ -235,7 +235,7 @@ impl crate::App {
     /// to have the title in Preferences, and run ACTION with an action of `SCRIPT_ACTIONS`.
     pub(crate) fn remote_command(&mut self, ctx: &egui::Context, command: &str) {
         let fullscreen = ctx.input(|i| i.viewport().fullscreen).unwrap_or(false);
-        let command = command_now(command.trim_start());
+        let command = command.trim_start();
         let action = match command.trim_end() {
             "next" => Some(Action::Next),
             "previous" => Some(Action::Previous),
@@ -434,7 +434,7 @@ fn may_relist(command: &str) -> bool {
 pub fn is_known_command(words: &[String]) -> bool {
     (COMMANDS.iter()).any(|(c, _)| {
         let mut parts = c.split(' ');
-        if parts.next() != words.first().map(|w| command_now(w)).as_deref() {
+        if parts.next() != words.first().map(String::as_str) {
             return false;
         }
         match parts.next() {
@@ -456,15 +456,25 @@ pub fn is_known_command(words: &[String]) -> bool {
 }
 
 /// Returns `command` as it is named now: its first word becomes the new word when that word is
-/// renamed in `RENAMED_COMMANDS`, and the words after it stay. The client's check
-/// (`is_known_command`) and the window (`remote_command`) both read a command through this, so
-/// they cannot disagree about one with words after it.
+/// renamed in `RENAMED_COMMANDS`, and the words after it stay. Each command goes through this
+/// once, where it comes in: in the client before any check (`words_now`), and in the window as
+/// the listener reads it (`serve`). So no code after them reads an old word.
 pub fn command_now(command: &str) -> String {
     let word = command.split(' ').next().unwrap_or_default();
     match RENAMED_COMMANDS.iter().find(|r| r.0 == word) {
         Some((_, new)) => format!("{new}{}", &command[word.len()..]),
         None => command.to_owned(),
     }
+}
+
+/// Returns `words`, the command and its arguments as given, with the command's word as it is
+/// named now (`command_now`).
+fn words_now(words: &[String]) -> Vec<String> {
+    let mut now = words.to_vec();
+    if let Some(word) = now.first_mut() {
+        *word = command_now(word);
+    }
+    now
 }
 
 /// Whether a window took a command but gave no answer within `WAIT`.
@@ -559,11 +569,14 @@ pub fn client(
     name: Option<&str>,
     to_all: bool,
 ) -> Option<PathBuf> {
-    if !is_known_command(words) {
+    // The command is checked by its word now, and sent with the word as given, so an older
+    // Glimt still takes an old word.
+    let now = words_now(words);
+    if !is_known_command(&now) {
         eprintln!("glimt: no such command, or not with these arguments; glimt --help lists them");
         std::process::exit(NOT_SENT);
     }
-    if words[0] == "run" && Action::for_script(&words[1]).is_none() {
+    if now[0] == "run" && Action::for_script(&now[1]).is_none() {
         eprintln!(
             "glimt: {} is not an action a script may run; glimt --help lists them",
             words[1]
@@ -573,7 +586,7 @@ pub fn client(
     let mut command = words.join(" ");
     // select sends whole paths after a NUL each, because names may hold spaces. A line ends
     // the command.
-    if words.first().is_some_and(|w| w == "select") {
+    if now[0] == "select" {
         if paths.len() > MAX_SELECT {
             eprintln!("glimt: select takes at most {} files", MAX_SELECT);
             std::process::exit(NOT_SENT);
@@ -591,11 +604,11 @@ pub fn client(
                 }
             }
         }
-        command = format!("select {}", sent.join("\0"));
+        command = format!("{} {}", words[0], sent.join("\0"));
     }
     // A name that is not UTF-8 cannot go in the text sent, and made lossy it would name no
     // file. With no Glimt to send it to, this one opens it, by its own name.
-    if words.first().is_some_and(|w| w == "open")
+    if now[0] == "open"
         && let Some(path) = paths.iter().find(|p| p.to_str().is_none())
     {
         let running = match name {
@@ -609,9 +622,13 @@ pub fn client(
         std::process::exit(NOT_SENT);
     }
     // The running Glimt has another working folder, so the full path is sent.
-    if let Some(path) = command.strip_prefix("open ") {
-        let path = std::path::absolute(path).unwrap_or_else(|_| path.into());
-        command = format!("open {}", path.display());
+    let open_path = |command: &str| {
+        let path = command.strip_prefix(words[0].as_str())?.strip_prefix(' ');
+        path.filter(|_| now[0] == "open").map(str::to_owned)
+    };
+    if let Some(path) = open_path(&command) {
+        let path = std::path::absolute(&path).unwrap_or_else(|_| path.into());
+        command = format!("{} {}", words[0], path.display());
     }
     // A line ends a command at the window, so a line break in a file name would be read as a
     // command of its own, such as quit.
@@ -630,7 +647,7 @@ pub fn client(
     if sent {
         return None;
     }
-    match command.strip_prefix("open ") {
+    match open_path(&command) {
         Some(path) => Some(path.into()),
         None => {
             match name {
@@ -719,6 +736,7 @@ fn serve(
         .lines()
         .map_while(Result::ok)
     {
+        let line = command_now(line.trim_start());
         let (reply, answer) = match is_query(&line) {
             true => {
                 let (reply, answer) = mpsc::channel();
@@ -886,11 +904,12 @@ mod tests {
         assert_eq!(app.list.shown(), 1);
         app.remote_command(&ctx, "run Last");
         assert_eq!(app.list.shown(), 2);
-        // The renamed command by its new and its old word, and the renamed action by its old
-        // name.
+        // The renamed command by its new word (its old word is mapped where it comes in, as
+        // `an_old_command_word_reaches_the_window_mapped` checks), and the renamed action by
+        // its old name.
         app.remote_command(&ctx, "previous");
         assert_eq!(app.list.shown(), 1);
-        app.remote_command(&ctx, "prev");
+        app.remote_command(&ctx, "previous");
         assert_eq!(app.list.shown(), 0);
         app.remote_command(&ctx, "run Next");
         app.remote_command(&ctx, "run Prev");
@@ -939,11 +958,11 @@ mod tests {
     fn knows_its_commands() {
         let words = |s: &str| s.split(' ').map(String::from).collect::<Vec<_>>();
         assert!(super::is_known_command(&words("next")));
-        // A renamed command is known by its old word too, and takes no more words than before.
-        assert!(
-            super::is_known_command(&words("previous")) && super::is_known_command(&words("prev"))
-        );
-        assert!(!super::is_known_command(&words("prev 2")));
+        // A renamed command is known by its old word too, as the client maps it before the
+        // check, and takes no more words than before.
+        let known_now = |s: &str| super::is_known_command(&super::words_now(&words(s)));
+        assert!(known_now("previous") && known_now("prev"));
+        assert!(!known_now("prev 2"));
         assert!(super::is_known_command(&["open".into(), "/a b.jpg".into()]));
         // Two words are two paths, not one with a space, because the shell joins no words.
         assert!(!super::is_known_command(&words("open /a.jpg /b.jpg")));
@@ -972,6 +991,46 @@ mod tests {
                 && !super::is_known_command(&words("subfolders on off"))
         );
         assert!(!super::is_known_command(&[]));
+    }
+
+    /// Each old word of `RENAMED_COMMANDS` reaches the window as its new word: the listener maps
+    /// it before anything reads it, so the queries, the waits behind a select and
+    /// `remote_command` never see the old word. `prev` goes on through the window and shows
+    /// the image before.
+    #[test]
+    fn an_old_command_word_reaches_the_window_mapped() {
+        use std::io::Write;
+        let dir = std::env::temp_dir().join(format!("glimt-test-old-word-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let (mut app, ctx) = app_on(&dir);
+        app.list
+            .set_files(["a.png", "b.png"].map(Into::into).to_vec());
+        app.list.set_shown(1);
+        let (tx, rx) = std::sync::mpsc::channel();
+        let (mut client, window) = super::UnixStream::pair().unwrap();
+        for (old, _) in super::RENAMED_COMMANDS {
+            writeln!(client, "{old}").unwrap();
+            writeln!(client, " {old}").unwrap();
+        }
+        drop(client);
+        super::serve(window, &tx, &ctx);
+        for (_, new) in super::RENAMED_COMMANDS {
+            for _ in 0..2 {
+                assert_eq!(rx.try_recv().map(|(line, _)| line), Ok(new.to_string()));
+            }
+        }
+        let (tx, rx) = std::sync::mpsc::channel();
+        let (mut client, window) = super::UnixStream::pair().unwrap();
+        writeln!(client, "prev").unwrap();
+        drop(client);
+        super::serve(window, &tx, &ctx);
+        app.remote = super::Listener {
+            rx,
+            waiting_selects: Vec::new(),
+        };
+        app.receive_remote(&ctx);
+        assert_eq!(app.list.shown(), 0);
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     /// A renamed command is read by its new word with the words after it kept, so a renamed
