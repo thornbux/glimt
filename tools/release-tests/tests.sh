@@ -106,8 +106,24 @@ export DISPLAY=:98 LIBGL_ALWAYS_SOFTWARE=1
 FAILED=0
 pass() { echo "PASS $1"; }
 fail() { echo "FAIL $1"; FAILED=$((FAILED + 1)); }
-# expect NAME GOT WANT
-expect() { if [ "$2" = "$3" ]; then pass "$1"; else fail "$1: got '$2', want '$3'"; fi; }
+# expect NAME GOT WANT. Two empty values are refused, as a helper that is gone or a command that
+# printed nothing would otherwise pass any check. A check that wants nothing uses expect_empty.
+expect() {
+    if [ -z "$2$3" ]; then fail "$1: nothing to compare, both values are empty"
+    elif [ "$2" = "$3" ]; then pass "$1"
+    else fail "$1: got '$2', want '$3'"; fi
+}
+# expect_empty NAME GOT: passes only when GOT is empty.
+expect_empty() { if [ -z "$2" ]; then pass "$1"; else fail "$1: got '$2', want nothing"; fi; }
+# A command that is not found is a failed check, also inside $( ) or with its errors hidden. Bash
+# runs this handler in a separate process, so it signals the script's own shell to count it.
+NOT_FOUND=/tmp/commands-not-found
+trap 'fail "a command not found: $(tail -n 1 $NOT_FOUND)"' USR1
+command_not_found_handle() {
+    echo "$1" >>$NOT_FOUND
+    kill -USR1 $$
+    return 127
+}
 note() { echo "     $*"; }
 
 # The environment of one version, new or old: a fresh HOME and XDG folders, and a stand-in for
@@ -1459,8 +1475,8 @@ else
         echo "sidecar $n" >$card/IMG_$n.JPG.xmp
     done
     # What each file holds, to follow it to its new name.
-    lock_sidecar() { echo "$(md5sum <$1 | cut -c1-32) $(cat $1.xmp)"; }
-    want=$(for n in 3 2 1; do held $card/IMG_$n.JPG; done)
+    contents_and_sidecar() { echo "$(md5sum <$1 | cut -c1-32) $(cat $1.xmp)"; }
+    want=$(for n in 3 2 1; do contents_and_sidecar $card/IMG_$n.JPG; done)
     # Sorted by name, descending: IMG_3 becomes img_1, IMG_2 img_2 (its case only) and IMG_1
     # img_3, which takes the name IMG_3 had on FAT.
     config sort_ascending=false
@@ -1472,7 +1488,7 @@ else
     expect "the new names, and no hidden one left" "$(ls -A $card | tr '\n' ' ')" \
         "img_1.JPG img_1.JPG.xmp img_2.JPG img_2.JPG.xmp img_3.JPG img_3.JPG.xmp "
     expect "each image and its sidecar kept, under its new name" \
-        "$(for n in 1 2 3; do held $card/img_$n.JPG 2>/dev/null; done)" "$want"
+        "$(for n in 1 2 3; do contents_and_sidecar $card/img_$n.JPG 2>/dev/null; done)" "$want"
     # A Copy To the card of a file whose name FAT refuses copies nothing, and says why before
     # it starts. 0.62.0 copied the others and then failed on that one with the system's error.
     d=/tmp/fat-copy
@@ -3294,7 +3310,7 @@ for v in new old; do
     quit
     got="$(cat $d/show.m3u 2>/dev/null | tr '\n' ' ')"
     if [ $v = new ]; then expect "the File menu open" "$opened" 1
-        expect "neither item in the menu" "$absent" ""
+        expect_empty "neither item in the menu" "$absent"
         expect "the list as it was" "$got" "#EXTM3U a.jpg "
     else note "old: '$got'"; fi
 done
