@@ -15,6 +15,7 @@ and versions follow [Semantic Versioning](https://semver.org/).
   beside `a.jpg`, which would have made the renamed image that file's sidecar.
 - A last folder whose name holds a line break is not remembered, rather than written into the
   window state as two lines.
+- Two backups made at the same moment each get a folder of their own.
 
 ## [0.75.0] - 2026-11-08
 
