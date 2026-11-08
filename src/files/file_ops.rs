@@ -231,6 +231,9 @@ pub(crate) struct FileOperations {
     saved_rx: mpsc::Receiver<(PathBuf, Result<(), String>)>,
     /// What Edit → Undo puts back. It is the last move to the trash, move or rename.
     undo: Option<Undo>,
+    /// Held by each running operation that will leave an Undo of its own, until it has sent
+    /// its report. While one runs, `undo` is older than the operation the user did last.
+    undo_on_the_way: Arc<()>,
     cut_short: Vec<journal::CutShort>,
     /// The renames found cut short at the start, by a crash or a power cut during Rename Many,
     /// so they can be put right. They are read in the background.
@@ -270,6 +273,7 @@ impl FileOperations {
             saved_tx,
             saved_rx,
             undo: None,
+            undo_on_the_way: Arc::new(()),
             cut_short: Vec::new(),
             cut_short_rx: Receiving::of(cut_short_rx),
             untrashable: None,
@@ -281,6 +285,12 @@ impl FileOperations {
     /// Where deletes, moves and copies report what they did.
     pub(crate) fn report_sender(&self) -> mpsc::Sender<OperationReport> {
         self.report_tx.clone()
+    }
+
+    /// Marks an operation that will leave an Undo as running. Its thread holds what this
+    /// returns until it has sent its report, and Undo waits for it meanwhile.
+    fn undo_on_the_way(&self) -> Arc<()> {
+        self.undo_on_the_way.clone()
     }
 
     /// Lets go of the jobs and the `run_in_background` work that ended. Returns true when the last
@@ -597,6 +607,7 @@ impl crate::App {
         let (ctx, report_tx) = (ctx.clone(), self.file_operations.report_sender());
         let collection = self.folder.collection().map(Path::to_path_buf);
         let pointer = Working::new(&self.busy);
+        let undo_on_the_way = trash.then(|| self.file_operations.undo_on_the_way());
         std::thread::spawn(move || {
             let since = std::time::SystemTime::now();
             // Read the size before deleting, so the status bar can subtract it.
@@ -699,8 +710,7 @@ impl crate::App {
                 undo,
                 ..Default::default()
             });
-            drop(job);
-            drop(pointer);
+            drop((undo_on_the_way, job, pointer));
             ctx.request_repaint();
         });
     }
@@ -956,6 +966,7 @@ impl crate::App {
         let listed = dest == self.folder.dir()
             || (self.folder.recursive() && dest.starts_with(self.folder.dir()));
         let pointer = Working::new(&self.busy);
+        let undo_on_the_way = (!is_copy).then(|| self.file_operations.undo_on_the_way());
         std::thread::spawn(move || {
             if !is_copy && same_dir {
                 let _ = freed_tx.send(total_size(&paths));
@@ -1025,6 +1036,7 @@ impl crate::App {
                 undo,
                 ..Default::default()
             });
+            drop(undo_on_the_way);
             drop(job);
             drop(pointer);
             ctx.request_repaint();
@@ -1394,6 +1406,7 @@ impl crate::App {
         }
         let report_tx = self.file_operations.report_tx.clone();
         let collection = self.folder.collection().map(Path::to_path_buf);
+        let undo_on_the_way = self.file_operations.undo_on_the_way();
         self.run_in_background(ctx, vec![dir.clone()], move || {
             let since = std::time::SystemTime::now();
             let error = crate::files::trash::trash(std::slice::from_ref(&dir)).err();
@@ -1424,6 +1437,7 @@ impl crate::App {
                 undo,
                 ..Default::default()
             });
+            drop(undo_on_the_way);
             error
                 .map(|e| tf!("Could not move the folder to the trash: {e}", e))
                 .or(forgotten)
@@ -1435,6 +1449,14 @@ impl crate::App {
     /// so what it put back is not undone again. Nothing is put over a file that has taken the
     /// name meanwhile.
     pub(crate) fn undo(&mut self, ctx: &egui::Context) {
+        // A delete or move that is still running leaves a newer Undo when it ends. Taking the
+        // older one now would undo an operation the user did not mean. A report sent but not yet
+        // taken is taken first, so its Undo is the one done.
+        self.receive_operation_report(ctx);
+        if Arc::strong_count(&self.file_operations.undo_on_the_way) > 1 {
+            self.notice = Some(tr("Still working on these files: try again in a moment").into());
+            return;
+        }
         // This asks before the undo is taken, so one that is refused stays to be done again.
         // So do the files of a move to the trash that did not come back, which its thread
         // sends back.
@@ -1787,7 +1809,7 @@ impl crate::App {
         let paths: Vec<String> = targets
             .iter()
             .map(|&i| self.path(i).to_string_lossy().into_owned())
-            .map(|p| if quote { format!("\"{p}\"") } else { p })
+            .map(|p| if quote { quoted_for_shell(&p) } else { p })
             .collect();
         ctx.copy_text(paths.join(" "));
     }
@@ -1813,6 +1835,21 @@ impl crate::App {
             self.dialogs.ask_about(asked, Prompt::Rename, name);
         }
     }
+}
+
+/// Returns `path` in double quotes, as Geeqie's Copy Path gives it, with a backslash before each
+/// `$`, `` ` ``, `"` and `\`. A shell still reads those inside double quotes, so a file name
+/// such as `$(command).jpg` would run its command when the path is pasted into a terminal.
+fn quoted_for_shell(path: &str) -> String {
+    let mut quoted = String::from('"');
+    for c in path.chars() {
+        if matches!(c, '$' | '`' | '"' | '\\') {
+            quoted.push('\\');
+        }
+        quoted.push(c);
+    }
+    quoted.push('"');
+    quoted
 }
 
 /// Puts the entries `removed` from a collection back into `all`, which is what is left, each at
@@ -1988,16 +2025,25 @@ fn refused_transfer(
 
 /// The name in the way of a file going to `to`, if any. It is `to` itself, or a sidecar at the
 /// new name that belongs to another file, whether or not the file has one of its own. (The
-/// photo would show that file's keywords and stars, and leave its own behind.) `ours` are the
-/// operation's own names, which a swap reuses. This is the one rule for Copy, Move, Rename and
-/// Rename Many.
+/// photo would show that file's keywords and stars, and leave its own behind.) It is also the
+/// file whose sidecar `to` would be (`a.jpg` for `a.jpg.xmp`), because that file would take
+/// this one for its sidecar, and delete or move it with itself. `ours` are the operation's own
+/// names, which a swap reuses. This is the one rule for Copy, Move, Rename and Rename Many.
 pub(crate) fn name_in_the_way(to: &Path, ours: &HashSet<&PathBuf>) -> Option<PathBuf> {
+    use std::os::unix::ffi::OsStrExt;
     // A name counts as taken also when it is a link that points nowhere, because nothing may be
     // made in its place.
     let there = |p: &PathBuf| std::fs::symlink_metadata(p).is_ok();
-    [to.to_path_buf(), xmp::sidecar(to)]
-        .into_iter()
-        .find(|p| there(p) && !ours.contains(p))
+    let sidecar_owner = (to.as_os_str().as_bytes().strip_suffix(b".xmp"))
+        .map(|owner| PathBuf::from(std::ffi::OsStr::from_bytes(owner)));
+    [
+        Some(to.to_path_buf()),
+        Some(xmp::sidecar(to)),
+        sidecar_owner,
+    ]
+    .into_iter()
+    .flatten()
+    .find(|p| there(p) && !ours.contains(p))
 }
 
 /// Renames `from` to `to` as `rename_files` does, for a rename's thread. When `fingerprints` are
@@ -2651,6 +2697,13 @@ mod tests {
         let (b, bx) = (p("b.jpg"), p("b.jpg.xmp"));
         let ours = std::collections::HashSet::from([&b, &bx]);
         assert_eq!(super::name_in_the_way(&p("b.jpg"), &ours), None);
+        // A file renamed to another file's sidecar name would become that file's sidecar.
+        assert_eq!(
+            super::name_in_the_way(&p("d.jpg.xmp"), &Default::default()),
+            Some(p("d.jpg"))
+        );
+        let refused = super::rename_files(vec![p("b.jpg")], vec![p("d.jpg.xmp")], &job);
+        assert!(refused.unwrap_err().contains("d.jpg exists already"));
         assert_eq!(
             (read("b.jpg"), read("c.jpg.xmp")),
             ("a".into(), "c's".into())
@@ -3390,6 +3443,54 @@ mod tests {
             );
             std::fs::remove_file(&now).unwrap();
         }
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// Copy Path quotes a path so that a shell gives back the name, and runs nothing in it.
+    #[test]
+    fn copy_path_quotes_what_a_shell_reads() {
+        assert_eq!(super::quoted_for_shell("/p/a b.jpg"), r#""/p/a b.jpg""#);
+        assert_eq!(
+            super::quoted_for_shell(r#"/p/$(id)`id`"x\.jpg"#),
+            r#""/p/\$(id)\`id\`\"x\\.jpg""#
+        );
+    }
+
+    /// Ctrl+Z while a move to the trash still runs waits for it, rather than undoing the move
+    /// before it, and afterwards undoes the move to the trash.
+    #[test]
+    fn undo_waits_for_the_operation_still_running() {
+        let dir =
+            std::env::temp_dir().join(format!("glimt-test-undo-waits-{}", std::process::id()));
+        let sub = dir.join("sub");
+        std::fs::create_dir_all(&sub).unwrap();
+        let (a, c) = (dir.join("a.png"), dir.join("c.png"));
+        image::RgbImage::new(2, 2).save(&a).unwrap();
+        image::RgbImage::new(2, 2).save(&c).unwrap();
+        let (mut app, ctx) = app_on(&dir);
+        app.transfer(&ctx, vec![c.clone()], sub.clone(), false);
+        assert!(run_background_until(&mut app, &ctx, |app| !app.working()
+            && app.file_operations.undo.is_some()));
+        // The delete waits for a.png's sidecar lock, so it is still running at the Ctrl+Z.
+        let lock = crate::metadata::xmp::lock_sidecar(&a);
+        app.delete_now(&ctx, true, vec![0]);
+        app.undo(&ctx);
+        assert!(
+            sub.join("c.png").exists() && !c.exists(),
+            "the older move was undone"
+        );
+        assert!(matches!(
+            app.file_operations.undo,
+            Some(super::Undo::Move(_))
+        ));
+        drop(lock);
+        assert!(run_background_until(&mut app, &ctx, |app| !app.working()
+            && matches!(
+                app.file_operations.undo,
+                Some(super::Undo::Trash(_))
+            )));
+        app.undo(&ctx);
+        assert!(run_background_until(&mut app, &ctx, |app| !app.working() && a.exists()));
         std::fs::remove_dir_all(dir).unwrap();
     }
 

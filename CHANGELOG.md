@@ -18,6 +18,17 @@ and versions follow [Semantic Versioning](https://semver.org/).
   the saved file showed another turn than the view.
 - Marks and stars that another window set a moment before a move or delete in this one now
   follow the file or go with it too, also while this window's own marks are still being saved.
+- Edit → Undo (Ctrl+Z) pressed while a delete to the trash or a move is still running says to
+  try again in a moment, instead of undoing the operation before it.
+- Copy Path puts a backslash before `$`, `` ` ``, `"` and `\` in the quoted path, so a file
+  name such as `$(command).jpg` pasted into a terminal runs nothing.
+- Rename and Rename Many refuse a new name that is another file's sidecar, such as `a.jpg.xmp`
+  beside `a.jpg`, which would have made the renamed image that file's sidecar.
+- A last folder whose name holds a line break is not remembered, rather than written into the
+  window state as two lines.
+- Two backups made at the same moment each get a folder of their own.
+- A program Glimt runs for its answer is no longer signalled by its time limit after it has
+  ended, when a program it left behind keeps its errors open.
 
 ## [0.75.0] - 2026-11-08
 

@@ -104,14 +104,13 @@ pub(crate) fn back_up_to(dir: &Path) -> Result<String, String> {
         .chars()
         .take(10)
         .collect();
-    // A second backup the same day goes beside the first, never over it.
-    let to = (1..)
-        .map(|n| match n {
-            1 => dir.join(format!("glimt-backup-{date}")),
-            n => dir.join(format!("glimt-backup-{date}-{n}")),
-        })
-        .find(|p| !p.exists())
-        .unwrap_or_default();
+    let to = new_backup_folder(dir, &date).map_err(|e| {
+        crate::tf!(
+            "The backup to {folder} is not whole: {e}",
+            folder = dir.display(),
+            e
+        )
+    })?;
     let copied: std::io::Result<usize> = (own.into_iter())
         .map(|(name, from)| copy_tree(&from, &to.join(name)))
         .sum();
@@ -130,6 +129,24 @@ pub(crate) fn back_up_to(dir: &Path) -> Result<String, String> {
             e
         )),
     }
+}
+
+/// Makes the folder glimt-backup-DATE in `dir`, or glimt-backup-DATE-2 and so on when the name
+/// is taken. A second backup the same day goes beside the first, never over it. The name is
+/// taken by making the folder, so two backups at the same moment get a folder each. Returns
+/// the folder made.
+fn new_backup_folder(dir: &Path, date: &str) -> std::io::Result<PathBuf> {
+    for n in 1.. {
+        let to = match n {
+            1 => dir.join(format!("glimt-backup-{date}")),
+            n => dir.join(format!("glimt-backup-{date}-{n}")),
+        };
+        match std::fs::create_dir(&to) {
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            made => return made.map(|_| to),
+        }
+    }
+    unreachable!("a backup folder is found before the numbers run out")
 }
 
 /// Returns the folders that hold `path`, itself among them, by `file_id`: those above it
@@ -177,6 +194,19 @@ mod tests {
         assert!(dir.join("to/themes/my.theme").is_file());
         // A backup into the folder a link leads to would copy itself, and is refused.
         assert!(super::copy_tree(&from, &dir.join("dotfiles/themes/backup")).is_err());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// Two backups on the same day each get a folder of their own, also when neither has
+    /// copied a file into its folder yet.
+    #[test]
+    fn each_backup_gets_a_folder_of_its_own() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-backups-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let first = super::new_backup_folder(&dir, "2026-11-08").unwrap();
+        let second = super::new_backup_folder(&dir, "2026-11-08").unwrap();
+        assert_eq!(first, dir.join("glimt-backup-2026-11-08"));
+        assert_eq!(second, dir.join("glimt-backup-2026-11-08-2"));
         std::fs::remove_dir_all(dir).unwrap();
     }
 }
