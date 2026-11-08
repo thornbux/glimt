@@ -974,9 +974,9 @@ impl Group {
         }
     }
 
-    /// The word kept in the choice (`LeftOut`) when the whole group is left out. Its colon
-    /// keeps it apart from the tags' names, none of which starts with "group:". The words are
-    /// frozen in 1.x, as the users' sharing files hold them.
+    /// The word kept in the choice's file (`LeftOut::text`) when the whole group is left out.
+    /// A file's tag may have the same name, so `LeftOut` holds the groups apart from the tags.
+    /// The words are frozen in 1.x, as the users' sharing files hold them.
     pub(crate) fn key(self) -> &'static str {
         match self {
             Group::Place => "group:place",
@@ -1037,51 +1037,64 @@ impl Group {
     }
 }
 
-/// What Copy for Sharing leaves out, as the user ticked it: the names of single tags and the
-/// keys of whole groups (`Group::key`), and the tags kept out of a group left out whole. A tag
-/// of a group left out whole is left out also when it was not seen before, so a new GPS field
-/// cannot slip through. Keeping one tag leaves the group's key in place for that reason. The
-/// dialog starts with the choice made last time, kept in `config::sharing_path` one word to a
-/// line. The kept tags are not saved: they last while the dialog is open, for its copy, so a
-/// group ticked in a later dialog leaves out all of it.
+/// What Copy for Sharing leaves out, as the user ticked it: the names of single tags, the
+/// groups left out whole, and the tags kept out of a group left out whole. A tag of a group
+/// left out whole is left out also when it was not seen before, so a new GPS field cannot slip
+/// through. Keeping one tag leaves the group left out for that reason. The dialog starts with
+/// the choice made last time, kept in `config::sharing_path` one word to a line: a group by its
+/// key (`Group::key`), a tag by its name. The groups and the tags are held apart, so a tag
+/// named like a key is just a name while the dialog is open. Saved, it is read back as the
+/// group, which only leaves out more. The kept tags are not saved: they last while the dialog
+/// is open, for its copy, so a group ticked in a later dialog leaves out all of it.
 #[derive(Clone, Default, PartialEq, Debug)]
 pub(crate) struct LeftOut {
-    /// The names of the tags left out and the keys of the groups left out whole.
-    words: BTreeSet<String>,
+    /// The names of the tags left out on their own.
+    tags_left_out: BTreeSet<String>,
+    /// Whether each group, in the order of `Group::ALL`, is left out whole.
+    groups_left_out: [bool; 8],
     /// The tags kept although a group of theirs is left out whole. They are never saved.
     kept_tags: BTreeSet<String>,
     /// Whether each group, in the order of `Group::ALL`, has a tag left out or is left out
     /// whole. A block (`BLOCKS`) goes with any group it can hold that has. It is counted again
-    /// after every change of `words`.
+    /// after every change of the tags or groups left out.
     has_left_out: [bool; 8],
 }
 
 impl LeftOut {
-    /// Reads a choice from the text of its file, one word to a line.
+    /// Reads a choice from the text of its file, one word to a line: a group's key or a tag's
+    /// name.
     pub(crate) fn parse(text: &str) -> LeftOut {
-        let words = text.lines().map(str::trim).filter(|l| !l.is_empty());
-        let mut left_out = LeftOut {
-            words: words.map(str::to_owned).collect(),
-            ..LeftOut::default()
-        };
+        let mut left_out = LeftOut::default();
+        for word in text.lines().map(str::trim).filter(|l| !l.is_empty()) {
+            match Group::of_key(word) {
+                Some(group) => left_out.groups_left_out[group as usize] = true,
+                None => {
+                    left_out.tags_left_out.insert(word.to_owned());
+                }
+            }
+        }
         left_out.count_groups();
         left_out
     }
 
     /// Counts again which groups have a tag left out (`has_left_out`).
     fn count_groups(&mut self) {
-        self.has_left_out = [false; 8];
-        for word in &self.words {
-            let groups = Group::of_key(word).map_or_else(|| Group::groups_of(word), |g| vec![g]);
-            for group in groups {
+        self.has_left_out = self.groups_left_out;
+        for tag in &self.tags_left_out {
+            for group in Group::groups_of(tag) {
                 self.has_left_out[group as usize] = true;
             }
         }
     }
 
-    /// The text of the choice's file, one word to a line. The kept tags are not in it.
+    /// The text of the choice's file, one word to a line: the keys of the groups left out
+    /// whole, then the names of the tags left out. The kept tags are not in it.
     pub(crate) fn text(&self) -> String {
-        self.words.iter().map(|w| format!("{w}\n")).collect()
+        let groups = (Group::ALL.iter()).filter(|g| self.is_group_left_out(**g));
+        let keys = groups.map(|g| g.key());
+        (keys.chain(self.tags_left_out.iter().map(String::as_str)))
+            .map(|word| format!("{word}\n"))
+            .collect()
     }
 
     /// Whether the tag `tag` is left out: by its name or by any of its groups left out whole,
@@ -1089,14 +1102,14 @@ impl LeftOut {
     /// group that has one left out (`BLOCKS`).
     pub(crate) fn is_left_out(&self, tag: &str) -> bool {
         (!self.kept_tags.contains(tag)
-            && (self.words.contains(tag)
-                || (Group::groups_of(tag).iter()).any(|g| self.words.contains(g.key()))))
+            && (self.tags_left_out.contains(tag)
+                || (Group::groups_of(tag).iter()).any(|g| self.is_group_left_out(*g))))
             || (block_groups(tag).iter()).any(|g| self.has_left_out[*g as usize])
     }
 
     /// Whether the whole group `group` is left out.
     pub(crate) fn is_group_left_out(&self, group: Group) -> bool {
-        self.words.contains(group.key())
+        self.groups_left_out[group as usize]
     }
 
     /// Leaves the tag `tag` out, or keeps it. A tag of a group left out whole is kept in
@@ -1104,10 +1117,10 @@ impl LeftOut {
     pub(crate) fn set_tag(&mut self, tag: &str, left_out: bool) {
         if left_out {
             self.kept_tags.remove(tag);
-            self.words.insert(tag.to_owned());
+            self.tags_left_out.insert(tag.to_owned());
         } else {
-            self.words.remove(tag);
-            if (Group::groups_of(tag).iter()).any(|g| self.words.contains(g.key())) {
+            self.tags_left_out.remove(tag);
+            if (Group::groups_of(tag).iter()).any(|g| self.is_group_left_out(*g)) {
                 self.kept_tags.insert(tag.to_owned());
             }
         }
@@ -1117,14 +1130,12 @@ impl LeftOut {
     /// Leaves the whole group `group` out, also the tags of it that were kept on their own, or
     /// keeps every tag the dialog lists under it (`Group::lists`).
     pub(crate) fn set_group(&mut self, group: Group, left_out: bool) {
+        self.groups_left_out[group as usize] = left_out;
         if left_out {
-            self.words.insert(group.key().to_owned());
             (self.kept_tags).retain(|t| !Group::groups_of(t).contains(&group));
         } else {
-            // The other groups' keys stay, though `Group::groups_of` puts no key in a group,
-            // and so do the tags kept on their own, which may be kept out of another group.
-            let is_key = |w: &str| Group::of_key(w).is_some();
-            (self.words).retain(|w| w != group.key() && (is_key(w) || !group.lists(w)));
+            // The tags kept on their own stay, as they may be kept out of another group.
+            (self.tags_left_out).retain(|t| !group.lists(t));
         }
         self.count_groups();
     }
@@ -2697,6 +2708,20 @@ mod tests {
         assert!(left_out.is_left_out("GPSLatitude") && left_out.is_left_out("keep:GPSLatitude"));
         let saved = super::LeftOut::parse(&left_out.text());
         assert!(saved.is_left_out("GPSLatitude") && saved.is_left_out("keep:GPSLatitude"));
+    }
+
+    /// A tag named like a group's key, such as a PNG keyword "group:place", is just a name:
+    /// unticking it under a ticked Place keeps the group ticked, and ticking it ticks no group.
+    #[test]
+    fn a_tag_named_like_a_group_key_is_just_a_name() {
+        use super::Group::Place;
+        let mut left_out = super::LeftOut::default();
+        left_out.set_group(Place, true);
+        left_out.set_tag(Place.key(), false);
+        assert!(left_out.is_group_left_out(Place) && left_out.is_left_out("GPSLatitude"));
+        let mut left_out = super::LeftOut::default();
+        left_out.set_tag(Place.key(), true);
+        assert!(!left_out.is_group_left_out(Place) && left_out.is_left_out(Place.key()));
     }
 
     /// A PNG keyword with a line break is listed without it, so unticking it under a ticked

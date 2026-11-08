@@ -13,6 +13,11 @@ and versions follow [Semantic Versioning](https://semver.org/).
   the two numbers of its maker note that say how bright it may get (the HDR headroom and gain),
   without the rest of the maker note. Before, the gain map went with the extra images.
 
+### Fixed
+
+- Copy for Sharing: unticking a tag named like a group's word in the saved choice, such as a
+  PNG keyword `group:place`, no longer unticks that group.
+
 ## [0.76.0] - 2026-11-08
 
 ### Changed
