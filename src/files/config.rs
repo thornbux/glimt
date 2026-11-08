@@ -510,8 +510,6 @@ impl Config {
         let lines: Vec<(usize, &str)> = (text.lines().enumerate())
             .map(|(n, l)| (n + 1, l.trim()))
             .filter(|(_, l)| !l.is_empty() && !l.starts_with('#'))
-            // The line of an old key beside its new key is passed over, as `parse` does.
-            .filter(|(_, l)| (l.split_once('=')).is_none_or(|(k, _)| !old_key_overridden(k, text)))
             .collect();
         let mut problems = Vec::new();
         for (k, &(n, line)) in lines.iter().enumerate() {
@@ -522,8 +520,20 @@ impl Config {
             let (key, value) = (key.trim(), value.trim());
             // The setting's key now, also for a line with its old key.
             let now = setting_key_now(key);
+            // The line of an old key beside its new key is passed over, as `parse` does. It is
+            // told, because a value changed there by hand would otherwise be lost unseen.
+            if old_key_overridden(key, text) {
+                problems.push(format!(
+                    "line {n}: {key} is the old name of {now}, which this file also sets; \
+                     this line is ignored"
+                ));
+                continue;
+            }
             let has_key = |&(_, l): &(usize, &str)| {
-                l.split_once('=').map(|(o, _)| setting_key_now(o.trim())) == Some(now)
+                let key = l.split_once('=').map(|(o, _)| o.trim());
+                key.filter(|o| !old_key_overridden(o, text))
+                    .map(setting_key_now)
+                    == Some(now)
             };
             let again = lines[..k].iter().any(has_key);
             let later = lines[k + 1..].iter().any(has_key);
@@ -844,13 +854,21 @@ pub fn locked() -> bool {
 /// `on_disk` is kept, because another window may have changed that setting since. The result
 /// keeps the file's own order, its comments and blank lines, with the settings it lacks after
 /// them. Settings this Glimt does not know, from a newer one (a Flatpak beside a .deb), stay.
+/// The line of a setting's old key in `RENAMED_SETTINGS` goes, and its new key takes its value.
 fn merged(ours: &str, saved: &str, on_disk: &str) -> String {
     let pairs = |text: &str| -> std::collections::HashMap<String, String> {
         (text.lines().filter_map(|l| l.split_once('=')))
             .map(|(k, v)| (k.trim().to_owned(), v.trim().to_owned()))
             .collect()
     };
-    let (saved, theirs) = (pairs(saved), pairs(on_disk));
+    let (saved, mut theirs) = (pairs(saved), pairs(on_disk));
+    // A value under a setting's old key on disk counts as the new key's when the file lacks the
+    // new key, as `Config::parse` reads it. An older Glimt that shares the file writes it so.
+    for (old, new) in RENAMED_SETTINGS {
+        if let Some(value) = theirs.remove(old) {
+            theirs.entry(new.to_owned()).or_insert(value);
+        }
+    }
     let line = |l: &str| -> String {
         let value = l
             .split_once('=')
@@ -867,6 +885,12 @@ fn merged(ours: &str, saved: &str, on_disk: &str) -> String {
     let mut done = std::collections::HashSet::new();
     let mut text = String::new();
     for l in on_disk.lines() {
+        // The line of an old key goes, because its new key is written instead. So after one
+        // save the file holds only new keys, and no line in it is ignored without a word.
+        let is_old_key = |k: &str| setting_key_now(k) != k && mine.contains_key(setting_key_now(k));
+        if key(l).is_some_and(|k| is_old_key(&k)) {
+            continue;
+        }
         match key(l).filter(|k| mine.contains_key(k)) {
             // Ours, once (a setting set twice by hand comes out once).
             Some(k) => {
@@ -1226,8 +1250,10 @@ mod tests {
     }
 
     /// Each renamed setting is read by its old key too, and a file with both keys has the value
-    /// of the new one, wherever it stands. Only the new key is written, and --check-config
-    /// finds nothing wrong with either. The window state's renamed keys are read the same way.
+    /// of the new one, wherever it stands. Only the new key is written, also by a save into the
+    /// file on disk, which takes the old key's line out. --check-config finds nothing wrong with
+    /// an old key alone, and tells the line of one that its new key overrides. The window
+    /// state's renamed keys are read the same way, and its file is written whole.
     #[test]
     fn old_keys_are_read_and_only_new_ones_written() {
         use super::Config;
@@ -1249,14 +1275,26 @@ mod tests {
                 "{old} written"
             );
             assert_eq!(Config::parse_checked(&text).1, Vec::<String>::new());
-            for both in [
-                format!("{new}={value}\n{old}={other}\n"),
-                format!("{old}={other}\n{new}={value}\n"),
+            for (both, line) in [
+                (format!("{new}={value}\n{old}={other}\n"), 2),
+                (format!("{old}={other}\n{new}={value}\n"), 1),
             ] {
                 let written = Config::parse(&both).to_text();
                 assert_eq!(super::value_in(&written, new), value, "{both}");
-                assert_eq!(Config::parse_checked(&both).1, Vec::<String>::new());
+                let ignored = format!(
+                    "line {line}: {old} is the old name of {new}, which this file also sets; \
+                     this line is ignored"
+                );
+                assert_eq!(Config::parse_checked(&both).1, [ignored]);
+                // A save takes the old line out and keeps the new key's value.
+                let saved = super::merged(&defaults, &defaults, &both);
+                assert!(!saved.lines().any(|l| l.starts_with(&old_line)), "{saved}");
+                assert_eq!(super::value_in(&saved, new), value);
             }
+            // A save of a file with only the old key writes its value under the new key.
+            let saved = super::merged(&defaults, &defaults, &text);
+            assert!(!saved.lines().any(|l| l.starts_with(&old_line)), "{saved}");
+            assert_eq!(super::value_in(&saved, new), other);
         }
         let position = |text: &str| super::WindowState::parse(text).position;
         let at = |x, y| Some(eframe::egui::pos2(x, y));
