@@ -31,11 +31,13 @@ const LINKED_BYTES: u64 = 96 << 20;
 const LINKED_PICTURE_BYTES: u64 = 128 << 20;
 
 /// The processor time a drawing child may take, in seconds: as long as Glimt waits for it
-/// (`PROGRAM_TIME_LIMIT`). The tests' children get less, so the test of it is short.
+/// (`PROGRAM_TIME_LIMIT`). The tests' children get less, so the test of it is short. The
+/// largest drawing of the tests takes about a second on a fast computer, and a slow runner
+/// with every test at once may take several times as long, so they get ten.
 #[cfg(not(test))]
 const CHILD_SECONDS: u64 = crate::files::external::PROGRAM_TIME_LIMIT.as_secs();
 #[cfg(test)]
-const CHILD_SECONDS: u64 = 4;
+const CHILD_SECONDS: u64 = 10;
 
 /// The longest side a drawing has, in pixels, because an SVG may claim any size.
 const LONGEST_SIDE: u32 = 8192;
@@ -625,7 +627,7 @@ mod tests {
         let why = super::draw_in_child(&file, Some([1920, 1080]), Duration::from_secs(120));
         let why = why.unwrap_err();
         assert!(why.contains(crate::files::external::TIMED_OUT), "{why}");
-        assert!(started.elapsed() < Duration::from_secs(30));
+        assert!(started.elapsed() < Duration::from_secs(60));
         // Red at a quarter of its strength, through two groups at half opacity.
         let few = svg("<g opacity=\"0.5\"><g opacity=\"0.5\">\
                        <rect width=\"100\" height=\"100\" fill=\"red\"/></g></g>");
