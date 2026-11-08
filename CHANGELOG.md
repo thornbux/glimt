@@ -9,6 +9,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 - A close of a minimized or covered window no longer loses what a file job reported a moment
   before, so the marks and saved collections follow the files it moved.
+- An Undo of a delete puts back the marks and stars that another window set on those files a
+  moment before, also when this window had not read them yet.
 
 ## [0.76.0] - 2026-11-08
 
