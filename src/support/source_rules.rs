@@ -2316,18 +2316,31 @@ fn the_list_is_drawn_in_the_form_its_caller_asks() {
 
 /// The file list is drawn only by the side panel and the grid in the image area. A new view of
 /// the list needs what each of them has, which the grid of 0.65.0 missed through five audit
-/// rounds, so a third caller of `App::file_list` fails here until it is added with them.
+/// rounds, so a third caller of `App::file_list` fails here until it is added with them. The
+/// functions that `file_list` draws a row or a cell with are watched too, because a new view
+/// could call them directly. Only the Pan view does, for the cells of a day's images.
 #[test]
 fn the_list_is_drawn_by_known_views() {
-    const VIEWS: &[(&str, &[(&str, &str)])] = &[(
-        "file_list(",
-        &[
-            ("ui/file_list.rs", "side_panel"),
-            ("ui/file_list.rs", "area_grid"),
-            // The clipboard's own `file_list`, which is arboard's and draws nothing.
-            ("ui/actions.rs", "copy_files"),
-        ],
-    )];
+    const VIEWS: &[(&str, &[(&str, &str)])] = &[
+        (
+            "file_list(",
+            &[
+                ("ui/file_list.rs", "side_panel"),
+                ("ui/file_list.rs", "area_grid"),
+                // The clipboard's own `file_list`, which is arboard's and draws nothing.
+                ("ui/actions.rs", "copy_files"),
+            ],
+        ),
+        ("file_row(", &[("ui/file_list.rs", "file_list")]),
+        (
+            "file_cell(",
+            &[
+                ("ui/file_list.rs", "file_list"),
+                ("viewer/pan.rs", "pan_timeline"),
+            ],
+        ),
+        ("row_clicked(", &[("ui/file_list.rs", "file_list")]),
+    ];
     let wrong = outside_their_homes(VIEWS);
     assert!(
         wrong.is_empty(),
@@ -2339,6 +2352,16 @@ fn the_list_is_drawn_by_known_views() {
     assert_eq!(
         outside_homes_in("viewer/pan.rs", planted, VIEWS),
         ["viewer/pan.rs:2 (file_list()"]
+    );
+    let planted = "fn strip() {\n    let row = self.file_row(ui, i, h, m, t);\n    \
+        self.row_clicked(ctx, &row, i);\n    self.file_cell(ui, i, r, m);\n}\n";
+    assert_eq!(
+        outside_homes_in("viewer/view.rs", planted, VIEWS),
+        [
+            "viewer/view.rs:2 (file_row()",
+            "viewer/view.rs:3 (row_clicked()",
+            "viewer/view.rs:4 (file_cell()"
+        ]
     );
 }
 

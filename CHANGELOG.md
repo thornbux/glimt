@@ -5,6 +5,11 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- Inside, the check that the file list is drawn only by its known views also watches the
+  functions that draw one row or cell of it, which a new view could call directly.
+
 ## [0.74.0] - 2026-11-08
 
 ### Changed
