@@ -1,4 +1,5 @@
-//! Text for the user: sizes, counts, times, a text cut to fit, and templates filled in.
+//! Text for the user: sizes, counts, times, a text cut to fit, templates filled in, and names
+//! made from a file's bytes.
 
 use crate::support::lang::{self, tr};
 
@@ -135,6 +136,15 @@ pub(crate) fn local_time(secs: i64) -> String {
         tm.min,
         tm.sec
     )
+}
+
+/// Returns `text` with each control character, such as a line break, turned into "?". A name
+/// made from a file's bytes goes through it, so it shows on one line and cannot add a line, and
+/// with it a word, to a file that holds one name to a line.
+pub(crate) fn without_control_characters(text: &str) -> String {
+    text.chars()
+        .map(|c| if c.is_control() { '?' } else { c })
+        .collect()
 }
 
 #[cfg(test)]

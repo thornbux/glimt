@@ -5,6 +5,7 @@
 //! inside the image. `update_sidecar` writes the stars too, and `follow` takes sidecars along
 //! when their files move.
 
+use crate::support::format::without_control_characters;
 use std::path::{Path, PathBuf};
 
 const ALT: &str = "Iptc4xmpCore:AltTextAccessibility";
@@ -855,7 +856,9 @@ fn child_properties(
 /// Returns the name of the property written `name` in a packet that binds its prefixes as
 /// `namespaces` says. It has the prefix of its namespace in `KNOWN_NAMESPACES`, or else the
 /// prefix as written. A known prefix bound to another namespace, or to none, is replaced by
-/// that namespace in braces ("{urn:other}Make"), so the name cannot pass for a known one.
+/// that namespace in braces ("{urn:other}Make"), so the name cannot pass for a known one. The
+/// namespace's control characters are replaced (`without_control_characters`), as the name is
+/// saved in Copy for Sharing's choice, one name to a line.
 fn property_name(name: &str, namespaces: &[(String, String)]) -> String {
     let Some((prefix, local)) = name.split_once(':') else {
         return name.to_owned();
@@ -864,7 +867,8 @@ fn property_name(name: &str, namespaces: &[(String, String)]) -> String {
     match uri.and_then(|u| KNOWN_NAMESPACES.iter().find(|(_, known)| known == u)) {
         Some((known, _)) => format!("{known}:{local}"),
         None if KNOWN_NAMESPACES.iter().any(|(known, _)| *known == prefix) => {
-            format!("{{{}}}{local}", uri.map_or("", |u| u.as_str()))
+            let uri = uri.map_or("", |u| u.as_str());
+            format!("{{{}}}{local}", without_control_characters(uri))
         }
         None => name.to_owned(),
     }
@@ -1815,6 +1819,17 @@ mod tests {
             let groups = crate::images::shared_copy::Group::groups_of(name);
             assert_eq!(groups.len(), crate::images::shared_copy::Group::ALL.len());
         }
+    }
+
+    /// A name made from a namespace holds no control character, so it cannot add a line, and
+    /// with it a word, to Copy for Sharing's saved choice.
+    #[test]
+    fn a_property_name_holds_no_control_character() {
+        let xmp = "<rdf:Description xmlns:aux=\"u\nkeep:GPSLatitude\n\" aux:A=\"1\"/>";
+        let read = super::properties(xmp);
+        let names: Vec<&str> = read.list.iter().map(|(n, ..)| n.as_str()).collect();
+        assert_eq!(names.len(), 1);
+        assert!(!names[0].chars().any(char::is_control), "{names:?}");
     }
 
     /// Packets broken in thousands of ways: their properties read, and a packet written of them,
