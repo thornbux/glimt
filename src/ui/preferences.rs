@@ -1,7 +1,9 @@
 //! Edit → Preferences: one window of every setting, in sections, saved when one changes (when
 //! a slider is let go). The settings themselves are `Config`'s (config.rs).
 
-use crate::files::config::{CPU_LEVELS, FADES, MAX_SLIDESHOW_DELAY, MEMORY_LEVELS, OSD_TEMPLATE};
+use crate::files::config::{
+    CPU_LEVELS, FADES, FULL_SCREEN_INFO_TEMPLATE, MAX_SLIDESHOW_DELAY, MEMORY_LEVELS,
+};
 use crate::images::colour::{INPUT_PROFILES, INTENTS};
 use crate::support::format::thousands;
 use crate::support::lang::tr;
@@ -838,23 +840,23 @@ impl crate::App {
     /// Preferences → Image: the full screen info and its template.
     fn info_settings(&mut self, ui: &mut egui::Ui) -> bool {
         let mut changed = false;
-        let osd = tr("Show image info in full screen (I)");
+        let label = tr("Show image info in full screen (I)");
         self.toggle_box(
             ui,
             self.config.full_screen_info,
             Action::FullScreenInfo,
-            osd,
+            label,
         );
         let c = &mut self.config;
         ui.label(tr("Image info template:"));
         // Kept on one line in the config file, with \n for each new line.
-        let mut text = c.osd_template.replace("\\n", "\n");
+        let mut text = c.full_screen_info_template.replace("\\n", "\n");
         let field = egui::TextEdit::multiline(&mut text)
             .desired_rows(3)
             .desired_width(f32::INFINITY)
             .hint_text("%name%  %position%");
         if ui.add_enabled(c.full_screen_info, field).changed() {
-            c.osd_template = text.replace('\n', "\\n");
+            c.full_screen_info_template = text.replace('\n', "\\n");
             changed = true;
         }
         ui.weak(tr(
@@ -863,7 +865,7 @@ impl crate::App {
              left out when its fields are empty.",
         ));
         if crate::ui::menus::button(ui, tr("Default")).clicked() {
-            c.osd_template = OSD_TEMPLATE.to_owned();
+            c.full_screen_info_template = FULL_SCREEN_INFO_TEMPLATE.to_owned();
             changed = true;
         }
         changed

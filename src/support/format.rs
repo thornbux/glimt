@@ -85,7 +85,7 @@ pub(crate) fn middle_cut(text: &str, fits: impl Fn(&str) -> bool) -> String {
     cut(lo)
 }
 
-/// `template` (see OSD_TEMPLATE) with each `%field%` replaced by `value(field)`.
+/// `template` (see FULL_SCREEN_INFO_TEMPLATE) with each `%field%` replaced by `value(field)`.
 pub(crate) fn fill_template(template: &str, value: impl Fn(&str) -> String) -> String {
     let lines = template.split("\\n").filter_map(|line| {
         let parts: Vec<String> = (line.split('|'))
@@ -167,7 +167,10 @@ mod tests {
             _ => String::new(),
         };
         let fill = |t| super::fill_template(t, value);
-        assert_eq!(fill(crate::files::config::OSD_TEMPLATE), "a.jpg\nISO 200");
+        assert_eq!(
+            fill(crate::files::config::FULL_SCREEN_INFO_TEMPLATE),
+            "a.jpg\nISO 200"
+        );
         assert_eq!(
             fill("%Taken%|x %name%|%comment%\\n%keywords%\\n50%"),
             "x a.jpg\n50%"

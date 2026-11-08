@@ -72,7 +72,7 @@ pub(crate) const MAX_SLIDESHOW_DELAY: u64 = 60;
 /// The full screen info, as Geeqie writes its overlay template. Fields are in percent signs,
 /// `|` stands between the parts of a line, and `\n` starts a new line. A part whose fields are
 /// all empty is left out. The default shows what Glimt always showed.
-pub(crate) const OSD_TEMPLATE: &str = "%name%  %position%\\n%dimensions%|%File size%|%Taken%|%Exposure%|%Aperture%|ISO %ISO%|\
+pub(crate) const FULL_SCREEN_INFO_TEMPLATE: &str = "%name%  %position%\\n%dimensions%|%File size%|%Taken%|%Exposure%|%Aperture%|ISO %ISO%|\
      %Focal length%|%marks%";
 
 /// Preferences → CPU use, as (name, hover text). Power saving makes thumbnails one at a time,
@@ -153,7 +153,7 @@ const NAMED: [(&str, &[&str]); 7] = [
 /// The settings renamed in 0.74.0 and later, as (old key, new key). A settings file is read by
 /// the old keys too, forever, so the users' files keep working, and only the new keys are
 /// written. When a file holds both keys of a setting, the value of the new key is the one used.
-const RENAMED_SETTINGS: [(&str, &str); 9] = [
+const RENAMED_SETTINGS: [(&str, &str); 10] = [
     ("trash", "delete_to_trash"),
     ("delay", "slideshow_delay"),
     ("random", "slideshow_random"),
@@ -164,6 +164,7 @@ const RENAMED_SETTINGS: [(&str, &str); 9] = [
     ("exif_panel", "info_panel"),
     // 0.76.0: "OSD" is jargon that the menus and the action had already dropped.
     ("osd", "full_screen_info"),
+    ("osd_template", "full_screen_info_template"),
 ];
 
 /// The window state's keys renamed in 0.74.0, as (old key, new key). They are read as the
@@ -397,8 +398,8 @@ config! {
     /// Name, position and a few EXIF fields over the image in full screen (I), as Geeqie's
     /// image overlay.
     full_screen_info: bool = true,
-    /// What the full screen info shows (OSD_TEMPLATE).
-    osd_template: String = OSD_TEMPLATE.to_owned(),
+    /// What the full screen info shows (FULL_SCREEN_INFO_TEMPLATE).
+    full_screen_info_template: String = FULL_SCREEN_INFO_TEMPLATE.to_owned(),
     /// The histogram in the corner of the image (K): off, rgb or brightness, as an index.
     histogram: u8 = 0,
     /// Logarithmic histogram (J), which shows the small counts better.

@@ -858,22 +858,25 @@ impl crate::App {
         self.request_and_take_exif(ui.ctx());
         let path = self.path(self.list.shown());
         let meta = self.info_panel.metadata_edit_of(&path).map(|m| &m.saved);
-        let text = fill_template(&self.config.osd_template, |field| match field {
-            "name" => self.name(self.list.shown()).to_string(),
-            "path" => path.display().to_string(),
-            "position" => self.position_text(),
-            "dimensions" => (self.list.loaded_images().get(&self.list.shown()))
-                .map(|s| format!("{} × {}", s.original_size[0], s.original_size[1]))
-                .unwrap_or_default(),
-            "marks" => self.mark_text(self.list.shown()),
-            "keywords" => meta.map(|m| m.keywords.join(", ")).unwrap_or_default(),
-            "comment" => meta.map(|m| m.comment.clone()).unwrap_or_default(),
-            label => self
-                .info_panel
-                .exif_row(&path, label)
-                .map(|value| crate::metadata::exif::shown_value(label, value).to_owned())
-                .unwrap_or_default(),
-        });
+        let text = fill_template(
+            &self.config.full_screen_info_template,
+            |field| match field {
+                "name" => self.name(self.list.shown()).to_string(),
+                "path" => path.display().to_string(),
+                "position" => self.position_text(),
+                "dimensions" => (self.list.loaded_images().get(&self.list.shown()))
+                    .map(|s| format!("{} × {}", s.original_size[0], s.original_size[1]))
+                    .unwrap_or_default(),
+                "marks" => self.mark_text(self.list.shown()),
+                "keywords" => meta.map(|m| m.keywords.join(", ")).unwrap_or_default(),
+                "comment" => meta.map(|m| m.comment.clone()).unwrap_or_default(),
+                label => self
+                    .info_panel
+                    .exif_row(&path, label)
+                    .map(|value| crate::metadata::exif::shown_value(label, value).to_owned())
+                    .unwrap_or_default(),
+            },
+        );
         if text.is_empty() {
             return;
         }

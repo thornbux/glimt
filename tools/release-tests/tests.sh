@@ -3946,7 +3946,7 @@ d=/tmp/osd
 mkdir -p $d
 convert -size 1600x1000 xc:red $d/a.jpg
 for t in empty:%comment% name:%name%; do
-    config "osd_template=${t#*:}"
+    config "full_screen_info_template=${t#*:}"
     start $d
     sleep 2
     key f

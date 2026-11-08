@@ -10,7 +10,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 - File → Open With Default App opens the selected files, as the Open With submenu beside it
   does, rather than only the shown image. It is in the file list's right-click menu too.
 - The settings file names the full screen info's setting `full_screen_info`, as the menu and
-  the action do, instead of `osd`. The old key is still read.
+  the action do, instead of `osd`, and its template `full_screen_info_template` instead of
+  `osd_template`. The old keys are still read.
 
 ### Fixed
 
