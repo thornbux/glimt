@@ -18,6 +18,15 @@ struct Tm {
     zone: *const std::ffi::c_char,
 }
 
+/// A piece of a text with `%` codes, as `pieces` reads it.
+#[derive(Debug, PartialEq)]
+pub(crate) enum Piece<'a> {
+    /// Text as it stands. A `%%` is the text "%".
+    Text(&'a str),
+    /// A code without its `%` signs, such as `name` of `%name%` or `f` of `%f`.
+    Code(&'a str),
+}
+
 /// A size for the status bar, or "calculating…" while it is summed (`None`).
 pub(crate) fn size_text(bytes: Option<u64>) -> String {
     bytes.map_or(tr("calculating…").to_owned(), human_size)
@@ -85,30 +94,57 @@ pub(crate) fn middle_cut(text: &str, fits: impl Fn(&str) -> bool) -> String {
     cut(lo)
 }
 
+/// Returns the pieces of `text` from left to right: the text, and the codes in it. A code is
+/// `%name%` when `closed`, as in the templates, and otherwise a `%` with the one character
+/// after it, as in a desktop file's Exec. A `%%` is a `%` of its own in both, never the start
+/// or the end of a code, so `%page%%pages%` is two codes and `%%f` is the text "%f". A `%`
+/// that starts no code is text. Every template and Exec word is read here, so the rule for
+/// `%%` is held in one place.
+pub(crate) fn pieces(text: &str, closed: bool) -> impl Iterator<Item = Piece<'_>> {
+    let mut rest = text;
+    std::iter::from_fn(move || {
+        let at = rest.find('%');
+        if at != Some(0) {
+            let end = at.unwrap_or(rest.len());
+            let (piece, after) = rest.split_at(end);
+            rest = after;
+            return (!piece.is_empty()).then_some(Piece::Text(piece));
+        }
+        let after = &rest[1..];
+        let length = match closed {
+            true => after.find('%'),
+            false => after.chars().next().map(char::len_utf8),
+        };
+        let Some(length) = length else {
+            return Some(Piece::Text(std::mem::take(&mut rest)));
+        };
+        let code = &after[..length];
+        rest = &after[length + closed as usize..];
+        Some(match code {
+            "" | "%" => Piece::Text("%"),
+            code => Piece::Code(code),
+        })
+    })
+}
+
 /// `template` (see FULL_SCREEN_INFO_TEMPLATE) with each `%field%` replaced by `value(field)`.
 /// A `%%` is a `%` of its own, not a field, so it never takes its part along.
 pub(crate) fn fill_template(template: &str, value: impl Fn(&str) -> String) -> String {
     let lines = template.split("\\n").filter_map(|line| {
         let parts: Vec<String> = (line.split('|'))
             .filter_map(|part| {
-                let (mut out, mut rest, mut fields, mut filled) = (String::new(), part, 0, 0);
-                while let Some(a) = rest.find('%')
-                    && let Some(b) = rest[a + 1..].find('%')
-                {
-                    out += &rest[..a];
-                    let field = &rest[a + 1..a + 1 + b];
-                    rest = &rest[a + b + 2..];
-                    // "%%" is a "%" of its own, not an empty field.
-                    if field.is_empty() {
-                        out.push('%');
-                        continue;
-                    }
-                    let v = value(field);
-                    fields += 1;
-                    filled += !v.is_empty() as usize;
-                    out += &v;
-                }
-                out += rest;
+                let (mut fields, mut filled) = (0, 0);
+                let out: String = (pieces(part, true))
+                    .map(|piece| match piece {
+                        Piece::Text(text) => text.to_owned(),
+                        Piece::Code(field) => {
+                            let v = value(field);
+                            fields += 1;
+                            filled += !v.is_empty() as usize;
+                            v
+                        }
+                    })
+                    .collect();
                 (fields == 0 || filled > 0).then_some(out)
             })
             .map(|p| p.trim().to_owned())
@@ -163,6 +199,24 @@ mod tests {
         for bytes in crate::support::test_support::broken(seed) {
             super::fill_template(&String::from_utf8_lossy(&bytes), |_| "x".into());
         }
+    }
+
+    /// The one reader of `%` codes: `%%` is a `%` and never part of a code, also beside one.
+    #[test]
+    fn reads_percent_codes() {
+        use super::Piece::{Code, Text};
+        let read = |text, closed| super::pieces(text, closed).collect::<Vec<_>>();
+        assert_eq!(read("%page%%pages%", true), [Code("page"), Code("pages")]);
+        assert_eq!(
+            read("a %% %b", true),
+            [Text("a "), Text("%"), Text(" "), Text("%b")]
+        );
+        assert_eq!(
+            read("%%f %f[0]", false),
+            [Text("%"), Text("f "), Code("f"), Text("[0]")]
+        );
+        assert_eq!(read("100%", false), [Text("100"), Text("%")]);
+        assert!(read("", true).is_empty());
     }
 
     /// The overlay template: empty fields take their part along, an empty line goes.

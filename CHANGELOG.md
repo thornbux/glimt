@@ -34,7 +34,7 @@ and versions follow [Semantic Versioning](https://semver.org/).
   the manual says that the other `%` codes in `Exec` are kept for later.
 - In the templates of the full screen info, the print caption, the page header and footer and
   the window title, `%%` is a `%`. Before, it was an empty field, which could take its part of
-  the line along.
+  the line along. In an added format's `Exec`, `%%f` is the text `%f`, not a `%` and the file.
 - The marks file keeps what this Glimt does not understand: marks above 6 and lines in another
   form stay as they are when a mark is changed, so a later Glimt can add to the file without an
   older one deleting it.
