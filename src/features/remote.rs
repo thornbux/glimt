@@ -235,8 +235,8 @@ impl crate::App {
     /// to have the title in Preferences, and run ACTION with an action of `SCRIPT_ACTIONS`.
     pub(crate) fn remote_command(&mut self, ctx: &egui::Context, command: &str) {
         let fullscreen = ctx.input(|i| i.viewport().fullscreen).unwrap_or(false);
-        // The renamed commands take no words after them, so the whole command is their word.
-        let action = match command_word_now(command.trim()) {
+        let command = command_now(command.trim_start());
+        let action = match command.trim_end() {
             "next" => Some(Action::Next),
             "previous" => Some(Action::Previous),
             "first" => Some(Action::First),
@@ -434,7 +434,7 @@ fn may_relist(command: &str) -> bool {
 pub fn is_known_command(words: &[String]) -> bool {
     (COMMANDS.iter()).any(|(c, _)| {
         let mut parts = c.split(' ');
-        if parts.next() != words.first().map(|w| command_word_now(w)) {
+        if parts.next() != words.first().map(|w| command_now(w)).as_deref() {
             return false;
         }
         match parts.next() {
@@ -455,12 +455,16 @@ pub fn is_known_command(words: &[String]) -> bool {
     })
 }
 
-/// Returns the word a command has now: the new word of one renamed in `RENAMED_COMMANDS`, and
-/// `word` itself for every other.
-pub fn command_word_now(word: &str) -> &str {
-    (RENAMED_COMMANDS.iter())
-        .find(|r| r.0 == word)
-        .map_or(word, |r| r.1)
+/// Returns `command` as it is named now: its first word becomes the new word when that word is
+/// renamed in `RENAMED_COMMANDS`, and the words after it stay. The client's check
+/// (`is_known_command`) and the window (`remote_command`) both read a command through this, so
+/// they cannot disagree about one with words after it.
+pub fn command_now(command: &str) -> String {
+    let word = command.split(' ').next().unwrap_or_default();
+    match RENAMED_COMMANDS.iter().find(|r| r.0 == word) {
+        Some((_, new)) => format!("{new}{}", &command[word.len()..]),
+        None => command.to_owned(),
+    }
 }
 
 /// Whether a window took a command but gave no answer within `WAIT`.
@@ -967,6 +971,17 @@ mod tests {
                 && !super::is_known_command(&words("subfolders on off"))
         );
         assert!(!super::is_known_command(&[]));
+    }
+
+    /// A renamed command is read by its new word with the words after it kept, so a renamed
+    /// command that takes words (`slideshow on`) works in the window as the client's check says.
+    #[test]
+    fn a_renamed_command_keeps_its_words() {
+        assert_eq!(super::command_now("prev"), "previous");
+        assert_eq!(super::command_now("prev on"), "previous on");
+        assert_eq!(super::command_now("prevx on"), "prevx on");
+        assert_eq!(super::command_now("next"), "next");
+        assert_eq!(super::command_now(""), "");
     }
 
     /// The runtime folder is used when it is the user's own folder or not there yet. It is not
