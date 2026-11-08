@@ -175,26 +175,135 @@ fn draw_in_child(
     // What the child may take, and the picture as read here, count against the decodes'
     // shared budget while it draws.
     let _reserved = crate::images::decode::reserve_from_budget(child_memory(max) + picture)?;
-    draw_in_child_outside_budget(path, max, limit)
+    draw_in_child_outside_budget(path, max, limit, system_font_list())
 }
 
 /// Draws an SVG as `draw_in_child` does, without taking its memory from the decodes' budget
-/// first. The tests that draw at the largest size call it, so that they do not hold the budget
-/// that the other tests' decodes wait for.
+/// first, with the fonts of `fonts` (`font_list`). The tests that draw at the largest size call
+/// it, so that they do not hold the budget that the other tests' decodes wait for.
 fn draw_in_child_outside_budget(
     path: &Path,
     max: Option<[u32; 2]>,
     limit: std::time::Duration,
+    fonts: &'static [u8],
 ) -> Result<(image::DynamicImage, Option<[usize; 2]>), String> {
+    use std::io::Write;
     let picture = largest_picture(max);
     let mut command = crate::files::external::stoppable_command("/proc/self/exe");
     command.args(CHILD_ARGS).env(DRAW_SVG, path);
+    command.stdin(std::process::Stdio::piped());
     if let Some([w, h]) = max {
         command.env(DRAW_SVG_BOX, format!("{w} {h}"));
     }
     let mut child = command.spawn().map_err(|e| format!("SVG: {e}"))?;
+    // The fonts are written from a thread of their own, so a child that stops reading them
+    // cannot hold this one before the time limit starts.
+    if let Some(mut input) = child.stdin.take() {
+        std::thread::spawn(move || input.write_all(fonts));
+    }
     let (out, errors, _) = crate::files::external::output_of(&mut child, picture + 4096, limit);
     read_child_answer(out.ok_or("SVG too large")?, &errors)
+}
+
+/// Returns the system's fonts as `font_list` writes them, read once for every drawing child.
+/// Before, each child of an SVG with text read the fonts itself, which takes tens of
+/// milliseconds for each thumbnail of a folder of diagrams.
+fn system_font_list() -> &'static [u8] {
+    static FONTS: std::sync::OnceLock<Vec<u8>> = std::sync::OnceLock::new();
+    FONTS.get_or_init(|| {
+        let mut fonts = resvg::usvg::fontdb::Database::new();
+        fonts.load_system_fonts();
+        font_list(&fonts)
+    })
+}
+
+/// Returns the faces of `fonts` that are files, one line each with tabs between the fields:
+/// the face's number in its file, weight, style, stretch, whether it is monospaced, its
+/// PostScript name, its file and its families. `fonts_from_list` reads it back. A face whose
+/// names hold a tab or a line break is left out.
+fn font_list(fonts: &resvg::usvg::fontdb::Database) -> Vec<u8> {
+    use resvg::usvg::fontdb::{Source, Style};
+    let mut list = String::new();
+    for face in fonts.faces() {
+        let (Source::File(file) | Source::SharedFile(file, _)) = &face.source else {
+            continue;
+        };
+        let style = match face.style {
+            Style::Normal => 0,
+            Style::Italic => 1,
+            Style::Oblique => 2,
+        };
+        let mut fields = vec![
+            face.index.to_string(),
+            face.weight.0.to_string(),
+            style.to_string(),
+            face.stretch.to_number().to_string(),
+            u8::from(face.monospaced).to_string(),
+            face.post_script_name.clone(),
+            file.to_string_lossy().into_owned(),
+        ];
+        fields.extend(face.families.iter().map(|(name, _)| name.clone()));
+        if fields.iter().all(|f| !f.contains(['\t', '\n'])) {
+            list += &fields.join("\t");
+            list.push('\n');
+        }
+    }
+    list.into_bytes()
+}
+
+/// Returns the fonts of a list that `font_list` wrote, without reading the font files. A line
+/// that is not such a face is left out.
+fn fonts_from_list(list: &[u8]) -> resvg::usvg::fontdb::Database {
+    use resvg::usvg::fontdb::{FaceInfo, ID, Language, Source, Stretch, Style, Weight};
+    const STRETCHES: [Stretch; 9] = [
+        Stretch::UltraCondensed,
+        Stretch::ExtraCondensed,
+        Stretch::Condensed,
+        Stretch::SemiCondensed,
+        Stretch::Normal,
+        Stretch::SemiExpanded,
+        Stretch::Expanded,
+        Stretch::ExtraExpanded,
+        Stretch::UltraExpanded,
+    ];
+    let mut fonts = resvg::usvg::fontdb::Database::new();
+    for line in String::from_utf8_lossy(list).lines() {
+        let fields: Vec<&str> = line.split('\t').collect();
+        let [
+            index,
+            weight,
+            style,
+            stretch,
+            monospaced,
+            post_script_name,
+            file,
+            families @ ..,
+        ] = fields.as_slice()
+        else {
+            continue;
+        };
+        let face = (|| {
+            Some(FaceInfo {
+                id: ID::dummy(),
+                source: Source::File(file.into()),
+                index: index.parse().ok()?,
+                families: (families.iter())
+                    .map(|name| (name.to_string(), Language::English_UnitedStates))
+                    .collect(),
+                post_script_name: post_script_name.to_string(),
+                style: [Style::Normal, Style::Italic, Style::Oblique]
+                    .get(style.parse::<usize>().ok()?)
+                    .copied()?,
+                weight: Weight(weight.parse().ok()?),
+                stretch: *STRETCHES.get(stretch.parse::<usize>().ok()?.checked_sub(1)?)?,
+                monospaced: *monospaced == "1",
+            })
+        })();
+        if let Some(face) = face {
+            fonts.push_face_info(face);
+        }
+    }
+    fonts
 }
 
 /// Returns the bytes of the largest picture that an SVG drawn to fit `max` can have: the box,
@@ -265,14 +374,22 @@ fn read_child_answer(
 /// limit of `child_memory`, and writes the picture, or why there is none, on the output.
 /// Returns the exit code.
 pub fn draw_for_parent(path: &std::ffi::OsStr) -> i32 {
-    use std::io::Write;
+    use std::io::{Read, Write};
     let max = std::env::var(DRAW_SVG_BOX).ok().and_then(|text| {
         let (w, h) = text.split_once(' ')?;
         Some([w.parse().ok()?, h.parse().ok()?])
     });
     limit_this_process(child_memory(max));
+    // The parent's list of fonts (`font_list`), read whole before anything is written, so the
+    // parent never waits to write it while this waits to write the picture.
+    let mut fonts = Vec::new();
+    #[allow(clippy::disallowed_methods)] // bounded by take
+    let _ = std::io::stdin()
+        .lock()
+        .take(64 << 20)
+        .read_to_end(&mut fonts);
     let mut out = std::io::stdout().lock();
-    let written = match draw(Path::new(path), max) {
+    let written = match draw(Path::new(path), max, &fonts) {
         Ok((img, own)) => {
             let [own_w, own_h] = own.map_or([0, 0], |[w, h]| [w as u32, h as u32]);
             let numbers = [img.width(), img.height(), own_w, own_h].map(u32::to_le_bytes);
@@ -304,6 +421,7 @@ fn limit_this_process(bytes: u64) {
 fn draw(
     path: &Path,
     max: Option<[u32; 2]>,
+    font_list: &[u8],
 ) -> Result<(image::RgbaImage, Option<[usize; 2]>), String> {
     use resvg::{tiny_skia, usvg};
     let mut data = read_limited(path).map_err(|e| e.to_string())?;
@@ -319,12 +437,13 @@ fn draw(
     if entities_too_large(&data) {
         return Err("SVG whose entities would grow too large".into());
     }
-    // The system fonts are read for text, which takes tens of milliseconds in every child.
-    // shortcut: they are read only for an SVG with a text element, so text in an SVG that this
-    // one links to as a picture is not drawn; read them always if such files turn up.
+    // The fonts come from the parent's list, which it read once. A font file is read only when
+    // text is drawn with it.
+    // shortcut: they are taken only for an SVG with a text element, so text in an SVG that this
+    // one links to as a picture is not drawn; take them always if such files turn up.
     let mut fonts = usvg::fontdb::Database::new();
     if data.windows(5).any(|w| w == b"<text" || w == b":text") {
-        fonts.load_system_fonts();
+        fonts = fonts_from_list(font_list);
     }
     let options = usvg::Options {
         resources_dir: path.parent().map(Path::to_path_buf),
@@ -469,15 +588,54 @@ mod tests {
         let file = dir.join("icon.svg");
         std::fs::write(&file, svg(100, 100)).unwrap();
         let (img, _) =
-            super::draw_in_child_outside_budget(&file, Some([16384, 16384]), limit).unwrap();
+            super::draw_in_child_outside_budget(&file, Some([16384, 16384]), limit, &[]).unwrap();
         assert_eq!((img.width(), img.height()), (8192, 8192));
         drop(img);
         // A poster as Save As draws it, at its own size.
         let file = dir.join("poster.svg");
         std::fs::write(&file, svg(8000, 6000)).unwrap();
-        let (img, _) = super::draw_in_child_outside_budget(&file, None, limit).unwrap();
+        let (img, _) = super::draw_in_child_outside_budget(&file, None, limit, &[]).unwrap();
         assert_eq!((img.width(), img.height()), (8000, 6000));
         std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A drawing child draws text with the fonts of the list its parent gives it, and reads no
+    /// fonts of the system itself: with an empty list it draws no text, and with Inter's face
+    /// on the list it draws in Inter. Before, each child read the system's fonts again.
+    #[test]
+    fn a_drawing_child_takes_its_fonts_from_the_parent() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-svg-fonts-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("text.svg");
+        let svg = "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"200\" height=\"100\">\
+                   <text x=\"0\" y=\"90\" font-family=\"Inter\" font-size=\"90\">WW</text></svg>";
+        std::fs::write(&file, svg).unwrap();
+        let limit = crate::files::external::PROGRAM_TIME_LIMIT;
+        let inked = |fonts: &'static [u8]| {
+            let (img, _) =
+                super::draw_in_child_outside_budget(&file, Some([200, 100]), limit, fonts).unwrap();
+            img.to_rgba8().pixels().filter(|p| p.0[3] > 0).count()
+        };
+        assert_eq!(inked(&[]), 0);
+        let mut inter = resvg::usvg::fontdb::Database::new();
+        let font = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/assets/fonts/Inter-Regular.ttf"
+        );
+        inter.load_font_file(font).unwrap();
+        let list = super::font_list(&inter);
+        assert_eq!(super::fonts_from_list(&list).faces().count(), 1);
+        assert!(inked(Vec::leak(list)) > 1000);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A list of fonts broken in thousands of ways is read without a panic.
+    #[test]
+    fn survives_broken_font_lists() {
+        let list = b"0\t400\t0\t5\t0\tInter-Regular\t/usr/share/fonts/Inter.ttf\tInter\tInter UI\n";
+        for broken in crate::support::test_support::broken(list) {
+            let _ = super::fonts_from_list(&broken);
+        }
     }
 
     /// What a drawing child wrote is read as its picture, its reason or its end, also after
