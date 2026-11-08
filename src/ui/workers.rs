@@ -141,7 +141,7 @@ impl crate::App {
     }
 
     /// Rename Many done, and the renames a crash cut short, found at start.
-    fn receive_renames(&mut self, ctx: &egui::Context) {
+    pub(crate) fn receive_renames(&mut self, ctx: &egui::Context) {
         match self.file_operations.take_rename_outcome() {
             Took::Answer((Some(job), result)) => self.finish_rename_many(ctx, job, result),
             Took::Answer((None, _)) | Took::Nothing => {}

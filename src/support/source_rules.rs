@@ -2536,3 +2536,65 @@ fn every_release_in_the_changelog_has_its_link() {
         "[Unreleased] does not compare from v{newest}"
     );
 }
+
+/// Every operation that leaves an Undo takes `undo_on_the_way` when it starts, and its thread
+/// holds it until the report is sent, so Ctrl+Z waits for it instead of undoing the operation
+/// before it. An operation leaves an Undo when it sends an `OperationReport` with an `undo`, or
+/// runs `rename_undoable`. What an Undo from the trash could not put back
+/// (`is_undo_remainder`) is not counted, because it never replaces a newer Undo.
+#[test]
+fn operations_that_leave_an_undo_make_undo_wait() {
+    let mut missing = Vec::new();
+    for (file, text) in rust_sources() {
+        missing.extend(undo_left_without_waiting(&file, &text));
+    }
+    assert!(
+        missing.is_empty(),
+        "an operation leaves an Undo without undo_on_the_way():\n{}",
+        missing.join("\n")
+    );
+}
+
+/// Returns the functions of `text`, the source of `file`, that leave an Undo outside the tests
+/// without taking `undo_on_the_way`, as "file: function".
+fn undo_left_without_waiting(file: &str, text: &str) -> Vec<String> {
+    let lines = code_lines(text);
+    let end = tests_start(&lines);
+    let mut missing = Vec::new();
+    let mut function = String::new();
+    let (mut sends_report, mut leaves_undo, mut waits) = (false, false, false);
+    let mut is_remainder = false;
+    for line in lines[..end].iter().map(String::as_str).chain(["fn end"]) {
+        if let Some(name) = function_name(line) {
+            if leaves_undo && !waits && !is_remainder {
+                missing.push(format!("{file}: {function}"));
+            }
+            function = name.to_owned();
+            (sends_report, leaves_undo, waits, is_remainder) = (false, false, false, false);
+            continue;
+        }
+        is_remainder |= line.contains("is_undo_remainder: true");
+        let field = line.trim_start();
+        sends_report |= line.contains(".send(OperationReport {");
+        leaves_undo |= sends_report && (field == "undo," || field.starts_with("undo:"));
+        leaves_undo |= line.contains("rename_undoable(");
+        waits |= line.contains("undo_on_the_way()");
+    }
+    missing
+}
+
+/// The check above finds a report with an Undo and a rename that leaves one. It passes a
+/// function that takes the token, one that only reads a report, and an Undo's remainder.
+#[test]
+fn finds_an_undo_left_without_waiting() {
+    let text = "fn a() {\n    tx.send(OperationReport {\n        undo,\n    });\n}\n\
+        fn b() {\n    let t = self.undo_on_the_way();\n    tx.send(OperationReport {\n        \
+        undo: None,\n    });\n}\nfn c() {\n    tx.send(rename_undoable(f, t));\n}\n\
+        fn d() {\n    for OperationReport {\n        undo,\n    } in x {}\n}\n\
+        fn e() {\n    tx.send(OperationReport {\n        undo,\n        is_undo_remainder: true,\n\
+        });\n}\n";
+    assert_eq!(
+        undo_left_without_waiting("x.rs", text),
+        ["x.rs: a", "x.rs: c"]
+    );
+}

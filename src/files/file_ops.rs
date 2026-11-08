@@ -1132,10 +1132,10 @@ impl crate::App {
         let (tx, rx) = mpsc::channel();
         let ctx = ctx.clone();
         let pointer = Working::new(&self.busy);
+        let undo_on_the_way = self.file_operations.undo_on_the_way();
         std::thread::spawn(move || {
             let _ = tx.send(rename_undoable(from, to, fingerprints, &steps));
-            drop(steps);
-            drop(pointer);
+            drop((undo_on_the_way, steps, pointer));
             ctx.request_repaint();
         });
         self.file_operations.renaming = Some(job);
@@ -1453,6 +1453,7 @@ impl crate::App {
         // older one now would undo an operation the user did not mean. A report sent but not yet
         // taken is taken first, so its Undo is the one done.
         self.receive_operation_report(ctx);
+        self.receive_renames(ctx);
         if Arc::strong_count(&self.file_operations.undo_on_the_way) > 1 {
             self.notice = Some(tr("Still working on these files: try again in a moment").into());
             return;
@@ -3491,6 +3492,44 @@ mod tests {
             )));
         app.undo(&ctx);
         assert!(run_background_until(&mut app, &ctx, |app| !app.working() && a.exists()));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// Ctrl+Z while a rename still runs waits for it too, and afterwards gives the old name back.
+    #[test]
+    fn undo_waits_for_the_rename_still_running() {
+        let dir =
+            std::env::temp_dir().join(format!("glimt-test-undo-rename-{}", std::process::id()));
+        let sub = dir.join("sub");
+        std::fs::create_dir_all(&sub).unwrap();
+        let (a, b, c) = (dir.join("a.png"), dir.join("b.png"), dir.join("c.png"));
+        image::RgbImage::new(2, 2).save(&a).unwrap();
+        image::RgbImage::new(2, 2).save(&c).unwrap();
+        let (mut app, ctx) = app_on(&dir);
+        app.transfer(&ctx, vec![c.clone()], sub.clone(), false);
+        assert!(run_background_until(&mut app, &ctx, |app| !app.working()
+            && app.file_operations.undo.is_some()));
+        // The rename waits for a.png's sidecar lock, so it is still running at the Ctrl+Z.
+        let lock = crate::metadata::xmp::lock_sidecar(&a);
+        app.rename_in_background(&ctx, vec![a.clone()], vec![b.clone()]);
+        app.undo(&ctx);
+        assert!(
+            sub.join("c.png").exists() && !c.exists(),
+            "the older move was undone"
+        );
+        assert!(matches!(
+            app.file_operations.undo,
+            Some(super::Undo::Move(_))
+        ));
+        drop(lock);
+        assert!(run_background_until(&mut app, &ctx, |app| !app.working()
+            && matches!(
+                app.file_operations.undo,
+                Some(super::Undo::Rename(_))
+            )));
+        app.undo(&ctx);
+        assert!(run_background_until(&mut app, &ctx, |app| !app.working() && a.exists()));
+        assert!(!b.exists());
         std::fs::remove_dir_all(dir).unwrap();
     }
 
