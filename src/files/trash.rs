@@ -8,13 +8,17 @@ use std::collections::{HashMap, HashSet};
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 
+/// The marks and stars that a delete took away, for its Undo. The marks writer thread adds them
+/// as it takes them out of the marks file, after the window's earlier edits are in the file.
+pub(crate) type ForgottenMarks = std::sync::Arc<std::sync::Mutex<Vec<(PathBuf, (u8, u8))>>>;
+
 /// What a move to the trash did, as it did it, for Undo to put back: the files or folder it
 /// moved, the sidecars that went with them, when it began (the trash may hold older files of the
 /// same names, which are not these), and what went with them elsewhere: their marks and stars,
 /// and their places in the collection shown. Recorded as it happens, never found out later: by
-/// the move's thread, and the marks by `receive_operation_report` as it forgets them, which is the
-/// one way an `Undo::Trash` reaches `App::undo`. `since` has no default: one left out would take an
-/// older file of the same name from the trash.
+/// the move's thread, and the marks by the marks writer when `receive_operation_report` forgets
+/// them, which is the one way an `Undo::Trash` reaches `App::undo`. `since` has no default: one
+/// left out would take an older file of the same name from the trash.
 pub(crate) struct TrashMove {
     pub(crate) files: Vec<PathBuf>,
     pub(crate) sidecars: Vec<PathBuf>,
@@ -22,7 +26,7 @@ pub(crate) struct TrashMove {
     /// files' names, and Undo puts each file back beside its own.
     pub(crate) sidecars_left: Vec<PathBuf>,
     pub(crate) since: std::time::SystemTime,
-    pub(crate) marks: Vec<(PathBuf, (u8, u8))>,
+    pub(crate) marks: ForgottenMarks,
     pub(crate) collection: Option<(PathBuf, Vec<(usize, PathBuf)>)>,
 }
 
@@ -34,6 +38,18 @@ struct TrashEntry {
     date: String,
     file: PathBuf,
     info: PathBuf,
+}
+
+/// Takes the marks that a delete took away out of `marks`, for its Undo. The marks writer adds
+/// them as it takes them out of the marks file, so this first waits for the writes queued
+/// before it.
+pub(crate) fn take_forgotten_marks(marks: &ForgottenMarks) -> Vec<(PathBuf, (u8, u8))> {
+    crate::files::file_io::wait_for_queued_writes();
+    std::mem::take(
+        &mut *marks
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner),
+    )
 }
 
 /// What `trash_move` moved to the trash put back where it was, with the sidecars that went with it:
@@ -567,7 +583,7 @@ mod tests {
             sidecars: sidecars.iter().map(|f| photos.join(f)).collect(),
             sidecars_left: Vec::new(),
             since: now - Duration::from_secs(1),
-            marks: Vec::new(),
+            marks: Default::default(),
             collection: None,
         };
         // IMG_0001.jpg went alone: January's sidecar of its name stays in the trash.
@@ -705,7 +721,7 @@ mod tests {
             sidecars: vec![x.join("a.jpg.xmp")],
             sidecars_left: Vec::new(),
             since: now - std::time::Duration::from_secs(1),
-            marks: Vec::new(),
+            marks: Default::default(),
             collection: None,
         };
         let dirs = |_: &std::path::Path| vec![(trash.clone(), std::path::PathBuf::from("/"))];
@@ -745,7 +761,7 @@ mod tests {
             sidecars: vec![x.join("b.jpg.xmp"), x.join("a.jpg.xmp")],
             sidecars_left: Vec::new(),
             since: now - std::time::Duration::from_secs(1),
-            marks: Vec::new(),
+            marks: Default::default(),
             collection: None,
         };
         let dirs = |_: &std::path::Path| vec![(trash.clone(), std::path::PathBuf::from("/"))];
@@ -784,7 +800,7 @@ mod tests {
             sidecars: vec![x.join("a.jpg.xmp")],
             sidecars_left: Vec::new(),
             since: now - std::time::Duration::from_secs(1),
-            marks: Vec::new(),
+            marks: Default::default(),
             collection: None,
         };
         let dirs = |_: &std::path::Path| vec![(trash.clone(), std::path::PathBuf::from("/"))];
@@ -833,7 +849,7 @@ mod tests {
             sidecars: vec![dir.join("link/a.jpg.xmp")],
             sidecars_left: Vec::new(),
             since: std::time::SystemTime::now() - std::time::Duration::from_secs(1),
-            marks: Vec::new(),
+            marks: Default::default(),
             collection: None,
         };
         let (back, error) = super::restore(&trash_move, dirs);

@@ -24,7 +24,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 - A close of a minimized or covered window no longer loses what a file job reported a moment
   before, so the marks and saved collections follow the files it moved.
 - An Undo of a delete puts back the marks and stars that another window set on those files a
-  moment before, also when this window had not read them yet.
+  moment before, also when this window had not read them yet, and not a mark or stars cleared
+  just before the delete. The marks file is read for it in the background, not in the window.
 - A collection open in one window follows the images that another window moves or renames,
   as an open folder does, instead of keeping their old names until it is opened again.
 - A screen reader reads out a notice given twice within one frame, such as two refusals of
