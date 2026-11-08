@@ -110,18 +110,26 @@ pub struct KeywordChange {
 }
 
 impl KeywordChange {
-    /// The change from the keywords `before` to the keywords `after`. A keyword written in
-    /// another letter case counts as taken out and added, so the new spelling is written.
-    pub fn between(before: &[String], after: &[String]) -> Self {
-        let missing = |list: &[String], other: &[String]| -> Vec<String> {
-            (list.iter())
-                .filter(|k| !other.contains(k))
-                .cloned()
-                .collect()
-        };
+    /// The change from the keywords `saved` to the keywords `typed`, which the field gives split
+    /// at commas. A saved keyword that holds a comma ("Smith, John") stays when each of its parts
+    /// is still typed. Otherwise it is taken out whole, and its parts still typed are added as
+    /// keywords of their own. A keyword written in another letter case counts as taken out and
+    /// added, so the new spelling is written.
+    pub fn between(saved: &[String], typed: &[String]) -> Self {
+        let (mut kept_parts, mut removed) = (Vec::new(), Vec::new());
+        for keyword in saved {
+            let parts = KeywordsAndComment::parse_keywords(keyword);
+            match parts.iter().all(|p| typed.contains(p)) {
+                true => kept_parts.extend(parts),
+                false => removed.push(keyword.clone()),
+            }
+        }
         KeywordChange {
-            added: missing(after, before),
-            removed: missing(before, after),
+            added: (typed.iter())
+                .filter(|k| !kept_parts.contains(k))
+                .cloned()
+                .collect(),
+            removed,
         }
     }
 
@@ -1635,6 +1643,24 @@ mod tests {
         assert_eq!(tree_paths_for(&k(&["beach"]), paths), ["beach"]);
     }
 
+    /// A keyword that holds a comma is taken out or changed whole in the field. Before, the
+    /// change was made from the saved keywords split at commas, so taking "Smith, John" out took
+    /// nothing out, and changing it to "Smith, Jon" kept it beside Jon.
+    #[test]
+    fn a_keyword_with_a_comma_is_changed_whole() {
+        let k = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        let saved = k(&["Smith, John", "x"]);
+        let edited = |field: &str| {
+            let mut keywords = saved.clone();
+            let typed = KeywordsAndComment::parse_keywords(field);
+            KeywordChange::between(&saved, &typed).apply(&mut keywords);
+            keywords
+        };
+        assert_eq!(edited("Smith, John, x"), saved);
+        assert_eq!(edited("x"), ["x"]);
+        assert_eq!(edited("Smith, Jon, x"), ["x", "Smith", "Jon"]);
+    }
+
     /// An edit of the keywords field changes only the keywords it added or took out. A keyword
     /// that another window or a Lightroom import wrote after the panel read the file stays, and
     /// so does one that holds a comma, which the field would split in two.
@@ -1646,7 +1672,7 @@ mod tests {
         std::fs::write(&file, b"").unwrap();
         write_changed(&file, adding(&["Smith, John".into(), "x".into()]), None).unwrap();
         // The panel shows what it read, and then another window adds Oslo.
-        let shown = KeywordsAndComment::parse_keywords(&read(&file).keywords_text());
+        let shown = read(&file).keywords;
         add_keywords(&file, &["Oslo".into()]).unwrap();
         // The user adds beach and takes x out in the field.
         let edited = KeywordsAndComment::parse_keywords("Smith, John, beach");

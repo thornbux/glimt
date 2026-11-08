@@ -76,7 +76,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
   every argument is.
 - An edit of the keywords field in the info panel changes only the keywords added or taken out
   there. Keywords that another window, a Lightroom import or a background job wrote to the
-  shown image after the panel read it are kept, and so is a keyword that holds a comma.
+  shown image after the panel read it are kept, and so is a keyword that holds a comma. Such a
+  keyword ("Smith, John") is taken out or changed whole when it is edited in the field.
 - A keyword hierarchy that only the image holds, as a JPEG exported from Lightroom, goes whole
   into the sidecar that adding a keyword makes, so its box in the keyword tree stays ticked and
   other programs still read it as a hierarchy. Taking Oslo out of Places|Norway|Oslo keeps
