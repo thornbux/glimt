@@ -1485,6 +1485,7 @@ mod tests {
         let keys = state.lines().filter_map(|l| l.split_once('='));
         now.extend(keys.map(|(key, _)| format!("state {key}")));
         now.extend(remote_names());
+        now.extend(template_fields());
         let options = crate::cli::START_OPTIONS
             .iter()
             .flat_map(|o| o.0.split(", "));
@@ -1495,6 +1496,112 @@ mod tests {
         ];
         now.extend(remote.map(|o| format!("option {o}")));
         now
+    }
+
+    /// Returns a "field" line for each `%field%` that src/frozen-1.0.txt pins and that fills in
+    /// the templates it belongs to: the full screen info and the print caption, the window
+    /// title, or the page header and footer. They are filled for a PNG with every EXIF label
+    /// that the default full screen info shows, and with keywords and a comment in its sidecar.
+    /// A field renamed where it is read, or an EXIF label relabelled, so stops filling, and the
+    /// default full screen info would lose it unseen.
+    fn template_fields() -> Vec<String> {
+        let pinned: Vec<&str> = (include_str!("../frozen-1.0.txt").lines())
+            .filter_map(|l| l.strip_prefix("field "))
+            .collect();
+        // A folder for each call, as two tests ask for the names at once.
+        static CALLS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+        let call = CALLS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let dir =
+            std::env::temp_dir().join(format!("glimt-test-fields-{}-{call}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("a.png");
+        let out = std::fs::File::create(&file).unwrap();
+        let mut encoder = image::codecs::png::PngEncoder::new(out);
+        image::ImageEncoder::set_exif_metadata(&mut encoder, exif_of_every_label()).unwrap();
+        image::RgbImage::new(4, 2)
+            .write_with_encoder(encoder)
+            .unwrap();
+        use crate::metadata::xmp::{KeywordChange, write_changed};
+        let keywords = Some(KeywordChange::between(&[], &["Oslo".to_owned()]));
+        write_changed(&file, keywords, Some("Trip".into())).unwrap();
+        let (mut app, ctx) = crate::support::test_support::app_on(&dir);
+        #[cfg(feature = "marks")]
+        app.marks.toggle(std::slice::from_ref(&file), 1);
+        // Each field on a line of its own as "field:value"; a field left empty drops its line.
+        let template: Vec<String> = pinned.iter().map(|f| format!("{f}:%{f}%")).collect();
+        app.config.full_screen_info_template = template.join("\\n");
+        let mut full = String::new();
+        for _ in 0..250 {
+            app.poll_background(&ctx);
+            full = app.full_screen_info_text(&ctx);
+            if ["dimensions:", "ISO:", "keywords:"]
+                .iter()
+                .all(|f| full.contains(f))
+            {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+        let caption = crate::features::print::caption(&template.join("|"), &file, 0, 1, None);
+        let fills = |text: &str, separator: &str, field: &str| {
+            text.split(separator)
+                .any(|line| line.starts_with(&format!("{field}:")))
+        };
+        let untitled = app.title_text();
+        let mut in_title = |field: &str| {
+            app.config.window_title = format!("%{field}%");
+            app.title_text() != untitled
+        };
+        let filled = pinned.iter().copied().filter(|&field| {
+            let (in_full, in_caption) = (fills(&full, "\n", field), fills(&caption, " · ", field));
+            match field {
+                "page" | "pages" => {
+                    let template = format!("%{field}%");
+                    crate::features::print::page_text(&template, 2, 3) != template
+                }
+                "folder" | "app" => in_title(field),
+                // The marks are filled in a build with the marks feature.
+                "marks" => in_full || !cfg!(feature = "marks"),
+                "name" | "path" => in_full && in_caption && in_title(field),
+                _ => in_full && in_caption,
+            }
+        });
+        let filled = filled.map(|f| format!("field {f}")).collect();
+        std::fs::remove_dir_all(dir).unwrap();
+        filled
+    }
+
+    /// Returns an EXIF block (TIFF, little-endian) with the date taken, the exposure, the
+    /// aperture, the ISO and the focal length: every EXIF label of the default full screen info.
+    fn exif_of_every_label() -> Vec<u8> {
+        // A directory of (tag, type, count, value or offset) entries, and no next one.
+        let directory = |block: &mut Vec<u8>, entries: &[(u16, u16, u32, u32)]| {
+            block.extend((entries.len() as u16).to_le_bytes());
+            for (tag, kind, count, value) in entries {
+                block.extend(tag.to_le_bytes());
+                block.extend(kind.to_le_bytes());
+                block.extend(count.to_le_bytes());
+                block.extend(value.to_le_bytes());
+            }
+            block.extend(0u32.to_le_bytes());
+        };
+        let mut block = b"II*\0\x08\0\0\0".to_vec();
+        // IFD0 at 8 has one entry, the Exif IFD at 26, which has five; its values start at 92.
+        directory(&mut block, &[(0x8769, 4, 1, 26)]);
+        let exif = [
+            (0x829a, 5, 1, 112),
+            (0x829d, 5, 1, 120),
+            (0x8827, 3, 1, 400),
+            (0x9003, 2, 20, 92),
+            (0x920a, 5, 1, 128),
+        ];
+        directory(&mut block, &exif);
+        block.extend(b"2020:01:02 03:04:05\0");
+        // The exposure 1/250 s, the aperture f/2.8 and the focal length 50 mm.
+        for value in [1u32, 250, 28, 10, 50, 1] {
+            block.extend(value.to_le_bytes());
+        }
+        block
     }
 
     /// Returns the values of the settings that name something outside `NAMED`. They are

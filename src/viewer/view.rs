@@ -858,10 +858,27 @@ impl crate::App {
 
     /// Full screen info in the top left corner, from the template in Preferences.
     pub(crate) fn paint_full_screen_info(&mut self, ui: &mut egui::Ui, area: egui::Rect) {
-        self.request_and_take_exif(ui.ctx());
+        let text = self.full_screen_info_text(ui.ctx());
+        if text.is_empty() {
+            return;
+        }
+        let p = ui.painter();
+        let galley = p.layout_no_wrap(text, egui::FontId::proportional(15.0), egui::Color32::WHITE);
+        let at = egui::Rect::from_min_size(
+            area.min + egui::vec2(12.0, 12.0),
+            galley.size() + egui::vec2(20.0, 12.0),
+        );
+        p.rect_filled(at, 6.0, egui::Color32::from_black_alpha(150));
+        p.galley(at.min + egui::vec2(10.0, 6.0), galley, egui::Color32::WHITE);
+    }
+
+    /// Returns the full screen info's text for the image shown, from the template in
+    /// Preferences. Its EXIF is asked for here, and its fields fill once it is read.
+    pub(crate) fn full_screen_info_text(&mut self, ctx: &egui::Context) -> String {
+        self.request_and_take_exif(ctx);
         let path = self.path(self.list.shown());
         let meta = self.info_panel.metadata_edit_of(&path).map(|m| &m.saved);
-        let text = fill_template(
+        fill_template(
             &self.config.full_screen_info_template,
             |field| match field {
                 "name" => self.name(self.list.shown()).to_string(),
@@ -879,18 +896,7 @@ impl crate::App {
                     .map(|value| crate::metadata::exif::shown_value(label, value).to_owned())
                     .unwrap_or_default(),
             },
-        );
-        if text.is_empty() {
-            return;
-        }
-        let p = ui.painter();
-        let galley = p.layout_no_wrap(text, egui::FontId::proportional(15.0), egui::Color32::WHITE);
-        let at = egui::Rect::from_min_size(
-            area.min + egui::vec2(12.0, 12.0),
-            galley.size() + egui::vec2(20.0, 12.0),
-        );
-        p.rect_filled(at, 6.0, egui::Color32::from_black_alpha(150));
-        p.galley(at.min + egui::vec2(10.0, 6.0), galley, egui::Color32::WHITE);
+        )
     }
 
     /// Window → Projector. It is a second window, for another screen or a projector, with only

@@ -243,3 +243,20 @@ value slideshow_one_image_at_a_time 1x2
 value slideshow_one_image_at_a_time 2x2
 value theme High Contrast Light
 exit not_done 3
+field name
+field path
+field position
+field dimensions
+field marks
+field keywords
+field comment
+field folder
+field app
+field page
+field pages
+field File size
+field Taken
+field Exposure
+field Aperture
+field ISO
+field Focal length

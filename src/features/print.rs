@@ -707,7 +707,7 @@ fn centred(text: &str, size: f32, [x, y, width]: [f32; 3]) -> String {
 
 /// A page text with its numbers filled in, for %page% and %pages%. A `%%` is a `%`, as in the
 /// other templates (`format::fill_template`).
-fn page_text(text: &str, page: usize, pages: usize) -> String {
+pub(crate) fn page_text(text: &str, page: usize, pages: usize) -> String {
     let parts = text.split("%%").map(|part| {
         part.replace("%page%", &page.to_string())
             .replace("%pages%", &pages.to_string())
