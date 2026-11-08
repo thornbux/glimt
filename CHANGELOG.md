@@ -5,6 +5,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.76.0] - 2026-11-08
+
 ### Changed
 
 - File → Open With Default App opens the selected files, as the Open With submenu beside it
@@ -3253,7 +3255,8 @@ The first release. Glimt is not 1.0 yet: it is in daily use, but expect rough ed
 - Remote control from the command line: `glimt --remote` and `--remote-all`.
 - Remembers the folder, window size and position.
 
-[Unreleased]: https://github.com/thornbux/glimt/compare/v0.75.0...HEAD
+[Unreleased]: https://github.com/thornbux/glimt/compare/v0.76.0...HEAD
+[0.76.0]: https://github.com/thornbux/glimt/compare/v0.75.0...v0.76.0
 [0.75.0]: https://github.com/thornbux/glimt/compare/v0.74.0...v0.75.0
 [0.74.0]: https://github.com/thornbux/glimt/compare/v0.73.0...v0.74.0
 [0.73.0]: https://github.com/thornbux/glimt/compare/v0.72.0...v0.73.0
