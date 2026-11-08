@@ -12,6 +12,10 @@ const SIZES: [(u32, &str); 2] = [(128, "normal"), (256, "large")];
 /// version, or when the file changes.
 const FAILED_DIR: &str = concat!("fail/glimt-", env!("CARGO_PKG_VERSION"));
 
+/// The files whose thumbnail ran out of time once since Glimt started (`should_mark_failed`).
+static TIMED_OUT_ONCE: std::sync::Mutex<std::collections::BTreeSet<PathBuf>> =
+    std::sync::Mutex::new(std::collections::BTreeSet::new());
+
 /// The thumbnail of `path`: from the cache if it is newer than the file, else made from the image.
 pub fn thumbnail(
     path: &Path,
@@ -32,6 +36,8 @@ fn thumbnail_in(
     if !crate::images::decode::is_regular_file(path) {
         return Err("not a regular file".into());
     }
+    // The cached thumbnail and the image decoded take from the decodes' shared budget as one job.
+    let _job = crate::images::decode::start_decode_job();
     let (size, folder) = SIZES[large as usize];
     // The time is in whole seconds, as the spec has it, so the size tells apart two photos of a
     // burst that took each other's name in the same second (Rename Many).
@@ -48,10 +54,10 @@ fn thumbnail_in(
         // be read at all does not depend on it.
         // shortcut: every thumbnail made again with Auto Rotate off; reading the cache for images
         // without an EXIF turn would need each format's orientation, if that is ever slow.
-        if rotate && let Some(img) = read_cached(file, stamp) {
+        if rotate && let Some(img) = read_cached(file, stamp, size) {
             return Ok(img);
         }
-        if read_cached(failed, stamp).is_some() {
+        if read_cached(failed, stamp, size).is_some() {
             return Err("no thumbnail could be made before".into());
         }
     }
@@ -98,12 +104,16 @@ fn cache_file(cache: &Path, folder: &str, uri: &str) -> PathBuf {
 /// modification time in seconds and its size, `stamp`. The thumbnail's Thumb::MTime must be
 /// that time. Its Thumb::Size, which the spec leaves optional, must be that size when it is
 /// there, so a thumbnail another program wrote without it is still used.
-fn read_cached(file: &Path, (mtime, size): (u64, u64)) -> Option<image::RgbaImage> {
+/// A thumbnail larger than `max_side` on a side is not used: one of 8000×8000 that another
+/// program wrote in the shared cache would take 256 MB for each cell of the list.
+fn read_cached(file: &Path, (mtime, size): (u64, u64), max_side: u32) -> Option<image::RgbaImage> {
     let bytes = crate::images::decode::read_limited(file).ok()?;
     let reader = png::Decoder::new(std::io::Cursor::new(&bytes))
         .read_info()
         .ok()?;
-    let texts = &reader.info().uncompressed_latin1_text;
+    let info = reader.info();
+    (info.width <= max_side && info.height <= max_side).then_some(())?;
+    let texts = &info.uncompressed_latin1_text;
     let value = |key: &str| {
         (texts.iter().find(|t| t.keyword == key)).map(|t| t.text.trim().parse::<u64>().ok())
     };
@@ -293,13 +303,19 @@ fn md5(data: &[u8]) -> [u8; 16] {
 /// Returns whether a file that gave `error` is marked as having no thumbnail. Not when ffmpeg or an
 /// added format is not there: it may be installed later; nor when the file could not be read
 /// (a share or a stick away for a moment): the system's errors say "(os error N)", a file that
-/// is no picture does not. A program that read from such a share says so in its own words, or
-/// was ended by the time limit while the share woke up, and is not marked either. Others are
-/// marked, or tried again on every visit (2,000 TypeScript sources named .ts, which are video
-/// endings too, would start ffmpeg 4,000 times).
+/// is no picture does not. A program that read from such a share says so in its own words, and
+/// is not marked either. Others are marked, or tried again on every visit (2,000 TypeScript
+/// sources named .ts, which are video endings too, would start ffmpeg 4,000 times).
+///
+/// A file whose program was ended by the time limit is marked the second time only, because the
+/// first time may have been a share that woke slowly. A file made to stall the program would
+/// otherwise cost a worker the whole limit at every visit.
 fn should_mark_failed(path: &Path, error: &str) -> bool {
+    if error.contains(crate::files::external::TIMED_OUT) {
+        let mut timed_out = TIMED_OUT_ONCE.lock().unwrap_or_else(|e| e.into_inner());
+        return !timed_out.insert(path.to_path_buf());
+    }
     let away = [
-        crate::files::external::TIMED_OUT,
         "Input/output error",
         "Transport endpoint is not connected",
         "Host is down",
@@ -378,16 +394,18 @@ mod tests {
         let jpg = std::path::Path::new("/a.jpg");
         let away = std::io::Error::from_raw_os_error(5).to_string();
         assert!(!super::should_mark_failed(jpg, &away));
-        // So is a video whose program said the share failed, or ran out of time while it woke.
+        // So is a video whose program said the share failed.
         let mp4 = std::path::Path::new("/a.mp4");
         assert!(!super::should_mark_failed(
             mp4,
             "/a.mp4: Input/output error"
         ));
-        assert!(!super::should_mark_failed(
-            mp4,
-            crate::files::external::TIMED_OUT
-        ));
+        // One that ran out of time is tried once more, as a share may have woken slowly, and
+        // marked when it runs out of time again.
+        let slow = std::path::Path::new("/glimt-test-timed-out-twice.mp4");
+        let timed_out = crate::files::external::TIMED_OUT;
+        assert!(!super::should_mark_failed(slow, timed_out));
+        assert!(super::should_mark_failed(slow, timed_out));
         assert!(super::should_mark_failed(
             jpg,
             "Format error decoding Jpeg: invalid marker"
@@ -460,9 +478,9 @@ mod tests {
         let file = super::cache_file(&dir, "normal", "file:///a%20b.jpg");
         let img = image::RgbaImage::from_pixel(4, 3, image::Rgba([1, 2, 3, 255]));
         super::write_thumbnail(&file, &img, "file:///a%20b.jpg", (42, 9)).unwrap();
-        assert_eq!(super::read_cached(&file, (42, 9)).unwrap(), img);
-        assert!(super::read_cached(&file, (43, 9)).is_none());
-        assert!(super::read_cached(&file, (42, 10)).is_none());
+        assert_eq!(super::read_cached(&file, (42, 9), 128).unwrap(), img);
+        assert!(super::read_cached(&file, (43, 9), 128).is_none());
+        assert!(super::read_cached(&file, (42, 10), 128).is_none());
         // Another program's thumbnail without Thumb::Size is used by its time alone.
         let mut png = Vec::new();
         let mut enc = png::Encoder::new(&mut png, 1, 1);
@@ -474,7 +492,12 @@ mod tests {
             .write_image_data(&[0; 4])
             .unwrap();
         std::fs::write(&file, &png).unwrap();
-        assert!(super::read_cached(&file, (42, 9)).is_some());
+        assert!(super::read_cached(&file, (42, 9), 128).is_some());
+        // One larger than its size class is not used, however fresh.
+        let large = image::RgbaImage::new(200, 200);
+        super::write_thumbnail(&file, &large, "file:///a%20b.jpg", (42, 9)).unwrap();
+        assert!(super::read_cached(&file, (42, 9), 256).is_some());
+        assert!(super::read_cached(&file, (42, 9), 128).is_none());
         assert_eq!(
             super::uri_path(std::path::Path::new("/a b/(1)+æ.jpg")),
             "/a%20b/(1)+%C3%A6.jpg"

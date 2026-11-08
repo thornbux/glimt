@@ -16,12 +16,27 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 /// part.
 pub static MAX_ANIMATION_BYTES: AtomicUsize = AtomicUsize::new(128 << 20);
 
-/// Frames of an animation kept at most, whatever their size.
+/// Frames of an animation kept at most, whatever their size, and given at most to Save This
+/// Frame and Export Frames (`each_frame`).
 const MAX_FRAMES: usize = 1000;
 
 /// image's default limit (`Limits::max_alloc`). Pixels are measured against it only by
 /// `fits_decode_limit`; elsewhere it caps the bytes read from a file or a program.
 pub const MAX_DECODE_BYTES: u64 = 512 << 20;
+
+/// What all decodes at once may allocate, as much as the largest single decode may (a JPEG XL,
+/// `4 * MAX_DECODE_BYTES`). Each decode keeps its own limit, but the view's decoders, the
+/// thumbnail workers, Print and Check Images run at the same time, and a folder of files that
+/// each claim nearly the limit would otherwise take gigabytes together.
+pub const DECODE_BUDGET: u64 = 4 * MAX_DECODE_BYTES;
+
+/// The shared budget that every decode takes its bytes from (`reserve_from_budget`).
+static BUDGET: DecodeBudget = DecodeBudget::new(DECODE_BUDGET);
+
+thread_local! {
+    /// The bytes of the budget that this thread's decode job holds, or `None` outside a job.
+    static JOB_HOLDS: std::cell::Cell<Option<u64>> = const { std::cell::Cell::new(None) };
+}
 
 pub struct Decoded {
     /// The file the job was for. It rejects results from a folder that has since been replaced.
@@ -64,6 +79,102 @@ type Unturned = (
 /// An animation's frames, decoded as they are taken, and its size, or why it is not decoded.
 type Animated = Result<(image::Frames<'static>, (u32, u32)), String>;
 
+/// Bytes that decodes take from a shared total before they allocate, and give back after.
+pub struct DecodeBudget {
+    free: std::sync::Mutex<u64>,
+    freed: std::sync::Condvar,
+    total: u64,
+}
+
+impl DecodeBudget {
+    const fn new(total: u64) -> DecodeBudget {
+        DecodeBudget {
+            free: std::sync::Mutex::new(total),
+            freed: std::sync::Condvar::new(),
+            total,
+        }
+    }
+
+    /// Takes `bytes`, and waits while other decodes hold too much of the budget. Returns an
+    /// error when `bytes` alone is more than the whole budget, because no wait makes room then.
+    fn take(&self, bytes: u64) -> Result<(), String> {
+        if bytes > self.total {
+            return Err(format!("image too large ({})", human_size(bytes)));
+        }
+        let mut free = self.free.lock().unwrap_or_else(|e| e.into_inner());
+        while *free < bytes {
+            free = self.freed.wait(free).unwrap_or_else(|e| e.into_inner());
+        }
+        *free -= bytes;
+        Ok(())
+    }
+
+    /// Gives back `bytes`, and wakes the decodes that wait for room.
+    fn give_back(&self, bytes: u64) {
+        if bytes > 0 {
+            *self.free.lock().unwrap_or_else(|e| e.into_inner()) += bytes;
+            self.freed.notify_all();
+        }
+    }
+}
+
+/// The bytes that a decode outside a decode job took from the budget. They are given back when
+/// it is dropped. Inside a job it holds nothing, because the job holds the bytes.
+pub struct BudgetReservation {
+    bytes: u64,
+}
+
+impl Drop for BudgetReservation {
+    fn drop(&mut self) {
+        BUDGET.give_back(self.bytes);
+    }
+}
+
+/// A decode job on this thread (`start_decode_job`). When the outermost one is dropped, the
+/// bytes that the job's decodes took are given back.
+pub struct DecodeJobBudget {
+    is_outermost: bool,
+}
+
+impl Drop for DecodeJobBudget {
+    fn drop(&mut self) {
+        if self.is_outermost {
+            BUDGET.give_back(JOB_HOLDS.take().unwrap_or(0));
+        }
+    }
+}
+
+/// Starts a decode job on this thread, or joins the one already running there. While the job
+/// lives, what its decodes took from the budget stays taken, because the pictures they made
+/// live on until the job has shrunk them. Every public way into decoding starts one.
+pub fn start_decode_job() -> DecodeJobBudget {
+    let is_outermost = JOB_HOLDS.get().is_none();
+    if is_outermost {
+        JOB_HOLDS.set(Some(0));
+    }
+    DecodeJobBudget { is_outermost }
+}
+
+/// Takes `bytes` of the decodes' shared budget for a decode that is about to allocate them, and
+/// waits while other decodes hold too much. Returns an error when `bytes` alone is more than
+/// the budget. In a decode job, the job holds the most that one of its decodes asked for,
+/// because a decode's buffers are dropped before the next one starts (a scaled JPEG that falls
+/// back to a whole one). A job that needs more gives back what it holds before it waits, so two
+/// jobs never wait for each other.
+pub fn reserve_from_budget(bytes: u64) -> Result<BudgetReservation, String> {
+    match JOB_HOLDS.get() {
+        None => BUDGET.take(bytes).map(|()| BudgetReservation { bytes }),
+        Some(held) if bytes <= held => Ok(BudgetReservation { bytes: 0 }),
+        Some(held) => {
+            BUDGET.give_back(held);
+            JOB_HOLDS.set(Some(0));
+            BUDGET.take(bytes)?;
+            JOB_HOLDS.set(Some(bytes));
+            Ok(BudgetReservation { bytes: 0 })
+        }
+    }
+}
+
 pub fn histogram(img: &egui::ColorImage) -> Box<HistogramCounts> {
     let mut h = Box::new([[0; 256]; 5]);
     for p in &img.pixels {
@@ -92,6 +203,7 @@ pub fn decode(
     rotate: bool,
     page: usize,
 ) -> Result<(Frames, [usize; 2], usize), String> {
+    let _job = start_decode_job();
     // Also for a file from a collection or the command line, which the listing did not see.
     if !is_regular_file(path) {
         return Err("not a regular file".into());
@@ -135,6 +247,7 @@ pub fn pages(path: &Path) -> usize {
 
 /// Page `page` (from 1) of a multi-page TIFF with its ICC profile, or the next size of an ICO.
 pub fn page_of(path: &Path, page: usize) -> Result<Page, String> {
+    let _job = start_decode_job();
     match has_ext(path, &["ico"]) {
         true => Ok((ico_size(path, page)?, None)),
         false => tiff_page(path, page),
@@ -146,6 +259,7 @@ pub fn page_of(path: &Path, page: usize) -> Result<Page, String> {
 /// the one way a copy or an exported frame reads a page. Before, a later page of a TIFF was
 /// read without its profile, so its copy and exported frame lost their colours.
 pub fn load_page(path: &Path, page: usize, rotate: bool) -> Result<Page, String> {
+    let _job = start_decode_job();
     match page {
         0 => load_icc(path, rotate),
         page => page_of(path, page),
@@ -232,10 +346,12 @@ pub fn tiff_page(path: &Path, page: usize) -> Result<Page, String> {
     let color = dec.colortype().map_err(|e| e.to_string())?;
     // The tiff crate allocates the page whole, as its header claims, so the page must fit first.
     let bytes = u64::from(color.bit_depth()).div_ceil(8) * u64::from(color.num_samples());
+    let claimed = (u64::from(w) * u64::from(h)).saturating_mul(bytes);
     if !fits_decode_limit(w, h, bytes) {
-        let claimed = (u64::from(w) * u64::from(h)).saturating_mul(bytes);
         return Err(format!("image too large ({})", human_size(claimed)));
     }
+    // The page as read and as changed into 8 bits (`unpacked`, `stretched`) are held at once.
+    let _reserved = reserve_from_budget(2 * claimed)?;
     let icc = dec.get_tag_u8_vec(tiff::tags::Tag::IccProfile).ok();
     #[allow(clippy::disallowed_methods)] // the one place, after `fits_decode_limit`
     let data = dec.read_image().map_err(|e| e.to_string())?;
@@ -357,7 +473,14 @@ fn animated_frames(path: &Path) -> Option<Animated> {
     // damaged frame header that claims gigabytes is an error, not a failed allocation that ends
     // Glimt.
     let limits = image::Limits::default();
-    let too_large = |size| too_large_animation(size).then(|| Err("image too large".to_string()));
+    // Two canvases are held at once (`too_large_animation`), and they are taken from the budget
+    // for the decode job that called this, which holds them while it takes the frames.
+    let too_large = |(w, h): (u32, u32)| match too_large_animation((w, h)) {
+        true => Some(Err("image too large".to_string())),
+        false => reserve_from_budget(u64::from(w) * u64::from(h) * 8)
+            .err()
+            .map(Err),
+    };
     Some(match ext.as_str() {
         "gif" => {
             let mut dec = image::codecs::gif::GifDecoder::new(file).ok()?;
@@ -399,6 +522,7 @@ fn too_large_animation((w, h): (u32, u32)) -> bool {
 /// The frames of an animated GIF, WebP or PNG (APNG). Returns `None` for other files, which
 /// `decode` decodes.
 pub fn animation(path: &Path, max: [u32; 2]) -> Option<(Frames, [usize; 2])> {
+    let _job = start_decode_job();
     // One too large is shown by `decode` as a still image, instead of asking for gigabytes here.
     let (frames, _) = animated_frames(path)?.ok()?;
     let (mut out, mut orig, mut bytes) = (Vec::new(), [0, 0], 0);
@@ -432,6 +556,7 @@ pub fn each_frame(
     rotate: bool,
     mut each: impl FnMut(usize, image::DynamicImage) -> Result<(), String>,
 ) -> Result<usize, String> {
+    let _job = start_decode_job();
     let wanted = |k: usize| only.is_none_or(|o| o == k);
     let mut done = 0;
     // Each frame is decoded once, as it is given, rather than all first to learn that the
@@ -444,7 +569,9 @@ pub fn each_frame(
         return Err(e.clone());
     }
     if let Some(Ok((frames, _))) = animated {
-        for (k, frame) in frames.enumerate() {
+        // Only as many frames are given as the view keeps, so an animation of a million frames
+        // is not hours of work and gigabytes of files.
+        for (k, frame) in frames.enumerate().take(MAX_FRAMES) {
             if only.is_some_and(|o| k > o) {
                 break;
             }
@@ -470,6 +597,7 @@ pub fn each_frame(
 /// at `max` from ffmpeg) and shrunk after, then turned (`shrunk_upright`), as the view does.
 /// This is the one way for thumbnails, the print and its preview.
 pub fn decode_shrunk(path: &Path, max: [u32; 2], rotate: bool) -> Result<ShrunkImage, String> {
+    let _job = start_decode_job();
     let (img, icc, size) = match scaled_jpeg(path, max, rotate) {
         Some(found) => found,
         None => {
@@ -523,6 +651,7 @@ pub fn load_icc(
     path: &Path,
     rotate: bool,
 ) -> Result<(image::DynamicImage, Option<Vec<u8>>), String> {
+    let _job = start_decode_job();
     let (mut img, icc, turn, _) = load_unturned(path, rotate, None)?;
     // The whole image is wanted (Save As, a copy, a turned save), so it is turned whole.
     img.apply_orientation(turn);
@@ -587,6 +716,12 @@ fn load_unturned(path: &Path, rotate: bool, max: Option<[u32; 2]>) -> Result<Unt
         let mut limits = image::Limits::default();
         limits.max_alloc = Some(4 * MAX_DECODE_BYTES);
         dec.set_limits(limits).map_err(|e| e.to_string())?;
+        // The render is taken from the budget before it starts, for the job that called this.
+        // shortcut: 40 bytes a pixel is an estimate above the 24 that a lossy file needs, not
+        // what jxl-oxide counts; tie it to jxl-oxide's own limit if a file needs more.
+        let (w, h) = dec.dimensions();
+        let render = (u64::from(w) * u64::from(h)).saturating_mul(40);
+        let _reserved = reserve_from_budget(render.clamp(64 << 20, 4 * MAX_DECODE_BYTES))?;
         // jxl-oxide already renders the image upright.
         let icc = dec.icc_profile().ok().flatten();
         let img = from_decoder(dec)?;
@@ -733,6 +868,10 @@ pub fn scaled(
     if !fits_decode_limit(sw.into(), sh.into(), 2 * bytes) {
         return None;
     }
+    // A progressive JPEG's coefficients at full size are held beside the scaled planes.
+    let full = u64::from(info.width) * u64::from(info.height) * 2 * bytes;
+    let scaled_planes = u64::from(sw) * u64::from(sh) * 2 * bytes;
+    let _reserved = reserve_from_budget(scaled_planes + if progressive { full } else { 0 }).ok()?;
     #[allow(clippy::disallowed_methods)] // the one place, after `fits_decode_limit`
     let pixels = dec.decode().ok()?;
     let (sw, sh) = (sw as u32, sh as u32);
@@ -773,6 +912,7 @@ pub fn from_decoder(dec: impl ImageDecoder) -> Result<image::DynamicImage, Strin
             human_size(dec.total_bytes())
         ));
     }
+    let _reserved = reserve_from_budget(dec.total_bytes())?;
     #[allow(clippy::disallowed_methods)] // the one place, after `fits_decode_limit`
     image::DynamicImage::from_decoder(dec).map_err(|e| e.to_string())
 }
@@ -991,6 +1131,69 @@ pub fn color_image(img: image::DynamicImage) -> egui::ColorImage {
 
 #[cfg(test)]
 mod tests {
+    /// Two decodes that each need 60 % of the budget run one after the other, never together,
+    /// while small decodes go through at once beside a large one, so a folder of ordinary
+    /// images does not wait. One larger than the whole budget is refused rather than waiting.
+    #[test]
+    fn decodes_share_one_budget() {
+        use std::sync::atomic::{AtomicUsize, Ordering::SeqCst};
+        use std::sync::{Arc, mpsc};
+        use std::time::Duration;
+        let budget = Arc::new(super::DecodeBudget::new(1000));
+        let (running, most) = (Arc::new(AtomicUsize::new(0)), Arc::new(AtomicUsize::new(0)));
+        let large: Vec<_> = (0..2)
+            .map(|_| {
+                let (budget, running, most) = (budget.clone(), running.clone(), most.clone());
+                std::thread::spawn(move || {
+                    budget.take(600).unwrap();
+                    most.fetch_max(running.fetch_add(1, SeqCst) + 1, SeqCst);
+                    std::thread::sleep(Duration::from_millis(300));
+                    running.fetch_sub(1, SeqCst);
+                    budget.give_back(600);
+                })
+            })
+            .collect();
+        std::thread::sleep(Duration::from_millis(20));
+        // One large decode holds 600 now. Thirty small ones of 10 still pass without waiting.
+        let (done, small_done) = mpsc::channel();
+        let small = budget.clone();
+        std::thread::spawn(move || {
+            for _ in 0..30 {
+                small.take(10).unwrap();
+                small.give_back(10);
+            }
+            done.send(()).unwrap();
+        });
+        assert!(small_done.recv_timeout(Duration::from_millis(250)).is_ok());
+        for thread in large {
+            thread.join().unwrap();
+        }
+        assert_eq!(most.load(SeqCst), 1);
+        assert!(budget.take(1001).is_err());
+        assert_eq!(*budget.free.lock().unwrap(), 1000);
+    }
+
+    /// A decode job holds the most that one of its decodes asked for, not their sum, joins an
+    /// outer job rather than giving back early, and gives everything back when it ends.
+    #[test]
+    fn a_decode_job_holds_its_largest_decode() {
+        let holds = || super::JOB_HOLDS.get();
+        assert_eq!(holds(), None);
+        {
+            let _job = super::start_decode_job();
+            drop(super::reserve_from_budget(100).unwrap());
+            drop(super::reserve_from_budget(50).unwrap());
+            assert_eq!(holds(), Some(100));
+            {
+                let _inner = super::start_decode_job();
+                drop(super::reserve_from_budget(200).unwrap());
+            }
+            assert_eq!(holds(), Some(200));
+            assert!(super::reserve_from_budget(super::DECODE_BUDGET + 1).is_err());
+        }
+        assert_eq!(holds(), None);
+    }
+
     /// What is no file is refused before it is read, a pipe without blocking on it. That every
     /// whole-file read goes through `read_limited` is clippy's to hold (clippy.toml).
     #[test]
@@ -1496,7 +1699,8 @@ mod tests {
         std::fs::remove_dir_all(dir).unwrap();
     }
 
-    /// A small GIF of many tiny frames keeps 1,000 of them, not one texture each.
+    /// A small GIF of many tiny frames keeps 1,000 of them, not one texture each, and Export
+    /// Frames gives the same 1,000.
     #[test]
     fn keeps_a_thousand_frames() {
         let file =
@@ -1507,6 +1711,9 @@ mod tests {
         drop(enc);
         let (frames, _) = super::animation(&file, [100, 100]).unwrap();
         assert_eq!(frames.len(), super::MAX_FRAMES);
+        // Export Frames gives as many, not every frame of the file.
+        let given = super::each_frame(&file, None, true, |_, _| Ok(())).unwrap();
+        assert_eq!(given, super::MAX_FRAMES);
         std::fs::remove_file(file).unwrap();
     }
 

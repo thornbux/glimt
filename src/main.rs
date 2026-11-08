@@ -453,6 +453,11 @@ fn config_notice(problems: &[String]) -> Option<String> {
 }
 
 fn main() -> eframe::Result {
+    // A Glimt started by another to draw an SVG draws it and ends, before anything else.
+    #[cfg(feature = "svg")]
+    if let Some(path) = std::env::var_os(crate::images::svg::DRAW_SVG) {
+        std::process::exit(crate::images::svg::draw_for_parent(&path));
+    }
     // There is one malloc arena for all threads. With one arena per thread, freed image
     // buffers stayed in each decode thread's arena, and a folder of screenshots used 91 MB of
     // own memory instead of 29 MB. Decoding is at most a few percent slower.

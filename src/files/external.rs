@@ -25,7 +25,8 @@ const FILES_ONLY: [&str; 4] = [
 pub const PROGRAM_TIME_LIMIT: std::time::Duration = std::time::Duration::from_secs(30);
 
 /// The line `output_of` adds to a program's errors when the time limit ended it. A thumbnail is
-/// not marked as failed over it, because a share that wakes slowly may answer the next time.
+/// marked as failed over it only the second time, because a share that wakes slowly may answer
+/// the next time.
 pub(crate) const TIMED_OUT: &str = "did not end in time";
 
 /// Ends the process group of `pid` once it has gone `limit` without progress, unless it is

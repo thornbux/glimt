@@ -69,6 +69,20 @@ and versions follow [Semantic Versioning](https://semver.org/).
   packet's xap:Rating is changed instead of getting a second rating beside it.
 - A line of the keyword tree file (`~/.config/glimt/keywords`) that is not UTF-8 keeps its
   bytes when the tree changes, and the rest of the tree shows at the start instead of none.
+- An SVG made to take gigabytes of memory, or to keep drawing for hours, no longer ends Glimt
+  or keeps a decoder busy for good. SVGs are drawn in a process of their own, which may take
+  512 MB and 30 seconds, and one that needs more is told as not shown.
+- The images decoded at the same time (the view's, the thumbnails, Print and Check Images) take
+  at most 2 GB together. A folder of images that each claim nearly the limit of one decode no
+  longer takes gigabytes at once; such an image waits until there is room.
+- An SVG shows only the pictures in its own folder or below it, as a browser shows an SVG used
+  as an image, not a picture named by its whole path or through `..`.
+- A thumbnail in the shared cache that is larger than its size (128 or 256 pixels), as another
+  program may write one, is made again rather than used at its size.
+- A file whose thumbnail runs out of time twice (a video or SVG made to stall) is marked as
+  having none, as a broken file is, instead of costing 30 seconds at every visit.
+- Export Frames saves at most the first 1,000 frames of an animation, as many as the view keeps,
+  so an animation of a million tiny frames is not hours of work and gigabytes of files.
 
 ## [0.75.0] - 2026-11-08
 
