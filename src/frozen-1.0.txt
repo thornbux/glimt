@@ -2,7 +2,9 @@
 # AGENTS.md): the settings' keys, the values of the settings that take a name (those of
 # config::NAMED in its order, because a value's place is the number it was written as before),
 # the window state's keys, the --remote commands with the words of their choices and the exit
-# codes, and the command-line options. A line is never taken out or changed. New ones are
+# codes, the command-line options, the actions a script may run, the %field% names of the
+# templates, the keys of a theme file, the files Glimt owns and the group words of the sharing
+# file. A line is never taken out or changed. New ones are
 # added at the end, as the test frozen_names_are_kept in config.rs says. A name renamed later
 # keeps its line: the code's table of old names maps it to the new name, which is still read,
 # and the new name is added at the end.

@@ -37,36 +37,67 @@ the `--remote` commands with their answers and exit codes, the settings file's k
 desktop file formats of tools and added formats. Add; never take away or change a meaning. A
 setting that goes out of use keeps being read and ignored.
 
-`src/frozen-1.0.txt` pins, from the code's own tables: the settings' keys; the values of each
-`config::NAMED` list in order; the values of `sort` (`SORTS`), `layout` and `slideshow_one_image_at_a_time`
-(`LAYOUTS`, also `--layout`'s), `rendering_intent` (`INTENTS`), `input_profile`'s built-in
-words (`INPUT_PROFILES`), `print_paper` (`PAPERS`), `print_orientation` (`ORIENTATIONS`),
-`theme` (the built-in themes) and `language` (`LANGUAGES` and `lang::ENGLISH`); the window
-state's keys (`WindowState`, `LAST_DIR`); the `--remote` commands and the words of their
-choices (`on|off`, from `COMMANDS`); `--remote`'s exit codes (`NOT_SENT`, `NOT_TAKEN`); and
-the command-line options of `START_OPTIONS` with `--remote` and `--remote-all`. `config::tests::frozen_names_are_kept`
-fails when one is taken out or renamed, when a `NAMED` list gains a value anywhere but at its
-end, and until a new one is added at the end of that file.
-`the_parser_takes_every_frozen_option` fails when an option that the help lists is neither
-taken by `Start::parse` nor answered by `cli::answer_without_window` (through `cli::Command::named`) or by
-`--remote`. Not pinned, and so kept by hand: the window's own reading of each `--remote`
-command (`remote_command` matches the words again), what the commands print, the `%field%`
-names of the full screen info, the print caption and the window title (`name`, `path`,
-`position`, `dimensions`, `marks`, `keywords`, `comment`, `File size`, `folder`, `app`, and
-the EXIF labels that the first two fall through to), the files Glimt owns, and the desktop
-file formats of tools and added formats. Never rename an `Action` variant or rely on a changed key
-name outside the table below: they are the `keys=` format, pinned by `src/keys-1.0.txt` and
-its test, every action (also one without a default key) and every default key; new ones go at
-the end of that file, and the test fails until a new action is there.
+`src/frozen-1.0.txt` pins, from the code's own tables:
 
-A frozen name that fails a reader (0.74.0 renamed a few) is renamed only through a table of
-old names, one for each kind, beside the code that reads it: `config::RENAMED_SETTINGS`,
+- the settings' keys; the values of each `config::NAMED` list in order; the values of `sort`
+  (`SORTS`), `layout` and `slideshow_one_image_at_a_time` (`LAYOUTS`, also `--layout`'s),
+  `rendering_intent` (`INTENTS`), `input_profile`'s built-in words (`INPUT_PROFILES`),
+  `print_paper` (`PAPERS`), `print_orientation` (`ORIENTATIONS`), `print_printer`'s own values
+  (`print::SYSTEM_DIALOG` and `PDF_FILE`), `theme` (the built-in themes) and `language`
+  (`LANGUAGES` and `lang::ENGLISH`); the window state's keys (`WindowState`, `LAST_DIR`);
+- the `--remote` commands and the words of their choices (`on|off`, from `COMMANDS`), the
+  actions `--remote run` takes (`script` lines, from `SCRIPT_ACTIONS`, which only grows), and
+  the exit codes: `--remote`'s `DONE`, `NOT_TAKEN`, `NOT_SENT` and `NOT_DONE`, and those of
+  `--check-config` and `--back-up` (`cli::CHECK_CONFIG_PROBLEMS`, `BACK_UP_FAILED`,
+  `BACK_UP_NO_FOLDER`);
+- the command-line options of `START_OPTIONS` with `--remote` and `--remote-all`;
+- the `%field%` names of the templates (`field` lines), each filled in the templates it
+  belongs to, for a test image: the full screen info and the print caption (`name`, `path`,
+  `position`, `dimensions`, `marks`, `keywords`, `comment`, and the EXIF labels of the
+  default full screen info), the window title (`name`, `path`, `folder`, `app`) and the page
+  header and footer (`page`, `pages`). `%%` is a `%` in each of them;
+- the keys of a theme file (`theme_key`, from `Theme::file_from`, each read by
+  `Theme::parse`);
+- the files and folders Glimt owns (`file` lines, from `config_path` and the other functions
+  that name them, `LOCK_FILE`, `RENAMED_FOLDERS`, `remote::socket_name` and `FOCUSED_FILE`);
+- the words of the groups in the sharing file (`sharing` lines, `Group::key`).
+
+`config::tests::frozen_names_are_kept` fails when one is taken out, renamed or no longer filled,
+when a `NAMED` list gains a value anywhere but at its end, and until a new one is added at the
+end of that file. `the_parser_takes_every_frozen_option` fails when an option that the help
+lists is neither taken by `Start::parse` nor answered by `cli::answer_without_window` (through
+`cli::Command::named`) or by `--remote`. The desktop files of tools and added formats are held
+by `a_tools_desktop_keys_and_codes_are_kept` and `a_formats_desktop_keys_and_codes_are_kept`
+(an added format is read under `[Glimt Format]` and `[Glimt Decoder]` alike; the `%` codes
+other than `%f %F %u %U %%` are kept for later). The marks file keeps the mark bits and lines
+it does not understand (`keeps_what_it_does_not_understand`), so a later Glimt can add to it.
+Never rename an `Action` variant or rely on a changed key name outside the tables below: they
+are the `keys=` format, pinned by `src/keys-1.0.txt` and its test, every action (also one
+without a default key) and every default key; new ones go at the end of that file, and the test
+fails until a new action is there.
+
+Every `--remote` command is answered: a query with what it asks, and any other command with
+nothing when it was done, or with `not done: <reason>` when it was not (a `run` refused, a
+command or choice the window does not know). The client exits with `NOT_DONE` (3) then. A
+window of 0.75 or older closes without an answer, which reads as done.
+
+Not pinned, and so kept by hand: the window's own reading of each `--remote` command
+(`remote_command` matches the words again), what the commands print, the formats of the files
+Glimt owns beyond their names (`key=value` read by name, the marks file's
+`bits\tstars\tpath`, the keyword tree's `A|B|C`, a path to a line), and the reserved `%` codes
+of `Exec`, which the manual names.
+
+A frozen name that fails a reader (0.74.0 and 0.76.0 renamed a few) is renamed only through a
+table of old names, one for each kind, beside the code that reads it: `config::RENAMED_SETTINGS`,
 `config::RENAMED_STATE`, `actions::RENAMED_ACTIONS` (for `keys=` and `--remote run`),
-`remote::RENAMED_COMMANDS` and `tools::RENAMED_FOLDERS` (0.75.0's folders of tools and added
-formats, which Glimt creates only under the new name). Glimt reads the old name too, forever,
-and writes only the new one; when a settings or state file holds both, the new one counts. The
-old line stays in the frozen file and the new name is added at its end, and the tests take an
-old name only when its table maps it to a name that is read now.
+`remote::RENAMED_COMMANDS`, `theme::RENAMED_THEMES` (the built-in themes, as the theme setting
+stores them) and `tools::RENAMED_FOLDERS` (0.75.0's folders of tools and added formats, which
+Glimt creates only under the new name). Glimt reads the old name too, forever, and writes only
+the new one; when a settings or state file holds both, the new one counts. The old line stays
+in the frozen file and the new name is added at its end, and the tests take an old name only
+when its table maps it to a name that is read now. A setting that is retired keeps its key: its
+value is read once into the setting that took its place, and it is written as its default from
+then on (`app_name_first`, moved into `window_title` by `config::move_app_name_first`).
 
 ## Language
 
