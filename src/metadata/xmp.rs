@@ -1167,6 +1167,32 @@ pub(crate) fn keyword_paths<'a>(paths: impl Iterator<Item = &'a str>) -> Vec<Str
     out
 }
 
+/// The keyword tree that the keyword tree file's bytes `file` hold. A line that is not UTF-8 is
+/// skipped, so the rest of the tree still shows.
+pub(crate) fn keyword_tree_of(file: &[u8]) -> Vec<String> {
+    let lines = file.split(|&b| b == b'\n');
+    keyword_paths(lines.filter_map(|line| std::str::from_utf8(line).ok()))
+}
+
+/// The keyword tree file `file` with `add` added, or `remove` and the paths below it taken out
+/// (`keyword_tree_changed`), and the tree it then holds. A line that is not UTF-8, which the user
+/// typed in by hand, is kept as it is after the tree, not changed into another character.
+pub(crate) fn keyword_tree_file_changed(
+    file: &[u8],
+    add: Vec<String>,
+    remove: Option<String>,
+) -> (Vec<u8>, Vec<String>) {
+    let tree = keyword_tree_changed(&keyword_tree_of(file), add, remove);
+    let mut out = (tree.join("\n") + "\n").into_bytes();
+    for line in file.split(|&b| b == b'\n') {
+        if std::str::from_utf8(line).is_err() {
+            out.extend(line);
+            out.push(b'\n');
+        }
+    }
+    (out, tree)
+}
+
 /// The keyword tree `tree` with `add` added, or `remove` and the paths below it taken out (an
 /// inner level is only there for the paths under it).
 pub(crate) fn keyword_tree_changed(
@@ -2256,5 +2282,17 @@ mod tests {
         );
         let removed = super::keyword_tree_changed(&added, Vec::new(), Some("Places".into()));
         assert_eq!(removed, ["Animals", "People|Kari"]);
+    }
+
+    /// A line of the keyword tree file that is not UTF-8 keeps its bytes when the tree is
+    /// changed, and the other lines still show. Before, it became U+FFFD at the next change,
+    /// and at the start the whole tree showed empty.
+    #[test]
+    fn the_keyword_tree_file_keeps_bytes_that_are_not_utf8() {
+        let file = b"Places|Oslo\nCaf\xe9\nAnimals\n";
+        assert_eq!(super::keyword_tree_of(file), ["Animals", "Places|Oslo"]);
+        let (written, tree) = super::keyword_tree_file_changed(file, vec!["People".into()], None);
+        assert_eq!(tree, ["Animals", "People", "Places|Oslo"]);
+        assert_eq!(written, b"Animals\nPeople\nPlaces|Oslo\nCaf\xe9\n");
     }
 }

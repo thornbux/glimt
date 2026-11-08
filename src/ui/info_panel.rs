@@ -143,8 +143,8 @@ impl InfoPanel {
             metadata_edit: None,
             keywords_take_focus: false,
             keyword_tree: (keyword_tree_path()
-                .and_then(|p| crate::images::decode::read_text(p).ok()))
-            .map_or_else(Vec::new, |t| xmp::keyword_paths(t.lines())),
+                .and_then(|p| crate::images::decode::read_limited(p).ok()))
+            .map_or_else(Vec::new, |file| xmp::keyword_tree_of(&file)),
             new_keyword: String::new(),
         }
     }
@@ -414,15 +414,8 @@ impl crate::App {
                 xmp::keyword_tree_changed(&self.info_panel.keyword_tree, add, remove);
             return;
         };
-        // One that cannot be read is not written over: its keywords would be lost.
-        let change = |old: &[u8]| {
-            let on_disk: Vec<String> = String::from_utf8_lossy(old)
-                .lines()
-                .map(str::to_owned)
-                .collect();
-            let tree = xmp::keyword_tree_changed(&on_disk, add, remove);
-            ((tree.join("\n") + "\n").into_bytes(), tree)
-        };
+        // A file that cannot be read is not written over, because its keywords would be lost.
+        let change = |old: &[u8]| xmp::keyword_tree_file_changed(old, add, remove);
         match crate::files::file_io::edit_shared(&p, change) {
             Ok(tree) => self.info_panel.keyword_tree = tree,
             Err(e) => self.notice = Some(tf!("Could not save the keyword tree: {e}", e)),

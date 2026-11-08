@@ -26,6 +26,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 - A sidecar whose namespace is declared with spaces around the equals sign, or whose first
   description has a '>' in a value, keeps being XML when keywords or stars are written. An old
   packet's xap:Rating is changed instead of getting a second rating beside it.
+- A line of the keyword tree file (`~/.config/glimt/keywords`) that is not UTF-8 keeps its
+  bytes when the tree changes, and the rest of the tree shows at the start instead of none.
 
 ## [0.75.0] - 2026-11-08
 
