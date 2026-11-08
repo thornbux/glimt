@@ -3198,6 +3198,8 @@ for v in new old; do
     menu Window Projector; sleep 1
     key ctrl+Next; sleep 1             # the next frame: blue
     p=$(xdotool search --name "Glimt Projector" 2>/dev/null | head -1)
+    # `key` raised the main window over the projector, and the shot takes what is on top.
+    [ -n "$p" ] && xdotool windowraise $p 2>/dev/null; sleep 1
     [ -n "$p" ] && import -window $p /t/out/projector-frame-$v.png
     quit
     if [ $v = new ]; then expect "the blue frame on the projector" "$(colour projector-frame-new 480 300)" blue
