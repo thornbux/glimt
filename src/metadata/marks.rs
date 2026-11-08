@@ -309,7 +309,9 @@ fn write(file: &Path, changes: &[Edit]) {
         for change in changes {
             apply_edit(&mut map, change);
         }
-        (to_text(&map), ours)
+        let mut text = to_text(&map);
+        text.extend(unread_lines(bytes));
+        (text, ours)
     };
     let result = crate::files::file_io::edit_shared(file, edit);
     // Ours alone, the window's marks are the file now; else it is read again.
@@ -343,13 +345,26 @@ fn parse(text: &[u8]) -> HashMap<PathBuf, (u8, u8)> {
     text.split(|&b| b == b'\n').filter_map(parse_line).collect()
 }
 
+/// Reads one line of the marks file. The mark bits are kept as they are, also those of marks a
+/// newer Glimt may add, so that this one writes them back; only marks 1 to 6 are shown and
+/// changed. Returns `None` for a line that is not of this form.
 fn parse_line(line: &[u8]) -> Option<(PathBuf, (u8, u8))> {
     let mut parts = line.splitn(3, |&b| b == b'\t');
     let number = |b: &[u8]| std::str::from_utf8(b).ok()?.parse::<u8>().ok();
     let (bits, stars) = (number(parts.next()?)?, number(parts.next()?)?);
     // Any bytes are a name on Unix: those `save` wrote, or the user's own.
     let path = <std::ffi::OsStr as std::os::unix::ffi::OsStrExt>::from_bytes(parts.next()?);
-    Some((PathBuf::from(path), (bits & 0x3f, stars.min(5))))
+    Some((PathBuf::from(path), (bits, stars.min(5))))
+}
+
+/// Returns the lines of the marks file `text` that `parse_line` cannot read, each with its line
+/// break. A write keeps them as they were, so a line in a form of a newer Glimt is not lost
+/// when this one changes a mark.
+fn unread_lines(text: &[u8]) -> Vec<u8> {
+    (text.split(|&b| b == b'\n'))
+        .filter(|line| !line.is_empty() && parse_line(line).is_none())
+        .flat_map(|line| line.iter().copied().chain(*b"\n"))
+        .collect()
 }
 
 /// Write `stars` as xmp:Rating into the sidecar `<file>.xmp` that darktable and digiKam read.
@@ -516,6 +531,39 @@ mod tests {
         let _ = crate::files::file_io::take_save_error();
         marks.refresh();
         assert_eq!(marks.get(&a), (0, 0));
+        super::TEST_FILE.with(|f| *f.borrow_mut() = None);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// The marks file keeps what this Glimt does not understand: mark bits above mark 6 stay on
+    /// their file, also when mark 1 is set beside them, and a line it cannot read is written
+    /// back as it was. Before, the bits were cut to marks 1 to 6 and such a line was dropped, so
+    /// an older Glimt that changed one mark deleted what a newer one had added.
+    #[test]
+    fn keeps_what_it_does_not_understand() {
+        let dir =
+            std::env::temp_dir().join(format!("glimt-test-marks-unknown-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("marks");
+        super::TEST_FILE.with(|f| *f.borrow_mut() = Some(file.clone()));
+        let newer = "192\t3\t/a.jpg\nrejected\t1\t/b.jpg\n";
+        std::fs::write(&file, newer).unwrap();
+        let a = std::path::PathBuf::from("/a.jpg");
+        let mut marks = super::Marks::load();
+        assert_eq!(marks.get(&a), (192, 3));
+        marks.toggle(std::slice::from_ref(&a), 1);
+        assert_eq!(marks.get(&a), (193, 3));
+        let mark = super::Edit::Change(vec![a.clone()], super::Change::Mark(1, true));
+        let stars = super::Edit::Change(vec!["/c.jpg".into()], super::Change::Stars(2));
+        super::write(&file, &[mark, stars]);
+        let text = std::fs::read_to_string(&file).unwrap();
+        for line in [
+            "193\t3\t/a.jpg\n",
+            "rejected\t1\t/b.jpg\n",
+            "0\t2\t/c.jpg\n",
+        ] {
+            assert!(text.contains(line), "{line:?} not in {text:?}");
+        }
         super::TEST_FILE.with(|f| *f.borrow_mut() = None);
         std::fs::remove_dir_all(dir).unwrap();
     }
