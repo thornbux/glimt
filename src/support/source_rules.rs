@@ -214,164 +214,312 @@ const RETIRED_NAMES: &[&str] = &[
     "lightroom_catalog", // lightroom_catalog_answer
 ];
 
-/// The everyday words that 0.74.0's naming review retired, each in the file where it was retired.
-/// Elsewhere such a word may be the right name of something else, as `ratio` of an aspect ratio.
+/// The everyday words that 0.74.0's naming review retired, each in every file where it was a name
+/// in code at v0.73.0 and is none now: the file that defined it and the files that used it. The
+/// list was made from v0.73.0's sources with `code_lines`, and the comment gives the name that
+/// took the word's place in the file that defined it. Elsewhere such a word may be the right name
+/// of something else, as `ratio` of an aspect ratio.
 const RETIRED_IN_FILE: &[(&str, &str)] = &[
-    ("cli.rs", "more"),                     // more_paths
-    ("features/check.rs", "Check"),         // ImageCheck
-    ("features/duplicates.rs", "Item"),     // Picture
-    ("features/duplicates.rs", "SIDE"),     // SIGNATURE_SIDE
-    ("features/duplicates.rs", "cancel"),   // is_cancelled
-    ("features/duplicates.rs", "parallel"), // on_all_cores
-    ("features/duplicates.rs", "parts"),    // part_means
-    ("features/plugins.rs", "Running"),     // RunningPlugins
-    ("features/plugins.rs", "values"),      // desktop_entry_values
-    ("features/print.rs", "CAPTION"),       // CAPTION_HEIGHT
-    ("features/print.rs", "MM"),            // POINTS_PER_MM
-    ("features/print.rs", "PREVIEWED"),     // MAX_PREVIEWS
-    ("features/remote.rs", "ANSWERING"),    // UNFINISHED_ANSWERS
-    ("features/remote.rs", "Answering"),    // UnfinishedAnswer
-    ("features/remote.rs", "ME"),           // INSTANCE_ID
-    ("features/remote.rs", "UNANSWERED"),   // TIMED_OUT
-    ("features/remote.rs", "claim"),        // bind_socket
-    ("features/remote.rs", "deliver"),      // send_and_print_answer
-    ("features/remote.rs", "known"),        // is_known_command
-    ("features/remote.rs", "live"),         // live_sockets
-    ("features/remote.rs", "queued"),       // has_waiting_client
-    ("features/remote.rs", "unanswered"),   // timed_out
-    ("files/config.rs", "LOCKED"),          // SETTINGS_LOCKED
-    ("files/config.rs", "SAVED"),           // LAST_SAVED_TEXT
-    ("files/config.rs", "pos"),             // position
-    ("files/external.rs", "LIMIT"),         // PROGRAM_TIME_LIMIT
-    ("files/external.rs", "failure"),       // failure_text
-    ("files/external.rs", "heif"),          // decode_heif
-    ("files/external.rs", "knows"),         // is_program_found
-    ("files/external.rs", "limited"),       // short_output_of
-    ("files/external.rs", "upright"),       // upright_size
-    ("files/file_io.rs", "Work"),           // FileOperations, QueuedWrite
-    ("files/file_io.rs", "land"),           // save_copy_with_sidecar
-    ("files/file_io.rs", "plain"),          // explain_rename_error
-    ("files/file_io.rs", "serial"),         // start_ordered_worker
-    ("files/file_io.rs", "writable"),       // check_writable
-    ("files/file_ops.rs", "Deleted"),       // OperationReport
-    ("files/file_ops.rs", "Hold"),          // SlideStep::Wait, HeldBackFiles
-    ("files/file_ops.rs", "Renamed"),       // RenameOutcome
-    ("files/file_ops.rs", "Work"),          // FileOperations, QueuedWrite
-    ("files/file_ops.rs", "did"),           // count_done
-    ("files/file_ops.rs", "doing"),         // activity
-    ("files/file_ops.rs", "hold"),          // hold_back_while_writing
-    ("files/file_ops.rs", "ids"),           // fingerprints
-    ("files/file_ops.rs", "taken"),         // name_in_the_way
-    ("files/file_ops.rs", "touches"),       // held_back_files
-    ("files/file_ops.rs", "touching"),      // held_back_files
-    ("files/journal.rs", "begin"),          // start_journal
-    ("files/journal.rs", "free"),           // take_lock_if_free
-    ("files/journal.rs", "interrupted"),    // cut_short_plans
-    ("files/journal.rs", "linked"),         // is_linked
-    ("files/journal.rs", "settle"),         // repair_cut_short, run_background_until
-    ("files/portal.rs", "DEST"),            // PORTAL_BUS_NAME
-    ("files/portal.rs", "PATH"),            // PORTAL_OBJECT_PATH
-    ("files/portal.rs", "within"),          // with_time_limit
-    ("files/trash.rs", "Thrown"),           // TrashMove
-    ("files/trash.rs", "Trashed"),          // TrashEntry
-    ("files/trash.rs", "thrown"),           // trash_move
-    ("images/colour.rs", "set_up"),         // set_up_colour
-    ("images/decode.rs", "Small"),          // ShrunkImage
-    ("images/decode.rs", "fits"),           // fits_decode_limit
-    ("images/decode.rs", "open_file"),      // open_regular_with_metadata
-    ("images/decode.rs", "survive"),        // catch_panic_as_error
-    ("images/decoder_plugins.rs", "takes"), // handles_name
-    ("images/save.rs", "FileKey"),          // FileId
-    ("images/save.rs", "Kind"),             // Encoding
-    ("images/save.rs", "Next"),             // ForwardSearch
-    ("images/save.rs", "held"),             // lock, lock_sidecar
-    ("images/save.rs", "land"),             // save_copy_with_sidecar
-    ("images/save.rs", "smaller"),          // shrink_to_long_side
-    ("images/save.rs", "without"),          // without_thumbnails, without_property
-    ("images/thumbs.rs", "FAILED"),         // FAILED_DIR
-    ("images/thumbs.rs", "clean"),          // remove_orphaned_thumbnails
-    ("main.rs", "desktop"),                 // desktop_settings, read_desktop_look
-    ("main.rs", "Notices"),                 // NoticeSender
-    ("main.rs", "with"),                    // with_config
-    ("metadata/exif.rs", "mul"),            // compose_orientations
-    ("metadata/exif.rs", "ratio"),          // rational
-    ("metadata/lightroom.rs", "COLUMN"),    // COLUMN_END
-    ("metadata/lightroom.rs", "NEEDS"),     // NEEDS_SQLITE3
-    ("metadata/lightroom.rs", "ROW"),       // ROW_END
-    ("metadata/lightroom.rs", "chain"),     // names_from_top
-    ("metadata/lightroom.rs", "differ"),    // differing_stars
-    ("metadata/lightroom.rs", "members"),   // collection_images
-    ("metadata/lightroom.rs", "tagged"),    // image_keyword_ids
-    ("metadata/marks.rs", "Seen"),          // FileStamp
-    ("metadata/marks.rs", "seen"),          // file_stamp
-    ("metadata/xmp.rs", "Access"),          // AltText
-    ("metadata/xmp.rs", "Held"),            // SidecarLock
-    ("metadata/xmp.rs", "Meta"),            // KeywordsAndComment
-    ("metadata/xmp.rs", "SLOTS"),           // SIDECAR_LOCKS
-    ("metadata/xmp.rs", "leaf"),            // keyword_of_path
-    ("metadata/xmp.rs", "locks"),           // lock_dir
-    ("metadata/xmp.rs", "same"),            // same_keyword
-    ("model/collections.rs", "LISTS"),      // LIST_EXTS
-    ("model/collections.rs", "lexical"),    // lexically_normal
-    ("model/collections.rs", "valid"),      // valid_collection_name
-    ("model/folder.rs", "drain"),           // add_sent_sizes
-    ("model/folder.rs", "listings"),        // whole_listings
-    ("model/folder.rs", "watch"),           // start_watching
-    ("model/folder.rs", "watching"),        // watcher_generation
-    ("model/list.rs", "Slot"),              // LoadedImage
-    ("model/list.rs", "anim"),              // frames
-    ("model/list.rs", "details"),           // sizes_and_dates
-    ("model/list.rs", "hist"),              // histogram
-    ("model/list.rs", "shows"),             // shows_file
-    ("model/list.rs", "slots"),             // loaded_images
-    ("model/list.rs", "after"),             // replacing
-    ("model/list.rs", "transparent"),       // has_transparency
-    ("model/search.rs", "and"),             // parse_and
-    ("model/search.rs", "or"),              // parse_or
-    ("model/selection.rs", "go"),           // show_file
-    ("support/lang.rs", "CURRENT"),         // CURRENT_TRANSLATION
-    ("support/lang.rs", "Table"),           // Translation
-    ("support/source_rules.rs", "Place"),   // SlideshowPosition, Section
-    ("support/test_hooks.rs", "LABELS"),    // THIS_FRAME
-    ("support/test_hooks.rs", "LAST"),      // LAST_FRAME
-    ("support/test_hooks.rs", "note"),      // note_label
-    ("support/test_support.rs", "settle"),  // repair_cut_short, run_background_until
-    ("support/threads.rs", "Notices"),      // NoticeSender
-    ("support/threads.rs", "caught"),       // catch_panic
-    ("ui/dialogs.rs", "touches"),           // held_back_files
-    ("ui/dialogs.rs", "unchanged"),         // is_unchanged
-    ("ui/file_list.rs", "THUMBS"),          // THUMB_SIZES
-    ("ui/file_list.rs", "ThumbView"),       // OnScreenFiles
-    ("ui/file_list.rs", "made"),            // thumbnail_of
-    ("ui/file_list.rs", "place"),           // position_text
-    ("ui/file_list.rs", "scrolls"),         // scrolls_to_shown_image
-    ("ui/info_panel.rs", "Info"),           // InfoPanel
-    ("ui/info_panel.rs", "MetaEdit"),       // MetadataEdit
-    ("ui/info_panel.rs", "access"),         // alt_text
-    ("ui/menus.rs", "act"),                 // chosen
-    ("ui/menus.rs", "launch"),              // open_shown_in
-    ("ui/preferences.rs", "capturing"),     // key_being_chosen_for
-    ("ui/preferences.rs", "unsaved"),       // has_unsaved
-    ("ui/theme.rs", "Desktop"),             // DesktopLook
-    ("ui/theme.rs", "FromDesktop"),         // DesktopSettings
-    ("ui/theme.rs", "built_in"),            // is_built_in
-    ("ui/window.rs", "closing"),            // close_requests
-    ("ui/workers.rs", "stopped"),           // is_stopped, tell_background_stopped
-    ("viewer/pan.rs", "Pan"),               // PanView
-    ("viewer/pan.rs", "calendar"),          // shows_calendar
-    ("viewer/pan.rs", "each"),              // map_files_in_parallel
-    ("viewer/pan.rs", "jump"),              // scroll_to_day
-    ("viewer/save_as.rs", "Choice"),        // SaveAsChoices
-    ("viewer/slideshow.rs", "Hold"),        // SlideStep::Wait, HeldBackFiles
-    ("viewer/slideshow.rs", "Slide"),       // SlideStep
-    ("viewer/view.rs", "Shown"),            // ShownTexture
-    ("viewer/view.rs", "View"),             // ImageArea
-    ("viewer/view.rs", "orient"),           // turn
-    ("viewer/view.rs", "overlay"),          // paint_full_screen_info
-    ("viewer/view.rs", "refill"),           // refill_preload
-    ("viewer/view.rs", "rotation"),         // auto_rotate
-    ("viewer/view.rs", "sent"),             // last_request_number
-    ("viewer/view.rs", "wheel"),            // wheel_notches
+    ("cli.rs", "more"),                      // more_paths
+    ("features/check.rs", "Check"),          // ImageCheck
+    ("features/check.rs", "go"),             // show_file
+    ("features/duplicates.rs", "Item"),      // Picture
+    ("features/duplicates.rs", "SIDE"),      // SIGNATURE_SIDE
+    ("features/duplicates.rs", "cancel"),    // is_cancelled
+    ("features/duplicates.rs", "caught"),    // catch_panic
+    ("features/duplicates.rs", "go"),        // show_file
+    ("features/duplicates.rs", "held"),      // lock, lock_sidecar
+    ("features/duplicates.rs", "parallel"),  // on_all_cores
+    ("features/duplicates.rs", "parts"),     // part_means
+    ("features/duplicates.rs", "stopped"),   // is_stopped, tell_background_stopped
+    ("features/plugins.rs", "Running"),      // RunningPlugins
+    ("features/plugins.rs", "takes"),        // handles_name
+    ("features/plugins.rs", "values"),       // desktop_entry_values
+    ("features/print.rs", "CAPTION"),        // CAPTION_HEIGHT
+    ("features/print.rs", "LIMIT"),          // PROGRAM_TIME_LIMIT
+    ("features/print.rs", "MM"),             // POINTS_PER_MM
+    ("features/print.rs", "PREVIEWED"),      // MAX_PREVIEWS
+    ("features/print.rs", "limited"),        // short_output_of
+    ("features/print.rs", "place"),          // position_text
+    ("features/print.rs", "survive"),        // catch_panic_as_error
+    ("features/remote.rs", "ANSWERING"),     // UNFINISHED_ANSWERS
+    ("features/remote.rs", "Answering"),     // UnfinishedAnswer
+    ("features/remote.rs", "ME"),            // INSTANCE_ID
+    ("features/remote.rs", "UNANSWERED"),    // TIMED_OUT
+    ("features/remote.rs", "claim"),         // bind_socket
+    ("features/remote.rs", "deliver"),       // send_and_print_answer
+    ("features/remote.rs", "go"),            // show_file
+    ("features/remote.rs", "held"),          // lock, lock_sidecar
+    ("features/remote.rs", "known"),         // is_known_command
+    ("features/remote.rs", "live"),          // live_sockets
+    ("features/remote.rs", "queued"),        // has_waiting_client
+    ("features/remote.rs", "unanswered"),    // timed_out
+    ("files/backup.rs", "FileKey"),          // FileId
+    ("files/config.rs", "LOCKED"),           // SETTINGS_LOCKED
+    ("files/config.rs", "SAVED"),            // LAST_SAVED_TEXT
+    ("files/config.rs", "pos"),              // position
+    ("files/external.rs", "LIMIT"),          // PROGRAM_TIME_LIMIT
+    ("files/external.rs", "failure"),        // failure_text
+    ("files/external.rs", "heif"),           // decode_heif
+    ("files/external.rs", "knows"),          // is_program_found
+    ("files/external.rs", "limited"),        // short_output_of
+    ("files/external.rs", "upright"),        // upright_size
+    ("files/file_io.rs", "Work"),            // FileOperations, QueuedWrite
+    ("files/file_io.rs", "caught"),          // catch_panic
+    ("files/file_io.rs", "land"),            // save_copy_with_sidecar
+    ("files/file_io.rs", "plain"),           // explain_rename_error
+    ("files/file_io.rs", "serial"),          // start_ordered_worker
+    ("files/file_io.rs", "writable"),        // check_writable
+    ("files/file_ops.rs", "Deleted"),        // OperationReport
+    ("files/file_ops.rs", "Hold"),           // SlideStep::Wait, HeldBackFiles
+    ("files/file_ops.rs", "Renamed"),        // RenameOutcome
+    ("files/file_ops.rs", "Thrown"),         // TrashMove
+    ("files/file_ops.rs", "Work"),           // FileOperations, QueuedWrite
+    ("files/file_ops.rs", "begin"),          // start_journal
+    ("files/file_ops.rs", "caught"),         // catch_panic
+    ("files/file_ops.rs", "details"),        // sizes_and_dates
+    ("files/file_ops.rs", "did"),            // count_done
+    ("files/file_ops.rs", "doing"),          // activity
+    ("files/file_ops.rs", "hold"),           // hold_back_while_writing
+    ("files/file_ops.rs", "ids"),            // fingerprints
+    ("files/file_ops.rs", "interrupted"),    // cut_short_plans
+    ("files/file_ops.rs", "land"),           // save_copy_with_sidecar
+    ("files/file_ops.rs", "linked"),         // is_linked
+    ("files/file_ops.rs", "listings"),       // whole_listings
+    ("files/file_ops.rs", "orient"),         // turn
+    ("files/file_ops.rs", "place"),          // position_text
+    ("files/file_ops.rs", "refill"),         // refill_preload
+    ("files/file_ops.rs", "serial"),         // start_ordered_worker
+    ("files/file_ops.rs", "settle"),         // repair_cut_short, run_background_until
+    ("files/file_ops.rs", "slots"),          // loaded_images
+    ("files/file_ops.rs", "survive"),        // catch_panic_as_error
+    ("files/file_ops.rs", "taken"),          // name_in_the_way
+    ("files/file_ops.rs", "thrown"),         // trash_move
+    ("files/file_ops.rs", "touches"),        // held_back_files
+    ("files/file_ops.rs", "touching"),       // held_back_files
+    ("files/journal.rs", "begin"),           // start_journal
+    ("files/journal.rs", "free"),            // take_lock_if_free
+    ("files/journal.rs", "interrupted"),     // cut_short_plans
+    ("files/journal.rs", "linked"),          // is_linked
+    ("files/journal.rs", "settle"),          // repair_cut_short, run_background_until
+    ("files/portal.rs", "DEST"),             // PORTAL_BUS_NAME
+    ("files/portal.rs", "PATH"),             // PORTAL_OBJECT_PATH
+    ("files/portal.rs", "within"),           // with_time_limit
+    ("files/trash.rs", "LIMIT"),             // PROGRAM_TIME_LIMIT
+    ("files/trash.rs", "Thrown"),            // TrashMove
+    ("files/trash.rs", "Trashed"),           // TrashEntry
+    ("files/trash.rs", "thrown"),            // trash_move
+    ("images/colour.rs", "limited"),         // short_output_of
+    ("images/colour.rs", "set_up"),          // set_up_colour
+    ("images/decode.rs", "Small"),           // ShrunkImage
+    ("images/decode.rs", "caught"),          // catch_panic
+    ("images/decode.rs", "fits"),            // fits_decode_limit
+    ("images/decode.rs", "heif"),            // decode_heif
+    ("images/decode.rs", "open_file"),       // open_regular_with_metadata
+    ("images/decode.rs", "survive"),         // catch_panic_as_error
+    ("images/decoder_plugins.rs", "LIMIT"),  // PROGRAM_TIME_LIMIT
+    ("images/decoder_plugins.rs", "takes"),  // handles_name
+    ("images/decoder_plugins.rs", "values"), // desktop_entry_values
+    ("images/save.rs", "FileKey"),           // FileId
+    ("images/save.rs", "Held"),              // SidecarLock
+    ("images/save.rs", "Kind"),              // Encoding
+    ("images/save.rs", "LIMIT"),             // PROGRAM_TIME_LIMIT
+    ("images/save.rs", "Next"),              // ForwardSearch
+    ("images/save.rs", "held"),              // lock, lock_sidecar
+    ("images/save.rs", "land"),              // save_copy_with_sidecar
+    ("images/save.rs", "smaller"),           // shrink_to_long_side
+    ("images/save.rs", "without"),           // without_thumbnails, without_property
+    ("images/save.rs", "writable"),          // check_writable
+    ("images/thumbs.rs", "FAILED"),          // FAILED_DIR
+    ("images/thumbs.rs", "clean"),           // remove_orphaned_thumbnails
+    ("images/thumbs.rs", "survive"),         // catch_panic_as_error
+    ("main.rs", "Check"),                    // ImageCheck
+    ("main.rs", "Choice"),                   // SaveAsChoices
+    ("main.rs", "FromDesktop"),              // DesktopSettings
+    ("main.rs", "Info"),                     // InfoPanel
+    ("main.rs", "Notices"),                  // NoticeSender
+    ("main.rs", "Pan"),                      // PanView
+    ("main.rs", "Running"),                  // RunningPlugins
+    ("main.rs", "View"),                     // ImageArea
+    ("main.rs", "Work"),                     // FileOperations, QueuedWrite
+    ("main.rs", "act"),                      // chosen
+    ("main.rs", "desktop"),                  // desktop_settings, read_desktop_look
+    ("main.rs", "rotation"),                 // auto_rotate
+    ("main.rs", "set_up"),                   // set_up_colour
+    ("main.rs", "with"),                     // with_config
+    ("metadata/exif.rs", "caught"),          // catch_panic
+    ("metadata/exif.rs", "mul"),             // compose_orientations
+    ("metadata/exif.rs", "ratio"),           // rational
+    ("metadata/lightroom.rs", "COLUMN"),     // COLUMN_END
+    ("metadata/lightroom.rs", "LIMIT"),      // PROGRAM_TIME_LIMIT
+    ("metadata/lightroom.rs", "NEEDS"),      // NEEDS_SQLITE3
+    ("metadata/lightroom.rs", "ROW"),        // ROW_END
+    ("metadata/lightroom.rs", "chain"),      // names_from_top
+    ("metadata/lightroom.rs", "differ"),     // differing_stars
+    ("metadata/lightroom.rs", "members"),    // collection_images
+    ("metadata/lightroom.rs", "stopped"),    // is_stopped, tell_background_stopped
+    ("metadata/lightroom.rs", "tagged"),     // image_keyword_ids
+    ("metadata/marks.rs", "Seen"),           // FileStamp
+    ("metadata/marks.rs", "known"),          // is_known_command
+    ("metadata/marks.rs", "seen"),           // file_stamp
+    ("metadata/marks.rs", "without"),        // without_thumbnails, without_property
+    ("metadata/xmp.rs", "Access"),           // AltText
+    ("metadata/xmp.rs", "Held"),             // SidecarLock
+    ("metadata/xmp.rs", "Meta"),             // KeywordsAndComment
+    ("metadata/xmp.rs", "SLOTS"),            // SIDECAR_LOCKS
+    ("metadata/xmp.rs", "access"),           // alt_text
+    ("metadata/xmp.rs", "held"),             // lock, lock_sidecar
+    ("metadata/xmp.rs", "land"),             // save_copy_with_sidecar
+    ("metadata/xmp.rs", "leaf"),             // keyword_of_path
+    ("metadata/xmp.rs", "linked"),           // is_linked
+    ("metadata/xmp.rs", "locks"),            // lock_dir
+    ("metadata/xmp.rs", "same"),             // same_keyword
+    ("metadata/xmp.rs", "without"),          // without_thumbnails, without_property
+    ("model/collections.rs", "LISTS"),       // LIST_EXTS
+    ("model/collections.rs", "act"),         // chosen
+    ("model/collections.rs", "lexical"),     // lexically_normal
+    ("model/collections.rs", "settle"),      // repair_cut_short, run_background_until
+    ("model/collections.rs", "valid"),       // valid_collection_name
+    ("model/folder.rs", "Slot"),             // LoadedImage
+    ("model/folder.rs", "after"),            // replacing
+    ("model/folder.rs", "drain"),            // add_sent_sizes
+    ("model/folder.rs", "go"),               // show_file
+    ("model/folder.rs", "listings"),         // whole_listings
+    ("model/folder.rs", "orient"),           // turn
+    ("model/folder.rs", "refill"),           // refill_preload
+    ("model/folder.rs", "settle"),           // repair_cut_short, run_background_until
+    ("model/folder.rs", "slots"),            // loaded_images
+    ("model/folder.rs", "stopped"),          // is_stopped, tell_background_stopped
+    ("model/folder.rs", "watch"),            // start_watching
+    ("model/folder.rs", "watching"),         // watcher_generation
+    ("model/list.rs", "Slot"),               // LoadedImage
+    ("model/list.rs", "after"),              // replacing
+    ("model/list.rs", "anim"),               // frames
+    ("model/list.rs", "details"),            // sizes_and_dates
+    ("model/list.rs", "hist"),               // histogram
+    ("model/list.rs", "shows"),              // shows_file
+    ("model/list.rs", "slots"),              // loaded_images
+    ("model/list.rs", "transparent"),        // has_transparency
+    ("model/listing.rs", "FileKey"),         // FileId
+    ("model/search.rs", "and"),              // parse_and
+    ("model/search.rs", "caught"),           // catch_panic
+    ("model/search.rs", "or"),               // parse_or
+    ("model/search.rs", "settle"),           // repair_cut_short, run_background_until
+    ("model/search.rs", "stopped"),          // is_stopped, tell_background_stopped
+    ("model/selection.rs", "go"),            // show_file
+    ("model/selection.rs", "orient"),        // turn
+    ("model/selection.rs", "place"),         // position_text
+    ("model/selection.rs", "refill"),        // refill_preload
+    ("model/selection.rs", "shows"),         // shows_file
+    ("support/lang.rs", "CURRENT"),          // CURRENT_TRANSLATION
+    ("support/lang.rs", "Table"),            // Translation
+    ("support/source_rules.rs", "Place"),    // SlideshowPosition, Section
+    ("support/source_rules.rs", "place"),    // position_text
+    ("support/test_hooks.rs", "LABELS"),     // THIS_FRAME
+    ("support/test_hooks.rs", "LAST"),       // LAST_FRAME
+    ("support/test_hooks.rs", "note"),       // note_label
+    ("support/test_support.rs", "settle"),   // repair_cut_short, run_background_until
+    ("support/test_support.rs", "with"),     // with_config
+    ("support/threads.rs", "Notices"),       // NoticeSender
+    ("support/threads.rs", "caught"),        // catch_panic
+    ("ui/accessibility.rs", "access"),       // alt_text
+    ("ui/actions.rs", "Pan"),                // PanView
+    ("ui/actions.rs", "launch"),             // open_shown_in
+    ("ui/actions.rs", "settle"),             // repair_cut_short, run_background_until
+    ("ui/actions.rs", "slots"),              // loaded_images
+    ("ui/actions.rs", "stopped"),            // is_stopped, tell_background_stopped
+    ("ui/actions.rs", "survive"),            // catch_panic_as_error
+    ("ui/dialogs.rs", "Deleted"),            // OperationReport
+    ("ui/dialogs.rs", "built_in"),           // is_built_in
+    ("ui/dialogs.rs", "go"),                 // show_file
+    ("ui/dialogs.rs", "place"),              // position_text
+    ("ui/dialogs.rs", "settle"),             // repair_cut_short, run_background_until
+    ("ui/dialogs.rs", "stopped"),            // is_stopped, tell_background_stopped
+    ("ui/dialogs.rs", "touches"),            // held_back_files
+    ("ui/dialogs.rs", "unchanged"),          // is_unchanged
+    ("ui/file_list.rs", "THUMBS"),           // THUMB_SIZES
+    ("ui/file_list.rs", "ThumbView"),        // OnScreenFiles
+    ("ui/file_list.rs", "anim"),             // frames
+    ("ui/file_list.rs", "details"),          // sizes_and_dates
+    ("ui/file_list.rs", "drain"),            // add_sent_sizes
+    ("ui/file_list.rs", "go"),               // show_file
+    ("ui/file_list.rs", "made"),             // thumbnail_of
+    ("ui/file_list.rs", "place"),            // position_text
+    ("ui/file_list.rs", "scrolls"),          // scrolls_to_shown_image
+    ("ui/file_list.rs", "slots"),            // loaded_images
+    ("ui/info_panel.rs", "Access"),          // AltText
+    ("ui/info_panel.rs", "Info"),            // InfoPanel
+    ("ui/info_panel.rs", "Meta"),            // KeywordsAndComment
+    ("ui/info_panel.rs", "MetaEdit"),        // MetadataEdit
+    ("ui/info_panel.rs", "access"),          // alt_text
+    ("ui/info_panel.rs", "caught"),          // catch_panic
+    ("ui/info_panel.rs", "doing"),           // activity
+    ("ui/info_panel.rs", "go"),              // show_file
+    ("ui/info_panel.rs", "settle"),          // repair_cut_short, run_background_until
+    ("ui/info_panel.rs", "slots"),           // loaded_images
+    ("ui/info_panel.rs", "stopped"),         // is_stopped, tell_background_stopped
+    ("ui/menus.rs", "Deleted"),              // OperationReport
+    ("ui/menus.rs", "act"),                  // chosen
+    ("ui/menus.rs", "hold"),                 // hold_back_while_writing
+    ("ui/menus.rs", "launch"),               // open_shown_in
+    ("ui/menus.rs", "refill"),               // refill_preload
+    ("ui/menus.rs", "takes"),                // handles_name
+    ("ui/preferences.rs", "capturing"),      // key_being_chosen_for
+    ("ui/preferences.rs", "clean"),          // remove_orphaned_thumbnails
+    ("ui/preferences.rs", "unsaved"),        // has_unsaved
+    ("ui/theme.rs", "Desktop"),              // DesktopLook
+    ("ui/theme.rs", "FromDesktop"),          // DesktopSettings
+    ("ui/theme.rs", "built_in"),             // is_built_in
+    ("ui/theme.rs", "desktop"),              // desktop_settings, read_desktop_look
+    ("ui/theme.rs", "limited"),              // short_output_of
+    ("ui/window.rs", "closing"),             // close_requests
+    ("ui/window.rs", "orient"),              // turn
+    ("ui/window.rs", "pos"),                 // position
+    ("ui/window.rs", "settle"),              // repair_cut_short, run_background_until
+    ("ui/workers.rs", "ThumbView"),          // OnScreenFiles
+    ("ui/workers.rs", "desktop"),            // desktop_settings, read_desktop_look
+    ("ui/workers.rs", "slots"),              // loaded_images
+    ("ui/workers.rs", "stopped"),            // is_stopped, tell_background_stopped
+    ("viewer/crop.rs", "Deleted"),           // OperationReport
+    ("viewer/crop.rs", "settle"),            // repair_cut_short, run_background_until
+    ("viewer/crop.rs", "slots"),             // loaded_images
+    ("viewer/crop.rs", "survive"),           // catch_panic_as_error
+    ("viewer/pan.rs", "Pan"),                // PanView
+    ("viewer/pan.rs", "calendar"),           // shows_calendar
+    ("viewer/pan.rs", "caught"),             // catch_panic
+    ("viewer/pan.rs", "each"),               // map_files_in_parallel
+    ("viewer/pan.rs", "go"),                 // show_file
+    ("viewer/pan.rs", "jump"),               // scroll_to_day
+    ("viewer/pan.rs", "stopped"),            // is_stopped, tell_background_stopped
+    ("viewer/pan.rs", "without"),            // without_thumbnails, without_property
+    ("viewer/save_as.rs", "Choice"),         // SaveAsChoices
+    ("viewer/save_as.rs", "Deleted"),        // OperationReport
+    ("viewer/save_as.rs", "orient"),         // turn
+    ("viewer/save_as.rs", "slots"),          // loaded_images
+    ("viewer/save_as.rs", "survive"),        // catch_panic_as_error
+    ("viewer/slideshow.rs", "Hold"),         // SlideStep::Wait, HeldBackFiles
+    ("viewer/slideshow.rs", "Place"),        // SlideshowPosition, Section
+    ("viewer/slideshow.rs", "Slide"),        // SlideStep
+    ("viewer/slideshow.rs", "go"),           // show_file
+    ("viewer/slideshow.rs", "refill"),       // refill_preload
+    ("viewer/slideshow.rs", "settle"),       // repair_cut_short, run_background_until
+    ("viewer/view.rs", "Shown"),             // ShownTexture
+    ("viewer/view.rs", "Slot"),              // LoadedImage
+    ("viewer/view.rs", "View"),              // ImageArea
+    ("viewer/view.rs", "act"),               // chosen
+    ("viewer/view.rs", "go"),                // show_file
+    ("viewer/view.rs", "launch"),            // open_shown_in
+    ("viewer/view.rs", "made"),              // thumbnail_of
+    ("viewer/view.rs", "orient"),            // turn
+    ("viewer/view.rs", "overlay"),           // paint_full_screen_info
+    ("viewer/view.rs", "place"),             // position_text
+    ("viewer/view.rs", "refill"),            // refill_preload
+    ("viewer/view.rs", "rotation"),          // auto_rotate
+    ("viewer/view.rs", "sent"),              // last_request_number
+    ("viewer/view.rs", "slots"),             // loaded_images
+    ("viewer/view.rs", "survive"),           // catch_panic_as_error
+    ("viewer/view.rs", "transparent"),       // has_transparency
+    ("viewer/view.rs", "wheel"),             // wheel_notches
 ];
 
 /// Where a top-level item stands in a file's order, as AGENTS.md gives it under "Within a
@@ -1034,6 +1182,11 @@ fn retired_names_are_found_in_code_and_in_backticks() {
     assert_eq!(
         retired_names_in("metadata/exif.rs", text),
         ["metadata/exif.rs:2: cur", "metadata/exif.rs:2: ratio"]
+    );
+    // A word is also retired in a file that only used it, as view.rs used list.rs's `slots`.
+    assert_eq!(
+        retired_names_in("viewer/view.rs", "let slots = 1;\n"),
+        ["viewer/view.rs:1: slots"]
     );
 }
 
