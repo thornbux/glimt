@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""A Glimt decoder: FITS images from telescopes (.fits, .fit, .fts, also compressed as .fits.fz
+"""A Glimt format: FITS images from telescopes (.fits, .fit, .fts, also compressed as .fits.fz
 or .fits.gz), written as a grey PGM to standard output.
 
 The first extension (HDU) that holds an image is shown, of a cube its first plane, with the

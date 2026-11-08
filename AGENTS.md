@@ -34,7 +34,7 @@ for Linux in Rust/egui, inspired by Geeqie. Read this before changing anything.
 These stay as they are until a 2.0: the command-line options,
 the `--remote` commands with their answers and exit codes, the settings file's keys and values
 (a list of choices grows at its end only, `config::NAMED`), the files Glimt owns, and the
-desktop file formats of plugins and decoders. Add; never take away or change a meaning. A
+desktop file formats of tools and added formats. Add; never take away or change a meaning. A
 setting that goes out of use keeps being read and ignored.
 
 `src/frozen-1.0.txt` pins, from the code's own tables: the settings' keys; the values of each
@@ -54,7 +54,7 @@ command (`remote_command` matches the words again), what the commands print, the
 names of the full screen info, the print caption and the window title (`name`, `path`,
 `position`, `dimensions`, `marks`, `keywords`, `comment`, `File size`, `folder`, `app`, and
 the EXIF labels that the first two fall through to), the files Glimt owns, and the desktop
-file formats of plugins and decoders. Never rename an `Action` variant or rely on a changed key
+file formats of tools and added formats. Never rename an `Action` variant or rely on a changed key
 name outside the table below: they are the `keys=` format, pinned by `src/keys-1.0.txt` and
 its test, every action (also one without a default key) and every default key; new ones go at
 the end of that file, and the test fails until a new action is there.
@@ -168,8 +168,8 @@ holds only its `mod` lines, and a new module goes into the folder of what it doe
 | `themes/` | The built-in themes |
 | `assets/` | Icons, the desktop and AppStream files, the fonts and their licenses |
 | `docs/` | The man page `glimt.1`, `screenshots/` for README and the website, and `architecture/`: diagrams of the code's layout, a frame and its threads, a folder to pixels, a change on disk and the checks (update them when what they name changes) |
-| `examples/decoders/` | Decoder plugins: desktop files and their scripts |
-| `examples/plugins/` | Plugins (describe a photo with a local model, read the alt text aloud), and `test-model.py`, a stand-in model |
+| `examples/formats/` | Added formats: desktop files (`<format>.desktop`, `<format>-imagemagick.desktop`) and their scripts (`glimt-<format>`) |
+| `examples/tools/` | Tools (`<name>.desktop` running `glimt-<name>`: describe a photo with a local model, read the alt text aloud), and `test-model.py`, a stand-in model |
 | `flatpak/` | The Flatpak manifest, and `cargo-sources.json`: the crates it builds from without the network |
 | `tools/check.sh` | Runs the checks before a commit in Docker, with mold and sccache, a few at a time |
 | `tools/sbom.py` | Writes `sbom.cdx.json` and `THIRD-PARTY-LICENSES.txt` |
@@ -271,13 +271,15 @@ of that part. The exceptions are the tables of one arm per action (`Action::engl
   written only by that one setter, also from Preferences, so it does what the menu does besides
   (`source_rules::settings_change_through_their_setters`).
 - **A format:** built in when the `image` crate reads it with no new dependency (its feature in
-  `Cargo.toml`, the extension in `listing::EXTS`, a test in `decode.rs`). Otherwise a decoder
-  plugin in `examples/decoders` (`src/images/decoder_plugins.rs`), with a check in `tests.sh`, not code or a
+  `Cargo.toml`, the extension in `listing::EXTS`, a test in `decode.rs`). Otherwise an added
+  format in `examples/formats` (`src/images/added_formats.rs`), with a check in `tests.sh`, not code or a
   dependency in Glimt.
-- **An optional feature** (chosen when building, not a plugin): a Cargo feature in `[features]`
+- **An optional feature** (chosen when building, not a tool): a Cargo feature in `[features]`
   (also add it to `full`), a module or extension list behind `#[cfg(feature = "...")]`, and its
-  settings shown in Preferences only when built in. Never break the default build. "Plugin"
-  means only the desktop files in Edit → Plugins, and decoder plugins.
+  settings shown in Preferences only when built in. Never break the default build. "Tool"
+  means only the desktop files in Edit → Tools, and "added format" only those in
+  `glimt/formats`. Before 0.75.0 they were plugins and decoder plugins, and their old folders
+  are still read (`tools::RENAMED_FOLDERS`).
 - **A file operation** (one that starts a job or background work) joins
   the contract in file_ops.rs's tests: an entry in `contract_ops()` with what it does to the
   contract's folder and what must hold after (the file, its sidecar, its stars, held back while
@@ -489,7 +491,7 @@ a read-only file (which the portal refuses, so Glimt trashes it by hand), File �
 Open File (the file chooser portal), Print through the System print dialog (the print portal;
 its Print to File shows the PDF), full screen (an Inhibit call to the portal, and Close after,
 in `dbus-monitor`), Open With → Choose Application… (the chooser, cancelled), a video and a
-HEIC (the runtime's ffmpeg), File → Set as Wallpaper (the wallpaper portal), and a plugin, which
+HEIC (the runtime's ffmpeg), File → Set as Wallpaper (the wallpaper portal), and a tool, which
 without the host permission says how to give it and with it runs; the AppImage, with a second window (Ctrl+N)
 that stays when the first one closes.
 
@@ -524,13 +526,14 @@ cargo generate-rpm -o /tmp/pkg/            # cargo install cargo-generate-rpm
 - Dependencies are written by hand (glibc 2.28): `dpkg-shlibdeps` rounds glibc up to 2.34, and
   cargo-generate-rpm's own list has `[WEAK]` symbol versions that dnf cannot resolve. OpenGL
   (EGL) and xkbcommon are named too: the window loads them as it opens, so no tool finds them.
-- `examples/plugins` and `examples/decoders` are installed as examples, not as active plugins:
+- `examples/tools` and `examples/formats` are installed as examples, not as active tools:
   in `/usr/share/doc/glimt/examples/` in the `.deb` and `.rpm` (scripts 755, so they work when
-  copied), and as `examples/` in the tar.gz. Glimt reads `/usr/share/glimt/{plugins,decoders}`,
+  copied), and as `examples/` in the tar.gz. Glimt reads `/usr/share/glimt/{tools,formats}`
+  (and the old `{plugins,decoders}`),
   but nothing is put there: each example needs programs the package cannot count on (Ollama,
   spd-say, exiftool, ImageMagick, Python modules), and would sit in the menu for everyone and
-  fail. A user copies the ones wanted to `~/.local/share/glimt/{plugins,decoders}` (Edit →
-  Plugins → Open the Plugins Folder). Not in the AppImage or Flatpak, as no README is: their
+  fail. A user copies the ones wanted to `~/.local/share/glimt/{tools,formats}` (Edit →
+  Tools → Open the Tools Folder). Not in the AppImage or Flatpak, as no README is: their
   files are out of the user's reach. A new example script goes in by the globs already there.
 - A local build links against the build machine's glibc; only the release binary runs on 2.28.
 - Test an `.rpm` without rpm tools in a container, with the storage on `/tmp`:

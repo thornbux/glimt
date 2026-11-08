@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""A Glimt decoder: DICOM images from medical and dental imaging (.dcm, .dicom, .dic): X-ray,
+"""A Glimt format: DICOM images from medical and dental imaging (.dcm, .dicom, .dic): X-ray,
 CT, MR, ultrasound, panoramic and intraoral X-rays, written as a PGM or PPM to standard output.
 
 Compressed DICOM (JPEG, JPEG 2000, JPEG-LS, RLE), common in dental and hospital equipment, is

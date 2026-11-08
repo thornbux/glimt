@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
-"""A stand-in for a vision model, to try the describe plugin without downloading one: it
+"""A stand-in for a vision model, to try the describe tool without downloading one: it
 answers every image with the same description, on 127.0.0.1:11435 (Ollama's port plus one).
 
 The answer also carries what a hostile picture could make a model say: a line break, a
-control character, XML and an order to delete files. After the plugin has run, the comment
+control character, XML and an order to delete files. After the tool has run, the comment
 in Glimt shows all of it as plain text on one line, and nothing was run.
 
-    python3 examples/plugins/test-model.py &
-    GLIMT_AI_URL=http://127.0.0.1:11435 examples/plugins/glimt-describe ~/test/a.jpg
+    python3 examples/tools/test-model.py &
+    GLIMT_AI_URL=http://127.0.0.1:11435 examples/tools/glimt-describe ~/test/a.jpg
 """
 
 import http.server

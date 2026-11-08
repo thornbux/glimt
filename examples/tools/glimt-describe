@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""A Glimt plugin: a short description of each image, made by a vision model running on this
+"""A Glimt tool: a short description of each image, made by a vision model running on this
 computer (Ollama), written as the image's comment and as its IPTC alt text in its XMP sidecar
 (<image>.xmp): Glimt shows both, a screen reader reads the alt text first, and exif: searches
 find the comment.
@@ -125,7 +125,7 @@ def replace(sidecar, data, read):
     made from: Glimt wrote it meanwhile, and replacing it would lose that.
 
     shortcut: a write in the moment between the last read and the rename is still lost, as the
-    plugin cannot take the lock Glimt's own sidecar writes take; a plugin API that writes
+    tool cannot take the lock Glimt's own sidecar writes take; a tool API that writes
     through Glimt would close it."""
     fd, temp = tempfile.mkstemp(dir=os.path.dirname(sidecar), prefix=".glimt-describe-")
     # mkstemp makes the file readable by its owner only; a sidecar gets the usual permissions.
