@@ -17,6 +17,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
   as an image, not a picture named by its whole path or through `..`.
 - A thumbnail in the shared cache that is larger than its size (128 or 256 pixels), as another
   program may write one, is made again rather than used at its size.
+- A file whose thumbnail runs out of time twice (a video or SVG made to stall) is marked as
+  having none, as a broken file is, instead of costing 30 seconds at every visit.
 
 ## [0.75.0] - 2026-11-08
 

@@ -12,6 +12,10 @@ const SIZES: [(u32, &str); 2] = [(128, "normal"), (256, "large")];
 /// version, or when the file changes.
 const FAILED_DIR: &str = concat!("fail/glimt-", env!("CARGO_PKG_VERSION"));
 
+/// The files whose thumbnail ran out of time once since Glimt started (`should_mark_failed`).
+static TIMED_OUT_ONCE: std::sync::Mutex<std::collections::BTreeSet<PathBuf>> =
+    std::sync::Mutex::new(std::collections::BTreeSet::new());
+
 /// The thumbnail of `path`: from the cache if it is newer than the file, else made from the image.
 pub fn thumbnail(
     path: &Path,
@@ -299,13 +303,19 @@ fn md5(data: &[u8]) -> [u8; 16] {
 /// Returns whether a file that gave `error` is marked as having no thumbnail. Not when ffmpeg or an
 /// added format is not there: it may be installed later; nor when the file could not be read
 /// (a share or a stick away for a moment): the system's errors say "(os error N)", a file that
-/// is no picture does not. A program that read from such a share says so in its own words, or
-/// was ended by the time limit while the share woke up, and is not marked either. Others are
-/// marked, or tried again on every visit (2,000 TypeScript sources named .ts, which are video
-/// endings too, would start ffmpeg 4,000 times).
+/// is no picture does not. A program that read from such a share says so in its own words, and
+/// is not marked either. Others are marked, or tried again on every visit (2,000 TypeScript
+/// sources named .ts, which are video endings too, would start ffmpeg 4,000 times).
+///
+/// A file whose program was ended by the time limit is marked the second time only, because the
+/// first time may have been a share that woke slowly. A file made to stall the program would
+/// otherwise cost a worker the whole limit at every visit.
 fn should_mark_failed(path: &Path, error: &str) -> bool {
+    if error.contains(crate::files::external::TIMED_OUT) {
+        let mut timed_out = TIMED_OUT_ONCE.lock().unwrap_or_else(|e| e.into_inner());
+        return !timed_out.insert(path.to_path_buf());
+    }
     let away = [
-        crate::files::external::TIMED_OUT,
         "Input/output error",
         "Transport endpoint is not connected",
         "Host is down",
@@ -384,16 +394,18 @@ mod tests {
         let jpg = std::path::Path::new("/a.jpg");
         let away = std::io::Error::from_raw_os_error(5).to_string();
         assert!(!super::should_mark_failed(jpg, &away));
-        // So is a video whose program said the share failed, or ran out of time while it woke.
+        // So is a video whose program said the share failed.
         let mp4 = std::path::Path::new("/a.mp4");
         assert!(!super::should_mark_failed(
             mp4,
             "/a.mp4: Input/output error"
         ));
-        assert!(!super::should_mark_failed(
-            mp4,
-            crate::files::external::TIMED_OUT
-        ));
+        // One that ran out of time is tried once more, as a share may have woken slowly, and
+        // marked when it runs out of time again.
+        let slow = std::path::Path::new("/glimt-test-timed-out-twice.mp4");
+        let timed_out = crate::files::external::TIMED_OUT;
+        assert!(!super::should_mark_failed(slow, timed_out));
+        assert!(super::should_mark_failed(slow, timed_out));
         assert!(super::should_mark_failed(
             jpg,
             "Format error decoding Jpeg: invalid marker"
