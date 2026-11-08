@@ -534,8 +534,8 @@ impl crate::App {
     pub(crate) fn tools_menu(&mut self, ui: &mut egui::Ui) {
         scroll_menu(ui, with_icon(ui, theme::icon::TOOL, tr("Tools")), |ui| {
             ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Extend);
-            // The new folder only: the old one of `tools::RENAMED_FOLDERS` is still read.
-            let dir = xdg_dir("XDG_DATA_HOME", ".local/share", "glimt").map(|d| d.join("tools"));
+            let dir = xdg_dir("XDG_DATA_HOME", ".local/share", "glimt")
+                .map(|d| tools::folder_to_open(&d, "tools"));
             if self.tools.is_empty() {
                 ui.weak(tr("No tools"));
             }

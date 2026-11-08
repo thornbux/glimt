@@ -10,7 +10,8 @@ use std::path::{Path, PathBuf};
 
 /// The folders of desktop files that 0.75.0 renamed, by their old name and the new one, in
 /// Glimt's folder of the user's data folder and of the system's. Glimt reads the old folder too,
-/// forever, and opens and creates only the new one. A desktop file in both under the same name
+/// forever, and creates only the new one. It opens the old one while only the old one exists
+/// (`folder_to_open`), as the user's tools are there. A desktop file in both under the same name
 /// counts once, from the new folder. The desktop files keep their format: no key names a plugin
 /// or a decoder, and an added format's group header stays `[Glimt Decoder]`. The header is never
 /// checked, so `[Glimt Format]` is read as well.
@@ -161,6 +162,18 @@ fn desktop_files_in(
         .filter(|p| seen.insert(p.file_name().map(|n| n.to_owned())))
         .filter_map(|p| Some((p.clone(), crate::images::decode::read_text(&p).ok()?)))
         .collect()
+}
+
+/// Returns the folder `kind` of `glimt_home` that Edit → Tools opens. That is the old name of
+/// `RENAMED_FOLDERS` while only the old folder exists, as the user's tools are there, and the
+/// new one otherwise, which the caller creates.
+pub fn folder_to_open(glimt_home: &Path, kind: &str) -> PathBuf {
+    let new = glimt_home.join(kind);
+    let old_name = RENAMED_FOLDERS.iter().find(|r| r.1 == kind).map(|r| r.0);
+    match old_name.map(|old| glimt_home.join(old)) {
+        Some(old) if old.is_dir() && !new.exists() => old,
+        _ => new,
+    }
 }
 
 /// The system's data folders, from $XDG_DATA_DIRS, which tools, added formats and the MIME
@@ -448,6 +461,19 @@ mod tests {
         let formats = desktop_files_in([user, system].into_iter(), "formats");
         assert_eq!(formats.len(), 1);
         assert!(formats[0].0.ends_with("decoders/format.desktop"));
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// Edit → Tools opens the old folder only while the new one does not exist.
+    #[test]
+    fn opens_the_old_folder_only_while_there_is_no_new_one() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-open-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        assert_eq!(folder_to_open(&dir, "tools"), dir.join("tools"));
+        std::fs::create_dir_all(dir.join("plugins")).unwrap();
+        assert_eq!(folder_to_open(&dir, "tools"), dir.join("plugins"));
+        std::fs::create_dir_all(dir.join("tools")).unwrap();
+        assert_eq!(folder_to_open(&dir, "tools"), dir.join("tools"));
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
