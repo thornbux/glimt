@@ -5,6 +5,11 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- A close of a minimized or covered window no longer loses what a file job reported a moment
+  before, so the marks and saved collections follow the files it moved.
+
 ## [0.76.0] - 2026-11-08
 
 ### Changed

@@ -360,7 +360,7 @@ impl eframe::App for App {
         self.answer_waiting_selects();
         crate::features::remote::stop(|| self.answer_waiting_selects());
         let ctx = self.ctx.clone();
-        self.save_metadata_edit(&ctx);
+        self.take_last_reports_before_exit(&ctx);
         // shortcut: the path is stored as UTF-8, lossless for ordinary paths; store its bytes
         // if a folder name that is not UTF-8 must be remembered.
         let mut state = String::new();
