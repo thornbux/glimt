@@ -647,9 +647,8 @@ pub fn sort_folders_from(text: &[u8]) -> Vec<PathBuf> {
 pub fn sort_folders_text(dirs: &[PathBuf]) -> Vec<u8> {
     let mut text = Vec::new();
     for d in dirs {
-        let bytes = d.as_os_str().as_encoded_bytes();
-        if !bytes.contains(&b'\n') {
-            text.extend(bytes);
+        if fits_on_a_line(d) {
+            text.extend(d.as_os_str().as_encoded_bytes());
             text.push(b'\n');
         }
     }
@@ -701,9 +700,7 @@ pub fn parse_recent(text: &[u8]) -> Vec<PathBuf> {
 /// `recent` with `path` first, once, and no more than MAX_RECENT paths. A name with a line break in
 /// it cannot be kept on a line, so it is left out.
 pub fn add_recent(recent: &[PathBuf], path: &Path) -> Vec<PathBuf> {
-    use std::os::unix::ffi::OsStrExt;
-    let fits = !path.as_os_str().as_bytes().contains(&b'\n');
-    (fits.then(|| path.to_path_buf()).into_iter())
+    (fits_on_a_line(path).then(|| path.to_path_buf()).into_iter())
         .chain(recent.iter().filter(|p| *p != path).cloned())
         .take(MAX_RECENT)
         .collect()
@@ -776,6 +773,21 @@ fn xdg_base(
 #[cfg(test)]
 pub fn test_home() -> PathBuf {
     std::env::temp_dir().join("glimt-test-home")
+}
+
+/// Whether `path` can be kept on a line of Glimt's own files. A name with a line break would be
+/// read back as two lines, the second of them perhaps taken for a key of its own.
+pub fn fits_on_a_line(path: &Path) -> bool {
+    !path.as_os_str().as_encoded_bytes().contains(&b'\n')
+}
+
+/// The window state's line that keeps `dir` as the last folder. It is empty when `dir` does
+/// not fit on a line.
+pub fn last_dir_line(dir: &Path) -> String {
+    match fits_on_a_line(dir) {
+        true => format!("{LAST_DIR}={}\n", dir.display()),
+        false => String::new(),
+    }
 }
 
 pub fn parse_last_dir(state: &str) -> Option<PathBuf> {
@@ -1120,6 +1132,14 @@ mod tests {
             Some("/tmp/a b".into())
         );
         assert_eq!(super::parse_last_dir("last_dir=\n"), None);
+        // A folder name with a line break is not kept, as its second line would be read as a
+        // key of the window state.
+        let line = super::last_dir_line(std::path::Path::new("/tmp/a b"));
+        assert_eq!(super::parse_last_dir(&line), Some("/tmp/a b".into()));
+        assert_eq!(
+            super::last_dir_line(std::path::Path::new("/x\nwindow_x=99999")),
+            ""
+        );
         assert_eq!(Config::parse("preload=x\nunknown=1"), Config::default());
         // A byte that is not UTF-8 costs neither the load nor the next save.
         let dir = std::env::temp_dir().join(format!("glimt-lossy-{}", std::process::id()));

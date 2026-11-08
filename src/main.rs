@@ -367,7 +367,7 @@ impl eframe::App for App {
         let mut state = String::new();
         if self.config.remember_dir {
             let last = self.folder.collection().unwrap_or(self.folder.dir());
-            state += &format!("{}={}\n", crate::files::config::LAST_DIR, last.display());
+            state += &crate::files::config::last_dir_line(last);
         }
         if self.config.remember_window {
             state += &self.window.state_text();
