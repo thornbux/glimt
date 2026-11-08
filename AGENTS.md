@@ -38,7 +38,7 @@ desktop file formats of tools and added formats. Add; never take away or change 
 setting that goes out of use keeps being read and ignored.
 
 `src/frozen-1.0.txt` pins, from the code's own tables: the settings' keys; the values of each
-`config::NAMED` list in order; the values of `sort` (`SORTS`), `layout` and `layout_turns`
+`config::NAMED` list in order; the values of `sort` (`SORTS`), `layout` and `slideshow_one_image_at_a_time`
 (`LAYOUTS`, also `--layout`'s), `rendering_intent` (`INTENTS`), `input_profile`'s built-in
 words (`INPUT_PROFILES`), `print_paper` (`PAPERS`), `print_orientation` (`ORIENTATIONS`),
 `theme` (the built-in themes) and `language` (`LANGUAGES` and `lang::ENGLISH`); the window

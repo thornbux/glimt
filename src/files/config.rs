@@ -153,7 +153,7 @@ const NAMED: [(&str, &[&str]); 7] = [
 /// The settings renamed in 0.74.0 and later, as (old key, new key). A settings file is read by
 /// the old keys too, forever, so the users' files keep working, and only the new keys are
 /// written. When a file holds both keys of a setting, the value of the new key is the one used.
-const RENAMED_SETTINGS: [(&str, &str); 10] = [
+const RENAMED_SETTINGS: [(&str, &str); 11] = [
     ("trash", "delete_to_trash"),
     ("delay", "slideshow_delay"),
     ("random", "slideshow_random"),
@@ -165,6 +165,8 @@ const RENAMED_SETTINGS: [(&str, &str); 10] = [
     // 0.76.0: "OSD" is jargon that the menus and the action had already dropped.
     ("osd", "full_screen_info"),
     ("osd_template", "full_screen_info_template"),
+    // 0.76.0: "turns" was a word of its own. The menu says One Image at a Time.
+    ("layout_turns", "slideshow_one_image_at_a_time"),
 ];
 
 /// The window state's keys renamed in 0.74.0, as (old key, new key). They are read as the
@@ -288,7 +290,7 @@ config! {
     layout: String = String::from("1"),
     /// The layouts whose slideshow changes one image at a time, round the panes, separated by
     /// commas. The other layouts change all their images together.
-    layout_turns: String = String::new(),
+    slideshow_one_image_at_a_time: String = String::new(),
     /// Layouts with several panes show each image's file name in its pane.
     layout_names: bool = false,
     /// Animated GIF and WebP files play (A). When this is off, the first frame is shown.
@@ -1367,17 +1369,18 @@ mod tests {
     }
 
     /// Returns the line of src/frozen-1.0.txt as the code names it now. A setting, a window
-    /// state key or a --remote command renamed in its table of old names gets its new name, and
-    /// every other line is returned as it is.
+    /// state key or a --remote command renamed in its table of old names gets its new name, as
+    /// does the setting of a value line, and every other line is returned as it is.
     fn frozen_name_now(line: &str) -> String {
         let (kind, name) = line.split_once(' ').unwrap_or((line, ""));
-        // A remote command's line may have a word of its choice after the command's own.
+        // A remote command's line may have a word of its choice after the command's own, and a
+        // value line has its value after the setting's key.
         let (name, rest) = match kind {
-            "remote" => name.split_once(' ').map_or((name, ""), |(n, r)| (n, r)),
+            "remote" | "value" => name.split_once(' ').map_or((name, ""), |(n, r)| (n, r)),
             _ => (name, ""),
         };
         let table: &[(&str, &str)] = match kind {
-            "setting" => &super::RENAMED_SETTINGS,
+            "setting" | "value" => &super::RENAMED_SETTINGS,
             "state" => &super::RENAMED_STATE,
             "remote" => &crate::features::remote::RENAMED_COMMANDS,
             _ => &[],
@@ -1429,8 +1432,8 @@ mod tests {
         let lists: [(&str, Vec<&str>); 9] = [
             ("sort", crate::model::listing::SORTS.map(|s| s.1).to_vec()),
             ("layout", layouts.clone()),
-            // The layout_turns setting is a list of layouts, separated by commas.
-            ("layout_turns", layouts),
+            // This setting is a list of layouts, separated by commas.
+            ("slideshow_one_image_at_a_time", layouts),
             (
                 "rendering_intent",
                 crate::images::colour::INTENTS.map(|i| i.0).to_vec(),

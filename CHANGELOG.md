@@ -12,6 +12,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 - The settings file names the full screen info's setting `full_screen_info`, as the menu and
   the action do, instead of `osd`, and its template `full_screen_info_template` instead of
   `osd_template`. The old keys are still read.
+- The layouts whose slideshow changes one image at a time, as the menu says, are kept as
+  `slideshow_one_image_at_a_time` instead of `layout_turns`. The old key is still read.
 
 ### Fixed
 

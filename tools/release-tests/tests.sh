@@ -589,7 +589,7 @@ for v in new old; do
     slideshow=$(busy)
     quit
     # Four panes, one image at a time, no fade: a new round shuffles once, then goes on.
-    config slideshow_random=true slideshow_repeat=true slideshow_delay=1 fade=0 layout=2x2 layout_turns=2x2
+    config slideshow_random=true slideshow_repeat=true slideshow_delay=1 fade=0 layout=2x2 slideshow_one_image_at_a_time=2x2
     start --slideshow $d/show; sleep 4
     shot turns-a-$v
     turns=$(busy)
@@ -695,7 +695,7 @@ for v in new old; do
     convert -size 300x200 xc:red $d/a.png
     convert -size 300x200 xc:blue $d/b.png
     convert -size 300x200 xc:lime $d/c.png
-    config layout=2x1 layout_turns=2x1 slideshow_delay=60 auto_refresh=true
+    config layout=2x1 slideshow_one_image_at_a_time=2x1 slideshow_delay=60 auto_refresh=true
     start $d/a.png
     sleep 2
     key s; sleep 2                                  # a in the first pane, b in the second

@@ -236,3 +236,8 @@ state window_position
 remote previous
 setting full_screen_info
 setting full_screen_info_template
+setting slideshow_one_image_at_a_time
+value slideshow_one_image_at_a_time 1
+value slideshow_one_image_at_a_time 2x1
+value slideshow_one_image_at_a_time 1x2
+value slideshow_one_image_at_a_time 2x2

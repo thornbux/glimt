@@ -636,7 +636,10 @@ impl crate::App {
     /// The layout's slideshow changes one pane at a time.
     pub(crate) fn changes_one_pane_at_a_time(&self) -> bool {
         let layout = &self.config.layout;
-        self.config.layout_turns.split(',').any(|l| l == layout)
+        self.config
+            .slideshow_one_image_at_a_time
+            .split(',')
+            .any(|l| l == layout)
     }
 
     /// The panes after the first show the images that follow the shown one, except while a
@@ -718,13 +721,13 @@ impl crate::App {
             }
             if chosen != turns {
                 let layout = self.config.layout.clone();
-                let mut list: Vec<&str> = (self.config.layout_turns.split(','))
+                let mut list: Vec<&str> = (self.config.slideshow_one_image_at_a_time.split(','))
                     .filter(|l| !l.is_empty() && *l != layout)
                     .collect();
                 if chosen {
                     list.push(&layout);
                 }
-                self.config.layout_turns = list.join(",");
+                self.config.slideshow_one_image_at_a_time = list.join(",");
                 self.config.save();
                 self.refill_preload();
             }
