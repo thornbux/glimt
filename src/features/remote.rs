@@ -874,7 +874,17 @@ fn serve(
     let most = MAX_SELECT as u64 * 4096 + 64;
     let mut reader = std::io::BufReader::new(std::io::Read::take(stream, most));
     while let Some(line) = read_command(&mut reader) {
-        let line = command_now(line.trim_start());
+        let line = match line {
+            Ok(line) => command_now(line.trim_start()),
+            // Told, as an end without an answer would read as done. The rest of the line is
+            // not read, so the client is served no more.
+            Err(why) => {
+                if let Some(out) = out.as_mut() {
+                    let _ = out.write_all(&not_done_answer(why));
+                }
+                return;
+            }
+        };
         // Every command is answered, a query with what it asks and any other with whether it
         // was done, so a script knows when its `run` was refused.
         let (reply, answer) = mpsc::channel();
@@ -905,9 +915,10 @@ fn serve(
 
 /// Reads the next command, one line, from `reader`. A `select` may be as long as its files take,
 /// and any other command at most `MOST_LINE` bytes, so a client that sends without a line break
-/// holds no more memory than that. Returns `None` at the end, for a line too long or not UTF-8,
-/// and when the client sends nothing within its time limit.
-fn read_command(reader: &mut impl BufRead) -> Option<String> {
+/// holds no more memory than that. Returns the reason for a line too long, which the client is
+/// told, and `None` at the end, for a line that is not UTF-8, and when the client sends nothing
+/// within its time limit.
+fn read_command(reader: &mut impl BufRead) -> Option<Result<String, &'static str>> {
     let mut line = Vec::new();
     std::io::Read::take(&mut *reader, MOST_LINE)
         .read_until(b'\n', &mut line)
@@ -916,14 +927,14 @@ fn read_command(reader: &mut impl BufRead) -> Option<String> {
     if !ended && line.trim_ascii_start().starts_with(b"select ") {
         reader.read_until(b'\n', &mut line).ok()?;
     } else if !ended && line.len() as u64 >= MOST_LINE {
-        return None;
+        return Some(Err("too long"));
     }
     if line.is_empty() {
         return None;
     }
     let line = line.strip_suffix(b"\n").unwrap_or(&line);
     let line = line.strip_suffix(b"\r").unwrap_or(line);
-    String::from_utf8(line.to_vec()).ok()
+    String::from_utf8(line.to_vec()).ok().map(Ok)
 }
 
 /// Whether `dir` is there and not the user's own folder.
@@ -1382,24 +1393,35 @@ mod tests {
     }
 
     /// A command line other than a select is read up to `MOST_LINE` bytes, and a longer one ends
-    /// the client, while a select may be as long as its files. Before, every line could be as
-    /// long as the longest select, some 400 MB, and ten clients sending without a line break
-    /// held 4 GB.
+    /// the client, which is told that it is too long. A select may be as long as its files.
+    /// Before, every line could be as long as the longest select, some 400 MB, and ten clients
+    /// sending without a line break held 4 GB. And a longer line ended without an answer, which
+    /// the client read as done.
     #[test]
     fn a_command_line_is_cut_short_unless_it_is_a_select() {
         let long = "x".repeat(super::MOST_LINE as usize + 10);
+        // The lines read, up to the first that is refused, as `serve` reads them.
         let read = |text: String| {
             let mut reader = std::io::Cursor::new(text.into_bytes());
-            std::iter::from_fn(move || super::read_command(&mut reader)).collect::<Vec<_>>()
+            let mut lines = Vec::new();
+            while let Some(line) = super::read_command(&mut reader) {
+                let refused = line.is_err();
+                lines.push(line);
+                if refused {
+                    break;
+                }
+            }
+            lines
         };
-        assert_eq!(read(format!("title {long}\nnext\n")), Vec::<String>::new());
+        // The client is told "too long", rather than an end that reads as done.
+        assert_eq!(read(format!("title {long}\nnext\n")), [Err("too long")]);
         let select = format!("select /{long}\0");
         assert_eq!(
             read(format!("{select}\r\nnext\n")),
-            [select.as_str(), "next"]
+            [Ok(select.clone()), Ok("next".into())]
         );
-        assert_eq!(read("next".into()), ["next"]);
-        assert_eq!(read(String::new()), Vec::<String>::new());
+        assert_eq!(read("next".into()), [Ok("next".into())]);
+        assert!(read(String::new()).is_empty());
     }
 
     /// At most so many clients are served at once, each by a thread; the next waits until one

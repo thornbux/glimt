@@ -29,6 +29,7 @@ and versions follow [Semantic Versioning](https://semver.org/).
   with 0, as if it had been done. `--remote-all` exits with 3 when any window did not do it.
   A minimized or hidden window answers at once too, and shows what the command changed once it
   is shown again.
+  A command line longer than 64 KB is answered as not done, "too long".
 - The example formats and the manual write `[Glimt Format]` as the desktop file's header,
   after 0.75.0 renamed decoders to formats. Files with `[Glimt Decoder]` are read as before, and
   the manual says that the other `%` codes in `Exec` are kept for later.
