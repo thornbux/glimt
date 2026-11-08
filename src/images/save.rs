@@ -183,7 +183,7 @@ impl SharedMetadata {
     pub(crate) fn tag_names(&self) -> Vec<String> {
         let exif = self.exif.as_deref().map(exif::shared_tag_names);
         let xmp = (self.xmp.list.iter())
-            .map(|(name, _)| name.clone())
+            .map(|(name, ..)| name.clone())
             .filter(|name| !ALWAYS_SHARED_XMP.contains(&name.as_str()));
         exif.unwrap_or_default().into_iter().chain(xmp).collect()
     }
@@ -198,7 +198,7 @@ impl SharedMetadata {
         let exif = (self.exif.as_deref()).and_then(|raw| exif::shared_block(raw, keeps));
         let mut kept = self.xmp.clone();
         kept.list
-            .retain(|(name, _)| ALWAYS_SHARED_XMP.contains(&name.as_str()) || keeps(name));
+            .retain(|(name, ..)| ALWAYS_SHARED_XMP.contains(&name.as_str()) || keeps(name));
         let xmp = (!kept.list.is_empty()).then(|| crate::metadata::xmp::packet(&kept));
         (exif, xmp)
     }

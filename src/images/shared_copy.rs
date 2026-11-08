@@ -557,7 +557,9 @@ fn walk(data: &[u8]) -> Result<Option<Walked<'_>>, String> {
 }
 
 /// Walks a JPEG: each segment up to the end of its image (EOI), each scan with its data, and
-/// what follows the image. Returns `None` when a segment's length runs past the file.
+/// what follows the image. Bytes between segments that are no marker, which some phones and
+/// editors write, are skipped to the next marker as decoders skip them, and are not copied.
+/// Returns `None` when a segment's length runs past the file.
 fn walk_jpeg(data: &[u8]) -> Option<Walked<'_>> {
     let mut walked = Walked::new(Container::Jpeg);
     walked.add(data, 0, 2, None);
@@ -567,10 +569,12 @@ fn walk_jpeg(data: &[u8]) -> Option<Walked<'_>> {
         while data.get(at) == Some(&0xff) && data.get(at + 1) == Some(&0xff) {
             at += 1;
         }
-        if data.get(at) != Some(&0xff) {
-            return None;
-        }
         let marker = *data.get(at + 1)?;
+        // Bytes that are no marker are left out up to the next 0xff, as decoders skip them.
+        if data[at] != 0xff || marker == 0 {
+            at += 1 + data[at + 1..].iter().position(|&b| b == 0xff)?;
+            continue;
+        }
         if marker == 0xd9 {
             walked.add(data, at, at + 2, None);
             at += 2;
@@ -774,6 +778,8 @@ fn iim_properties(iim: &[u8]) -> Properties {
         };
         let text = String::from_utf8(bytes.to_vec())
             .unwrap_or_else(|_| bytes.iter().map(|&b| b as char).collect());
+        // XML cannot hold a control character, and one would make the whole packet unreadable.
+        let text = text.replace(|c: char| c.is_control() && !matches!(c, '\t' | '\n'), "");
         match values.iter_mut().find(|(n, _, _)| *n == name) {
             Some((_, _, list)) => list.push(text),
             None => values.push((name, form, vec![text])),
@@ -782,11 +788,14 @@ fn iim_properties(iim: &[u8]) -> Properties {
     let namespaces = IIM_NAMESPACES
         .iter()
         .map(|(p, u)| ((*p).to_owned(), (*u).to_owned()));
+    let namespaces = crate::metadata::xmp::Namespaces::new(namespaces.collect());
     Properties {
         list: (values.into_iter())
-            .map(|(name, form, texts)| (name.to_owned(), iim_element(name, form, texts)))
+            .map(|(name, form, texts)| {
+                let element = iim_element(name, form, texts);
+                (name.to_owned(), element, namespaces.clone())
+            })
             .collect(),
-        namespaces: namespaces.collect(),
     }
 }
 
@@ -886,10 +895,14 @@ fn png_text_tag<'a>(
     Some(Some(String::from_utf8_lossy(keyword).into_owned()))
 }
 
-/// Walks a WebP: each chunk of its RIFF file. Returns `None` when a chunk runs past the file.
+/// Walks a WebP: each chunk of its RIFF file, up to the end its RIFF header gives. What follows
+/// that end is not part of the image and is not copied. Returns `None` when a chunk runs past
+/// the file.
 fn walk_webp(data: &[u8]) -> Option<Walked<'_>> {
     let mut walked = Walked::new(Container::WebP);
     walked.add(data, 0, 12, None);
+    let riff_end = 8 + u32::from_le_bytes(data.get(4..8)?.try_into().ok()?) as usize;
+    let data = &data[..riff_end.min(data.len())];
     let mut at = 12;
     while at + 8 <= data.len() {
         let name: [u8; 4] = data[at..at + 4].try_into().ok()?;
@@ -1409,6 +1422,46 @@ mod tests {
         let pixels = |b: &[u8]| image::load_from_memory(b).unwrap().to_rgba8();
         assert!(pixels(&original) == pixels(&copy) && pixels(&original) == pixels(&kept));
         std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A JPEG with bytes between its segments, as some phones and editors write, and a WebP
+    /// with bytes after its RIFF file are copied as decoders read them, without those bytes.
+    #[test]
+    fn copies_files_with_bytes_between_their_parts() {
+        let dir = folder("junk");
+        let mut jpeg = Vec::new();
+        let encoder = image::codecs::jpeg::JpegEncoder::new_with_quality(&mut jpeg, 90);
+        picture().write_with_encoder(encoder).unwrap();
+        let comment = super::jpeg_segment(0xfe, b"a note");
+        let junky = [&jpeg[..2], &comment, b"\0\0JUNK\xff\0", &jpeg[2..]].concat();
+        let mut webp = Vec::new();
+        let encoder = image::codecs::webp::WebPEncoder::new_lossless(&mut webp);
+        picture().write_with_encoder(encoder).unwrap();
+        let trailing = [&webp[..], b"TRAILERJUNK"].concat();
+        for (name, original) in [("a.jpg", junky), ("a.webp", trailing)] {
+            let path = dir.join(name);
+            std::fs::write(&path, &original).unwrap();
+            let found = super::tags_of(&path).unwrap().unwrap();
+            let copy = super::copy(&path, &found.into_iter().collect())
+                .unwrap()
+                .unwrap();
+            let has = |text: &[u8]| copy.windows(text.len()).any(|w| w == text);
+            assert!(!has(b"JUNK") && !has(b"TRAILER"), "{name}");
+            let pixels = |b: &[u8]| image::load_from_memory(b).unwrap().to_rgba8();
+            assert!(pixels(&original) == pixels(&copy), "{name}");
+        }
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// IPTC text with control characters, which XML cannot hold, is carried into the XMP
+    /// without them, so the packet stays XML and its other properties are read.
+    #[test]
+    fn iptc_text_is_carried_without_control_characters() {
+        let iim = [&[0x1c, 2, 80, 0, 13][..], b"Ola\x07Nord\x1bmann"].concat();
+        let read = super::iim_properties(&iim);
+        let element = &read.list[0].1;
+        assert!(element.contains("OlaNordmann"), "{element}");
+        assert!(!element.chars().any(|c| c.is_control()), "{element:?}");
     }
 
     /// The walkers of JPEG segments, PNG chunks and WebP chunks, and the copy made of what they

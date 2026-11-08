@@ -86,41 +86,34 @@ pub struct AltText {
     pub extended_description: String,
 }
 
+/// The namespaces one XMP packet declares, each as (prefix, URI), shared by its properties.
+pub(crate) type Namespaces = std::sync::Arc<Vec<(String, String)>>;
+
 /// The top-level properties of XMP packets, as Copy for Sharing reads them to write a new packet
-/// of those the user keeps (`packet`). Each property is held by its name ("dc:subject") with its
-/// element as written (`<dc:subject>…</dc:subject>`), and each namespace by its prefix. The name
-/// has the prefix of its namespace in `KNOWN_NAMESPACES`, which may differ from the element's.
+/// of those the user keeps (`packet`). Each property is held by its name ("dc:subject"), its
+/// element as written (`<dc:subject>…</dc:subject>`), and the namespaces of the packet it came
+/// from, which bind its element's prefixes. The packets of the image and its sidecar may bind
+/// one prefix to two namespaces, so each property keeps its own. The name has the prefix of
+/// its namespace in `KNOWN_NAMESPACES`, which may differ from the element's.
 #[derive(Clone, Default, Debug)]
 pub(crate) struct Properties {
-    pub(crate) list: Vec<(String, String)>,
-    pub(crate) namespaces: Vec<(String, String)>,
+    pub(crate) list: Vec<(String, String, Namespaces)>,
 }
 
 impl Properties {
-    /// Adds the properties and namespaces of `other`, each in place of one of the same name.
+    /// Adds the properties of `other`, each in place of one of the same name.
     pub(crate) fn add_over(&mut self, other: Properties) {
-        for (name, element) in other.list {
-            self.list.retain(|(n, _)| *n != name);
-            self.list.push((name, element));
+        for property in other.list {
+            self.list.retain(|(name, ..)| *name != property.0);
+            self.list.push(property);
         }
-        self.add_namespaces(other.namespaces);
     }
 
-    /// Adds the properties of `other` whose names it lacks, and the namespaces it lacks.
+    /// Adds the properties of `other` whose names it lacks.
     pub(crate) fn add_missing(&mut self, other: Properties) {
-        for (name, element) in other.list {
-            if !self.list.iter().any(|(n, _)| *n == name) {
-                self.list.push((name, element));
-            }
-        }
-        self.add_namespaces(other.namespaces);
-    }
-
-    /// Adds the namespaces of `namespaces` whose prefixes it lacks.
-    fn add_namespaces(&mut self, namespaces: Vec<(String, String)>) {
-        for (prefix, uri) in namespaces {
-            if !self.namespaces.iter().any(|(p, _)| *p == prefix) {
-                self.namespaces.push((prefix, uri));
+        for property in other.list {
+            if !self.list.iter().any(|(name, ..)| *name == property.0) {
+                self.list.push(property);
             }
         }
     }
@@ -761,17 +754,21 @@ pub(crate) fn without_property(xmp: &str, tag: &str) -> String {
 /// time. A property is named by its namespace (`property_name`).
 pub(crate) fn properties(xmp: &str) -> Properties {
     let mut out = Properties::default();
+    let mut namespaces: Vec<(String, String)> = Vec::new();
     for (at, _) in xmp.match_indices("xmlns:") {
         // A namespace's name is short. Without a cap, a packet of a million unclosed quotes
-        // would be searched to its end a million times.
-        let rest = &xmp[at + 6..xmp.len().min(at + 1024)];
+        // would be searched to its end a million times. The cap is moved back to the start of
+        // a letter, as a cut inside one would panic.
+        let rest = &xmp[at + 6..xmp.floor_char_boundary(at + 1024)];
         if let Some((prefix, uri)) = (rest.split_once('=')).and_then(|(p, v)| Some((p, quoted(v)?)))
             && is_name(prefix)
             && !prefix.contains(':')
+            && !namespaces.iter().any(|(p, _)| p == prefix)
         {
-            out.add_namespaces(vec![(prefix.to_owned(), uri.to_owned())]);
+            namespaces.push((prefix.to_owned(), uri.to_owned()));
         }
     }
+    let namespaces = Namespaces::new(namespaces);
     let mut from = 0;
     while let Some(found) = xmp[from..].find("<rdf:Description") {
         let start = from + found;
@@ -786,22 +783,28 @@ pub(crate) fn properties(xmp: &str) -> Properties {
                 && !name.starts_with("xml:")
             {
                 let element = format!("<{name}>{value}</{name}>");
-                out.list
-                    .push((property_name(name, &out.namespaces), element));
+                let name = property_name(name, &namespaces);
+                out.list.push((name, element, namespaces.clone()));
             }
         }
         from = gt + 1;
         if !head.ends_with('/') {
-            from = child_properties(xmp, from, &mut out);
+            from = child_properties(xmp, from, &namespaces, &mut out);
         }
     }
     out
 }
 
 /// Reads the elements in `xmp` from `from` on, as properties of the rdf:Description they are
-/// in, into `read`, named by the namespaces it has read (`property_name`). It reads up to the
-/// end of that Description or what does not read as an element. Returns where it stopped.
-fn child_properties(xmp: &str, mut from: usize, read: &mut Properties) -> usize {
+/// in, into `read`, named by the packet's namespaces `namespaces` (`property_name`). It reads
+/// up to the end of that Description or what does not read as an element. Returns where it
+/// stopped.
+fn child_properties(
+    xmp: &str,
+    mut from: usize,
+    namespaces: &Namespaces,
+    read: &mut Properties,
+) -> usize {
     loop {
         let rest = &xmp[from..];
         let text = rest.trim_start();
@@ -833,8 +836,9 @@ fn child_properties(xmp: &str, mut from: usize, read: &mut Properties) -> usize 
             }
         };
         if name.contains(':') {
-            let name = property_name(name, &read.namespaces);
-            read.list.push((name, xmp[from..end].to_owned()));
+            let name = property_name(name, namespaces);
+            read.list
+                .push((name, xmp[from..end].to_owned(), namespaces.clone()));
         }
         from = end;
     }
@@ -902,28 +906,41 @@ fn quoted(text: &str) -> Option<&str> {
     Some(&text[1..1 + end])
 }
 
-/// Writes a new XMP packet of the properties of `properties`, in one rdf:Description, with
-/// the namespaces they use declared on it.
+/// Writes a new XMP packet of the properties of `properties`. The properties of each packet
+/// they came from go into an rdf:Description of their own, with the namespaces they use
+/// declared on it, so a prefix that two packets bind to two namespaces keeps both.
 pub(crate) fn packet(properties: &Properties) -> Vec<u8> {
     let mut out = String::from(
         "<?xpacket begin=\"\u{feff}\" id=\"W5M0MpCehiHzreSzNTczkc9d\"?>\n\
          <x:xmpmeta xmlns:x=\"adobe:ns:meta/\">\n \
-         <rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\">\n  \
-         <rdf:Description rdf:about=\"\"",
+         <rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\">\n",
     );
-    for (prefix, uri) in &properties.namespaces {
-        let used =
-            (properties.list.iter()).any(|(_, element)| element.contains(&format!("{prefix}:")));
-        if used && prefix != "x" && prefix != "rdf" {
-            let uri = uri.replace('"', "&quot;").replace('<', "&lt;");
-            out += &format!("\n    xmlns:{prefix}=\"{uri}\"");
+    let mut packets: Vec<&Namespaces> = Vec::new();
+    for (.., namespaces) in &properties.list {
+        if !packets.iter().any(|p| Namespaces::ptr_eq(p, namespaces)) {
+            packets.push(namespaces);
         }
     }
-    out += ">\n";
-    for (_, element) in &properties.list {
-        out += &format!("   {element}\n");
+    for namespaces in packets {
+        let elements: Vec<&String> = (properties.list.iter())
+            .filter(|(.., n)| Namespaces::ptr_eq(n, namespaces))
+            .map(|(_, element, _)| element)
+            .collect();
+        out += "  <rdf:Description rdf:about=\"\"";
+        for (prefix, uri) in namespaces.iter() {
+            let used = (elements.iter()).any(|e| e.contains(&format!("{prefix}:")));
+            if used && prefix != "x" && prefix != "rdf" {
+                let uri = uri.replace('"', "&quot;").replace('<', "&lt;");
+                out += &format!("\n    xmlns:{prefix}=\"{uri}\"");
+            }
+        }
+        out += ">\n";
+        for element in elements {
+            out += &format!("   {element}\n");
+        }
+        out += "  </rdf:Description>\n";
     }
-    out += "  </rdf:Description>\n </rdf:RDF>\n</x:xmpmeta>\n<?xpacket end=\"w\"?>";
+    out += " </rdf:RDF>\n</x:xmpmeta>\n<?xpacket end=\"w\"?>";
     out.into_bytes()
 }
 
@@ -1728,16 +1745,22 @@ mod tests {
                    <!-- <dc:title>x</dc:title> --><dc:subject><rdf:Bag><rdf:li>a</rdf:li>\
                    </rdf:Bag></dc:subject><dc:rights/></rdf:Description></rdf:RDF></x:xmpmeta>";
         let read = super::properties(xmp);
-        let names: Vec<&str> = read.list.iter().map(|(n, _)| n.as_str()).collect();
+        let names: Vec<&str> = read.list.iter().map(|(n, ..)| n.as_str()).collect();
         assert_eq!(names, ["tiff:Make", "dc:subject", "dc:rights"]);
         assert!(
-            read.namespaces
+            read.list[0]
+                .2
                 .iter()
                 .any(|(p, u)| p == "dc" && u.contains("purl"))
         );
         let written = String::from_utf8(super::packet(&read)).unwrap();
         let again = super::properties(&written);
-        assert_eq!(again.list, read.list);
+        let elements = |p: &super::Properties| -> Vec<(String, String)> {
+            (p.list.iter())
+                .map(|(n, e, _)| (n.clone(), e.clone()))
+                .collect()
+        };
+        assert_eq!(elements(&again), elements(&read));
         assert!(written.contains("xmlns:tiff=") && !written.contains("xml:lang"));
     }
 
@@ -1751,7 +1774,7 @@ mod tests {
                    ns1:GPSLatitude=\"59,55N\" my:Thing=\"x\"><xap:CreateDate>2023\
                    </xap:CreateDate></rdf:Description></rdf:RDF></x:xmpmeta>";
         let read = super::properties(xmp);
-        let names: Vec<&str> = read.list.iter().map(|(n, _)| n.as_str()).collect();
+        let names: Vec<&str> = read.list.iter().map(|(n, ..)| n.as_str()).collect();
         assert_eq!(names, ["exif:GPSLatitude", "my:Thing", "xmp:CreateDate"]);
         let written = String::from_utf8(super::packet(&read)).unwrap();
         assert!(written.contains("xmlns:ns1=\"http://ns.adobe.com/exif/1.0/\""));
@@ -1767,10 +1790,56 @@ mod tests {
                     dc:format='image/jpeg'><!--c--><dc:subject><rdf:Bag><rdf:li>a</rdf:li>\
                     </rdf:Bag></dc:subject><dc:rights/></rdf:Description><rdf:Description \
                     rdf:about=\"\"/></rdf:RDF></x:xmpmeta>";
-        for bytes in crate::support::test_support::broken(seed.as_bytes()) {
+        // A text of letters of two, three and four bytes, longer than the 1 KB that a namespace
+        // is read in, so a cut lands inside a letter.
+        let text = "Ålesund bæt 東京 \u{1f30a} ".repeat(80);
+        let long = seed.replace(
+            "<!--c-->",
+            &format!("<dc:description>{text}</dc:description>"),
+        );
+        assert!(long.len() > 2048);
+        for bytes in crate::support::test_support::broken(seed.as_bytes())
+            .chain(crate::support::test_support::broken(long.as_bytes()))
+        {
             let read = super::properties(&String::from_utf8_lossy(&bytes));
             super::packet(&read);
         }
+    }
+
+    /// A packet whose text puts a letter of two bytes across the 1 KB after a namespace is read
+    /// without a panic, also with the cut one byte later.
+    #[test]
+    fn reads_a_namespace_before_long_text() {
+        for pad in ["", "a"] {
+            let xmp = format!(
+                "<rdf:Description xmlns:dc=\"http://purl.org/dc/elements/1.1/\">\
+                 <dc:title>{pad}{}</dc:title></rdf:Description>",
+                "ø".repeat(700)
+            );
+            let read = super::properties(&xmp);
+            assert_eq!(read.list.len(), 1, "{pad:?}");
+        }
+    }
+
+    /// The embedded packet and the sidecar may bind one prefix to two namespaces. Each property
+    /// is written with the namespace of the packet it came from.
+    #[test]
+    fn keeps_each_packets_own_namespaces() {
+        let packet = |uri: &str, name: &str| {
+            format!("<rdf:Description rdf:about=\"\" xmlns:my=\"{uri}\" my:{name}=\"x\"/>")
+        };
+        let mut merged = super::properties(&packet("urn:a", "One"));
+        merged.add_over(super::properties(&packet("urn:b", "Two")));
+        let written = String::from_utf8(super::packet(&merged)).unwrap();
+        let declares = |name: &str, uri: &str| {
+            (written.split("<rdf:Description"))
+                .find(|d| d.contains(&format!("<my:{name}>")))
+                .is_some_and(|d| d.contains(&format!("xmlns:my=\"{uri}\"")))
+        };
+        assert!(
+            declares("One", "urn:a") && declares("Two", "urn:b"),
+            "{written}"
+        );
     }
 
     /// Keyword tree paths are trimmed around each level, sorted and kept once.
