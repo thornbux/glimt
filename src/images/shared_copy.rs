@@ -123,12 +123,22 @@ const GROUP_EXCEPTIONS: &[(&str, &[Group])] = &[
     ("HostComputer", &[Group::Software]),
     ("xmp:CreatorTool", &[Group::Software]),
     // The files a photo was made from, by their paths, names and dates, and the programs.
+    // digiKam's history names the original's folder and file, and Photoshop's history log
+    // names each file it opened and saved.
     (
         "xmpMM:DerivedFrom",
         &[Group::Date, Group::Photographer, Group::Software],
     ),
     (
         "xmpMM:Ingredients",
+        &[Group::Date, Group::Photographer, Group::Software],
+    ),
+    (
+        "digiKam:ImageHistory",
+        &[Group::Date, Group::Photographer, Group::Software],
+    ),
+    (
+        "photoshop:History",
         &[Group::Date, Group::Photographer, Group::Software],
     ),
     ("ImageDescription", &[Group::Keywords]),
@@ -317,7 +327,6 @@ const KNOWN_NAMES: &[&str] = &[
     "photoshop:DateCreated",
     "photoshop:Credit",
     "photoshop:AuthorsPosition",
-    "photoshop:History",
     "photoshop:ColorMode",
     "photoshop:ICCProfile",
     "photoshop:LegacyIPTCDigest",
@@ -334,7 +343,6 @@ const KNOWN_NAMES: &[&str] = &[
     // digiKam's and ACDSee's.
     "digiKam:CaptionsAuthorNames",
     "digiKam:CaptionsDateTimeStamps",
-    "digiKam:ImageHistory",
     "digiKam:LensCorrectionSettings",
     "MicrosoftPhoto:LastKeywordXMP",
     "MicrosoftPhoto:LastKeywordIPTC",
@@ -2472,7 +2480,7 @@ mod tests {
             ("xmpMM:PreservedFileName", &[Date, Photographer]),
             ("Software", &[Software]),
             ("xmp:CreatorTool", &[Software]),
-            ("photoshop:History", &[Date, Software]),
+            ("photoshop:History", &[Date, Photographer, Software]),
             ("dc:subject", &[Keywords]),
             ("XPKeywords", &[Keywords]),
             ("Iptc4xmpCore:AltTextAccessibility", &[Keywords]),
@@ -2569,11 +2577,12 @@ mod tests {
     }
 
     /// The tags that audit round 3 found in More tags, from digiKam, Lightroom, ACDSee,
-    /// Photoshop, EXIF 3.0 and DJI, go with the groups they say something of, and only those.
+    /// Photoshop, EXIF 3.0 and DJI, and the histories that round 4 found too few groups for, go
+    /// with the groups they say something of, and only those.
     #[test]
     fn the_tags_of_round_3_go_with_their_groups() {
-        use super::Group::{self, Date, Keywords, Photographer, Place};
-        let tags: [(&str, &[Group]); 15] = [
+        use super::Group::{self, Date, Keywords, Photographer, Place, Software};
+        let tags: [(&str, &[Group]); 17] = [
             ("MP:RegionInfo", &[Keywords]),
             ("Iptc4xmpExt:Event", &[Keywords]),
             ("Iptc4xmpExt:OrganisationInImageName", &[Keywords]),
@@ -2589,6 +2598,9 @@ mod tests {
             ("drone-dji:FlightYawDegree", &[Place]),
             ("drone-dji:GimbalYawDegree", &[Place]),
             ("drone-dji:UTCAtExposure", &[Place, Date]),
+            // Round 4: a history that names the files it was made from, by path or name.
+            ("digiKam:ImageHistory", &[Date, Photographer, Software]),
+            ("photoshop:History", &[Date, Photographer, Software]),
         ];
         let mut wrong = Vec::new();
         for (tag, groups) in tags {

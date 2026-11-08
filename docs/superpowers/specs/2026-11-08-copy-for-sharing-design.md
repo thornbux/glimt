@@ -143,3 +143,5 @@ tags" reads the selected files, where the last choice is kept, and the code stru
   notes in GCamera, darktable's history, a Lightroom mask's name). `KNOWN_NAMES` lists each
   property of aux, PLUS, MediaPro, DJI, GCamera, GPano, xmpRights, crs and darktable that is
   known, from exiftool's tables; every other property of them is in every group.
+- A history that names the files it was made from is Photographer as well as Date and
+  Software, as `xmpMM:DerivedFrom` is: digiKam's `ImageHistory` and Photoshop's `History`.
