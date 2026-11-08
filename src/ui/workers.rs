@@ -79,7 +79,7 @@ impl crate::App {
     /// Takes what file operations finished: their jobs and the files they touch are let go (an
     /// `exif:` search then reads the files it waited for), a window asked to close closes once
     /// they are done, and saved turns are taken.
-    fn receive_file_work(&mut self, ctx: &egui::Context) {
+    pub(crate) fn receive_file_work(&mut self, ctx: &egui::Context) {
         // The keywords are written, so an `exif:` search reads the files it waited for.
         if self.file_operations.drop_ended_jobs() && self.search.exif_search_waits_for_writes() {
             self.update_search(ctx);
