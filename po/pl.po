@@ -2928,8 +2928,8 @@ msgid "A tag that Glimt does not know is listed under More tags, and is left out
 msgstr "Znacznik, którego Glimt nie zna, jest na liście Więcej znaczników i jest pomijany, gdy zaznaczona jest dowolna grupa, chyba że zostanie tam odznaczony."
 
 #: src/features/copy_for_sharing.rs
-msgid "Always kept: the orientation, so the image is not shown on its side, and the colour profile, so its colours do not change."
-msgstr "Zawsze zachowane: orientacja, aby obraz nie był wyświetlany bokiem, i profil kolorów, aby jego kolory się nie zmieniły."
+msgid "Always kept: the orientation, so the image is not shown on its side, the colour profile, so its colours do not change, and an HDR photo's gain map, so an HDR screen still brightens it. An iPhone's gain map also keeps two brightness values of the maker note."
+msgstr "Zawsze zachowane: orientacja, aby obraz nie był wyświetlany bokiem, profil kolorów, aby jego kolory się nie zmieniły, i mapa wzmocnienia zdjęcia HDR, aby ekran HDR nadal je rozjaśniał. Przy mapie z iPhone'a zachowane są też dwie wartości jasności z notatki producenta."
 
 #: src/features/copy_for_sharing.rs
 msgid "Hide"

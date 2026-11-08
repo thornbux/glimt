@@ -1160,8 +1160,9 @@ impl LeftOut {
         self.count_groups();
     }
 
-    /// Leaves every tag out. The orientation and the colour profile are still kept, as they are
-    /// not tags of the choice.
+    /// Leaves every tag out. The orientation, the colour profile and an HDR photo's gain map are
+    /// still kept, as they are not tags of the choice. An iPhone's gain map also keeps the HDR
+    /// headroom and gain of the maker note (`exif::apple_hdr_maker_note`).
     pub(crate) fn remove_all(&mut self) {
         Group::ALL.iter().for_each(|g| self.set_group(*g, true));
     }

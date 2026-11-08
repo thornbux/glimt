@@ -2917,8 +2917,8 @@ msgid "A tag that Glimt does not know is listed under More tags, and is left out
 msgstr "Et tag, som Glimt ikke kender, vises under Flere tags og udelades, når en gruppe er afkrydset, medmindre krydset fjernes der."
 
 #: src/features/copy_for_sharing.rs
-msgid "Always kept: the orientation, so the image is not shown on its side, and the colour profile, so its colours do not change."
-msgstr "Altid med: retningen, så billedet ikke vises på siden, og farveprofilen, så farverne ikke ændres."
+msgid "Always kept: the orientation, so the image is not shown on its side, the colour profile, so its colours do not change, and an HDR photo's gain map, so an HDR screen still brightens it. An iPhone's gain map also keeps two brightness values of the maker note."
+msgstr "Altid med: retningen, så billedet ikke vises på siden, farveprofilen, så farverne ikke ændres, og et HDR-billedes gain map, så en HDR-skærm stadig gør det lysere. For en iPhones kommer også to lysstyrkeværdier i producentens note med."
 
 #: src/features/copy_for_sharing.rs
 msgid "Hide"

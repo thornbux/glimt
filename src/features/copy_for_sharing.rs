@@ -82,8 +82,10 @@ impl SharingDialog {
                 }
             });
         ui.weak(tr(
-            "Always kept: the orientation, so the image is not shown on its side, and the \
-             colour profile, so its colours do not change.",
+            "Always kept: the orientation, so the image is not shown on its side, the colour \
+             profile, so its colours do not change, and an HDR photo's gain map, so an HDR \
+             screen still brightens it. An iPhone's gain map also keeps two brightness values \
+             of the maker note.",
         ));
         let mut go = false;
         ui.horizontal(|ui| {
