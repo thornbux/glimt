@@ -379,7 +379,7 @@ impl crate::App {
             self.decoding.last_request_number += 1;
             let path = self.path(idx);
             let max = match full {
-                true => [self.decoding.max_side; 2],
+                true => self.full_resolution_box(idx, &path),
                 false => self.decode_box(idx),
             };
             self.list.ask_decode(
@@ -401,6 +401,19 @@ impl crate::App {
                 max_box: max,
             });
         }
+    }
+
+    /// Returns the box that file `idx` at `path` is decoded into at full resolution: the
+    /// largest texture. An SVG has no pixels of its own, so its full resolution is the size the
+    /// view counts as its own and zooms from, once it is shown at all. Before, an icon was drawn
+    /// at 8192 pixels for a zoom to 100 %.
+    fn full_resolution_box(&self, idx: usize, path: &Path) -> [u32; 2] {
+        let largest = self.decoding.max_side;
+        use crate::model::listing::{SVG_EXTS, has_ext};
+        let own = (self.list.loaded_images().get(&idx))
+            .filter(|_| has_ext(path, SVG_EXTS))
+            .map(|s| s.original_size.map(|side| (side as u32).min(largest)));
+        own.unwrap_or([largest; 2])
     }
 
     /// Drops textures outside the preload window, and the full-resolution versions of images
@@ -1876,12 +1889,16 @@ pub(crate) fn spawn_decoders(
                     return;
                 };
                 // This cancels work, skipping images the user has already moved past.
-                let wanted = {
+                let (wanted, is_shown) = {
                     let w = kept_images.lock().unwrap();
                     let n = full_resolution_count.load(Ordering::Relaxed);
-                    w.contains(&index)
-                        && (!full_resolution || w.iter().take(n).any(|&i| i == index))
+                    let wanted = w.contains(&index)
+                        && (!full_resolution || w.iter().take(n).any(|&i| i == index));
+                    (wanted, w.first() == Some(&index))
                 };
+                // The shown image takes its bytes of the decodes' budget before the thumbnails
+                // and the images read ahead.
+                crate::images::decode::let_this_thread_go_first(is_shown);
                 if !wanted {
                     let _ = done_tx.send(Decoded {
                         rotated: false,
@@ -2037,6 +2054,28 @@ mod tests {
         let v = &app.viewing;
         assert_eq!((v.turn, v.page, v.frame), ((0, false), 0, None));
         assert!(v.turned_file.as_os_str().is_empty() && v.crop.is_none());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// An icon SVG is drawn at full resolution at the size the view counts as its own, not at
+    /// the largest texture, while a photo still gets the largest texture as its box.
+    #[cfg(feature = "svg")]
+    #[test]
+    fn an_svg_at_full_resolution_is_drawn_at_its_own_size() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-svg-full-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let icon = "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"100\" height=\"50\"/>";
+        std::fs::write(dir.join("a.svg"), icon).unwrap();
+        image::RgbImage::new(4, 4).save(dir.join("b.png")).unwrap();
+        let (mut app, ctx) = app_on(&dir);
+        app.refill_preload();
+        let both = |app: &crate::App| (0..2).all(|i| app.list.loaded_images().contains_key(&i));
+        assert!(crate::support::test_support::run_background_until(
+            &mut app, &ctx, both
+        ));
+        let largest = app.decoding.max_side;
+        assert_eq!(app.full_resolution_box(0, &dir.join("a.svg")), [2048, 1024]);
+        assert_eq!(app.full_resolution_box(1, &dir.join("b.png")), [largest; 2]);
         std::fs::remove_dir_all(dir).unwrap();
     }
 

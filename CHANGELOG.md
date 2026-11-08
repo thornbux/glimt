@@ -8,7 +8,9 @@ and versions follow [Semantic Versioning](https://semver.org/).
 ### Changed
 
 - File → Open With Default App opens the selected files, as the Open With submenu beside it
-  does, rather than only the shown image. It is in the file list's right-click menu too.
+  does, rather than only the shown image. It is in the file list's right-click menu too. It
+  asks before it opens more than five, as Nautilus does, because each file starts a program of
+  its own, and in the Flatpak a Cancel in the desktop's chooser ends the rest.
 - The settings file names the full screen info's setting `full_screen_info`, as the menu and
   the action do, instead of `osd`, and its template `full_screen_info_template` instead of
   `osd_template`. The old keys are still read.
@@ -72,7 +74,9 @@ and versions follow [Semantic Versioning](https://semver.org/).
 - Pan view keeps the dates it has read when the list changes: after a rename, a refresh, a new
   sort or a shuffle it reads only the files that are new, rather than every file again, which
   took minutes in a large folder with EXIF date. A folder that a sync client keeps adding to
-  now gets its whole timeline.
+  now gets its whole timeline. A name that a rename, move, copy, delete or Undo in Glimt gave
+  another file, and a file whose turn was saved, has its date read again, and F5 reads every
+  date again.
 - A network share that answers late is no longer opened over the folder you opened while
   waiting for it.
 - The projector's keys wait while a dialog is open in the main window, as the main window's
@@ -106,18 +110,27 @@ and versions follow [Semantic Versioning](https://semver.org/).
   bytes when the tree changes, and the rest of the tree shows at the start instead of none.
 - An SVG made to take gigabytes of memory, or to keep drawing for hours, no longer ends Glimt
   or keeps a decoder busy for good. SVGs are drawn in a process of their own, which may take
-  512 MB and 30 seconds, and one that needs more is told as not shown.
+  four times the picture it draws and 256 MB besides, and 30 seconds, and one that needs more
+  is told as not shown. The process also ends with Glimt, when Glimt quits or is killed while
+  it draws, and at 30 seconds of processor time of its own. A zoom to 100 % draws an SVG at the size the status bar gives it, not
+  at the largest size the graphics card takes, so an icon no longer takes 256 MB. The system's
+  fonts are read once for all of them, not again for each SVG with text.
 - The images decoded at the same time (the view's, the thumbnails, Print and Check Images) take
   at most 2 GB together. A folder of images that each claim nearly the limit of one decode no
-  longer takes gigabytes at once; such an image waits until there is room.
+  longer takes gigabytes at once; such an image waits until there is room. The images take
+  their turns, so a large one is not passed by smaller ones for good, and the shown image goes
+  before the thumbnails and the images read ahead. Glimt's own logo in About takes nothing
+  from them, so About no longer waits for a large image being decoded.
 - An SVG shows only the pictures in its own folder or below it, as a browser shows an SVG used
-  as an image, not a picture named by its whole path or through `..`.
+  as an image, not a picture named by its whole path, through `..` or through a link that
+  leads out of the folder, as an archive may unpack one.
 - A thumbnail in the shared cache that is larger than its size (128 or 256 pixels), as another
   program may write one, is made again rather than used at its size.
 - A file whose thumbnail runs out of time twice (a video or SVG made to stall) is marked as
   having none, as a broken file is, instead of costing 30 seconds at every visit.
 - Export Frames saves at most the first 1,000 frames of an animation, as many as the view keeps,
-  so an animation of a million tiny frames is not hours of work and gigabytes of files.
+  so an animation of a million tiny frames is not hours of work and gigabytes of files. An ICO
+  has at most as many sizes too.
 - `glimt --check-config` on an account with no settings file yet says that the defaults are
   used and exits with 0, as Glimt starts without a problem then. It said that the file cannot be
   read and exited with 1. A FILE named on the command line that is not there still exits with 1.

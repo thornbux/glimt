@@ -316,6 +316,7 @@ impl App {
         self.confirm_delete_dialog(ctx);
         self.confirm_folder_dialog(ctx);
         self.confirm_collection_dialog(ctx);
+        self.confirm_open_dialog(ctx);
         self.duplicates_window(ctx);
         self.check_window(ctx);
         crate::ui::help::window(ctx, &mut self.help);
@@ -511,7 +512,7 @@ fn main() -> eframe::Result {
         .with_title("Glimt")
         .with_app_id(app_id())
         .with_inner_size([1280.0, 800.0]);
-    if let Ok(icon) = crate::images::decode::from_memory(LOGO) {
+    if let Ok(icon) = crate::images::decode::decode_glimts_own_image(LOGO) {
         let icon = icon.into_rgba8();
         viewport = viewport.with_icon(egui::IconData {
             width: icon.width(),

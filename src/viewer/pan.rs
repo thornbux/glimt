@@ -9,7 +9,7 @@ use crate::{tf, viewer::pan};
 use eframe::egui;
 use std::borrow::Cow;
 use std::collections::HashMap;
-use std::ffi::OsString;
+use std::ffi::{OsStr, OsString};
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, mpsc};
@@ -78,11 +78,14 @@ pub(crate) struct PanView {
     /// The dates read, by file name, as the `exif:` index keeps its text. A list that changes
     /// (a rename, a refresh, a sort) then reads only the names that are new to it. While the
     /// days are read, the reading thread holds the dates and gives them back with its last
-    /// days.
-    /// shortcut: names that left the list stay until the view closes or another folder opens,
-    /// and a file changed under the same name keeps its date; drop them on a refresh if that
-    /// matters.
+    /// days. A name that a file operation in Glimt touched loses its date (`forget_date_of`),
+    /// and F5 forgets them all.
+    /// shortcut: a file changed under its name by another program keeps its date until F5;
+    /// follow the folder's changes if that matters.
     known_dates: KnownDates,
+    /// The names whose dates were forgotten while the reading thread held the dates. They are
+    /// taken out of the dates it gives back, and the days are then made again.
+    forgotten_while_reading: Vec<OsString>,
     /// Set when the days being made are no longer wanted: the thread stops reading.
     stop_reading_days: Arc<AtomicBool>,
     /// The files deleted while the days are being read, as sorted places in the list the days
@@ -180,9 +183,36 @@ impl PanView {
         self.months = months(&days);
         self.days = Some((days, self.removed_while_reading.1));
         self.laid_for = None;
-        if let Some(known) = known {
+        if let Some(mut known) = known {
+            let any_forgotten = !self.forgotten_while_reading.is_empty();
+            for name in self.forgotten_while_reading.drain(..) {
+                known.remove(&name);
+            }
             self.known_dates = known;
             self.days_rx.clear();
+            // The days were made with the dates that were forgotten meanwhile.
+            if any_forgotten {
+                self.days = None;
+            }
+        }
+    }
+
+    /// Forgets the date of the file named `name`, because a file operation gave the name
+    /// another file, or none, or changed the file. The next days read it again. Before, a
+    /// Rename Many that swapped names put each file under the date of the one that had its
+    /// name.
+    pub(crate) fn forget_date_of(&mut self, name: &OsStr) {
+        match self.days_rx.is_some() {
+            true => self.forgotten_while_reading.push(name.to_owned()),
+            false => drop(self.known_dates.remove(name)),
+        }
+    }
+
+    /// Makes the days again, because a file in the list was changed under its name, and its
+    /// date with it. A list that changed makes them again on its own.
+    pub(crate) fn make_days_again(&mut self) {
+        if self.days_rx.is_none() {
+            self.days = None;
         }
     }
 
@@ -193,6 +223,7 @@ impl PanView {
         self.days_rx.clear();
         self.stop_reading_days.store(true, Ordering::Relaxed);
         self.known_dates = KnownDates::new();
+        self.forgotten_while_reading.clear();
     }
 }
 
@@ -972,6 +1003,65 @@ mod tests {
         app.pan_view = Some(pan);
         app.forget_old_list();
         assert!(app.pan_view.as_ref().unwrap().known_dates.is_empty());
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// A name that a file operation touched loses its date, also while the dates are read, and
+    /// a file changed under its name gets its new day. F5 forgets every date. Before, a file
+    /// renamed onto another's name, or saved turned, kept the date the name had.
+    #[test]
+    fn a_file_operation_forgets_the_dates_of_its_names() {
+        let name = format!("glimt-test-pan-forget-{}", std::process::id());
+        let dir = std::env::temp_dir().join(name);
+        std::fs::create_dir_all(&dir).unwrap();
+        for name in ["a.png", "b.png", "c.png"] {
+            std::fs::File::create(dir.join(name)).unwrap();
+        }
+        let (mut app, ctx) = crate::support::test_support::app_on(&dir);
+        let read = |app: &mut crate::App| {
+            let mut pan = app.pan_view.take().unwrap();
+            for _ in 0..2000 {
+                app.pan_days(&ctx, &mut pan);
+                let fresh = pan.days.as_ref().is_some_and(|d| d.1 == app.list.version());
+                if fresh && pan.days_rx.is_none() {
+                    break;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(1));
+            }
+            let days = pan.days.as_ref().map_or(0, |d| d.0.len());
+            app.pan_view = Some(pan);
+            days
+        };
+        fn pan(app: &crate::App) -> &PanView {
+            app.pan_view.as_ref().unwrap()
+        }
+        app.pan_view = Some(PanView::default());
+        assert_eq!(read(&mut app), 1);
+        // b.png is changed in place, as a turn saved, to a day long ago.
+        let long_ago = std::time::UNIX_EPOCH + std::time::Duration::from_secs(1_000_000_000);
+        let b = std::fs::File::options().write(true).open(dir.join("b.png"));
+        b.unwrap().set_modified(long_ago).unwrap();
+        app.files_changed(&ctx, &[dir.join("b.png")]);
+        assert!(!pan(&app).known_dates.contains_key(OsStr::new("b.png")));
+        assert_eq!(read(&mut app), 2);
+        // a.png renamed to x.png while the dates are being read.
+        let mut reading = app.pan_view.take().unwrap();
+        reading.forget_dates();
+        app.pan_days(&ctx, &mut reading);
+        assert!(reading.days_rx.is_some());
+        app.pan_view = Some(reading);
+        app.follow_moved_paths(vec![(dir.join("a.png"), dir.join("x.png"))], false);
+        let mut reading = app.pan_view.take().unwrap();
+        while reading.days_rx.is_some() {
+            app.pan_days(&ctx, &mut reading);
+            std::thread::sleep(std::time::Duration::from_millis(1));
+        }
+        assert!(!reading.known_dates.contains_key(OsStr::new("a.png")));
+        assert!(reading.days.is_none());
+        app.pan_view = Some(reading);
+        assert_eq!(read(&mut app), 2);
+        app.run(&ctx, crate::ui::actions::Action::Refresh);
+        assert!(pan(&app).known_dates.is_empty());
         std::fs::remove_dir_all(&dir).unwrap();
     }
 

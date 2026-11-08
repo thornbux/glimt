@@ -2960,3 +2960,11 @@ msgstr ""
 #: src/features/copy_for_sharing.rs
 msgid "Reading the tags"
 msgstr ""
+
+#: src/ui/dialogs.rs
+msgid "Open {files}, each in its default application?"
+msgstr ""
+
+#: src/ui/dialogs.rs
+msgid "Open (Enter)"
+msgstr ""

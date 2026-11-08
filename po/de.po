@@ -2939,3 +2939,11 @@ msgstr "; {files} nicht kopiert: der Ordner hat schon Dateien dieser Namen"
 #: src/features/copy_for_sharing.rs
 msgid "Reading the tags"
 msgstr "Lesen der Tags"
+
+#: src/ui/dialogs.rs
+msgid "Open {files}, each in its default application?"
+msgstr "{files} öffnen, jede in ihrem Standardprogramm?"
+
+#: src/ui/dialogs.rs
+msgid "Open (Enter)"
+msgstr "Öffnen (Enter)"

@@ -145,6 +145,9 @@ pub(crate) struct Dialogs {
     fat_file_system_type: Option<String>,
     /// File → Copy for Sharing's dialog, while it is open.
     copy_for_sharing: Option<SharingDialog>,
+    /// The files that Open With Default App asks about before it opens them, or none while it
+    /// does not ask.
+    files_to_open: Vec<PathBuf>,
 }
 
 impl Dialogs {
@@ -185,6 +188,11 @@ impl Dialogs {
     /// The Copy for Sharing dialog, taken to be drawn, or `None` when it is not open.
     pub(crate) fn take_sharing(&mut self) -> Option<SharingDialog> {
         self.copy_for_sharing.take()
+    }
+
+    /// Asks whether to open `files`, each in its default application.
+    pub(crate) fn ask_open_files(&mut self, files: Vec<PathBuf>) {
+        self.files_to_open = files;
     }
 
     /// Asks whether to delete the files `asked`: to the trash when `trash`, else for good.
@@ -942,6 +950,36 @@ impl crate::App {
         }
     }
 
+    /// Asks before Open With Default App opens more files than it opens without asking, as
+    /// Nautilus asks, because each file starts a program of its own.
+    pub(crate) fn confirm_open_dialog(&mut self, ctx: &egui::Context) {
+        let n = self.dialogs.files_to_open.len();
+        if n == 0 {
+            return;
+        }
+        let question = tf!(
+            "Open {files}, each in its default application?",
+            files = count(n, "file")
+        );
+        let mut open = false;
+        let enter = self.answers(ctx, egui::Key::Enter);
+        let modal = egui::Modal::new(egui::Id::unique("files-to-open")).show(ctx, |ui| {
+            ui.label(question.as_str());
+            ui.horizontal(|ui| {
+                open = crate::ui::menus::button(ui, tr("Open (Enter)")).clicked() || enter;
+                if crate::ui::menus::button(ui, tr("Cancel (Esc)")).clicked() {
+                    ui.close();
+                }
+            });
+        });
+        if open || modal.should_close() {
+            let files = std::mem::take(&mut self.dialogs.files_to_open);
+            if open {
+                self.open_in("", files);
+            }
+        }
+    }
+
     /// Returns whether Preferences or a modal dialog is open. The keys then go there, not to
     /// the shortcuts.
     pub(crate) fn dialog_open(&self) -> bool {
@@ -960,6 +998,7 @@ impl crate::App {
             || self.lightroom.is_some()
             || self.save_as.is_some()
             || self.dialogs.copy_for_sharing.is_some()
+            || !self.dialogs.files_to_open.is_empty()
             || !self.file_operations.cut_short().is_empty()
     }
 
@@ -1063,6 +1102,44 @@ fn fat_warning(name: &std::ffi::OsStr, fat: Option<&str>) -> Option<String> {
 mod tests {
     use crate::support::test_support::app_on;
     use eframe::egui;
+
+    /// Open With Default App asks before it opens more than five files, each in a program of
+    /// its own, and Esc opens none of them. (Five or fewer would start the programs, so they
+    /// are not tried here.)
+    #[test]
+    fn opening_many_files_in_their_default_applications_asks_first() {
+        use crate::ui::actions::Action;
+        let dir = std::env::temp_dir().join(format!("glimt-test-open-many-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        for i in 0..6 {
+            image::RgbImage::new(2, 2)
+                .save(dir.join(format!("{i}.png")))
+                .unwrap();
+        }
+        let (mut app, ctx) = app_on(&dir);
+        app.run(&ctx, Action::SelectAll);
+        app.run(&ctx, Action::OpenWith);
+        assert_eq!(app.dialogs.files_to_open.len(), 6);
+        assert!(app.modal_open());
+        let _ = ctx.run_ui(egui::RawInput::default(), |ui| {
+            app.confirm_open_dialog(ui.ctx())
+        });
+        assert_eq!(app.dialogs.files_to_open.len(), 6);
+        let esc = egui::Event::Key {
+            key: egui::Key::Escape,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: Default::default(),
+        };
+        let input = egui::RawInput {
+            events: vec![esc],
+            ..Default::default()
+        };
+        let _ = ctx.run_ui(input, |ui| app.confirm_open_dialog(ui.ctx()));
+        assert!(app.dialogs.files_to_open.is_empty());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
 
     /// Rename Many's preview warns when the first new name has a character that the camera card
     /// of the files refuses. The card's file system is looked up once, as the dialog opens.

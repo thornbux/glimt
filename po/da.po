@@ -2939,3 +2939,11 @@ msgstr "; {files} ikke kopieret: mappen har filer med de navne"
 #: src/features/copy_for_sharing.rs
 msgid "Reading the tags"
 msgstr "Læser tags"
+
+#: src/ui/dialogs.rs
+msgid "Open {files}, each in its default application?"
+msgstr "Åbn {files}, hver i sit standardprogram?"
+
+#: src/ui/dialogs.rs
+msgid "Open (Enter)"
+msgstr "Åbn (Enter)"

@@ -2950,3 +2950,11 @@ msgstr "; {files} ikkje kopierte: mappa har filer med dei namna"
 #: src/features/copy_for_sharing.rs
 msgid "Reading the tags"
 msgstr "Lesing av taggane"
+
+#: src/ui/dialogs.rs
+msgid "Open {files}, each in its default application?"
+msgstr "Opne {files}, kvar i sitt standardprogram?"
+
+#: src/ui/dialogs.rs
+msgid "Open (Enter)"
+msgstr "Opne (Enter)"

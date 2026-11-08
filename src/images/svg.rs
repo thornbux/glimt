@@ -3,7 +3,7 @@
 //! in a child process of Glimt's own program, which has a limit of memory and time, because
 //! what resvg allocates and how long it takes are set by the file, not by Glimt.
 
-use crate::images::decode::{MAX_DECODE_BYTES, read_limited};
+use crate::images::decode::{DECODE_BUDGET, read_limited};
 use std::path::Path;
 
 /// The environment variable that makes Glimt draw the SVG it names for the Glimt that started
@@ -14,13 +14,16 @@ pub const DRAW_SVG: &str = "GLIMT_DRAW_SVG";
 /// "WIDTH HEIGHT". Without it, the SVG is drawn at its own size.
 const DRAW_SVG_BOX: &str = "GLIMT_DRAW_SVG_BOX";
 
-/// The memory a drawing child may take, as much as one decode may. resvg draws each group with
-/// opacity, a filter, a mask or a clip into a layer of its own, of up to 25 times the canvas,
-/// and nested groups each keep theirs while the inner ones are drawn. So a file of 1 KB could
-/// otherwise take gigabytes, and the system would end Glimt for it. Patterns, filters and a
-/// `<use>` repeated a million times are more ways to the same end. A child that needs more is
-/// ended, and the window only tells why.
-const CHILD_MEMORY: u64 = MAX_DECODE_BYTES;
+/// The memory a drawing child may take besides four times its picture (`child_memory`). It
+/// holds the program itself, the parsed SVG and the pictures it links to.
+const CHILD_MEMORY_BESIDES_PICTURE: u64 = 256 << 20;
+
+/// The processor time a drawing child may take, in seconds: as long as Glimt waits for it
+/// (`PROGRAM_TIME_LIMIT`). The tests' children get less, so the test of it is short.
+#[cfg(not(test))]
+const CHILD_SECONDS: u64 = crate::files::external::PROGRAM_TIME_LIMIT.as_secs();
+#[cfg(test)]
+const CHILD_SECONDS: u64 = 4;
 
 /// The longest side a drawing has, in pixels, because an SVG may claim any size.
 const LONGEST_SIDE: u32 = 8192;
@@ -98,7 +101,13 @@ fn svg_images() -> resvg::usvg::ImageHrefResolver<'static> {
             {
                 return None;
             }
-            let file = opts.resources_dir.as_deref()?.join(relative);
+            // A link on the way may lead out of the folder, as an archive keeps links, so the
+            // real path of the picture must be in the real folder.
+            let folder = opts.resources_dir.as_deref()?.canonicalize().ok()?;
+            let file = folder.join(relative).canonicalize().ok()?;
+            if !file.starts_with(&folder) {
+                return None;
+            }
             let meta = std::fs::metadata(&file).ok().filter(|m| m.is_file())?;
             if meta.len() > 64 << 20 {
                 return None;
@@ -168,30 +177,169 @@ pub fn load(
 }
 
 /// Draws an SVG as `load` does, in a child process of Glimt's own program that may take
-/// `CHILD_MEMORY` and is ended after `limit`. The child is `/proc/self/exe`, which is this
+/// `child_memory` and is ended after `limit`. The child is `/proc/self/exe`, which is this
 /// program also when its file has been replaced by an update since it started.
 fn draw_in_child(
     path: &Path,
     max: Option<[u32; 2]>,
     limit: std::time::Duration,
 ) -> Result<(image::DynamicImage, Option<[usize; 2]>), String> {
-    // The picture is at most the box, or the longest side squared, with a pixel more on each
-    // side where the size is rounded up.
-    let side = |s: u32| u64::from(s.min(LONGEST_SIDE)) + 1;
-    let [w, h] = max.unwrap_or([LONGEST_SIDE; 2]);
-    let picture = side(w) * side(h) * 4;
+    let picture = largest_picture(max);
     // What the child may take, and the picture as read here, count against the decodes'
     // shared budget while it draws.
-    let _reserved =
-        crate::images::decode::reserve_from_budget(CHILD_MEMORY + picture.min(CHILD_MEMORY))?;
+    let _reserved = crate::images::decode::reserve_from_budget(child_memory(max) + picture)?;
+    draw_in_child_outside_budget(path, max, limit, system_font_list())
+}
+
+/// Draws an SVG as `draw_in_child` does, without taking its memory from the decodes' budget
+/// first, with the fonts of `fonts` (`font_list`). The tests that draw at the largest size call
+/// it, so that they do not hold the budget that the other tests' decodes wait for.
+fn draw_in_child_outside_budget(
+    path: &Path,
+    max: Option<[u32; 2]>,
+    limit: std::time::Duration,
+    fonts: &'static [u8],
+) -> Result<(image::DynamicImage, Option<[usize; 2]>), String> {
+    use std::io::Write;
+    let picture = largest_picture(max);
     let mut command = crate::files::external::stoppable_command("/proc/self/exe");
     command.args(CHILD_ARGS).env(DRAW_SVG, path);
+    command.stdin(std::process::Stdio::piped());
     if let Some([w, h]) = max {
         command.env(DRAW_SVG_BOX, format!("{w} {h}"));
     }
     let mut child = command.spawn().map_err(|e| format!("SVG: {e}"))?;
+    // The fonts are written from a thread of their own, so a child that stops reading them
+    // cannot hold this one before the time limit starts.
+    if let Some(mut input) = child.stdin.take() {
+        std::thread::spawn(move || input.write_all(fonts));
+    }
     let (out, errors, _) = crate::files::external::output_of(&mut child, picture + 4096, limit);
     read_child_answer(out.ok_or("SVG too large")?, &errors)
+}
+
+/// Returns the system's fonts as `font_list` writes them, read once for every drawing child.
+/// Before, each child of an SVG with text read the fonts itself, which takes tens of
+/// milliseconds for each thumbnail of a folder of diagrams.
+fn system_font_list() -> &'static [u8] {
+    static FONTS: std::sync::OnceLock<Vec<u8>> = std::sync::OnceLock::new();
+    FONTS.get_or_init(|| {
+        let mut fonts = resvg::usvg::fontdb::Database::new();
+        fonts.load_system_fonts();
+        font_list(&fonts)
+    })
+}
+
+/// Returns the faces of `fonts` that are files, one line each with tabs between the fields:
+/// the face's number in its file, weight, style, stretch, whether it is monospaced, its
+/// PostScript name, its file and its families. `fonts_from_list` reads it back. A face whose
+/// names hold a tab or a line break is left out.
+fn font_list(fonts: &resvg::usvg::fontdb::Database) -> Vec<u8> {
+    use resvg::usvg::fontdb::{Source, Style};
+    let mut list = String::new();
+    for face in fonts.faces() {
+        let (Source::File(file) | Source::SharedFile(file, _)) = &face.source else {
+            continue;
+        };
+        let style = match face.style {
+            Style::Normal => 0,
+            Style::Italic => 1,
+            Style::Oblique => 2,
+        };
+        let mut fields = vec![
+            face.index.to_string(),
+            face.weight.0.to_string(),
+            style.to_string(),
+            face.stretch.to_number().to_string(),
+            u8::from(face.monospaced).to_string(),
+            face.post_script_name.clone(),
+            file.to_string_lossy().into_owned(),
+        ];
+        fields.extend(face.families.iter().map(|(name, _)| name.clone()));
+        if fields.iter().all(|f| !f.contains(['\t', '\n'])) {
+            list += &fields.join("\t");
+            list.push('\n');
+        }
+    }
+    list.into_bytes()
+}
+
+/// Returns the fonts of a list that `font_list` wrote, without reading the font files. A line
+/// that is not such a face is left out.
+fn fonts_from_list(list: &[u8]) -> resvg::usvg::fontdb::Database {
+    use resvg::usvg::fontdb::{FaceInfo, ID, Language, Source, Stretch, Style, Weight};
+    const STRETCHES: [Stretch; 9] = [
+        Stretch::UltraCondensed,
+        Stretch::ExtraCondensed,
+        Stretch::Condensed,
+        Stretch::SemiCondensed,
+        Stretch::Normal,
+        Stretch::SemiExpanded,
+        Stretch::Expanded,
+        Stretch::ExtraExpanded,
+        Stretch::UltraExpanded,
+    ];
+    let mut fonts = resvg::usvg::fontdb::Database::new();
+    for line in String::from_utf8_lossy(list).lines() {
+        let fields: Vec<&str> = line.split('\t').collect();
+        let [
+            index,
+            weight,
+            style,
+            stretch,
+            monospaced,
+            post_script_name,
+            file,
+            families @ ..,
+        ] = fields.as_slice()
+        else {
+            continue;
+        };
+        let face = (|| {
+            Some(FaceInfo {
+                id: ID::dummy(),
+                source: Source::File(file.into()),
+                index: index.parse().ok()?,
+                families: (families.iter())
+                    .map(|name| (name.to_string(), Language::English_UnitedStates))
+                    .collect(),
+                post_script_name: post_script_name.to_string(),
+                style: [Style::Normal, Style::Italic, Style::Oblique]
+                    .get(style.parse::<usize>().ok()?)
+                    .copied()?,
+                weight: Weight(weight.parse().ok()?),
+                stretch: *STRETCHES.get(stretch.parse::<usize>().ok()?.checked_sub(1)?)?,
+                monospaced: *monospaced == "1",
+            })
+        })();
+        if let Some(face) = face {
+            fonts.push_face_info(face);
+        }
+    }
+    fonts
+}
+
+/// Returns the bytes of the largest picture that an SVG drawn to fit `max` can have: the box,
+/// or the longest side squared without a box, with a pixel more on each side where the size is
+/// rounded up.
+fn largest_picture(max: Option<[u32; 2]>) -> u64 {
+    let side = |s: u32| u64::from(s.min(LONGEST_SIDE)) + 1;
+    let [w, h] = max.unwrap_or([LONGEST_SIDE; 2]);
+    side(w) * side(h) * 4
+}
+
+/// Returns the memory that a drawing child may take for an SVG drawn to fit `max`. resvg draws
+/// each group with opacity, a filter, a mask or a clip into a layer of its own, and a clip
+/// takes another picture and a mask besides. One such group over the whole SVG then needs
+/// about three and a quarter pictures, and the child gets four. Nested groups each keep their
+/// layer while the inner ones are drawn, so a file of 1 KB could otherwise take gigabytes, and
+/// the system would end Glimt for it. Patterns, filters and a `<use>` repeated a million times
+/// are more ways to the same end. A child that needs more is ended, and the window only tells
+/// why. Before, every child got 512 MB, which a large SVG with one clip group needs more than,
+/// and an icon's thumbnail far less.
+fn child_memory(max: Option<[u32; 2]>) -> u64 {
+    let picture = largest_picture(max);
+    (4 * picture + CHILD_MEMORY_BESIDES_PICTURE).min(DECODE_BUDGET - picture)
 }
 
 /// Returns the picture that a drawing child wrote on its output `out`, with its own size, or
@@ -236,17 +384,25 @@ fn read_child_answer(
 }
 
 /// Draws the SVG at `path` (from `DRAW_SVG`) for the Glimt that started this process, under the
-/// limit of `CHILD_MEMORY`, and writes the picture, or why there is none, on the output.
+/// limit of `child_memory`, and writes the picture, or why there is none, on the output.
 /// Returns the exit code.
 pub fn draw_for_parent(path: &std::ffi::OsStr) -> i32 {
-    use std::io::Write;
-    limit_this_process(CHILD_MEMORY);
+    use std::io::{Read, Write};
     let max = std::env::var(DRAW_SVG_BOX).ok().and_then(|text| {
         let (w, h) = text.split_once(' ')?;
         Some([w.parse().ok()?, h.parse().ok()?])
     });
+    limit_this_process(child_memory(max));
+    // The parent's list of fonts (`font_list`), read whole before anything is written, so the
+    // parent never waits to write it while this waits to write the picture.
+    let mut fonts = Vec::new();
+    #[allow(clippy::disallowed_methods)] // bounded by take
+    let _ = std::io::stdin()
+        .lock()
+        .take(64 << 20)
+        .read_to_end(&mut fonts);
     let mut out = std::io::stdout().lock();
-    let written = match draw(Path::new(path), max) {
+    let written = match draw(Path::new(path), max, &fonts) {
         Ok((img, own)) => {
             let [own_w, own_h] = own.map_or([0, 0], |[w, h]| [w as u32, h as u32]);
             let numbers = [img.width(), img.height(), own_w, own_h].map(u32::to_le_bytes);
@@ -261,15 +417,43 @@ pub fn draw_for_parent(path: &std::ffi::OsStr) -> i32 {
 
 /// Limits this process's memory (its address space) to `bytes`, so that an allocation past it
 /// fails and ends the process. Core dumps are turned off too, so such an end leaves no file.
+/// Its processor time is limited to `CHILD_SECONDS`, and it ends with the Glimt that started
+/// it. Before, a child went on drawing for minutes after Glimt quit or was killed, because only
+/// Glimt's watchdog ended it.
 fn limit_this_process(bytes: u64) {
     let limit = |max: u64| libc::rlimit {
         rlim_cur: max,
         rlim_max: max,
     };
+    // At the soft limit of processor time, SIGXCPU's handler says why the child ends, as the
+    // watchdog would. The hard limit a few seconds later ends it for good.
+    let processor_time = libc::rlimit {
+        rlim_cur: CHILD_SECONDS,
+        rlim_max: CHILD_SECONDS + 5,
+    };
+    let on_limit = on_processor_time_limit as extern "C" fn(libc::c_int);
     // SAFETY: setrlimit only reads the limit it is given, and it changes only this process.
+    // The handler calls only write and _exit, which a signal handler may call. PR_SET_PDEATHSIG
+    // takes a signal number and changes only this process.
     unsafe {
         libc::setrlimit(libc::RLIMIT_AS, &limit(bytes));
         libc::setrlimit(libc::RLIMIT_CORE, &limit(0));
+        libc::signal(libc::SIGXCPU, on_limit as libc::sighandler_t);
+        libc::setrlimit(libc::RLIMIT_CPU, &processor_time);
+        // shortcut: a parent that ended before this line is not noticed, and the processor
+        // limit ends the child then; compare getppid with the parent's number if that matters.
+        libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGKILL as libc::c_ulong);
+    }
+}
+
+/// Ends a drawing child that reached its limit of processor time, with the words the parent
+/// reads as a time limit (`TIMED_OUT`) on its errors.
+extern "C" fn on_processor_time_limit(_signal: libc::c_int) {
+    let text = crate::files::external::TIMED_OUT.as_bytes();
+    // SAFETY: write and _exit are safe in a signal handler, and the text is static.
+    unsafe {
+        libc::write(2, text.as_ptr().cast(), text.len());
+        libc::_exit(1);
     }
 }
 
@@ -278,6 +462,7 @@ fn limit_this_process(bytes: u64) {
 fn draw(
     path: &Path,
     max: Option<[u32; 2]>,
+    font_list: &[u8],
 ) -> Result<(image::RgbaImage, Option<[usize; 2]>), String> {
     use resvg::{tiny_skia, usvg};
     let mut data = read_limited(path).map_err(|e| e.to_string())?;
@@ -293,12 +478,13 @@ fn draw(
     if entities_too_large(&data) {
         return Err("SVG whose entities would grow too large".into());
     }
-    // The system fonts are read for text, which takes tens of milliseconds in every child.
-    // shortcut: they are read only for an SVG with a text element, so text in an SVG that this
-    // one links to as a picture is not drawn; read them always if such files turn up.
+    // The fonts come from the parent's list, which it read once. A font file is read only when
+    // text is drawn with it.
+    // shortcut: they are taken only for an SVG with a text element, so text in an SVG that this
+    // one links to as a picture is not drawn; take them always if such files turn up.
     let mut fonts = usvg::fontdb::Database::new();
     if data.windows(5).any(|w| w == b"<text" || w == b":text") {
-        fonts.load_system_fonts();
+        fonts = fonts_from_list(font_list);
     }
     let options = usvg::Options {
         resources_dir: path.parent().map(Path::to_path_buf),
@@ -406,6 +592,14 @@ mod tests {
                 started.elapsed()
             );
         }
+        // The child's own limit of processor time ends it too, when its parent would wait
+        // longer, as it would not wait at all once it is gone.
+        let started = Instant::now();
+        let file = dir.join("repeated.svg");
+        let why = super::draw_in_child(&file, Some([1920, 1080]), Duration::from_secs(120));
+        let why = why.unwrap_err();
+        assert!(why.contains(crate::files::external::TIMED_OUT), "{why}");
+        assert!(started.elapsed() < Duration::from_secs(30));
         // Red at a quarter of its strength, through two groups at half opacity.
         let few = svg("<g opacity=\"0.5\"><g opacity=\"0.5\">\
                        <rect width=\"100\" height=\"100\" fill=\"red\"/></g></g>");
@@ -420,6 +614,77 @@ mod tests {
         assert_eq!([r, g, b], [255, 0, 0]);
         assert!((60..=68).contains(&a), "{a}");
         std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// An SVG with a clip group and an opacity group over the whole of it is drawn at the
+    /// largest size, as a zoom to 100 % or Save As asks for. Before, the child had 512 MB
+    /// whatever the size, and a clip group at 8192 pixels needs some 830 MB.
+    #[test]
+    fn draws_a_clipped_svg_at_the_largest_size() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-svg-clip-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let svg = |w: u32, h: u32| {
+            format!(
+                "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"{w}\" height=\"{h}\">\
+                 <clipPath id=\"c\"><circle cx=\"{}\" cy=\"{}\" r=\"{w}\"/></clipPath>\
+                 <g clip-path=\"url(#c)\"><rect width=\"{w}\" height=\"{h}\" fill=\"red\"/></g>\
+                 <g opacity=\"0.5\"><rect width=\"{w}\" height=\"{h}\" fill=\"blue\"/></g></svg>",
+                w / 2,
+                h / 2
+            )
+        };
+        let limit = crate::files::external::PROGRAM_TIME_LIMIT;
+        let file = dir.join("icon.svg");
+        std::fs::write(&file, svg(100, 100)).unwrap();
+        let (img, _) =
+            super::draw_in_child_outside_budget(&file, Some([16384, 16384]), limit, &[]).unwrap();
+        assert_eq!((img.width(), img.height()), (8192, 8192));
+        drop(img);
+        // A poster as Save As draws it, at its own size.
+        let file = dir.join("poster.svg");
+        std::fs::write(&file, svg(8000, 6000)).unwrap();
+        let (img, _) = super::draw_in_child_outside_budget(&file, None, limit, &[]).unwrap();
+        assert_eq!((img.width(), img.height()), (8000, 6000));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A drawing child draws text with the fonts of the list its parent gives it, and reads no
+    /// fonts of the system itself: with an empty list it draws no text, and with Inter's face
+    /// on the list it draws in Inter. Before, each child read the system's fonts again.
+    #[test]
+    fn a_drawing_child_takes_its_fonts_from_the_parent() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-svg-fonts-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("text.svg");
+        let svg = "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"200\" height=\"100\">\
+                   <text x=\"0\" y=\"90\" font-family=\"Inter\" font-size=\"90\">WW</text></svg>";
+        std::fs::write(&file, svg).unwrap();
+        let limit = crate::files::external::PROGRAM_TIME_LIMIT;
+        let inked = |fonts: &'static [u8]| {
+            let (img, _) =
+                super::draw_in_child_outside_budget(&file, Some([200, 100]), limit, fonts).unwrap();
+            img.to_rgba8().pixels().filter(|p| p.0[3] > 0).count()
+        };
+        assert_eq!(inked(&[]), 0);
+        let mut inter = resvg::usvg::fontdb::Database::new();
+        let font = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/assets/fonts/Inter-Regular.ttf"
+        );
+        inter.load_font_file(font).unwrap();
+        let list = super::font_list(&inter);
+        assert_eq!(super::fonts_from_list(&list).faces().count(), 1);
+        assert!(inked(Vec::leak(list)) > 1000);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A list of fonts broken in thousands of ways is read without a panic.
+    #[test]
+    fn survives_broken_font_lists() {
+        let list = b"0\t400\t0\t5\t0\tInter-Regular\t/usr/share/fonts/Inter.ttf\tInter\tInter UI\n";
+        for broken in crate::support::test_support::broken(list) {
+            let _ = super::fonts_from_list(&broken);
+        }
     }
 
     /// What a drawing child wrote is read as its picture, its reason or its end, also after
@@ -553,6 +818,13 @@ mod tests {
         assert!(!from_inner("../p.jpg"));
         assert!(!from_inner(&dir.join("p.jpg").to_string_lossy()));
         assert!(!from_inner(&dir.join("in/q.jpg").to_string_lossy()));
+        // Nor through a link in the folder that leads out of it, to a folder or to a file,
+        // while a link that stays inside is followed.
+        std::os::unix::fs::symlink(&dir, dir.join("in/out")).unwrap();
+        std::os::unix::fs::symlink(dir.join("p.jpg"), dir.join("in/p.jpg")).unwrap();
+        std::os::unix::fs::symlink(dir.join("in/q.jpg"), dir.join("in/r.jpg")).unwrap();
+        assert!(!from_inner("out/p.jpg") && !from_inner("p.jpg"));
+        assert!(from_inner("r.jpg"));
         std::fs::remove_dir_all(dir).unwrap();
     }
 

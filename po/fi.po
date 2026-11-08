@@ -2939,3 +2939,11 @@ msgstr "; {files} jäi kopioimatta: kansiossa on jo samannimisiä tiedostoja"
 #: src/features/copy_for_sharing.rs
 msgid "Reading the tags"
 msgstr "Luetaan tunnisteita"
+
+#: src/ui/dialogs.rs
+msgid "Open {files}, each in its default application?"
+msgstr "Avataanko {files}, kukin oletussovelluksessaan?"
+
+#: src/ui/dialogs.rs
+msgid "Open (Enter)"
+msgstr "Avaa (Enter)"

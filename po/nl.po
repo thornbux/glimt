@@ -2939,3 +2939,11 @@ msgstr "; {files} niet gekopieerd: de map heeft al bestanden met die namen"
 #: src/features/copy_for_sharing.rs
 msgid "Reading the tags"
 msgstr "De tags lezen"
+
+#: src/ui/dialogs.rs
+msgid "Open {files}, each in its default application?"
+msgstr "{files} openen, elk in het eigen standaardprogramma?"
+
+#: src/ui/dialogs.rs
+msgid "Open (Enter)"
+msgstr "Openen (Enter)"

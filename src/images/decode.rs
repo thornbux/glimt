@@ -36,6 +36,9 @@ static BUDGET: DecodeBudget = DecodeBudget::new(DECODE_BUDGET);
 thread_local! {
     /// The bytes of the budget that this thread's decode job holds, or `None` outside a job.
     static JOB_HOLDS: std::cell::Cell<Option<u64>> = const { std::cell::Cell::new(None) };
+    /// Whether this thread's decodes take their bytes before the others that wait, because
+    /// they are of the shown image (`let_this_thread_go_first`).
+    static GOES_FIRST: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
 }
 
 pub struct Decoded {
@@ -81,7 +84,7 @@ type Animated = Result<(image::Frames<'static>, (u32, u32)), String>;
 
 /// Bytes that decodes take from a shared total before they allocate, and give back after.
 pub struct DecodeBudget {
-    free: std::sync::Mutex<u64>,
+    state: std::sync::Mutex<BudgetState>,
     freed: std::sync::Condvar,
     total: u64,
 }
@@ -89,32 +92,64 @@ pub struct DecodeBudget {
 impl DecodeBudget {
     const fn new(total: u64) -> DecodeBudget {
         DecodeBudget {
-            free: std::sync::Mutex::new(total),
+            state: std::sync::Mutex::new(BudgetState {
+                free: total,
+                turns_given: [0; 2],
+                turns_served: [0; 2],
+            }),
             freed: std::sync::Condvar::new(),
             total,
         }
     }
 
-    /// Takes `bytes`, and waits while other decodes hold too much of the budget. Returns an
-    /// error when `bytes` alone is more than the whole budget, because no wait makes room then.
-    fn take(&self, bytes: u64) -> Result<(), String> {
+    /// Takes `bytes`, and waits while other decodes hold too much of the budget. The decodes
+    /// take their bytes in the order they asked, so a large one is not passed again and again
+    /// by smaller ones that come after it, and those of the shown image (`goes_first`) take
+    /// theirs before every other that waits. Returns an error when `bytes` alone is more than
+    /// the whole budget, because no wait makes room then.
+    fn take(&self, bytes: u64, goes_first: bool) -> Result<(), String> {
         if bytes > self.total {
             return Err(format!("image too large ({})", human_size(bytes)));
         }
-        let mut free = self.free.lock().unwrap_or_else(|e| e.into_inner());
-        while *free < bytes {
-            free = self.freed.wait(free).unwrap_or_else(|e| e.into_inner());
+        let line = usize::from(!goes_first);
+        let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        let turn = state.turns_given[line];
+        state.turns_given[line] += 1;
+        while !state.is_turn_of(line, turn, bytes) {
+            state = self.freed.wait(state).unwrap_or_else(|e| e.into_inner());
         }
-        *free -= bytes;
+        state.free -= bytes;
+        state.turns_served[line] += 1;
+        drop(state);
+        // The next in line may fit in what is left.
+        self.freed.notify_all();
         Ok(())
     }
 
     /// Gives back `bytes`, and wakes the decodes that wait for room.
     fn give_back(&self, bytes: u64) {
         if bytes > 0 {
-            *self.free.lock().unwrap_or_else(|e| e.into_inner()) += bytes;
+            self.state.lock().unwrap_or_else(|e| e.into_inner()).free += bytes;
             self.freed.notify_all();
         }
+    }
+}
+
+/// The bytes of a `DecodeBudget` that are free, and the turns of the decodes that wait for
+/// them, in two lines: the shown image's decodes (0) and the others (1).
+struct BudgetState {
+    free: u64,
+    /// The number of turns given in each line, and of those served, which took their bytes.
+    turns_given: [u64; 2],
+    turns_served: [u64; 2],
+}
+
+impl BudgetState {
+    /// Returns whether turn `turn` in line `line` may take `bytes` now: it is the first in its
+    /// line, the bytes are free, and no decode of the shown image waits before the others.
+    fn is_turn_of(&self, line: usize, turn: u64, bytes: u64) -> bool {
+        let shown_waits = self.turns_served[0] < self.turns_given[0];
+        self.turns_served[line] == turn && self.free >= bytes && (line == 0 || !shown_waits)
     }
 }
 
@@ -162,17 +197,27 @@ pub fn start_decode_job() -> DecodeJobBudget {
 /// back to a whole one). A job that needs more gives back what it holds before it waits, so two
 /// jobs never wait for each other.
 pub fn reserve_from_budget(bytes: u64) -> Result<BudgetReservation, String> {
+    let goes_first = GOES_FIRST.get();
     match JOB_HOLDS.get() {
-        None => BUDGET.take(bytes).map(|()| BudgetReservation { bytes }),
+        None => BUDGET
+            .take(bytes, goes_first)
+            .map(|()| BudgetReservation { bytes }),
         Some(held) if bytes <= held => Ok(BudgetReservation { bytes: 0 }),
         Some(held) => {
             BUDGET.give_back(held);
             JOB_HOLDS.set(Some(0));
-            BUDGET.take(bytes)?;
+            BUDGET.take(bytes, goes_first)?;
             JOB_HOLDS.set(Some(bytes));
             Ok(BudgetReservation { bytes: 0 })
         }
     }
+}
+
+/// Makes this thread's later decodes take their bytes of the budget before every other decode
+/// that waits, or in their turn again. The view's decoders set it for the shown image, so that
+/// it does not wait behind the thumbnails and the images read ahead.
+pub fn let_this_thread_go_first(goes_first: bool) {
+    GOES_FIRST.set(goes_first);
 }
 
 pub fn histogram(img: &egui::ColorImage) -> Box<HistogramCounts> {
@@ -234,15 +279,18 @@ pub fn decode(
     Ok((vec![(color_image(img), 0)], orig, pages))
 }
 
-/// The number of pages of a multi-page TIFF, or of sizes in an ICO. It is 1 for other files.
+/// The number of pages of a multi-page TIFF, or of sizes in an ICO, at most `MAX_FRAMES`. It
+/// is 1 for other files. Before, an ICO could claim 65,535 sizes, which Export Frames wrote as
+/// many files, each after reading the whole directory again.
 pub fn pages(path: &Path) -> usize {
-    if has_ext(path, &["tif", "tiff"]) {
+    let pages = if has_ext(path, &["tif", "tiff"]) {
         tiff_pages(path)
     } else if has_ext(path, &["ico"]) {
         ico_sizes(path).map_or(1, |sizes| sizes.len().max(1))
     } else {
         1
-    }
+    };
+    pages.min(MAX_FRAMES)
 }
 
 /// Page `page` (from 1) of a multi-page TIFF with its ICC profile, or the next size of an ICO.
@@ -930,6 +978,14 @@ pub fn from_memory(bytes: &[u8]) -> Result<image::DynamicImage, String> {
     )
 }
 
+/// Decodes an image built into Glimt itself, its logo, on the window's thread. It takes nothing
+/// from the decodes' budget, because a large decode that holds the budget would keep the window
+/// waiting, and the image's size is known.
+pub fn decode_glimts_own_image(bytes: &'static [u8]) -> Result<image::DynamicImage, String> {
+    #[allow(clippy::disallowed_methods)] // Glimt's own image, whose size is known
+    image::load_from_memory(bytes).map_err(|e| e.to_string())
+}
+
 /// Checks that Glimt can decode `path`, for Check Images. The file is decoded small, as for the
 /// list's thumbnails. A JPEG is also looked at for its end marker, which a file cut off in copying
 /// lacks, though it may still decode with grey at the bottom. Returns why not, if it cannot.
@@ -1132,8 +1188,9 @@ pub fn color_image(img: image::DynamicImage) -> egui::ColorImage {
 #[cfg(test)]
 mod tests {
     /// Two decodes that each need 60 % of the budget run one after the other, never together,
-    /// while small decodes go through at once beside a large one, so a folder of ordinary
-    /// images does not wait. One larger than the whole budget is refused rather than waiting.
+    /// while small decodes go through at once beside a large one that runs, so a folder of
+    /// ordinary images does not wait. One larger than the whole budget is refused rather than
+    /// waiting.
     #[test]
     fn decodes_share_one_budget() {
         use std::sync::atomic::{AtomicUsize, Ordering::SeqCst};
@@ -1141,36 +1198,89 @@ mod tests {
         use std::time::Duration;
         let budget = Arc::new(super::DecodeBudget::new(1000));
         let (running, most) = (Arc::new(AtomicUsize::new(0)), Arc::new(AtomicUsize::new(0)));
-        let large: Vec<_> = (0..2)
-            .map(|_| {
-                let (budget, running, most) = (budget.clone(), running.clone(), most.clone());
-                std::thread::spawn(move || {
-                    budget.take(600).unwrap();
-                    most.fetch_max(running.fetch_add(1, SeqCst) + 1, SeqCst);
-                    std::thread::sleep(Duration::from_millis(300));
-                    running.fetch_sub(1, SeqCst);
-                    budget.give_back(600);
-                })
+        let start_large = || {
+            let (budget, running, most) = (budget.clone(), running.clone(), most.clone());
+            std::thread::spawn(move || {
+                budget.take(600, false).unwrap();
+                most.fetch_max(running.fetch_add(1, SeqCst) + 1, SeqCst);
+                std::thread::sleep(Duration::from_millis(300));
+                running.fetch_sub(1, SeqCst);
+                budget.give_back(600);
             })
-            .collect();
+        };
+        let first = start_large();
         std::thread::sleep(Duration::from_millis(20));
         // One large decode holds 600 now. Thirty small ones of 10 still pass without waiting.
         let (done, small_done) = mpsc::channel();
         let small = budget.clone();
         std::thread::spawn(move || {
             for _ in 0..30 {
-                small.take(10).unwrap();
+                small.take(10, false).unwrap();
                 small.give_back(10);
             }
             done.send(()).unwrap();
         });
         assert!(small_done.recv_timeout(Duration::from_millis(250)).is_ok());
-        for thread in large {
+        let second = start_large();
+        for thread in [first, second] {
             thread.join().unwrap();
         }
         assert_eq!(most.load(SeqCst), 1);
-        assert!(budget.take(1001).is_err());
-        assert_eq!(*budget.free.lock().unwrap(), 1000);
+        assert!(budget.take(1001, false).is_err());
+        assert_eq!(budget.state.lock().unwrap().free, 1000);
+    }
+
+    /// A decode that waits for room is not passed by a smaller one that asks after it, and a
+    /// decode of the shown image goes before both. Before, any decode that fit took its bytes,
+    /// so a large one waited as long as smaller ones kept coming, and the shown image waited
+    /// behind the thumbnails.
+    #[test]
+    fn decodes_take_their_bytes_in_turn() {
+        use std::sync::{Arc, Mutex};
+        use std::time::Duration;
+        let budget = Arc::new(super::DecodeBudget::new(1000));
+        budget.take(600, false).unwrap();
+        let taken = Arc::new(Mutex::new(Vec::new()));
+        let start = |name: &'static str, bytes: u64, goes_first: bool| {
+            let (budget, taken) = (budget.clone(), taken.clone());
+            let thread = std::thread::spawn(move || {
+                budget.take(bytes, goes_first).unwrap();
+                taken.lock().unwrap().push(name);
+            });
+            std::thread::sleep(Duration::from_millis(50));
+            thread
+        };
+        let threads = [
+            start("large", 600, false),
+            start("small", 10, false),
+            start("shown", 500, true),
+        ];
+        // 400 are free: the small decode would fit, but it waits behind the large one.
+        assert!(taken.lock().unwrap().is_empty());
+        budget.give_back(600);
+        std::thread::sleep(Duration::from_millis(50));
+        assert_eq!(*taken.lock().unwrap(), ["shown"]);
+        budget.give_back(500);
+        for thread in threads {
+            thread.join().unwrap();
+        }
+        assert_eq!(taken.lock().unwrap().len(), 3);
+        assert_eq!(budget.state.lock().unwrap().free, 1000 - 610);
+    }
+
+    /// Glimt's logo is decoded while other decodes hold the whole budget, so About does not
+    /// wait for them on the window's thread, as it did.
+    #[test]
+    fn glimts_own_image_takes_nothing_from_the_budget() {
+        let whole = super::reserve_from_budget(super::DECODE_BUDGET).unwrap();
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let logo = include_bytes!("../../assets/glimt-256.png");
+            tx.send(super::decode_glimts_own_image(logo).is_ok())
+        });
+        let decoded = rx.recv_timeout(std::time::Duration::from_secs(2));
+        drop(whole);
+        assert_eq!(decoded, Ok(true));
     }
 
     /// A decode job holds the most that one of its decodes asked for, not their sum, joins an
@@ -1307,6 +1417,12 @@ mod tests {
         assert_eq!(super::pages(&ico), 257);
         assert_eq!(super::page_of(&ico, 0).unwrap().0.width(), 32);
         assert_eq!(super::page_of(&ico, 256).unwrap().0.width(), 16);
+        // A directory that claims 2,000 sizes has as many pages as an animation keeps frames.
+        let mut claims = vec![0, 0, 1, 0];
+        claims.extend(2000u16.to_le_bytes());
+        claims.resize(6 + 16 * 2000, 0);
+        std::fs::write(&ico, claims).unwrap();
+        assert_eq!(super::pages(&ico), super::MAX_FRAMES);
         std::fs::remove_dir_all(&dir).ok();
     }
 
