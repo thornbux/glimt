@@ -59,8 +59,12 @@ pub const PER_PAGE: [(usize, [usize; 2]); 7] = [
 ];
 
 /// The printer choice that hands the PDF to the desktop's print dialog (the print portal). It
-/// is the one in the Flatpak, which has no lpstat or lp.
+/// is the one in the Flatpak, which has no lpstat or lp. It is the English label, kept as the
+/// print_printer setting's value, so it never changes.
 pub const SYSTEM_DIALOG: &str = "System print dialog";
+
+/// The printer choice that saves a PDF file instead, kept as the print_printer setting's value.
+pub const PDF_FILE: &str = "";
 
 /// The most images the preview shows, which is the most on one page.
 const MAX_PREVIEWS: usize = 20;
@@ -343,7 +347,7 @@ impl crate::App {
             copies: dialog.copies,
         };
         match c.print_printer.clone() {
-            p if p.is_empty() => self.pick(ctx, false, Pick::SavePdf(job)),
+            p if p == PDF_FILE => self.pick(ctx, false, Pick::SavePdf(job)),
             p => self.print(ctx, job, PrintTo::Printer(p)),
         }
     }
@@ -1043,7 +1047,8 @@ fn print_fields(ui: &mut egui::Ui, dialog: &mut PrintDialog, c: &mut Config) {
                 for p in dialog.printers.iter().flatten() {
                     crate::ui::menus::choice(ui, &mut c.print_printer, p.clone(), &shown(p));
                 }
-                crate::ui::menus::choice(ui, &mut c.print_printer, String::new(), tr("PDF file"));
+                let pdf = PDF_FILE.to_owned();
+                crate::ui::menus::choice(ui, &mut c.print_printer, pdf, tr("PDF file"));
             });
         match &dialog.printers {
             None => drop(ui.spinner()),

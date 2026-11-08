@@ -1489,6 +1489,10 @@ mod tests {
         now.extend(template_fields());
         now.extend(theme_keys());
         now.extend(owned_files());
+        // The print_printer setting's values that are no printer's name.
+        use crate::features::print::{PDF_FILE, SYSTEM_DIALOG};
+        now.push(format!("value print_printer {SYSTEM_DIALOG}"));
+        now.push(format!("value print_printer {PDF_FILE:?}"));
         // The words of the groups that Copy for Sharing keeps in its file of the last choice.
         let groups = crate::images::shared_copy::Group::ALL.iter();
         now.extend(groups.map(|group| format!("sharing {}", group.key())));

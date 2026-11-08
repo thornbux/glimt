@@ -379,3 +379,5 @@ sharing group:software
 sharing group:keywords
 sharing group:preview
 sharing group:other
+value print_printer System print dialog
+value print_printer ""
