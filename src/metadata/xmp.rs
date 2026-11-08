@@ -12,6 +12,18 @@ const ALT: &str = "Iptc4xmpCore:AltTextAccessibility";
 
 const EXTENDED: &str = "Iptc4xmpCore:ExtDescrAccessibility";
 
+/// The keyword lists that digiKam reads before dc:subject, beside lr:hierarchicalSubject, in
+/// the order of its default settings (`DMetadataSettingsContainer::defaultTagValues`). Glimt
+/// does not write them, so it takes them out when it writes the keywords. Left in, they would
+/// still hold a keyword taken out, and lack one added, for digiKam, which then falls back to
+/// lr:hierarchicalSubject.
+const OTHER_KEYWORD_LISTS: [&str; 4] = [
+    "digiKam:TagsList",
+    "MicrosoftPhoto:LastKeywordXMP",
+    "mediapro:CatalogSets",
+    "acdsee:categories",
+];
+
 /// The namespaces whose properties Copy for Sharing names by the prefix here, whatever prefix a
 /// packet binds them to (`properties`). A packet may write Exif's GPS as `ns1:GPSLatitude`,
 /// and the old `xap:` is `xmp:`, so a name by the prefix as written would miss its group.
@@ -289,9 +301,16 @@ fn read_with_tree_paths(path: &Path) -> (KeywordsAndComment, Vec<String>) {
     source(path).map_or_else(Default::default, |x| (parse(&x), tree_paths_in(&x)))
 }
 
-/// The keyword tree paths that the XMP packet `xmp` holds.
+/// The keyword tree paths that the XMP packet `xmp` holds. Without lr:hierarchicalSubject, they
+/// are digiKam's own paths (digiKam:TagsList, with "/" between the levels), so the hierarchy
+/// stays when the writers take that list out (`OTHER_KEYWORD_LISTS`).
 fn tree_paths_in(xmp: &str) -> Vec<String> {
-    unique(list_items(xmp, "lr:hierarchicalSubject"))
+    match list_items(xmp, "lr:hierarchicalSubject") {
+        paths if paths.is_empty() => {
+            unique((list_items(xmp, "digiKam:TagsList").into_iter()).map(|p| p.replace('/', "|")))
+        }
+        paths => unique(paths),
+    }
 }
 
 /// The XMP the keywords and comment of `path` come from. It is the sidecar if that has them,
@@ -680,7 +699,10 @@ fn set_keywords_and_comment(
     meta: &KeywordsAndComment,
     say_empty: bool,
 ) -> Option<String> {
-    let xmp = without_property(&without_property(xmp, "dc:subject"), "dc:description");
+    let mut xmp = without_property(&without_property(xmp, "dc:subject"), "dc:description");
+    for list in OTHER_KEYWORD_LISTS {
+        xmp = without_property(&xmp, list);
+    }
     let mut add = String::new();
     if meta.keywords.is_empty() && say_empty {
         add += "\n   <dc:subject>\n    <rdf:Bag/>\n   </dc:subject>";
@@ -1262,6 +1284,36 @@ mod tests {
             let (keywords, paths) = (read(file).keywords, tree_paths(file));
             assert!(has_tag(&keywords, &paths, "Places|Norway|Oslo"));
         }
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// A keyword taken out in Glimt is gone for digiKam too. digiKam reads its own TagsList
+    /// before dc:subject, so the writers take that list out, and its hierarchy goes into
+    /// lr:hierarchicalSubject, which digiKam reads next.
+    #[test]
+    fn digikams_own_keyword_list_follows_an_edit() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-digikam-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("a.jpg");
+        std::fs::write(&file, b"").unwrap();
+        std::fs::write(
+            sidecar(&file),
+            r#"<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF><rdf:Description rdf:about=""
+    xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:digiKam="http://www.digikam.org/ns/1.0/"
+    xmlns:MicrosoftPhoto="http://ns.microsoft.com/photo/1.0/">
+   <digiKam:TagsList><rdf:Seq><rdf:li>Places/Oslo</rdf:li><rdf:li>Private</rdf:li></rdf:Seq></digiKam:TagsList>
+   <MicrosoftPhoto:LastKeywordXMP><rdf:Bag><rdf:li>Places/Oslo</rdf:li><rdf:li>Private</rdf:li></rdf:Bag></MicrosoftPhoto:LastKeywordXMP>
+   <dc:subject><rdf:Bag><rdf:li>Oslo</rdf:li><rdf:li>Private</rdf:li></rdf:Bag></dc:subject>
+  </rdf:Description></rdf:RDF></x:xmpmeta>"#,
+        )
+        .unwrap();
+        assert_eq!(tree_paths(&file), ["Places|Oslo", "Private"]);
+        let taken_out = KeywordChange::between(&["Private".into()], &[]);
+        write_changed(&file, Some(taken_out), None).unwrap();
+        let written = std::fs::read_to_string(sidecar(&file)).unwrap();
+        assert!(!written.contains("TagsList") && !written.contains("LastKeywordXMP"));
+        assert_eq!(read(&file).keywords, ["Oslo"]);
+        assert_eq!(tree_paths(&file), ["Places|Oslo"]);
         std::fs::remove_dir_all(&dir).unwrap();
     }
 

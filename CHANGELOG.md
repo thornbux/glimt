@@ -14,6 +14,10 @@ and versions follow [Semantic Versioning](https://semver.org/).
   into the sidecar that adding a keyword makes, so its box in the keyword tree stays ticked and
   other programs still read it as a hierarchy. Taking Oslo out of Places|Norway|Oslo keeps
   Places|Norway, instead of writing Norway as a keyword at the top of the tree.
+- A keyword taken out or added in Glimt shows so in digiKam. digiKam reads its own keyword
+  lists (digiKam:TagsList, and those of Microsoft, MediaPro and ACDSee) before dc:subject, so
+  Glimt now takes them out when it writes the keywords, and keeps their hierarchy in
+  lr:hierarchicalSubject.
 
 ## [0.75.0] - 2026-11-08
 
