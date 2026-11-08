@@ -2116,6 +2116,20 @@ mod tests {
         assert_eq!(Action::for_script("Prev"), Some(Action::Previous));
     }
 
+    /// No old name in `RENAMED_ACTIONS` is an action's name now. An action given an old name
+    /// later would otherwise be read in keys= and by `--remote run` as the one it was renamed
+    /// to, so its keys would run that other action.
+    #[test]
+    fn old_action_names_are_not_names_now() {
+        let actions = variants(true);
+        for (old, _) in super::RENAMED_ACTIONS {
+            assert!(
+                !actions.iter().any(|a| a == old),
+                "{old} is an old name in RENAMED_ACTIONS, so no action can have it"
+            );
+        }
+    }
+
     /// Own keys survive the config file, and replace the defaults of their action.
     #[test]
     fn own_keys() {

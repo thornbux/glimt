@@ -622,7 +622,7 @@ const MANUAL: &[(&str, &str)] = &[
          --slideshow ~/Pictures shows four random images at a time on the whole screen, and glimt \
          --slideshow show.txt plays a list in its order.\n\n\
          glimt --remote COMMAND sends a command to the Glimt used last, glimt --remote-all to \
-         every one: next, prev, slideshow or open PATH from a script or a desktop shortcut. \
+         every one: next, previous, slideshow or open PATH from a script or a desktop shortcut. \
          current, selection and select PATH … tell a script (or an AI assistant) what is shown and \
          selected, or select files for you; they print each path followed by a NUL byte, and none \
          of them changes a file. run ACTION does an action by its name in your own keys, such \
@@ -662,7 +662,7 @@ const DIFFERENCES: &[(&str, &str, &str)] = &[
     ("Refresh", "F5", "R"),
     (
         "Remote control",
-        "glimt --remote with next, prev, first, last, slideshow, random, fullscreen (each also \
+        "glimt --remote with next, previous, first, last, slideshow, random, fullscreen (each also \
          with on or off), subfolders on|off, open, title, quit, current, selection, select or \
          run ACTION (an action that changes no file); --remote-all sends it to every window",
         "The options themselves go to the running Geeqie (geeqie --next, --tell, \
