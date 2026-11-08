@@ -136,3 +136,10 @@ tags" reads the selected files, where the last choice is kept, and the code stru
   such as Apple's, go with the extra images.
 - A copy without a motion photo's video keeps none of its GCamera MotionPhoto or MicroVideo
   flags.
+
+## After audit round 4 (2026-11-08)
+
+- No namespace is known whole, as any of them can hold a blob of other tags (Google's maker
+  notes in GCamera, darktable's history, a Lightroom mask's name). `KNOWN_NAMES` lists each
+  property of aux, PLUS, MediaPro, DJI, GCamera, GPano, xmpRights, crs and darktable that is
+  known, from exiftool's tables; every other property of them is in every group.
