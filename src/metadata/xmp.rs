@@ -189,9 +189,7 @@ pub fn read_all(path: &Path) -> (KeywordsAndComment, Vec<String>, AltText) {
         source
             .as_deref()
             .map_or_else(KeywordsAndComment::default, parse),
-        source.map_or_else(Vec::new, |x| {
-            unique(list_items(&x, "lr:hierarchicalSubject"))
-        }),
+        source.map_or_else(Vec::new, |x| tree_paths_in(&x)),
         alt_text.map_or_else(AltText::default, |x| parse_alt_text(&x)),
     )
 }
@@ -278,13 +276,22 @@ pub fn set_tag(keywords: &mut Vec<String>, paths: &mut Vec<String>, tag: &str, o
     }
 }
 
-/// The keyword tree paths (lr:hierarchicalSubject) in the sidecar of `path`.
-pub fn tree_paths(path: &Path) -> Vec<String> {
-    // The paths come from where `read` takes the keywords, the sidecar or else the XMP inside
-    // the image.
-    source(path).map_or_else(Vec::new, |x| {
-        unique(list_items(&x, "lr:hierarchicalSubject"))
-    })
+/// The keyword tree paths (lr:hierarchicalSubject) of `path`, from where `read` takes the
+/// keywords: the sidecar, or else the XMP inside the image. The writers read them with the
+/// keywords (`read_with_tree_paths`), and the panel with everything else (`read_all`).
+#[cfg(test)]
+fn tree_paths(path: &Path) -> Vec<String> {
+    read_with_tree_paths(path).1
+}
+
+/// `read` and `tree_paths` of `path`, from one reading of its sidecar or image.
+fn read_with_tree_paths(path: &Path) -> (KeywordsAndComment, Vec<String>) {
+    source(path).map_or_else(Default::default, |x| (parse(&x), tree_paths_in(&x)))
+}
+
+/// The keyword tree paths that the XMP packet `xmp` holds.
+fn tree_paths_in(xmp: &str) -> Vec<String> {
+    unique(list_items(xmp, "lr:hierarchicalSubject"))
 }
 
 /// The XMP the keywords and comment of `path` come from. It is the sidecar if that has them,
@@ -356,7 +363,7 @@ pub fn write_changed(
     comment: Option<String>,
 ) -> Result<KeywordsAndComment, String> {
     let _lock = lock_sidecar(path);
-    let mut meta = read(path);
+    let (mut meta, paths) = read_with_tree_paths(path);
     let keywords_only = comment.is_none();
     if let Some(change) = keywords {
         change.apply(&mut meta.keywords);
@@ -364,15 +371,7 @@ pub fn write_changed(
     if let Some(c) = comment {
         meta.comment = c;
     }
-    let own = embedded(path).is_some_and(|x| parse(&x) != KeywordsAndComment::default());
-    update(
-        path,
-        meta == KeywordsAndComment::default() && !own,
-        |x| match keywords_only {
-            true => set_keywords(x, &meta, own),
-            false => set_keywords_and_comment(x, &meta, own),
-        },
-    )?;
+    write_keywords(path, &meta, &paths, keywords_only)?;
     Ok(meta)
 }
 
@@ -388,10 +387,32 @@ pub fn add_to(have: &mut Vec<String>, keywords: &[String]) {
 /// Add `keywords` to those `path` has, read and written as one change.
 pub fn add_keywords(path: &Path, keywords: &[String]) -> Result<(), String> {
     let _lock = lock_sidecar(path);
-    let mut meta = read(path);
+    let (mut meta, paths) = read_with_tree_paths(path);
     add_to(&mut meta.keywords, keywords);
-    update(path, meta == KeywordsAndComment::default(), |x| {
-        set_keywords(x, &meta, false)
+    write_keywords(path, &meta, &paths, true)
+}
+
+/// Writes the keywords of `meta` (and its comment too, unless `keywords_only`) and the keyword
+/// tree `paths` to the sidecar of `path`, with its lock held by the caller. It is the one way
+/// keywords are written. Every writer starts from the paths of `read_with_tree_paths`, which come
+/// from where the keywords come from, so a hierarchy that only the image holds is not flattened
+/// when its first sidecar is made. Keywords or a comment that the image holds itself and that
+/// were cleared are written as empty elements, because if they were left out, the image's own
+/// would be read again.
+fn write_keywords(
+    path: &Path,
+    meta: &KeywordsAndComment,
+    paths: &[String],
+    keywords_only: bool,
+) -> Result<(), String> {
+    let own = embedded(path).is_some_and(|x| parse(&x) != KeywordsAndComment::default());
+    let only_if_there = *meta == KeywordsAndComment::default() && !own;
+    update(path, only_if_there, |x| {
+        let x = with_paths(x.to_owned(), paths)?;
+        match keywords_only {
+            true => set_keywords(&x, meta, own),
+            false => set_keywords_and_comment(&x, meta, own),
+        }
     })
 }
 
@@ -689,9 +710,18 @@ fn set_keywords_and_comment(
 /// that end in one of them, and each keyword without one as a path of its own (Immich, which
 /// shows tags, reads only these). A keyword's own path goes when a longer one ends in it.
 fn tree_paths_for(keywords: &[String], paths: Vec<String>) -> Vec<String> {
-    let kept: Vec<String> = (unique(paths).into_iter())
-        .filter(|p| keywords.iter().any(|k| same_keyword(k, keyword_of_path(p))))
-        .collect();
+    let is_keyword = |p: &str| keywords.iter().any(|k| same_keyword(k, keyword_of_path(p)));
+    // A path whose keyword was taken out is cut back to its longest start that ends in a keyword
+    // still there. So Places|Norway stays when Oslo goes from Places|Norway|Oslo, and Norway is
+    // not written as a keyword at the top of the tree.
+    let cut_back = |p: String| -> Option<String> {
+        let mut levels: Vec<&str> = p.split('|').collect();
+        while !levels.is_empty() && !is_keyword(&levels.join("|")) {
+            levels.pop();
+        }
+        (!levels.is_empty()).then(|| levels.join("|"))
+    };
+    let kept: Vec<String> = unique(paths.into_iter().filter_map(cut_back));
     // Lightroom writes the levels above a keyword as keywords too, Places, Norway and Oslo for
     // Places|Norway|Oslo. They are in that path, not paths of their own.
     let in_path = |p: &str, name: &str| p.split('|').any(|level| same_keyword(level, name));
@@ -750,15 +780,9 @@ fn insert(xmp: String, add: &str, prefix: &str, uri: &str) -> Option<String> {
 /// darktable, digiKam and Lightroom keep the tree's place of a keyword.
 pub fn tag_file(path: &Path, tag: &str, on: bool) -> Result<(), String> {
     let _lock = lock_sidecar(path);
-    let mut meta = read(path);
-    let mut paths = tree_paths(path);
+    let (mut meta, mut paths) = read_with_tree_paths(path);
     set_tag(&mut meta.keywords, &mut paths, tag, on);
-    let own = embedded(path).is_some_and(|x| parse(&x) != KeywordsAndComment::default());
-    update(
-        path,
-        !on && meta == KeywordsAndComment::default() && !own,
-        |x| set_keywords(&with_paths(x.to_owned(), &paths)?, &meta, own),
-    )
+    write_keywords(path, &meta, &paths, true)
 }
 
 /// Sets the keyword tree paths `tags` on `path` in one write, as `tag` sets one. Each name goes
@@ -766,8 +790,7 @@ pub fn tag_file(path: &Path, tag: &str, on: bool) -> Result<(), String> {
 /// Nothing is written when it has them all.
 pub fn add_tags(path: &Path, tags: &[String]) -> Result<(), String> {
     let _lock = lock_sidecar(path);
-    let mut meta = read(path);
-    let mut paths = tree_paths(path);
+    let (mut meta, mut paths) = read_with_tree_paths(path);
     let (keywords, known) = (meta.keywords.clone(), paths.clone());
     for t in tags {
         set_tag(&mut meta.keywords, &mut paths, t, true);
@@ -775,10 +798,7 @@ pub fn add_tags(path: &Path, tags: &[String]) -> Result<(), String> {
     if meta.keywords == keywords && paths == known {
         return Ok(());
     }
-    let own = embedded(path).is_some_and(|x| parse(&x) != KeywordsAndComment::default());
-    update(path, false, |x| {
-        set_keywords(&with_paths(x.to_owned(), &paths)?, &meta, own)
-    })
+    write_keywords(path, &meta, &paths, true)
 }
 
 /// `xmp` without property `tag` in any form it is written in (`save::xmp_without_property`).
@@ -1203,6 +1223,60 @@ mod tests {
     /// The change that adds `keywords`, as an edit of the panel's empty field sends it.
     fn adding(keywords: &[String]) -> Option<KeywordChange> {
         Some(KeywordChange::between(&[], keywords))
+    }
+
+    /// Writes a JPEG at `path` with the XMP packet `packet` inside it.
+    fn jpeg_with_xmp(path: &Path, packet: &str) {
+        let mut base = Vec::new();
+        let mut out = std::io::Cursor::new(&mut base);
+        (image::RgbImage::new(4, 2).write_to(&mut out, image::ImageFormat::Jpeg)).unwrap();
+        let mut app1 = b"http://ns.adobe.com/xap/1.0/\0".to_vec();
+        app1.extend(packet.as_bytes());
+        let mut bytes = vec![0xff, 0xd8, 0xff, 0xe1];
+        bytes.extend(((app1.len() + 2) as u16).to_be_bytes());
+        bytes.extend(app1);
+        bytes.extend(&base[2..]);
+        std::fs::write(path, bytes).unwrap();
+    }
+
+    /// A keyword hierarchy that only the image holds, as Lightroom exports it, goes into the
+    /// first sidecar whole, whichever writer makes it. Before, adding a keyword wrote its paths
+    /// flat, so the tree's box of Places|Norway|Oslo was no longer ticked.
+    #[test]
+    fn the_first_sidecar_keeps_the_images_hierarchy() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-own-tree-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let packet = "<x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><rdf:RDF><rdf:Description rdf:about=\"\" \
+             xmlns:dc=\"http://purl.org/dc/elements/1.1/\" xmlns:lr=\"http://ns.adobe.com/lightroom/1.0/\">\
+             <dc:subject><rdf:Bag><rdf:li>Places</rdf:li><rdf:li>Norway</rdf:li><rdf:li>Oslo</rdf:li></rdf:Bag></dc:subject>\
+             <lr:hierarchicalSubject><rdf:Bag><rdf:li>Places|Norway|Oslo</rdf:li></rdf:Bag></lr:hierarchicalSubject>\
+             </rdf:Description></rdf:RDF></x:xmpmeta>";
+        let (a, b) = (dir.join("a.jpg"), dir.join("b.jpg"));
+        jpeg_with_xmp(&a, packet);
+        jpeg_with_xmp(&b, packet);
+        add_keywords(&a, &["beach".into()]).unwrap();
+        write_changed(&b, adding(&["beach".into()]), None).unwrap();
+        for file in [&a, &b] {
+            assert!(sidecar(file).exists());
+            assert_eq!(tree_paths(file), ["Places|Norway|Oslo", "beach"]);
+            let (keywords, paths) = (read(file).keywords, tree_paths(file));
+            assert!(has_tag(&keywords, &paths, "Places|Norway|Oslo"));
+        }
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// A keyword taken out of a path cuts the path back to the level above it, when that level
+    /// is still a keyword, instead of writing the levels above it as keywords at the top.
+    #[test]
+    fn a_path_without_its_keyword_keeps_its_levels_above() {
+        let k = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        let paths = k(&["Places|Norway|Oslo"]);
+        assert_eq!(
+            tree_paths_for(&k(&["Places", "Norway"]), paths.clone()),
+            ["Places|Norway"]
+        );
+        assert_eq!(tree_paths_for(&k(&["Places"]), paths.clone()), ["Places"]);
+        assert_eq!(tree_paths_for(&k(&["beach"]), paths), ["beach"]);
     }
 
     /// An edit of the keywords field changes only the keywords it added or took out. A keyword
