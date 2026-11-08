@@ -1436,8 +1436,8 @@ mod tests {
     }
 
     /// Returns the line of src/frozen-1.0.txt as the code names it now. A setting, a window
-    /// state key or a --remote command renamed in its table of old names gets its new name, as
-    /// does the setting of a value line, and every other line is returned as it is.
+    /// state key, a --remote command or an action renamed in its table of old names gets its
+    /// new name, as does the setting of a value line, and every other line is returned as it is.
     fn frozen_name_now(line: &str) -> String {
         let (kind, name) = line.split_once(' ').unwrap_or((line, ""));
         // A remote command's line may have a word of its choice after the command's own, and a
@@ -1450,6 +1450,7 @@ mod tests {
             "setting" | "value" => &super::RENAMED_SETTINGS,
             "state" => &super::RENAMED_STATE,
             "remote" => &crate::features::remote::RENAMED_COMMANDS,
+            "script" => &crate::ui::actions::RENAMED_ACTIONS,
             _ => &[],
         };
         // A built-in theme renamed in RENAMED_THEMES is the value of the theme setting now.
@@ -1486,6 +1487,13 @@ mod tests {
         now.extend(keys.map(|(key, _)| format!("state {key}")));
         now.extend(remote_names());
         now.extend(template_fields());
+        // The actions a script may run with --remote run. One taken out of the list would
+        // break every script that runs it.
+        let script = crate::ui::actions::SCRIPT_ACTIONS.iter();
+        now.extend(script.map(|action| format!("script {action:?}")));
+        // The marks feature's actions are pinned also in a build without it.
+        #[cfg(not(feature = "marks"))]
+        now.extend((1..=6).map(|n| format!("script SelectMark{n}")));
         let options = crate::cli::START_OPTIONS
             .iter()
             .flat_map(|o| o.0.split(", "));
