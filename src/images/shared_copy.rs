@@ -427,7 +427,8 @@ const GAIN_MAP_NAMESPACE: &str = "http://ns.adobe.com/hdr-gain-map/1.0/";
 const CONTAINER_DIRECTORY: &str = "Container:Directory";
 
 /// The start of a JPEG's APP2 segment of the ISO 21496-1 metadata of a gain map. It says only
-/// how the gain map brightens the image, so every copy keeps it.
+/// how the gain map brightens the image, so every copy keeps it, and it marks an image after the
+/// main one as a gain map (`gain_map`).
 const ISO_GAIN_MAP_NAME: &[u8] = b"urn:iso:std:iso:ts:21496:-1\0";
 
 /// The size of the MPF segment that a copy with a gain map writes new (`mpf_segment`).
@@ -771,10 +772,10 @@ impl<'a> Walked<'a> {
     }
 }
 
-/// The HDR gain map of a JPEG (Ultra HDR), walked as a JPEG of its own, and the attributes of
-/// the main image's and its entries in the MPF index. A copy that leaves out the images after
-/// the main one keeps it, without its metadata, as it decides how the image looks on an HDR
-/// screen (`gain_map_copy`).
+/// The HDR gain map of a JPEG (Ultra HDR, or ISO 21496-1's), walked as a JPEG of its own, and
+/// the attributes of the main image's and its entries in the MPF index. A copy that leaves out
+/// the images after the main one keeps it, without its metadata, as it decides how the image
+/// looks on an HDR screen (`gain_map_copy`).
 struct GainMap<'a> {
     image: Walked<'a>,
     attributes: [u32; 2],
@@ -1013,8 +1014,9 @@ fn walk_jpeg(data: &[u8]) -> Option<Walked<'_>> {
 }
 
 /// Returns the HDR gain map of the JPEG `data`, walked as `walked`: the first image after the
-/// main one that its MPF index names and whose XMP is of a gain map (`GAIN_MAP_NAMESPACE`).
-/// Returns `None` when it has none, or when the index or that image cannot be read.
+/// main one that its MPF index names and that is marked as a gain map, by its XMP (Ultra HDR,
+/// `GAIN_MAP_NAMESPACE`) or by an APP2 segment of ISO 21496-1 (`ISO_GAIN_MAP_NAME`). Returns
+/// `None` when it has none, or when the index or that image cannot be read.
 fn gain_map<'a>(data: &'a [u8], walked: &Walked) -> Option<GainMap<'a>> {
     let is_index = |p: &&Part| p.tag.as_deref() == Some(MPF) && p.bytes.get(4..8) == Some(b"MPF\0");
     let index = walked.parts.iter().find(is_index)?;
@@ -1032,10 +1034,15 @@ fn gain_map<'a>(data: &'a [u8], walked: &Walked) -> Option<GainMap<'a>> {
                 return None;
             }
             let image = walk_jpeg_segments(bytes)?;
-            let xmp = image.xmp.and_then(|x| std::str::from_utf8(x).ok())?;
+            let xmp = image.xmp.and_then(|x| std::str::from_utf8(x).ok());
+            let is_ultra_hdr = xmp.is_some_and(|x| x.contains(GAIN_MAP_NAMESPACE));
+            let is_iso_segment = |p: &Part| {
+                p.bytes.starts_with(&[0xff, 0xe2])
+                    && (p.bytes.get(4..)).is_some_and(|b| b.starts_with(ISO_GAIN_MAP_NAME))
+            };
+            let is_iso = image.parts.iter().any(is_iso_segment);
             let attributes = [entries[0][0], attribute];
-            xmp.contains(GAIN_MAP_NAMESPACE)
-                .then_some(GainMap { image, attributes })
+            (is_ultra_hdr || is_iso).then_some(GainMap { image, attributes })
         })
 }
 
@@ -2205,8 +2212,10 @@ mod tests {
 
     /// Returns an Ultra HDR JPEG: a main image of 16×16 and a gain map of 8×8 after it, each with
     /// the test EXIF block, which has GPS, and with the XMP of a gain map. It is indexed by an MPF
-    /// segment and by the main XMP's directory. Returns the gain map's image data too.
-    fn ultra_hdr() -> (Vec<u8>, Vec<u8>) {
+    /// segment and by the main XMP's directory. With `is_iso`, the gain map is marked only by
+    /// ISO 21496-1's APP2 segment, which the main image has too, and neither has XMP. Returns
+    /// the gain map's image data too.
+    fn ultra_hdr(is_iso: bool) -> (Vec<u8>, Vec<u8>) {
         let encode = |size: u32| {
             let mut jpeg = Vec::new();
             let encoder = image::codecs::jpeg::JpegEncoder::new_with_quality(&mut jpeg, 90);
@@ -2228,7 +2237,13 @@ mod tests {
             "{rdf} hdrgm:Version=\"1.0\" hdrgm:GainMapMax=\"2.3\" hdrgm:HDRCapacityMax=\"2.3\"/>\
              </rdf:RDF></x:xmpmeta>"
         );
-        let gain_map = [&gain_map[..2], &exif, &xmp(&gain_map_xmp), &gain_map[2..]].concat();
+        let iso =
+            |values: &[u8]| super::jpeg_segment(0xe2, &[super::ISO_GAIN_MAP_NAME, values].concat());
+        let marked = match is_iso {
+            true => iso(b"\0\0\0\0ISO-GAIN-MAP-VALUES"),
+            false => xmp(&gain_map_xmp),
+        };
+        let gain_map = [&gain_map[..2], &exif, &marked, &gain_map[2..]].concat();
         let main_xmp = format!(
             "{rdf} xmlns:Container=\"http://ns.google.com/photos/1.0/container/\" \
              xmlns:Item=\"http://ns.google.com/photos/1.0/container/item/\" \
@@ -2240,7 +2255,11 @@ mod tests {
              </rdf:RDF></x:xmpmeta>",
             gain_map.len()
         );
-        let head = [&main[..2], &exif, &xmp(&main_xmp)].concat();
+        let main_marked = match is_iso {
+            true => iso(b"\0\0\0\0"),
+            false => xmp(&main_xmp),
+        };
+        let head = [&main[..2], &exif, &main_marked].concat();
         let mpf_at = head.len();
         let primary_size =
             head.len() + super::jpeg_segment(0xe2, &mpf(0, 0, 0)).len() + main.len() - 2;
@@ -2261,7 +2280,7 @@ mod tests {
     #[test]
     fn an_ultra_hdr_gain_map_stays_without_its_metadata() {
         let dir = folder("ultrahdr");
-        let (original, gain_map_scans) = ultra_hdr();
+        let (original, gain_map_scans) = ultra_hdr(false);
         let path = dir.join("hdr.jpg");
         std::fs::write(&path, &original).unwrap();
         let found = super::tags_of(&path).unwrap().unwrap();
@@ -2295,6 +2314,38 @@ mod tests {
                 .iter()
                 .any(|t| t.starts_with("hdrgm:") || t.starts_with("Container:"))
         );
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A gain map marked only by ISO 21496-1's APP2 segment, without Ultra HDR's XMP, stays as
+    /// Ultra HDR's does: its image data and that segment, without its EXIF, at the place the
+    /// new MPF index names.
+    #[test]
+    fn an_iso_gain_map_stays_without_its_metadata() {
+        let dir = folder("isogainmap");
+        let (original, gain_map_scans) = ultra_hdr(true);
+        let path = dir.join("hdr.jpg");
+        std::fs::write(&path, &original).unwrap();
+        let found = super::tags_of(&path).unwrap().unwrap();
+        let mut left_out = super::LeftOut::default();
+        left_out.set_group(super::Group::Place, true);
+        let copy = super::copy(&path, &left_out.kept(&found)).unwrap().unwrap();
+        let has = |text: &[u8]| copy.windows(text.len()).any(|w| w == text);
+        assert!(!has(b"WGS-84-SECRET"), "the GPS is in the copy");
+        assert!(has(&gain_map_scans), "the gain map's image data is gone");
+        assert!(
+            has(b"ISO-GAIN-MAP-VALUES"),
+            "the gain map's ISO metadata is gone"
+        );
+        let images = mp_images(&copy);
+        let gain = images[1];
+        assert_eq!(
+            (gain.1 + gain.0, &copy[gain.1..gain.1 + 2]),
+            (copy.len(), &b"\xff\xd8"[..])
+        );
+        let pixels = |b: &[u8]| image::load_from_memory(b).unwrap().to_rgba8();
+        assert!(pixels(&original) == pixels(&copy));
+        assert_eq!(pixels(&copy[gain.1..]).dimensions(), (8, 8));
         std::fs::remove_dir_all(dir).unwrap();
     }
 
@@ -2544,7 +2595,7 @@ mod tests {
             .unwrap();
         let webp = crate::images::save::webp_with_chunk(&webp, b"XMP ", b"<x/>", 8, 8).unwrap();
         let keeps = |_: &str| true;
-        for seed in [jpeg, png, webp, ultra_hdr().0] {
+        for seed in [jpeg, png, webp, ultra_hdr(false).0, ultra_hdr(true).0] {
             for data in crate::support::test_support::broken(&seed) {
                 if let Ok(Some(walked)) = super::walk(&data) {
                     let gain_map = walked.gain_map.as_deref().map(super::gain_map_copy);
@@ -2630,7 +2681,7 @@ mod tests {
             .write_with_encoder(image::codecs::webp::WebPEncoder::new_lossless(&mut webp))
             .unwrap();
         let webp = crate::images::save::webp_with_chunk(&webp, b"XMP ", XMP.as_bytes(), 16, 16);
-        let jpeg = ultra_hdr().0;
+        let jpeg = ultra_hdr(false).0;
         // The first read takes the main image's first scan, but not the gain map after it.
         let first_read = crate::metadata::exif::jpeg_scan_start(&jpeg).unwrap() as u64 + 16;
         for data in crate::support::test_support::broken(&jpeg) {

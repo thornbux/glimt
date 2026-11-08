@@ -13,7 +13,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
   serial numbers, date and time, photographer and copyright, software, keywords, comment and
   alt text, and the preview inside the file, and More tags for the rest; Remove All leaves out
   every one. The pixels are copied byte for byte, so nothing is lost, and the orientation, the
-  colour profile and an HDR photo's gain map are always kept, so a copy looks as the original.
+  colour profile and the gain map of an Ultra HDR photo (or one marked as ISO 21496-1 says) are
+  always kept, so a copy looks as the original.
   What Glimt's sidecar says, such as alt text, goes into the copy's own XMP. The dialog starts
   with the last choice. The originals are never changed, and a file already in the folder is
   never written over.
