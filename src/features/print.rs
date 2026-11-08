@@ -709,14 +709,18 @@ fn centred(text: &str, size: f32, [x, y, width]: [f32; 3]) -> String {
     )
 }
 
-/// A page text with its numbers filled in, for %page% and %pages%. A `%%` is a `%`, as in the
-/// other templates (`format::fill_template`).
+/// A page text with its numbers filled in, for %page% and %pages%. A `%%` is a `%`, and the
+/// codes are read as in the other templates (`format::pieces`). Another code stays as it is.
 pub(crate) fn page_text(text: &str, page: usize, pages: usize) -> String {
-    let parts = text.split("%%").map(|part| {
-        part.replace("%page%", &page.to_string())
-            .replace("%pages%", &pages.to_string())
-    });
-    parts.collect::<Vec<_>>().join("%")
+    use crate::support::format::{Piece, pieces};
+    (pieces(text, true))
+        .map(|piece| match piece {
+            Piece::Code("page") => page.to_string(),
+            Piece::Code("pages") => pages.to_string(),
+            Piece::Code(other) => format!("%{other}%"),
+            Piece::Text(text) => text.to_owned(),
+        })
+        .collect()
 }
 
 /// Writes a PDF of `pages` pages to `out`, with the images laid out by `layout`, each with its
@@ -1189,6 +1193,9 @@ mod tests {
     fn page_text_takes_a_percent_sign() {
         assert_eq!(super::page_text("%page%/%pages%", 2, 3), "2/3");
         assert_eq!(super::page_text("100%% · %%page%", 2, 3), "100% · %page%");
+        // Two codes side by side, which a split on "%%" took for a "%" between two words.
+        assert_eq!(super::page_text("%page%%pages%", 2, 3), "23");
+        assert_eq!(super::page_text("%other% 5%", 2, 3), "%other% 5%");
     }
 
     /// Text on every page, with its numbers, gets room made for it, and the image moves down

@@ -18,22 +18,27 @@ and versions follow [Semantic Versioning](https://semver.org/).
   window title says the same with `%app% - %name%`. A settings file with `app_name_first=true`
   gets that title once, unless it has a title of its own.
 - The light theme for low vision is called High Contrast Light instead of Contrast, so its name
-  says what it is beside High Contrast. A settings file with `theme=Contrast` still gets it.
+  says what it is beside High Contrast. A settings file with `theme=Contrast` still gets it,
+  without a problem told, and the next save writes the new name. A theme of your own named
+  Contrast stays yours, and Save as Theme takes the name no more.
 - The action Previous Page is named `PreviousPage` in `keys=` and `glimt --remote run`, beside
   `NextPage`, instead of `PrevPage`. The old name is still read.
 - `glimt --remote` waits for the window's answer to every command, and exits with 3 when the
   command was not done: a `run` refused while a dialog is open or a text field has the focus,
-  or a command the window does not know, with the reason on standard error. Before, it exited
+  by a kiosk, or with no image to act on, or a command the window does not know, with the reason on standard error. Before, it exited
   with 0, as if it had been done. `--remote-all` exits with 3 when any window did not do it.
+  A minimized or hidden window answers at once too, and shows what the command changed once it
+  is shown again.
+  A command line longer than 64 KB is answered as not done, "too long".
 - The example formats and the manual write `[Glimt Format]` as the desktop file's header,
   after 0.75.0 renamed decoders to formats. Files with `[Glimt Decoder]` are read as before, and
   the manual says that the other `%` codes in `Exec` are kept for later.
 - In the templates of the full screen info, the print caption, the page header and footer and
   the window title, `%%` is a `%`. Before, it was an empty field, which could take its part of
-  the line along.
-- The marks file keeps what this Glimt does not understand: marks above 6 and lines in another
-  form stay as they are when a mark is changed, so a later Glimt can add to the file without an
-  older one deleting it.
+  the line along. In an added format's `Exec`, `%%f` is the text `%f`, not a `%` and the file.
+- The marks file keeps what this Glimt does not understand: marks above 6, and lines of two
+  fields and a path that it cannot read, stay as they are when a mark is changed, so a later
+  Glimt can add to the file without an older one deleting it. Other damaged lines still go.
 
 ### Fixed
 

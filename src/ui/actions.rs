@@ -35,6 +35,13 @@ pub const CTRL_SHIFT: egui::Modifiers = egui::Modifiers {
     ..egui::Modifiers::COMMAND
 };
 
+/// The reason `why_refused` gives for an action on a file in an empty list.
+const NO_IMAGE: &str = "there is no image to act on";
+
+/// The reason `why_refused` gives for an action on the selection when the search hides every
+/// selected file.
+const HIDDEN_BY_SEARCH: &str = "the search hides the files it would act on";
+
 /// Geeqie's default shortcuts, except R (random order; Geeqie: refresh) and F5 (refresh). The first
 /// one for an action is shown in the menu. egui ignores an extra Shift or Alt when matching, so
 /// those combinations come before the plain key.
@@ -1012,6 +1019,24 @@ impl crate::App {
         })
     }
 
+    /// Returns why `action` is not done now, or `None` when it is. `run` and `--remote run`
+    /// both ask here, so a script is told the reason the window has. A kiosk shows and browses,
+    /// and does not change files, settings or the window. An action on a file has no file to
+    /// act on in an empty list, or when the search hides every selected file. The empty list is
+    /// refused here, once, rather than by a guard in each arm, which a new action could leave
+    /// out and then panic on `self.path(self.list.shown())` with no file.
+    pub(crate) fn why_refused(&self, action: Action) -> Option<&'static str> {
+        if !self.window.allows(action) {
+            Some("a kiosk does not do this")
+        } else if self.list.files().is_empty() && action.target() != Target::NoFile {
+            Some(NO_IMAGE)
+        } else if action.target() == Target::Selection && self.list.only_hidden_selected() {
+            Some(HIDDEN_BY_SEARCH)
+        } else {
+            None
+        }
+    }
+
     /// Do `action`, from a menu, a key, a toolbar button or `--remote`: one arm each.
     pub(crate) fn run(&mut self, ctx: &egui::Context, action: Action) {
         // Without remote control (no $XDG_RUNTIME_DIR, the socket not made) --remote quit
@@ -1019,16 +1044,12 @@ impl crate::App {
         if self.window.is_kiosk() && action == Action::Quit && !remote::listening() {
             self.window.let_kiosk_quit();
         }
-        // A kiosk shows and browses; it does not change files, settings or the window.
-        if !self.window.allows(action) {
-            return;
-        }
-        // An action on a file does nothing in an empty list. It is refused here, once, rather than
-        // by a guard in each arm, which a new action could leave out and then panic on
-        // `self.path(self.list.shown())` with no file.
-        if self.list.files().is_empty() && action.target() != Target::NoFile {
-            if action == Action::NewCollection {
+        if let Some(why) = self.why_refused(action) {
+            if why == NO_IMAGE && action == Action::NewCollection {
                 self.notice = Some(tr("No images for a collection here").into());
+            } else if why == HIDDEN_BY_SEARCH {
+                // `targets` tells the user so.
+                let _ = self.targets();
             }
             return;
         }

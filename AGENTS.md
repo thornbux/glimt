@@ -47,9 +47,9 @@ setting that goes out of use keeps being read and ignored.
   (`LANGUAGES` and `lang::ENGLISH`); the window state's keys (`WindowState`, `LAST_DIR`);
 - the `--remote` commands and the words of their choices (`on|off`, from `COMMANDS`), the
   actions `--remote run` takes (`script` lines, from `SCRIPT_ACTIONS`, which only grows), and
-  the exit codes: `--remote`'s `DONE`, `NOT_TAKEN`, `NOT_SENT` and `NOT_DONE`, and those of
-  `--check-config` and `--back-up` (`cli::CHECK_CONFIG_PROBLEMS`, `BACK_UP_FAILED`,
-  `BACK_UP_NO_FOLDER`);
+  the exit codes: `--remote`'s `cli::DONE` and `remote::NOT_TAKEN`, `NOT_SENT` and `NOT_DONE`,
+  and those of `--check-config` and `--back-up` (`cli::CHECK_CONFIG_PROBLEMS`,
+  `BACK_UP_FAILED`, `BACK_UP_NO_FOLDER`);
 - the command-line options of `START_OPTIONS` with `--remote` and `--remote-all`;
 - the `%field%` names of the templates (`field` lines), each filled in the templates it
   belongs to, for a test image: the full screen info and the print caption (`name`, `path`,
@@ -70,15 +70,17 @@ lists is neither taken by `Start::parse` nor answered by `cli::answer_without_wi
 by `a_tools_desktop_keys_and_codes_are_kept` and `a_formats_desktop_keys_and_codes_are_kept`
 (an added format is read under `[Glimt Format]` and `[Glimt Decoder]` alike; the `%` codes
 other than `%f %F %u %U %%` are kept for later). The marks file keeps the mark bits and lines
-it does not understand (`keeps_what_it_does_not_understand`), so a later Glimt can add to it.
+it does not understand, when they have the form of two fields and a path
+(`keeps_what_it_does_not_understand`), so a later Glimt can add to it.
 Never rename an `Action` variant or rely on a changed key name outside the tables below: they
 are the `keys=` format, pinned by `src/keys-1.0.txt` and its test, every action (also one
 without a default key) and every default key; new ones go at the end of that file, and the test
 fails until a new action is there.
 
 Every `--remote` command is answered: a query with what it asks, and any other command with
-nothing when it was done, or with `not done: <reason>` when it was not (a `run` refused, a
-command or choice the window does not know). The client exits with `NOT_DONE` (3) then. A
+nothing when it was done, or with `not done: <reason>` when it was not (a `run` refused while
+a dialog is open or a field has the focus, an action that `App::why_refused` refuses, such as a
+kiosk's, or a command or choice the window does not know). The client exits with `NOT_DONE` (3) then. A
 window of 0.75 or older closes without an answer, which reads as done.
 
 Not pinned, and so kept by hand: the window's own reading of each `--remote` command
@@ -91,13 +93,16 @@ A frozen name that fails a reader (0.74.0 and 0.76.0 renamed a few) is renamed o
 table of old names, one for each kind, beside the code that reads it: `config::RENAMED_SETTINGS`,
 `config::RENAMED_STATE`, `actions::RENAMED_ACTIONS` (for `keys=` and `--remote run`),
 `remote::RENAMED_COMMANDS`, `theme::RENAMED_THEMES` (the built-in themes, as the theme setting
-stores them) and `tools::RENAMED_FOLDERS` (0.75.0's folders of tools and added formats, which
+stores them; a theme file of the user's own by an old name keeps it, and Save as Theme refuses
+an old name) and `tools::RENAMED_FOLDERS` (0.75.0's folders of tools and added formats, which
 Glimt creates only under the new name). Glimt reads the old name too, forever, and writes only
 the new one; when a settings or state file holds both, the new one counts. The old line stays
 in the frozen file and the new name is added at its end, and the tests take an old name only
 when its table maps it to a name that is read now. A setting that is retired keeps its key: its
 value is read once into the setting that took its place, and it is written as its default from
-then on (`app_name_first`, moved into `window_title` by `config::move_app_name_first`).
+then on (`app_name_first`, moved into `window_title`). Every old value, a retired setting's
+and a renamed theme's, is mapped in one function, `config::old_values_mapped`, which
+`Config::parse`, `parse_checked` and the save's `merged` all call.
 
 ## Language
 
@@ -195,7 +200,7 @@ holds only its `mod` lines, and a new module goes into the folder of what it doe
 | `src/support/test_hooks.rs` | The release tests' hook (feature `test-hooks`): where a widget with a text was drawn, for `glimt --remote where LABEL`, and `noted`, which every widget the tests click goes through |
 | `src/support/test_support.rs` | What tests start from, built only for tests: `app_on` (a `crate::App` on a folder without a window), `run_background_until`, `contract_folder`, and `broken` for the parsers' `survives_broken_*` tests; each module's tests use them, so a test sits beside the code it tests |
 | `src/support/threads.rs` | How many threads for each kind of work (the CPU use level, `background_threads`, `thumb_threads`, `small_alloc_threads`), `in_parts`, `Receiving`/`Took` for a background thread's answer, `Working` for work counted while it runs |
-| `src/support/format.rs` | Text for the user: `human_size`, `size_text`, `thousands`, `count`, `middle_cut`, `local_time` (the trash's date form too), `fill_template` |
+| `src/support/format.rs` | Text for the user: `human_size`, `size_text`, `thousands`, `count`, `middle_cut`, `local_time` (the trash's date form too), `fill_template`, and `pieces`, the one reader of `%` codes and `%%` in templates and Exec |
 | `src/support/lang.rs` | The interface's languages: the `.po` files, `tr`/`tf!`, each language's plural rule |
 | `src/support/source_rules.rs` | Tests of the source itself: the layout below, kept by a test rather than by memory; `sources()`, every source file and translation |
 | `po/` | The translations, one gettext `.po` file per language, built into the program (`lang::LANGUAGES`), and `glimt.pot`, the template for a new one |

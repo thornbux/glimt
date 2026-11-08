@@ -190,6 +190,11 @@ impl crate::App {
         // dialog asking about the selection (Delete, Rename) is answered for the files it asked
         // about, not for a selection a script put in its place meanwhile.
         let busy = |app: &Self| app.folder.is_listing() || app.asking_about_selection();
+        // A hidden window runs no `ui`, which takes the listing, so a waiting select takes it
+        // here. Otherwise the select would wait until the window is shown again.
+        if !self.remote.waiting_selects.is_empty() {
+            self.receive_listing(ctx, std::time::Duration::ZERO);
+        }
         // The waiting ones are done in the order they came, until one (an `open`) makes the
         // window busy again. Each gets its own answer, from the list as it was when it was sent.
         while !self.remote.waiting_selects.is_empty() && !busy(self) {
@@ -272,8 +277,8 @@ impl crate::App {
     /// slideshow, random and fullscreen (each with on or off, or without to go to the other),
     /// subfolders on|off, quit, open PATH, title with this window's own title, or without one
     /// to have the title in Preferences, and run ACTION with an action of `SCRIPT_ACTIONS`.
-    /// Returns the reason when the command is not done: a `run` refused, or a command this
-    /// window does not know, such as one of a newer Glimt.
+    /// Returns the reason when the command is not done: an action refused (`why_refused`, such
+    /// as a kiosk's), or a command this window does not know, such as one of a newer Glimt.
     pub(crate) fn remote_command(
         &mut self,
         ctx: &egui::Context,
@@ -352,6 +357,9 @@ impl crate::App {
             other => return Err(format!("this Glimt does not know the command “{other}”")),
         };
         if let Some(action) = action {
+            if let Some(why) = self.why_refused(action) {
+                return Err(why.into());
+            }
             self.run(ctx, action);
         }
         Ok(())
@@ -839,6 +847,8 @@ fn serve_clients(
     while places.recv().is_ok() {
         let Ok((stream, _)) = listener.accept() else {
             let _ = free.send(());
+            // A lasting error, such as too many open files, would otherwise be a busy loop.
+            std::thread::sleep(std::time::Duration::from_millis(100));
             continue;
         };
         // The client is counted from here, before its query is read, so a client that came
@@ -866,7 +876,17 @@ fn serve(
     let most = MAX_SELECT as u64 * 4096 + 64;
     let mut reader = std::io::BufReader::new(std::io::Read::take(stream, most));
     while let Some(line) = read_command(&mut reader) {
-        let line = command_now(line.trim_start());
+        let line = match line {
+            Ok(line) => command_now(line.trim_start()),
+            // Told, as an end without an answer would read as done. The rest of the line is
+            // not read, so the client is served no more.
+            Err(why) => {
+                if let Some(out) = out.as_mut() {
+                    let _ = out.write_all(&not_done_answer(why));
+                }
+                return;
+            }
+        };
         // Every command is answered, a query with what it asks and any other with whether it
         // was done, so a script knows when its `run` was refused.
         let (reply, answer) = mpsc::channel();
@@ -897,9 +917,10 @@ fn serve(
 
 /// Reads the next command, one line, from `reader`. A `select` may be as long as its files take,
 /// and any other command at most `MOST_LINE` bytes, so a client that sends without a line break
-/// holds no more memory than that. Returns `None` at the end, for a line too long or not UTF-8,
-/// and when the client sends nothing within its time limit.
-fn read_command(reader: &mut impl BufRead) -> Option<String> {
+/// holds no more memory than that. Returns the reason for a line too long, which the client is
+/// told, and `None` at the end, for a line that is not UTF-8, and when the client sends nothing
+/// within its time limit.
+fn read_command(reader: &mut impl BufRead) -> Option<Result<String, &'static str>> {
     let mut line = Vec::new();
     std::io::Read::take(&mut *reader, MOST_LINE)
         .read_until(b'\n', &mut line)
@@ -908,14 +929,14 @@ fn read_command(reader: &mut impl BufRead) -> Option<String> {
     if !ended && line.trim_ascii_start().starts_with(b"select ") {
         reader.read_until(b'\n', &mut line).ok()?;
     } else if !ended && line.len() as u64 >= MOST_LINE {
-        return None;
+        return Some(Err("too long"));
     }
     if line.is_empty() {
         return None;
     }
     let line = line.strip_suffix(b"\n").unwrap_or(&line);
     let line = line.strip_suffix(b"\r").unwrap_or(line);
-    String::from_utf8(line.to_vec()).ok()
+    String::from_utf8(line.to_vec()).ok().map(Ok)
 }
 
 /// Whether `dir` is there and not the user's own folder.
@@ -1120,6 +1141,27 @@ mod tests {
         ctx.memory_mut(|m| m.surrender_focus(field.unwrap()));
         app.remote_command(&ctx, "run Next").unwrap();
         assert_eq!(app.list.shown(), 2);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// A `run` that the window refuses is told as not done, with the window's reason. A kiosk
+    /// refuses what is not for browsing, and an action on a file has none to act on in an
+    /// empty list. Before, both were answered as done, so the script exited 0.
+    #[test]
+    fn a_run_refused_is_not_done() {
+        let dir =
+            std::env::temp_dir().join(format!("glimt-test-run-refused-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let (mut app, ctx) = app_on(&dir);
+        let why = app.remote_command(&ctx, "run CopyPath").unwrap_err();
+        assert_eq!(why, "there is no image to act on");
+        app.list.set_files(vec!["a.png".into(), "b.png".into()]);
+        app.window = crate::ui::window::Window::new(true);
+        let why = app.remote_command(&ctx, "run Toolbar").unwrap_err();
+        assert!(why.contains("kiosk"), "{why}");
+        // What a kiosk does is done as before.
+        app.remote_command(&ctx, "run Next").unwrap();
+        assert_eq!(app.list.shown(), 1);
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
@@ -1353,24 +1395,35 @@ mod tests {
     }
 
     /// A command line other than a select is read up to `MOST_LINE` bytes, and a longer one ends
-    /// the client, while a select may be as long as its files. Before, every line could be as
-    /// long as the longest select, some 400 MB, and ten clients sending without a line break
-    /// held 4 GB.
+    /// the client, which is told that it is too long. A select may be as long as its files.
+    /// Before, every line could be as long as the longest select, some 400 MB, and ten clients
+    /// sending without a line break held 4 GB. And a longer line ended without an answer, which
+    /// the client read as done.
     #[test]
     fn a_command_line_is_cut_short_unless_it_is_a_select() {
         let long = "x".repeat(super::MOST_LINE as usize + 10);
+        // The lines read, up to the first that is refused, as `serve` reads them.
         let read = |text: String| {
             let mut reader = std::io::Cursor::new(text.into_bytes());
-            std::iter::from_fn(move || super::read_command(&mut reader)).collect::<Vec<_>>()
+            let mut lines = Vec::new();
+            while let Some(line) = super::read_command(&mut reader) {
+                let refused = line.is_err();
+                lines.push(line);
+                if refused {
+                    break;
+                }
+            }
+            lines
         };
-        assert_eq!(read(format!("title {long}\nnext\n")), Vec::<String>::new());
+        // The client is told "too long", rather than an end that reads as done.
+        assert_eq!(read(format!("title {long}\nnext\n")), [Err("too long")]);
         let select = format!("select /{long}\0");
         assert_eq!(
             read(format!("{select}\r\nnext\n")),
-            [select.as_str(), "next"]
+            [Ok(select.clone()), Ok("next".into())]
         );
-        assert_eq!(read("next".into()), ["next"]);
-        assert_eq!(read(String::new()), Vec::<String>::new());
+        assert_eq!(read("next".into()), [Ok("next".into())]);
+        assert!(read(String::new()).is_empty());
     }
 
     /// At most so many clients are served at once, each by a thread; the next waits until one

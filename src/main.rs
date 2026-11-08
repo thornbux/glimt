@@ -280,8 +280,6 @@ impl App {
 
     fn frame_ui(&mut self, ui: &mut egui::Ui) {
         let ctx = &ui.ctx().clone();
-        #[cfg(feature = "test-hooks")]
-        crate::support::test_hooks::begin_frame();
         self.sync_thumb_source(ctx.pixels_per_point());
         self.poll_background(ctx);
         let mut chosen = self.read_keys(ctx);
@@ -394,6 +392,16 @@ impl eframe::App for App {
             at(0.9),
             at(1.0)
         );
+    }
+
+    /// Takes the `--remote` commands. eframe calls this before each `ui`, and also while the
+    /// window is minimized or hidden, when it calls no `ui`. So a script gets its answer at
+    /// once, and does not wait until the window is shown again.
+    fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        // A `where` from the release tests is answered from the frame drawn last.
+        #[cfg(feature = "test-hooks")]
+        crate::support::test_hooks::begin_frame();
+        self.receive_remote(ctx);
     }
 
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {

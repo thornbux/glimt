@@ -1,4 +1,4 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 960" width="1200" height="960" role="img" aria-label="One frame of Glimt and its background threads. The UI thread's frame_ui takes what threads sent (poll_background), turns keys and clicks into an Action, runs it, and draws. Actions and drawing start threads or send them jobs: folder listing, folder watch, file jobs, writer threads, thumbnail and decode workers; the remote listener takes commands from other processes. Every thread answers over an mpsc channel held as Receiving and calls request_repaint, so the next frame picks the answer up.">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 960" width="1200" height="960" role="img" aria-label="One frame of Glimt and its background threads. The UI thread's frame_ui takes what threads sent (poll_background), turns keys and clicks into an Action, runs it, and draws. Actions and drawing start threads or send them jobs: folder listing, folder watch, file jobs, writer threads, thumbnail and decode workers; the remote listener takes commands from other processes, which App::logic takes before each frame and also while the window is hidden. Every thread answers over an mpsc channel held as Receiving and calls request_repaint, so the next frame picks the answer up.">
   <title>One frame and the threads</title>
   <defs>
     <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
@@ -22,7 +22,7 @@
     <g font-size="12" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace">
       <text x="34" y="144">receive_decoded · receive_thumbs</text>
       <text x="34" y="160">receive_listing · receive_operation_report</text>
-      <text x="34" y="176">receive_file_work · receive_remote</text>
+      <text x="34" y="176">receive_file_work · receive_focus</text>
       <text x="34" y="192">notices · receive_lightroom · …</text>
     </g>
 
@@ -112,7 +112,7 @@
     <rect x="650" y="762" width="490" height="64" rx="6" fill="#f3e8fd" stroke="#8e44ad" stroke-width="1.5"/>
     <text x="664" y="782" font-size="13"><tspan font-weight="700">Remote listener</tspan> <tspan font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" font-size="12">remote::listen</tspan></text>
     <text x="664" y="800" font-size="12">an accept thread, serve() in a thread per client (16 at most)</text>
-    <text x="664" y="818" font-size="12">→ remote.rx: (command, reply) → receive_remote; every command answered</text>
+    <text x="664" y="818" font-size="12">→ remote.rx → receive_remote in App::logic, also while hidden</text>
 
     <rect x="650" y="850" width="320" height="36" rx="6" fill="#ffffff" stroke="#8e44ad" stroke-width="1.5" stroke-dasharray="5 3"/>
     <text x="664" y="873" font-size="12" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace">glimt --remote next</text>
