@@ -70,7 +70,8 @@ lists is neither taken by `Start::parse` nor answered by `cli::answer_without_wi
 by `a_tools_desktop_keys_and_codes_are_kept` and `a_formats_desktop_keys_and_codes_are_kept`
 (an added format is read under `[Glimt Format]` and `[Glimt Decoder]` alike; the `%` codes
 other than `%f %F %u %U %%` are kept for later). The marks file keeps the mark bits and lines
-it does not understand (`keeps_what_it_does_not_understand`), so a later Glimt can add to it.
+it does not understand, when they have the form of two fields and a path
+(`keeps_what_it_does_not_understand`), so a later Glimt can add to it.
 Never rename an `Action` variant or rely on a changed key name outside the tables below: they
 are the `keys=` format, pinned by `src/keys-1.0.txt` and its test, every action (also one
 without a default key) and every default key; new ones go at the end of that file, and the test

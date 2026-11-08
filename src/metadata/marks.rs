@@ -357,14 +357,25 @@ fn parse_line(line: &[u8]) -> Option<(PathBuf, (u8, u8))> {
     Some((PathBuf::from(path), (bits, stars.min(5))))
 }
 
-/// Returns the lines of the marks file `text` that `parse_line` cannot read, each with its line
-/// break. A write keeps them as they were, so a line in a form of a newer Glimt is not lost
-/// when this one changes a mark.
+/// Returns the lines of the marks file `text` that `parse_line` cannot read but that have the
+/// form of a marks line, each with its line break. A write keeps them as they were, so a line
+/// of a newer Glimt is not lost when this one changes a mark. Other lines are damage or
+/// garbage, and they go at the next write, as they did before 0.76.0.
 fn unread_lines(text: &[u8]) -> Vec<u8> {
     (text.split(|&b| b == b'\n'))
-        .filter(|line| !line.is_empty() && parse_line(line).is_none())
+        .filter(|line| parse_line(line).is_none() && has_form_of_marks_line(line))
         .flat_map(|line| line.iter().copied().chain(*b"\n"))
         .collect()
+}
+
+/// Whether `line` has the form of a marks line, in this Glimt's form or a newer one's. Such a
+/// line has two fields and then a full path, each after a tab, as `bits\tstars\t/path`. A
+/// newer Glimt may write other words in the two fields, but the path stays last, because a
+/// path may hold a tab.
+fn has_form_of_marks_line(line: &[u8]) -> bool {
+    let mut parts = line.splitn(3, |&b| b == b'\t');
+    let fields = parts.next().is_some_and(|f| !f.is_empty()) && parts.next().is_some();
+    fields && parts.next().is_some_and(|path| path.starts_with(b"/"))
 }
 
 /// Write `stars` as xmp:Rating into the sidecar `<file>.xmp` that darktable and digiKam read.
@@ -538,7 +549,8 @@ mod tests {
     /// The marks file keeps what this Glimt does not understand: mark bits above mark 6 stay on
     /// their file, also when mark 1 is set beside them, and a line it cannot read is written
     /// back as it was. Before, the bits were cut to marks 1 to 6 and such a line was dropped, so
-    /// an older Glimt that changed one mark deleted what a newer one had added.
+    /// an older Glimt that changed one mark deleted what a newer one had added. Only a line in
+    /// the form of a marks line is kept, and garbage still goes, so it does not pile up.
     #[test]
     fn keeps_what_it_does_not_understand() {
         let dir =
@@ -546,7 +558,7 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let file = dir.join("marks");
         super::TEST_FILE.with(|f| *f.borrow_mut() = Some(file.clone()));
-        let newer = "192\t3\t/a.jpg\nrejected\t1\t/b.jpg\n";
+        let newer = "192\t3\t/a.jpg\nrejected\t1\t/b.jpg\ngarbage\nx\ty\tz\n\t\t/d.jpg\n";
         std::fs::write(&file, newer).unwrap();
         let a = std::path::PathBuf::from("/a.jpg");
         let mut marks = super::Marks::load();
@@ -563,6 +575,10 @@ mod tests {
             "0\t2\t/c.jpg\n",
         ] {
             assert!(text.contains(line), "{line:?} not in {text:?}");
+        }
+        // Lines without the form of a marks line are damage, and go.
+        for line in ["garbage", "x\ty\tz", "\t\t/d.jpg"] {
+            assert!(!text.contains(line), "{line:?} in {text:?}");
         }
         super::TEST_FILE.with(|f| *f.borrow_mut() = None);
         std::fs::remove_dir_all(dir).unwrap();
