@@ -434,12 +434,14 @@ fn new_window_program(
 }
 
 /// What is wrong in the settings file, as the window tells it. It gives the first problem and
-/// where to see them all. A setting this Glimt does not know is left out, because a newer Glimt
-/// beside it (a Flatpak and a .deb) wrote it. This Glimt keeps the setting, so the notice would
-/// otherwise come at every start.
+/// where to see them all. Two problems are left out, because a Glimt of another version beside
+/// this one (a Flatpak and a .deb) writes them at each save, so the notice would otherwise come
+/// at every start. A setting this Glimt does not know was written by a newer Glimt. An old key
+/// beside its new key was written by an older Glimt, which writes every key it knows.
+/// `glimt --check-config` still tells both.
 fn config_notice(problems: &[String]) -> Option<String> {
     let problems: Vec<&String> = (problems.iter())
-        .filter(|p| !p.contains(": there is no setting "))
+        .filter(|p| !p.contains(": there is no setting ") && !p.contains(" is the old name of "))
         .collect();
     let first = problems.first()?;
     let more = match problems.len() - 1 {
@@ -555,7 +557,8 @@ mod tests {
         std::fs::remove_dir_all(dir).unwrap();
     }
 
-    /// A setting this Glimt does not know gives no notice at start, but a wrong value does.
+    /// A setting this Glimt does not know, and an old key beside its new key, give no notice at
+    /// start, but a wrong value does.
     #[test]
     fn tells_settings_problems_but_unknown_ones() {
         let unknown = "line 3: there is no setting projector_screen".to_string();
@@ -565,6 +568,11 @@ mod tests {
             super::config_notice(&[unknown, wrong.clone()]),
             Some(format!("Settings file: {wrong}"))
         );
+        // The problems as parse_checked words them for a file that a 0.73 Glimt saved last.
+        let (_, problems) =
+            crate::files::config::Config::parse_checked("slideshow_delay=4\ndelay=5\n");
+        assert_eq!(problems.len(), 1, "{problems:?}");
+        assert_eq!(super::config_notice(&problems), None);
     }
 
     /// New Window starts the AppImage only from inside it, not when Glimt was merely started

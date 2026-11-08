@@ -1624,7 +1624,7 @@ for v in new old; do
     shot duplicates-$v
     quit
     trash=$(ls $H/.local/share/Trash/files 2>/dev/null | tr '\n' ' ')
-    if [ $v = new ]; then expect "the list changed: nothing in the trash" "$trash" ""
+    if [ $v = new ]; then expect_empty "the list changed: nothing in the trash" "$trash"
     else note "old, in the trash: $trash"; fi
 done
 as_version new
