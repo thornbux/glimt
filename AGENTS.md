@@ -213,6 +213,7 @@ holds only its `mod` lines, and a new module goes into the folder of what it doe
 | `tools/check.sh` | Runs the checks before a commit in Docker, with mold and sccache, a few at a time |
 | `tools/sbom.py` | Writes `sbom.cdx.json` and `THIRD-PARTY-LICENSES.txt` |
 | `tools/flatpak-sources.py` | Writes `flatpak/cargo-sources.json` from `Cargo.lock` |
+| `tools/package-smoke.sh` | The release workflow's smoke test of the AppImage and the Flatpak bundle: an SVG drawn under Xvfb, also in a New Window after the first closed |
 | `tools/pot.py` | Writes `po/glimt.pot`, the template for a new language, from `po/no_nb.po` |
 | `tools/flathub-manifest.py` | Writes the Flathub repository's manifest and `cargo-sources.json` for a release tag |
 | `tools/release-tests/` | `run.sh` builds this and the last release in Docker; `tests.sh` checks them under Xvfb; `samples.txt` lists real files of each format, downloaded once |
@@ -534,9 +535,11 @@ Open File (the file chooser portal), Print through the System print dialog (the 
 its Print to File shows the PDF), full screen (an Inhibit call to the portal, and Close after,
 in `dbus-monitor`), Open With → Choose Application… (the chooser, cancelled), a video and a
 HEIC (the runtime's ffmpeg), File → Set as Wallpaper (the wallpaper portal), and a tool, which
-without the host permission says how to give it and with it runs; the AppImage, with a second window (Ctrl+N)
-that stays when the first one closes; Orca, which reads a notice shown twice aloud twice (an
-action refused twice, such as a setting changed under `--lock-settings`).
+without the host permission says how to give it and with it runs; Orca, which reads a notice
+shown twice aloud twice (an action refused twice, such as a setting changed under
+`--lock-settings`). The release workflow's smoke test, `tools/package-smoke.sh`, checks before
+each is published that the AppImage and the Flatpak bundle draw an SVG, and the AppImage
+also in a New Window after the first window closed.
 
 The window's logic (the list, the selection, file operations and what follows them) is tested
 without a window: `crate::support::test_support::app_on(dir)` makes an `App` on `egui::Context::default()`
