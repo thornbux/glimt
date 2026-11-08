@@ -201,7 +201,7 @@ impl crate::App {
             if self.window.close_requests == 2 {
                 self.file_operations.stop_jobs();
             }
-            self.notice = Some(
+            self.notice.give(
                 match self.window.close_requests {
                     1 => crate::support::lang::tr(
                         "Glimt closes when the file operations are done; close again to stop them",
@@ -213,6 +213,16 @@ impl crate::App {
                 .into(),
             );
         }
+    }
+
+    /// Saves keywords typed and takes the file jobs' last reports, before `on_exit` writes the
+    /// state and waits for the writer. A job can send its report after `guard_close` took
+    /// them, in a close that came in a pass without `ui`. Without this, the marks and the saved
+    /// collections would not follow the files that job moved.
+    pub(crate) fn take_last_reports_before_exit(&mut self, ctx: &egui::Context) {
+        self.save_metadata_edit(ctx);
+        self.receive_operation_report(ctx);
+        self.receive_renames(ctx);
     }
 
     /// Keeps a kiosk in full screen and the screensaver off in full screen, and remembers the
@@ -648,6 +658,26 @@ mod tests {
         assert!(closed);
         app.window.is_kiosk = true;
         assert!(logic_only(&mut app, true).contains(&ViewportCommand::CancelClose));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// The exit takes a report that a job sent after the guard of the close took the others, so
+    /// the marks and saved collections follow the files that job moved.
+    #[test]
+    fn the_exit_takes_a_report_sent_after_the_guard() {
+        let dir = contract_folder("exit-takes-reports");
+        let (mut app, ctx) = app_on(&dir);
+        let report = crate::files::file_ops::OperationReport {
+            folder_made: Some(dir.join("sub")),
+            ..Default::default()
+        };
+        app.file_operations.report_sender().send(report).unwrap();
+        app.take_last_reports_before_exit(&ctx);
+        assert!(app.folder.wants_relist(), "the report was not taken");
+        let main = include_str!("../main.rs");
+        let on_exit = &main[main.find("fn on_exit(").unwrap()..];
+        let on_exit = &on_exit[..on_exit.find("\n    }\n").unwrap()];
+        assert!(on_exit.contains("self.take_last_reports_before_exit("));
         std::fs::remove_dir_all(dir).unwrap();
     }
 

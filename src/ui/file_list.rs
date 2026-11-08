@@ -1129,11 +1129,14 @@ impl crate::App {
     /// now, so another window's folders stay, and it is written whole or not at all.
     pub(crate) fn change_sort_folders(&mut self, add: Option<&Path>, remove: Option<&Path>) {
         if config::locked() {
-            return self.notice = Some(tr("The settings are locked (--lock-settings)").into());
+            return self
+                .notice
+                .give(tr("The settings are locked (--lock-settings)").into());
         }
         let Some(path) = sort_folders_path() else {
-            return self.notice =
-                Some(tr("Could not save the sort manager's folders: no home folder").into());
+            return self
+                .notice
+                .give(tr("Could not save the sort manager's folders: no home folder").into());
         };
         // The change is made on the file as it is now, so another window's folders stay. A file
         // that cannot be read is not written over.
@@ -1143,7 +1146,9 @@ impl crate::App {
         };
         match crate::files::file_io::edit_shared(&path, change) {
             Ok(dirs) => self.folder.set_sort_folders(dirs),
-            Err(e) => self.notice = Some(tf!("Could not save the sort manager's folders: {e}", e)),
+            Err(e) => self
+                .notice
+                .give(tf!("Could not save the sort manager's folders: {e}", e)),
         }
     }
 
@@ -1232,7 +1237,8 @@ impl crate::App {
             } else if path.exists() {
                 self.visit(ui.ctx(), path);
             } else {
-                self.notice = Some(tf!("No such folder: {folder}", folder = path.display()));
+                self.notice
+                    .give(tf!("No such folder: {folder}", folder = path.display()));
             }
         }
         if !response.has_focus() {

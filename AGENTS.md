@@ -149,7 +149,7 @@ holds only its `mod` lines, and a new module goes into the folder of what it doe
 | `src/model/search.rs` | The search: fuzzy names and `exif:`, `re:`, `mark:` and `stars:` terms with `|`, `-` and `( )`, in parallel; the EXIF index (`exif_index`) |
 | `src/viewer.rs` | **The viewer/ folder:** the image area and what is done to the image shown: the view, the slideshow, pan view, crop and Save As |
 | `src/viewer/slideshow.rs` | The slideshow: its timer, order, fade and the next slide's rule (`next_slide`) |
-| `src/viewer/view.rs` | The image area: decoding the shown image and its neighbours, what belongs to the image shown (`Viewing`), zoom and fit, panes (`LAYOUTS`) and Compare, painting, the wheel |
+| `src/viewer/view.rs` | The image area: decoding the shown image and its neighbours, what belongs to the image shown (`Viewing`), zoom and fit, panes (`LAYOUTS`) and Compare, painting, the notice (`Notice`), the wheel |
 | `src/viewer/crop.rs` | Edit → Crop: the part dragged over the shown image, held by its path and the copy as shown |
 | `src/viewer/save_as.rs` | File → Save As: its dialog, and `App::shown_copy`, the copy of the image as shown that Crop and Save As start from |
 | `src/viewer/pan.rs` | Pan view: the list by day, its rows, the timeline and the calendar |
@@ -362,6 +362,10 @@ of that part. The exceptions are the tables of one arm per action (`Action::engl
   in `replace_files`.
 - **A UI text:** in `tr("…")` or `tf!("…", name)`, with its translation in every `po/*.po`
   (see Language).
+- **A notice** (the message over the image) is given with `self.notice.give(text)` and taken
+  away with `self.notice.clear()`, never assigned, so each one gets the number by which a
+  screen reader tells a notice given again
+  (`source_rules::notices_are_given_through_their_setter`).
 - **Non-trivial logic** (a parser, a loop with edge cases) gets one small `#[test]` that fails
   if it breaks. Tests must clean up the files they create.
 - **A parser of file contents** also gets a `survives_broken_*` test that feeds it

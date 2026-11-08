@@ -19,7 +19,7 @@ impl crate::App {
     /// file dialog's answer. The remote commands are taken in `logic` (main.rs) instead.
     pub(crate) fn poll_background(&mut self, ctx: &egui::Context) {
         if let Some(error) = crate::files::file_io::take_save_error() {
-            self.notice = Some(error);
+            self.notice.give(error);
         }
         self.receive_desktop(ctx);
         self.decoding
@@ -55,7 +55,7 @@ impl crate::App {
         self.receive_lightroom();
         self.receive_renames(ctx);
         while let Ok(msg) = self.notices.try_recv() {
-            self.notice = Some(msg);
+            self.notice.give(msg);
             ctx.request_repaint();
         }
         self.slideshow_tick(ctx);
@@ -96,7 +96,9 @@ impl crate::App {
                     self.written_anew(std::slice::from_ref(&path));
                     self.files_changed(ctx, &[path]);
                 }
-                Err(e) => self.notice = Some(tf!("Could not save the orientation: {e}", e)),
+                Err(e) => self
+                    .notice
+                    .give(tf!("Could not save the orientation: {e}", e)),
             }
         }
     }
@@ -135,7 +137,7 @@ impl crate::App {
             Took::Answer(Ok(catalog)) => {
                 self.lightroom = Some(lightroom::Import::new(catalog));
             }
-            Took::Answer(Err(e)) => self.notice = Some(e),
+            Took::Answer(Err(e)) => self.notice.give(e),
         }
     }
 
@@ -154,7 +156,7 @@ impl crate::App {
     /// A background thread ended without its answer (it panicked on something): told, so the
     /// user knows why `what` did not come, instead of a pointer or a dialog waiting for ever.
     pub(crate) fn tell_background_stopped(&mut self, what: &str) {
-        self.notice = Some(tf!("{what} stopped unexpectedly", what));
+        self.notice.give(tf!("{what} stopped unexpectedly", what));
     }
 
     /// Busy pointer while the folder is read (also sorted anew), a share mounted, work done in

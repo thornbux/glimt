@@ -484,7 +484,7 @@ impl crate::App {
             false => Vec::new(),
         };
         if found.is_empty() {
-            self.notice = Some(
+            self.notice.give(
                 tr("The files asked about are no longer in the list: nothing was done").into(),
             );
             return None;
@@ -514,16 +514,19 @@ impl crate::App {
         let busy =
             !saving && !writing && !renaming && (reading || self.is_changed_by_running_work(paths));
         if saving {
-            self.notice = Some(tr("Still saving a rotation: try again in a moment").into());
+            self.notice
+                .give(tr("Still saving a rotation: try again in a moment").into());
         } else if writing {
-            self.notice = Some(tr("Still writing keywords: try again in a moment").into());
+            self.notice
+                .give(tr("Still writing keywords: try again in a moment").into());
         } else if renaming {
-            self.notice = Some(tr("Rename Many is still renaming").into());
+            self.notice.give(tr("Rename Many is still renaming").into());
         } else if reading && !self.folder.is_listing() {
             // No listing runs that would check the list in a moment, so waiting would not help.
             self.tell_background_stopped(tr("Reading the folder"));
         } else if busy {
-            self.notice = Some(tr("Still working on these files: try again in a moment").into());
+            self.notice
+                .give(tr("Still working on these files: try again in a moment").into());
         }
         !saving && !writing && !renaming && !busy
     }
@@ -848,7 +851,7 @@ impl crate::App {
             .collect();
         let left = files.len() - names.len();
         if left > 0 {
-            self.notice = Some(tf!(
+            self.notice.give(tf!(
                 "The trash refused {count} ({kind}). Nothing was deleted, because another folder is open now.",
                 count = count(left, "file"),
                 kind
@@ -937,7 +940,7 @@ impl crate::App {
         // refused move keeps the view.
         let dest = crate::model::listing::real_dir(&dest);
         if let Some(text) = refused_transfer(&paths, &dest, is_copy, file_system_type_or_test) {
-            self.notice = Some(text);
+            self.notice.give(text);
             return;
         }
         // A copy changes none of the files it reads, but it holds them: a Rename Many that ran
@@ -1080,7 +1083,7 @@ impl crate::App {
             .collect();
         let unique: HashSet<&PathBuf> = to.iter().collect();
         if unique.len() < to.len() {
-            self.notice = Some(
+            self.notice.give(
                 tr("The pattern gives several files the same name; add # for a number").into(),
             );
             return;
@@ -1112,7 +1115,7 @@ impl crate::App {
         // A camera card refuses some characters. Saying so before the job starts names the
         // reason, where a rename that fails halfway would only give the system's error.
         if let Some(refused) = refused_on_fat(&to, file_system_type_or_test) {
-            self.notice = Some(not_renamed(refused));
+            self.notice.give(not_renamed(refused));
             return;
         }
         // It is a job like every other writer. Closing waits for it, the status bar counts it,
@@ -1163,13 +1166,13 @@ impl crate::App {
             .collect();
         if !errors.is_empty() {
             errors.extend(result.err());
-            self.notice = Some(tf!(
+            self.notice.give(tf!(
                 "Undo failed ({count}): {first}",
                 count = count(errors.len(), "error"),
                 first = errors[0]
             ));
         } else if let Err(e) = result {
-            self.notice = Some(e);
+            self.notice.give(e);
         }
         self.set_selection(ctx, Default::default());
         // A rename that was itself an undo is not undone again, so Ctrl+Z twice does not give
@@ -1239,7 +1242,7 @@ impl crate::App {
             || self.is_changed_by_running_work(std::slice::from_ref(&path))
         {
             let held = tr("The rotation was not saved: other work is still changing the file");
-            return self.notice = Some(held.into());
+            return self.notice.give(held.into());
         }
         let jpeg = crate::model::listing::is_jpeg(&path);
         let (rotate, quality) = (self.config.exif_rotate, self.config.webp_quality);
@@ -1359,7 +1362,7 @@ impl crate::App {
         // A camera card refuses some characters, and its own error would not say which.
         if let Some(refused) = refused_on_fat(std::slice::from_ref(&new), file_system_type_or_test)
         {
-            self.notice = Some(not_renamed(refused));
+            self.notice.give(not_renamed(refused));
             return;
         }
         // This runs in the background, because a folder on a share that stopped answering
@@ -1393,6 +1396,11 @@ impl crate::App {
             // The shown file is under the new name now, also for a turn not saved yet.
             Some(dir) => self.visit(ctx, dir),
             None => self.start_listing(ctx),
+        }
+        // The collection's file may have moved with the folder, and its watcher looks at the
+        // old name.
+        if self.folder.collection().is_some() {
+            self.start_watching(ctx);
         }
     }
 
@@ -1463,7 +1471,8 @@ impl crate::App {
         self.receive_operation_report(ctx);
         self.receive_renames(ctx);
         if Arc::strong_count(&self.file_operations.undo_on_the_way) > 1 {
-            self.notice = Some(tr("Still working on these files: try again in a moment").into());
+            self.notice
+                .give(tr("Still working on these files: try again in a moment").into());
             return;
         }
         // This asks before the undo is taken, so one that is refused stays to be done again.
@@ -1483,7 +1492,7 @@ impl crate::App {
             return;
         }
         let Some(undo) = self.file_operations.undo.take() else {
-            self.notice = Some(tr("Nothing to undo").into());
+            self.notice.give(tr("Nothing to undo").into());
             return;
         };
         let report_tx = self.file_operations.report_tx.clone();
@@ -2372,7 +2381,7 @@ mod tests {
         app.shuffle_list(&ctx, true);
         let sub = (app.list.files().iter()).position(|f| std::path::Path::new(f).ends_with("sub"));
         app.delete_now(&ctx, false, vec![sub.unwrap()]);
-        assert!(app.notice.is_some() && app.list.files().len() == 2);
+        assert!(app.notice.text().is_some() && app.list.files().len() == 2);
         assert!(run_background_until(&mut app, &ctx, |a| !a
             .folder
             .is_listing()));
@@ -2400,12 +2409,12 @@ mod tests {
         app.folder.hold_listing(rx);
         app.receive_listing(&ctx, std::time::Duration::ZERO);
         assert!(!app.folder.is_listing());
-        app.notice = None;
+        app.notice.clear();
         assert!(!app.are_free_to_change(&[]));
         // It says that the listing stopped, not that the files are still worked on.
         let what = crate::support::lang::tr("Reading the folder");
         let stopped = crate::tf!("{what} stopped unexpectedly", what);
-        assert_eq!(app.notice, Some(stopped));
+        assert_eq!(app.notice.text(), Some(stopped.as_str()));
         std::fs::remove_dir_all(d).unwrap();
     }
 
@@ -2484,12 +2493,16 @@ mod tests {
         let card = d.join("card").canonicalize().unwrap();
         super::test_mount(&card, Some("vfat"));
         for is_copy in [true, false] {
-            app.notice = None;
+            app.notice.clear();
             app.transfer(&ctx, files.clone(), d.join("card"), is_copy);
             // Refused before the files left the list, so the view stays where it was.
             assert!(listed(&app), "the refused files left the list");
-            assert!(run_background_until(&mut app, &ctx, |a| a.notice.is_some() && !a.working()));
-            let told = app.notice.clone().unwrap_or_default();
+            assert!(run_background_until(&mut app, &ctx, |a| a
+                .notice
+                .text()
+                .is_some()
+                && !a.working()));
+            let told = app.notice.text().unwrap_or_default().to_owned();
             assert!(
                 told.contains("\"12:30.png\"") && told.contains("vfat"),
                 "{told}"
@@ -2528,11 +2541,15 @@ mod tests {
         super::test_mount(&card, Some("vfat"));
         let files = vec![d.join("a.png"), d.join("12:30.png")];
         for is_copy in [true, false] {
-            app.notice = None;
+            app.notice.clear();
             app.transfer(&ctx, files.clone(), d.join("card"), is_copy);
             assert!(listed(&app), "the refused files left the list");
-            assert!(run_background_until(&mut app, &ctx, |a| a.notice.is_some() && !a.working()));
-            let told = app.notice.clone().unwrap_or_default();
+            assert!(run_background_until(&mut app, &ctx, |a| a
+                .notice
+                .text()
+                .is_some()
+                && !a.working()));
+            let told = app.notice.text().unwrap_or_default().to_owned();
             assert!(
                 told.contains("\"12:30.png\"") && told.contains("vfat"),
                 "{told}"
@@ -2542,7 +2559,11 @@ mod tests {
         app.transfer(&ctx, files, d.join("media/CARD/.."), true);
         assert!(run_background_until(&mut app, &ctx, |a| !a.working()));
         super::test_mount(&card, None);
-        assert!(d.join("media/12:30.png").exists(), "{:?}", app.notice);
+        assert!(
+            d.join("media/12:30.png").exists(),
+            "{:?}",
+            app.notice.text()
+        );
         std::fs::remove_dir_all(d).unwrap();
     }
 
@@ -2601,7 +2622,7 @@ mod tests {
         app.dialogs.act_on_folder(d.join("sub"));
         app.rename_folder(&ctx, "12:30");
         super::test_mount(&d, None);
-        let told = app.notice.clone().unwrap_or_default();
+        let told = app.notice.text().unwrap_or_default().to_owned();
         assert!(
             told.contains("\"12:30\"") && told.contains("exfat"),
             "{told}"
@@ -2774,7 +2795,7 @@ mod tests {
             None
         }));
         app.delete_now(&ctx, false, vec![0]);
-        assert!(a.exists() && app.notice.is_some());
+        assert!(a.exists() && app.notice.text().is_some());
         assert_eq!(app.list.files().len(), 2);
         app.file_operations.undo = Some(super::Undo::Move(vec![(
             a.clone(),
@@ -2948,7 +2969,7 @@ mod tests {
                     app.transfer(ctx, vec![d.join("a.png")], d.join("sub"), false);
                     // This waits only when the operation started. When it was held back, it
                     // says so, and there is nothing to wait for.
-                    if app.notice.is_none() {
+                    if app.notice.text().is_none() {
                         run_background_until(app, ctx, |app| app.file_operations.undo.is_some());
                     }
                     app.undo(ctx);
@@ -2967,7 +2988,7 @@ mod tests {
                     app.rename_in_background(ctx, vec![d.join("a.png")], vec![d.join("c.png")]);
                     // This waits only when the operation started. When it was held back, it
                     // says so, and there is nothing to wait for.
-                    if app.notice.is_none() {
+                    if app.notice.text().is_none() {
                         run_background_until(app, ctx, |app| app.file_operations.undo.is_some());
                     }
                     app.undo(ctx);
@@ -3013,7 +3034,7 @@ mod tests {
                     app.delete_now(ctx, true, vec![0]);
                     // This waits only when the operation started. When it was held back, it
                     // says so, and there is nothing to wait for.
-                    if app.notice.is_none() {
+                    if app.notice.text().is_none() {
                         run_background_until(app, ctx, |app| app.file_operations.undo.is_some());
                     }
                     app.undo(ctx);
@@ -3108,14 +3129,17 @@ mod tests {
                 None
             }));
             if name != "keywords" {
-                app.notice = None;
+                app.notice.clear();
                 op(&mut app, &ctx, &d);
                 std::thread::sleep(std::time::Duration::from_millis(100));
                 app.poll_background(&ctx);
                 let before = ["a.png", "b.png"].iter().all(|f| d.join(f).exists())
                     && side(&d.join("a.png")) == "a"
                     && side(&d.join("b.png")) == "b";
-                assert!(before && app.notice.is_some(), "{name}: not held back");
+                assert!(
+                    before && app.notice.text().is_some(),
+                    "{name}: not held back"
+                );
             }
             go.send(()).unwrap();
             assert!(run_background_until(&mut app, &ctx, |app| app
@@ -3124,7 +3148,7 @@ mod tests {
                 .iter()
                 .all(|t| std::sync::Arc::strong_count(t) == 1)));
             // Then it runs, and what follows the file comes along.
-            app.notice = None;
+            app.notice.clear();
             op(&mut app, &ctx, &d);
             assert!(
                 run_background_until(&mut app, &ctx, |app| check(app, &d)),
@@ -3417,7 +3441,7 @@ mod tests {
             std::fs::rename(dir.join("new"), path).unwrap();
         };
         let refused =
-            |app: &crate::App| (app.notice.as_deref()).is_some_and(|n| n.contains("Undo failed"));
+            |app: &crate::App| (app.notice.text()).is_some_and(|n| n.contains("Undo failed"));
         let cases = ["move", "rename"].into_iter().flat_map(|kind| {
             [(false, false), (true, false), (false, true)].map(|(s, i)| (kind, s, i))
         });
@@ -3445,7 +3469,7 @@ mod tests {
                 app.written_anew(std::slice::from_ref(&now));
             }
             replace(&now, in_place);
-            app.notice = None;
+            app.notice.clear();
             app.undo(&ctx);
             assert!(run_background_until(&mut app, &ctx, |app| !app.working() && refused(app)));
             assert!(
@@ -3571,7 +3595,8 @@ mod tests {
             && !app.working()));
         std::fs::write(&a, b"another").unwrap();
         app.undo(&ctx);
-        assert!(run_background_until(&mut app, &ctx, |app| !app.working() && app.notice.is_some()));
+        assert!(run_background_until(&mut app, &ctx, |app| !app.working()
+            && app.notice.text().is_some()));
         assert!(
             b.exists() && app.file_operations.undo.is_some(),
             "the Undo was lost"
@@ -3744,7 +3769,7 @@ mod tests {
         app.receive_operation_report(&ctx);
         app.undo(&ctx);
         let refused =
-            |app: &crate::App| (app.notice.as_deref()).is_some_and(|n| n.contains("Undo failed"));
+            |app: &crate::App| (app.notice.text()).is_some_and(|n| n.contains("Undo failed"));
         assert!(run_background_until(&mut app, &ctx, |app| !app.working() && refused(app)));
         assert!(!a.exists(), "the other image was moved back as a.png");
         assert!(moved.exists());
@@ -3861,9 +3886,10 @@ mod tests {
         app.file_operations.report_tx.send(elsewhere).unwrap();
         assert!(run_background_until(&mut app, &ctx, |app| app
             .notice
+            .text()
             .is_some()));
         assert!(!app.modal_open());
-        let told = app.notice.take().unwrap();
+        let told = app.notice.set_aside().unwrap().0;
         assert!(told.contains("2 files (fuse.rclone)"), "{told}");
         // The delete takes the file out of the list as it starts, as `delete_now` does.
         app.file_operations.deleting.insert("a.png".into());
@@ -4110,10 +4136,9 @@ mod tests {
         assert!(run_background_until(&mut app, &ctx, |a| !a
             .folder
             .is_listing()));
-        app.notice = None;
+        app.notice.clear();
         app.delete_now(&ctx, false, vec![0]);
-        let told =
-            |app: &crate::App| (app.notice.as_deref()).is_some_and(|n| n.contains("a.png.xmp"));
+        let told = |app: &crate::App| (app.notice.text()).is_some_and(|n| n.contains("a.png.xmp"));
         assert!(run_background_until(&mut app, &ctx, told));
         assert!(!a.exists());
         std::fs::remove_dir_all(dir).unwrap();
@@ -4149,10 +4174,10 @@ mod tests {
         let held = app
             .start_job_of("Moving", 1, false, vec![a.clone()])
             .unwrap();
-        app.notice = None;
+        app.notice.clear();
         app.save_orientation(&ctx);
         assert!(
-            app.file_operations.saving.is_empty() && app.notice.is_some(),
+            app.file_operations.saving.is_empty() && app.notice.text().is_some(),
             "saved while held"
         );
         drop(held);
@@ -4182,7 +4207,10 @@ mod tests {
         // When the folder is there already, a notice says so, and nothing else is made.
         app.run(&ctx, crate::ui::actions::Action::NewFolder);
         app.act_on_prompt_answer(&ctx, crate::ui::dialogs::Prompt::NewFolder, "trip");
-        assert!(run_background_until(&mut app, &ctx, |a| a.notice.is_some()));
+        assert!(run_background_until(&mut app, &ctx, |a| a
+            .notice
+            .text()
+            .is_some()));
         std::fs::remove_dir_all(d).unwrap();
     }
 

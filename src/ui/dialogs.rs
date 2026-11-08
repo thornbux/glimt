@@ -295,7 +295,7 @@ impl crate::App {
         // One at a time: only one answer is waited for, and a second dialog's would replace the
         // first's, whose copy or move would then never happen.
         if self.dialogs.file_dialog.is_some() {
-            self.notice = Some(tr("A file dialog is open already").into());
+            self.notice.give(tr("A file dialog is open already").into());
             return;
         }
         let (tx, rx) = mpsc::channel();
@@ -482,10 +482,10 @@ impl crate::App {
         };
         {
             // "Connecting to …" goes: the folder, the error or the login takes its place.
-            self.notice = None;
+            self.notice.clear();
             match done {
                 (Ok(path), _) => self.visit(ctx, path),
-                (Err(Some(e)), _) => self.notice = Some(e),
+                (Err(Some(e)), _) => self.notice.give(e),
                 // Ask for the login; the user name defaults to this one, as gio's does.
                 (Err(None), login) => {
                     let user = std::env::var("USER").unwrap_or_default();
@@ -567,10 +567,11 @@ impl crate::App {
             // The window follows only when it still shows the collection it asked about.
             Ok(new) if self.folder.collection() == Some(old.as_path()) => {
                 self.folder.collection_renamed(new);
+                self.start_watching(ctx);
                 self.update_window_title(ctx);
             }
             Ok(_) => {}
-            Err(e) => self.notice = Some(e),
+            Err(e) => self.notice.give(e),
         }
     }
 
@@ -598,14 +599,14 @@ impl crate::App {
             }
             return match collections::new_file(text) {
                 Ok(file) => self.add_to_collection(ctx, &file),
-                Err(e) => self.notice = Some(e),
+                Err(e) => self.notice.give(e),
             };
         }
         if let Prompt::RenameCollection = prompt {
             return self.rename_collection(ctx, text);
         }
         if text.is_empty() || text.contains('/') || text == "." || text == ".." {
-            self.notice = Some(tf!("Not a valid name: \"{text}\"", text));
+            self.notice.give(tf!("Not a valid name: \"{text}\"", text));
             return;
         }
         if let Prompt::SaveTheme = prompt {
@@ -626,7 +627,7 @@ impl crate::App {
                     _ => e.to_string(),
                 })
             });
-            self.notice = Some(match saved {
+            self.notice.give(match saved {
                 Ok(f) => {
                     self.config.theme = text.to_owned();
                     self.config.save();
@@ -1429,11 +1430,11 @@ mod tests {
         app.run(&ctx, crate::ui::actions::Action::NewCollection);
         app.list.set_matches(Some(vec![1, 2]));
         let other = format!("{name}-hidden");
-        app.notice = None;
+        app.notice.clear();
         app.act_on_prompt_answer(&ctx, super::Prompt::NewCollection, &other);
         let hides =
             crate::support::lang::tr("The search hides files this would act on: clear it first");
-        assert_eq!(app.notice.as_deref(), Some(hides));
+        assert_eq!(app.notice.text(), Some(hides));
         assert_eq!(app.list.selected_with_hidden(), [0, 1].into());
         let dir_of = crate::model::collections::collections_dir().unwrap();
         assert!(!dir_of.join(format!("{other}.gqv")).exists());

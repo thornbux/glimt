@@ -184,7 +184,7 @@ impl crate::App {
     /// Show everything through the screen profile in `path` (empty: none, the screen is sRGB).
     pub(crate) fn set_screen_profile(&mut self, path: String) {
         if let Err(e) = set_screen(&path) {
-            self.notice = Some(e);
+            self.notice.give(e);
             return;
         }
         self.config.screen_profile = path;
@@ -212,14 +212,14 @@ impl crate::App {
         match set_screen(&path) {
             Ok(false) => {}
             Ok(true) => self.redecode(),
-            Err(e) => self.notice = Some(e),
+            Err(e) => self.notice.give(e),
         }
     }
 
     /// The profile for images without one: srgb, adobe, p3 or an ICC file.
     pub(crate) fn set_input_profile(&mut self, name: String) {
         if let Err(e) = set_input(&name) {
-            self.notice = Some(e);
+            self.notice.give(e);
             return;
         }
         self.config.input_profile = name;
@@ -590,12 +590,13 @@ impl crate::App {
                 (targets.iter().map(|&i| self.path(i))).partition(|p| tool.accepts(p));
             let name = &tool.name;
             if files.is_empty() {
-                self.notice = Some(tf!("{name} takes none of these files", name));
+                self.notice
+                    .give(tf!("{name} takes none of these files", name));
                 return;
             }
             if !left.is_empty() {
                 let files = count(left.len(), "file");
-                self.notice = Some(tf!(
+                self.notice.give(tf!(
                     "{name} leaves out {files} of a type it does not take",
                     name,
                     files

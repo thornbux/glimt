@@ -94,29 +94,25 @@ impl App {
 /// it knows, not always one that appears with its text. A notice given again with the same text
 /// is read out again too. Its status then gains or loses a space at its end, because an
 /// unchanged status is not read out.
-pub(crate) fn speak_notice(ui: &egui::Ui, area: egui::Rect, notice: Option<&str>) {
+pub(crate) fn speak_notice(ui: &egui::Ui, area: egui::Rect, notice: &crate::viewer::view::Notice) {
     let id = egui::Id::unique("glimt-notice");
-    // A notice given again is a new String, made while the one before is still held, so the
-    // address of its text tells it from the notice already read out, also when the text is the
-    // same.
-    // shortcut: a notice taken away and given again with the same text within one frame may
-    // get the old address back and is not read out again; give each notice a number of its own
-    // if that is ever heard missing.
-    let address = notice.map(|text| text.as_ptr() as usize);
-    let (last_address, last_status) = (ui.ctx())
-        .data(|d| d.get_temp::<(Option<usize>, String)>(id))
+    // Each notice given has a number of its own, which tells a notice given again from the one
+    // already read out, also when the text is the same.
+    let number = notice.number();
+    let (last_number, last_status) = (ui.ctx())
+        .data(|d| d.get_temp::<(Option<u64>, String)>(id))
         .unwrap_or_default();
-    let text = notice.unwrap_or_default();
+    let text = notice.text().unwrap_or_default();
     let status = if last_status.trim_end() != text {
         text.to_owned()
-    } else if address == last_address {
+    } else if number == last_number {
         last_status
     } else if last_status.ends_with(' ') {
         text.to_owned()
     } else {
         format!("{text} ")
     };
-    (ui.ctx()).data_mut(|d| d.insert_temp(id, (address, status.clone())));
+    (ui.ctx()).data_mut(|d| d.insert_temp(id, (number, status.clone())));
     // A line along the area's foot, where the notice shows, and not an empty box, which a
     // screen reader may leave out as outside what it is in.
     let at = egui::Rect::from_min_max(
@@ -204,18 +200,18 @@ mod tests {
             found
         };
         assert_eq!(status(&mut app, false), Some((String::new(), true)));
-        app.notice = Some("Copied 1 file".into());
+        app.notice.give("Copied 1 file".into());
         assert_eq!(
             status(&mut app, false),
             Some(("Copied 1 file".into(), true))
         );
-        app.notice = Some("Moved 1 file".into());
+        app.notice.give("Moved 1 file".into());
         assert_eq!(status(&mut app, true), Some(("Moved 1 file".into(), true)));
         // The same notice given again is read out again: its status changes, but not in the
         // frames that only show it, and back and forth for each time it is given.
         let mut heard = vec!["Moved 1 file".to_owned()];
         for _ in 0..2 {
-            app.notice = Some("Moved 1 file".into());
+            app.notice.give("Moved 1 file".into());
             let (again, _) = status(&mut app, true).unwrap();
             assert_eq!(again.trim_end(), "Moved 1 file");
             assert_ne!(
@@ -226,6 +222,16 @@ mod tests {
             heard.push(again);
             assert_eq!(status(&mut app, true).map(|s| s.0).as_ref(), heard.last());
         }
+        // A notice given twice before a frame is read out again too. Its text often got the
+        // address of the text it replaced, which was how a notice given again was told before.
+        app.notice.give("Moved 1 file".into());
+        app.notice.give("Moved 1 file".into());
+        let (again, _) = status(&mut app, true).unwrap();
+        assert_ne!(
+            Some(&again),
+            heard.last(),
+            "the second notice was not read out"
+        );
         std::fs::remove_dir_all(&dir).unwrap();
     }
 }

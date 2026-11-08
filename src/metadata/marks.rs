@@ -42,7 +42,7 @@ impl Marks {
     /// that failed, what the file kept. Not while this window's own changes are still on their
     /// way to it: those would be read back as they were before.
     pub fn refresh(&mut self) {
-        if WRITING.load(std::sync::atomic::Ordering::Relaxed) > 0 {
+        if own_writes_queued() {
             return;
         }
         let Some(file) = marks_file() else { return };
@@ -93,8 +93,18 @@ impl Marks {
             .filter(|k| k.ancestors().any(|a| gone.contains(a)))
             .cloned()
             .collect();
-        let was: Vec<(PathBuf, (u8, u8))> =
+        let mut was: Vec<(PathBuf, (u8, u8))> =
             marked.iter().map(|p| (p.clone(), self.get(p))).collect();
+        // While this window's own writes are queued, the refresh above is skipped, and the
+        // marks that another window set meanwhile are only in the file. They are taken from
+        // there too, so that an Undo of the delete puts them back.
+        if own_writes_queued() {
+            let text = marks_file().and_then(|f| crate::images::decode::read_limited(f).ok());
+            let in_file = parse(&text.unwrap_or_default());
+            was.extend(in_file.into_iter().filter(|(k, _)| {
+                !self.by_path.contains_key(k) && k.ancestors().any(|a| gone.contains(a))
+            }));
+        }
         // The file forgets every mark under the names, not only those this window knows. A
         // refresh is skipped while this window's own writes are queued, and the marks another
         // window set meanwhile would else stay on a name that is gone.
@@ -157,6 +167,9 @@ type FileStamp = (u64, std::time::SystemTime);
 thread_local! {
     static TEST_FILE: std::cell::RefCell<Option<PathBuf>> = const { std::cell::RefCell::new(None) };
     static SENT: std::cell::RefCell<Vec<Edit>> = const { std::cell::RefCell::new(Vec::new()) };
+    /// Whether a test takes this window's own writes as queued. `WRITING` is shared by the
+    /// tests that run side by side, so a test that raised it would skip their refreshes too.
+    static TEST_WRITES_QUEUED: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
 }
 
 /// What a window did, applied to the file as it is then.
@@ -195,6 +208,15 @@ fn known_stamps()
     KNOWN_STAMPS
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
+/// Returns whether this window's own changes are still on their way to the marks file.
+fn own_writes_queued() -> bool {
+    #[cfg(test)]
+    if TEST_WRITES_QUEUED.with(std::cell::Cell::get) {
+        return true;
+    }
+    WRITING.load(std::sync::atomic::Ordering::Relaxed) > 0
 }
 
 pub(crate) fn marks_file() -> Option<PathBuf> {
@@ -489,6 +511,31 @@ mod tests {
         super::write(&file, &sent);
         let now = super::parse(&std::fs::read(&file).unwrap());
         assert_eq!(now, std::collections::HashMap::from([(c.clone(), (0, 3))]));
+        super::TEST_FILE.with(|f| *f.borrow_mut() = None);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A delete while this window's own writes are queued returns, for Undo, also the marks
+    /// that another window set meanwhile, which this window has not read. The file forgot them,
+    /// so before this an Undo of the delete brought the file back without them.
+    #[test]
+    fn a_delete_keeps_for_undo_the_marks_not_read_yet() {
+        let dir =
+            std::env::temp_dir().join(format!("glimt-test-marks-undo-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("marks");
+        super::TEST_FILE.with(|f| *f.borrow_mut() = Some(file.clone()));
+        let (a, b) = (dir.join("a.png"), dir.join("b.png"));
+        let mut marks = super::Marks::default();
+        marks.rate(std::slice::from_ref(&a), 4);
+        // Another window marked b.png while this window's stars of a.png were still queued.
+        let text = format!("0\t2\t{}\n", b.display());
+        std::fs::write(&file, text).unwrap();
+        super::TEST_WRITES_QUEUED.with(|q| q.set(true));
+        let mut was = marks.forget(&[a.clone(), b.clone()]);
+        super::TEST_WRITES_QUEUED.with(|q| q.set(false));
+        was.sort();
+        assert_eq!(was, [(a, (0, 4)), (b, (0, 2))]);
         super::TEST_FILE.with(|f| *f.borrow_mut() = None);
         std::fs::remove_dir_all(dir).unwrap();
     }

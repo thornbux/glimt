@@ -317,7 +317,8 @@ impl crate::App {
         if self.list.selected().len() == find_duplicates.checked.len() {
             self.request_delete(ctx, true);
         } else {
-            self.notice = Some(tr("The checked files are no longer all in the list").into());
+            self.notice
+                .give(tr("The checked files are no longer all in the list").into());
         }
     }
 }
@@ -745,7 +746,7 @@ mod tests {
         find_duplicates.checked = [dir.join("a.png"), dir.join("b.png")].into();
         app.trash_checked(&ctx, &find_duplicates);
         let hides = "The search hides files this would act on: clear it first";
-        assert_eq!(app.notice.as_deref(), Some(crate::support::lang::tr(hides)));
+        assert_eq!(app.notice.text(), Some(crate::support::lang::tr(hides)));
         assert_eq!(app.list.selected(), &[2].into());
         assert!(!app.asking_about_selection());
         std::fs::remove_dir_all(dir).unwrap();

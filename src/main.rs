@@ -114,7 +114,7 @@ struct App {
     /// what is being edited.
     info_panel: crate::ui::info_panel::InfoPanel,
     /// The message shown over the image, until the next image.
-    notice: Option<String>,
+    notice: crate::viewer::view::Notice,
     /// Messages from background tasks (deleting, copying), to become the notice.
     notice_sender: crate::support::threads::NoticeSender,
     notices: mpsc::Receiver<String>,
@@ -239,7 +239,9 @@ impl App {
             slideshow: crate::viewer::slideshow::Slideshow::new(start.slideshow),
             window: crate::ui::window::Window::new(start.kiosk),
             info_panel: crate::ui::info_panel::InfoPanel::new(ctx),
-            notice: screen_error.or_else(|| config_notice(problems)),
+            notice: crate::viewer::view::Notice::new(
+                screen_error.or_else(|| config_notice(problems)),
+            ),
             notice_sender,
             notices,
             dialogs: crate::ui::dialogs::Dialogs::default(),
@@ -360,7 +362,7 @@ impl eframe::App for App {
         self.answer_waiting_selects();
         crate::features::remote::stop(|| self.answer_waiting_selects());
         let ctx = self.ctx.clone();
-        self.save_metadata_edit(&ctx);
+        self.take_last_reports_before_exit(&ctx);
         // shortcut: the path is stored as UTF-8, lossless for ordinary paths; store its bytes
         // if a folder name that is not UTF-8 must be remembered.
         let mut state = String::new();
