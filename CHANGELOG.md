@@ -97,6 +97,9 @@ and versions follow [Semantic Versioning](https://semver.org/).
   having none, as a broken file is, instead of costing 30 seconds at every visit.
 - Export Frames saves at most the first 1,000 frames of an animation, as many as the view keeps,
   so an animation of a million tiny frames is not hours of work and gigabytes of files.
+- `glimt --check-config` on an account with no settings file yet says that the defaults are
+  used and exits with 0, as Glimt starts without a problem then. It said that the file cannot be
+  read and exited with 1. A FILE named on the command line that is not there still exits with 1.
 - Glimt's remote control serves at most 16 clients at once, and reads a command other than
   `select` up to 64 KB, so a program that connects to its socket again and again, or sends
   without end, can no longer take a thread for each and 400 MB of memory for each line.
