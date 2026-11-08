@@ -3842,6 +3842,9 @@ all_tags() { exiftool -a -ee3 -G0:1 -s "$1" 2>/dev/null | grep -v '^\[File:'; }
 # What Remove All and Place must leave out, as all_tags prints it.
 place_tags='gps|latitude|longitude|altitude'
 private_tags="$place_tags|serial|makernote|^\[(MakerNotes|JUMBF)|keywords|hierarchicalsubject|tagslist|\] *Subject "
+# What a copy keeps of an iPhone's maker note on purpose: the two values its gain map is shown
+# with, and nothing else of the note.
+hdr_tags='^\[MakerNotes:Apple\] (HDRHeadroom|HDRGain) '
 copy_shared $d/all
 copy_shared $d/place Place
 samples=$(ls $d/in | tr '\n' ' ')
@@ -3850,7 +3853,7 @@ expect "every sample copied with Place" "$(ls $d/place | tr '\n' ' ')" "$samples
 for name in $(ls $d/in); do
     in=$d/in/$name all=$d/all/$name place=$d/place/$name
     expect_empty "$name, Remove All: no place, serial number, maker note, credentials or keyword" \
-        "$(all_tags $all | grep -iE "$private_tags")"
+        "$(all_tags $all | grep -iE "$private_tags" | grep -vE "$hdr_tags")"
     expect "$name, Remove All: the orientation kept" \
         "o=$(exiftool -s3 -n -Orientation $all)" "o=$(exiftool -s3 -n -Orientation $in)"
     expect "$name, Remove All: the colour profile kept" \
