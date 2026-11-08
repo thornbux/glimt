@@ -1166,12 +1166,16 @@ pub(crate) fn packet(properties: &Properties) -> Vec<u8> {
     out.into_bytes()
 }
 
-/// `text` as XML character data or an attribute's value. The control characters that XML 1.0
-/// does not allow (all below U+0020 but tab, line feed and carriage return) are left out, as no
-/// entity can stand for them either. Left in, they make the whole sidecar unreadable for exiv2,
-/// and so for darktable and digiKam. A comment pasted from a PDF may hold a form feed.
+/// `text` as XML character data or an attribute's value. The characters that XML 1.0 does not
+/// allow (the control characters below U+0020 but tab, line feed and carriage return, and the
+/// noncharacters U+FFFE and U+FFFF) are left out, as no entity can stand for them either. Left
+/// in, they make the whole sidecar unreadable for exiv2, and so for darktable and digiKam. A
+/// comment pasted from a PDF may hold a form feed.
 pub(crate) fn escape(text: &str) -> String {
-    text.replace(|c: char| c < ' ' && !matches!(c, '\t' | '\n' | '\r'), "")
+    let not_allowed = |c: char| {
+        (c < ' ' && !matches!(c, '\t' | '\n' | '\r')) || matches!(c, '\u{fffe}' | '\u{ffff}')
+    };
+    text.replace(not_allowed, "")
         .replace('&', "&amp;")
         .replace('<', "&lt;")
         .replace('>', "&gt;")
@@ -1613,17 +1617,19 @@ mod tests {
         assert!(names.contains(&"dc:subject".to_owned()), "{names:?}");
     }
 
-    /// A control character in a comment or keyword, typed, pasted or read as `&#1;`, is left
-    /// out of the sidecar, which stays well-formed XML for exiv2.
+    /// A control character or noncharacter in a comment or keyword, typed, pasted or read as
+    /// `&#1;`, is left out of the sidecar, which stays well-formed XML for exiv2.
     #[test]
     fn control_characters_are_not_written() {
         let meta = KeywordsAndComment {
-            keywords: vec![unescape("Oslo&#1;")],
-            comment: "page\u{c}break\ttab\nline".into(),
+            keywords: vec![unescape("Oslo&#1;&#xFFFF;")],
+            comment: "page\u{c}break\ttab\nline\u{fffe}".into(),
         };
         let written = set_keywords_and_comment("<rdf:Description rdf:about=\"\">", &meta, false);
         let written = written.unwrap();
-        let allowed = |c: char| c >= ' ' || matches!(c, '\t' | '\n' | '\r');
+        let allowed = |c: char| {
+            (c >= ' ' || matches!(c, '\t' | '\n' | '\r')) && !matches!(c, '\u{fffe}' | '\u{ffff}')
+        };
         assert!(written.chars().all(allowed), "{written:?}");
         assert_eq!(parse(&written).keywords, ["Oslo"]);
         assert_eq!(parse(&written).comment, "pagebreak\ttab\nline");

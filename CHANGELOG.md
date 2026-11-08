@@ -90,8 +90,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 - A comment, alt text or extended description in several languages keeps them all when it is
   edited. The panel shows the default language (x-default), or else the first, and an edit
   replaces only that one; before, it showed the first and wrote it alone as the default.
-- A control character in a comment or keyword, such as a form feed pasted from a PDF, is left
-  out of the sidecar. Written there, it made the sidecar unreadable for darktable and digiKam.
+- A control character in a comment or keyword, such as a form feed pasted from a PDF, or the
+  noncharacter U+FFFE or U+FFFF, is left out of the sidecar. Written there, it made the sidecar unreadable for darktable and digiKam.
 - A sidecar whose namespace is declared with spaces around the equals sign, or whose first
   description has a '>' in a value, keeps being XML when keywords or stars are written. An old
   packet's xap:Rating is changed instead of getting a second rating beside it.
