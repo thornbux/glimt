@@ -115,3 +115,12 @@ tags" reads the selected files, where the last choice is kept, and the code stru
   altitude in it is in Place.
 - The tags are listed from the head of each file (up to its image data), and a format other
   than JPEG, PNG and WebP is known from its first bytes, so a large selection lists quickly.
+
+## After audit round 2 (2026-11-08)
+
+- A single tag can belong to several groups (`Group::groups_of`: word rules on the whole name,
+  with `GROUP_EXCEPTIONS` beside them) and goes when any of them is ticked; GPS dates are Date
+  and Place, raw file names Date and Photographer.
+- An Ultra HDR gain map (the MPF image with hdrgm XMP) is kept without its EXIF or other tags,
+  with only its hdrgm XMP and a new MPF index, so the copy looks the same on an HDR screen.
+- Content credentials (C2PA) are never carried: every copy changes the bytes they sign.
