@@ -120,7 +120,12 @@ const GROUP_EXCEPTIONS: &[(&str, &[Group])] = &[
     ("plus:ModelReleaseID", &[Group::Photographer]),
     // EXIF 3.0's name of the main person who edited the image.
     ("ImageEditor", &[Group::Photographer]),
-    ("HostComputer", &[Group::Software]),
+    // An iPhone writes its model here, and a computer may write its own name, which often
+    // names its user.
+    (
+        "HostComputer",
+        &[Group::Camera, Group::Photographer, Group::Software],
+    ),
     ("xmp:CreatorTool", &[Group::Software]),
     // The files a photo was made from, by their paths, names and dates, and the programs.
     // digiKam's history names the original's folder and file, and Photoshop's history log
@@ -384,7 +389,8 @@ const KNOWN_NAMES: &[&str] = &[
     "aux:EnhanceDenoiseLumaAmount",
     "aux:FujiRatingAlreadyApplied",
     // PLUS, the licence of the image, from exiftool's PLUS table. Its free texts (the notes,
-    // the other conditions, Custom1 to Custom10) and the model's age may say anything.
+    // the other conditions, the licensee's project, Custom1 to Custom10) and the model's age
+    // may say anything.
     "plus:Version",
     "plus:Licensee",
     "plus:EndUser",
@@ -421,7 +427,6 @@ const KNOWN_NAMES: &[&str] = &[
     "plus:LicenseID",
     "plus:LicensorTransactionID",
     "plus:LicenseeTransactionID",
-    "plus:LicenseeProjectReference",
     "plus:LicenseTransactionDate",
     "plus:Reuse",
     "plus:OtherLicenseDocuments",
@@ -457,7 +462,7 @@ const KNOWN_NAMES: &[&str] = &[
     "drone-dji:RtkStdHgt",
     "drone-dji:UTCAtExposure",
     // Google's camera: the flags of a motion photo, a burst and a portrait, from exiftool's
-    // GCamera table. Its maker notes and its shot log may hold anything.
+    // GCamera table. Its maker notes, its shot log and its portrait note may hold anything.
     "GCamera:MotionPhoto",
     "GCamera:MotionPhotoVersion",
     "GCamera:MicroVideo",
@@ -467,7 +472,6 @@ const KNOWN_NAMES: &[&str] = &[
     "GCamera:BurstPrimary",
     "GCamera:SpecialTypeID",
     "GCamera:PortraitVersion",
-    "GCamera:PortraitNote",
     "GCamera:DisableAutoCreation",
     "GCamera:DisableSuggestedAction",
     // Google's panoramas, from exiftool's GPano table.
@@ -2615,8 +2619,8 @@ mod tests {
     /// with the groups they say something of, and only those.
     #[test]
     fn the_tags_of_round_3_go_with_their_groups() {
-        use super::Group::{self, Date, Keywords, Photographer, Place, Software};
-        let tags: [(&str, &[Group]); 17] = [
+        use super::Group::{self, Camera, Date, Keywords, Photographer, Place, Software};
+        let tags: [(&str, &[Group]); 20] = [
             ("MP:RegionInfo", &[Keywords]),
             ("Iptc4xmpExt:Event", &[Keywords]),
             ("Iptc4xmpExt:OrganisationInImageName", &[Keywords]),
@@ -2635,6 +2639,11 @@ mod tests {
             // Round 4: a history that names the files it was made from, by path or name.
             ("digiKam:ImageHistory", &[Date, Photographer, Software]),
             ("photoshop:History", &[Date, Photographer, Software]),
+            // Round 5: an iPhone writes its model here, and a computer may write its own name.
+            ("HostComputer", &[Camera, Photographer, Software]),
+            // Round 5: free texts that may say anything, so every group.
+            ("GCamera:PortraitNote", &Group::ALL),
+            ("plus:LicenseeProjectReference", &Group::ALL),
         ];
         let mut wrong = Vec::new();
         for (tag, groups) in tags {
