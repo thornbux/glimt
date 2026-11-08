@@ -137,7 +137,7 @@ holds only its `mod` lines, and a new module goes into the folder of what it doe
 | `src/features/print.rs` | Printing: a PDF of the images, sent to `lp` or saved, and the print dialog |
 | `src/features/remote.rs` | `--remote`, `--remote-all` and `--name`: a socket for each Glimt in `$XDG_RUNTIME_DIR/glimt`, `COMMANDS`, the sender (`client`) and the listener |
 | `src/images.rs` | **The images/ folder:** from a file to pixels and back: decoding, RAW, colour, video, added formats, thumbnails and saving |
-| `src/images/decode.rs` | An image file to pixels at the size shown: scaled JPEG, animations, the histogram; `read_limited`, `read_text` and `read_head`, the one way a file is read whole |
+| `src/images/decode.rs` | An image file to pixels at the size shown: scaled JPEG, animations, the histogram; the bytes every decode takes from one shared budget before it allocates (`reserve_from_budget`, `start_decode_job`, `DECODE_BUDGET`); `read_limited`, `read_text` and `read_head`, the one way a file is read whole |
 | `src/images/svg.rs` | SVG and SVGZ through resvg (feature `svg`): `load`, which draws in a child process of Glimt's own program with a limit of memory and time (`draw_in_child`, `draw_for_parent`), with limits on the text unpacked, the pictures linked and entities that grow |
 | `src/images/added_formats.rs` | Added formats: programs in `glimt/formats` that turn other formats into images |
 | `src/images/colour.rs` | Colour management: ICC profiles, the screen profile (also from colord), rendering intent |

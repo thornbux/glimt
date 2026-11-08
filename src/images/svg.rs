@@ -174,6 +174,10 @@ fn draw_in_child(
     let side = |s: u32| u64::from(s.min(LONGEST_SIDE)) + 1;
     let [w, h] = max.unwrap_or([LONGEST_SIDE; 2]);
     let picture = side(w) * side(h) * 4;
+    // What the child may take, and the picture as read here, count against the decodes'
+    // shared budget while it draws.
+    let _reserved =
+        crate::images::decode::reserve_from_budget(CHILD_MEMORY + picture.min(CHILD_MEMORY))?;
     let mut command = crate::files::external::stoppable_command("/proc/self/exe");
     command.args(CHILD_ARGS).env(DRAW_SVG, path);
     if let Some([w, h]) = max {

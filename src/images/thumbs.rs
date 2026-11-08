@@ -32,6 +32,8 @@ fn thumbnail_in(
     if !crate::images::decode::is_regular_file(path) {
         return Err("not a regular file".into());
     }
+    // The cached thumbnail and the image decoded take from the decodes' shared budget as one job.
+    let _job = crate::images::decode::start_decode_job();
     let (size, folder) = SIZES[large as usize];
     // The time is in whole seconds, as the spec has it, so the size tells apart two photos of a
     // burst that took each other's name in the same second (Rename Many).
