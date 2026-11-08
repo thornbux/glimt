@@ -1840,10 +1840,17 @@ impl crate::App {
 
 /// Returns `path` in double quotes, as Geeqie's Copy Path gives it, with a backslash before each
 /// `$`, `` ` ``, `"` and `\`. A shell still reads those inside double quotes, so a file name
-/// such as `$(command).jpg` would run its command when the path is pasted into a terminal.
+/// such as `$(command).jpg` would run its command when the path is pasted into a terminal. A `!`
+/// is put in single quotes between the double-quoted parts, because an interactive bash or zsh
+/// expands it to an earlier command line inside double quotes, and a backslash there would stay
+/// in the name.
 fn quoted_for_shell(path: &str) -> String {
     let mut quoted = String::from('"');
     for c in path.chars() {
+        if c == '!' {
+            quoted.push_str("\"'!'\"");
+            continue;
+        }
         if matches!(c, '$' | '`' | '"' | '\\') {
             quoted.push('\\');
         }
@@ -3447,13 +3454,18 @@ mod tests {
         std::fs::remove_dir_all(dir).unwrap();
     }
 
-    /// Copy Path quotes a path so that a shell gives back the name, and runs nothing in it.
+    /// Copy Path quotes a path so that a shell gives back the name, and runs nothing in it. A `!`
+    /// is not expanded to an earlier command line either.
     #[test]
     fn copy_path_quotes_what_a_shell_reads() {
         assert_eq!(super::quoted_for_shell("/p/a b.jpg"), r#""/p/a b.jpg""#);
         assert_eq!(
             super::quoted_for_shell(r#"/p/$(id)`id`"x\.jpg"#),
             r#""/p/\$(id)\`id\`\"x\\.jpg""#
+        );
+        assert_eq!(
+            super::quoted_for_shell("/p/a!-1.jpg"),
+            r#""/p/a"'!'"-1.jpg""#
         );
     }
 

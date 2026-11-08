@@ -54,7 +54,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 - Edit → Undo (Ctrl+Z) pressed while a delete to the trash or a move is still running says to
   try again in a moment, instead of undoing the operation before it.
 - Copy Path puts a backslash before `$`, `` ` ``, `"` and `\` in the quoted path, so a file
-  name such as `$(command).jpg` pasted into a terminal runs nothing.
+  name such as `$(command).jpg` pasted into a terminal runs nothing. A `!` goes in single
+  quotes, `"a"'!'"b.jpg"`, so bash and zsh do not put an earlier command line in its place.
 - Rename and Rename Many refuse a new name that is another file's sidecar, such as `a.jpg.xmp`
   beside `a.jpg`, which would have made the renamed image that file's sidecar.
 - A last folder whose name holds a line break is not remembered, rather than written into the
