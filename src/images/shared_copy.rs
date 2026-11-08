@@ -730,6 +730,16 @@ fn chunks_without_image_data(
             true => matches!(name, b"IDAT" | b"fdAT"),
             false => matches!(name, b"VP8 " | b"VP8L" | b"ALPH" | b"ANMF"),
         };
+        // What is read of the chunk after its header: a PNG's CRC of an image chunk, which
+        // stands as an empty one, or the whole of another chunk. Each counts, so a flood of
+        // empty image chunks is as limited as metadata is.
+        let kept = match is_image {
+            true => u64::from(is_png) * 4,
+            false => whole.min(end - at - 8),
+        };
+        if out.len() as u64 + 8 + kept > MAX_DECODE_BYTES {
+            return Err(std::io::Error::other("its metadata is too large"));
+        }
         if is_image {
             let empty = match is_png {
                 true => [&[0; 4][..], name, &[0; 4]].concat(),
@@ -738,10 +748,6 @@ fn chunks_without_image_data(
             out.extend(empty);
             file.seek_relative(whole as i64)?;
         } else {
-            let kept = whole.min(end - at - 8);
-            if out.len() as u64 + 8 + kept > MAX_DECODE_BYTES {
-                return Err(std::io::Error::other("its metadata is too large"));
-            }
             out.extend(header);
             let start = out.len();
             out.resize(start + kept as usize, 0);
@@ -2244,6 +2250,49 @@ mod tests {
             }
             super::iim_properties(&data);
         }
+    }
+
+    /// A PNG of empty image chunks without end is read no further than a decode reads, as each
+    /// of them adds to what is read, so a crafted file of gigabytes cannot fill the memory.
+    #[test]
+    fn a_flood_of_empty_image_chunks_is_too_large() {
+        /// A PNG of `size` bytes, read at `at`: its signature and then empty IDAT chunks
+        /// without end, made as they are read.
+        struct EmptyChunks {
+            at: u64,
+            size: u64,
+        }
+        impl std::io::Read for EmptyChunks {
+            fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+                let chunk = b"\0\0\0\0IDAT\0\0\0\0";
+                let n = buf.len().min(self.size.saturating_sub(self.at) as usize);
+                for (i, byte) in buf[..n].iter_mut().enumerate() {
+                    let at = self.at + i as u64;
+                    *byte = match at {
+                        0..8 => b"\x89PNG\r\n\x1a\n"[at as usize],
+                        _ => chunk[((at - 8) % 12) as usize],
+                    };
+                }
+                self.at += n as u64;
+                Ok(n)
+            }
+        }
+        impl std::io::Seek for EmptyChunks {
+            fn seek(&mut self, to: std::io::SeekFrom) -> std::io::Result<u64> {
+                self.at = match to {
+                    std::io::SeekFrom::Start(at) => Some(at),
+                    std::io::SeekFrom::Current(by) => self.at.checked_add_signed(by),
+                    std::io::SeekFrom::End(by) => self.size.checked_add_signed(by),
+                }
+                .ok_or_else(|| std::io::Error::other("before the start"))?;
+                Ok(self.at)
+            }
+        }
+        let size = super::MAX_DECODE_BYTES + 1200;
+        let file = EmptyChunks { at: 12, size };
+        let head = *b"\x89PNG\r\n\x1a\n\0\0\0\0";
+        let read = super::chunks_without_image_data(file, head, size, super::Container::Png);
+        assert!(read.is_err(), "{} bytes read", read.map_or(0, |r| r.len()));
     }
 
     /// The readers of a file without its image data, which the list of tags reads, never panic

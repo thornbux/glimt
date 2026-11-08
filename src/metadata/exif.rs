@@ -657,12 +657,21 @@ pub fn set_upright(block: &mut [u8], size: (u32, u32)) -> Result<(), String> {
     Ok(())
 }
 
-/// The segments of a JPEG before its image data, and whether the image data was reached; `None`
-/// if a segment's length is cut off.
+/// Returns the segments of a JPEG before its image data, and whether the image data was
+/// reached. Returns `None` when a segment's length is cut off. Bytes between segments that are
+/// no marker, which some phones and editors write, are skipped to the next 0xff, as decoders
+/// and Copy for Sharing's walk (`shared_copy::walk_jpeg_segments`) skip them.
 fn jpeg_segments(data: &[u8]) -> Option<(Segments, bool)> {
     let mut segments = Vec::new();
     let mut i = 2;
-    while let (Some(&0xff), Some(&marker)) = (data.get(i), data.get(i + 1)) {
+    while let (Some(&byte), Some(&marker)) = (data.get(i), data.get(i + 1)) {
+        if byte != 0xff || marker == 0 {
+            match data[i + 1..].iter().position(|&b| b == 0xff) {
+                Some(next) => i += 1 + next,
+                None => break,
+            }
+            continue;
+        }
         // Fill bytes: a marker may follow any number of 0xff.
         if marker == 0xff {
             i += 1;
@@ -670,6 +679,11 @@ fn jpeg_segments(data: &[u8]) -> Option<(Segments, bool)> {
         }
         if marker == 0xda {
             return Some((segments, true));
+        }
+        // A marker without a length, outside a scan where it does not belong.
+        if (0xd0..=0xd7).contains(&marker) || marker == 0x01 {
+            i += 2;
+            continue;
         }
         let len = u16::from_be_bytes([*data.get(i + 2)?, *data.get(i + 3)?]) as usize;
         segments.push((marker, i + 4, len.saturating_sub(2)));
@@ -1567,6 +1581,24 @@ mod tests {
         assert!(!super::is_adobe_rgb(&block(0xffff, b"R98\0")));
         assert!(!super::is_adobe_rgb(&block(1, b"R03\0")));
         assert!(!super::is_adobe_rgb(b"junk"));
+    }
+
+    /// Bytes between a JPEG's segments that are no marker, which some phones and editors write,
+    /// are skipped as decoders skip them, so the image data after them is found, as it is by
+    /// Copy for Sharing's walk.
+    #[test]
+    fn finds_the_scan_after_bytes_between_segments() {
+        let mut jpeg = Vec::new();
+        let encoder = image::codecs::jpeg::JpegEncoder::new_with_quality(&mut jpeg, 90);
+        image::RgbImage::new(8, 8)
+            .write_with_encoder(encoder)
+            .unwrap();
+        let comment = b"\xff\xfe\0\x08a note";
+        let junk = b"\0\0JUNK\xff\0";
+        let junky = [&jpeg[..2], comment, junk, &jpeg[2..]].concat();
+        let scan = super::jpeg_scan_start(&jpeg).unwrap();
+        let moved = comment.len() + junk.len();
+        assert_eq!(super::jpeg_scan_start(&junky), Some(scan + moved));
     }
 
     /// The EXIF block from the head of a JPEG; past the head, as after big other segments, from
