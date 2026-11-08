@@ -23,6 +23,9 @@ and versions follow [Semantic Versioning](https://semver.org/).
   replaces only that one; before, it showed the first and wrote it alone as the default.
 - A control character in a comment or keyword, such as a form feed pasted from a PDF, is left
   out of the sidecar. Written there, it made the sidecar unreadable for darktable and digiKam.
+- A sidecar whose namespace is declared with spaces around the equals sign, or whose first
+  description has a '>' in a value, keeps being XML when keywords or stars are written. An old
+  packet's xap:Rating is changed instead of getting a second rating beside it.
 
 ## [0.75.0] - 2026-11-08
 

@@ -813,12 +813,11 @@ fn with_paths(xmp: String, paths: &[String]) -> Option<String> {
 /// `xmp` with the elements `add` put in its first rdf:Description, and namespace `prefix`
 /// declared there unless it is already in force.
 fn insert(xmp: String, add: &str, prefix: &str, uri: &str) -> Option<String> {
-    let start = xmp.find("<rdf:Description")?;
-    let end = start + xmp[start..].find('>')?;
+    let (end, declared) = first_description(&xmp)?;
     // The prefix must be declared on this Description or above it. exiftool gives each
     // namespace a Description of its own, and a prefix declared on a later one is not in force
     // here.
-    let ns = if xmp[..end].contains(&format!("xmlns:{prefix}=")) {
+    let ns = if declared.iter().any(|(p, _)| *p == prefix) {
         String::new()
     } else {
         format!(" xmlns:{prefix}=\"{uri}\"")
@@ -875,19 +874,8 @@ pub(crate) fn without_property(xmp: &str, tag: &str) -> String {
 pub(crate) fn properties(xmp: &str) -> Properties {
     let mut out = Properties::default();
     let mut namespaces: Vec<(String, String)> = Vec::new();
-    for (at, _) in xmp.match_indices("xmlns:") {
-        // A namespace's name is short. Without a cap, a packet of a million unclosed quotes
-        // would be searched to its end a million times. The cap is moved back to the start of
-        // a letter, as a cut inside one would panic.
-        let rest = &xmp[at + 6..xmp.floor_char_boundary(at + 1024)];
-        // XML allows spaces around the "=", as in `xmlns:tiff = "…"`.
-        let declared = rest.split_once('=');
-        if let Some((prefix, uri)) =
-            declared.and_then(|(p, v)| Some((p.trim_end(), quoted(v.trim_start())?)))
-            && is_name(prefix)
-            && !prefix.contains(':')
-            && !namespaces.iter().any(|(p, _)| p == prefix)
-        {
+    for (prefix, uri) in namespace_declarations(xmp) {
+        if !namespaces.iter().any(|(p, _)| p == prefix) {
             namespaces.push((prefix.to_owned(), uri.to_owned()));
         }
     }
@@ -916,6 +904,38 @@ pub(crate) fn properties(xmp: &str) -> Properties {
         }
     }
     out
+}
+
+/// The namespaces that `xmp` declares, each as (prefix, URI), in the order they are written.
+/// It is the one reading of them, for `properties` and for the writers (`first_description`).
+fn namespace_declarations(xmp: &str) -> Vec<(&str, &str)> {
+    let mut out = Vec::new();
+    for (at, _) in xmp.match_indices("xmlns:") {
+        // A namespace's name is short. Without a cap, a packet of a million unclosed quotes
+        // would be searched to its end a million times. The cap is moved back to the start of
+        // a letter, as a cut inside one would panic.
+        let rest = &xmp[at + 6..xmp.floor_char_boundary(at + 1024)];
+        // XML allows spaces around the "=", as in `xmlns:tiff = "…"`.
+        let declared = rest.split_once('=');
+        if let Some((prefix, uri)) =
+            declared.and_then(|(p, v)| Some((p.trim_end(), quoted(v.trim_start())?)))
+            && is_name(prefix)
+            && !prefix.contains(':')
+        {
+            out.push((prefix, uri));
+        }
+    }
+    out
+}
+
+/// Returns where the start tag of the first rdf:Description in `xmp` ends, at its '>' past any
+/// '>' in its quoted values, and the namespaces declared before that, on it or above it. The
+/// writers put what they add into this Description, and read it as `properties` does, so a
+/// declaration written `xmlns:dc = "…"` is not declared twice. Returns `None` when `xmp` has no
+/// Description or its start tag does not end.
+pub(crate) fn first_description(xmp: &str) -> Option<(usize, Vec<(&str, &str)>)> {
+    let end = start_tag_end(xmp, xmp.find("<rdf:Description")?)?;
+    Some((end, namespace_declarations(&xmp[..end])))
 }
 
 /// Reads the elements in `xmp` from `from` on, as properties of the rdf:Description they are
@@ -1390,6 +1410,27 @@ mod tests {
             [pair("de", "Ein Hund am Strand"), pair("en-US", "A dgo")]
         );
         assert_eq!(parse(&written).comment, "Hello");
+    }
+
+    /// The writers read the first Description's start tag as the reader does: a namespace
+    /// declared with spaces around its equals sign is not declared again, and a '>' inside an
+    /// attribute's value does not end the tag.
+    #[test]
+    fn writers_read_the_start_tag_as_the_reader_does() {
+        let xmp = r#"<rdf:Description rdf:about="" xmlns:dc = "http://purl.org/dc/elements/1.1/"
+    photoshop:Headline="a>b"/>"#;
+        let meta = KeywordsAndComment {
+            keywords: vec!["beach".into()],
+            comment: String::new(),
+        };
+        let written = set_keywords_and_comment(xmp, &meta, false).unwrap();
+        assert_eq!(written.matches("xmlns:dc").count(), 1, "{written}");
+        assert!(written.contains(r#"photoshop:Headline="a>b""#), "{written}");
+        assert_eq!(parse(&written).keywords, ["beach"]);
+        let names: Vec<String> = (properties(&written).list.into_iter())
+            .map(|(name, ..)| name)
+            .collect();
+        assert!(names.contains(&"dc:subject".to_owned()), "{names:?}");
     }
 
     /// A control character in a comment or keyword, typed, pasted or read as `&#1;`, is left
