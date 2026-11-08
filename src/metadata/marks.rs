@@ -776,4 +776,74 @@ mod tests {
         }
         super::TEST_FILE.with(|f| *f.borrow_mut() = None);
     }
+
+    /// Every writer of a sidecar keeps what the others wrote, in either order: the stars, the
+    /// keywords and tree paths, the comment, the alt text and another program's property. Two
+    /// windows that write one sidecar in turn each keep the other's change.
+    #[test]
+    fn every_sidecar_writer_keeps_what_the_others_wrote() {
+        use crate::metadata::xmp;
+        type Write = fn(&std::path::Path) -> Result<(), String>;
+        let writers: [(&str, Write, &str); 6] = [
+            ("stars", |p| super::write_xmp(p, 3), "Rating=\"3\""),
+            (
+                "tag",
+                |p| xmp::tag_file(p, "Animals", true),
+                "<rdf:li>Animals</rdf:li>",
+            ),
+            (
+                "comment",
+                |p| xmp::write_changed(p, None, Some("Trip".into())).map(drop),
+                ">Trip<",
+            ),
+            (
+                "alt text",
+                |p| {
+                    let text = xmp::AltText {
+                        text: "A dog".into(),
+                        extended_description: String::new(),
+                    };
+                    xmp::write_alt_text(p, &text)
+                },
+                ">A dog<",
+            ),
+            (
+                "keywords",
+                |p| xmp::add_keywords(p, &["Oslo".into()]),
+                "<rdf:li>Oslo</rdf:li>",
+            ),
+            (
+                "tree path",
+                |p| xmp::add_tags(p, &["Places|Norway".into()]),
+                "Places|Norway",
+            ),
+        ];
+        let dir = std::env::temp_dir().join(format!("glimt-test-writers-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let image = dir.join("a.jpg");
+        image::RgbImage::new(4, 2).save(&image).unwrap();
+        let side = xmp::sidecar(&image);
+        for reversed in [false, true] {
+            let theirs = "<x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><rdf:RDF><rdf:Description \
+                          rdf:about=\"\" xmlns:darktable=\"http://darktable.sf.net/\" \
+                          darktable:history_end=\"7\"/></rdf:RDF></x:xmpmeta>";
+            std::fs::write(&side, theirs).unwrap();
+            let mut order: Vec<_> = writers.iter().collect();
+            if reversed {
+                order.reverse();
+            }
+            for (done, (name, write, _)) in order.iter().enumerate() {
+                write(&image).unwrap();
+                let text = std::fs::read_to_string(&side).unwrap();
+                for (kept, _, mark) in &order[..=done] {
+                    assert!(text.contains(mark), "{kept} lost after {name}: {text}");
+                }
+                assert!(
+                    text.contains("darktable:history_end=\"7\""),
+                    "after {name}: {text}"
+                );
+            }
+        }
+        std::fs::remove_dir_all(dir).unwrap();
+    }
 }
