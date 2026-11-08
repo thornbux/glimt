@@ -316,14 +316,15 @@ fn read_with_tree_paths(path: &Path) -> (KeywordsAndComment, Vec<String>) {
 /// written one list and not the others, so a path that only one holds is kept, and the writers
 /// write it into each of them.
 fn tree_paths_in(xmp: &str) -> Vec<String> {
-    let slashed = (SLASHED_TREE_LISTS.iter())
+    let piped = list_items(xmp, "lr:hierarchicalSubject");
+    // A slashed entry that is a path of lr:hierarchicalSubject with "/" for "|" is that path.
+    // So a level that holds a "/" itself, as in Music|AC/DC, is not split into two.
+    let slashed: Vec<String> = (SLASHED_TREE_LISTS.iter())
         .flat_map(|(list, ..)| list_items(xmp, list))
-        .map(|p| p.replace('/', "|"));
-    unique(
-        list_items(xmp, "lr:hierarchicalSubject")
-            .into_iter()
-            .chain(slashed),
-    )
+        .filter(|entry| !piped.iter().any(|p| p.replace('|', "/") == *entry))
+        .map(|p| p.replace('/', "|"))
+        .collect();
+    unique(piped.into_iter().chain(slashed))
 }
 
 /// The XMP the keywords and comment of `path` come from. It is the sidecar if that has them,
@@ -1507,6 +1508,13 @@ mod tests {
             list_items(&written, "lr:hierarchicalSubject"),
             ["Music|AC/DC", "Places|Oslo"]
         );
+        // A slashed list that already holds the path as Music/AC/DC reads as that one path,
+        // not as Music|AC|DC beside it.
+        let both = xmp.replace("<rdf:li>Old</rdf:li>", "<rdf:li>Music/AC/DC</rdf:li>");
+        assert_eq!(tree_paths_in(&both), ["Music|AC/DC", "Places|Oslo"]);
+        // Without that path in lr:hierarchicalSubject, each "/" is a level.
+        let alone = both.replace("<rdf:li>Music|AC/DC</rdf:li>", "");
+        assert_eq!(tree_paths_in(&alone), ["Places|Oslo", "Music|AC|DC"]);
     }
 
     /// A path that only digiKam's TagsList holds stays after an edit of the comment and of the
