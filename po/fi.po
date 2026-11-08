@@ -2913,6 +2913,10 @@ msgid "A block that can hold tags of several groups, such as the extra images or
 msgstr "Lohko, jossa voi olla useiden ryhmien tunnisteita, kuten lisäkuvat tai valmistajan huomautus, jätetään pois, kun jokin näiden ryhmien tunniste jätetään pois."
 
 #: src/features/copy_for_sharing.rs
+msgid "A tag that Glimt does not know is listed under More tags, and is left out when any group is ticked, unless it is unticked there."
+msgstr "Tunniste, jota Glimt ei tunne, näkyy kohdassa Lisää tunnisteita, ja se jätetään pois, kun jokin ryhmä on valittu, ellei sen valintaa poisteta siellä."
+
+#: src/features/copy_for_sharing.rs
 msgid "Always kept: the orientation, so the image is not shown on its side, and the colour profile, so its colours do not change."
 msgstr "Säilytetään aina: suunta, jotta kuva ei näy kyljellään, ja väriprofiili, jotta sen värit eivät muutu."
 

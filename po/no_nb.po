@@ -2924,6 +2924,10 @@ msgid "A block that can hold tags of several groups, such as the extra images or
 msgstr "En blokk som kan inneholde tagger fra flere grupper, som de ekstra bildene eller produsentens notat, utelates når en tagg fra disse gruppene utelates."
 
 #: src/features/copy_for_sharing.rs
+msgid "A tag that Glimt does not know is listed under More tags, and is left out when any group is ticked, unless it is unticked there."
+msgstr "En tagg Glimt ikke kjenner, vises under Flere tagger og utelates når en gruppe er avkrysset, med mindre krysset fjernes der."
+
+#: src/features/copy_for_sharing.rs
 msgid "Always kept: the orientation, so the image is not shown on its side, and the colour profile, so its colours do not change."
 msgstr "Alltid med: retningen, så bildet ikke vises på siden, og fargeprofilen, så fargene ikke endres."
 

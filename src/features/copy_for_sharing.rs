@@ -70,6 +70,10 @@ impl SharingDialog {
             "A block that can hold tags of several groups, such as the extra images or the maker \
              note, is left out when any tag of those groups is.",
         ));
+        ui.weak(tr(
+            "A tag that Glimt does not know is listed under More tags, and is left out when any \
+             group is ticked, unless it is unticked there.",
+        ));
         egui::ScrollArea::vertical()
             .max_height(400.0)
             .show(ui, |ui| {
@@ -94,9 +98,7 @@ impl SharingDialog {
     /// Draws the group `group`, number `i` of `Group::ALL`: its checkbox, which leaves out the
     /// whole group, and Show or Hide for its tags of `found`, each with a checkbox of its own.
     fn draw_group(&mut self, ui: &mut egui::Ui, i: usize, group: Group, found: &[String]) {
-        let tags: Vec<&String> = (found.iter())
-            .filter(|t| Group::groups_of(t).contains(&group))
-            .collect();
+        let tags: Vec<&String> = (found.iter()).filter(|t| group.lists(t)).collect();
         ui.horizontal(|ui| {
             let mut is_left_out = self.left_out.is_group_left_out(group);
             if checkbox(ui, &mut is_left_out, group.name()).changed() {
