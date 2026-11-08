@@ -1,4 +1,4 @@
-[Glimt Decoder]
+[Glimt Format]
 Name=Cryo-EM (MRC)
 Comment=MRC files from cryo-electron microscopy and tomography: a micrograph, or the middle section of a map
 # map is EMDB's ending for maps, and also that of other programs' text files (source maps), which

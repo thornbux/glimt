@@ -1,4 +1,4 @@
-[Glimt Decoder]
+[Glimt Format]
 Name=HDF5, NetCDF-4 and NeXus
 Comment=The picture in an HDF5 or NetCDF-4 file, as climate, physics, satellite and microscope data keep them
 Extensions=h5;hdf5;he5;nc;nc4;nxs

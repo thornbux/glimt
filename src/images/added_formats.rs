@@ -5,11 +5,15 @@
 //! at start:
 //!
 //! ```text
-//! [Glimt Decoder]
+//! [Glimt Format]
 //! Name=JPEG 2000
 //! Extensions=jp2;j2k
 //! Exec=ffmpeg -v error -f j2k_pipe -i %f -frames:v 1 -f image2pipe -vcodec ppm -
 //! ```
+//!
+//! The group's header is not checked, so files with the header that formats had before 0.76.0
+//! are read as well. In `Exec`, `%f` is the file, also inside a word, and `%%` is a `%`.
+//! The other `%` codes are kept for later meanings, so a file should not use them.
 //!
 //! The command gets the file's absolute path as one argument of its own, never through a shell,
 //! and writes the image (PNM, PNG, TIFF, BMP …) to its standard output. It has 30 seconds and

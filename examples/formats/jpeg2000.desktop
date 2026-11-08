@@ -1,4 +1,4 @@
-[Glimt Decoder]
+[Glimt Format]
 Name=JPEG 2000
 Comment=JPEG 2000 files, as archives, libraries and science keep scans, decoded by ffmpeg
 Extensions=jp2;j2k;j2c;jpf;jpx

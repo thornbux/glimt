@@ -1,4 +1,4 @@
-[Glimt Decoder]
+[Glimt Format]
 Name=DICOM (medical and dental imaging)
 Comment=X-ray, CT, MR, ultrasound, panoramic and intraoral X-rays, also compressed, in the window the file names
 # Not dic, which is also a spelling dictionary (hunspell); add it if your DICOM files have it.

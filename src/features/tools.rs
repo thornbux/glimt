@@ -13,8 +13,9 @@ use std::path::{Path, PathBuf};
 /// forever, and creates only the new one. It opens the old one while only the old one exists
 /// (`folder_to_open`), as the user's tools are there. A desktop file in both under the same name
 /// counts once, from the new folder. The desktop files keep their format: no key names a plugin
-/// or a decoder, and an added format's group header stays `[Glimt Decoder]`. The header is never
-/// checked, so `[Glimt Format]` is read as well.
+/// or a decoder. An added format's group header is `[Glimt Format]` in the examples since
+/// 0.76.0, and was `[Glimt Decoder]` before. Any header is read, as it is never checked, so the
+/// old one is read forever.
 pub const RENAMED_FOLDERS: [(&str, &str); 2] = [("plugins", "tools"), ("decoders", "formats")];
 
 /// The tools running, by name and process ID, for Stop in Edit → Tools: one may be an
@@ -199,7 +200,8 @@ fn absolute_dirs(list: &str) -> impl Iterator<Item = &Path> {
 }
 
 /// The values of a desktop file's first group (a tool's [Desktop Entry] or an added format's
-/// [Glimt Decoder], not its actions), by key.
+/// [Glimt Format], whatever its header says), by key. The groups after it, such as a tool's
+/// actions, are not read.
 pub fn desktop_entry_values<'a>(text: &'a str) -> impl Fn(&str) -> Option<&'a str> + 'a {
     // Comments and blank lines may come before its header.
     let mut rest = text;

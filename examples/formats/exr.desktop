@@ -1,4 +1,4 @@
-[Glimt Decoder]
+[Glimt Format]
 Name=OpenEXR (ImageMagick)
 Comment=OpenEXR renderings, through ImageMagick built with OpenEXR
 Extensions=exr

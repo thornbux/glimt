@@ -1,4 +1,4 @@
-[Glimt Decoder]
+[Glimt Format]
 Name=Microscopy (Bio-Formats)
 Comment=Microscope files through Bio-Formats, as Fiji reads them: Zeiss, Leica, Nikon, Olympus and more
 # Not ics and ids (Image Cytometry Standard): .ics is also a calendar invitation, common among

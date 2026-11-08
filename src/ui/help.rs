@@ -384,11 +384,13 @@ const MANUAL: &[(&str, &str)] = &[
          set in Preferences, a command line such as mpv --fs, or else in the desktop's default \
          player.\n\n\
          A format of your own teaches Glimt one it does not read itself, such as JPEG 2000, FITS, \
-         DICOM or OpenEXR: a desktop file in ~/.local/share/glimt/formats with Extensions=jp2;j2k \
-         and an Exec command that writes the image (PNM, PNG …) to its standard output, %f being \
-         the file. Such files are then listed and shown as any other, with thumbnails. The command \
-         runs without a shell, for 30 seconds at most. The folder's old name, \
-         ~/.local/share/glimt/decoders, is still read.\n\n\
+         DICOM or OpenEXR: a desktop file in ~/.local/share/glimt/formats that starts with \
+         [Glimt Format] and has Name=, Extensions=jp2;j2k and an Exec command that writes the image \
+         (PNM, PNG …) to its standard output, %f being the file (also inside a word) and %% a %. \
+         The other % codes are kept for later, so do not use them. Such files are then listed and \
+         shown as any other, with thumbnails. The command runs without a shell, for 30 seconds at \
+         most. The folder's old name, ~/.local/share/glimt/decoders, and the old header [Glimt \
+         Decoder] are still read.\n\n\
          /usr/share/doc/glimt/examples/formats (examples/formats in the tar.gz and the \
          source) has formats for:\n\n\
          - JPEG 2000 (ffmpeg)\n\
