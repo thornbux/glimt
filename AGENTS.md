@@ -92,7 +92,8 @@ A frozen name that fails a reader (0.74.0 and 0.76.0 renamed a few) is renamed o
 table of old names, one for each kind, beside the code that reads it: `config::RENAMED_SETTINGS`,
 `config::RENAMED_STATE`, `actions::RENAMED_ACTIONS` (for `keys=` and `--remote run`),
 `remote::RENAMED_COMMANDS`, `theme::RENAMED_THEMES` (the built-in themes, as the theme setting
-stores them) and `tools::RENAMED_FOLDERS` (0.75.0's folders of tools and added formats, which
+stores them; a theme file of the user's own by an old name keeps it, and Save as Theme refuses
+an old name) and `tools::RENAMED_FOLDERS` (0.75.0's folders of tools and added formats, which
 Glimt creates only under the new name). Glimt reads the old name too, forever, and writes only
 the new one; when a settings or state file holds both, the new one counts. The old line stays
 in the frozen file and the new name is added at its end, and the tests take an old name only
