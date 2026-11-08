@@ -978,10 +978,11 @@ pub fn shared_tag_names(raw: &[u8]) -> Vec<String> {
 
 /// Makes a new EXIF block for a copy for sharing. It holds the tags of `raw` that `keeps` keeps
 /// by their names (`shared_tag_name`), and always the orientation, the colour space and the
-/// Interop directory, which decide how the image looks. Nothing else of `raw` is in it: each
-/// value is copied on its own into a block made new, so the bytes of a tag left out cannot
-/// linger in it. The block is written in `raw`'s byte order, so the values are copied as they
-/// are. The EXIF thumbnail (IFD1) is in it, as a JPEG, only when `keeps` keeps
+/// Interop directory's index and version, which decide how the image looks. Its other entries
+/// are not taken, as a crafted one could point at the GPS directory's values. Nothing else of
+/// `raw` is in it: each value is copied on its own into a block made new, so the bytes of a tag
+/// left out cannot linger in it. The block is written in `raw`'s byte order, so the values are
+/// copied as they are. The EXIF thumbnail (IFD1) is in it, as a JPEG, only when `keeps` keeps
 /// `EXIF_THUMBNAIL`. Returns `None` when `raw` has no TIFF header or nothing is kept.
 /// shortcut: a kept MakerNote moves to where the new block puts it, so a maker note that points
 /// at offsets from the TIFF header (Canon) loses them, as in every tool that writes a new block;
@@ -1008,7 +1009,9 @@ pub fn shared_block(raw: &[u8], keeps: &dyn Fn(&str) -> bool) -> Option<Vec<u8>>
     }
     let interop = find(&exif, INTEROP_IFD).and_then(|e| t.int(e));
     for (tag, e) in interop.map(|at| t.ifd(at as usize)).unwrap_or_default() {
-        dirs[3].extend(value(&e).map(|v| (tag, e.field_type, e.count, v)));
+        // The index ("R98", "R03") and the version ("0100") are four bytes each.
+        let value = value(&e).filter(|v| matches!(tag, 0x0001 | 0x0002) && v.len() <= 4);
+        dirs[3].extend(value.map(|v| (tag, e.field_type, e.count, v)));
     }
     let thumbnail = keeps(EXIF_THUMBNAIL).then(|| exif_thumbnail(&t)).flatten();
     write_block(t.is_little_endian, dirs, thumbnail)
@@ -1968,6 +1971,40 @@ mod tests {
         let shared = super::shared_block(&block, &keeps).unwrap();
         let (t, ..) = super::ifds(&shared).unwrap();
         assert_eq!(super::exif_thumbnail(&t), Some(&b"THMB"[..]));
+    }
+
+    /// A block for sharing takes only the Interop directory's own tags, the index and its
+    /// version, and never an entry of it that points at the GPS directory's text.
+    #[test]
+    fn a_shared_block_takes_only_interops_own_tags() {
+        let entry = |d: &mut Vec<u8>, tag: u16, kind: u16, count: u32, value: u32| {
+            d.extend(tag.to_be_bytes());
+            d.extend(kind.to_be_bytes());
+            d.extend(count.to_be_bytes());
+            d.extend(value.to_be_bytes());
+        };
+        // IFD0 at 8 to 38, Exif at 38 to 56, Interop at 56 to 98, GPS at 98 to 116, and the
+        // map datum at 116.
+        let mut d = b"MM\0*\0\0\0\x08".to_vec();
+        d.extend(2u16.to_be_bytes());
+        entry(&mut d, super::EXIF_IFD, 4, 1, 38);
+        entry(&mut d, super::GPS_IFD, 4, 1, 98);
+        d.extend(0u32.to_be_bytes());
+        d.extend(1u16.to_be_bytes());
+        entry(&mut d, super::INTEROP_IFD, 4, 1, 56);
+        d.extend(0u32.to_be_bytes());
+        d.extend(3u16.to_be_bytes());
+        entry(&mut d, 0x0001, 2, 4, u32::from_be_bytes(*b"R98\0"));
+        entry(&mut d, 0x0002, 7, 14, 116);
+        entry(&mut d, 0x1000, 2, 14, 116);
+        d.extend(0u32.to_be_bytes());
+        d.extend(1u16.to_be_bytes());
+        entry(&mut d, 0x0012, 2, 14, 116);
+        d.extend(0u32.to_be_bytes());
+        d.extend(b"WGS-84-SECRET\0");
+        let shared = super::shared_block(&d, &|_| false).unwrap();
+        let has = |text: &[u8]| shared.windows(text.len()).any(|w| w == text);
+        assert!(has(b"R98\0") && !has(b"WGS-84-SECRET"));
     }
 
     /// Blocks and a JPEG broken in thousands of ways, as a damaged or crafted file has them:

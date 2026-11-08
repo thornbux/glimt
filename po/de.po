@@ -2909,6 +2909,10 @@ msgid "Ticked tags are left out of the copies."
 msgstr "Angekreuzte Tags werden in den Kopien weggelassen."
 
 #: src/features/copy_for_sharing.rs
+msgid "A block that can hold tags of several groups, such as the extra images or the maker note, is left out when any tag of those groups is."
+msgstr "Ein Block, der Tags mehrerer Gruppen enthalten kann, etwa die zusätzlichen Bilder oder die Herstellernotiz, wird weggelassen, sobald ein Tag dieser Gruppen weggelassen wird."
+
+#: src/features/copy_for_sharing.rs
 msgid "Always kept: the orientation, so the image is not shown on its side, and the colour profile, so its colours do not change."
 msgstr "Immer behalten: die Ausrichtung, damit das Bild nicht auf der Seite liegt, und das Farbprofil, damit sich seine Farben nicht ändern."
 

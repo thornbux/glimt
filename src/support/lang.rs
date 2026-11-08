@@ -576,6 +576,7 @@ msgstr[1] "bilder"
                 "images/shared_copy.rs",
                 &[
                     "const TAG_GROUPS",
+                    "const UNKNOWN_BLOCKS",
                     "JFIF thumbnail",
                     "Extra images",
                     "Data after",

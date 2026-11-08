@@ -183,7 +183,7 @@ impl SharedMetadata {
     pub(crate) fn tag_names(&self) -> Vec<String> {
         let exif = self.exif.as_deref().map(exif::shared_tag_names);
         let xmp = (self.xmp.list.iter())
-            .map(|(name, _)| name.clone())
+            .map(|(name, ..)| name.clone())
             .filter(|name| !ALWAYS_SHARED_XMP.contains(&name.as_str()));
         exif.unwrap_or_default().into_iter().chain(xmp).collect()
     }
@@ -198,7 +198,7 @@ impl SharedMetadata {
         let exif = (self.exif.as_deref()).and_then(|raw| exif::shared_block(raw, keeps));
         let mut kept = self.xmp.clone();
         kept.list
-            .retain(|(name, _)| ALWAYS_SHARED_XMP.contains(&name.as_str()) || keeps(name));
+            .retain(|(name, ..)| ALWAYS_SHARED_XMP.contains(&name.as_str()) || keeps(name));
         let xmp = (!kept.list.is_empty()).then(|| crate::metadata::xmp::packet(&kept));
         (exif, xmp)
     }
@@ -727,19 +727,27 @@ pub(crate) fn derived_xmp(xmp: &[u8], how: Derived) -> Vec<u8> {
     out
 }
 
-/// Reads what a copy for sharing of `path` may keep of its metadata. That is the EXIF block the
-/// panel reads (`exif::derived`), and the XMP properties of `embedded`, the packet inside the
-/// image, of its sidecar and of `iim`, the properties its IPTC IIM gives. A property of the
-/// sidecar, which Glimt writes, wins over one of the same name inside the image, and IIM only
-/// adds what neither has. Returns an error when the sidecar is there but cannot be read, as a
-/// copy of the image without it would leave out the alt text the user wrote for it.
+/// Reads what a copy for sharing of `path` may keep of its metadata. That is the EXIF block
+/// `embedded_exif` that the walk of the image found, and the XMP properties of `embedded`, the
+/// packet inside the image, of its sidecar and of `iim`, the properties its IPTC IIM gives. A
+/// property of the sidecar, which Glimt writes, wins over one of the same name inside the image,
+/// and IIM only adds what neither has. Returns an error when the sidecar is there but cannot be
+/// read, as a copy of the image without it would leave out the alt text the user wrote for it.
 pub(crate) fn shared_metadata(
     path: &Path,
+    embedded_exif: Option<&[u8]>,
     embedded: Option<&[u8]>,
     iim: crate::metadata::xmp::Properties,
 ) -> Result<SharedMetadata, String> {
     use crate::metadata::xmp;
-    let exif = exif::derived(path, Derived::Shared);
+    // A PNG without an eXIf chunk may keep its EXIF in a text chunk, as exiv2 and GIMP write it,
+    // which the panel's reader unpacks (`exif::derived`).
+    let is_png = crate::model::listing::has_ext(path, &["png"]);
+    let exif = match embedded_exif {
+        Some(block) => Some(block.to_vec()),
+        None if is_png => exif::derived(path, Derived::Shared),
+        None => None,
+    };
     let text = |bytes: &[u8]| std::str::from_utf8(bytes).ok().map(xmp::properties);
     let mut properties = embedded.and_then(text).unwrap_or_default();
     let sidecar = xmp::own_sidecar(path).map_err(|e| e.to_string())?;

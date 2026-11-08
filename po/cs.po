@@ -2931,6 +2931,10 @@ msgid "Ticked tags are left out of the copies."
 msgstr "Zaškrtnuté štítky se do kopií nedostanou."
 
 #: src/features/copy_for_sharing.rs
+msgid "A block that can hold tags of several groups, such as the extra images or the maker note, is left out when any tag of those groups is."
+msgstr "Blok, který může obsahovat štítky více skupin, například další obrázky nebo poznámka výrobce, se do kopií nedostane, když se nedostane kterýkoli štítek těchto skupin."
+
+#: src/features/copy_for_sharing.rs
 msgid "Always kept: the orientation, so the image is not shown on its side, and the colour profile, so its colours do not change."
 msgstr "Vždy zachováno: orientace, aby se obrázek nezobrazil na boku, a barevný profil, aby se jeho barvy nezměnily."
 

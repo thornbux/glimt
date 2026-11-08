@@ -202,7 +202,9 @@ const MANUAL: &[(&str, &str)] = &[
          More tags holds every other tag, and whole blocks such as a phone's extra images (MPF) \
          and content credentials (C2PA). Remove All ticks every box. The orientation and the \
          colour profile are always kept, as without them the copy would look different. The \
-         dialog starts with what you left out last time. Copy… asks for the folder.\n\n\
+         dialog starts with what you left out last time. Copy… asks for the folder. A copy has \
+         the original's file name, which can hold the date (IMG_20231004_…), also when Date and \
+         time is left out.\n\n\
          Glimt's sidecar is not copied, but what it says goes into the copy's own XMP, so alt \
          text written in Glimt reaches the published copy; its tags are in the dialog like the \
          others. IPTC keywords, caption, creator and place go into the copy's XMP too. Other \
