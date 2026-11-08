@@ -3875,12 +3875,15 @@ for copy in $d/all $d/place; do
         "$(exiftool -s3 -NumberOfImages $copy/ultrahdr-pixel.jpg)" 2
     expect "ultrahdr-pixel.jpg, $kind: the gain map's hdrgm marking kept" \
         "$(exiftool -a -ee3 -G3 -s -XMP-hdrgm:GainMapMax $copy/ultrahdr-pixel.jpg | grep -c Doc)" 1
-    # Kept only once 077-iphone-gain-map is merged, which reads Apple's marking of a gain map.
     expect "iphone-gain-map.jpg, $kind: two images in the MPF index" \
         "$(exiftool -s3 -NumberOfImages $copy/iphone-gain-map.jpg)" 2
     expect "iphone-gain-map.jpg, $kind: the gain map's Apple marking kept" \
         "$(exiftool -a -ee3 -s3 -XMP-apdi:AuxiliaryImageType $copy/iphone-gain-map.jpg)" \
         urn:com:apple:photo:2020:aux:hdrgainmap
+    # The gain map is shown as bright as the original only with the maker note's headroom.
+    expect "iphone-gain-map.jpg, $kind: the maker note's HDR headroom kept" \
+        "$(exiftool -s3 -MakerNotes:HDRHeadroom $copy/iphone-gain-map.jpg)" \
+        "$(exiftool -s3 -MakerNotes:HDRHeadroom $d/in/iphone-gain-map.jpg)"
 done
 expect "the originals unchanged" "$(cd $d/in && md5sum * | md5sum)" \
     "$(cd /samples && md5sum $(ls $d/in) | md5sum)"
