@@ -494,7 +494,12 @@ fn oriented(
                     // Read first, which keeps the write inside the block: an entry at its very end
                     // has no room for its value.
                     let old = t.u16(e.value_offset).ok_or("cut off")?;
-                    let shown = if rotate { old as u8 } else { 1 };
+                    // A value outside 1 to 8 is shown unturned, as the view and the panel read
+                    // it, so the turn starts from 1 and the file shows what the view showed.
+                    let shown = match u8::try_from(old) {
+                        Ok(o @ 1..=8) if rotate => o,
+                        _ => 1,
+                    };
                     new = turned(shown, turns, mirrored) as u16;
                     // Offsets count from the TIFF header, which ends the block as `t.data` does.
                     let at = start + len - t.data.len() + e.value_offset;
@@ -2117,6 +2122,21 @@ mod tests {
         with_exif.extend(mm);
         with_exif.extend(&jpeg[2..]);
         assert!(super::oriented(with_exif.clone(), 1, false, true).is_ok());
+        // An orientation of 9 or 257, which the view shows unturned, is turned from 1: a
+        // quarter turn clockwise saves 6.
+        for value in [9u16, 257] {
+            let mut odd = with_exif.clone();
+            let at = (odd.windows(4))
+                .position(|w| w == b"\x01\x12\0\x03")
+                .unwrap()
+                + 8;
+            odd[at..at + 2].copy_from_slice(&value.to_be_bytes());
+            assert_eq!(
+                super::oriented(odd, 1, false, true).unwrap().1,
+                6,
+                "{value}"
+            );
+        }
         for data in crate::support::test_support::broken(&jpeg)
             .chain(crate::support::test_support::broken(&with_exif))
         {

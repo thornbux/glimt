@@ -13,6 +13,9 @@ and versions follow [Semantic Versioning](https://semver.org/).
 - Import Lightroom Catalog takes only the images that are there now. The stars of a photo
   deleted long ago no longer wait on its name for the next photo of that name, and a catalog
   from elsewhere can no longer have a sidecar written beside a file that is no image.
+- A JPEG whose EXIF orientation is not one of the eight values is turned from upright when its
+  orientation is saved, as the view shows it. Before, a value of 9 or more was taken as 8, and
+  the saved file showed another turn than the view.
 
 ## [0.75.0] - 2026-11-08
 
