@@ -508,6 +508,7 @@ impl crate::App {
         ] {
             menu_item(ui, chosen, action);
         }
+        menu_item(ui, chosen, Action::OpenWith);
         self.open_with_menu(ui);
         scroll_menu(
             ui,
@@ -696,40 +697,25 @@ impl crate::App {
         });
     }
 
-    /// Open the shown file in `command_line`, or in the default application when
-    /// `command_line` is empty. Runs in its own thread, which waits for the program to exit.
-    pub(crate) fn open_shown_in(&self, command_line: &str) {
-        if self.list.files().is_empty() {
-            return;
+    /// Opens the selected files, or the shown one, in the desktop's default application, as
+    /// the Open With submenu opens them in the one chosen there.
+    pub(crate) fn open_targets_in_default_app(&mut self) {
+        if let Some(targets) = self.targets() {
+            let files: Vec<PathBuf> = targets.iter().map(|&i| self.path(i)).collect();
+            self.open_in("", files);
         }
-        let (path, tx) = (self.path(self.list.shown()), self.notice_sender.clone());
-        let mut words = tools::command_words(command_line);
+    }
+
+    /// Opens each of `files` in `command_line`, or in the default application when
+    /// `command_line` is empty. It runs in its own thread, which waits for each program to exit.
+    pub(crate) fn open_in(&self, command_line: &str, files: Vec<PathBuf>) {
+        let tx = self.notice_sender.clone();
+        let words = tools::command_words(command_line);
         std::thread::spawn(move || {
-            // The player stays open as long as it plays, waited for in this thread.
-            let run = |name: &str, mut cmd: std::process::Command| {
-                cmd.arg(&path);
-                external::run_telling(name, cmd)
-            };
-            let out = if words.is_empty() {
-                // gio is part of glib; xdg-open covers systems without it. In a Flatpak both
-                // ask the portal for the default application.
-                match external::has_program("gio") {
-                    true => run("gio", {
-                        let mut gio = command("gio");
-                        gio.arg("open");
-                        gio
-                    }),
-                    false => run("xdg-open", command("xdg-open")),
+            for path in files {
+                if let Err(told) = open_one_in(&words, &path) {
+                    let _ = tx.send(told);
                 }
-            } else {
-                // The user's player, on the host in a Flatpak.
-                let name = words.remove(0);
-                let mut player = external::host_command(&name);
-                player.args(&words);
-                run(&name, player)
-            };
-            if let Err(told) = out {
-                let _ = tx.send(told);
             }
         });
     }
@@ -1060,6 +1046,29 @@ pub(crate) fn tool_button(
     if noted(&response, action.label()).clicked() {
         *chosen = Some(action);
     }
+}
+
+/// Opens `path` in the program of `words`, or in the default application when `words` is
+/// empty, and waits for that program to exit. A video player stays open while it plays.
+fn open_one_in(words: &[String], path: &Path) -> Result<(), String> {
+    let Some((name, args)) = words.split_first() else {
+        // gio is part of glib, and xdg-open covers systems without it. In a Flatpak, both ask
+        // the portal for the default application.
+        let name = match external::has_program("gio") {
+            true => "gio",
+            false => "xdg-open",
+        };
+        let mut opener = command(name);
+        if name == "gio" {
+            opener.arg("open");
+        }
+        opener.arg(path);
+        return external::run_telling(name, opener);
+    };
+    // The user's player runs on the host in a Flatpak.
+    let mut player = external::host_command(name);
+    player.args(args).arg(path);
+    external::run_telling(name, player)
 }
 
 #[cfg(test)]

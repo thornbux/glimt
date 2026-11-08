@@ -848,14 +848,12 @@ impl Action {
         match self {
             Rename | CopyTo | MoveTo | Delete | DeletePermanently | CopyPath | CopyPathUnquoted
             | CopyFiles | NewCollection | RemoveFromCollection | MoveEarlier | MoveLater
-            | MoveFirst | MoveLast | Print | CopyForSharing => Target::Selection,
+            | MoveFirst | MoveLast | Print | CopyForSharing | OpenWith => Target::Selection,
             #[cfg(feature = "marks")]
             Mark1 | Mark2 | Mark3 | Mark4 | Mark5 | Mark6 | Rate0 | Rate1 | Rate2 | Rate3
             | Rate4 | Rate5 => Target::Selection,
-            OpenWith | SetWallpaper | PlayVideo | CopyImage | RotateCw | RotateCcw | Rotate180
-            | Mirror | Flip | SaveOrientation | Crop | SaveAs | SaveFrame | ExportFrames => {
-                Target::Shown
-            }
+            SetWallpaper | PlayVideo | CopyImage | RotateCw | RotateCcw | Rotate180 | Mirror
+            | Flip | SaveOrientation | Crop | SaveAs | SaveFrame | ExportFrames => Target::Shown,
             OpenFile | OpenFolder | OpenFolders | OpenRecursive | NewFolder | Undo
             | CloseWindow | Quit | First | Previous | Next | Last | Back | Forward | Home | Up
             | SelectAll | SelectNone | InvertSelection | Preferences | ExifRotate | NextFilter
@@ -1067,7 +1065,7 @@ impl crate::App {
             Action::CopyTo | Action::MoveTo => self.pick_copy_or_move(ctx, action),
             Action::CopyForSharing => self.start_copy_for_sharing(ctx),
             // The default application; the Open With submenu lists the others.
-            Action::OpenWith => self.open_shown_in(""),
+            Action::OpenWith => self.open_targets_in_default_app(),
             Action::SetWallpaper => self.set_wallpaper(),
             // Enter: videos play in a player (images have nothing to play).
             Action::PlayVideo => self.play_video(ctx),
@@ -1963,6 +1961,37 @@ mod tests {
             open_with.contains("first_target()") && !open_with.contains("list.shown()"),
             "Open With asks about the first selected file (first_target), not the shown one"
         );
+    }
+
+    /// An action on the shown image is one that only one image can take: its pixels as shown,
+    /// the clipboard's one picture, the wallpaper or the video that plays. Every other action
+    /// on files acts on the selection, as its menu neighbours do. Open With Default App once
+    /// opened the shown image while the Open With submenu beside it opened the selected files.
+    #[test]
+    fn only_actions_that_take_one_image_act_on_the_shown_one() {
+        let one_image = [
+            "SetWallpaper",
+            "PlayVideo",
+            "CopyImage",
+            "RotateCw",
+            "RotateCcw",
+            "Rotate180",
+            "Mirror",
+            "Flip",
+            "SaveOrientation",
+            "Crop",
+            "SaveAs",
+            "SaveFrame",
+            "ExportFrames",
+        ];
+        for action in ALL.iter().filter(|a| a.target() == Target::Shown) {
+            let name = format!("{action:?}");
+            assert!(
+                one_image.contains(&name.as_str()),
+                "{name} acts on the shown image: make it Target::Selection, or add it here if \
+                 only one image can take it"
+            );
+        }
     }
 
     /// Every action on the selection reaches `targets`, `targets_without_notice` or

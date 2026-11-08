@@ -1539,7 +1539,7 @@ impl crate::App {
     pub(crate) fn play_video(&mut self, ctx: &egui::Context) {
         #[cfg(feature = "video")]
         if is_video(&self.location()) {
-            self.open_shown_in(&self.config.video_player);
+            self.open_in(&self.config.video_player, vec![self.location()]);
             // The slideshow waits while the video plays, until P resumes it.
             if self.slideshow.is_running() {
                 self.slideshow.pause();

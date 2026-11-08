@@ -5,6 +5,11 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- File → Open With Default App opens the selected files, as the Open With submenu beside it
+  does, rather than only the shown image. It is in the file list's right-click menu too.
+
 ## [0.75.0] - 2026-11-08
 
 ### Added
