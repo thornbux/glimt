@@ -28,6 +28,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
   just before the delete. The marks file is read for it in the background, not in the window.
 - A collection open in one window follows the images that another window moves or renames,
   as an open folder does, instead of keeping their old names until it is opened again.
+- Folders shown together are read again when an image is added, removed or renamed in one of
+  them, as an open folder is, instead of never.
 - A screen reader reads out a notice given twice within one frame, such as two refusals of
   `--lock-settings` close together, also the second time.
 
