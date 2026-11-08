@@ -14,6 +14,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
   on `confirm_delete`, and it reads a call that is split over several lines.
 - Inside, the check that keys are read in one place also sees the keys held down
   (`keys_down`).
+- Inside, the check that every file operation is in the contract sees work that counts itself
+  as writing however the counter is named, also after a `use`.
 
 ## [0.74.0] - 2026-11-08
 
