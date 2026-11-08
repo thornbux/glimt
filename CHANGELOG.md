@@ -5,6 +5,12 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- `glimt --remote run ACTION` does nothing while a text field has the focus, as the keys do
+  nothing then, so a script no longer takes the focus from the search field or a name being
+  typed, or shows another image under the keywords being typed.
+
 ### Changed
 
 - Inside, the check that the file list is drawn only by its known views also watches the
