@@ -94,7 +94,13 @@ fn svg_images() -> resvg::usvg::ImageHrefResolver<'static> {
             {
                 return None;
             }
-            let file = opts.resources_dir.as_deref()?.join(relative);
+            // A link on the way may lead out of the folder, as an archive keeps links, so the
+            // real path of the picture must be in the real folder.
+            let folder = opts.resources_dir.as_deref()?.canonicalize().ok()?;
+            let file = folder.join(relative).canonicalize().ok()?;
+            if !file.starts_with(&folder) {
+                return None;
+            }
             let meta = std::fs::metadata(&file).ok().filter(|m| m.is_file())?;
             if meta.len() > 64 << 20 {
                 return None;
@@ -769,6 +775,13 @@ mod tests {
         assert!(!from_inner("../p.jpg"));
         assert!(!from_inner(&dir.join("p.jpg").to_string_lossy()));
         assert!(!from_inner(&dir.join("in/q.jpg").to_string_lossy()));
+        // Nor through a link in the folder that leads out of it, to a folder or to a file,
+        // while a link that stays inside is followed.
+        std::os::unix::fs::symlink(&dir, dir.join("in/out")).unwrap();
+        std::os::unix::fs::symlink(dir.join("p.jpg"), dir.join("in/p.jpg")).unwrap();
+        std::os::unix::fs::symlink(dir.join("in/q.jpg"), dir.join("in/r.jpg")).unwrap();
+        assert!(!from_inner("out/p.jpg") && !from_inner("p.jpg"));
+        assert!(from_inner("r.jpg"));
         std::fs::remove_dir_all(dir).unwrap();
     }
 
