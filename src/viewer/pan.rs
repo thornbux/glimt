@@ -7,6 +7,8 @@ use crate::support::lang::tr;
 use crate::support::threads::{Receiving, Took, Working};
 use crate::{tf, viewer::pan};
 use eframe::egui;
+use std::borrow::Cow;
+use std::collections::HashMap;
 use std::ffi::OsString;
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -31,6 +33,13 @@ const MONTHS: [&str; 12] = [
 
 /// A day ("2024-05-06", or "No date") and the list indices of its images, in time order.
 pub type Day = (String, Vec<usize>);
+
+/// What a file's day is read from: its EXIF date with 0, or "" with its modification time.
+/// Either sorts the files in time order.
+type DateKey = (String, i64);
+
+/// The date of each file name read so far, `None` for a file without one.
+type KnownDates = HashMap<OsString, Option<DateKey>>;
 
 /// A row of the view: a day's heading, or a row of its thumbnails from this one on.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -64,8 +73,16 @@ pub(crate) struct PanView {
     uses_exif_dates: bool,
     /// The days, and the version of the file list they are for (`List::version`).
     days: Option<(Vec<pan::Day>, usize)>,
-    /// The days read so far, and whether they are all of them.
-    days_rx: Receiving<(Vec<pan::Day>, bool)>,
+    /// The days read so far, and with the last of them the dates the reading knows.
+    days_rx: Receiving<(Vec<pan::Day>, Option<KnownDates>)>,
+    /// The dates read, by file name, as the `exif:` index keeps its text. A list that changes
+    /// (a rename, a refresh, a sort) then reads only the names that are new to it. While the
+    /// days are read, the reading thread holds the dates and gives them back with its last
+    /// days.
+    /// shortcut: names that left the list stay until the view closes or another folder opens,
+    /// and a file changed under the same name keeps its date; drop them on a refresh if that
+    /// matters.
+    known_dates: KnownDates,
     /// Set when the days being made are no longer wanted: the thread stops reading.
     stop_reading_days: Arc<AtomicBool>,
     /// The files deleted while the days are being read, as sorted places in the list the days
@@ -96,9 +113,7 @@ impl PanView {
             ui.separator();
             if crate::ui::menus::checkbox(ui, &mut self.uses_exif_dates, tr("EXIF date")).changed()
             {
-                self.days = None;
-                self.days_rx.clear();
-                self.stop_reading_days.store(true, Ordering::Relaxed);
+                self.forget_dates();
             }
             // Days of an older list are not shown while new ones are made: they point
             // at other images now.
@@ -159,15 +174,25 @@ impl PanView {
     }
 
     /// Takes the days read so far and moves them through the deletes made since the reading
-    /// started. `done` says that they are all of them.
-    fn take_days(&mut self, mut days: Vec<Day>, done: bool) {
+    /// started. `known` comes with the last days, and it holds the dates the reading knows.
+    fn take_days(&mut self, mut days: Vec<Day>, known: Option<KnownDates>) {
         remove_from_days(&mut days, &self.removed_while_reading.0);
         self.months = months(&days);
         self.days = Some((days, self.removed_while_reading.1));
         self.laid_for = None;
-        if done {
+        if let Some(known) = known {
+            self.known_dates = known;
             self.days_rx.clear();
         }
+    }
+
+    /// Drops the days and the dates read, and stops the reading. The dates belong to another
+    /// folder, or are of the other kind (EXIF or file dates), after this.
+    pub(crate) fn forget_dates(&mut self) {
+        self.days = None;
+        self.days_rx.clear();
+        self.stop_reading_days.store(true, Ordering::Relaxed);
+        self.known_dates = KnownDates::new();
     }
 }
 
@@ -232,18 +257,19 @@ impl crate::App {
         // The days again when the list changed, also only its order; only the visible rows are
         // drawn.
         let stale = (pan.days.as_ref()).is_none_or(|d| d.1 != self.list.version());
-        // Days still being made for a list that changed: stopped, so the new list's start now
-        // instead of after every old file is read.
+        // Days still being made for a list that changed are stopped, so the new list's start
+        // soon instead of after every old file is read. The reading gives back the dates it
+        // read, and the new list's reading starts from them.
         if pan.days_rx.is_some() && pan.removed_while_reading.1 != self.list.version() {
             pan.stop_reading_days.store(true, Ordering::Relaxed);
-            pan.days_rx.clear();
         }
         if stale && pan.days_rx.is_none() {
             let (tx, rx) = mpsc::channel();
-            let (dir, files, exif) = (
+            let (dir, files, exif, known) = (
                 self.folder.dir().to_path_buf(),
                 self.list.files().to_vec(),
                 pan.uses_exif_dates,
+                std::mem::take(&mut pan.known_dates),
             );
             let ctx = ctx.clone();
             // The days are read from the list as it is now, which no file has left yet.
@@ -252,8 +278,8 @@ impl crate::App {
             pan.stop_reading_days = Arc::default();
             let stop = pan.stop_reading_days.clone();
             std::thread::spawn(move || {
-                timeline(&dir, &files, exif, &stop, |days, done| {
-                    let _ = tx.send((days, done));
+                timeline(&dir, &files, exif, known, &stop, |days, known| {
+                    let _ = tx.send((days, known));
                     ctx.request_repaint();
                 });
                 drop(pointer);
@@ -265,7 +291,7 @@ impl crate::App {
         let mut gone = false;
         loop {
             match pan.days_rx.next() {
-                Took::Answer((days, done)) => pan.take_days(days, done),
+                Took::Answer((days, known)) => pan.take_days(days, known),
                 Took::Nothing => break,
                 Took::Gone => {
                     gone = true;
@@ -482,31 +508,35 @@ impl crate::App {
     }
 }
 
-/// The images of `files` in `dir` by day, read on all cores. `found` gets the days so far every
-/// half second and all of them at the end (`true`), so a large folder shows what is read while
-/// the rest is.
+/// The images of `files` in `dir` by day, their dates read on all cores. Only the names that
+/// `known` lacks are read. `found` gets the days so far every half second, and at the end all
+/// of them with the dates known then, so a large folder shows what is read while the rest is.
+/// When `stop` is set, the last call comes with no days.
 pub fn timeline(
     dir: &Path,
     files: &[OsString],
     uses_exif_dates: bool,
+    known: KnownDates,
     stop: &AtomicBool,
-    found: impl FnMut(Vec<Day>, bool),
+    found: impl FnMut(Vec<Day>, Option<KnownDates>),
 ) {
     if uses_exif_dates {
         // EXIF writes "2024:05:06 07:08:09", which sorts as it is.
         // A date that is no day (the blank "    :  :  " of a camera that had none) is none.
-        let date =
-            |p: &Path| crate::metadata::exif::date(p, false).filter(|d| parse_date(d).is_some());
-        let day = |d: &String| d.get(..10).unwrap_or(d).replace(':', "-");
-        return read_days(dir, files, stop, found, date, day);
+        let date = |p: &Path| {
+            let date = crate::metadata::exif::date(p, false)?;
+            parse_date(&date).map(|_| (date, 0))
+        };
+        let day = |d: &DateKey| d.0.get(..10).unwrap_or(d.0.as_str()).replace(':', "-");
+        return read_days(dir, files, known, stop, found, date, day);
     }
     let time = |p: &Path| {
         use std::os::unix::fs::MetadataExt;
-        p.metadata().ok().map(|m| m.mtime())
+        p.metadata().ok().map(|m| (String::new(), m.mtime()))
     };
     // The local date once for each quarter of an hour, where every time zone changes.
     let mut last = (i64::MIN, String::new());
-    let day = move |&t: &i64| {
+    let day = move |&(_, t): &DateKey| {
         if t.div_euclid(900) != last.0 {
             let local = crate::support::format::local_time(t);
             last = (
@@ -516,38 +546,43 @@ pub fn timeline(
         }
         last.1.clone()
     };
-    read_days(dir, files, stop, found, time, day);
+    read_days(dir, files, known, stop, found, time, day);
 }
 
-/// `key` of every file, a few thousand at a time on all cores, and the days of those read so
-/// far to `found` every half second; the last call has them all.
-fn read_days<K: Ord + Clone + Send>(
+/// Reads `key` of each file that `known` lacks, a few thousand at a time on all cores. It gives
+/// `found` the days of the files known so far every half second, and at the end all of them
+/// with `known`, or no days when `stop` was set.
+fn read_days(
     dir: &Path,
     files: &[OsString],
+    mut known: KnownDates,
     stop: &AtomicBool,
-    mut found: impl FnMut(Vec<Day>, bool),
-    key: impl Fn(&Path) -> Option<K> + Sync,
-    mut day: impl FnMut(&K) -> String,
+    mut found: impl FnMut(Vec<Day>, Option<KnownDates>),
+    key: impl Fn(&Path) -> Option<DateKey> + Sync,
+    mut day: impl FnMut(&DateKey) -> String,
 ) {
-    let mut keys = Vec::with_capacity(files.len());
+    // The first reading reads every name, without a copy of the list.
+    let missing: Cow<[OsString]> = match known.is_empty() {
+        true => Cow::Borrowed(files),
+        false => (files.iter())
+            .filter(|name| !known.contains_key(*name))
+            .cloned()
+            .collect(),
+    };
     let mut sent = Instant::now();
-    let mut chunks = files.chunks(4096);
-    loop {
-        keys.extend(map_files_in_parallel(
-            dir,
-            chunks.next().unwrap_or(&[]),
-            stop,
-            &key,
-        ));
-        let done = keys.len() == files.len();
-        if done || sent.elapsed() >= std::time::Duration::from_millis(500) {
-            found(by_day(keys.clone(), &mut day), done);
+    for part in missing.chunks(4096) {
+        let dates = map_files_in_parallel(dir, part, stop, &key);
+        // A part cut short has no date for the files after the stop, which is not "no date".
+        if stop.load(Ordering::Relaxed) {
+            return found(Vec::new(), Some(known));
+        }
+        known.extend(part.iter().cloned().zip(dates));
+        if sent.elapsed() >= std::time::Duration::from_millis(500) {
+            found(by_day(files, &known, &mut day), None);
             sent = Instant::now();
         }
-        if done {
-            return;
-        }
     }
+    found(by_day(files, &known, &mut day), Some(known));
 }
 
 /// `f` of the path of every file, in parallel. Each thread reuses one path: Glimt's allocator
@@ -583,15 +618,21 @@ fn map_files_in_parallel<T: Send>(
     )
 }
 
-/// The files in order of `keys`, those without one last, cut into days by `day`.
-fn by_day<K: Ord>(keys: Vec<Option<K>>, mut day: impl FnMut(&K) -> String) -> Vec<Day> {
-    let mut order: Vec<usize> = (0..keys.len()).collect();
-    order.sort_by(|&a, &b| (keys[a].is_none(), &keys[a]).cmp(&(keys[b].is_none(), &keys[b])));
+/// The files of `files` whose date is known, in time order, those without a date last, cut
+/// into days by `day`. A file whose date is not read yet is left out.
+fn by_day(
+    files: &[OsString],
+    known: &KnownDates,
+    mut day: impl FnMut(&DateKey) -> String,
+) -> Vec<Day> {
+    let mut order: Vec<(usize, Option<&DateKey>)> = (files.iter().enumerate())
+        .filter_map(|(i, name)| Some((i, known.get(name)?.as_ref())))
+        .collect();
+    // The sort is stable, so files of one time keep their order in the list.
+    order.sort_by(|a, b| (a.1.is_none(), a.1).cmp(&(b.1.is_none(), b.1)));
     let mut days: Vec<Day> = Vec::new();
-    for i in order {
-        let d = keys[i]
-            .as_ref()
-            .map_or_else(|| "No date".to_owned(), &mut day);
+    for (i, key) in order {
+        let d = key.map_or_else(|| "No date".to_owned(), &mut day);
         match days.last_mut() {
             Some((last, list)) if *last == d => list.push(i),
             _ => days.push((d, vec![i])),
@@ -749,7 +790,7 @@ mod tests {
             ("2024-01-02".into(), vec![2, 3]),
             ("2024-01-03".into(), vec![4, 5]),
         ];
-        pan.take_days(read, false);
+        pan.take_days(read, None);
         let left = vec![
             ("2024-01-01".into(), vec![0]),
             ("2024-01-03".into(), vec![1]),
@@ -830,16 +871,17 @@ mod tests {
             f.set_modified(t).unwrap();
         }
         let mut sent = Vec::new();
-        timeline(&dir, &names, false, &AtomicBool::new(false), |d, done| {
-            sent.push((d, done))
+        let stop = AtomicBool::new(false);
+        timeline(&dir, &names, false, KnownDates::new(), &stop, |d, known| {
+            sent.push((d, known.is_some()))
         });
         // One call with them all; an empty list gets its call too, so the view never waits.
         assert_eq!(sent.len(), 1);
         let (days, done) = sent.pop().unwrap();
         assert!(done);
         let mut empty = Vec::new();
-        timeline(&dir, &[], false, &AtomicBool::new(false), |d, done| {
-            empty.push((d, done))
+        timeline(&dir, &[], false, KnownDates::new(), &stop, |d, known| {
+            empty.push((d, known.is_some()))
         });
         assert_eq!(empty, [(Vec::new(), true)]);
         // b is years older; a and c on one day, in time order; the missing file last.
@@ -850,6 +892,86 @@ mod tests {
         assert_eq!(rows[2], (120.0, Row::Heading(1)));
         assert_eq!(rows[4], (240.0, Row::Cells(1, 1)));
         assert_eq!(height, 3.0 * 20.0 + 4.0 * 100.0);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// A list that changed reads only the names new to it, and the days still have every file.
+    /// Before, a rename in a folder of 500,000 files read every file's date again.
+    #[test]
+    fn a_rename_reads_only_the_new_name() {
+        let names = |n: &[&str]| n.iter().map(OsString::from).collect::<Vec<_>>();
+        let reads = AtomicUsize::new(0);
+        let key = |p: &Path| {
+            reads.fetch_add(1, Ordering::Relaxed);
+            let time = if p.ends_with("b") { 1 } else { 2 };
+            Some((String::new(), time))
+        };
+        let day = |k: &DateKey| k.1.to_string();
+        let stop = AtomicBool::new(false);
+        let mut last = None;
+        let files = names(&["a", "b", "c"]);
+        let take = |d: Vec<Day>, k: Option<KnownDates>| last = Some((d, k));
+        read_days(
+            Path::new("/"),
+            &files,
+            KnownDates::new(),
+            &stop,
+            take,
+            key,
+            day,
+        );
+        let (_, known) = last.take().unwrap();
+        assert_eq!(reads.swap(0, Ordering::Relaxed), 3);
+        // "a" renamed to "x".
+        let files = names(&["x", "b", "c"]);
+        let take = |d: Vec<Day>, k: Option<KnownDates>| last = Some((d, k));
+        read_days(
+            Path::new("/"),
+            &files,
+            known.unwrap(),
+            &stop,
+            take,
+            key,
+            day,
+        );
+        assert_eq!(reads.load(Ordering::Relaxed), 1);
+        let (days, known) = last.unwrap();
+        assert_eq!(days, [("1".into(), vec![1]), ("2".into(), vec![0, 2])]);
+        assert!(known.is_some_and(|k| k.contains_key(&OsString::from("x"))));
+    }
+
+    /// The Pan view hands the dates it read to the next reading when the list changes, so a
+    /// rename in the window reads one file, and another folder starts without them.
+    #[test]
+    fn the_dates_read_follow_the_list() {
+        let name = format!("glimt-test-pan-rename-{}", std::process::id());
+        let dir = std::env::temp_dir().join(name);
+        std::fs::create_dir_all(&dir).unwrap();
+        for name in ["a.png", "b.png", "c.png"] {
+            std::fs::File::create(dir.join(name)).unwrap();
+        }
+        let (mut app, ctx) = crate::support::test_support::app_on(&dir);
+        let read = |app: &mut crate::App, pan: &mut PanView| {
+            for _ in 0..2000 {
+                app.pan_days(&ctx, pan);
+                let fresh = pan.days.as_ref().is_some_and(|d| d.1 == app.list.version());
+                if fresh && pan.days_rx.is_none() {
+                    return;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(1));
+            }
+            panic!("no days");
+        };
+        let mut pan = PanView::default();
+        read(&mut app, &mut pan);
+        assert_eq!(pan.known_dates.len(), 3);
+        app.rename_in_list(&ctx, vec![(0, "x.png".into())]);
+        read(&mut app, &mut pan);
+        // The old name is kept with the new one: the dates were carried, not read anew.
+        assert_eq!(pan.known_dates.len(), 4);
+        app.pan_view = Some(pan);
+        app.forget_old_list();
+        assert!(app.pan_view.as_ref().unwrap().known_dates.is_empty());
         std::fs::remove_dir_all(&dir).unwrap();
     }
 

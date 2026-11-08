@@ -52,6 +52,12 @@ under other names (Zeiss LSM, gel scans; also grey TIFFs of floats, stretched), 
 files by their embedded preview. Builds with optional features also read videos, HEIC, AVIF, JPEG XL and SVG. Other
 formats (DICOM, FITS, microscope files …) are read through formats you add (see FILES).
 .SH OPTIONS
+The options that start Glimt a certain way
+.RB ( \-\-slideshow ", " \-\-random ", " \-\-fullscreen ", " \-\-kiosk ,
+.BR \-\-lock\-settings ", " \-\-layout ", " \-\-fade " and " \-\-name )
+may also come after the files and folders, as in
+.BR "glimt a.jpg \-\-fullscreen" ,
+as Geeqie reads its options.
 .TP
 .B \-\-slideshow
 Start the slideshow once the folder is read. Given a collection

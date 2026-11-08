@@ -848,14 +848,12 @@ impl Action {
         match self {
             Rename | CopyTo | MoveTo | Delete | DeletePermanently | CopyPath | CopyPathUnquoted
             | CopyFiles | NewCollection | RemoveFromCollection | MoveEarlier | MoveLater
-            | MoveFirst | MoveLast | Print | CopyForSharing => Target::Selection,
+            | MoveFirst | MoveLast | Print | CopyForSharing | OpenWith => Target::Selection,
             #[cfg(feature = "marks")]
             Mark1 | Mark2 | Mark3 | Mark4 | Mark5 | Mark6 | Rate0 | Rate1 | Rate2 | Rate3
             | Rate4 | Rate5 => Target::Selection,
-            OpenWith | SetWallpaper | PlayVideo | CopyImage | RotateCw | RotateCcw | Rotate180
-            | Mirror | Flip | SaveOrientation | Crop | SaveAs | SaveFrame | ExportFrames => {
-                Target::Shown
-            }
+            SetWallpaper | PlayVideo | CopyImage | RotateCw | RotateCcw | Rotate180 | Mirror
+            | Flip | SaveOrientation | Crop | SaveAs | SaveFrame | ExportFrames => Target::Shown,
             OpenFile | OpenFolder | OpenFolders | OpenRecursive | NewFolder | Undo
             | CloseWindow | Quit | First | Previous | Next | Last | Back | Forward | Home | Up
             | SelectAll | SelectNone | InvertSelection | Preferences | ExifRotate | NextFilter
@@ -966,6 +964,20 @@ impl crate::App {
         self.dialogs.asks_about_files()
     }
 
+    /// Reads the shortcut pressed this frame in `ctx`, which is the main window or the
+    /// projector. Returns `None` while a dialog is open, because the keys belong to the dialog
+    /// then. Every window reads its shortcuts here, so no window's keys get past a dialog.
+    pub(crate) fn shortcut_unless_dialog_open(&self, ctx: &egui::Context) -> Option<Action> {
+        if self.dialog_open() {
+            return None;
+        }
+        Self::shortcut(
+            ctx,
+            self.config.delete_key,
+            self.folder.collection().is_some(),
+        )
+    }
+
     /// The action for a shortcut pressed this frame, if any.
     /// `delete_key` false: the Delete key does nothing (Ctrl+D still deletes), as in Geeqie.
     pub(crate) fn shortcut(
@@ -1067,7 +1079,7 @@ impl crate::App {
             Action::CopyTo | Action::MoveTo => self.pick_copy_or_move(ctx, action),
             Action::CopyForSharing => self.start_copy_for_sharing(ctx),
             // The default application; the Open With submenu lists the others.
-            Action::OpenWith => self.open_shown_in(""),
+            Action::OpenWith => self.open_targets_in_default_app(),
             Action::SetWallpaper => self.set_wallpaper(),
             // Enter: videos play in a player (images have nothing to play).
             Action::PlayVideo => self.play_video(ctx),
@@ -1442,14 +1454,8 @@ impl crate::App {
         let vertical =
             ctx.input(|i| i.key_pressed(egui::Key::ArrowUp) || i.key_pressed(egui::Key::ArrowDown));
         self.panel.set_row_step(vertical);
-        (!self.dialog_open() && !typing)
-            .then(|| {
-                Self::shortcut(
-                    ctx,
-                    self.config.delete_key,
-                    self.folder.collection().is_some(),
-                )
-            })
+        (!typing)
+            .then(|| self.shortcut_unless_dialog_open(ctx))
             .flatten()
     }
 
@@ -1965,6 +1971,37 @@ mod tests {
         );
     }
 
+    /// An action on the shown image is one that only one image can take: its pixels as shown,
+    /// the clipboard's one picture, the wallpaper or the video that plays. Every other action
+    /// on files acts on the selection, as its menu neighbours do. Open With Default App once
+    /// opened the shown image while the Open With submenu beside it opened the selected files.
+    #[test]
+    fn only_actions_that_take_one_image_act_on_the_shown_one() {
+        let one_image = [
+            "SetWallpaper",
+            "PlayVideo",
+            "CopyImage",
+            "RotateCw",
+            "RotateCcw",
+            "Rotate180",
+            "Mirror",
+            "Flip",
+            "SaveOrientation",
+            "Crop",
+            "SaveAs",
+            "SaveFrame",
+            "ExportFrames",
+        ];
+        for action in ALL.iter().filter(|a| a.target() == Target::Shown) {
+            let name = format!("{action:?}");
+            assert!(
+                one_image.contains(&name.as_str()),
+                "{name} acts on the shown image: make it Target::Selection, or add it here if \
+                 only one image can take it"
+            );
+        }
+    }
+
     /// Every action on the selection reaches `targets`, `targets_without_notice` or
     /// `ask_about_targets` from its arm in `App::run`, in the arm itself or in a function it
     /// calls. `Action::target` is only a label, which a menu about the selection trusts.
@@ -2242,6 +2279,60 @@ mod tests {
                 .any(|s| s.0 == Action::NewWindow && super::same_keys(s, &ctrl_n.0[0]))
         );
         super::USER_KEYS.write().unwrap().clear();
+    }
+
+    /// A dialog in the main window holds the keys of every window. The projector once browsed
+    /// on with Space behind the Delete question, as it read its shortcuts without asking about
+    /// dialogs. Every window now reads them through `shortcut_unless_dialog_open`, and no code
+    /// outside the tests calls `shortcut` itself.
+    #[test]
+    fn no_window_reads_its_keys_past_a_dialog() {
+        use eframe::egui;
+        let dir =
+            std::env::temp_dir().join(format!("glimt-test-keys-dialog-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        for name in ["a.png", "b.png"] {
+            image::RgbImage::new(2, 2).save(dir.join(name)).unwrap();
+        }
+        let (mut app, ctx) = crate::support::test_support::app_on(&dir);
+        let listed = |a: &crate::App| !a.list.files().is_empty();
+        assert!(crate::support::test_support::run_background_until(
+            &mut app, &ctx, listed
+        ));
+        let space = |app: &crate::App| {
+            let key = egui::Event::Key {
+                key: egui::Key::Space,
+                physical_key: None,
+                pressed: true,
+                repeat: false,
+                modifiers: Default::default(),
+            };
+            ctx.begin_pass(egui::RawInput {
+                events: vec![key],
+                ..Default::default()
+            });
+            let action = app.shortcut_unless_dialog_open(&ctx);
+            let _ = ctx.end_pass();
+            action
+        };
+        assert_eq!(space(&app), Some(Action::Next));
+        app.run(&ctx, Action::DeletePermanently);
+        assert!(app.dialog_open());
+        assert_eq!(space(&app), None);
+        std::fs::remove_dir_all(&dir).unwrap();
+        let mut callers = Vec::new();
+        for (file, text) in crate::support::source_rules::rust_sources() {
+            let lines = crate::support::source_rules::code_lines(&text);
+            let end =
+                (lines.iter().position(|l| l.trim_start() == "mod tests {")).unwrap_or(lines.len());
+            let calls = lines[..end].iter().filter(|l| l.contains("::shortcut("));
+            callers.extend(calls.map(|_| file.clone()));
+        }
+        assert_eq!(
+            callers,
+            ["ui/actions.rs"],
+            "read a window's shortcuts with shortcut_unless_dialog_open"
+        );
     }
 
     /// Plain Ctrl+C comes from egui-winit as a Copy event, and so does the Copy key with no

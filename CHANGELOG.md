@@ -29,6 +29,25 @@ and versions follow [Semantic Versioning](https://semver.org/).
 - Two backups made at the same moment each get a folder of their own.
 - A program Glimt runs for its answer is no longer signalled by its time limit after it has
   ended, when a program it left behind keeps its errors open.
+### Changed
+
+- File → Open With Default App opens the selected files, as the Open With submenu beside it
+  does, rather than only the shown image. It is in the file list's right-click menu too.
+
+### Fixed
+
+- Pan view keeps the dates it has read when the list changes: after a rename, a refresh, a new
+  sort or a shuffle it reads only the files that are new, rather than every file again, which
+  took minutes in a large folder with EXIF date. A folder that a sync client keeps adding to
+  now gets its whole timeline.
+- A network share that answers late is no longer opened over the folder you opened while
+  waiting for it.
+- The projector's keys wait while a dialog is open in the main window, as the main window's
+  do: Space there no longer moves to the next image behind the Delete question.
+- A start option after the file or folder is read as an option, as Geeqie reads its own:
+  `glimt a.jpg --fullscreen` starts in full screen, rather than showing the current folder
+  together with a.jpg's. Any other argument there is still a file or folder, and after `--`
+  every argument is.
 
 ## [0.75.0] - 2026-11-08
 

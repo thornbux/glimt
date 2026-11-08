@@ -653,7 +653,8 @@ const MANUAL: &[(&str, &str)] = &[
          its first image, or several folders as one list (glimt ~/Holiday ~/Family).\n\n\
          The options before them start it a certain way: glimt --fullscreen --layout 2x2 --random \
          --slideshow ~/Pictures shows four random images at a time on the whole screen, and glimt \
-         --slideshow show.txt plays a list in its order.\n\n\
+         --slideshow show.txt plays a list in its order. As in Geeqie, they may also come after \
+         the files (glimt a.jpg --fullscreen); after -- every argument is a file.\n\n\
          glimt --remote COMMAND sends a command to the Glimt used last, glimt --remote-all to \
          every one: next, previous, slideshow or open PATH from a script or a desktop shortcut. \
          current, selection and select PATH … tell a script (or an AI assistant) what is shown and \

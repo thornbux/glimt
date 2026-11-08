@@ -1,4 +1,4 @@
-//! The command line: the start options in front of the file or folder (`Start`), and the
+//! The command line: the start options around the files and folders (`Start`), and the
 //! commands that answer and end without opening a window (--help, --version, --check-config
 //! and --back-up). The --remote commands are in remote.rs.
 
@@ -72,58 +72,95 @@ pub(crate) struct Start {
 }
 
 impl Start {
-    /// The options in front of `args`, and the arguments after them.
+    /// Reads the start options in `args`, and returns them with the other arguments. The
+    /// options come before the files and folders, and also after them, as Geeqie reads its
+    /// own. After a file or folder only the start options are read: `--remote`, a command or
+    /// an unknown `--word` there is a file or folder, as it always was. `--` ends the options.
     pub(crate) fn parse(mut args: Vec<OsString>) -> Result<(Start, Vec<OsString>), String> {
         let mut start = Start::default();
         while let Some(arg) = args.first().and_then(|a| a.to_str()).map(str::to_owned) {
+            if let Some(taken) = start.take_option(&arg, args.get(1))? {
+                args.drain(..taken);
+                continue;
+            }
             match arg.as_str() {
-                "--slideshow" => start.slideshow = true,
-                "--random" => start.random = true,
-                "--fullscreen" => start.fullscreen = true,
-                "--kiosk" => start.kiosk = true,
-                "--lock-settings" => start.lock_settings = true,
-                "--fade" => {
-                    let value = args.get(1).and_then(|a| a.to_str()).unwrap_or_default();
-                    let k = FADES.iter().position(|f| f.0 == value);
-                    start.fade = Some(k.ok_or("--fade takes off, short or long")?);
-                    args.remove(0);
-                }
-                "--layout" => {
-                    let value = args.get(1).and_then(|a| a.to_str()).unwrap_or_default();
-                    let layout = LAYOUTS.iter().find(|l| l.0 == value).ok_or_else(|| {
-                        let all: Vec<&str> = LAYOUTS.iter().map(|l| l.0).collect();
-                        format!("--layout takes one of {}", all.join(", "))
-                    })?;
-                    start.layout = Some(layout.0);
-                    args.remove(0);
-                }
-                "--name" => {
-                    let name = args.get(1).and_then(|a| a.to_str()).unwrap_or_default();
-                    if !remote::valid_name(name) || name.is_empty() {
-                        return Err(
-                            "--name takes up to 64 letters, digits, - and _ (not only digits)"
-                                .into(),
-                        );
-                    }
-                    if !remote::name_fits(name) {
-                        return Err(format!("--name {name} is too long for remote control here"));
-                    }
-                    start.name = Some(name.to_owned());
-                    args.remove(0);
-                }
                 "--" => {
                     start.files_only = true;
                     args.remove(0);
-                    break;
+                    return Ok((start, args));
                 }
-                remote::REMOTE | remote::REMOTE_ALL => break,
-                a if Command::named(a).is_some() => break,
+                remote::REMOTE | remote::REMOTE_ALL => return Ok((start, args)),
+                a if Command::named(a).is_some() => return Ok((start, args)),
                 a if a.starts_with("--") => return Err(format!("unknown option {a}")),
                 _ => break,
             }
-            args.remove(0);
         }
-        Ok((start, args))
+        // The first file or folder is here. Before, a start option after it was taken as one
+        // more folder: `glimt a.jpg --fullscreen` showed the current folder with a.jpg's.
+        let mut paths = Vec::with_capacity(args.len());
+        let mut i = 0;
+        while i < args.len() {
+            let arg = args[i].to_str().unwrap_or_default().to_owned();
+            if arg == "--" {
+                start.files_only = true;
+                paths.extend(args.drain(i + 1..));
+                break;
+            }
+            match start.take_option(&arg, args.get(i + 1))? {
+                Some(taken) => i += taken,
+                None => {
+                    paths.push(args[i].clone());
+                    i += 1;
+                }
+            }
+        }
+        Ok((start, paths))
+    }
+
+    /// Takes the start option `arg`, with `value` after it for an option that has one.
+    /// Returns how many arguments it took, or `None` when `arg` is no start option.
+    fn take_option(
+        &mut self,
+        arg: &str,
+        value: Option<&OsString>,
+    ) -> Result<Option<usize>, String> {
+        let value = value.and_then(|a| a.to_str()).unwrap_or_default();
+        match arg {
+            "--slideshow" => self.slideshow = true,
+            "--random" => self.random = true,
+            "--fullscreen" => self.fullscreen = true,
+            "--kiosk" => self.kiosk = true,
+            "--lock-settings" => self.lock_settings = true,
+            "--fade" => {
+                let k = FADES.iter().position(|f| f.0 == value);
+                self.fade = Some(k.ok_or("--fade takes off, short or long")?);
+                return Ok(Some(2));
+            }
+            "--layout" => {
+                let layout = LAYOUTS.iter().find(|l| l.0 == value).ok_or_else(|| {
+                    let all: Vec<&str> = LAYOUTS.iter().map(|l| l.0).collect();
+                    format!("--layout takes one of {}", all.join(", "))
+                })?;
+                self.layout = Some(layout.0);
+                return Ok(Some(2));
+            }
+            "--name" => {
+                if !remote::valid_name(value) || value.is_empty() {
+                    return Err(
+                        "--name takes up to 64 letters, digits, - and _ (not only digits)".into(),
+                    );
+                }
+                if !remote::name_fits(value) {
+                    return Err(format!(
+                        "--name {value} is too long for remote control here"
+                    ));
+                }
+                self.name = Some(value.to_owned());
+                return Ok(Some(2));
+            }
+            _ => return Ok(None),
+        }
+        Ok(Some(1))
     }
 }
 
@@ -292,5 +329,33 @@ mod tests {
         assert!(s.files_only && !super::answer_without_window(&s, &rest));
         assert_eq!(rest, args(&["--remote", "next"]));
         assert!(!Start::parse(args(&["d"])).unwrap().0.files_only);
+    }
+
+    /// A start option after the file or folder is read as one, as Geeqie reads its options.
+    /// Before, `glimt a.jpg --fullscreen` showed the current folder with a.jpg's, as if
+    /// "--fullscreen" were a file there. Anything else after a file stays a file, as before, and
+    /// `--` still ends the options.
+    #[test]
+    fn start_options_after_the_files_are_read() {
+        let args = |a: &[&str]| {
+            a.iter()
+                .map(Into::into)
+                .collect::<Vec<std::ffi::OsString>>()
+        };
+        let (s, rest) =
+            Start::parse(args(&["a.jpg", "--fullscreen", "b", "--fade", "long"])).unwrap();
+        assert!(s.fullscreen && s.fade == Some(2));
+        assert_eq!(rest, args(&["a.jpg", "b"]));
+        let (s, rest) = Start::parse(args(&["a.jpg", "--remote", "--x", "-h"])).unwrap();
+        assert!(!s.fullscreen);
+        assert_eq!(rest, args(&["a.jpg", "--remote", "--x", "-h"]));
+        let (s, rest) = Start::parse(args(&["a.jpg", "--", "--random", "c"])).unwrap();
+        assert!(s.files_only && !s.random);
+        assert_eq!(rest, args(&["a.jpg", "--random", "c"]));
+        assert!(Start::parse(args(&["a.jpg", "--layout", "9x9"])).is_err());
+        // The arguments of --remote are its own.
+        let (s, rest) = Start::parse(args(&["--remote", "open", "a", "--random"])).unwrap();
+        assert!(!s.random);
+        assert_eq!(rest, args(&["--remote", "open", "a", "--random"]));
     }
 }

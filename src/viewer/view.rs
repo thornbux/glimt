@@ -907,12 +907,8 @@ impl crate::App {
                 let f = i.key_pressed(egui::Key::F) || i.key_pressed(egui::Key::F11);
                 (f && i.modifiers.is_none(), i.key_pressed(egui::Key::Escape))
             });
-            let key = Self::shortcut(
-                &pctx,
-                self.config.delete_key,
-                self.folder.collection().is_some(),
-            )
-            .filter(|a| KIOSK_ACTIONS.contains(a));
+            let key =
+                (self.shortcut_unless_dialog_open(&pctx)).filter(|a| KIOSK_ACTIONS.contains(a));
             chosen = key;
             let [r, g, b] = self.config.background.0;
             let frame = egui::Frame::NONE.fill(egui::Color32::from_rgb(r, g, b));
@@ -1539,7 +1535,7 @@ impl crate::App {
     pub(crate) fn play_video(&mut self, ctx: &egui::Context) {
         #[cfg(feature = "video")]
         if is_video(&self.location()) {
-            self.open_shown_in(&self.config.video_player);
+            self.open_in(&self.config.video_player, vec![self.location()]);
             // The slideshow waits while the video plays, until P resumes it.
             if self.slideshow.is_running() {
                 self.slideshow.pause();
