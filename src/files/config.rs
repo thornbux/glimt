@@ -173,6 +173,9 @@ const RENAMED_SETTINGS: [(&str, &str); 11] = [
 /// keys of `RENAMED_SETTINGS` are.
 const RENAMED_STATE: [(&str, &str); 1] = [("window_pos", "window_position")];
 
+/// The window title that the retired app_name_first=true stood for.
+const APP_NAME_FIRST_TITLE: &str = "%app% - %name%";
+
 /// The key of the last folder in the window state file, beside `WindowState`'s keys.
 pub const LAST_DIR: &str = "last_dir";
 
@@ -381,10 +384,12 @@ config! {
     lightroom_keywords: bool = true,
     /// Keep the screen saver off while in full screen.
     inhibit_screensaver: bool = true,
-    /// Window title "Glimt - image name" instead of "image name - Glimt".
+    /// Retired in 0.76.0. It was the window title "Glimt - image name" instead of "image name -
+    /// Glimt". Its true is read once into `window_title` (`move_app_name_first`), and it is
+    /// written as false.
     app_name_first: bool = false,
     /// The window title, from a template of %name%, %path%, %folder% and %app%. When it is
-    /// empty, the title has the order above.
+    /// empty, the title is "image name - Glimt".
     window_title: String = String::new(),
     /// File list with size and date columns, as in Geeqie.
     file_details: bool = false,
@@ -502,6 +507,7 @@ impl Config {
         c.slideshow_delay = c.slideshow_delay.clamp(1, MAX_SLIDESHOW_DELAY);
         c.toolbar_icons = c.toolbar_icons.min(2);
         c.view_filter = c.view_filter.min(3);
+        move_app_name_first(&mut c.app_name_first, &mut c.window_title);
         c
     }
 
@@ -555,6 +561,7 @@ impl Config {
                 // When the setting is set again later, that later line is the one checked.
                 Some(true) if later => {}
                 Some(true) => {
+                    move_app_name_first(&mut alone.app_name_first, &mut alone.window_title);
                     let wanted = value_in(&alone.to_text(), now);
                     if wanted != used(now) {
                         problems.push(format!(
@@ -833,6 +840,15 @@ fn old_key_overridden(key: &str, text: &str) -> bool {
     now != key && (text.lines()).any(|l| l.split_once('=').is_some_and(|(k, _)| k.trim() == now))
 }
 
+/// Moves the retired app_name_first=true into the window title it stood for, when the user has
+/// no title of their own. The setting is false afterwards, so it is moved only once, and a
+/// title the user empties later stays empty.
+fn move_app_name_first(app_name_first: &mut bool, window_title: &mut String) {
+    if std::mem::take(app_name_first) && window_title.is_empty() {
+        *window_title = APP_NAME_FIRST_TITLE.to_owned();
+    }
+}
+
 /// The `value` of `key` as the code holds it. A name becomes its place in its list, and other
 /// values stay as given.
 fn by_number(key: &str, value: &str) -> String {
@@ -891,6 +907,14 @@ fn merged(ours: &str, saved: &str, on_disk: &str) -> String {
         if let Some(value) = theirs.remove(old) {
             theirs.entry(new.to_owned()).or_insert(value);
         }
+    }
+    // The retired app_name_first=true on disk is moved into the window title there too, so a
+    // save writes that title and app_name_first=false, and the move is not made again.
+    if theirs.get("app_name_first").is_some_and(|v| v == "true") {
+        let mut title = theirs.remove("window_title").unwrap_or_default();
+        move_app_name_first(&mut true, &mut title);
+        theirs.insert("window_title".to_owned(), title);
+        theirs.insert("app_name_first".to_owned(), "false".to_owned());
     }
     let line = |l: &str| -> String {
         let value = l
@@ -1108,7 +1132,7 @@ mod tests {
         assert!(Config::default().search_bar && !Config::parse("search_bar=false").search_bar);
         assert_eq!(Config::parse("toolbar_icons=1").toolbar_icons, 1);
         assert_eq!(Config::parse("toolbar_icons=9").toolbar_icons, 2);
-        assert!(Config::parse("app_name_first=true").app_name_first);
+        assert!(!Config::parse("app_name_first=true").app_name_first);
         let win = super::WindowState {
             size: Some(eframe::egui::vec2(1000.0, 700.5)),
             position: Some(eframe::egui::pos2(10.0, -20.0)),
@@ -1278,6 +1302,39 @@ mod tests {
                 .collect();
             assert_eq!(pinned, values, "{key} gains values only at its end");
         }
+    }
+
+    /// The retired app_name_first=true becomes the window title it stood for, once: a title of
+    /// the user's own stays, a save writes the title and app_name_first=false, and a title
+    /// emptied afterwards stays empty. --check-config finds nothing wrong with the old line.
+    #[test]
+    fn app_name_first_is_read_once_into_the_window_title() {
+        use super::Config;
+        let old = "app_name_first=true\n";
+        let c = Config::parse(old);
+        assert_eq!(
+            (c.app_name_first, c.window_title.as_str()),
+            (false, "%app% - %name%")
+        );
+        let own = Config::parse("app_name_first=true\nwindow_title=%name%\n");
+        assert_eq!(own.window_title, "%name%");
+        assert_eq!(Config::parse_checked(old).1, Vec::<String>::new());
+        // Saved by a window that changed another setting: the title is written, not the old
+        // setting's true.
+        let saved = c.to_text();
+        let ours = saved.replace("thumbnails=true", "thumbnails=false");
+        let written = super::merged(&ours, &saved, old);
+        let again = Config::parse(&written);
+        assert_eq!(
+            (again.window_title.as_str(), again.thumbnails),
+            ("%app% - %name%", false)
+        );
+        assert!(written.contains("app_name_first=false\n"), "{written}");
+        // The user empties the title: it stays empty after a save and a load.
+        let mut emptied = Config::parse(&written);
+        emptied.window_title.clear();
+        let written = super::merged(&emptied.to_text(), &saved, &written);
+        assert_eq!(Config::parse(&written).window_title, "");
     }
 
     /// Each renamed setting is read by its old key too, and a file with both keys has the value

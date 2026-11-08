@@ -155,14 +155,13 @@ const VIDEO: &[&str] = &[
 
 const START: &[&str] = &[
     "Start and system",
-    "Custom window title (empty: as above):",
+    "Custom window title (empty: \"image name - Glimt\"):",
     "Fields: %name%, %path%, %folder% and %app%. A | starts a part, left out when its fields are empty.",
     "Keep a list of recent folders (File → Open Recent)",
     "Keep the screen saver off in full screen",
     "Listen for glimt --remote commands (after restart)",
     "Remember the window size and position",
     "Start in the last used folder",
-    "Window title \"Glimt - image name\" (off: \"image name - Glimt\")",
 ];
 
 /// The Preferences window: open or not, its search, and the action whose key is being chosen.
@@ -889,12 +888,7 @@ impl crate::App {
         changed |= checkbox(ui, &mut c.remote_control, remote).changed();
         let inhibit = tr("Keep the screen saver off in full screen");
         changed |= checkbox(ui, &mut c.inhibit_screensaver, inhibit).changed();
-        let order = tr("Window title \"Glimt - image name\" (off: \"image name - Glimt\")");
-        if checkbox(ui, &mut c.app_name_first, order).changed() {
-            changed = true;
-            self.update_window_title(ctx);
-        }
-        ui.label(tr("Custom window title (empty: as above):"));
+        ui.label(tr("Custom window title (empty: \"image name - Glimt\"):"));
         let field = egui::TextEdit::singleline(&mut self.config.window_title)
             .desired_width(f32::INFINITY)
             .hint_text("%name% - %app%");

@@ -14,6 +14,9 @@ and versions follow [Semantic Versioning](https://semver.org/).
   `osd_template`. The old keys are still read.
 - The layouts whose slideshow changes one image at a time, as the menu says, are kept as
   `slideshow_one_image_at_a_time` instead of `layout_turns`. The old key is still read.
+- Preferences has no checkbox for the window title "Glimt - image name" any more: the custom
+  window title says the same with `%app% - %name%`. A settings file with `app_name_first=true`
+  gets that title once, unless it has a title of its own.
 
 ### Fixed
 

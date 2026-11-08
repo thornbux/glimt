@@ -2310,8 +2310,8 @@ msgid "Save As"
 msgstr "Enregistrer sous"
 
 #: src/ui/preferences.rs
-msgid "Custom window title (empty: as above):"
-msgstr "Titre de fenêtre personnalisé (vide : comme ci-dessus) :"
+msgid "Custom window title (empty: \"image name - Glimt\"):"
+msgstr "Titre de fenêtre personnalisé (vide : « nom de l'image - Glimt ») :"
 
 #: src/ui/preferences.rs
 msgid "Fields: %name%, %path%, %folder% and %app%. A | starts a part, left out when its fields are empty."
@@ -2604,10 +2604,6 @@ msgstr "aucun, sRGB"
 #: src/ui/preferences.rs
 msgid "Fields: %name%, %path%, %position%, %dimensions%, %marks%, %keywords%, %comment%, and each label of the info panel, such as %Camera% or %ISO%. A | starts a part, left out when its fields are empty."
 msgstr "Champs : %name%, %path%, %position%, %dimensions%, %marks%, %keywords%, %comment% et chaque libellé du panneau d'informations sous son nom anglais, comme %Camera% ou %ISO%. Une | commence une partie, omise quand ses champs sont vides."
-
-#: src/ui/preferences.rs
-msgid "Window title \"Glimt - image name\" (off: \"image name - Glimt\")"
-msgstr "Titre de fenêtre « Glimt - nom de l'image » (désactivé : « nom de l'image - Glimt »)"
 
 #: src/ui/preferences.rs
 msgid "A command line, such as mpv --fs; a path with spaces goes in \"quotes\""

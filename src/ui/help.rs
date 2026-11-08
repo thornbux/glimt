@@ -949,7 +949,7 @@ const DIFFERENCES: &[(&str, &str, &str)] = &[
     ),
     (
         "Window title",
-        "\"name - Glimt\" or \"Glimt - name\", or a template of %name%, %path%, %folder% and \
+        "\"name - Glimt\", or a template of %name%, %path%, %folder% and \
          %app% (Preferences), or one window's own (Window → Set Window Title…)",
         "The image name and Geeqie; no title of the user's own",
     ),

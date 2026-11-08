@@ -323,9 +323,8 @@ impl crate::App {
         self.update_window_title(ctx);
     }
 
-    /// "image name - Glimt" (or "Glimt - image name", Preferences); the folder when it has no
-    /// images. Or this window's own template, else the one in Preferences, unless its fields
-    /// are all empty.
+    /// "image name - Glimt"; the folder when it has no images. Or this window's own template,
+    /// else the one in Preferences, unless its fields are all empty.
     pub(crate) fn title_text(&self) -> String {
         let (name, path) = match (
             self.list.files().get(self.list.shown()),
@@ -372,8 +371,6 @@ impl crate::App {
         });
         if !own.trim().is_empty() {
             own
-        } else if self.config.app_name_first {
-            format!("{app} - {name}")
         } else {
             format!("{name} - {app}")
         }

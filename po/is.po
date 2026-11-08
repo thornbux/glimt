@@ -2310,8 +2310,8 @@ msgid "Save As"
 msgstr "Vista sem"
 
 #: src/ui/preferences.rs
-msgid "Custom window title (empty: as above):"
-msgstr "Eigin gluggatitill (tómt: eins og að ofan):"
+msgid "Custom window title (empty: \"image name - Glimt\"):"
+msgstr "Eigin gluggatitill (tómt: „heiti myndar - Glimt“):"
 
 #: src/ui/preferences.rs
 msgid "Fields: %name%, %path%, %folder% and %app%. A | starts a part, left out when its fields are empty."
@@ -2604,10 +2604,6 @@ msgstr "ekkert, sRGB"
 #: src/ui/preferences.rs
 msgid "Fields: %name%, %path%, %position%, %dimensions%, %marks%, %keywords%, %comment%, and each label of the info panel, such as %Camera% or %ISO%. A | starts a part, left out when its fields are empty."
 msgstr "Reitir: %name%, %path%, %position%, %dimensions%, %marks%, %keywords%, %comment% og hvert heiti í upplýsingaspjaldinu á ensku, til dæmis %Camera% eða %ISO%. | byrjar hluta, sem er sleppt þegar reitir hans eru tómir."
-
-#: src/ui/preferences.rs
-msgid "Window title \"Glimt - image name\" (off: \"image name - Glimt\")"
-msgstr "Gluggatitill „Glimt - heiti myndar“ (af: „heiti myndar - Glimt“)"
 
 #: src/ui/preferences.rs
 msgid "A command line, such as mpv --fs; a path with spaces goes in \"quotes\""
