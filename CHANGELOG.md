@@ -114,9 +114,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
   is told as not shown. So that a photo linked or embedded in an SVG fits there, an SVG shows
   linked pictures of at most 32 megapixels each and 96 MB of files together, where it took
   256 MB of them before. The process also ends with Glimt, when Glimt quits or is killed while
-  it draws, and at 30 seconds of processor time of its own. A zoom to 100 % draws an SVG at the size the status bar gives it, not
-  at the largest size the graphics card takes, so an icon no longer takes 256 MB. The system's
-  fonts are read once for all of them, not again for each SVG with text.
+  it draws, and at 30 seconds of processor time of its own. The system's fonts are read once
+  for all of them, not again for each SVG with text.
 - The images decoded at the same time (the view's, the thumbnails, Print and Check Images) take
   at most 2 GB together. A folder of images that each claim nearly the limit of one decode no
   longer takes gigabytes at once; such an image waits until there is room. The images take
