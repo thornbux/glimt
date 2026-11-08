@@ -128,6 +128,10 @@ const WAIT: std::time::Duration = std::time::Duration::from_secs(10);
 /// The name from `--name`, set before the window opens.
 static GIVEN_NAME: std::sync::OnceLock<String> = std::sync::OnceLock::new();
 
+/// The ID of the socket this Glimt listens on. It is `socket_id()`, or `NAME.ID` for a window
+/// that shares its --name with one that listens as `NAME` already.
+static LISTENING_AS: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+
 /// A window took a command but gave no answer in time.
 static TIMED_OUT: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
@@ -619,6 +623,21 @@ pub fn socket_id() -> &'static str {
     given_name().unwrap_or_else(instance_id)
 }
 
+/// The ID of the socket that this Glimt listens on, which `--remote` reaches this window alone
+/// by. It is `socket_id()` until the socket is bound.
+fn own_socket_id() -> &'static str {
+    LISTENING_AS.get().map_or_else(socket_id, String::as_str)
+}
+
+/// Whether the socket at `path` is one of the windows of the --name `name`: the first one's
+/// `glimt-NAME.sock`, or `glimt-NAME.ID.sock` of a window that shares the name. A name holds no
+/// dot, so the part before the first dot is the name.
+fn is_named(path: &std::path::Path, name: &str) -> bool {
+    let stem = path.file_stem().and_then(|s| s.to_str());
+    let id = stem.and_then(|s| s.strip_prefix("glimt-"));
+    id.and_then(|id| id.split('.').next()) == Some(name)
+}
+
 fn socket(id: &str) -> Option<PathBuf> {
     runtime_dir().map(|d| d.join(socket_name(id)))
 }
@@ -691,9 +710,13 @@ pub fn send(command: &str) -> bool {
         .any(|p| send_and_print_answer(p, command))
 }
 
-/// Sends `command` to the Glimt started with `--name name`. Returns false if none runs.
+/// Sends `command` to every Glimt started with `--name name`, as several windows may share a
+/// name. Returns false if none runs.
 pub fn send_to(name: &str, command: &str) -> bool {
-    socket(name).is_some_and(|p| send_and_print_answer(&p, command))
+    let named = live_sockets(runtime_dir())
+        .into_iter()
+        .filter(|p| is_named(p, name));
+    named.filter(|p| send_and_print_answer(p, command)).count() > 0
 }
 
 /// Send `command` to every running Glimt. Returns how many got it.
@@ -833,16 +856,22 @@ pub fn listen(tx: mpsc::Sender<(String, Option<Reply>)>, ctx: eframe::egui::Cont
             return eprintln!("No remote control: its folder there is not this user's own");
         }
     }
-    let listener = match bind_socket(&path) {
+    // A window whose --name is taken already shares it, on a socket of its own: the name and
+    // its process ID.
+    let mut id = socket_id().to_owned();
+    let mut bound = bind_socket(&path);
+    if let (Err(None), Some(name)) = (&bound, given_name()) {
+        id = format!("{name}.{}", instance_id());
+        bound = socket(&id).map_or(Err(None), |p| bind_socket(&p));
+    }
+    let listener = match bound {
         Ok(listener) => listener,
         Err(None) => {
-            return eprintln!(
-                "A Glimt named {} is running already: --remote goes to that one",
-                socket_id()
-            );
+            return eprintln!("A Glimt of ID {id} is running already: --remote goes to that one");
         }
-        Err(Some(e)) => return eprintln!("No remote control: {}: {e}", path.display()),
+        Err(Some(e)) => return eprintln!("No remote control as {id}: {e}"),
     };
+    let _ = LISTENING_AS.set(id);
     LISTENING.store(true, std::sync::atomic::Ordering::Relaxed);
     // The accept thread below keeps the listener, so its number stays valid for
     // `has_waiting_client`.
@@ -1015,7 +1044,7 @@ pub fn mark_focused() {
     if let Some(d) = runtime_dir() {
         // The file is written whole and never truncated first, because a `--remote` reading it
         // meanwhile got an empty name.
-        let _ = crate::files::file_io::replace_file(&d.join(FOCUSED_FILE), socket_id());
+        let _ = crate::files::file_io::replace_file(&d.join(FOCUSED_FILE), own_socket_id());
     }
 }
 
@@ -1073,7 +1102,7 @@ fn has_waiting_client(fd: i32) -> bool {
 /// Takes no new clients, by removing this Glimt's socket as it closes.
 pub fn close() {
     if LISTENING.load(std::sync::atomic::Ordering::Relaxed)
-        && let Some(path) = socket(socket_id())
+        && let Some(path) = socket(own_socket_id())
     {
         #[allow(clippy::disallowed_methods)] // this Glimt's own socket
         let _ = std::fs::remove_file(path);
@@ -1093,6 +1122,21 @@ mod tests {
         assert_eq!(dir("run"), None);
         assert_eq!(dir("/run/user/1000"), Some("/run/user/1000".into()));
         assert_eq!(super::runtime_dir_from(None), None);
+    }
+
+    /// The windows that share a --name are found by their sockets, the first one's and the
+    /// others' with their process IDs, but not those of a longer name or of a process ID.
+    #[test]
+    fn a_shared_name_finds_each_window() {
+        let named = |file: &str, name: &str| super::is_named(std::path::Path::new(file), name);
+        assert!(named("/run/glimt/glimt-left.sock", "left"));
+        assert!(named("/run/glimt/glimt-left.4242.sock", "left"));
+        assert!(named("/run/glimt/glimt-left.app-1-4242.sock", "left"));
+        assert!(!named("/run/glimt/glimt-left-2.sock", "left"));
+        assert!(!named("/run/glimt/glimt-leftover.sock", "left"));
+        assert!(!named("/run/glimt/glimt-4242.sock", "left"));
+        assert!(named("/run/glimt/glimt-4242.sock", "4242"));
+        assert!(!named("/run/glimt/focused", "focused"));
     }
 
     /// `identify` shows the window's ID for a few seconds and is told as done, and the client

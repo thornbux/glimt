@@ -131,10 +131,11 @@ window title shows it, and
 .I COMMAND
 sends
 .I COMMAND
-to this Glimt only (with
+to the Glimt windows of that name only (with
 .BR open ,
-it starts one with that name if none runs). A named Glimt listens even when remote
-control is off in Preferences. With
+it starts one with that name if none runs). Several windows may share a name, and each of
+them does what is sent to it; a query has an answer from each. A named Glimt listens even
+when remote control is off in Preferences. With
 .BR \-\-remote ,
 .I NAME
 may also be the process ID of a Glimt started without a name, as

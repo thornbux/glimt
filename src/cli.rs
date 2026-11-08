@@ -34,7 +34,7 @@ pub(crate) const START_OPTIONS: &[(&str, &str)] = &[
     ),
     (
         "--name NAME",
-        "Name this Glimt; glimt --name NAME --remote COMMAND reaches only it, and NAME may be the process ID of a Glimt without a name",
+        "Name this Glimt; glimt --name NAME --remote COMMAND reaches every Glimt of that name, and NAME may be the process ID of a Glimt without a name",
     ),
     (
         "--check-config [FILE]",
