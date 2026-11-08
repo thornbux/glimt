@@ -213,7 +213,9 @@ const MANUAL: &[(&str, &str)] = &[
          is an HDR photo's gain map (Ultra HDR, or one marked as ISO 21496-1 says), the image \
          after the main one that brightens it on an HDR screen, without its own metadata. The \
          gain maps of other forms, such as an iPhone's, go with the extra images. The dialog \
-         starts with what you left out last time. Copy… asks for the folder. A copy has \
+         starts with what you left out last time, but a tag you untick under a ticked group is \
+         kept for this copy only: the next time the group leaves out all of it again. Copy… \
+         asks for the folder. A copy has \
          the original's file name, which can hold the date (IMG_20231004_…), also when Date and \
          time is left out.\n\n\
          Glimt's sidecar is not copied, but what it says goes into the copy's own XMP, so alt \

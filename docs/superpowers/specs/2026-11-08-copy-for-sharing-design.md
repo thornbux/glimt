@@ -152,3 +152,20 @@ tags" reads the selected files, where the last choice is kept, and the code stru
   and leaves the group ticked, so the saved choice still leaves out a GPS field that the next
   photos have. Before, the group's box was unticked and its tags were listed one by one.
   Ticking the group again leaves the tag out again.
+
+## After audit round 5 (2026-11-08)
+
+- HostComputer is Camera and Photographer as well as Software: an iPhone writes its model
+  there, and a computer may write its own name. `GCamera:PortraitNote` and
+  `plus:LicenseeProjectReference` may hold any text, so they left `KNOWN_NAMES`.
+- A tag unticked under a group ticked whole is held in a set of its own in `LeftOut`, not as
+  a `keep:` word, and is never saved. It lasts while the dialog is open, for that copy, so the
+  saved choice holds only group keys and tag names, a ticked group means all of it in a later
+  dialog, and a tag named `keep:…` is just a name.
+- A tag name made from a file's bytes (a PNG or WebP chunk's name, a PNG keyword, an XMP
+  namespace in braces) has its control characters turned into "?", so it cannot add a line,
+  and with it a word, to the saved choice.
+- A namespace declared with spaces around its "=" is read, so `tiff:Orientation`, `hdrgm:`
+  and `Container:Directory` keep their names.
+- Dynamic Depth's directory, whose `Container` prefix has another URI, is not taken for Ultra
+  HDR's, which is known by its URI. A test pins this.

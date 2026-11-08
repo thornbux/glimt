@@ -10,6 +10,7 @@
 use crate::images::decode::{MAX_DECODE_BYTES, open_regular_with_metadata, read_head};
 use crate::images::save::{MAX_JPEG_EXIF, SharedMetadata, crc32, shared_metadata};
 use crate::metadata::xmp::Properties;
+use crate::support::format::without_control_characters;
 use crate::support::lang::tr;
 use std::borrow::Cow;
 use std::collections::{BTreeSet, HashSet};
@@ -120,7 +121,12 @@ const GROUP_EXCEPTIONS: &[(&str, &[Group])] = &[
     ("plus:ModelReleaseID", &[Group::Photographer]),
     // EXIF 3.0's name of the main person who edited the image.
     ("ImageEditor", &[Group::Photographer]),
-    ("HostComputer", &[Group::Software]),
+    // An iPhone writes its model here, and a computer may write its own name, which often
+    // names its user.
+    (
+        "HostComputer",
+        &[Group::Camera, Group::Photographer, Group::Software],
+    ),
     ("xmp:CreatorTool", &[Group::Software]),
     // The files a photo was made from, by their paths, names and dates, and the programs.
     // digiKam's history names the original's folder and file, and Photoshop's history log
@@ -384,7 +390,8 @@ const KNOWN_NAMES: &[&str] = &[
     "aux:EnhanceDenoiseLumaAmount",
     "aux:FujiRatingAlreadyApplied",
     // PLUS, the licence of the image, from exiftool's PLUS table. Its free texts (the notes,
-    // the other conditions, Custom1 to Custom10) and the model's age may say anything.
+    // the other conditions, the licensee's project, Custom1 to Custom10) and the model's age
+    // may say anything.
     "plus:Version",
     "plus:Licensee",
     "plus:EndUser",
@@ -421,7 +428,6 @@ const KNOWN_NAMES: &[&str] = &[
     "plus:LicenseID",
     "plus:LicensorTransactionID",
     "plus:LicenseeTransactionID",
-    "plus:LicenseeProjectReference",
     "plus:LicenseTransactionDate",
     "plus:Reuse",
     "plus:OtherLicenseDocuments",
@@ -457,7 +463,7 @@ const KNOWN_NAMES: &[&str] = &[
     "drone-dji:RtkStdHgt",
     "drone-dji:UTCAtExposure",
     // Google's camera: the flags of a motion photo, a burst and a portrait, from exiftool's
-    // GCamera table. Its maker notes and its shot log may hold anything.
+    // GCamera table. Its maker notes, its shot log and its portrait note may hold anything.
     "GCamera:MotionPhoto",
     "GCamera:MotionPhotoVersion",
     "GCamera:MicroVideo",
@@ -467,7 +473,6 @@ const KNOWN_NAMES: &[&str] = &[
     "GCamera:BurstPrimary",
     "GCamera:SpecialTypeID",
     "GCamera:PortraitVersion",
-    "GCamera:PortraitNote",
     "GCamera:DisableAutoCreation",
     "GCamera:DisableSuggestedAction",
     // Google's panoramas, from exiftool's GPano table.
@@ -802,10 +807,6 @@ const UNKNOWN_BLOCKS: [&str; 5] = [
     "Exif 0x",
 ];
 
-/// The start of the word in a choice (`LeftOut`) that keeps one tag of a group left out whole,
-/// followed by the tag's name.
-const KEEP_PREFIX: &str = "keep:";
-
 /// The tag of a JPEG's JFXX segment, a thumbnail beside the JFIF header, and of a thumbnail
 /// inside the JFIF header itself (`add_jfif`).
 const JFIF_THUMBNAIL: &str = "JFIF thumbnail";
@@ -1008,15 +1009,19 @@ impl Group {
     }
 }
 
-/// What Copy for Sharing leaves out, as the user ticked it: the names of single tags, the keys
-/// of whole groups (`Group::key`), and the tags kept out of a group left out whole, each after
-/// `KEEP_PREFIX`. A tag of a group left out whole is left out also when it was not seen before,
-/// so a new GPS field cannot slip through. Keeping one tag leaves the group's key in place for
-/// that reason. The dialog starts with the choice made last time, kept in
-/// `config::sharing_path` one word to a line.
+/// What Copy for Sharing leaves out, as the user ticked it: the names of single tags and the
+/// keys of whole groups (`Group::key`), and the tags kept out of a group left out whole. A tag
+/// of a group left out whole is left out also when it was not seen before, so a new GPS field
+/// cannot slip through. Keeping one tag leaves the group's key in place for that reason. The
+/// dialog starts with the choice made last time, kept in `config::sharing_path` one word to a
+/// line. The kept tags are not saved: they last while the dialog is open, for its copy, so a
+/// group ticked in a later dialog leaves out all of it.
 #[derive(Clone, Default, PartialEq, Debug)]
 pub(crate) struct LeftOut {
+    /// The names of the tags left out and the keys of the groups left out whole.
     words: BTreeSet<String>,
+    /// The tags kept although a group of theirs is left out whole. They are never saved.
+    kept_tags: BTreeSet<String>,
     /// Whether each group, in the order of `Group::ALL`, has a tag left out or is left out
     /// whole. A block (`BLOCKS`) goes with any group it can hold that has. It is counted again
     /// after every change of `words`.
@@ -1029,7 +1034,7 @@ impl LeftOut {
         let words = text.lines().map(str::trim).filter(|l| !l.is_empty());
         let mut left_out = LeftOut {
             words: words.map(str::to_owned).collect(),
-            has_left_out: [false; 8],
+            ..LeftOut::default()
         };
         left_out.count_groups();
         left_out
@@ -1038,7 +1043,7 @@ impl LeftOut {
     /// Counts again which groups have a tag left out (`has_left_out`).
     fn count_groups(&mut self) {
         self.has_left_out = [false; 8];
-        for word in self.words.iter().filter(|w| !w.starts_with(KEEP_PREFIX)) {
+        for word in &self.words {
             let groups = Group::of_key(word).map_or_else(|| Group::groups_of(word), |g| vec![g]);
             for group in groups {
                 self.has_left_out[group as usize] = true;
@@ -1046,17 +1051,16 @@ impl LeftOut {
         }
     }
 
-    /// The text of the choice's file, one word to a line.
+    /// The text of the choice's file, one word to a line. The kept tags are not in it.
     pub(crate) fn text(&self) -> String {
         self.words.iter().map(|w| format!("{w}\n")).collect()
     }
 
     /// Whether the tag `tag` is left out: by its name or by any of its groups left out whole,
-    /// unless it is kept on its own (`KEEP_PREFIX`), or as a block that can hold a tag of a
+    /// unless it is kept on its own (`kept_tags`), or as a block that can hold a tag of a
     /// group that has one left out (`BLOCKS`).
     pub(crate) fn is_left_out(&self, tag: &str) -> bool {
-        let is_kept = self.words.contains(&format!("{KEEP_PREFIX}{tag}"));
-        (!is_kept
+        (!self.kept_tags.contains(tag)
             && (self.words.contains(tag)
                 || (Group::groups_of(tag).iter()).any(|g| self.words.contains(g.key()))))
             || (block_groups(tag).iter()).any(|g| self.has_left_out[*g as usize])
@@ -1067,17 +1071,16 @@ impl LeftOut {
         self.words.contains(group.key())
     }
 
-    /// Leaves the tag `tag` out, or keeps it. A tag of a group left out whole is kept by a word
-    /// of its own (`KEEP_PREFIX`), and the group stays left out for every other tag.
+    /// Leaves the tag `tag` out, or keeps it. A tag of a group left out whole is kept in
+    /// `kept_tags`, and the group stays left out for every other tag.
     pub(crate) fn set_tag(&mut self, tag: &str, left_out: bool) {
-        let keep = format!("{KEEP_PREFIX}{tag}");
         if left_out {
-            self.words.remove(&keep);
+            self.kept_tags.remove(tag);
             self.words.insert(tag.to_owned());
         } else {
             self.words.remove(tag);
             if (Group::groups_of(tag).iter()).any(|g| self.words.contains(g.key())) {
-                self.words.insert(keep);
+                self.kept_tags.insert(tag.to_owned());
             }
         }
         self.count_groups();
@@ -1088,15 +1091,12 @@ impl LeftOut {
     pub(crate) fn set_group(&mut self, group: Group, left_out: bool) {
         if left_out {
             self.words.insert(group.key().to_owned());
-            let is_kept_of_group = |w: &String| {
-                (w.strip_prefix(KEEP_PREFIX)).is_some_and(|t| Group::groups_of(t).contains(&group))
-            };
-            self.words.retain(|w| !is_kept_of_group(w));
+            (self.kept_tags).retain(|t| !Group::groups_of(t).contains(&group));
         } else {
             // The other groups' keys stay, though `Group::groups_of` puts no key in a group,
             // and so do the tags kept on their own, which may be kept out of another group.
-            let is_not_a_tag = |w: &str| w.starts_with("group:") || w.starts_with(KEEP_PREFIX);
-            (self.words).retain(|w| w != group.key() && (is_not_a_tag(w) || !group.lists(w)));
+            let is_key = |w: &str| Group::of_key(w).is_some();
+            (self.words).retain(|w| w != group.key() && (is_key(w) || !group.lists(w)));
         }
         self.count_groups();
     }
@@ -1167,12 +1167,14 @@ impl<'a> Walked<'a> {
         }
     }
 
-    /// Adds the bytes `from..to` of `data` as a part with the tag `tag`, or none.
+    /// Adds the bytes `from..to` of `data` as a part with the tag `tag`, or none. The tag's
+    /// control characters are replaced (`without_control_characters`), as a chunk's name or
+    /// keyword is any bytes, and the tag is saved in the choice (`LeftOut`), one to a line.
     fn add(&mut self, data: &'a [u8], from: usize, to: usize, tag: Option<&str>) {
         self.parts.push(Part {
             bytes: Cow::Borrowed(&data[from..to]),
             from,
-            tag: tag.map(str::to_owned),
+            tag: tag.map(without_control_characters),
         });
     }
 }
@@ -2332,7 +2334,10 @@ mod tests {
             .map(|t| (*t).to_owned())
             .collect();
         assert_eq!(kept, want);
-        assert_eq!(super::LeftOut::parse(&left_out.text()), left_out);
+        left_out.set_tag("Make", true);
+        let saved = super::LeftOut::parse(&left_out.text());
+        assert!(saved.is_group_left_out(super::Group::Place) && saved.is_left_out("Make"));
+        assert_eq!(saved.text(), left_out.text());
         left_out.remove_all();
         assert!(left_out.kept(&found).is_empty());
         left_out.set_group(super::Group::Other, false);
@@ -2586,9 +2591,9 @@ mod tests {
         assert!(wrong.is_empty(), "{wrong:?}");
     }
 
-    /// Unticking one tag of a group ticked whole keeps that tag only. The saved choice still
-    /// has every group ticked, so a GPS field that the next photos have and these did not is
-    /// left out, and the copy of these photos is the same as before.
+    /// Unticking one tag of a group ticked whole keeps that tag only, for this copy. The saved
+    /// choice has every group ticked, so the next dialog leaves out all of each, also the tag
+    /// kept this time and a GPS field that the next photos have and these did not.
     #[test]
     fn unticking_one_tag_keeps_its_groups_ticked() {
         use super::Group::{Date, Place};
@@ -2598,16 +2603,66 @@ mod tests {
         left_out.set_group(Place, true);
         left_out.set_group(Date, true);
         left_out.set_tag(tag, false);
-        let kept: HashSet<String> = [tag, "Make"].map(str::to_owned).into();
+        left_out.set_tag("GPSLatitude", false);
+        let kept: HashSet<String> = [tag, "GPSLatitude", "Make"].map(str::to_owned).into();
         assert_eq!(left_out.kept(&found), kept);
+        assert!(left_out.is_group_left_out(Place) && left_out.is_group_left_out(Date));
         let saved = super::LeftOut::parse(&left_out.text());
         assert!(saved.is_group_left_out(Place) && saved.is_group_left_out(Date));
-        assert!(saved.is_left_out("GPSAltitude") && saved.is_left_out("exif:GPSSpeed"));
-        assert!(!saved.is_left_out(tag) && saved.kept(&found) == kept);
+        for tag in [tag, "GPSLatitude", "GPSAltitude", "exif:GPSSpeed"] {
+            assert!(saved.is_left_out(tag), "{tag}");
+        }
+        assert_eq!(saved.kept(&found), ["Make".to_owned()].into());
         // Ticking the group again leaves the tag out again.
-        let mut ticked = saved.clone();
-        ticked.set_group(Place, true);
-        assert!(ticked.is_left_out(tag));
+        left_out.set_group(Place, true);
+        assert!(left_out.is_left_out("GPSLatitude"));
+    }
+
+    /// A tag kept out of a group ticked whole is never saved: the choice's text holds only the
+    /// group keys and the names of the tags left out.
+    #[test]
+    fn a_kept_tag_is_not_saved() {
+        let mut left_out = super::LeftOut::default();
+        left_out.set_group(super::Group::Place, true);
+        left_out.set_tag("GPSLatitude", false);
+        assert!(!left_out.is_left_out("GPSLatitude"));
+        assert_eq!(left_out.text(), "group:place\n");
+    }
+
+    /// A tag named like a word of the choice is just a name: ticking it beside GPSLatitude
+    /// leaves out both.
+    #[test]
+    fn a_tag_named_keep_is_just_a_name() {
+        let mut left_out = super::LeftOut::default();
+        left_out.set_tag("GPSLatitude", true);
+        left_out.set_tag("keep:GPSLatitude", true);
+        assert!(left_out.is_left_out("GPSLatitude") && left_out.is_left_out("keep:GPSLatitude"));
+        let saved = super::LeftOut::parse(&left_out.text());
+        assert!(saved.is_left_out("GPSLatitude") && saved.is_left_out("keep:GPSLatitude"));
+    }
+
+    /// A PNG keyword with a line break is listed without it, so unticking it under a ticked
+    /// Place, or ticking it, adds no word to the saved choice, and GPSLatitude stays left out.
+    #[test]
+    fn a_line_break_in_a_name_adds_nothing_to_the_choice() {
+        let dir = folder("line-break");
+        let mut png = Vec::new();
+        let encoder = image::codecs::png::PngEncoder::new(&mut png);
+        picture().write_with_encoder(encoder).unwrap();
+        let chunk = super::png_chunk(b"tEXt", b"x\nkeep:GPSLatitude\r\0v");
+        let path = dir.join("a.png");
+        std::fs::write(&path, [&png[..33], &chunk, &png[33..]].concat()).unwrap();
+        let found = super::tags_of(&path).unwrap().unwrap();
+        let name = found.iter().find(|t| t.starts_with('x')).unwrap();
+        assert!(!name.chars().any(char::is_control), "{name:?}");
+        let mut left_out = super::LeftOut::default();
+        left_out.set_group(super::Group::Place, true);
+        left_out.set_tag(name, false);
+        assert_eq!(left_out.text(), "group:place\n");
+        left_out.set_tag(name, true);
+        assert_eq!(left_out.text().lines().count(), 2);
+        assert!(super::LeftOut::parse(&left_out.text()).is_left_out("GPSLatitude"));
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     /// The tags that audit round 3 found in More tags, from digiKam, Lightroom, ACDSee,
@@ -2615,8 +2670,8 @@ mod tests {
     /// with the groups they say something of, and only those.
     #[test]
     fn the_tags_of_round_3_go_with_their_groups() {
-        use super::Group::{self, Date, Keywords, Photographer, Place, Software};
-        let tags: [(&str, &[Group]); 17] = [
+        use super::Group::{self, Camera, Date, Keywords, Photographer, Place, Software};
+        let tags: [(&str, &[Group]); 20] = [
             ("MP:RegionInfo", &[Keywords]),
             ("Iptc4xmpExt:Event", &[Keywords]),
             ("Iptc4xmpExt:OrganisationInImageName", &[Keywords]),
@@ -2635,6 +2690,11 @@ mod tests {
             // Round 4: a history that names the files it was made from, by path or name.
             ("digiKam:ImageHistory", &[Date, Photographer, Software]),
             ("photoshop:History", &[Date, Photographer, Software]),
+            // Round 5: an iPhone writes its model here, and a computer may write its own name.
+            ("HostComputer", &[Camera, Photographer, Software]),
+            // Round 5: free texts that may say anything, so every group.
+            ("GCamera:PortraitNote", &Group::ALL),
+            ("plus:LicenseeProjectReference", &Group::ALL),
         ];
         let mut wrong = Vec::new();
         for (tag, groups) in tags {
@@ -2650,6 +2710,34 @@ mod tests {
             }
         }
         assert!(wrong.is_empty(), "{wrong:?}");
+    }
+
+    /// Ultra HDR's directory is known by its namespace's URI, and Dynamic Depth's, whose
+    /// Container prefix is bound to another URI, is not taken for it: neither nested in its
+    /// Device:Container, as the Dynamic Depth spec writes it, nor on its own.
+    #[test]
+    fn only_ultra_hdrs_directory_is_the_gain_maps() {
+        let names = |container: &str, element: &str| {
+            let xmp = format!(
+                "<rdf:Description rdf:about=\"\" xmlns:Container=\"{container}\" \
+                 xmlns:Device=\"http://ns.google.com/photos/dd/1.0/device/\">{element}\
+                 </rdf:Description>"
+            );
+            let read = crate::metadata::xmp::properties(&xmp);
+            (read.list.into_iter())
+                .map(|(name, ..)| name)
+                .collect::<Vec<_>>()
+        };
+        let directory = "<Container:Directory><rdf:Seq/></Container:Directory>";
+        let ultra_hdr = names("http://ns.google.com/photos/1.0/container/", directory);
+        assert_eq!(ultra_hdr, [super::CONTAINER_DIRECTORY]);
+        assert!(super::is_property_of_images_after(&ultra_hdr[0]));
+        let depth = "http://ns.google.com/photos/dd/1.0/container/";
+        let nested = format!("<Device:Container>{directory}</Device:Container>");
+        for name in names(depth, directory).iter().chain(&names(depth, &nested)) {
+            assert!(!super::is_property_of_images_after(name), "{name}");
+            assert_eq!(super::Group::groups_of(name).len(), super::Group::ALL.len());
+        }
     }
 
     /// The contents of an MPF segment, big-endian, that indexes a main image of `primary_size`
