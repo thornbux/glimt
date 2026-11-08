@@ -80,8 +80,8 @@ fails until a new action is there.
 Every `--remote` command is answered: a query with what it asks, and any other command with
 nothing when it was done, or with `not done: <reason>` when it was not (a `run` refused while
 a dialog is open or a field has the focus, an action that `App::why_refused` refuses, such as a
-kiosk's, or a command or choice the window does not know). The client exits with `NOT_DONE` (3) then. A
-window of 0.75 or older closes without an answer, which reads as done.
+kiosk's, or a command or choice the window does not know). The client exits with `NOT_DONE`
+(3) then. A window from before the answers closes without one, which reads as done.
 
 Not pinned, and so kept by hand: the window's own reading of each `--remote` command
 (`remote_command` matches the words again), what the commands print, the formats of the files
@@ -89,12 +89,12 @@ Glimt owns beyond their names (`key=value` read by name, the marks file's
 `bits\tstars\tpath`, the keyword tree's `A|B|C`, a path to a line), and the reserved `%` codes
 of `Exec`, which the manual names.
 
-A frozen name that fails a reader (0.74.0 and 0.76.0 renamed a few) is renamed only through a
+A frozen name that fails a reader is renamed only through a
 table of old names, one for each kind, beside the code that reads it: `config::RENAMED_SETTINGS`,
 `config::RENAMED_STATE`, `actions::RENAMED_ACTIONS` (for `keys=` and `--remote run`),
 `remote::RENAMED_COMMANDS`, `theme::RENAMED_THEMES` (the built-in themes, as the theme setting
 stores them; a theme file of the user's own by an old name keeps it, and Save as Theme refuses
-an old name) and `tools::RENAMED_FOLDERS` (0.75.0's folders of tools and added formats, which
+an old name) and `tools::RENAMED_FOLDERS` (the folders of tools and added formats, which
 Glimt creates only under the new name). Glimt reads the old name too, forever, and writes only
 the new one; when a settings or state file holds both, the new one counts. The old line stays
 in the frozen file and the new name is added at its end, and the tests take an old name only
@@ -242,12 +242,9 @@ Comments say why, or what a reader cannot see from the code. They are written fo
 to the code, in plain English prose: whole sentences with a subject and a verb, with the
 articles kept, and one thought to a sentence. Older comments use a clipped style, where a
 semicolon or colon joins a fragment (`…; None for no search.`) and punctuation stands in for
-"because", "when" and "so". New and changed comments do not. The fourteen files with the most
-were rewritten in 0.54.0. The clipped style is left mostly in `exif.rs`, `file_io.rs`,
-`collections.rs`, `actions.rs`, `marks.rs`, `slideshow.rs`, `window.rs`, `preferences.rs`,
-`lightroom.rs`, `colour.rs`, `duplicates.rs`, `pan.rs`, `trash.rs` and `listing.rs`, and in
-smaller amounts in most other files. An older comment is rewritten in the new style when the
-code it describes changes, not on its own.
+"because", "when" and "so". New and changed comments do not. The clipped style is left in
+older comments in most files. An older comment is rewritten in the new style when the code it
+describes changes, not on its own.
 
 For example, not this:
 
@@ -281,7 +278,7 @@ function, type or field is or does from its name alone, without reading its body
 - One thing has one name throughout: the same word in the type, its fields, its functions and
   the comments.
 
-Older names that broke this were renamed in 0.74.0's naming review, and
+Older names that broke this were renamed in one review, and
 `source_rules::retired_names_stay_gone` keeps them out of the code: its list gives each old name
 with the one that took its place. `Action` variants and the names in `src/frozen-1.0.txt` keep
 their names, or change only through a table of old names, as *Frozen in 1.x* says.
@@ -318,8 +315,8 @@ of that part. The exceptions are the tables of one arm per action (`Action::engl
   (also add it to `full`), a module or extension list behind `#[cfg(feature = "...")]`, and its
   settings shown in Preferences only when built in. Never break the default build. "Tool"
   means only the desktop files in Edit → Tools, and "added format" only those in
-  `glimt/formats`. Before 0.75.0 they were plugins and decoder plugins, and their old folders
-  are still read (`tools::RENAMED_FOLDERS`).
+  `glimt/formats`. They were once plugins and decoder plugins, and their old folders are
+  still read (`tools::RENAMED_FOLDERS`).
 - **A file operation** (one that starts a job or background work) joins
   the contract in file_ops.rs's tests: an entry in `contract_ops()` with what it does to the
   contract's folder and what must hold after (the file, its sidecar, its stars, held back while
@@ -342,7 +339,7 @@ of that part. The exceptions are the tables of one arm per action (`Action::engl
   other output during a frame, so hand results to the UI thread instead of calling the context
   from a worker.
 - **A new way to show the list** (as the grid in the image area, G) gets what every view of
-  it needs, which 0.65.0's grid missed through five audit rounds:
+  it needs, which the first grid missed through five audit rounds:
   - its form from `file_list`'s parameters, never from the settings in the functions that
     draw it, as two views draw at once (`the_list_is_drawn_in_the_form_its_caller_asks`);
   - its keys read only while no dialog is open and no text field has the focus (`typing` in
@@ -398,8 +395,8 @@ of that part. The exceptions are the tables of one arm per action (`Action::engl
 ## What must be fixed, and when
 
 Audits always find more; this is the bar their findings are ranked against, so a release is
-not spent polishing whatever the last one dug up. 0.35–0.41 had 264 fixes for 30 features, a
-third of them fixes of fixes, none reported by a user.
+not spent polishing whatever the last one dug up. Seven early releases had 264 fixes for 30
+features, a third of them fixes of fixes, none reported by a user.
 
 - **Must fix** — blocks a release, and is the only reason for a dot release:
   - a user's file lost, changed or written over wrongly, or its metadata (sidecar, marks and
@@ -435,14 +432,14 @@ place from the start.
 A fix is right the first time when it closes every way in. Before the change, list each path
 that reaches the code it guards (its callers, the actions and `--remote` commands that end
 there, the background threads and the moments between a start and its answer) and check the
-fix against each. 0.65.1's list that named a folder took three audit rounds, because the
+fix against each. One fix of a list that named a folder took three audit rounds, because the
 first fix closed one way in and the next two were found by the audits.
 
 ## Releases: two tracks
 
 - **A minor release (X.Y.0)** gathers new features and structural work: one or two features at
-  a time, each on its own branch, never a batch of them. 0.38.0 shipped eleven new things and
-  0.40.0 eight, and the next releases were spent fixing them.
+  a time, each on its own branch, never a batch of them. One release shipped eleven new things
+  and another eight, and the next releases were spent fixing them.
 - **A dot release (X.Y.Z)** fixes only *must fix* bugs of the release before it, nothing else:
   no hardening, no refactoring, no feature. What else is found waits for the next minor.
 
@@ -467,8 +464,8 @@ python3 tools/pot.py         # and po/glimt.pot, after a text is added or change
   before it is pushed instead.
 - **A fix lands with its check in the same commit:** a unit test, or for the window code a
   section in `tools/release-tests/tests.sh` that fails on the release before it. A fix without
-  one is not finished; 0.37–0.38 showed that a fix nobody checked is the next release's
-  regression.
+  one is not finished; a fix nobody checked has been the next release's regression more than
+  once.
 - Use `--profile quick` (Cargo.toml) for clippy and tests: it is optimised as the release, so
   the tests' timings hold, but builds in many parts and incrementally, so a small change builds
   in a fraction of the time. A debug build besides would double the space in `target/`.
@@ -490,9 +487,9 @@ python3 tools/pot.py         # and po/glimt.pot, after a text is added or change
 changes (everything since the last tag) finds nothing it must or should fix by the bar above.
 What it finds is fixed on the release branch, and those fixes are audited again, until a round
 finds nothing; hardening findings become issues instead. The audit reads the diff without the
-author's conclusions (another agent, or another session). Up to 0.40.0 every release was one
-audit round run after its tag, so each release shipped the last round's fixes unaudited and
-the next release fixed them; 0.41.0 was audited four rounds before its tag.
+author's conclusions (another agent, or another session). Early releases got one audit round
+run after the tag, so each shipped the last round's fixes unaudited and the next release fixed
+them; since then a release has needed up to six rounds before its tag.
 
 Run `tools/release-tests/run.sh` on the release branch, on the very commit that gets the tag:
 a change after the run means a new run, and a release the same day as the last one gets the
