@@ -33,13 +33,13 @@ images to several hundred thousand. The name *Glimt* is Norwegian for "glimpse".
 | [Download](https://glimt.pario.no/download/) | The packages, and how to check a download |
 | [Getting started](https://glimt.pario.no/getting-started/) | Opening a folder, the keys used most, searching |
 | [Features](https://glimt.pario.no/features/) and [screenshots](https://glimt.pario.no/screenshots/) | What Glimt does, and what it looks like |
-| [Tools and formats](https://glimt.pario.no/plugins-and-formats/) | The formats, the formats you can add, the tools and how to write one |
+| [Tools and formats](https://glimt.pario.no/tools-and-formats/) | The formats, the formats you can add, the tools and how to write one |
 | [Coming from Lightroom](https://glimt.pario.no/coming-from-lightroom/) | Importing a Lightroom Classic catalog |
 | [Command line](https://glimt.pario.no/command-line/) | Start options and remote control (also `man glimt`) |
 | [Scripts and AI](https://glimt.pario.no/scripts-and-ai/) | Scripts and assistants working with Glimt, safely |
 | [Troubleshooting](https://glimt.pario.no/troubleshooting/) and [FAQ](https://glimt.pario.no/faq/) | When something does not work |
 | [Files and privacy](https://glimt.pario.no/files-and-privacy/) | What Glimt writes, and that it sends nothing |
-| [User guide](https://glimt.pario.no/user-guide/) | The whole manual, as Help → Manual (F1) shows it |
+| [User guide](https://glimt.pario.no/user-guide/) | The whole manual, as Help → Help Manual (F1) shows it |
 
 ## Building
 
