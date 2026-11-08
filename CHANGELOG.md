@@ -99,7 +99,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 - An SVG made to take gigabytes of memory, or to keep drawing for hours, no longer ends Glimt
   or keeps a decoder busy for good. SVGs are drawn in a process of their own, which may take
   four times the picture it draws and 256 MB besides, and 30 seconds, and one that needs more
-  is told as not shown. A zoom to 100 % draws an SVG at the size the status bar gives it, not
+  is told as not shown. The process also ends with Glimt, when Glimt quits or is killed while
+  it draws, and at 30 seconds of processor time of its own. A zoom to 100 % draws an SVG at the size the status bar gives it, not
   at the largest size the graphics card takes, so an icon no longer takes 256 MB. The system's
   fonts are read once for all of them, not again for each SVG with text.
 - The images decoded at the same time (the view's, the thumbnails, Print and Check Images) take

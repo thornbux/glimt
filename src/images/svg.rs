@@ -18,6 +18,13 @@ const DRAW_SVG_BOX: &str = "GLIMT_DRAW_SVG_BOX";
 /// holds the program itself, the parsed SVG and the pictures it links to.
 const CHILD_MEMORY_BESIDES_PICTURE: u64 = 256 << 20;
 
+/// The processor time a drawing child may take, in seconds: as long as Glimt waits for it
+/// (`PROGRAM_TIME_LIMIT`). The tests' children get less, so the test of it is short.
+#[cfg(not(test))]
+const CHILD_SECONDS: u64 = crate::files::external::PROGRAM_TIME_LIMIT.as_secs();
+#[cfg(test)]
+const CHILD_SECONDS: u64 = 4;
+
 /// The longest side a drawing has, in pixels, because an SVG may claim any size.
 const LONGEST_SIDE: u32 = 8192;
 
@@ -410,15 +417,43 @@ pub fn draw_for_parent(path: &std::ffi::OsStr) -> i32 {
 
 /// Limits this process's memory (its address space) to `bytes`, so that an allocation past it
 /// fails and ends the process. Core dumps are turned off too, so such an end leaves no file.
+/// Its processor time is limited to `CHILD_SECONDS`, and it ends with the Glimt that started
+/// it. Before, a child went on drawing for minutes after Glimt quit or was killed, because only
+/// Glimt's watchdog ended it.
 fn limit_this_process(bytes: u64) {
     let limit = |max: u64| libc::rlimit {
         rlim_cur: max,
         rlim_max: max,
     };
+    // At the soft limit of processor time, SIGXCPU's handler says why the child ends, as the
+    // watchdog would. The hard limit a few seconds later ends it for good.
+    let processor_time = libc::rlimit {
+        rlim_cur: CHILD_SECONDS,
+        rlim_max: CHILD_SECONDS + 5,
+    };
+    let on_limit = on_processor_time_limit as extern "C" fn(libc::c_int);
     // SAFETY: setrlimit only reads the limit it is given, and it changes only this process.
+    // The handler calls only write and _exit, which a signal handler may call. PR_SET_PDEATHSIG
+    // takes a signal number and changes only this process.
     unsafe {
         libc::setrlimit(libc::RLIMIT_AS, &limit(bytes));
         libc::setrlimit(libc::RLIMIT_CORE, &limit(0));
+        libc::signal(libc::SIGXCPU, on_limit as libc::sighandler_t);
+        libc::setrlimit(libc::RLIMIT_CPU, &processor_time);
+        // shortcut: a parent that ended before this line is not noticed, and the processor
+        // limit ends the child then; compare getppid with the parent's number if that matters.
+        libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGKILL as libc::c_ulong);
+    }
+}
+
+/// Ends a drawing child that reached its limit of processor time, with the words the parent
+/// reads as a time limit (`TIMED_OUT`) on its errors.
+extern "C" fn on_processor_time_limit(_signal: libc::c_int) {
+    let text = crate::files::external::TIMED_OUT.as_bytes();
+    // SAFETY: write and _exit are safe in a signal handler, and the text is static.
+    unsafe {
+        libc::write(2, text.as_ptr().cast(), text.len());
+        libc::_exit(1);
     }
 }
 
@@ -557,6 +592,14 @@ mod tests {
                 started.elapsed()
             );
         }
+        // The child's own limit of processor time ends it too, when its parent would wait
+        // longer, as it would not wait at all once it is gone.
+        let started = Instant::now();
+        let file = dir.join("repeated.svg");
+        let why = super::draw_in_child(&file, Some([1920, 1080]), Duration::from_secs(120));
+        let why = why.unwrap_err();
+        assert!(why.contains(crate::files::external::TIMED_OUT), "{why}");
+        assert!(started.elapsed() < Duration::from_secs(30));
         // Red at a quarter of its strength, through two groups at half opacity.
         let few = svg("<g opacity=\"0.5\"><g opacity=\"0.5\">\
                        <rect width=\"100\" height=\"100\" fill=\"red\"/></g></g>");
