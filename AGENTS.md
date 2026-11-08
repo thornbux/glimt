@@ -521,6 +521,9 @@ the large folder and the EXIF timings. Screenshots of the steps are in
 - **Printing** 80 images to a PDF: 80 pages, and memory that does not grow with them.
 - **Real files:** each of `samples.txt` (RAW of eight makes, DICOM, FITS, NIfTI, a slide, HEIC,
   AVIF, JPEG XL …), downloaded once by `run.sh` and checked by sha256, is shown.
+- **Copy for Sharing of real photos** of `samples.txt` (a Pixel's Ultra HDR, an iPhone's HDR, a
+  DJI drone's, a Lightroom export, content credentials), with Remove All and with Place: no
+  place, serial number, maker note, credentials or keyword left, the gain maps and pixels kept.
 - **Large folder** (500,000 hard links) and **sorting 3,000 JPEGs by EXIF date:** "first image"
   time and RssAnon of both versions.
 - **Known vulnerabilities:** `cargo audit`; the release workflow runs it too and stops on a

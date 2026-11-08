@@ -3,6 +3,10 @@
 # repositories (pydicom, nibabel, Pillow, libheif MIT; astropy, mrcfile, openexr-images, libjxl
 # conformance BSD-3; GIMP GPL-3.0). They are only downloaded, never shipped. GIMP's test file
 # has two empty layers: it is shown black, which checks that XCF is read, not how it looks.
+# The photos for Copy for Sharing: a Pixel 6 Pro's Ultra HDR (Mishaal Rahman's samples, CC-BY-4.0),
+# an iPhone 13 mini's HDR with Apple's gain map (libultrahdr's test data, CC-BY-4.0), a DJI
+# drone's photo with drone-dji GPS and a Lightroom 6 export with lr:hierarchicalSubject (exifr's
+# test files, MIT), and one with content credentials (c2pa-rs's, MIT or Apache-2.0).
 canon.cr2 4b47ba27c0090efa091aaf99babc76d9a3e6f6f121b443d6c58c3ce7275cd770 https://raw.pixls.us/getfile.php/1230/nice/Canon%20-%20EOS%20Digital%20Rebel%20XT%20-%20RAW%20(3:2).CR2
 canon.cr3 74abb0a113d075ad9887a058082f40dd2a938c4813a08474d82356f11a027778 https://raw.pixls.us/getfile.php/4659/nice/Canon%20-%20EOS%20R6%20-%203:2.CR3
 nikon.nef 155edb938f884ea7372ce98d4ff5f965c3e413b43b95bc9923da6e92082cf914 https://raw.pixls.us/getfile.php/5227/nice/Nikon%20-%20D2H%20-%2012bit%2012bit%20compressed%20(Lossy%20(type%201))%20(3:2).NEF
@@ -27,3 +31,8 @@ test-card-lossless.jp2 0095420ff07a0fd7c6a9b6366079d6ff3eac58863f98ea83231692724
 example.heic 7f8b363e4936c0666a25f64f3a92fda10bd8e5453be4592530b65a55dd98f3f2 https://raw.githubusercontent.com/strukturag/libheif/v1.23.6/examples/example.heic
 example.avif 54a0dc31d02b6f5d9d4b66027d4787861b7af15ffd8fab8eab963d10c5411469 https://raw.githubusercontent.com/strukturag/libheif/v1.23.6/examples/example.avif
 bicycles.jxl 8ef03ccccb45bdb5f3d37c9a4c392f745e3e4ad7f4ffc2cbc1e1ba68487a75a6 https://raw.githubusercontent.com/libjxl/conformance/b1d0f990b03e57bf6d137c365cd5dc8b470b9191/testcases/bicycles/input.jxl
+ultrahdr-pixel.jpg b52c5f4b9f7c8e831ebe78c3338d6ed1b9a4d3aa4b6c30be7a1851294e094403 https://raw.githubusercontent.com/MishaalRahmanGH/Ultra_HDR_Samples/de109721ca479b2b0f31cc709e70b614531b413f/Originals/Ultra_HDR_Samples_Originals_01.jpg
+iphone-gain-map.jpg 492a94bd0636bcf15b3f560c68142a7783936c1597e78b0d0461d8be7fddc078 https://raw.githubusercontent.com/google/libultrahdr/v2.0.2/tests/data/apple_gainmap_new.jpg
+dji-drone.jpg 136c9fa672f654690d1b92401f27b0422a1b99ac057eb487a3771a4ba8e96bc2 https://raw.githubusercontent.com/MikeKovarik/exifr/v7.1.3/test/fixtures/issue-exifr-13.jpg
+lightroom-keywords.jpg 41ac328766662c2c5210bab7d8cc58b8369e44fb411204a9b8bd6ef49bc8b9bf https://raw.githubusercontent.com/MikeKovarik/exifr/v7.1.3/test/fixtures/sidecar/IMG_5910.jpg
+c2pa.jpg e71bff58fc57640803e6e65f7534e2fb0c2f99018c85276cc14b30f04427cc76 https://raw.githubusercontent.com/contentauth/c2pa-rs/v0.37.0/sdk/tests/fixtures/CA.jpg
