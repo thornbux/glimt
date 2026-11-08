@@ -62,7 +62,9 @@ and versions follow [Semantic Versioning](https://semver.org/).
 - Pan view keeps the dates it has read when the list changes: after a rename, a refresh, a new
   sort or a shuffle it reads only the files that are new, rather than every file again, which
   took minutes in a large folder with EXIF date. A folder that a sync client keeps adding to
-  now gets its whole timeline.
+  now gets its whole timeline. A name that a rename, move, copy, delete or Undo in Glimt gave
+  another file, and a file whose turn was saved, has its date read again, and F5 reads every
+  date again.
 - A network share that answers late is no longer opened over the folder you opened while
   waiting for it.
 - The projector's keys wait while a dialog is open in the main window, as the main window's

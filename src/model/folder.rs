@@ -1295,6 +1295,10 @@ impl crate::App {
         self.refill_preload();
         self.thumbs_changed();
         self.status_bar.forget_size();
+        // The Pan view reads every date again too, as a file edited elsewhere may have a new one.
+        if let Some(pan) = &mut self.pan_view {
+            pan.forget_dates();
+        }
         self.start_listing(ctx);
     }
 }

@@ -1282,6 +1282,10 @@ impl crate::App {
             }
         }
         self.forget_names(paths);
+        // Their names stay in the list, so the Pan view's days are made again for their dates.
+        if let Some(pan) = &mut self.pan_view {
+            pan.make_days_again();
+        }
         // Their size changed, so the status bar and the list read it again.
         self.status_bar.forget_size();
         self.refill_preload();
@@ -1321,9 +1325,10 @@ impl crate::App {
     }
 
     /// Forgets what Glimt keeps of `paths` by their names: their decoded images, thumbnails, size
-    /// and date, Check Images' mark and their part of the `exif:` index. A file of the same name
-    /// later, renamed or moved there, or written anew, is then read for itself. Every operation
-    /// that changes what a name holds calls this: a change in place, a move, a rename, a delete.
+    /// and date, Check Images' mark, their part of the `exif:` index and their date in the Pan
+    /// view. A file of the same name later, renamed or moved there, or written anew, is then
+    /// read for itself. Every operation that changes what a name holds calls this: a change in
+    /// place, a move, a rename, a delete.
     pub(crate) fn forget_names(&mut self, paths: &[PathBuf]) {
         for path in paths {
             self.list.keep_loaded_images(|_, s| s.path != *path);
@@ -1334,6 +1339,9 @@ impl crate::App {
                 self.broken_files.remove(name);
                 // Also while the first index is being read, which may have read it before.
                 self.search.read_exif_again([name.to_owned()]);
+                if let Some(pan) = &mut self.pan_view {
+                    pan.forget_date_of(name);
+                }
             }
         }
     }
