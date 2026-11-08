@@ -50,10 +50,10 @@ fn thumbnail_in(
         // be read at all does not depend on it.
         // shortcut: every thumbnail made again with Auto Rotate off; reading the cache for images
         // without an EXIF turn would need each format's orientation, if that is ever slow.
-        if rotate && let Some(img) = read_cached(file, stamp) {
+        if rotate && let Some(img) = read_cached(file, stamp, size) {
             return Ok(img);
         }
-        if read_cached(failed, stamp).is_some() {
+        if read_cached(failed, stamp, size).is_some() {
             return Err("no thumbnail could be made before".into());
         }
     }
@@ -100,12 +100,16 @@ fn cache_file(cache: &Path, folder: &str, uri: &str) -> PathBuf {
 /// modification time in seconds and its size, `stamp`. The thumbnail's Thumb::MTime must be
 /// that time. Its Thumb::Size, which the spec leaves optional, must be that size when it is
 /// there, so a thumbnail another program wrote without it is still used.
-fn read_cached(file: &Path, (mtime, size): (u64, u64)) -> Option<image::RgbaImage> {
+/// A thumbnail larger than `max_side` on a side is not used: one of 8000×8000 that another
+/// program wrote in the shared cache would take 256 MB for each cell of the list.
+fn read_cached(file: &Path, (mtime, size): (u64, u64), max_side: u32) -> Option<image::RgbaImage> {
     let bytes = crate::images::decode::read_limited(file).ok()?;
     let reader = png::Decoder::new(std::io::Cursor::new(&bytes))
         .read_info()
         .ok()?;
-    let texts = &reader.info().uncompressed_latin1_text;
+    let info = reader.info();
+    (info.width <= max_side && info.height <= max_side).then_some(())?;
+    let texts = &info.uncompressed_latin1_text;
     let value = |key: &str| {
         (texts.iter().find(|t| t.keyword == key)).map(|t| t.text.trim().parse::<u64>().ok())
     };
@@ -462,9 +466,9 @@ mod tests {
         let file = super::cache_file(&dir, "normal", "file:///a%20b.jpg");
         let img = image::RgbaImage::from_pixel(4, 3, image::Rgba([1, 2, 3, 255]));
         super::write_thumbnail(&file, &img, "file:///a%20b.jpg", (42, 9)).unwrap();
-        assert_eq!(super::read_cached(&file, (42, 9)).unwrap(), img);
-        assert!(super::read_cached(&file, (43, 9)).is_none());
-        assert!(super::read_cached(&file, (42, 10)).is_none());
+        assert_eq!(super::read_cached(&file, (42, 9), 128).unwrap(), img);
+        assert!(super::read_cached(&file, (43, 9), 128).is_none());
+        assert!(super::read_cached(&file, (42, 10), 128).is_none());
         // Another program's thumbnail without Thumb::Size is used by its time alone.
         let mut png = Vec::new();
         let mut enc = png::Encoder::new(&mut png, 1, 1);
@@ -476,7 +480,12 @@ mod tests {
             .write_image_data(&[0; 4])
             .unwrap();
         std::fs::write(&file, &png).unwrap();
-        assert!(super::read_cached(&file, (42, 9)).is_some());
+        assert!(super::read_cached(&file, (42, 9), 128).is_some());
+        // One larger than its size class is not used, however fresh.
+        let large = image::RgbaImage::new(200, 200);
+        super::write_thumbnail(&file, &large, "file:///a%20b.jpg", (42, 9)).unwrap();
+        assert!(super::read_cached(&file, (42, 9), 256).is_some());
+        assert!(super::read_cached(&file, (42, 9), 128).is_none());
         assert_eq!(
             super::uri_path(std::path::Path::new("/a b/(1)+æ.jpg")),
             "/a%20b/(1)+%C3%A6.jpg"

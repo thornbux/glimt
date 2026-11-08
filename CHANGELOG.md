@@ -15,6 +15,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
   longer takes gigabytes at once; such an image waits until there is room.
 - An SVG shows only the pictures in its own folder or below it, as a browser shows an SVG used
   as an image, not a picture named by its whole path or through `..`.
+- A thumbnail in the shared cache that is larger than its size (128 or 256 pixels), as another
+  program may write one, is made again rather than used at its size.
 
 ## [0.75.0] - 2026-11-08
 
