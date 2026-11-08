@@ -9,123 +9,144 @@
 
 use crate::images::decode::{MAX_DECODE_BYTES, open_regular_with_metadata, read_head};
 use crate::images::save::{MAX_JPEG_EXIF, SharedMetadata, crc32, shared_metadata};
-use crate::metadata::exif::EXIF_THUMBNAIL;
 use crate::metadata::xmp::Properties;
 use crate::support::lang::tr;
 use std::borrow::Cow;
 use std::collections::{BTreeSet, HashSet};
 use std::path::Path;
 
-/// The groups that tags with these names belong to. The names are the ones files give tags:
-/// EXIF's (`exif::tag_name`), XMP's, a PNG's text keywords, and a few for whole blocks. A name
-/// not here falls in a group by its prefix (`Group::of`), or in More tags.
-const TAG_GROUPS: &[(&str, Group)] = &[
-    ("photoshop:City", Group::Place),
-    ("photoshop:State", Group::Place),
-    ("photoshop:Country", Group::Place),
-    ("Iptc4xmpCore:Location", Group::Place),
-    ("Iptc4xmpCore:CountryCode", Group::Place),
-    ("Make", Group::Camera),
-    ("Model", Group::Camera),
-    ("LensMake", Group::Camera),
-    ("LensModel", Group::Camera),
-    ("LensSpecification", Group::Camera),
-    ("BodySerialNumber", Group::Camera),
-    ("LensSerialNumber", Group::Camera),
-    ("MakerNote", Group::Camera),
-    ("CameraFirmware", Group::Camera),
-    ("ImageUniqueID", Group::Camera),
-    ("tiff:Make", Group::Camera),
-    ("tiff:Model", Group::Camera),
-    ("exif:ImageUniqueID", Group::Camera),
-    ("exifEX:BodySerialNumber", Group::Camera),
-    ("exifEX:LensMake", Group::Camera),
-    ("exifEX:LensModel", Group::Camera),
-    ("exifEX:LensSerialNumber", Group::Camera),
-    ("exifEX:LensSpecification", Group::Camera),
-    ("exifEX:ImageUniqueID", Group::Camera),
-    ("DateTime", Group::Date),
-    ("DateTimeOriginal", Group::Date),
-    ("DateTimeDigitized", Group::Date),
-    ("OffsetTime", Group::Date),
-    ("OffsetTimeOriginal", Group::Date),
-    ("OffsetTimeDigitized", Group::Date),
-    ("SubSecTime", Group::Date),
-    ("SubSecTimeOriginal", Group::Date),
-    ("SubSecTimeDigitized", Group::Date),
-    ("xmp:CreateDate", Group::Date),
-    ("xmp:ModifyDate", Group::Date),
-    ("xmp:MetadataDate", Group::Date),
-    ("exif:DateTimeOriginal", Group::Date),
-    ("exif:DateTimeDigitized", Group::Date),
-    ("tiff:DateTime", Group::Date),
-    ("photoshop:DateCreated", Group::Date),
-    ("dc:date", Group::Date),
-    ("Creation Time", Group::Date),
-    ("tIME", Group::Date),
-    ("date:create", Group::Date),
-    ("date:modify", Group::Date),
-    ("date:timestamp", Group::Date),
-    ("Artist", Group::Photographer),
-    ("Copyright", Group::Photographer),
-    ("CameraOwnerName", Group::Photographer),
-    ("Photographer", Group::Photographer),
-    ("XPAuthor", Group::Photographer),
-    ("Author", Group::Photographer),
-    ("dc:creator", Group::Photographer),
-    ("dc:rights", Group::Photographer),
-    ("dc:publisher", Group::Photographer),
-    ("dc:contributor", Group::Photographer),
-    ("tiff:Artist", Group::Photographer),
-    ("tiff:Copyright", Group::Photographer),
-    ("exifEX:CameraOwnerName", Group::Photographer),
-    ("photoshop:Credit", Group::Photographer),
-    ("photoshop:AuthorsPosition", Group::Photographer),
-    ("photoshop:Source", Group::Photographer),
-    ("photoshop:CaptionWriter", Group::Photographer),
-    ("Iptc4xmpCore:CreatorContactInfo", Group::Photographer),
-    ("Software", Group::Software),
-    ("ProcessingSoftware", Group::Software),
-    ("HostComputer", Group::Software),
-    ("ImageEditor", Group::Software),
-    ("RAWDevelopingSoftware", Group::Software),
-    ("ImageEditingSoftware", Group::Software),
-    ("MetadataEditingSoftware", Group::Software),
-    ("tiff:Software", Group::Software),
-    ("xmp:CreatorTool", Group::Software),
-    ("xmpMM:History", Group::Software),
-    ("photoshop:History", Group::Software),
-    ("xmpMM:DerivedFrom", Group::Software),
-    ("xmpMM:Ingredients", Group::Software),
-    ("xmpMM:PreservedFileName", Group::Software),
-    ("ImageDescription", Group::Keywords),
-    ("UserComment", Group::Keywords),
-    ("ImageTitle", Group::Keywords),
-    ("XPTitle", Group::Keywords),
-    ("XPComment", Group::Keywords),
-    ("XPKeywords", Group::Keywords),
-    ("XPSubject", Group::Keywords),
-    ("Comment", Group::Keywords),
-    ("Description", Group::Keywords),
-    ("Title", Group::Keywords),
-    ("JPEG comment", Group::Keywords),
-    ("dc:subject", Group::Keywords),
-    ("dc:description", Group::Keywords),
-    ("dc:title", Group::Keywords),
-    ("lr:hierarchicalSubject", Group::Keywords),
-    ("Iptc4xmpCore:AltTextAccessibility", Group::Keywords),
-    ("Iptc4xmpCore:ExtDescrAccessibility", Group::Keywords),
-    ("photoshop:Headline", Group::Keywords),
-    ("photoshop:Instructions", Group::Keywords),
-    ("exif:UserComment", Group::Keywords),
-    ("tiff:ImageDescription", Group::Keywords),
-    ("digiKam:TagsList", Group::Keywords),
-    ("mwg-rs:Regions", Group::Keywords),
-    ("Iptc4xmpExt:PersonInImage", Group::Keywords),
-    (EXIF_THUMBNAIL, Group::Preview),
-    (JFIF_THUMBNAIL, Group::Preview),
-    ("xmp:Thumbnails", Group::Preview),
-    ("xap:Thumbnails", Group::Preview),
+/// The words that put a tag in a group, looked for in its whole name (its namespace's prefix
+/// and its own name) in lower case. A tag with words of several groups is in each of them:
+/// GPSDateStamp says where and when, and a file name such as PXL_20231004_142355 holds the date,
+/// while a path names the user. A name with none of them is in More tags, unless
+/// `GROUP_EXCEPTIONS` says otherwise. Exif's auxiliary namespace (aux:) holds the lens and serial
+/// numbers, and PLUS (plus:) holds the licence and its owner.
+const GROUP_WORDS: [(Group, &[&str]); 7] = [
+    (
+        Group::Place,
+        &[
+            "gps",
+            "latitude",
+            "longitude",
+            "altitude",
+            "location",
+            "city",
+            "country",
+        ],
+    ),
+    (
+        Group::Camera,
+        &[
+            "serial", "make", "model", "lens", "body", "camera", "firmware", "aux:",
+        ],
+    ),
+    (
+        Group::Date,
+        &[
+            "date",
+            "time",
+            "stamp",
+            "history",
+            "filename",
+            "derivedfrom",
+        ],
+    ),
+    (
+        Group::Photographer,
+        &[
+            "owner",
+            "author",
+            "creator",
+            "artist",
+            "copyright",
+            "rights",
+            "byline",
+            "credit",
+            "photographer",
+            "plus:",
+            "filename",
+            "derivedfrom",
+        ],
+    ),
+    (
+        Group::Software,
+        &["software", "tool", "history", "processing"],
+    ),
+    (Group::Keywords, &["keyword", "mediapro:"]),
+    (Group::Preview, &["thumbnail"]),
+];
+
+/// The tags whose groups are not those their words give (`GROUP_WORDS`), with the groups they
+/// are in instead. Some have no word of their group, such as a caption. Others have a word of
+/// a group they say nothing of: an exposure time is no date, the subject's location is a place
+/// in the picture, not on the map, and the camera's owner is a person, not the camera.
+const GROUP_EXCEPTIONS: &[(&str, &[Group])] = &[
+    ("photoshop:State", &[Group::Place]),
+    ("mediapro:Location", &[Group::Place]),
+    ("GPSProcessingMethod", &[Group::Place]),
+    ("exif:GPSProcessingMethod", &[Group::Place]),
+    ("SubjectLocation", &[Group::Other]),
+    ("exif:SubjectLocation", &[Group::Other]),
+    ("ExposureTime", &[Group::Other]),
+    ("exif:ExposureTime", &[Group::Other]),
+    ("ImageUniqueID", &[Group::Camera]),
+    ("exif:ImageUniqueID", &[Group::Camera]),
+    ("exifEX:ImageUniqueID", &[Group::Camera]),
+    // A position in the motion photo's video, in microseconds, not a date.
+    (
+        "GCamera:MotionPhotoPresentationTimestampUs",
+        &[Group::Camera],
+    ),
+    (
+        "GCamera:MicroVideoPresentationTimestampUs",
+        &[Group::Camera],
+    ),
+    ("CameraOwnerName", &[Group::Photographer]),
+    ("exifEX:CameraOwnerName", &[Group::Photographer]),
+    ("aux:OwnerName", &[Group::Photographer]),
+    ("dc:publisher", &[Group::Photographer]),
+    ("dc:contributor", &[Group::Photographer]),
+    ("photoshop:Source", &[Group::Photographer]),
+    ("photoshop:CaptionWriter", &[Group::Photographer]),
+    ("plus:ModelReleaseStatus", &[Group::Photographer]),
+    ("plus:ModelReleaseID", &[Group::Photographer]),
+    ("Iptc4xmpExt:ModelAge", &[Group::Keywords]),
+    ("Iptc4xmpExt:AddlModelInfo", &[Group::Keywords]),
+    ("HostComputer", &[Group::Software]),
+    ("ImageEditor", &[Group::Software]),
+    ("xmp:CreatorTool", &[Group::Software]),
+    // The files a photo was made from, by their paths, names and dates, and the programs.
+    (
+        "xmpMM:DerivedFrom",
+        &[Group::Date, Group::Photographer, Group::Software],
+    ),
+    (
+        "xmpMM:Ingredients",
+        &[Group::Date, Group::Photographer, Group::Software],
+    ),
+    ("ImageDescription", &[Group::Keywords]),
+    ("UserComment", &[Group::Keywords]),
+    ("ImageTitle", &[Group::Keywords]),
+    ("XPTitle", &[Group::Keywords]),
+    ("XPComment", &[Group::Keywords]),
+    ("XPSubject", &[Group::Keywords]),
+    ("Comment", &[Group::Keywords]),
+    ("Description", &[Group::Keywords]),
+    ("Title", &[Group::Keywords]),
+    (JPEG_COMMENT, &[Group::Keywords]),
+    ("dc:subject", &[Group::Keywords]),
+    ("dc:description", &[Group::Keywords]),
+    ("dc:title", &[Group::Keywords]),
+    ("lr:hierarchicalSubject", &[Group::Keywords]),
+    ("Iptc4xmpCore:AltTextAccessibility", &[Group::Keywords]),
+    ("Iptc4xmpCore:ExtDescrAccessibility", &[Group::Keywords]),
+    ("photoshop:Headline", &[Group::Keywords]),
+    ("photoshop:Instructions", &[Group::Keywords]),
+    ("exif:UserComment", &[Group::Keywords]),
+    ("tiff:ImageDescription", &[Group::Keywords]),
+    ("digiKam:TagsList", &[Group::Keywords]),
+    ("mwg-rs:Regions", &[Group::Keywords]),
+    ("Iptc4xmpExt:PersonInImage", &[Group::Keywords]),
 ];
 
 /// The tags that are blocks of other tags, not a single tag, with the groups whose tags each
@@ -140,24 +161,18 @@ const BLOCKS: &[(&str, &[Group])] = &[
     (AFTER_IMAGE, &Group::ALL),
     ("MakerNote", &Group::ALL),
     (PHOTOSHOP_RESOURCES, &Group::ALL),
-    (C2PA, &Group::ALL),
     ("XMLPacket", &Group::ALL),
     ("IPTC-NAA", &Group::ALL),
     (RAW_PROFILES, &Group::ALL),
     (JFIF_THUMBNAIL, &[Group::Preview]),
     ("xmpMM:History", &[Group::Software, Group::Date]),
-    // The paths and names of the files that a photo was made from. A path names the user, and
-    // a name such as PXL_20231004_142355 holds the date.
+    // The files that a photo was made from, each with its path, name and date.
     (
         "xmpMM:DerivedFrom",
         &[Group::Software, Group::Date, Group::Photographer],
     ),
     (
         "xmpMM:Ingredients",
-        &[Group::Software, Group::Date, Group::Photographer],
-    ),
-    (
-        "xmpMM:PreservedFileName",
         &[Group::Software, Group::Date, Group::Photographer],
     ),
 ];
@@ -173,10 +188,6 @@ const UNKNOWN_BLOCKS: [&str; 5] = [
     "Exif 0x",
 ];
 
-/// The words that make a tag one of Place, whatever its namespace or prefix: a drone's
-/// `drone-dji:GpsLatitude` and `AbsoluteAltitude` as much as EXIF's GPS directory.
-const PLACE_WORDS: [&str; 4] = ["gps", "latitude", "longitude", "altitude"];
-
 /// The tag of a JPEG's JFXX segment, a thumbnail beside the JFIF header, and of a thumbnail
 /// inside the JFIF header itself (`add_jfif`).
 const JFIF_THUMBNAIL: &str = "JFIF thumbnail";
@@ -185,11 +196,23 @@ const JFIF_THUMBNAIL: &str = "JFIF thumbnail";
 /// second image or HDR gain map, each with an EXIF block of its own.
 const MPF: &str = "Extra images (MPF)";
 
+/// The namespace of the XMP that describes an HDR gain map (Ultra HDR, Adobe's gain maps): the
+/// image after the main one that an HDR screen brightens the main image with.
+const GAIN_MAP_NAMESPACE: &str = "http://ns.adobe.com/hdr-gain-map/1.0/";
+
+/// The XMP property of a main image that lists the images after it, by their kinds and sizes
+/// (Google's container): a gain map, or the video of a motion photo.
+const CONTAINER_DIRECTORY: &str = "Container:Directory";
+
+/// The start of a JPEG's APP2 segment of the ISO 21496-1 metadata of a gain map. It says only
+/// how the gain map brightens the image, so every copy keeps it.
+const ISO_GAIN_MAP_NAME: &[u8] = b"urn:iso:std:iso:ts:21496:-1\0";
+
+/// The size of the MPF segment that a copy with a gain map writes new (`mpf_segment`).
+const MPF_SEGMENT_SIZE: usize = 90;
+
 /// The tag of what follows a JPEG's main image when no MPF segment indexes it.
 const AFTER_IMAGE: &str = "Data after the image";
-
-/// The tag of a JPEG's content credentials (C2PA, in APP11 segments).
-const C2PA: &str = "Content credentials (C2PA)";
 
 /// The tag of a JPEG's Photoshop resources other than its IPTC IIM, its EXIF and its XMP, such as
 /// a thumbnail or the paths of a clipping.
@@ -319,31 +342,27 @@ impl Group {
         }
     }
 
-    /// The group of the tag named `tag`: by its name in `TAG_GROUPS`, or else by its words and
-    /// its prefix. An XMP property's prefix is that of its namespace (`xmp::properties`), not
-    /// the one its packet wrote. A name with a word of `PLACE_WORDS` says where, as do the
-    /// IPTC's place properties. Exif's auxiliary namespace (aux:) holds the lens and serial
-    /// numbers, and the rights namespaces say whose the photo is.
-    pub(crate) fn of(tag: &str) -> Group {
-        if let Some(&(_, group)) = TAG_GROUPS.iter().find(|(name, _)| *name == tag) {
-            return group;
+    /// Returns the groups of the tag named `tag`, in the order of `Group::ALL`: those
+    /// `GROUP_EXCEPTIONS` gives it, or else those whose words (`GROUP_WORDS`) its name has, or
+    /// else More tags. An XMP property's prefix is that of its namespace (`xmp::properties`),
+    /// not the one its packet wrote. This is the one place that decides a tag's groups: the
+    /// dialog lists the tag under each, and the box of any of them leaves it out.
+    pub(crate) fn groups_of(tag: &str) -> Vec<Group> {
+        if let Some((_, groups)) = GROUP_EXCEPTIONS.iter().find(|(name, _)| *name == tag) {
+            return Group::ALL
+                .into_iter()
+                .filter(|g| groups.contains(g))
+                .collect();
         }
         let lower = tag.to_ascii_lowercase();
-        let starts = |prefixes: &[&str]| prefixes.iter().any(|p| tag.starts_with(p));
-        if PLACE_WORDS.iter().any(|w| lower.contains(w))
-            || starts(&["Iptc4xmpExt:Location", "mediapro:Location"])
-        {
-            Group::Place
-        } else if starts(&["exif:DateTime", "exif:SubSecTime", "exifEX:OffsetTime"]) {
-            Group::Date
-        } else if starts(&["aux:"]) {
-            Group::Camera
-        } else if starts(&["xmpRights:", "plus:"]) {
-            Group::Photographer
-        } else if starts(&["MicrosoftPhoto:LastKeyword", "mediapro:"]) {
-            Group::Keywords
+        let groups: Vec<Group> = (GROUP_WORDS.iter())
+            .filter(|(_, words)| words.iter().any(|w| lower.contains(w)))
+            .map(|(group, _)| *group)
+            .collect();
+        if groups.is_empty() {
+            vec![Group::Other]
         } else {
-            Group::Other
+            groups
         }
     }
 
@@ -382,8 +401,10 @@ impl LeftOut {
     fn count_groups(&mut self) {
         self.has_left_out = [false; 8];
         for word in &self.words {
-            let group = Group::of_key(word).unwrap_or_else(|| Group::of(word));
-            self.has_left_out[group as usize] = true;
+            let groups = Group::of_key(word).map_or_else(|| Group::groups_of(word), |g| vec![g]);
+            for group in groups {
+                self.has_left_out[group as usize] = true;
+            }
         }
     }
 
@@ -392,11 +413,11 @@ impl LeftOut {
         self.words.iter().map(|w| format!("{w}\n")).collect()
     }
 
-    /// Whether the tag `tag` is left out: by its name, by its whole group, or as a block that
-    /// can hold a tag of a group that has one left out (`BLOCKS`).
+    /// Whether the tag `tag` is left out: by its name, by any of its groups left out whole, or
+    /// as a block that can hold a tag of a group that has one left out (`BLOCKS`).
     pub(crate) fn is_left_out(&self, tag: &str) -> bool {
         self.words.contains(tag)
-            || self.words.contains(Group::of(tag).key())
+            || (Group::groups_of(tag).iter()).any(|g| self.words.contains(g.key()))
             || (block_groups(tag).iter()).any(|g| self.has_left_out[*g as usize])
     }
 
@@ -405,17 +426,18 @@ impl LeftOut {
         self.words.contains(group.key())
     }
 
-    /// Leaves the tag `tag` out, or keeps it. A tag kept out of a group left out whole leaves
-    /// the group's other tags of `found` out one by one instead.
+    /// Leaves the tag `tag` out, or keeps it. A tag kept out of groups left out whole leaves
+    /// the other tags of `found` in those groups out one by one instead.
     pub(crate) fn set_tag(&mut self, tag: &str, left_out: bool, found: &[String]) {
         if left_out {
             self.words.insert(tag.to_owned());
         } else {
             self.words.remove(tag);
-            let group = Group::of(tag);
-            if self.words.remove(group.key()) {
-                let others = found.iter().filter(|t| *t != tag && Group::of(t) == group);
-                self.words.extend(others.cloned());
+            for group in Group::groups_of(tag) {
+                if self.words.remove(group.key()) {
+                    let is_other = |t: &&String| *t != tag && Group::groups_of(t).contains(&group);
+                    self.words.extend(found.iter().filter(is_other).cloned());
+                }
             }
         }
         self.count_groups();
@@ -426,9 +448,10 @@ impl LeftOut {
         if left_out {
             self.words.insert(group.key().to_owned());
         } else {
-            // The other groups' keys stay, though `Group::of` puts no key in their groups.
+            // The other groups' keys stay, though `Group::groups_of` puts no key in a group.
             let is_key = |w: &str| w.starts_with("group:");
-            (self.words).retain(|w| w != group.key() && (is_key(w) || Group::of(w) != group));
+            let is_in_group = |w: &str| Group::groups_of(w).contains(&group);
+            (self.words).retain(|w| w != group.key() && (is_key(w) || !is_in_group(w)));
         }
         self.count_groups();
     }
@@ -481,6 +504,8 @@ struct Walked<'a> {
     iim: Properties,
     /// Where a JPEG's main image ends and what follows it starts, when anything does.
     image_end: Option<usize>,
+    /// The HDR gain map among the images after a JPEG's main one, when it has one.
+    gain_map: Option<Box<GainMap<'a>>>,
 }
 
 impl<'a> Walked<'a> {
@@ -493,6 +518,7 @@ impl<'a> Walked<'a> {
             xmp: None,
             iim: Properties::default(),
             image_end: None,
+            gain_map: None,
         }
     }
 
@@ -506,6 +532,15 @@ impl<'a> Walked<'a> {
     }
 }
 
+/// The HDR gain map of a JPEG (Ultra HDR), walked as a JPEG of its own, and the attributes of
+/// the main image's and its entries in the MPF index. A copy that leaves out the images after
+/// the main one keeps it, without its metadata, as it decides how the image looks on an HDR
+/// screen (`gain_map_copy`).
+struct GainMap<'a> {
+    image: Walked<'a>,
+    attributes: [u32; 2],
+}
+
 /// Returns the names of the tags of `path` that a copy for sharing can keep or leave out,
 /// sorted, each once: those of its EXIF, its XMP, its sidecar and its IPTC, and its other parts
 /// with a tag. Returns `None` for a file that is not a JPEG, PNG or WebP, and an error for one
@@ -517,6 +552,7 @@ pub(crate) fn tags_of(path: &Path) -> Result<Option<Vec<String>>, String> {
     };
     with_walked(path, &data, |walked, metadata| {
         let mut tags = metadata.tag_names();
+        tags.retain(|t| !is_property_of_images_after(t));
         tags.extend(walked.parts.iter().filter_map(|p| p.tag.clone()));
         tags.sort();
         tags.dedup();
@@ -535,9 +571,23 @@ pub(crate) fn copy(path: &Path, kept: &HashSet<String>) -> Result<Option<Vec<u8>
     }
     let data = crate::images::decode::read_limited(path).map_err(|e| e.to_string())?;
     let keeps = |tag: &str| kept.contains(tag);
-    with_walked(path, &data, |walked, metadata| {
-        let (exif, xmp) = metadata.written(&keeps);
-        assembled(walked, &keeps, exif, xmp)
+    with_walked(path, &data, |walked, mut metadata| {
+        // A copy that leaves out the images after the main one still keeps the gain map.
+        let gain_map = match &walked.gain_map {
+            Some(gain_map) if !keeps(MPF) => Some(gain_map_copy(gain_map)?),
+            _ => None,
+        };
+        if let Some(gain_map) = &gain_map {
+            let (element, namespaces) = container_directory(gain_map.len());
+            metadata.replace_property(CONTAINER_DIRECTORY, element, namespaces);
+        }
+        let has_images_after = gain_map.is_some() || keeps(MPF) || keeps(AFTER_IMAGE);
+        let keeps_property = |tag: &str| match is_property_of_images_after(tag) {
+            true => has_images_after,
+            false => keeps(tag),
+        };
+        let (exif, xmp) = metadata.written(&keeps_property);
+        assembled(walked, &keeps, exif, xmp, gain_map)
     })?
     .transpose()
 }
@@ -548,14 +598,14 @@ pub(crate) fn copy(path: &Path, kept: &HashSet<String>) -> Result<Option<Vec<u8>
 fn with_walked<T>(
     path: &Path,
     data: &[u8],
-    then: impl FnOnce(&Walked, &SharedMetadata) -> T,
+    then: impl FnOnce(&Walked, SharedMetadata) -> T,
 ) -> Result<Option<T>, String> {
     let Some(mut walked) = walk(data)? else {
         return Ok(None);
     };
     let iim = std::mem::take(&mut walked.iim);
     let metadata = shared_metadata(path, walked.exif, walked.xmp, iim)?;
-    Ok(Some(then(&walked, &metadata)))
+    Ok(Some(then(&walked, metadata)))
 }
 
 /// Returns the container that the first bytes `head` of a file say it is in, or `None` when
@@ -599,24 +649,31 @@ fn read_without_image_data(path: &Path) -> std::io::Result<Option<Vec<u8>>> {
     }
     match container_of(&head) {
         None => Ok(None),
-        Some(Container::Jpeg) => jpeg_without_scans(path, file, metadata.len()).map(Some),
+        Some(Container::Jpeg) => jpeg_without_scans(file, metadata.len(), 1 << 18).map(Some),
         Some(container) => {
             chunks_without_image_data(file, head, metadata.len(), container).map(Some)
         }
     }
 }
 
-/// Reads the JPEG `path` of `size` bytes up to its first scan, from a quarter of a MB on and
-/// more only when its segments are longer. An end of image (EOI) stands for the scans, and one
-/// byte more after it when the file `file` does not end in one, so the walk sees that something
-/// follows the image. A file read whole is given as it is.
+/// Reads the JPEG `file` of `size` bytes up to its first scan, from its first `first_read` bytes
+/// on (a quarter of a MB for a file) and more only when its segments are longer. An end of
+/// image (EOI) stands for the scans, and one byte more after it when the file does not end in
+/// one, so the walk sees that something follows the image. A file read whole is given as it is.
 /// shortcut: what follows the first scan is not read, so a comment between the scans of a
 /// progressive JPEG is not listed, and a copy leaves it out; read the scans too if one matters.
-fn jpeg_without_scans(path: &Path, mut file: std::fs::File, size: u64) -> std::io::Result<Vec<u8>> {
-    use std::io::{Read, Seek};
-    let mut cap: u64 = 1 << 18;
+fn jpeg_without_scans(
+    mut file: impl std::io::Read + std::io::Seek,
+    size: u64,
+    first_read: u64,
+) -> std::io::Result<Vec<u8>> {
+    use std::io::Read;
+    let mut cap = first_read.max(1);
     loop {
-        let head = read_head(path, cap)?;
+        file.rewind()?;
+        let mut head = Vec::new();
+        #[allow(clippy::disallowed_methods)] // bounded by take
+        (&mut file).take(cap).read_to_end(&mut head)?;
         if head.len() as u64 >= size || cap >= MAX_DECODE_BYTES {
             return Ok(head);
         }
@@ -640,7 +697,7 @@ fn jpeg_without_scans(path: &Path, mut file: std::fs::File, size: u64) -> std::i
 /// most to the file's size `size`. Returns an error when what is read would be larger than a
 /// decode reads (`MAX_DECODE_BYTES`).
 fn chunks_without_image_data(
-    file: std::fs::File,
+    file: impl std::io::Read + std::io::Seek,
     head: [u8; 12],
     size: u64,
     container: Container,
@@ -673,6 +730,16 @@ fn chunks_without_image_data(
             true => matches!(name, b"IDAT" | b"fdAT"),
             false => matches!(name, b"VP8 " | b"VP8L" | b"ALPH" | b"ANMF"),
         };
+        // What is read of the chunk after its header: a PNG's CRC of an image chunk, which
+        // stands as an empty one, or the whole of another chunk. Each counts, so a flood of
+        // empty image chunks is as limited as metadata is.
+        let kept = match is_image {
+            true => u64::from(is_png) * 4,
+            false => whole.min(end - at - 8),
+        };
+        if out.len() as u64 + 8 + kept > MAX_DECODE_BYTES {
+            return Err(std::io::Error::other("its metadata is too large"));
+        }
         if is_image {
             let empty = match is_png {
                 true => [&[0; 4][..], name, &[0; 4]].concat(),
@@ -681,10 +748,6 @@ fn chunks_without_image_data(
             out.extend(empty);
             file.seek_relative(whole as i64)?;
         } else {
-            let kept = whole.min(end - at - 8);
-            if out.len() as u64 + 8 + kept > MAX_DECODE_BYTES {
-                return Err(std::io::Error::other("its metadata is too large"));
-            }
             out.extend(header);
             let start = out.len();
             out.resize(start + kept as usize, 0);
@@ -702,11 +765,46 @@ fn chunks_without_image_data(
     Ok(out)
 }
 
+/// Walks a JPEG (`walk_jpeg_segments`) and finds its HDR gain map (`gain_map`). Returns `None`
+/// when a segment's length runs past the file.
+fn walk_jpeg(data: &[u8]) -> Option<Walked<'_>> {
+    let mut walked = walk_jpeg_segments(data)?;
+    walked.gain_map = gain_map(data, &walked).map(Box::new);
+    Some(walked)
+}
+
+/// Returns the HDR gain map of the JPEG `data`, walked as `walked`: the first image after the
+/// main one that its MPF index names and whose XMP is of a gain map (`GAIN_MAP_NAMESPACE`).
+/// Returns `None` when it has none, or when the index or that image cannot be read.
+fn gain_map<'a>(data: &'a [u8], walked: &Walked) -> Option<GainMap<'a>> {
+    let is_index = |p: &&Part| p.tag.as_deref() == Some(MPF) && p.bytes.get(4..8) == Some(b"MPF\0");
+    let index = walked.parts.iter().find(is_index)?;
+    let entries = crate::metadata::exif::mp_entries(&index.bytes[4..])?;
+    // The offsets count from the index's TIFF header, after its marker, length and "MPF\0".
+    let tiff_header = index.from + 8;
+    let image_end = walked.image_end?;
+    entries
+        .iter()
+        .skip(1)
+        .find_map(|&[attribute, size, offset]| {
+            let start = tiff_header.checked_add(offset as usize)?;
+            let bytes = data.get(start..start.checked_add(size as usize)?)?;
+            if start < image_end || container_of(bytes) != Some(Container::Jpeg) {
+                return None;
+            }
+            let image = walk_jpeg_segments(bytes)?;
+            let xmp = image.xmp.and_then(|x| std::str::from_utf8(x).ok())?;
+            let attributes = [entries[0][0], attribute];
+            xmp.contains(GAIN_MAP_NAMESPACE)
+                .then_some(GainMap { image, attributes })
+        })
+}
+
 /// Walks a JPEG: each segment up to the end of its image (EOI), each scan with its data, and
 /// what follows the image. Bytes between segments that are no marker, which some phones and
 /// editors write, are skipped to the next marker as decoders skip them, and are not copied.
 /// Returns `None` when a segment's length runs past the file.
-fn walk_jpeg(data: &[u8]) -> Option<Walked<'_>> {
+fn walk_jpeg_segments(data: &[u8]) -> Option<Walked<'_>> {
     let mut walked = Walked::new(Container::Jpeg);
     walked.add(data, 0, 2, None);
     let (mut at, mut has_mpf) = (2, false);
@@ -795,9 +893,11 @@ fn add_jpeg_segment<'a>(walked: &mut Walked<'a>, data: &'a [u8], at: usize, end:
             return;
         }
         0xe1 if body.starts_with(b"http://ns.adobe.com/xmp/extension/\0") => return,
-        0xe2 if body.starts_with(b"ICC_PROFILE\0") => None,
+        0xe2 if body.starts_with(b"ICC_PROFILE\0") || body.starts_with(ISO_GAIN_MAP_NAME) => None,
         0xe2 if body.starts_with(b"MPF\0") => Some(MPF.to_owned()),
-        0xeb if body.starts_with(b"JP") => Some(C2PA.to_owned()),
+        // Content credentials (C2PA) hash the file's other bytes, which every copy changes,
+        // so they would call the copy tampered with. They are never carried.
+        0xeb if body.starts_with(b"JP") => return,
         0xed if body.starts_with(PHOTOSHOP_NAME) => {
             return add_photoshop(walked, &body[PHOTOSHOP_NAME.len()..], at);
         }
@@ -998,6 +1098,8 @@ fn walk_png(data: &[u8]) -> Option<Walked<'_>> {
             }
             b"tEXt" | b"zTXt" | b"iTXt" => png_text_tag(&mut walked, &name, body),
             b"tIME" => Some(Some("tIME".to_owned())),
+            // Content credentials, never carried, as in a JPEG (`add_jpeg_segment`).
+            b"caBX" => None,
             n => Some(Some(format!("PNG chunk {}", String::from_utf8_lossy(n)))),
         };
         if let Some(tag) = tag {
@@ -1070,6 +1172,8 @@ fn walk_webp(data: &[u8]) -> Option<Walked<'_>> {
             b"XMP " => {
                 walked.xmp.get_or_insert(body);
             }
+            // Content credentials, never carried, as in a JPEG (`add_jpeg_segment`).
+            b"C2PA" => {}
             n => {
                 let tag = format!("WebP chunk {}", String::from_utf8_lossy(n));
                 walked.add(data, at, end, Some(&tag));
@@ -1082,12 +1186,14 @@ fn walk_webp(data: &[u8]) -> Option<Walked<'_>> {
 }
 
 /// Makes the copy of the file `walked`: its parts that `keeps` keeps, with the new EXIF block
-/// `exif` and XMP packet `xmp` where the container has them.
+/// `exif` and XMP packet `xmp` where the container has them. A JPEG's gain map copied on its own
+/// (`gain_map_copy`), `gain_map`, follows the main image, with a new MPF index of the two.
 fn assembled(
     walked: &Walked,
     keeps: &dyn Fn(&str) -> bool,
     exif: Option<Vec<u8>>,
     xmp: Option<Vec<u8>>,
+    gain_map: Option<Vec<u8>>,
 ) -> Result<Vec<u8>, String> {
     let kept: Vec<&Part> = (walked.parts.iter())
         .filter(|p| p.tag.as_deref().is_none_or(keeps))
@@ -1107,7 +1213,23 @@ fn assembled(
             if let Some(xmp) = xmp.filter(|x| 2 + XMP_NAME.len() + x.len() <= 0xffff) {
                 out.extend(jpeg_segment(0xe1, &[XMP_NAME, &xmp[..]].concat()));
             }
+            // The index is written once the main image's size is known, in a segment of the
+            // same size.
+            let index_at = gain_map.is_some().then(|| {
+                out.extend(mpf_segment([0; 2], 0, 0, 0));
+                out.len() - MPF_SEGMENT_SIZE
+            });
             jpeg_rest(&mut out, rest, walked.image_end);
+            if let (Some(at), Some(gain_map), Some(found)) = (index_at, gain_map, &walked.gain_map)
+            {
+                let size = |n: usize| u32::try_from(n).map_err(|_| "too large".to_owned());
+                let (main, length) = (size(out.len())?, size(gain_map.len())?);
+                // The gain map's offset counts from the index's TIFF header.
+                let offset = size(out.len() - at - 8)?;
+                let index = mpf_segment(found.attributes, main, length, offset);
+                out[at..at + MPF_SEGMENT_SIZE].copy_from_slice(&index);
+                out.extend(gain_map);
+            }
         }
         Container::Png => {
             if let Some(exif) = exif {
@@ -1153,6 +1275,105 @@ fn jpeg_rest(out: &mut Vec<u8>, rest: &[&Part], image_end: Option<usize>) {
             new_end as u32,
         );
     }
+}
+
+/// Makes the copy of the gain map `gain_map`: its image data and the parts that decide how it
+/// looks, with only its gain map's XMP (`gain_map_xmp`), and without its EXIF or any other tag.
+fn gain_map_copy(gain_map: &GainMap) -> Result<Vec<u8>, String> {
+    let xmp = gain_map.image.xmp.and_then(gain_map_xmp);
+    assembled(&gain_map.image, &|_| false, None, xmp, None)
+}
+
+/// Returns a new XMP packet of the gain map properties (hdrgm) of the gain map's packet `xmp`,
+/// or `None` when it has none. A property of one value is written as an attribute, as readers
+/// of gain maps (Android's and Chrome's) look for one there, and a value for each colour as
+/// the element it is.
+/// shortcut: an element written with another prefix or with attributes of its own is left out;
+/// write it with the hdrgm prefix if a gain map is found that has one.
+fn gain_map_xmp(xmp: &[u8]) -> Option<Vec<u8>> {
+    let properties = crate::metadata::xmp::properties(std::str::from_utf8(xmp).ok()?);
+    let (mut attributes, mut elements) = (String::new(), String::new());
+    for (name, element, _) in &properties.list {
+        let Some(local) = name.strip_prefix("hdrgm:") else {
+            continue;
+        };
+        let value = (element.split_once('>'))
+            .and_then(|(_, rest)| rest.rsplit_once("</"))
+            .map(|(value, _)| value);
+        match value {
+            Some(value) if !value.contains('<') => {
+                attributes += &format!(" hdrgm:{local}=\"{}\"", value.replace('"', "&quot;"));
+            }
+            _ if element.starts_with(&format!("<{name}>")) => elements += element,
+            _ => {}
+        }
+    }
+    if attributes.is_empty() && elements.is_empty() {
+        return None;
+    }
+    let packet = format!(
+        "<x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><rdf:RDF \
+         xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\"><rdf:Description \
+         rdf:about=\"\" xmlns:hdrgm=\"{GAIN_MAP_NAMESPACE}\"{attributes}>{elements}\
+         </rdf:Description></rdf:RDF></x:xmpmeta>"
+    );
+    Some(packet.into_bytes())
+}
+
+/// Returns a new `CONTAINER_DIRECTORY` property of a main image followed by a gain map of
+/// `length` bytes, as its element and the namespaces it uses.
+fn container_directory(length: usize) -> (String, crate::metadata::xmp::Namespaces) {
+    let item = |attributes: &str| {
+        format!(
+            "<rdf:li rdf:parseType=\"Resource\"><Container:Item {attributes} \
+             Item:Mime=\"image/jpeg\"/></rdf:li>"
+        )
+    };
+    let primary = item("Item:Semantic=\"Primary\"");
+    let gain_map = item(&format!(
+        "Item:Semantic=\"GainMap\" Item:Length=\"{length}\""
+    ));
+    let element = format!(
+        "<{CONTAINER_DIRECTORY}><rdf:Seq>{primary}{gain_map}</rdf:Seq></{CONTAINER_DIRECTORY}>"
+    );
+    let namespaces = [
+        ("Container", "http://ns.google.com/photos/1.0/container/"),
+        ("Item", "http://ns.google.com/photos/1.0/container/item/"),
+    ];
+    let namespaces = namespaces
+        .map(|(p, u)| (p.to_owned(), u.to_owned()))
+        .to_vec();
+    (element, crate::metadata::xmp::Namespaces::new(namespaces))
+}
+
+/// Whether the XMP property `name` of a main image describes the images after it: the gain map
+/// (hdrgm) or the list of them (`CONTAINER_DIRECTORY`). They say only how the image looks and
+/// where those images are, so they are no tags, and a copy keeps them while it has the images.
+fn is_property_of_images_after(name: &str) -> bool {
+    name.starts_with("hdrgm:") || name == CONTAINER_DIRECTORY
+}
+
+/// Returns a new MPF segment, big-endian, whose index names the main image of `main_size`
+/// bytes and the gain map of `gain_map_size` bytes at `offset` from the segment's TIFF header,
+/// with their attributes `attributes`. It is `MPF_SEGMENT_SIZE` bytes long.
+fn mpf_segment(attributes: [u32; 2], main_size: u32, gain_map_size: u32, offset: u32) -> Vec<u8> {
+    // The header and a directory of three entries: the version, the number of images, and the
+    // index of 32 bytes, which follows the directory at 50.
+    let mut mpf = b"MPF\0MM\0*\0\0\0\x08\0\x03".to_vec();
+    mpf.extend(b"\xb0\0\0\x07\0\0\0\x040100");
+    mpf.extend(b"\xb0\x01\0\x04\0\0\0\x01\0\0\0\x02");
+    mpf.extend(b"\xb0\x02\0\x07\0\0\0\x20\0\0\0\x32\0\0\0\0");
+    let images = [
+        (attributes[0], main_size, 0),
+        (attributes[1], gain_map_size, offset),
+    ];
+    for (attribute, size, at) in images {
+        for value in [attribute, size, at] {
+            mpf.extend(value.to_be_bytes());
+        }
+        mpf.extend([0; 4]);
+    }
+    jpeg_segment(0xe2, &mpf)
 }
 
 /// Returns the JPEG segment of marker `marker` with the contents `body`, which fit in one.
@@ -1495,19 +1716,18 @@ mod tests {
     /// and the names that say where, when or who are in their groups whatever their prefix.
     #[test]
     fn blocks_go_with_any_group_they_can_carry() {
-        use super::Group::{Date, Keywords, Place, Software};
+        use super::Group::{Date, Keywords, Photographer, Place, Software};
         let mut left_out = super::LeftOut::default();
         let blocks = [
             super::MPF,
             super::AFTER_IMAGE,
             "MakerNote",
             super::PHOTOSHOP_RESOURCES,
-            super::C2PA,
             "XMLPacket",
             "IPTC-NAA",
             super::RAW_PROFILES,
             "JPEG APP12",
-            "PNG chunk caBX",
+            "PNG chunk vpAg",
             "WebP chunk XYZW",
             "Image 0x8649",
         ];
@@ -1517,7 +1737,7 @@ mod tests {
             assert!(left_out.is_left_out(block), "{block} is kept");
         }
         assert!(!left_out.is_left_out(super::JFIF_THUMBNAIL) && !left_out.is_left_out("Make"));
-        left_out.set_tag(super::EXIF_THUMBNAIL, true, &[]);
+        left_out.set_tag(crate::metadata::exif::EXIF_THUMBNAIL, true, &[]);
         assert!(left_out.is_left_out(super::JFIF_THUMBNAIL));
         let mut dated = super::LeftOut::default();
         dated.set_tag("DateTime", true, &[]);
@@ -1534,12 +1754,237 @@ mod tests {
             ("MicrosoftPhoto:LastKeywordIPTC", Keywords),
             ("mwg-rs:Regions", Keywords),
             ("Iptc4xmpExt:PersonInImage", Keywords),
-            ("xmpMM:DerivedFrom", Software),
-            ("xmpMM:Ingredients", Software),
-            ("xmpMM:PreservedFileName", Software),
         ] {
-            assert_eq!(super::Group::of(tag), group, "{tag}");
+            assert_eq!(super::Group::groups_of(tag), [group], "{tag}");
         }
+        for block in ["xmpMM:DerivedFrom", "xmpMM:Ingredients"] {
+            let groups = super::Group::groups_of(block);
+            assert_eq!(groups, [Date, Photographer, Software], "{block}");
+        }
+    }
+
+    /// Real tags, from exiftool's tables and from what phones, Lightroom and Windows write, are
+    /// left out by the box of each group they say something of, and by no other. A tag that
+    /// says when as well as where, or a file name that holds the date and a path that names the
+    /// user, goes with each of its groups.
+    #[test]
+    fn each_tag_goes_with_every_group_it_belongs_to() {
+        use super::Group::{self, Keywords};
+        use super::Group::{Camera, Date, Other, Photographer, Place, Preview, Software};
+        let tags: [(&str, &[Group]); 50] = [
+            ("DateTimeOriginal", &[Date]),
+            ("DateTime", &[Date]),
+            ("OffsetTimeOriginal", &[Date]),
+            ("SubSecTimeOriginal", &[Date]),
+            ("xmp:CreateDate", &[Date]),
+            ("xmp:MetadataDate", &[Date]),
+            ("photoshop:DateCreated", &[Date]),
+            ("MicrosoftPhoto:DateAcquired", &[Date]),
+            ("GPano:FirstPhotoDate", &[Date]),
+            ("GPano:LastPhotoDate", &[Date]),
+            ("tIME", &[Date]),
+            ("GPSDateStamp", &[Place, Date]),
+            ("GPSTimeStamp", &[Place, Date]),
+            ("exif:GPSTimeStamp", &[Place, Date]),
+            ("GPSLatitude", &[Place]),
+            ("GPSProcessingMethod", &[Place]),
+            ("drone-dji:AbsoluteAltitude", &[Place]),
+            ("photoshop:City", &[Place]),
+            ("photoshop:State", &[Place]),
+            ("Iptc4xmpCore:Location", &[Place]),
+            ("Iptc4xmpExt:LocationShown", &[Place]),
+            ("Make", &[Camera]),
+            ("LensModel", &[Camera]),
+            ("BodySerialNumber", &[Camera]),
+            ("aux:SerialNumber", &[Camera]),
+            ("aux:Lens", &[Camera]),
+            ("GCamera:MotionPhotoPresentationTimestampUs", &[Camera]),
+            ("aux:OwnerName", &[Photographer]),
+            ("CameraOwnerName", &[Photographer]),
+            ("Artist", &[Photographer]),
+            ("dc:creator", &[Photographer]),
+            ("dc:rights", &[Photographer]),
+            ("xmpRights:UsageTerms", &[Photographer]),
+            ("photoshop:Credit", &[Photographer]),
+            ("crs:RawFileName", &[Date, Photographer]),
+            ("xmpMM:PreservedFileName", &[Date, Photographer]),
+            ("Software", &[Software]),
+            ("xmp:CreatorTool", &[Software]),
+            ("photoshop:History", &[Date, Software]),
+            ("dc:subject", &[Keywords]),
+            ("XPKeywords", &[Keywords]),
+            ("Iptc4xmpCore:AltTextAccessibility", &[Keywords]),
+            (crate::metadata::exif::EXIF_THUMBNAIL, &[Preview]),
+            ("ExposureTime", &[Other]),
+            ("exif:ExposureTime", &[Other]),
+            ("SubjectDistance", &[Other]),
+            ("SubjectLocation", &[Other]),
+            ("FocalLength", &[Other]),
+            ("xmp:Rating", &[Other]),
+            ("xmpMM:DocumentID", &[Other]),
+        ];
+        let mut wrong = Vec::new();
+        for (tag, groups) in tags {
+            for group in Group::ALL {
+                let mut left_out = super::LeftOut::default();
+                left_out.set_group(group, true);
+                if left_out.is_left_out(tag) != groups.contains(&group) {
+                    wrong.push(format!("{tag} with {group:?}"));
+                }
+            }
+        }
+        assert!(wrong.is_empty(), "{wrong:?}");
+    }
+
+    /// A tag of two groups that is kept out of one group left out whole stays kept, and the
+    /// other tags of that group are left out one by one instead.
+    #[test]
+    fn a_tag_of_two_groups_can_be_kept() {
+        let found: Vec<String> = ["GPSDateStamp", "DateTimeOriginal", "GPSLatitude"]
+            .map(str::to_owned)
+            .to_vec();
+        let mut left_out = super::LeftOut::default();
+        left_out.set_group(super::Group::Date, true);
+        assert!(left_out.is_left_out("GPSDateStamp"));
+        left_out.set_tag("GPSDateStamp", false, &found);
+        assert!(!left_out.is_left_out("GPSDateStamp"));
+        assert!(left_out.is_left_out("DateTimeOriginal") && !left_out.is_left_out("GPSLatitude"));
+    }
+
+    /// The contents of an MPF segment, big-endian, that indexes a main image of `primary_size`
+    /// bytes and a gain map of `gain_map_size` bytes at `offset` from its TIFF header.
+    fn mpf(primary_size: u32, gain_map_size: u32, offset: u32) -> Vec<u8> {
+        let mut d = b"MPF\0MM\0*\0\0\0\x08\0\x03".to_vec();
+        d.extend(b"\xb0\0\0\x07\0\0\0\x040100");
+        d.extend(b"\xb0\x01\0\x04\0\0\0\x01\0\0\0\x02");
+        d.extend(b"\xb0\x02\0\x07\0\0\0\x20\0\0\0\x32\0\0\0\0");
+        for (attribute, size, at) in [
+            (0x0003_0000u32, primary_size, 0),
+            (0, gain_map_size, offset),
+        ] {
+            [attribute, size, at]
+                .iter()
+                .for_each(|v| d.extend(v.to_be_bytes()));
+            d.extend([0; 4]);
+        }
+        d
+    }
+
+    /// Returns the sizes and offsets of the images that the MPF segment of the JPEG `jpeg`
+    /// indexes, each as (size, where it starts in `jpeg`). The test files' segments are
+    /// big-endian, as `mpf` writes them.
+    fn mp_images(jpeg: &[u8]) -> Vec<(usize, usize)> {
+        let at = jpeg.windows(4).position(|w| w == b"MPF\0").unwrap() + 4;
+        let u16_at = |i: usize| u16::from_be_bytes([jpeg[i], jpeg[i + 1]]) as usize;
+        let u32_at = |i: usize| u32::from_be_bytes(jpeg[i..i + 4].try_into().unwrap()) as usize;
+        let ifd = at + u32_at(at + 4);
+        let entry = (0..u16_at(ifd))
+            .map(|i| ifd + 2 + 12 * i)
+            .find(|e| u16_at(*e) == 0xb002)
+            .unwrap();
+        let index = at + u32_at(entry + 8);
+        (0..u32_at(entry + 4) / 16)
+            .map(|i| index + 16 * i)
+            .map(|e| match u32_at(e + 8) {
+                0 => (u32_at(e + 4), 0),
+                offset => (u32_at(e + 4), at + offset),
+            })
+            .collect()
+    }
+
+    /// Returns an Ultra HDR JPEG: a main image of 16×16 and a gain map of 8×8 after it, each with
+    /// the test EXIF block, which has GPS, and with the XMP of a gain map. It is indexed by an MPF
+    /// segment and by the main XMP's directory. Returns the gain map's image data too.
+    fn ultra_hdr() -> (Vec<u8>, Vec<u8>) {
+        let encode = |size: u32| {
+            let mut jpeg = Vec::new();
+            let encoder = image::codecs::jpeg::JpegEncoder::new_with_quality(&mut jpeg, 90);
+            image::RgbImage::from_fn(size, size, |x, _| image::Rgb([x as u8 * 9, 40, 99]))
+                .write_with_encoder(encoder)
+                .unwrap();
+            jpeg
+        };
+        let (main, gain_map) = (encode(16), encode(8));
+        let gain_map_scans =
+            gain_map[crate::metadata::exif::jpeg_scan_start(&gain_map).unwrap()..].to_vec();
+        let exif = super::jpeg_segment(0xe1, &[&b"Exif\0\0"[..], &exif_block()].concat());
+        let xmp =
+            |text: &str| super::jpeg_segment(0xe1, &[super::XMP_NAME, text.as_bytes()].concat());
+        let rdf = "<x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><rdf:RDF \
+            xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\"><rdf:Description \
+            rdf:about=\"\" xmlns:hdrgm=\"http://ns.adobe.com/hdr-gain-map/1.0/\"";
+        let gain_map_xmp = format!(
+            "{rdf} hdrgm:Version=\"1.0\" hdrgm:GainMapMax=\"2.3\" hdrgm:HDRCapacityMax=\"2.3\"/>\
+             </rdf:RDF></x:xmpmeta>"
+        );
+        let gain_map = [&gain_map[..2], &exif, &xmp(&gain_map_xmp), &gain_map[2..]].concat();
+        let main_xmp = format!(
+            "{rdf} xmlns:Container=\"http://ns.google.com/photos/1.0/container/\" \
+             xmlns:Item=\"http://ns.google.com/photos/1.0/container/item/\" \
+             hdrgm:Version=\"1.0\"><Container:Directory><rdf:Seq><rdf:li \
+             rdf:parseType=\"Resource\"><Container:Item Item:Semantic=\"Primary\" \
+             Item:Mime=\"image/jpeg\"/></rdf:li><rdf:li rdf:parseType=\"Resource\">\
+             <Container:Item Item:Semantic=\"GainMap\" Item:Mime=\"image/jpeg\" \
+             Item:Length=\"{}\"/></rdf:li></rdf:Seq></Container:Directory></rdf:Description>\
+             </rdf:RDF></x:xmpmeta>",
+            gain_map.len()
+        );
+        let head = [&main[..2], &exif, &xmp(&main_xmp)].concat();
+        let mpf_at = head.len();
+        let primary_size =
+            head.len() + super::jpeg_segment(0xe2, &mpf(0, 0, 0)).len() + main.len() - 2;
+        let offset = (primary_size - mpf_at - 8) as u32;
+        let mpf = super::jpeg_segment(
+            0xe2,
+            &mpf(primary_size as u32, gain_map.len() as u32, offset),
+        );
+        let original = [&head, &mpf, &main[2..], &gain_map].concat();
+        assert_eq!(mp_images(&original)[1], (gain_map.len(), primary_size));
+        (original, gain_map_scans)
+    }
+
+    /// An Ultra HDR photo keeps its gain map, the second image that brightens it on an HDR
+    /// screen, when Place is left out: the gain map's image data and its hdrgm XMP stay and its
+    /// EXIF with the GPS goes. The index (MPF) and the main XMP's directory point at the gain
+    /// map where it now is, and its XMP and the main image's hdrgm:Version are no tags.
+    #[test]
+    fn an_ultra_hdr_gain_map_stays_without_its_metadata() {
+        let dir = folder("ultrahdr");
+        let (original, gain_map_scans) = ultra_hdr();
+        let path = dir.join("hdr.jpg");
+        std::fs::write(&path, &original).unwrap();
+        let found = super::tags_of(&path).unwrap().unwrap();
+        let mut left_out = super::LeftOut::default();
+        left_out.set_group(super::Group::Place, true);
+        let copy = super::copy(&path, &left_out.kept(&found)).unwrap().unwrap();
+        let has = |text: &[u8]| copy.windows(text.len()).any(|w| w == text);
+        assert!(!has(b"WGS-84-SECRET"), "the GPS is in the copy");
+        assert!(has(&gain_map_scans), "the gain map's image data is gone");
+        assert!(
+            has(b"hdrgm:GainMapMax=\"2.3\""),
+            "the gain map's XMP is gone"
+        );
+        let images = mp_images(&copy);
+        let (primary, gain) = (images[0], images[1]);
+        assert_eq!(
+            (primary.1, gain.1, gain.1 + gain.0),
+            (0, primary.0, copy.len())
+        );
+        assert!(copy[primary.0 - 2..].starts_with(b"\xff\xd9\xff\xd8"));
+        let length = format!("Item:Length=\"{}\"", gain.0);
+        assert!(
+            has(length.as_bytes()) && has(b"hdrgm:Version"),
+            "the main XMP lost its gain map"
+        );
+        let pixels = |b: &[u8]| image::load_from_memory(b).unwrap().to_rgba8();
+        assert!(pixels(&original) == pixels(&copy));
+        assert_eq!(pixels(&copy[gain.1..]).dimensions(), (8, 8));
+        assert!(
+            !found
+                .iter()
+                .any(|t| t.starts_with("hdrgm:") || t.starts_with("Container:"))
+        );
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     /// A thumbnail inside a JPEG's JFIF header is a tag of the preview group: it goes with
@@ -1575,6 +2020,51 @@ mod tests {
         assert!(!has(&copy, b"TH-UMB") && has(&copy, b"JFIF\0\x01\x01\0\0\x01\0\x01\0\0"));
         let pixels = |b: &[u8]| image::load_from_memory(b).unwrap().to_rgba8();
         assert!(pixels(&original) == pixels(&copy) && pixels(&original) == pixels(&kept));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// Content credentials (C2PA) are never copied, nor listed as a tag, from a JPEG (APP11), a
+    /// PNG (caBX) or a WebP (C2PA): the copy's new bytes would no longer match their hash, and
+    /// a validator would call it tampered with. They go also when nothing is left out.
+    #[test]
+    fn content_credentials_are_never_copied() {
+        let dir = folder("c2pa");
+        let jumbf = b"JP\0\x01\0\0\0\x01\0\0\0\x20jumbc2pa-MANIFEST-SECRET";
+        let mut jpeg = Vec::new();
+        let encoder = image::codecs::jpeg::JpegEncoder::new_with_quality(&mut jpeg, 90);
+        picture().write_with_encoder(encoder).unwrap();
+        let jpeg = [&jpeg[..2], &super::jpeg_segment(0xeb, jumbf), &jpeg[2..]].concat();
+        let mut png = Vec::new();
+        let encoder = image::codecs::png::PngEncoder::new(&mut png);
+        picture().write_with_encoder(encoder).unwrap();
+        let png = [&png[..33], &super::png_chunk(b"caBX", jumbf), &png[33..]].concat();
+        let mut webp = Vec::new();
+        let encoder = image::codecs::webp::WebPEncoder::new_lossless(&mut webp);
+        picture().write_with_encoder(encoder).unwrap();
+        let mut webp = crate::images::save::webp_with_chunk(&webp, b"C2PA", jumbf, 16, 16).unwrap();
+        // The extended header's flag of XMP, which that sets for a chunk it does not know.
+        webp[20] &= !0x04;
+        for (name, original) in [("a.jpg", jpeg), ("a.png", png), ("a.webp", webp)] {
+            let path = dir.join(name);
+            std::fs::write(&path, &original).unwrap();
+            let found = super::tags_of(&path).unwrap().unwrap();
+            let copy = super::copy(&path, &found.iter().cloned().collect())
+                .unwrap()
+                .unwrap();
+            let has = |b: &[u8]| b.windows(15).any(|w| w == b"MANIFEST-SECRET");
+            assert!(
+                has(&original) && !has(&copy),
+                "{name} keeps its credentials"
+            );
+            assert!(
+                found
+                    .iter()
+                    .all(|t| !t.contains("C2PA") && !t.contains("caBX")),
+                "{name}"
+            );
+            let pixels = |b: &[u8]| image::load_from_memory(b).unwrap().to_rgba8();
+            assert!(pixels(&original) == pixels(&copy), "{name}");
+        }
         std::fs::remove_dir_all(dir).unwrap();
     }
 
@@ -1743,10 +2233,13 @@ mod tests {
             .unwrap();
         let webp = crate::images::save::webp_with_chunk(&webp, b"XMP ", b"<x/>", 8, 8).unwrap();
         let keeps = |_: &str| true;
-        for seed in [jpeg, png, webp] {
+        for seed in [jpeg, png, webp, ultra_hdr().0] {
             for data in crate::support::test_support::broken(&seed) {
                 if let Ok(Some(walked)) = super::walk(&data) {
-                    let _ = super::assembled(&walked, &keeps, Some(vec![0; 9]), Some(vec![1; 9]));
+                    let gain_map = walked.gain_map.as_deref().map(super::gain_map_copy);
+                    let gain_map = gain_map.and_then(Result::ok);
+                    let (exif, xmp) = (Some(vec![0; 9]), Some(vec![1; 9]));
+                    let _ = super::assembled(&walked, &keeps, exif, xmp, gain_map);
                 }
             }
         }
@@ -1756,6 +2249,101 @@ mod tests {
                 super::iim_properties(data);
             }
             super::iim_properties(&data);
+        }
+    }
+
+    /// A PNG of empty image chunks without end is read no further than a decode reads, as each
+    /// of them adds to what is read, so a crafted file of gigabytes cannot fill the memory.
+    #[test]
+    fn a_flood_of_empty_image_chunks_is_too_large() {
+        /// A PNG of `size` bytes, read at `at`: its signature and then empty IDAT chunks
+        /// without end, made as they are read.
+        struct EmptyChunks {
+            at: u64,
+            size: u64,
+        }
+        impl std::io::Read for EmptyChunks {
+            fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+                let chunk = b"\0\0\0\0IDAT\0\0\0\0";
+                let n = buf.len().min(self.size.saturating_sub(self.at) as usize);
+                for (i, byte) in buf[..n].iter_mut().enumerate() {
+                    let at = self.at + i as u64;
+                    *byte = match at {
+                        0..8 => b"\x89PNG\r\n\x1a\n"[at as usize],
+                        _ => chunk[((at - 8) % 12) as usize],
+                    };
+                }
+                self.at += n as u64;
+                Ok(n)
+            }
+        }
+        impl std::io::Seek for EmptyChunks {
+            fn seek(&mut self, to: std::io::SeekFrom) -> std::io::Result<u64> {
+                self.at = match to {
+                    std::io::SeekFrom::Start(at) => Some(at),
+                    std::io::SeekFrom::Current(by) => self.at.checked_add_signed(by),
+                    std::io::SeekFrom::End(by) => self.size.checked_add_signed(by),
+                }
+                .ok_or_else(|| std::io::Error::other("before the start"))?;
+                Ok(self.at)
+            }
+        }
+        let size = super::MAX_DECODE_BYTES + 1200;
+        let file = EmptyChunks { at: 12, size };
+        let head = *b"\x89PNG\r\n\x1a\n\0\0\0\0";
+        let read = super::chunks_without_image_data(file, head, size, super::Container::Png);
+        assert!(read.is_err(), "{} bytes read", read.map_or(0, |r| r.len()));
+    }
+
+    /// The readers of a file without its image data, which the list of tags reads, never panic
+    /// on files broken in thousands of ways, nor does the walk of what they read. A JPEG's first
+    /// read is a small one, so its later reads and the look at its end are taken too.
+    #[test]
+    fn survives_broken_heads_without_image_data() {
+        use super::Container;
+        let mut png = Vec::new();
+        picture()
+            .write_with_encoder(image::codecs::png::PngEncoder::new(&mut png))
+            .unwrap();
+        let text = |t: &[u8]| super::png_chunk(b"tEXt", t);
+        let end = png.len() - 12;
+        let png = [
+            &png[..33],
+            &text(b"Author\0Kari"),
+            &png[33..end],
+            &text(b"Comment\0late"),
+            &png[end..],
+        ];
+        let mut webp = Vec::new();
+        picture()
+            .write_with_encoder(image::codecs::webp::WebPEncoder::new_lossless(&mut webp))
+            .unwrap();
+        let webp = crate::images::save::webp_with_chunk(&webp, b"XMP ", XMP.as_bytes(), 16, 16);
+        let jpeg = ultra_hdr().0;
+        // The first read takes the main image's first scan, but not the gain map after it.
+        let first_read = crate::metadata::exif::jpeg_scan_start(&jpeg).unwrap() as u64 + 16;
+        for data in crate::support::test_support::broken(&jpeg) {
+            let file = std::io::Cursor::new(&data);
+            if let Ok(head) = super::jpeg_without_scans(file, data.len() as u64, first_read) {
+                let _ = super::walk(&head);
+            }
+        }
+        for (seed, container) in [
+            (png.concat(), Container::Png),
+            (webp.unwrap(), Container::WebP),
+        ] {
+            for data in crate::support::test_support::broken(&seed) {
+                let Some(head) = data.get(..12) else {
+                    continue;
+                };
+                let mut file = std::io::Cursor::new(&data);
+                file.set_position(12);
+                let head = head.try_into().unwrap();
+                let size = data.len() as u64;
+                if let Ok(read) = super::chunks_without_image_data(file, head, size, container) {
+                    let _ = super::walk(&read);
+                }
+            }
         }
     }
 }

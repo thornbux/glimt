@@ -657,12 +657,21 @@ pub fn set_upright(block: &mut [u8], size: (u32, u32)) -> Result<(), String> {
     Ok(())
 }
 
-/// The segments of a JPEG before its image data, and whether the image data was reached; `None`
-/// if a segment's length is cut off.
+/// Returns the segments of a JPEG before its image data, and whether the image data was
+/// reached. Returns `None` when a segment's length is cut off. Bytes between segments that are
+/// no marker, which some phones and editors write, are skipped to the next 0xff, as decoders
+/// and Copy for Sharing's walk (`shared_copy::walk_jpeg_segments`) skip them.
 fn jpeg_segments(data: &[u8]) -> Option<(Segments, bool)> {
     let mut segments = Vec::new();
     let mut i = 2;
-    while let (Some(&0xff), Some(&marker)) = (data.get(i), data.get(i + 1)) {
+    while let (Some(&byte), Some(&marker)) = (data.get(i), data.get(i + 1)) {
+        if byte != 0xff || marker == 0 {
+            match data[i + 1..].iter().position(|&b| b == 0xff) {
+                Some(next) => i += 1 + next,
+                None => break,
+            }
+            continue;
+        }
         // Fill bytes: a marker may follow any number of 0xff.
         if marker == 0xff {
             i += 1;
@@ -670,6 +679,11 @@ fn jpeg_segments(data: &[u8]) -> Option<(Segments, bool)> {
         }
         if marker == 0xda {
             return Some((segments, true));
+        }
+        // A marker without a length, outside a scan where it does not belong.
+        if (0xd0..=0xd7).contains(&marker) || marker == 0x01 {
+            i += 2;
+            continue;
         }
         let len = u16::from_be_bytes([*data.get(i + 2)?, *data.get(i + 3)?]) as usize;
         segments.push((marker, i + 4, len.saturating_sub(2)));
@@ -1111,15 +1125,7 @@ fn write_block(little: bool, mut dirs: [NewIfd; 5], thumbnail: Option<&[u8]>) ->
 /// `mpf` is the segment's contents, from "MPF\0". Returns `None`, with nothing changed, when its
 /// index cannot be read.
 pub fn shift_mp_offsets(mpf: &mut [u8], by: i64, first_size: u32) -> Option<()> {
-    let (start, n, little) = {
-        let (t, ifd0, _, _) = ifds(mpf.get(4..)?)?;
-        let e = find(&ifd0, 0xb002).filter(|e| e.field_type == UNDEFINED)?;
-        (
-            4 + e.value_offset,
-            e.count as usize / 16,
-            t.is_little_endian,
-        )
-    };
+    let (start, n, little) = mp_index(mpf)?;
     let index = mpf.get_mut(start..start.checked_add(16 * n)?)?;
     let read = |b: &[u8]| {
         let b = [b[0], b[1], b[2], b[3]];
@@ -1152,6 +1158,41 @@ pub fn shift_mp_offsets(mpf: &mut [u8], by: i64, first_size: u32) -> Option<()> 
         }
     }
     Some(())
+}
+
+/// Returns where the index of the MPF segment `mpf` (its contents, from "MPF\0") starts in it,
+/// how many entries of 16 bytes it has, and whether they are little-endian. Returns `None` when
+/// the index cannot be read.
+fn mp_index(mpf: &[u8]) -> Option<(usize, usize, bool)> {
+    let (t, ifd0, _, _) = ifds(mpf.get(4..)?)?;
+    let e = find(&ifd0, 0xb002).filter(|e| e.field_type == UNDEFINED)?;
+    Some((
+        4 + e.value_offset,
+        e.count as usize / 16,
+        t.is_little_endian,
+    ))
+}
+
+/// Returns the entries of the index of the MPF segment `mpf` (its contents, from "MPF\0"), one
+/// for each image: its attribute, its size, and its offset from the segment's TIFF header,
+/// which is 0 for the main image. Returns `None` when the index cannot be read.
+pub fn mp_entries(mpf: &[u8]) -> Option<Vec<[u32; 3]>> {
+    let (start, n, little) = mp_index(mpf)?;
+    let index = mpf.get(start..start.checked_add(16 * n)?)?;
+    let read = |b: &[u8]| {
+        let b = [b[0], b[1], b[2], b[3]];
+        if little {
+            u32::from_le_bytes(b)
+        } else {
+            u32::from_be_bytes(b)
+        }
+    };
+    let entries = index.chunks(16);
+    Some(
+        entries
+            .map(|e| [read(&e[..4]), read(&e[4..8]), read(&e[8..12])])
+            .collect(),
+    )
 }
 
 /// Reads the EXIF block of `path` through `dec`, the image crate's decoder of it. A PNG keeps
@@ -1540,6 +1581,24 @@ mod tests {
         assert!(!super::is_adobe_rgb(&block(0xffff, b"R98\0")));
         assert!(!super::is_adobe_rgb(&block(1, b"R03\0")));
         assert!(!super::is_adobe_rgb(b"junk"));
+    }
+
+    /// Bytes between a JPEG's segments that are no marker, which some phones and editors write,
+    /// are skipped as decoders skip them, so the image data after them is found, as it is by
+    /// Copy for Sharing's walk.
+    #[test]
+    fn finds_the_scan_after_bytes_between_segments() {
+        let mut jpeg = Vec::new();
+        let encoder = image::codecs::jpeg::JpegEncoder::new_with_quality(&mut jpeg, 90);
+        image::RgbImage::new(8, 8)
+            .write_with_encoder(encoder)
+            .unwrap();
+        let comment = b"\xff\xfe\0\x08a note";
+        let junk = b"\0\0JUNK\xff\0";
+        let junky = [&jpeg[..2], comment, junk, &jpeg[2..]].concat();
+        let scan = super::jpeg_scan_start(&jpeg).unwrap();
+        let moved = comment.len() + junk.len();
+        assert_eq!(super::jpeg_scan_start(&junky), Some(scan + moved));
     }
 
     /// The EXIF block from the head of a JPEG; past the head, as after big other segments, from

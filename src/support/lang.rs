@@ -575,12 +575,11 @@ msgstr[1] "bilder"
             (
                 "images/shared_copy.rs",
                 &[
-                    "const TAG_GROUPS",
+                    "const GROUP_EXCEPTIONS",
                     "const UNKNOWN_BLOCKS",
                     "JFIF thumbnail",
                     "Extra images",
                     "Data after",
-                    "Content credentials",
                     "Photoshop resources",
                     "Raw profiles",
                     "JPEG comment",

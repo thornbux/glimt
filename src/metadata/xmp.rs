@@ -14,7 +14,7 @@ const EXTENDED: &str = "Iptc4xmpCore:ExtDescrAccessibility";
 /// The namespaces whose properties Copy for Sharing names by the prefix here, whatever prefix a
 /// packet binds them to (`properties`). A packet may write Exif's GPS as `ns1:GPSLatitude`,
 /// and the old `xap:` is `xmp:`, so a name by the prefix as written would miss its group.
-const KNOWN_NAMESPACES: [(&str, &str); 21] = [
+const KNOWN_NAMESPACES: [(&str, &str); 24] = [
     ("dc", "http://purl.org/dc/elements/1.1/"),
     ("xmp", "http://ns.adobe.com/xap/1.0/"),
     ("xmpMM", "http://ns.adobe.com/xap/1.0/mm/"),
@@ -42,6 +42,9 @@ const KNOWN_NAMESPACES: [(&str, &str); 21] = [
     ("mediapro", "http://ns.iview-multimedia.com/mediapro/1.0/"),
     ("drone-dji", "http://www.dji.com/drone-dji/1.0/"),
     ("GPano", "http://ns.google.com/photos/1.0/panorama/"),
+    ("hdrgm", "http://ns.adobe.com/hdr-gain-map/1.0/"),
+    ("Container", "http://ns.google.com/photos/1.0/container/"),
+    ("Item", "http://ns.google.com/photos/1.0/container/item/"),
 ];
 
 /// The 64 locks within this Glimt, by `sidecar_lock_number`.

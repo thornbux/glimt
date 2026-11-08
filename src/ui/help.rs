@@ -199,10 +199,17 @@ const MANUAL: &[(&str, &str)] = &[
          place (GPS), camera and lens with their serial numbers, date and time, photographer and \
          copyright, software, keywords, comment and alt text, and the preview inside the file. \
          A group's box leaves out all of it; Show lists its tags, each with a box of its own. \
-         More tags holds every other tag, and whole blocks such as a phone's extra images (MPF) \
-         and content credentials (C2PA). Remove All ticks every box. The orientation and the \
-         colour profile are always kept, as without them the copy would look different. The \
-         dialog starts with what you left out last time. Copy… asks for the folder. A copy has \
+         A tag that says more than one thing is listed under each of its groups and goes when \
+         any of their boxes is ticked: GPSDateStamp is under place and date, and a file name, \
+         which can hold the date and in a path your name, under date and photographer. More \
+         tags holds every other tag, and whole blocks such as a phone's extra images (MPF) or \
+         the maker note. A block goes as soon as any tag of a group it can hold is left out, as \
+         it may hold that tag again. Content credentials (C2PA) are never copied: they vouch \
+         for the file's exact bytes, which every copy changes, so they would call it tampered \
+         with. Remove All ticks every box. The orientation and the \
+         colour profile are always kept, as without them the copy would look different, and so \
+         is an HDR photo's gain map (Ultra HDR), the image after the main one that brightens it \
+         on an HDR screen, without its own metadata. The dialog starts with what you left out last time. Copy… asks for the folder. A copy has \
          the original's file name, which can hold the date (IMG_20231004_…), also when Date and \
          time is left out.\n\n\
          Glimt's sidecar is not copied, but what it says goes into the copy's own XMP, so alt \
