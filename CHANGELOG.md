@@ -16,6 +16,9 @@ and versions follow [Semantic Versioning](https://semver.org/).
   (`keys_down`).
 - Inside, the check that every file operation is in the contract sees work that counts itself
   as writing however the counter is named, also after a `use`.
+- Inside, the check that every action on the selection reaches its targets follows the files
+  `targets()` gives back to where they are used, so an action that asks for them and then acts
+  on the shown image fails it, and `asked_targets()` no longer counts as `targets()`.
 
 ## [0.74.0] - 2026-11-08
 
