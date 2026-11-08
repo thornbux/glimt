@@ -837,6 +837,10 @@ msgid "There already, so they get only the images they lack: {names}."
 msgstr "Já existem, então recebem só as imagens que lhes faltam: {names}."
 
 #: src/metadata/lightroom.rs
+msgid "Not found and left out: {count}. Import again once their drive is mounted."
+msgstr "Não encontradas e deixadas de fora: {count}. Importe de novo quando a unidade delas estiver montada."
+
+#: src/metadata/lightroom.rs
 msgid "Where the catalog's folders are now (empty: left out):"
 msgstr "Onde as pastas do catálogo estão agora (vazio: deixada de fora):"
 

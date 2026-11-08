@@ -452,7 +452,8 @@ const MANUAL: &[(&str, &str)] = &[
          - its keywords go into the keyword tree\n\
          - its stars into the marks.\n\n\
          Lightroom keeps the folders where they were on its computer: say where each is now. Next \
-         then says what the import will do: the collections that are there already, and the images \
+         then says what the import will do: the collections that are there already, the images \
+         not found there (on a drive not mounted, or deleted), which are left out, and the images \
          whose stars in Glimt differ, where you choose whose stars to keep. Stars go to the XMP \
          sidecars too when they are set to.\n\n\
          A box (kept for the next import) also writes each image's keywords into its XMP sidecar, \
