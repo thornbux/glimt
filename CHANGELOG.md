@@ -19,6 +19,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
   gets that title once, unless it has a title of its own.
 - The light theme for low vision is called High Contrast Light instead of Contrast, so its name
   says what it is beside High Contrast. A settings file with `theme=Contrast` still gets it.
+- The action Previous Page is named `PreviousPage` in `keys=` and `glimt --remote run`, beside
+  `NextPage`, instead of `PrevPage`. The old name is still read.
 
 ### Fixed
 
