@@ -108,7 +108,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
   these lists holds is kept and written into each. An edit of the comment alone leaves every
   keyword list as it is, and MediaPro's catalog sets and ACDSee's categories stay. A keyword
   with a "/" in its name, which Lightroom allows, stays out of these two lists, where the "/"
-  would be read as one more level.
+  would be read as one more level. When one of them already holds it, as Music/AC/DC beside
+  Lightroom's Music|AC/DC, it is read as that keyword, not as a new level DC under AC.
 - A comment, alt text or extended description in several languages keeps them all when it is
   edited. The panel shows the default language (x-default), or else the first, and an edit
   replaces only that one; before, it showed the first and wrote it alone as the default.
