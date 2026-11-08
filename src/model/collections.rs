@@ -2,6 +2,7 @@
 //! file, one quoted path per line, kept in `$XDG_DATA_HOME/glimt/collections`; Geeqie's own
 //! collections can be opened too.
 
+use crate::files::config::fits_on_a_line;
 use crate::model::listing::real_dir;
 use crate::support::lang::tr;
 use crate::ui::actions::Action;
@@ -560,10 +561,9 @@ fn to_text(paths: &[PathBuf], other: &[&[u8]]) -> Vec<u8> {
         text.push(b'\n');
     }
     for path in paths {
-        let bytes = path.as_os_str().as_bytes();
-        if !bytes.contains(&b'\n') {
+        if fits_on_a_line(path) {
             text.push(b'"');
-            text.extend(bytes);
+            text.extend(path.as_os_str().as_bytes());
             text.extend(b"\"\n");
         }
     }

@@ -5,6 +5,7 @@
 //! inside the image. `update_sidecar` writes the stars too, and `follow` takes sidecars along
 //! when their files move.
 
+use crate::files::config::fits_on_a_line;
 use crate::support::format::without_control_characters;
 use std::path::{Path, PathBuf};
 
@@ -1225,7 +1226,8 @@ fn unescape(text: &str) -> String {
 }
 
 /// Keyword tree paths cleaned up: trimmed around each level, without empty ones, sorted, and
-/// each once.
+/// each once. A path with a line break, which a sidecar can give as `&#10;`, is left out, because
+/// the keyword tree file would read it back as two paths.
 pub(crate) fn keyword_paths<'a>(paths: impl Iterator<Item = &'a str>) -> Vec<String> {
     let mut out: Vec<String> = paths
         .map(|p| {
@@ -1235,7 +1237,7 @@ pub(crate) fn keyword_paths<'a>(paths: impl Iterator<Item = &'a str>) -> Vec<Str
                 .collect::<Vec<_>>()
                 .join("|")
         })
-        .filter(|p| !p.is_empty())
+        .filter(|p| !p.is_empty() && fits_on_a_line(Path::new(p)))
         .collect();
     // A path in another letter case is the same path, and the first spelling stays.
     out.sort_by_key(|p| p.to_lowercase());
@@ -2472,5 +2474,15 @@ mod tests {
         let (written, tree) = super::keyword_tree_file_changed(file, vec!["People".into()], None);
         assert_eq!(tree, ["Animals", "People", "Places|Oslo"]);
         assert_eq!(written, b"Animals\nPeople\nPlaces|Oslo\nCaf\xe9\n");
+    }
+
+    /// A keyword with a line break is not put into the keyword tree, whose file would hold it
+    /// as two lines and so as two paths.
+    #[test]
+    fn a_keyword_with_a_line_break_stays_out_of_the_tree() {
+        let added = vec!["Places|Os\nlo".into(), "Animals".into()];
+        let (written, tree) = super::keyword_tree_file_changed(b"", added, None);
+        assert_eq!(tree, ["Animals"]);
+        assert_eq!(written, b"Animals\n");
     }
 }

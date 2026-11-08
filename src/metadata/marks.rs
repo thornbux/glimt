@@ -3,6 +3,7 @@
 //! lines. They follow files that Glimt copies, moves and renames, and go with those it deletes;
 //! files renamed or moved outside Glimt lose them.
 
+use crate::files::config::fits_on_a_line;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
@@ -268,10 +269,9 @@ fn apply_edit(map: &mut HashMap<PathBuf, (u8, u8)>, edit: &Edit) {
 fn to_text(map: &HashMap<PathBuf, (u8, u8)>) -> Vec<u8> {
     let mut text = Vec::new();
     for (path, (bits, stars)) in map {
-        let path = path.as_os_str().as_encoded_bytes();
-        if !path.contains(&b'\n') {
+        if fits_on_a_line(path) {
             text.extend(format!("{bits}\t{stars}\t").as_bytes());
-            text.extend(path);
+            text.extend(path.as_os_str().as_encoded_bytes());
             text.push(b'\n');
         }
     }

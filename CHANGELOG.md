@@ -59,7 +59,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 - Rename and Rename Many refuse a new name that is another file's sidecar, such as `a.jpg.xmp`
   beside `a.jpg`, which would have made the renamed image that file's sidecar.
 - A last folder whose name holds a line break is not remembered, rather than written into the
-  window state as two lines.
+  window state as two lines. A keyword with a line break, which a sidecar can hold, is not put
+  into the keyword tree, whose file would read it back as two.
 - Two backups made at the same moment each get a folder of their own.
 - A program Glimt runs for its answer is no longer signalled by its time limit after it has
   ended, when a program it left behind keeps its errors open.
