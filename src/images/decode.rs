@@ -279,15 +279,18 @@ pub fn decode(
     Ok((vec![(color_image(img), 0)], orig, pages))
 }
 
-/// The number of pages of a multi-page TIFF, or of sizes in an ICO. It is 1 for other files.
+/// The number of pages of a multi-page TIFF, or of sizes in an ICO, at most `MAX_FRAMES`. It
+/// is 1 for other files. Before, an ICO could claim 65,535 sizes, which Export Frames wrote as
+/// many files, each after reading the whole directory again.
 pub fn pages(path: &Path) -> usize {
-    if has_ext(path, &["tif", "tiff"]) {
+    let pages = if has_ext(path, &["tif", "tiff"]) {
         tiff_pages(path)
     } else if has_ext(path, &["ico"]) {
         ico_sizes(path).map_or(1, |sizes| sizes.len().max(1))
     } else {
         1
-    }
+    };
+    pages.min(MAX_FRAMES)
 }
 
 /// Page `page` (from 1) of a multi-page TIFF with its ICC profile, or the next size of an ICO.
@@ -1414,6 +1417,12 @@ mod tests {
         assert_eq!(super::pages(&ico), 257);
         assert_eq!(super::page_of(&ico, 0).unwrap().0.width(), 32);
         assert_eq!(super::page_of(&ico, 256).unwrap().0.width(), 16);
+        // A directory that claims 2,000 sizes has as many pages as an animation keeps frames.
+        let mut claims = vec![0, 0, 1, 0];
+        claims.extend(2000u16.to_le_bytes());
+        claims.resize(6 + 16 * 2000, 0);
+        std::fs::write(&ico, claims).unwrap();
+        assert_eq!(super::pages(&ico), super::MAX_FRAMES);
         std::fs::remove_dir_all(&dir).ok();
     }
 

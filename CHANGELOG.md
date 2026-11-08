@@ -117,7 +117,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 - A file whose thumbnail runs out of time twice (a video or SVG made to stall) is marked as
   having none, as a broken file is, instead of costing 30 seconds at every visit.
 - Export Frames saves at most the first 1,000 frames of an animation, as many as the view keeps,
-  so an animation of a million tiny frames is not hours of work and gigabytes of files.
+  so an animation of a million tiny frames is not hours of work and gigabytes of files. An ICO
+  has at most as many sizes too.
 - `glimt --check-config` on an account with no settings file yet says that the defaults are
   used and exits with 0, as Glimt starts without a problem then. It said that the file cannot be
   read and exited with 1. A FILE named on the command line that is not there still exits with 1.
