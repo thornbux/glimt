@@ -5,6 +5,7 @@
 
 #[cfg(feature = "marks")]
 use crate::metadata::marks;
+use crate::model::listing::{Types, is_listed};
 use crate::support::format::count;
 use crate::support::lang::tr;
 use crate::support::threads::{Receiving, Working};
@@ -167,11 +168,22 @@ impl Catalog {
 
     /// What importing `catalog` with its root folders `now` would do. Made once, when Next is
     /// clicked: it goes through every image of the self.
-    // shortcut: made in the window's thread, a short pause for a catalog of some 100,000 images;
-    // in a thread with the busy pointer when that is too long.
+    // shortcut: made in the window's thread, with a look at each file, a short pause for a
+    // catalog of some 100,000 images; in a thread with the busy pointer when that is too long.
     pub(crate) fn plan(&self, now: &[String], stars_here: impl Fn(&Path) -> u8) -> Plan {
         let now: Vec<PathBuf> = now.iter().map(|s| typed_root_folder(s)).collect();
-        let paths = self.paths(&now);
+        let mut paths = self.paths(&now);
+        // Only the images that are there now get stars, keywords and a place in a collection.
+        // A catalog from elsewhere could else have a sidecar written beside any file it names,
+        // such as ~/.ssh/id_ed25519. The stars of a photo deleted long ago would also wait on
+        // its name for the next photo that takes it.
+        let every_type = Types {
+            images: true,
+            raw: true,
+            videos: true,
+            hidden: true,
+        };
+        paths.retain(|_, path| is_listed(path, every_type) && path.is_file());
         let collections = self.collections(&paths);
         let there: HashSet<String> = collections::saved_collections()
             .into_iter()
@@ -697,6 +709,40 @@ mod tests {
             PathBuf::from("/media/disk")
         );
         assert_eq!(super::typed_root_folder("Pictures"), PathBuf::new());
+    }
+
+    /// The plan holds only image files that are there. A file that is no image (a key in a
+    /// root folder that a catalog from elsewhere names) and a photo deleted since get no stars,
+    /// keywords or place in a collection, so no sidecar is written beside them.
+    #[test]
+    fn plans_only_the_images_that_are_there() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-lrplan-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("a.jpg"), b"").unwrap();
+        std::fs::write(dir.join("id_ed25519"), b"").unwrap();
+        let rows = [
+            format!("r\x1f1\x1f{}/\x1f\x1f", dir.display()),
+            "i\x1f10\x1f1\x1fa.jpg\x1f4".to_owned(),
+            "i\x1f11\x1f1\x1fid_ed25519\x1f3".to_owned(),
+            "i\x1f12\x1f1\x1fgone.jpg\x1f5".to_owned(),
+            "c\x1f20\x1f0\x1fTrip\x1fcom.adobe.ag.library.collection".to_owned(),
+            "m\x1f20\x1f10\x1f\x1f".to_owned(),
+            "m\x1f20\x1f11\x1f\x1f".to_owned(),
+            "m\x1f20\x1f12\x1f\x1f".to_owned(),
+            "k\x1f30\x1f0\x1fPlaces\x1f".to_owned(),
+            "w\x1f10\x1f30\x1f\x1f".to_owned(),
+            "w\x1f11\x1f30\x1f\x1f".to_owned(),
+            "w\x1f12\x1f30\x1f\x1f".to_owned(),
+        ];
+        let catalog = super::parse(rows.join("\x1e").as_bytes());
+        let plan = catalog.plan(&[dir.display().to_string()], |_| 0);
+        let a = dir.join("a.jpg");
+        assert_eq!(plan.collections, [("Trip".to_owned(), vec![a.clone()])]);
+        let with_keywords: Vec<&PathBuf> = plan.image_keywords.iter().map(|k| &k.0).collect();
+        assert_eq!(with_keywords, [&a]);
+        #[cfg(feature = "marks")]
+        assert_eq!(plan.stars, [(a.clone(), 4)]);
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     /// A catalog of tables is read with sqlite3's -safe; one with a view in the place of a table,

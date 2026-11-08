@@ -10,6 +10,9 @@ and versions follow [Semantic Versioning](https://semver.org/).
 - A file renamed or moved in Glimt, or a folder of them, now keeps its place in every saved
   collection, as in Geeqie, not only in the one open. Before, an entry stayed on the old name
   and could later show another file that took that name.
+- Import Lightroom Catalog takes only the images that are there now. The stars of a photo
+  deleted long ago no longer wait on its name for the next photo of that name, and a catalog
+  from elsewhere can no longer have a sidecar written beside a file that is no image.
 
 ## [0.75.0] - 2026-11-08
 
