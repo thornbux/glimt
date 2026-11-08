@@ -3,8 +3,11 @@
 //! `walk_webp`), and the copy is made new of the parts kept (`assembled`): an allow-list, so
 //! nothing the user did not keep can come along. The EXIF block and the XMP packet are written
 //! new of the tags kept (`save::shared_metadata`), with the sidecar's properties in the XMP. The
-//! tags the dialog lists come from the same walk (`tags_of`), so the list and the copy agree.
+//! tags the dialog lists come from the same walk (`tags_of`), so the list and the copy agree. The
+//! list reads only the metadata of each file (`read_without_image_data`), not its image data, so
+//! thousands of photos are listed in seconds.
 
+use crate::images::decode::{MAX_DECODE_BYTES, open_regular_with_metadata, read_head};
 use crate::images::save::{MAX_JPEG_EXIF, SharedMetadata, crc32, shared_metadata};
 use crate::metadata::exif::EXIF_THUMBNAIL;
 use crate::metadata::xmp::Properties;
@@ -467,11 +470,13 @@ struct Part<'a> {
 }
 
 /// A file walked for a copy for sharing: its parts in order, how many of the first ones go
-/// before the new EXIF and XMP, the XMP inside it, and the properties its IPTC IIM gives.
+/// before the new EXIF and XMP, the EXIF block and the XMP inside it, and the properties its
+/// IPTC IIM gives.
 struct Walked<'a> {
     container: Container,
     parts: Vec<Part<'a>>,
     before_metadata: usize,
+    exif: Option<&'a [u8]>,
     xmp: Option<&'a [u8]>,
     iim: Properties,
     /// Where a JPEG's main image ends and what follows it starts, when anything does.
@@ -484,6 +489,7 @@ impl<'a> Walked<'a> {
             container,
             parts: Vec::new(),
             before_metadata: 0,
+            exif: None,
             xmp: None,
             iim: Properties::default(),
             image_end: None,
@@ -505,7 +511,11 @@ impl<'a> Walked<'a> {
 /// with a tag. Returns `None` for a file that is not a JPEG, PNG or WebP, and an error for one
 /// that cannot be read or is damaged.
 pub(crate) fn tags_of(path: &Path) -> Result<Option<Vec<String>>, String> {
-    with_walked(path, |walked, metadata| {
+    let read = read_without_image_data(path).map_err(|e| e.to_string())?;
+    let Some(data) = read else {
+        return Ok(None);
+    };
+    with_walked(path, &data, |walked, metadata| {
         let mut tags = metadata.tag_names();
         tags.extend(walked.parts.iter().filter_map(|p| p.tag.clone()));
         tags.sort();
@@ -518,42 +528,178 @@ pub(crate) fn tags_of(path: &Path) -> Result<Option<Vec<String>>, String> {
 /// keeps. Returns `None` for a file that is not a JPEG, PNG or WebP, and an error for one that
 /// cannot be read or is damaged.
 pub(crate) fn copy(path: &Path, kept: &HashSet<String>) -> Result<Option<Vec<u8>>, String> {
+    // A video of a gigabyte is another format, told by its first bytes, not a file too large.
+    let head = read_head(path, 12).map_err(|e| e.to_string())?;
+    if container_of(&head).is_none() {
+        return Ok(None);
+    }
+    let data = crate::images::decode::read_limited(path).map_err(|e| e.to_string())?;
     let keeps = |tag: &str| kept.contains(tag);
-    with_walked(path, |walked, metadata| {
+    with_walked(path, &data, |walked, metadata| {
         let (exif, xmp) = metadata.written(&keeps);
         assembled(walked, &keeps, exif, xmp)
     })?
     .transpose()
 }
 
-/// Reads `path`, walks it, reads what it may keep of its metadata, and gives both to `then`.
+/// Walks `data`, read of `path`, reads what it may keep of its metadata, and gives both to
+/// `then`. The EXIF block is the one found in the walk, so the file is not read again for it.
 /// Returns `None` for a file that is not a JPEG, PNG or WebP.
 fn with_walked<T>(
     path: &Path,
+    data: &[u8],
     then: impl FnOnce(&Walked, &SharedMetadata) -> T,
 ) -> Result<Option<T>, String> {
-    let data = crate::images::decode::read_limited(path).map_err(|e| e.to_string())?;
-    let Some(mut walked) = walk(&data)? else {
+    let Some(mut walked) = walk(data)? else {
         return Ok(None);
     };
     let iim = std::mem::take(&mut walked.iim);
-    let metadata = shared_metadata(path, walked.xmp, iim)?;
+    let metadata = shared_metadata(path, walked.exif, walked.xmp, iim)?;
     Ok(Some(then(&walked, &metadata)))
+}
+
+/// Returns the container that the first bytes `head` of a file say it is in, or `None` when
+/// they are not those of a JPEG, PNG or WebP.
+fn container_of(head: &[u8]) -> Option<Container> {
+    if head.starts_with(&[0xff, 0xd8]) {
+        Some(Container::Jpeg)
+    } else if head.starts_with(b"\x89PNG\r\n\x1a\n") {
+        Some(Container::Png)
+    } else if head.starts_with(b"RIFF") && head.get(8..12) == Some(&b"WEBP"[..]) {
+        Some(Container::WebP)
+    } else {
+        None
+    }
 }
 
 /// Walks `data` as the container its first bytes say. Returns `None` when it is not a JPEG,
 /// PNG or WebP, and an error when it is one that is damaged.
 fn walk(data: &[u8]) -> Result<Option<Walked<'_>>, String> {
-    let walked = if data.starts_with(&[0xff, 0xd8]) {
-        walk_jpeg(data)
-    } else if data.starts_with(b"\x89PNG\r\n\x1a\n") {
-        walk_png(data)
-    } else if data.starts_with(b"RIFF") && data.get(8..12) == Some(&b"WEBP"[..]) {
-        walk_webp(data)
-    } else {
-        return Ok(None);
+    let walked = match container_of(data) {
+        Some(Container::Jpeg) => walk_jpeg(data),
+        Some(Container::Png) => walk_png(data),
+        Some(Container::WebP) => walk_webp(data),
+        None => return Ok(None),
     };
     walked.map(Some).ok_or_else(|| "damaged or cut off".into())
+}
+
+/// Reads what `tags_of` walks of `path`: the file without its image data, in a few small reads.
+/// A JPEG is read up to its first scan (`jpeg_without_scans`), and a PNG's and a WebP's chunks
+/// of image data are skipped (`chunks_without_image_data`). The walkers read what is left as
+/// they read the whole file. Returns `None` when the file's first bytes are not those of a
+/// JPEG, PNG or WebP, so a video is not read at all.
+fn read_without_image_data(path: &Path) -> std::io::Result<Option<Vec<u8>>> {
+    use std::io::Read;
+    let (mut file, metadata) = open_regular_with_metadata(path)?;
+    let mut head = [0; 12];
+    match file.read_exact(&mut head) {
+        Err(e) if e.kind() == std::io::ErrorKind::UnexpectedEof => return Ok(None),
+        read => read?,
+    }
+    match container_of(&head) {
+        None => Ok(None),
+        Some(Container::Jpeg) => jpeg_without_scans(path, file, metadata.len()).map(Some),
+        Some(container) => {
+            chunks_without_image_data(file, head, metadata.len(), container).map(Some)
+        }
+    }
+}
+
+/// Reads the JPEG `path` of `size` bytes up to its first scan, from a quarter of a MB on and
+/// more only when its segments are longer. An end of image (EOI) stands for the scans, and one
+/// byte more after it when the file `file` does not end in one, so the walk sees that something
+/// follows the image. A file read whole is given as it is.
+/// shortcut: what follows the first scan is not read, so a comment between the scans of a
+/// progressive JPEG is not listed, and a copy leaves it out; read the scans too if one matters.
+fn jpeg_without_scans(path: &Path, mut file: std::fs::File, size: u64) -> std::io::Result<Vec<u8>> {
+    use std::io::{Read, Seek};
+    let mut cap: u64 = 1 << 18;
+    loop {
+        let head = read_head(path, cap)?;
+        if head.len() as u64 >= size || cap >= MAX_DECODE_BYTES {
+            return Ok(head);
+        }
+        if let Some(scan) = crate::metadata::exif::jpeg_scan_start(&head) {
+            let mut out = [&head[..scan], &[0xff, 0xd9]].concat();
+            let mut tail = [0; 2];
+            file.seek(std::io::SeekFrom::End(-2))?;
+            file.read_exact(&mut tail)?;
+            if tail != [0xff, 0xd9] {
+                out.push(0);
+            }
+            return Ok(out);
+        }
+        cap = (cap * 16).min(MAX_DECODE_BYTES);
+    }
+}
+
+/// Reads a PNG's or a WebP's chunks from `file`, after its first 12 bytes `head`, without those
+/// of image data. Each of those stands as an empty chunk, and its data is skipped with a seek.
+/// A PNG is read up to its end (IEND), a WebP up to the end its RIFF header gives, and both at
+/// most to the file's size `size`. Returns an error when what is read would be larger than a
+/// decode reads (`MAX_DECODE_BYTES`).
+fn chunks_without_image_data(
+    file: std::fs::File,
+    head: [u8; 12],
+    size: u64,
+    container: Container,
+) -> std::io::Result<Vec<u8>> {
+    use std::io::Read;
+    let is_png = container == Container::Png;
+    let mut file = std::io::BufReader::new(file);
+    let (mut out, end) = if is_png {
+        // A PNG's first chunk starts after its 8 bytes of signature.
+        file.seek_relative(-4)?;
+        (head[..8].to_vec(), size)
+    } else {
+        let riff = u32::from_le_bytes([head[4], head[5], head[6], head[7]]);
+        (head.to_vec(), size.min(8 + u64::from(riff)))
+    };
+    let mut at = out.len() as u64;
+    while at + 8 <= end {
+        let mut header = [0u8; 8];
+        file.read_exact(&mut header)?;
+        let (name, len) = if is_png {
+            let len = u32::from_be_bytes([header[0], header[1], header[2], header[3]]);
+            (&header[4..], u64::from(len))
+        } else {
+            let len = u32::from_le_bytes([header[4], header[5], header[6], header[7]]);
+            (&header[..4], u64::from(len))
+        };
+        // The chunk's data and what follows it: a PNG's CRC, or a WebP's byte to an even size.
+        let whole = len + if is_png { 4 } else { len % 2 };
+        let is_image = match is_png {
+            true => matches!(name, b"IDAT" | b"fdAT"),
+            false => matches!(name, b"VP8 " | b"VP8L" | b"ALPH" | b"ANMF"),
+        };
+        if is_image {
+            let empty = match is_png {
+                true => [&[0; 4][..], name, &[0; 4]].concat(),
+                false => [name, &[0; 4]].concat(),
+            };
+            out.extend(empty);
+            file.seek_relative(whole as i64)?;
+        } else {
+            let kept = whole.min(end - at - 8);
+            if out.len() as u64 + 8 + kept > MAX_DECODE_BYTES {
+                return Err(std::io::Error::other("its metadata is too large"));
+            }
+            out.extend(header);
+            let start = out.len();
+            out.resize(start + kept as usize, 0);
+            file.read_exact(&mut out[start..])?;
+        }
+        at += 8 + whole;
+        if is_png && name == b"IEND" {
+            break;
+        }
+    }
+    if !is_png {
+        let riff = (out.len() - 8) as u32;
+        out[4..8].copy_from_slice(&riff.to_le_bytes());
+    }
+    Ok(out)
 }
 
 /// Walks a JPEG: each segment up to the end of its image (EOI), each scan with its data, and
@@ -640,7 +786,10 @@ fn add_jpeg_segment<'a>(walked: &mut Walked<'a>, data: &'a [u8], at: usize, end:
         // The EXIF and XMP are written new of what is kept. Extended XMP, the rest of a packet
         // too long for one segment, is not carried.
         // shortcut: Extended XMP (Google's depth maps) is left out; carry it if users ask.
-        0xe1 if body.starts_with(b"Exif\0\0") => return,
+        0xe1 if body.starts_with(b"Exif\0\0") => {
+            walked.exif.get_or_insert(&body[6..]);
+            return;
+        }
         0xe1 if body.starts_with(XMP_NAME) => {
             walked.xmp.get_or_insert(&body[XMP_NAME.len()..]);
             return;
@@ -843,7 +992,10 @@ fn walk_png(data: &[u8]) -> Option<Walked<'_>> {
         }
         let tag = match &name {
             n if PNG_IMAGE_CHUNKS.contains(&n) => Some(None),
-            b"eXIf" => None,
+            b"eXIf" => {
+                walked.exif.get_or_insert(body);
+                None
+            }
             b"tEXt" | b"zTXt" | b"iTXt" => png_text_tag(&mut walked, &name, body),
             b"tIME" => Some(Some("tIME".to_owned())),
             n => Some(Some(format!("PNG chunk {}", String::from_utf8_lossy(n)))),
@@ -912,7 +1064,9 @@ fn walk_webp(data: &[u8]) -> Option<Walked<'_>> {
         let end = (at + 8 + size + size % 2).min(data.len());
         match &name {
             n if WEBP_IMAGE_CHUNKS.contains(&n) => walked.add(data, at, end, None),
-            b"EXIF" => {}
+            b"EXIF" => {
+                walked.exif.get_or_insert(body);
+            }
             b"XMP " => {
                 walked.xmp.get_or_insert(body);
             }
@@ -1462,6 +1616,97 @@ mod tests {
         let element = &read.list[0].1;
         assert!(element.contains("OlaNordmann"), "{element}");
         assert!(!element.chars().any(|c| c.is_control()), "{element:?}");
+    }
+
+    /// Writes a file of `size` bytes at `path` with `parts` at their places and holes between
+    /// them, so a test has a file of hundreds of megabytes that takes no room on the disk.
+    fn sparse(path: &std::path::Path, size: u64, parts: &[(u64, &[u8])]) {
+        use std::io::{Seek, Write};
+        let mut file = std::fs::File::create(path).unwrap();
+        file.set_len(size).unwrap();
+        for (at, bytes) in parts {
+            file.seek(std::io::SeekFrom::Start(*at)).unwrap();
+            file.write_all(bytes).unwrap();
+        }
+    }
+
+    /// A video larger than a decode reads is another format, not an error, and its tags are
+    /// not looked for.
+    #[test]
+    fn a_large_video_is_another_format() {
+        let dir = folder("video");
+        let path = dir.join("a.mp4");
+        sparse(&path, 600 << 20, &[(0, b"\0\0\0\x18ftypmp42\0\0\0\0")]);
+        assert_eq!(super::tags_of(&path), Ok(None));
+        assert_eq!(super::copy(&path, &HashSet::new()), Ok(None));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// The tags of a JPEG, a PNG and a WebP larger than a decode reads are read from their
+    /// metadata alone, also those after the image data, and what follows a JPEG's image.
+    #[test]
+    fn reads_the_tags_of_large_files_without_their_image_data() {
+        let dir = folder("large");
+        let size: u64 = 600 << 20;
+        let mut jpeg = Vec::new();
+        let encoder = image::codecs::jpeg::JpegEncoder::new_with_quality(&mut jpeg, 90);
+        picture().write_with_encoder(encoder).unwrap();
+        let exif = super::jpeg_segment(0xe1, &[&b"Exif\0\0"[..], &exif_block()].concat());
+        let jpeg = [&jpeg[..2], &exif, &jpeg[2..]].concat();
+        sparse(&dir.join("a.jpg"), size, &[(0, &jpeg)]);
+        let mut png = Vec::new();
+        picture()
+            .write_with_encoder(image::codecs::png::PngEncoder::new(&mut png))
+            .unwrap();
+        let before = super::png_chunk(b"tEXt", b"Author\0Kari");
+        let idat = [&((size as u32) - 200).to_be_bytes()[..], b"IDAT"].concat();
+        let after = [
+            super::png_chunk(b"tEXt", b"Comment\0late"),
+            super::png_chunk(b"IEND", b""),
+        ]
+        .concat();
+        let head = [&png[..33], &before, &idat].concat();
+        let end = head.len() as u64 + size - 200 + 4;
+        sparse(
+            &dir.join("a.png"),
+            end + after.len() as u64,
+            &[(0, &head), (end, &after)],
+        );
+        let image_size = (size as u32) - 200;
+        let xmp = [
+            &b"XMP "[..],
+            &(XMP.len() as u32).to_le_bytes(),
+            XMP.as_bytes(),
+        ]
+        .concat();
+        let riff = 4 + 8 + image_size + xmp.len() as u32;
+        let head = [
+            &b"RIFF"[..],
+            &riff.to_le_bytes(),
+            b"WEBPVP8L",
+            &image_size.to_le_bytes(),
+        ];
+        let head = head.concat();
+        let end = head.len() as u64 + image_size as u64;
+        sparse(
+            &dir.join("a.webp"),
+            end + xmp.len() as u64,
+            &[(0, &head), (end, &xmp)],
+        );
+        for (name, wanted) in [
+            ("a.jpg", &["Make", "GPSMapDatum", super::AFTER_IMAGE][..]),
+            ("a.png", &["Author", "Comment"]),
+            ("a.webp", &["dc:subject", "exif:GPSLatitude"]),
+        ] {
+            let found = super::tags_of(&dir.join(name)).unwrap().unwrap();
+            for tag in wanted {
+                assert!(
+                    found.iter().any(|t| t == tag),
+                    "{name}: {tag} not in {found:?}"
+                );
+            }
+        }
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     /// The walkers of JPEG segments, PNG chunks and WebP chunks, and the copy made of what they
