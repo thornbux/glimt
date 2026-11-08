@@ -260,9 +260,14 @@ impl crate::App {
             "subfolders on" => return self.set_subfolders(ctx, true),
             "subfolders off" => return self.set_subfolders(ctx, false),
             "title" => return self.set_window_title(ctx, ""),
-            // Not while a dialog asks the user, as the keys are not: an action then could take
-            // the dialog's place (WindowTitle) or its focus while the user types.
-            _ if command.trim().starts_with("run ") && self.dialog_open() => None,
+            // Not while a dialog asks the user or a text field has the focus, as the keys are
+            // not then either. An action could take the dialog's place (WindowTitle), or take
+            // the focus from the field the user types in (FocusSearch).
+            _ if command.trim().starts_with("run ")
+                && (self.dialog_open() || ctx.text_edit_focused()) =>
+            {
+                None
+            }
             other if other.starts_with("run ") => Action::for_script(other["run ".len()..].trim()),
             other if other.starts_with("title ") => {
                 return self.set_window_title(ctx, other["title ".len()..].trim());
@@ -877,6 +882,7 @@ pub fn close() {
 #[cfg(test)]
 mod tests {
     use crate::support::test_support::app_on;
+    use eframe::egui;
 
     /// An empty or relative $XDG_RUNTIME_DIR is not used, so nothing goes into ./glimt.
     #[test]
@@ -932,6 +938,37 @@ mod tests {
         assert!(app.dialogs.asks_about_files());
         assert_eq!(app.list.files().len(), 3);
         assert!(dir.join("c.png").exists());
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// A script's `run` does nothing while a text field has the focus, as the keys do nothing
+    /// then. Before, `run FocusSearch` or `run Next` from a script took the focus from the
+    /// field the user typed in, or changed what the field was about.
+    #[test]
+    fn run_does_nothing_while_a_text_field_has_the_focus() {
+        let dir =
+            std::env::temp_dir().join(format!("glimt-test-run-typing-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let (mut app, ctx) = app_on(&dir);
+        app.list
+            .set_files(["a.png", "b.png"].map(Into::into).to_vec());
+        let mut text = String::new();
+        let mut field = None;
+        for _ in 0..2 {
+            let _ = ctx.run_ui(Default::default(), |ui| {
+                let response = egui::TextEdit::singleline(&mut text).show(ui).response;
+                response.request_focus();
+                field = Some(response.id);
+            });
+        }
+        assert!(ctx.text_edit_focused());
+        app.remote_command(&ctx, "run FocusSearch");
+        app.remote_command(&ctx, "run Next");
+        assert_eq!(app.list.shown(), 0);
+        assert_eq!(ctx.memory(|m| m.focused()), field);
+        ctx.memory_mut(|m| m.surrender_focus(field.unwrap()));
+        app.remote_command(&ctx, "run Next");
+        assert_eq!(app.list.shown(), 1);
         std::fs::remove_dir_all(&dir).unwrap();
     }
 

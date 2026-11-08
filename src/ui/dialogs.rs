@@ -762,7 +762,7 @@ impl crate::App {
         if let Some(mut login) = self.folder.take_login() {
             let mut connect = false;
             let mut password = None;
-            let modal = egui::Modal::new(egui::Id::unique("login")).show(ctx, |ui| {
+            let modal = egui::Modal::new(egui::Id::unique("asks login")).show(ctx, |ui| {
                 ui.label(tf!("Log in to {uri}", uri = login.uri));
                 egui::Grid::new("login fields").show(ui, |ui| {
                     // Sized outright: in the grid of a modal, desired_width left them a few
@@ -869,19 +869,20 @@ impl crate::App {
                 .into_owned();
             let mut trash = false;
             let enter = self.answers(ctx, egui::Key::Enter);
-            let modal = egui::Modal::new(egui::Id::unique("folder-trash")).show(ctx, |ui| {
-                ui.label(tf!(
-                    "Move the folder \"{name}\" and all in it to the trash?",
-                    name
-                ));
-                ui.horizontal(|ui| {
-                    trash = crate::ui::menus::button(ui, tr("Move to Trash (Enter)")).clicked()
-                        || enter;
-                    if crate::ui::menus::button(ui, tr("Cancel (Esc)")).clicked() {
-                        ui.close();
-                    }
+            let modal =
+                egui::Modal::new(egui::Id::unique("is confirming folder trash")).show(ctx, |ui| {
+                    ui.label(tf!(
+                        "Move the folder \"{name}\" and all in it to the trash?",
+                        name
+                    ));
+                    ui.horizontal(|ui| {
+                        trash = crate::ui::menus::button(ui, tr("Move to Trash (Enter)")).clicked()
+                            || enter;
+                        if crate::ui::menus::button(ui, tr("Cancel (Esc)")).clicked() {
+                            ui.close();
+                        }
+                    });
                 });
-            });
             if trash {
                 self.dialogs.is_confirming_folder_trash = false;
                 self.trash_folder(ctx);

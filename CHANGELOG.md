@@ -5,6 +5,29 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- `glimt --remote run ACTION` does nothing while a text field has the focus, as the keys do
+  nothing then, so a script no longer takes the focus from the search field or a name being
+  typed, or shows another image under the keywords being typed.
+- A screen reader reads out a notice again when it is given again with the same text, such as
+  a second refused action; before, it heard only the first.
+
+### Changed
+
+- Inside, the check that the file list is drawn only by its known views also watches the
+  functions that draw one row or cell of it, which a new view could call directly.
+- Inside, the check that every modal dialog is in the one list of what is open compares the
+  modal's name with whole names in that list, so a new modal named "confirm" no longer passes
+  on `confirm_delete`, and it reads a call that is split over several lines.
+- Inside, the check that keys are read in one place also sees the keys held down
+  (`keys_down`).
+- Inside, the check that every file operation is in the contract sees work that counts itself
+  as writing however the counter is named, also after a `use`.
+- Inside, the check that every action on the selection reaches its targets follows the files
+  `targets()` gives back to where they are used, so an action that asks for them and then acts
+  on the shown image fails it, and `asked_targets()` no longer counts as `targets()`.
+
 ## [0.74.0] - 2026-11-08
 
 ### Changed

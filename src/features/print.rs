@@ -269,7 +269,7 @@ impl crate::App {
             // Enter in a text field (the page text, the template) ends the typing, not the
             // dialog, because it would send the job to the printer with every copy.
             let enter = self.answers(ctx, egui::Key::Enter);
-            let modal = egui::Modal::new(egui::Id::unique("print")).show(ctx, |ui| {
+            let modal = egui::Modal::new(egui::Id::unique("print dialog")).show(ctx, |ui| {
                 let n = dialog.paths.len();
                 ui.strong(match n {
                     1 => tr("Print the image").to_owned(),

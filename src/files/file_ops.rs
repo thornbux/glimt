@@ -3196,10 +3196,17 @@ mod tests {
                 "cut_short_dialog",
                 "journal's tests put every cut-short plan right",
             ),
+            (
+                "write_later",
+                "the writer thread of Glimt's own files, which counts each work it is sent",
+            ),
         ];
         let mut found = std::collections::BTreeSet::new();
-        for (_, text) in crate::support::source_rules::sources() {
+        for (file, text) in crate::support::source_rules::sources() {
             let code = text.split("\n#[cfg(test)]\nmod tests").next().unwrap();
+            // A bare `WRITING` is file_io's, unless the file has a counter of its own by
+            // that name, as marks.rs has for its own file.
+            let own_counter = file != "files/file_io.rs" && code.contains("static WRITING:");
             let mut function = String::new();
             for line in code.lines() {
                 if let Some(at) = line.find("fn ") {
@@ -3215,10 +3222,10 @@ mod tests {
                     "self.start_job_of(",
                     "self.run_in_background(",
                     "self.hold_back_while_writing(",
-                    // Work that starts its own thread counts itself as writing the user's files.
-                    "Working::new(&crate::files::file_io::WRITING)",
                 ];
-                if starts.iter().any(|s| line.contains(s)) && !line.trim_start().starts_with("//") {
+                let starts =
+                    starts.iter().any(|s| line.contains(s)) || counts_as_writing(line, own_counter);
+                if starts && !line.trim_start().starts_with("//") {
                     found.insert(function.clone());
                 }
             }
@@ -3243,6 +3250,29 @@ mod tests {
         );
         let gone: Vec<&&str> = known.iter().filter(|k| !found.contains(**k)).collect();
         assert!(gone.is_empty(), "named here but no longer there: {gone:?}");
+        // Work counts itself as writing however file_io's counter is named. Before, only the
+        // whole path was seen, so `Working::new(&WRITING)` after a `use` passed unseen.
+        for spelling in [
+            "let w = Working::new(&crate::files::file_io::WRITING);",
+            "let w = Working::new(&file_io::WRITING);",
+            "let w = crate::support::threads::Working::new(&WRITING);",
+            "_writing: Working::new( &WRITING ),",
+        ] {
+            assert!(counts_as_writing(spelling, false), "missed: {spelling}");
+        }
+        assert!(!counts_as_writing("Working::new(&WRITING);", true));
+        assert!(!counts_as_writing("Working::new(&self.busy);", false));
+    }
+
+    /// Returns whether `line` counts work as writing the user's files through file_io's
+    /// `WRITING`. `own_counter` says that the file has a counter of its own named `WRITING`,
+    /// which the bare name then means.
+    fn counts_as_writing(line: &str, own_counter: bool) -> bool {
+        (line.match_indices("Working::new(")).any(|(at, s)| {
+            let argument = line[at + s.len()..].split(')').next().unwrap_or_default();
+            let path = argument.trim().trim_start_matches('&').trim();
+            path.ends_with("file_io::WRITING") || path == "WRITING" && !own_counter
+        })
     }
 
     /// Undo of a rename after an empty folder was opened does not crash. The shown file is looked

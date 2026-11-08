@@ -1964,12 +1964,46 @@ mod tests {
     /// `ask_about_targets` from its arm in `App::run`, in the arm itself or in a function it
     /// calls. `Action::target` is only a label, which a menu about the selection trusts.
     /// An arm that took the shown image instead would act on another file than the ones the
-    /// user picked.
+    /// user picked. The value they give back is followed: it is bound to a name that the
+    /// function uses after. Before, the call alone counted, so an arm could ask for its targets,
+    /// drop them and act on the shown image, and `asked_targets()` passed as `targets()`.
     #[test]
     fn actions_on_the_selection_reach_their_targets() {
         use std::collections::HashMap;
+        /// Returns whether `code` binds what one of the three gives back to a name, as in
+        /// `let Some(name) = self.targets()`, and uses that name after.
+        fn uses_targets(code: &str) -> bool {
+            let flat = code.split_whitespace().collect::<Vec<_>>().join(" ");
+            let flat = flat.replace(" .", ".");
+            let calls = [
+                "targets()",
+                "targets_without_notice()",
+                "ask_about_targets()",
+            ];
+            calls.iter().any(|call| {
+                (flat.match_indices(&format!("self.{call}"))).any(|(at, s)| {
+                    let Some(before) = flat[..at].trim_end().strip_suffix(" =") else {
+                        return false;
+                    };
+                    let Some((_, pattern)) = before.rsplit_once("let ") else {
+                        return false;
+                    };
+                    let pattern = pattern.trim_start_matches("mut ");
+                    let pattern = pattern.strip_prefix("Some(").unwrap_or(pattern);
+                    let is_name_char = |c: char| c.is_alphanumeric() || c == '_';
+                    let name = pattern.split(|c| !is_name_char(c)).next().unwrap_or("");
+                    let after = &flat[at + s.len()..];
+                    let used = (after.match_indices(name)).any(|(i, _)| {
+                        let before = after[..i].chars().next_back();
+                        let next = after[i + name.len()..].chars().next();
+                        !before.is_some_and(is_name_char) && !next.is_some_and(is_name_char)
+                    });
+                    !name.is_empty() && !name.starts_with('_') && used
+                })
+            })
+        }
         /// Returns whether `code`, or a function it calls on `self` up to `depth` calls down,
-        /// asks for the selected files through one of the three.
+        /// asks for the selected files through one of the three and uses them.
         fn reaches(code: &str, depth: u8, bodies: &HashMap<String, String>) -> bool {
             let called = (code.match_indices("self.")).filter_map(|(at, s)| {
                 let rest = &code[at + s.len()..];
@@ -1979,7 +2013,38 @@ mod tests {
                 rest[name.len()..].starts_with('(').then_some(name)
             });
             let deeper = |n: &str| bodies.get(n).is_some_and(|b| reaches(b, depth - 1, bodies));
-            code.contains("targets()") || depth > 0 && { called }.any(deeper)
+            uses_targets(code) || depth > 0 && { called }.any(deeper)
+        }
+        // The rule follows the value, also over a split line, and not a call whose value is
+        // dropped or a name that only ends in targets.
+        for (code, uses) in [
+            (
+                "let Some(t) = self.targets() else { return }; self.act(t)",
+                true,
+            ),
+            (
+                "if let Some(asked) = self\n    .ask_about_targets()\n{ self.ask(asked) }",
+                true,
+            ),
+            ("let targets = self.targets()?; self.act(&targets)", true),
+            (
+                "let Some(_t) = self.targets() else { return }; self.act(self.list.shown())",
+                false,
+            ),
+            (
+                "if self.targets().is_some() { self.act(self.list.shown()) }",
+                false,
+            ),
+            (
+                "let Some(t) = self.targets() else { return }; self.act(self.list.shown())",
+                false,
+            ),
+            (
+                "let Some(found) = self.asked_targets() else { return }; self.act(found)",
+                false,
+            ),
+        ] {
+            assert_eq!(uses_targets(code), uses, "{code}");
         }
         // The code of every function outside the tests, by name. Functions of one name are put
         // together, which can only let an arm pass, never fail one that reaches its targets.
