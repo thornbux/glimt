@@ -1489,6 +1489,9 @@ mod tests {
         now.extend(template_fields());
         now.extend(theme_keys());
         now.extend(owned_files());
+        // The words of the groups that Copy for Sharing keeps in its file of the last choice.
+        let groups = crate::images::shared_copy::Group::ALL.iter();
+        now.extend(groups.map(|group| format!("sharing {}", group.key())));
         // The actions a script may run with --remote run. One taken out of the list would
         // break every script that runs it.
         let script = crate::ui::actions::SCRIPT_ACTIONS.iter();

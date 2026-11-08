@@ -371,3 +371,11 @@ file $XDG_DATA_HOME/glimt/decoders
 file /etc/glimt/lock-settings
 file $XDG_RUNTIME_DIR/glimt/glimt-NAME.sock
 file $XDG_RUNTIME_DIR/glimt/focused
+sharing group:place
+sharing group:camera
+sharing group:date
+sharing group:photographer
+sharing group:software
+sharing group:keywords
+sharing group:preview
+sharing group:other

@@ -948,8 +948,9 @@ impl Group {
     }
 
     /// The word kept in the choice (`LeftOut`) when the whole group is left out. Its colon
-    /// keeps it apart from the tags' names, none of which starts with "group:".
-    fn key(self) -> &'static str {
+    /// keeps it apart from the tags' names, none of which starts with "group:". The words are
+    /// frozen in 1.x, as the users' sharing files hold them.
+    pub(crate) fn key(self) -> &'static str {
         match self {
             Group::Place => "group:place",
             Group::Camera => "group:camera",
