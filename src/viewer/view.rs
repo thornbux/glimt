@@ -1151,6 +1151,7 @@ impl crate::App {
                     clicked_pane = self.filmstrip(ui, ui.max_rect()).or(clicked_pane);
                 }
                 self.paint_notice(ui, area);
+                self.paint_window_id(ui, ui.max_rect());
             });
         if let Some(action) = later {
             self.run(ctx, action);
@@ -1482,6 +1483,25 @@ impl crate::App {
                 .rect_filled(band, 6.0, egui::Color32::from_black_alpha(200));
             ui.painter().galley(at, galley, red);
         }
+    }
+
+    /// Paints the window's ID large in the middle of `area` while `--remote identify` asks for
+    /// it, so that a user with several windows can see which is which. A frame is asked for at
+    /// the end of that time, so the ID goes away without other input.
+    pub(crate) fn paint_window_id(&self, ui: &egui::Ui, area: egui::Rect) {
+        let Some(left) = self.remote.identify_time_left() else {
+            return;
+        };
+        ui.ctx().request_repaint_after(left);
+        let id = crate::features::remote::socket_id().to_owned();
+        let size = (area.height() / 6.0).clamp(32.0, 160.0);
+        let (font, white) = (egui::FontId::proportional(size), egui::Color32::WHITE);
+        let galley = ui.painter().layout(id, font, white, area.width() - 32.0);
+        let at = area.center() - galley.size() / 2.0;
+        let band = egui::Rect::from_min_size(at, galley.size()).expand(size / 4.0);
+        ui.painter()
+            .rect_filled(band, size / 6.0, egui::Color32::from_black_alpha(200));
+        ui.painter().galley(at, galley, white);
     }
 
     /// The wheel over the image. It zooms about the point under the pointer (Ctrl+wheel, or

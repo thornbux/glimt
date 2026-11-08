@@ -50,6 +50,10 @@ pub const COMMANDS: &[(&str, &str)] = &[
         "title [TEXT…]",
         "This window's title, a template as in Preferences (%name%, %path%, %folder%, %app%, %id%); without the text, the one in Preferences",
     ),
+    (
+        "identify",
+        "Show this window's ID (%id%: its --name or process ID) large over the image for a few seconds",
+    ),
     ("quit", "Close Glimt"),
     (
         "run ACTION",
@@ -99,6 +103,9 @@ pub const NOT_DONE: i32 = 3;
 /// The start of the window's answer to a command it did not do, before the reason. Every other
 /// answer of a command is empty, and that of a query is paths, which start with "/".
 const NOT_DONE_ANSWER: &str = "not done: ";
+
+/// How long `--remote identify` shows the window's ID.
+pub(crate) const IDENTIFY_TIME: std::time::Duration = std::time::Duration::from_secs(3);
 
 /// The file in the runtime folder that holds the name of the Glimt that had the focus last.
 pub const FOCUSED_FILE: &str = "focused";
@@ -156,7 +163,8 @@ impl Drop for UnfinishedAnswer {
     }
 }
 
-/// Commands from --remote, and the selects that wait until the list is read.
+/// Commands from --remote, the selects that wait until the list is read, and how long the
+/// window's ID shows.
 pub(crate) struct Listener {
     /// Commands from `glimt --remote`.
     rx: mpsc::Receiver<(String, Option<remote::Reply>)>,
@@ -164,6 +172,8 @@ pub(crate) struct Listener {
     /// asked, and every command after it. They are done in the order they came, once neither
     /// is the case.
     waiting_selects: Vec<(String, Option<remote::Reply>)>,
+    /// The time until which `--remote identify` shows the window's ID over the image.
+    identify_until: Option<std::time::Instant>,
 }
 
 impl Listener {
@@ -176,7 +186,16 @@ impl Listener {
         Listener {
             rx,
             waiting_selects: Vec::new(),
+            identify_until: None,
         }
+    }
+
+    /// The time that the window's ID still shows for, after `--remote identify`. It is `None`
+    /// when that time has run out, or when no window was asked to show it.
+    pub(crate) fn identify_time_left(&self) -> Option<std::time::Duration> {
+        let now = std::time::Instant::now();
+        self.identify_until
+            .and_then(|until| until.checked_duration_since(now))
     }
 }
 
@@ -323,6 +342,11 @@ impl crate::App {
             }
             "title" => {
                 self.set_window_title(ctx, "");
+                None
+            }
+            "identify" => {
+                self.remote.identify_until = Some(std::time::Instant::now() + IDENTIFY_TIME);
+                ctx.request_repaint();
                 None
             }
             // Not while a dialog asks the user or a text field has the focus, as the keys are
@@ -583,7 +607,7 @@ fn was_not_done() -> bool {
 }
 
 /// The ID that this Glimt listens as, which is its --name or else its process ID. The %id% of
-/// the window title shows it.
+/// the window title and `--remote identify` show it.
 pub fn socket_id() -> &'static str {
     given_name().unwrap_or_else(instance_id)
 }
@@ -1064,6 +1088,23 @@ mod tests {
         assert_eq!(super::runtime_dir_from(None), None);
     }
 
+    /// `identify` shows the window's ID for a few seconds and is told as done, and the client
+    /// takes the word alone.
+    #[test]
+    fn identify_shows_the_id_for_a_while() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-identify-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let (mut app, ctx) = app_on(&dir);
+        assert_eq!(app.remote.identify_until, None);
+        app.remote_command(&ctx, "identify").unwrap();
+        let left = app.remote.identify_until.unwrap() - std::time::Instant::now();
+        assert!(left > std::time::Duration::ZERO && left <= super::IDENTIFY_TIME);
+        let words = |s: &str| s.split(' ').map(String::from).collect::<Vec<_>>();
+        assert!(super::is_known_command(&words("identify")));
+        assert!(!super::is_known_command(&words("identify left")));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
     /// `run ACTION` does an action a script may run, as its key would, and nothing for one that
     /// changes files, such as Delete, so no file goes, and no question is asked.
     #[test]
@@ -1266,6 +1307,7 @@ mod tests {
         app.remote = super::Listener {
             rx,
             waiting_selects: Vec::new(),
+            identify_until: None,
         };
         for _ in 0..500 {
             app.receive_remote(&ctx);
