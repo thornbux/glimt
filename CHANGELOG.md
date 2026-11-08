@@ -5,6 +5,19 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- File → Copy for Sharing… copies the selected JPEG, PNG and WebP images into a folder you
+  choose, without the metadata you leave out, to publish them. The dialog lists the tags the
+  images have, in groups that can each be left out whole: place, camera and lens with their
+  serial numbers, date and time, photographer and copyright, software, keywords, comment and
+  alt text, and the preview inside the file, and More tags for the rest; Remove All leaves out
+  every one. The pixels are copied byte for byte, so nothing is lost, and the orientation, the
+  colour profile and an HDR photo's gain map are always kept, so a copy looks as the original.
+  What Glimt's sidecar says, such as alt text, goes into the copy's own XMP. The dialog starts
+  with the last choice. The originals are never changed, and a file already in the folder is
+  never written over.
+
 ### Fixed
 
 - `glimt --remote run ACTION` does nothing while a text field has the focus, as the keys do
@@ -27,8 +40,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 - The examples are in examples/tools and examples/formats (/usr/share/doc/glimt/examples/ in
   the packages), each desktop file named for the program it runs: describe.desktop runs
   glimt-describe, and the ImageMagick ones are dicom-imagemagick.desktop and
-  fits-imagemagick.desktop. A copy of a renamed example next to the old copy shows twice, as
-  in Edit → Tools: remove the old one.
+  fits-imagemagick.desktop. A copy of a renamed example next to the old copy shows twice in
+  Edit → Tools: remove the old one.
 - Inside, the check that the file list is drawn only by its known views also watches the
   functions that draw one row or cell of it, which a new view could call directly.
 - Inside, the check that every modal dialog is in the one list of what is open compares the
