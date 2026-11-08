@@ -277,8 +277,8 @@ impl crate::App {
     /// slideshow, random and fullscreen (each with on or off, or without to go to the other),
     /// subfolders on|off, quit, open PATH, title with this window's own title, or without one
     /// to have the title in Preferences, and run ACTION with an action of `SCRIPT_ACTIONS`.
-    /// Returns the reason when the command is not done: a `run` refused, or a command this
-    /// window does not know, such as one of a newer Glimt.
+    /// Returns the reason when the command is not done: an action refused (`why_refused`, such
+    /// as a kiosk's), or a command this window does not know, such as one of a newer Glimt.
     pub(crate) fn remote_command(
         &mut self,
         ctx: &egui::Context,
@@ -357,6 +357,9 @@ impl crate::App {
             other => return Err(format!("this Glimt does not know the command “{other}”")),
         };
         if let Some(action) = action {
+            if let Some(why) = self.why_refused(action) {
+                return Err(why.into());
+            }
             self.run(ctx, action);
         }
         Ok(())
@@ -1125,6 +1128,27 @@ mod tests {
         ctx.memory_mut(|m| m.surrender_focus(field.unwrap()));
         app.remote_command(&ctx, "run Next").unwrap();
         assert_eq!(app.list.shown(), 2);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// A `run` that the window refuses is told as not done, with the window's reason. A kiosk
+    /// refuses what is not for browsing, and an action on a file has none to act on in an
+    /// empty list. Before, both were answered as done, so the script exited 0.
+    #[test]
+    fn a_run_refused_is_not_done() {
+        let dir =
+            std::env::temp_dir().join(format!("glimt-test-run-refused-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let (mut app, ctx) = app_on(&dir);
+        let why = app.remote_command(&ctx, "run CopyPath").unwrap_err();
+        assert_eq!(why, "there is no image to act on");
+        app.list.set_files(vec!["a.png".into(), "b.png".into()]);
+        app.window = crate::ui::window::Window::new(true);
+        let why = app.remote_command(&ctx, "run Toolbar").unwrap_err();
+        assert!(why.contains("kiosk"), "{why}");
+        // What a kiosk does is done as before.
+        app.remote_command(&ctx, "run Next").unwrap();
+        assert_eq!(app.list.shown(), 1);
         std::fs::remove_dir_all(&dir).unwrap();
     }
 

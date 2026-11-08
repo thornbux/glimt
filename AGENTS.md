@@ -77,8 +77,9 @@ without a default key) and every default key; new ones go at the end of that fil
 fails until a new action is there.
 
 Every `--remote` command is answered: a query with what it asks, and any other command with
-nothing when it was done, or with `not done: <reason>` when it was not (a `run` refused, a
-command or choice the window does not know). The client exits with `NOT_DONE` (3) then. A
+nothing when it was done, or with `not done: <reason>` when it was not (a `run` refused while
+a dialog is open or a field has the focus, an action that `App::why_refused` refuses, such as a
+kiosk's, or a command or choice the window does not know). The client exits with `NOT_DONE` (3) then. A
 window of 0.75 or older closes without an answer, which reads as done.
 
 Not pinned, and so kept by hand: the window's own reading of each `--remote` command
