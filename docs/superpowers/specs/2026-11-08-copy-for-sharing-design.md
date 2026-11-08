@@ -145,3 +145,6 @@ tags" reads the selected files, where the last choice is kept, and the code stru
   known, from exiftool's tables; every other property of them is in every group.
 - A history that names the files it was made from is Photographer as well as Date and
   Software, as `xmpMM:DerivedFrom` is: digiKam's `ImageHistory` and Photoshop's `History`.
+- A known prefix bound to another namespace, or to none, names its property by that namespace
+  in braces (`{urn:other}Make`), so it is not taken for the known property and goes with every
+  group.

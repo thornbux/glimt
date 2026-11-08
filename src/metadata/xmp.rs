@@ -854,7 +854,8 @@ fn child_properties(
 
 /// Returns the name of the property written `name` in a packet that binds its prefixes as
 /// `namespaces` says. It has the prefix of its namespace in `KNOWN_NAMESPACES`, or else the
-/// prefix as written.
+/// prefix as written. A known prefix bound to another namespace, or to none, is replaced by
+/// that namespace in braces ("{urn:other}Make"), so the name cannot pass for a known one.
 fn property_name(name: &str, namespaces: &[(String, String)]) -> String {
     let Some((prefix, local)) = name.split_once(':') else {
         return name.to_owned();
@@ -862,6 +863,9 @@ fn property_name(name: &str, namespaces: &[(String, String)]) -> String {
     let uri = namespaces.iter().find(|(p, _)| p == prefix).map(|(_, u)| u);
     match uri.and_then(|u| KNOWN_NAMESPACES.iter().find(|(_, known)| known == u)) {
         Some((known, _)) => format!("{known}:{local}"),
+        None if KNOWN_NAMESPACES.iter().any(|(known, _)| *known == prefix) => {
+            format!("{{{}}}{local}", uri.map_or("", |u| u.as_str()))
+        }
         None => name.to_owned(),
     }
 }
@@ -1787,6 +1791,30 @@ mod tests {
         let written = String::from_utf8(super::packet(&read)).unwrap();
         assert!(written.contains("xmlns:ns1=\"http://ns.adobe.com/exif/1.0/\""));
         assert!(written.contains("<ns1:GPSLatitude>59,55N</ns1:GPSLatitude>"));
+    }
+
+    /// A known prefix bound to another namespace, or to none, names its property by that
+    /// namespace, so Copy for Sharing does not take it for the known one and leaves it out with
+    /// any group.
+    #[test]
+    fn a_known_prefix_of_another_namespace_is_not_known() {
+        let xmp = "<rdf:Description rdf:about=\"\" xmlns:aux=\"http://example.com/x\" \
+                   xmlns:exif=\"urn:other\" aux:SerialNumber=\"1\" exif:Make=\"x\" \
+                   tiff:Model=\"y\"/>";
+        let read = super::properties(xmp);
+        let names: Vec<&str> = read.list.iter().map(|(n, ..)| n.as_str()).collect();
+        assert_eq!(
+            names,
+            [
+                "{http://example.com/x}SerialNumber",
+                "{urn:other}Make",
+                "{}Model"
+            ]
+        );
+        for name in names {
+            let groups = crate::images::shared_copy::Group::groups_of(name);
+            assert_eq!(groups.len(), crate::images::shared_copy::Group::ALL.len());
+        }
     }
 
     /// Packets broken in thousands of ways: their properties read, and a packet written of them,
