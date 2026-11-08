@@ -854,7 +854,8 @@ impl crate::App {
     /// Brings along what Glimt keeps about files or folders that were moved or renamed
     /// `(from, to)`, or copied (`is_copy`). It is the one place every operation reports to. The
     /// marks go along, to a copy too. When the files moved, a collection's entries of them, and
-    /// of everything in a moved folder, take the new place, in the list and in its file.
+    /// of everything in a moved folder, take the new place, in the list and in its file, and so
+    /// do the entries of every saved collection.
     pub(crate) fn follow_moved_paths(&mut self, pairs: Vec<(PathBuf, PathBuf)>, is_copy: bool) {
         // No message of a delete has pairs, so each one skips the look at every name in the
         // list.
@@ -902,6 +903,9 @@ impl crate::App {
             // The list is read again from the file, because a refresh that started before they
             // moved brings the old names.
             self.folder.relist_later();
+        }
+        if !is_copy {
+            collections::follow_in_saved_collections(&pairs, self.folder.collection());
         }
         self.index_new_names();
         #[cfg(feature = "marks")]
@@ -3001,7 +3005,8 @@ mod tests {
     /// collection, so the collection's entry is checked apart, for these operations only:
     /// rename, move, rename folder and delete in `a_collection_follows_its_files`, and Rename
     /// Many, trash and the Undo of each, and the Undo of a move, in
-    /// `a_collection_follows_undo_and_the_trash`.
+    /// `a_collection_follows_undo_and_the_trash`. A saved collection that is not open follows a
+    /// rename in `saved_collections_follow_their_files`.
     /// A new operation joins `contract_ops`, and `every_file_operation_is_in_the_contract` fails
     /// until it does.
     #[test]
@@ -4123,6 +4128,45 @@ mod tests {
             .unwrap();
         app.delete_now(&ctx, false, vec![b]);
         assert!(run_background_until(&mut app, &ctx, |_| !entries(&gqv).contains("b.png")));
+        std::fs::remove_dir_all(d).unwrap();
+    }
+
+    /// A saved collection that is not open follows a rename too, as in Geeqie, so its entry
+    /// stays on its image and not on the name. The open one is changed once, and not again
+    /// with the others, because a second pass would undo a swap.
+    #[test]
+    fn saved_collections_follow_their_files() {
+        let d = contract_folder("saved-collections");
+        let dir = crate::model::collections::collections_dir().unwrap();
+        std::fs::create_dir_all(&dir).unwrap();
+        let saved = dir.join(format!("follow-{}.gqv", std::process::id()));
+        let entries = || -> Vec<String> {
+            let text = std::fs::read_to_string(&saved).unwrap();
+            (text.lines().filter(|l| !l.starts_with('#')))
+                .map(|l| l.trim_matches('"').rsplit('/').next().unwrap().to_owned())
+                .collect()
+        };
+        std::fs::copy(d.join("col.gqv"), &saved).unwrap();
+        let (a, b) = (d.join("a.png"), d.join("b.png"));
+        let sidecar_of_a = || std::fs::read_to_string(crate::metadata::xmp::sidecar(&a));
+        for opened in [d.clone(), saved.clone()] {
+            let (mut app, ctx) = app_on(&opened);
+            let before = sidecar_of_a().unwrap();
+            let idle = |app: &crate::App| {
+                (app.file_operations.jobs.iter()).all(|j| std::sync::Arc::strong_count(j) == 1)
+            };
+            // The two swap names, so the entry of each takes the other's name.
+            app.rename_in_background(&ctx, vec![a.clone(), b.clone()], vec![b.clone(), a.clone()]);
+            assert!(run_background_until(&mut app, &ctx, |app| idle(app)
+                && sidecar_of_a().is_ok_and(|s| s != before)));
+            crate::files::file_io::flush();
+            let swapped = match before.as_str() {
+                "a" => ["b.png", "a.png"],
+                _ => ["a.png", "b.png"],
+            };
+            assert_eq!(entries(), swapped, "opened {}", opened.display());
+        }
+        std::fs::remove_file(&saved).unwrap();
         std::fs::remove_dir_all(d).unwrap();
     }
 

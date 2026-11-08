@@ -74,8 +74,9 @@ impl Marks {
         self.change(paths, Change::Stars(stars));
     }
 
-    /// Files deleted, or folders with all in them: their marks go, so a new file of the same name
-    /// does not get them. Returned as they were, for Undo to `restore`.
+    /// Takes away the marks of the files deleted, and of every file in the folders deleted, so a
+    /// new file of the same name does not get them. Returns the marks this window knew of them,
+    /// for Undo to `restore`.
     pub fn forget(&mut self, paths: &[PathBuf]) -> Vec<(PathBuf, (u8, u8))> {
         // Most messages of a file operation have nothing gone: no look at every mark.
         if paths.is_empty() {
@@ -93,9 +94,10 @@ impl Marks {
             .collect();
         let was: Vec<(PathBuf, (u8, u8))> =
             marked.iter().map(|p| (p.clone(), self.get(p))).collect();
-        if !marked.is_empty() {
-            self.change(&marked, Change::Clear);
-        }
+        // The file forgets every mark under the names, not only those this window knows. A
+        // refresh is skipped while this window's own writes are queued, and the marks another
+        // window set meanwhile would else stay on a name that is gone.
+        self.edit(Edit::Forget(paths.to_vec()));
         was
     }
 
@@ -117,7 +119,11 @@ impl Marks {
         // From the file as it is: stars set in another window since this one last read it were
         // left behind on the old names, as this window did not know them.
         self.refresh();
-        self.follow_known(pairs, Vec::new(), is_copy);
+        // Every pair goes to the file, also one whose marks this window does not know, for
+        // the reason `forget` gives.
+        if !pairs.is_empty() {
+            self.edit(Edit::Follow(pairs, is_copy));
+        }
     }
 
     /// The folder `from` renamed to `to` (Rename Folder): the files in it keep their marks under
@@ -125,37 +131,18 @@ impl Marks {
     /// of a file with 500,000 marked.
     pub fn follow_folder(&mut self, from: PathBuf, to: PathBuf) {
         self.refresh();
-        let pairs = vec![(from, to)];
-        let moved = crate::files::file_ops::moves_by_source(&pairs);
-        let inside: Vec<(PathBuf, PathBuf)> = (self.by_path.keys())
-            .filter_map(|k| {
-                let dir = crate::files::file_ops::new_place(k.parent()?, &moved)?;
-                Some((k.clone(), dir.join(k.file_name()?)))
-            })
-            .collect();
-        self.follow_known(pairs, inside, false);
-    }
-
-    /// Moves or copies the marks of `pairs` and of `inside`, the files in a folder renamed.
-    fn follow_known(
-        &mut self,
-        pairs: Vec<(PathBuf, PathBuf)>,
-        inside: Vec<(PathBuf, PathBuf)>,
-        is_copy: bool,
-    ) {
-        let pairs: Vec<(PathBuf, PathBuf)> = (pairs.into_iter())
-            .filter(|(from, to)| self.by_path.contains_key(from) || self.by_path.contains_key(to))
-            .chain(inside)
-            .collect();
-        if !pairs.is_empty() {
-            follow_pairs(&mut self.by_path, &pairs, is_copy);
-            save(Edit::Follow(pairs, is_copy));
-        }
+        self.edit(Edit::FollowFolder(from, to));
     }
 
     fn change(&mut self, paths: &[PathBuf], change: Change) {
-        apply(&mut self.by_path, paths, change);
-        save(Edit::Change(paths.to_vec(), change));
+        self.edit(Edit::Change(paths.to_vec(), change));
+    }
+
+    /// Makes `edit` to this window's marks and sends it to the file, where it is made again to
+    /// the marks as they are there, so the two agree on what it did.
+    fn edit(&mut self, edit: Edit) {
+        apply_edit(&mut self.by_path, &edit);
+        save(edit);
     }
 }
 
@@ -168,12 +155,18 @@ type FileStamp = (u64, std::time::SystemTime);
 #[cfg(test)]
 thread_local! {
     static TEST_FILE: std::cell::RefCell<Option<PathBuf>> = const { std::cell::RefCell::new(None) };
+    static SENT: std::cell::RefCell<Vec<Edit>> = const { std::cell::RefCell::new(Vec::new()) };
 }
 
 /// What a window did, applied to the file as it is then.
 enum Edit {
     Change(Vec<PathBuf>, Change),
+    /// Files moved or copied (the flag) from each first path to the second.
     Follow(Vec<(PathBuf, PathBuf)>, bool),
+    /// A folder renamed from the first path to the second, with every file in it.
+    FollowFolder(PathBuf, PathBuf),
+    /// Files or folders deleted, with every file in the folders.
+    Forget(Vec<PathBuf>),
 }
 
 /// A change, rather than the new value, so that applied to the file it keeps what another
@@ -183,8 +176,6 @@ enum Change {
     /// A mark bit set or cleared.
     Mark(u8, bool),
     Stars(u8),
-    /// No marks and no stars.
-    Clear,
     /// These marks and stars, as they were.
     Set(u8, u8),
 }
@@ -222,7 +213,6 @@ fn apply(map: &mut HashMap<PathBuf, (u8, u8)>, paths: &[PathBuf], change: Change
             Change::Mark(bit, true) => (bits | bit, stars),
             Change::Mark(bit, false) => (bits & !bit, stars),
             Change::Stars(stars) => (bits, stars),
-            Change::Clear => (0, 0),
             Change::Set(bits, stars) => (bits, stars),
         };
         match new {
@@ -254,6 +244,24 @@ fn apply_edit(map: &mut HashMap<PathBuf, (u8, u8)>, edit: &Edit) {
     match edit {
         Edit::Change(paths, change) => apply(map, paths, *change),
         Edit::Follow(pairs, is_copy) => follow_pairs(map, pairs, *is_copy),
+        Edit::FollowFolder(from, to) => {
+            let pairs = [(from.clone(), to.clone())];
+            let moved = crate::files::file_ops::moves_by_source(&pairs);
+            let inside: Vec<(PathBuf, PathBuf)> = (map.keys())
+                .filter_map(|k| {
+                    let dir = crate::files::file_ops::new_place(k.parent()?, &moved)?;
+                    Some((k.clone(), dir.join(k.file_name()?)))
+                })
+                .collect();
+            follow_pairs(map, &inside, false);
+        }
+        Edit::Forget(paths) => {
+            let gone: std::collections::HashSet<&Path> =
+                paths.iter().map(PathBuf::as_path).collect();
+            // Each marked file and the folders above it are looked up, not every path deleted,
+            // because a few thousand are marked against 100 files at a time to the trash.
+            map.retain(|k, _| !k.ancestors().any(|a| gone.contains(a)));
+        }
     }
 }
 
@@ -282,7 +290,9 @@ fn save(edit: Edit) {
     let writing = crate::support::threads::Working::new(&WRITING);
     crate::files::file_io::write_later(move || {
         let _writing = writing;
-        if let Some(file) = marks_file() {
+        // Only a change can add marks, so the other edits make no marks file where none is.
+        let adds = matches!(edit, Edit::Change(..));
+        if let Some(file) = marks_file().filter(|f| adds || f.exists()) {
             write(&file, &[edit]);
         }
     });
@@ -321,8 +331,12 @@ fn write(file: &Path, changes: &[Edit]) {
     }
 }
 
+/// In a test, the edits are kept for the test to write, so the tests side by side do not write
+/// one shared file.
 #[cfg(test)]
-fn save(_: Edit) {}
+fn save(edit: Edit) {
+    SENT.with(|sent| sent.borrow_mut().push(edit));
+}
 
 /// The marks file: a line for each file.
 fn parse(text: &[u8]) -> HashMap<PathBuf, (u8, u8)> {
@@ -411,6 +425,33 @@ mod tests {
         assert_eq!((marks.get(&c), marks.get(&a)), ((0, 3), (0, 0)));
         let was = marks.forget(std::slice::from_ref(&b));
         assert_eq!((marks.get(&b), was), ((0, 0), vec![(b.clone(), (0, 2))]));
+        super::TEST_FILE.with(|f| *f.borrow_mut() = None);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// Stars that another window set while this one did not read the file (its own writes were
+    /// queued, so the refresh was skipped) follow a move and go with a delete in the file. The
+    /// window sent nothing for marks it did not know, so they stayed on names that were gone.
+    #[test]
+    fn marks_not_read_yet_follow_in_the_file() {
+        let dir =
+            std::env::temp_dir().join(format!("glimt-test-marks-unread-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("marks");
+        super::TEST_FILE.with(|f| *f.borrow_mut() = Some(file.clone()));
+        let (a, b, c) = (dir.join("a.png"), dir.join("b.png"), dir.join("c.png"));
+        let text = format!("0\t3\t{}\n0\t2\t{}\n", a.display(), b.display());
+        std::fs::write(&file, text).unwrap();
+        // The window takes the file as known, as when its refresh is skipped.
+        super::known_stamps().insert(file.clone(), super::file_stamp(&file));
+        let mut marks = super::Marks::default();
+        super::SENT.with(|sent| sent.borrow_mut().clear());
+        marks.follow_files(vec![(a.clone(), c.clone())], false);
+        marks.forget(std::slice::from_ref(&b));
+        let sent: Vec<super::Edit> = super::SENT.with(|sent| sent.take());
+        super::write(&file, &sent);
+        let now = super::parse(&std::fs::read(&file).unwrap());
+        assert_eq!(now, std::collections::HashMap::from([(c.clone(), (0, 3))]));
         super::TEST_FILE.with(|f| *f.borrow_mut() = None);
         std::fs::remove_dir_all(dir).unwrap();
     }
