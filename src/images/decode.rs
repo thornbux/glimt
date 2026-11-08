@@ -16,7 +16,8 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 /// part.
 pub static MAX_ANIMATION_BYTES: AtomicUsize = AtomicUsize::new(128 << 20);
 
-/// Frames of an animation kept at most, whatever their size.
+/// Frames of an animation kept at most, whatever their size, and given at most to Save This
+/// Frame and Export Frames (`each_frame`).
 const MAX_FRAMES: usize = 1000;
 
 /// image's default limit (`Limits::max_alloc`). Pixels are measured against it only by
@@ -568,7 +569,9 @@ pub fn each_frame(
         return Err(e.clone());
     }
     if let Some(Ok((frames, _))) = animated {
-        for (k, frame) in frames.enumerate() {
+        // Only as many frames are given as the view keeps, so an animation of a million frames
+        // is not hours of work and gigabytes of files.
+        for (k, frame) in frames.enumerate().take(MAX_FRAMES) {
             if only.is_some_and(|o| k > o) {
                 break;
             }
@@ -1696,7 +1699,8 @@ mod tests {
         std::fs::remove_dir_all(dir).unwrap();
     }
 
-    /// A small GIF of many tiny frames keeps 1,000 of them, not one texture each.
+    /// A small GIF of many tiny frames keeps 1,000 of them, not one texture each, and Export
+    /// Frames gives the same 1,000.
     #[test]
     fn keeps_a_thousand_frames() {
         let file =
@@ -1707,6 +1711,9 @@ mod tests {
         drop(enc);
         let (frames, _) = super::animation(&file, [100, 100]).unwrap();
         assert_eq!(frames.len(), super::MAX_FRAMES);
+        // Export Frames gives as many, not every frame of the file.
+        let given = super::each_frame(&file, None, true, |_, _| Ok(())).unwrap();
+        assert_eq!(given, super::MAX_FRAMES);
         std::fs::remove_file(file).unwrap();
     }
 

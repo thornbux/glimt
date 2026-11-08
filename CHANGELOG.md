@@ -19,6 +19,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
   program may write one, is made again rather than used at its size.
 - A file whose thumbnail runs out of time twice (a video or SVG made to stall) is marked as
   having none, as a broken file is, instead of costing 30 seconds at every visit.
+- Export Frames saves at most the first 1,000 frames of an animation, as many as the view keeps,
+  so an animation of a million tiny frames is not hours of work and gigabytes of files.
 
 ## [0.75.0] - 2026-11-08
 
