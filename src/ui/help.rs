@@ -204,7 +204,9 @@ const MANUAL: &[(&str, &str)] = &[
          which can hold the date and in a path your name, under date and photographer. More \
          tags holds every other tag, and whole blocks such as a phone's extra images (MPF) or \
          the maker note. A block goes as soon as any tag of a group it can hold is left out, as \
-         it may hold that tag again. Remove All ticks every box. The orientation and the \
+         it may hold that tag again. Content credentials (C2PA) are never copied: they vouch \
+         for the file's exact bytes, which every copy changes, so they would call it tampered \
+         with. Remove All ticks every box. The orientation and the \
          colour profile are always kept, as without them the copy would look different, and so \
          is an HDR photo's gain map (Ultra HDR), the image after the main one that brightens it \
          on an HDR screen, without its own metadata. The dialog starts with what you left out last time. Copy… asks for the folder. A copy has \

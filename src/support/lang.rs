@@ -580,7 +580,6 @@ msgstr[1] "bilder"
                     "JFIF thumbnail",
                     "Extra images",
                     "Data after",
-                    "Content credentials",
                     "Photoshop resources",
                     "Raw profiles",
                     "JPEG comment",

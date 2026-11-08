@@ -161,7 +161,6 @@ const BLOCKS: &[(&str, &[Group])] = &[
     (AFTER_IMAGE, &Group::ALL),
     ("MakerNote", &Group::ALL),
     (PHOTOSHOP_RESOURCES, &Group::ALL),
-    (C2PA, &Group::ALL),
     ("XMLPacket", &Group::ALL),
     ("IPTC-NAA", &Group::ALL),
     (RAW_PROFILES, &Group::ALL),
@@ -214,9 +213,6 @@ const MPF_SEGMENT_SIZE: usize = 90;
 
 /// The tag of what follows a JPEG's main image when no MPF segment indexes it.
 const AFTER_IMAGE: &str = "Data after the image";
-
-/// The tag of a JPEG's content credentials (C2PA, in APP11 segments).
-const C2PA: &str = "Content credentials (C2PA)";
 
 /// The tag of a JPEG's Photoshop resources other than its IPTC IIM, its EXIF and its XMP, such as
 /// a thumbnail or the paths of a clipping.
@@ -886,7 +882,9 @@ fn add_jpeg_segment<'a>(walked: &mut Walked<'a>, data: &'a [u8], at: usize, end:
         0xe1 if body.starts_with(b"http://ns.adobe.com/xmp/extension/\0") => return,
         0xe2 if body.starts_with(b"ICC_PROFILE\0") || body.starts_with(ISO_GAIN_MAP_NAME) => None,
         0xe2 if body.starts_with(b"MPF\0") => Some(MPF.to_owned()),
-        0xeb if body.starts_with(b"JP") => Some(C2PA.to_owned()),
+        // Content credentials (C2PA) hash the file's other bytes, which every copy changes,
+        // so they would call the copy tampered with. They are never carried.
+        0xeb if body.starts_with(b"JP") => return,
         0xed if body.starts_with(PHOTOSHOP_NAME) => {
             return add_photoshop(walked, &body[PHOTOSHOP_NAME.len()..], at);
         }
@@ -1087,6 +1085,8 @@ fn walk_png(data: &[u8]) -> Option<Walked<'_>> {
             }
             b"tEXt" | b"zTXt" | b"iTXt" => png_text_tag(&mut walked, &name, body),
             b"tIME" => Some(Some("tIME".to_owned())),
+            // Content credentials, never carried, as in a JPEG (`add_jpeg_segment`).
+            b"caBX" => None,
             n => Some(Some(format!("PNG chunk {}", String::from_utf8_lossy(n)))),
         };
         if let Some(tag) = tag {
@@ -1159,6 +1159,8 @@ fn walk_webp(data: &[u8]) -> Option<Walked<'_>> {
             b"XMP " => {
                 walked.xmp.get_or_insert(body);
             }
+            // Content credentials, never carried, as in a JPEG (`add_jpeg_segment`).
+            b"C2PA" => {}
             n => {
                 let tag = format!("WebP chunk {}", String::from_utf8_lossy(n));
                 walked.add(data, at, end, Some(&tag));
@@ -1708,12 +1710,11 @@ mod tests {
             super::AFTER_IMAGE,
             "MakerNote",
             super::PHOTOSHOP_RESOURCES,
-            super::C2PA,
             "XMLPacket",
             "IPTC-NAA",
             super::RAW_PROFILES,
             "JPEG APP12",
-            "PNG chunk caBX",
+            "PNG chunk vpAg",
             "WebP chunk XYZW",
             "Image 0x8649",
         ];
@@ -2006,6 +2007,51 @@ mod tests {
         assert!(!has(&copy, b"TH-UMB") && has(&copy, b"JFIF\0\x01\x01\0\0\x01\0\x01\0\0"));
         let pixels = |b: &[u8]| image::load_from_memory(b).unwrap().to_rgba8();
         assert!(pixels(&original) == pixels(&copy) && pixels(&original) == pixels(&kept));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// Content credentials (C2PA) are never copied, nor listed as a tag, from a JPEG (APP11), a
+    /// PNG (caBX) or a WebP (C2PA): the copy's new bytes would no longer match their hash, and
+    /// a validator would call it tampered with. They go also when nothing is left out.
+    #[test]
+    fn content_credentials_are_never_copied() {
+        let dir = folder("c2pa");
+        let jumbf = b"JP\0\x01\0\0\0\x01\0\0\0\x20jumbc2pa-MANIFEST-SECRET";
+        let mut jpeg = Vec::new();
+        let encoder = image::codecs::jpeg::JpegEncoder::new_with_quality(&mut jpeg, 90);
+        picture().write_with_encoder(encoder).unwrap();
+        let jpeg = [&jpeg[..2], &super::jpeg_segment(0xeb, jumbf), &jpeg[2..]].concat();
+        let mut png = Vec::new();
+        let encoder = image::codecs::png::PngEncoder::new(&mut png);
+        picture().write_with_encoder(encoder).unwrap();
+        let png = [&png[..33], &super::png_chunk(b"caBX", jumbf), &png[33..]].concat();
+        let mut webp = Vec::new();
+        let encoder = image::codecs::webp::WebPEncoder::new_lossless(&mut webp);
+        picture().write_with_encoder(encoder).unwrap();
+        let mut webp = crate::images::save::webp_with_chunk(&webp, b"C2PA", jumbf, 16, 16).unwrap();
+        // The extended header's flag of XMP, which that sets for a chunk it does not know.
+        webp[20] &= !0x04;
+        for (name, original) in [("a.jpg", jpeg), ("a.png", png), ("a.webp", webp)] {
+            let path = dir.join(name);
+            std::fs::write(&path, &original).unwrap();
+            let found = super::tags_of(&path).unwrap().unwrap();
+            let copy = super::copy(&path, &found.iter().cloned().collect())
+                .unwrap()
+                .unwrap();
+            let has = |b: &[u8]| b.windows(15).any(|w| w == b"MANIFEST-SECRET");
+            assert!(
+                has(&original) && !has(&copy),
+                "{name} keeps its credentials"
+            );
+            assert!(
+                found
+                    .iter()
+                    .all(|t| !t.contains("C2PA") && !t.contains("caBX")),
+                "{name}"
+            );
+            let pixels = |b: &[u8]| image::load_from_memory(b).unwrap().to_rgba8();
+            assert!(pixels(&original) == pixels(&copy), "{name}");
+        }
         std::fs::remove_dir_all(dir).unwrap();
     }
 
