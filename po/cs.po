@@ -1165,8 +1165,8 @@ msgid "No images in folder"
 msgstr "Ve složce nejsou žádné obrázky"
 
 #: src/main.rs
-msgid "No plugins"
-msgstr "Žádné zásuvné moduly"
+msgid "No tools"
+msgstr "Žádné nástroje"
 
 #: src/main.rs
 msgid "No such folder: {folder}"
@@ -1197,8 +1197,8 @@ msgid "Open Recent"
 msgstr "Otevřít nedávné"
 
 #: src/main.rs
-msgid "Open the Plugins Folder"
-msgstr "Otevřít složku zásuvných modulů"
+msgid "Open the Tools Folder"
+msgstr "Otevřít složku nástrojů"
 
 #: src/main.rs
 msgid "Open Themes Folder"
@@ -1225,8 +1225,8 @@ msgid "Places|Norway|Oslo"
 msgstr "Místa|Česko|Praha"
 
 #: src/main.rs
-msgid "Plugins"
-msgstr "Zásuvné moduly"
+msgid "Tools"
+msgstr "Nástroje"
 
 #: src/main.rs
 msgid "Put the old names back"

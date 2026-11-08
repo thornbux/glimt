@@ -1,7 +1,7 @@
 //! External programs: ffmpeg for HEIC, AVIF and video frames, gio for mounting and for the
 //! programs that open a file, and xdg-open. Inside a Flatpak they run on the host (`command`).
-//! `output_of` reads a program's output with a limit of time and size, also for decoder
-//! plugins, and `stoppable_command` starts a program that can be stopped with everything it
+//! `output_of` reads a program's output with a limit of time and size, also for added
+//! formats, and `stoppable_command` starts a program that can be stopped with everything it
 //! started.
 
 use crate::model::listing::{AVIF_EXTS, HEIC_EXTS, has_ext};
@@ -337,12 +337,12 @@ pub(crate) fn in_flatpak() -> bool {
 }
 
 /// Ends the program `pid`, started in a process group of its own and not yet waited for, with
-/// what it started. It is Stop for a plugin. Once its group is gone (waited for by its own
+/// what it started. It is Stop for a tool. Once its group is gone (waited for by its own
 /// thread), no KILL follows, because it could reach a group that took the number since. In a
 /// Flatpak the group is flatpak-spawn's, which passes INT on to the program's group on the
 /// host, but not a KILL.
-/// shortcut: there a child the plugin started in the background (`cmd &` in a script) ignores
-/// INT and goes on; start plugins with --watch-bus in their own session if that matters.
+/// shortcut: there a child the tool started in the background (`cmd &` in a script) ignores
+/// INT and goes on; start tools with --watch-bus in their own session if that matters.
 pub fn stop_process_group(pid: u32) {
     let group = -(pid as i32);
     // In a Flatpak, flatpak-spawn passes INT on to the program's whole group on the host, but
@@ -778,7 +778,7 @@ pub fn command(program: &str) -> std::process::Command {
     std::process::Command::new(program)
 }
 
-/// The user's own program, or one only the host has: a plugin, a decoder, a player, an
+/// The user's own program, or one only the host has: a tool, an added format, a player, an
 /// application of Open With, gio mount, an idle inhibitor. In a Flatpak it runs on the host
 /// through `flatpak-spawn --host`, which needs a permission the Flatpak does not ask for (Flathub
 /// allows none). Without the permission, it is a command that fails saying how to give it, so

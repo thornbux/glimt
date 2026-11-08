@@ -1037,8 +1037,8 @@ msgid "No images in folder"
 msgstr "No hay imágenes en la carpeta"
 
 #: src/main.rs
-msgid "No plugins"
-msgstr "No hay complementos"
+msgid "No tools"
+msgstr "No hay herramientas"
 
 #: src/main.rs
 msgid "No such folder: {folder}"
@@ -1061,8 +1061,8 @@ msgid "Only the images of a collection can be moved"
 msgstr "Solo se pueden mover las imágenes de una colección"
 
 #: src/main.rs
-msgid "Open the Plugins Folder"
-msgstr "Abrir la carpeta de complementos"
+msgid "Open the Tools Folder"
+msgstr "Abrir la carpeta de herramientas"
 
 #: src/main.rs
 msgid "Open Themes Folder"
@@ -1089,8 +1089,8 @@ msgid "Places|Norway|Oslo"
 msgstr "Lugares|Noruega|Oslo"
 
 #: src/main.rs
-msgid "Plugins"
-msgstr "Complementos"
+msgid "Tools"
+msgstr "Herramientas"
 
 #: src/main.rs
 msgid "Put the old names back"

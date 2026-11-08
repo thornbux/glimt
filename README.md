@@ -21,8 +21,8 @@ images to several hundred thousand. The name *Glimt* is Norwegian for "glimpse".
   gigabytes or bring the viewer down.
 - **Respects your files.** Ratings, keywords and comments go to XMP sidecars that darktable,
   digiKam, Lightroom and Immich read. Copy and move never overwrite a file.
-- **Every format a photographer meets**, RAW and HEIC included, and more through decoder
-  plugins (DICOM, FITS, microscopy …). Imports Lightroom Classic catalogs.
+- **Every format a photographer meets**, RAW and HEIC included, and more through formats you
+  add (DICOM, FITS, microscopy …). Imports Lightroom Classic catalogs.
 - **One binary** for any distribution with glibc 2.28 or newer: `.deb`, `.rpm`, `.tar.gz`,
   AppImage and Flatpak.
 
@@ -33,7 +33,7 @@ images to several hundred thousand. The name *Glimt* is Norwegian for "glimpse".
 | [Download](https://glimt.pario.no/download/) | The packages, and how to check a download |
 | [Getting started](https://glimt.pario.no/getting-started/) | Opening a folder, the keys used most, searching |
 | [Features](https://glimt.pario.no/features/) and [screenshots](https://glimt.pario.no/screenshots/) | What Glimt does, and what it looks like |
-| [Plugins and formats](https://glimt.pario.no/plugins-and-formats/) | The formats, decoder plugins and how to write one |
+| [Tools and formats](https://glimt.pario.no/plugins-and-formats/) | The formats, the formats you can add, the tools and how to write one |
 | [Coming from Lightroom](https://glimt.pario.no/coming-from-lightroom/) | Importing a Lightroom Classic catalog |
 | [Command line](https://glimt.pario.no/command-line/) | Start options and remote control (also `man glimt`) |
 | [Scripts and AI](https://glimt.pario.no/scripts-and-ai/) | Scripts and assistants working with Glimt, safely |
@@ -111,8 +111,8 @@ flatpak-builder --user --install --install-deps-from=flathub --force-clean \
 flatpak run io.github.thornbux.Glimt
 ```
 
-Your own programs (plugins, decoders, a video player, Open With) and network shares are on the
-host, which the Flatpak reaches only after
+Your own programs (tools, added formats, a video player, Open With) and network shares are on
+the host, which the Flatpak reaches only after
 `flatpak override --user --talk-name=org.freedesktop.Flatpak io.github.thornbux.Glimt`.
 
 ### Desktop integration
@@ -140,7 +140,7 @@ install -Dm644 docs/glimt.1 ~/.local/share/man/man1/glimt.1
 | HEIC, AVIF, video previews | `ffmpeg` and `ffprobe` (8.0 or newer for HEIC) | none |
 | Printing | `lp` (CUPS); in the Flatpak the print portal | Save as PDF |
 | No screen saver in full screen | `gnome-session-inhibit` or `systemd-inhibit`; in the Flatpak the inhibit portal | none |
-| A decoder plugin's format | the program its `Exec` line names | none |
+| An added format | the program its `Exec` line names | none |
 
 ## Restoring a backup
 

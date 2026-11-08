@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""A Glimt decoder: the middle axial slice of a NIfTI volume (.nii, .nii.gz), as brain MRI and
+"""A Glimt format: the middle axial slice of a NIfTI volume (.nii, .nii.gz), as brain MRI and
 fMRI research keep them, written as a grey PGM to standard output.
 
 The volume is turned to the closest standard orientation (RAS) first, so the slice is seen from

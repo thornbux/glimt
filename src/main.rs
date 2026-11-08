@@ -62,7 +62,7 @@ struct App {
     /// report, and Undo.
     file_operations: crate::files::file_ops::FileOperations,
     /// The count of work still running in the background, for the busy pointer. Deletes,
-    /// copies and moves, printing, Check Images, Rename Many, the Lightroom import, plugins and
+    /// copies and moves, printing, Check Images, Rename Many, the Lightroom import, tools and
     /// every `run_in_background` count.
     busy: Arc<AtomicUsize>,
 
@@ -128,10 +128,10 @@ struct App {
     preferences: crate::ui::preferences::Preferences,
     /// Open With's programs for each file type, read in the background.
     open_with: crate::ui::menus::OpenWith,
-    /// Edit → Plugins, read at start.
-    plugins: Vec<crate::features::plugins::Plugin>,
-    /// The plugins running, for Stop in their menu.
-    plugins_running: crate::features::plugins::RunningPlugins,
+    /// Edit → Tools, read at start.
+    tools: Vec<crate::features::tools::Tool>,
+    /// The tools running, for Stop in their menu.
+    tools_running: crate::features::tools::RunningTools,
     /// The help page open (F1), if any.
     help: Option<crate::ui::help::Page>,
     /// File → Print's dialog, while open.
@@ -245,8 +245,8 @@ impl App {
             dialogs: crate::ui::dialogs::Dialogs::default(),
             preferences: crate::ui::preferences::Preferences::default(),
             open_with: crate::ui::menus::OpenWith::default(),
-            plugins: crate::features::plugins::find(),
-            plugins_running: crate::features::plugins::RunningPlugins::default(),
+            tools: crate::features::tools::find(),
+            tools_running: crate::features::tools::RunningTools::default(),
             help: None,
             print_dialog: None,
             lightroom_catalog_answer: Receiving::none(),

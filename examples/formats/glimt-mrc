@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""A Glimt decoder: MRC files from cryo-electron microscopy and tomography (.mrc, .mrcs, .map,
+"""A Glimt format: MRC files from cryo-electron microscopy and tomography (.mrc, .mrcs, .map,
 .rec, .st, .ali), written as a grey PGM to standard output: a single image as it is, of a stack
 of micrographs the first, of a 3D map or tomogram the middle section.
 

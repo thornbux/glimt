@@ -190,7 +190,7 @@ pub fn is_hidden(path: &Path) -> bool {
 
 fn is_listed_type(path: &Path, types: Types) -> bool {
     (types.images
-        && (built_in_image(path) || crate::images::decoder_plugins::for_path(path).is_some()))
+        && (built_in_image(path) || crate::images::added_formats::for_path(path).is_some()))
         || (types.raw && has_ext(path, raw::EXTS))
         || (types.videos && is_video(path))
 }
@@ -200,7 +200,7 @@ fn built_in_image(path: &Path) -> bool {
     has_ext(path, EXTS) || is_heif(path) || has_ext(path, JXL_EXTS) || has_ext(path, SVG_EXTS)
 }
 
-/// Whether Glimt reads the format of `path` itself, as built: a decoder plugin is not asked.
+/// Whether Glimt reads the format of `path` itself, as built: an added format is not asked.
 pub fn built_in_format(path: &Path) -> bool {
     built_in_image(path) || has_ext(path, raw::EXTS) || is_video(path)
 }

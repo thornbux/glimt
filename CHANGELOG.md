@@ -15,6 +15,15 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
+- Plugins are called tools now: Edit → Plugins is Edit → Tools, and their folder is
+  ~/.local/share/glimt/tools (/usr/share/glimt/tools for the system). Decoder plugins, which
+  let Glimt open more formats, are called formats, in ~/.local/share/glimt/formats. The old
+  folders, plugins and decoders, still work and are always read; a desktop file of the same
+  name in the new folder comes first. The desktop files keep their format.
+- The examples are in examples/tools and examples/formats (/usr/share/doc/glimt/examples/ in
+  the packages), each desktop file named for the program it runs: describe.desktop runs
+  glimt-describe, and the ImageMagick ones are dicom-imagemagick.desktop and
+  fits-imagemagick.desktop.
 - Inside, the check that the file list is drawn only by its known views also watches the
   functions that draw one row or cell of it, which a new view could call directly.
 - Inside, the check that every modal dialog is in the one list of what is open compares the

@@ -1037,8 +1037,8 @@ msgid "No images in folder"
 msgstr "Kansiossa ei ole kuvia"
 
 #: src/main.rs
-msgid "No plugins"
-msgstr "Ei liitännäisiä"
+msgid "No tools"
+msgstr "Ei työkaluja"
 
 #: src/main.rs
 msgid "No such folder: {folder}"
@@ -1061,8 +1061,8 @@ msgid "Only the images of a collection can be moved"
 msgstr "Vain kokoelman kuvia voi siirtää"
 
 #: src/main.rs
-msgid "Open the Plugins Folder"
-msgstr "Avaa liitännäiskansio"
+msgid "Open the Tools Folder"
+msgstr "Avaa työkalukansio"
 
 #: src/main.rs
 msgid "Open Themes Folder"
@@ -1089,8 +1089,8 @@ msgid "Places|Norway|Oslo"
 msgstr "Paikat|Norja|Oslo"
 
 #: src/main.rs
-msgid "Plugins"
-msgstr "Liitännäiset"
+msgid "Tools"
+msgstr "Työkalut"
 
 #: src/main.rs
 msgid "Put the old names back"

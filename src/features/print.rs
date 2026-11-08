@@ -227,8 +227,8 @@ impl PrintTo {
         self.is_listed_by(|file| crate::model::listing::is_listed(file, every))
     }
 
-    /// Whether this is a file that `listed` lists, and whose name does not end in ".pdf". A
-    /// decoder plugin for PDFs makes every PDF listed, but a PDF written over a PDF is what the
+    /// Whether this is a file that `listed` lists, and whose name does not end in ".pdf". An
+    /// added format for PDFs makes every PDF listed, but a PDF written over a PDF is what the
     /// user chose, so such a name is never refused.
     fn is_listed_by(&self, listed: impl Fn(&Path) -> bool) -> bool {
         let pdf = |file: &Path| {
@@ -1426,7 +1426,7 @@ mod tests {
         std::fs::remove_dir_all(dir).unwrap();
     }
 
-    /// A name ending in ".pdf" is written even when a decoder plugin for PDFs lists it, while
+    /// A name ending in ".pdf" is written even when an added format for PDFs lists it, while
     /// another listed name is still refused.
     #[test]
     fn prints_over_a_listed_pdf() {

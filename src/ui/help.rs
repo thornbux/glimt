@@ -319,20 +319,22 @@ const MANUAL: &[(&str, &str)] = &[
          desktop's own, which picks the printer. Every choice is remembered.",
     ),
     (
-        "Plugins",
-        "Edit → Plugins runs a program on the selected files, or the shown \
+        "Tools",
+        "Edit → Tools runs a program on the selected files, or the shown \
          one, as Geeqie's plugins do, and shows them again afterwards.\n\n\
-         A plugin is a desktop file in ~/.local/share/glimt/plugins (the menu opens that folder), \
+         A tool is a desktop file in ~/.local/share/glimt/tools (the menu opens that folder), \
          for example Name=Rotate and Exec=mogrify -rotate 90 %f:\n\n\
          - %f runs it once for each file\n\
          - %F once for all\n\
          - without either it runs once in the folder.\n\n\
-         A program next to the desktop file is found there. New plugins show after a restart. The \
+         A program next to the desktop file is found there. New tools show after a restart. The \
          files are given to the program directly, never through a shell. With MimeType= in the \
-         desktop file, as image/x-canon-cr2;image/x-nikon-nef; or image/*, the plugin is given \
+         desktop file, as image/x-canon-cr2;image/x-nikon-nef; or image/*, the tool is given \
          only the files of those types, and Glimt says how many it leaves out. The types are \
-         those shared-mime-info names, not their aliases or parent types.\n\n\
-         /usr/share/doc/glimt/examples/plugins (examples/plugins in the tar.gz and the \
+         those shared-mime-info names, not their aliases or parent types. The folder's old name, \
+         ~/.local/share/glimt/plugins, is still read; a desktop file of the same name in tools \
+         comes first.\n\n\
+         /usr/share/doc/glimt/examples/tools (examples/tools in the tar.gz and the \
          source) has one that writes a description of each image as its \
          comment and alt text, made by a model on this computer, and one that reads the alt text \
          of the selected images aloud (speech-dispatcher), without a screen reader.",
@@ -349,13 +351,14 @@ const MANUAL: &[(&str, &str)] = &[
          A video shows as a still frame from it; Enter (File → Play Video) plays it in the player \
          set in Preferences, a command line such as mpv --fs, or else in the desktop's default \
          player.\n\n\
-         A decoder plugin teaches Glimt a format it does not read itself, such as JPEG 2000, FITS, \
-         DICOM or OpenEXR: a desktop file in ~/.local/share/glimt/decoders with Extensions=jp2;j2k \
+         A format of your own teaches Glimt one it does not read itself, such as JPEG 2000, FITS, \
+         DICOM or OpenEXR: a desktop file in ~/.local/share/glimt/formats with Extensions=jp2;j2k \
          and an Exec command that writes the image (PNM, PNG …) to its standard output, %f being \
          the file. Such files are then listed and shown as any other, with thumbnails. The command \
-         runs without a shell, for 30 seconds at most.\n\n\
-         /usr/share/doc/glimt/examples/decoders (examples/decoders in the tar.gz and the \
-         source) has decoders for:\n\n\
+         runs without a shell, for 30 seconds at most. The folder's old name, \
+         ~/.local/share/glimt/decoders, is still read.\n\n\
+         /usr/share/doc/glimt/examples/formats (examples/formats in the tar.gz and the \
+         source) has formats for:\n\n\
          - JPEG 2000 (ffmpeg)\n\
          - FITS from telescopes (astropy)\n\
          - DICOM from medical and dental imaging, also compressed (pydicom)\n\
@@ -365,7 +368,7 @@ const MANUAL: &[(&str, &str)] = &[
          - microscope files (Bio-Formats)\n\
          - cryo-EM maps (MRC) and HDF5, NetCDF-4 and NeXus data\n\
          - Photoshop, TGA and OpenEXR, and GIMP's own files (ImageMagick).\n\n\
-         New decoders are seen after a restart.",
+         New formats are seen after a restart.",
     ),
     (
         "Sort manager",
@@ -585,7 +588,7 @@ const MANUAL: &[(&str, &str)] = &[
          or an action the search stops, are read out as they come, without moving the focus.\n\n\
          Tab moves to the panels and menus, and a ring in the accent colour shows where the \
          keyboard focus is; a click puts it away. Write the alt text yourself in the info panel, \
-         or let a plugin write it (see Plugins).",
+         or let a tool write it (see Tools).",
     ),
     (
         "Preferences",
@@ -789,8 +792,8 @@ const DIFFERENCES: &[(&str, &str, &str)] = &[
         "Collections only",
     ),
     (
-        "Plugins",
-        "Desktop files in ~/.local/share/glimt/plugins, in Edit → Plugins; no hotkeys or menu paths",
+        "Tools (plugins)",
+        "Desktop files in ~/.local/share/glimt/tools, in Edit → Tools; no hotkeys or menu paths",
         "Desktop files in geeqie/applications, also with hotkeys, filters and menu paths",
     ),
     (

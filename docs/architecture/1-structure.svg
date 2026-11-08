@@ -79,7 +79,7 @@
       <text x="616" y="310">duplicates.rs</text>
       <text x="616" y="325">check.rs</text>
       <text x="616" y="340">print.rs</text>
-      <text x="616" y="355">plugins.rs</text>
+      <text x="616" y="355">tools.rs</text>
       <text x="616" y="370">remote.rs</text>
     </g>
 
@@ -99,7 +99,7 @@
       <text x="40" y="636">decode.rs</text><text x="178" y="636">colour.rs</text>
       <text x="40" y="652">save.rs</text><text x="178" y="652">raw.rs</text>
       <text x="40" y="668">thumbs.rs</text><text x="178" y="668">svg.rs</text>
-      <text x="40" y="684">decoder_plugins.rs</text><text x="178" y="684">video.rs</text>
+      <text x="40" y="684">added_formats.rs</text><text x="178" y="684">video.rs</text>
     </g>
 
     <rect x="284" y="550" width="246" height="154" rx="6" fill="#fdeaea" stroke="#c0392b" stroke-width="1.5"/>

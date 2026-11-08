@@ -4,7 +4,7 @@
 # The release workflow makes a bundle of it. The crates come from cargo-sources.json (made by
 # tools/flatpak-sources.py from Cargo.lock), so the build needs no network, as on Flathub.
 # Glimt's own programs (ffmpeg, zenity, gio, gdbus, sqlite3) are the runtime's, in the sandbox;
-# GTK and gio use the desktop portals there. The user's own (plugins, decoders, a player, Open
+# GTK and gio use the desktop portals there. The user's own (tools, added formats, a player, Open
 # With's applications) run on the host only after
 #   flatpak override --user --talk-name=org.freedesktop.Flatpak io.github.thornbux.Glimt
 # The whole file system, as an image viewer's (Geeqie's on Flathub too): any folder, sidecars

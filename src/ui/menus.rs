@@ -1,4 +1,4 @@
-//! The menu bar and toolbar, the menus that change settings, Plugins and Open With, and the helpers
+//! The menu bar and toolbar, the menus that change settings, Tools and Open With, and the helpers
 //! every menu is drawn with.
 
 use crate::files::config::xdg_dir;
@@ -12,7 +12,7 @@ use crate::support::lang::tr;
 use crate::support::test_hooks::noted;
 use crate::support::threads::{Receiving, Took};
 use crate::ui::actions::{Action, shortcut_text};
-use crate::{features::plugins, files::config, files::external, model::collections, tf, ui::theme};
+use crate::{features::tools, files::config, files::external, model::collections, tf, ui::theme};
 use eframe::egui;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -385,7 +385,7 @@ impl crate::App {
         menu_item(ui, chosen, Action::Crop);
         menu_item(ui, chosen, Action::FocusKeywords);
         ui.separator();
-        self.plugins_menu(ui);
+        self.tools_menu(ui);
         ui.separator();
         menu_item(ui, chosen, Action::Preferences);
     }
@@ -527,104 +527,97 @@ impl crate::App {
         menu_item(ui, chosen, Action::DeletePermanently);
     }
 
-    /// Edit → Plugins: run one on the selected files, or the shown one, in the background;
-    /// they are read again afterwards, as plugins change them.
-    pub(crate) fn plugins_menu(&mut self, ui: &mut egui::Ui) {
-        scroll_menu(
-            ui,
-            with_icon(ui, theme::icon::PLUGIN, tr("Plugins")),
-            |ui| {
-                ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Extend);
-                let dir =
-                    xdg_dir("XDG_DATA_HOME", ".local/share", "glimt").map(|d| d.join("plugins"));
-                if self.plugins.is_empty() {
-                    ui.weak(tr("No plugins"));
+    /// Edit → Tools: run one on the selected files, or the shown one, in the background. The
+    /// files are read again afterwards, as tools change them.
+    pub(crate) fn tools_menu(&mut self, ui: &mut egui::Ui) {
+        scroll_menu(ui, with_icon(ui, theme::icon::TOOL, tr("Tools")), |ui| {
+            ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Extend);
+            // The new folder only: the old one of `tools::RENAMED_FOLDERS` is still read.
+            let dir = xdg_dir("XDG_DATA_HOME", ".local/share", "glimt").map(|d| d.join("tools"));
+            if self.tools.is_empty() {
+                ui.weak(tr("No tools"));
+            }
+            let mut chosen = None;
+            for (k, tool) in self.tools.iter().enumerate() {
+                if icon_button(ui, theme::icon::TOOL, &tool.name).clicked() {
+                    chosen = Some(k);
                 }
-                let mut chosen = None;
-                for (k, plugin) in self.plugins.iter().enumerate() {
-                    if icon_button(ui, theme::icon::PLUGIN, &plugin.name).clicked() {
-                        chosen = Some(k);
-                    }
-                }
-                // A plugin that is still running, an editor left open or a script that hangs: ended
-                // here, with what it started, in the background (it is given a second).
-                let running = self.plugins_running.lock().unwrap().clone();
-                if !running.is_empty() {
-                    ui.separator();
-                }
-                for (name, pid) in running {
-                    let text = tf!("Stop {name}", name);
-                    if icon_button(ui, theme::icon::STOP, &text).clicked() {
-                        let mut running = self.plugins_running.lock().unwrap();
-                        let was = running.len();
-                        running.retain(|r| r.1 != pid);
-                        // Not when it ended meanwhile: its number may be another's by now.
-                        if running.len() < was {
-                            std::thread::spawn(move || external::stop_process_group(pid));
-                        }
-                    }
-                }
+            }
+            // A tool that is still running, an editor left open or a script that hangs, is
+            // ended here with what it started, in the background (it is given a second).
+            let running = self.tools_running.lock().unwrap().clone();
+            if !running.is_empty() {
                 ui.separator();
-                if icon_button(ui, theme::icon::FOLDER_OPEN, tr("Open the Plugins Folder"))
-                    .on_hover_text(tr(
-                        "Desktop files there, as Geeqie's, show in this menu after a restart",
-                    ))
-                    .clicked()
-                    && let Some(dir) = dir
-                {
-                    let _ = std::fs::create_dir_all(&dir);
-                    open_url(&dir.to_string_lossy());
-                }
-                let Some(k) = chosen.filter(|_| !self.list.files().is_empty()) else {
-                    return;
-                };
-                let Some(targets) = self.targets() else {
-                    return;
-                };
-                let plugin = self.plugins[k].clone();
-                let (files, left): (Vec<PathBuf>, Vec<PathBuf>) =
-                    (targets.iter().map(|&i| self.path(i))).partition(|p| plugin.accepts(p));
-                let name = &plugin.name;
-                if files.is_empty() {
-                    self.notice = Some(tf!("{name} takes none of these files", name));
-                    return;
-                }
-                if !left.is_empty() {
-                    let files = count(left.len(), "file");
-                    self.notice = Some(tf!(
-                        "{name} leaves out {files} of a type it does not take",
-                        name,
-                        files
-                    ));
-                }
-                // A turned image still being saved would be written over the plugin's edit. The
-                // files are held while the plugin runs, so a delete, move or rename of them waits.
-                let Some(held_back) = self.hold_back_while_writing(files.clone()) else {
-                    return;
-                };
-                let (dir, running) = (
-                    self.folder.dir().to_path_buf(),
-                    self.plugins_running.clone(),
-                );
-                let report_tx = self.file_operations.report_sender();
-                let (tx, ctx) = (self.notice_sender.clone(), ui.ctx().clone());
-                // A plugin may be an editor that stays open for hours: not waited for at closing,
-                // and no busy pointer meanwhile, as for Open With.
-                std::thread::spawn(move || {
-                    let result = plugin.run(&files, &dir, &running);
-                    drop(held_back);
-                    let _ = report_tx.send(OperationReport {
-                        read_folder_again: true,
-                        changed: files,
-                        ..Default::default()
-                    });
-                    if let Err(e) = result {
-                        let _ = tx.send(format!("{}: {e}", plugin.name));
+            }
+            for (name, pid) in running {
+                let text = tf!("Stop {name}", name);
+                if icon_button(ui, theme::icon::STOP, &text).clicked() {
+                    let mut running = self.tools_running.lock().unwrap();
+                    let was = running.len();
+                    running.retain(|r| r.1 != pid);
+                    // Not when it ended meanwhile: its number may be another's by now.
+                    if running.len() < was {
+                        std::thread::spawn(move || external::stop_process_group(pid));
                     }
-                    ctx.request_repaint();
+                }
+            }
+            ui.separator();
+            if icon_button(ui, theme::icon::FOLDER_OPEN, tr("Open the Tools Folder"))
+                .on_hover_text(tr(
+                    "Desktop files there, as Geeqie's, show in this menu after a restart",
+                ))
+                .clicked()
+                && let Some(dir) = dir
+            {
+                let _ = std::fs::create_dir_all(&dir);
+                open_url(&dir.to_string_lossy());
+            }
+            let Some(k) = chosen.filter(|_| !self.list.files().is_empty()) else {
+                return;
+            };
+            let Some(targets) = self.targets() else {
+                return;
+            };
+            let tool = self.tools[k].clone();
+            let (files, left): (Vec<PathBuf>, Vec<PathBuf>) =
+                (targets.iter().map(|&i| self.path(i))).partition(|p| tool.accepts(p));
+            let name = &tool.name;
+            if files.is_empty() {
+                self.notice = Some(tf!("{name} takes none of these files", name));
+                return;
+            }
+            if !left.is_empty() {
+                let files = count(left.len(), "file");
+                self.notice = Some(tf!(
+                    "{name} leaves out {files} of a type it does not take",
+                    name,
+                    files
+                ));
+            }
+            // A turned image still being saved would be written over the tool's edit. The
+            // files are held while the tool runs, so a delete, move or rename of them waits.
+            let Some(held_back) = self.hold_back_while_writing(files.clone()) else {
+                return;
+            };
+            let (dir, running) = (self.folder.dir().to_path_buf(), self.tools_running.clone());
+            let report_tx = self.file_operations.report_sender();
+            let (tx, ctx) = (self.notice_sender.clone(), ui.ctx().clone());
+            // A tool may be an editor that stays open for hours: not waited for at closing,
+            // and no busy pointer meanwhile, as for Open With.
+            std::thread::spawn(move || {
+                let result = tool.run(&files, &dir, &running);
+                drop(held_back);
+                let _ = report_tx.send(OperationReport {
+                    read_folder_again: true,
+                    changed: files,
+                    ..Default::default()
                 });
-            },
-        );
+                if let Err(e) = result {
+                    let _ = tx.send(format!("{}: {e}", tool.name));
+                }
+                ctx.request_repaint();
+            });
+        });
     }
 
     /// The Open With submenu. It lists the applications registered for the type of the first
@@ -708,7 +701,7 @@ impl crate::App {
             return;
         }
         let (path, tx) = (self.path(self.list.shown()), self.notice_sender.clone());
-        let mut words = plugins::command_words(command_line);
+        let mut words = tools::command_words(command_line);
         std::thread::spawn(move || {
             // The player stays open as long as it plays, waited for in this thread.
             let run = |name: &str, mut cmd: std::process::Command| {

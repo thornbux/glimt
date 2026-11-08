@@ -22,7 +22,7 @@ if [ "$(id -u)" = 0 ]; then
     apt-get install -y -qq xvfb xdotool x11-utils xclip imagemagick libimage-exiftool-perl ffmpeg \
         poppler-utils libglib2.0-bin colord-data python3 procps libgl1-mesa-dri libegl1 libgl1 \
         libxkbcommon-x11-0 libxcursor1 libxrandr2 libxi6 libx11-xcb1 sqlite3 shared-mime-info python3-nibabel python3-h5py python3-openslide python3-mrcfile python3-astropy python3-pydicom python3-gdcm libgdcm-tools default-jre-headless unzip dosfstools rclone fuse3 gvfs gvfs-fuse gvfs-backends openssh-server dbus >/dev/null || { echo "FAIL installing the tools"; exit 1; }
-    # Bio-Formats for its decoder is no Debian package: its release, checked against the hash
+    # Bio-Formats for its format is no Debian package: its release, checked against the hash
     # it had when added.
     curl -sfL -o /tmp/bftools.zip \
         https://downloads.openmicroscopy.org/bio-formats/8.5.0/artifacts/bftools.zip
@@ -145,6 +145,9 @@ config() {
     if [ "$V" = old ]; then printf '%s\n' "$@" | sed "$OLD_KEYS"; else printf '%s\n' "$@"; fi \
         >$XDG_CONFIG_HOME/glimt/config
 }
+# The folder of the added formats' desktop files. OLD before 0.75.0 reads only its old name,
+# decoders, so it gets that; NEW reads both, and the old one is still read for good.
+formats_dir() { if [ "$V" = old ]; then echo $XDG_DATA_HOME/glimt/decoders; else echo $XDG_DATA_HOME/glimt/formats; fi; }
 # The start of a section: its title, and NEW with nothing left by a section before, neither in
 # the homes nor in /tmp/stub, as run.sh may start a part at any section. The working folder and
 # the variables a section exports for itself are reset too; a new one of those goes in the list.
@@ -1736,12 +1739,12 @@ for v in new old; do
     else note "old: $listed"; fi
 done
 
-section "decoder plugins: the examples show a .jp2 through ffmpeg and a .fits through astropy"
+section "added formats: the examples show a .jp2 through ffmpeg and a .fits through astropy"
 for v in new old; do
     as_version $v
     d=/tmp/decoders-$v
-    mkdir -p $d $XDG_DATA_HOME/glimt/decoders
-    cp /t/new/examples/decoders/* $XDG_DATA_HOME/glimt/decoders/
+    mkdir -p $d $(formats_dir)
+    cp /t/new/examples/formats/* $(formats_dir)/
     ffmpeg -v error -f lavfi -i color=red:s=600x400 -frames:v 1 -c:v jpeg2000 $d/a.jp2
     # Grey, as telescopes write it: dark at the top, light at the bottom.
     convert -size 600x400 gradient:black-white $d/b.fits
@@ -1759,9 +1762,9 @@ fits.CompImageHDU(numpy.fromfunction(lambda y, x: y, (400, 600), dtype=numpy.flo
     shot decoder-fz-$v
     quit
     if [ $v = new ]; then
-        expect "a .jp2 through its decoder" "$(colour decoder-jp2-new 640 400)" red
+        expect "a .jp2 through its format" "$(colour decoder-jp2-new 640 400)" red
         top=$(red decoder-fits-new 640 120) bottom=$(red decoder-fits-new 640 700)
-        expect "a .fits through its decoder, stretched" "$([ $top -lt 60 ] && [ $bottom -gt 190 ] && echo yes)" yes
+        expect "a .fits through its format, stretched" "$([ $top -lt 60 ] && [ $bottom -gt 190 ] && echo yes)" yes
         top=$(red decoder-fz-new 760 120) bottom=$(red decoder-fz-new 760 700)
         expect "a compressed .fits.fz, its top at the top" "$([ $top -gt 190 ] && [ $bottom -lt 60 ] && echo yes)" yes
     else note "old: $(colour decoder-jp2-old 640 400), fits $(red decoder-fits-old 640 700)"; fi
@@ -1773,8 +1776,8 @@ for v in new old; do
     d=/tmp/decoders-imagemagick-$v
     # Only these two, as on a computer without astropy and pydicom: fits.desktop and
     # dicom.desktop come first by name and would take the files otherwise.
-    rm -rf $XDG_DATA_HOME/glimt/decoders && mkdir -p $d $XDG_DATA_HOME/glimt/decoders
-    cp /t/new/examples/decoders/imagemagick-*.desktop $XDG_DATA_HOME/glimt/decoders/
+    rm -rf $(formats_dir) && mkdir -p $d $(formats_dir)
+    cp /t/new/examples/formats/*-imagemagick.desktop $(formats_dir)/
     # Dark at the top, light at the bottom, both.
     convert -size 600x400 gradient:black-white $d/a.fits
     python3 - "$d" <<'PY'
@@ -1809,12 +1812,12 @@ PY
     else note "old: fits $(dark_light decoder-im-fits-old), dcm $(dark_light decoder-im-dcm-old)"; fi
 done
 
-section "science decoders: a NIfTI volume, an HDF5 dataset and a pathology slide shown"
+section "science formats: a NIfTI volume, an HDF5 dataset and a pathology slide shown"
 for v in new old; do
     as_version $v
     d=/tmp/science-$v
-    mkdir -p $d $XDG_DATA_HOME/glimt/decoders
-    cp /t/new/examples/decoders/* $XDG_DATA_HOME/glimt/decoders/
+    mkdir -p $d $(formats_dir)
+    cp /t/new/examples/formats/* $(formats_dir)/
     # Brighter to the front (y) in the volume, brighter downwards in the dataset: the front of a
     # brain slice is shown at the top, a dataset's first row at the top.
     python3 - "$d" <<'PY'
@@ -1848,8 +1851,8 @@ done
 
 section "a NIfTI series in FSL's orientation (LAS, 4D): its first volume, the front at the top"
 d=/tmp/nifti-series
-mkdir -p $d $XDG_DATA_HOME/glimt/decoders
-cp /t/new/examples/decoders/* $XDG_DATA_HOME/glimt/decoders/
+mkdir -p $d $(formats_dir)
+cp /t/new/examples/formats/* $(formats_dir)/
 python3 - "$d" <<'PY'
 import sys, numpy, nibabel
 # Brighter to the front (y); x runs left (LAS); 20 volumes, only the first read.
@@ -1864,14 +1867,14 @@ quit
 expect "the front at the top" \
     "$([ $(red nifti-series 760 120) -gt 200 ] && [ $(red nifti-series 760 700) -lt 60 ] && echo yes)" yes
 
-section "the Bio-Formats decoder: a microscope file (ICS) shown through bftools"
+section "the Bio-Formats format: a microscope file (ICS) shown through bftools"
 for v in new old; do
     as_version $v
     d=/tmp/bioformats-$v
-    mkdir -p $d $XDG_DATA_HOME/glimt/decoders
-    cp /t/new/examples/decoders/* $XDG_DATA_HOME/glimt/decoders/
+    mkdir -p $d $(formats_dir)
+    cp /t/new/examples/formats/* $(formats_dir)/
     # ICS, which the example leaves out for calendar invitations, added as its comment says.
-    sed -i 's/^Extensions=czi;/Extensions=ics;ids;czi;/' $XDG_DATA_HOME/glimt/decoders/bioformats.desktop
+    sed -i 's/^Extensions=czi;/Extensions=ics;ids;czi;/' $(formats_dir)/bioformats.desktop
     # Dark at the top, light at the bottom, 16 bits as a microscope camera writes.
     convert -size 600x400 gradient:black-white -depth 16 /tmp/gradient.tif
     /opt/bftools/bfconvert -no-upgrade -overwrite /tmp/gradient.tif $d/a.ics >/dev/null 2>&1
@@ -1888,12 +1891,12 @@ for v in new old; do
     else note "old: $(red bioformats-old 760 700)"; fi
 done
 
-section "the MRC decoder: a cryo-EM map's middle section, its top at the top"
+section "the MRC format: a cryo-EM map's middle section, its top at the top"
 for v in new old; do
     as_version $v
     d=/tmp/mrc-$v
-    mkdir -p $d $XDG_DATA_HOME/glimt/decoders
-    cp /t/new/examples/decoders/* $XDG_DATA_HOME/glimt/decoders/
+    mkdir -p $d $(formats_dir)
+    cp /t/new/examples/formats/* $(formats_dir)/
     # Brighter upwards (y), as MRC counts rows from the bottom.
     python3 - "$d" <<'PY'
 import sys, numpy, mrcfile
@@ -1911,12 +1914,12 @@ PY
     else note "old: $(red mrc-old 760 120)"; fi
 done
 
-section "the DICOM decoder: an X-ray in the window it names, MONOCHROME1 the right way"
+section "the DICOM format: an X-ray in the window it names, MONOCHROME1 the right way"
 for v in new old; do
     as_version $v
     d=/tmp/dicom-$v
-    mkdir -p $d $XDG_DATA_HOME/glimt/decoders
-    cp /t/new/examples/decoders/* $XDG_DATA_HOME/glimt/decoders/
+    mkdir -p $d $(formats_dir)
+    cp /t/new/examples/formats/* $(formats_dir)/
     # 12 bits brighter downwards, a window over the middle half, and white for zero as some
     # X-ray machines write: shown light at the top, dark at the bottom.
     python3 - "$d" <<'PY'
@@ -1957,16 +1960,17 @@ PY
     else note "old: $(red dicom-old 760 120)"; fi
 done
 
-section "the ImageMagick decoders: a Photoshop file and a TGA shown, a PNG named .tga not"
+section "the ImageMagick formats: a Photoshop file and a TGA shown, a PNG named .tga not"
 for v in new old; do
     as_version $v
     d=/tmp/graphics-$v
-    mkdir -p $d $XDG_DATA_HOME/glimt/decoders
-    # Each version's own decoders: the new ones name the format for ImageMagick.
-    cp /t/$v/examples/decoders/* $XDG_DATA_HOME/glimt/decoders/
+    mkdir -p $d $(formats_dir)
+    # Each version's own formats (examples/decoders before 0.75.0): the new ones name the
+    # format for ImageMagick.
+    cp $(ls -d /t/$v/examples/formats /t/$v/examples/decoders 2>/dev/null | head -1)/* $(formats_dir)/
     convert -size 600x400 xc:lime $d/a.psd
     convert -size 600x400 xc:blue $d/b.tga
-    # Another format under a decoder's extension, as a file from the internet could be.
+    # Another format under an added format's extension, as a file from the internet could be.
     convert -size 600x400 xc:red png:$d/c.tga
     config
     start $d/a.psd
@@ -1987,8 +1991,8 @@ done
 section "real files of each format (samples.txt): RAW of eight makes, science and graphics files"
 for v in new old; do
     as_version $v
-    mkdir -p $XDG_DATA_HOME/glimt/decoders
-    cp /t/new/examples/decoders/* $XDG_DATA_HOME/glimt/decoders/
+    mkdir -p $(formats_dir)
+    cp /t/new/examples/formats/* $(formats_dir)/
     config
     missing=
     for name in $(grep -v '^#' /t/samples.txt | cut -d' ' -f1); do
@@ -2641,32 +2645,33 @@ left=$(kill -0 $GPID 2>/dev/null && echo running || echo ended)
 quit
 expect "Ctrl+Q refused, --remote quit taken (the control)" "$stays $left" "running ended"
 
-section "Edit → Plugins from the menu: the plugin runs on the shown file, Glimt answering meanwhile"
-d=/tmp/plugin-menu
-mkdir -p $d $XDG_DATA_HOME/glimt/plugins
+section "Edit → Tools from the menu: the tool runs on the shown file, Glimt answering meanwhile"
+d=/tmp/tool-menu
+mkdir -p $d $XDG_DATA_HOME/glimt/tools
 convert -size 64x64 xc:red $d/a.png
-# The plugin stays, as an editor would.
+# The tool stays, as an editor would.
 printf '#!/bin/sh\necho "$@" >>%s/ran\nsleep 20\n' $d >/tmp/stub/stamp; chmod +x /tmp/stub/stamp
-printf '[Desktop Entry]\nName=Stamp\nExec=stamp %%f\n' >$XDG_DATA_HOME/glimt/plugins/stamp.desktop
+printf '[Desktop Entry]\nName=Stamp\nExec=stamp %%f\n' >$XDG_DATA_HOME/glimt/tools/stamp.desktop
 config
 start $d/a.png; sleep 2
-menu Edit Plugins; sleep 1
-shot plugins-menu
+menu Edit Tools; sleep 1
+shot tools-menu
 menu Stamp; sleep 2
 ran=$(cat $d/ran 2>/dev/null)
 answer=$(remote current 2>/dev/null | tr -d '\0')
 # Still running, it has Stop in the menu, which ends it with its sleep.
-menu Edit Plugins "Stop Stamp"
+menu Edit Tools "Stop Stamp"
 until_ok "! pgrep -f /tmp/stub/stamp" 5
 left=$(pgrep -f /tmp/stub/stamp >/dev/null && echo running || echo ended)
 quit
-expect "the plugin ran on a.png, and --remote current answered meanwhile" "$ran $answer" "$d/a.png $d/a.png"
-expect "Stop Stamp in Edit → Plugins ended the plugin" "$left" "ended"
+expect "the tool ran on a.png, and --remote current answered meanwhile" "$ran $answer" "$d/a.png $d/a.png"
+expect "Stop Stamp in Edit → Tools ended the tool" "$left" "ended"
 
-section "a plugin with MimeType=: given only the selected files of its types, the others counted"
+# In the folder's old name, plugins, which every version reads: NEW still reads it.
+section "a tool with MimeType= in the old plugins folder: given only the selected files of its types"
 for v in new old; do
     as_version $v
-    d=/tmp/plugin-types-$v
+    d=/tmp/tool-types-$v
     mkdir -p $d $XDG_DATA_HOME/glimt/plugins
     convert -size 64x64 xc:red $d/a.png
     convert -size 64x64 xc:red $d/b.jpg
@@ -2676,11 +2681,12 @@ for v in new old; do
     config
     start $d/a.png; sleep 2
     remote select $d/a.png $d/b.jpg >/dev/null 2>&1
-    menu Edit Plugins PngOnly; sleep 2
+    # The menu was Plugins before 0.75.0.
+    menu Edit $([ $v = old ] && echo Plugins || echo Tools) PngOnly; sleep 2
     quit
     rm -f $XDG_DATA_HOME/glimt/plugins/pngonly.desktop
     got=$(sed "s|$d/||g" $d/ran 2>/dev/null)
-    if [ $v = new ]; then expect "the plugin ran on a.png only" "$got" "a.png"
+    if [ $v = new ]; then expect "the tool in plugins/ ran on a.png only" "$got" "a.png"
     else note "old: $got"; fi
 done
 

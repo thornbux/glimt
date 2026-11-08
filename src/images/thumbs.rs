@@ -290,8 +290,8 @@ fn md5(data: &[u8]) -> [u8; 16] {
     out
 }
 
-/// Returns whether a file that gave `error` is marked as having no thumbnail. Not when ffmpeg or a
-/// decoder plugin is not there: it may be installed later; nor when the file could not be read
+/// Returns whether a file that gave `error` is marked as having no thumbnail. Not when ffmpeg or an
+/// added format is not there: it may be installed later; nor when the file could not be read
 /// (a share or a stick away for a moment): the system's errors say "(os error N)", a file that
 /// is no picture does not. A program that read from such a share says so in its own words, or
 /// was ended by the time limit while the share woke up, and is not marked either. Others are
@@ -309,10 +309,10 @@ fn should_mark_failed(path: &Path, error: &str) -> bool {
         && !away.iter().any(|m| error.contains(m))
 }
 
-/// Whether `path` is read by another program: ffmpeg (HEIC, AVIF, video) or a decoder plugin.
+/// Whether `path` is read by another program: ffmpeg (HEIC, AVIF, video) or an added format.
 fn needs_program(path: &Path) -> bool {
     crate::files::external::ffmpeg_decodes(path)
-        || crate::images::decoder_plugins::for_path(path).is_some()
+        || crate::images::added_formats::for_path(path).is_some()
 }
 
 /// Whether `error` says the program was not found (or may not run), not that the file is bad.

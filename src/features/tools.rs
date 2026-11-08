@@ -1,30 +1,39 @@
-//! Plugins, as Geeqie's: programs in desktop files (`*.desktop`), in the Edit → Plugins menu,
-//! run on the selected files. They are read from `glimt/plugins` in the XDG data folders
-//! (`~/.local/share/glimt/plugins` first). Geeqie's own plugins are not read: many of them ask
-//! a running Geeqie for things with `geeqie --remote`. Decoder plugins' desktop files are read
-//! with the same `desktop_files` and `desktop_entry_values`.
+//! Tools, as Geeqie's plugins: programs in desktop files (`*.desktop`), in the Edit → Tools menu,
+//! run on the selected files. They are read from `glimt/tools` in the XDG data folders
+//! (`~/.local/share/glimt/tools` first), and from the folders' old names in `RENAMED_FOLDERS`.
+//! Geeqie's own plugins are not read: many of them ask a running Geeqie for things with
+//! `geeqie --remote`. The desktop files of added formats are read with the same `desktop_files`
+//! and `desktop_entry_values`.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-/// The plugins running, by name and process ID, for Stop in Edit → Plugins: one may be an
+/// The folders of desktop files that 0.75.0 renamed, by their old name and the new one, in
+/// Glimt's folder of the user's data folder and of the system's. Glimt reads the old folder too,
+/// forever, and opens and creates only the new one. A desktop file in both under the same name
+/// counts once, from the new folder. The desktop files keep their format: no key names a plugin
+/// or a decoder, and an added format's group header stays `[Glimt Decoder]`. The header is never
+/// checked, so `[Glimt Format]` is read as well.
+pub const RENAMED_FOLDERS: [(&str, &str); 2] = [("plugins", "tools"), ("decoders", "formats")];
+
+/// The tools running, by name and process ID, for Stop in Edit → Tools: one may be an
 /// editor that stays open for hours, or a script that never ends.
-pub type RunningPlugins = std::sync::Arc<std::sync::Mutex<Vec<(String, u32)>>>;
+pub type RunningTools = std::sync::Arc<std::sync::Mutex<Vec<(String, u32)>>>;
 
 #[derive(Clone)]
-pub struct Plugin {
+pub struct Tool {
     pub name: String,
     /// The command line, with %f, %F, %u or %U for the files.
     exec: String,
     /// The folder of the desktop file: a program there is found without being on the PATH.
     dir: PathBuf,
     /// The MIME types of the files it takes, from the desktop file's MimeType=, such as
-    /// image/x-canon-cr2 or image/*. When the list is empty, the plugin takes every file.
+    /// image/x-canon-cr2 or image/*. When the list is empty, the tool takes every file.
     types: Vec<String>,
 }
 
-impl Plugin {
-    /// Returns whether the plugin accepts `path`: every file when its desktop file names no
+impl Tool {
+    /// Returns whether the tool accepts `path`: every file when its desktop file names no
     /// MimeType, otherwise a file whose extension has one of those types in the desktop's
     /// MIME database. A file of a type the database does not know is not accepted then.
     pub fn accepts(&self, path: &Path) -> bool {
@@ -41,7 +50,7 @@ impl Plugin {
         })
     }
 
-    /// Run the plugin on `files` and wait for it: once for each file with %f or %u, once for all
+    /// Run the tool on `files` and wait for it: once for each file with %f or %u, once for all
     /// with %F or %U, and once in `folder` without any. Each run is in `running` while it runs;
     /// one taken out of it there was stopped, and the runs after it are not made. The error
     /// output if it failed.
@@ -49,7 +58,7 @@ impl Plugin {
         &self,
         files: &[PathBuf],
         folder: &Path,
-        running: &RunningPlugins,
+        running: &RunningTools,
     ) -> Result<(), String> {
         let words = command_words(&self.exec);
         let each = words.iter().any(|w| w == "%f" || w == "%u");
@@ -88,8 +97,8 @@ impl Plugin {
             let pid = child.id();
             running.lock().unwrap().push((self.name.clone(), pid));
             // Its errors are read in a thread of their own, and only the last of them are kept.
-            // A program the plugin started in the background (an editor, `xdg-open`) may hold
-            // them open for hours, so the plugin is waited for, not the end of its errors.
+            // A program the tool started in the background (an editor, `xdg-open`) may hold
+            // them open for hours, so the tool is waited for, not the end of its errors.
             let errors = child.stderr.take().map(|e| {
                 let (tx, rx) = std::sync::mpsc::channel();
                 std::thread::spawn(move || tx.send(crate::files::external::last_text(e, 64 << 10)));
@@ -115,25 +124,37 @@ impl Plugin {
     }
 }
 
-/// The plugins, sorted by name; a desktop file in the user's folder hides one of the same name
+/// The tools, sorted by name. A desktop file in the user's folder hides one of the same name
 /// in the system's.
-pub fn find() -> Vec<Plugin> {
-    let mut plugins: Vec<Plugin> = (desktop_files("plugins").into_iter())
+pub fn find() -> Vec<Tool> {
+    let mut tools: Vec<Tool> = (desktop_files("tools").into_iter())
         .filter_map(|(path, text)| parse(&text, path.parent()?))
         .collect();
-    plugins.sort_by_key(|p| p.name.to_lowercase());
-    plugins
+    tools.sort_by_key(|t| t.name.to_lowercase());
+    tools
 }
 
-/// The desktop files in `kind` (plugins, decoders) of Glimt's folder in the user's data folder
-/// and the system's, with their text: one in the user's hides one of the same name in the
-/// system's.
-pub fn desktop_files(kind: &str) -> Vec<(std::path::PathBuf, String)> {
+/// Returns the desktop files in the folder `kind` ("tools" or "formats") of Glimt's folder in
+/// the user's data folder and the system's, with their text. One in the user's hides one of the
+/// same name in the system's.
+pub fn desktop_files(kind: &str) -> Vec<(PathBuf, String)> {
     let home = crate::files::config::xdg_dir("XDG_DATA_HOME", ".local/share", "glimt");
+    let system = system_data_dirs().into_iter().map(|d| d.join("glimt"));
+    desktop_files_in(home.into_iter().chain(system), kind)
+}
+
+/// Returns the desktop files in the folder `kind` of each of `glimt_dirs`, with their text, and
+/// those in the folder's old name of `RENAMED_FOLDERS` after it. The first file of a name
+/// counts, so an earlier folder of `glimt_dirs` hides a later one, and the new folder hides the
+/// old one.
+fn desktop_files_in(
+    glimt_dirs: impl Iterator<Item = PathBuf>,
+    kind: &str,
+) -> Vec<(PathBuf, String)> {
+    let old_name = RENAMED_FOLDERS.iter().find(|r| r.1 == kind).map(|r| r.0);
     let mut seen = std::collections::HashSet::new();
-    (home.into_iter())
-        .chain(system_data_dirs().into_iter().map(|d| d.join("glimt")))
-        .map(|d| d.join(kind))
+    glimt_dirs
+        .flat_map(|d| std::iter::once(d.join(kind)).chain(old_name.map(|old| d.join(old))))
         .flat_map(|dir| std::fs::read_dir(&dir).into_iter().flatten().flatten())
         .map(|e| e.path())
         .filter(|p| p.extension().is_some_and(|x| x == "desktop"))
@@ -142,7 +163,7 @@ pub fn desktop_files(kind: &str) -> Vec<(std::path::PathBuf, String)> {
         .collect()
 }
 
-/// The system's data folders, from $XDG_DATA_DIRS, which plugins, decoders and the MIME
+/// The system's data folders, from $XDG_DATA_DIRS, which tools, added formats and the MIME
 /// database are read from after the user's own.
 fn system_data_dirs() -> Vec<PathBuf> {
     data_dirs_of(std::env::var("XDG_DATA_DIRS").ok())
@@ -150,7 +171,7 @@ fn system_data_dirs() -> Vec<PathBuf> {
 
 /// Returns the absolute folders of `value`, the text of $XDG_DATA_DIRS. When it is not set or
 /// is empty, they are /usr/local/share and /usr/share, as the XDG spec says. An empty value
-/// read as no folders lost the system's plugins and MIME types.
+/// read as no folders lost the system's tools and MIME types.
 fn data_dirs_of(value: Option<String>) -> Vec<PathBuf> {
     let value = value.filter(|v| !v.is_empty());
     let value = value.as_deref().unwrap_or("/usr/local/share:/usr/share");
@@ -159,13 +180,13 @@ fn data_dirs_of(value: Option<String>) -> Vec<PathBuf> {
 
 /// Returns the folders of a list such as $XDG_DATA_DIRS that are absolute paths. The XDG spec
 /// says to ignore a relative one. An empty entry ("/usr/share:") would otherwise be the current
-/// folder, and a downloaded folder there could hold a decoder that runs by itself.
+/// folder, and a downloaded folder there could hold an added format that runs by itself.
 fn absolute_dirs(list: &str) -> impl Iterator<Item = &Path> {
     list.split(':').map(Path::new).filter(|d| d.is_absolute())
 }
 
-/// The values of a desktop file's first group (its [Desktop Entry] or [Glimt Decoder], not its
-/// actions), by key.
+/// The values of a desktop file's first group (a tool's [Desktop Entry] or an added format's
+/// [Glimt Decoder], not its actions), by key.
 pub fn desktop_entry_values<'a>(text: &'a str) -> impl Fn(&str) -> Option<&'a str> + 'a {
     // Comments and blank lines may come before its header.
     let mut rest = text;
@@ -182,8 +203,8 @@ pub fn desktop_entry_values<'a>(text: &'a str) -> impl Fn(&str) -> Option<&'a st
     }
 }
 
-/// The plugin of a desktop file; `None` if it is hidden or has no command.
-fn parse(text: &str, dir: &Path) -> Option<Plugin> {
+/// Returns the tool of a desktop file, or `None` if it is hidden or has no command.
+fn parse(text: &str, dir: &Path) -> Option<Tool> {
     let value = desktop_entry_values(text);
     if value("Hidden") == Some("true") || value("NoDisplay") == Some("true") {
         return None;
@@ -192,7 +213,7 @@ fn parse(text: &str, dir: &Path) -> Option<Plugin> {
         .unwrap_or_default()
         .split(';')
         .map(str::trim);
-    Some(Plugin {
+    Some(Tool {
         name: value("Name")?.to_owned(),
         exec: value("Exec")?.to_owned(),
         dir: dir.to_owned(),
@@ -202,7 +223,7 @@ fn parse(text: &str, dir: &Path) -> Option<Plugin> {
 
 /// The MIME type of each file name extension, lowercase, from shared-mime-info's `mime/globs2`
 /// in the XDG data folders, read once. The user's own folder comes first, as the spec says.
-// shortcut: read whole in the window's thread at the first plugin run, some 100 kB; in the
+// shortcut: read whole in the window's thread at the first tool run, some 100 kB; in the
 // background if it is ever slow.
 fn mime_types() -> &'static HashMap<String, String> {
     static TYPES: std::sync::OnceLock<HashMap<String, String>> = std::sync::OnceLock::new();
@@ -295,7 +316,7 @@ fn arguments(words: &[String], files: &[PathBuf]) -> Vec<std::ffi::OsString> {
 
 #[cfg(test)]
 mod tests {
-    /// A plugin's desktop file broken in thousands of ways: no panic.
+    /// A tool's desktop file broken in thousands of ways: no panic.
     #[test]
     fn survives_broken_desktop_files() {
         let seed = b"[Desktop Entry]\nName=Stamp\nExec=stamp %f \"a b\" %%\nType=Application\n";
@@ -316,7 +337,7 @@ mod tests {
         }
     }
 
-    /// A plugin with MimeType= takes the files of those types, a type such as image/* all of
+    /// A tool with MimeType= takes the files of those types, a type such as image/* all of
     /// its kind, and one of an unknown type none; without MimeType it takes every file.
     #[test]
     fn takes_the_types_it_names() {
@@ -391,27 +412,64 @@ mod tests {
         );
     }
 
+    /// The folders' old names in `RENAMED_FOLDERS` are still read. A desktop file in both under
+    /// the same name counts once, from the new folder, and the user's folder hides the system's.
     #[test]
-    fn reads_and_runs_a_plugin() {
+    fn reads_the_old_folders_and_the_new_one_wins() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-folders-{}", std::process::id()));
+        let (user, system) = (dir.join("user"), dir.join("system"));
+        let write = |folder: &Path, name: &str, text: &str| {
+            std::fs::create_dir_all(folder).unwrap();
+            std::fs::write(folder.join(name), text).unwrap();
+        };
+        write(&user.join("tools"), "both.desktop", "new");
+        write(&user.join("plugins"), "both.desktop", "old");
+        write(&user.join("plugins"), "old.desktop", "old only");
+        write(&system.join("tools"), "old.desktop", "the system's");
+        write(
+            &system.join("plugins"),
+            "system.desktop",
+            "the system's old",
+        );
+        write(&user.join("plugins"), "notes.txt", "not a desktop file");
+        write(&user.join("decoders"), "format.desktop", "an added format");
+        let mut found: Vec<(String, String)> =
+            desktop_files_in([user.clone(), system.clone()].into_iter(), "tools")
+                .into_iter()
+                .map(|(path, text)| (path.strip_prefix(&dir).unwrap().display().to_string(), text))
+                .collect();
+        found.sort();
+        let expected = [
+            ("system/plugins/system.desktop", "the system's old"),
+            ("user/plugins/old.desktop", "old only"),
+            ("user/tools/both.desktop", "new"),
+        ];
+        assert_eq!(found, expected.map(|(p, t)| (p.to_owned(), t.to_owned())));
+        let formats = desktop_files_in([user, system].into_iter(), "formats");
+        assert_eq!(formats.len(), 1);
+        assert!(formats[0].0.ends_with("decoders/format.desktop"));
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn reads_and_runs_a_tool() {
         assert_eq!(
             command_words(r#"sh -c "echo \"a b\" >> log" x %F"#),
             ["sh", "-c", "echo \"a b\" >> log", "x", "%F"]
         );
-        let dir = std::env::temp_dir().join(format!("glimt-test-plugins-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("glimt-test-tools-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let text = "[Desktop Entry]\nName=Mark\nExec=sh -c \"echo \\$0 >> log\" %f\n\
                     [Desktop Action x]\nName=Other\n";
-        let plugin = parse(text, &dir).unwrap();
-        assert_eq!(plugin.name, "Mark");
+        let tool = parse(text, &dir).unwrap();
+        assert_eq!(tool.name, "Mark");
         assert!(parse("[Desktop Entry]\nName=A\nExec=a\nNoDisplay=true\n", &dir).is_none());
         // Written by hand, with a comment first.
         let commented = parse("# mine\n\n[Desktop Entry]\nName=C\nExec=c\n", &dir);
         assert_eq!(commented.unwrap().name, "C");
         // Once for each file, in the folder given.
         let files = [dir.join("a b.jpg"), dir.join("c.jpg")];
-        plugin
-            .run(&files, &dir, &RunningPlugins::default())
-            .unwrap();
+        tool.run(&files, &dir, &RunningTools::default()).unwrap();
         let log = std::fs::read_to_string(dir.join("log")).unwrap();
         assert_eq!(
             log.lines().collect::<Vec<_>>(),
@@ -422,24 +480,22 @@ mod tests {
             &dir,
         );
         assert_eq!(
-            failing
-                .unwrap()
-                .run(&files, &dir, &RunningPlugins::default()),
+            failing.unwrap().run(&files, &dir, &RunningTools::default()),
             Err("no".into())
         );
         // One that leaves a program running in the background with its errors open: done once
-        // the plugin itself has ended.
+        // the tool itself has ended.
         let helper = "[Desktop Entry]\nName=Helper\nExec=sh -c \"sleep 5 & exit 0\"\n";
         let start = std::time::Instant::now();
         let ran = parse(helper, &dir)
             .unwrap()
-            .run(&files, &dir, &RunningPlugins::default());
+            .run(&files, &dir, &RunningTools::default());
         assert_eq!(ran, Ok(()));
         assert!(start.elapsed() < std::time::Duration::from_secs(3));
         // One that does not end, stopped from the menu: ended with what it started, and told.
         let endless = "[Desktop Entry]\nName=Endless\nExec=sh -c \"sleep 30; sleep 30\"\n";
         let endless = parse(endless, &dir).unwrap();
-        let running = RunningPlugins::default();
+        let running = RunningTools::default();
         let start = std::time::Instant::now();
         let stopping = {
             let running = running.clone();

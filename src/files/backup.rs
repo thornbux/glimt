@@ -1,5 +1,5 @@
 //! The backup (File → Back Up, glimt --back-up): Glimt's own folders of settings, marks and
-//! stars, collections, plugins and decoders, copied into a new folder.
+//! stars, collections, tools and added formats, copied into a new folder.
 
 use crate::files::config::xdg_dir;
 use crate::images::save::{FileId, file_id};
@@ -8,7 +8,7 @@ use crate::support::lang::tr;
 use std::path::{Path, PathBuf};
 
 /// Glimt's own folders, to back up, with their names in a backup: its settings, keyword tree,
-/// sort folders and themes (config), marks and stars (state), and collections, plugins and
+/// sort folders and themes (config), marks and stars (state), and collections, tools and
 /// decoders (data). Thumbnails are not: they are made again.
 pub fn own_folders() -> Vec<(&'static str, PathBuf)> {
     [

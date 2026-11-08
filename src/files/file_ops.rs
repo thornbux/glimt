@@ -58,7 +58,7 @@ pub(crate) struct RenameOutcome {
     undo: Vec<Moved>,
 }
 
-/// What a delete, move, copy or plugin reports, in one message. It holds the files it was asked
+/// What a delete, move, copy or tool reports, in one message. It holds the files it was asked
 /// to delete or move, and those that are gone now. The thread finds out which are gone, so the
 /// window does not `stat` each one. It also says whether to read the folder again, and holds
 /// the files moved or copied `(from, to)`, whose marks follow before the gone ones are
@@ -76,7 +76,7 @@ pub(crate) struct OperationReport {
     pub(crate) any_failed: bool,
     pub(crate) moved: Vec<(PathBuf, PathBuf)>,
     pub(crate) is_copy: bool,
-    /// Whether the folder is to be read again, because a plugin edited files in it or a repair
+    /// Whether the folder is to be read again, because a tool edited files in it or a repair
     /// renamed them.
     pub(crate) read_folder_again: bool,
     /// What Undo puts back, when this was a move to the trash or a move.
@@ -86,7 +86,7 @@ pub(crate) struct OperationReport {
     pub(crate) is_undo_remainder: bool,
     /// The marks and stars to put back, for files that Undo brought back from the trash.
     pub(crate) restored_marks: Vec<(PathBuf, (u8, u8))>,
-    /// The files a plugin changed in place. What is shown of them is read again. (A turn that
+    /// The files a tool changed in place. What is shown of them is read again. (A turn that
     /// was saved comes through `saved_rx` into the same `files_changed`, and that also ends its
     /// guard.)
     pub(crate) changed: Vec<PathBuf>,
@@ -219,13 +219,13 @@ pub(crate) struct FileOperations {
     /// The names being deleted in the background. They are kept out of refreshed listings
     /// until the delete is done.
     deleting: HashSet<OsString>,
-    /// What deletes, moves and copies report (`OperationReport`). A plugin and Move Folder to Trash
+    /// What deletes, moves and copies report (`OperationReport`). A tool and Move Folder to Trash
     /// send it too, only for the list to be read again.
     report_tx: mpsc::Sender<OperationReport>,
     report_rx: mpsc::Receiver<OperationReport>,
     /// Those still being saved.
     saving: HashSet<PathBuf>,
-    /// The PNG and WebP files saved turned in the background. A plugin sends its files here
+    /// The PNG and WebP files saved turned in the background. A tool sends its files here
     /// too, because it may have changed them, so they are decoded again.
     saved_tx: mpsc::Sender<(PathBuf, Result<(), String>)>,
     saved_rx: mpsc::Receiver<(PathBuf, Result<(), String>)>,
@@ -320,7 +320,7 @@ impl FileOperations {
         (self.jobs.iter()).for_each(|job| job.stop_requested.store(true, Ordering::Relaxed));
     }
 
-    /// A turned image saved in the background, or a plugin's file, with how it went.
+    /// A turned image saved in the background, or a tool's file, with how it went.
     pub(crate) fn take_saved(&mut self) -> Option<(PathBuf, Result<(), String>)> {
         let (path, result) = self.saved_rx.try_recv().ok()?;
         self.saving.remove(&path);
@@ -1252,7 +1252,7 @@ impl crate::App {
     }
 
     /// Reads again what is shown of `paths`, because they have other contents now (saved
-    /// turned, edited by a plugin, written over). That covers the decoded images, thumbnails,
+    /// turned, edited by a tool, written over). That covers the decoded images, thumbnails,
     /// size and date, EXIF and the `exif:` index.
     pub(crate) fn files_changed(&mut self, ctx: &egui::Context, paths: &[PathBuf]) {
         if paths.is_empty() {
@@ -1272,7 +1272,7 @@ impl crate::App {
     }
 
     /// Keeps `paths` as the files an Undo of a move or rename puts back, although Glimt wrote
-    /// them anew in place (a turn saved, a plugin's change) and so gave them new fingerprints. A
+    /// them anew in place (a turn saved, a tool's change) and so gave them new fingerprints. A
     /// file written over by another image (Save As, Save This Frame) is not one of them, so it does
     /// not come here.
     pub(crate) fn written_anew(&mut self, paths: &[PathBuf]) {
@@ -1280,7 +1280,7 @@ impl crate::App {
             let written: HashSet<&PathBuf> = paths.iter().collect();
             // A folder opened through a link spells the same file otherwise, so a pair of the
             // same file name is compared by its real path too. Only the paths whose name a
-            // moved file has are looked up, so a plugin's report of 200,000 files after a move
+            // moved file has are looked up, so a tool's report of 200,000 files after a move
             // of one costs no look at the disk for the others.
             let moved: HashSet<std::ffi::OsString> = (pairs.iter())
                 .filter(|(_, to, _)| !written.contains(to))
@@ -1734,7 +1734,7 @@ impl crate::App {
     }
 
     /// Copies Glimt's own folders (settings, marks and stars, collections, keyword tree,
-    /// plugins, decoders) to a new folder glimt-backup-DATE in `dir`, in the background. To
+    /// tools, added formats) to a new folder glimt-backup-DATE in `dir`, in the background. To
     /// restore them, copy them back while Glimt is closed. The README says where.
     pub(crate) fn back_up(&mut self, ctx: &egui::Context, dir: PathBuf) {
         // A job, so closing waits for the copy to be whole.
@@ -3170,7 +3170,7 @@ mod tests {
                 "a new PDF of its own, no file of the user's changed: writes_a_pdf",
             ),
             (
-                "plugins_menu",
+                "tools_menu",
                 "a program of the user's that holds its files; a_hold_holds_its_files_back",
             ),
             (
@@ -4176,7 +4176,7 @@ mod tests {
         std::fs::remove_dir_all(d).unwrap();
     }
 
-    /// Files held back by `hold_back_while_writing`, as a plugin running on them is, hold back
+    /// Files held back by `hold_back_while_writing`, as a tool running on them is, hold back
     /// every other operation on them until they are let go.
     #[test]
     fn held_back_files_hold_back_other_operations() {

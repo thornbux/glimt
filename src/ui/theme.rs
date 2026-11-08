@@ -15,7 +15,7 @@ pub mod icon {
     pub const CLOSE: &str = "\u{e4f6}";
     // The menus: submenu titles and rows that are no Action (those have Action::icon).
     pub const STACK: &str = "\u{e466}"; // stack
-    pub const PLUGIN: &str = "\u{e596}"; // puzzle-piece
+    pub const TOOL: &str = "\u{e596}"; // puzzle-piece
     pub const APP: &str = "\u{e5da}"; // app-window
     #[cfg(feature = "marks")]
     pub const STAR: &str = "\u{e46a}"; // star

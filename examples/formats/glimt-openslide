@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""A Glimt decoder: a whole-slide image from pathology (Aperio .svs, Hamamatsu .ndpi, MIRAX .mrxs,
+"""A Glimt format: a whole-slide image from pathology (Aperio .svs, Hamamatsu .ndpi, MIRAX .mrxs,
 Leica .scn, Ventana .bif …), shown whole at most 4096 pixels on its longer side, written as a
 PPM to standard output.
 
