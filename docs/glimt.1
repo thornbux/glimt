@@ -123,7 +123,7 @@ Name this Glimt: letters, digits,
 .B \-
 and
 .BR _ ,
-not only digits, at most 64 bytes (fewer in a Flatpak, whose socket path is longer). The
+at most 64 bytes (fewer in a Flatpak, whose socket path is longer). The
 window title shows it, and
 .B glimt \-\-name
 .I NAME
@@ -134,7 +134,14 @@ sends
 to this Glimt only (with
 .BR open ,
 it starts one with that name if none runs). A named Glimt listens even when remote
-control is off in Preferences.
+control is off in Preferences. With
+.BR \-\-remote ,
+.I NAME
+may also be the process ID of a Glimt started without a name, as
+.B identify
+and
+.B %id%
+show it; a name of only digits is taken for nothing else.
 .TP
 .BI \-\-remote " COMMAND"
 Send

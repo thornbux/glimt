@@ -524,6 +524,13 @@ pub fn given_name() -> Option<&'static str> {
     GIVEN_NAME.get().map(String::as_str)
 }
 
+/// Whether `name` is a process ID, which has only digits. With `--name` it reaches the Glimt of
+/// that process ID with `--remote`, but a window never takes it as its own name, because it
+/// could be another Glimt's.
+pub fn is_process_id(name: &str) -> bool {
+    !name.is_empty() && name.len() <= 10 && name.chars().all(|c| c.is_ascii_digit())
+}
+
 /// Whether `name` cannot be taken for a process ID or a path. It holds letters, digits, - and
 /// _, and is short enough for the socket's path (at most 108 bytes).
 pub fn valid_name(name: &str) -> bool {
