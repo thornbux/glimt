@@ -540,4 +540,33 @@ mod tests {
         assert!(start.elapsed() < std::time::Duration::from_secs(5));
         std::fs::remove_dir_all(&dir).unwrap();
     }
+
+    /// The desktop file of a tool is frozen in 1.x: [Desktop Entry] with Name, Exec, MimeType
+    /// (image/* too), and Hidden or NoDisplay to leave it out, and in Exec %f, %F, %u and %U
+    /// for the files and %% for a %. The other codes of the specification are dropped.
+    #[test]
+    fn a_tools_desktop_keys_and_codes_are_kept() {
+        use std::ffi::OsString;
+        let dir = Path::new("/tools");
+        let text = "[Desktop Entry]\nName=Turn\nExec=turn %f\nMimeType=image/png;image/*;\n";
+        let tool = super::parse(text, dir).unwrap();
+        assert_eq!(
+            (tool.name.as_str(), tool.exec.as_str()),
+            ("Turn", "turn %f")
+        );
+        assert_eq!(tool.types, ["image/png", "image/*"]);
+        for hidden in ["Hidden=true", "NoDisplay=true"] {
+            assert!(
+                super::parse(&format!("{text}{hidden}\n"), dir).is_none(),
+                "{hidden}"
+            );
+        }
+        let files = [PathBuf::from("/a.png"), PathBuf::from("/b.png")];
+        let words = |exec: &str| super::arguments(&super::command_words(exec), &files);
+        for code in ["%f", "%F", "%u", "%U"] {
+            let all = ["x", "/a.png", "/b.png"].map(OsString::from);
+            assert_eq!(words(&format!("x {code}")), all, "{code}");
+        }
+        assert_eq!(words("x 100%% %i %c %k"), ["x", "100%"].map(OsString::from));
+    }
 }
