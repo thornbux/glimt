@@ -2859,3 +2859,75 @@ msgstr "Niet meegenomen, omdat de zoekopdracht ze verbergt: {files}"
 #: src/ui/file_list.rs
 msgid ", {h} selected but hidden by the search"
 msgstr ", {h} geselecteerd maar verborgen door de zoekopdracht"
+
+#: src/ui/actions.rs
+msgid "Copy for Sharing…"
+msgstr "Kopiëren om te delen …"
+
+#: src/images/shared_copy.rs
+msgid "Place"
+msgstr "Plaats"
+
+#: src/images/shared_copy.rs
+msgid "Camera and lens"
+msgstr "Camera en objectief"
+
+#: src/images/shared_copy.rs
+msgid "Date and time"
+msgstr "Datum en tijd"
+
+#: src/images/shared_copy.rs
+msgid "Photographer and copyright"
+msgstr "Fotograaf en auteursrecht"
+
+#: src/images/shared_copy.rs
+msgid "Software"
+msgstr "Software"
+
+#: src/images/shared_copy.rs
+msgid "Keywords, comment and alt text"
+msgstr "Trefwoorden, opmerking en alt-tekst"
+
+#: src/images/shared_copy.rs
+msgid "The preview inside the file"
+msgstr "Het voorbeeld in het bestand"
+
+#: src/images/shared_copy.rs
+msgid "More tags"
+msgstr "Meer tags"
+
+#: src/features/copy_for_sharing.rs
+msgid "Reading the tags… {done} of {total}"
+msgstr "De tags lezen … {done} van {total}"
+
+#: src/features/copy_for_sharing.rs
+msgid "Remove All"
+msgstr "Alles verwijderen"
+
+#: src/features/copy_for_sharing.rs
+msgid "Ticked tags are left out of the copies."
+msgstr "Aangevinkte tags worden weggelaten uit de kopieën."
+
+#: src/features/copy_for_sharing.rs
+msgid "Always kept: the orientation, so the image is not shown on its side, and the colour profile, so its colours do not change."
+msgstr "Altijd behouden: de richting, zodat de afbeelding niet op zijn kant staat, en het kleurprofiel, zodat de kleuren niet veranderen."
+
+#: src/features/copy_for_sharing.rs
+msgid "Hide"
+msgstr "Verbergen"
+
+#: src/features/copy_for_sharing.rs
+msgid "Show"
+msgstr "Tonen"
+
+#: src/features/copy_for_sharing.rs
+msgid "; {files} not copied: only JPEG, PNG and WebP are"
+msgstr "; {files} niet gekopieerd: alleen JPEG, PNG en WebP worden gekopieerd"
+
+#: src/features/copy_for_sharing.rs
+msgid "; {files} not copied: the folder has files of those names"
+msgstr "; {files} niet gekopieerd: de map heeft al bestanden met die namen"
+
+#: src/features/copy_for_sharing.rs
+msgid "Reading the tags"
+msgstr "De tags lezen"

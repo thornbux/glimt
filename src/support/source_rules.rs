@@ -1801,7 +1801,13 @@ fn a_home_ends_at_the_next_top_level_item() {
 fn derived_files_take_metadata_in_one_place() {
     const HOMES: &[(&str, &[(&str, &str)])] = &[
         ("set_upright(", &[("images/save.rs", "derived_metadata")]),
-        ("exif::derived(", &[("images/save.rs", "derived_metadata")]),
+        (
+            "exif::derived(",
+            &[
+                ("images/save.rs", "derived_metadata"),
+                ("images/save.rs", "shared_metadata"),
+            ],
+        ),
         (
             "exif::block_from_decoder(",
             &[
@@ -1847,6 +1853,7 @@ fn derived_files_take_metadata_in_one_place() {
                 ("metadata/xmp.rs", ""),
                 ("images/save.rs", "save_copy_with_sidecar"),
                 ("images/save.rs", "derive_sidecar"),
+                ("images/save.rs", "shared_metadata"),
             ],
         ),
     ];
@@ -1907,6 +1914,7 @@ fn only_glimts_own_files_are_written_through_links() {
         (
             "edit_shared(",
             &[
+                ("features/copy_for_sharing.rs", "save_choice"),
                 ("files/config.rs", "save"),
                 ("metadata/marks.rs", "write"),
                 ("model/folder.rs", "remember_recent"),

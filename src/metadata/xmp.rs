@@ -53,6 +53,45 @@ pub struct AltText {
     pub extended_description: String,
 }
 
+/// The top-level properties of XMP packets, as Copy for Sharing reads them to write a new packet
+/// of those the user keeps (`packet`). Each property is held by its name ("dc:subject") with its
+/// element as written (`<dc:subject>…</dc:subject>`), and each namespace by its prefix.
+#[derive(Clone, Default, Debug)]
+pub(crate) struct Properties {
+    pub(crate) list: Vec<(String, String)>,
+    pub(crate) namespaces: Vec<(String, String)>,
+}
+
+impl Properties {
+    /// Adds the properties and namespaces of `other`, each in place of one of the same name.
+    pub(crate) fn add_over(&mut self, other: Properties) {
+        for (name, element) in other.list {
+            self.list.retain(|(n, _)| *n != name);
+            self.list.push((name, element));
+        }
+        self.add_namespaces(other.namespaces);
+    }
+
+    /// Adds the properties of `other` whose names it lacks, and the namespaces it lacks.
+    pub(crate) fn add_missing(&mut self, other: Properties) {
+        for (name, element) in other.list {
+            if !self.list.iter().any(|(n, _)| *n == name) {
+                self.list.push((name, element));
+            }
+        }
+        self.add_namespaces(other.namespaces);
+    }
+
+    /// Adds the namespaces of `namespaces` whose prefixes it lacks.
+    fn add_namespaces(&mut self, namespaces: Vec<(String, String)>) {
+        for (prefix, uri) in namespaces {
+            if !self.namespaces.iter().any(|(p, _)| *p == prefix) {
+                self.namespaces.push((prefix, uri));
+            }
+        }
+    }
+}
+
 /// A sidecar's lock while it is held. It holds the lock file, if it could be made, and the
 /// mutex in `SIDECAR_LOCKS` that its number picks.
 pub(crate) type SidecarLock = (Option<std::fs::File>, std::sync::MutexGuard<'static, ()>);
@@ -680,7 +719,165 @@ pub(crate) fn without_property(xmp: &str, tag: &str) -> String {
     String::from_utf8(out).unwrap_or_else(|_| xmp.to_owned())
 }
 
-fn escape(text: &str) -> String {
+/// Reads the top-level properties of every rdf:Description of `xmp`, written as attributes or as
+/// elements, and every namespace it declares. An attribute is given as the element it stands
+/// for, so a packet written of them holds only elements. A Description is read up to what does
+/// not read as a property (a property cut off, or text between them), and the rest of it is not
+/// read. Each search goes on from where the last one ended, so a hostile packet takes linear
+/// time.
+pub(crate) fn properties(xmp: &str) -> Properties {
+    let mut out = Properties::default();
+    for (at, _) in xmp.match_indices("xmlns:") {
+        // A namespace's name is short. Without a cap, a packet of a million unclosed quotes
+        // would be searched to its end a million times.
+        let rest = &xmp[at + 6..xmp.len().min(at + 1024)];
+        if let Some((prefix, uri)) = (rest.split_once('=')).and_then(|(p, v)| Some((p, quoted(v)?)))
+            && is_name(prefix)
+            && !prefix.contains(':')
+        {
+            out.add_namespaces(vec![(prefix.to_owned(), uri.to_owned())]);
+        }
+    }
+    let mut from = 0;
+    while let Some(found) = xmp[from..].find("<rdf:Description") {
+        let start = from + found;
+        let Some(gt) = start_tag_end(xmp, start) else {
+            break;
+        };
+        let head = &xmp[start + "<rdf:Description".len()..gt];
+        for (name, value) in attributes(head.trim_end_matches('/')) {
+            if name.contains(':')
+                && !name.starts_with("xmlns:")
+                && !name.starts_with("rdf:")
+                && !name.starts_with("xml:")
+            {
+                out.list
+                    .push((name.to_owned(), format!("<{name}>{value}</{name}>")));
+            }
+        }
+        from = gt + 1;
+        if !head.ends_with('/') {
+            from = child_properties(xmp, from, &mut out.list);
+        }
+    }
+    out
+}
+
+/// Reads the elements in `xmp` from `from` on, as properties of the rdf:Description they are
+/// in, into `list`, up to the end of that Description or what does not read as an element.
+/// Returns where it stopped.
+fn child_properties(xmp: &str, mut from: usize, list: &mut Vec<(String, String)>) -> usize {
+    loop {
+        let rest = &xmp[from..];
+        let text = rest.trim_start();
+        from += rest.len() - text.len();
+        if let Some(comment) = text.strip_prefix("<!--") {
+            match comment.find("-->") {
+                Some(end) => from += 4 + end + 3,
+                None => return xmp.len(),
+            }
+            continue;
+        }
+        if !text.starts_with('<') || text.starts_with("</") {
+            return from;
+        }
+        let name_end = text[1..].find(|c: char| c.is_whitespace() || c == '>' || c == '/');
+        let Some(name) = name_end.map(|e| &text[1..1 + e]).filter(|n| is_name(n)) else {
+            return xmp.len();
+        };
+        let Some(gt) = start_tag_end(xmp, from) else {
+            return xmp.len();
+        };
+        let end = if xmp[..gt].ends_with('/') {
+            gt + 1
+        } else {
+            let close = format!("</{name}>");
+            match xmp[gt..].find(&close) {
+                Some(e) => gt + e + close.len(),
+                None => return xmp.len(),
+            }
+        };
+        if name.contains(':') {
+            list.push((name.to_owned(), xmp[from..end].to_owned()));
+        }
+        from = end;
+    }
+}
+
+/// Returns where the start tag that begins at `start` in `xmp` ends, at its '>', past any '>'
+/// in its quoted values, or `None` when it does not end.
+fn start_tag_end(xmp: &str, start: usize) -> Option<usize> {
+    let mut quote = None;
+    for (i, c) in xmp[start..].char_indices() {
+        match (quote, c) {
+            (None, '"' | '\'') => quote = Some(c),
+            (Some(q), _) if c == q => quote = None,
+            (None, '>') => return Some(start + i),
+            _ => {}
+        }
+    }
+    None
+}
+
+/// Returns the attributes of a start tag's text `head` after its name, as (name, value), the
+/// value as written, up to what does not read as one.
+fn attributes(head: &str) -> Vec<(&str, &str)> {
+    let (mut out, mut rest) = (Vec::new(), head);
+    while let Some((name, after)) = rest.split_once('=') {
+        let after = after.trim_start();
+        let (name, Some(value)) = (name.trim(), quoted(after)) else {
+            break;
+        };
+        if !is_name(name) {
+            break;
+        }
+        out.push((name, value));
+        rest = &after[value.len() + 2..];
+    }
+    out
+}
+
+/// Whether `text` reads as an XML name, such as "dc:subject", so a packet written with it as an
+/// element's name stays XML.
+fn is_name(text: &str) -> bool {
+    !text.is_empty()
+        && (text.chars()).all(|c| c.is_alphanumeric() || matches!(c, '_' | '-' | '.' | ':'))
+}
+
+/// Returns the text between the quotes that `text` starts with, single or double, or `None`
+/// when it starts with none or the quote is not closed.
+fn quoted(text: &str) -> Option<&str> {
+    let quote = text.chars().next().filter(|c| *c == '"' || *c == '\'')?;
+    let end = text[1..].find(quote)?;
+    Some(&text[1..1 + end])
+}
+
+/// Writes a new XMP packet of the properties of `properties`, in one rdf:Description, with
+/// the namespaces they use declared on it.
+pub(crate) fn packet(properties: &Properties) -> Vec<u8> {
+    let mut out = String::from(
+        "<?xpacket begin=\"\u{feff}\" id=\"W5M0MpCehiHzreSzNTczkc9d\"?>\n\
+         <x:xmpmeta xmlns:x=\"adobe:ns:meta/\">\n \
+         <rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\">\n  \
+         <rdf:Description rdf:about=\"\"",
+    );
+    for (prefix, uri) in &properties.namespaces {
+        let used =
+            (properties.list.iter()).any(|(_, element)| element.contains(&format!("{prefix}:")));
+        if used && prefix != "x" && prefix != "rdf" {
+            let uri = uri.replace('"', "&quot;").replace('<', "&lt;");
+            out += &format!("\n    xmlns:{prefix}=\"{uri}\"");
+        }
+    }
+    out += ">\n";
+    for (_, element) in &properties.list {
+        out += &format!("   {element}\n");
+    }
+    out += "  </rdf:Description>\n </rdf:RDF>\n</x:xmpmeta>\n<?xpacket end=\"w\"?>";
+    out.into_bytes()
+}
+
+pub(crate) fn escape(text: &str) -> String {
     text.replace('&', "&amp;")
         .replace('<', "&lt;")
         .replace('>', "&gt;")
@@ -1468,6 +1665,44 @@ mod tests {
             set_alt_text(&xmp, &AltText::default(), true);
             set_keywords(&xmp, &meta, true);
             element(&xmp, "dc:subject");
+        }
+    }
+
+    /// Copy for Sharing reads a packet's properties, written as attributes or as elements, past
+    /// a comment, with their namespaces, and writes a packet of them that reads back the same.
+    #[test]
+    fn reads_and_writes_properties() {
+        let xmp = "<x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><rdf:RDF><rdf:Description \
+                   rdf:about=\"\" xml:lang=\"en\" xmlns:tiff=\"http://ns.adobe.com/tiff/1.0/\" \
+                   xmlns:dc='http://purl.org/dc/elements/1.1/' tiff:Make=\"Canon\">\
+                   <!-- <dc:title>x</dc:title> --><dc:subject><rdf:Bag><rdf:li>a</rdf:li>\
+                   </rdf:Bag></dc:subject><dc:rights/></rdf:Description></rdf:RDF></x:xmpmeta>";
+        let read = super::properties(xmp);
+        let names: Vec<&str> = read.list.iter().map(|(n, _)| n.as_str()).collect();
+        assert_eq!(names, ["tiff:Make", "dc:subject", "dc:rights"]);
+        assert!(
+            read.namespaces
+                .iter()
+                .any(|(p, u)| p == "dc" && u.contains("purl"))
+        );
+        let written = String::from_utf8(super::packet(&read)).unwrap();
+        let again = super::properties(&written);
+        assert_eq!(again.list, read.list);
+        assert!(written.contains("xmlns:tiff=") && !written.contains("xml:lang"));
+    }
+
+    /// Packets broken in thousands of ways: their properties read, and a packet written of them,
+    /// without a panic.
+    #[test]
+    fn survives_broken_xmp_properties() {
+        let seed = "<x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><rdf:RDF><rdf:Description \
+                    rdf:about=\"\" xmlns:dc=\"http://purl.org/dc/elements/1.1/\" \
+                    dc:format='image/jpeg'><!--c--><dc:subject><rdf:Bag><rdf:li>a</rdf:li>\
+                    </rdf:Bag></dc:subject><dc:rights/></rdf:Description><rdf:Description \
+                    rdf:about=\"\"/></rdf:RDF></x:xmpmeta>";
+        for bytes in crate::support::test_support::broken(seed.as_bytes()) {
+            let read = super::properties(&String::from_utf8_lossy(&bytes));
+            super::packet(&read);
         }
     }
 

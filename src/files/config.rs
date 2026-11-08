@@ -682,6 +682,12 @@ pub fn recent_path() -> Option<PathBuf> {
     xdg_file("XDG_STATE_HOME", ".local/state", "recent")
 }
 
+/// Returns `$XDG_STATE_HOME/glimt/sharing`, which holds what File → Copy for Sharing left out
+/// last time (`shared_copy::LeftOut`), one word on each line. The windows share it.
+pub fn sharing_path() -> Option<PathBuf> {
+    xdg_file("XDG_STATE_HOME", ".local/state", "sharing")
+}
+
 /// The paths of a recent file's text, read as bytes, because a name need not be UTF-8.
 pub fn parse_recent(text: &[u8]) -> Vec<PathBuf> {
     use std::os::unix::ffi::OsStrExt;

@@ -2881,3 +2881,75 @@ msgstr "Nezahrnuto, protože je hledání skrývá: {files}"
 #: src/ui/file_list.rs
 msgid ", {h} selected but hidden by the search"
 msgstr ", vybráno {h}, ale skryto hledáním"
+
+#: src/ui/actions.rs
+msgid "Copy for Sharing…"
+msgstr "Kopírovat ke sdílení…"
+
+#: src/images/shared_copy.rs
+msgid "Place"
+msgstr "Místo"
+
+#: src/images/shared_copy.rs
+msgid "Camera and lens"
+msgstr "Fotoaparát a objektiv"
+
+#: src/images/shared_copy.rs
+msgid "Date and time"
+msgstr "Datum a čas"
+
+#: src/images/shared_copy.rs
+msgid "Photographer and copyright"
+msgstr "Fotograf a autorská práva"
+
+#: src/images/shared_copy.rs
+msgid "Software"
+msgstr "Software"
+
+#: src/images/shared_copy.rs
+msgid "Keywords, comment and alt text"
+msgstr "Klíčová slova, komentář a alternativní text"
+
+#: src/images/shared_copy.rs
+msgid "The preview inside the file"
+msgstr "Náhled uvnitř souboru"
+
+#: src/images/shared_copy.rs
+msgid "More tags"
+msgstr "Další štítky"
+
+#: src/features/copy_for_sharing.rs
+msgid "Reading the tags… {done} of {total}"
+msgstr "Čtení štítků… {done} z {total}"
+
+#: src/features/copy_for_sharing.rs
+msgid "Remove All"
+msgstr "Odebrat vše"
+
+#: src/features/copy_for_sharing.rs
+msgid "Ticked tags are left out of the copies."
+msgstr "Zaškrtnuté štítky se do kopií nedostanou."
+
+#: src/features/copy_for_sharing.rs
+msgid "Always kept: the orientation, so the image is not shown on its side, and the colour profile, so its colours do not change."
+msgstr "Vždy zachováno: orientace, aby se obrázek nezobrazil na boku, a barevný profil, aby se jeho barvy nezměnily."
+
+#: src/features/copy_for_sharing.rs
+msgid "Hide"
+msgstr "Skrýt"
+
+#: src/features/copy_for_sharing.rs
+msgid "Show"
+msgstr "Zobrazit"
+
+#: src/features/copy_for_sharing.rs
+msgid "; {files} not copied: only JPEG, PNG and WebP are"
+msgstr "; nezkopírováno: {files}, kopírují se jen JPEG, PNG a WebP"
+
+#: src/features/copy_for_sharing.rs
+msgid "; {files} not copied: the folder has files of those names"
+msgstr "; nezkopírováno: {files}, složka už má soubory těchto jmen"
+
+#: src/features/copy_for_sharing.rs
+msgid "Reading the tags"
+msgstr "Čtení štítků"

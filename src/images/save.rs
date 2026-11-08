@@ -61,9 +61,14 @@ const DROPPED_PNG_TEXT: [&[u8]; 4] = [
     b"Raw profile type 8bim",
 ];
 
+/// The XMP properties every copy for sharing keeps, also after Remove All, as its EXIF keeps
+/// their tags (`exif::shared_block`): the orientation keeps a photo upright, and the colour
+/// space says which colours its pixels are in.
+const ALWAYS_SHARED_XMP: [&str; 2] = ["tiff:Orientation", "exif:ColorSpace"];
+
 /// The largest EXIF block a JPEG holds. Its APP1 segment holds 65,533 bytes, and the encoder
 /// puts six of them, "Exif\0\0", before the block.
-const MAX_JPEG_EXIF: usize = 65_527;
+pub(crate) const MAX_JPEG_EXIF: usize = 65_527;
 
 /// How a copy of an image is made (Edit → Crop, File → Save As). It is made as the view shows
 /// it (turned by `turns` and `mirrored`, by EXIF with `rotate`, and the page `page` of a TIFF),
@@ -158,6 +163,45 @@ pub(crate) enum Derived {
     /// A new file made from the image: a crop or a copy (Save As). It drops what `Turned` drops,
     /// and other programs' edits of the image it came from (`DROPPED_FROM_COPIES`).
     Copy,
+    /// A copy for sharing (`images::shared_copy`): the image's own data byte for byte, with only
+    /// the metadata the user keeps. `shared_metadata` reads what it may keep, and
+    /// `SharedMetadata::written` makes the new EXIF block and XMP packet of what it keeps.
+    Shared,
+}
+
+/// What a copy for sharing (`Derived::Shared`) may keep of an image's metadata: its EXIF block,
+/// and the XMP properties of the image, of its sidecar and of its IPTC IIM, merged.
+pub(crate) struct SharedMetadata {
+    exif: Option<Vec<u8>>,
+    xmp: crate::metadata::xmp::Properties,
+}
+
+impl SharedMetadata {
+    /// Returns the names of the tags a copy for sharing may keep or leave out: the EXIF block's
+    /// (`exif::shared_tag_names`) and the XMP properties'. The orientation and the colour space
+    /// are not among them, as every copy keeps them.
+    pub(crate) fn tag_names(&self) -> Vec<String> {
+        let exif = self.exif.as_deref().map(exif::shared_tag_names);
+        let xmp = (self.xmp.list.iter())
+            .map(|(name, _)| name.clone())
+            .filter(|name| !ALWAYS_SHARED_XMP.contains(&name.as_str()));
+        exif.unwrap_or_default().into_iter().chain(xmp).collect()
+    }
+
+    /// Returns the new EXIF block (`exif::shared_block`) and XMP packet of a copy that keeps
+    /// the tags `keeps` keeps, and always the orientation and the colour space. Each is `None`
+    /// when nothing of it is kept.
+    pub(crate) fn written(
+        &self,
+        keeps: &dyn Fn(&str) -> bool,
+    ) -> (Option<Vec<u8>>, Option<Vec<u8>>) {
+        let exif = (self.exif.as_deref()).and_then(|raw| exif::shared_block(raw, keeps));
+        let mut kept = self.xmp.clone();
+        kept.list
+            .retain(|(name, _)| ALWAYS_SHARED_XMP.contains(&name.as_str()) || keeps(name));
+        let xmp = (!kept.list.is_empty()).then(|| crate::metadata::xmp::packet(&kept));
+        (exif, xmp)
+    }
 }
 
 /// A forward search for a text in a packet, for places asked in rising order. A search goes on
@@ -676,8 +720,35 @@ pub(crate) fn derived_xmp(xmp: &[u8], how: Derived) -> Vec<u8> {
                 out = xmp_without_property(&out, name.as_bytes());
             }
         }
+        // A copy for sharing writes a new packet of the properties kept instead
+        // (`SharedMetadata::written`), and its pixels and orientation are the image's own.
+        Derived::Shared => {}
     }
     out
+}
+
+/// Reads what a copy for sharing of `path` may keep of its metadata. That is the EXIF block the
+/// panel reads (`exif::derived`), and the XMP properties of `embedded`, the packet inside the
+/// image, of its sidecar and of `iim`, the properties its IPTC IIM gives. A property of the
+/// sidecar, which Glimt writes, wins over one of the same name inside the image, and IIM only
+/// adds what neither has. Returns an error when the sidecar is there but cannot be read, as a
+/// copy of the image without it would leave out the alt text the user wrote for it.
+pub(crate) fn shared_metadata(
+    path: &Path,
+    embedded: Option<&[u8]>,
+    iim: crate::metadata::xmp::Properties,
+) -> Result<SharedMetadata, String> {
+    use crate::metadata::xmp;
+    let exif = exif::derived(path, Derived::Shared);
+    let text = |bytes: &[u8]| std::str::from_utf8(bytes).ok().map(xmp::properties);
+    let mut properties = embedded.and_then(text).unwrap_or_default();
+    let sidecar = xmp::own_sidecar(path).map_err(|e| e.to_string())?;
+    properties.add_over(sidecar.as_deref().and_then(text).unwrap_or_default());
+    properties.add_missing(iim);
+    Ok(SharedMetadata {
+        exif,
+        xmp: properties,
+    })
 }
 
 /// Makes the sidecar of `path`, whose image is being written anew as `how` says, say what the
@@ -1012,7 +1083,7 @@ fn png_with_chunks(new: &[u8], old: &[u8], quarter: bool) -> Vec<u8> {
 }
 
 /// The CRC that PNG chunks end with (ISO 3309), bit by bit. It runs once for each saved image.
-fn crc32(bytes: &[u8]) -> u32 {
+pub(crate) fn crc32(bytes: &[u8]) -> u32 {
     let mut crc = !0u32;
     for &b in bytes {
         crc ^= b as u32;

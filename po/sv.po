@@ -2859,3 +2859,75 @@ msgstr "Inte med, eftersom sökningen döljer dem: {files}"
 #: src/ui/file_list.rs
 msgid ", {h} selected but hidden by the search"
 msgstr ", {h} markerade men dolda av sökningen"
+
+#: src/ui/actions.rs
+msgid "Copy for Sharing…"
+msgstr "Kopiera för delning …"
+
+#: src/images/shared_copy.rs
+msgid "Place"
+msgstr "Plats"
+
+#: src/images/shared_copy.rs
+msgid "Camera and lens"
+msgstr "Kamera och objektiv"
+
+#: src/images/shared_copy.rs
+msgid "Date and time"
+msgstr "Datum och tid"
+
+#: src/images/shared_copy.rs
+msgid "Photographer and copyright"
+msgstr "Fotograf och upphovsrätt"
+
+#: src/images/shared_copy.rs
+msgid "Software"
+msgstr "Programvara"
+
+#: src/images/shared_copy.rs
+msgid "Keywords, comment and alt text"
+msgstr "Nyckelord, kommentar och alt-text"
+
+#: src/images/shared_copy.rs
+msgid "The preview inside the file"
+msgstr "Förhandsvisningen inuti filen"
+
+#: src/images/shared_copy.rs
+msgid "More tags"
+msgstr "Fler taggar"
+
+#: src/features/copy_for_sharing.rs
+msgid "Reading the tags… {done} of {total}"
+msgstr "Läser taggarna … {done} av {total}"
+
+#: src/features/copy_for_sharing.rs
+msgid "Remove All"
+msgstr "Ta bort alla"
+
+#: src/features/copy_for_sharing.rs
+msgid "Ticked tags are left out of the copies."
+msgstr "Markerade taggar utelämnas ur kopiorna."
+
+#: src/features/copy_for_sharing.rs
+msgid "Always kept: the orientation, so the image is not shown on its side, and the colour profile, so its colours do not change."
+msgstr "Alltid kvar: orienteringen, så att bilden inte visas på sidan, och färgprofilen, så att färgerna inte ändras."
+
+#: src/features/copy_for_sharing.rs
+msgid "Hide"
+msgstr "Dölj"
+
+#: src/features/copy_for_sharing.rs
+msgid "Show"
+msgstr "Visa"
+
+#: src/features/copy_for_sharing.rs
+msgid "; {files} not copied: only JPEG, PNG and WebP are"
+msgstr "; {files} inte kopierade: bara JPEG, PNG och WebP kopieras"
+
+#: src/features/copy_for_sharing.rs
+msgid "; {files} not copied: the folder has files of those names"
+msgstr "; {files} inte kopierade: mappen har redan filer med de namnen"
+
+#: src/features/copy_for_sharing.rs
+msgid "Reading the tags"
+msgstr "Läser taggarna"

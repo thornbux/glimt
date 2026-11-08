@@ -2762,7 +2762,7 @@ mod tests {
     /// Each is held back while other work changes its files, except those that change none. A
     /// copy only reads them, and keywords never wait, because an edit would be lost. Their job
     /// holds back the rest instead.
-    fn contract_ops() -> [(&'static str, Op, Check); 14] {
+    fn contract_ops() -> [(&'static str, Op, Check); 15] {
         [
             (
                 "move",
@@ -2788,6 +2788,25 @@ mod tests {
                         && side(&d.join("a.png")) == "a"
                         && (!cfg!(feature = "marks")
                             || (stars(app, &to) == 3 && stars(app, &d.join("a.png")) == 3))
+                },
+            ),
+            // A copy for sharing takes neither the sidecar nor the stars along: what it keeps
+            // of them is inside the copy. The original and its sidecar stay as they were.
+            (
+                "copy for sharing",
+                |app, ctx, d| {
+                    let (paths, kept) = (vec![d.join("a.png")], Default::default());
+                    app.copy_for_sharing(ctx, paths, d.join("sub"), kept)
+                },
+                |app, d| {
+                    let (to, a) = (d.join("sub/a.png"), d.join("a.png"));
+                    to.exists()
+                        && image::image_dimensions(&to).ok() == Some((8, 8))
+                        && a.exists()
+                        && side(&a) == "a"
+                        && !crate::metadata::xmp::sidecar(&to).exists()
+                        && (!cfg!(feature = "marks")
+                            || (stars(app, &to) == 0 && stars(app, &a) == 3))
                 },
             ),
             (
@@ -3160,6 +3179,7 @@ mod tests {
             ("write_sidecars", "keywords"),
             ("save_orientation", "save orientation"),
             ("rename_folder", "rename folder"),
+            ("copy_for_sharing", "copy for sharing"),
         ];
         const OUTSIDE: &[(&str, &str)] = &[
             ("start_job", "the start itself"),

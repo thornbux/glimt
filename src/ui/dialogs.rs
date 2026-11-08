@@ -1,6 +1,7 @@
 //! The file chooser (zenity or kdialog) and the small dialogs: a name asked for, a delete
 //! confirmed, a share's login, a job cut short.
 
+use crate::features::copy_for_sharing::SharingDialog;
 use crate::features::print::{PrintJob, PrintTo};
 use crate::files::config::xdg_dir;
 use crate::files::external::{Login, command};
@@ -51,6 +52,8 @@ pub(crate) enum Pick {
     /// The folder for every frame (or page) of the file .0, as PNG files turned as the view
     /// showed it (.1).
     ExportFrames(PathBuf, save::CopyAs),
+    /// Copy for Sharing: the folder for the copies of these images, which keep the tags named.
+    CopyForSharing(Vec<PathBuf>, std::collections::HashSet<String>),
 }
 
 /// What the one-line text dialog is asking for.
@@ -140,6 +143,8 @@ pub(crate) struct Dialogs {
     /// the dialog opens, so that its preview can warn without reading the mount table in every
     /// frame. It is `None` on any other file system.
     fat_file_system_type: Option<String>,
+    /// File → Copy for Sharing's dialog, while it is open.
+    copy_for_sharing: Option<SharingDialog>,
 }
 
 impl Dialogs {
@@ -170,6 +175,16 @@ impl Dialogs {
     /// Asks for this window's own title, with `title` typed in already.
     pub(crate) fn ask_window_title(&mut self, title: String) {
         self.ask(Prompt::WindowTitle, title);
+    }
+
+    /// Opens the Copy for Sharing dialog `dialog`, or keeps it open after a frame drew it.
+    pub(crate) fn show_sharing(&mut self, dialog: SharingDialog) {
+        self.copy_for_sharing = Some(dialog);
+    }
+
+    /// The Copy for Sharing dialog, taken to be drawn, or `None` when it is not open.
+    pub(crate) fn take_sharing(&mut self) -> Option<SharingDialog> {
+        self.copy_for_sharing.take()
     }
 
     /// Asks whether to delete the files `asked`: to the trash when `trash`, else for good.
@@ -289,7 +304,7 @@ impl crate::App {
             Pick::Folders => tr("Open Folders (Ctrl+click for several)"),
             Pick::Recursive => tr("Open Folder with Its Subfolders"),
             Pick::Collection => tr("Open Collection"),
-            Pick::CopyTo(_) => tr("Copy to Folder"),
+            Pick::CopyTo(_) | Pick::CopyForSharing(..) => tr("Copy to Folder"),
             Pick::MoveTo(_) => tr("Move to Folder"),
             Pick::SavePdf(_) => tr("Save as PDF"),
             Pick::SortFolder => tr("Add to the Sort Manager"),
@@ -443,6 +458,9 @@ impl crate::App {
                     self.export_frames(ctx, path, None, dir, how)
                 }
                 (Pick::SaveAs(path, how, _), Some(to)) => self.save_as_to(ctx, path, how, to),
+                (Pick::CopyForSharing(paths, kept), Some(dir)) => {
+                    self.copy_for_sharing(ctx, paths, dir, kept)
+                }
             }
         }
     }
@@ -940,6 +958,7 @@ impl crate::App {
             || self.print_dialog.is_some()
             || self.lightroom.is_some()
             || self.save_as.is_some()
+            || self.dialogs.copy_for_sharing.is_some()
             || !self.file_operations.cut_short().is_empty()
     }
 

@@ -128,8 +128,9 @@ holds only its `mod` lines, and a new module goes into the folder of what it doe
 | `src/ui/help.rs` | Help Manual, Keyboard Shortcuts, Keyboard Map, About, `DIFFERENCES` |
 | `src/ui/preferences.rs` | Edit → Preferences: the window and its sections |
 | `src/ui/theme.rs` | The look: Inter and Phosphor fonts, themes (`themes/*.theme` built in, own ones in `~/.config/glimt/themes`), the desktop's dark style and accent |
-| `src/features.rs` | **The features/ folder:** features with a window or a job of their own: Find Duplicates, Check Images, printing, plugins and remote control |
+| `src/features.rs` | **The features/ folder:** features with a window or a job of their own: Copy for Sharing, Find Duplicates, Check Images, printing, plugins and remote control |
 | `src/features/check.rs` | File → Check Images: every image decoded in the background, the broken ones listed |
+| `src/features/copy_for_sharing.rs` | File → Copy for Sharing: its dialog (the tags in groups, Remove All, the last choice kept in `$XDG_STATE_HOME/glimt/sharing`) and the job that writes the copies |
 | `src/features/duplicates.rs` | Find Duplicates: groups by checksum, name, size, dimensions or likeness, and its window |
 | `src/features/plugins.rs` | Plugins: desktop files whose command runs on the selected files; `desktop_files` and `desktop_entry_values`, which decoder_plugins.rs reads with too |
 | `src/features/print.rs` | Printing: a PDF of the images, sent to `lp` or saved, and the print dialog |
@@ -139,7 +140,8 @@ holds only its `mod` lines, and a new module goes into the folder of what it doe
 | `src/images/svg.rs` | SVG and SVGZ through resvg (feature `svg`): `load`, with limits on the text unpacked, the pictures linked and entities that grow |
 | `src/images/decoder_plugins.rs` | Decoder plugins: programs in `glimt/decoders` that turn other formats into images |
 | `src/images/colour.rs` | Colour management: ICC profiles, the screen profile (also from colord), rendering intent |
-| `src/images/save.rs` | Saving a turned image with its EXIF and XMP, also lossy WebP; copies of the shown image (`CopyAs`, `copy_bytes`, `shown_image`), `save_copy_with_sidecar`, the one way a copy and its sidecar are saved, and `Derived` with `derived_xmp`, what a turned image, a copy and their sidecars keep of the metadata |
+| `src/images/save.rs` | Saving a turned image with its EXIF and XMP, also lossy WebP; copies of the shown image (`CopyAs`, `copy_bytes`, `shown_image`), `save_copy_with_sidecar`, the one way a copy and its sidecar are saved, and `Derived` with `derived_xmp`, what a turned image, a copy and their sidecars keep of the metadata, also a copy for sharing (`shared_metadata`) |
+| `src/images/shared_copy.rs` | Copy for Sharing's copies: JPEG segments, PNG and WebP chunks walked, the parts kept carried byte for byte with a new EXIF and XMP (`copy`, `tags_of`); the tags' groups (`Group`) and the choice (`LeftOut`) |
 | `src/images/raw.rs` | Camera RAW: the largest embedded JPEG preview |
 | `src/images/thumbs.rs` | Freedesktop thumbnail cache (`~/.cache/thumbnails`) |
 | `src/images/video.rs` | Optional video feature |
