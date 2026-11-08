@@ -13,6 +13,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
   moment before, also when this window had not read them yet.
 - A collection open in one window follows the images that another window moves or renames,
   as an open folder does, instead of keeping their old names until it is opened again.
+- A screen reader reads out a notice given twice within one frame, such as two refusals of
+  `--lock-settings` close together, also the second time.
 
 ## [0.76.0] - 2026-11-08
 

@@ -418,7 +418,9 @@ impl crate::App {
         let change = |old: &[u8]| xmp::keyword_tree_file_changed(old, add, remove);
         match crate::files::file_io::edit_shared(&p, change) {
             Ok(tree) => self.info_panel.keyword_tree = tree,
-            Err(e) => self.notice = Some(tf!("Could not save the keyword tree: {e}", e)),
+            Err(e) => self
+                .notice
+                .give(tf!("Could not save the keyword tree: {e}", e)),
         }
     }
 

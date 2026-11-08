@@ -34,7 +34,7 @@ impl crate::App {
         // shortcut: read and written in the UI thread, small text files; move to
         // file_io::write_later if collections of hundreds of thousands are edited.
         if let Err(e) = edit_open_collection(file, change) {
-            self.notice = Some(e);
+            self.notice.give(e);
         }
     }
 
@@ -59,7 +59,8 @@ impl crate::App {
         order: Vec<usize>,
     ) {
         if self.folder.collection().is_none() {
-            self.notice = Some(tr("Only the images of a collection can be moved").into());
+            self.notice
+                .give(tr("Only the images of a collection can be moved").into());
             return;
         }
         // An empty collection: nothing to move, and no shown image to keep.
@@ -67,7 +68,8 @@ impl crate::App {
             return;
         }
         if self.slideshow.is_shuffled() {
-            self.notice = Some(tr("Random order is on: R turns it off to move images").into());
+            self.notice
+                .give(tr("Random order is on: R turns it off to move images").into());
             return;
         }
         let shown = self.list.files().get(self.list.shown()).cloned();
@@ -679,7 +681,7 @@ mod tests {
         ));
         let file = dir.join("trip.gqv");
         app.add_to_collection(&ctx, &file);
-        let told = |app: &crate::App| app.notice.as_deref().is_some_and(|n| n.contains("trip"));
+        let told = |app: &crate::App| app.notice.text().is_some_and(|n| n.contains("trip"));
         assert!(crate::support::test_support::run_background_until(
             &mut app, &ctx, told
         ));

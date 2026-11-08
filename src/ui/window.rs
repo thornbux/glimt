@@ -201,7 +201,7 @@ impl crate::App {
             if self.window.close_requests == 2 {
                 self.file_operations.stop_jobs();
             }
-            self.notice = Some(
+            self.notice.give(
                 match self.window.close_requests {
                     1 => crate::support::lang::tr(
                         "Glimt closes when the file operations are done; close again to stop them",

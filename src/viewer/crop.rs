@@ -41,7 +41,7 @@ impl crate::App {
         let shown = self.list.shown();
         #[cfg(feature = "video")]
         if (self.list.files().get(shown)).is_some_and(|f| is_video(Path::new(f))) {
-            self.notice = Some(tr("A video is not cropped").into());
+            self.notice.give(tr("A video is not cropped").into());
             return;
         }
         if self.list.loaded_images().contains_key(&shown) {

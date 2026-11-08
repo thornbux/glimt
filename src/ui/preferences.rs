@@ -934,7 +934,7 @@ impl crate::App {
                         let keys = ui
                             .ctx()
                             .format_shortcut(&egui::KeyboardShortcut::new(mods, key));
-                        self.notice = Some(tf!(
+                        self.notice.give(tf!(
                             "{keys} was the key of {others} too: now of {label} only",
                             keys,
                             others = taken.join(", "),
@@ -1162,7 +1162,7 @@ mod tests {
                 // Part of a longer name (`str(`), not a call after `return`.
                 let named = code[..at].ends_with(|c: char| c.is_alphanumeric() || c == '_');
                 let before = code[..at].trim_end();
-                if named || before.ends_with("send(") || before.ends_with("notice = Some(") {
+                if named || before.ends_with("send(") || before.ends_with("notice.give(") {
                     continue;
                 }
                 let after = at + call.len();
@@ -1197,7 +1197,7 @@ mod tests {
     #[test]
     fn texts_finds_the_calls_shown() {
         let code = r#"if a { return tr("A"); } ui.label(tr("B")); ui.weak(tf!("C {x}", x));
-            let _ = tx.send(tf!("D")); self.notice = Some(tf!("E")); attr("F");"#;
+            let _ = tx.send(tf!("D")); self.notice.give(tf!("E")); attr("F");"#;
         let mut out = Vec::new();
         texts(code, &mut out);
         assert_eq!(out, ["A", "B", "C {x}"]);

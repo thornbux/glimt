@@ -88,9 +88,9 @@ impl crate::App {
         // Saving the old image's rotation may leave a notice, which must outlive the move.
         let saved = self.config.save_orientation && self.viewing.is_turned();
         self.leave_image(ctx);
-        let notice = if saved { self.notice.take() } else { None };
+        let notice = if saved { self.notice.set_aside() } else { None };
         self.list.set_shown(idx.min(self.list.files().len() - 1));
-        self.notice = notice;
+        self.notice.put_back(notice);
         // A failure of before (a share away for a moment) is tried again now that the image is
         // shown again, not kept for the rest of the session.
         self.list.forget_decode_error(self.list.shown());
@@ -254,8 +254,8 @@ impl crate::App {
         places: std::collections::BTreeSet<usize>,
     ) -> bool {
         if !places.iter().all(|&i| self.list.shows_file(i)) {
-            self.notice =
-                Some(tr("The search hides files this would act on: clear it first").into());
+            self.notice
+                .give(tr("The search hides files this would act on: clear it first").into());
             return false;
         }
         self.set_selection(ctx, places);
@@ -322,8 +322,8 @@ impl crate::App {
     pub(crate) fn targets(&mut self) -> Option<Vec<usize>> {
         let targets = self.targets_without_notice();
         if targets.is_none() {
-            self.notice =
-                Some(tr("The search hides files this would act on: clear it first").into());
+            self.notice
+                .give(tr("The search hides files this would act on: clear it first").into());
         }
         targets
     }
@@ -469,11 +469,11 @@ mod tests {
         app.update_search(&ctx);
         assert!(app.list.only_hidden_selected());
         assert_eq!(app.targets(), None);
-        assert!(app.notice.take().is_some());
+        assert!(app.notice.set_aside().is_some());
         // Neither the delete's question nor a query names the shown image.
         app.run(&ctx, crate::ui::actions::Action::Delete);
         assert!(!app.asking_about_selection());
-        assert!(app.notice.take().is_some());
+        assert!(app.notice.set_aside().is_some());
         assert!(app.remote_query("selection").is_empty());
         let shown = app.list.shown();
         assert!(app.list.select_on_right_click(shown));

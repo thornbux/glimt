@@ -1553,7 +1553,7 @@ mod tests {
             format!("{}\0{}\0", a.display(), b.display()).into_bytes()
         );
         assert_eq!(app.list.selected(), &[2].into());
-        assert!(app.notice.is_some());
+        assert!(app.notice.text().is_some());
         std::fs::remove_dir_all(dir).unwrap();
     }
 

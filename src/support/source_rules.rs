@@ -1097,6 +1097,7 @@ fn parts_keep_their_fields() {
         ("viewer/save_as.rs", "SaveAs"),
         ("viewer/slideshow.rs", "Slideshow"),
         ("viewer/view.rs", "Decoding"),
+        ("viewer/view.rs", "Notice"),
         ("viewer/view.rs", "Viewing"),
         ("viewer/view.rs", "Zoom"),
     ];
@@ -1598,6 +1599,20 @@ fn copies_of_settings_have_one_writer() {
     assert!(
         wrong.is_empty(),
         "a copy of a setting written by hand:\n{}",
+        wrong.join("\n")
+    );
+}
+
+/// A notice is given only through `Notice::give`, which gives it a number of its own, so a
+/// screen reader reads out a notice given again with the same text. Before, the screen reader's
+/// code told a notice given again by its text's address, and the second of two notices given
+/// within one frame often got the address of the first one back, so it was not read out.
+#[test]
+fn notices_are_given_through_their_setter() {
+    let wrong = outside_their_homes(&[(".notice =", &[]), ("&mut self.notice", &[])]);
+    assert!(
+        wrong.is_empty(),
+        "give a notice with notice.give(…) or take it away with notice.clear():\n{}",
         wrong.join("\n")
     );
 }

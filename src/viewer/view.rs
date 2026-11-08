@@ -361,6 +361,61 @@ impl Viewing {
     }
 }
 
+/// The message shown over the image until the next image, with the number it was given. A
+/// screen reader reads a notice out again when it is given again with the same text, and the
+/// number tells it that the notice is new.
+#[derive(Default)]
+pub(crate) struct Notice {
+    /// The text shown, and its number.
+    shown: Option<(String, u64)>,
+    /// How many notices were given, so the next one gets a number of its own.
+    given: u64,
+}
+
+impl Notice {
+    /// Returns a notice that shows `text` from the start, when there is one.
+    pub(crate) fn new(text: Option<String>) -> Self {
+        let mut notice = Notice::default();
+        if let Some(text) = text {
+            notice.give(text);
+        }
+        notice
+    }
+
+    /// Shows `text`, as a new notice, also when the same text is shown already.
+    pub(crate) fn give(&mut self, text: String) {
+        self.given += 1;
+        self.shown = Some((text, self.given));
+    }
+
+    /// Takes the notice away.
+    pub(crate) fn clear(&mut self) {
+        self.shown = None;
+    }
+
+    /// Returns the text shown, or `None` when no notice is shown.
+    pub(crate) fn text(&self) -> Option<&str> {
+        self.shown.as_ref().map(|(text, _)| text.as_str())
+    }
+
+    /// Returns the number of the notice shown, or `None` when no notice is shown.
+    #[cfg(feature = "accessibility")]
+    pub(crate) fn number(&self) -> Option<u64> {
+        self.shown.as_ref().map(|&(_, number)| number)
+    }
+
+    /// Takes the notice away and returns it, with its number, for `put_back`.
+    pub(crate) fn set_aside(&mut self) -> Option<(String, u64)> {
+        self.shown.take()
+    }
+
+    /// Shows again the notice that `set_aside` returned, as the same notice, so a screen
+    /// reader that read it does not read it again. `None` takes the notice away.
+    pub(crate) fn put_back(&mut self, kept: Option<(String, u64)>) {
+        self.shown = kept;
+    }
+}
+
 impl crate::App {
     // ---- Decoding and painting the image ----
 
@@ -1470,11 +1525,11 @@ impl crate::App {
     /// notice from here.
     pub(crate) fn paint_notice(&self, ui: &egui::Ui, area: egui::Rect) {
         #[cfg(feature = "accessibility")]
-        crate::ui::accessibility::speak_notice(ui, area, self.notice.as_deref());
-        if let Some(notice) = &self.notice {
+        crate::ui::accessibility::speak_notice(ui, area, &self.notice);
+        if let Some(notice) = self.notice.text() {
             let (font, red) = (egui::FontId::proportional(16.0), egui::Color32::LIGHT_RED);
             let width = (area.width() - 48.0).max(80.0);
-            let galley = ui.painter().layout(notice.clone(), font, red, width);
+            let galley = ui.painter().layout(notice.to_owned(), font, red, width);
             let at =
                 area.center_bottom() - egui::vec2(galley.size().x / 2.0, 16.0 + galley.size().y);
             let band = egui::Rect::from_min_size(at, galley.size()).expand(8.0);
@@ -1643,7 +1698,8 @@ impl crate::App {
             .file_operations
             .is_saving(&self.path(self.list.shown()))
         {
-            self.notice = Some(tr("Still saving the last rotation of this file").into());
+            self.notice
+                .give(tr("Still saving the last rotation of this file").into());
             return;
         }
         let (q, m) = self.viewing.turn;

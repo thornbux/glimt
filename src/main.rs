@@ -114,7 +114,7 @@ struct App {
     /// what is being edited.
     info_panel: crate::ui::info_panel::InfoPanel,
     /// The message shown over the image, until the next image.
-    notice: Option<String>,
+    notice: crate::viewer::view::Notice,
     /// Messages from background tasks (deleting, copying), to become the notice.
     notice_sender: crate::support::threads::NoticeSender,
     notices: mpsc::Receiver<String>,
@@ -239,7 +239,9 @@ impl App {
             slideshow: crate::viewer::slideshow::Slideshow::new(start.slideshow),
             window: crate::ui::window::Window::new(start.kiosk),
             info_panel: crate::ui::info_panel::InfoPanel::new(ctx),
-            notice: screen_error.or_else(|| config_notice(problems)),
+            notice: crate::viewer::view::Notice::new(
+                screen_error.or_else(|| config_notice(problems)),
+            ),
             notice_sender,
             notices,
             dialogs: crate::ui::dialogs::Dialogs::default(),
