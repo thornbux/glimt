@@ -18,6 +18,9 @@ and versions follow [Semantic Versioning](https://semver.org/).
   lists (digiKam:TagsList, and those of Microsoft, MediaPro and ACDSee) before dc:subject, so
   Glimt now takes them out when it writes the keywords, and keeps their hierarchy in
   lr:hierarchicalSubject.
+- A comment, alt text or extended description in several languages keeps them all when it is
+  edited. The panel shows the default language (x-default), or else the first, and an edit
+  replaces only that one; before, it showed the first and wrote it alone as the default.
 
 ## [0.75.0] - 2026-11-08
 

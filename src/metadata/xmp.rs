@@ -177,10 +177,9 @@ impl Properties {
 pub(crate) type SidecarLock = (Option<std::fs::File>, std::sync::MutexGuard<'static, ()>);
 
 fn parse_alt_text(xmp: &str) -> AltText {
-    let first = |tag| list_items(xmp, tag).into_iter().next().unwrap_or_default();
     AltText {
-        text: first(ALT),
-        extended_description: first(EXTENDED),
+        text: language_text(xmp, ALT),
+        extended_description: language_text(xmp, EXTENDED),
     }
 }
 
@@ -217,22 +216,13 @@ pub fn write_alt_text(path: &Path, alt_text: &AltText) -> Result<(), String> {
     })
 }
 
+/// `xmp` with the alt text and extended description of `alt_text`, each in place of the
+/// language shown, and their other languages kept (`language_alternative`). Returns `None` if
+/// `xmp` has no rdf:Description.
 fn set_alt_text(xmp: &str, alt_text: &AltText, say_empty: bool) -> Option<String> {
+    let add = language_alternative(xmp, ALT, &alt_text.text, say_empty)
+        + &language_alternative(xmp, EXTENDED, &alt_text.extended_description, say_empty);
     let xmp = without_property(&without_property(xmp, ALT), EXTENDED);
-    let mut add = String::new();
-    for (tag, text) in [
-        (ALT, &alt_text.text),
-        (EXTENDED, &alt_text.extended_description),
-    ] {
-        if !text.is_empty() {
-            add += &format!(
-                "\n   <{tag}>\n    <rdf:Alt>\n     <rdf:li xml:lang=\"x-default\">{}</rdf:li>\n    </rdf:Alt>\n   </{tag}>",
-                escape(text)
-            );
-        } else if say_empty {
-            add += &format!("\n   <{tag}>\n    <rdf:Alt/>\n   </{tag}>");
-        }
-    }
     insert(
         xmp,
         &add,
@@ -622,15 +612,68 @@ pub fn follow(from: &Path, to: &Path, is_copy: bool) -> std::io::Result<()> {
 fn parse(xmp: &str) -> KeywordsAndComment {
     KeywordsAndComment {
         keywords: list_items(xmp, "dc:subject"),
-        comment: list_items(xmp, "dc:description")
-            .into_iter()
-            .next()
-            .unwrap_or_default(),
+        comment: language_text(xmp, "dc:description"),
     }
 }
 
 /// The texts of the rdf:li items of element `tag`.
 fn list_items(xmp: &str, tag: &str) -> Vec<String> {
+    (items_with_languages(xmp, tag).into_iter())
+        .map(|(_, text)| text)
+        .collect()
+}
+
+/// Returns which of the items of a language alternative (an rdf:Alt) the panel shows and an
+/// edit replaces: the x-default one, or else the first. Returns `None` when there are none.
+fn shown_language(items: &[(String, String)]) -> Option<usize> {
+    let default = items
+        .iter()
+        .position(|(language, _)| language == "x-default");
+    default.or((!items.is_empty()).then_some(0))
+}
+
+/// The text of the language alternative `tag` in `xmp` that the panel shows (`shown_language`).
+fn language_text(xmp: &str, tag: &str) -> String {
+    let mut items = items_with_languages(xmp, tag);
+    shown_language(&items).map_or_else(String::new, |i| items.swap_remove(i).1)
+}
+
+/// The element `tag` as a language alternative, to be put in place of the one in `xmp`, with
+/// `text` in place of the item shown (`shown_language`), or as x-default when there is none.
+/// The other languages stay as they were. An empty `text` clears every language, as the field
+/// shows no other. Returns an empty text for no element, or an empty rdf:Alt when `say_empty`.
+fn language_alternative(xmp: &str, tag: &str, text: &str, say_empty: bool) -> String {
+    let mut items = items_with_languages(xmp, tag);
+    match shown_language(&items) {
+        _ if text.is_empty() => items.clear(),
+        Some(i) => items[i].1 = text.to_owned(),
+        None => items.push(("x-default".into(), text.to_owned())),
+    }
+    if items.is_empty() {
+        return match say_empty {
+            true => format!("\n   <{tag}>\n    <rdf:Alt/>\n   </{tag}>"),
+            false => String::new(),
+        };
+    }
+    let mut out = format!("\n   <{tag}>\n    <rdf:Alt>\n");
+    for (language, text) in items {
+        let language = if language.is_empty() {
+            "x-default".into()
+        } else {
+            language
+        };
+        out += &format!(
+            "     <rdf:li xml:lang=\"{}\">{}</rdf:li>\n",
+            escape(&language),
+            escape(&text)
+        );
+    }
+    out + &format!("    </rdf:Alt>\n   </{tag}>")
+}
+
+/// The rdf:li items of element `tag`, each as the language its start tag names (xml:lang, or
+/// empty for none) and its text.
+fn items_with_languages(xmp: &str, tag: &str) -> Vec<(String, String)> {
     let Some(start) = xmp.find(&format!("<{tag}")) else {
         return Vec::new();
     };
@@ -649,7 +692,10 @@ fn list_items(xmp: &str, tag: &str) -> Vec<String> {
         let Some(close) = body.find("</rdf:li>") else {
             break;
         };
-        out.push(unescape(&body[..close]));
+        let language = (attributes(&rest["<rdf:li".len()..gt]).into_iter())
+            .find(|(name, _)| *name == "xml:lang")
+            .map_or_else(String::new, |(_, value)| unescape(value));
+        out.push((language, unescape(&body[..close])));
         rest = &body[close..];
     }
     out
@@ -662,13 +708,9 @@ fn set_keywords(xmp: &str, meta: &KeywordsAndComment, say_empty: bool) -> Option
     let Some(original) = element(xmp, "dc:description") else {
         return set_keywords_and_comment(xmp, meta, say_empty);
     };
-    let comment = list_items(xmp, "dc:description")
-        .into_iter()
-        .next()
-        .unwrap_or_default();
     let keep = KeywordsAndComment {
         keywords: meta.keywords.clone(),
-        comment,
+        comment: language_text(xmp, "dc:description"),
     };
     let new = set_keywords_and_comment(xmp, &keep, say_empty)?;
     // The description element as it was, every language of it.
@@ -691,14 +733,16 @@ fn element(xmp: &str, tag: &str) -> Option<String> {
     Some(xmp[start..end].to_owned())
 }
 
-/// `xmp` with the keywords and comment of `meta`, in its first rdf:Description. Empty ones are
-/// written as empty elements when `say_empty` is set. Returns `None` if `xmp` has no
-/// rdf:Description.
+/// `xmp` with the keywords and comment of `meta`, in its first rdf:Description. The comment
+/// goes in place of the language shown, and its other languages stay (`language_alternative`).
+/// Empty ones are written as empty elements when `say_empty` is set. Returns `None` if `xmp`
+/// has no rdf:Description.
 fn set_keywords_and_comment(
     xmp: &str,
     meta: &KeywordsAndComment,
     say_empty: bool,
 ) -> Option<String> {
+    let description = language_alternative(xmp, "dc:description", &meta.comment, say_empty);
     let mut xmp = without_property(&without_property(xmp, "dc:subject"), "dc:description");
     for list in OTHER_KEYWORD_LISTS {
         xmp = without_property(&xmp, list);
@@ -707,9 +751,6 @@ fn set_keywords_and_comment(
     if meta.keywords.is_empty() && say_empty {
         add += "\n   <dc:subject>\n    <rdf:Bag/>\n   </dc:subject>";
     }
-    if meta.comment.is_empty() && say_empty {
-        add += "\n   <dc:description>\n    <rdf:Alt/>\n   </dc:description>";
-    }
     if !meta.keywords.is_empty() {
         add += "\n   <dc:subject>\n    <rdf:Bag>\n";
         for k in &meta.keywords {
@@ -717,12 +758,7 @@ fn set_keywords_and_comment(
         }
         add += "    </rdf:Bag>\n   </dc:subject>";
     }
-    if !meta.comment.is_empty() {
-        add += &format!(
-            "\n   <dc:description>\n    <rdf:Alt>\n     <rdf:li xml:lang=\"x-default\">{}</rdf:li>\n    </rdf:Alt>\n   </dc:description>",
-            escape(&meta.comment)
-        );
-    }
+    add += &description;
     let xmp = insert(xmp, &add, "dc", "http://purl.org/dc/elements/1.1/")?;
     let paths = tree_paths_for(&meta.keywords, list_items(&xmp, "lr:hierarchicalSubject"));
     with_paths(xmp, &paths)
@@ -1315,6 +1351,40 @@ mod tests {
         assert_eq!(read(&file).keywords, ["Oslo"]);
         assert_eq!(tree_paths(&file), ["Places|Oslo"]);
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// The comment and the alt text show the x-default language, or else the first, and an
+    /// edit replaces only that one. Before, the first was shown, and an edit wrote it alone as
+    /// x-default, so the other languages were lost.
+    #[test]
+    fn an_edit_keeps_the_other_languages() {
+        let xmp = r#"<rdf:Description rdf:about="" xmlns:dc="http://purl.org/dc/elements/1.1/">
+   <dc:description><rdf:Alt><rdf:li xml:lang="de">Hallo</rdf:li><rdf:li xml:lang="x-default">Helo</rdf:li></rdf:Alt></dc:description>
+   <Iptc4xmpCore:AltTextAccessibility><rdf:Alt><rdf:li xml:lang="de">Ein Hund</rdf:li><rdf:li xml:lang="en-US">A dgo</rdf:li></rdf:Alt></Iptc4xmpCore:AltTextAccessibility>
+  </rdf:Description>"#;
+        assert_eq!(parse(xmp).comment, "Helo");
+        assert_eq!(parse_alt_text(xmp).text, "Ein Hund");
+        let meta = KeywordsAndComment {
+            keywords: Vec::new(),
+            comment: "Hello".into(),
+        };
+        let written = set_keywords_and_comment(xmp, &meta, false).unwrap();
+        let alt_text = AltText {
+            text: "Ein Hund am Strand".into(),
+            extended_description: String::new(),
+        };
+        let written = set_alt_text(&written, &alt_text, false).unwrap();
+        let languages = |tag| items_with_languages(&written, tag);
+        let pair = |l: &str, t: &str| (l.to_owned(), t.to_owned());
+        assert_eq!(
+            languages("dc:description"),
+            [pair("de", "Hallo"), pair("x-default", "Hello")]
+        );
+        assert_eq!(
+            languages(ALT),
+            [pair("de", "Ein Hund am Strand"), pair("en-US", "A dgo")]
+        );
+        assert_eq!(parse(&written).comment, "Hello");
     }
 
     /// A keyword taken out of a path cuts the path back to the level above it, when that level
