@@ -38,6 +38,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 - In the templates of the full screen info, the print caption, the page header and footer and
   the window title, `%%` is a `%`. Before, it was an empty field, which could take its part of
   the line along. In an added format's `Exec`, `%%f` is the text `%f`, not a `%` and the file.
+  A single `%` in the page header or footer still leaves the page numbers after it filled in,
+  as in `Scale 100% · page %page% of %pages%`.
 - The marks file keeps what this Glimt does not understand: marks above 6, and lines of two
   fields and a path that it cannot read, stay as they are when a mark is changed, so a later
   Glimt can add to the file without an older one deleting it. Other damaged lines still go.

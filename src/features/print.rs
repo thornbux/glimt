@@ -710,10 +710,11 @@ fn centred(text: &str, size: f32, [x, y, width]: [f32; 3]) -> String {
 }
 
 /// A page text with its numbers filled in, for %page% and %pages%. A `%%` is a `%`, and the
-/// codes are read as in the other templates (`format::pieces`). Another code stays as it is.
+/// codes are read as in the other templates (`format::pieces`). Any other text between two `%`
+/// stays as it is, so "100% · %page%" still gets its page number.
 pub(crate) fn page_text(text: &str, page: usize, pages: usize) -> String {
     use crate::support::format::{Piece, pieces};
-    (pieces(text, true))
+    (pieces(text, Some(|name| name == "page" || name == "pages")))
         .map(|piece| match piece {
             Piece::Code("page") => page.to_string(),
             Piece::Code("pages") => pages.to_string(),
@@ -1196,6 +1197,18 @@ mod tests {
         // Two codes side by side, which a split on "%%" took for a "%" between two words.
         assert_eq!(super::page_text("%page%%pages%", 2, 3), "23");
         assert_eq!(super::page_text("%other% 5%", 2, 3), "%other% 5%");
+        // A lone `%` before a code: the page numbers are filled in, as 0.75.0's replace did
+        // wherever there is no `%%`.
+        for text in [
+            "Scale 100% · page %page% of %pages%",
+            "100% · %page%/%pages%",
+            "%page% 50% %pages%",
+            "% %page% %",
+            "5 % off, page %page%",
+        ] {
+            let old = text.replace("%page%", "2").replace("%pages%", "3");
+            assert_eq!(super::page_text(text, 2, 3), old, "{text}");
+        }
     }
 
     /// Text on every page, with its numbers, gets room made for it, and the image moves down
