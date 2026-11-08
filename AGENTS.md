@@ -47,9 +47,9 @@ setting that goes out of use keeps being read and ignored.
   (`LANGUAGES` and `lang::ENGLISH`); the window state's keys (`WindowState`, `LAST_DIR`);
 - the `--remote` commands and the words of their choices (`on|off`, from `COMMANDS`), the
   actions `--remote run` takes (`script` lines, from `SCRIPT_ACTIONS`, which only grows), and
-  the exit codes: `--remote`'s `DONE`, `NOT_TAKEN`, `NOT_SENT` and `NOT_DONE`, and those of
-  `--check-config` and `--back-up` (`cli::CHECK_CONFIG_PROBLEMS`, `BACK_UP_FAILED`,
-  `BACK_UP_NO_FOLDER`);
+  the exit codes: `--remote`'s `cli::DONE` and `remote::NOT_TAKEN`, `NOT_SENT` and `NOT_DONE`,
+  and those of `--check-config` and `--back-up` (`cli::CHECK_CONFIG_PROBLEMS`,
+  `BACK_UP_FAILED`, `BACK_UP_NO_FOLDER`);
 - the command-line options of `START_OPTIONS` with `--remote` and `--remote-all`;
 - the `%field%` names of the templates (`field` lines), each filled in the templates it
   belongs to, for a test image: the full screen info and the print caption (`name`, `path`,
