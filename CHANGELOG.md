@@ -16,6 +16,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 - A last folder whose name holds a line break is not remembered, rather than written into the
   window state as two lines.
 - Two backups made at the same moment each get a folder of their own.
+- A program Glimt runs for its answer is no longer signalled by its time limit after it has
+  ended, when a program it left behind keeps its errors open.
 
 ## [0.75.0] - 2026-11-08
 

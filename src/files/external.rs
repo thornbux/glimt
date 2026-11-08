@@ -373,10 +373,11 @@ pub fn output_of(
     use std::io::Read;
     let group = -(child.id() as i32);
     let watchdog = Watchdog::new(child.id(), limit);
-    let errors = child
-        .stderr
-        .take()
-        .map(|e| std::thread::spawn(move || last_text(e, 64 << 10)));
+    let errors = child.stderr.take().map(|e| {
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || tx.send(last_text(e, 64 << 10)));
+        rx
+    });
     let mut out = Vec::new();
     if let Some(stdout) = child.stdout.take() {
         #[allow(clippy::disallowed_methods)] // bounded by take
@@ -388,13 +389,17 @@ pub fn output_of(
     }
     #[allow(clippy::disallowed_methods)] // under the Watchdog above
     let ok = child.wait().is_ok_and(|s| s.success());
-    // This waits only once its errors are read to their end, because a helper it left behind
-    // may hold them open.
-    let mut err = errors.and_then(|t| t.join().ok()).unwrap_or_default();
-    if watchdog.gave_up() {
+    // The watchdog ends as soon as the program is waited for. Its process group may then go,
+    // and its number be taken by another, which a signal from the watchdog would reach.
+    let gave_up = watchdog.gave_up();
+    drop(watchdog);
+    // A helper the program left behind may hold its errors open, so they are waited for only
+    // a moment, as `wait_telling` does.
+    let wait = std::time::Duration::from_millis(500);
+    let mut err = (errors.and_then(|rx| rx.recv_timeout(wait).ok())).unwrap_or_default();
+    if gave_up {
         err = format!("{err}\n{TIMED_OUT}");
     }
-    drop(watchdog);
     ((!large).then_some(out), err, ok)
 }
 
@@ -1018,6 +1023,38 @@ mod tests {
         let (out, _, ok) = super::output_of(&mut child, 1024, super::PROGRAM_TIME_LIMIT);
         assert!(ok);
         assert_eq!(String::from_utf8_lossy(&out.unwrap()), "/dev/null\nown\n");
+    }
+
+    /// A helper that a program left behind holding its errors open is not signalled once the
+    /// program has been waited for, because its process group number may be taken by then. The
+    /// answer comes without waiting for the helper.
+    #[test]
+    fn output_of_signals_nothing_after_the_wait() {
+        let pid_file =
+            std::env::temp_dir().join(format!("glimt-test-helper-{}", std::process::id()));
+        let script = format!("sleep 5 >/dev/null & echo $! > '{}'", pid_file.display());
+        let mut child = super::stoppable_command("sh")
+            .args(["-c", &script])
+            .spawn()
+            .unwrap();
+        let limit = std::time::Duration::from_millis(300);
+        let start = std::time::Instant::now();
+        let (_, _, ok) = super::output_of(&mut child, 1024, limit);
+        assert!(ok && start.elapsed() < std::time::Duration::from_secs(3));
+        std::thread::sleep(std::time::Duration::from_millis(800));
+        let helper: i32 = std::fs::read_to_string(&pid_file)
+            .unwrap()
+            .trim()
+            .parse()
+            .unwrap();
+        // A helper that was ended may stay a zombie where nothing reaps it (a container), so
+        // its state is read rather than asked with signal 0.
+        let stat = std::fs::read_to_string(format!("/proc/{helper}/stat")).unwrap_or_default();
+        let alive = (stat.rsplit(')').next()).is_some_and(|s| s.trim_start().starts_with('S'));
+        // SAFETY: This ends the test's own helper.
+        unsafe { super::libc_kill(helper, 9) };
+        std::fs::remove_file(pid_file).unwrap();
+        assert!(alive, "the watchdog signalled the group after the wait");
     }
 
     /// A program run for its answer is ended at its limit and says why. `gio trash` on a share
