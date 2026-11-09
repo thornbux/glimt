@@ -3,7 +3,9 @@
 # worktrees at once:
 #
 #   tools/check.sh                 cargo fmt, then clippy and the tests, without and with every
-#                                  feature, in --profile quick; exits nonzero when one fails
+#                                  feature, in --profile quick, and a cargo check with the
+#                                  oldest Rust that Cargo.toml's rust-version names, as CI does;
+#                                  exits nonzero when one fails
 #   tools/check.sh 'COMMANDS'      other cargo commands in the same container, such as
 #                                  'cargo test --profile quick NAME'
 #   tools/check.sh --clean         removes the build folders of checkouts that are gone
@@ -50,20 +52,28 @@ if [ "${1:-}" = --clean ]; then
     exec docker run --rm -v glimt-target:/target -w /target "$base" sh -c "$sweep" sh "$keep"
 fi
 # The image is checked against rust:1 once a day, and built again when rust:1 has moved on, so
-# its clippy keeps up with CI's stable. Without the network the image there is used.
+# its clippy keeps up with CI's stable. Without the network the image there is used. It also
+# holds the Rust of Cargo.toml's rust-version, which CI builds with too, and is built again when
+# that version changes.
+msrv=$(sed -n 's/^rust-version = "\(.*\)"$/\1/p' Cargo.toml | head -1)
 stamp=$HOME/.cache/glimt-check-pulled
 image=$(docker image inspect glimt-check >/dev/null 2>&1 && echo yes)
-if [ -z "$image" ] || [ -z "$(find "$stamp" -mtime -1 2>/dev/null)" ]; then
+has_msrv=$(docker image inspect -f '{{index .Config.Labels "glimt.msrv"}}' glimt-check 2>/dev/null)
+if [ -z "$image" ] || [ "$has_msrv" != "$msrv" ] ||
+    [ -z "$(find "$stamp" -mtime -1 2>/dev/null)" ]; then
     docker pull -q rust:1 >/dev/null 2>&1
     base=$(docker image inspect -f '{{.Id}}' rust:1 2>/dev/null)
     built=$(docker image inspect -f '{{index .Config.Labels "glimt.base"}}' glimt-check 2>/dev/null)
-    if [ -z "$image" ] || { [ -n "$base" ] && [ "$base" != "$built" ]; }; then
-        echo "building glimt-check from rust:1"
-        docker build -q --label "glimt.base=$base" -t glimt-check - >/dev/null \
-            <<'DOCKERFILE' || exit 2
+    if [ -z "$image" ] || [ "$has_msrv" != "$msrv" ] ||
+        { [ -n "$base" ] && [ "$base" != "$built" ]; }; then
+        echo "building glimt-check from rust:1, with Rust $msrv"
+        docker build -q --label "glimt.base=$base" --label "glimt.msrv=$msrv" \
+            --build-arg "MSRV=$msrv" -t glimt-check - >/dev/null <<'DOCKERFILE' || exit 2
 FROM rust:1
+ARG MSRV
 RUN apt-get update && apt-get install -y --no-install-recommends mold sccache \
-    && rm -rf /var/lib/apt/lists/* && rustup component add rustfmt clippy
+    && rm -rf /var/lib/apt/lists/* && rustup component add rustfmt clippy \
+    && rustup toolchain install "$MSRV" --profile minimal
 DOCKERFILE
         # The rust:1 and glimt-check that were replaced are left without a name; about 4 GB.
         docker image prune -f >/dev/null
@@ -92,6 +102,7 @@ step cargo clippy -q --locked --profile quick --all-targets -- -D warnings
 step cargo test -q --locked --profile quick
 step cargo clippy -q --locked --profile quick --all-targets --all-features -- -D warnings
 step cargo test -q --locked --profile quick --all-features
+step cargo "+$MSRV" check -q --locked --all-features
 [ $r = 0 ] && echo "every check passed"
 exit $r'
 # --init passes Ctrl+C on to cargo, which bash as the container's first process would not.
@@ -110,5 +121,5 @@ perl -e 'use Fcntl ":flock"; $^F = 255; $| = 1;
 docker run --rm --init -v "$here":/s -w /s \
     -v glimt-target:/target -v glimt-cargo:/usr/local/cargo/registry -v glimt-sccache:/sccache \
     -e "CARGO_TARGET_DIR=/target/$name" -e RUSTC_WRAPPER=sccache -e SCCACHE_DIR=/sccache \
-    -e RUSTFLAGS="-C link-arg=-fuse-ld=mold" -e HOME=/tmp \
+    -e RUSTFLAGS="-C link-arg=-fuse-ld=mold" -e HOME=/tmp -e "MSRV=$msrv" \
     glimt-check bash -c "${1:-$checks}"

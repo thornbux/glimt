@@ -7,20 +7,34 @@ no version, tag or push for a release happens without the maintainer asking for 
 
 ## The steps
 
-1. **The audit.** An audit of everything since the last tag finds nothing it must or should
+A release gathers its work on a release branch, `release-X.Y.Z`. Each feature or fix is a
+branch made from it and merged back into it; `main` gets the release branch only at the tag.
+
+1. **The version.** The version in `Cargo.toml` and in the header of `docs/glimt.1`, a section
+   in `CHANGELOG.md` with its link (`source_rules::every_release_in_the_changelog_has_its_link`),
+   and a `<release>` line in `assets/io.github.thornbux.Glimt.metainfo.xml`. New command-line
+   options go in the man page too. The release workflow checks each.
+2. **The Flatpak image.** Dependabot does not move a container's digest, so take the tag's
+   current digest (the command is in `release.yml`), which brings the image's fixes. These two
+   steps come first, so the audit covers them.
+3. **The audit.** An audit of everything since the last tag finds nothing it must or should
    fix (AGENTS.md, *What must be fixed, and when*). Its fixes are audited again, until a round
    finds nothing.
-2. **The version.** The version in `Cargo.toml` and in the header of `docs/glimt.1`, a section
-   in `CHANGELOG.md`, and a `<release>` line in `assets/io.github.thornbux.Glimt.metainfo.xml`.
-   New command-line options go in the man page too. The release workflow checks each.
-3. **The Flatpak image.** Dependabot does not move a container's digest, so take the tag's
-   current digest (the command is in `release.yml`), which brings the image's fixes.
 4. **The release tests.** `tools/release-tests/run.sh` on the very commit that gets the tag
-   (below).
-5. **By hand.** The checks below that no script makes.
-6. **The tag.** The release branch is merged into `main`, and the tag `vX.Y.Z` on `main` is
-   pushed. The release workflow builds and publishes the packages (below).
-7. **Flathub.** A pull request to Flathub's repository (below).
+   (below), a full run, never `QUICK=1`.
+5. **The dry run.** Start the Release workflow by hand on the release branch, which builds and
+   smoke-tests every package and publishes nothing:
+   `gh workflow run release.yml --ref release-X.Y.Z -f dry_run=true -f tag=none`.
+6. **By hand.** The checks below that no script makes.
+7. **The tag.** `main` is fast-forwarded to the tested commit
+   (`git merge --ff-only release-X.Y.Z`). If it cannot be, the release branch is first rebased
+   onto `main` or merged with it, and steps 3 to 6 run again on the new commit. The tag
+   `vX.Y.Z` goes on that same commit, and `main` and the tag are pushed. The release workflow
+   builds and publishes the packages (below).
+8. **After the tag.** Check that the Release workflow ended green, with every package,
+   `SHA256SUMS` and the attestations, and the Flatpak bundle.
+9. **Flathub.** A pull request to Flathub's repository (below). The website (glimt-web) is
+   updated when the maintainer asks.
 
 ## The release tests
 
@@ -100,8 +114,9 @@ draws it in a New Window after the first window closed.
 A tag `vX.Y.Z` pushed to GitHub runs `.github/workflows/release.yml`. It builds against glibc
 2.28 with cargo-zigbuild and publishes a `.tar.gz`, a `.deb`, an `.rpm` and an AppImage. Both
 package formats are described in `Cargo.toml` (`[package.metadata.deb]` and
-`[package.metadata.generate-rpm]`). A new installed file goes in both lists, in the Flatpak
-manifest, and in the tar.gz and AppImage steps. To build and check the packages locally, after
+`[package.metadata.generate-rpm]`). A new installed file goes in both lists
+(`source_rules::packages_install_the_same_files`), in the Flatpak manifest, and in the tar.gz
+and AppImage steps. To build and check the packages locally, after
 `cargo build --release --features full`:
 
 ```sh

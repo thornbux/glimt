@@ -7,24 +7,30 @@ for Linux in Rust/egui, inspired by Geeqie. Read this before changing anything.
 
 1. A user's file or its metadata is never lost, changed or written over wrongly, and a failed
    write is told to the user (*What must be fixed, and when*; *Errors, panics and `unsafe`*).
-2. What is frozen is added to, never taken away or changed in meaning (*Frozen in 1.x*).
-3. Every new UI text is translated into all fourteen languages in the same commit (*Language*).
-4. Every commit passes every check in *Before every commit* on its own, in both builds.
-5. Nothing heavy runs on the UI thread (*Goals that decide every change*).
-6. The disk is touched and a program is started only through the one function for each
+2. An action acts on exactly the files the user picked, never on the shown image in their
+   place (*How to add things*, "An action").
+3. Every file, folder name, sidecar and socket message is untrusted input (*How to add
+   things*, "Touching the disk").
+4. What is frozen is added to, never taken away or changed in meaning (*Frozen in 1.x*).
+5. Every commit passes every check in *Before every commit* on its own, in both builds, the
+   translations' tests among them (every new UI text in all fourteen languages, *Language*).
+6. A check is never weakened to make it pass (*What an agent decides, and what it asks*).
+7. Nothing heavy runs on the UI thread (*Goals that decide every change*).
+8. The disk is touched and a program is started only through the one function for each
    (*How to add things*, "Touching the disk").
-7. A fix lands with a check that fails without it, in the same commit (*Tests*).
-8. A release is audited before its tag, until a round finds nothing (*Releases*).
-9. No release, version bump, tag, merge into `main` or push unless the maintainer asks
-   (*Releases*; *What an agent decides, and what it asks*).
-10. A check that was not run is reported as not run, never as passed (*What an agent
+9. A fix lands with a check that fails without it, in the same commit (*Tests*).
+10. A release is audited before its tag, until a round finds nothing (*Releases*).
+11. A branch may be pushed for CI at any time. `main`, a tag, a version bump and the website
+    change only when the maintainer asks (*Releases*).
+12. A check that was not run is reported as not run, never as passed (*What an agent
     decides, and what it asks*).
 
 ## Goals that decide every change
 
 - **Fast and snappy, always.** Nothing heavy on the UI thread: decoding, folder listing, file
   operations, mounting and external programs run in background threads and report back over
-  `mpsc` channels, with a repaint request. Show the busy pointer (`busy` counter) while they run.
+  `mpsc` channels, with a repaint request. Show the busy pointer while they run (the `busy`
+  count, or a `threads::Working` held for the work).
 - **As fast with 500,000 files in a folder as with 10.** No O(n) work per frame, no system call
   per file in the list (use `DirEntry::file_type`), draw lists with `show_rows`, compare file
   names as bytes. Test large folders with hard links to one image, for example
@@ -151,7 +157,8 @@ documentation.
 The interface ships in fifteen languages: English and the translations in `po/*.po` (Czech,
 Danish, German, Spanish, Finnish, French, Icelandic, Italian, Dutch, Norwegian bokmål and
 nynorsk, Polish, Brazilian Portuguese and Swedish), listed in `lang::LANGUAGES`. **Every new UI
-text, `tr("…")` or `tf!("…")`, is translated into all of them in the same commit**:
+text, `tr("…")` or `tf!("…")`, is translated into each of the fourteen `po/*.po` files in the
+same commit**:
 `po/no_nb.po` first, then the others.
 
 - `lang::tests::every_language_has_every_text` fails while a language lacks a text of
@@ -255,6 +262,7 @@ holds only its `mod` lines, and a new module goes into the folder of what it doe
 | `po/` | The translations, one `.po` file per language, and `glimt.pot`, the template for a new one |
 | `themes/` | The built-in themes |
 | `assets/` | Icons, the desktop and AppStream files, the fonts and their licenses |
+| `SECURITY.md` | How to report a vulnerability, and what counts as one |
 | `docs/` | `RELEASING.md` (the release runbook), the man page `glimt.1`, `screenshots/`, and `architecture/`: diagrams of the code (update them when what they name changes) |
 | `examples/formats/` | Added formats: desktop files and their scripts |
 | `examples/tools/` | Tools: desktop files and their scripts, and `test-model.py`, a stand-in model |
@@ -326,7 +334,7 @@ function, type or field is or does from its name alone, without reading its body
 - One thing has one name throughout: the same word in the type, its fields, its functions and
   the comments.
 
-Older names that broke this were renamed in one review.
+Older names that broke this were renamed in 0.74.0.
 `source_rules::retired_names_stay_gone` keeps them out of the code; its list gives each old
 name with the one that took its place. `Action` variants and the names in `src/frozen-1.0.txt` keep
 their names, or change only through a table of old names, as *Frozen in 1.x* says.
@@ -352,7 +360,8 @@ method.
   - A feature or dialog that selects the files it acts on (Find Duplicates, Check Images,
     Rename Many) does so with `select_for_action`, which refuses while the search hides any of
     them.
-- **A setting:** one line `name: Type = default` in `config!`; values are read with `FromStr`
+- **A setting** (asked for first, as it is frozen once released): one line
+  `name: Type = default` in `config!`; values are read with `FromStr`
   and written with `Display`. Add a checkbox in Preferences, and clamp ranges in
   `Config::parse`. Settings stay in `Config` even when their feature is not built in, so saving
   never drops them. A setting that has a setter (`set_…`, or `toggle_setting` for a View
@@ -363,8 +372,9 @@ method.
   added format in `examples/formats` (read by `src/images/added_formats.rs`) with a check in
   `tests.sh`, not code or a dependency in Glimt.
 - **An optional feature** (chosen when building, not a tool): a Cargo feature in `[features]`
-  (also add it to `full`), a module or extension list behind `#[cfg(feature = "...")]`, and its
-  settings shown in Preferences only when built in. Never break the default build. "Tool"
+  (also add it to `full`, which `source_rules::full_has_every_feature` checks), a module or
+  extension list behind `#[cfg(feature = "...")]`, and its settings shown in Preferences only
+  when built in. Never break the default build. "Tool"
   means only the desktop files in Edit → Tools, and "added format" only those in
   `glimt/formats`. They were once plugins and decoder plugins, and their old folders are
   still read (`tools::RENAMED_FOLDERS`).
@@ -388,7 +398,10 @@ method.
   `Receiving<T>` (never a bare `Option<Receiver>`), and take it in `update` with `take`, `next`,
   `latest` or `wait`, which also tell, once, when the thread is gone. egui takes clipboard and
   other output only during a frame, so hand results to the UI thread instead of calling the
-  context from a worker.
+  context from a worker. A mutex is locked only with `threads::lock_even_if_poisoned` (clippy
+  refuses `Mutex::lock`), because a panic that `catch_panic` caught may have poisoned it. Do
+  not hold a lock across a `catch_panic`, a channel send or a wait. Two windows share only the
+  files that `file_io::edit_shared` writes, and the socket.
 - **A new way to show the list** (such as the grid in the image area, G) gets what every view
   of the list needs. The first grid missed these through five audit rounds:
   - its form from `file_list`'s parameters, never from the settings inside the functions that
@@ -410,6 +423,11 @@ method.
   goes into `List` (list.rs), never into `App`. A new list is a new `List`, so such state
   cannot outlive the list it was made for. What should follow a file to the new list is carried
   over by the file's name in `replace_files`.
+- **A command-line option or `--remote` command** (asked for first, as it is frozen): its line
+  in `START_OPTIONS` or `COMMANDS`, its reading in `Start::parse` or `remote_command`, its name
+  at the end of `src/frozen-1.0.txt`, the man page `docs/glimt.1`, and the help.
+- **A user-visible change** gets a line under `[Unreleased]` in `CHANGELOG.md`, in its own
+  commit.
 - **A UI text:** in `tr("…")` or `tf!("…", name)`, with its translation in every `po/*.po`
   (see Language).
 - **A notice** (the message over the image) is given with `self.notice.give(text)` and taken
@@ -417,14 +435,18 @@ method.
   which a screen reader knows that the same text was given again
   (`source_rules::notices_are_given_through_their_setter`).
 - **Non-trivial logic** (a parser, a loop with edge cases) gets one small `#[test]` that fails
-  if it breaks. Tests must clean up the files they create.
+  if it breaks. Tests clean up the files they create, under temporary names of their own
+  (`source_rules::tests_use_temporary_names_of_their_own`).
 - **A parser of file contents** also gets a `survives_broken_*` test that feeds it
   `crate::support::test_support::broken(sample)`: 2,000 damaged forms of a good input in every
   run, and five million every Sunday (`.github/workflows/parsers.yml`, `GLIMT_FUZZ`).
 - **Touching the disk or starting a program** goes through one function each, and
   `clippy.toml` (`disallowed-methods`) refuses the raw calls, so `cargo clippy` fails on a
   bypass:
-  - read a file whole with `decode::read_limited` / `read_text` (a size cap, no pipe or device);
+  - read a file whole with `decode::read_limited` / `read_text` (a size cap, no pipe or device),
+    and open one with `decode::open_regular` (no pipe or device);
+  - decode an image only through `decode::from_decoder`, `from_memory` or `scaled`, which
+    check `fits_decode_limit` before any pixels are made;
   - write a file whole or not at all:
     - a new file with `file_io::create_file`;
     - a file of the user's (a copy saved over one, a sidecar) with `replace_name`. When the name
@@ -448,6 +470,10 @@ method.
   - make a copy of the shown image from `App::shown_copy`, and save it with
     `save::save_copy_with_sidecar`.
 
+  Every file, folder name, sidecar, collection, `.lrcat` and socket message is untrusted: what
+  is read from it has a size cap, a path taken from it is checked to stay where it should, and a
+  program is given it as an argument, never as part of a shell script's text (SECURITY.md).
+
   `clippy.toml` has the whole list, each call with the way to use instead. A place that must do
   otherwise gets `#[allow(clippy::disallowed_methods)]` on the narrowest statement or function,
   with its reason on the same line or the next.
@@ -456,23 +482,27 @@ method.
 
 ## Errors, panics and `unsafe`
 
+These rules are enforced: `Cargo.toml`'s `[lints]` deny `unsafe_code`,
+`clippy::undocumented_unsafe_blocks`, `clippy::unwrap_used` and `clippy::expect_used`, and
+`source_rules::the_lints_stay_on` fails when one is taken out, lowered, or turned off for a
+whole module. The tests may unwrap (main.rs allows it for them).
+
 - **A failure is told, never swallowed.** A failed write of the user's data or of Glimt's own
-  files goes to `file_io::save_failed`, which prints it and shows it once in the window.
-  `let _ =` on the `Result` of a write is not allowed: handle the error or pass it to
-  `save_failed`.
-- **No `unwrap` or `expect` outside the tests**, except where it cannot fail, with the reason
-  on the same line. Elsewhere use `?`, a default, or an error the user is told.
+  files goes to `file_io::save_failed`, which prints it and shows it once in the window. The
+  result of a writer of file_io is never dropped with `let _ =`, `_ =` or `.ok();`
+  (`source_rules::write_results_are_not_dropped`): handle it, or pass it on with `?`.
+- **An `unwrap` or `expect` outside the tests** is only where it cannot fail, with
+  `#[allow(clippy::unwrap_used)]` (or `expect_used`) on that one statement and the reason on
+  the same line. Elsewhere use `?`, a default, or an error the user is told.
+- **A mutex is locked with `threads::lock_even_if_poisoned`**, the one way (clippy refuses
+  `Mutex::lock`).
 - **A panic in a background thread is caught in one place**, `threads::catch_panic`, around
   each file a worker reads or writes, so a broken file costs only that file
   (`source_rules::panics_are_caught_in_one_place`). When it returns `None` for a write, that is
   a failed write like any other, told to the user.
-- **Every `unsafe` block has a `// SAFETY:` comment** just before it that says why the call is
-  sound. New `unsafe` needs a reason that no safe API covers, in the standard library or in a
-  crate already in `Cargo.toml`.
-- From the next release, the lints `unsafe_code`, `clippy::undocumented_unsafe_blocks`,
-  `clippy::unwrap_used` and `clippy::expect_used` in `Cargo.toml` enforce these rules, with
-  `#[allow(…)]` and its reason where an exception is right, as for `disallowed_methods`. Until
-  then they are kept by review.
+- **Every `unsafe` block has `#[allow(unsafe_code)]`** on that one statement or function, and a
+  `// SAFETY:` comment that says why the call is sound. New `unsafe` needs a reason that no safe
+  API covers, in the standard library or in a crate already in `Cargo.toml`.
 
 ## Dependencies
 
@@ -551,8 +581,8 @@ The steps of a release, the release tests' list, the checks by hand and the pack
 - **The release tests run on the very commit that gets the tag**
   (`tools/release-tests/run.sh`). A change after the run means a new run, also for a release on
   the same day as the last one.
-- **Only the maintainer starts a release.** No version bump, tag, merge into `main` or push for
-  a release happens without the maintainer asking for it.
+- **Only the maintainer starts a release.** A branch may be pushed for CI at any time. `main`,
+  a tag, a version bump and the website change only when the maintainer asks.
 
 ## Before every commit
 
@@ -567,8 +597,9 @@ python3 tools/flatpak-sources.py  # flatpak/cargo-sources.json, the Flatpak's cr
 python3 tools/pot.py              # po/glimt.pot, after a text is added or changed
 ```
 
-- **A branch per feature or fix**, named after it (`flatpak`, `slideshow-transitions`), merged
-  into `main` when a release is made, so that a release gathers several changes.
+- **A branch per feature or fix**, named after it (`flatpak`, `slideshow-transitions`), made
+  from the release branch `release-X.Y.Z` and merged into it, so that a release gathers several
+  changes. The release branch goes into `main` when the release is made (docs/RELEASING.md).
 - **One feature or fix per commit.** Formatting-only changes in a commit of their own.
 - **Every commit passes every check above on its own**, in both builds. A commit that breaks
   the build or a test, fixed only by the next commit, cannot be bisected or reverted on its own,
@@ -580,13 +611,18 @@ python3 tools/pot.py              # po/glimt.pot, after a text is added or chang
 - Use `--profile quick` (Cargo.toml) for clippy and tests. It is optimised like the release, so
   the tests' timings hold, but it builds in many parts and incrementally, so a small change
   builds in a fraction of the time. A debug build as well would double the space in `target/`.
+- CI also builds with the oldest Rust that `rust-version` in Cargo.toml names, so use no
+  standard library function newer than that. CI runs `cargo fmt --check`, and builds with
+  `--locked`, so a Cargo.toml changed without its Cargo.lock fails.
 - `tools/check.sh` runs the five cargo checks above in Docker (`rust:1` with mold and sccache),
-  on a computer without cargo or for several worktrees at once. CI runs them too, on every push
-  to any branch. Read its exit status directly, not through a pipe such as `| tail`, which hides
-  a failed check. Each checkout keeps a build folder of a few GB in the Docker volume
-  `glimt-target`. After worktrees are removed, `tools/check.sh --clean` removes the build
-  folders of those that are gone (a clone elsewhere is then built again). An agent asks
-  before it runs it (*What an agent decides, and what it asks*).
+  and a `cargo check` with the Rust of `rust-version`, as CI does. Use it on a computer without
+  cargo, or for several worktrees at once. CI runs the same checks on every push to any branch.
+  Read its exit status directly, not through a pipe such as `| tail`, which hides a failed
+  check.
+- Each checkout keeps a build folder of a few GB in the Docker volume `glimt-target`. The first
+  `tools/check.sh` in a new checkout, and `tools/check.sh --clean`, remove the build folders of
+  worktrees that are gone and of clones of this repository elsewhere. So run it from a worktree
+  of this repository; in a separate clone, or for `--clean`, ask first.
 
 ### Tests
 
@@ -616,12 +652,18 @@ be fixed, and when*.
 
 It asks the maintainer before it:
 
-- pushes, merges into `main`, tags or bumps the version (*Releases*);
+- changes `main`, tags, bumps the version or changes the website (*Releases*); a branch of its
+  own may be pushed for CI at any time;
+- weakens a check: removes or loosens an assertion, takes a line out of `src/frozen-1.0.txt`
+  or `src/keys-1.0.txt`, raises a limit of the tests, changes `clippy.toml`, or adds an entry to
+  a check's list of exceptions (`OUTSIDE`, a `source_rules` list, `#[allow(…)]`). A new
+  exception that the rules allow carries its reason, said again in the commit message;
+- force-pushes, rewrites pushed history, or resets work it did not make;
 - adds a dependency, a setting, a command-line option or a `--remote` command, because each is
   frozen once it is released;
-- changes behaviour that follows Geeqie or that users rely on, or a limit of the release tests;
+- changes behaviour that follows Geeqie or that users rely on;
 - removes what it did not make: a branch, a worktree, or the build folders of other checkouts
-  (`tools/check.sh --clean`).
+  (`tools/check.sh --clean`, or a first check in a separate clone).
 
 It reports honestly:
 
@@ -631,9 +673,9 @@ It reports honestly:
 - A test is shown to fail without its fix before the fix is called done.
 - A finding outside the task is reported, not fixed on the side.
 
-The checks run in a git checkout of this repository (a worktree is fine), never in a copy made
-with `git archive`: `tools/check.sh` in a folder that is not a known worktree clears the shared
-build volume of every other checkout.
+The checks run in a worktree of this repository, never in a copy made with `git archive`. Git
+does not know such a copy, so what it checks is no commit, and its build folder of a few GB is
+removed by the next check of any other checkout.
 
 ## Privacy
 
