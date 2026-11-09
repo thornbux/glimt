@@ -48,6 +48,10 @@ pub(crate) struct Folder {
     /// The folders to show together, chosen in a folder's menu. They are opened after the
     /// frame.
     together: Option<Vec<PathBuf>>,
+    /// The paths asked to be opened, looked up in the background before anything changes:
+    /// whether each is a folder, a file or a collection, and its real path. A share that stopped
+    /// answering holds only that thread, not the window.
+    looking_up: Receiving<(Opening, Found)>,
     /// The folder listing in the background, as (subfolders, images).
     listing_rx: Receiving<(Vec<PathBuf>, Vec<OsString>)>,
     /// The list's version when the listing that runs started. A collection's listing works
@@ -123,6 +127,7 @@ impl Folder {
             sort_collection: false,
             folders: Vec::new(),
             together: None,
+            looking_up: Receiving::none(),
             listing_rx: Receiving::none(),
             listing_version: 0,
             subdirs_rx: Receiving::none(),
@@ -219,9 +224,10 @@ impl Folder {
         Some(self.dir.clone())
     }
 
-    /// Whether the folder is being read in the background.
+    /// Whether the folder is being read in the background, or the place to open looked up
+    /// before it is read.
     pub(crate) fn is_listing(&self) -> bool {
-        self.listing_rx.is_some()
+        self.listing_rx.is_some() || self.looking_up.is_some()
     }
 
     /// Whether a network location is being mounted.
@@ -402,6 +408,11 @@ impl Listing {
     /// A collection's files that still exist, from its file when it has one (`saved`), in
     /// its own order unless `sort`.
     fn collection(self, files: Vec<OsString>, saved: Option<PathBuf>, sort: bool) {
+        // The window's edits of the file are written in the writer thread, and those asked for
+        // before this listing are read with it.
+        if saved.is_some() {
+            crate::files::file_io::wait_for_queued_writes();
+        }
         let paths = match saved.map(|f| collections::load(&f)) {
             Some(Ok(paths)) => paths,
             _ => files.iter().map(|f| self.dir.join(f)).collect(),
@@ -521,39 +532,117 @@ impl Listing {
     }
 }
 
+/// What was asked to be opened, and how it opens once its paths are looked up.
+struct Opening {
+    /// One path (a folder, a file or a collection), or several folders shown as one list.
+    paths: Vec<PathBuf>,
+    /// Whether it opens as a new step of Go → Back and Forward (`visit`).
+    is_step: bool,
+    /// The notice for a path that is not there, which is then not opened and leaves Open
+    /// Recent. With `None`, the folder of a path that is not there opens, as before.
+    if_gone: Option<fn(&Path) -> String>,
+}
+
+/// What the paths asked to be opened are on disk, as `look_up` found them in the background.
+enum Found {
+    /// A folder by its real path, with the file to show in it, and whether the path asked for
+    /// is there at all.
+    Folder {
+        dir: PathBuf,
+        file: Option<PathBuf>,
+        is_there: bool,
+    },
+    /// A collection's file, made absolute, with its entries by their real paths relative to
+    /// "/", or why the file could not be read.
+    Collection {
+        file: PathBuf,
+        entries: std::io::Result<Vec<OsString>>,
+    },
+    /// Several folders, each by its real path, to show as one list.
+    Folders(Vec<PathBuf>),
+}
+
 impl crate::App {
     // ---- Opening a folder, a collection or several folders, and listing it ----
 
-    /// Opens a folder, or the folder of a file with that file shown.
-    // shortcut: is_dir and canonicalize here, in the window's thread, are what hold it on a share
-    // that stopped answering (the listing is in the background already); move them to the
-    // listing thread if a stalled mount makes opening hang in use.
+    /// Opens a folder, a collection, or the folder of a file with that file shown, once the path
+    /// is looked up in the background.
     pub(crate) fn open(&mut self, ctx: &egui::Context, path: PathBuf) {
-        if collections::is_collection(&path) {
-            return self.open_collection(ctx, path);
+        let opening = Opening {
+            paths: vec![path],
+            is_step: false,
+            if_gone: None,
+        };
+        self.look_up(ctx, opening);
+    }
+
+    /// Looks up in the background what `opening`'s paths are, and opens them when the answer
+    /// comes (`receive_looked_up`). Nothing changes in the window until then. A look-up asked
+    /// for later replaces this one, so the place the user went to last is the one that opens.
+    fn look_up(&mut self, ctx: &egui::Context, opening: Opening) {
+        // A share that answers late is not opened over the place the user goes to now. The
+        // share's own success opens it through here too, after its answer was taken.
+        if self.folder.is_mounting() {
+            self.folder.mounting_rx = Receiving::none();
+            self.notice.clear();
         }
+        let (tx, rx) = mpsc::channel();
+        self.folder.looking_up = Receiving::of(rx);
+        let ctx = ctx.clone();
+        std::thread::spawn(move || {
+            let found = look_up(&opening.paths);
+            let _ = tx.send((opening, found));
+            ctx.request_repaint();
+        });
+    }
+
+    /// Opens what a look-up found, when it has come. It waits for it up to `wait`.
+    pub(crate) fn receive_looked_up(&mut self, ctx: &egui::Context, wait: std::time::Duration) {
+        let (opening, found) = match self.folder.looking_up.wait(wait) {
+            Took::Answer(answer) => answer,
+            Took::Gone => return self.tell_background_stopped(tr("Reading the folder")),
+            Took::Nothing => return,
+        };
+        if let (
+            Found::Folder {
+                is_there: false, ..
+            },
+            Some(gone),
+            Some(path),
+        ) = (&found, opening.if_gone, opening.paths.first())
+        {
+            // The path is gone since it was named (deleted, or a stick taken out), so it
+            // leaves Open Recent too.
+            self.notice.give(gone(path));
+            self.folder.recent.retain(|p| p != path);
+            return;
+        }
+        if opening.is_step {
+            self.folder.back.push(self.back_step());
+            // The history does not grow without end, because a slideshow of folders, or a
+            // script's --remote open, visits many.
+            if self.folder.back.len() > 200 {
+                self.folder.back.remove(0);
+            }
+            self.folder.forward.clear();
+        }
+        match found {
+            Found::Folder { dir, file, .. } => self.open_folder_found(ctx, dir, file),
+            Found::Collection { file, entries } => self.open_collection(ctx, file, entries),
+            Found::Folders(folders) => self.open_folders_found(ctx, folders),
+        }
+    }
+
+    /// Opens the folder `dir`, by its real path, with `file` shown when there is one.
+    fn open_folder_found(&mut self, ctx: &egui::Context, dir: PathBuf, file: Option<PathBuf>) {
         // A file of the folder shown is only gone to. The folder is not read again, and its
         // thumbnails and EXIF index stay, which matters in a folder of 500,000 images.
-        if let Some(i) = self.listed_here(&path) {
+        if let Some(i) = (file.as_deref()).and_then(|f| self.listed_here(&dir, f)) {
             return self.show_file(ctx, i);
         }
         self.leave_image(ctx);
         self.folder.collection = None;
         self.folder.folders.clear();
-        let (dir, file) = if path.is_dir() {
-            (path, None)
-        } else {
-            (
-                path.parent()
-                    .filter(|p| !p.as_os_str().is_empty())
-                    .unwrap_or(Path::new("."))
-                    .to_path_buf(),
-                Some(path),
-            )
-        };
-        // The real path once here, so ⬆ .. and "remember folder" need no system calls later, and
-        // marks, stars and `--remote select` find the files whichever way the folder was named.
-        let dir = listing::real_dir(&dir);
         // A given file is shown at once. The folder is listed in the background, and the list
         // is merged in afterwards.
         let shown = file
@@ -641,14 +730,8 @@ impl crate::App {
                 // When the path is gone since (deleted, or a stick taken out), a notice says so,
                 // and it leaves the list.
                 if let Some(path) = chosen {
-                    match path.exists() {
-                        true => self.visit(&ctx, path),
-                        false => {
-                            self.notice
-                                .give(tf!("{name} is gone", name = path.display()));
-                            self.folder.recent.retain(|p| *p != path);
-                        }
-                    }
+                    let gone = |p: &Path| tf!("{name} is gone", name = p.display());
+                    self.visit_if_there(&ctx, path, gone);
                 }
             },
         );
@@ -676,13 +759,8 @@ impl crate::App {
         self.folder.sort_collection = false;
         self.slideshow.take_whole_shuffle();
         self.thumbs.forget_all();
+        self.status_bar.forget_sizes_and_dates_asked();
         self.search.forget_exif_index();
-        // A share that answers late is not opened over the folder the user went to meanwhile.
-        // Its own success opens it through here too, after its answer was taken.
-        if self.folder.is_mounting() {
-            self.folder.mounting_rx = Receiving::none();
-            self.notice.clear();
-        }
         // The Pan view's dates are by name in the old folder.
         if let Some(pan) = &mut self.pan_view {
             pan.forget_dates();
@@ -692,13 +770,16 @@ impl crate::App {
         self.list.set_unchecked_entries(false);
     }
 
-    /// Show the collection in `file` as the list.
-    pub(crate) fn open_collection(&mut self, ctx: &egui::Context, file: PathBuf) {
-        // The path is absolute from here on, because it is kept in Open Recent and as the last
-        // folder. A relative name was another file, or none, for a window started elsewhere.
-        let file = std::path::absolute(&file).unwrap_or(file);
-        let paths = match collections::load(&file) {
-            Ok(paths) => paths,
+    /// Shows the collection in `file` as the list, with the `entries` that `look_up` read from
+    /// it, or tells why it could not be read.
+    fn open_collection(
+        &mut self,
+        ctx: &egui::Context,
+        file: PathBuf,
+        entries: std::io::Result<Vec<OsString>>,
+    ) {
+        let files = match entries {
+            Ok(files) => files,
             Err(e) => {
                 return self
                     .notice
@@ -707,15 +788,6 @@ impl crate::App {
         };
         self.leave_image(ctx);
         let root = Path::new("/");
-        // Each entry is named by its real path from the start, as the listing names it. Named as
-        // written until then, an entry through a link was another name to the listing: the image
-        // gone to and the selection were lost, and the view went back to the first image.
-        // shortcut: one realpath per folder of the collection in the UI thread, as opening
-        // several folders does; a folder on a share that stopped answering holds the window
-        // until it answers. Move it to the listing if collections of many shares are opened.
-        let files: Vec<OsString> = (collections::by_real_path(&paths).into_iter())
-            .filter_map(|(p, _)| Some(p.strip_prefix(root).ok()?.as_os_str().to_owned()))
-            .collect();
         // When the same collection is read again (F5), a delete still running keeps its names,
         // so a failed delete brings its images back.
         let deleting = if self.folder.collection.as_ref() == Some(&file) {
@@ -738,32 +810,23 @@ impl crate::App {
         self.update_window_title(ctx);
     }
 
-    /// Shows the images of several folders as one list, for a slideshow across them. One folder
-    /// is opened as usual. A file stands for its folder.
+    /// Shows the images of several folders as one list, for a slideshow across them, once they
+    /// are looked up in the background. One folder is opened as usual. A file stands for its
+    /// folder.
     pub(crate) fn open_folders(&mut self, ctx: &egui::Context, paths: Vec<PathBuf>) {
-        let first = paths.first().cloned();
-        let mut folders: Vec<PathBuf> = Vec::new();
-        for p in paths {
-            // Each folder by its real path, as `open` takes one, so the list names a file as it
-            // does when its folder is opened alone: marks and stars are kept by that name.
-            let dir = match p.is_dir() {
-                true => listing::real_dir(&p),
-                false => {
-                    let real = listing::real_path(&p);
-                    real.parent().map_or(real.clone(), Path::to_path_buf)
-                }
-            };
-            if !folders.contains(&dir) {
-                folders.push(dir);
-            }
-        }
-        // One folder (several of its files, from a file manager) is opened at the first file.
-        if folders.len() < 2 {
-            if let Some(first) = first {
-                self.open(ctx, first);
-            }
+        if paths.is_empty() {
             return;
         }
+        let opening = Opening {
+            paths,
+            is_step: false,
+            if_gone: None,
+        };
+        self.look_up(ctx, opening);
+    }
+
+    /// Shows the images of `folders`, each by its real path, as one list.
+    fn open_folders_found(&mut self, ctx: &egui::Context, folders: Vec<PathBuf>) {
         self.leave_image(ctx);
         self.folder.collection = None;
         // As when a folder is opened, the subfolders come with it when the menu says so,
@@ -787,18 +850,33 @@ impl crate::App {
             .unwrap_or_else(|| self.location())
     }
 
-    /// Open `path` as a new step in the Back/Forward history.
+    /// Opens `path` as a new step in the Back/Forward history.
     pub(crate) fn visit(&mut self, ctx: &egui::Context, path: PathBuf) {
         // A message about the folder before (a share that could not be mounted) goes with it.
         self.notice.clear();
-        self.folder.back.push(self.back_step());
-        // The history does not grow without end, because a slideshow of folders, or a script's
-        // --remote open, visits many.
-        if self.folder.back.len() > 200 {
-            self.folder.back.remove(0);
-        }
-        self.folder.forward.clear();
-        self.open(ctx, path);
+        let opening = Opening {
+            paths: vec![path],
+            is_step: true,
+            if_gone: None,
+        };
+        self.look_up(ctx, opening);
+    }
+
+    /// Opens `path` as `visit` does when it is there. When it is not, the notice `gone` makes
+    /// says so, and the path leaves Open Recent.
+    pub(crate) fn visit_if_there(
+        &mut self,
+        ctx: &egui::Context,
+        path: PathBuf,
+        gone: fn(&Path) -> String,
+    ) {
+        self.notice.clear();
+        let opening = Opening {
+            paths: vec![path],
+            is_step: true,
+            if_gone: Some(gone),
+        };
+        self.look_up(ctx, opening);
     }
 
     /// The file shown, or the folder when it has no images.
@@ -963,6 +1041,8 @@ impl crate::App {
 
     /// Take the folder listing if it is ready, waiting up to `wait`.
     pub(crate) fn receive_listing(&mut self, ctx: &egui::Context, wait: std::time::Duration) {
+        // The place to open comes first, as its listing starts when it is opened.
+        self.receive_looked_up(ctx, wait);
         // A thread that broke leaves no folders, and nothing waiting for it.
         if let Took::Answer(dirs) = self.folder.subdirs_rx.take() {
             self.folder.subdirs = dirs;
@@ -1096,20 +1176,20 @@ impl crate::App {
         self.update_search(ctx);
     }
 
-    /// Returns the place of `path` in the list when it is a file of the folder shown, and the
-    /// list is that folder's as it is listed now: not a collection or several folders, read
-    /// whole, with subfolders as the setting says. Returns `None` otherwise.
-    fn listed_here(&self, path: &Path) -> Option<usize> {
+    /// Returns the place of `file` in the list when its folder, `dir` by its real path, is the
+    /// folder shown, and the list is that folder's as it is listed now: not a collection or
+    /// several folders, read whole, with subfolders as the setting says. Returns `None`
+    /// otherwise.
+    fn listed_here(&self, dir: &Path, file: &Path) -> Option<usize> {
         let folder = &self.folder;
         let as_listed = folder.collection.is_none()
             && folder.folders.is_empty()
             && !folder.is_listing()
             && folder.recursive == self.config.show_subfolders;
-        let parent = path.parent().filter(|_| as_listed)?;
-        if listing::real_dir(parent) != folder.dir {
+        if !as_listed || dir != folder.dir {
             return None;
         }
-        let name = path.file_name()?;
+        let name = file.file_name()?;
         self.list.files().iter().position(|f| f == name)
     }
 
@@ -1310,12 +1390,71 @@ impl crate::App {
         // are made again too.
         self.refill_preload();
         self.thumbs_changed();
-        self.status_bar.forget_size();
+        self.list.forget_sizes_and_dates();
         // The Pan view reads every date again too, as a file edited elsewhere may have a new one.
         if let Some(pan) = &mut self.pan_view {
             pan.forget_dates();
         }
         self.start_listing(ctx);
+    }
+}
+
+/// Looks up on disk what `paths` are, for `open`: a collection, a folder, a file in its folder,
+/// or several folders. It runs in a thread of its own, because each look-up waits for the disk,
+/// which on a share that stopped answering is for ever.
+fn look_up(paths: &[PathBuf]) -> Found {
+    let mut folders: Vec<PathBuf> = Vec::new();
+    for p in paths.iter().filter(|_| paths.len() > 1) {
+        // Each folder by its real path, as one folder opened alone, so the list names a file as
+        // it does then: marks and stars are kept by that name. A file stands for its folder.
+        let dir = match p.is_dir() {
+            true => listing::real_dir(p),
+            false => {
+                let real = listing::real_path(p);
+                real.parent().map_or(real.clone(), Path::to_path_buf)
+            }
+        };
+        if !folders.contains(&dir) {
+            folders.push(dir);
+        }
+    }
+    if folders.len() > 1 {
+        return Found::Folders(folders);
+    }
+    // One folder (several of its files, from a file manager) opens at the first file.
+    let path = paths.first().cloned().unwrap_or_default();
+    if collections::is_collection(&path) {
+        // The path is absolute from here on, because it is kept in Open Recent and as the last
+        // folder. A relative name was another file, or none, for a window started elsewhere.
+        let file = std::path::absolute(&path).unwrap_or(path);
+        // Each entry is named by its real path from the start, as the listing names it. Named as
+        // written until then, an entry through a link was another name to the listing: the
+        // image gone to and the selection were lost, and the view went back to the first image.
+        let entries = collections::load(&file).map(|paths| {
+            (collections::by_real_path(&paths).into_iter())
+                .filter_map(|(p, _)| Some(p.strip_prefix("/").ok()?.as_os_str().to_owned()))
+                .collect()
+        });
+        return Found::Collection { file, entries };
+    }
+    let (is_there, is_dir) =
+        std::fs::metadata(&path).map_or((false, false), |m| (true, m.is_dir()));
+    let (dir, file) = match is_dir {
+        true => (path, None),
+        false => (
+            path.parent()
+                .filter(|p| !p.as_os_str().is_empty())
+                .unwrap_or(Path::new("."))
+                .to_path_buf(),
+            Some(path),
+        ),
+    };
+    // The real path once here, so ⬆ .. and "remember folder" need no system calls later, and
+    // marks, stars and `--remote select` find the files whichever way the folder was named.
+    Found::Folder {
+        dir: listing::real_dir(&dir),
+        file,
+        is_there,
     }
 }
 
@@ -1409,6 +1548,7 @@ mod tests {
         }
         let (mut app, ctx) = app_on(&x);
         app.open_folders(&ctx, vec![x.clone(), y.clone()]);
+        app.receive_looked_up(&ctx, std::time::Duration::from_secs(5));
         let count = |n| move |app: &crate::App| app.list.files().len() == n;
         assert!(run_background_until(&mut app, &ctx, count(2)));
         // The watcher reads the folders' times when it starts, which is to be before the change.
@@ -1562,7 +1702,7 @@ mod tests {
         let file = dir.join("c.gqv");
         std::fs::write(&file, format!("#GQview collection\n\"{}\"\n", a.display())).unwrap();
         let (mut app, ctx) = app_on(&dir);
-        app.open(&ctx, file);
+        crate::support::test_support::open_now(&mut app, &ctx, file);
         assert!(run_background_until(&mut app, &ctx, |a| !a
             .folder
             .is_listing()
@@ -1573,6 +1713,8 @@ mod tests {
         std::fs::rename(&a, &b).unwrap();
         app.follow_moved_paths(vec![(a, b)], false);
         assert_eq!(app.list.matches().map(<[usize]>::len), Some(0));
+        // The collection follows in the writer thread, which is let finish before the folder goes.
+        crate::files::file_io::wait_for_queued_writes();
         std::fs::remove_dir_all(dir).unwrap();
     }
 
@@ -1589,7 +1731,7 @@ mod tests {
             .folder
             .is_listing()));
         let version = app.list.version();
-        app.open(&ctx, dir.join("b.png"));
+        crate::support::test_support::open_now(&mut app, &ctx, dir.join("b.png"));
         assert_eq!((app.list.shown(), app.list.version()), (1, version));
         assert!(!app.folder.is_listing());
         std::fs::remove_dir_all(dir).unwrap();
@@ -1652,6 +1794,7 @@ mod tests {
         std::os::unix::fs::symlink(dir.join("a"), dir.join("link")).unwrap();
         let (mut app, ctx) = app_on(&dir);
         app.open_folders(&ctx, vec![dir.join("link"), dir.join("b/x.png")]);
+        app.receive_looked_up(&ctx, std::time::Duration::from_secs(5));
         assert!(run_background_until(&mut app, &ctx, |a| a
             .list
             .files()
@@ -1667,6 +1810,7 @@ mod tests {
         assert!(missing.is_empty(), "{}", String::from_utf8_lossy(&missing));
         // The same folder named twice, once through the link, is one folder.
         app.open_folders(&ctx, vec![dir.join("link"), dir.join("a")]);
+        app.receive_looked_up(&ctx, std::time::Duration::from_secs(5));
         assert!(app.folder.folders.is_empty() && app.folder.dir == real.join("a"));
         std::fs::remove_dir_all(dir).unwrap();
     }
@@ -1780,6 +1924,8 @@ mod tests {
             })
             .collect();
         assert_eq!(names, ["a.png", "b.png"]);
+        // The order is saved in the writer thread, which is let finish before the folder goes.
+        crate::files::file_io::wait_for_queued_writes();
         std::fs::remove_dir_all(dir).unwrap();
     }
 
@@ -1806,7 +1952,7 @@ mod tests {
         app.config.sort = crate::model::listing::Sort::Name;
         app.folder.sort_again();
         app.start_listing(&ctx);
-        app.open_collection(&ctx, second.clone());
+        crate::support::test_support::open_now(&mut app, &ctx, second.clone());
         assert!(run_background_until(&mut app, &ctx, |a| !a
             .folder
             .is_listing()));
@@ -1902,7 +2048,7 @@ mod tests {
         )
         .unwrap();
         let (mut app, ctx) = app_on(&dir);
-        app.open_collection(&ctx, dir.join("c.gqv"));
+        crate::support::test_support::open_now(&mut app, &ctx, dir.join("c.gqv"));
         app.show_file(&ctx, 1);
         assert!(run_background_until(&mut app, &ctx, |a| !a
             .folder
@@ -1926,6 +2072,47 @@ mod tests {
         assert_eq!((files, sizes, calls), (vec!["a.jpg".into()], vec![7], 2));
     }
 
+    /// A folder is looked up (whether it is one, and its real path) in the background, and
+    /// nothing in the window changes until the answer comes. Before, the window's thread waited
+    /// for the disk there, which a share that stopped answering held for ever.
+    #[test]
+    fn opening_waits_for_its_look_up_in_the_background() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-look-up-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join("a")).unwrap();
+        std::fs::create_dir_all(dir.join("b")).unwrap();
+        std::os::unix::fs::symlink(dir.join("b"), dir.join("link")).unwrap();
+        let (mut app, ctx) = app_on(&dir.join("a"));
+        let a = dir.join("a").canonicalize().unwrap();
+        assert_eq!(app.folder.dir(), a);
+        app.open(&ctx, dir.join("link"));
+        assert!(app.folder.dir() == a && app.folder.is_listing());
+        let b = dir.join("b").canonicalize().unwrap();
+        assert!(run_background_until(&mut app, &ctx, |app| app.folder.dir() == b));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A path chosen from Open Recent or typed in the path field that is gone is told, and
+    /// leaves Open Recent, without opening anything. It is looked at in the background too.
+    #[test]
+    fn a_path_gone_is_told_and_leaves_open_recent() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-path-gone-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let (mut app, ctx) = app_on(&dir);
+        let gone = dir.join("gone");
+        app.folder.recent = vec![gone.clone()];
+        app.visit_if_there(&ctx, gone.clone(), |p| format!("{} is gone", p.display()));
+        assert!(app.notice.text().is_none());
+        assert!(run_background_until(&mut app, &ctx, |a| a
+            .notice
+            .text()
+            .is_some()));
+        let told = format!("{} is gone", gone.display());
+        assert_eq!(app.notice.text(), Some(told.as_str()));
+        assert!(app.folder.recent.is_empty() && app.folder.back.is_empty());
+        assert_eq!(app.folder.dir(), dir.canonicalize().unwrap());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
     /// A share mounted after the user opened another folder is not opened over it. Before, a
     /// mount that stalled for half a minute took the window back to the share, and the files
     /// selected meanwhile were gone.
@@ -1939,6 +2126,7 @@ mod tests {
         let (tx, rx) = std::sync::mpsc::channel();
         app.folder.mounting_rx = crate::support::threads::Receiving::of(rx);
         app.visit(&ctx, here.clone());
+        app.receive_looked_up(&ctx, std::time::Duration::from_secs(5));
         let mounted = (Ok(share), crate::files::external::Login::default());
         // The window no longer waits for it, so the answer may find no one to take it.
         let _ = tx.send(mounted);

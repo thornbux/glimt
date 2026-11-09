@@ -447,8 +447,8 @@ impl crate::App {
                         .collect();
                     self.open_folders(ctx, all);
                 }
-                (Pick::CopyTo(paths), Some(dest)) => self.transfer(ctx, paths, dest, true),
-                (Pick::MoveTo(paths), Some(dest)) => self.transfer(ctx, paths, dest, false),
+                (Pick::CopyTo(paths), Some(dest)) => self.transfer(paths, dest, true),
+                (Pick::MoveTo(paths), Some(dest)) => self.transfer(paths, dest, false),
                 (Pick::SavePdf(job), Some(file)) => self.print(ctx, job, PrintTo::File(file)),
                 (Pick::SortFolder, Some(dir)) => self.add_sort_folder(dir),
                 (Pick::ScreenProfile, Some(file)) => {
@@ -467,7 +467,7 @@ impl crate::App {
                 }
                 (Pick::SaveAs(path, how, _), Some(to)) => self.save_as_to(ctx, path, how, to),
                 (Pick::CopyForSharing(paths, kept), Some(dir)) => {
-                    self.copy_for_sharing(ctx, paths, dir, kept)
+                    self.copy_for_sharing(paths, dir, kept)
                 }
             }
         }
@@ -1482,7 +1482,7 @@ mod tests {
         let entry = format!("#GQview collection\n\"{}\"\n#end\n", image.display());
         std::fs::write(&list, entry).unwrap();
         let (mut app, ctx) = app_on(&d);
-        app.open(&ctx, list);
+        crate::support::test_support::open_now(&mut app, &ctx, list);
         let how = app.shown_copy();
         let start = app.dialog_start(&super::Pick::SaveFrame(image.clone(), 2, how));
         assert_eq!(start, images.join("a-frame-3.png"));

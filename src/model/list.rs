@@ -106,8 +106,9 @@ pub(crate) struct List {
     /// The files whose cells pan view draws this frame: their thumbnails are made and kept,
     /// also while the file list shows others.
     pan_thumbs: Vec<usize>,
-    /// File list size and date columns: (bytes, mtime) by file name.
-    sizes_and_dates: HashMap<OsString, (u64, i64)>,
+    /// File list size and date columns: (bytes, mtime) by file name. It is `None` while the
+    /// file is looked at in the background.
+    sizes_and_dates: HashMap<OsString, Option<(u64, i64)>>,
     /// Goes up whenever the file list changes, so what was worked out from its indices can tell
     /// that it is old, also when the list kept its length (another order).
     version: usize,
@@ -211,7 +212,7 @@ impl List {
     }
 
     /// The size and date columns, as (bytes, mtime) by file name.
-    pub(crate) fn sizes_and_dates(&self) -> &HashMap<OsString, (u64, i64)> {
+    pub(crate) fn sizes_and_dates(&self) -> &HashMap<OsString, Option<(u64, i64)>> {
         &self.sizes_and_dates
     }
 
@@ -531,7 +532,13 @@ impl List {
 
     /// Keeps the size and date `d` of the file `name` for the list's columns.
     pub(crate) fn remember_size_and_date(&mut self, name: OsString, d: (u64, i64)) {
-        self.sizes_and_dates.insert(name, d);
+        self.sizes_and_dates.insert(name, Some(d));
+    }
+
+    /// Notes that the size and date of the file `name` are being looked at in the background,
+    /// so they are asked for once.
+    pub(crate) fn note_size_and_date_asked(&mut self, name: OsString) {
+        self.sizes_and_dates.insert(name, None);
     }
 
     /// Forgets the size and date of the file `name`, because it changed.

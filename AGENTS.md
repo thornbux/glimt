@@ -30,7 +30,11 @@ for Linux in Rust/egui, inspired by Geeqie. Read this before changing anything.
 - **Fast and snappy, always.** Nothing heavy on the UI thread: decoding, folder listing, file
   operations, mounting and external programs run in background threads and report back over
   `mpsc` channels, with a repaint request. Show the busy pointer while they run (the `busy`
-  count, or a `threads::Working` held for the work).
+  count, or a `threads::Working` held for the work). The UI thread does not even look at a
+  user's file or folder (a stat, a real path, a read), because on a share that stopped
+  answering that waits for ever and the window hangs.
+  `source_rules::the_window_thread_never_waits_for_the_disk` finds such a call in `App`'s
+  methods, and lists the few that stay with their reasons.
 - **As fast with 500,000 files in a folder as with 10.** No O(n) work per frame, no system call
   per file in the list (use `DirEntry::file_type`), draw lists with `show_rows`, compare file
   names as bytes. Test large folders with hard links to one image, for example

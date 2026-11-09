@@ -5,6 +5,8 @@ use crate::files::config::MAX_SLIDESHOW_DELAY;
 use crate::model::collections;
 use crate::model::listing::shuffle;
 use crate::model::selection::round_ends;
+use crate::support::lang::tr;
+use crate::support::threads::{Receiving, Took};
 use crate::ui::actions::Action;
 use eframe::egui;
 use std::ffi::OsString;
@@ -51,6 +53,9 @@ pub(crate) struct Slideshow {
     /// A slideshow changing one pane at a time: the pane next (0 is the first), and the image
     /// shown last.
     next_pane: usize,
+    /// The open collection's entries in their saved order, by their real paths, read in the
+    /// background when random order is turned off.
+    saved_order: Receiving<Option<Vec<PathBuf>>>,
 }
 
 impl Slideshow {
@@ -102,9 +107,11 @@ impl Slideshow {
         self.shuffled
     }
 
-    /// The order chosen replaces the random one, or another folder opens.
+    /// The order chosen replaces the random one, or another folder opens. A collection's saved
+    /// order still being read is not put on the list that comes next.
     pub(crate) fn unshuffle(&mut self) {
         self.shuffled = false;
+        self.saved_order.clear();
     }
 
     /// Whether the next listing is shuffled whole in the listing thread.
@@ -141,37 +148,28 @@ impl crate::App {
             return self.start_listing(ctx);
         }
         if !on {
-            // A collection back in its own order, which shuffling left only in its file.
-            // shortcut: the file read in the UI thread; collections are small text files.
+            // A collection goes back to its own order, which shuffling left only in its file.
+            // The file is read in the background, and `receive_saved_order` takes the order.
             if let Some(file) = self
                 .folder
                 .collection()
                 .filter(|_| !self.folder.sorts_collection())
-                && let Ok(saved) = collections::load(file)
             {
-                let shown = self.list.files().get(self.list.shown()).cloned();
-                let files: Vec<PathBuf> =
-                    (0..self.list.files().len()).map(|i| self.path(i)).collect();
-                // The saved entries by their real paths, the names the list has.
-                let saved: Vec<PathBuf> = (collections::by_real_path(&saved).into_iter())
-                    .map(|(real, _)| real)
-                    .collect();
-                let files: Vec<OsString> = (collections::in_saved_order(&saved, files).iter())
-                    .filter_map(|p| {
-                        Some(
-                            p.strip_prefix(self.folder.dir())
-                                .ok()?
-                                .as_os_str()
-                                .to_owned(),
-                        )
-                    })
-                    .collect();
-                self.replace_files(ctx, files, shown);
-                // A listing on its way (a random slideshow's, a refresh's) would bring the order
-                // it was asked for: read again, in the saved order now shown.
-                if self.folder.is_listing() {
-                    self.start_listing(ctx);
-                }
+                let (file, (tx, rx)) = (file.to_path_buf(), std::sync::mpsc::channel());
+                let ctx = ctx.clone();
+                std::thread::spawn(move || {
+                    // A move in the collection may still wait in the writer thread.
+                    crate::files::file_io::wait_for_queued_writes();
+                    // The saved entries by their real paths, the names the list has.
+                    let saved = collections::load(&file).ok().map(|saved| {
+                        (collections::by_real_path(&saved).into_iter())
+                            .map(|(real, _)| real)
+                            .collect()
+                    });
+                    let _ = tx.send(saved);
+                    ctx.request_repaint();
+                });
+                self.slideshow.saved_order = Receiving::of(rx);
                 return;
             }
             // Back to the chosen sort order; listing keeps the shown image.
@@ -188,6 +186,39 @@ impl crate::App {
         // at the end of the round and shuffle again on every frame.
         self.list.clear_panes();
         self.replace_files(ctx, files, Some(shown));
+    }
+
+    /// Puts the open collection back in its saved order, once `shuffle_list` read it. A file
+    /// that could not be read leaves the order to the listing, in the chosen sort order.
+    pub(crate) fn receive_saved_order(&mut self, ctx: &egui::Context) {
+        let saved = match self.slideshow.saved_order.take() {
+            Took::Answer(Some(saved)) => saved,
+            Took::Answer(None) => return self.start_listing(ctx),
+            Took::Gone => return self.tell_background_stopped(tr("Reading the folder")),
+            Took::Nothing => return,
+        };
+        // Shuffled again meanwhile, the list keeps its new order.
+        if self.slideshow.shuffled {
+            return;
+        }
+        let shown = self.list.files().get(self.list.shown()).cloned();
+        let files: Vec<PathBuf> = (0..self.list.files().len()).map(|i| self.path(i)).collect();
+        let files: Vec<OsString> = (collections::in_saved_order(&saved, files).iter())
+            .filter_map(|p| {
+                Some(
+                    p.strip_prefix(self.folder.dir())
+                        .ok()?
+                        .as_os_str()
+                        .to_owned(),
+                )
+            })
+            .collect();
+        self.replace_files(ctx, files, shown);
+        // A listing on its way (a random slideshow's, a refresh's) would bring the order it was
+        // asked for. So the folder is read again, in the saved order now shown.
+        if self.folder.is_listing() {
+            self.start_listing(ctx);
+        }
     }
 
     /// Start the slideshow: with the subfolders when set, shuffled for random order.
@@ -468,6 +499,7 @@ mod tests {
         assert!(run_background_until(&mut app, &ctx, |a| !a
             .folder
             .is_listing()
+            && a.slideshow.saved_order.is_none()
             && a.status_bar.folder_total().is_some()));
         assert_eq!(app.list.files(), order);
         std::fs::remove_dir_all(&d).unwrap();
@@ -518,6 +550,7 @@ mod tests {
             assert!(run_background_until(&mut app, &ctx, |a| !a
                 .folder
                 .is_listing()
+                && a.slideshow.saved_order.is_none()
                 && a.status_bar.folder_total().is_some()));
             assert_eq!(app.list.files(), order);
             assert!(app.status_bar.folder_total() > Some(0), "size");
@@ -547,6 +580,12 @@ mod tests {
         let order = app.list.files().to_vec();
         app.shuffle_list(&ctx, true);
         app.shuffle_list(&ctx, false);
+        // The saved order is read in the background, not in the window's thread.
+        assert!(app.slideshow.saved_order.is_some());
+        assert!(run_background_until(&mut app, &ctx, |a| a
+            .slideshow
+            .saved_order
+            .is_none()));
         assert_eq!(app.list.files(), order);
         std::fs::remove_dir_all(&d).unwrap();
     }

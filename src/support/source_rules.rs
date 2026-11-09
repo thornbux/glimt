@@ -2995,3 +2995,187 @@ fn the_rules_name_what_exists() {
         wrong.join("\n")
     );
 }
+
+/// The window's thread never waits for the disk of a user's file or folder. On a share that
+/// stopped answering (a NAS asleep, Wi-Fi gone) such a call waits for ever, and the window hangs
+/// and cannot be closed. The window's thread is the code of `App`'s methods: the
+/// `impl crate::App` blocks of every module, and main.rs's `impl App` and
+/// `impl eframe::App for App`, because an `App` is never sent to another thread. Inside them,
+/// the text of a call that hands work to another thread (`spawn`, `write_later`,
+/// `run_in_background`) is left out, because that work runs there. A function of Glimt's own
+/// that looks at the disk is found by its name too. A call that must stay is listed here with
+/// its function and the reason, and a line here that no longer matches a call fails too.
+#[test]
+fn the_window_thread_never_waits_for_the_disk() {
+    const WAITS_ON_PURPOSE: &[(&str, &str, &str, &str)] = &[
+        (
+            "main.rs",
+            "with_config",
+            ".is_dir()",
+            "the last folder, looked at once at start, before the window opens",
+        ),
+        (
+            "main.rs",
+            "with_config",
+            "read_text(",
+            "Glimt's own window state, read once at start, before the window opens",
+        ),
+        (
+            "ui/dialogs.rs",
+            "dialog_start",
+            ".is_dir()",
+            "Glimt's own ICC folder under $HOME, once when the file dialog opens",
+        ),
+        (
+            "metadata/lightroom.rs",
+            "lightroom_dialog",
+            ".is_dir()",
+            "the few folders typed, while the Lightroom dialog is open; its shortcut comment",
+        ),
+        (
+            "metadata/lightroom.rs",
+            "import_lightroom",
+            ".is_file()",
+            "in the closure that write_sidecars runs in its job thread",
+        ),
+        (
+            "files/file_ops.rs",
+            "written_anew",
+            "canonicalize(",
+            "only files just written with a moved file's name; its shortcut comment",
+        ),
+    ];
+    let mut found: Vec<(String, String, &str, usize)> = Vec::new();
+    for (file, text) in rust_sources() {
+        for (function, call, line) in disk_calls_in_window_thread(&text) {
+            found.push((file.clone(), function, call, line));
+        }
+    }
+    let is_on_purpose = |file: &str, function: &str, call: &str| {
+        (WAITS_ON_PURPOSE.iter()).any(|w| (w.0, w.1, w.2) == (file, function, call))
+    };
+    let wrong: Vec<String> = (found.iter())
+        .filter(|(file, function, call, _)| !is_on_purpose(file, function, call))
+        .map(|(file, function, call, line)| format!("{file}:{line} {function}: {call}"))
+        .collect();
+    assert!(
+        wrong.is_empty(),
+        "the window's thread waits for the disk (move it to a thread, as AGENTS.md says):\n{}",
+        wrong.join("\n")
+    );
+    let unused: Vec<_> = (WAITS_ON_PURPOSE.iter())
+        .filter(|w| !(found.iter()).any(|f| (f.0.as_str(), f.1.as_str(), f.2) == (w.0, w.1, w.2)))
+        .collect();
+    assert!(
+        unused.is_empty(),
+        "named here but no longer there: {unused:?}"
+    );
+}
+
+/// Returns the calls in `text` that look at the disk in the window's thread, as `App`'s
+/// methods outside the work they hand to other threads, each as (function, call, line).
+fn disk_calls_in_window_thread(text: &str) -> Vec<(String, &'static str, usize)> {
+    // The standard library's look at the disk, and Glimt's own functions that do.
+    const DISK_CALLS: &[&str] = &[
+        "fs::metadata(",
+        ".metadata()",
+        "symlink_metadata(",
+        "canonicalize(",
+        "read_dir(",
+        "read_to_string(",
+        "fs::read(",
+        "File::open(",
+        ".exists()",
+        "try_exists(",
+        ".is_file()",
+        ".is_dir()",
+        "read_link(",
+        "real_dir(",
+        "real_path(",
+        "by_real_path(",
+        "collections::load(",
+        "edit_open_collection(",
+        "read_limited(",
+        "read_text(",
+        "read_head(",
+        "open_regular(",
+    ];
+    const ELSEWHERE: &[&str] = &["spawn(", "write_later(", "run_in_background("];
+    let lines = code_lines(text);
+    let mut found = Vec::new();
+    let (mut in_app, mut function) = (false, String::new());
+    // How deep the parentheses of a call that hands work to another thread still go.
+    let mut handed_over = 0usize;
+    for (i, line) in lines[..tests_start(&lines)].iter().enumerate() {
+        let item = without_qualifiers(line);
+        if [
+            "impl crate::App {",
+            "impl App {",
+            "impl eframe::App for App {",
+        ]
+        .contains(&item)
+        {
+            in_app = true;
+            continue;
+        }
+        if line.starts_with('}') {
+            in_app = false;
+        }
+        if !in_app {
+            continue;
+        }
+        if let Some(name) = function_name(line) {
+            function = name.to_owned();
+        }
+        let mut code = line.as_str();
+        if handed_over == 0 {
+            match ELSEWHERE.iter().filter_map(|c| line.find(c)).min() {
+                // What stands before the call is still the window's.
+                Some(at) => {
+                    let before = &line[..at];
+                    let call = DISK_CALLS.iter().find(|c| before.contains(*c));
+                    found.extend(call.map(|c| (function.clone(), *c, i + 1)));
+                    code = &line[at..];
+                }
+                None => {
+                    let call = DISK_CALLS.iter().find(|c| line.contains(*c));
+                    found.extend(call.map(|c| (function.clone(), *c, i + 1)));
+                    continue;
+                }
+            }
+        }
+        for c in code.chars() {
+            match c {
+                '(' => handed_over += 1,
+                ')' => handed_over = handed_over.saturating_sub(1),
+                _ => {}
+            }
+        }
+    }
+    found
+}
+
+/// The check above finds a look at the disk in `App`'s methods, also through Glimt's own
+/// functions, before a thread is started on the same line, and after the thread's call ends.
+/// It passes the work handed to a thread, a free function, a comment and a string.
+#[test]
+fn finds_a_disk_call_in_the_window_thread() {
+    let text = "impl crate::App {\n    fn a(&self) {\n        std::fs::metadata(p);\n    }\n    \
+        fn b(&self) {\n        std::thread::spawn(move || {\n            p.exists();\n        \
+        });\n        let d = real_dir(&p);\n    }\n    fn c(&self) {\n        \
+        write_later(move || drop(p.canonicalize()));\n        // p.is_dir()\n        \
+        let s = \".is_file()\";\n        let x = q.is_dir(); std::thread::spawn(f);\n    \
+        }\n}\nfn free() {\n    std::fs::read_dir(p);\n}\n";
+    let found = disk_calls_in_window_thread(text);
+    let found: Vec<(&str, &str, usize)> = (found.iter())
+        .map(|(f, c, l)| (f.as_str(), *c, *l))
+        .collect();
+    assert_eq!(
+        found,
+        [
+            ("a", "fs::metadata(", 3),
+            ("b", "real_dir(", 9),
+            ("c", ".is_dir()", 15)
+        ]
+    );
+}

@@ -26,16 +26,23 @@ impl crate::App {
 
     // ---- Collections ----
 
-    /// Make `change` to the open collection's file as it is now, with what other windows changed.
-    pub(crate) fn edit_collection(&mut self, change: impl FnOnce(&mut Vec<PathBuf>)) {
+    /// Makes `change` to the open collection's file as it is then, with what other windows
+    /// changed. It is done in the writer thread, because the file and the folders of its entries
+    /// are read, and a share that stopped answering would hold the window. A failure is told as
+    /// every failed save is.
+    pub(crate) fn edit_collection(
+        &mut self,
+        change: impl FnOnce(&mut Vec<PathBuf>) + Send + 'static,
+    ) {
         let Some(file) = self.folder.collection() else {
             return;
         };
-        // shortcut: read and written in the UI thread, small text files; move to
-        // file_io::write_later if collections of hundreds of thousands are edited.
-        if let Err(e) = edit_open_collection(file, change) {
-            self.notice.give(e);
-        }
+        let file = file.to_path_buf();
+        crate::files::file_io::write_later(move || {
+            if let Err(e) = edit_open_collection(&file, change) {
+                crate::files::file_io::save_failed(e);
+            }
+        });
     }
 
     /// The collection's file put in the order of the list, unless shuffled for a slideshow.
@@ -44,7 +51,7 @@ impl crate::App {
             return;
         }
         let ours: Vec<PathBuf> = (0..self.list.files().len()).map(|i| self.path(i)).collect();
-        self.edit_collection(|all| reorder(all, &ours));
+        self.edit_collection(move |all| reorder(all, &ours));
     }
 
     /// Move the selected images (or the shown one) of the open collection one place earlier or
@@ -215,7 +222,7 @@ impl crate::App {
         };
         // Out of the collection's file here, at once: the files stay where they are.
         let out: HashSet<PathBuf> = targets.iter().map(|&i| self.path(i)).collect();
-        self.edit_collection(|all| all.retain(|p| !out.contains(p)));
+        self.edit_collection(move |all| all.retain(|p| !out.contains(p)));
         self.remove_indices(ctx, &targets);
     }
 }
@@ -455,11 +462,9 @@ pub fn edit(file: &Path, new: bool, change: impl FnOnce(&mut Vec<PathBuf>)) -> s
 /// Gives each of a collection's `entries` its real path (`listing::real_path`), the name the
 /// list and the marks, stars and `--remote select` know the file by, with the entry as written.
 /// An image named twice, also through a link, is given once. Each folder is looked up once, so a
-/// collection of 500,000 images in a few folders costs a few lookups.
-// shortcut: realpath looks at the disk, and opening a collection and every edit of it (Remove,
-// a reorder, a move followed, random order turned off) do it in the UI thread; a collection
-// with an entry on a share that stopped answering holds the window until the share answers.
-// Move the edits to file_io::write_later if that is seen.
+/// collection of 500,000 images in a few folders costs a few lookups. Each lookup waits for the
+/// disk, so this runs only in a background thread: the look-up when a collection opens, the
+/// listing, the writer thread for an edit, and the read of the saved order.
 pub fn by_real_path(entries: &[PathBuf]) -> Vec<(PathBuf, &PathBuf)> {
     let mut folders: std::collections::HashMap<&Path, PathBuf> = Default::default();
     let mut seen = HashSet::new();
@@ -625,6 +630,9 @@ mod tests {
             .map(|n| format!("\"{}\"\n", d.join(format!("{n}.png")).display()))
             .collect::<String>();
         for first in [BTreeSet::from([0, 1]), BTreeSet::from([0])] {
+            // The move of the round before is saved in the writer thread, before the file is
+            // written anew here.
+            crate::files::file_io::wait_for_queued_writes();
             std::fs::write(d.join("col.gqv"), format!("#GQview collection\n{gqv}")).unwrap();
             let (mut app, ctx) = crate::support::test_support::app_on(&d.join("col.gqv"));
             assert_eq!(app.list.files().len(), 3);
@@ -643,6 +651,7 @@ mod tests {
                 "{names:?}"
             );
         }
+        crate::files::file_io::wait_for_queued_writes();
         std::fs::remove_dir_all(d).unwrap();
     }
 
@@ -657,9 +666,9 @@ mod tests {
             std::fs::write(file, "#GQview collection\n#end\n").unwrap();
         }
         let (mut app, ctx) = crate::support::test_support::app_on(&dir);
-        app.open(&ctx, trip.clone());
+        crate::support::test_support::open_now(&mut app, &ctx, trip.clone());
         app.run(&ctx, crate::ui::actions::Action::RenameCollection);
-        app.open(&ctx, home.clone());
+        crate::support::test_support::open_now(&mut app, &ctx, home.clone());
         app.act_on_prompt_answer(&ctx, crate::ui::dialogs::Prompt::RenameCollection, "summer");
         assert!(dir.join("summer.gqv").is_file() && !trip.exists() && home.is_file());
         assert_eq!(app.folder.collection(), Some(home.as_path()));
@@ -698,7 +707,7 @@ mod tests {
         let file = dir.join("trip.gqv");
         std::fs::write(&file, "#GQview collection\n#end\n").unwrap();
         let (mut app, ctx) = crate::support::test_support::app_on(&dir);
-        app.open(&ctx, file.clone());
+        crate::support::test_support::open_now(&mut app, &ctx, file.clone());
         app.run(&ctx, crate::ui::actions::Action::TrashCollection);
         assert!(app.dialog_open());
         assert!(file.is_file());
