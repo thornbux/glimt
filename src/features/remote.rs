@@ -192,8 +192,8 @@ impl Listener {
     /// Listening for `--remote` if `listen`.
     pub(crate) fn new(ctx: &egui::Context, listen: bool) -> Self {
         let (tx, rx) = mpsc::channel();
-        if listen {
-            self::listen(tx.clone(), ctx.clone());
+        if listen && let Err(why) = self::listen(tx.clone(), ctx.clone()) {
+            eprintln!("{why}");
         }
         Listener {
             rx,
@@ -412,15 +412,23 @@ impl crate::App {
 
     /// Gives this window the --name `name`, or none when it is empty, and shows it in the title.
     /// A window that did not listen, with remote control off, starts to with a name, as one
-    /// started with --name does. Returns the reason when the name cannot be taken.
+    /// started with --name does. Returns the reason when the name cannot be taken, or when the
+    /// window cannot listen by it, and the window then keeps the name it had.
     pub(crate) fn set_window_name(
         &mut self,
         ctx: &egui::Context,
         name: &str,
     ) -> Result<(), String> {
-        remote::rename(Some(name).filter(|n| !n.is_empty()))?;
-        if !listening() && given_name().is_some() {
-            listen(self.remote.tx.clone(), ctx.clone());
+        let name = Some(name).filter(|n| !n.is_empty());
+        let name_before = given_name();
+        remote::rename(name)?;
+        if !listening()
+            && name.is_some()
+            && let Err(why) = listen(self.remote.tx.clone(), ctx.clone())
+        {
+            // The window does not listen, so this only puts the name back.
+            remote::rename(name_before.as_deref())?;
+            return Err(why);
         }
         self.update_window_title(ctx);
         Ok(())
@@ -901,14 +909,19 @@ pub fn client(
     }
 }
 
-/// Listen for commands in the background and pass each line to `tx`, with where to answer for
-/// a query.
-pub fn listen(tx: mpsc::Sender<(String, Option<Reply>)>, ctx: eframe::egui::Context) {
+/// Listens for commands in the background and passes each line to `tx`, with where to answer
+/// for a query. Returns the reason when the window cannot listen.
+pub fn listen(
+    tx: mpsc::Sender<(String, Option<Reply>)>,
+    ctx: eframe::egui::Context,
+) -> Result<(), String> {
     let Some(path) = socket(&socket_id()) else {
-        return match runtime_dir_from(std::env::var_os("XDG_RUNTIME_DIR")) {
-            None => eprintln!("No remote control: $XDG_RUNTIME_DIR is not set to a full path"),
-            Some(_) => eprintln!("No remote control: its folder there is not this user's own"),
-        };
+        return Err(
+            match runtime_dir_from(std::env::var_os("XDG_RUNTIME_DIR")) {
+                None => "No remote control: $XDG_RUNTIME_DIR is not set to a full path".into(),
+                Some(_) => "No remote control: its folder there is not this user's own".into(),
+            },
+        );
     };
     // Only the user may connect, even where $XDG_RUNTIME_DIR is not private as it should be.
     {
@@ -923,7 +936,7 @@ pub fn listen(tx: mpsc::Sender<(String, Option<Reply>)>, ctx: eframe::egui::Cont
         // A folder made by another user meanwhile, between the look in `dir` and here, is not
         // used.
         if is_another_users_dir(dir) {
-            return eprintln!("No remote control: its folder there is not this user's own");
+            return Err("No remote control: its folder there is not this user's own".into());
         }
     }
     // A window whose --name is taken already shares it, on a socket of its own: the name and
@@ -937,9 +950,11 @@ pub fn listen(tx: mpsc::Sender<(String, Option<Reply>)>, ctx: eframe::egui::Cont
     let listener = match bound {
         Ok(listener) => listener,
         Err(None) => {
-            return eprintln!("A Glimt of ID {id} is running already: --remote goes to that one");
+            return Err(format!(
+                "A Glimt of ID {id} is running already: --remote goes to that one"
+            ));
         }
-        Err(Some(e)) => return eprintln!("No remote control as {id}: {e}"),
+        Err(Some(e)) => return Err(format!("No remote control as {id}: {e}")),
     };
     *lock_even_if_poisoned(&LISTENING_AS) = Some(id);
     LISTENING.store(true, std::sync::atomic::Ordering::Relaxed);
@@ -955,6 +970,7 @@ pub fn listen(tx: mpsc::Sender<(String, Option<Reply>)>, ctx: eframe::egui::Cont
             serve(stream, &tx, &ctx)
         });
     });
+    Ok(())
 }
 
 /// Takes the clients of `listener`, each served by `serve` in a thread of its own, and at most
