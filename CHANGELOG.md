@@ -24,6 +24,14 @@ and versions follow [Semantic Versioning](https://semver.org/).
   files, and writes its state. Each further signal counts as closing again (the second stops
   the files after the one at hand, the third ends at once), and SIGKILL always ends it at once.
   Before, either signal ended Glimt halfway through a job.
+### Fixed
+
+- The IMG_1.xmp that Lightroom, Camera Raw, Bridge and Capture One write beside a RAW file
+  IMG_1.CR2 now goes with it when Glimt moves, copies, renames, deletes or trashes it, and comes
+  back with an Undo. Before, it stayed behind, and the next IMG_1.CR2 in that folder got
+  Lightroom's edits and keywords. An IMG_1.JPG beside the RAW file leaves it alone, as Lightroom
+  keeps a JPEG's metadata inside the JPEG. The manual no longer says that Lightroom reads
+  Glimt's own IMG_1.CR2.xmp.
 
 ## [0.77.0] - 2026-11-09
 

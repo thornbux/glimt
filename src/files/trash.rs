@@ -133,32 +133,39 @@ pub(crate) fn restore(
     // Sets are used rather than searches, so a delete of 50,000 photos with sidecars is undone
     // in one pass.
     let sides: HashSet<&PathBuf> = trash_move.sidecars.iter().collect();
-    let paired: HashSet<PathBuf> = trash_move
-        .files
-        .iter()
-        .map(|f| crate::metadata::xmp::sidecar(f))
+    // A file's sidecars by name: Glimt's own, and Adobe's beside a RAW file.
+    let names_of_sidecars = |f: &Path| {
+        let adobe = crate::metadata::xmp::adobe_sidecar(f);
+        [Some(crate::metadata::xmp::sidecar(f)), adobe]
+            .into_iter()
+            .flatten()
+    };
+    let paired: HashSet<PathBuf> = (trash_move.files.iter())
+        .flat_map(|f| names_of_sidecars(f))
         .collect();
-    // Each step is a file with its own sidecar, or a sidecar alone.
-    let mut steps: Vec<(TrashEntry, bool, Option<TrashEntry>)> = Vec::new();
+    // Each step is a file with its own sidecars, or a sidecar alone.
+    let mut steps: Vec<(TrashEntry, bool, Vec<TrashEntry>)> = Vec::new();
     for t in found {
-        let side = Some(crate::metadata::xmp::sidecar(&t.from)).filter(|s| sides.contains(s));
-        let side = side.and_then(|s| find(&s));
+        let side = names_of_sidecars(&t.from)
+            .filter(|s| sides.contains(s))
+            .filter_map(|s| find(&s))
+            .collect();
         steps.push((t, true, side));
     }
     let rest = (trash_move.sidecars.iter())
         .filter(|s| !paired.contains(*s))
         .filter_map(|s| find(s));
-    steps.extend(rest.map(|s| (s, false, None)));
+    steps.extend(rest.map(|s| (s, false, Vec::new())));
     let back = put_back(steps, &mut error);
     (back, error)
 }
 
-/// Puts the files of `steps` back from the trash, each with its sidecar right after it, and
+/// Puts the files of `steps` back from the trash, each with its sidecars right after it, and
 /// tells the first failure in `error`. A file that cannot come back stays in the trash with its
-/// sidecar, and the next files still come back. Returns the files put back, without the
+/// sidecars, and the next files still come back. Returns the files put back, without the
 /// sidecars.
 fn put_back(
-    steps: Vec<(TrashEntry, bool, Option<TrashEntry>)>,
+    steps: Vec<(TrashEntry, bool, Vec<TrashEntry>)>,
     error: &mut Option<String>,
 ) -> Vec<PathBuf> {
     let rename = |t: &TrashEntry| {
@@ -166,12 +173,12 @@ fn put_back(
             .map_err(|e| format!("{display}: {e}", display = t.from.display()))
     };
     let (mut back, mut renamed) = (Vec::new(), Vec::new());
-    for (t, is_file, side) in steps {
+    for (t, is_file, sides) in steps {
         if let Err(e) = rename(&t) {
             error.get_or_insert(e);
             continue;
         }
-        if let Some(side) = side {
+        for side in sides {
             match rename(&side) {
                 Ok(()) => renamed.push(side),
                 Err(e) => {
