@@ -191,7 +191,7 @@ holds only its `mod` lines, and a new module goes into the folder of what it doe
 | `src/files/config.rs` | `Config` (the `config!` macro) with the settings' defaults and ranges, the window state, XDG paths, and `--lock-settings` |
 | `src/files/backup.rs` | The backup (File → Back Up, `--back-up`): Glimt's own folders (`own_folders`) copied into a new folder (`copy_tree`, `back_up_to`) |
 | `src/files/file_ops.rs` | `Job` (a file operation in the background, with its progress and Stop) and `FileOperations`; delete, copy and move, `OperationReport` (what a file operation did, for `receive_operation_report`) and `Undo`, Rename and Rename Many, saving the orientation, as jobs with progress and Stop (`start_job`, `run_in_background`, `write_sidecars`); `rename_files`; Undo |
-| `src/files/file_io.rs` | The one way each change on disk is made: `replace_file`/`create_file`/`write_atomic` (whole or not at all), `replace_name` (a link at the name replaced, not followed), `edit_shared` for the files the windows share, `rename_never_over` (the one way to rename) and `put_file` (a move or copy, never over a file); the writer thread (`write_later`, `flush`) |
+| `src/files/file_io.rs` | The one way each change on disk is made: `replace_file`/`create_file`/`write_atomic` (whole or not at all), `replace_name` (a link at the name replaced, not followed), `edit_shared` for the files the windows share, `rename_never_over` (the one way to rename), `put_file` (a move or copy, never over a file, the one way to copy) and `sync_folder_of` (a rename on disk with its folder); the writer thread (`write_later`, `flush`) |
 | `src/files/trash.rs` | The trash: `trash` (gio, or by hand as the trash spec says when the Flatpak's portal refuses a file), `TrashMove` (what a move to the trash did) and `restore`, which puts it back for Undo by reading the trash folders |
 | `src/files/external.rs` | External programs: `command()`, `stoppable_command`, `run_limited`/`short_output_of`, `output_of`, `Watchdog`, `in_flatpak`; ffmpeg (HEIC, AVIF, video), gio mounting, open with |
 | `src/files/portal.rs` | The desktop portals that need more than gdbus, through zbus (feature `portals`): printing, Open With and keeping the screen on in the Flatpak (`print`, `open_with`, `inhibit_idle`) |
@@ -380,7 +380,11 @@ of that part. The exceptions are the tables of one arm per action (`Action::engl
     `file_io::edit_shared` (lock, read, change and write as one; clippy refuses `file_lock`
     elsewhere). `source_rules::only_glimts_own_files_are_written_through_links` lists where
     `replace_file` and its writers are used;
-  - rename with `file_io::rename_never_over` (never over a file), move or copy with `put_file`;
+  - rename with `file_io::rename_never_over` (never over a file), move or copy with `put_file`
+    (never `std::fs::copy`). A rename that a later step counts on (an unlink, a plan removed)
+    is synced first with `sync_folder_of`; `write_beside` and `put_file`'s copy do it
+    themselves, and `source_rules::renames_that_later_steps_count_on_are_synced` lists the
+    renames that stand alone;
   - start Glimt's own program with `external::command` or `stoppable_command` (in a Flatpak's
     sandbox), the user's with `host_command` or `stoppable_host_command` (on the host), and
     wait for it only with `run_limited`, `short_output_of`, `output_of` or a `Watchdog` (never

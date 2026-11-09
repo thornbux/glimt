@@ -9,6 +9,12 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 - The Help Manual names every order of the sort menu (file creation date and the two EXIF
   dates were missing), and says that a tool still running is stopped from Edit → Tools.
+- A power cut, or a USB stick pulled out without unmounting it, no longer loses a file moved
+  to another disk, its copy and its source both. A copy, a saved sidecar, a turned image and
+  the settings are on disk with their names when Glimt says they are saved, so an older
+  version cannot come back, and Rename Many's plan is on disk before its first rename. File →
+  Back Up waits until the backup is on the disk, so a stick pulled out right after holds all
+  of it.
 ### Changed
 
 - Copy for Sharing keeps an iPhone's HDR gain map as it keeps an Ultra HDR one, so the copy

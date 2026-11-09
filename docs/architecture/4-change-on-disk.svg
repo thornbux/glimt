@@ -128,6 +128,7 @@
       <text x="272" y="571">0600, synced, then renamed;</text>
       <text x="272" y="587">move: a rename; to another</text>
       <text x="272" y="603">disk, a copy and an unlink</text>
+      <text x="272" y="619">after its folder is synced</text>
       <text x="272" y="641" fill="#57606a">files/file_io.rs</text>
 
       <rect x="490" y="514" width="220" height="138" rx="6" fill="#f6f8fa" stroke="#1f2328" stroke-width="1.5"/>
@@ -160,7 +161,7 @@
     <line x1="480" y1="583" x2="488" y2="583" stroke="#1f2328" stroke-width="1.5" marker-end="url(#arrow)"/>
 
     <rect x="30" y="662" width="1140" height="66" rx="6" fill="#f6f8fa" stroke="#d0d7de"/>
-    <text x="44" y="682" font-size="12"><tspan font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace">write_beside · tmp_path</tspan>: every file Glimt writes goes whole to .glimt-tmp-&lt;instance&gt;-&lt;n&gt; beside it, synced, then renamed: after a crash, the old file or the new, never half.</text>
+    <text x="44" y="682" font-size="12"><tspan font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace">write_beside · tmp_path</tspan>: every file Glimt writes goes whole to .glimt-tmp-&lt;instance&gt;-&lt;n&gt; beside it, synced, renamed, its folder synced: the old file or the new after a crash.</text>
     <text x="44" y="700" font-size="12"><tspan font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace">edit_shared</tspan>: the files the windows share (settings, marks, the keyword tree) are locked, read, changed and written as one step.</text>
 
     <text x="44" y="718" font-size="12">clippy.toml refuses the raw calls (std::fs::write, rename, copy, File::create …), so cargo clippy fails on a bypass; an exception carries #[allow] and its reason.</text>

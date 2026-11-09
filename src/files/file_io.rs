@@ -2,7 +2,8 @@
 //! the only way. A file is written whole or not at all (`replace_file`, `create_file`,
 //! `write_atomic`), and a file the windows share is locked, read, changed and written as one
 //! (`edit_shared`). A file is renamed never over another (`rename_never_over`), and moved or
-//! copied whole or not at all (`put_file`). Glimt's own files are written in one thread, in
+//! copied whole or not at all (`put_file`). A rename that later steps count on is on disk with
+//! its folder (`sync_folder_of`) before they run. Glimt's own files are written in one thread, in
 //! order (`write_later`), and `flush` waits for them before Glimt ends.
 
 use std::path::{Path, PathBuf};
@@ -15,6 +16,14 @@ static SAVE_ERROR: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None
 /// count closing waits for, so that no writer can be forgotten.
 pub static WRITING: std::sync::LazyLock<std::sync::Arc<std::sync::atomic::AtomicUsize>> =
     std::sync::LazyLock::new(Default::default);
+
+// The folders that `sync_folder_of` synced on this thread, so that a test can see that a
+// rename was made to last. A power cut cannot be simulated in a test.
+#[cfg(test)]
+thread_local! {
+    pub(crate) static FOLDERS_SYNCED: std::cell::RefCell<Vec<PathBuf>> =
+        const { std::cell::RefCell::new(Vec::new()) };
+}
 
 /// A write queued for a `start_ordered_worker` thread.
 pub type QueuedWrite = Box<dyn FnOnce() + Send>;
@@ -37,7 +46,10 @@ struct Mount<'a> {
 /// NTFS or exFAT through FUSE, some shares), a link, which never replaces a file, and then the
 /// old name unlinked; where links cannot be made either, a rename after looking first. The one
 /// way Glimt renames: a file moved, a copy or a new file given its name, a folder, a collection,
-/// a file back from the trash. `CrossesDevices` is the caller's to copy instead.
+/// a file back from the trash. `CrossesDevices` is the caller's to copy instead. The rename
+/// is not synced to disk here. One rename alone is one step, so a power cut leaves the file
+/// under its old name or its new one. A caller whose next step counts on the new name being on
+/// disk (an unlink of the source, a plan removed) syncs the folder with `sync_folder_of` first.
 #[allow(clippy::disallowed_methods)] // its last fallback, a rename after looking
 pub(crate) fn rename_never_over(from: &Path, to: &Path) -> std::io::Result<()> {
     use std::io::ErrorKind::{AlreadyExists, CrossesDevices, Unsupported};
@@ -65,6 +77,33 @@ fn unlink_linked(from: &Path, to: &Path) -> std::io::Result<()> {
         Err(e) if std::fs::symlink_metadata(from).is_ok() => {
             #[allow(clippy::disallowed_methods)] // the new name, taken back
             let _ = std::fs::remove_file(to);
+            Err(e)
+        }
+        _ => Ok(()),
+    }
+}
+
+/// Syncs the folder that holds `path` to disk. A rename is on disk only when the folder that
+/// holds the name is, not when the file is. A power cut or a USB stick pulled out without
+/// unmounting it may otherwise bring the old name back. A folder that cannot be opened (no read
+/// bit) or a file system that cannot sync one (some shares) is passed over, as nothing more can
+/// be done there. Returns an error only when the disk says that the names did not get there.
+pub(crate) fn sync_folder_of(path: &Path) -> std::io::Result<()> {
+    let folder = match path.parent() {
+        Some(folder) if !folder.as_os_str().is_empty() => folder,
+        _ => Path::new("."),
+    };
+    #[cfg(test)]
+    FOLDERS_SYNCED.with_borrow_mut(|synced| synced.push(folder.to_owned()));
+    #[allow(clippy::disallowed_methods)] // a folder, opened only to sync it
+    let synced = std::fs::File::open(folder).and_then(|f| f.sync_all());
+    match synced {
+        Err(e)
+            if matches!(
+                e.raw_os_error(),
+                Some(libc::EIO | libc::ENOSPC | libc::EDQUOT)
+            ) =>
+        {
             Err(e)
         }
         _ => Ok(()),
@@ -279,8 +318,8 @@ pub(crate) fn put_file(from: &Path, to: &Path, is_copy: bool) -> std::io::Result
             .create_new(true)
             .mode(0o600)
             .open(&part)?;
-        // Its time kept, as mv does (sorting by date), and on disk before a move removes the
-        // source: a stick pulled out right after must not lose both.
+        // Its time kept, as mv does (sorting by date), and on disk with its name before a move
+        // removes the source: a stick pulled out right after must not lose both.
         let copied = crate::images::decode::open_regular(from)
             .and_then(|mut f| std::io::copy(&mut f, &mut out))
             .and_then(|_| {
@@ -294,7 +333,8 @@ pub(crate) fn put_file(from: &Path, to: &Path, is_copy: bool) -> std::io::Result
                 out.set_modified(meta.modified()?)?;
                 out.sync_all()
             })
-            .and_then(|_| rename_never_over(&part, to));
+            .and_then(|_| rename_never_over(&part, to))
+            .and_then(|_| sync_folder_of(to));
         #[allow(clippy::disallowed_methods)] // the copy's hidden part
         let _ = std::fs::remove_file(&part);
         copied
@@ -538,7 +578,9 @@ pub(crate) fn check_writable(path: &Path) -> std::io::Result<()> {
 
 /// A file written whole at `tmp` beside `path` (`create_temp_beside`), on disk, and then given its
 /// name by `give_name`; `tmp` removed when anything fails. On disk before the rename: after a crash
-/// the old file or the new one, never an empty one. No folder made: a sidecar or a collection whose
+/// the old file or the new one, never an empty one. The new name is on disk when this returns
+/// (`sync_folder_of`), so an older version cannot come back after a power cut and leave an
+/// image and its sidecar out of step. No folder made: a sidecar or a collection whose
 /// folder was renamed meanwhile is not written into a new one of the old name. The one
 /// temp-and-rename for every file Glimt writes: settings, sidecars, collections, a PDF, a
 /// thumbnail.
@@ -550,7 +592,8 @@ pub fn write_beside(
 ) -> std::io::Result<()> {
     let result = create_temp_beside(tmp, path)
         .and_then(|mut f| write(&mut f).and_then(|_| f.sync_all()))
-        .and_then(|_| give_name(tmp));
+        .and_then(|_| give_name(tmp))
+        .and_then(|_| sync_folder_of(path));
     if result.is_err() {
         #[allow(clippy::disallowed_methods)] // the temporary file, not finished
         let _ = std::fs::remove_file(tmp);
@@ -777,6 +820,28 @@ mod tests {
         assert!(!a.exists() && c.exists());
         let gone = super::rename_noreplace(&a, &dir.join("d")).unwrap_err();
         assert_eq!(gone.kind(), std::io::ErrorKind::NotFound);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A copy, a new file and a file replaced are on disk with their names when the call
+    /// returns: the folder that holds each is synced. A move to another disk unlinks its source
+    /// only after its copy is there, through the same copy.
+    #[test]
+    fn names_given_are_synced_with_their_folder() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-synced-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join("to")).unwrap();
+        let synced = |work: &dyn Fn()| {
+            super::FOLDERS_SYNCED.take();
+            work();
+            super::FOLDERS_SYNCED.take()
+        };
+        let made = synced(&|| super::create_file(&dir.join("a.jpg"), "a").unwrap());
+        assert_eq!(made, [dir.as_path()]);
+        let copied =
+            synced(&|| super::put_file(&dir.join("a.jpg"), &dir.join("to/a.jpg"), true).unwrap());
+        assert_eq!(copied, [dir.join("to")]);
+        let replaced = synced(&|| super::replace_name(&dir.join("a.jpg"), "b").unwrap());
+        assert_eq!(replaced, [dir.as_path()]);
         std::fs::remove_dir_all(dir).unwrap();
     }
 

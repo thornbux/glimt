@@ -2613,3 +2613,86 @@ fn finds_an_undo_left_without_waiting() {
         ["x.rs: a", "x.rs: c"]
     );
 }
+
+/// A rename that later steps count on is on disk with its folder before they run: the function
+/// that renames syncs the folder (`file_io::sync_folder_of`), or hands the rename to
+/// `write_beside`, which does. Files were synced but their folders never were, so after a power
+/// cut a move to a USB stick could lose both the source and its copy, and an older sidecar come
+/// back. The renames listed here stand alone: one rename is one step, so a power cut leaves the
+/// old name or the new one, and nothing after it counts on the new one. A new rename is synced
+/// or added here with its reason. Copies go through `put_file`, which syncs, and never through
+/// `std::fs::copy`. Clippy refuses that too, but an allow would let it pass there.
+#[test]
+fn renames_that_later_steps_count_on_are_synced() {
+    const STANDING_ALONE: &[(&str, &str)] = &[
+        ("files/file_io.rs", "rename_never_over"), // the rename itself, synced by its callers
+        ("files/file_ops.rs", "rename_folder"),    // a folder renamed
+        ("files/trash.rs", "restore"),             // a file back from the trash
+        ("files/trash.rs", "trash_by_hand"),       // a file into the trash on its own disk
+        ("metadata/xmp.rs", "follow"),             // a sidecar after its file
+        ("model/collections.rs", "rename"),        // a collection renamed
+    ];
+    let mut wrong = Vec::new();
+    let mut renaming = Vec::new();
+    for (file, text) in rust_sources() {
+        for (function, synced) in renames_in(&text) {
+            let listed = STANDING_ALONE.contains(&(file.as_str(), function.as_str()));
+            if !synced && !listed {
+                wrong.push(format!("{file}: {function}"));
+            }
+            renaming.push((file.clone(), function));
+        }
+    }
+    for (file, function) in STANDING_ALONE {
+        if !renaming.iter().any(|(f, s)| f == file && s == function) {
+            wrong.push(format!(
+                "{file}: {function} (listed, but renames nothing now)"
+            ));
+        }
+    }
+    wrong.extend(outside_their_homes(&[("fs::copy(", &[])]));
+    assert!(
+        wrong.is_empty(),
+        "a rename without its folder synced (file_io::sync_folder_of), or a copy outside \
+         put_file:\n{}",
+        wrong.join("\n")
+    );
+}
+
+/// Returns the functions of `text` outside the tests that rename a file, each with whether it
+/// syncs the folder, itself or through `write_beside`.
+fn renames_in(text: &str) -> Vec<(String, bool)> {
+    let lines = code_lines(text);
+    let end = tests_start(&lines);
+    let mut found = Vec::new();
+    let mut function = String::new();
+    let (mut renames, mut synced) = (false, false);
+    for line in lines[..end].iter().map(String::as_str).chain(["fn end"]) {
+        if let Some(name) = function_name(line) {
+            if renames {
+                found.push((function, synced));
+            }
+            function = name.to_owned();
+            (renames, synced) = (false, false);
+            continue;
+        }
+        let calls = ["rename_never_over(", "fs::rename(", "rename_noreplace("];
+        renames |= calls.iter().any(|call| line.contains(call));
+        synced |= line.contains("sync_folder_of(") || line.contains("write_beside(");
+    }
+    found
+}
+
+/// The check above finds a rename by any of the three calls, and sees it synced either way.
+#[test]
+fn finds_a_rename_without_its_folder_synced() {
+    let text = "fn a() {\n    rename_never_over(x, y)?;\n}\nfn b() {\n    std::fs::rename(x, y)?;\n\
+        sync_folder_of(y)?;\n}\nfn c() {\n    write_beside(t, p, w, |t| std::fs::rename(t, p))\n}\n\
+        fn d() {\n    rename_noreplace(x, y)\n}\nfn e() {\n    put_file(x, y, true)\n}\n";
+    let found = renames_in(text);
+    let names: Vec<(&str, bool)> = found.iter().map(|(f, s)| (f.as_str(), *s)).collect();
+    assert_eq!(
+        names,
+        [("a", false), ("b", true), ("c", true), ("d", false)]
+    );
+}

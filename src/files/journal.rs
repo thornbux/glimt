@@ -27,6 +27,9 @@ pub type CutShort = (PathBuf, Moves, Option<usize>);
 pub struct Journal {
     path: PathBuf,
     file: File,
+    /// One name in each folder that the renames touch. Those folders are synced before the
+    /// plan is removed, so that the plan never goes before the renames are on disk.
+    one_name_per_folder: Vec<PathBuf>,
 }
 
 impl Journal {
@@ -39,8 +42,10 @@ impl Journal {
         let _ = self.file.write_all(&[0]);
     }
 
-    /// The steps counted so far on the disk, past a power cut.
+    /// The steps done and counted so far on the disk, past a power cut: the renames' folders
+    /// first, so that the count never says more than the names on disk show.
     pub fn sync(&mut self) {
+        sync_folders(&self.one_name_per_folder);
         let _ = self.file.sync_data();
     }
 }
@@ -56,6 +61,10 @@ impl Journal {
 
 impl Drop for Journal {
     fn drop(&mut self) {
+        // A plan kept on disk (`keep_on_disk`) has no path, and nothing need be on disk first.
+        if !self.path.as_os_str().is_empty() {
+            sync_folders(&self.one_name_per_folder);
+        }
         #[allow(clippy::disallowed_methods)] // the journal, Glimt's own file
         let _ = std::fs::remove_file(&self.path);
     }
@@ -66,8 +75,9 @@ pub fn journal_dir() -> Option<PathBuf> {
         .map(|d| d.join("renames"))
 }
 
-/// Writes `moves` down in `dir`, locked and on disk, before the first of them is done. Returns
-/// `None` if that fails, and the renames then run as they did before, without a plan.
+/// Writes `moves` down in `dir`, locked and on disk with its name, before the first of them is
+/// done. Returns `None` if that fails, and the renames then run as they did before, without a
+/// plan.
 pub fn start_journal(dir: &Path, moves: &[(PathBuf, PathBuf)]) -> Option<Journal> {
     std::fs::create_dir_all(dir).ok()?;
     // The plan gets a name of its own, never one that is there, so a plan left by a crash, of a
@@ -88,7 +98,12 @@ pub fn start_journal(dir: &Path, moves: &[(PathBuf, PathBuf)]) -> Option<Journal
     // The plan is removed when dropped, also when what follows fails (a full disk). A plan left
     // half written would be offered at the next start, and finishing it would undo renames done
     // without it.
-    let mut plan = Journal { path, file };
+    let one_name_per_folder = one_name_per_folder(moves);
+    let mut plan = Journal {
+        path,
+        file,
+        one_name_per_folder,
+    };
     plan.file.try_lock().ok()?;
     let mut bytes = [COUNTED, b"\0"].concat();
     for (a, b) in moves {
@@ -97,8 +112,11 @@ pub fn start_journal(dir: &Path, moves: &[(PathBuf, PathBuf)]) -> Option<Journal
             bytes.push(0);
         }
     }
+    // The plan's name is on disk too, and the folder's own on a first Rename Many, which made it.
     (plan.file.write_all(&bytes))
         .and_then(|_| plan.file.sync_all())
+        .and_then(|_| crate::files::file_io::sync_folder_of(&plan.path))
+        .and_then(|_| crate::files::file_io::sync_folder_of(dir))
         .ok()?;
     Some(plan)
 }
@@ -290,6 +308,7 @@ pub fn repair_cut_short(
         (false, None) => finish(moves, 0),
     };
     if left == 0 {
+        sync_folders(&one_name_per_folder(moves));
         #[allow(clippy::disallowed_methods)] // the plan, Glimt's own file
         let _ = std::fs::remove_file(plan);
     }
@@ -349,6 +368,26 @@ fn done_by_names(moves: &[(PathBuf, PathBuf)], done: usize) -> usize {
     match wrong == 0 && steps.len() >= done {
         true => steps.len(),
         false => done,
+    }
+}
+
+/// Returns one name in each folder that `moves` rename in, for `sync_folders`. A Rename Many in
+/// one folder gives one name, however many files it renames.
+fn one_name_per_folder(moves: &[(PathBuf, PathBuf)]) -> Vec<PathBuf> {
+    let mut seen = std::collections::HashSet::new();
+    (moves.iter().flat_map(|(a, b)| [a, b]))
+        .filter(|p| seen.insert(p.parent()))
+        .cloned()
+        .collect()
+}
+
+/// Syncs the folder of each of `names` to disk, so that the renames in them are there before
+/// the plan that could put them right is changed or removed. The renames themselves are not
+/// synced one by one: a Rename Many of 500 files on a slow USB stick would wait for 1,000
+/// syncs instead of one.
+fn sync_folders(names: &[PathBuf]) {
+    for name in names {
+        let _ = crate::files::file_io::sync_folder_of(name);
     }
 }
 
@@ -672,6 +711,33 @@ mod tests {
                 assert!(done <= moves.len());
             }
         }
+    }
+
+    /// The plan is on disk with its name before the first rename, and the folder of the renames
+    /// is synced before the plan is removed, once however many files it renames. A plan kept on
+    /// disk needs no such sync.
+    #[test]
+    fn the_plan_goes_only_after_the_renames_are_on_disk() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-plan-sync-{}", std::process::id()));
+        let plans = dir.join("plans");
+        let p = |n: &str| dir.join("photos").join(n);
+        let moves = vec![(p("a.jpg"), p("b.jpg")), (p("c.jpg"), p("d.jpg"))];
+        crate::files::file_io::FOLDERS_SYNCED.take();
+        let plan = super::start_journal(&plans, &moves).unwrap();
+        assert_eq!(
+            crate::files::file_io::FOLDERS_SYNCED.take(),
+            [plans.clone(), dir.clone()]
+        );
+        drop(plan);
+        assert_eq!(
+            crate::files::file_io::FOLDERS_SYNCED.take(),
+            [dir.join("photos")]
+        );
+        let kept = super::start_journal(&plans, &moves).unwrap();
+        crate::files::file_io::FOLDERS_SYNCED.take();
+        kept.keep_on_disk();
+        assert!(crate::files::file_io::FOLDERS_SYNCED.take().is_empty());
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     /// A plan kept when its renames could not be undone is there at the next start, with the
