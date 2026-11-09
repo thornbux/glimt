@@ -620,10 +620,59 @@ fn update(
 /// Returns the sidecar of `path` when there is one, as a name in the folder. A link counts, also
 /// one that points nowhere, so that it goes with its file rather than stay behind under the old
 /// name for the next file of that name. Whether it may be read or copied is for `is_link` to say.
-/// Every operation that moves, renames or deletes a file asks this.
 pub(crate) fn sidecar_of(path: &Path) -> Option<PathBuf> {
     let side = sidecar(path);
     std::fs::symlink_metadata(&side).is_ok().then_some(side)
+}
+
+/// Returns the name of the sidecar that Lightroom, Camera Raw, Bridge and Capture One write
+/// beside a camera RAW file: `IMG_1.xmp` for `IMG_1.CR2`. Returns `None` when `path` is no RAW
+/// file that Adobe writes one for. A DNG, like a JPEG, has Adobe's metadata inside it. Glimt
+/// never reads or writes this file. It only keeps it with its RAW file.
+pub(crate) fn adobe_sidecar(path: &Path) -> Option<PathBuf> {
+    let ext = path.extension()?.to_str()?.to_ascii_lowercase();
+    let is_raw = ext != "dng" && crate::images::raw::EXTS.contains(&ext.as_str());
+    is_raw.then(|| path.with_extension("xmp"))
+}
+
+/// Returns the Adobe sidecar of `path` (`adobe_sidecar`) when it is there and belongs to this
+/// file alone. Another RAW file with the same name stem (an `IMG_1.NEF` beside `IMG_1.CR2`)
+/// could own it as well, so then it is left where it is. A JPEG beside the RAW owns none,
+/// because Lightroom writes a JPEG's metadata into the JPEG.
+fn adobe_sidecar_of(path: &Path) -> Option<PathBuf> {
+    let side = adobe_sidecar(path)?;
+    std::fs::symlink_metadata(&side).ok()?;
+    // A file is told by who it is, because on a camera card IMG_1.cr2 names IMG_1.CR2 too.
+    let identity = |p: &Path| {
+        let meta = std::fs::symlink_metadata(p).ok()?;
+        Some(crate::images::save::file_id_from_metadata(p, &meta))
+    };
+    let own = identity(path);
+    let another_raw = (crate::images::raw::EXTS.iter())
+        .flat_map(|e| [e.to_string(), e.to_ascii_uppercase()])
+        .map(|e| path.with_extension(e))
+        .filter(|other| other != path && adobe_sidecar(other).is_some())
+        .any(|other| identity(&other).is_some_and(|i| Some(i) != own));
+    (!another_raw).then_some(side)
+}
+
+/// Returns each sidecar of `path` that is there, Glimt's own and Adobe's, paired with its name
+/// for the file at `to`. Every operation that moves, renames, copies or deletes a file asks
+/// this, so a sidecar never stays behind for the next file of the old name.
+pub(crate) fn sidecars_moving_with(path: &Path, to: &Path) -> Vec<(PathBuf, PathBuf)> {
+    let own = sidecar_of(path).map(|side| (side, sidecar(to)));
+    let adobe = adobe_sidecar_of(path).map(|side| (side, to.with_extension("xmp")));
+    own.into_iter().chain(adobe).collect()
+}
+
+/// Returns each sidecar of `paths` that is there, Glimt's own and Adobe's, for a delete. Each
+/// is named once, also when two RAW files of one name stem, both gone, each found Adobe's theirs.
+pub(crate) fn sidecars_of(paths: &[PathBuf]) -> Vec<PathBuf> {
+    let sides: std::collections::BTreeSet<PathBuf> = (paths.iter())
+        .flat_map(|path| sidecars_moving_with(path, path))
+        .map(|(side, _)| side)
+        .collect();
+    sides.into_iter().collect()
 }
 
 /// Whether `path` is a link. A sidecar that is one is never read or written through, because a
@@ -632,25 +681,35 @@ pub(crate) fn is_link(path: &Path) -> bool {
     std::fs::symlink_metadata(path).is_ok_and(|m| m.file_type().is_symlink())
 }
 
-/// Copy or move the sidecar of `from`, if it has one, with the file that went to `to`.
-pub fn follow(from: &Path, to: &Path, is_copy: bool) -> std::io::Result<()> {
-    let (side, to) = (sidecar(from), sidecar(to));
+/// Copies or moves the sidecars of `from` (`sidecars_moving_with`) with the file that went to
+/// `to`. Returns the first sidecar that could not follow, by its new name, with the error.
+pub fn follow(from: &Path, to: &Path, is_copy: bool) -> Result<(), (PathBuf, std::io::Error)> {
+    let mut result = Ok(());
+    for (side, to) in sidecars_moving_with(from, to) {
+        if let Err(e) = follow_one(&side, &to, is_copy)
+            && result.is_ok()
+        {
+            result = Err((to, e));
+        }
+    }
+    result
+}
+
+/// Copies or moves the sidecar `side` to `to`.
+fn follow_one(side: &Path, to: &Path, is_copy: bool) -> std::io::Result<()> {
     // A link is no sidecar to copy. Moved, it goes as itself on the same disk, or it stays.
-    if is_link(&side) {
+    if is_link(side) {
         return match is_copy {
             true => Ok(()),
-            false => crate::files::file_io::rename_never_over(&side, &to).or(Ok(())),
+            false => crate::files::file_io::rename_never_over(side, to).or(Ok(())),
         };
-    }
-    if sidecar_of(from).is_none() {
-        return Ok(());
     }
     // The sidecar goes as the file went. It is on disk before the original goes, and never
     // over a sidecar there, which belongs to another file or is a copy kept on purpose. A
     // sidecar that cannot be moved (someone else's in a shared folder) is copied, so the
     // keywords go with the photo.
-    match crate::files::file_io::put_file(&side, &to, is_copy) {
-        Err(_) if !is_copy => crate::files::file_io::put_file(&side, &to, true),
+    match crate::files::file_io::put_file(side, to, is_copy) {
+        Err(_) if !is_copy => crate::files::file_io::put_file(side, to, true),
         done => done,
     }
 }
@@ -2177,6 +2236,40 @@ mod tests {
         write_changed(&a, adding(&other.keywords), Some(other.comment.clone())).unwrap();
         assert!(follow(&b, &a, true).is_err());
         assert_eq!(read(&a), other);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// Lightroom's `IMG_1.xmp` belongs to the RAW file `IMG_1.CR2`, also with an `IMG_1.JPG`
+    /// beside it, but to neither of two RAW files of that name, nor to a DNG or a JPEG.
+    #[test]
+    fn adobe_sidecars_belong_to_their_raw_file_alone() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-adobe-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let p = |name: &str| dir.join(name);
+        for name in ["IMG_1.CR2", "IMG_1.JPG", "IMG_1.xmp", "IMG_1.CR2.xmp"] {
+            std::fs::write(p(name), name).unwrap();
+        }
+        assert_eq!(
+            sidecars_moving_with(&p("IMG_1.CR2"), &p("IMG_2.CR2")),
+            [
+                (p("IMG_1.CR2.xmp"), p("IMG_2.CR2.xmp")),
+                (p("IMG_1.xmp"), p("IMG_2.xmp"))
+            ]
+        );
+        assert!(sidecars_of(&[p("IMG_1.JPG")]).is_empty());
+        std::fs::write(p("IMG_1.NEF"), "").unwrap();
+        assert_eq!(sidecars_of(&[p("IMG_1.CR2")]), [p("IMG_1.CR2.xmp")]);
+        for name in ["IMG_1.NEF", "IMG_1.CR2"] {
+            std::fs::remove_file(p(name)).unwrap();
+        }
+        std::fs::write(p("IMG_1.dng"), "").unwrap();
+        assert!(sidecars_of(&[p("IMG_1.dng")]).is_empty());
+        // A file gone (a delete, a move) still takes it, as nothing else of its name is RAW.
+        assert_eq!(
+            sidecars_of(&[p("IMG_1.CR2")]),
+            [p("IMG_1.CR2.xmp"), p("IMG_1.xmp")]
+        );
         std::fs::remove_dir_all(&dir).unwrap();
     }
 

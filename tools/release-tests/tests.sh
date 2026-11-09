@@ -3475,6 +3475,34 @@ for v in new old; do
     else note "old: $side; $kept"; fi
 done
 
+section "Lightroom's navn.xmp moved, trashed and put back with navn.cr2, not with navn.jpg"
+for v in new old; do
+    as_version $v
+    d=/tmp/adobe-sidecar-$v
+    mkdir -p $d/sub
+    # A camera's RAW file has its JPEG preview inside; this one is only the preview.
+    convert -size 64x64 xc:red jpg:$d/navn.cr2
+    convert -size 64x64 xc:blue $d/navn.jpg
+    echo "Lightroom's" >$d/navn.xmp
+    config confirm_trash=false
+    start $d/navn.cr2; sleep 2
+    answer $d/sub; key ctrl+m; until_file $d/sub/navn.cr2; sleep 1
+    moved="$(ls $d/sub | tr '\n' ' ')"
+    key ctrl+z; until_file $d/navn.cr2; sleep 1
+    back="$(ls $d | tr '\n' ' ')"
+    key Home; key ctrl+d; until_gone $d/navn.cr2; sleep 1
+    trashed="$(ls $d | tr '\n' ' ')"
+    key ctrl+z; until_file $d/navn.cr2; sleep 1
+    quit
+    restored="$(ls $d | tr '\n' ' ')"
+    if [ $v = new ]; then
+        expect "moved with the RAW file" "$moved" "navn.cr2 navn.xmp "
+        expect "the move undone with it" "$back" "navn.cr2 navn.jpg navn.xmp sub "
+        expect "to the trash with the RAW file, the JPEG left alone" "$trashed" "navn.jpg sub "
+        expect "put back from the trash with it" "$restored" "navn.cr2 navn.jpg navn.xmp sub "
+    else note "old: $moved; $back; $trashed; $restored"; fi
+done
+
 section "a collection renamed by another program while shown: not made again under its old name"
 for v in new old; do
     as_version $v

@@ -650,7 +650,7 @@ impl crate::App {
                 // went is not taken for gone (`exists` follows the link).
                 let is_gone = |p: &&PathBuf| std::fs::symlink_metadata(p).is_err();
                 let went: Vec<PathBuf> = chunk.iter().filter(is_gone).cloned().collect();
-                let side: Vec<PathBuf> = went.iter().filter_map(|p| xmp::sidecar_of(p)).collect();
+                let side = xmp::sidecars_of(&went);
                 // A sidecar that stays is told, as the photo's own errors are, because the next
                 // file of that name would show its keywords.
                 if trash && !side.is_empty() {
@@ -994,8 +994,8 @@ impl crate::App {
                 } else if let Err(e) = put_file(path, &target, is_copy) {
                     failed(&target, e);
                 } else {
-                    if let Err(e) = xmp::follow(path, &target, is_copy) {
-                        failed(&xmp::sidecar(&target), e);
+                    if let Err((side, e)) = xmp::follow(path, &target, is_copy) {
+                        failed(&side, e);
                     }
                     put.push((path.clone(), target));
                 }
@@ -2054,8 +2054,10 @@ fn refused_transfer(
 /// new name that belongs to another file, whether or not the file has one of its own. (The
 /// photo would show that file's keywords and stars, and leave its own behind.) It is also the
 /// file whose sidecar `to` would be (`a.jpg` for `a.jpg.xmp`), because that file would take
-/// this one for its sidecar, and delete or move it with itself. `ours` are the operation's own
-/// names, which a swap reuses. This is the one rule for Copy, Move, Rename and Rename Many.
+/// this one for its sidecar, and delete or move it with itself. For a RAW file it is also
+/// Adobe's sidecar at the new name (`IMG_1.xmp` for `IMG_1.CR2`), which Lightroom would read
+/// for the photo. `ours` are the operation's own names, which a swap reuses. This is the one
+/// rule for Copy, Move, Rename and Rename Many.
 pub(crate) fn name_in_the_way(to: &Path, ours: &HashSet<&PathBuf>) -> Option<PathBuf> {
     use std::os::unix::ffi::OsStrExt;
     // A name counts as taken also when it is a link that points nowhere, because nothing may be
@@ -2066,6 +2068,7 @@ pub(crate) fn name_in_the_way(to: &Path, ours: &HashSet<&PathBuf>) -> Option<Pat
     [
         Some(to.to_path_buf()),
         Some(xmp::sidecar(to)),
+        xmp::adobe_sidecar(to),
         sidecar_owner,
     ]
     .into_iter()
@@ -2129,7 +2132,9 @@ pub(crate) fn rename_files(from: Vec<PathBuf>, to: Vec<PathBuf>, job: &Job) -> R
     // Sidecars go with their files, through the same steps.
     let (mut from, mut to) = (from, to);
     let sides: Vec<(PathBuf, PathBuf)> = (from.iter().zip(&to))
-        .filter_map(|(f, t)| Some((xmp::sidecar_of(f)?, xmp::sidecar(t))))
+        .flat_map(|(f, t)| xmp::sidecars_moving_with(f, t))
+        // Adobe's sidecar keeps its name when only the extension's case changes (IMG_1.cr2).
+        .filter(|(f, t)| f != t)
         .collect();
     for (f, t) in sides {
         from.push(f);
@@ -2251,8 +2256,8 @@ fn move_back(pairs: Vec<Moved>) -> (Vec<(PathBuf, PathBuf)>, Vec<String>) {
         };
         match result {
             Ok(()) => {
-                if let Err(e) = xmp::follow(&to, &from, false) {
-                    errors.push(format!("{}: {e}", xmp::sidecar(&from).display()));
+                if let Err((side, e)) = xmp::follow(&to, &from, false) {
+                    errors.push(format!("{}: {e}", side.display()));
                 }
                 back.push((to, from));
             }
@@ -3161,6 +3166,141 @@ mod tests {
             let _ = std::fs::remove_dir_all(renamed(&d));
             let _ = std::fs::remove_dir_all(&d);
             empty_trash_of(&d);
+        }
+    }
+
+    /// Lightroom's `r.xmp` follows the RAW file `r.cr2` through every operation of the contract
+    /// that moves, copies or deletes a file, and never the `r.jpg` beside it. Before, it stayed
+    /// behind for the next `r.cr2` of that folder.
+    #[test]
+    fn adobe_sidecars_follow_their_raw_file() {
+        use eframe::egui::Context;
+        use std::path::Path;
+        type RawOp = fn(&mut crate::App, &Context, &Path, &str);
+        // Each operation on one file, and the name the file has after it, without its extension
+        // (`None` when it is gone). Lightroom's sidecar follows r.cr2 there, and stays as r.xmp
+        // when r.jpg moves.
+        let ops: [(&str, RawOp, Option<&str>); 9] = [
+            (
+                "move",
+                |app, ctx, d, f| move_to_sub(app, ctx, d, f),
+                Some("sub/r"),
+            ),
+            (
+                "copy",
+                |app, ctx, d, f| app.transfer(ctx, vec![d.join(f)], d.join("sub"), true),
+                Some("sub/r"),
+            ),
+            (
+                "rename",
+                |app, ctx, d, f| rename_to_s(app, ctx, d, f),
+                Some("s"),
+            ),
+            (
+                "rename many",
+                |app, ctx, _, f| {
+                    let at = (app.list.files().iter()).position(|n| *n == *f);
+                    app.list.select(at.into_iter().collect());
+                    app.rename_many(ctx, "x#");
+                },
+                Some("x1"),
+            ),
+            ("delete", |app, ctx, _, f| delete(app, ctx, f, false), None),
+            ("trash", |app, ctx, _, f| delete(app, ctx, f, true), None),
+            (
+                "undo a move",
+                |app, ctx, d, f| {
+                    move_to_sub(app, ctx, d, f);
+                    undo(app, ctx);
+                },
+                Some("r"),
+            ),
+            (
+                "undo a rename",
+                |app, ctx, d, f| {
+                    rename_to_s(app, ctx, d, f);
+                    undo(app, ctx);
+                },
+                Some("r"),
+            ),
+            (
+                "undo a trash",
+                |app, ctx, _, f| {
+                    delete(app, ctx, f, true);
+                    undo(app, ctx);
+                },
+                Some("r"),
+            ),
+        ];
+        fn move_to_sub(app: &mut crate::App, ctx: &Context, d: &Path, f: &str) {
+            app.transfer(ctx, vec![d.join(f)], d.join("sub"), false);
+        }
+        fn rename_to_s(app: &mut crate::App, ctx: &Context, d: &Path, f: &str) {
+            let to = d.join(f.replacen('r', "s", 1));
+            app.rename_in_background(ctx, vec![d.join(f)], vec![to]);
+        }
+        fn delete(app: &mut crate::App, ctx: &Context, f: &str, trash: bool) {
+            let at = (app.list.files().iter()).position(|n| *n == *f);
+            app.delete_now(ctx, trash, at.into_iter().collect());
+        }
+        fn undo(app: &mut crate::App, ctx: &Context) {
+            run_background_until(app, ctx, |app| app.file_operations.undo.is_some());
+            app.undo(ctx);
+        }
+        let mut jpeg = Vec::new();
+        image::RgbImage::new(8, 8)
+            .write_to(
+                &mut std::io::Cursor::new(&mut jpeg),
+                image::ImageFormat::Jpeg,
+            )
+            .unwrap();
+        for (name, op, name_after) in ops {
+            for file in ["r.jpg", "r.cr2"] {
+                let d = std::env::temp_dir().join(format!(
+                    "glimt-test-adobe-follows-{}-{}-{file}",
+                    name.replace(' ', "-"),
+                    std::process::id()
+                ));
+                let _ = std::fs::remove_dir_all(&d);
+                std::fs::create_dir_all(d.join("sub")).unwrap();
+                // The RAW file's preview is the JPEG, as in a camera's file.
+                for f in ["r.jpg", "r.cr2"] {
+                    std::fs::write(d.join(f), &jpeg).unwrap();
+                }
+                std::fs::write(d.join("r.xmp"), "Lightroom's").unwrap();
+                let (mut app, ctx) = app_on(&d);
+                op(&mut app, &ctx, &d, file);
+                let is_where_it_belongs = |app: &crate::App| {
+                    let done = app.file_operations.renaming.is_none()
+                        && (app.file_operations.held_back_files.iter())
+                            .all(|t| std::sync::Arc::strong_count(t) == 1);
+                    // The names that hold a file of extension `ext`, in this order.
+                    let names_with = |ext: &str| {
+                        (["sub/r", "s", "x1", "r"].into_iter())
+                            .filter(|n| d.join(format!("{n}.{ext}")).exists())
+                            .collect::<Vec<_>>()
+                    };
+                    let copied = (name == "copy").then_some("r");
+                    let file_names: Vec<&str> = name_after.into_iter().chain(copied).collect();
+                    let ext = file.trim_start_matches("r.");
+                    let sidecar_names = match ext {
+                        "cr2" => file_names.clone(),
+                        _ => vec!["r"],
+                    };
+                    done && names_with(ext) == file_names && names_with("xmp") == sidecar_names
+                };
+                assert!(
+                    run_background_until(&mut app, &ctx, is_where_it_belongs),
+                    "{name} of {file}: the file or r.xmp went wrong: {:?} {:?}",
+                    app.notice.text(),
+                    std::fs::read_dir(&d)
+                        .unwrap()
+                        .map(|e| e.unwrap().file_name())
+                        .collect::<Vec<_>>()
+                );
+                std::fs::remove_dir_all(&d).unwrap();
+                empty_trash_of(&d);
+            }
         }
     }
 

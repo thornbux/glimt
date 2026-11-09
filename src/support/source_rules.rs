@@ -2630,7 +2630,7 @@ fn renames_that_later_steps_count_on_are_synced() {
         ("files/file_ops.rs", "rename_folder"),    // a folder renamed
         ("files/trash.rs", "trash_by_hand"),       // a file into the trash on its own disk
         ("images/thumbs.rs", "write_thumbnail"),   // a thumbnail, made again when it is lost
-        ("metadata/xmp.rs", "follow"),             // a sidecar after its file
+        ("metadata/xmp.rs", "follow_one"),         // a sidecar after its file
         ("model/collections.rs", "rename"),        // a collection renamed
     ];
     let mut wrong = Vec::new();

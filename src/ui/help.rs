@@ -323,11 +323,13 @@ const MANUAL: &[(&str, &str)] = &[
          digiKam also read (as dc:subject and dc:description); keywords written into the image by \
          other programs are shown too. With several files selected, a button adds the keywords to \
          all of them. exif: searches find keywords and comments. Renaming, moving, copying and \
-         deleting in Glimt take the sidecar along.\n\n\
+         deleting in Glimt take the sidecar along, and beside a RAW file also the photo.xmp \
+         that Lightroom, Camera Raw and Capture One write for it, which Glimt does not read or \
+         change. When two RAW files share that name, photo.xmp stays where it is.\n\n\
          The keyword tree below them, as Geeqie's, holds keywords in levels (type \
          Places|Norway|Oslo and Add): a box is ticked when the image has that keyword, and a click \
          sets it on the selected images, or the shown one, or takes it off. The path goes into the \
-         sidecar too, as lr:hierarchicalSubject, which darktable, digiKam and Lightroom read. \
+         sidecar too, as lr:hierarchicalSubject, which darktable and digiKam read. \
          digiKam's own keyword list (digiKam:TagsList) and Microsoft's are read with it and \
          written again from it when Glimt writes the keywords, so digiKam reads Glimt's. \
          Right-click a keyword to remove it from the tree, with the levels below it.\n\n\
@@ -800,6 +802,12 @@ const DIFFERENCES: &[(&str, &str, &str)] = &[
         "Copy, Move (Ctrl+C, Ctrl+M)",
         "Target folder from a file dialog; never overwrites",
         "Own dialog",
+    ),
+    (
+        "Files of one name",
+        "photo.cr2 and photo.jpg are two files; photo.jpg.xmp follows photo.jpg, and Lightroom's \
+         photo.xmp follows the RAW file",
+        "Grouped as one entry (File Filters → Grouping), moved, copied, renamed and deleted together",
     ),
     (
         "New Window (Ctrl+N)",
