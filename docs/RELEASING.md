@@ -13,7 +13,10 @@ branch made from it and merged back into it; `main` gets the release branch only
 1. **The version.** The version in `Cargo.toml` and in the header of `docs/glimt.1`, a section
    in `CHANGELOG.md` with its link (`source_rules::every_release_in_the_changelog_has_its_link`),
    and a `<release>` line in `assets/io.github.thornbux.Glimt.metainfo.xml`. New command-line
-   options go in the man page too. The release workflow checks each.
+   options go in the man page too. The release workflow checks each. After the bump, run
+   `cargo update -p glimt --offline`, `python3 tools/sbom.py` and `python3 tools/flatpak-sources.py`
+   (through `tools/check.sh "…"` on a computer without cargo), so `Cargo.lock`, `sbom.cdx.json`
+   and `flatpak/cargo-sources.json` follow the version; CI refuses a commit where they do not.
 2. **The Flatpak image.** Dependabot does not move a container's digest, so take the tag's
    current digest (the command is in `release.yml`), which brings the image's fixes. These two
    steps come first, so the audit covers them.
@@ -23,14 +26,17 @@ branch made from it and merged back into it; `main` gets the release branch only
 4. **The release tests.** `tools/release-tests/run.sh` on the very commit that gets the tag
    (below), a full run, never `QUICK=1`.
 5. **The dry run.** Start the Release workflow by hand on the release branch, which builds and
-   smoke-tests every package and publishes nothing:
+   smoke-tests every package and publishes nothing. The branch must be on GitHub first
+   (`git push origin release-X.Y.Z`; delete it there afterwards):
    `gh workflow run release.yml --ref release-X.Y.Z -f dry_run=true -f tag=none`.
 6. **By hand.** The checks below that no script makes.
 7. **The tag.** `main` is fast-forwarded to the tested commit
    (`git merge --ff-only release-X.Y.Z`). If it cannot be, the release branch is first rebased
    onto `main` or merged with it, and steps 3 to 6 run again on the new commit. The tag
-   `vX.Y.Z` goes on that same commit, and `main` and the tag are pushed. The release workflow
-   builds and publishes the packages (below).
+   `vX.Y.Z` is an annotated tag (`git tag -a vX.Y.Z -m "Glimt X.Y.Z"`) on that same commit, and
+   `main` and the tag are pushed together (`git push --atomic origin main vX.Y.Z`), so the
+   workflow never sees the tag before `main` holds it. The release workflow builds and
+   publishes the packages (below).
 8. **After the tag.** Check that the Release workflow ended green, with every package,
    `SHA256SUMS` and the attestations, and the Flatpak bundle.
 9. **Flathub.** A pull request to Flathub's repository (below). The website (glimt-web) is
