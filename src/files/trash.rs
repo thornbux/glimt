@@ -149,28 +149,61 @@ pub(crate) fn restore(
         .filter(|s| !paired.contains(*s))
         .filter_map(|s| find(s));
     steps.extend(rest.map(|s| (s, false, None)));
-    #[allow(clippy::disallowed_methods)] // the .trashinfo of a file put back
-    let put_back = |t: &TrashEntry| {
+    let back = put_back(steps, &mut error);
+    (back, error)
+}
+
+/// Puts the files of `steps` back from the trash, each with its sidecar right after it, and
+/// tells the first failure in `error`. A file that cannot come back stays in the trash with its
+/// sidecar, and the next files still come back. Returns the files put back, without the
+/// sidecars.
+fn put_back(
+    steps: Vec<(TrashEntry, bool, Option<TrashEntry>)>,
+    error: &mut Option<String>,
+) -> Vec<PathBuf> {
+    let rename = |t: &TrashEntry| {
         rename_never_over(&t.file, &t.from)
-            .map(|()| drop(std::fs::remove_file(&t.info)))
             .map_err(|e| format!("{display}: {e}", display = t.from.display()))
     };
-    // A file that cannot come back stays in the trash with its sidecar, and the next files
-    // still come back.
-    let mut back = Vec::new();
+    let (mut back, mut renamed) = (Vec::new(), Vec::new());
     for (t, is_file, side) in steps {
-        if let Err(e) = put_back(&t) {
+        if let Err(e) = rename(&t) {
             error.get_or_insert(e);
             continue;
         }
-        if let Some(Err(e)) = side.as_ref().map(put_back) {
-            error.get_or_insert(e);
+        if let Some(side) = side {
+            match rename(&side) {
+                Ok(()) => renamed.push(side),
+                Err(e) => {
+                    error.get_or_insert(e);
+                }
+            }
         }
         if is_file {
-            back.push(t.from);
+            back.push(t.from.clone());
+        }
+        renamed.push(t);
+    }
+    // The names put back are on disk before their .trashinfo files go, with one sync for each
+    // folder. Otherwise a power cut could leave a file in the trash's files folder with no
+    // .trashinfo, where no trash view lists it and Undo cannot find it. A folder the disk did
+    // not take keeps its files' .trashinfo, which is harmless beside a file that came back.
+    let mut synced: HashMap<&Path, bool> = HashMap::new();
+    for t in &renamed {
+        let folder = t.from.parent().unwrap_or(Path::new("."));
+        let is_on_disk = *synced.entry(folder).or_insert_with(|| {
+            let result = crate::files::file_io::sync_folder_of(&t.from);
+            if let Err(e) = &result {
+                error.get_or_insert(format!("{}: {e}", folder.display()));
+            }
+            result.is_ok()
+        });
+        if is_on_disk {
+            #[allow(clippy::disallowed_methods)] // the .trashinfo of a file put back
+            let _ = std::fs::remove_file(&t.info);
         }
     }
-    (back, error)
+    back
 }
 
 /// Of each name in a trash folder, the one put there first, by `rank`.
@@ -594,8 +627,15 @@ mod tests {
         let taken = super::restore(&trash_move(&["IMG_0002.jpg"], &["IMG_0002.jpg.xmp"]), dirs);
         assert!(taken.0.is_empty() && taken.1.is_some());
         std::fs::remove_file(photos.join("IMG_0002.jpg")).unwrap();
+        crate::files::file_io::FOLDERS_SYNCED.take();
         let (back, error) =
             super::restore(&trash_move(&["IMG_0002.jpg"], &["IMG_0002.jpg.xmp"]), dirs);
+        // The names put back are on disk before their .trashinfo files go, with one sync for
+        // the folder of both.
+        assert_eq!(
+            crate::files::file_io::FOLDERS_SYNCED.take(),
+            std::slice::from_ref(&photos)
+        );
         assert_eq!(error, None);
         assert_eq!(back, [photos.join("IMG_0002.jpg")]);
         assert!(photos.join("IMG_0002.jpg.xmp").exists());

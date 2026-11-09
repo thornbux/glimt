@@ -2628,7 +2628,6 @@ fn renames_that_later_steps_count_on_are_synced() {
     const STANDING_ALONE: &[(&str, &str)] = &[
         ("files/file_io.rs", "rename_never_over"), // the rename itself, synced by its callers
         ("files/file_ops.rs", "rename_folder"),    // a folder renamed
-        ("files/trash.rs", "restore"),             // a file back from the trash
         ("files/trash.rs", "trash_by_hand"),       // a file into the trash on its own disk
         ("images/thumbs.rs", "write_thumbnail"),   // a thumbnail, made again when it is lost
         ("metadata/xmp.rs", "follow"),             // a sidecar after its file
@@ -2663,6 +2662,10 @@ fn renames_that_later_steps_count_on_are_synced() {
 
 /// Returns the functions of `text` outside the tests that rename a file, each with whether it
 /// syncs the folder, itself or through `write_beside`.
+// shortcut: a function counts as synced when it syncs anywhere, so a branch that renames
+// without a sync passes with the rest (put_file's move on one disk, which the marks and
+// collections follow unsynced); following each branch would need a parser, worth it if this
+// class is found again.
 fn renames_in(text: &str) -> Vec<(String, bool)> {
     let lines = code_lines(text);
     let end = tests_start(&lines);
