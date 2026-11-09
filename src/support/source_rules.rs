@@ -2766,7 +2766,8 @@ fn the_lints_stay_on() {
 }
 
 /// Returns the lines of the statements of `text` outside the tests that drop the result of one
-/// of file_io's writers, with `let _ =`, `_ =` or `.ok();`.
+/// of file_io's writers, with `let _ =`, `_ =`, `.ok();`, `drop(…)`, or `let _name =` where
+/// `_name` is not used again.
 fn dropped_writes_in(text: &str) -> Vec<usize> {
     const WRITERS: [&str; 12] = [
         "sync_folder_of(",
@@ -2800,17 +2801,58 @@ fn dropped_writes_in(text: &str) -> Vec<usize> {
             let starts_with_keyword = KEYWORDS.contains(&words.split(' ').next().unwrap_or(""));
             let dropped = words.starts_with("let _ =")
                 || words.starts_with("_ =")
+                || is_unused_binding(words, text)
                 || (c == ';'
                     && words.ends_with(".ok()")
                     && !words.contains('=')
                     && !starts_with_keyword);
-            if dropped && WRITERS.iter().any(|writer| words.contains(writer)) {
+            let writes = |writer: &&str| words.contains(writer);
+            if (dropped && WRITERS.iter().any(writes))
+                || WRITERS.iter().any(|w| is_dropped(words, w))
+            {
                 found.push(first_line);
             }
             statement.clear();
         }
     }
     found
+}
+
+/// Returns whether `statement` binds a name that starts with `_` (`let _name = …`) that `text`
+/// uses nowhere else.
+fn is_unused_binding(statement: &str, text: &str) -> bool {
+    let Some(rest) = statement.strip_prefix("let _") else {
+        return false;
+    };
+    let name_length = rest.find(|c: char| !c.is_alphanumeric() && c != '_');
+    let Some(name) = name_length.filter(|&n| n > 0).map(|n| &statement[4..5 + n]) else {
+        return false;
+    };
+    let is_word_at = |at: usize| {
+        let around = [
+            text[..at].chars().next_back(),
+            text[at + name.len()..].chars().next(),
+        ];
+        !around
+            .into_iter()
+            .flatten()
+            .any(|c| c.is_alphanumeric() || c == '_')
+    };
+    text.match_indices(name)
+        .filter(|(at, _)| is_word_at(*at))
+        .count()
+        < 2
+}
+
+/// Returns whether `statement` drops the result of `writer` with `drop(…)`, also through a path
+/// (`drop(file_io::put_file(…))`).
+fn is_dropped(statement: &str, writer: &str) -> bool {
+    statement.match_indices(writer).any(|(at, _)| {
+        let path_chars = |c: char| c.is_alphanumeric() || c == '_' || c == ':';
+        statement[..at]
+            .trim_end_matches(path_chars)
+            .ends_with("drop(")
+    })
 }
 
 /// A write that fails is told, never dropped: the result of each of file_io's writers is
@@ -2834,16 +2876,19 @@ fn write_results_are_not_dropped() {
     );
 }
 
-/// The check above finds a dropped write in each of its forms, also over several lines, and
-/// leaves a write that is handled alone.
+/// The check above finds a dropped write in each of its forms, also over several lines and in a
+/// match arm, and leaves a write that is handled alone, and a bound name that is used.
 #[test]
 fn finds_a_dropped_write() {
     let text = "fn a() {\n    let _ = replace_file(p, b);\n    _ = create_file(p, b);\n    \
         put_file(a, b,\n        true).ok();\n    let _ =\n        crate::files::file_io::\
         rename_never_over(a, b);\n    if let Err(e) = replace_name(p, b) {\n        say(e);\n    \
         }\n    replace_file(p, b)?;\n    let made = create_file(p, b).ok();\n    \
-        let _ = tx.send(1);\n}\n";
-    assert_eq!(dropped_writes_in(text), [2, 3, 4, 6]);
+        let _ = tx.send(1);\n    drop(file_io::put_file(a, b, true));\n    \
+        let _copied = put_file(a, b, true);\n    let _kept = put_file(a, b, true);\n    \
+        say(_kept);\n    let _held = file_lock(p);\n    match x {\n        \
+        A => drop(sync_folder(p)),\n        B => drop(thumbnail(p)),\n    }\n}\n";
+    assert_eq!(dropped_writes_in(text), [2, 3, 4, 6, 14, 15, 20]);
 }
 
 /// A background thread's answer is held in a `threads::Receiving`, never in a bare
@@ -2853,12 +2898,12 @@ fn finds_a_dropped_write() {
 fn answers_are_received_through_receiving() {
     let mut wrong = Vec::new();
     for (file, text) in rust_sources() {
-        let lines = code_lines(&text);
-        for (i, line) in lines[..tests_start(&lines)].iter().enumerate() {
-            let bare = line.replace("std::sync::", "").replace("mpsc::", "");
-            if bare.contains("Option<Receiver<") && !file.ends_with("support/threads.rs") {
-                wrong.push(format!("{file}:{}", i + 1));
-            }
+        if !file.ends_with("support/threads.rs") {
+            wrong.extend(
+                bare_receivers_in(&text)
+                    .iter()
+                    .map(|line| format!("{file}:{line}")),
+            );
         }
     }
     assert!(
@@ -2866,6 +2911,33 @@ fn answers_are_received_through_receiving() {
         "a bare Option<Receiver> (hold it in a threads::Receiving):\n{}",
         wrong.join("\n")
     );
+}
+
+/// Returns the lines of `text` outside the tests that hold a `Receiver` in an `Option`, also
+/// in a tuple there (`Option<(Receiver<…>, …)>`), or name a `Receiver` with a type alias, which
+/// an `Option` could then hold unseen.
+fn bare_receivers_in(text: &str) -> Vec<usize> {
+    let lines = code_lines(text);
+    let mut found = Vec::new();
+    for (i, line) in lines[..tests_start(&lines)].iter().enumerate() {
+        let bare = line.replace("std::sync::", "").replace("mpsc::", "");
+        let is_alias = without_qualifiers(bare.trim_start()).starts_with("type ")
+            && bare.contains("Receiver<");
+        if bare.contains("Option<Receiver<") || bare.contains("Option<(Receiver<") || is_alias {
+            found.push(i + 1);
+        }
+    }
+    found
+}
+
+/// The check above finds a `Receiver` in an `Option` however it is named, and a type alias of
+/// one. It leaves a `Receiver` held for good and a `Receiving`.
+#[test]
+fn finds_a_bare_receiver() {
+    let text = "struct A {\n    a: Option<Receiver<u8>>,\n    \
+        b: Option<std::sync::mpsc::Receiver<u8>>,\n    c: Option<(mpsc::Receiver<u8>, u8)>,\n    \
+        d: mpsc::Receiver<u8>,\n    e: Receiving<u8>,\n}\npub type Answer = Receiver<u8>;\n";
+    assert_eq!(bare_receivers_in(text), [2, 3, 4, 8]);
 }
 
 /// Each name in backticks in AGENTS.md and docs/RELEASING.md that looks like code (a path with
