@@ -799,6 +799,46 @@ break.jpg")"
     else note "old: current '$current', folder $mode"; fi
 done
 
+section "--remote info: every key of the image shown and of a file named, with its EXIF, keywords and stars"
+# Before 0.78.0 the command did not exist, and the client refused it with exit status 2.
+for v in new old; do
+    as_version $v
+    d=/tmp/remote-info-$v
+    mkdir -p $d/other
+    convert -size 300x200 xc:red $d/a.jpg
+    exiftool -q -q -overwrite_original -Make=Canon "-Model=Canon EOS R6" -Orientation#=6 \
+        "-DateTimeOriginal=2020:01:02 03:04:05" $d/a.jpg
+    cat >$d/a.jpg.xmp <<'EOF'
+<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+<rdf:Description rdf:about="" xmlns:dc="http://purl.org/dc/elements/1.1/">
+<dc:subject><rdf:Bag><rdf:li>beach</rdf:li><rdf:li>sea</rdf:li></rdf:Bag></dc:subject>
+<dc:description><rdf:Alt><rdf:li xml:lang="x-default">Sunset</rdf:li></rdf:Alt></dc:description>
+</rdf:Description></rdf:RDF></x:xmpmeta>
+EOF
+    convert -size 40x30 xc:blue $d/other/b.png
+    # Marks 1 and 4 (bits 9) and three stars.
+    mkdir -p $XDG_STATE_HOME/glimt
+    printf '9\t3\t%s\n' $d/a.jpg >$XDG_STATE_HOME/glimt/marks
+    config auto_refresh=false
+    start $d/a.jpg
+    sleep 1
+    shown=$(remote info 2>/dev/null)
+    named=$(remote info $d/other/b.png 2>/dev/null)
+    quit
+    pick() { printf '%s\n' "$1" | awk -F '\t' -v keys="$2" \
+        'BEGIN { n = split(keys, k, " "); for (i = 1; i <= n; i++) want[k[i]] = 1 }
+         $1 in want { printf "%s=%s|", $1, $2 }'; }
+    if [ $v = new ]; then
+        expect "info: the keys, all and in order" "$(printf '%s\n' "$shown" | cut -f1 | tr '\n' ' ')" \
+            "path size modified width height format orientation stars marks keywords comment alt_text extended_description exif.camera exif.lens exif.taken exif.exposure exif.aperture exif.iso exif.focal_length exif.exposure_bias exif.flash exif.gps "
+        expect "info: the values of the image shown" \
+            "$(pick "$shown" "path width height format orientation stars marks keywords comment exif.camera exif.taken")" \
+            "path=$d/a.jpg|width=300|height=200|format=jpg|orientation=6|stars=3|marks=1,4|keywords=beach; sea|comment=Sunset|exif.camera=Canon EOS R6|exif.taken=2020:01:02 03:04:05|"
+        expect "info: a file named that is not in the list" "$(pick "$named" "path width format stars")" \
+            "path=$d/other/b.png|width=40|format=png|stars=0|"
+    else note "old: '$shown'"; fi
+done
+
 section "--remote to a minimized window: answered at once, the image changes once it is shown"
 # eframe runs no ui for a minimized window. In 0.76.0 before its fix, the window answered only
 # in its ui, so every command waited 10 s for "no answer" and exited 1.

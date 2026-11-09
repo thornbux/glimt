@@ -195,6 +195,35 @@ pub(crate) fn local_time(secs: i64) -> String {
     )
 }
 
+/// Seconds since 1970 as UTC in RFC 3339, such as "2026-11-10T08:05:09Z", for scripts to read.
+pub(crate) fn utc_time(secs: i64) -> String {
+    let (days, second_of_day) = (secs.div_euclid(86_400), secs.rem_euclid(86_400));
+    // The calendar date of a day count, by Howard Hinnant's civil_from_days. Its years start
+    // in March, so that the leap day falls at their end.
+    let from_year_0 = days + 719_468;
+    let (era, day_of_era) = (
+        from_year_0.div_euclid(146_097),
+        from_year_0.rem_euclid(146_097),
+    );
+    let year_of_era =
+        (day_of_era - day_of_era / 1460 + day_of_era / 36_524 - day_of_era / 146_096) / 365;
+    let day_of_year = day_of_era - (365 * year_of_era + year_of_era / 4 - year_of_era / 100);
+    let month_from_march = (5 * day_of_year + 2) / 153;
+    let day = day_of_year - (153 * month_from_march + 2) / 5 + 1;
+    let month = if month_from_march < 10 {
+        month_from_march + 3
+    } else {
+        month_from_march - 9
+    };
+    let year = year_of_era + era * 400 + i64::from(month <= 2);
+    format!(
+        "{year:04}-{month:02}-{day:02}T{:02}:{:02}:{:02}Z",
+        second_of_day / 3600,
+        second_of_day / 60 % 60,
+        second_of_day % 60
+    )
+}
+
 /// Returns `text` with each control character, such as a line break, turned into "?". A name
 /// made from a file's bytes goes through it, so it shows on one line and cannot add a line, and
 /// with it a word, to a file that holds one name to a line.
@@ -347,6 +376,14 @@ mod tests {
         assert_eq!(super::middle_cut("abc", fits(0)), "…");
         assert_eq!(super::count(0, "image"), "0 images");
         assert_eq!(super::count(1200, "file"), "1,200 files");
+    }
+
+    #[test]
+    fn formats_utc_time() {
+        assert_eq!(super::utc_time(0), "1970-01-01T00:00:00Z");
+        assert_eq!(super::utc_time(951_782_400), "2000-02-29T00:00:00Z");
+        assert_eq!(super::utc_time(1_762_790_709), "2025-11-10T16:05:09Z");
+        assert_eq!(super::utc_time(-1), "1969-12-31T23:59:59Z");
     }
 
     #[test]
