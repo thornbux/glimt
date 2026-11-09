@@ -206,7 +206,7 @@ holds only its `mod` lines, and a new module goes into the folder of what it doe
 | `po/` | The translations, one gettext `.po` file per language, built into the program (`lang::LANGUAGES`), and `glimt.pot`, the template for a new one |
 | `themes/` | The built-in themes |
 | `assets/` | Icons, the desktop and AppStream files, the fonts and their licenses |
-| `docs/` | The man page `glimt.1`, `screenshots/` for README and the website, and `architecture/`: diagrams of the code's layout, a frame and its threads, a folder to pixels, a change on disk and the checks (update them when what they name changes) |
+| `docs/` | `RELEASING.md` (the release runbook), the man page `glimt.1`, `screenshots/` for README and the website, and `architecture/`: diagrams of the code's layout, a frame and its threads, a folder to pixels, a change on disk and the checks (update them when what they name changes) |
 | `examples/formats/` | Added formats: desktop files (`<format>.desktop`, `<format>-imagemagick.desktop`) and their scripts (`glimt-<format>`) |
 | `examples/tools/` | Tools (`<name>.desktop` running `glimt-<name>`: describe a photo with a local model, read the alt text aloud), and `test-model.py`, a stand-in model |
 | `flatpak/` | The Flatpak manifest, and `cargo-sources.json`: the crates it builds from without the network |
@@ -439,13 +439,28 @@ there, the background threads and the moments between a start and its answer) an
 fix against each. One fix of a list that named a folder took three audit rounds, because the
 first fix closed one way in and the next two were found by the audits.
 
-## Releases: two tracks
+## Releases
+
+The steps of a release, the release tests' list, the checks by hand and the packages are in
+[docs/RELEASING.md](docs/RELEASING.md). These are the rules a release follows:
 
 - **A minor release (X.Y.0)** gathers new features and structural work: one or two features at
   a time, each on its own branch, never a batch of them. One release shipped eleven new things
   and another eight, and the next releases were spent fixing them.
 - **A dot release (X.Y.Z)** fixes only *must fix* bugs of the release before it, nothing else:
   no hardening, no refactoring, no feature. What else is found waits for the next minor.
+- **Audited before the tag, not after.** A release is tagged only when an audit of its own
+  changes (everything since the last tag) finds nothing it must or should fix by the bar in
+  *What must be fixed, and when*. What the audit finds is fixed on the release branch, and those
+  fixes are audited again, until a round finds nothing. Hardening findings become issues
+  instead. The audit reads the diff without the author's conclusions (another agent, or another
+  session). When the audit ran after the tag, each release shipped the last round's fixes
+  unaudited and the next release fixed them.
+- **The release tests run on the very commit that gets the tag**
+  (`tools/release-tests/run.sh`). A change after the run means a new run, also for a release on
+  the same day as the last one.
+- **Only the maintainer starts a release.** No version bump, tag, merge into `main` or push for
+  a release happens without the maintainer asking for it.
 
 ## Before every commit
 
@@ -479,164 +494,26 @@ python3 tools/pot.py         # and po/glimt.pot, after a text is added or change
   folder of a few GB in the volume `glimt-target`; after removing worktrees, `tools/check.sh
   --clean` removes the folders of those that are gone (a clone elsewhere is built again). Read
   its exit status directly, not through a pipe such as `| tail`, which hides a failed check.
-- A release: the version in `Cargo.toml` and in the header of `docs/glimt.1`, a section in
-  `CHANGELOG.md`, a `<release>` line in `assets/io.github.thornbux.Glimt.metainfo.xml`, and a
-  tag `vX.Y.Z` on `main` (the release workflow checks each). New command-line options go in the man page too.
-- New thumbnails are saved to the shared cache by default (`save_thumbnails`). Test with a
-  separate `HOME` and `XDG_CACHE_HOME`, so test runs leave nothing in the real cache.
 
-## Before a release
-
-**Audited before the tag, not after.** A release is tagged only when an audit of its own
-changes (everything since the last tag) finds nothing it must or should fix by the bar above.
-What it finds is fixed on the release branch, and those fixes are audited again, until a round
-finds nothing; hardening findings become issues instead. The audit reads the diff without the
-author's conclusions (another agent, or another session). Early releases got one audit round
-run after the tag, so each shipped the last round's fixes unaudited and the next release fixed
-them; since then a release has needed up to six rounds before its tag.
-
-Run `tools/release-tests/run.sh` on the release branch, on the very commit that gets the tag:
-a change after the run means a new run, and a release the same day as the last one gets the
-whole suite too, never a patch release on trust. The run builds the branch and the last
-release with every feature in Docker (`rust:1`) and runs `tools/release-tests/tests.sh` there:
-a virtual X display, an ordinary user, a separate `HOME` and XDG folders, generated pictures,
-and a script named `zenity` early in `PATH` that answers for the file dialog. The checks run in
-as many containers at once as Docker's processors and memory allow (two processors and 2.5 GB
-each, 1 to 6; `PARTS=N` to choose), each with its own display, `/tmp` and
-`HOME`; the timings run alone after them. A part may start at any section, so a section makes
-what it needs itself (a function in the head of `tests.sh` for files several use). Each check prints PASS or FAIL; timings and memory are printed for both versions, to
-compare. `QUICK=1` leaves out
-the large folder and the EXIF timings. Screenshots of the steps are in
-`~/.cache/glimt-release-tests/out`.
-
-- **Saving turned:** a PNG, a lossless WebP and a lossy WebP with EXIF orientation 6, turned and
-  saved with Auto Rotate on and off: EXIF kept, orientation 1, pixels as the view showed them.
-- **Saves at once:** `a.png` and `a.webp` of 6000×4000 turned one after the other: both whole.
-- **Subfolders:** with Include Subfolders on and auto refresh off, copy and move to the folder
-  and to subfolders; the list must follow.
-- **A failed delete** in a read-only subfolder: the file is in the list again.
-- **Thumbnails:** with Auto Rotate off, nothing new in `$XDG_CACHE_HOME/thumbnails`.
-- **Rename Many failing halfway:** names that swap and one too long (over 255 bytes); every name
-  kept, no `.glimt-rename-*` left. A read-only file is no test, as Linux renames it.
-- **Find Duplicates:** the checked files go to the trash, but nothing does once the list changed.
-- **Pan view:** after another sort order each date keeps its image.
-- **Printing** 80 images to a PDF: 80 pages, and memory that does not grow with them.
-- **Real files:** each of `samples.txt` (RAW of eight makes, DICOM, FITS, NIfTI, a slide, HEIC,
-  AVIF, JPEG XL …), downloaded once by `run.sh` and checked by sha256, is shown.
-- **Copy for Sharing of real photos** of `samples.txt` (a Pixel's Ultra HDR, an iPhone's HDR, a
-  DJI drone's, a Lightroom export, content credentials), with Remove All and with Place: no
-  place, serial number, maker note, credentials or keyword left, the gain maps and pixels kept.
-- **Large folder** (500,000 hard links) and **sorting 3,000 JPEGs by EXIF date:** "first image"
-  time and RssAnon of both versions.
-- **Known vulnerabilities:** `cargo audit`; the release workflow runs it too and stops on a
-  vulnerable crate, while warnings such as an unmaintained crate do not stop it. Between
-  releases `.github/workflows/audit.yml` runs it every Monday and when `Cargo.lock` changes,
-  and Dependabot (`.github/dependabot.yml`) proposes updates of the crates and pinned actions.
-  `.github/workflows/update.yml` opens a pull request every Tuesday with `cargo update` (the
-  crates Cargo.toml does not name too) and the files after Cargo.lock, starts CI on it, and says
-  when the Flatpak image's digest has moved.
-
-By hand: the Flatpak, with two windows (Ctrl+N), `--remote next` to the focused one,
-`--remote-all next` to both and `--remote-all quit`; Delete and Ctrl+Z (the trash portal), and of
-a read-only file (which the portal refuses, so Glimt trashes it by hand), File →
-Open File (the file chooser portal), Print through the System print dialog (the print portal;
-its Print to File shows the PDF), full screen (an Inhibit call to the portal, and Close after,
-in `dbus-monitor`), Open With → Choose Application… (the chooser, cancelled), a video and a
-HEIC (the runtime's ffmpeg), File → Set as Wallpaper (the wallpaper portal), and a tool, which
-without the host permission says how to give it and with it runs; Orca, which reads a notice
-shown twice aloud twice (an action refused twice, such as a setting changed under
-`--lock-settings`). The release workflow's smoke test, `tools/package-smoke.sh`, checks before
-each is published that the AppImage and the Flatpak bundle draw an SVG, and the AppImage
-also in a New Window after the first window closed.
+### Tests
 
 The window's logic (the list, the selection, file operations and what follows them) is tested
-without a window: `crate::support::test_support::app_on(dir)` makes an `App` on `egui::Context::default()`
-with settings of its own, listed, in milliseconds. A fix there gets such a test, in the tests of
-the module the fix is in, not in main.rs (`source_rules::tests_sit_beside_their_code`).
+without a window: `crate::support::test_support::app_on(dir)` makes an `App` on
+`egui::Context::default()` with settings of its own, listed, in milliseconds. A fix there gets
+such a test, in the tests of the module the fix is in, not in main.rs
+(`source_rules::tests_sit_beside_their_code`).
 
 A fix in the window code that a unit test cannot reach (painting, keys, clicks) gets a check in
-`tests.sh`: the steps with keys, `--remote` and clicks by text (`menu File "Open With"`, through
-the `test-hooks` build's `glimt --remote where LABEL`; a button or selectable row is drawn through
-the `menus` helpers, which note it, as clippy refuses egui's own, and another widget the tests need
-gets a `noted(…)` call), and the result read from the files or from a colour in a screenshot.
-Screen coordinates only where a click's place is the point. Run it against the last release as
-well, to see that it fails there.
+`tools/release-tests/tests.sh`. The check does the steps with keys, `--remote` and clicks by
+text (`menu File "Open With"`, found through the `test-hooks` build's
+`glimt --remote where LABEL`), and reads the result from the files or from a colour in a
+screenshot. A button or selectable row is drawn through the `menus` helpers, which note where
+it is, because clippy refuses egui's own; another widget the tests need gets a `noted(…)` call.
+Use screen coordinates only where a click's place is the point. Run the check against the last
+release as well, to see that it fails there.
 
-## Packages
-
-A tag `vX.Y.Z` pushed to GitHub runs `.github/workflows/release.yml`, which builds against
-glibc 2.28 with cargo-zigbuild and publishes a `.tar.gz`, a `.deb`, an `.rpm` and an AppImage.
-Both package formats are described in `Cargo.toml` (`[package.metadata.deb]`,
-`[package.metadata.generate-rpm]`); new installed files go in both lists, in the Flatpak
-manifest and in the tar.gz and AppImage steps. To build and check them locally, after
-`cargo build --release --features full`:
-
-```sh
-cargo deb --no-build -o /tmp/pkg/          # cargo install cargo-deb
-dpkg-deb -I /tmp/pkg/*.deb; dpkg-deb -c /tmp/pkg/*.deb
-cargo generate-rpm -o /tmp/pkg/            # cargo install cargo-generate-rpm
-```
-
-- Dependencies are written by hand (glibc 2.28): `dpkg-shlibdeps` rounds glibc up to 2.34, and
-  cargo-generate-rpm's own list has `[WEAK]` symbol versions that dnf cannot resolve. OpenGL
-  (EGL) and xkbcommon are named too: the window loads them as it opens, so no tool finds them.
-- `examples/tools` and `examples/formats` are installed as examples, not as active tools:
-  in `/usr/share/doc/glimt/examples/` in the `.deb` and `.rpm` (scripts 755, so they work when
-  copied), and as `examples/` in the tar.gz. Glimt reads `/usr/share/glimt/{tools,formats}`
-  (and the old `{plugins,decoders}`),
-  but nothing is put there: each example needs programs the package cannot count on (Ollama,
-  spd-say, exiftool, ImageMagick, Python modules), and would sit in the menu for everyone and
-  fail. A user copies the ones wanted to `~/.local/share/glimt/{tools,formats}` (Edit →
-  Tools → Open the Tools Folder). Not in the AppImage or Flatpak, as no README is: their
-  files are out of the user's reach. A new example script goes in by the globs already there.
-- A local build links against the build machine's glibc; only the release binary runs on 2.28.
-- Test an `.rpm` without rpm tools in a container, with the storage on `/tmp`:
-  `podman --root /tmp/pod --runroot /tmp/podrun --storage-driver vfs run --rm -v /tmp/pkg:/pkg:Z
-  registry.fedoraproject.org/fedora:latest bash -c 'dnf -y install /pkg/*.rpm && glimt --help'`
-  (also `docker.io/library/almalinux:8` for glibc 2.28). Remove the storage afterwards with
-  `podman unshare rm -rf /tmp/pod /tmp/podrun`.
-
-Each release also gets `SHA256SUMS` of its files and a build provenance for each (signed by
-GitHub through `actions/attest-build-provenance`), which `gh attestation verify FILE -R
-thornbux/glimt` checks; a new file to publish goes in both, and the Flatpak's line is added by
-its own job.
-
-The AppImage holds the same binary, its desktop file, icons, man page and licenses; OpenGL,
-Wayland and X11 come from the system, as for the tar.gz. `appimagetool` and the type2 runtime
-(which needs no libfuse2) are pinned releases with their sha256 in `release.yml`; change both
-together. Inside the AppImage, `$APPIMAGE` names the file itself: New Window starts that, as
-the binary's mount goes when the first window closes; only when the binary is inside
-`$APPDIR`, as every program started from an AppImage inherits its `$APPIMAGE`.
-
-The release workflow also builds a Flatpak bundle from `flatpak/io.github.thornbux.Glimt.yml`, in
-Flathub's `freedesktop-26.08` image, pinned by its digest (change both with `runtime-version`), and adds it to the
-release in a job of its own. It builds without the network, as Flathub does: the crates are
-sources in `flatpak/cargo-sources.json`, so a `Cargo.lock` changed without it fails there. Dependabot does not move a container's digest: before a release,
-take the tag's current one (the command is in `release.yml`), which brings the image's fixes. To build it locally: its runtime, SDK and Rust extension take about
-4 GB, so they can live on `/tmp` through `FLATPAK_USER_DIR`:
-
-```sh
-export FLATPAK_USER_DIR=/tmp/fp/flatpak
-flatpak --user remote-add --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
-flatpak-builder --user --install --install-deps-from=flathub --force-clean \
-    --state-dir=/tmp/fp/state /tmp/fp/build flatpak/io.github.thornbux.Glimt.yml
-flatpak run io.github.thornbux.Glimt
-```
-
-- **Flathub** builds its own repository, `flathub/io.github.thornbux.Glimt`, not this one: after
-  each release tag, `python3 tools/flathub-manifest.py vX.Y.Z <its checkout>` writes the
-  manifest with Glimt from the tag (and its commit) and `cargo-sources.json` there, for a pull
-  request; Flathub builds it and publishes once it is merged. Check it with Flathub's linter:
-  `docker run --rm -v <dir>:/m ghcr.io/flathub/flatpak-builder-lint manifest /m/io.github.thornbux.Glimt.yml`.
-  On a local build (`builddir`) the linter's only complaints are the screenshots and icons not
-  mirrored, which Flathub's builder does.
-- Glimt's own external programs go through `command()` or `stoppable_command()` in
-  `src/files/external.rs`, which in the Flatpak run the runtime's, in the sandbox (Flathub allows no
-  `flatpak-spawn --host`). The user's own programs, and those only the host has, go through
-  `host_command()` or `stoppable_host_command()`: on the host, after `flatpak override --user
-  --talk-name=org.freedesktop.Flatpak io.github.thornbux.Glimt`, else an error saying so.
-- To run it in a virtual X display, add `--nosocket=wayland --nosocket=fallback-x11
-  --socket=x11`, and `--filesystem=/tmp/...` for test files: `/tmp` is private in the sandbox.
+New thumbnails are saved to the shared cache by default (`save_thumbnails`). Test with a
+separate `HOME` and `XDG_CACHE_HOME`, so test runs leave nothing in the real cache.
 
 ## Privacy
 
