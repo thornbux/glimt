@@ -22,8 +22,9 @@ pub fn own_folders() -> Vec<(&'static str, PathBuf)> {
     .collect()
 }
 
-/// Copies the folder `from` with everything in it to `to`, made. Returns how many files were
-/// copied. A link is copied as the file or folder it points to, so a themes folder that is a
+/// Copies the folder `from` with everything in it to `to`, made, and on disk when it returns:
+/// a backup is often made to a USB stick that is pulled out right after. Returns how many files
+/// were copied. A link is copied as the file or folder it points to, so a themes folder that is a
 /// link into a dotfiles repository is backed up too. A link that leads nowhere is left out.
 pub fn copy_tree(from: &Path, to: &Path) -> std::io::Result<usize> {
     std::fs::create_dir_all(to)?;
@@ -33,7 +34,6 @@ pub fn copy_tree(from: &Path, to: &Path) -> std::io::Result<usize> {
 
 /// Copies what is in `from` to `to`, made. `target` holds the folders the copy goes into, and
 /// `above` the folders being copied that hold `from`, by `file_id`.
-#[allow(clippy::disallowed_methods)] // copies into a backup folder made new for it
 fn copy_into(
     from: &Path,
     to: &Path,
@@ -65,12 +65,15 @@ fn copy_into(
             above.pop();
             files += copied?;
         } else if source.is_file() {
-            // Named, as the files after it are not copied.
-            std::fs::copy(&source, &dest)
+            // Named, as the files after it are not copied. The copy is on disk with its name
+            // (`put_file`).
+            crate::files::file_io::put_file(&source, &dest, true)
                 .map_err(|e| std::io::Error::new(e.kind(), format!("{}: {e}", source.display())))?;
             files += 1;
         }
     }
+    // The folder's own name is on disk too, also when it holds no file.
+    crate::files::file_io::sync_folder_of(to)?;
     Ok(files)
 }
 
@@ -114,6 +117,8 @@ pub(crate) fn back_up_to(dir: &Path) -> Result<String, String> {
     let copied: std::io::Result<usize> = (own.into_iter())
         .map(|(name, from)| copy_tree(&from, &to.join(name)))
         .sum();
+    // The backup folder's name in `dir` is on disk too.
+    let copied = copied.and_then(|n| crate::files::file_io::sync_folder_of(&to).map(|_| n));
     // Not the plan of a Rename Many running now: restored later, it would rename files again.
     #[allow(clippy::disallowed_methods)] // the backup's own copy, just made
     let _ = std::fs::remove_dir_all(to.join("state/renames"));
@@ -171,7 +176,15 @@ mod tests {
         std::fs::write(from.join("config"), "theme=Dark").unwrap();
         std::fs::write(from.join("collections/a.gqv"), "#GQview").unwrap();
         std::fs::write(from.join("collections/sub/b.gqv"), "").unwrap();
+        crate::files::file_io::FOLDERS_SYNCED.take();
         assert_eq!(super::copy_tree(&from, &dir.join("to")).unwrap(), 3);
+        // Every file and folder copied is on disk with its name, as a USB stick may be pulled
+        // out right after.
+        let synced = crate::files::file_io::FOLDERS_SYNCED.take();
+        for folder in ["to", "to/collections", "to/collections/sub"] {
+            assert!(synced.contains(&dir.join(folder)), "{folder} not synced");
+        }
+        assert!(synced.contains(&dir), "the name of to not synced");
         let text = |p: &str| std::fs::read_to_string(dir.join("to").join(p)).unwrap();
         assert_eq!(
             (text("config"), text("collections/a.gqv")),
