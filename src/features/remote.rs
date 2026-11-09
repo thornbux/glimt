@@ -1370,7 +1370,13 @@ mod tests {
         let taken = super::link_socket(&a, &b).unwrap_err();
         assert_eq!(taken.kind(), std::io::ErrorKind::AlreadyExists);
         drop(std::os::unix::net::UnixListener::bind(&c).unwrap());
-        super::link_socket(&a, &c).unwrap();
+        // A process another test starts holds a copy of the closed socket until it runs its
+        // program, so it can answer a moment longer, as in `claims_only_a_left_socket`.
+        let replaced = (0..50).any(|_| {
+            std::thread::sleep(std::time::Duration::from_millis(20));
+            super::link_socket(&a, &c).is_ok()
+        });
+        assert!(replaced);
         assert!(std::os::unix::net::UnixStream::connect(&c).is_ok());
         std::fs::remove_dir_all(dir).unwrap();
     }
