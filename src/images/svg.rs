@@ -4,6 +4,7 @@
 //! what resvg allocates and how long it takes are set by the file, not by Glimt.
 
 use crate::images::decode::{DECODE_BUDGET, read_limited};
+use crate::support::threads::lock_even_if_poisoned;
 use std::path::Path;
 
 /// The environment variable that makes Glimt draw the SVG it names for the Glimt that started
@@ -85,7 +86,7 @@ fn svg_images() -> resvg::usvg::ImageHrefResolver<'static> {
             None if entities_too_large(data) => return false,
             None => data.len() as u64,
         };
-        let mut spent = spent.lock().unwrap_or_else(|e| e.into_inner());
+        let mut spent = lock_even_if_poisoned(&spent);
         let (pixels, bytes) = (
             spent.0.saturating_add(decoded),
             spent.1.saturating_add(data.len() as u64),
@@ -460,6 +461,7 @@ fn limit_this_process(bytes: u64) {
         rlim_max: CHILD_SECONDS + 5,
     };
     let on_limit = on_processor_time_limit as extern "C" fn(libc::c_int);
+    #[allow(unsafe_code)]
     // SAFETY: setrlimit only reads the limit it is given, and it changes only this process.
     // The handler calls only write and _exit, which a signal handler may call. PR_SET_PDEATHSIG
     // takes a signal number and changes only this process.
@@ -478,6 +480,7 @@ fn limit_this_process(bytes: u64) {
 /// reads as a time limit (`TIMED_OUT`) on its errors.
 extern "C" fn on_processor_time_limit(_signal: libc::c_int) {
     let text = crate::files::external::TIMED_OUT.as_bytes();
+    #[allow(unsafe_code)]
     // SAFETY: write and _exit are safe in a signal handler, and the text is static.
     unsafe {
         libc::write(2, text.as_ptr().cast(), text.len());

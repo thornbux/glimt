@@ -730,6 +730,7 @@ fn block_matches(
 
 #[cfg(test)]
 mod tests {
+    use crate::support::threads::lock_even_if_poisoned;
     /// Move to Trash with a checked file that the search hides trashes nothing, says why, and
     /// leaves the selection as it was. It said the checked files were no longer in the list,
     /// and the user's selection was gone.
@@ -898,7 +899,7 @@ mod tests {
         let here = std::thread::current().id();
         group_block(&ks, 2, &mut grouped, &mut found, |k, _| {
             if k > 4 {
-                on.lock().unwrap().push(std::thread::current().id());
+                lock_even_if_poisoned(&on).push(std::thread::current().id());
             }
             match k {
                 0 => vec![4],

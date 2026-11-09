@@ -5,6 +5,7 @@
 //! `$LANGUAGE`, `$LC_ALL`, `$LC_MESSAGES` and `$LANG`, unless the `language` setting names one.
 //! Command-line output, `--remote` and the Help Manual stay English.
 
+use crate::support::threads::lock_even_if_poisoned;
 use std::collections::HashMap;
 use std::sync::RwLock;
 
@@ -112,7 +113,7 @@ pub fn set_language(setting: &str) {
 fn translation(k: usize) -> &'static Translation {
     static TRANSLATIONS: std::sync::Mutex<Vec<Option<&'static Translation>>> =
         std::sync::Mutex::new(Vec::new());
-    let mut translations = TRANSLATIONS.lock().unwrap_or_else(|e| e.into_inner());
+    let mut translations = lock_even_if_poisoned(&TRANSLATIONS);
     translations.resize(LANGUAGES.len(), None);
     translations[k].get_or_insert_with(|| {
         let parsed = Translation {

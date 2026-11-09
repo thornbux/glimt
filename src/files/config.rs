@@ -6,6 +6,7 @@
 use crate::features::print;
 use crate::files::file_io::{edit_shared, save_failed, write_later};
 use crate::model::listing::Sort;
+use crate::support::threads::lock_even_if_poisoned;
 use crate::ui::actions::Keys;
 use eframe::egui;
 use std::path::{Path, PathBuf};
@@ -592,7 +593,7 @@ impl Config {
             ),
             _ => (Config::default(), Vec::new()),
         };
-        *LAST_SAVED_TEXT.lock().unwrap_or_else(|e| e.into_inner()) = config.to_text();
+        *lock_even_if_poisoned(&LAST_SAVED_TEXT) = config.to_text();
         (config, problems)
     }
 
@@ -604,10 +605,8 @@ impl Config {
         }
         if let Some(p) = config_path() {
             let ours = self.to_text();
-            let before = std::mem::replace(
-                &mut *LAST_SAVED_TEXT.lock().unwrap_or_else(|e| e.into_inner()),
-                ours.clone(),
-            );
+            let before =
+                std::mem::replace(&mut *lock_even_if_poisoned(&LAST_SAVED_TEXT), ours.clone());
             // The file is read, merged and written in the background, because each toggle in a
             // menu saves, and the file's sync must not hold the window.
             write_later(move || {

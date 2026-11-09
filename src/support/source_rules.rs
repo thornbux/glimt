@@ -2696,3 +2696,133 @@ fn finds_a_rename_without_its_folder_synced() {
         [("a", false), ("b", true), ("c", true), ("d", false)]
     );
 }
+
+/// The lints in Cargo.toml's `[lints]` that hold Glimt's rules on unsafe code and on errors.
+/// Each must stay at deny: one taken out or lowered to warn lets an undocumented unsafe block or
+/// a panic on an error back in without a word from `cargo clippy`. No module turns one off for
+/// all its code either: an exception is an allow on the narrowest statement, with its reason.
+/// clippy.toml refuses `Mutex::lock`, so a lock goes through `threads::lock_even_if_poisoned`.
+#[test]
+fn the_lints_stay_on() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let cargo = std::fs::read_to_string(root.join("Cargo.toml")).unwrap();
+    let mut wrong = Vec::new();
+    for (section, lint) in [
+        ("[lints.rust]", "unsafe_code"),
+        ("[lints.clippy]", "undocumented_unsafe_blocks"),
+        ("[lints.clippy]", "unwrap_used"),
+        ("[lints.clippy]", "expect_used"),
+    ] {
+        let level = cargo.split_once(section).and_then(|(_, rest)| {
+            let line = (rest.lines().skip(1))
+                .take_while(|l| !l.starts_with('['))
+                .find(|l| l.split('=').next().map(str::trim) == Some(lint))?;
+            Some(line.split_once('=')?.1.trim().trim_matches('"').to_owned())
+        });
+        if !matches!(level.as_deref(), Some("deny" | "forbid")) {
+            wrong.push(format!(
+                "Cargo.toml: {section} {lint} is {level:?}, not deny"
+            ));
+        }
+    }
+    let lints = [
+        "unsafe_code",
+        "undocumented_unsafe",
+        "unwrap_used",
+        "expect_used",
+    ];
+    for (file, text) in rust_sources() {
+        for (i, line) in code_lines(&text).iter().enumerate() {
+            let for_a_module = line.trim_start().starts_with("#![") && !line.contains("(test,");
+            if for_a_module && lints.iter().any(|lint| line.contains(lint)) {
+                wrong.push(format!(
+                    "{file}:{}: a lint turned off for a whole module",
+                    i + 1
+                ));
+            }
+        }
+    }
+    let clippy = std::fs::read_to_string(root.join("clippy.toml")).unwrap();
+    if !clippy.contains("\"std::sync::Mutex::lock\"") {
+        wrong.push("clippy.toml: Mutex::lock is no longer refused".into());
+    }
+    assert!(wrong.is_empty(), "{}", wrong.join("\n"));
+}
+
+/// Returns the lines of the statements of `text` outside the tests that drop the result of one
+/// of file_io's writers, with `let _ =`, `_ =` or `.ok();`.
+fn dropped_writes_in(text: &str) -> Vec<usize> {
+    const WRITERS: [&str; 9] = [
+        "rename_never_over(",
+        "put_file(",
+        "edit_shared(",
+        "replace_file(",
+        "replace_existing(",
+        "replace_name(",
+        "replace_name_with(",
+        "write_beside(",
+        "create_file(",
+    ];
+    const KEYWORDS: [&str; 7] = ["if", "while", "match", "return", "let", "else", "for"];
+    let lines = code_lines(text);
+    let end = tests_start(&lines);
+    let mut found = Vec::new();
+    let (mut first_line, mut statement) = (0, String::new());
+    for (i, line) in lines[..end].iter().enumerate() {
+        for c in line.chars().chain([' ']) {
+            if !matches!(c, ';' | '{' | '}') {
+                if statement.trim().is_empty() {
+                    first_line = i + 1;
+                }
+                statement.push(c);
+                continue;
+            }
+            let words = statement.trim();
+            let starts_with_keyword = KEYWORDS.contains(&words.split(' ').next().unwrap_or(""));
+            let dropped = words.starts_with("let _ =")
+                || words.starts_with("_ =")
+                || (c == ';'
+                    && words.ends_with(".ok()")
+                    && !words.contains('=')
+                    && !starts_with_keyword);
+            if dropped && WRITERS.iter().any(|writer| words.contains(writer)) {
+                found.push(first_line);
+            }
+            statement.clear();
+        }
+    }
+    found
+}
+
+/// A write that fails is told, never dropped: the result of each of file_io's writers is
+/// handled, or passed on with `?`. A copy, a sidecar or one of Glimt's own files that was not
+/// written would otherwise look saved. `write_atomic` and `write_later` tell their failures
+/// themselves.
+#[test]
+fn write_results_are_not_dropped() {
+    let mut wrong = Vec::new();
+    for (file, text) in rust_sources() {
+        wrong.extend(
+            dropped_writes_in(&text)
+                .iter()
+                .map(|line| format!("{file}:{line}")),
+        );
+    }
+    assert!(
+        wrong.is_empty(),
+        "the result of a write dropped (handle it, or pass it on with ?):\n{}",
+        wrong.join("\n")
+    );
+}
+
+/// The check above finds a dropped write in each of its forms, also over several lines, and
+/// leaves a write that is handled alone.
+#[test]
+fn finds_a_dropped_write() {
+    let text = "fn a() {\n    let _ = replace_file(p, b);\n    _ = create_file(p, b);\n    \
+        put_file(a, b,\n        true).ok();\n    let _ =\n        crate::files::file_io::\
+        rename_never_over(a, b);\n    if let Err(e) = replace_name(p, b) {\n        say(e);\n    \
+        }\n    replace_file(p, b)?;\n    let made = create_file(p, b).ok();\n    \
+        let _ = tx.send(1);\n}\n";
+    assert_eq!(dropped_writes_in(text), [2, 3, 4, 6]);
+}

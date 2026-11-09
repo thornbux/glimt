@@ -415,10 +415,11 @@ impl FileOperations {
     /// Our own clipboard, made the first time. On X11 the clipboard is served from it, so it is
     /// kept.
     pub(crate) fn clipboard(&mut self) -> Result<&mut arboard::Clipboard, arboard::Error> {
-        if self.clipboard.is_none() {
-            self.clipboard = Some(arboard::Clipboard::new()?);
-        }
-        Ok(self.clipboard.as_mut().unwrap())
+        let clipboard = match self.clipboard.take() {
+            Some(clipboard) => clipboard,
+            None => arboard::Clipboard::new()?,
+        };
+        Ok(self.clipboard.insert(clipboard))
     }
 }
 
@@ -1715,6 +1716,7 @@ impl crate::App {
             // The frames go into a folder made new for them. A name that is taken, also by a
             // folder another export made a moment ago or by a link, is passed over, so two
             // exports never write into the same folder.
+            #[allow(clippy::expect_used)] // find on an endless range of names ends with a name
             let (made, folder) = match only {
                 Some(_) => (Ok(()), to.clone()),
                 None => (1..)
@@ -1953,7 +1955,7 @@ fn left_by_trash(
 fn file_system_type_or_test(dir: &Path) -> Option<String> {
     #[cfg(test)]
     {
-        let mounts = TEST_MOUNTS.lock().unwrap();
+        let mounts = crate::support::threads::lock_even_if_poisoned(&TEST_MOUNTS);
         let kind = mounts.iter().find(|(at, _)| dir.starts_with(at));
         if let Some((_, kind)) = kind {
             return Some(kind.clone());
@@ -1966,7 +1968,7 @@ fn file_system_type_or_test(dir: &Path) -> Option<String> {
 /// mounted there. With `kind` as `None`, the folder is on its real file system again.
 #[cfg(test)]
 pub(crate) fn test_mount(dir: &Path, kind: Option<&str>) {
-    let mut mounts = TEST_MOUNTS.lock().unwrap();
+    let mut mounts = crate::support::threads::lock_even_if_poisoned(&TEST_MOUNTS);
     mounts.retain(|(at, _)| at != dir);
     mounts.extend(kind.map(|kind| (dir.to_path_buf(), kind.to_owned())));
 }
@@ -2365,6 +2367,7 @@ pub(crate) fn new_place(path: &Path, moved: &HashMap<&Path, &Path>) -> Option<Pa
 #[cfg(test)]
 mod tests {
     use crate::support::test_support::{app_on, contract_folder, run_background_until};
+    use crate::support::threads::lock_even_if_poisoned;
 
     /// Nothing is deleted while a list is read, as its entries are not yet checked to be files
     /// then. A folder named in the list was moved to the trash as one of its entries.
@@ -3971,7 +3974,10 @@ mod tests {
             panic!("the Undo was lost");
         };
         assert_eq!(trash_move.files, [a.clone(), b]);
-        assert_eq!(*trash_move.marks.lock().unwrap(), [(a.clone(), (1, 3))]);
+        assert_eq!(
+            *lock_even_if_poisoned(&trash_move.marks),
+            [(a.clone(), (1, 3))]
+        );
         assert_eq!(trash_move.collection, Some((gqv, vec![(0, a)])));
         std::fs::remove_dir_all(dir).unwrap();
     }

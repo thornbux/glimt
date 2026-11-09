@@ -5,6 +5,7 @@
 use crate::files::config::Config;
 use crate::metadata::exif;
 use crate::support::lang::tr;
+use crate::support::threads::lock_even_if_poisoned;
 use eframe::egui;
 use std::collections::HashMap;
 use std::path::Path;
@@ -242,14 +243,12 @@ fn converted(
         return img;
     }
     let key = (from, screen);
-    let cached = (c.transforms.lock().unwrap_or_else(|e| e.into_inner()))
-        .get(&key)
-        .cloned();
+    let cached = (lock_even_if_poisoned(&c.transforms)).get(&key).cloned();
     let t = cached.unwrap_or_else(|| {
         // The transform is made without the cache locked. A large or crafted profile can take
         // long to parse, and the other decoding threads should not wait for it.
         let t = make_transform(c, icc, from, screen);
-        let mut transforms = c.transforms.lock().unwrap_or_else(|e| e.into_inner());
+        let mut transforms = lock_even_if_poisoned(&c.transforms);
         // The cache keeps a transform for each profile the images have. Profiles that differ
         // only in the date written into them (exports of one editor) count as others, so a few
         // dozen are kept and then all are made again.
@@ -324,7 +323,7 @@ pub fn set_screen(path: &str) -> Result<bool, String> {
 /// Wait while the desktop's screen profile is being read at start, at most until the deadline.
 pub fn wait_for_screen() {
     let (lock, ready) = &SCREEN_WAIT;
-    let mut until = lock.lock().unwrap_or_else(|e| e.into_inner());
+    let mut until = lock_even_if_poisoned(lock);
     while let Some(deadline) = *until {
         let Some(left) = deadline.checked_duration_since(Instant::now()) else {
             *until = None;
@@ -412,7 +411,7 @@ pub fn read_desktop_screen(ctx: &egui::Context) -> mpsc::Receiver<Option<String>
     std::thread::spawn(move || {
         let path = desktop_screen_profile();
         let (lock, ready) = &SCREEN_WAIT;
-        let mut until = lock.lock().unwrap_or_else(|e| e.into_inner());
+        let mut until = lock_even_if_poisoned(lock);
         if until.is_some_and(|t| Instant::now() < t) {
             // An error is shown when the window takes it up.
             if let Some(path) = &path {
@@ -534,13 +533,14 @@ pub(crate) fn set_up_colour(config: &Config) -> Option<String> {
     set_intent(&config.rendering_intent);
     if config.desktop_profile && config.color_management {
         let deadline = Instant::now() + std::time::Duration::from_millis(SCREEN_WAIT_MS);
-        *SCREEN_WAIT.0.lock().unwrap_or_else(|e| e.into_inner()) = Some(deadline);
+        *lock_even_if_poisoned(&SCREEN_WAIT.0) = Some(deadline);
     }
     error
 }
 
 #[cfg(test)]
 mod tests {
+    use crate::support::threads::lock_even_if_poisoned;
     /// A damaged colour profile in a photo gives the photo as it is, never a panic.
     #[test]
     fn survives_broken_device_lists() {
@@ -597,7 +597,7 @@ mod tests {
     /// that is no profile leaves the one there; an sRGB screen profile counts as none.
     #[test]
     fn shows_through_a_screen_profile() {
-        let _held = super::COLOUR_TEST.lock().unwrap_or_else(|e| e.into_inner());
+        let _held = lock_even_if_poisoned(&super::COLOUR_TEST);
         let dir = std::env::temp_dir().join(format!("glimt-screen-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let write = |name: &str, bytes: Vec<u8>| {
@@ -664,7 +664,7 @@ mod tests {
         };
         let c = super::COLOUR.read().unwrap();
         assert!(matches!(
-            c.transforms.lock().unwrap().get(&(key, false)),
+            lock_even_if_poisoned(&c.transforms).get(&(key, false)),
             Some(None)
         ));
         drop(c);
@@ -675,7 +675,7 @@ mod tests {
             super::to_display(grey(), Some(&dated));
         }
         let c = super::COLOUR.read().unwrap();
-        assert!(c.transforms.lock().unwrap().len() <= 64);
+        assert!(lock_even_if_poisoned(&c.transforms).len() <= 64);
         drop(c);
         super::set_screen("").unwrap();
         std::fs::remove_dir_all(dir).unwrap();
@@ -686,7 +686,7 @@ mod tests {
     #[test]
     fn rendering_intent_picks_its_table() {
         use moxcms::{LutDataType, LutStore, LutType, LutWarehouse, Matrix3d};
-        let _held = super::COLOUR_TEST.lock().unwrap_or_else(|e| e.into_inner());
+        let _held = lock_even_if_poisoned(&super::COLOUR_TEST);
         // RGB to XYZ through a 2×2×2 grid, red and blue swapped in the colorimetric one.
         let table = |swap: bool| {
             let mut clut = Vec::new();
@@ -740,7 +740,7 @@ mod tests {
     #[test]
     fn hands_out_the_files_colours_whatever_the_view() {
         use std::sync::atomic::Ordering;
-        let _held = super::COLOUR_TEST.lock().unwrap_or_else(|e| e.into_inner());
+        let _held = lock_even_if_poisoned(&super::COLOUR_TEST);
         let grey = || {
             image::DynamicImage::from(image::RgbaImage::from_pixel(
                 1,
@@ -798,7 +798,7 @@ mod tests {
             );
             PARSED.store(true, Ordering::Relaxed);
         }
-        let _held = super::COLOUR_TEST.lock().unwrap_or_else(|e| e.into_inner());
+        let _held = lock_even_if_poisoned(&super::COLOUR_TEST);
         // A profile no other test has, so that it is not in the cache already.
         let mut p3 = moxcms::ColorProfile::new_display_p3().encode().unwrap();
         p3[31] = 177;
@@ -821,7 +821,7 @@ mod tests {
             );
             READ.store(true, Ordering::Relaxed);
         }
-        let _held = super::COLOUR_TEST.lock().unwrap_or_else(|e| e.into_inner());
+        let _held = lock_even_if_poisoned(&super::COLOUR_TEST);
         super::READING.set(Some(check));
         super::colour_source(std::path::Path::new("/nonexistent/glimt.jpg"));
         super::READING.set(None);
@@ -832,11 +832,12 @@ mod tests {
     #[test]
     fn waits_for_the_screen_profile_until_the_deadline() {
         let start = std::time::Instant::now();
-        *super::SCREEN_WAIT.0.lock().unwrap() = Some(start + std::time::Duration::from_millis(40));
+        *lock_even_if_poisoned(&super::SCREEN_WAIT.0) =
+            Some(start + std::time::Duration::from_millis(40));
         super::wait_for_screen();
         let waited = start.elapsed().as_millis();
         assert!((35..1000).contains(&waited), "{waited} ms");
-        assert!(super::SCREEN_WAIT.0.lock().unwrap().is_none());
+        assert!(lock_even_if_poisoned(&super::SCREEN_WAIT.0).is_none());
         // A second wait of its own would take at least the 40 ms above. The bound leaves room
         // for a busy machine running the tests in parallel, where 5 ms was too tight.
         let start = std::time::Instant::now();

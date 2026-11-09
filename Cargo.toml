@@ -75,6 +75,19 @@ portals = ["dep:zbus", "dep:futures-lite", "dep:serde"]
 # test-hooks, which only the release tests build.
 full = ["video", "heic", "avif", "jxl", "svg", "marks", "accessibility", "portals"]
 
+# The rules on unsafe code and on errors, checked by `cargo clippy`. Each unsafe block has
+# `#[allow(unsafe_code)]` on the narrowest statement or function and a `// SAFETY:` comment. An
+# unwrap or expect that cannot fail has `#[allow(clippy::unwrap_used)]` or `expect_used` with
+# its reason; the tests keep theirs (main.rs). `source_rules::the_lints_stay_on` fails when one
+# is taken out or lowered.
+[lints.rust]
+unsafe_code = "deny"
+
+[lints.clippy]
+undocumented_unsafe_blocks = "deny"
+unwrap_used = "deny"
+expect_used = "deny"
+
 # The checks before a commit (AGENTS.md, tools/check.sh, CI): optimised as the release, so the
 # tests' timings hold, but built in many parts and incrementally, which takes a fraction of the
 # time after a small change. The release itself is built with --release, as before.

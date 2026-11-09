@@ -7,6 +7,7 @@ use crate::model::folder::add_sent_sizes;
 use crate::model::listing::{SORTS, Types, list_folder};
 use crate::support::format::{count, local_time, middle_cut, size_text, thousands};
 use crate::support::lang::tr;
+use crate::support::threads::lock_even_if_poisoned;
 use crate::support::threads::{Receiving, Took};
 use crate::ui::actions::Action;
 use crate::ui::dialogs::{Pick, entered};
@@ -166,7 +167,7 @@ impl Thumbs {
 
     /// The files pan view shows, sorted, for the workers to make.
     pub(crate) fn pan_view_shows(&self, files: Vec<usize>) {
-        self.on_screen.lock().unwrap()[1] = files;
+        lock_even_if_poisoned(&self.on_screen)[1] = files;
     }
 
     /// The rows the file list showed last.
@@ -878,7 +879,7 @@ impl crate::App {
         if !shown.is_empty() {
             let mut view = shown.clone();
             view.sort_unstable();
-            self.thumbs.on_screen.lock().unwrap()[0] = view;
+            lock_even_if_poisoned(&self.thumbs.on_screen)[0] = view;
             let row = match self.list.matches() {
                 Some(m) => self.shown_row(m).unwrap_or(0),
                 None => self.list.shown(),
@@ -1502,7 +1503,7 @@ impl crate::App {
             None => near.collect(),
         };
         view.sort_unstable();
-        self.thumbs.on_screen.lock().unwrap()[0] = view;
+        lock_even_if_poisoned(&self.thumbs.on_screen)[0] = view;
         self.thumbs.list_rows = rows.clone();
         self.trim_thumbs(rows);
     }

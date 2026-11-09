@@ -5,6 +5,7 @@
 //! started.
 
 use crate::model::listing::{AVIF_EXTS, HEIC_EXTS, has_ext};
+use crate::support::threads::lock_even_if_poisoned;
 use std::path::{Path, PathBuf};
 
 /// ffmpeg's input options for files that come from anywhere. They allow only local files (no
@@ -54,7 +55,7 @@ impl Watchdog {
                 if watchdog_state.ended.load(Relaxed) {
                     return;
                 }
-                if watchdog_state.fed.lock().unwrap().elapsed() >= limit {
+                if lock_even_if_poisoned(&watchdog_state.fed).elapsed() >= limit {
                     watchdog_state.gave_up.store(true, Relaxed);
                     stop_group(-(pid as i32), || watchdog_state.ended.load(Relaxed));
                     return;
@@ -66,7 +67,7 @@ impl Watchdog {
 
     /// Tells the watchdog that the program made progress, so its `limit` starts again.
     pub fn feed(&self) {
-        *self.state.fed.lock().unwrap() = std::time::Instant::now();
+        *lock_even_if_poisoned(&self.state.fed) = std::time::Instant::now();
     }
 
     pub fn gave_up(&self) -> bool {
@@ -318,15 +319,21 @@ pub fn run_limited(
 /// KILL to what is left. This is the one way Glimt stops a program, used by the `Watchdog`
 /// (which `output_of` runs too) and for a program that gave too much.
 fn stop_group(group: i32, ended: impl Fn() -> bool) {
+    #[allow(unsafe_code)]
     // SAFETY: kill has no preconditions, and the group is ours and not yet waited for.
-    unsafe { libc_kill(group, 15) };
+    unsafe {
+        libc_kill(group, 15)
+    };
     let until = std::time::Instant::now() + std::time::Duration::from_secs(1);
     while !ended() && std::time::Instant::now() < until {
         std::thread::sleep(std::time::Duration::from_millis(20));
     }
     if !ended() {
+        #[allow(unsafe_code)]
         // SAFETY: The same holds as above.
-        unsafe { libc_kill(group, 9) };
+        unsafe {
+            libc_kill(group, 9)
+        };
     }
 }
 
@@ -349,14 +356,20 @@ pub fn stop_process_group(pid: u32) {
     // In a Flatpak, flatpak-spawn passes INT on to the program's whole group on the host, but
     // TERM only to the program, so what it started (an ffmpeg, a speech) would go on.
     if in_flatpak() {
+        #[allow(unsafe_code)]
         // SAFETY: This is a signal to a group of ours, as in stop_group.
-        unsafe { libc_kill(group, 2) };
+        unsafe {
+            libc_kill(group, 2)
+        };
     }
+    #[allow(unsafe_code)]
     // SAFETY: The same holds as in stop_group, and signal 0 only asks whether the group is
     // there.
-    stop_group(group, || unsafe { libc_kill(group, 0) } != 0);
+    let is_gone = || unsafe { libc_kill(group, 0) } != 0;
+    stop_group(group, is_gone);
 }
 
+#[allow(unsafe_code)] // declarations only: each call is an unsafe block
 unsafe extern "C" {
     #[link_name = "kill"]
     fn libc_kill(pid: i32, signal: i32) -> i32;
@@ -504,6 +517,7 @@ pub fn gio_mount(uri: &str, login: Option<&Login>) -> Mounted {
     // When a server never answers (a NAS asleep, a VPN down), gio is ended after a minute and
     // the mount is told as failed, instead of "Connecting…" and the busy pointer for ever.
     let watchdog = Watchdog::new(child.id(), PROGRAM_TIME_LIMIT * 2);
+    #[allow(clippy::unwrap_used)] // stoppable pipes stdout and the spawn above pipes stdin
     let (mut out, mut input) = (child.stdout.take().unwrap(), child.stdin.take().unwrap());
     // Prompts end in ": " without a newline, and the next one is printed after the answer.
     let (mut text, mut answered, mut buf) = (String::new(), 0, [0; 512]);
@@ -840,7 +854,7 @@ fn is_program_found(on_host: bool, program: &str) -> bool {
     static KNOWN: std::sync::OnceLock<Known> = std::sync::OnceLock::new();
     let known = KNOWN.get_or_init(Default::default);
     let key = (on_host, program.to_owned());
-    if let Some(&has) = known.lock().unwrap().get(&key) {
+    if let Some(&has) = lock_even_if_poisoned(known).get(&key) {
         return has;
     }
     let mut sh = match on_host {
@@ -850,7 +864,7 @@ fn is_program_found(on_host: bool, program: &str) -> bool {
     sh.args(["-c", "command -v -- \"$1\" >/dev/null 2>&1", "sh", program]);
     let has = run_limited(sh, 1 << 10, PROGRAM_TIME_LIMIT).is_ok();
     if has {
-        known.lock().unwrap().insert(key, true);
+        lock_even_if_poisoned(known).insert(key, true);
     }
     has
 }
@@ -1052,8 +1066,11 @@ mod tests {
         // its state is read rather than asked with signal 0.
         let stat = std::fs::read_to_string(format!("/proc/{helper}/stat")).unwrap_or_default();
         let alive = (stat.rsplit(')').next()).is_some_and(|s| s.trim_start().starts_with('S'));
+        #[allow(unsafe_code)]
         // SAFETY: This ends the test's own helper.
-        unsafe { super::libc_kill(helper, 9) };
+        unsafe {
+            super::libc_kill(helper, 9)
+        };
         std::fs::remove_file(pid_file).unwrap();
         assert!(alive, "the watchdog signalled the group after the wait");
     }

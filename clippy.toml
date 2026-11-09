@@ -77,4 +77,5 @@ disallowed-methods = [
     { path = "std::os::linux::fs::MetadataExt::st_ino", reason = "save::file_id or file_id_from_metadata: a file system that numbers every file 0 would make two files one" },
     { path = "std::os::unix::fs::DirEntryExt::ino", reason = "save::file_id or file_id_from_metadata: a file system that numbers every file 0 would make two files one" },
     { path = "glimt::files::file_io::file_lock", reason = "file_io::edit_shared: lock, read, change and write a shared file as one" },
+    { path = "std::sync::Mutex::lock", reason = "threads::lock_even_if_poisoned: a panic caught in one thread must not stop the others at the lock" },
 ]

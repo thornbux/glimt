@@ -2,6 +2,7 @@
 
 use crate::files::config::WindowState;
 use crate::support::format::fill_template;
+use crate::support::threads::lock_even_if_poisoned;
 use crate::ui::actions::{Action, KIOSK_ACTIONS};
 use crate::{features::remote, files::external, tf};
 use eframe::egui;
@@ -272,11 +273,7 @@ impl crate::App {
             return;
         }
         self.window.inhibit_asked = on;
-        let mut held = self
-            .window
-            .inhibitor
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
+        let mut held = lock_even_if_poisoned(&self.window.inhibitor);
         held.0 += 1;
         let turn = held.0;
         let old = held.1.take();
@@ -336,7 +333,7 @@ impl crate::App {
                     std::thread::spawn(move || child.wait());
                 })
             };
-            let mut held = inhibitor.lock().unwrap_or_else(|e| e.into_inner());
+            let mut held = lock_even_if_poisoned(&inhibitor);
             // Full screen ended or started again meanwhile: this one is not wanted.
             if held.0 == turn {
                 held.1 = Some(end);

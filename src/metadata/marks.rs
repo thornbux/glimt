@@ -5,6 +5,7 @@
 
 use crate::files::config::fits_on_a_line;
 use crate::files::trash::ForgottenMarks;
+use crate::support::threads::lock_even_if_poisoned;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
@@ -186,9 +187,7 @@ fn file_stamp(file: &Path) -> Option<FileStamp> {
 
 fn known_stamps()
 -> std::sync::MutexGuard<'static, std::collections::BTreeMap<PathBuf, Option<FileStamp>>> {
-    KNOWN_STAMPS
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner)
+    lock_even_if_poisoned(&KNOWN_STAMPS)
 }
 
 /// Returns whether this window's own changes are still on their way to the marks file.
@@ -277,9 +276,7 @@ fn apply_edit_to_file(map: &mut HashMap<PathBuf, (u8, u8)>, edit: &Edit) {
         let taken = (map.iter())
             .filter(|(k, _)| k.ancestors().any(|a| gone.contains(a)))
             .map(|(k, &v)| (k.clone(), v));
-        (for_undo.lock())
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .extend(taken);
+        lock_even_if_poisoned(for_undo).extend(taken);
     }
     apply_edit(map, edit);
 }
@@ -455,6 +452,7 @@ pub fn text((bits, stars): (u8, u8)) -> String {
 
 #[cfg(test)]
 mod tests {
+    use crate::support::threads::lock_even_if_poisoned;
     /// A name in another encoding (Latin-1) keeps its bytes, read from the marks file.
     #[test]
     fn reads_a_name_that_is_not_utf8() {
@@ -485,7 +483,7 @@ mod tests {
         let for_undo = crate::files::trash::ForgottenMarks::default();
         marks.forget(std::slice::from_ref(&b), Some(for_undo.clone()));
         super::write(&file, &super::SENT.with(|sent| sent.take()));
-        let was = for_undo.lock().unwrap().clone();
+        let was = lock_even_if_poisoned(&for_undo).clone();
         assert_eq!((marks.get(&b), was), ((0, 0), vec![(b.clone(), (0, 2))]));
         super::TEST_FILE.with(|f| *f.borrow_mut() = None);
         std::fs::remove_dir_all(dir).unwrap();
@@ -546,7 +544,7 @@ mod tests {
         super::TEST_WRITES_QUEUED.with(|q| q.set(false));
         // The writer thread then writes the queued edits in order.
         super::write(&file, &super::SENT.with(|sent| sent.take()));
-        let mut was = for_undo.lock().unwrap().clone();
+        let mut was = lock_even_if_poisoned(&for_undo).clone();
         was.sort();
         assert_eq!(was, [(a, (0, 4)), (b, (0, 2))]);
         assert!(super::parse(&std::fs::read(&file).unwrap()).is_empty());

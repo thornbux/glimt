@@ -5,6 +5,7 @@
 //! `geeqie --remote`. The desktop files of added formats are read with the same `desktop_files`
 //! and `desktop_entry_values`.
 
+use crate::support::threads::lock_even_if_poisoned;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
@@ -97,7 +98,7 @@ impl Tool {
                     .spawn()
                     .map_err(|e| format!("{}: {e}", program.to_string_lossy()))?;
             let pid = child.id();
-            running.lock().unwrap().push((self.name.clone(), pid));
+            lock_even_if_poisoned(running).push((self.name.clone(), pid));
             // Its errors are read in a thread of their own, and only the last of them are kept.
             // A program the tool started in the background (an editor, `xdg-open`) may hold
             // them open for hours, so the tool is waited for, not the end of its errors.
@@ -108,7 +109,7 @@ impl Tool {
             });
             #[allow(clippy::disallowed_methods)] // the user's own program, which may take long
             let status = child.wait();
-            let mut now = running.lock().unwrap();
+            let mut now = lock_even_if_poisoned(running);
             match now.iter().position(|r| r.1 == pid) {
                 Some(at) => drop(now.remove(at)),
                 None => return Err(crate::support::lang::tr("stopped").into()),
@@ -528,10 +529,10 @@ mod tests {
         let stopping = {
             let running = running.clone();
             std::thread::spawn(move || {
-                while running.lock().unwrap().is_empty() {
+                while lock_even_if_poisoned(&running).is_empty() {
                     std::thread::sleep(std::time::Duration::from_millis(10));
                 }
-                let (_, pid) = running.lock().unwrap().remove(0);
+                let (_, pid) = lock_even_if_poisoned(&running).remove(0);
                 crate::files::external::stop_process_group(pid);
             })
         };

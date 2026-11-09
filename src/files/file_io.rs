@@ -6,6 +6,7 @@
 //! its folder (`sync_folder_of`) before they run. Glimt's own files are written in one thread, in
 //! order (`write_later`), and `flush` waits for them before Glimt ends.
 
+use crate::support::threads::lock_even_if_poisoned;
 use std::path::{Path, PathBuf};
 
 /// A file Glimt could not save, for the window to tell: from any thread.
@@ -257,6 +258,7 @@ fn unescape_mount(bytes: &[u8]) -> PathBuf {
 /// which falls back where it is not to be had.
 fn rename_noreplace(from: &Path, to: &Path) -> std::io::Result<()> {
     use std::os::unix::ffi::OsStrExt;
+    #[allow(unsafe_code)] // declarations only: each call is an unsafe block
     unsafe extern "C" {
         fn renameat2(
             olddirfd: std::ffi::c_int,
@@ -272,6 +274,7 @@ fn rename_noreplace(from: &Path, to: &Path) -> std::io::Result<()> {
         std::ffi::CString::new(from.as_os_str().as_bytes())?,
         std::ffi::CString::new(to.as_os_str().as_bytes())?,
     );
+    #[allow(unsafe_code)]
     // SAFETY: two valid C strings for the call's duration; renameat2 reads them and touches
     // nothing else of ours.
     let r = unsafe {
@@ -399,7 +402,7 @@ pub fn read_or_none(path: &Path) -> std::io::Result<Option<Vec<u8>>> {
 
 /// The last file Glimt could not save, once.
 pub fn take_save_error() -> Option<String> {
-    SAVE_ERROR.lock().unwrap_or_else(|e| e.into_inner()).take()
+    lock_even_if_poisoned(&SAVE_ERROR).take()
 }
 
 /// `work` in the one thread that writes Glimt's own files, in the order given.
@@ -565,6 +568,7 @@ pub(crate) fn check_writable(path: &Path) -> std::io::Result<()> {
         return Ok(());
     };
     let name = std::ffi::CString::new(path.as_os_str().as_bytes())?;
+    #[allow(unsafe_code)]
     // SAFETY: `name` is a C string that lives through the call, and access only reads it.
     let allowed = unsafe { libc::access(name.as_ptr(), libc::W_OK) } == 0;
     match allowed && !meta.permissions().readonly() {
@@ -680,7 +684,7 @@ pub fn write_atomic(path: &Path, bytes: impl AsRef<[u8]>) {
 /// A file that could not be saved, told on the terminal and, once, in the window.
 pub fn save_failed(error: String) {
     eprintln!("{error}");
-    *SAVE_ERROR.lock().unwrap_or_else(|e| e.into_inner()) = Some(error);
+    *lock_even_if_poisoned(&SAVE_ERROR) = Some(error);
 }
 
 #[cfg(test)]
