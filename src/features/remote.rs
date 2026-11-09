@@ -750,6 +750,14 @@ fn send_and_print_answer(path: &std::path::Path, command: &str) -> bool {
 /// logout, and costs one refused connection each time; remove such sockets at start, under
 /// `bind_socket`'s lock, if they ever pile up.
 fn live_sockets(dir: Option<PathBuf>) -> Vec<PathBuf> {
+    let sockets = socket_files(dir).into_iter();
+    sockets.filter(|p| UnixStream::connect(p).is_ok()).collect()
+}
+
+/// The sockets in `dir`, whether or not a Glimt answers on them. A command is sent to these,
+/// not to `live_sockets`, whose test of each socket would be a connection of its own, without
+/// a command, to every window.
+fn socket_files(dir: Option<PathBuf>) -> Vec<PathBuf> {
     let entries = dir.and_then(|d| std::fs::read_dir(d).ok());
     entries
         .into_iter()
@@ -757,7 +765,6 @@ fn live_sockets(dir: Option<PathBuf>) -> Vec<PathBuf> {
         .flatten()
         .map(|e| e.path())
         .filter(|p| p.extension().is_some_and(|x| x == "sock"))
-        .filter(|p| UnixStream::connect(p).is_ok())
         .collect()
 }
 
@@ -769,23 +776,22 @@ pub fn send(command: &str) -> bool {
     if last.is_some_and(|p| send_and_print_answer(&p, command)) {
         return true;
     }
-    live_sockets(runtime_dir())
+    socket_files(runtime_dir())
         .iter()
         .any(|p| send_and_print_answer(p, command))
 }
 
 /// Sends `command` to every Glimt started with `--name name`, as several windows may share a
-/// name. Returns false if none runs.
-pub fn send_to(name: &str, command: &str) -> bool {
-    let named = live_sockets(runtime_dir())
-        .into_iter()
-        .filter(|p| is_named(p, name));
+/// name, in the runtime folder `dir`. Returns false if none runs. Only their sockets are
+/// connected to, so the windows of other names see no connection.
+pub fn send_to(dir: Option<PathBuf>, name: &str, command: &str) -> bool {
+    let named = socket_files(dir).into_iter().filter(|p| is_named(p, name));
     named.filter(|p| send_and_print_answer(p, command)).count() > 0
 }
 
 /// Send `command` to every running Glimt. Returns how many got it.
 pub fn send_all(command: &str) -> usize {
-    live_sockets(runtime_dir())
+    socket_files(runtime_dir())
         .iter()
         .filter(|p| send_and_print_answer(p, command))
         .count()
@@ -871,7 +877,7 @@ pub fn client(
     }
     let sent = match (name, to_all) {
         (_, true) => send_all(&command) > 0,
-        (Some(name), false) => send_to(name, &command),
+        (Some(name), false) => send_to(runtime_dir(), name, &command),
         (None, false) => send(&command),
     };
     if timed_out() {
@@ -1370,6 +1376,20 @@ mod tests {
         assert!(UnixStream::connect(socket("left.42")).is_ok());
         assert!(!socket("right").exists());
         assert_eq!(std::fs::read_to_string(&focused).unwrap(), "7");
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A command sent to a name connects only to the windows of that name, so a window of
+    /// another name sees no connection that sends nothing.
+    #[test]
+    fn a_command_to_a_name_connects_only_to_its_windows() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-send-to-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let other = std::os::unix::net::UnixListener::bind(dir.join("glimt-right.sock")).unwrap();
+        other.set_nonblocking(true).unwrap();
+        assert!(!super::send_to(Some(dir.clone()), "left", "next"));
+        let accepted = other.accept();
+        assert!(accepted.is_err(), "the window named right was connected to");
         std::fs::remove_dir_all(dir).unwrap();
     }
 
