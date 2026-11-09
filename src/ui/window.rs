@@ -399,7 +399,7 @@ impl crate::App {
             "path" => path.clone(),
             "folder" => folder.clone(),
             "app" => app.clone(),
-            "id" => remote::socket_id(),
+            "id" => remote::window_id(),
             _ => String::new(),
         });
         if !own.trim().is_empty() {

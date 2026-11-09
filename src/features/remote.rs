@@ -57,7 +57,7 @@ pub const COMMANDS: &[(&str, &str)] = &[
     ),
     (
         "identify",
-        "Show this window's ID (%id%: its --name or process ID) large over the image for a few seconds",
+        "Show this window's ID (%id%: its --name or process ID, or both, as left (4242), when it shares its name) large over the image for a few seconds",
     ),
     ("quit", "Close Glimt"),
     (
@@ -658,9 +658,8 @@ fn was_not_done() -> bool {
     WAS_NOT_DONE.load(std::sync::atomic::Ordering::Relaxed)
 }
 
-/// The ID that this Glimt listens as, which is its --name or else its process ID. The %id% of
-/// the window title and `--remote identify` show it.
-pub fn socket_id() -> String {
+/// The ID that this Glimt listens as, which is its --name or else its process ID.
+fn socket_id() -> String {
     given_name().unwrap_or_else(|| instance_id().to_owned())
 }
 
@@ -672,13 +671,35 @@ fn own_socket_id() -> String {
         .unwrap_or_else(socket_id)
 }
 
-/// Whether the socket at `path` is one of the windows of the --name `name`: the first one's
-/// `glimt-NAME.sock`, or `glimt-NAME.ID.sock` of a window that shares the name. A name holds no
-/// dot, so the part before the first dot is the name.
+/// The IDs that `--name` reaches this window by, as the %id% of the window title and
+/// `--remote identify` show them: its name or process ID, and for a window that shares its name
+/// with another, the name and its own ID, as `left (4242)`.
+pub fn window_id() -> String {
+    shown_id(&own_socket_id())
+}
+
+/// Returns the socket ID `id` as the user reads it: `NAME.ID` as `NAME (ID)`, and any other as
+/// it is.
+fn shown_id(id: &str) -> String {
+    match id.split_once('.') {
+        Some((name, own)) => format!("{name} ({own})"),
+        None => id.to_owned(),
+    }
+}
+
+/// Whether the socket at `path` is one of the windows that `--name name` reaches: the first
+/// one's `glimt-NAME.sock`, or `glimt-NAME.ID.sock` of a window that shares the name, which its
+/// own ID after the dot reaches too. A name holds no dot, so the part before the first dot is
+/// the name.
 fn is_named(path: &std::path::Path, name: &str) -> bool {
     let stem = path.file_stem().and_then(|s| s.to_str());
-    let id = stem.and_then(|s| s.strip_prefix("glimt-"));
-    id.and_then(|id| id.split('.').next()) == Some(name)
+    let Some(id) = stem.and_then(|s| s.strip_prefix("glimt-")) else {
+        return false;
+    };
+    match id.split_once('.') {
+        Some((first, own)) => first == name || own == name,
+        None => id == name,
+    }
 }
 
 fn socket(id: &str) -> Option<PathBuf> {
@@ -1273,6 +1294,13 @@ mod tests {
         assert!(!named("/run/glimt/glimt-4242.sock", "left"));
         assert!(named("/run/glimt/glimt-4242.sock", "4242"));
         assert!(!named("/run/glimt/focused", "focused"));
+        // A window that shares a name is reached alone by its own ID, and shows both.
+        assert!(named("/run/glimt/glimt-left.4242.sock", "4242"));
+        assert!(named("/run/glimt/glimt-left.app-1-4242.sock", "app-1-4242"));
+        assert!(!named("/run/glimt/glimt-left.4242.sock", "424"));
+        assert!(!named("/run/glimt/glimt-left.sock", "4242"));
+        assert_eq!(super::shown_id("left.4242"), "left (4242)");
+        assert_eq!(super::shown_id("left"), "left");
     }
 
     /// A window's socket is linked to its new name, so it answers there, but never over the

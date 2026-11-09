@@ -1553,7 +1553,7 @@ impl crate::App {
             return;
         };
         ui.ctx().request_repaint_after(left);
-        let id = crate::features::remote::socket_id();
+        let id = crate::features::remote::window_id();
         let size = (area.height() / 6.0).clamp(32.0, 160.0);
         let (font, white) = (egui::FontId::proportional(size), egui::Color32::WHITE);
         let galley = ui.painter().layout(id, font, white, area.width() - 32.0);

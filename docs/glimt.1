@@ -138,7 +138,8 @@ them does what is sent to it; a query has an answer from each. A named Glimt lis
 when remote control is off in Preferences. With
 .BR \-\-remote ,
 .I NAME
-may also be the process ID of a Glimt started without a name, as
+may also be the process ID of a Glimt started without a name, or of one that shares its
+name with a Glimt started before it, as
 .B identify
 and
 .B %id%
@@ -255,7 +256,12 @@ Show this window's ID large over the image for a few seconds: its
 .B \-\-name
 or else its process ID, as
 .B %id%
-in the title. With
+in the title. A window that shares its name with one started before it shows its own ID
+beside the name, as
+.BR "left (4242)" ,
+and
+.B \-\-name 4242
+reaches it alone. With
 .BR \-\-remote\-all ,
 each window shows its own.
 .TP
