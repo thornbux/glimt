@@ -924,6 +924,7 @@ for v in new old; do
     # 240 names of one file of 25 MB, as in the section before: 6 GB written to the disk.
     head -c 25000000 /dev/urandom >$d/000.jpg
     for i in $(seq -w 1 239); do ln $d/000.jpg $d/$i.jpg; done
+    mkdir -p $XDG_STATE_HOME/glimt    # a part may start at this section
     for f in $d/*.jpg; do printf '1\t0\t%s\n' $f; done >$XDG_STATE_HOME/glimt/marks
     config
     start $d
