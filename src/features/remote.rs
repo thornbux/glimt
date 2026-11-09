@@ -1311,6 +1311,40 @@ mod tests {
         std::fs::remove_dir_all(dir).unwrap();
     }
 
+    /// A rename of a window that listens: its socket answers under the new name and no longer
+    /// under the old one, and the window used last keeps that place. When the name is taken,
+    /// the window shares it under the name and its own ID.
+    #[test]
+    fn a_rename_moves_the_listening_socket() {
+        use std::os::unix::net::{UnixListener, UnixStream};
+        let dir = std::env::temp_dir().join(format!("glimt-test-move-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let socket = |id: &str| dir.join(super::socket_name(id));
+        let _own = UnixListener::bind(socket("old")).unwrap();
+        let focused = dir.join(super::FOCUSED_FILE);
+        std::fs::write(&focused, "old").unwrap();
+        let ids = ["right".to_owned(), "right.42".to_owned()];
+        assert_eq!(
+            super::move_socket(&dir, "old", &ids),
+            Ok("right".to_owned())
+        );
+        assert!(UnixStream::connect(socket("right")).is_ok());
+        assert!(!socket("old").exists());
+        assert_eq!(std::fs::read_to_string(&focused).unwrap(), "right");
+        // Another window has `left`, so this one is `left.42`; the focused file is another's.
+        let _other = UnixListener::bind(socket("left")).unwrap();
+        std::fs::write(&focused, "7").unwrap();
+        let ids = ["left".to_owned(), "left.42".to_owned()];
+        assert_eq!(
+            super::move_socket(&dir, "right", &ids),
+            Ok("left.42".to_owned())
+        );
+        assert!(UnixStream::connect(socket("left.42")).is_ok());
+        assert!(!socket("right").exists());
+        assert_eq!(std::fs::read_to_string(&focused).unwrap(), "7");
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
     /// `name` takes one name or none, and a name that --name would refuse is not taken.
     #[test]
     fn name_takes_only_a_valid_name() {
