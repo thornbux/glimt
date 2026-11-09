@@ -64,6 +64,17 @@ pub(crate) fn contract_folder(name: &str) -> std::path::PathBuf {
     dir
 }
 
+/// Opens `path` as `open` does, and waits for its look-up in the background but not for its
+/// listing, so a test sees the window as it is between the two.
+pub(crate) fn open_now(
+    app: &mut crate::App,
+    ctx: &eframe::egui::Context,
+    path: std::path::PathBuf,
+) {
+    app.open(ctx, path);
+    app.receive_looked_up(ctx, std::time::Duration::from_secs(5));
+}
+
 /// Runs the window's background work until `done` holds, for at most five seconds. Returns
 /// whether it held.
 pub(crate) fn run_background_until(

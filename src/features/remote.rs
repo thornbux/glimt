@@ -1640,6 +1640,9 @@ mod tests {
             answer.try_recv().unwrap().is_empty(),
             "a.png found in its own folder"
         );
+        // The open runs once the select is answered, and its folder is looked up in the
+        // background.
+        app.receive_looked_up(&ctx, std::time::Duration::from_secs(5));
         assert_eq!(app.folder.dir(), other);
         // Closing with selects still waiting, and one sent just before, tells each that none of
         // its paths was selected.

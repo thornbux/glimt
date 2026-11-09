@@ -293,7 +293,8 @@ impl crate::App {
                                 ui.add_sized([360.0, height], egui::TextEdit::singleline(now));
                             // The screenshots click the field by the folder it stands for.
                             crate::support::test_hooks::noted(&field, was);
-                            // A few folders, only while the dialog is open.
+                            // shortcut: a few folders looked at in the window's thread, each frame
+                            // the dialog is open; look in the background if a share holds it.
                             ui.label(if typed_root_folder(now).is_dir() {
                                 "✓"
                             } else {

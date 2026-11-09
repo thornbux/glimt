@@ -115,6 +115,10 @@ pub(crate) type FileFingerprint = (Option<(u64, u64)>, u64, (i64, i64));
 /// the new fingerprint.
 pub(crate) type Moved = (PathBuf, PathBuf, FileFingerprint);
 
+/// What waits for a folder's real path, which `App::with_real_folder` looks up in the
+/// background. It runs in the window's thread once the path is known.
+pub(crate) type WithRealFolder = Box<dyn FnOnce(&mut crate::App, &egui::Context) + Send>;
+
 /// What Edit → Undo puts back. It is the last files or folder moved to the trash, the last
 /// files moved, or the last files renamed, each `(from, to, fingerprint)`. The fingerprint
 /// is the file's `FileFingerprint` at `to`, so an Undo leaves alone a file that another program put
@@ -247,6 +251,10 @@ pub(crate) struct FileOperations {
     clipboard: Option<arboard::Clipboard>,
     /// An image decoded for the clipboard. egui takes it only during a frame.
     clip_rx: Receiving<egui::ColorImage>,
+    /// What waits for a folder's real path, sent once it is looked up (`with_real_folder`). The
+    /// sender is kept, so the receiver lasts as long as the window.
+    real_folder_tx: mpsc::Sender<WithRealFolder>,
+    real_folder_found: Receiving<WithRealFolder>,
 }
 
 impl FileOperations {
@@ -256,6 +264,7 @@ impl FileOperations {
         let (report_tx, report_rx) = mpsc::channel();
         let (saved_tx, saved_rx) = mpsc::channel();
         let (tx, cut_short_rx) = mpsc::channel();
+        let (real_folder_tx, real_folder_found) = mpsc::channel();
         std::thread::spawn(move || {
             let _ = tx.send(
                 journal::journal_dir().map_or_else(Vec::new, |d| journal::cut_short_plans(&d)),
@@ -279,6 +288,8 @@ impl FileOperations {
             untrashable: None,
             clipboard: None,
             clip_rx: Receiving::none(),
+            real_folder_tx,
+            real_folder_found: Receiving::of(real_folder_found),
         }
     }
 
@@ -898,7 +909,9 @@ impl crate::App {
             let any = !renamed.is_empty();
             let ctx = self.ctx.clone();
             self.rename_in_list(&ctx, renamed);
-            let follow = |all: &mut Vec<PathBuf>| {
+            let moves = pairs.clone();
+            let follow = move |all: &mut Vec<PathBuf>| {
+                let moved = moves_by_source(&moves);
                 for p in all {
                     if let Some(to) = new_place(p, &moved) {
                         *p = to;
@@ -910,8 +923,11 @@ impl crate::App {
             } else if let Some(file) = self.folder.collection() {
                 // None of them are in the list, because a refresh that started before they
                 // moved left them out. The file still follows, quietly, as it may hold none of
-                // them.
-                let _ = collections::edit_open_collection(file, follow);
+                // them. It is written in the writer thread, as every edit of the collection.
+                let file = file.to_path_buf();
+                crate::files::file_io::write_later(move || {
+                    let _ = collections::edit_open_collection(&file, follow);
+                });
             }
             // The list is read again from the file, because a refresh that started before they
             // moved brings the old names.
@@ -925,20 +941,53 @@ impl crate::App {
         self.marks.follow_files(pairs, is_copy);
     }
 
+    /// Looks up the real path of `folder` in the background, as it waits for the disk, and then
+    /// runs `then` with it in the window's thread. The busy pointer shows meanwhile.
+    pub(crate) fn with_real_folder(
+        &mut self,
+        folder: PathBuf,
+        then: impl FnOnce(&mut crate::App, &egui::Context, PathBuf) + Send + 'static,
+    ) {
+        let tx = self.file_operations.real_folder_tx.clone();
+        let (pointer, ctx) = (Working::new(&self.busy), self.ctx.clone());
+        std::thread::spawn(move || {
+            let real = crate::model::listing::real_dir(&folder);
+            let _ = tx.send(Box::new(
+                move |app: &mut crate::App, ctx: &egui::Context| then(app, ctx, real),
+            ));
+            drop(pointer);
+            ctx.request_repaint();
+        });
+    }
+
+    /// Runs what waited for a folder's real path, once the path is known.
+    pub(crate) fn receive_real_folders(&mut self, ctx: &egui::Context) {
+        while let Took::Answer(then) = self.file_operations.real_folder_found.next() {
+            then(self, ctx);
+        }
+    }
+
     /// Copies or moves `paths` into `dest` in the background. Existing files are never
     /// overwritten. A move across file systems falls back to a copy and a delete.
-    pub(crate) fn transfer(
+    pub(crate) fn transfer(&mut self, paths: Vec<PathBuf>, dest: PathBuf, is_copy: bool) {
+        // The folder by its real path (`~/card` → `/media/u/CARD`, `CARD/..` → `/media/u`), so
+        // that its file system is the one the files go to, and a move into the folder shown
+        // through a link is seen as one. It is looked up in the background, because it waits
+        // for the disk, and checked before the files leave the list, so a refused move keeps
+        // the view.
+        self.with_real_folder(dest, move |app, ctx, dest| {
+            app.transfer_into_real_folder(ctx, paths, dest, is_copy)
+        });
+    }
+
+    /// Copies or moves `paths` into `dest`, a folder by its real path, as `transfer` says.
+    fn transfer_into_real_folder(
         &mut self,
         ctx: &egui::Context,
         paths: Vec<PathBuf>,
         dest: PathBuf,
         is_copy: bool,
     ) {
-        // The folder by its real path (`~/card` → `/media/u/CARD`, `CARD/..` → `/media/u`), so
-        // that its file system is the one the files go to, and a move into the folder shown
-        // through a link is seen as one. It is checked before the files leave the list, so a
-        // refused move keeps the view.
-        let dest = crate::model::listing::real_dir(&dest);
         if let Some(text) = refused_transfer(&paths, &dest, is_copy, file_system_type_or_test) {
             self.notice.give(text);
             return;
@@ -1224,11 +1273,6 @@ impl crate::App {
             return;
         }
         let path = self.viewing.turned_file().to_path_buf();
-        // When another program removed or renamed the file meanwhile, there is nothing to save
-        // the turn into.
-        if !path.is_file() {
-            return;
-        }
         // When the file is already being saved with this rotation, the rotate keys wait for
         // the save.
         if self.file_operations.saving.contains(&path) {
@@ -1256,7 +1300,11 @@ impl crate::App {
         let writing = Working::new(&crate::files::file_io::WRITING);
         std::thread::spawn(move || {
             let _writing = writing;
+            // When another program removed or renamed the file meanwhile, there is nothing to
+            // save the turn into, and nothing to tell. It is looked at here, not in the window's
+            // thread, because it waits for the disk.
             let result = catch_panic_as_error(|| match jpeg {
+                _ if !path.is_file() => Ok(()),
                 true => exif::write_orientation(&path, turns, mirrored, rotate),
                 false => save_rotated(&path, rotate, turns, mirrored, quality),
             });
@@ -1289,8 +1337,6 @@ impl crate::App {
         if let Some(pan) = &mut self.pan_view {
             pan.make_days_again();
         }
-        // Their size changed, so the status bar and the list read it again.
-        self.status_bar.forget_size();
         self.refill_preload();
     }
 
@@ -1309,6 +1355,9 @@ impl crate::App {
                 .filter(|(_, to, _)| !written.contains(to))
                 .filter_map(|(_, to, _)| to.file_name().map(|n| n.to_owned()))
                 .collect();
+            // shortcut: the real paths are looked up in the window's thread, but only of the
+            // files just written that have a moved file's name, which the write reached a moment
+            // ago; look them up with the write if a share is seen to hold the window here.
             let real: HashSet<PathBuf> = (paths.iter())
                 .filter(|p| p.file_name().is_some_and(|n| moved.contains(n)))
                 .filter_map(|p| p.canonicalize().ok())
@@ -2369,6 +2418,21 @@ mod tests {
     use crate::support::test_support::{app_on, contract_folder, run_background_until};
     use crate::support::threads::lock_even_if_poisoned;
 
+    /// A copy looks up its folder's real path in the background and starts its job when the
+    /// answer comes. Before, the window's thread waited for the disk there, which a share that
+    /// stopped answering held for ever.
+    #[test]
+    fn a_copy_looks_up_its_folder_in_the_background() {
+        let dir = contract_folder("copy-looks-up");
+        std::os::unix::fs::symlink(dir.join("sub"), dir.join("link")).unwrap();
+        let (mut app, ctx) = app_on(&dir);
+        app.transfer(vec![dir.join("a.png")], dir.join("link"), true);
+        assert!(app.file_operations.jobs.is_empty());
+        let copied = dir.join("sub/a.png");
+        assert!(run_background_until(&mut app, &ctx, |_| copied.exists()));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
     /// Nothing is deleted while a list is read, as its entries are not yet checked to be files
     /// then. A folder named in the list was moved to the trash as one of its entries.
     #[test]
@@ -2378,7 +2442,7 @@ mod tests {
         image::RgbImage::new(2, 2).save(d.join("a.png")).unwrap();
         std::fs::write(d.join("show.m3u"), "sub\na.png\n").unwrap();
         let (mut app, ctx) = app_on(&d);
-        app.open_collection(&ctx, d.join("show.m3u"));
+        crate::support::test_support::open_now(&mut app, &ctx, d.join("show.m3u"));
         assert!(app.folder.is_listing() && app.list.files().len() == 2);
         // Random order puts the same names in a new list, which let them be deleted.
         app.shuffle_list(&ctx, true);
@@ -2403,10 +2467,10 @@ mod tests {
         image::RgbImage::new(2, 2).save(d.join("a.png")).unwrap();
         std::fs::write(d.join("show.m3u"), "sub\na.png\n").unwrap();
         let (mut app, ctx) = app_on(&d);
-        app.open_collection(&ctx, d.join("show.m3u"));
-        app.open(&ctx, d.clone());
+        crate::support::test_support::open_now(&mut app, &ctx, d.join("show.m3u"));
+        crate::support::test_support::open_now(&mut app, &ctx, d.clone());
         assert!(!app.list.has_unchecked_entries());
-        app.open_collection(&ctx, d.join("show.m3u"));
+        crate::support::test_support::open_now(&mut app, &ctx, d.join("show.m3u"));
         let (tx, rx) = std::sync::mpsc::channel();
         drop(tx);
         app.folder.hold_listing(rx);
@@ -2497,7 +2561,7 @@ mod tests {
         super::test_mount(&card, Some("vfat"));
         for is_copy in [true, false] {
             app.notice.clear();
-            app.transfer(&ctx, files.clone(), d.join("card"), is_copy);
+            app.transfer(files.clone(), d.join("card"), is_copy);
             // Refused before the files left the list, so the view stays where it was.
             assert!(listed(&app), "the refused files left the list");
             assert!(run_background_until(&mut app, &ctx, |a| a
@@ -2514,7 +2578,7 @@ mod tests {
             assert!(run_background_until(&mut app, &ctx, listed));
         }
         super::test_mount(&card, Some("ext4"));
-        app.transfer(&ctx, files, d.join("card"), true);
+        app.transfer(files, d.join("card"), true);
         assert!(run_background_until(&mut app, &ctx, |_| d
             .join("card/12:30.png")
             .exists()));
@@ -2545,7 +2609,7 @@ mod tests {
         let files = vec![d.join("a.png"), d.join("12:30.png")];
         for is_copy in [true, false] {
             app.notice.clear();
-            app.transfer(&ctx, files.clone(), d.join("card"), is_copy);
+            app.transfer(files.clone(), d.join("card"), is_copy);
             assert!(listed(&app), "the refused files left the list");
             assert!(run_background_until(&mut app, &ctx, |a| a
                 .notice
@@ -2559,7 +2623,7 @@ mod tests {
             );
             assert!(!card.join("a.png").exists() && !card.join("12:30.png").exists());
         }
-        app.transfer(&ctx, files, d.join("media/CARD/.."), true);
+        app.transfer(files, d.join("media/CARD/.."), true);
         assert!(run_background_until(&mut app, &ctx, |a| !a.working()));
         super::test_mount(&card, None);
         assert!(
@@ -2598,10 +2662,10 @@ mod tests {
             names
         };
         assert!(run_background_until(&mut app, &ctx, |a| names(a) == ["a.png", "b.png"]));
-        app.transfer(&ctx, vec![tree.join("a.png")], tree.join("in"), false);
+        app.transfer(vec![tree.join("a.png")], tree.join("in"), false);
         assert!(run_background_until(&mut app, &ctx, |a| !a.working()
             && names(a) == ["b.png", "inner/a.png"]));
-        app.transfer(&ctx, vec![tree.join("b.png")], tree.join("out"), false);
+        app.transfer(vec![tree.join("b.png")], tree.join("out"), false);
         assert!(run_background_until(&mut app, &ctx, |a| !a.working()
             && names(a) == ["inner/a.png"]));
         assert!(d.join("beside/b.png").exists());
@@ -2863,7 +2927,7 @@ mod tests {
         [
             (
                 "move",
-                |app, ctx, d| app.transfer(ctx, vec![d.join("a.png")], d.join("sub"), false),
+                |app, _, d| app.transfer(vec![d.join("a.png")], d.join("sub"), false),
                 |app, d| {
                     let to = d.join("sub/a.png");
                     to.exists()
@@ -2876,7 +2940,7 @@ mod tests {
             ),
             (
                 "copy",
-                |app, ctx, d| app.transfer(ctx, vec![d.join("a.png")], d.join("sub"), true),
+                |app, _, d| app.transfer(vec![d.join("a.png")], d.join("sub"), true),
                 |app, d| {
                     let to = d.join("sub/a.png");
                     to.exists()
@@ -2891,9 +2955,9 @@ mod tests {
             // of them is inside the copy. The original and its sidecar stay as they were.
             (
                 "copy for sharing",
-                |app, ctx, d| {
+                |app, _, d| {
                     let (paths, kept) = (vec![d.join("a.png")], Default::default());
-                    app.copy_for_sharing(ctx, paths, d.join("sub"), kept)
+                    app.copy_for_sharing(paths, d.join("sub"), kept)
                 },
                 |app, d| {
                     let (to, a) = (d.join("sub/a.png"), d.join("a.png"));
@@ -2969,7 +3033,7 @@ mod tests {
             (
                 "undo a move",
                 |app, ctx, d| {
-                    app.transfer(ctx, vec![d.join("a.png")], d.join("sub"), false);
+                    app.transfer(vec![d.join("a.png")], d.join("sub"), false);
                     // This waits only when the operation started. When it was held back, it
                     // says so, and there is nothing to wait for.
                     if app.notice.text().is_none() {
@@ -3271,7 +3335,7 @@ mod tests {
             ("delete_now", "delete"),
             ("delete_now", "trash"),
             ("undo", "undo a trash"),
-            ("transfer", "move"),
+            ("transfer_into_real_folder", "move"),
             // Through rename_in_background, and the Undo of a rename.
             ("rename_files_of", "rename"),
             ("undo", "undo a move"),
@@ -3280,7 +3344,7 @@ mod tests {
             ("write_sidecars", "keywords"),
             ("save_orientation", "save orientation"),
             ("rename_folder", "rename folder"),
-            ("copy_for_sharing", "copy for sharing"),
+            ("copy_for_sharing_into_real_folder", "copy for sharing"),
         ];
         const OUTSIDE: &[(&str, &str)] = &[
             ("start_job", "the start itself"),
@@ -3413,7 +3477,7 @@ mod tests {
             dir.join("a.png"),
             fingerprint,
         )]));
-        app.open(&ctx, empty.clone());
+        crate::support::test_support::open_now(&mut app, &ctx, empty.clone());
         app.undo(&ctx);
         assert!(run_background_until(&mut app, &ctx, |a| !a.working()));
         std::fs::remove_dir_all(dir).unwrap();
@@ -3453,7 +3517,7 @@ mod tests {
             image::RgbImage::new(2, 2).save(&a).unwrap();
             let now = match kind {
                 "move" => {
-                    app.transfer(&ctx, vec![a.clone()], dir.join("sub"), false);
+                    app.transfer(vec![a.clone()], dir.join("sub"), false);
                     dir.join("sub/a.png")
                 }
                 _ => {
@@ -3516,7 +3580,7 @@ mod tests {
         image::RgbImage::new(2, 2).save(&a).unwrap();
         image::RgbImage::new(2, 2).save(&c).unwrap();
         let (mut app, ctx) = app_on(&dir);
-        app.transfer(&ctx, vec![c.clone()], sub.clone(), false);
+        app.transfer(vec![c.clone()], sub.clone(), false);
         assert!(run_background_until(&mut app, &ctx, |app| !app.working()
             && app.file_operations.undo.is_some()));
         // The delete waits for a.png's sidecar lock, so it is still running at the Ctrl+Z.
@@ -3553,7 +3617,7 @@ mod tests {
         image::RgbImage::new(2, 2).save(&a).unwrap();
         image::RgbImage::new(2, 2).save(&c).unwrap();
         let (mut app, ctx) = app_on(&dir);
-        app.transfer(&ctx, vec![c.clone()], sub.clone(), false);
+        app.transfer(vec![c.clone()], sub.clone(), false);
         assert!(run_background_until(&mut app, &ctx, |app| !app.working()
             && app.file_operations.undo.is_some()));
         // The rename waits for a.png's sidecar lock, so it is still running at the Ctrl+Z.
@@ -3623,7 +3687,7 @@ mod tests {
         }
         let (mut app, ctx) = app_on(&dir);
         let (a, b) = (dir.join("a.png"), dir.join("b.png"));
-        app.transfer(&ctx, vec![a.clone(), b.clone()], dir.join("sub"), false);
+        app.transfer(vec![a.clone(), b.clone()], dir.join("sub"), false);
         assert!(run_background_until(&mut app, &ctx, |app| app
             .file_operations
             .undo
@@ -3638,7 +3702,7 @@ mod tests {
         assert!(!a.exists(), "the other file was moved back as a.png");
         assert_eq!(std::fs::read(&moved).unwrap(), b"another");
         // A file Glimt itself wrote anew there (a turn saved) is still the one to move back.
-        app.transfer(&ctx, vec![b.clone()], dir.join("sub"), false);
+        app.transfer(vec![b.clone()], dir.join("sub"), false);
         assert!(run_background_until(&mut app, &ctx, |app| !b.exists() && !app.working()));
         let saved = dir.join("sub/b.png");
         std::fs::copy(&saved, dir.join("sub/new")).unwrap();
@@ -3659,7 +3723,7 @@ mod tests {
         let a = dir.join("a.png");
         image::RgbImage::new(2, 2).save(&a).unwrap();
         let (mut app, ctx) = app_on(&dir);
-        app.transfer(&ctx, vec![a.clone()], dir.join("sub"), false);
+        app.transfer(vec![a.clone()], dir.join("sub"), false);
         assert!(run_background_until(&mut app, &ctx, |app| app
             .file_operations
             .undo
@@ -3726,7 +3790,7 @@ mod tests {
         let a = dir.join("real/a.png");
         image::RgbImage::new(2, 2).save(&a).unwrap();
         let (mut app, ctx) = app_on(&dir.join("real"));
-        app.transfer(&ctx, vec![a.clone()], dir.join("real/sub"), false);
+        app.transfer(vec![a.clone()], dir.join("real/sub"), false);
         assert!(run_background_until(&mut app, &ctx, |app| app
             .file_operations
             .undo
@@ -3752,7 +3816,7 @@ mod tests {
         let a = dir.join("a.png");
         image::RgbImage::new(2, 2).save(&a).unwrap();
         let (mut app, ctx) = app_on(&dir);
-        app.transfer(&ctx, vec![a.clone()], dir.join("sub"), false);
+        app.transfer(vec![a.clone()], dir.join("sub"), false);
         assert!(run_background_until(&mut app, &ctx, |app| app
             .file_operations
             .undo
@@ -4002,7 +4066,7 @@ mod tests {
             };
         let (a, b) = (d.join("a.png"), d.join("b.png"));
         waits(&mut app, &a, &|app| {
-            app.transfer(&ctx, vec![a.clone()], d.join("sub"), false)
+            app.transfer(vec![a.clone()], d.join("sub"), false)
         });
         assert!(d.join("sub/a.png").exists() && d.join("sub/a.png.xmp").exists());
         let c = d.join("c.png");
@@ -4203,9 +4267,9 @@ mod tests {
         // where the new folder is made.
         let other = d.join("other");
         std::fs::create_dir_all(&other).unwrap();
-        app.open(&ctx, other.clone());
+        crate::support::test_support::open_now(&mut app, &ctx, other.clone());
         app.act_on_prompt_answer(&ctx, crate::ui::dialogs::Prompt::NewFolder, "trip");
-        app.open(&ctx, d.clone());
+        crate::support::test_support::open_now(&mut app, &ctx, d.clone());
         assert!(run_background_until(&mut app, &ctx, |a| {
             !a.folder.is_listing() && a.folder.subdirs().iter().any(|s| s.ends_with("trip"))
         }));
@@ -4305,7 +4369,7 @@ mod tests {
         assert!(run_background_until(&mut app, &ctx, |app| idle(app)
             && entries(&gqv).contains("c.png")
             && !entries(&gqv).contains("a.png")));
-        app.transfer(&ctx, vec![d.join("c.png")], d.join("sub"), false);
+        app.transfer(vec![d.join("c.png")], d.join("sub"), false);
         assert!(run_background_until(&mut app, &ctx, |app| idle(app)
             && entries(&gqv).contains("sub/c.png")));
         // When a folder is renamed in the background, its images in the collection follow.
@@ -4398,7 +4462,7 @@ mod tests {
             app,
             &["a.png", "b.png"]
         )));
-        app.transfer(&ctx, vec![d.join("a.png")], d.join("sub"), false);
+        app.transfer(vec![d.join("a.png")], d.join("sub"), false);
         assert!(run_background_until(&mut app, &ctx, |app| has(
             app,
             &["sub/a.png", "b.png"]

@@ -363,11 +363,16 @@ impl Tree {
     }
 }
 
-/// The status bar's numbers. It holds the shown image's size and position, the folder's total, and
-/// the size of the selection.
+/// The status bar's numbers. It holds the shown image's position, the folder's total, and the
+/// size of the selection. It also asks for the sizes and dates of the list's files.
 pub(crate) struct StatusBar {
-    /// Size in bytes of the shown file, for the status bar.
-    shown_size: Option<(PathBuf, u64)>,
+    /// Where the sizes and dates of the files in the list are asked for, with the shown file's
+    /// size among them. The thread that looks at the files and answers is made when the first
+    /// is asked for, and let go when another folder opens. A share that stopped answering may
+    /// hold that thread for ever, and the next folder's sizes then come from a new one.
+    sizes_and_dates_asked: Option<mpsc::Sender<(OsString, PathBuf)>>,
+    /// The answers: the file's name in the list, its path, and its size and date.
+    sizes_and_dates_found: Receiving<(OsString, PathBuf, (u64, i64))>,
     /// Image and scale in each pane of the last frame, the pane the status bar tells about (the
     /// one under the pointer, else the first) and the panes as [columns, rows].
     pane_images: Vec<(usize, Option<f32>)>,
@@ -395,7 +400,8 @@ impl Default for StatusBar {
     fn default() -> Self {
         let (freed_tx, freed_rx) = mpsc::channel();
         StatusBar {
-            shown_size: None,
+            sizes_and_dates_asked: None,
+            sizes_and_dates_found: Receiving::none(),
             pane_images: Vec::new(),
             pane: 0,
             pane_layout: [1, 1],
@@ -426,9 +432,44 @@ impl StatusBar {
         self.freed_sender.clone()
     }
 
-    /// The shown file's size is read again, as it changed.
-    pub(crate) fn forget_size(&mut self) {
-        self.shown_size = None;
+    /// Asks the background for the size and date of the file `name` of the list, at `path`.
+    pub(crate) fn ask_size_and_date(&mut self, ctx: &egui::Context, name: OsString, path: PathBuf) {
+        let asked = self.sizes_and_dates_asked.get_or_insert_with(|| {
+            let (asked, questions) = mpsc::channel::<(OsString, PathBuf)>();
+            let (found, answers) = mpsc::channel();
+            let ctx = ctx.clone();
+            std::thread::spawn(move || {
+                use std::os::unix::fs::MetadataExt;
+                for (name, path) in questions {
+                    let d = std::fs::metadata(&path).map_or((0, 0), |m| (m.len(), m.mtime()));
+                    if found.send((name, path, d)).is_err() {
+                        return;
+                    }
+                    ctx.request_repaint();
+                }
+            });
+            self.sizes_and_dates_found = Receiving::of(answers);
+            asked
+        });
+        let _ = asked.send((name, path));
+    }
+
+    /// Returns the next size and date found in the background, as the file's name in the list,
+    /// its path, and its size and date.
+    pub(crate) fn next_size_and_date(&mut self) -> Took<(OsString, PathBuf, (u64, i64))> {
+        let took = self.sizes_and_dates_found.next();
+        // A thread that ended is made again at the next question.
+        if matches!(took, Took::Gone) {
+            self.sizes_and_dates_asked = None;
+        }
+        took
+    }
+
+    /// Lets go of the thread that looks at the files of the folder before, which another folder
+    /// opening leaves behind, also when a share holds it.
+    pub(crate) fn forget_sizes_and_dates_asked(&mut self) {
+        self.sizes_and_dates_asked = None;
+        self.sizes_and_dates_found = Receiving::none();
     }
 
     /// The folder's total, summed anew from `sums`.
@@ -698,21 +739,25 @@ impl crate::App {
             // The size and date columns are at the right, as in Geeqie, and the name is cut off
             // before them.
             name_rect.max.x -= DETAILS_WIDTH;
-            let (bytes, mtime) = self.file_details(i);
+            // They are blank until the file is looked at in the background.
+            let (bytes, mtime) = match self.file_details(i) {
+                Some((bytes, mtime)) => (thousands(bytes as usize), local_time(mtime)),
+                None => (String::new(), String::new()),
+            };
             let y = rect.center().y;
             let size_right = name_rect.max.x + DETAILS_WIDTH - DATE_WIDTH - 8.0;
             let p = ui.painter();
             p.text(
                 egui::pos2(size_right, y),
                 egui::Align2::RIGHT_CENTER,
-                thousands(bytes as usize),
+                bytes,
                 font.clone(),
                 text_color,
             );
             p.text(
                 egui::pos2(rect.max.x - DATE_WIDTH, y),
                 egui::Align2::LEFT_CENTER,
-                local_time(mtime),
+                mtime,
                 font.clone(),
                 text_color,
             );
@@ -915,25 +960,36 @@ impl crate::App {
         clicked
     }
 
-    /// Size and modification time of file `i`, from the cache or one stat.
-    /// shortcut: stat in the UI thread, once per visible file; move to a thread if network
-    /// folders make scrolling stutter.
-    pub(crate) fn file_details(&mut self, i: usize) -> (u64, i64) {
-        if let Some(&d) = self.list.sizes_and_dates().get(&self.list.files()[i]) {
+    /// Returns the size and modification time of file `i`, once they are known. Returns `None`
+    /// while they are looked at in the background, which the first call asks for.
+    pub(crate) fn file_details(&mut self, i: usize) -> Option<(u64, i64)> {
+        let name = &self.list.files()[i];
+        if let Some(&d) = self.list.sizes_and_dates().get(name) {
             return d;
         }
-        let d = std::fs::metadata(self.path(i)).map_or((0, 0), |m| {
-            use std::os::unix::fs::MetadataExt;
-            (m.len(), m.mtime())
-        });
+        let name = name.clone();
         // The cache is bounded, because scrolling through a folder of 500,000 would keep some
         // 50 MB. Only the rows on screen are read again.
         if self.list.sizes_and_dates().len() >= 20_000 {
             self.list.forget_sizes_and_dates();
         }
-        self.list
-            .remember_size_and_date(self.list.files()[i].clone(), d);
-        d
+        let ctx = self.ctx.clone();
+        (self.status_bar).ask_size_and_date(&ctx, name.clone(), self.path(i));
+        self.list.note_size_and_date_asked(name);
+        None
+    }
+
+    /// Takes the sizes and dates found in the background, for the rows and the status bar.
+    pub(crate) fn receive_sizes_and_dates(&mut self) {
+        while let Took::Answer((name, path, d)) = self.status_bar.next_size_and_date() {
+            // An answer about a file of the folder before, or about one forgotten since because
+            // it changed, is dropped.
+            if self.list.sizes_and_dates().contains_key(&name)
+                && self.folder.dir().join(&name) == path
+            {
+                self.list.remember_size_and_date(name, d);
+            }
+        }
     }
 
     /// Folders as a tree from /, opened up to the current folder. Subfolders are read in the
@@ -1100,7 +1156,7 @@ impl crate::App {
                                 && let Some(targets) = self.targets()
                             {
                                 let paths = targets.iter().map(|&i| self.path(i)).collect();
-                                self.transfer(ui.ctx(), paths, dir, !self.config.sort_move);
+                                self.transfer(paths, dir, !self.config.sort_move);
                             }
                         });
                     }
@@ -1235,11 +1291,9 @@ impl crate::App {
             };
             if text.contains("://") {
                 self.mount(ui.ctx(), text.to_owned());
-            } else if path.exists() {
-                self.visit(ui.ctx(), path);
             } else {
-                self.notice
-                    .give(tf!("No such folder: {folder}", folder = path.display()));
+                let gone = |p: &Path| tf!("No such folder: {folder}", folder = p.display());
+                self.visit_if_there(ui.ctx(), path, gone);
             }
         }
         if !response.has_focus() {
@@ -1822,25 +1876,17 @@ impl crate::App {
             .copied())
         .filter(|p| p.0 < n)
         .unwrap_or((self.list.shown(), Some(self.zoom.scale_shown())));
-        let path = self.path(idx);
-        if self
-            .status_bar
-            .shown_size
-            .as_ref()
-            .is_none_or(|c| c.0 != path)
-        {
-            // shortcut: one stat in the UI thread per image change; move it to
-            // a thread if slow network folders make browsing stutter.
-            let bytes = std::fs::metadata(&path).map_or(0, |m| m.len());
-            self.status_bar.shown_size = Some((path, bytes));
-        }
-        let bytes = self.status_bar.shown_size.as_ref().map_or(0, |c| c.1);
+        // The size is looked at in the background, as for the list's rows, and left out until
+        // it is known.
+        let bytes = self.file_details(idx).map(|(bytes, _)| bytes);
         let position = if idx == self.list.shown() {
             self.position_text()
         } else {
             self.position_text_of(idx)
         };
-        let bytes = tf!("{n} bytes", n = thousands(bytes as usize));
+        let bytes = bytes.map_or(String::new(), |n| {
+            tf!("{n} bytes", n = thousands(n as usize)) + " "
+        });
         match self.list.loaded_images().get(&idx) {
             Some(loaded) => {
                 let [w, h] = loaded.original_size;
@@ -1863,10 +1909,10 @@ impl crate::App {
                 } else {
                     String::new()
                 };
-                ui.label(format!("( {w} x {h} ) {bytes} {position}{page}"));
+                ui.label(format!("( {w} x {h} ) {bytes}{position}{page}"));
             }
             None => {
-                ui.label(format!("{bytes} {position}"));
+                ui.label(format!("{bytes}{position}"));
             }
         }
         if self.status_bar.pane_layout != [1, 1] {
@@ -2053,5 +2099,23 @@ mod tests {
         thumbs.ask(name, 0, "a.jpg".into());
         assert!(!thumbs.answered(name, new));
         assert!(thumbs.answered(name, thumbs.last_request_number));
+    }
+
+    /// A file's size and date are looked at in the background, for its row and the status bar,
+    /// and come with the next frames. Before, each row on screen and each image shown waited
+    /// for a stat in the window's thread, which a share that stopped answering held for ever.
+    #[test]
+    fn sizes_and_dates_come_from_the_background() {
+        use crate::support::test_support::{app_on, run_background_until};
+        let dir = std::env::temp_dir().join(format!("glimt-test-details-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        image::RgbImage::new(4, 4).save(dir.join("a.png")).unwrap();
+        let size = std::fs::metadata(dir.join("a.png")).unwrap().len();
+        let (mut app, ctx) = app_on(&dir);
+        assert_eq!(app.file_details(0), None);
+        let known = |a: &crate::App| a.list.sizes_and_dates().values().any(Option::is_some);
+        assert!(run_background_until(&mut app, &ctx, known));
+        assert_eq!(app.file_details(0).map(|d| d.0), Some(size));
+        std::fs::remove_dir_all(dir).unwrap();
     }
 }

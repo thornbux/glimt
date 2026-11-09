@@ -266,12 +266,24 @@ impl crate::App {
     /// could hand one photo another photo's sidecar.
     pub(crate) fn copy_for_sharing(
         &mut self,
+        paths: Vec<PathBuf>,
+        folder: PathBuf,
+        kept: HashSet<String>,
+    ) {
+        // The folder by its real path, looked up in the background as for a copy (`transfer`).
+        self.with_real_folder(folder, move |app, ctx, folder| {
+            app.copy_for_sharing_into_real_folder(ctx, paths, folder, kept)
+        });
+    }
+
+    /// Copies `paths` into `folder`, by its real path, as `copy_for_sharing` says.
+    fn copy_for_sharing_into_real_folder(
+        &mut self,
         ctx: &egui::Context,
         paths: Vec<PathBuf>,
         folder: PathBuf,
         kept: HashSet<String>,
     ) {
-        let folder = crate::model::listing::real_dir(&folder);
         let Some(job) = self.start_job(tr("Copying"), paths.len(), paths.clone()) else {
             return;
         };
