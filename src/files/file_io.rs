@@ -9,8 +9,13 @@
 use crate::support::threads::lock_even_if_poisoned;
 use std::path::{Path, PathBuf};
 
-/// A file Glimt could not save, for the window to tell: from any thread.
+/// A file Glimt could not save, or a note about a save, for the window to tell: from any thread.
 static SAVE_ERROR: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
+
+/// The files whose other names (hard links) the window was told of. A turned image asks
+/// `check_writable` twice, before encoding and before the rename, and is told once.
+static OTHER_NAMES_TOLD: std::sync::Mutex<std::collections::BTreeSet<PathBuf>> =
+    std::sync::Mutex::new(std::collections::BTreeSet::new());
 
 /// Everything being written for the user, counted by a `Working` held while it runs: the
 /// settings and marks (`write_later`), sidecars, file jobs, a turned image, a print. The one
@@ -30,6 +35,10 @@ thread_local! {
     // The errors that `save_failed` told on this thread. The window's own slot is shared by
     // every test, so a test that reads it could take another test's error.
     pub(crate) static SAVES_FAILED: std::cell::RefCell<Vec<String>> =
+        const { std::cell::RefCell::new(Vec::new()) };
+    // The notes of other names (hard links) given on this thread. They do not go to the
+    // window's own slot in tests, where another test's window would take them as its notice.
+    pub(crate) static OTHER_NAMES_NOTED: std::cell::RefCell<Vec<String>> =
         const { std::cell::RefCell::new(Vec::new()) };
 }
 
@@ -592,11 +601,32 @@ pub(crate) fn check_writable(path: &Path) -> std::io::Result<()> {
     // SAFETY: `name` is a C string that lives through the call, and access only reads it.
     let allowed = unsafe { libc::access(name.as_ptr(), libc::W_OK) } == 0;
     match allowed && !meta.permissions().readonly() {
-        true => Ok(()),
+        true => {
+            tell_other_names(path, &meta);
+            Ok(())
+        }
         false => Err(std::io::Error::new(
             std::io::ErrorKind::PermissionDenied,
             crate::support::lang::tr("the file is read-only"),
         )),
+    }
+}
+
+/// Tells the window, once for each file, that the file at `path` has other names (hard links).
+/// A replace gives the name a new file, so the other names keep the old version. The write is
+/// not refused, as the user asked for it. A failed save told meanwhile is not covered over.
+fn tell_other_names(path: &Path, meta: &std::fs::Metadata) {
+    use std::os::unix::fs::MetadataExt;
+    if meta.nlink() > 1 && lock_even_if_poisoned(&OTHER_NAMES_TOLD).insert(path.to_owned()) {
+        let name = path.file_name().unwrap_or_default().to_string_lossy();
+        let note = crate::tf!(
+            "{name} has other names (hard links), which keep the old version",
+            name
+        );
+        #[cfg(test)]
+        OTHER_NAMES_NOTED.with_borrow_mut(|noted| noted.push(note));
+        #[cfg(not(test))]
+        lock_even_if_poisoned(&SAVE_ERROR).get_or_insert(note);
     }
 }
 

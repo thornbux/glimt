@@ -5,6 +5,13 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- Saving a file that has other names (hard links), such as a turned image, a copy saved over
+  it or its sidecar, tells once that the other names keep the old version. The save gives the
+  name a new file, so the other names are not changed with it. Before, they were left behind
+  without a word.
+
 ## [0.77.0] - 2026-11-09
 
 ### Changed

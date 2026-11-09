@@ -2696,6 +2696,9 @@ msgstr "die Datei wurde inzwischen verschoben, umbenannt oder gelöscht"
 msgid "the file is read-only"
 msgstr "die Datei ist schreibgeschützt"
 
+msgid "{name} has other names (hard links), which keep the old version"
+msgstr "{name} hat weitere Namen (harte Links), die die alte Version behalten"
+
 #: src/files/external.rs
 msgid "HEIC and AVIF need ffprobe (ffmpeg): {e}"
 msgstr "HEIC und AVIF brauchen ffprobe (ffmpeg): {e}"

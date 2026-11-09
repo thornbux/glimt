@@ -2696,6 +2696,9 @@ msgstr "het bestand is intussen verplaatst, hernoemd of verwijderd"
 msgid "the file is read-only"
 msgstr "het bestand is alleen-lezen"
 
+msgid "{name} has other names (hard links), which keep the old version"
+msgstr "{name} heeft andere namen (harde links), die de oude versie houden"
+
 #: src/files/external.rs
 msgid "HEIC and AVIF need ffprobe (ffmpeg): {e}"
 msgstr "HEIC en AVIF hebben ffprobe (ffmpeg) nodig: {e}"
