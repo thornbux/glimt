@@ -1293,6 +1293,28 @@ mod tests {
         png
     }
 
+    /// A turned image with another name (a hard link) is saved, and the window is told once
+    /// that the other name keeps the old image. A file with one name is saved without that note.
+    #[test]
+    fn tells_that_a_hard_link_keeps_the_old_image() {
+        let dir = std::env::temp_dir().join(format!("glimt-hard-link-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let (file, other, alone) = (dir.join("a.png"), dir.join("b.png"), dir.join("c.png"));
+        std::fs::write(&file, black_png(4, 2)).unwrap();
+        std::fs::write(&alone, black_png(4, 2)).unwrap();
+        std::fs::hard_link(&file, &other).unwrap();
+        let noted = || crate::files::file_io::OTHER_NAMES_NOTED.take();
+        noted();
+        super::save_rotated(&file, false, 1, false, 90).unwrap();
+        assert_eq!(image::image_dimensions(&file).unwrap(), (2, 4));
+        assert_eq!(std::fs::read(&other).unwrap(), black_png(4, 2));
+        let told = noted();
+        assert!(told.len() == 1 && told[0].contains("a.png"), "{told:?}");
+        super::save_rotated(&alone, false, 1, false, 90).unwrap();
+        assert!(noted().is_empty());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
     /// A PNG turned keeps its text and DPI, and nothing tied to how the old pixels were stored.
     #[test]
     fn keeps_png_chunks() {

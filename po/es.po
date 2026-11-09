@@ -2696,6 +2696,9 @@ msgstr "el archivo se movió, se renombró o se eliminó mientras tanto"
 msgid "the file is read-only"
 msgstr "el archivo es de solo lectura"
 
+msgid "{name} has other names (hard links), which keep the old version"
+msgstr "{name} tiene otros nombres (enlaces duros), que conservan la versión anterior"
+
 #: src/files/external.rs
 msgid "HEIC and AVIF need ffprobe (ffmpeg): {e}"
 msgstr "HEIC y AVIF necesitan ffprobe (ffmpeg): {e}"

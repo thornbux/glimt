@@ -2717,6 +2717,9 @@ msgstr ""
 msgid "the file is read-only"
 msgstr ""
 
+msgid "{name} has other names (hard links), which keep the old version"
+msgstr ""
+
 #: src/files/external.rs
 msgid "HEIC and AVIF need ffprobe (ffmpeg): {e}"
 msgstr ""

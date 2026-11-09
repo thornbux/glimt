@@ -2707,6 +2707,9 @@ msgstr "filen ble flyttet, fikk nytt navn eller ble slettet i mellomtiden"
 msgid "the file is read-only"
 msgstr "filen er skrivebeskyttet"
 
+msgid "{name} has other names (hard links), which keep the old version"
+msgstr "{name} har andre navn (harde lenker), som beholder den gamle versjonen"
+
 #: src/files/external.rs
 msgid "HEIC and AVIF need ffprobe (ffmpeg): {e}"
 msgstr "HEIC og AVIF trenger ffprobe (ffmpeg): {e}"
