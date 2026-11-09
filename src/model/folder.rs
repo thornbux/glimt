@@ -774,6 +774,7 @@ impl crate::App {
         self.folder.folders = folders;
         self.replace_files(ctx, Vec::new(), None);
         self.start_listing(ctx);
+        self.start_watching(ctx);
         self.update_window_title(ctx);
     }
 
@@ -923,21 +924,30 @@ impl crate::App {
     /// Polls the folder's modification time once a second in the background (one `stat`, no
     /// repaint unless it changed). Adding, removing or renaming a file changes it. For a
     /// collection, its file is watched instead, so a move that another window follows in it
-    /// is read here too. The thread ends when another folder is opened.
+    /// is read here too, and for folders shown together, each of them. The thread ends when
+    /// another folder is opened.
     pub(crate) fn start_watching(&mut self, ctx: &egui::Context) {
         let generation = self
             .folder
             .watcher_generation
             .fetch_add(1, Ordering::Relaxed)
             + 1;
-        let (watcher_generation, tx, ctx, dir) = (
+        let watched: Vec<PathBuf> = match (&self.folder.collection, &self.folder.folders) {
+            (Some(file), _) => vec![file.clone()],
+            (None, folders) if !folders.is_empty() => folders.clone(),
+            (None, _) => vec![self.folder.dir.clone()],
+        };
+        let (watcher_generation, tx, ctx) = (
             self.folder.watcher_generation.clone(),
             self.folder.changed_tx.clone(),
             ctx.clone(),
-            (self.folder.collection.clone()).unwrap_or_else(|| self.folder.dir.clone()),
         );
         std::thread::spawn(move || {
-            let mtime = || std::fs::metadata(&dir).and_then(|m| m.modified()).ok();
+            let mtime = || -> Vec<_> {
+                (watched.iter())
+                    .map(|p| std::fs::metadata(p).and_then(|m| m.modified()).ok())
+                    .collect()
+            };
             let mut last = mtime();
             while watcher_generation.load(Ordering::Relaxed) == generation {
                 std::thread::sleep(std::time::Duration::from_secs(1));
@@ -1384,6 +1394,34 @@ mod tests {
             (app.list.files().iter()).any(|f| std::path::Path::new(f).ends_with("c.png"))
         };
         assert!(run_background_until(&mut app, &ctx, has_c));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// Folders shown together are watched, each of them, so an image added to one is listed.
+    /// A change in a folder that is not shown lists nothing. Before, no watcher ran for them.
+    #[test]
+    fn folders_shown_together_are_watched() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-together-{}", std::process::id()));
+        let (x, y, z) = (dir.join("x"), dir.join("y"), dir.join("z"));
+        for d in [&x, &y, &z] {
+            std::fs::create_dir_all(d).unwrap();
+            image::RgbImage::new(2, 2).save(d.join("a.png")).unwrap();
+        }
+        let (mut app, ctx) = app_on(&x);
+        app.open_folders(&ctx, vec![x.clone(), y.clone()]);
+        let count = |n| move |app: &crate::App| app.list.files().len() == n;
+        assert!(run_background_until(&mut app, &ctx, count(2)));
+        // The watcher reads the folders' times when it starts, which is to be before the change.
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        image::RgbImage::new(2, 2).save(y.join("b.png")).unwrap();
+        assert!(run_background_until(&mut app, &ctx, count(3)));
+        let listings_before = app.folder.whole_listings();
+        image::RgbImage::new(2, 2).save(z.join("b.png")).unwrap();
+        // The watcher looks once a second.
+        std::thread::sleep(std::time::Duration::from_millis(1500));
+        app.poll_background(&ctx);
+        app.receive_listing(&ctx, std::time::Duration::from_millis(500));
+        assert_eq!(app.folder.whole_listings(), listings_before);
         std::fs::remove_dir_all(dir).unwrap();
     }
 

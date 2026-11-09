@@ -4,6 +4,7 @@
 //! files renamed or moved outside Glimt lose them.
 
 use crate::files::config::fits_on_a_line;
+use crate::files::trash::ForgottenMarks;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
@@ -76,43 +77,20 @@ impl Marks {
     }
 
     /// Takes away the marks of the files deleted, and of every file in the folders deleted, so a
-    /// new file of the same name does not get them. Returns the marks this window knew of them,
-    /// for Undo to `restore`.
-    pub fn forget(&mut self, paths: &[PathBuf]) -> Vec<(PathBuf, (u8, u8))> {
+    /// new file of the same name does not get them. The file forgets every mark under the names,
+    /// also those that another window set and this window has not read. When `for_undo` is
+    /// given, the writer thread adds to it the marks that the file held under the names. It
+    /// does so after this window's queued edits, so a mark cleared here is not brought back by
+    /// Undo, and the file is read there rather than on the UI thread.
+    pub fn forget(&mut self, paths: &[PathBuf], for_undo: Option<ForgottenMarks>) {
         // Most messages of a file operation have nothing gone: no look at every mark.
         if paths.is_empty() {
-            return Vec::new();
+            return;
         }
-        // From the file as it is: stars set in another window since this one last read it
-        // would else stay on a name that is gone, for the next file of that name.
-        self.refresh();
-        let gone: std::collections::HashSet<&Path> = paths.iter().map(PathBuf::as_path).collect();
-        // Each marked file and the folders above it, not every path deleted: a few thousand
-        // marked against 100 files at a time to the trash.
-        let marked: Vec<PathBuf> = (self.by_path.keys())
-            .filter(|k| k.ancestors().any(|a| gone.contains(a)))
-            .cloned()
-            .collect();
-        let mut was: Vec<(PathBuf, (u8, u8))> =
-            marked.iter().map(|p| (p.clone(), self.get(p))).collect();
-        // While this window's own writes are queued, the refresh above is skipped, and the
-        // marks that another window set meanwhile are only in the file. They are taken from
-        // there too, so that an Undo of the delete puts them back.
-        if own_writes_queued() {
-            let text = marks_file().and_then(|f| crate::images::decode::read_limited(f).ok());
-            let in_file = parse(&text.unwrap_or_default());
-            was.extend(in_file.into_iter().filter(|(k, _)| {
-                !self.by_path.contains_key(k) && k.ancestors().any(|a| gone.contains(a))
-            }));
-        }
-        // The file forgets every mark under the names, not only those this window knows. A
-        // refresh is skipped while this window's own writes are queued, and the marks another
-        // window set meanwhile would else stay on a name that is gone.
-        self.edit(Edit::Forget(paths.to_vec()));
-        was
+        self.edit(Edit::Forget(paths.to_vec(), for_undo));
     }
 
-    /// Marks and stars put back as `forget` returned them: one change for each value.
+    /// Marks and stars put back as `forget` gave them for Undo: one change for each value.
     pub fn restore(&mut self, marks: Vec<(PathBuf, (u8, u8))>) {
         let mut by_value: HashMap<(u8, u8), Vec<PathBuf>> = HashMap::new();
         for (path, value) in marks {
@@ -167,6 +145,8 @@ type FileStamp = (u64, std::time::SystemTime);
 thread_local! {
     static TEST_FILE: std::cell::RefCell<Option<PathBuf>> = const { std::cell::RefCell::new(None) };
     static SENT: std::cell::RefCell<Vec<Edit>> = const { std::cell::RefCell::new(Vec::new()) };
+    static TEST_FILE_IN_MEMORY: std::cell::RefCell<HashMap<PathBuf, (u8, u8)>> =
+        std::cell::RefCell::new(HashMap::new());
     /// Whether a test takes this window's own writes as queued. `WRITING` is shared by the
     /// tests that run side by side, so a test that raised it would skip their refreshes too.
     static TEST_WRITES_QUEUED: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
@@ -179,8 +159,9 @@ enum Edit {
     Follow(Vec<(PathBuf, PathBuf)>, bool),
     /// A folder renamed from the first path to the second, with every file in it.
     FollowFolder(PathBuf, PathBuf),
-    /// Files or folders deleted, with every file in the folders.
-    Forget(Vec<PathBuf>),
+    /// Files or folders deleted, with every file in the folders. The marks that the file held
+    /// under them are added to the second field, for Undo.
+    Forget(Vec<PathBuf>, Option<ForgottenMarks>),
 }
 
 /// A change, rather than the new value, so that applied to the file it keeps what another
@@ -278,7 +259,7 @@ fn apply_edit(map: &mut HashMap<PathBuf, (u8, u8)>, edit: &Edit) {
                 .collect();
             follow_pairs(map, &inside, false);
         }
-        Edit::Forget(paths) => {
+        Edit::Forget(paths, _) => {
             let gone: std::collections::HashSet<&Path> =
                 paths.iter().map(PathBuf::as_path).collect();
             // Each marked file and the folders above it are looked up, not every path deleted,
@@ -286,6 +267,21 @@ fn apply_edit(map: &mut HashMap<PathBuf, (u8, u8)>, edit: &Edit) {
             map.retain(|k, _| !k.ancestors().any(|a| gone.contains(a)));
         }
     }
+}
+
+/// Makes `edit` to the marks as the file holds them. A delete first adds the marks it takes
+/// away to its list for Undo, so that list holds what the file held, not what the window knew.
+fn apply_edit_to_file(map: &mut HashMap<PathBuf, (u8, u8)>, edit: &Edit) {
+    if let Edit::Forget(paths, Some(for_undo)) = edit {
+        let gone: std::collections::HashSet<&Path> = paths.iter().map(PathBuf::as_path).collect();
+        let taken = (map.iter())
+            .filter(|(k, _)| k.ancestors().any(|a| gone.contains(a)))
+            .map(|(k, &v)| (k.clone(), v));
+        (for_undo.lock())
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .extend(taken);
+    }
+    apply_edit(map, edit);
 }
 
 fn to_text(map: &HashMap<PathBuf, (u8, u8)>) -> Vec<u8> {
@@ -330,7 +326,7 @@ fn write(file: &Path, changes: &[Edit]) {
         let mut map = parse(bytes);
         let before = map.clone();
         for change in changes {
-            apply_edit(&mut map, change);
+            apply_edit_to_file(&mut map, change);
         }
         // An edit that changes no mark, as a move of files without marks, leaves the file as
         // it is. So it is not written again, and the other windows do not read it again.
@@ -362,9 +358,13 @@ fn write(file: &Path, changes: &[Edit]) {
 }
 
 /// In a test, the edits are kept for the test to write, so the tests side by side do not write
-/// one shared file.
+/// one shared file. A test without a marks file of its own has its edits made to a file in
+/// memory instead, as the writer thread would make them, so a delete's marks reach Undo.
 #[cfg(test)]
 fn save(edit: Edit) {
+    if TEST_FILE.with(|f| f.borrow().is_none()) {
+        TEST_FILE_IN_MEMORY.with(|m| apply_edit_to_file(&mut m.borrow_mut(), &edit));
+    }
     SENT.with(|sent| sent.borrow_mut().push(edit));
 }
 
@@ -482,7 +482,10 @@ mod tests {
         std::fs::write(&file, text).unwrap();
         marks.follow_files(vec![(a.clone(), c.clone())], false);
         assert_eq!((marks.get(&c), marks.get(&a)), ((0, 3), (0, 0)));
-        let was = marks.forget(std::slice::from_ref(&b));
+        let for_undo = crate::files::trash::ForgottenMarks::default();
+        marks.forget(std::slice::from_ref(&b), Some(for_undo.clone()));
+        super::write(&file, &super::SENT.with(|sent| sent.take()));
+        let was = for_undo.lock().unwrap().clone();
         assert_eq!((marks.get(&b), was), ((0, 0), vec![(b.clone(), (0, 2))]));
         super::TEST_FILE.with(|f| *f.borrow_mut() = None);
         std::fs::remove_dir_all(dir).unwrap();
@@ -506,7 +509,7 @@ mod tests {
         let mut marks = super::Marks::default();
         super::SENT.with(|sent| sent.borrow_mut().clear());
         marks.follow_files(vec![(a.clone(), c.clone())], false);
-        marks.forget(std::slice::from_ref(&b));
+        marks.forget(std::slice::from_ref(&b), None);
         let sent: Vec<super::Edit> = super::SENT.with(|sent| sent.take());
         super::write(&file, &sent);
         let now = super::parse(&std::fs::read(&file).unwrap());
@@ -515,9 +518,11 @@ mod tests {
         std::fs::remove_dir_all(dir).unwrap();
     }
 
-    /// A delete while this window's own writes are queued returns, for Undo, also the marks
-    /// that another window set meanwhile, which this window has not read. The file forgot them,
-    /// so before this an Undo of the delete brought the file back without them.
+    /// A delete while this window's own writes are queued keeps for Undo the marks that the
+    /// file holds after those writes. Those are the marks that another window set meanwhile,
+    /// which this window has not read, but not a mark that this window cleared. Before, Undo
+    /// lost the first, and then, as the file was read before the clear was in it, it brought
+    /// back the second.
     #[test]
     fn a_delete_keeps_for_undo_the_marks_not_read_yet() {
         let dir =
@@ -525,17 +530,26 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let file = dir.join("marks");
         super::TEST_FILE.with(|f| *f.borrow_mut() = Some(file.clone()));
-        let (a, b) = (dir.join("a.png"), dir.join("b.png"));
-        let mut marks = super::Marks::default();
+        let (a, b, c) = (dir.join("a.png"), dir.join("b.png"), dir.join("c.png"));
+        std::fs::write(&file, format!("1\t0\t{}\n", c.display())).unwrap();
+        let mut marks = super::Marks::load();
         marks.rate(std::slice::from_ref(&a), 4);
         // Another window marked b.png while this window's stars of a.png were still queued.
-        let text = format!("0\t2\t{}\n", b.display());
+        let mut text = std::fs::read(&file).unwrap();
+        text.extend(format!("0\t2\t{}\n", b.display()).as_bytes());
         std::fs::write(&file, text).unwrap();
         super::TEST_WRITES_QUEUED.with(|q| q.set(true));
-        let mut was = marks.forget(&[a.clone(), b.clone()]);
+        // The user clears c.png's only mark, and then deletes the three files.
+        marks.toggle(std::slice::from_ref(&c), 1);
+        let for_undo = crate::files::trash::ForgottenMarks::default();
+        marks.forget(&[a.clone(), b.clone(), c.clone()], Some(for_undo.clone()));
         super::TEST_WRITES_QUEUED.with(|q| q.set(false));
+        // The writer thread then writes the queued edits in order.
+        super::write(&file, &super::SENT.with(|sent| sent.take()));
+        let mut was = for_undo.lock().unwrap().clone();
         was.sort();
         assert_eq!(was, [(a, (0, 4)), (b, (0, 2))]);
+        assert!(super::parse(&std::fs::read(&file).unwrap()).is_empty());
         super::TEST_FILE.with(|f| *f.borrow_mut() = None);
         std::fs::remove_dir_all(dir).unwrap();
     }
@@ -655,7 +669,7 @@ mod tests {
         let before = stamp();
         let pairs = vec![("/b.jpg".into(), "/c.jpg".into())];
         super::write(&file, &[super::Edit::Follow(pairs, false)]);
-        super::write(&file, &[super::Edit::Forget(vec!["/d.jpg".into()])]);
+        super::write(&file, &[super::Edit::Forget(vec!["/d.jpg".into()], None)]);
         assert_eq!(stamp(), before);
         assert_eq!(std::fs::read_to_string(&file).unwrap(), "1\t0\t/a.jpg\n");
         std::fs::remove_dir_all(dir).unwrap();
@@ -780,14 +794,14 @@ mod tests {
             (m.get(&p("/b.jpg")), m.get(&p("/b copy.jpg"))),
             ((0, 4), (0, 4))
         );
-        m.forget(&[p("/b.jpg")]);
+        m.forget(&[p("/b.jpg")], None);
         assert_eq!(m.get(&p("/b.jpg")), (0, 0));
         // A folder renamed: its files' marks go along; trashed: they go. The folders are only
         // names, as nothing on the disk is looked at to tell a folder.
         m.rate(&[p("/trip/old/a.jpg")], 5);
         m.follow_folder(p("/trip/old"), p("/trip/2024"));
         assert_eq!(m.get(&p("/trip/2024/a.jpg")), (0, 5));
-        m.forget(&[p("/trip/2024")]);
+        m.forget(&[p("/trip/2024")], None);
         assert_eq!(m.get(&p("/trip/2024/a.jpg")), (0, 0));
         // An old entry where an unmarked file lands is cleared.
         m.follow_files(vec![(p("/c.jpg"), p("/b copy.jpg"))], false);

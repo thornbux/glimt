@@ -697,7 +697,7 @@ impl crate::App {
                     sidecars: sides_gone,
                     sidecars_left,
                     since,
-                    marks: Vec::new(),
+                    marks: Default::default(),
                     collection: collection.zip(Some(removed)),
                 })
             });
@@ -767,7 +767,7 @@ impl crate::App {
             // A file written over holds another image, so its marks are not this one's, just as
             // its sidecar was not. They go before a copy's marks are put on it.
             #[cfg(feature = "marks")]
-            self.marks.forget(&overwritten);
+            self.marks.forget(&overwritten, None);
             // The moves are handled before their sources are taken for deleted files, so the
             // marks go along first.
             self.follow_moved_paths(moved, is_copy);
@@ -779,16 +779,15 @@ impl crate::App {
             // get them. The marks are kept with the undo of a move to the trash, and it puts
             // them back.
             #[cfg(feature = "marks")]
-            let undo = {
-                let mut undo = undo;
-                let forgotten = self.marks.forget(&gone);
+            {
                 // Added to, not replaced: an Undo that put nothing back sends its marks back.
-                if let Some(Undo::Trash(trash_move)) = &mut undo {
-                    trash_move.marks.extend(forgotten);
-                }
+                let for_undo = match &undo {
+                    Some(Undo::Trash(trash_move)) => Some(trash_move.marks.clone()),
+                    _ => None,
+                };
+                self.marks.forget(&gone, for_undo);
                 self.marks.restore(restored_marks);
-                undo
-            };
+            }
             #[cfg(not(feature = "marks"))]
             drop(restored_marks);
             if undo.is_some() && !(is_undo_remainder && self.file_operations.undo.is_some()) {
@@ -1397,9 +1396,9 @@ impl crate::App {
             Some(dir) => self.visit(ctx, dir),
             None => self.start_listing(ctx),
         }
-        // The collection's file may have moved with the folder, and its watcher looks at the
-        // old name.
-        if self.folder.collection().is_some() {
+        // The collection's file or a folder shown together may have moved with the folder, and
+        // the watcher looks at the old name.
+        if self.folder.collection().is_some() || !self.folder.folders().is_empty() {
             self.start_watching(ctx);
         }
     }
@@ -1442,7 +1441,7 @@ impl crate::App {
                     sidecars: Vec::new(),
                     sidecars_left: Vec::new(),
                     since,
-                    marks: Vec::new(),
+                    marks: Default::default(),
                     collection: collection.zip(Some(removed)),
                 })
             });
@@ -1542,7 +1541,8 @@ impl crate::App {
                 }
                 // Those not put back (a name taken, a rename that failed) stay to be undone
                 // again, with their marks and places, which would be lost with this Undo.
-                let (marks, kept) = (trash_move.marks.into_iter()).partition(|(p, _)| returned(p));
+                let all_marks = crate::files::trash::take_forgotten_marks(&trash_move.marks);
+                let (marks, kept) = all_marks.into_iter().partition(|(p, _)| returned(p));
                 let left: Vec<PathBuf> = (trash_move.files.into_iter())
                     .filter(|p| !returned(p))
                     .collect();
@@ -1552,7 +1552,7 @@ impl crate::App {
                         sidecars: trash_move.sidecars,
                         sidecars_left: trash_move.sidecars_left,
                         since: trash_move.since,
-                        marks: kept,
+                        marks: std::sync::Arc::new(std::sync::Mutex::new(kept)),
                         collection: (trash_move.collection).map(|(file, removed)| {
                             (
                                 file,
@@ -3926,7 +3926,7 @@ mod tests {
             sidecars: Vec::new(),
             sidecars_left: Vec::new(),
             since: std::time::SystemTime::now(),
-            marks: Vec::new(),
+            marks: Default::default(),
             collection: None,
         }));
         app.undo(&ctx);
@@ -3958,7 +3958,7 @@ mod tests {
             sidecars: Vec::new(),
             sidecars_left: Vec::new(),
             since: std::time::SystemTime::now(),
-            marks: vec![(a.clone(), (1, 3))],
+            marks: std::sync::Arc::new(std::sync::Mutex::new(vec![(a.clone(), (1, 3))])),
             collection: Some((gqv.clone(), vec![(0, a.clone())])),
         }));
         app.undo(&ctx);
@@ -3971,7 +3971,7 @@ mod tests {
             panic!("the Undo was lost");
         };
         assert_eq!(trash_move.files, [a.clone(), b]);
-        assert_eq!(trash_move.marks, [(a.clone(), (1, 3))]);
+        assert_eq!(*trash_move.marks.lock().unwrap(), [(a.clone(), (1, 3))]);
         assert_eq!(trash_move.collection, Some((gqv, vec![(0, a)])));
         std::fs::remove_dir_all(dir).unwrap();
     }

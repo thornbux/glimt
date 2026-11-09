@@ -312,8 +312,8 @@ const MANUAL: &[(&str, &str)] = &[
          (re:^(IMG|DSC)). The words after a prefix belong to it, so a search of the names comes \
          first. Combined, the list is in its own order.\n\n\
          The sort menu at the bottom left sorts by name, number, date, file creation date, \
-         EXIF date original, EXIF date digitized, size or extension; the Types menu beside it chooses what the list shows: images, RAW files and \
-         videos.",
+         EXIF date original, EXIF date digitized, size or extension; the Types menu beside it \
+         chooses what the list shows: images, RAW files and videos.",
     ),
     (
         "Keywords and comments",
@@ -778,7 +778,8 @@ const DIFFERENCES: &[(&str, &str, &str)] = &[
         "Deleting in a collection",
         "A file deleted takes its entry out of the collection shown; Undo (Ctrl+Z) puts it back \
          in its place. Other collections keep theirs",
-        "The collection keeps the entry of a deleted file",
+        "The open collection drops the entry, unsaved and without undo, and asks to save the \
+         change when it is closed. Other collections keep theirs",
     ),
     (
         "Close Window (Ctrl+W)",
@@ -1365,19 +1366,25 @@ mod tests {
     }
 
     /// The manual's sort sentence names every order of the Sort menu, so a new order is not
-    /// left out of it.
+    /// left out of it. Each order is a whole item of the list, so "date" is not taken as named
+    /// by "file creation date".
     #[test]
     fn the_manual_names_every_sort_order() {
         let sentence = super::MANUAL
             .iter()
             .find_map(|(_, text)| text.split("The sort menu").nth(1))
             .and_then(|rest| rest.split(';').next())
+            .and_then(|list| list.split("sorts by ").nth(1))
             .unwrap();
+        let items: Vec<&str> = (sentence.split(", "))
+            .flat_map(|item| item.split(" or "))
+            .map(str::trim)
+            .collect();
         for (_, _, label) in crate::model::listing::SORTS {
             let order = label.strip_prefix("Sort by ").unwrap();
             assert!(
-                sentence.contains(order),
-                "the manual's sort list lacks {order}"
+                items.contains(&order),
+                "the manual's sort list lacks {order}: {items:?}"
             );
         }
     }

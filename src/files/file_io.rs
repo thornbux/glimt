@@ -400,6 +400,16 @@ pub fn flush() {
     }
 }
 
+/// Waits until the writes queued before this call are done, five seconds at most. Unlike
+/// `flush`, it does not also wait for the writes that other work queues after it.
+pub fn wait_for_queued_writes() {
+    let (done, wait) = std::sync::mpsc::channel();
+    write_later(move || {
+        let _ = done.send(());
+    });
+    let _ = wait.recv_timeout(std::time::Duration::from_secs(5));
+}
+
 /// The lock beside `path`, held while it lives: another Glimt window's reading and writing of
 /// the same file does not fall between ours, which would lose its change. The lock is a file of
 /// its own, hidden beside it, as `path` is renamed over.

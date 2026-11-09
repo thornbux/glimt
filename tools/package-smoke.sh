@@ -10,8 +10,8 @@
 #
 # The second case is the AppImage's: the binary is in the first window's mount, which goes
 # when that window closes. It needs remote control, which is on by default.
-# Needs Xvfb, python3 and timeout. The screen is read from Xvfb's own framebuffer file, so no
-# screenshot tool is needed. Exits nonzero when a picture is not shown.
+# Needs Xvfb, python3 and timeout. The screen is read from Xvfb's own framebuffer file, or with
+# xwd when that Xvfb cannot write one (-fbdir). Exits nonzero when a picture is not shown.
 set -u
 second_window=
 if [ "${1:-}" = --second-window ]; then second_window=1; shift; fi
@@ -21,8 +21,13 @@ if [ "${1:-}" = --second-window ]; then second_window=1; shift; fi
 dir=$(mktemp -d "$PWD/glimt-smoke.XXXXXX")
 pids=()
 cleanup() {
-    kill "${pids[@]}" 2>/dev/null
-    wait 2>/dev/null
+    if [ ${#pids[@]} -gt 0 ]; then
+        kill "${pids[@]}" 2>/dev/null
+        # A child that ignores the signal (a sandbox, a window stuck as its GL starts) is killed
+        # after 5 seconds, so the step never waits for it until the job's own limit.
+        (sleep 5 && kill -9 "${pids[@]}" 2>/dev/null) &
+        wait "${pids[@]}" 2>/dev/null
+    fi
     rm -rf "$dir"
 }
 trap cleanup EXIT
@@ -40,10 +45,12 @@ svg() {
 # shows R G B: true once 100,000 pixels of the screen are within 12 of that colour, which an
 # icon or a thumbnail is too small for. It waits up to 90 seconds.
 shows() {
-    python3 -I - "$dir/Xvfb_screen0" "$@" <<'EOF'
-import struct, sys, time
-path, want = sys.argv[1], [int(v) for v in sys.argv[2:5]]
+    python3 -I - "$dir/Xvfb_screen0" "$use_xwd" "$@" <<'EOF'
+import struct, subprocess, sys, time
+path, use_xwd, want = sys.argv[1], sys.argv[2], [int(v) for v in sys.argv[3:6]]
 for _ in range(180):
+    if use_xwd:
+        subprocess.run(["xwd", "-root", "-silent", "-out", path], check=False)
     data = open(path, "rb").read()
     header = struct.unpack(">25I", data[:100])
     size, width, height, order, bits, line = header[0], header[4], header[5], header[7], header[11], header[12]
@@ -67,11 +74,23 @@ sys.exit(1)
 EOF
 }
 
-# The framebuffer is written to $dir/Xvfb_screen0 as an XWD file while Xvfb runs.
-Xvfb :99 -screen 0 1280x1024x24 -fbdir "$dir" -nolisten tcp &
-pids+=($!)
+# The framebuffer is written to $dir/Xvfb_screen0 as an XWD file while Xvfb runs. An Xvfb built
+# without -fbdir refuses it, and then xwd writes the same file from the screen each time.
 export DISPLAY=:99
+use_xwd=
+Xvfb :99 -screen 0 1280x1024x24 -fbdir "$dir" -nolisten tcp &
+xvfb=$!
 for _ in $(seq 50); do [ -e "$dir/Xvfb_screen0" ] && break; sleep 0.2; done
+if [ ! -e "$dir/Xvfb_screen0" ]; then
+    kill "$xvfb" 2>/dev/null
+    wait "$xvfb" 2>/dev/null
+    command -v xwd >/dev/null || { echo "FAIL Xvfb writes no framebuffer, and there is no xwd"; exit 1; }
+    use_xwd=1
+    Xvfb :99 -screen 0 1280x1024x24 -nolisten tcp &
+    xvfb=$!
+    sleep 2
+fi
+pids+=("$xvfb")
 
 svg "$dir/a.svg" 230 30 200
 "$@" ${second_window:+--name smoke-first} "$dir/a.svg" &
@@ -110,5 +129,7 @@ timeout 30 "$@" --remote open "$dir/b.svg" ||
     { echo "FAIL the second window is gone"; exit 1; }
 shows 30 200 90 || { echo "FAIL the second window draws no SVG after the first closed"; exit 1; }
 echo "PASS the second window draws an SVG after the first closed"
-# The second window is no child of this script: it is closed by remote control.
+# The second window is no child of this script: it is closed by remote control. That is
+# best effort, after every check passed, so a late answer does not fail the step.
 timeout 30 "$@" --remote-all quit >/dev/null 2>&1
+exit 0

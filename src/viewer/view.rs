@@ -410,9 +410,13 @@ impl Notice {
     }
 
     /// Shows again the notice that `set_aside` returned, as the same notice, so a screen
-    /// reader that read it does not read it again. `None` takes the notice away.
+    /// reader that read it does not read it again. `None` takes the notice away. A pair with
+    /// a number that this notice never gave was not set aside, so it is given as a new notice.
     pub(crate) fn put_back(&mut self, kept: Option<(String, u64)>) {
-        self.shown = kept;
+        match kept {
+            Some((text, number)) if number == 0 || number > self.given => self.give(text),
+            kept => self.shown = kept,
+        }
     }
 }
 
@@ -2078,6 +2082,18 @@ fn pane_rects(
 #[cfg(test)]
 mod tests {
     use crate::support::test_support::app_on;
+
+    /// A notice set aside comes back with its number, and a pair that was never set aside is
+    /// given a number of its own, so a screen reader is not told an old number for a new text.
+    #[test]
+    fn a_notice_put_back_keeps_only_its_own_number() {
+        let mut notice = super::Notice::new(Some("a".into()));
+        let kept = notice.set_aside();
+        notice.put_back(kept.clone());
+        assert_eq!(notice.set_aside(), kept);
+        notice.put_back(Some(("b".into(), 99)));
+        assert_eq!(notice.set_aside(), Some(("b".into(), 2)));
+    }
 
     /// Going to another image leaves nothing of the one before. Its turn, page, frame and crop
     /// are one `Viewing`, made anew, so a field added later cannot be left out of the resets.
