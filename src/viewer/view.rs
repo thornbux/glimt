@@ -9,6 +9,7 @@ use crate::model::list::LoadedImage;
 use crate::support::format::fill_template;
 use crate::support::lang::tr;
 use crate::support::test_hooks::noted;
+use crate::support::threads::lock_even_if_poisoned;
 use crate::ui::actions::{Action, KIOSK_ACTIONS};
 use crate::ui::menus::{checkbox, menu_item, scroll_menu, with_icon};
 use crate::viewer::crop::Crop;
@@ -513,7 +514,7 @@ impl crate::App {
         self.list.keep_loaded_images(|i, s| {
             window.contains(i) && (!s.is_full_resolution || window[..full].contains(i))
         });
-        *self.decoding.kept_images.lock().unwrap() = window.clone();
+        *lock_even_if_poisoned(&self.decoding.kept_images) = window.clone();
         for i in window {
             self.request_decode(i, false);
         }
@@ -536,7 +537,7 @@ impl crate::App {
             let wanted = self.is_file(idx, &d.path)
                 && d.rotated == self.config.exif_rotate
                 && d.page == if idx == self.list.shown() { self.viewing.page } else { 0 }
-                && self.decoding.kept_images.lock().unwrap().contains(&idx)
+                && lock_even_if_poisoned(&self.decoding.kept_images).contains(&idx)
                 // Full resolution is kept for each image on screen: the shown one, the compared
                 // one and the panes of a layout, which zoom together.
                 && (!full
@@ -610,7 +611,7 @@ impl crate::App {
                 None if !full
                     && self.is_file(idx, &d.path)
                     && !self.list.loaded_images().contains_key(&idx)
-                    && self.decoding.kept_images.lock().unwrap().contains(&idx) =>
+                    && lock_even_if_poisoned(&self.decoding.kept_images).contains(&idx) =>
                 {
                     self.request_decode(idx, false);
                 }
@@ -1933,13 +1934,13 @@ pub(crate) fn spawn_decoders(
                     page,
                     request_number,
                     max_box,
-                }) = job_rx.lock().unwrap().recv()
+                }) = lock_even_if_poisoned(&job_rx).recv()
                 else {
                     return;
                 };
                 // This cancels work, skipping images the user has already moved past.
                 let (wanted, is_shown) = {
-                    let w = kept_images.lock().unwrap();
+                    let w = lock_even_if_poisoned(&kept_images);
                     let n = full_resolution_count.load(Ordering::Relaxed);
                     let wanted = w.contains(&index)
                         && (!full_resolution || w.iter().take(n).any(|&i| i == index));
@@ -1975,10 +1976,13 @@ pub(crate) fn spawn_decoders(
                     request_number,
                     result,
                 });
+                #[allow(unsafe_code)]
                 // glibc does not return freed memory from the threads' malloc arenas on its own,
                 // and decoding leaves several image-sized buffers in each thread.
                 // SAFETY: malloc_trim has no preconditions beyond a working glibc malloc.
-                unsafe { malloc_trim(0) };
+                unsafe {
+                    malloc_trim(0)
+                };
                 ctx.request_repaint();
             }
         });

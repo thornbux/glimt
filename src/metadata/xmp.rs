@@ -7,6 +7,7 @@
 
 use crate::files::config::fits_on_a_line;
 use crate::support::format::without_control_characters;
+use crate::support::threads::lock_even_if_poisoned;
 use std::path::{Path, PathBuf};
 
 const ALT: &str = "Iptc4xmpCore:AltTextAccessibility";
@@ -491,9 +492,7 @@ pub(crate) fn lock_sidecar(path: &Path) -> SidecarLock {
 
 fn lock_sidecar_in(dir: Option<&Path>, path: &Path) -> SidecarLock {
     let side = sidecar(path);
-    let guard = SIDECAR_LOCKS[sidecar_lock_number(&side) as usize]
-        .lock()
-        .unwrap_or_else(|e| e.into_inner());
+    let guard = lock_even_if_poisoned(&SIDECAR_LOCKS[sidecar_lock_number(&side) as usize]);
     (dir.and_then(|d| lock_file(d, &side)), guard)
 }
 
@@ -517,9 +516,7 @@ fn lock_sidecars_in<'a>(
     sides.dedup_by_key(|s| s.0);
     (sides.iter())
         .map(|(n, side)| {
-            let guard = SIDECAR_LOCKS[*n as usize]
-                .lock()
-                .unwrap_or_else(|e| e.into_inner());
+            let guard = lock_even_if_poisoned(&SIDECAR_LOCKS[*n as usize]);
             (dir.and_then(|d| lock_file(d, side)), guard)
         })
         .collect()

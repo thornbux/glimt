@@ -10,6 +10,7 @@ use crate::images::colour::{
 use crate::support::format::count;
 use crate::support::lang::tr;
 use crate::support::test_hooks::noted;
+use crate::support::threads::lock_even_if_poisoned;
 use crate::support::threads::{Receiving, Took};
 use crate::ui::actions::{Action, shortcut_text};
 use crate::{features::tools, files::config, files::external, model::collections, tf, ui::theme};
@@ -552,14 +553,14 @@ impl crate::App {
             }
             // A tool that is still running, an editor left open or a script that hangs, is
             // ended here with what it started, in the background (it is given a second).
-            let running = self.tools_running.lock().unwrap().clone();
+            let running = lock_even_if_poisoned(&self.tools_running).clone();
             if !running.is_empty() {
                 ui.separator();
             }
             for (name, pid) in running {
                 let text = tf!("Stop {name}", name);
                 if icon_button(ui, theme::icon::STOP, &text).clicked() {
-                    let mut running = self.tools_running.lock().unwrap();
+                    let mut running = lock_even_if_poisoned(&self.tools_running);
                     let was = running.len();
                     running.retain(|r| r.1 != pid);
                     // Not when it ended meanwhile: its number may be another's by now.

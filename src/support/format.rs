@@ -167,6 +167,7 @@ pub(crate) fn fill_template(template: &str, value: impl Fn(&str) -> String) -> S
     lines.collect::<Vec<_>>().join("\n")
 }
 
+#[allow(unsafe_code)] // declarations only: each call is an unsafe block
 unsafe extern "C" {
     fn localtime_r(time: *const i64, tm: *mut Tm) -> *mut Tm;
 }
@@ -174,6 +175,7 @@ unsafe extern "C" {
 /// Seconds since 1970 as local "2026-10-11 00:34:12". Undo compares this form, with a T for
 /// the space, with the trash's DeletionDate: keep it so.
 pub(crate) fn local_time(secs: i64) -> String {
+    #[allow(unsafe_code)]
     // SAFETY: Tm matches glibc's struct tm on 64-bit Linux, and both pointers are valid.
     let tm = unsafe {
         let mut tm: Tm = std::mem::zeroed();

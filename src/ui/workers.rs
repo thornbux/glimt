@@ -4,6 +4,7 @@
 use crate::images::colour::srgb_to_display;
 use crate::images::decode::color_image;
 use crate::support::lang::tr;
+use crate::support::threads::lock_even_if_poisoned;
 use crate::support::threads::{CPU_CHANGED, Took, cores, thumb_threads};
 use crate::ui::file_list::LARGE_THUMBS;
 use crate::ui::file_list::OnScreenFiles;
@@ -11,7 +12,7 @@ use crate::{features::remote, images::thumbs, malloc_trim, metadata::lightroom, 
 use eframe::egui;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex, mpsc};
+use std::sync::{Arc, Mutex, PoisonError, mpsc};
 
 impl crate::App {
     /// What the background threads and the rest of the desktop sent since the last frame: decoded
@@ -206,16 +207,16 @@ pub(crate) fn spawn_thumbnailers(
         );
         std::thread::spawn(move || {
             loop {
-                let mut idle = CPU_CHANGED.0.lock().unwrap();
+                let mut idle = lock_even_if_poisoned(&CPU_CHANGED.0);
                 while k >= thumb_threads(workers) {
-                    idle = CPU_CHANGED.1.wait(idle).unwrap();
+                    idle = (CPU_CHANGED.1.wait(idle)).unwrap_or_else(PoisonError::into_inner);
                 }
                 drop(idle);
-                let Ok((idx, path, n)) = rx.lock().unwrap().recv() else {
+                let Ok((idx, path, n)) = lock_even_if_poisoned(&rx).recv() else {
                     return;
                 };
-                let wanted =
-                    (on_screen.lock().unwrap().iter()).any(|v| v.binary_search(&idx).is_ok());
+                let wanted = (lock_even_if_poisoned(&on_screen).iter())
+                    .any(|v| v.binary_search(&idx).is_ok());
                 let result = wanted.then(|| {
                     let (rotate, save) =
                         (rotate.load(Ordering::Relaxed), save.load(Ordering::Relaxed));
@@ -226,8 +227,11 @@ pub(crate) fn spawn_thumbnailers(
                         .map(|img| color_image(srgb_to_display(img.into())))
                 });
                 let _ = tx.send((path, n, result));
+                #[allow(unsafe_code)]
                 // SAFETY: as for the image workers above.
-                unsafe { malloc_trim(0) };
+                unsafe {
+                    malloc_trim(0)
+                };
                 ctx.request_repaint();
             }
         });

@@ -2,6 +2,7 @@
 //! cache (`~/.cache/thumbnails/normal`, or `large` for big thumbnails). Existing thumbnails are
 //! always read; new ones are written there only when "Save thumbnails" is on.
 
+use crate::support::threads::lock_even_if_poisoned;
 use std::path::{Path, PathBuf};
 use std::time::UNIX_EPOCH;
 
@@ -274,6 +275,7 @@ fn md5(data: &[u8]) -> [u8; 16] {
     msg.extend((data.len() as u64 * 8).to_le_bytes());
     let mut h = [0x67452301u32, 0xefcdab89, 0x98badcfe, 0x10325476];
     for chunk in msg.chunks(64) {
+        #[allow(clippy::unwrap_used)] // a slice of 4 bytes always makes an array of 4
         let m: [u32; 16] = std::array::from_fn(|i| {
             u32::from_le_bytes(chunk[i * 4..i * 4 + 4].try_into().unwrap())
         });
@@ -312,7 +314,7 @@ fn md5(data: &[u8]) -> [u8; 16] {
 /// otherwise cost a worker the whole limit at every visit.
 fn should_mark_failed(path: &Path, error: &str) -> bool {
     if error.contains(crate::files::external::TIMED_OUT) {
-        let mut timed_out = TIMED_OUT_ONCE.lock().unwrap_or_else(|e| e.into_inner());
+        let mut timed_out = lock_even_if_poisoned(&TIMED_OUT_ONCE);
         return !timed_out.insert(path.to_path_buf());
     }
     let away = [

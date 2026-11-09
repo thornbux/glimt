@@ -983,7 +983,10 @@ pub fn mark_focused() {
     if let Some(d) = runtime_dir() {
         // The file is written whole and never truncated first, because a `--remote` reading it
         // meanwhile got an empty name.
-        let _ = crate::files::file_io::replace_file(&d.join(FOCUSED_FILE), socket_id());
+        let path = d.join(FOCUSED_FILE);
+        if let Err(e) = crate::files::file_io::replace_file(&path, socket_id()) {
+            eprintln!("glimt: {}: {e}", path.display());
+        }
     }
 }
 
@@ -1024,6 +1027,7 @@ fn has_waiting_client(fd: i32) -> bool {
         events: i16,
         revents: i16,
     }
+    #[allow(unsafe_code)] // declarations only: each call is an unsafe block
     unsafe extern "C" {
         fn poll(fds: *mut PollFd, n: std::ffi::c_ulong, timeout: i32) -> i32;
     }
@@ -1033,9 +1037,13 @@ fn has_waiting_client(fd: i32) -> bool {
         events: POLLIN,
         revents: 0,
     };
-    // SAFETY: There is one pollfd and no wait, and a closed or negative fd is only reported,
-    // not used.
-    fd >= 0 && unsafe { poll(&mut p, 1, 0) } == 1 && p.revents & POLLIN != 0
+    if fd < 0 {
+        return false;
+    }
+    #[allow(unsafe_code)]
+    // SAFETY: There is one pollfd and no wait, and a closed fd is only reported, not used.
+    let ready = unsafe { poll(&mut p, 1, 0) } == 1;
+    ready && p.revents & POLLIN != 0
 }
 
 /// Takes no new clients, by removing this Glimt's socket as it closes.

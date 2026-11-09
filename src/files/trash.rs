@@ -45,11 +45,7 @@ struct TrashEntry {
 /// before it.
 pub(crate) fn take_forgotten_marks(marks: &ForgottenMarks) -> Vec<(PathBuf, (u8, u8))> {
     crate::files::file_io::wait_for_queued_writes();
-    std::mem::take(
-        &mut *marks
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner),
-    )
+    std::mem::take(&mut *crate::support::threads::lock_even_if_poisoned(marks))
 }
 
 /// What `trash_move` moved to the trash put back where it was, with the sidecars that went with it:

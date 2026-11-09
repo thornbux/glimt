@@ -3,7 +3,7 @@
 //! (`Working`).
 
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex, mpsc};
+use std::sync::{Arc, Mutex, MutexGuard, mpsc};
 
 /// The CPU use level (index in CPU_LEVELS), for the worker threads, and the signal that wakes
 /// the thumbnail workers it leaves idle when it changes.
@@ -154,7 +154,7 @@ pub(crate) struct Timespec {
 }
 
 pub(crate) fn set_cpu_use(level: usize) {
-    let _lock = CPU_CHANGED.0.lock().unwrap();
+    let _lock = lock_even_if_poisoned(&CPU_CHANGED.0);
     CPU_USE_LEVEL.store(level, Ordering::Relaxed);
     CPU_CHANGED.1.notify_all();
 }
@@ -223,6 +223,7 @@ pub(crate) fn in_parts<T: Sync, R: Send>(
     })
 }
 
+#[allow(unsafe_code)] // declarations only: each call is an unsafe block
 unsafe extern "C" {
     pub(crate) fn clock_gettime(clock: i32, time: *mut Timespec) -> i32;
 }
@@ -232,8 +233,11 @@ unsafe extern "C" {
 pub(crate) fn thread_cpu_us() -> u64 {
     const CLOCK_THREAD_CPUTIME_ID: i32 = 3;
     let mut t = Timespec { sec: 0, nsec: 0 };
+    #[allow(unsafe_code)]
     // SAFETY: `t` is a valid timespec for the call to fill.
-    unsafe { clock_gettime(CLOCK_THREAD_CPUTIME_ID, &mut t) };
+    unsafe {
+        clock_gettime(CLOCK_THREAD_CPUTIME_ID, &mut t)
+    };
     t.sec as u64 * 1_000_000 + t.nsec as u64 / 1000
 }
 
@@ -243,6 +247,16 @@ pub(crate) fn thread_cpu_us() -> u64 {
 /// catches a panic (`source_rules::panics_are_caught_in_one_place`).
 pub(crate) fn catch_panic<T>(work: impl FnOnce() -> T) -> Option<T> {
     std::panic::catch_unwind(std::panic::AssertUnwindSafe(work)).ok()
+}
+
+/// Locks `mutex` and returns its guard, also when a thread panicked while it held the lock.
+/// A panic is caught where it happens (`catch_panic`), so what the mutex holds is still whole,
+/// and the threads that share it go on. This is the one way Glimt locks a mutex (clippy.toml).
+pub(crate) fn lock_even_if_poisoned<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
+    #[allow(clippy::disallowed_methods)] // the one place that locks, recovering a poisoned lock
+    mutex
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
 #[cfg(test)]

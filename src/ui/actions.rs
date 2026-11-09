@@ -10,6 +10,7 @@ use crate::metadata::marks;
 use crate::support::format::count;
 use crate::support::lang::tr;
 use crate::support::threads::Working;
+use crate::support::threads::lock_even_if_poisoned;
 use crate::ui::dialogs::{Pick, Prompt};
 use crate::viewer::pan::PanView;
 use crate::viewer::view::LAYOUTS;
@@ -1552,7 +1553,7 @@ pub fn shortcuts() -> std::sync::Arc<[Shortcut]> {
     type Made = Option<(Vec<Shortcut>, std::sync::Arc<[Shortcut]>)>;
     static MADE: std::sync::Mutex<Made> = std::sync::Mutex::new(None);
     let own = USER_KEYS.read().map(|o| o.clone()).unwrap_or_default();
-    let mut made = MADE.lock().unwrap_or_else(|e| e.into_inner());
+    let mut made = lock_even_if_poisoned(&MADE);
     if let Some((from, all)) = made.as_ref()
         && *from == own
     {
@@ -1596,6 +1597,7 @@ pub(crate) fn clipboard_key(e: &egui::Event) -> Option<egui::Key> {
 #[cfg(test)]
 mod tests {
     use super::{Action, Target};
+    use crate::support::threads::lock_even_if_poisoned;
 
     /// Every action, in name order, for the tests that run each one. Kept whole by
     /// `all_lists_every_action`.
@@ -2278,7 +2280,7 @@ mod tests {
         let keys: Keys = "Next=Ctrl+Shift+N;ZoomIn=Plus;Bogus=X;Prev=Hyper+P"
             .parse()
             .unwrap();
-        let _held = super::KEYS_TEST.lock().unwrap_or_else(|e| e.into_inner());
+        let _held = lock_even_if_poisoned(&super::KEYS_TEST);
         // An action this build does not know, and a key it cannot read, are kept as they were.
         assert_eq!(
             keys.to_string(),

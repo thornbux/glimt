@@ -5,6 +5,7 @@
 use crate::images::colour::{ADOBE_RGB, to_display, to_srgb};
 use crate::model::listing::has_ext;
 use crate::support::format::human_size;
+use crate::support::threads::lock_even_if_poisoned;
 use crate::{images::raw, metadata::exif};
 use eframe::egui;
 use image::ImageDecoder;
@@ -112,7 +113,7 @@ impl DecodeBudget {
             return Err(format!("image too large ({})", human_size(bytes)));
         }
         let line = usize::from(!goes_first);
-        let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        let mut state = lock_even_if_poisoned(&self.state);
         let turn = state.turns_given[line];
         state.turns_given[line] += 1;
         while !state.is_turn_of(line, turn, bytes) {
@@ -129,7 +130,7 @@ impl DecodeBudget {
     /// Gives back `bytes`, and wakes the decodes that wait for room.
     fn give_back(&self, bytes: u64) {
         if bytes > 0 {
-            self.state.lock().unwrap_or_else(|e| e.into_inner()).free += bytes;
+            lock_even_if_poisoned(&self.state).free += bytes;
             self.freed.notify_all();
         }
     }
@@ -326,6 +327,7 @@ fn ico_sizes(path: &Path) -> Result<Vec<[u8; 16]>, String> {
     let n = (le16(&head, 4) as usize).min((head.len() - 6) / 16);
     let mut sizes: Vec<(u16, u32, usize, [u8; 16])> = (0..n)
         .map(|k| {
+            #[allow(clippy::unwrap_used)] // a slice of 16 bytes always makes an array of 16
             let e: [u8; 16] = head[6 + 16 * k..][..16].try_into().unwrap();
             let side = |b: u8| if b == 0 { 256 } else { b as u32 };
             (le16(&e, 6), side(e[0]) * side(e[1]), k, e)
@@ -340,7 +342,8 @@ fn ico_sizes(path: &Path) -> Result<Vec<[u8; 16]>, String> {
 fn ico_size(path: &Path, k: usize) -> Result<image::DynamicImage, String> {
     use std::io::{Read, Seek};
     let mut entry = *ico_sizes(path)?.get(k).ok_or("no such size in the ICO")?;
-    let le32 = |e: &[u8; 16], at: usize| u32::from_le_bytes(e[at..at + 4].try_into().unwrap());
+    let le32 =
+        |e: &[u8; 16], at: usize| u32::from_le_bytes([e[at], e[at + 1], e[at + 2], e[at + 3]]);
     let (len, offset) = (le32(&entry, 8), le32(&entry, 12));
     let mut file = open_regular(path).map_err(|e| e.to_string())?;
     file.seek(std::io::SeekFrom::Start(offset.into()))
@@ -1185,6 +1188,7 @@ pub fn color_image(img: image::DynamicImage) -> egui::ColorImage {
 
 #[cfg(test)]
 mod tests {
+    use crate::support::threads::lock_even_if_poisoned;
     /// Two decodes that each need 60 % of the budget run one after the other, never together,
     /// while small decodes go through at once beside a large one that runs, so a folder of
     /// ordinary images does not wait. One larger than the whole budget is refused rather than
@@ -1225,7 +1229,7 @@ mod tests {
         }
         assert_eq!(most.load(SeqCst), 1);
         assert!(budget.take(1001, false).is_err());
-        assert_eq!(budget.state.lock().unwrap().free, 1000);
+        assert_eq!(lock_even_if_poisoned(&budget.state).free, 1000);
     }
 
     /// A decode that waits for room is not passed by a smaller one that asks after it, and a
@@ -1243,7 +1247,7 @@ mod tests {
             let (budget, taken) = (budget.clone(), taken.clone());
             let thread = std::thread::spawn(move || {
                 budget.take(bytes, goes_first).unwrap();
-                taken.lock().unwrap().push(name);
+                lock_even_if_poisoned(&taken).push(name);
             });
             std::thread::sleep(Duration::from_millis(50));
             thread
@@ -1254,16 +1258,16 @@ mod tests {
             start("shown", 500, true),
         ];
         // 400 are free: the small decode would fit, but it waits behind the large one.
-        assert!(taken.lock().unwrap().is_empty());
+        assert!(lock_even_if_poisoned(&taken).is_empty());
         budget.give_back(600);
         std::thread::sleep(Duration::from_millis(50));
-        assert_eq!(*taken.lock().unwrap(), ["shown"]);
+        assert_eq!(*lock_even_if_poisoned(&taken), ["shown"]);
         budget.give_back(500);
         for thread in threads {
             thread.join().unwrap();
         }
-        assert_eq!(taken.lock().unwrap().len(), 3);
-        assert_eq!(budget.state.lock().unwrap().free, 1000 - 610);
+        assert_eq!(lock_even_if_poisoned(&taken).len(), 3);
+        assert_eq!(lock_even_if_poisoned(&budget.state).free, 1000 - 610);
     }
 
     /// Glimt's logo is decoded while other decodes hold the whole budget, so About does not

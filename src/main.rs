@@ -7,6 +7,9 @@
 // Tests make and read their files directly. The rules in clippy.toml are for Glimt's own code,
 // which `cargo clippy --release` checks without the tests.
 #![cfg_attr(test, allow(clippy::disallowed_methods))]
+// A test stops at the first unwrap or expect that fails, which is what a test should do. This
+// covers the modules built only with the tests too (source_rules, test_support).
+#![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
 
 use crate::cli::Start;
 use crate::features::check::ImageCheck;
@@ -424,6 +427,7 @@ fn app_id() -> String {
     std::env::var("FLATPAK_ID").unwrap_or_else(|_| "glimt".into())
 }
 
+#[allow(unsafe_code)] // declarations only: each call is an unsafe block
 unsafe extern "C" {
     /// Returns freed heap memory to the operating system (glibc).
     fn malloc_trim(pad: usize) -> i32;
@@ -474,8 +478,11 @@ fn main() -> eframe::Result {
     // buffers stayed in each decode thread's arena, and a folder of screenshots used 91 MB of
     // own memory instead of 29 MB. Decoding is at most a few percent slower.
     if Config::load().low_memory {
+        #[allow(unsafe_code)]
         // SAFETY: This is called before any other thread exists.
-        unsafe { mallopt(M_ARENA_MAX, 1) };
+        unsafe {
+            mallopt(M_ARENA_MAX, 1)
+        };
         HAS_ONE_MALLOC_ARENA.store(true, Ordering::Relaxed);
     }
     let (start, args_os) = match Start::parse(std::env::args_os().skip(1).collect()) {
