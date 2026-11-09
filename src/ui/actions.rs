@@ -190,11 +190,6 @@ pub const SHORTCUTS: &[(Action, egui::Modifiers, egui::Key)] = {
 pub static USER_KEYS: std::sync::RwLock<Vec<(Action, egui::Modifiers, egui::Key)>> =
     std::sync::RwLock::new(Vec::new());
 
-/// Held by the tests that set `USER_KEYS`, and by every new window of a test, which sets them
-/// to its own settings' keys, as tests run at once.
-#[cfg(test)]
-pub static KEYS_TEST: std::sync::Mutex<()> = std::sync::Mutex::new(());
-
 /// The actions a kiosk allows: showing and browsing, not changing files, settings or the
 /// window.
 pub(crate) const KIOSK_ACTIONS: &[Action] = &[
@@ -1559,14 +1554,20 @@ pub fn shortcuts() -> std::sync::Arc<[Shortcut]> {
     {
         return all.clone();
     }
+    let all: std::sync::Arc<[Shortcut]> = shortcuts_with(&own).into();
+    *made = Some((own, all.clone()));
+    all
+}
+
+/// Returns the shortcuts in use with the user's own keys `own`, in the order `shortcuts`
+/// gives them.
+fn shortcuts_with(own: &[Shortcut]) -> Vec<Shortcut> {
     // Defaults of actions with own keys go, and so does a default whose key an own key took.
-    let mut all = own.clone();
+    let mut all = own.to_vec();
     all.extend((SHORTCUTS.iter()).filter(|s| !own.iter().any(|o| o.0 == s.0 || same_keys(o, s))));
     all.retain(|s| s.0.is_in_build());
     let weight = |m: &egui::Modifiers| m.shift as u8 + m.alt as u8 + m.command as u8;
     all.sort_by_key(|s| std::cmp::Reverse(weight(&s.1)));
-    let all: std::sync::Arc<[Shortcut]> = all.into();
-    *made = Some((own, all.clone()));
     all
 }
 
@@ -1597,7 +1598,6 @@ pub(crate) fn clipboard_key(e: &egui::Event) -> Option<egui::Key> {
 #[cfg(test)]
 mod tests {
     use super::{Action, Target};
-    use crate::support::threads::lock_even_if_poisoned;
 
     /// Every action, in name order, for the tests that run each one. Kept whole by
     /// `all_lists_every_action`.
@@ -2273,22 +2273,22 @@ mod tests {
         }
     }
 
-    /// Own keys survive the config file, and replace the defaults of their action.
+    /// Own keys survive the config file, and replace the defaults of their action. The test
+    /// reads them through `shortcuts_with`, not by setting `USER_KEYS`: the tests run at once,
+    /// and own keys set there took Space from Next in another test's window.
     #[test]
     fn own_keys() {
         use super::{Action, Keys};
         let keys: Keys = "Next=Ctrl+Shift+N;ZoomIn=Plus;Bogus=X;Prev=Hyper+P"
             .parse()
             .unwrap();
-        let _held = lock_even_if_poisoned(&super::KEYS_TEST);
         // An action this build does not know, and a key it cannot read, are kept as they were.
         assert_eq!(
             keys.to_string(),
             "Next=Ctrl+Shift+N;ZoomIn=Plus;Bogus=X;Prev=Hyper+P"
         );
         assert_eq!(keys.to_string().parse::<Keys>().unwrap(), keys);
-        *super::USER_KEYS.write().unwrap() = keys.0.clone();
-        let all = super::shortcuts();
+        let all = super::shortcuts_with(&keys.0);
         // PlayVideo has no shortcut in a build without video, so Enter is free there.
         let play = all.iter().any(|s| s.0 == Action::PlayVideo);
         assert_eq!(play, cfg!(feature = "video"));
@@ -2299,8 +2299,7 @@ mod tests {
         assert!(pos(Action::Rotate180) < pos(Action::RandomOrder));
         // An own key that is another action's default takes it from that action.
         let r = "ZoomFit=R".parse::<Keys>().unwrap();
-        *super::USER_KEYS.write().unwrap() = r.0.clone();
-        let all = super::shortcuts();
+        let all = super::shortcuts_with(&r.0);
         let on_r: Vec<Action> = (all.iter())
             .filter(|s| s.2 == eframe::egui::Key::R && s.1 == eframe::egui::Modifiers::NONE)
             .map(|s| s.0)
@@ -2308,13 +2307,11 @@ mod tests {
         assert_eq!(on_r, [Action::ZoomFit]);
         // Also a key with Ctrl, which the defaults and own keys say each their way.
         let ctrl_n = "Next=Ctrl+N".parse::<Keys>().unwrap();
-        *super::USER_KEYS.write().unwrap() = ctrl_n.0.clone();
-        let all = super::shortcuts();
+        let all = super::shortcuts_with(&ctrl_n.0);
         assert!(
             !all.iter()
                 .any(|s| s.0 == Action::NewWindow && super::same_keys(s, &ctrl_n.0[0]))
         );
-        super::USER_KEYS.write().unwrap().clear();
     }
 
     /// A dialog in the main window holds the keys of every window. The projector once browsed
@@ -2356,6 +2353,24 @@ mod tests {
         assert!(app.dialog_open());
         assert_eq!(space(&app), None);
         std::fs::remove_dir_all(&dir).unwrap();
+        // Own keys that a test set in USER_KEYS took Space from Next in this window now and
+        // then, as the tests run at once: only `use_user_keys` writes them, also in the tests.
+        let writes_keys = ["USER_KEYS", ".write()"].concat();
+        let mut writers = Vec::new();
+        for (file, text) in crate::support::source_rules::rust_sources() {
+            if file != "support/source_rules.rs" {
+                writers.extend(
+                    text.lines()
+                        .filter(|l| l.contains(&writes_keys))
+                        .map(|_| file.clone()),
+                );
+            }
+        }
+        assert_eq!(
+            writers,
+            ["ui/actions.rs"],
+            "own keys set outside use_user_keys"
+        );
         let mut callers = Vec::new();
         for (file, text) in crate::support::source_rules::rust_sources() {
             let lines = crate::support::source_rules::code_lines(&text);

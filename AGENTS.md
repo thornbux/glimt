@@ -460,7 +460,8 @@ method.
   - rename with `file_io::rename_never_over` (never over a file), and move or copy with
     `put_file` (never `std::fs::copy`). A rename that a later step counts on (an unlink,
     a plan removed) is first made lasting with `sync_folder_of`, which syncs its folder.
-    `write_beside` and `put_file`'s copy do this themselves, and
+    `write_beside` and `put_file`'s move to another disk do this themselves; a plain copy
+    and a thumbnail (`write_beside_without_folder_sync`) do not, as nothing counts on them, and
     `source_rules::renames_that_later_steps_count_on_are_synced` lists the renames that
     stand alone;
   - start one of Glimt's own programs with `external::command` or `stoppable_command` (inside

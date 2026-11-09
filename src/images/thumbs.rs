@@ -166,7 +166,8 @@ fn write_thumbnail(
     encoded.map_err(std::io::Error::other)?;
     // As every file Glimt writes: made new beside it, never through a link planted at its name;
     // private, as the shared cache's spec asks.
-    crate::files::file_io::write_beside(
+    // Without a folder sync, as a thumbnail lost in a power cut is made again.
+    crate::files::file_io::write_beside_without_folder_sync(
         &tmp,
         file,
         |out| {
@@ -474,12 +475,16 @@ mod tests {
         std::fs::remove_dir_all(dir).unwrap();
     }
 
+    /// A thumbnail is written and read back. Its folder is not synced, as a thumbnail lost in
+    /// a power cut is made again.
     #[test]
     fn writes_and_reads_cache() {
         let dir = std::env::temp_dir().join(format!("glimt-thumbs-{}", std::process::id()));
         let file = super::cache_file(&dir, "normal", "file:///a%20b.jpg");
         let img = image::RgbaImage::from_pixel(4, 3, image::Rgba([1, 2, 3, 255]));
+        crate::files::file_io::FOLDERS_SYNCED.take();
         super::write_thumbnail(&file, &img, "file:///a%20b.jpg", (42, 9)).unwrap();
+        assert!(crate::files::file_io::FOLDERS_SYNCED.take().is_empty());
         assert_eq!(super::read_cached(&file, (42, 9), 128).unwrap(), img);
         assert!(super::read_cached(&file, (43, 9), 128).is_none());
         assert!(super::read_cached(&file, (42, 10), 128).is_none());

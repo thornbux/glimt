@@ -10,13 +10,17 @@ and versions follow [Semantic Versioning](https://semver.org/).
 - The Help Manual names every order of the sort menu (file creation date and the two EXIF
   dates were missing), and says that a tool still running is stopped from Edit → Tools.
 - A power cut, or a USB stick pulled out without unmounting it, no longer loses a file moved
-  to another disk, its copy and its source both. A copy, a saved sidecar, a turned image and
-  the settings are on disk with their names when Glimt says they are saved, so an older
+  to another disk, its copy and its source both. A saved sidecar, a turned image and the
+  settings are on disk with their names when Glimt says they are saved, so an older
   version cannot come back, and Rename Many's plan is on disk before its first rename. File →
   Back Up waits until the backup is on the disk, so a stick pulled out right after holds all
   of it.
-- When the disk reports that Rename Many's renames did not reach it, the plan stays, so the
-  next start offers to put the files right instead of trusting names that may come back.
+- An Undo of a move to the trash puts the files' names on disk before it removes their
+  .trashinfo files, so a power cut right after cannot leave a file hidden in the trash's
+  folder where no trash view lists it.
+- When the disk reports that Rename Many's renames did not reach it, Glimt says so, and the
+  plan goes as after any finished Rename Many. A plan kept there made the next start move the
+  marks and stars again, erasing them or swapping a swap's back onto the wrong files.
 ### Changed
 
 - Copy for Sharing keeps an iPhone's HDR gain map as it keeps an Ultra HDR one, so the copy

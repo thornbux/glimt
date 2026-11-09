@@ -29,7 +29,10 @@ pub fn own_folders() -> Vec<(&'static str, PathBuf)> {
 pub fn copy_tree(from: &Path, to: &Path) -> std::io::Result<usize> {
     std::fs::create_dir_all(to)?;
     let mut above = Vec::from_iter(file_id(from));
-    copy_into(from, to, &ids_above(to), &mut above)
+    let copied = copy_into(from, to, &ids_above(to), &mut above)?;
+    // The name of `to` itself is on disk too.
+    crate::files::file_io::sync_folder_of(to)?;
+    Ok(copied)
 }
 
 /// Copies what is in `from` to `to`, made. `target` holds the folders the copy goes into, and
@@ -65,15 +68,14 @@ fn copy_into(
             above.pop();
             files += copied?;
         } else if source.is_file() {
-            // Named, as the files after it are not copied. The copy is on disk with its name
-            // (`put_file`).
+            // Named, as the files after it are not copied.
             crate::files::file_io::put_file(&source, &dest, true)
                 .map_err(|e| std::io::Error::new(e.kind(), format!("{}: {e}", source.display())))?;
             files += 1;
         }
     }
-    // The folder's own name is on disk too, also when it holds no file.
-    crate::files::file_io::sync_folder_of(to)?;
+    // The names of the files and folders in it are on disk, with one sync for the folder.
+    crate::files::file_io::sync_folder(to)?;
     Ok(files)
 }
 
@@ -179,12 +181,10 @@ mod tests {
         crate::files::file_io::FOLDERS_SYNCED.take();
         assert_eq!(super::copy_tree(&from, &dir.join("to")).unwrap(), 3);
         // Every file and folder copied is on disk with its name, as a USB stick may be pulled
-        // out right after.
+        // out right after. Each folder is synced once, not once for each file in it.
         let synced = crate::files::file_io::FOLDERS_SYNCED.take();
-        for folder in ["to", "to/collections", "to/collections/sub"] {
-            assert!(synced.contains(&dir.join(folder)), "{folder} not synced");
-        }
-        assert!(synced.contains(&dir), "the name of to not synced");
+        let folders = ["to/collections/sub", "to/collections", "to", ""];
+        assert_eq!(synced, folders.map(|f| dir.join(f)));
         let text = |p: &str| std::fs::read_to_string(dir.join("to").join(p)).unwrap();
         assert_eq!(
             (text("config"), text("collections/a.gqv")),
