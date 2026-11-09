@@ -11,6 +11,11 @@ and versions follow [Semantic Versioning](https://semver.org/).
   action's name, a tab and its menu label in English, as Geeqie's `--action-list` does. Its form
   is frozen in 1.x, so scripts can read it. `glimt --help` now points to it instead of listing
   the names itself.
+- `glimt --remote info` prints what Glimt knows about the image shown, and `info FILE…` about
+  the files named: the size, date, dimensions, format, orientation, stars, marks, keywords,
+  comment, alt text and the info panel's EXIF fields, as a key, a tab and a value on each line,
+  with a blank line after each file. Its form is frozen in 1.x, so scripts and AI assistants
+  can read it.
 ### Changed
 
 - Saving a file that has other names (hard links), such as a turned image, a copy saved over
