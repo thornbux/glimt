@@ -514,9 +514,28 @@ fn main() -> eframe::Result {
     if command.is_some_and(|a| a == remote[0]) || to_all {
         let paths = args_os.get(2..).unwrap_or_default();
         match crate::features::remote::client(&args[1..], paths, start.name.as_deref(), to_all) {
-            Some(path) => arg = Some(path),
+            Some(path) => {
+                arg = Some(path);
+                // `open` found no Glimt of that process ID, so a new one opens the path under
+                // its own process ID.
+                if start
+                    .name
+                    .as_deref()
+                    .is_some_and(crate::features::remote::is_process_id)
+                {
+                    start.name = None;
+                }
+            }
             None => return Ok(()),
         }
+    }
+    if start
+        .name
+        .as_deref()
+        .is_some_and(crate::features::remote::is_process_id)
+    {
+        eprintln!("glimt: a --name of only digits is a process ID, which only --remote takes");
+        std::process::exit(2);
     }
     let mut viewport = egui::ViewportBuilder::default()
         .with_title("Glimt")

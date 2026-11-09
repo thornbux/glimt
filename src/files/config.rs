@@ -389,7 +389,7 @@ config! {
     /// Glimt". Its true is read once into `window_title` (`move_app_name_first`), and it is
     /// written as false.
     app_name_first: bool = false,
-    /// The window title, from a template of %name%, %path%, %folder% and %app%. When it is
+    /// The window title, from a template of %name%, %path%, %folder%, %app% and %id%. When it is
     /// empty, the title is "image name - Glimt".
     window_title: String = String::new(),
     /// File list with size and date columns, as in Geeqie.
@@ -1609,7 +1609,7 @@ mod tests {
                     let template = format!("%{field}%");
                     crate::features::print::page_text(&template, 2, 3) != template
                 }
-                "folder" | "app" => in_title(field),
+                "folder" | "app" | "id" => in_title(field),
                 // The marks are filled in a build with the marks feature.
                 "marks" => in_full || !cfg!(feature = "marks"),
                 "name" | "path" => in_full && in_caption && in_title(field),

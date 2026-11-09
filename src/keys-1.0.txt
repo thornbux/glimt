@@ -190,3 +190,4 @@ InfoPanel
 Previous
 CopyForSharing
 PreviousPage
+WindowName

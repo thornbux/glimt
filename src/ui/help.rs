@@ -583,7 +583,8 @@ const MANUAL: &[(&str, &str)] = &[
          and the other info panel labels, | between parts that are left out when empty, \\n for a \
          new line, %% for a %.\n\n\
          Preferences → Custom window title makes the window's title from a template of %name%, \
-         %path%, %folder% and %app%, such as %app%: %folder%. Window → Set Window Title… gives \
+         %path%, %folder%, %app% and %id% (what glimt --name or --remote reaches it by), such as \
+         %app%: %folder%. Window → Set Window Title… gives \
          this window a template of its own until it closes, as glimt --remote title does.\n\n\
          Moving the pointer to the bottom shows a film strip of the images around the shown one; a \
          click on one shows it. Thumbnails are read from ~/.cache/thumbnails, which the file \
@@ -677,7 +678,10 @@ const MANUAL: &[(&str, &str)] = &[
          They reach only the Glimt windows of the same user on this computer, through a private \
          socket, never over the network; for another computer, run the command there (ssh). \
          Several can be told apart by name: start them with glimt --name left and glimt --name \
-         right, and glimt --name left --remote slideshow reaches only the left one.\n\n\
+         right, and glimt --name left --remote slideshow reaches only the left one. Windows that \
+         share a name all do what is sent to it. Window → Set Window Name…, or glimt --remote \
+         name NAME, gives a window a new name, and an empty one leaves it with none. glimt --remote-all identify shows each window's \
+         name, or its process ID when it has none, which --name reaches it by too.\n\n\
          glimt --kiosk is for a picture screen: full screen with only the image, browsing and the \
          slideshow but nothing that changes files, and no way out but glimt --remote quit (in a \
          kiosk session such as cage or GNOME Kiosk, the desktop's keys are gone too). Where remote \
@@ -964,8 +968,8 @@ const DIFFERENCES: &[(&str, &str, &str)] = &[
     ),
     (
         "Window title",
-        "\"name - Glimt\", or a template of %name%, %path%, %folder% and \
-         %app% (Preferences), or one window's own (Window → Set Window Title…)",
+        "\"name - Glimt\", or a template of %name%, %path%, %folder%, \
+         %app% and %id% (Preferences), or one window's own (Window → Set Window Title…)",
         "The image name and Geeqie; no title of the user's own",
     ),
     (

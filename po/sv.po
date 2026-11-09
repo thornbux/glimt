@@ -2318,8 +2318,8 @@ msgid "Custom window title (empty: \"image name - Glimt\"):"
 msgstr "Egen fönstertitel (tom: ”bildnamn - Glimt”):"
 
 #: src/ui/preferences.rs
-msgid "Fields: %name%, %path%, %folder% and %app%. A | starts a part, left out when its fields are empty."
-msgstr "Fält: %name%, %path%, %folder% och %app%. Ett | börjar en del, som utelämnas när dess fält är tomma."
+msgid "Fields: %name%, %path%, %folder%, %app% and %id%. A | starts a part, left out when its fields are empty."
+msgstr "Fält: %name%, %path%, %folder%, %app% och %id%. Ett | börjar en del, som utelämnas när dess fält är tomma."
 
 #: src/ui/actions.rs
 msgid "Set Window Title…"
@@ -2330,8 +2330,8 @@ msgid "Show File Names Under Thumbnails"
 msgstr "Visa filnamn under miniatyrer"
 
 #: src/main.rs
-msgid "Title of this window (%name%, %path%, %folder%, %app%; empty: as in Preferences):"
-msgstr "Titel på det här fönstret (%name%, %path%, %folder%, %app%; tom: som i Inställningar):"
+msgid "Title of this window (%name%, %path%, %folder%, %app%, %id%; empty: as in Preferences):"
+msgstr "Titel på det här fönstret (%name%, %path%, %folder%, %app%, %id%; tom: som i Inställningar):"
 
 #: src/metadata/xmp.rs
 msgid "{name} is a link: not written through"
@@ -2947,3 +2947,15 @@ msgstr "Öppna {files}, var och en i sitt standardprogram?"
 #: src/ui/dialogs.rs
 msgid "Open (Enter)"
 msgstr "Öppna (Enter)"
+
+#: src/ui/actions.rs
+msgid "Set Window Name…"
+msgstr "Ange fönsternamn …"
+
+#: src/ui/dialogs.rs
+msgid "Name of this window, which glimt --name NAME --remote reaches it by (empty: its process ID):"
+msgstr "Namnet på det här fönstret, som glimt --name NAME --remote når det med (tomt: dess process-id):"
+
+#: src/ui/dialogs.rs
+msgid "Could not name this window: {why}"
+msgstr "Kunde inte ge fönstret ett namn: {why}"

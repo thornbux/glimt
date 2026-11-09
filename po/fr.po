@@ -2318,8 +2318,8 @@ msgid "Custom window title (empty: \"image name - Glimt\"):"
 msgstr "Titre de fenêtre personnalisé (vide : « nom de l'image - Glimt ») :"
 
 #: src/ui/preferences.rs
-msgid "Fields: %name%, %path%, %folder% and %app%. A | starts a part, left out when its fields are empty."
-msgstr "Champs : %name%, %path%, %folder% et %app%. Une | commence une partie, omise quand ses champs sont vides."
+msgid "Fields: %name%, %path%, %folder%, %app% and %id%. A | starts a part, left out when its fields are empty."
+msgstr "Champs : %name%, %path%, %folder%, %app% et %id%. Une | commence une partie, omise quand ses champs sont vides."
 
 #: src/ui/actions.rs
 msgid "Set Window Title…"
@@ -2330,8 +2330,8 @@ msgid "Show File Names Under Thumbnails"
 msgstr "Afficher les noms de fichiers sous les vignettes"
 
 #: src/main.rs
-msgid "Title of this window (%name%, %path%, %folder%, %app%; empty: as in Preferences):"
-msgstr "Titre de cette fenêtre (%name%, %path%, %folder%, %app% ; vide : comme dans les Préférences) :"
+msgid "Title of this window (%name%, %path%, %folder%, %app%, %id%; empty: as in Preferences):"
+msgstr "Titre de cette fenêtre (%name%, %path%, %folder%, %app%, %id% ; vide : comme dans les Préférences) :"
 
 #: src/metadata/xmp.rs
 msgid "{name} is a link: not written through"
@@ -2947,3 +2947,15 @@ msgstr "Ouvrir {files}, chacun dans son application par défaut ?"
 #: src/ui/dialogs.rs
 msgid "Open (Enter)"
 msgstr "Ouvrir (Enter)"
+
+#: src/ui/actions.rs
+msgid "Set Window Name…"
+msgstr "Définir le nom de la fenêtre…"
+
+#: src/ui/dialogs.rs
+msgid "Name of this window, which glimt --name NAME --remote reaches it by (empty: its process ID):"
+msgstr "Nom de cette fenêtre, par lequel glimt --name NAME --remote l'atteint (vide : son ID de processus) :"
+
+#: src/ui/dialogs.rs
+msgid "Could not name this window: {why}"
+msgstr "Impossible de nommer cette fenêtre : {why}"
