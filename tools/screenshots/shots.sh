@@ -114,7 +114,9 @@ key ctrl+k; sleep 2
 # closed, so all of it fits in the window.
 click 1029 636; click 1029 612; click 1047 636
 xdotool mousemove 700 400; sleep 1; cshot keyword-tree; key ctrl+k
-key f; sleep 2; cshot full-screen-info; key Escape
+key f; sleep 2; cshot full-screen-info
+# The film strip: the pointer at the bottom of the full screen, with time for its thumbnails.
+xdotool mousemove 640 790; sleep 3; cshot film-strip; key Escape
 # Fuzzy search: "sun" in the field above the file list.
 click 120 284; xdotool type sun; sleep 2; cshot fuzzy-search; key ctrl+a; key BackSpace; key Escape
 # A contact sheet: the first page of the PDF, as a picture.
