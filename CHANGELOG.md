@@ -5,6 +5,13 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- `glimt --action-list` prints the actions that `glimt --remote run` takes, one to a line: the
+  action's name, a tab and its menu label in English, as Geeqie's `--action-list` does. Its form
+  is frozen in 1.x, so scripts can read it. `glimt --help` now points to it instead of listing
+  the names itself.
+
 ## [0.77.0] - 2026-11-09
 
 ### Changed

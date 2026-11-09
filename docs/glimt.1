@@ -19,6 +19,9 @@ glimt \- fast, lightweight image viewer
 .br
 .B glimt
 .B \-\-version
+.br
+.B glimt
+.B \-\-action\-list
 .SH DESCRIPTION
 .B Glimt
 shows the images of a folder, one at a time, with a file list beside them. It is inspired by
@@ -187,6 +190,15 @@ when
 is no folder or lies inside Glimt's own folders, when there is nothing to back up, or when a
 file could not be copied.
 .TP
+.B \-\-action\-list
+Print the actions that
+.B \-\-remote run
+takes, one to a line: the action's name, a tab and its menu label in English, such as
+.B ZoomIn
+and
+.BR "Zoom In" .
+Scripts may read this list, so its form stays the same. Exits with 0.
+.TP
 .BR \-V ", " \-\-version
 Print the version.
 .TP
@@ -243,7 +255,7 @@ or
 Only the actions that change no file, sidecar, mark or collection, not even through a window
 the user then clicks in, are taken (showing, browsing, selecting, the panels and windows, the
 settings and the clipboard), and none while a dialog asks the user or a text field has the focus;
-.B glimt \-\-help
+.B glimt \-\-action\-list
 lists them. Any other name exits with 2, and a
 .B run
 refused exits with 3.
