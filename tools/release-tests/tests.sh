@@ -4330,6 +4330,40 @@ expect "Window → Set Window Title…" "$from_menu" "Left a.png"
 expect "glimt --remote title" "$from_remote" "Right: $d"
 expect "glimt --remote title without text: Preferences' again" "$back" "Glimt: a.png"
 
+section "two windows named left: identify in both, one renamed right by its process ID, next to right only"
+for v in new old; do
+    as_version $v
+    d=/tmp/shared-name-$v
+    mkdir -p $d
+    for f in a b c; do convert -size 64x64 xc:red $d/$f.png; done
+    # With remote control off, the windows listen only because they have a name.
+    config 'window_title=%id%' remote_control=false
+    start --name left $d/a.png; first_win=$WIN
+    start --name left $d/a.png; second=$GPID; second_win=$WIN
+    titles="$(xdotool getwindowname $first_win) | $(xdotool getwindowname $second_win)"
+    timeout 30 $BIN --name left --remote identify >/dev/null 2>&1; identified=$?
+    # The second window shares the name, so its process ID tells it apart from the first.
+    timeout 30 $BIN --name $second --remote name right >/dev/null 2>&1; renamed=$?
+    sleep 1
+    renamed_titles="$(xdotool getwindowname $first_win) | $(xdotool getwindowname $second_win)"
+    timeout 30 $BIN --name right --remote next >/dev/null 2>&1; sleep 1
+    left=$(timeout 30 $BIN --name left --remote current | tr '\0' ' ')
+    right=$(timeout 30 $BIN --name right --remote current | tr '\0' ' ')
+    # Its name taken away, the window no longer listens, by name or by process ID.
+    timeout 30 $BIN --name right --remote name >/dev/null 2>&1; unnamed=$?
+    sleep 1
+    timeout 30 $BIN --name $second --remote current >/dev/null 2>&1; by_id=$?
+    timeout 30 $BIN --name right --remote current >/dev/null 2>&1; by_name=$?
+    quit
+    if [ $v = new ]; then
+        expect "each window's %id%" "$titles" "left | left ($second)"
+        expect "--remote identify reaches both" "$identified" 0
+        expect "--remote name right, sent by process ID" "$renamed $renamed_titles" "0 left | right"
+        expect "next moved only the window named right" "$left|$right" "$d/a.png |$d/b.png "
+        expect "the name taken away: no longer reached" "$unnamed $by_id $by_name" "0 1 1"
+    else note "old: titles '$titles', identify $identified, name $renamed, '$left|$right'"; fi
+done
+
 section "timings: the large folder and EXIF dates, with nothing else running"
 if [ -n "$QUICK" ]; then
     echo "-- QUICK: large folder and EXIF timings left out"

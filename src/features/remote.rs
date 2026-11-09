@@ -53,7 +53,7 @@ pub const COMMANDS: &[(&str, &str)] = &[
     ),
     (
         "name [NAME]",
-        "Give this window a new --name, which --remote reaches it by from now on; without NAME, none, so its process ID does",
+        "Give this window a new --name, which --remote reaches it by from now on; without NAME, none, so its process ID does, or nothing when remote control is off in Preferences",
     ),
     (
         "identify",
@@ -186,13 +186,18 @@ pub(crate) struct Listener {
     waiting_selects: Vec<(String, Option<remote::Reply>)>,
     /// The time until which `--remote identify` shows the window's ID over the image.
     identify_until: Option<std::time::Instant>,
+    /// The window listens for `--remote` also without a name (`listens`).
+    listens_without_name: bool,
 }
 
 impl Listener {
-    /// Listening for `--remote` if `listen`.
-    pub(crate) fn new(ctx: &egui::Context, listen: bool) -> Self {
+    /// Listens for `--remote` when the window does without a name (`listens_without_name`), or
+    /// when it was started with --name.
+    pub(crate) fn new(ctx: &egui::Context, listens_without_name: bool) -> Self {
         let (tx, rx) = mpsc::channel();
-        if listen && let Err(why) = self::listen(tx.clone(), ctx.clone()) {
+        if listens(listens_without_name, given_name().is_some())
+            && let Err(why) = self::listen(tx.clone(), ctx.clone())
+        {
             eprintln!("{why}");
         }
         Listener {
@@ -200,6 +205,7 @@ impl Listener {
             tx,
             waiting_selects: Vec::new(),
             identify_until: None,
+            listens_without_name,
         }
     }
 
@@ -411,24 +417,30 @@ impl crate::App {
     }
 
     /// Gives this window the --name `name`, or none when it is empty, and shows it in the title.
-    /// A window that did not listen, with remote control off, starts to with a name, as one
-    /// started with --name does. Returns the reason when the name cannot be taken, or when the
-    /// window cannot listen by it, and the window then keeps the name it had.
+    /// The window listens for `--remote` by the rule it started with (`listens`): one that did
+    /// not, with remote control off, starts to with a name, and stops again when the name is
+    /// taken away. Returns the reason when the name cannot be taken, or when the window cannot
+    /// listen by it, and the window then keeps the name it had.
     pub(crate) fn set_window_name(
         &mut self,
         ctx: &egui::Context,
         name: &str,
     ) -> Result<(), String> {
         let name = Some(name).filter(|n| !n.is_empty());
-        let name_before = given_name();
-        remote::rename(name)?;
-        if !listening()
-            && name.is_some()
-            && let Err(why) = listen(self.remote.tx.clone(), ctx.clone())
-        {
-            // The window does not listen, so this only puts the name back.
-            remote::rename(name_before.as_deref())?;
-            return Err(why);
+        let should_listen = listens(self.remote.listens_without_name, name.is_some());
+        if listening() && !should_listen {
+            stop_listening();
+        } else {
+            let name_before = given_name();
+            remote::rename(name)?;
+            if !listening()
+                && should_listen
+                && let Err(why) = listen(self.remote.tx.clone(), ctx.clone())
+            {
+                // The window does not listen, so this only puts the name back.
+                remote::rename(name_before.as_deref())?;
+                return Err(why);
+            }
         }
         self.update_window_title(ctx);
         Ok(())
@@ -971,6 +983,26 @@ pub fn listen(
         });
     });
     Ok(())
+}
+
+/// Whether a window listens for `--remote`: when it does without a name (`listens_without_name`,
+/// with remote control on in Preferences at start, or in a kiosk), or when it has a name, as
+/// a name is only of use with remote control. The same rule holds at start and for a name
+/// given or taken away later.
+fn listens(listens_without_name: bool, has_name: bool) -> bool {
+    listens_without_name || has_name
+}
+
+/// Stops listening for `--remote` and forgets the name, for a window that listened only because
+/// it had one. A client that is being answered still gets its answer.
+// shortcut: the accept thread keeps waiting on the listener, which no client reaches once its
+// socket is removed, so one thread and socket stay for each name taken away; end the thread if
+// names are taken away often.
+fn stop_listening() {
+    close();
+    LISTENING.store(false, std::sync::atomic::Ordering::Relaxed);
+    *lock_even_if_poisoned(&LISTENING_AS) = None;
+    *lock_even_if_poisoned(&GIVEN_NAME) = None;
 }
 
 /// Takes the clients of `listener`, each served by `serve` in a thread of its own, and at most
@@ -1642,6 +1674,7 @@ mod tests {
             tx: std::sync::mpsc::channel().0,
             waiting_selects: Vec::new(),
             identify_until: None,
+            listens_without_name: false,
         };
         for _ in 0..500 {
             app.receive_remote(&ctx);
