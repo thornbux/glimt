@@ -5,6 +5,14 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- A network share that stops answering (a NAS gone to sleep, Wi-Fi lost) no longer hangs the
+  window. Opening a folder, a file or a collection, Open Recent, the file list's size and date
+  columns, the status bar's file size, editing a collection, turning random order off, and
+  Copy and Move to a folder now look at the disk in the background, and the window stays
+  responsive while the share is silent.
+
 ## [0.77.0] - 2026-11-09
 
 ### Changed
