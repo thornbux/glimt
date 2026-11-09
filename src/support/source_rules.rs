@@ -2615,13 +2615,14 @@ fn finds_an_undo_left_without_waiting() {
 }
 
 /// A rename that later steps count on is on disk with its folder before they run: the function
-/// that renames syncs the folder (`file_io::sync_folder_of`), or hands the rename to
-/// `write_beside`, which does. Files were synced but their folders never were, so after a power
-/// cut a move to a USB stick could lose both the source and its copy, and an older sidecar come
-/// back. The renames listed here stand alone: one rename is one step, so a power cut leaves the
-/// old name or the new one, and nothing after it counts on the new one. A new rename is synced
-/// or added here with its reason. Copies go through `put_file`, which syncs, and never through
-/// `std::fs::copy`. Clippy refuses that too, but an allow would let it pass there.
+/// that renames syncs the folder (`file_io::sync_folder_of` or `sync_folder`), or hands the
+/// rename to `write_beside`, which does. Files were synced but their folders never were, so
+/// after a power cut a move to a USB stick could lose both the source and its copy, and an older
+/// sidecar come back. The renames listed here stand alone: one rename is one step, so a power
+/// cut leaves the old name or the new one, and nothing after it counts on the new one. A new
+/// rename is synced or added here with its reason. Copies go through `put_file`, which syncs
+/// before a move removes the source, and never through `std::fs::copy`. Clippy refuses that
+/// too, but an allow would let it pass there.
 #[test]
 fn renames_that_later_steps_count_on_are_synced() {
     const STANDING_ALONE: &[(&str, &str)] = &[
@@ -2629,6 +2630,7 @@ fn renames_that_later_steps_count_on_are_synced() {
         ("files/file_ops.rs", "rename_folder"),    // a folder renamed
         ("files/trash.rs", "restore"),             // a file back from the trash
         ("files/trash.rs", "trash_by_hand"),       // a file into the trash on its own disk
+        ("images/thumbs.rs", "write_thumbnail"),   // a thumbnail, made again when it is lost
         ("metadata/xmp.rs", "follow"),             // a sidecar after its file
         ("model/collections.rs", "rename"),        // a collection renamed
     ];
@@ -2678,22 +2680,33 @@ fn renames_in(text: &str) -> Vec<(String, bool)> {
         }
         let calls = ["rename_never_over(", "fs::rename(", "rename_noreplace("];
         renames |= calls.iter().any(|call| line.contains(call));
-        synced |= line.contains("sync_folder_of(") || line.contains("write_beside(");
+        let syncs = ["sync_folder_of(", "sync_folder(", "write_beside("];
+        synced |= syncs.iter().any(|call| line.contains(call));
     }
     found
 }
 
-/// The check above finds a rename by any of the three calls, and sees it synced either way.
+/// The check above finds a rename by any of the three calls, and sees it synced by each way.
+/// A write without its folder synced is not.
 #[test]
 fn finds_a_rename_without_its_folder_synced() {
     let text = "fn a() {\n    rename_never_over(x, y)?;\n}\nfn b() {\n    std::fs::rename(x, y)?;\n\
         sync_folder_of(y)?;\n}\nfn c() {\n    write_beside(t, p, w, |t| std::fs::rename(t, p))\n}\n\
-        fn d() {\n    rename_noreplace(x, y)\n}\nfn e() {\n    put_file(x, y, true)\n}\n";
+        fn d() {\n    rename_noreplace(x, y)\n}\nfn e() {\n    put_file(x, y, true)\n}\n\
+        fn f() {\n    write_beside_without_folder_sync(t, p, w, |t| std::fs::rename(t, p))\n}\n\
+        fn g() {\n    std::fs::rename(x, y)?;\n    sync_folder(z)?;\n}\n";
     let found = renames_in(text);
     let names: Vec<(&str, bool)> = found.iter().map(|(f, s)| (f.as_str(), *s)).collect();
     assert_eq!(
         names,
-        [("a", false), ("b", true), ("c", true), ("d", false)]
+        [
+            ("a", false),
+            ("b", true),
+            ("c", true),
+            ("d", false),
+            ("f", false),
+            ("g", true)
+        ]
     );
 }
 
@@ -2752,8 +2765,10 @@ fn the_lints_stay_on() {
 /// Returns the lines of the statements of `text` outside the tests that drop the result of one
 /// of file_io's writers, with `let _ =`, `_ =` or `.ok();`.
 fn dropped_writes_in(text: &str) -> Vec<usize> {
-    const WRITERS: [&str; 10] = [
+    const WRITERS: [&str; 12] = [
         "sync_folder_of(",
+        "sync_folder(",
+        "write_beside_without_folder_sync(",
         "rename_never_over(",
         "put_file(",
         "edit_shared(",
