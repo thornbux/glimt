@@ -1,7 +1,8 @@
 # Build and publish a release when a tag vX.Y.Z is pushed (or by hand, for an existing tag):
 # a portable binary linked against glibc 2.28 with every feature, as a tar.gz, a .deb, an .rpm
 # and an AppImage, a Flatpak bundle, and the version's section of CHANGELOG.md as the release
-# notes.
+# notes. A dry run (by hand, dry_run) builds and smoke-tests the branch it is started on and
+# publishes nothing.
 name: Release
 
 on:
@@ -12,6 +13,10 @@ on:
       tag:
         description: Tag to build and publish, for example v0.9.1
         required: true
+      dry_run:
+        description: Build and smoke-test the branch this runs on, publish nothing (tag ignored)
+        type: boolean
+        default: false
 
 # Actions from others are pinned to a commit: a tag can be moved to other code. Only the jobs
 # that publish get a token that can write releases or sign provenance, and they build nothing;
@@ -24,7 +29,9 @@ env:
   TARGET: x86_64-unknown-linux-gnu
   GLIBC: "2.28"
   # Through the environment, never pasted into a script: a tag name may hold $( ) and quotes.
-  TAG_GIVEN: ${{ inputs.tag || github.ref_name }}
+  # A dry run names its files for the version in Cargo.toml (see "Version from the tag").
+  TAG_GIVEN: ${{ !inputs.dry_run && (inputs.tag || github.ref_name) || '' }}
+  DRY_RUN: ${{ inputs.dry_run && 'true' || '' }}
 
 jobs:
   build:
@@ -32,7 +39,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ inputs.tag || github.ref }}
+          ref: ${{ !inputs.dry_run && inputs.tag || github.ref }}
           persist-credentials: false
           # The history of main too, to see that the tag is on it.
           fetch-depth: 0
@@ -41,6 +48,7 @@ jobs:
         # holding another, and one without a CHANGELOG section empty release notes.
         run: |
           TAG="$TAG_GIVEN"
+          [ -n "$DRY_RUN" ] && TAG="v$(sed -n 's/^version = "\(.*\)"$/\1/p' Cargo.toml | head -1)"
           [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "::error::$TAG is no vX.Y.Z"; exit 1; }
           VERSION="${TAG#v}"
           grep -qx "version = \"$VERSION\"" Cargo.toml ||
@@ -53,7 +61,7 @@ jobs:
           grep -q "<release version=\"$VERSION\"" assets/io.github.thornbux.Glimt.metainfo.xml ||
             { echo "::error::the metainfo file has no release $VERSION"; exit 1; }
           # Only what is on main is published: not a tag on a branch never merged.
-          git merge-base --is-ancestor HEAD origin/main ||
+          [ -n "$DRY_RUN" ] || git merge-base --is-ancestor HEAD origin/main ||
             { echo "::error::$TAG is not on main"; exit 1; }
           echo "TAG=$TAG" >> "$GITHUB_ENV"
           echo "VERSION=$VERSION" >> "$GITHUB_ENV"
@@ -143,7 +151,8 @@ jobs:
         run: cargo generate-rpm --target "$TARGET" -o "glimt-${VERSION}-1.x86_64.rpm"
       - name: Release notes from CHANGELOG.md
         run: awk -v v="$VERSION" '$0 ~ "^## \\[" v "\\]" {on=1; next} /^## \[/ {on=0} on' CHANGELOG.md > notes.md
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+      - if: ${{ !inputs.dry_run }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: packages
           path: |
@@ -157,6 +166,7 @@ jobs:
   # where the crates' code runs.
   release:
     needs: build
+    if: ${{ !inputs.dry_run }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -205,11 +215,11 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ inputs.tag || github.ref }}
+          ref: ${{ !inputs.dry_run && inputs.tag || github.ref }}
           persist-credentials: false
       - name: Build the bundle
         run: |
-          TAG="$TAG_GIVEN"
+          TAG="${TAG_GIVEN:-dry-run}"
           flatpak-builder --install-deps-from=flathub --disable-rofiles-fuse --force-clean --repo=repo \
               build-flatpak flatpak/io.github.thornbux.Glimt.yml
           flatpak build-bundle repo "glimt-${TAG#v}-x86_64.flatpak" io.github.thornbux.Glimt \
@@ -229,13 +239,15 @@ jobs:
           flatpak install --user -y --noninteractive --bundle glimt-*.flatpak
           dbus-run-session -- tools/package-smoke.sh flatpak run --nosocket=wayland \
               --nosocket=fallback-x11 --socket=x11 io.github.thornbux.Glimt
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+      - if: ${{ !inputs.dry_run }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: flatpak
           path: glimt-*.flatpak
 
   flatpak-publish:
     needs: [release, flatpak]
+    if: ${{ !inputs.dry_run }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
