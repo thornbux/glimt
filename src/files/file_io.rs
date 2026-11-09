@@ -24,6 +24,9 @@ pub static WRITING: std::sync::LazyLock<std::sync::Arc<std::sync::atomic::Atomic
 thread_local! {
     pub(crate) static FOLDERS_SYNCED: std::cell::RefCell<Vec<PathBuf>> =
         const { std::cell::RefCell::new(Vec::new()) };
+    // Makes `sync_folder_of` on this thread fail as a disk that fails would, for the tests of
+    // what follows such a failure.
+    pub(crate) static FOLDER_SYNC_FAILS: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
 }
 
 /// A write queued for a `start_ordered_worker` thread.
@@ -96,6 +99,10 @@ pub(crate) fn sync_folder_of(path: &Path) -> std::io::Result<()> {
     };
     #[cfg(test)]
     FOLDERS_SYNCED.with_borrow_mut(|synced| synced.push(folder.to_owned()));
+    #[cfg(test)]
+    if FOLDER_SYNC_FAILS.get() {
+        return Err(std::io::Error::from_raw_os_error(libc::EIO));
+    }
     #[allow(clippy::disallowed_methods)] // a folder, opened only to sync it
     let synced = std::fs::File::open(folder).and_then(|f| f.sync_all());
     match synced {

@@ -45,8 +45,11 @@ impl Journal {
     /// The steps done and counted so far on the disk, past a power cut: the renames' folders
     /// first, so that the count never says more than the names on disk show.
     pub fn sync(&mut self) {
-        sync_folders(&self.one_name_per_folder);
-        let _ = self.file.sync_data();
+        if sync_folders(&self.one_name_per_folder) {
+            // A count that does not reach the disk costs nothing: `repair_cut_short` finds the
+            // steps done by the names (`done_by_names`).
+            let _ = self.file.sync_data();
+        }
     }
 }
 
@@ -62,11 +65,15 @@ impl Journal {
 impl Drop for Journal {
     fn drop(&mut self) {
         // A plan kept on disk (`keep_on_disk`) has no path, and nothing need be on disk first.
-        if !self.path.as_os_str().is_empty() {
-            sync_folders(&self.one_name_per_folder);
+        if self.path.as_os_str().is_empty() {
+            return;
         }
-        #[allow(clippy::disallowed_methods)] // the journal, Glimt's own file
-        let _ = std::fs::remove_file(&self.path);
+        // When the disk says the renames did not get there, the plan stays, so that the next
+        // start offers to put the files right.
+        if sync_folders(&self.one_name_per_folder) {
+            #[allow(clippy::disallowed_methods)] // the journal, Glimt's own file
+            let _ = std::fs::remove_file(&self.path);
+        }
     }
 }
 
@@ -307,8 +314,9 @@ pub fn repair_cut_short(
         (true, None) => undo(moves, moves.len()),
         (false, None) => finish(moves, 0),
     };
-    if left == 0 {
-        sync_folders(&one_name_per_folder(moves));
+    // When the disk says the renames did not get there, the plan stays and is asked about again
+    // at the next start.
+    if left == 0 && sync_folders(&one_name_per_folder(moves)) {
         #[allow(clippy::disallowed_methods)] // the plan, Glimt's own file
         let _ = std::fs::remove_file(plan);
     }
@@ -384,11 +392,15 @@ fn one_name_per_folder(moves: &[(PathBuf, PathBuf)]) -> Vec<PathBuf> {
 /// Syncs the folder of each of `names` to disk, so that the renames in them are there before
 /// the plan that could put them right is changed or removed. The renames themselves are not
 /// synced one by one: a Rename Many of 500 files on a slow USB stick would wait for 1,000
-/// syncs instead of one.
-fn sync_folders(names: &[PathBuf]) {
+/// syncs instead of one. Returns whether every folder got to the disk; a folder that cannot be
+/// synced at all is passed over by `sync_folder_of`, so `false` means the disk failed.
+fn sync_folders(names: &[PathBuf]) -> bool {
+    // Every folder is synced, also after one that failed, so no `all` that stops at the first.
+    let mut every_one_synced = true;
     for name in names {
-        let _ = crate::files::file_io::sync_folder_of(name);
+        every_one_synced &= crate::files::file_io::sync_folder_of(name).is_ok();
     }
+    every_one_synced
 }
 
 /// Whether `file` still has a name. A plan that another window put right and deleted has none.
@@ -737,6 +749,33 @@ mod tests {
         crate::files::file_io::FOLDERS_SYNCED.take();
         kept.keep_on_disk();
         assert!(crate::files::file_io::FOLDERS_SYNCED.take().is_empty());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// When the disk says that the renames' folder did not get there, the plan stays on disk,
+    /// both after a Rename Many and after a repair, so the next start offers to put it right.
+    #[test]
+    fn the_plan_stays_when_the_renames_did_not_reach_the_disk() {
+        let dir =
+            std::env::temp_dir().join(format!("glimt-test-sync-fails-{}", std::process::id()));
+        let plans = dir.join("plans");
+        let moves = vec![(dir.join("a.jpg"), dir.join("b.jpg"))];
+        let plan = super::start_journal(&plans, &moves).unwrap();
+        let path = plan.path.clone();
+        crate::files::file_io::FOLDER_SYNC_FAILS.set(true);
+        drop(plan);
+        assert!(path.exists());
+        assert_eq!(
+            super::repair_cut_short(&path, &moves, Some(1), false),
+            Some((0, 0))
+        );
+        crate::files::file_io::FOLDER_SYNC_FAILS.set(false);
+        assert!(path.exists());
+        assert_eq!(
+            super::repair_cut_short(&path, &moves, Some(1), false),
+            Some((0, 0))
+        );
+        assert!(!path.exists());
         std::fs::remove_dir_all(dir).unwrap();
     }
 
