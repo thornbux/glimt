@@ -5,6 +5,22 @@
 use image::metadata::Orientation;
 use std::path::Path;
 
+/// The labels of the panel's rows, in the order `read` gives them. `--remote info` prints a
+/// line for each, also for a file that lacks it, so a script always finds the same keys. A new
+/// row goes at the end, as scripts read these keys.
+pub const LABELS: [&str; 10] = [
+    "Camera",
+    "Lens",
+    "Taken",
+    "Exposure",
+    "Aperture",
+    "ISO",
+    "Focal length",
+    "Exposure bias",
+    "Flash",
+    "GPS",
+];
+
 /// TIFF tags used in more than one place (the panel's own are named in `tag_name`).
 const ORIENTATION: u16 = 0x0112;
 
@@ -257,6 +273,16 @@ pub fn read(path: &Path) -> Vec<(&'static str, String)> {
 /// each reading of a large photo costs.
 pub fn read_and_all(path: &Path) -> (Vec<(&'static str, String)>, Vec<Field>) {
     read_exif_block(path).map_or_else(Default::default, |raw| (parse(&raw), fields(&raw)))
+}
+
+/// `read` of `path`, and its EXIF orientation (1–8 as stored), from one reading of its EXIF
+/// block. The orientation is `None` when the file has none.
+pub fn read_with_orientation(path: &Path) -> (Vec<(&'static str, String)>, Option<u32>) {
+    let Some(raw) = read_exif_block(path) else {
+        return Default::default();
+    };
+    let orientation = ifds(&raw).and_then(|(t, ifd0, _, _)| t.int(find(&ifd0, ORIENTATION)?));
+    (parse(&raw), orientation)
 }
 
 /// Every field of an EXIF block, for the EXIF window.

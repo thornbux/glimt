@@ -311,6 +311,57 @@ in it. Sent right after
 it waits until the folder is read, up to ten seconds; after that nothing is printed and the exit
 status is 1, so a script can try again. When the search hides one of the files, nothing is
 selected and every path is printed. It only selects: deleting or moving is left to the user.
+.TP
+.BI info " [FILE ...]"
+Print what Glimt knows about the image shown, or about the files named, listed or not (at most
+100,000). Each file is a record of lines of a key, a tab and a value, and a blank line ends it.
+The keys are always all there, in this order, with an empty value where the file has none:
+.BR path ,
+.B size
+(in bytes),
+.B modified
+(RFC 3339, in UTC),
+.B width
+and
+.B height
+(as stored, before the orientation),
+.B format
+(such as
+.BR png ,
+from the file's first bytes, or else its extension),
+.B orientation
+(the EXIF value, 1 to 8),
+.B stars
+(0 to 5) and
+.B marks
+(such as
+.BR 1,4 ),
+which are empty without marks built in,
+.B keywords
+(joined by
+.BR "; " ,
+with a
+.B ;
+inside a keyword written as
+.BR , ),
+.BR comment ,
+.BR alt_text ,
+.BR extended_description ,
+and the info panel's EXIF fields, in English:
+.BR exif.camera ,
+.BR exif.lens ,
+.BR exif.taken ,
+.BR exif.exposure ,
+.BR exif.aperture ,
+.BR exif.iso ,
+.BR exif.focal_length ,
+.BR exif.exposure_bias ,
+.B exif.flash
+and
+.BR exif.gps .
+A tab or line break in a value is printed as a space. A path that is no file has every value
+but its path empty. The form stays the same in 1.x, but a later Glimt may add keys, so a
+script reads a value by its key. Without a file named and no image shown, it exits with 3.
 .PP
 .BR current ,
 .B selection
@@ -491,6 +542,9 @@ Copy the selected images to ~/best, also when a name holds a space or a line bre
 .TP
 .B glimt \-\-remote current | xargs \-0 exiftool \-Model
 The camera of the image shown.
+.TP
+.B glimt \-\-remote info | awk \-F '\et' '$1 == \(dqkeywords\(dq { print $2 }'
+The keywords of the image shown.
 .TP
 .B glimt \-\-remote\-all quit
 Close every Glimt.

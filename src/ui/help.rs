@@ -673,7 +673,10 @@ const MANUAL: &[(&str, &str)] = &[
          every one: next, previous, slideshow or open PATH from a script or a desktop shortcut. \
          current, selection and select PATH … tell a script (or an AI assistant) what is shown and \
          selected, or select files for you; they print each path followed by a NUL byte, and none \
-         of them changes a file. run ACTION does an action by its name in your own keys, such \
+         of them changes a file. info, or info FILE …, prints what Glimt knows about the image \
+         shown or the files named: a line for each key, such as size, modified, width, stars, \
+         keywords, comment or exif.camera, with a tab before its value, and a blank line after \
+         each file. The keys stay the same, so a script can read them. run ACTION does an action by its name in your own keys, such \
          as glimt --remote run ZoomIn or run ThumbnailGrid; glimt --action-list lists the \
          actions it takes with their labels. They are those that change no file, sidecar, mark \
          or collection, not even through a window you then click in, and run does nothing while \
@@ -720,8 +723,8 @@ const DIFFERENCES: &[(&str, &str, &str)] = &[
     (
         "Remote control",
         "glimt --remote with next, previous, first, last, slideshow, random, fullscreen (each also \
-         with on or off), subfolders on|off, open, title, quit, current, selection, select or \
-         run ACTION (an action that changes no file); --remote-all sends it to every window",
+         with on or off), subfolders on|off, open, title, quit, current, selection, select, \
+         info or run ACTION (an action that changes no file); --remote-all sends it to every window",
         "The options themselves go to the running Geeqie (geeqie --next, --tell, \
          --get-selection, --file= …), and there are many more",
     ),

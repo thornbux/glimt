@@ -392,3 +392,4 @@ field id
 remote identify
 remote name
 script WindowName
+remote info

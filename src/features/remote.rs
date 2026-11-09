@@ -62,7 +62,7 @@ pub const COMMANDS: &[(&str, &str)] = &[
     ("quit", "Close Glimt"),
     (
         "run ACTION",
-        "Do an action by its name, one of those glimt --help lists, which change no file, sidecar, mark or collection",
+        "Do an action by its name, one of those glimt --action-list lists, which change no file, sidecar, mark or collection",
     ),
     (
         "current",
@@ -75,6 +75,10 @@ pub const COMMANDS: &[(&str, &str)] = &[
     (
         "select PATH…",
         "Select these files of the list and show the first; prints those not in it",
+    ),
+    (
+        "info [FILE…]",
+        "Print what Glimt knows about the image shown, or about these files: a key, a tab and a value to a line, and a blank line after each file",
     ),
     #[cfg(feature = "test-hooks")]
     (
@@ -109,17 +113,36 @@ pub const NOT_DONE: i32 = 3;
 /// answer of a command is empty, and that of a query is paths, which start with "/".
 const NOT_DONE_ANSWER: &str = "not done: ";
 
+/// The keys of `--remote info`'s answer before the EXIF rows, in their order. Scripts read
+/// them, so they stay as they are, and a new one goes at the end, before the EXIF rows.
+const INFO_KEYS: [&str; 13] = [
+    "path",
+    "size",
+    "modified",
+    "width",
+    "height",
+    "format",
+    "orientation",
+    "stars",
+    "marks",
+    "keywords",
+    "comment",
+    "alt_text",
+    "extended_description",
+];
+
 /// How long `--remote identify` shows the window's ID.
 pub(crate) const IDENTIFY_TIME: std::time::Duration = std::time::Duration::from_secs(3);
 
 /// The file in the runtime folder that holds the name of the Glimt that had the focus last.
 pub const FOCUSED_FILE: &str = "focused";
 
-/// The most files `select` takes, because the window finds them in its own thread.
+/// The most files `select` and `info` take, because the window finds a select's files in its
+/// own thread.
 pub const MAX_SELECT: usize = 100_000;
 
-/// The longest line of a command other than `select`, in bytes: room for a path or a title.
-/// Only `select` may be as long as its files take.
+/// The longest line of a command other than `select` and `info`, in bytes: room for a path or
+/// a title. Only those two may be as long as their files take.
 const MOST_LINE: u64 = 64 * 1024;
 
 /// The most clients served at once, each by a thread of its own. Another waits in the socket's
@@ -297,6 +320,7 @@ impl crate::App {
                     command.trim_start_matches("where "),
                 ));
             }
+            Some(reply) if is_info(command) => self.remote_info(command, reply),
             Some(reply) if is_query(command) => drop(reply.send(self.remote_query(command))),
             Some(reply) => {
                 let answer = match self.remote_command(ctx, command) {
@@ -466,6 +490,38 @@ impl crate::App {
             .collect()
     }
 
+    /// Answers `glimt --remote info [FILE…]` (the files after a NUL each) with an `info_record`
+    /// of each file, or of the image shown when no file is named. The files are read in a
+    /// thread of their own, which sends the answer. Any readable file may be named, listed or
+    /// not, as nothing is written. The marks and stars are this window's, as its list shows
+    /// them. Without a file named and no image shown, the answer is "not done".
+    pub(crate) fn remote_info(&self, command: &str, reply: Reply) {
+        let paths: Vec<PathBuf> = match command.strip_prefix("info ") {
+            Some(paths) => (paths.split('\0').filter(|p| !p.is_empty()))
+                .map(PathBuf::from)
+                .collect(),
+            None if self.list.shown() < self.list.files().len() => {
+                vec![self.path(self.list.shown())]
+            }
+            None => return drop(reply.send(not_done_answer("no image is shown"))),
+        };
+        #[cfg(feature = "marks")]
+        let marks: Vec<_> = paths.iter().map(|p| Some(self.marks.get(p))).collect();
+        #[cfg(not(feature = "marks"))]
+        let marks = vec![None; paths.len()];
+        // shortcut: one thread reads the files one after the other, so some thousands of files
+        // on a slow share outlast the client's time limit (`WAIT`); read them in parts
+        // (`threads::in_parts`) if scripts ask about that many at once.
+        std::thread::spawn(move || {
+            // A blank line ends each record, so the answers of several windows (--remote-all)
+            // stay apart too.
+            let answer: String = (paths.iter().zip(marks))
+                .map(|(path, marks)| info_record(path, marks) + "\n")
+                .collect();
+            let _ = reply.send(answer.into_bytes());
+        });
+    }
+
     /// `--remote select PATH…` (the paths after a NUL each). It selects those of the list and
     /// shows the first. The answer is the paths that are not in the list, each ending in a NUL
     /// byte. Only the selection changes, and deleting or moving it is left to the user. When
@@ -521,8 +577,95 @@ fn not_done_reason(answer: &[u8]) -> Option<String> {
 /// window.
 fn is_query(command: &str) -> bool {
     matches!(command.trim(), "current" | "selection")
+        || is_info(command)
         || command.starts_with("select ")
         || command.starts_with("where ")
+}
+
+/// Whether `command` is `info`, alone or with files.
+fn is_info(command: &str) -> bool {
+    command.trim_end() == "info" || command.starts_with("info ")
+}
+
+/// The answer of `--remote info` for the file at `path`, with its (mark bits, stars) in
+/// `marks`, or `None` when marks are not built in. Its form is frozen, as scripts read it:
+/// one `key<TAB>value` line for each of `INFO_KEYS` and then each EXIF row of
+/// `exif::LABELS`, always all of them in this order, and an empty value where the file has
+/// none. A tab or line break in a value is written as a space. A path that is not a regular
+/// file has every value but its path empty.
+fn info_record(path: &Path, marks: Option<(u8, u8)>) -> String {
+    let file = std::fs::metadata(path).ok().filter(|m| m.is_file());
+    let (values, exif_rows) = match file {
+        Some(file) => info_values(path, &file, marks),
+        None => Default::default(),
+    };
+    let exif_value = |label: &str| exif_rows.iter().find(|r| r.0 == label).map(|r| r.1.clone());
+    let exif_lines = (crate::metadata::exif::LABELS.iter())
+        .map(|label| (info_exif_key(label), exif_value(label).unwrap_or_default()));
+    let path = path.to_string_lossy().into_owned();
+    (INFO_KEYS.iter().map(|k| k.to_string()))
+        .zip([path].into_iter().chain(values))
+        .chain(exif_lines)
+        .map(|(key, value)| format!("{key}\t{}\n", one_line(&value)))
+        .collect()
+}
+
+/// The values of `INFO_KEYS` after the path, for the regular file at `path` with the metadata
+/// `file` and the (mark bits, stars) `marks`, and the EXIF rows the info panel shows. The
+/// width and height are as stored, before the orientation turns the image. The format is the
+/// one the file's first bytes tell, or else its extension in lower case. Keywords are joined
+/// by "; ", and a ";" inside a keyword is written as ",".
+fn info_values(
+    path: &Path,
+    file: &std::fs::Metadata,
+    marks: Option<(u8, u8)>,
+) -> ([String; 12], Vec<(&'static str, String)>) {
+    use crate::metadata::{exif, xmp};
+    use crate::support::threads::catch_panic;
+    let since_1970 = |t: std::time::SystemTime| t.duration_since(std::time::UNIX_EPOCH).ok();
+    let modified = file.modified().ok().and_then(since_1970);
+    let modified = modified.map(|d| crate::support::format::utc_time(d.as_secs() as i64));
+    let size = catch_panic(|| crate::images::decode::dimensions(path)).flatten();
+    let format = (crate::images::decode::image_reader(path).ok())
+        .and_then(|reader| reader.format())
+        .and_then(|f| f.extensions_str().first().map(|e| e.to_string()))
+        .or_else(|| path.extension().map(|e| e.to_string_lossy().to_lowercase()));
+    let (exif_rows, orientation) =
+        catch_panic(|| exif::read_with_orientation(path)).unwrap_or_default();
+    let (meta, _, alt_text) = catch_panic(|| xmp::read_all(path)).unwrap_or_default();
+    let mark_numbers = marks.map(|(bits, _)| (1..=6).filter(move |n| bits & (1 << (n - 1)) != 0));
+    let mark_numbers: Vec<String> = (mark_numbers.into_iter().flatten())
+        .map(|n| n.to_string())
+        .collect();
+    let keywords: Vec<String> = meta.keywords.iter().map(|k| k.replace(';', ",")).collect();
+    let text = |value: Option<String>| value.unwrap_or_default();
+    let values = [
+        file.len().to_string(),
+        text(modified),
+        text(size.map(|s| s.0.to_string())),
+        text(size.map(|s| s.1.to_string())),
+        text(format),
+        text(orientation.map(|o| o.to_string())),
+        text(marks.map(|m| m.1.to_string())),
+        mark_numbers.join(","),
+        keywords.join("; "),
+        meta.comment,
+        alt_text.text,
+        alt_text.extended_description,
+    ];
+    (values, exif_rows)
+}
+
+/// The key of `--remote info`'s line for the EXIF row `label`: "exif." and the label in lower
+/// case, with "_" for a space, such as "exif.focal_length".
+fn info_exif_key(label: &str) -> String {
+    format!("exif.{}", label.to_lowercase().replace(' ', "_"))
+}
+
+/// Returns `value` with each tab and line break turned into a space, so it stays one value on
+/// one line.
+fn one_line(value: &str) -> String {
+    value.replace(['\t', '\n', '\r'], " ")
 }
 
 /// Glimt's runtime folder, which only the user can reach. It holds the sockets and the sidecar
@@ -837,17 +980,17 @@ pub fn client(
     }
     if now[0] == "run" && Action::for_script(&now[1]).is_none() {
         eprintln!(
-            "glimt: {} is not an action a script may run; glimt --help lists them",
+            "glimt: {} is not an action a script may run; glimt --action-list lists them",
             words[1]
         );
         std::process::exit(NOT_SENT);
     }
     let mut command = words.join(" ");
-    // select sends whole paths after a NUL each, because names may hold spaces. A line ends
-    // the command.
-    if now[0] == "select" {
+    // select and info send whole paths after a NUL each, because names may hold spaces. A line
+    // ends the command.
+    if now[0] == "select" || (now[0] == "info" && !paths.is_empty()) {
         if paths.len() > MAX_SELECT {
-            eprintln!("glimt: select takes at most {} files", MAX_SELECT);
+            eprintln!("glimt: {} takes at most {} files", now[0], MAX_SELECT);
             std::process::exit(NOT_SENT);
         }
         let mut sent = Vec::new();
@@ -1096,18 +1239,19 @@ fn serve(
     }
 }
 
-/// Reads the next command, one line, from `reader`. A `select` may be as long as its files take,
-/// and any other command at most `MOST_LINE` bytes, so a client that sends without a line break
-/// holds no more memory than that. Returns the reason for a line too long, which the client is
-/// told, and `None` at the end, for a line that is not UTF-8, and when the client sends nothing
-/// within its time limit.
+/// Reads the next command, one line, from `reader`. A `select` or `info` may be as long as its
+/// files take, and any other command at most `MOST_LINE` bytes, so a client that sends without
+/// a line break holds no more memory than that. Returns the reason for a line too long, which
+/// the client is told, and `None` at the end, for a line that is not UTF-8, and when the client
+/// sends nothing within its time limit.
 fn read_command(reader: &mut impl BufRead) -> Option<Result<String, &'static str>> {
     let mut line = Vec::new();
     std::io::Read::take(&mut *reader, MOST_LINE)
         .read_until(b'\n', &mut line)
         .ok()?;
     let ended = line.ends_with(b"\n");
-    if !ended && line.trim_ascii_start().starts_with(b"select ") {
+    let takes_files = |line: &[u8]| line.starts_with(b"select ") || line.starts_with(b"info ");
+    if !ended && takes_files(line.trim_ascii_start()) {
         reader.read_until(b'\n', &mut line).ok()?;
     } else if !ended && line.len() as u64 >= MOST_LINE {
         return Some(Err("too long"));
@@ -2063,6 +2207,176 @@ mod tests {
         app.answer_waiting_selects();
         assert!(String::from_utf8_lossy(&closing.try_recv().unwrap()).contains("a.png"));
         assert!(String::from_utf8_lossy(&late.try_recv().unwrap()).contains("a.png"));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// The keys and values of an `info` answer, one pair to a line.
+    fn info_lines(answer: &str) -> Vec<(String, String)> {
+        (answer.lines().filter(|line| !line.is_empty()))
+            .map(|line| line.split_once('\t').unwrap())
+            .map(|(key, value)| (key.to_owned(), value.to_owned()))
+            .collect()
+    }
+
+    /// `info`'s record of a file with EXIF, keywords, a comment, alt text, marks and stars, in
+    /// its frozen form: every key in its order, a ";" in a keyword as ",", and a line break or
+    /// tab in a value as a space. The values that change with each run (the path, the size and
+    /// the time) are read from the file.
+    #[test]
+    fn info_prints_a_known_file_in_its_frozen_form() {
+        use crate::metadata::xmp;
+        let dir = std::env::temp_dir().join(format!("glimt-test-info-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("a.png");
+        let exif = crate::support::test_support::CANON_EXIF;
+        crate::support::test_support::png_with_raw_profile(
+            &file,
+            "zTXt",
+            "Raw profile type exif",
+            exif,
+        );
+        let added = vec!["beach".to_owned(), "a;b".to_owned()];
+        let keywords = xmp::KeywordChange {
+            added,
+            removed: Vec::new(),
+        };
+        let comment = "line one\nline\ttwo".to_owned();
+        xmp::write_changed(&file, Some(keywords), Some(comment)).unwrap();
+        let alt_text = xmp::AltText {
+            text: "A red square".into(),
+            extended_description: String::new(),
+        };
+        xmp::write_alt_text(&file, &alt_text).unwrap();
+        let meta = std::fs::metadata(&file).unwrap();
+        let modified = meta
+            .modified()
+            .unwrap()
+            .duration_since(std::time::UNIX_EPOCH);
+        let modified = crate::support::format::utc_time(modified.unwrap().as_secs() as i64);
+        let expected = format!(
+            "path\t{}\nsize\t{}\nmodified\t{modified}\nwidth\t8\nheight\t4\nformat\tpng\n\
+             orientation\t6\nstars\t3\nmarks\t1,4\nkeywords\tbeach; a,b\n\
+             comment\tline one line two\nalt_text\tA red square\nextended_description\t\n\
+             exif.camera\tCanon\nexif.lens\t\nexif.taken\t2020:01:02 03:04:05\n\
+             exif.exposure\t\nexif.aperture\t\nexif.iso\t\nexif.focal_length\t\n\
+             exif.exposure_bias\t\nexif.flash\t\nexif.gps\t\n",
+            file.display(),
+            meta.len()
+        );
+        assert_eq!(super::info_record(&file, Some((0b1001, 3))), expected);
+        // Without marks built in, the stars and marks are empty, and the keys stay.
+        let without_marks = super::info_record(&file, None);
+        assert!(
+            without_marks.contains("\nstars\t\nmarks\t\n"),
+            "{without_marks}"
+        );
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A file without metadata, and a path that is no file, have every key, in the same order
+    /// as a file with all of them, and an empty value where there is nothing to tell.
+    #[test]
+    fn info_of_a_file_without_metadata_has_every_key_empty() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-info-bare-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("bare.png");
+        let mut png = Vec::new();
+        let mut cursor = std::io::Cursor::new(&mut png);
+        image::RgbImage::new(4, 2)
+            .write_to(&mut cursor, image::ImageFormat::Png)
+            .unwrap();
+        std::fs::write(&file, &png).unwrap();
+        let lines = info_lines(&super::info_record(&file, Some((0, 0))));
+        let keys: Vec<String> = (super::INFO_KEYS.iter().map(|k| k.to_string()))
+            .chain(crate::metadata::exif::LABELS.map(super::info_exif_key))
+            .collect();
+        assert_eq!(lines.iter().map(|l| l.0.clone()).collect::<Vec<_>>(), keys);
+        let filled: Vec<(&str, &str)> = (lines.iter())
+            .filter(|l| !l.1.is_empty() && !["path", "size", "modified"].contains(&&*l.0))
+            .map(|l| (l.0.as_str(), l.1.as_str()))
+            .collect();
+        let expected = [
+            ("width", "4"),
+            ("height", "2"),
+            ("format", "png"),
+            ("stars", "0"),
+        ];
+        assert_eq!(filled, expected);
+        let missing = info_lines(&super::info_record(&dir.join("no.png"), Some((1, 2))));
+        assert_eq!(
+            missing.iter().map(|l| l.0.clone()).collect::<Vec<_>>(),
+            keys
+        );
+        assert!(
+            missing.iter().skip(1).all(|l| l.1.is_empty()),
+            "{missing:?}"
+        );
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// `info` through the listener: about the image shown, about files named (listed or not)
+    /// with a blank line between them, and "not done" when no image is shown. The client takes
+    /// the word alone or with files.
+    #[test]
+    fn info_is_answered_through_the_socket() {
+        use std::io::{Read, Write};
+        let dir =
+            std::env::temp_dir().join(format!("glimt-test-info-serve-{}", std::process::id()));
+        let other = dir.join("other");
+        std::fs::create_dir_all(&other).unwrap();
+        let mut png = Vec::new();
+        let mut cursor = std::io::Cursor::new(&mut png);
+        image::RgbImage::new(4, 2)
+            .write_to(&mut cursor, image::ImageFormat::Png)
+            .unwrap();
+        std::fs::write(dir.join("a.png"), &png).unwrap();
+        std::fs::write(other.join("b.png"), &png).unwrap();
+        let (mut app, ctx) = app_on(&dir);
+        app.list.set_files(vec!["a.png".into()]);
+        let shown = app.path(0);
+        #[cfg(feature = "marks")]
+        app.marks.rate(std::slice::from_ref(&shown), 2);
+        let (mut client, window) = std::os::unix::net::UnixStream::pair().unwrap();
+        let (tx, rx) = std::sync::mpsc::channel();
+        let window_ctx = ctx.clone();
+        std::thread::spawn(move || super::serve(window, &tx, &window_ctx));
+        let named = format!("{}\0{}", shown.display(), other.join("b.png").display());
+        writeln!(client, "info").unwrap();
+        writeln!(client, "info {named}").unwrap();
+        client.shutdown(std::net::Shutdown::Write).unwrap();
+        for _ in 0..2 {
+            let (line, reply) = rx.recv().unwrap();
+            app.handle_remote(&ctx, &line, reply);
+        }
+        let mut got = Vec::new();
+        client.read_to_end(&mut got).unwrap();
+        let got = String::from_utf8(got).unwrap();
+        let records: Vec<&str> = got.split_terminator("\n\n").collect();
+        assert_eq!(records.len(), 3, "{got}");
+        let value = |record: &str, key: &str| {
+            let lines = info_lines(record);
+            lines.into_iter().find(|l| l.0 == key).map(|l| l.1)
+        };
+        let stars = if cfg!(feature = "marks") { "2" } else { "" };
+        for record in &records[..2] {
+            assert_eq!(value(record, "path"), Some(shown.display().to_string()));
+            assert_eq!(value(record, "stars").as_deref(), Some(stars));
+            assert_eq!(value(record, "width").as_deref(), Some("4"));
+        }
+        let unlisted = other.join("b.png").display().to_string();
+        assert_eq!(value(records[2], "path"), Some(unlisted));
+        assert_eq!(super::not_done_reason(got.as_bytes()), None);
+        // With no image shown, `info` alone is not done, and is told so.
+        app.list.set_files(Vec::new());
+        let (reply, answer) = std::sync::mpsc::channel();
+        app.handle_remote(&ctx, "info", Some(reply));
+        let answer = answer
+            .recv_timeout(std::time::Duration::from_secs(5))
+            .unwrap();
+        assert!(super::not_done_reason(&answer).is_some(), "{answer:?}");
+        let words = |s: &str| s.split(' ').map(String::from).collect::<Vec<_>>();
+        assert!(super::is_known_command(&words("info")));
+        assert!(super::is_known_command(&words("info /a.jpg /b.jpg")));
         std::fs::remove_dir_all(dir).unwrap();
     }
 
