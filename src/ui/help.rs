@@ -680,8 +680,9 @@ const MANUAL: &[(&str, &str)] = &[
          Several can be told apart by name: start them with glimt --name left and glimt --name \
          right, and glimt --name left --remote slideshow reaches only the left one. Windows that \
          share a name all do what is sent to it. Window → Set Window Name…, or glimt --remote \
-         name NAME, gives a window a new name, and an empty one leaves it with none. glimt --remote-all identify shows each window's \
-         name, or its process ID when it has none, which --name reaches it by too.\n\n\
+         name NAME, gives a window a new name, and an empty one leaves it with none. glimt \
+         --remote-all identify shows each window's name, or its process ID when it has none, \
+         which --name reaches it by too.\n\n\
          glimt --kiosk is for a picture screen: full screen with only the image, browsing and the \
          slideshow but nothing that changes files, and no way out but glimt --remote quit (in a \
          kiosk session such as cage or GNOME Kiosk, the desktop's keys are gone too). Where remote \
