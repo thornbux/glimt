@@ -27,6 +27,8 @@ next frame picks up the answer. The remote commands are taken in `App::logic` in
 eframe runs before each frame and also while the window is minimized or hidden and draws no
 frame, so a script gets its answer at once. `App::logic` also guards a close of the window
 (`guard_close`), so a minimized window waits for its file jobs before it closes.
+A SIGTERM or SIGHUP only counts itself in its handler and wakes a thread, which asks for a
+pass. `guard_close` then sees the new count and closes the window as Ctrl+Q does.
 
 ## 3. From a folder to pixels
 

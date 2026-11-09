@@ -268,7 +268,8 @@ const MANUAL: &[(&str, &str)] = &[
          (Copying 120 of 3,000…), and Stop ends it after the file at hand (to the trash: after the \
          100 at hand); one that took long says when it is done. A copy is written under a hidden \
          name and gets its own when whole, and closing Glimt waits for these to end (close again \
-         to stop them).\n\n\
+         to stop them). So does a logout, or a SIGTERM or SIGHUP, which closes Glimt as Ctrl+Q \
+         does.\n\n\
          Rename with several files selected asks for a pattern: * is the old name and # a number \
          (### gives 001); existing files are never overwritten. If a crash or a power cut stops it \
          halfway, the next start offers to put the old names back or to finish.\n\n\

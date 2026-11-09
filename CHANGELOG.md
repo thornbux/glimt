@@ -5,6 +5,14 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- SIGTERM and SIGHUP, as a logout, a session manager or `kill` sends them, close Glimt as
+  Ctrl+Q does: it waits while files are copied, moved or saved, so the marks follow the moved
+  files, and writes its state. Each further signal counts as closing again (the second stops
+  the files after the one at hand, the third ends at once), and SIGKILL always ends it at once.
+  Before, either signal ended Glimt halfway through a job.
+
 ## [0.77.0] - 2026-11-09
 
 ### Changed
