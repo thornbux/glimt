@@ -5,6 +5,22 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.77.0] - 2026-11-09
+
+### Changed
+
+- Copy for Sharing keeps an iPhone's HDR gain map as it keeps an Ultra HDR one, so the copy
+  still shows brighter highlights on an HDR screen. The gain map keeps its image data and
+  Apple's few words that mark it, without its own EXIF or other tags, and the main image keeps
+  the two numbers of its maker note that say how bright it may get (the HDR headroom and gain),
+  without the rest of the maker note. Before, the gain map went with the extra images.
+- Inside, Cargo.toml's lints deny `unwrap`, `expect` and undocumented `unsafe`, a mutex is
+  locked in one way that survives a panic, a write's result is never dropped, and the rules in
+  AGENTS.md start with the ones never broken, with the release runbook in `docs/RELEASING.md`.
+  The release workflow smoke-tests the AppImage and the Flatpak before anything is published,
+  and the release tests copy real photos for sharing (Ultra HDR, an iPhone's, a drone's, a
+  Lightroom export and one with content credentials) and check what the copies keep.
+
 ### Fixed
 
 - The Help Manual names every order of the sort menu (file creation date and the two EXIF
@@ -21,16 +37,6 @@ and versions follow [Semantic Versioning](https://semver.org/).
 - When the disk reports that Rename Many's renames did not reach it, Glimt says so, and the
   plan goes as after any finished Rename Many. A plan kept there made the next start move the
   marks and stars again, erasing them or swapping a swap's back onto the wrong files.
-### Changed
-
-- Copy for Sharing keeps an iPhone's HDR gain map as it keeps an Ultra HDR one, so the copy
-  still shows brighter highlights on an HDR screen. The gain map keeps its image data and
-  Apple's few words that mark it, without its own EXIF or other tags, and the main image keeps
-  the two numbers of its maker note that say how bright it may get (the HDR headroom and gain),
-  without the rest of the maker note. Before, the gain map went with the extra images.
-
-### Fixed
-
 - Copy for Sharing: unticking a tag named like a group's word in the saved choice, such as a
   PNG keyword `group:place`, no longer unticks that group.
 - A close of a minimized or covered window no longer loses what a file job reported a moment
@@ -3295,7 +3301,8 @@ The first release. Glimt is not 1.0 yet: it is in daily use, but expect rough ed
 - Remote control from the command line: `glimt --remote` and `--remote-all`.
 - Remembers the folder, window size and position.
 
-[Unreleased]: https://github.com/thornbux/glimt/compare/v0.76.0...HEAD
+[Unreleased]: https://github.com/thornbux/glimt/compare/v0.77.0...HEAD
+[0.77.0]: https://github.com/thornbux/glimt/compare/v0.76.0...v0.77.0
 [0.76.0]: https://github.com/thornbux/glimt/compare/v0.75.0...v0.76.0
 [0.75.0]: https://github.com/thornbux/glimt/compare/v0.74.0...v0.75.0
 [0.74.0]: https://github.com/thornbux/glimt/compare/v0.73.0...v0.74.0
