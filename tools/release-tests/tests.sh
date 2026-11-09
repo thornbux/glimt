@@ -872,6 +872,63 @@ for v in new old; do
     else note "old: $waited, then $ended, $whole whole, $parts hidden"; fi
 done
 
+section "SIGTERM while moving to another disk: it waits, ends when every file is moved, marks follow"
+# Before 0.78.0 a SIGTERM (a logout, kill) ended Glimt at once, halfway through the move, and the
+# marks stayed on the names the moved files had before.
+for v in new old; do
+    as_version $v
+    # From the tmpfs /dev/shm to the disk under /tmp, so each file is copied, not renamed.
+    d=/dev/shm/sigterm-$v
+    to=/tmp/sigterm-to-$v
+    mkdir -p $d $to
+    # 240 names of one file of 25 MB, as in the section before: 6 GB written to the disk.
+    head -c 25000000 /dev/urandom >$d/000.jpg
+    for i in $(seq -w 1 239); do ln $d/000.jpg $d/$i.jpg; done
+    for f in $d/*.jpg; do printf '1\t0\t%s\n' $f; done >$XDG_STATE_HOME/glimt/marks
+    config
+    start $d
+    sleep 2
+    key ctrl+a
+    answer $to
+    key ctrl+m
+    for i in $(seq 200); do [ -n "$(ls -A $to)" ] && break; sleep 0.05; done
+    kill -TERM $GPID
+    sleep 1
+    waited=$(kill -0 $GPID 2>/dev/null && echo waits || echo closed)
+    for i in $(seq 240); do kill -0 $GPID 2>/dev/null || break; sleep 0.5; done
+    ended=$(kill -0 $GPID 2>/dev/null && echo runs || echo ended)
+    quit
+    moved="$(find $to -name '*.jpg' -size 24415k | wc -l) $(ls -A $d | wc -l)"
+    marks="$(grep -c "	$to/" $XDG_STATE_HOME/glimt/marks) $(grep -c "	$d/" $XDG_STATE_HOME/glimt/marks)"
+    rm -rf $d $to    # 6 GB
+    if [ $v = new ]; then
+        expect "the window waits for the move" "$waited" waits
+        expect "it ends once the files are moved" "$ended" ended
+        expect "all 240 moved, none left behind" "$moved" "240 0"
+        expect "the marks on the moved files, none on the old names" "$marks" "240 0"
+    else note "old: $waited, then $ended, moved and left $moved, marks $marks"; fi
+done
+
+section "SIGHUP to a window at rest: it ends at once, and its state is written"
+for v in new old; do
+    as_version $v
+    d=/tmp/sighup-$v
+    mkdir -p $d
+    convert -size 300x200 xc:red $d/a.jpg
+    rm -f $XDG_STATE_HOME/glimt/state
+    config
+    start $d
+    kill -HUP $GPID
+    until_ok "! kill -0 $GPID" 5 && ended=ended || ended=runs
+    state=$(grep -c . $XDG_STATE_HOME/glimt/state 2>/dev/null)
+    quit
+    rm -rf $d
+    if [ $v = new ]; then
+        expect "it ends within five seconds" "$ended" ended
+        expect "the state file written" "$([ "${state:-0}" -gt 0 ] && echo written)" written
+    else note "old: $ended, state lines ${state:-none}"; fi
+done
+
 section "thumbnails in the image area (G): ↓ moves a row, Enter shows the image, Esc the grid"
 for v in new old; do
     as_version $v

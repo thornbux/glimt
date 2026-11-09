@@ -9,10 +9,17 @@ use eframe::egui;
 use std::path::Path;
 use std::sync::Arc;
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicI32, AtomicUsize, Ordering};
 use std::time::Instant;
 
 /// How long the mouse is still in full screen before the pointer hides.
 const HIDE_POINTER_AFTER: std::time::Duration = std::time::Duration::from_secs(2);
+
+/// How many SIGTERM and SIGHUP signals came. The window closes as Ctrl+Q does at each new one.
+static TERMINATION_SIGNALS: AtomicUsize = AtomicUsize::new(0);
+/// The socket that the signal handler writes a byte to, so that a thread wakes the window. It is
+/// -1 until `close_on_termination_signals` makes it.
+static SIGNAL_WAKER: AtomicI32 = AtomicI32::new(-1);
 
 /// What ends a screen saver inhibitor: its process killed, or the portal's request closed.
 pub(crate) type InhibitorStop = Box<dyn FnOnce() + Send>;
@@ -53,6 +60,8 @@ pub(crate) struct Window {
     /// differs, so a failed save is not tried again at every close, but a newer turn is saved.
     /// A save that worked forgets it, so the same turn made again is saved too.
     turn_tried_at_close: Option<(std::path::PathBuf, (u8, bool))>,
+    /// How many termination signals the window had seen at its last pass.
+    termination_signals_seen: usize,
 }
 
 impl Window {
@@ -72,6 +81,7 @@ impl Window {
             title_template: String::new(),
             close_requests: 0,
             turn_tried_at_close: None,
+            termination_signals_seen: TERMINATION_SIGNALS.load(Ordering::Relaxed),
         }
     }
 
@@ -158,6 +168,14 @@ impl crate::App {
     /// kiosk stays open. Otherwise keywords typed and a turn are saved, and a close while files
     /// are written waits for them.
     pub(crate) fn guard_close(&mut self, ctx: &egui::Context) {
+        // A SIGTERM or SIGHUP asks for a close as Ctrl+Q does, which this guard meets at the next
+        // pass. A kiosk closes too, as the session ends.
+        let signals = TERMINATION_SIGNALS.load(Ordering::Relaxed);
+        if signals != self.window.termination_signals_seen {
+            self.window.termination_signals_seen = signals;
+            self.window.let_kiosk_quit();
+            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+        }
         let close = ctx.input(|i| i.viewport().close_requested());
         // eframe may run no `ui` for a long time, as while the window is minimized. So the file
         // jobs' reports, by which marks follow moved files, are taken here before the guard
@@ -471,6 +489,56 @@ fn is_window_visible(ctx: &egui::Context) -> bool {
     })
 }
 
+/// Makes SIGTERM and SIGHUP close the window as Ctrl+Q does, so a logout or `kill` waits for
+/// the files being written and saves the state. Only the window calls this: a `--remote` client
+/// and the SVG drawer end at a signal as before. SIGKILL always ends Glimt at once.
+pub(crate) fn close_on_termination_signals(ctx: &egui::Context) {
+    use std::io::Read;
+    use std::os::fd::IntoRawFd;
+    let Ok((mut waiting, waker)) = std::os::unix::net::UnixStream::pair() else {
+        return;
+    };
+    // A full socket must not block the handler. The window is woken already then.
+    if waker.set_nonblocking(true).is_err() {
+        return;
+    }
+    SIGNAL_WAKER.store(waker.into_raw_fd(), Ordering::Relaxed);
+    let ctx = ctx.clone();
+    std::thread::spawn(move || {
+        let mut byte = [0u8];
+        while waiting.read(&mut byte).is_ok_and(|n| n > 0) {
+            ctx.request_repaint();
+        }
+    });
+    for signal in [libc::SIGTERM, libc::SIGHUP] {
+        let handler = on_termination_signal as extern "C" fn(libc::c_int);
+        #[allow(unsafe_code)]
+        // SAFETY: The handler only adds to an atomic and calls write, which are both
+        // async-signal-safe. A program started later gets the default action back at its exec.
+        unsafe {
+            libc::signal(signal, handler as libc::sighandler_t)
+        };
+    }
+}
+
+/// Counts a SIGTERM or SIGHUP and wakes the window, which then closes as Ctrl+Q does.
+extern "C" fn on_termination_signal(_signal: libc::c_int) {
+    TERMINATION_SIGNALS.fetch_add(1, Ordering::Relaxed);
+    let byte = [1u8];
+    #[allow(unsafe_code)]
+    // SAFETY: errno is this thread's and is put back, as the code the signal interrupted may
+    // read it next. write is async-signal-safe, and the buffer holds the one byte written.
+    unsafe {
+        let errno = *libc::__errno_location();
+        libc::write(
+            SIGNAL_WAKER.load(Ordering::Relaxed),
+            byte.as_ptr().cast(),
+            1,
+        );
+        *libc::__errno_location() = errno;
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use crate::support::test_support::{app_on, contract_folder, run_background_until};
@@ -655,6 +723,30 @@ mod tests {
         assert!(closed);
         app.window.is_kiosk = true;
         assert!(logic_only(&mut app, true).contains(&ViewportCommand::CancelClose));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A SIGTERM or SIGHUP that the window has not seen sends a Close in its next pass, also
+    /// without `ui`, which the guard then meets as it meets Ctrl+Q. A kiosk closes too. The
+    /// pass after it sends none.
+    #[test]
+    fn a_termination_signal_closes_the_window() {
+        use eframe::egui::{RawInput, ViewportCommand, ViewportId};
+        let dir = contract_folder("termination-signal");
+        let (mut app, ctx) = app_on(&dir);
+        app.window.is_kiosk = true;
+        let closes = |app: &mut crate::App| {
+            let out = ctx.run_logic(&RawInput::default(), |ctx| app.guard_close(ctx));
+            let commands = out.viewport_commands.get(&ViewportId::ROOT);
+            commands.is_some_and(|c| c.contains(&ViewportCommand::Close))
+        };
+        assert!(!closes(&mut app));
+        // As if a signal came: the count differs from the one the window saw. The count itself
+        // is left alone, as the windows of other tests would close at it.
+        app.window.termination_signals_seen = usize::MAX;
+        assert!(closes(&mut app));
+        assert!(app.window.kiosk_may_quit);
+        assert!(!closes(&mut app));
         std::fs::remove_dir_all(dir).unwrap();
     }
 

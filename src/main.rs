@@ -162,6 +162,7 @@ impl App {
 
     fn new(cc: &eframe::CreationContext, path: Option<PathBuf>, start: Start) -> Self {
         let (config, problems) = Config::load_checked();
+        crate::ui::window::close_on_termination_signals(&cc.egui_ctx);
         Self::with_config(&cc.egui_ctx, config, &problems, path, start)
     }
 

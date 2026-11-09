@@ -404,6 +404,10 @@ The sockets for remote control.
 .TP
 .BR XDG_CONFIG_HOME ", " XDG_STATE_HOME ", " XDG_DATA_HOME ", " XDG_CACHE_HOME ", " XDG_RUNTIME_DIR
 Where the files above are kept.
+.SH SIGNALS
+SIGTERM and SIGHUP close the window as Ctrl+Q does: Glimt waits while files are copied, moved
+or saved, then writes its state and ends. A second signal stops the files after the one at
+hand, and a third ends Glimt at once. SIGKILL always ends it at once.
 .SH EXAMPLES
 .TP
 .B glimt ~/Pictures
