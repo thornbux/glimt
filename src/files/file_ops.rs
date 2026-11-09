@@ -1670,11 +1670,12 @@ impl crate::App {
         let pointer = Working::new(&self.busy);
         let writing = Working::new(&crate::files::file_io::WRITING);
         std::thread::spawn(move || {
-            let _writing = (writing, held_back);
             if let Some(text) = work() {
                 let _ = tx.send(text);
             }
-            drop(pointer);
+            // The busy pointer goes last. A window that sees no work running starts the next
+            // operation on these files, and the files still held back would refuse it.
+            drop((writing, held_back, pointer));
             ctx.request_repaint();
         });
         true
@@ -3620,6 +3621,25 @@ mod tests {
         crate::support::test_support::open_now(&mut app, &ctx, empty.clone());
         app.undo(&ctx);
         assert!(run_background_until(&mut app, &ctx, |a| !a.working()));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// Work in the background lets go of its files before the busy pointer goes. The window
+    /// starts the next operation on them once no work runs, and before, a thread slowed between
+    /// the two had that operation refused ("Still working on these files").
+    #[test]
+    fn background_work_lets_go_of_its_files_before_the_pointer() {
+        let dir =
+            std::env::temp_dir().join(format!("glimt-test-held-pointer-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let (mut app, ctx) = app_on(&dir);
+        let file = vec![dir.join("a.png")];
+        for _ in 0..500 {
+            assert!(app.run_in_background(&ctx, file.clone(), || None));
+            // A spin, not a sleep, so the check falls into the moment between the two.
+            while app.working() {}
+            assert!(app.are_free_to_change(&file), "{:?}", app.notice.text());
+        }
         std::fs::remove_dir_all(dir).unwrap();
     }
 

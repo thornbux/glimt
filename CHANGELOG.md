@@ -48,6 +48,9 @@ and versions follow [Semantic Versioning](https://semver.org/).
 - Several windows may share a `--name`, and `glimt --name NAME --remote` reaches each of them.
   A window that shares its name with one started before it shows its own ID beside the name,
   as `left (4242)`, and `--name 4242` reaches it alone, as it reaches a window without a name.
+- An Undo of a move, and other work in the background, now lets go of its files before the
+  busy pointer goes. On a busy computer, an operation started on the same files at that moment
+  was refused with "Still working on these files".
 
 ## [0.77.0] - 2026-11-09
 
