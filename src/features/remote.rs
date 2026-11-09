@@ -575,10 +575,16 @@ pub fn valid_name(name: &str) -> bool {
     name.chars().all(ok) && !name.chars().all(|c| c.is_ascii_digit()) && name.len() <= 64
 }
 
-/// Whether the socket of `--name name` fits in the 107 bytes a socket's path may have here. In
-/// a Flatpak its folder alone takes some 60.
+/// Whether the socket of `--name name` fits in the bytes a socket's path may have here. In a
+/// Flatpak its folder alone takes some 60.
 pub fn name_fits(name: &str) -> bool {
-    socket(name).is_none_or(|p| p.as_os_str().len() <= 107)
+    socket(name).is_none_or(|p| socket_path_fits(&p))
+}
+
+/// Whether a client can connect to a socket at `path`. A longer path can be made, by a link,
+/// but no client reaches the socket by it, because a socket's address holds at most 107 bytes.
+fn socket_path_fits(path: &Path) -> bool {
+    path.as_os_str().len() <= 107
 }
 
 /// Returns whether `command` may read the folder again or open another, so that behind a waiting
@@ -916,7 +922,7 @@ pub fn listen(tx: mpsc::Sender<(String, Option<Reply>)>, ctx: eframe::egui::Cont
         std::os::fd::AsRawFd::as_raw_fd(&listener),
         std::sync::atomic::Ordering::Relaxed,
     );
-    mark_focused();
+    mark_this_window_focused();
     std::thread::spawn(move || {
         serve_clients(listener, MOST_CLIENTS, move |stream| {
             serve(stream, &tx, &ctx)
@@ -1091,14 +1097,30 @@ pub fn rename(name: Option<&str>) -> Result<(), String> {
         *lock_even_if_poisoned(&GIVEN_NAME) = name.map(str::to_owned);
         return Ok(());
     }
-    let old = own_socket_id();
-    let from = socket(&old).ok_or("there is no runtime folder")?;
+    let dir = runtime_dir().ok_or("there is no runtime folder")?;
     let ids = match name {
         Some(n) => vec![n.to_owned(), format!("{n}.{}", instance_id())],
         None => vec![instance_id().to_owned()],
     };
+    let id = move_socket(&dir, &own_socket_id(), &ids)?;
+    *lock_even_if_poisoned(&GIVEN_NAME) = name.map(str::to_owned);
+    *lock_even_if_poisoned(&LISTENING_AS) = Some(id);
+    Ok(())
+}
+
+/// Moves this Glimt's socket in `dir` from the ID `old` to the first of `ids` that is free and
+/// that a client can connect to. The socket is linked to the new ID before the old one is
+/// removed, so the window is never without remote control. The window used last keeps that
+/// place under its new ID. Returns the ID taken, or the reason when none of them can be taken.
+fn move_socket(dir: &Path, old: &str, ids: &[String]) -> Result<String, String> {
+    let from = dir.join(socket_name(old));
+    let mut why = "a Glimt of that name and process ID runs already";
     for id in ids {
-        let Some(to) = socket(&id) else { continue };
+        let to = dir.join(socket_name(id));
+        if !socket_path_fits(&to) {
+            why = "the name is too long for the socket's path here";
+            continue;
+        }
         if id != old {
             match link_socket(&from, &to) {
                 Ok(()) => {}
@@ -1108,17 +1130,13 @@ pub fn rename(name: Option<&str>) -> Result<(), String> {
             #[allow(clippy::disallowed_methods)] // this Glimt's own socket, linked anew
             let _ = std::fs::remove_file(&from);
         }
-        *lock_even_if_poisoned(&GIVEN_NAME) = name.map(str::to_owned);
-        *lock_even_if_poisoned(&LISTENING_AS) = Some(id);
-        // The window used last keeps that place under its new ID.
-        let focused =
-            runtime_dir().and_then(|d| crate::images::decode::read_text(d.join(FOCUSED_FILE)).ok());
+        let focused = crate::images::decode::read_text(dir.join(FOCUSED_FILE)).ok();
         if focused.is_some_and(|f| f.trim() == old) {
-            mark_focused();
+            mark_focused(dir, id);
         }
-        return Ok(());
+        return Ok(id.clone());
     }
-    Err("a Glimt of that name and process ID runs already".into())
+    Err(why.into())
 }
 
 /// Links this Glimt's socket at `from` to `to` as well, never over a socket that a running
@@ -1145,14 +1163,19 @@ fn link_socket(from: &std::path::Path, to: &std::path::Path) -> std::io::Result<
 }
 
 /// Marks that this Glimt got the focus, so `--remote` goes to it from now on.
-pub fn mark_focused() {
-    if let Some(d) = runtime_dir() {
-        // The file is written whole and never truncated first, because a `--remote` reading it
-        // meanwhile got an empty name.
-        let path = d.join(FOCUSED_FILE);
-        if let Err(e) = crate::files::file_io::replace_file(&path, own_socket_id()) {
-            eprintln!("glimt: {}: {e}", path.display());
-        }
+pub fn mark_this_window_focused() {
+    if let Some(dir) = runtime_dir() {
+        mark_focused(&dir, &own_socket_id());
+    }
+}
+
+/// Writes `id` as the ID of the Glimt that had the focus last, in the runtime folder `dir`.
+fn mark_focused(dir: &Path, id: &str) {
+    // The file is written whole and never truncated first, because a `--remote` reading it
+    // meanwhile got an empty name.
+    let path = dir.join(FOCUSED_FILE);
+    if let Err(e) = crate::files::file_io::replace_file(&path, id) {
+        eprintln!("glimt: {}: {e}", path.display());
     }
 }
 
@@ -1267,6 +1290,24 @@ mod tests {
         drop(std::os::unix::net::UnixListener::bind(&c).unwrap());
         super::link_socket(&a, &c).unwrap();
         assert!(std::os::unix::net::UnixStream::connect(&c).is_ok());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A new name whose socket's path would be too long for a client to connect to is not
+    /// taken, so the window keeps its old socket, and with it remote control.
+    #[test]
+    fn a_name_too_long_for_the_socket_keeps_the_old_one() {
+        let base = std::env::temp_dir().join(format!("glimt-test-long-{}-", std::process::id()));
+        // The path of `glimt-left.sock` takes the 107 bytes exactly, and `left.123456` more.
+        let padding = 107 - "/glimt-left.sock".len() - base.as_os_str().len();
+        let dir = std::path::PathBuf::from(format!("{}{}", base.display(), "x".repeat(padding)));
+        std::fs::create_dir_all(&dir).unwrap();
+        let old = dir.join(super::socket_name("old"));
+        let _own = std::os::unix::net::UnixListener::bind(&old).unwrap();
+        let _taken = std::os::unix::net::UnixListener::bind(dir.join("glimt-left.sock")).unwrap();
+        let ids = ["left".to_owned(), "left.123456".to_owned()];
+        assert!(super::move_socket(&dir, "old", &ids).is_err());
+        assert!(std::os::unix::net::UnixStream::connect(&old).is_ok());
         std::fs::remove_dir_all(dir).unwrap();
     }
 
