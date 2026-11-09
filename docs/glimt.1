@@ -126,7 +126,7 @@ Name this Glimt: letters, digits,
 .B \-
 and
 .BR _ ,
-not only digits, at most 64 bytes (fewer in a Flatpak, whose socket path is longer). The
+at most 64 bytes (fewer in a Flatpak, whose socket path is longer). The
 window title shows it, and
 .B glimt \-\-name
 .I NAME
@@ -134,10 +134,19 @@ window title shows it, and
 .I COMMAND
 sends
 .I COMMAND
-to this Glimt only (with
+to the Glimt windows of that name only (with
 .BR open ,
-it starts one with that name if none runs). A named Glimt listens even when remote
-control is off in Preferences.
+it starts one with that name if none runs). Several windows may share a name, and each of
+them does what is sent to it; a query has an answer from each. A named Glimt listens even
+when remote control is off in Preferences. With
+.BR \-\-remote ,
+.I NAME
+may also be the process ID of a Glimt started without a name, or of one that shares its
+name with a Glimt started before it, as
+.B identify
+and
+.B %id%
+show it; a name of only digits is taken for nothing else.
 .TP
 .BI \-\-remote " COMMAND"
 Send
@@ -239,8 +248,36 @@ Show a file, folder or collection. If no Glimt is running, one is started.
 .TP
 .BI title " [TEXT ...]"
 Give this window a title of its own, a template as in Preferences of
-.BR %name% ", " %path% ", " %folder% " and " %app% ,
+.BR %name% ", " %path% ", " %folder% ", " %app% " and " %id% ,
 until it closes; without the text, the one in Preferences again.
+.TP
+.BI name " [NAME]"
+Give this window a new name, as
+.B \-\-name
+does at start, so that
+.B \-\-remote
+reaches it by that name from now on and no longer by the old one; it is shared when another
+window has it. Without
+.IR NAME ,
+the window has no name, and its process ID reaches it. A window that did not listen, with
+remote control off, starts to when it is given a name, as with
+.B \-\-name
+at start, and stops again when its name is taken away. Window \(-> Set Window Name… does
+the same.
+.TP
+.B identify
+Show this window's ID large over the image for a few seconds: its
+.B \-\-name
+or else its process ID, as
+.B %id%
+in the title. A window that shares its name with one started before it shows its own ID
+beside the name, as
+.BR "left (4242)" ,
+and
+.B \-\-name 4242
+reaches it alone. With
+.BR \-\-remote\-all ,
+each window shows its own.
 .TP
 .B quit
 Close Glimt.

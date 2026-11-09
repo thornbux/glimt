@@ -213,10 +213,9 @@ impl App {
             decoding.auto_rotate(),
             config.save_thumbnails,
         );
-        // A name is only of use with remote control, so a named Glimt listens in any case. A
-        // kiosk listens too, because --remote quit is its way out.
-        let listen =
-            config.remote_control || crate::features::remote::given_name().is_some() || start.kiosk;
+        // A named Glimt listens in any case (`remote::Listener::new`). A kiosk listens too,
+        // because --remote quit is its way out.
+        let listens_without_name = config.remote_control || start.kiosk;
         let (notice_sender, notices) = crate::support::threads::NoticeSender::new(ctx);
         let mut app = App {
             ctx: ctx.clone(),
@@ -262,7 +261,7 @@ impl App {
             save_as_choices: Default::default(),
             find_duplicates: None,
             check_images: None,
-            remote: crate::features::remote::Listener::new(ctx, listen),
+            remote: crate::features::remote::Listener::new(ctx, listens_without_name),
             config,
         };
         // When a URI is on the command line, Glimt starts where it would otherwise and goes to
@@ -515,9 +514,28 @@ fn main() -> eframe::Result {
     if command.is_some_and(|a| a == remote[0]) || to_all {
         let paths = args_os.get(2..).unwrap_or_default();
         match crate::features::remote::client(&args[1..], paths, start.name.as_deref(), to_all) {
-            Some(path) => arg = Some(path),
+            Some(path) => {
+                arg = Some(path);
+                // `open` found no Glimt of that process ID, so a new one opens the path under
+                // its own process ID.
+                if start
+                    .name
+                    .as_deref()
+                    .is_some_and(crate::features::remote::is_process_id)
+                {
+                    start.name = None;
+                }
+            }
             None => return Ok(()),
         }
+    }
+    if start
+        .name
+        .as_deref()
+        .is_some_and(crate::features::remote::is_process_id)
+    {
+        eprintln!("glimt: a --name of only digits is a process ID, which only --remote takes");
+        std::process::exit(2);
     }
     let mut viewport = egui::ViewportBuilder::default()
         .with_title("Glimt")

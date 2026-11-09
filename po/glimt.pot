@@ -2339,7 +2339,7 @@ msgid "Custom window title (empty: \"image name - Glimt\"):"
 msgstr ""
 
 #: src/ui/preferences.rs
-msgid "Fields: %name%, %path%, %folder% and %app%. A | starts a part, left out when its fields are empty."
+msgid "Fields: %name%, %path%, %folder%, %app% and %id%. A | starts a part, left out when its fields are empty."
 msgstr ""
 
 #: src/ui/actions.rs
@@ -2351,7 +2351,7 @@ msgid "Show File Names Under Thumbnails"
 msgstr ""
 
 #: src/main.rs
-msgid "Title of this window (%name%, %path%, %folder%, %app%; empty: as in Preferences):"
+msgid "Title of this window (%name%, %path%, %folder%, %app%, %id%; empty: as in Preferences):"
 msgstr ""
 
 #: src/metadata/xmp.rs
@@ -2970,4 +2970,16 @@ msgstr ""
 
 #: src/ui/dialogs.rs
 msgid "Open (Enter)"
+msgstr ""
+
+#: src/ui/actions.rs
+msgid "Set Window Name…"
+msgstr ""
+
+#: src/ui/dialogs.rs
+msgid "Name of this window, which glimt --name NAME --remote reaches it by (empty: its process ID):"
+msgstr ""
+
+#: src/ui/dialogs.rs
+msgid "Could not name this window: {why}"
 msgstr ""

@@ -388,3 +388,7 @@ exit check_config_problems 1
 exit back_up_failed 1
 exit back_up_no_folder 2
 option --action-list
+field id
+remote identify
+remote name
+script WindowName

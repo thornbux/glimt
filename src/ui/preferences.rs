@@ -156,7 +156,7 @@ const VIDEO: &[&str] = &[
 const START: &[&str] = &[
     "Start and system",
     "Custom window title (empty: \"image name - Glimt\"):",
-    "Fields: %name%, %path%, %folder% and %app%. A | starts a part, left out when its fields are empty.",
+    "Fields: %name%, %path%, %folder%, %app% and %id%. A | starts a part, left out when its fields are empty.",
     "Keep a list of recent folders (File → Open Recent)",
     "Keep the screen saver off in full screen",
     "Listen for glimt --remote commands (after restart)",
@@ -897,8 +897,8 @@ impl crate::App {
             self.update_window_title(ctx);
         }
         ui.weak(tr(
-            "Fields: %name%, %path%, %folder% and %app%. A | starts a part, left out when its \
-             fields are empty.",
+            "Fields: %name%, %path%, %folder%, %app% and %id%. A | starts a part, left out when \
+             its fields are empty.",
         ));
         if clear {
             self.clear_recent();

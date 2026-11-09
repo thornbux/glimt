@@ -113,7 +113,7 @@ impl crate::App {
         let focus = ctx.input(|i| i.viewport().focused.unwrap_or(false));
         let gained = self.window.set_focused(focus);
         if gained && self.config.remote_control {
-            remote::mark_focused();
+            remote::mark_this_window_focused();
         }
         // Back from another window, which may have marked files meanwhile.
         #[cfg(feature = "marks")]

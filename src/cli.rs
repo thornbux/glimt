@@ -34,7 +34,7 @@ pub(crate) const START_OPTIONS: &[(&str, &str)] = &[
     ),
     (
         "--name NAME",
-        "Name this Glimt; glimt --name NAME --remote COMMAND reaches only it",
+        "Name this Glimt; glimt --name NAME --remote COMMAND reaches every Glimt of that name, and NAME may be the process ID of a Glimt, as %id% shows it",
     ),
     (
         "--check-config [FILE]",
@@ -163,10 +163,11 @@ impl Start {
                 return Ok(Some(2));
             }
             "--name" => {
-                if !remote::valid_name(value) || value.is_empty() {
-                    return Err(
-                        "--name takes up to 64 letters, digits, - and _ (not only digits)".into(),
-                    );
+                if value.is_empty() || !(remote::valid_name(value) || remote::is_process_id(value))
+                {
+                    return Err("--name takes up to 64 letters, digits, - and _, or with \
+                         --remote the process ID of a Glimt"
+                        .into());
                 }
                 if !remote::name_fits(value) {
                     return Err(format!(
@@ -346,7 +347,16 @@ mod tests {
             (s.name.as_deref(), rest),
             (Some("left"), args(&["--remote", "next"]))
         );
-        assert!(Start::parse(args(&["--name", "123"])).is_err());
+        // Only digits are a process ID, which main takes only with --remote.
+        assert_eq!(
+            Start::parse(args(&["--name", "123"]))
+                .unwrap()
+                .0
+                .name
+                .as_deref(),
+            Some("123")
+        );
+        assert!(Start::parse(args(&["--name", "12345678901"])).is_err());
         assert!(Start::parse(args(&["--name", "a/b"])).is_err());
         assert!(Start::parse(args(&["--name"])).is_err());
         assert!(Start::parse(args(&["--kiosk", "d"])).unwrap().0.kiosk);

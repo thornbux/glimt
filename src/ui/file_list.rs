@@ -1371,6 +1371,7 @@ impl crate::App {
                 let opened = self.file_list(ctx, ui, &mut go_to, &mut chosen, [true, true]);
                 // A failed copy or delete says so here too, as over the image.
                 self.paint_notice(ui, ui.max_rect());
+                self.paint_window_id(ui, ui.max_rect());
                 opened
             })
             .inner;
