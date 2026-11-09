@@ -27,6 +27,10 @@ thread_local! {
     // Makes `sync_folder_of` on this thread fail as a disk that fails would, for the tests of
     // what follows such a failure.
     pub(crate) static FOLDER_SYNC_FAILS: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    // The errors that `save_failed` told on this thread. The window's own slot is shared by
+    // every test, so a test that reads it could take another test's error.
+    pub(crate) static SAVES_FAILED: std::cell::RefCell<Vec<String>> =
+        const { std::cell::RefCell::new(Vec::new()) };
 }
 
 /// A write queued for a `start_ordered_worker` thread.
@@ -691,6 +695,8 @@ pub fn write_atomic(path: &Path, bytes: impl AsRef<[u8]>) {
 /// A file that could not be saved, told on the terminal and, once, in the window.
 pub fn save_failed(error: String) {
     eprintln!("{error}");
+    #[cfg(test)]
+    SAVES_FAILED.with_borrow_mut(|told| told.push(error.clone()));
     *lock_even_if_poisoned(&SAVE_ERROR) = Some(error);
 }
 
