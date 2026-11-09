@@ -5,6 +5,18 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- Window → Set Window Name… and `glimt --remote name NAME` give a running window a new
+  `--name`, which `--remote` reaches it by from then on; without a name, its process ID does.
+  With remote control off in Preferences, a window listens while it has a name, as with
+  `--name` at start.
+- `glimt --remote-all identify` shows each window's ID large over the image for a few seconds,
+  and `%id%` puts it in the window title: its name, or its process ID when it has none.
+- Several windows may share a `--name`, and `glimt --name NAME --remote` reaches each of them.
+  A window that shares its name with one started before it shows its own ID beside the name,
+  as `left (4242)`, and `--name 4242` reaches it alone, as it reaches a window without a name.
+
 ## [0.77.0] - 2026-11-09
 
 ### Changed
