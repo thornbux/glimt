@@ -2752,7 +2752,8 @@ fn the_lints_stay_on() {
 /// Returns the lines of the statements of `text` outside the tests that drop the result of one
 /// of file_io's writers, with `let _ =`, `_ =` or `.ok();`.
 fn dropped_writes_in(text: &str) -> Vec<usize> {
-    const WRITERS: [&str; 9] = [
+    const WRITERS: [&str; 10] = [
+        "sync_folder_of(",
         "rename_never_over(",
         "put_file(",
         "edit_shared(",

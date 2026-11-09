@@ -15,6 +15,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
   version cannot come back, and Rename Many's plan is on disk before its first rename. File →
   Back Up waits until the backup is on the disk, so a stick pulled out right after holds all
   of it.
+- When the disk reports that Rename Many's renames did not reach it, the plan stays, so the
+  next start offers to put the files right instead of trusting names that may come back.
 ### Changed
 
 - Copy for Sharing keeps an iPhone's HDR gain map as it keeps an Ultra HDR one, so the copy
