@@ -1,6 +1,6 @@
 //! The command line: the start options around the files and folders (`Start`), and the
-//! commands that answer and end without opening a window (--help, --version, --check-config
-//! and --back-up). The --remote commands are in remote.rs.
+//! commands that answer and end without opening a window (--help, --version, --check-config,
+//! --back-up and --action-list). The --remote commands are in remote.rs.
 
 use crate::features::remote;
 use crate::files::config::{self, Config, FADES};
@@ -43,6 +43,10 @@ pub(crate) const START_OPTIONS: &[(&str, &str)] = &[
     (
         "--back-up FOLDER",
         "Copy Glimt's data to a new folder glimt-backup-DATE in FOLDER",
+    ),
+    (
+        "--action-list",
+        "Print the actions that --remote run takes: the name, a tab and the label",
     ),
     ("-V, --version", "Print the version"),
     ("-h, --help", "Print this help"),
@@ -185,6 +189,7 @@ pub(crate) enum Command {
     CheckConfig,
     BackUp,
     Help,
+    ActionList,
 }
 
 impl Command {
@@ -197,12 +202,14 @@ impl Command {
             "--check-config" => Command::CheckConfig,
             "--back-up" => Command::BackUp,
             "--help" | "-h" => Command::Help,
+            "--action-list" => Command::ActionList,
             _ => return None,
         })
     }
 }
 
-/// Answers the commands that need no window: --version, --check-config, --back-up and --help.
+/// Answers the commands that need no window: --version, --check-config, --back-up, --help and
+/// --action-list.
 /// Returns true when one of them was given, and Glimt has nothing more to do. After `--` the
 /// arguments are files, never a command.
 pub(crate) fn answer_without_window(start: &Start, args_os: &[OsString]) -> bool {
@@ -212,6 +219,7 @@ pub(crate) fn answer_without_window(start: &Start, args_os: &[OsString]) -> bool
         Some(Command::CheckConfig) => check_config(args_os.get(1).map(PathBuf::from)),
         Some(Command::BackUp) => back_up(args_os.get(1)),
         Some(Command::Help) => print_help(),
+        Some(Command::ActionList) => print!("{}", action_list()),
         None => return false,
     }
     true
@@ -284,10 +292,8 @@ fn print_help() {
     for (command, does) in remote::COMMANDS {
         println!("  {command:<12} {does}");
     }
-    let actions: Vec<String> = (crate::ui::actions::SCRIPT_ACTIONS.iter())
-        .map(|a| format!("{a:?}"))
-        .collect();
-    println!("\nActions for run:\n  {}", actions.join(" "));
+    // The actions have a list of their own, as their names alone filled a screen here.
+    println!("\nThe actions for run: glimt --action-list");
     println!(
         "\nExit status of --remote: {} done, {} no Glimt took it or none answered in time, {} \
          it cannot be sent, {} a window did not do it (the reason on standard error)",
@@ -296,6 +302,15 @@ fn print_help() {
         remote::NOT_SENT,
         remote::NOT_DONE
     );
+}
+
+/// Returns the text of glimt --action-list: a line for each action that `--remote run` takes,
+/// in the order of `SCRIPT_ACTIONS`, with the action's name, a tab and its menu label in
+/// English. Scripts read this format, so it is frozen in 1.x: a line stays one name, one tab
+/// and one label, and new actions only add lines.
+fn action_list() -> String {
+    let lines = crate::ui::actions::SCRIPT_ACTIONS.iter();
+    lines.map(|a| format!("{a:?}\t{}\n", a.english())).collect()
 }
 
 #[cfg(test)]
@@ -348,6 +363,25 @@ mod tests {
         assert!(Start::parse(args(&["--fade", "slow"])).is_err());
         let (_, rest) = Start::parse(args(&["--version"])).unwrap();
         assert_eq!(rest, args(&["--version"]));
+    }
+
+    /// glimt --action-list prints each action that --remote run takes once, as its name, a tab
+    /// and a label. The format is frozen in 1.x, so one line of it is pinned here.
+    #[test]
+    fn the_action_list_has_every_script_action_once() {
+        let text = super::action_list();
+        let lines: Vec<(&str, &str)> = (text.lines())
+            .map(|line| line.split_once('\t').expect(line))
+            .collect();
+        let script = crate::ui::actions::SCRIPT_ACTIONS;
+        assert_eq!(lines.len(), script.len());
+        for action in script {
+            let name = format!("{action:?}");
+            let found = lines.iter().filter(|(n, _)| *n == name);
+            assert_eq!(found.count(), 1, "{name}");
+        }
+        assert!(lines.iter().all(|(_, label)| !label.is_empty()));
+        assert!(text.contains("\nZoomIn\tZoom In\n"));
     }
 
     /// --check-config on a new account, with no settings file yet, says that the defaults are

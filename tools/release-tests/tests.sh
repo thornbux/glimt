@@ -1173,6 +1173,25 @@ for v in new old; do
     else note "old: $got"; fi
 done
 
+section "glimt --action-list: each action once with its label, and --remote run takes the first"
+for v in new old; do
+    as_version $v
+    d=/tmp/action-list-$v
+    mkdir -p $d
+    convert -size 64x64 xc:red $d/a.png
+    $BIN --action-list >$d/list 2>/dev/null; status=$?
+    lines=$(grep -c . $d/list)
+    names=$(cut -f1 $d/list | sort -u | grep -c .)
+    labelled=$(grep -cP '^[A-Za-z0-9]+\t.+$' $d/list)
+    first=$(head -1 $d/list | cut -f1)
+    start $d/a.png
+    remote run "$first" >/dev/null 2>&1; ran=$?
+    quit
+    got="$status $([ "$lines" -gt 50 ] && [ "$lines" = "$names" ] && [ "$lines" = "$labelled" ] && echo whole) $ran"
+    if [ $v = new ]; then expect "exit 0, every line a name once with a label, the first one run" "$got" "0 whole 0"
+    else note "old: $got"; fi
+done
+
 section "--remote run while a text field has the focus: not done, exit 3 and the reason"
 for v in new old; do
     as_version $v
