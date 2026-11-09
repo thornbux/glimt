@@ -3,6 +3,23 @@
 Guidelines for coding agents (and people) adding code to Glimt, a fast, lightweight image viewer
 for Linux in Rust/egui, inspired by Geeqie. Read this before changing anything.
 
+## The rules that are never broken
+
+1. A user's file or its metadata is never lost, changed or written over wrongly, and a failed
+   write is told to the user (*What must be fixed, and when*; *Errors, panics and `unsafe`*).
+2. What is frozen is added to, never taken away or changed in meaning (*Frozen in 1.x*).
+3. Every new UI text is translated into all fourteen languages in the same commit (*Language*).
+4. Every commit passes every check in *Before every commit* on its own, in both builds.
+5. Nothing heavy runs on the UI thread (*Goals that decide every change*).
+6. The disk is touched and a program is started only through the one function for each
+   (*How to add things*, "Touching the disk").
+7. A fix lands with a check that fails without it, in the same commit (*Tests*).
+8. A release is audited before its tag, until a round finds nothing (*Releases*).
+9. No release, version bump, tag, merge into `main` or push unless the maintainer asks
+   (*Releases*; *What an agent decides, and what it asks*).
+10. A check that was not run is reported as not run, never as passed (*What an agent
+    decides, and what it asks*).
+
 ## Goals that decide every change
 
 - **Fast and snappy, always.** Nothing heavy on the UI thread: decoding, folder listing, file
@@ -15,6 +32,14 @@ for Linux in Rust/egui, inspired by Geeqie. Read this before changing anything.
 - **Little memory.** Decode to screen size; full resolution only when zoomed. Preloading has a
   fixed budget (N images on each side). Measure RssAnon before and after changes that touch
   decoding or caches.
+- **The limits a release is held to.** The release tests fail when, in a folder of 500,000
+  files, the first image takes more than 1.5 times the last release's time or RssAnon is more
+  than 1.5 times the last release's; when a frame takes more than 10 ms of the window thread's
+  processor time with all 500,000 files selected; or when sorting 3,000 JPEGs by EXIF date takes
+  more than 1.5 times the last release's time (each with a small slack, `within` in `tests.sh`).
+  The maintainer sets these numbers, and an agent does not change them. The other timings and
+  memory figures in the release tests (`note` lines) are only printed, to compare: they stop
+  nothing.
 - **Simplest thing that works.** No dependency, abstraction, config option or file before it is
   needed. Prefer the standard library, then crates already in `Cargo.toml`, then a few lines of
   code. Heavy formats go through external programs (ffmpeg) rather than linking codecs.
@@ -31,7 +56,8 @@ for Linux in Rust/egui, inspired by Geeqie. Read this before changing anything.
 
 ## Frozen in 1.x
 
-These stay as they are until a 2.0: the command-line options,
+These are frozen from 0.76, through all of 1.x, and stay as they are until a 2.0: the
+command-line options,
 the `--remote` commands with their answers and exit codes, the settings file's keys and values
 (a list of choices grows at its end only, `config::NAMED`), the files Glimt owns, and the
 desktop file formats of tools and added formats. Add; never take away or change a meaning. A
@@ -125,6 +151,13 @@ written by `python3 tools/pot.py` (see *Before every commit*). `lang::tests::
 the_template_has_every_text` fails while it lacks a text of no_nb.po. A new language is
 added with its `.po` file, a line in `lang::LANGUAGES` and, if it is not one and many, its
 rule in `plural_form`.
+
+The translations are written by the agent that adds the text, in all fourteen languages, and
+no native reader has read any of them yet. The tests check only that each text is there and
+keeps its placeholders, not that it reads well. The maintainer decides who reads which
+language, and how a text that a native reader has checked is told apart from one that is not;
+until then an agent does not invent a way to mark them. An agent changes another text's
+translation only when it is wrong, and says so in the commit message.
 
 ## Code layout
 
@@ -396,6 +429,40 @@ of that part. The exceptions are the tables of one arm per action (`Action::engl
 - **A shortcut with a known limit** (work in the UI thread, a whole file rewritten) gets a
   comment `shortcut: <the limit>; <when to do more>`, so the next reader knows it was chosen.
 
+## Errors, panics and `unsafe`
+
+- **A failure is told, never swallowed.** A failed write of the user's data or of Glimt's own
+  files goes to `file_io::save_failed`, which prints it and shows it once in the window.
+  `let _ =` on the `Result` of a write is not allowed: handle the error or pass it to
+  `save_failed`.
+- **No `unwrap` or `expect` outside the tests**, except where it cannot fail, with the reason
+  on the same line. Elsewhere use `?`, a default, or an error the user is told.
+- **A panic in a background thread is caught in one place**, `threads::catch_panic`, around
+  each file a worker reads or writes, so a broken file costs only that file
+  (`source_rules::panics_are_caught_in_one_place`). When it returns `None` for a write, that is
+  a failed write like any other, told to the user.
+- **Every `unsafe` block has a `// SAFETY:` comment** just before it that says why the call is
+  sound. New `unsafe` needs a reason that no safe API covers, in the standard library or in a
+  crate already in `Cargo.toml`.
+- From the next release, the lints `unsafe_code`, `clippy::undocumented_unsafe_blocks`,
+  `clippy::unwrap_used` and `clippy::expect_used` in `Cargo.toml` enforce these rules, with
+  `#[allow(…)]` and its reason where an exception is right, as for `disallowed_methods`. Until
+  then they are kept by review.
+
+## Dependencies
+
+A new crate is the last choice: the standard library comes first, then a crate already in
+`Cargo.toml`, then a few lines of code, and a heavy format goes through an external program
+(*Goals that decide every change*). A crate that is still needed must:
+
+- have a license compatible with MIT (*License*);
+- be maintained, with recent releases, and have no advisory in `cargo audit`;
+- bring few crates of its own (count what it adds to `Cargo.lock`);
+- use no `unsafe` beyond what its job needs (a parser of file contents needs none).
+
+The commit that adds it says what it was weighed against: the lines of code or the external
+program it saves.
+
 ## What must be fixed, and when
 
 Audits always find more; this is the bar their findings are ranked against, so a release is
@@ -514,6 +581,33 @@ release as well, to see that it fails there.
 
 New thumbnails are saved to the shared cache by default (`save_thumbnails`). Test with a
 separate `HOME` and `XDG_CACHE_HOME`, so test runs leave nothing in the real cache.
+
+## What an agent decides, and what it asks
+
+An agent decides on its own, within its task and these rules: the code, its tests and
+comments, the names, the commits on its own branch, and how a finding ranks against *What must
+be fixed, and when*.
+
+It asks the maintainer before it:
+
+- pushes, merges into `main`, tags or bumps the version (*Releases*);
+- adds a dependency, a setting, a command-line option or a `--remote` command, because each is
+  frozen once it is released;
+- changes behaviour that follows Geeqie or that users rely on, or a limit of the release tests;
+- removes what it did not make: a branch, a worktree, or the build folders of other checkouts
+  (`tools/check.sh --clean`).
+
+It reports honestly:
+
+- A check that was not run (no Docker, no X display, no time) is reported as not run, never as
+  passed. Read a check's exit status directly.
+- A finding that does not hold against the code is reported as such, and not "fixed".
+- A test is shown to fail without its fix before the fix is called done.
+- A finding outside the task is reported, not fixed on the side.
+
+The checks run in a git checkout of this repository (a worktree is fine), never in a copy made
+with `git archive`: `tools/check.sh` in a folder that is not a known worktree clears the shared
+build volume of every other checkout.
 
 ## Privacy
 
