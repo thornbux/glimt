@@ -31,13 +31,12 @@ pub(crate) fn app_on(dir: &std::path::Path) -> (crate::App, eframe::egui::Contex
     };
     let start = crate::cli::Start::default();
     // A new window sets the colour settings, which also empties the transforms a colour
-    // test running beside it was looking at. It also sets the own keys a keys test is using.
+    // test running beside it was looking at.
     let held = crate::images::colour::COLOUR_TEST
         .lock()
         .unwrap_or_else(|e| e.into_inner());
-    let keys = (crate::ui::actions::KEYS_TEST.lock()).unwrap_or_else(|e| e.into_inner());
     let mut app = crate::App::with_config(&ctx, config, &[], Some(dir.into()), start);
-    drop((keys, held));
+    drop(held);
     app.receive_listing(&ctx, std::time::Duration::from_secs(5));
     (app, ctx)
 }
