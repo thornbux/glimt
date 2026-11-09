@@ -2827,3 +2827,81 @@ fn finds_a_dropped_write() {
         let _ = tx.send(1);\n}\n";
     assert_eq!(dropped_writes_in(text), [2, 3, 4, 6]);
 }
+
+/// A background thread's answer is held in a `threads::Receiving`, never in a bare
+/// `Option<Receiver>`, because `Receiving` tells once when the thread is gone, and a bare one
+/// waits for an answer that never comes.
+#[test]
+fn answers_are_received_through_receiving() {
+    let mut wrong = Vec::new();
+    for (file, text) in rust_sources() {
+        let lines = code_lines(&text);
+        for (i, line) in lines[..tests_start(&lines)].iter().enumerate() {
+            let bare = line.replace("std::sync::", "").replace("mpsc::", "");
+            if bare.contains("Option<Receiver<") && !file.ends_with("support/threads.rs") {
+                wrong.push(format!("{file}:{}", i + 1));
+            }
+        }
+    }
+    assert!(
+        wrong.is_empty(),
+        "a bare Option<Receiver> (hold it in a threads::Receiving):\n{}",
+        wrong.join("\n")
+    );
+}
+
+/// Each name in backticks in AGENTS.md and docs/RELEASING.md that looks like code (a path with
+/// `::`, or a word with `_`) is a word in the source, the tools, the workflows or Cargo.toml.
+/// So a function, test or constant renamed or removed takes its name out of the rules too.
+#[test]
+fn the_rules_name_what_exists() {
+    // Names that the rules give as examples, or that belong to another program.
+    const NOT_IN_THE_CODE: [&str; 4] = [
+        "selected_paths",   // the naming rule's example
+        "read_sidecar",     // the naming rule's example
+        "has_sidecar",      // the naming rule's example
+        "FLATPAK_USER_DIR", // flatpak's own variable, in RELEASING.md
+    ];
+    fn read_tree(path: &Path, into: &mut String) {
+        if path.is_dir() {
+            for entry in std::fs::read_dir(path).unwrap().flatten() {
+                read_tree(&entry.path(), into);
+            }
+        } else if let Ok(text) = std::fs::read_to_string(path) {
+            into.push_str(&text);
+            into.push('\n');
+        }
+    }
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let mut code = String::new();
+    for part in ["src", "tools", ".github", "Cargo.toml", "clippy.toml"] {
+        read_tree(&root.join(part), &mut code);
+    }
+    let words: std::collections::HashSet<&str> =
+        (code.split(|c: char| !c.is_ascii_alphanumeric() && c != '_')).collect();
+    let mut wrong = Vec::new();
+    for doc in ["AGENTS.md", "docs/RELEASING.md"] {
+        let text = std::fs::read_to_string(root.join(doc)).unwrap();
+        for quoted in text.split('`').skip(1).step_by(2) {
+            let name = quoted.trim_end_matches("()");
+            let is_path = name.split("::").all(|part| {
+                part.starts_with(|c: char| c.is_ascii_alphabetic() || c == '_')
+                    && part.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
+            });
+            let last = name.rsplit("::").next().unwrap_or(name);
+            let looks_like_code = name.contains("::") || last.contains('_');
+            if is_path
+                && looks_like_code
+                && !words.contains(last)
+                && !NOT_IN_THE_CODE.contains(&last)
+            {
+                wrong.push(format!("{doc}: {name}"));
+            }
+        }
+    }
+    assert!(
+        wrong.is_empty(),
+        "the rules name what is not in the code:\n{}",
+        wrong.join("\n")
+    );
+}

@@ -67,3 +67,7 @@ jobs:
       - name: cargo-sources.json up to date
         if: matrix.features == ''
         run: python3 tools/flatpak-sources.py && git diff --exit-code flatpak/cargo-sources.json
+      # And the template for a new language, which has every text of no_nb.po.
+      - name: glimt.pot up to date
+        if: matrix.features == ''
+        run: python3 tools/pot.py && git diff --exit-code po/glimt.pot
