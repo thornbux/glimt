@@ -18,7 +18,7 @@ static SAVE_ERROR: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None
 pub static WRITING: std::sync::LazyLock<std::sync::Arc<std::sync::atomic::AtomicUsize>> =
     std::sync::LazyLock::new(Default::default);
 
-// The folders that `sync_folder_of` synced on this thread, so that a test can see that a
+// The folders that `sync_folder` synced on this thread, so that a test can see that a
 // rename was made to last. A power cut cannot be simulated in a test.
 #[cfg(test)]
 thread_local! {
