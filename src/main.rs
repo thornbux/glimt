@@ -169,6 +169,9 @@ struct ReadAtStart {
     /// Why the screen profile or the profile for images without one could not be read, when one
     /// could not (`set_up_colour`, which also sets them up).
     colour_error: Option<String>,
+    /// The first added format or tool whose desktop file gives its program no file
+    /// (`tools::desktop_file_problems`), as the window tells it.
+    desktop_file_problem: Option<String>,
     #[cfg(feature = "marks")]
     marks: crate::metadata::marks::Marks,
 }
@@ -270,7 +273,8 @@ impl App {
             window: crate::ui::window::Window::new(start.kiosk),
             info_panel: crate::ui::info_panel::InfoPanel::new(ctx),
             notice: crate::viewer::view::Notice::new(
-                read.colour_error.or_else(|| config_notice(&read.problems)),
+                (read.colour_error.or_else(|| config_notice(&read.problems)))
+                    .or(read.desktop_file_problem),
             ),
             notice_sender,
             notices,
@@ -518,14 +522,20 @@ fn config_notice(problems: &[String]) -> Option<String> {
 }
 
 /// Returns what the window starts from of Glimt's own files, with the settings `config` and
-/// their `problems` read already: the colour profiles are read and set up, and the marks file
-/// is read. It waits for the disk, so `main` calls it before the window opens.
+/// their `problems` read already: the colour profiles are read and set up, the marks file is
+/// read, and the desktop files of added formats and tools are checked. It waits for the disk,
+/// so `main` calls it before the window opens.
 fn read_at_start(config: Config, problems: Vec<String>) -> ReadAtStart {
     let colour_error = crate::images::colour::set_up_colour(&config);
+    let desktop_file_problems = crate::features::tools::desktop_file_problems();
+    for problem in &desktop_file_problems {
+        eprintln!("glimt: {problem}");
+    }
     ReadAtStart {
         config,
         problems,
         colour_error,
+        desktop_file_problem: desktop_file_problems.into_iter().next(),
         #[cfg(feature = "marks")]
         marks: crate::metadata::marks::read_marks(),
     }

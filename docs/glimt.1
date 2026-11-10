@@ -195,7 +195,17 @@ when the file cannot be read or a
 .I FILE
 given is not there. When it starts, Glimt tells the first of these
 in its window, but not a setting it does not know, which a newer Glimt beside it may have
-written.
+written. It also tells, and exits with 1 for, an added format or tool whose
+.B Exec
+has
+.B %f
+only inside a quoted word, such as
+.BR "sh -c \(dqconvert %f ppm:-\(dq" :
+such a format is not loaded and such a tool gets no files. Give
+.B %f
+as a word of its own, and the script reads it as
+.BR \(dq$1\(dq :
+.BR "sh -c \(dqconvert \e\(dq$1\e\(dq ppm:-\(dq sh %f" .
 .TP
 .BI "\-\-back\-up " FOLDER
 Copy Glimt's own folders (settings, marks and stars, collections, keyword tree, tools and

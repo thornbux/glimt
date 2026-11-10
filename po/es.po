@@ -3025,3 +3025,11 @@ msgstr "Renombrar varios se detuvo, así que los metadatos editados de {count} n
 #: src/ui/file_list.rs
 msgid "( {w} x {h} ) {bytes}{position}{page}"
 msgstr "( {w} x {h} ) {bytes}{position}{page}"
+
+#: src/features/tools.rs
+msgid "{file} is not loaded: %f inside quotes is not the file. Give %f as a word of its own, as in {example}"
+msgstr "{file} no se ha cargado: %f entre comillas no es el archivo. Escriba %f como una palabra aparte, como en {example}"
+
+#: src/features/tools.rs
+msgid "{file} gets no files: %f inside quotes is not the file. Give %f as a word of its own, as in {example}"
+msgstr "{file} no recibe ningún archivo: %f entre comillas no es el archivo. Escriba %f como una palabra aparte, como en {example}"

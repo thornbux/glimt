@@ -3025,3 +3025,11 @@ msgstr "Renommer plusieurs s'est arrêté, donc les métadonnées modifiées pou
 #: src/ui/file_list.rs
 msgid "( {w} x {h} ) {bytes}{position}{page}"
 msgstr "( {w} x {h} ) {bytes}{position}{page}"
+
+#: src/features/tools.rs
+msgid "{file} is not loaded: %f inside quotes is not the file. Give %f as a word of its own, as in {example}"
+msgstr "{file} n'est pas chargé : %f entre guillemets n'est pas le fichier. Donnez %f comme un mot à part, comme dans {example}"
+
+#: src/features/tools.rs
+msgid "{file} gets no files: %f inside quotes is not the file. Give %f as a word of its own, as in {example}"
+msgstr "{file} ne reçoit aucun fichier : %f entre guillemets n'est pas le fichier. Donnez %f comme un mot à part, comme dans {example}"

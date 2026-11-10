@@ -3025,3 +3025,11 @@ msgstr "Mehrere umbenennen hat aufgehört, daher wurden die für {count} bearbei
 #: src/ui/file_list.rs
 msgid "( {w} x {h} ) {bytes}{position}{page}"
 msgstr "( {w} x {h} ) {bytes}{position}{page}"
+
+#: src/features/tools.rs
+msgid "{file} is not loaded: %f inside quotes is not the file. Give %f as a word of its own, as in {example}"
+msgstr "{file} wurde nicht geladen: %f in Anführungszeichen ist nicht die Datei. Geben Sie %f als eigenes Wort an, wie in {example}"
+
+#: src/features/tools.rs
+msgid "{file} gets no files: %f inside quotes is not the file. Give %f as a word of its own, as in {example}"
+msgstr "{file} bekommt keine Dateien: %f in Anführungszeichen ist nicht die Datei. Geben Sie %f als eigenes Wort an, wie in {example}"

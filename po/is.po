@@ -3025,3 +3025,11 @@ msgstr "Endurnefna margar stöðvaðist, svo breytt lýsigögn fyrir {count} vor
 #: src/ui/file_list.rs
 msgid "( {w} x {h} ) {bytes}{position}{page}"
 msgstr "( {w} x {h} ) {bytes}{position}{page}"
+
+#: src/features/tools.rs
+msgid "{file} is not loaded: %f inside quotes is not the file. Give %f as a word of its own, as in {example}"
+msgstr "{file} var ekki hlaðið: %f innan gæsalappa er ekki skráin. Skrifaðu %f sem sérstakt orð, eins og í {example}"
+
+#: src/features/tools.rs
+msgid "{file} gets no files: %f inside quotes is not the file. Give %f as a word of its own, as in {example}"
+msgstr "{file} fær engar skrár: %f innan gæsalappa er ekki skráin. Skrifaðu %f sem sérstakt orð, eins og í {example}"

@@ -61,7 +61,8 @@ pub(crate) const START_OPTIONS: &[(&str, &str)] = &[
 pub(crate) const DONE: i32 = 0;
 
 /// The exit code of --check-config when something is wrong in the settings file, or it cannot
-/// be read.
+/// be read, or an added format or tool gives its program no file
+/// (`tools::desktop_file_problems`).
 pub(crate) const CHECK_CONFIG_PROBLEMS: i32 = 1;
 
 /// The exit code of --back-up when the backup fails.
@@ -226,24 +227,28 @@ pub(crate) fn answer_without_window(start: &Start, args_os: &[OsString]) -> bool
     true
 }
 
-/// glimt --check-config [FILE]: what is wrong in the settings file, or FILE; exit 1 if anything.
+/// Tells, for glimt --check-config [FILE], what is wrong in the settings file, or FILE, and in
+/// the desktop files of added formats and tools. It exits with 1 if anything is wrong.
 fn check_config(file: Option<PathBuf>) -> ! {
     let given = file.is_some();
     let Some(path) = file.or_else(config::config_path) else {
         eprintln!("glimt: no home folder, so no settings file");
         std::process::exit(CHECK_CONFIG_PROBLEMS);
     };
-    match config_check(&path, given) {
+    let desktop_file_problems = crate::features::tools::desktop_file_problems();
+    let problems = match config_check(&path, given) {
         Ok(line) => {
             println!("{line}");
-            std::process::exit(DONE)
+            Vec::new()
         }
-        Err(problems) => {
-            for p in &problems {
-                eprintln!("{p}");
-            }
-            std::process::exit(CHECK_CONFIG_PROBLEMS)
-        }
+        Err(problems) => problems,
+    };
+    for p in problems.iter().chain(&desktop_file_problems) {
+        eprintln!("{p}");
+    }
+    match problems.is_empty() && desktop_file_problems.is_empty() {
+        true => std::process::exit(DONE),
+        false => std::process::exit(CHECK_CONFIG_PROBLEMS),
     }
 }
 
