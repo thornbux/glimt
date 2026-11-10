@@ -624,6 +624,10 @@ msgstr "Tyto skupiny byly nalezeny podle „{by}“, takže zaškrtnuté soubory
 msgid "Move to Trash Anyway"
 msgstr "Přesto přesunout do koše"
 
+#: src/files/config.rs
+msgid "{files} left out: a name with a line break cannot be kept"
+msgstr "Vynecháno {files}: název se zalomením řádku nelze uchovat"
+
 #: src/features/duplicates.rs
 msgid "Cancel"
 msgstr "Zrušit"

@@ -634,6 +634,10 @@ msgstr ""
 msgid "Move to Trash Anyway"
 msgstr ""
 
+#: src/files/config.rs
+msgid "{files} left out: a name with a line break cannot be kept"
+msgstr ""
+
 #: src/features/duplicates.rs
 msgid "Cancel"
 msgstr ""

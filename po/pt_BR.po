@@ -624,6 +624,10 @@ msgstr "Estes grupos foram encontrados por “{by}”, então os arquivos marcad
 msgid "Move to Trash Anyway"
 msgstr "Mover para a lixeira mesmo assim"
 
+#: src/files/config.rs
+msgid "{files} left out: a name with a line break cannot be kept"
+msgstr "{files} deixados de fora: um nome com quebra de linha não pode ser guardado"
+
 #: src/features/duplicates.rs
 msgid "Cancel"
 msgstr "Cancelar"

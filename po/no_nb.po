@@ -624,6 +624,10 @@ msgstr "Disse gruppene ble funnet etter «{by}», så de avmerkede filene kan v�
 msgid "Move to Trash Anyway"
 msgstr "Flytt til papirkurven likevel"
 
+#: src/files/config.rs
+msgid "{files} left out: a name with a line break cannot be kept"
+msgstr "{files} utelatt: et navn med linjeskift kan ikke tas vare på"
+
 #: src/features/duplicates.rs
 msgid "Cancel"
 msgstr "Avbryt"

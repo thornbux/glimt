@@ -536,6 +536,10 @@ msgstr "Diese Gruppen wurden nach „{by}“ gefunden, die angekreuzten Dateien 
 msgid "Move to Trash Anyway"
 msgstr "Trotzdem in den Papierkorb verschieben"
 
+#: src/files/config.rs
+msgid "{files} left out: a name with a line break cannot be kept"
+msgstr "{files} ausgelassen: ein Name mit Zeilenumbruch kann nicht gespeichert werden"
+
 #: src/features/duplicates.rs
 msgid "Cancel"
 msgstr "Abbrechen"

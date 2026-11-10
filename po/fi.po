@@ -536,6 +536,10 @@ msgstr "Nämä ryhmät löytyivät vertaamalla: ”{by}”, joten valitut tiedos
 msgid "Move to Trash Anyway"
 msgstr "Siirrä silti roskakoriin"
 
+#: src/files/config.rs
+msgid "{files} left out: a name with a line break cannot be kept"
+msgstr "{files} jätettiin pois: rivinvaihdon sisältävää nimeä ei voi tallentaa"
+
 #: src/features/duplicates.rs
 msgid "Cancel"
 msgstr "Peruuta"

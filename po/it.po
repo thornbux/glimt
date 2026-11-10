@@ -536,6 +536,10 @@ msgstr "Questi gruppi sono stati trovati per «{by}», quindi i file spuntati po
 msgid "Move to Trash Anyway"
 msgstr "Sposta comunque nel cestino"
 
+#: src/files/config.rs
+msgid "{files} left out: a name with a line break cannot be kept"
+msgstr "{files} esclusi: un nome con un a capo non può essere conservato"
+
 #: src/features/duplicates.rs
 msgid "Cancel"
 msgstr "Annulla"

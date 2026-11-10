@@ -536,6 +536,10 @@ msgstr "Estos grupos se encontraron por «{by}», así que los archivos marcados
 msgid "Move to Trash Anyway"
 msgstr "Mover a la papelera de todos modos"
 
+#: src/files/config.rs
+msgid "{files} left out: a name with a line break cannot be kept"
+msgstr "{files} omitidos: un nombre con un salto de línea no se puede guardar"
+
 #: src/features/duplicates.rs
 msgid "Cancel"
 msgstr "Cancelar"

@@ -536,6 +536,10 @@ msgstr "Deze groepen zijn gevonden op „{by}”, dus de aangevinkte bestanden k
 msgid "Move to Trash Anyway"
 msgstr "Toch naar prullenbak verplaatsen"
 
+#: src/files/config.rs
+msgid "{files} left out: a name with a line break cannot be kept"
+msgstr "{files} weggelaten: een naam met een regeleinde kan niet worden bewaard"
+
 #: src/features/duplicates.rs
 msgid "Cancel"
 msgstr "Annuleren"

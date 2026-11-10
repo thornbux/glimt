@@ -536,6 +536,10 @@ msgstr "Þessir hópar fundust eftir „{by}“, svo merktu skrárnar geta veri�
 msgid "Move to Trash Anyway"
 msgstr "Færa samt í ruslið"
 
+#: src/files/config.rs
+msgid "{files} left out: a name with a line break cannot be kept"
+msgstr "{files} sleppt: ekki er hægt að geyma nafn með línuskilum"
+
 #: src/features/duplicates.rs
 msgid "Cancel"
 msgstr "Hætta við"

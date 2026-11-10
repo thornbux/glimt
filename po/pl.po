@@ -536,6 +536,10 @@ msgstr "Te grupy znaleziono według „{by}”, więc zaznaczone pliki mogą by�
 msgid "Move to Trash Anyway"
 msgstr "Mimo to przenieś do kosza"
 
+#: src/files/config.rs
+msgid "{files} left out: a name with a line break cannot be kept"
+msgstr "Pominięto {files}: nazwy z podziałem wiersza nie da się zachować"
+
 #: src/features/duplicates.rs
 msgid "Cancel"
 msgstr "Anuluj"

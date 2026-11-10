@@ -132,18 +132,24 @@ impl crate::App {
 
     /// Add the selected files, or the shown image, to the collection in `file`. It is written
     /// in the background, because Select All in a large folder adds hundreds of thousands of
-    /// files, and a home folder on a share may be slow to write.
+    /// files, and a home folder on a share may be slow to write. A file whose name has a line
+    /// break is left out with a notice, because the collection keeps a name on a line.
     pub(crate) fn add_to_collection(&mut self, ctx: &egui::Context, file: &Path) {
         let Some(targets) = self.targets() else {
             return;
         };
-        let paths: Vec<PathBuf> = targets.iter().map(|&i| self.path(i)).collect();
+        let mut paths: Vec<PathBuf> = targets.iter().map(|&i| self.path(i)).collect();
+        let left_out = crate::files::config::keep_those_that_fit_on_a_line(&mut paths);
         let file = file.to_path_buf();
         self.run_in_background(ctx, Vec::new(), move || {
             let name = file.file_stem().unwrap_or_default().to_string_lossy();
-            Some(match append(&file, &paths) {
+            let told = match append(&file, &paths) {
                 Ok(n) => tf!("{n} added to the collection \"{name}\"", n, name),
                 Err(e) => tf!("Could not save the collection: {e}", e),
+            };
+            Some(match left_out {
+                Some(left_out) => format!("{told}\n{left_out}"),
+                None => told,
             })
         });
     }
@@ -695,6 +701,32 @@ mod tests {
             &mut app, &ctx, told
         ));
         assert_eq!(super::load(&file).unwrap(), [a]);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A file whose name has a line break is refused at the add with a notice, and the others
+    /// are added. A collection keeps a name on a line, so it was counted as added and then left
+    /// out of the file without a word.
+    #[test]
+    fn a_name_with_a_line_break_is_refused_at_the_add() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-gqv-nl-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let (mut app, ctx) = crate::support::test_support::app_on(&dir);
+        app.list
+            .set_files(["a\nb.png", "c.png"].map(Into::into).to_vec());
+        app.list.select([0, 1].into());
+        let file = dir.join("trip.gqv");
+        app.add_to_collection(&ctx, &file);
+        let told = |app: &crate::App| app.notice.text().is_some_and(|n| n.contains("trip"));
+        assert!(crate::support::test_support::run_background_until(
+            &mut app, &ctx, told
+        ));
+        let notice = app.notice.text().unwrap();
+        assert!(
+            notice.contains("1 added") && notice.contains("line break"),
+            "{notice}"
+        );
+        assert_eq!(super::load(&file).unwrap(), [dir.join("c.png")]);
         std::fs::remove_dir_all(dir).unwrap();
     }
 

@@ -536,6 +536,10 @@ msgstr "Ces groupes ont été trouvés par « {by} », les fichiers cochés peuv
 msgid "Move to Trash Anyway"
 msgstr "Mettre à la corbeille quand même"
 
+#: src/files/config.rs
+msgid "{files} left out: a name with a line break cannot be kept"
+msgstr "{files} laissés de côté : un nom contenant un saut de ligne ne peut pas être gardé"
+
 #: src/features/duplicates.rs
 msgid "Cancel"
 msgstr "Annuler"
