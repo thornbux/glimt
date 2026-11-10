@@ -28,6 +28,16 @@ and versions follow [Semantic Versioning](https://semver.org/).
   dropped them, as a crop or copy still does.
 - The manual says that a turned PNG with a palette, or of 1, 2 or 4-bit grey, keeps every pixel
   but is saved in full colour or 8-bit grey, so its file grows. It said a PNG lost nothing.
+- With Include Subfolders on, Auto Refresh now sees an image added to, removed from or renamed in
+  a subfolder, not only in the folder opened. The watcher still looks once a second, which works
+  on network shares too: at the open folders every second, and at up to 1,000 subfolders a
+  second, so a tree of 10,000 subfolders is looked through in ten seconds.
+- Rename, Rename Many, New Folder and Rename Folder refuse a new name that starts with a dot, which
+  the list hides, unless hidden files are shown. Before, Rename Many with `.#` gave `.1.jpg`,
+  `.2.jpg` …, and the files vanished from the list. Collections refused such names already, by
+  the same rule now.
+- Cleaning the thumbnail cache removes a thumbnail only when its file is surely gone. Before, an
+  error from a share that answered badly for a moment counted as gone, and the thumbnail went.
 
 ## [0.78.0] - 2026-11-10
 

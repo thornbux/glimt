@@ -1997,6 +1997,10 @@ msgstr "Kein Muster: {e}"
 msgid "{text} exists already: choose another name"
 msgstr "{text} gibt es bereits: einen anderen Namen wählen"
 
+#: src/model/listing.rs
+msgid "{text} starts with a dot and would be hidden: choose another name"
+msgstr "{text} beginnt mit einem Punkt und wäre ausgeblendet: einen anderen Namen wählen"
+
 #: src/features/print.rs
 msgid "Saved as {file}: edit it, then choose it again"
 msgstr "Als {file} gespeichert: bearbeiten, dann erneut wählen"

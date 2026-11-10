@@ -2008,6 +2008,10 @@ msgstr "To nie jest wzorzec: {e}"
 msgid "{text} exists already: choose another name"
 msgstr "{text} już istnieje: wybierz inną nazwę"
 
+#: src/model/listing.rs
+msgid "{text} starts with a dot and would be hidden: choose another name"
+msgstr "{text} zaczyna się od kropki, więc byłby ukryty: wybierz inną nazwę"
+
 #: src/features/print.rs
 msgid "Saved as {file}: edit it, then choose it again"
 msgstr "Zapisano jako {file}: edytuj go, a potem wybierz ponownie"

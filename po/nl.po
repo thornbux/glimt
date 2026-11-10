@@ -1997,6 +1997,10 @@ msgstr "Geen patroon: {e}"
 msgid "{text} exists already: choose another name"
 msgstr "{text} bestaat al: kies een andere naam"
 
+#: src/model/listing.rs
+msgid "{text} starts with a dot and would be hidden: choose another name"
+msgstr "{text} begint met een punt en zou verborgen zijn: kies een andere naam"
+
 #: src/features/print.rs
 msgid "Saved as {file}: edit it, then choose it again"
 msgstr "Opgeslagen als {file}: bewerk het en kies het dan opnieuw"

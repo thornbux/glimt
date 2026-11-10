@@ -1997,6 +1997,10 @@ msgstr "Ei kaava: {e}"
 msgid "{text} exists already: choose another name"
 msgstr "{text} on jo olemassa: valitse toinen nimi"
 
+#: src/model/listing.rs
+msgid "{text} starts with a dot and would be hidden: choose another name"
+msgstr "{text} alkaa pisteellä ja olisi piilotettu: valitse toinen nimi"
+
 #: src/features/print.rs
 msgid "Saved as {file}: edit it, then choose it again"
 msgstr "Tallennettu nimellä {file}: muokkaa sitä ja valitse se sitten uudelleen"

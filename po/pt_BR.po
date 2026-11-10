@@ -2164,6 +2164,10 @@ msgstr "Não é um padrão: {e}"
 msgid "{text} exists already: choose another name"
 msgstr "{text} já existe: escolha outro nome"
 
+#: src/model/listing.rs
+msgid "{text} starts with a dot and would be hidden: choose another name"
+msgstr "{text} começa com um ponto e ficaria oculto: escolha outro nome"
+
 #: src/features/print.rs
 msgid "Saved as {file}: edit it, then choose it again"
 msgstr "Salvo como {file}: edite-o e depois escolha-o novamente"

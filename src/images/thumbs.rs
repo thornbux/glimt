@@ -219,8 +219,10 @@ fn remove_orphaned_thumbnails_in(cache: &Path) -> (usize, usize) {
             let Some(path) = thumb_source(&entry.path()) else {
                 continue;
             };
+            // Only a file that is surely not there counts as gone. A share that answers with an
+            // error for a moment is no reason to delete the thumbnail.
             #[allow(clippy::disallowed_methods)] // a thumbnail whose image is gone
-            if !path.exists()
+            if path.try_exists().is_ok_and(|exists| !exists)
                 && path.parent().is_some_and(Path::is_dir)
                 && std::fs::remove_file(entry.path()).is_ok()
             {
@@ -351,7 +353,9 @@ mod tests {
 
     /// Cleaning the shared thumbnail cache removes the thumbnail of a file that is gone from a
     /// folder still there, and keeps the one of a file there and those of a folder not there
-    /// (a disk not plugged in): it deletes in a cache file managers share.
+    /// (a disk not plugged in), and the one of a file that cannot be looked at (a link that
+    /// leads to itself stands for a share that answers with an error): it deletes in a cache
+    /// file managers share.
     #[test]
     fn cleans_only_thumbnails_of_files_gone() {
         let dir = std::env::temp_dir().join(format!("glimt-test-clean-{}", std::process::id()));
@@ -366,6 +370,8 @@ mod tests {
         thumb("kept.png", &photos.join("kept.png"));
         thumb("gone.png", &photos.join("gone.png"));
         thumb("unplugged.png", &dir.join("not-plugged-in/x.png"));
+        std::os::unix::fs::symlink("unreadable.png", photos.join("unreadable.png")).unwrap();
+        thumb("unreadable.png", &photos.join("unreadable.png"));
         // An older Glimt's failure markers go whole, and this one's and other programs' stay.
         let fail = cache.join("fail");
         for folder in ["glimt-0.1.0", "gnome-thumbnail-factory"] {
@@ -373,7 +379,7 @@ mod tests {
             std::fs::write(fail.join(folder).join("x.png"), "x").unwrap();
         }
         std::fs::create_dir_all(cache.join(super::FAILED_DIR)).unwrap();
-        assert_eq!(super::remove_orphaned_thumbnails_in(&cache), (2, 4));
+        assert_eq!(super::remove_orphaned_thumbnails_in(&cache), (2, 5));
         assert!(
             !fail.join("glimt-0.1.0").exists() && fail.join("gnome-thumbnail-factory").exists()
         );
@@ -381,7 +387,9 @@ mod tests {
         let left: Vec<_> = (std::fs::read_dir(cache.join("normal")).unwrap())
             .map(|e| e.unwrap().file_name().into_string().unwrap())
             .collect();
-        assert!(left.contains(&"kept.png".into()) && left.contains(&"unplugged.png".into()));
+        for kept in ["kept.png", "unplugged.png", "unreadable.png"] {
+            assert!(left.contains(&kept.into()), "{kept}");
+        }
         std::fs::remove_dir_all(dir).unwrap();
     }
 
