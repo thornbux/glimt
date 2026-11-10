@@ -269,7 +269,10 @@ impl App {
         };
         // When a URI is on the command line, Glimt starts where it would otherwise and goes to
         // the URI once it is mounted.
-        match path.to_str().filter(|p| p.contains("://")) {
+        match path
+            .to_str()
+            .and_then(crate::files::external::network_location)
+        {
             Some(uri) => {
                 app.open(ctx, ".".into());
                 app.mount(ctx, uri.to_owned());

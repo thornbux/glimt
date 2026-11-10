@@ -45,7 +45,8 @@ pub const COMMANDS: &[(&str, &str)] = &[
     ),
     (
         "open PATH",
-        "Show a file, folder or collection (starts Glimt if it is not running)",
+        "Show a file, folder or collection, or mount a network location such as \
+         smb://nas/photos (starts Glimt if it is not running)",
     ),
     (
         "title [TEXT…]",
@@ -470,9 +471,12 @@ impl crate::App {
             }
             other if other.starts_with("open ") => {
                 // The path is taken as it was sent, not trimmed, because a folder's name may end
-                // in a space.
+                // in a space. A network location is mounted, as on the command line.
                 if let Some(path) = command.trim_start().strip_prefix("open ") {
-                    self.visit(ctx, PathBuf::from(path));
+                    match crate::files::external::network_location(path) {
+                        Some(uri) => self.mount(ctx, uri.to_owned()),
+                        None => self.visit(ctx, PathBuf::from(path)),
+                    }
                     ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
                 }
                 None
@@ -1171,8 +1175,7 @@ pub fn client(
         path.filter(|_| now[0] == "open").map(str::to_owned)
     };
     if let Some(path) = open_path(&command) {
-        let path = std::path::absolute(&path).unwrap_or_else(|_| path.into());
-        command = format!("{} {}", words[0], path.display());
+        command = format!("{} {}", words[0], open_path_sent(&path));
     }
     // A line ends a command at the window, so a line break in a file name would be read as a
     // command of its own, such as quit.
@@ -1202,6 +1205,17 @@ pub fn client(
             std::process::exit(NOT_TAKEN);
         }
     }
+}
+
+/// Returns `path` of `--remote open` as it is sent to a window, or given to a new Glimt: a
+/// network location as it is, to be mounted there, and a path in full, because the window has
+/// another working folder.
+fn open_path_sent(path: &str) -> String {
+    if let Some(uri) = crate::files::external::network_location(path) {
+        return uri.to_owned();
+    }
+    let full = std::path::absolute(path).unwrap_or_else(|_| path.into());
+    full.display().to_string()
 }
 
 /// Listens for commands in the background and passes each line to `tx`, with where to answer
@@ -1683,6 +1697,33 @@ mod tests {
             Some(NOT_DONE),
             "one said no, one silent"
         );
+    }
+
+    /// A URI given to `--remote open` is sent as it is, to be mounted, as `glimt URI` mounts it.
+    /// Before, it was made a path in the working folder, `$PWD/smb:/nas`, which does not exist.
+    #[test]
+    fn an_open_uri_is_sent_as_it_is() {
+        assert_eq!(
+            super::open_path_sent("smb://nas/photos"),
+            "smb://nas/photos"
+        );
+        assert_eq!(super::open_path_sent("/a/b.jpg"), "/a/b.jpg");
+        let here = std::env::current_dir().unwrap().join("b.jpg");
+        assert_eq!(super::open_path_sent("b.jpg"), here.display().to_string());
+    }
+
+    /// A window given `open` with a URI mounts it, as at start, and does not look for a file
+    /// of that name.
+    #[test]
+    fn an_open_uri_is_mounted() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-open-uri-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let (mut app, ctx) = app_on(&dir);
+        // An address that starts with "-" is refused before gio runs, so no program starts.
+        app.remote_command(&ctx, "open -glimt-test://nas/photos")
+            .unwrap();
+        assert!(app.folder.is_mounting());
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     /// An empty or relative $XDG_RUNTIME_DIR is not used, so nothing goes into ./glimt.
