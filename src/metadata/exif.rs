@@ -92,6 +92,22 @@ const ORIENTATIONS: [[i8; 4]; 8] = [
     [0, 1, -1, 0],
 ];
 
+/// The keywords of a PNG's text chunks (tEXt, zTXt or iTXt) that hold its metadata, and what
+/// each holds. An eXIf chunk holds EXIF too. This is the one list of them: `png_metadata` reads
+/// each, wherever it stands, and a file written with new pixels drops one only when it carries
+/// what the chunk held (`save::png_with_chunks`), so no chunk is dropped that was not read back.
+/// The XMP chunk comes before ImageMagick's copy of it, so that it is read first.
+pub(crate) const PNG_METADATA_TEXT: [(&[u8], PngMetadataKind); 5] = [
+    (b"Raw profile type exif", PngMetadataKind::Exif),
+    (b"Raw profile type APP1", PngMetadataKind::Exif),
+    (b"XML:com.adobe.xmp", PngMetadataKind::Xmp),
+    (b"Raw profile type xmp", PngMetadataKind::Xmp),
+    (
+        b"Raw profile type 8bim",
+        PngMetadataKind::PhotoshopResources,
+    ),
+];
+
 /// A directory being written into a new block (`shared_block`). It holds its entries as (tag,
 /// type, count, value), each value as its bytes in the block's byte order.
 type NewIfd = Vec<(u16, u16, u32, Vec<u8>)>;
@@ -246,6 +262,34 @@ struct Entry {
     field_type: u16,
     count: u32,
     value_offset: usize,
+}
+
+/// What a PNG's metadata chunk holds (`PNG_METADATA_TEXT`).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum PngMetadataKind {
+    Exif,
+    Xmp,
+    /// Photoshop's image resources, with the IPTC caption, copyright and keywords.
+    PhotoshopResources,
+}
+
+/// The EXIF block, XMP packet and Photoshop resources of a PNG, as `png_metadata` read them.
+#[derive(Default, Debug)]
+pub(crate) struct PngMetadata {
+    pub exif: Option<Vec<u8>>,
+    pub xmp: Option<Vec<u8>>,
+    pub photoshop_resources: Option<Vec<u8>>,
+}
+
+impl PngMetadata {
+    /// Returns the place for what a chunk of the kind `kind` holds.
+    fn slot(&mut self, kind: PngMetadataKind) -> &mut Option<Vec<u8>> {
+        match kind {
+            PngMetadataKind::Exif => &mut self.exif,
+            PngMetadataKind::Xmp => &mut self.xmp,
+            PngMetadataKind::PhotoshopResources => &mut self.photoshop_resources,
+        }
+    }
 }
 
 /// The entry for `tag` in `ifd`.
@@ -1374,9 +1418,9 @@ pub fn stored_orientation(dec: &mut impl image::ImageDecoder, exif: Option<&[u8]
 /// "Raw profile type APP1", plain, compressed (zTXt) or international (iTXt). Returns
 /// `Some(None)` for a PNG without one, and `None` when the png crate cannot read the file.
 fn png_exif(path: &Path) -> Option<Option<Vec<u8>>> {
-    // shortcut: only the text before the pixels is read, where exiv2 and ImageMagick put it;
-    // read the chunks after IDAT too if a program is found that writes EXIF there. A turn or
-    // copy reads an eXIf after them (`shared_copy::png_exif_and_xmp`), as it drops that chunk.
+    // shortcut: only the text before the pixels is read, where exiv2 and ImageMagick put it,
+    // so the panel and the date sort do not read a whole PNG; read the chunks after IDAT too if
+    // users miss EXIF there. A turn or copy reads them all (`png_metadata`), as it drops them.
     const KEYS: [&[u8]; 2] = [b"Raw profile type exif", b"Raw profile type APP1"];
     let file = std::io::BufReader::new(crate::images::decode::open_regular(path).ok()?);
     let reader = png::Decoder::new(file).read_info().ok()?;
@@ -1385,6 +1429,50 @@ fn png_exif(path: &Path) -> Option<Option<Vec<u8>>> {
         return Some(Some(exif.to_vec()));
     }
     Some(png_texts(info, &KEYS).find_map(|text| raw_profile(&text)))
+}
+
+/// Reads the EXIF block, XMP packet and Photoshop resources of the PNG `data` from every chunk
+/// of `PNG_METADATA_TEXT` and its eXIf, before the pixels or after them, plain or compressed.
+/// The first of each kind is taken. What cannot be read is left `None`, as is all of it for a
+/// file the png crate cannot read, and the chunks after a broken one are not read.
+pub(crate) fn png_metadata(data: &[u8]) -> PngMetadata {
+    let mut found = PngMetadata::default();
+    let Ok(mut reader) = png::Decoder::new(std::io::Cursor::new(data)).read_info() else {
+        return found;
+    };
+    // The pixels are passed over, not decoded, to reach the chunks after them. A chunk that
+    // cannot be read ends the walk, and what was read before it is kept.
+    let _ = reader.finish();
+    let info = reader.info();
+    found.exif = info.exif_metadata.as_deref().map(<[u8]>::to_vec);
+    for (key, kind) in PNG_METADATA_TEXT {
+        let keys = [key];
+        let value = png_texts(info, &keys).find_map(|text| match kind {
+            PngMetadataKind::Exif => raw_profile(&text),
+            _ if key.starts_with(b"Raw profile type ") => raw_profile_bytes(&text),
+            _ => Some(text.into_bytes()),
+        });
+        let slot = found.slot(kind);
+        if slot.is_none() {
+            *slot = value;
+        }
+    }
+    found
+}
+
+/// Returns what the PNG chunk `name` with the data `data` holds of `PNG_METADATA_TEXT`, or
+/// `None` when it is none of them.
+pub(crate) fn png_metadata_kind(name: &[u8], data: &[u8]) -> Option<PngMetadataKind> {
+    if name == b"eXIf" {
+        return Some(PngMetadataKind::Exif);
+    }
+    if !matches!(name, b"tEXt" | b"zTXt" | b"iTXt") {
+        return None;
+    }
+    let keyword = &data[..data.iter().position(|&b| b == 0).unwrap_or(data.len())];
+    (PNG_METADATA_TEXT.iter())
+        .find(|(key, _)| *key == keyword)
+        .map(|(_, kind)| *kind)
 }
 
 /// Returns the texts of the PNG's text chunks named one of `keys`, plain, compressed (zTXt) or
@@ -1564,6 +1652,42 @@ pub fn shown_value<'a>(label: &str, value: &'a str) -> &'a str {
 
 #[cfg(test)]
 mod tests {
+    /// A PNG's EXIF, XMP and Photoshop resources are read from every chunk of
+    /// `PNG_METADATA_TEXT`, plain, compressed (zTXt) and international and compressed (iTXt),
+    /// also after the pixels, where ExifTool adds them. A turn drops these chunks, so each one
+    /// it drops must be read here.
+    #[test]
+    fn png_metadata_reads_every_form_wherever_it_stands() {
+        use crate::support::test_support::{CANON_EXIF, png_with_texts, raw_profile_text};
+        let xmp = "<x:xmpmeta>Oslo</x:xmpmeta>";
+        for (key, kind) in super::PNG_METADATA_TEXT {
+            let key = std::str::from_utf8(key).unwrap();
+            let (text, want) = match key {
+                "XML:com.adobe.xmp" => (xmp.to_string(), xmp.as_bytes()),
+                _ => (raw_profile_text("x", CANON_EXIF), CANON_EXIF),
+            };
+            for chunk in ["tEXt", "zTXt", "iTXt"] {
+                for before in [true, false] {
+                    let png = png_with_texts(&[(chunk, key, &text)], before);
+                    let mut found = super::png_metadata(&png);
+                    let read = found.slot(kind).take();
+                    assert_eq!(read.as_deref(), Some(want), "{key} in {chunk}, {before}");
+                }
+            }
+        }
+    }
+
+    /// A damaged PNG's metadata is read or not, never a panic.
+    #[test]
+    fn survives_broken_png_metadata() {
+        use crate::support::test_support::{CANON_EXIF, png_with_texts, raw_profile_text};
+        let exif = raw_profile_text("exif", CANON_EXIF);
+        let png = png_with_texts(&[("zTXt", "Raw profile type exif", &exif)], false);
+        for bytes in crate::support::test_support::broken(&png) {
+            super::png_metadata(&bytes);
+        }
+    }
+
     /// A damaged HEIC's EXIF block is found or not, never a panic.
     #[test]
     fn survives_broken_heif_heads() {

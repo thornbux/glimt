@@ -19,6 +19,11 @@ and versions follow [Semantic Versioning](https://semver.org/).
 - Move To and Copy To leave a picked file where it is, and say so, when another photo took its
   name while the folder chooser was open (a Rename Many, another window, a sync program).
   Before, the other photo was moved or copied in its place.
+- A PNG turned, cropped or saved as a copy keeps its XMP and EXIF in every form other programs
+  write them: ImageMagick's raw profiles, XMP compressed, and either after the pixels, where
+  ExifTool adds them. Before, such a chunk was dropped without being read, so the keywords or the
+  camera and date were lost from a turned file. A chunk of either is now dropped only when the new
+  file holds that kind anew, and an HDR PNG keeps its colour chunks (cICP, mDCV, cLLI).
 
 ## [0.80.0] - 2026-11-10
 

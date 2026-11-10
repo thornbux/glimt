@@ -149,10 +149,7 @@ pub(crate) fn broken(seed: &[u8]) -> impl Iterator<Item = Vec<u8>> + '_ {
 /// ImageMagick and exiv2 write it: the type, the length and the bytes in hex lines. The chunk is
 /// tEXt, zTXt or iTXt as `chunk` says.
 pub(crate) fn png_with_raw_profile(path: &std::path::Path, chunk: &str, key: &str, block: &[u8]) {
-    let hex: Vec<String> = (block.chunks(36))
-        .map(|line| line.iter().map(|b| format!("{b:02x}")).collect())
-        .collect();
-    let text = format!("\nexif\n{:8}\n{}\n", block.len(), hex.join("\n"));
+    let text = raw_profile_text("exif", block);
     let file = std::io::BufWriter::new(std::fs::File::create(path).unwrap());
     let mut enc = png::Encoder::new(file, 8, 4);
     enc.set_color(png::ColorType::Rgb);
@@ -167,6 +164,49 @@ pub(crate) fn png_with_raw_profile(path: &std::path::Path, chunk: &str, key: &st
         .unwrap()
         .write_image_data(&pixels)
         .unwrap();
+}
+
+/// Returns `bytes` as the text of an ImageMagick raw profile of the type `kind`: the type, the
+/// length and the bytes in hex lines of 36 bytes.
+pub(crate) fn raw_profile_text(kind: &str, bytes: &[u8]) -> String {
+    let hex: Vec<String> = (bytes.chunks(36))
+        .map(|line| line.iter().map(|b| format!("{b:02x}")).collect())
+        .collect();
+    format!("\n{kind}\n{:8}\n{}\n", bytes.len(), hex.join("\n"))
+}
+
+/// Returns a black 4×2 PNG with the text chunks `texts`, each (chunk, keyword, text). A chunk is
+/// tEXt, zTXt or iTXt, and the iTXt is compressed too. They come before the pixels when `before`
+/// says so, and after them otherwise, where ExifTool adds its chunks.
+pub(crate) fn png_with_texts(texts: &[(&str, &str, &str)], before: bool) -> Vec<u8> {
+    use png::text_metadata::{ITXtChunk, TEXtChunk, ZTXtChunk};
+    let write = |writer: &mut png::Writer<&mut Vec<u8>>| {
+        for &(chunk, key, text) in texts {
+            match chunk {
+                "tEXt" => writer.write_text_chunk(&TEXtChunk::new(key, text)),
+                "zTXt" => writer.write_text_chunk(&ZTXtChunk::new(key, text)),
+                _ => {
+                    let mut itxt = ITXtChunk::new(key, text);
+                    itxt.compressed = true;
+                    writer.write_text_chunk(&itxt)
+                }
+            }
+            .unwrap();
+        }
+    };
+    let mut out = Vec::new();
+    let mut enc = png::Encoder::new(&mut out, 4, 2);
+    enc.set_color(png::ColorType::Rgb);
+    let mut writer = enc.write_header().unwrap();
+    if before {
+        write(&mut writer);
+    }
+    writer.write_image_data(&[0; 4 * 2 * 3]).unwrap();
+    if !before {
+        write(&mut writer);
+    }
+    writer.finish().unwrap();
+    out
 }
 
 /// Sets the extended attribute `name` of the file at `path` to `value`. Returns false where the
