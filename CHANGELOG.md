@@ -19,7 +19,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 ### Changed
 
 - Saving a file that has other names (hard links), such as a turned image, a copy saved over
-  it or its sidecar, tells once that the other names keep the old version. The save gives the
+  it or its sidecar, tells that the other names keep the old version, once the save went
+  through. A job over many such files tells it once, with their count. The save gives the
   name a new file, so the other names are not changed with it. Before, they were left behind
   without a word.
 ### Changed
@@ -34,9 +35,10 @@ and versions follow [Semantic Versioning](https://semver.org/).
 - The IMG_1.xmp that Lightroom, Camera Raw, Bridge and Capture One write beside a RAW file
   IMG_1.CR2 now goes with it when Glimt moves, copies, renames, deletes or trashes it, and comes
   back with an Undo. Before, it stayed behind, and the next IMG_1.CR2 in that folder got
-  Lightroom's edits and keywords. An IMG_1.JPG beside the RAW file leaves it alone, as Lightroom
-  keeps a JPEG's metadata inside the JPEG. The manual no longer says that Lightroom reads
-  Glimt's own IMG_1.CR2.xmp.
+  Lightroom's edits and keywords. IMG_1.XMP, as Capture One and Photo Mechanic name it, goes
+  too. An IMG_1.JPG or IMG_1.DNG beside the RAW file leaves it alone, as Lightroom keeps their
+  metadata inside them, and two RAW files of one name (IMG_1.CR2 and IMG_1.NEF) leave it where
+  it is. The manual no longer says that Lightroom reads Glimt's own IMG_1.CR2.xmp.
 ### Fixed
 
 - A network share that stops answering (a NAS gone to sleep, Wi-Fi lost) no longer hangs the

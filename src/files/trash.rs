@@ -111,11 +111,12 @@ pub(crate) fn restore(
     // A file that cannot come back is told, and left to be undone again with its sidecar.
     let (mut found, mut error): (Vec<TrashEntry>, Option<String>) = (Vec::new(), None);
     let left: HashSet<&PathBuf> = trash_move.sidecars_left.iter().collect();
+    let mut names = crate::metadata::xmp::AdobeNames::arriving(trash_move.files.iter().cloned());
     for path in &trash_move.files {
         // The rule of Copy, Move and Rename: a sidecar alone at the name (written by another
         // program, or synced in) takes it too, as the file would come back with its keywords.
         // The file's own sidecar, which the move could not take along, is no other file's.
-        if let Some(at) = crate::files::file_ops::name_in_the_way(path, &left) {
+        if let Some(at) = crate::files::file_ops::name_in_the_way(path, &left, &mut names) {
             error.get_or_insert(tf!("{name} exists already", name = at.display()));
             continue;
         }
@@ -130,34 +131,54 @@ pub(crate) fn restore(
     // never leaves a restored file's sidecar in the trash. A sidecar that is no longer there
     // (the trash was emptied of it) does not hold its file back. The sidecars put back are not
     // among the files told and counted.
-    // Sets are used rather than searches, so a delete of 50,000 photos with sidecars is undone
-    // in one pass.
-    let sides: HashSet<&PathBuf> = trash_move.sidecars.iter().collect();
-    // A file's sidecars by name: Glimt's own, and Adobe's beside a RAW file.
-    let names_of_sidecars = |f: &Path| {
-        let adobe = crate::metadata::xmp::adobe_sidecar(f);
-        [Some(crate::metadata::xmp::sidecar(f)), adobe]
-            .into_iter()
-            .flatten()
-    };
-    let paired: HashSet<PathBuf> = (trash_move.files.iter())
-        .flat_map(|f| names_of_sidecars(f))
-        .collect();
+    let (mut sidecars_of_file, alone) = sidecars_by_file(&trash_move.files, &trash_move.sidecars);
     // Each step is a file with its own sidecars, or a sidecar alone.
     let mut steps: Vec<(TrashEntry, bool, Vec<TrashEntry>)> = Vec::new();
     for t in found {
-        let side = names_of_sidecars(&t.from)
-            .filter(|s| sides.contains(s))
-            .filter_map(|s| find(&s))
+        let side = (sidecars_of_file.remove(&t.from).into_iter().flatten())
+            .filter_map(|s| find(s))
             .collect();
         steps.push((t, true, side));
     }
-    let rest = (trash_move.sidecars.iter())
-        .filter(|s| !paired.contains(*s))
-        .filter_map(|s| find(s));
+    let rest = alone.into_iter().filter_map(|s| find(s));
     steps.extend(rest.map(|s| (s, false, Vec::new())));
     let back = put_back(steps, &mut error);
     (back, error)
+}
+
+/// Returns the `sidecars` that a move to the trash took along, each given to one of `files`, and
+/// those that belong to none of them. A file's sidecars are Glimt's own, by its name, and
+/// Adobe's, by the name stem of a RAW file (`xmp::adobe_stem`, so also `IMG_1.XMP`). Each
+/// sidecar goes to one file only: two RAW files of one stem trashed together took one Adobe
+/// sidecar along, which only one of them can put back. Sets are used rather than searches, so a
+/// delete of 50,000 photos with sidecars is undone in one pass.
+fn sidecars_by_file<'a>(
+    files: &'a [PathBuf],
+    sidecars: &'a [PathBuf],
+) -> (HashMap<&'a PathBuf, Vec<&'a PathBuf>>, Vec<&'a PathBuf>) {
+    use crate::metadata::xmp;
+    let mut unclaimed: HashSet<&PathBuf> = sidecars.iter().collect();
+    let own: HashSet<PathBuf> = files.iter().map(|f| xmp::sidecar(f)).collect();
+    // Glimt's own sidecar (IMG_1.CR2.xmp) has the name of an Adobe one too, of a stem with the
+    // extension in it, so it is left out here.
+    let mut adobe: HashMap<(&Path, String), Vec<&PathBuf>> = HashMap::new();
+    for side in sidecars.iter().filter(|s| !own.contains(*s)) {
+        if let Some(key) = xmp::adobe_stem(side) {
+            adobe.entry(key).or_default().push(side);
+        }
+    }
+    let mut by_file = HashMap::new();
+    for file in files {
+        let own = unclaimed.take(&xmp::sidecar(file));
+        let of_stem = xmp::adobe_stem(file).and_then(|key| adobe.get(&key));
+        let of_stem = of_stem
+            .into_iter()
+            .flatten()
+            .filter_map(|s| unclaimed.take(*s));
+        by_file.insert(file, own.into_iter().chain(of_stem).collect());
+    }
+    let alone = sidecars.iter().filter(|s| unclaimed.contains(s)).collect();
+    (by_file, alone)
 }
 
 /// Puts the files of `steps` back from the trash, each with its sidecars right after it, and
@@ -429,6 +450,29 @@ fn read_trash(dir: &Path, top: &Path) -> Vec<TrashEntry> {
 
 #[cfg(test)]
 mod tests {
+    /// Each sidecar trashed with its files goes back with one file only: Glimt's own with its
+    /// file, and Adobe's (any case of `.xmp`) with one RAW file of its stem. A sidecar of no
+    /// file there comes back alone.
+    #[test]
+    fn each_sidecar_goes_back_with_one_file() {
+        let p = |name: &str| std::path::PathBuf::from(format!("/pics/{name}"));
+        let files = [p("r.cr2"), p("r.nef"), p("a.jpg"), p("b.cr2")];
+        let sidecars = [
+            p("r.cr2.xmp"),
+            p("r.xmp"),
+            p("a.jpg.xmp"),
+            p("B.XMP"),
+            p("c.xmp"),
+        ];
+        let (by_file, alone) = super::sidecars_by_file(&files, &sidecars);
+        let of = |name: &str| by_file[&p(name)].clone();
+        assert_eq!(of("r.cr2"), [&p("r.cr2.xmp"), &p("r.xmp")]);
+        assert!(of("r.nef").is_empty());
+        assert_eq!(of("a.jpg"), [&p("a.jpg.xmp")]);
+        assert_eq!(of("b.cr2"), [&p("B.XMP")]);
+        assert_eq!(alone, [&p("c.xmp")]);
+    }
+
     /// A file that is not writable goes into the trash by hand as the trash spec says, a second
     /// of the same name beside it, and the trash reader of Undo finds both where they were.
     #[test]

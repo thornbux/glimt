@@ -2699,6 +2699,9 @@ msgstr "filen er skrivebeskyttet"
 msgid "{name} has other names (hard links), which keep the old version"
 msgstr "{name} har andre navne (hårde links), som beholder den gamle version"
 
+msgid "Other names (hard links) keep the old version: {files}"
+msgstr "Andre navne (hårde links) beholder den gamle version: {files}"
+
 #: src/files/external.rs
 msgid "HEIC and AVIF need ffprobe (ffmpeg): {e}"
 msgstr "HEIC og AVIF kræver ffprobe (ffmpeg): {e}"

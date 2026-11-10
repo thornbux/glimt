@@ -1303,15 +1303,25 @@ mod tests {
         std::fs::write(&file, black_png(4, 2)).unwrap();
         std::fs::write(&alone, black_png(4, 2)).unwrap();
         std::fs::hard_link(&file, &other).unwrap();
-        let noted = || crate::files::file_io::OTHER_NAMES_NOTED.take();
+        let noted = || crate::files::file_io::OTHER_NAMES_NOTED.with_borrow_mut(|n| n.take_note());
         noted();
         super::save_rotated(&file, false, 1, false, 90).unwrap();
         assert_eq!(image::image_dimensions(&file).unwrap(), (2, 4));
         assert_eq!(std::fs::read(&other).unwrap(), black_png(4, 2));
         let told = noted();
-        assert!(told.len() == 1 && told[0].contains("a.png"), "{told:?}");
+        assert!(
+            told.as_ref().is_some_and(|t| t.contains("a.png")),
+            "{told:?}"
+        );
         super::save_rotated(&alone, false, 1, false, 90).unwrap();
-        assert!(noted().is_empty());
+        assert_eq!(noted(), None);
+        // A save that fails after the file was found writable (a GIF is not turned) gives no
+        // note, as the other names were not left behind.
+        let (gif, gif_link) = (dir.join("g.gif"), dir.join("h.gif"));
+        std::fs::write(&gif, "GIF89a").unwrap();
+        std::fs::hard_link(&gif, &gif_link).unwrap();
+        assert!(super::save_rotated(&gif, false, 1, false, 90).is_err());
+        assert_eq!(noted(), None);
         std::fs::remove_dir_all(dir).unwrap();
     }
 

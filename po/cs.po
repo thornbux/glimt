@@ -2721,6 +2721,9 @@ msgstr "soubor je jen pro čtení"
 msgid "{name} has other names (hard links), which keep the old version"
 msgstr "{name} má další názvy (pevné odkazy), které si ponechají starou verzi"
 
+msgid "Other names (hard links) keep the old version: {files}"
+msgstr "Další názvy (pevné odkazy) si ponechají starou verzi: {files}"
+
 #: src/files/external.rs
 msgid "HEIC and AVIF need ffprobe (ffmpeg): {e}"
 msgstr "HEIC a AVIF vyžadují ffprobe (ffmpeg): {e}"
