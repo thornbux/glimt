@@ -198,8 +198,8 @@ fn apply_view_filter(img: image::DynamicImage, f: usize) -> image::DynamicImage 
 
 /// The pixels of `img` from `icc` (when it counts, else the input profile or sRGB; sRGB with
 /// `srgb`) to the screen profile with `screen`, else to sRGB, by the settings of Preferences.
-/// Unchanged when both are sRGB, with colour management off, or for a profile that does not fit
-/// (CMYK, grey).
+/// Unchanged when both are sRGB, or with colour management off. A profile that does not fit the
+/// pixels (`profile_fits`) counts as none.
 fn convert(
     img: image::DynamicImage,
     icc: Option<&[u8]>,
@@ -227,7 +227,7 @@ fn converted(
     screen: bool,
     srgb: bool,
 ) -> image::DynamicImage {
-    let icc = icc.filter(|_| c.use_image_profile);
+    let icc = icc.filter(|p| c.use_image_profile && profile_fits(p, img.color()));
     let screen = screen && c.screen.is_some();
     let from = match icc {
         Some(bytes) => {
@@ -262,6 +262,16 @@ fn converted(
         Some(t) => transformed(&*t, img),
         None => img,
     }
+}
+
+/// Returns whether the ICC profile `icc` describes pixels of the colour type `pixels`: its colour
+/// space, in bytes 16 to 20 of its header, is RGB for colour pixels and grey for grey ones. A
+/// CMYK JPEG or TIFF is decoded to RGB but keeps its CMYK profile. Before, the view read the RGB
+/// pixels as CMYK through that profile and showed the image nearly black. A derived file keeps
+/// a profile by the same rule.
+pub fn profile_fits(icc: &[u8], pixels: image::ColorType) -> bool {
+    let space: &[u8] = if pixels.has_color() { b"RGB " } else { b"GRAY" };
+    icc.get(16..20) == Some(space)
 }
 
 /// The RGB profile in the ICC file `path`, or `None` when it shows sRGB as it is (so that it
@@ -732,6 +742,56 @@ mod tests {
         assert_eq!(shown("saturation"), perceptual);
         super::set_input("srgb").unwrap();
         super::set_intent("perceptual");
+    }
+
+    /// A CMYK profile with an RGB image, as a CMYK JPEG or TIFF is decoded: the pixels come out as
+    /// they are. Before, moxcms read them as CMYK with K = 255 and the image showed nearly black.
+    #[test]
+    fn a_profile_that_does_not_fit_the_pixels_is_none() {
+        use moxcms::{DataColorSpace, Layout, LutDataType, LutStore, LutType, LutWarehouse};
+        let _held = lock_even_if_poisoned(&super::COLOUR_TEST);
+        // CMYK to XYZ through a 2×2×2×2 grid: a real CMYK profile, which moxcms makes a
+        // transform from.
+        let mut profile = moxcms::ColorProfile::default();
+        profile.color_space = DataColorSpace::Cmyk;
+        profile.pcs = DataColorSpace::Xyz;
+        profile.profile_class = moxcms::ProfileClass::OutputDevice;
+        profile.white_point = moxcms::Xyzd {
+            x: 0.9642,
+            y: 1.0,
+            z: 0.8249,
+        };
+        profile.lut_a_to_b_perceptual = Some(LutWarehouse::Lut(LutDataType {
+            num_input_channels: 4,
+            num_output_channels: 3,
+            num_clut_grid_points: 2,
+            matrix: moxcms::Matrix3d::IDENTITY,
+            num_input_table_entries: 2,
+            num_output_table_entries: 2,
+            input_table: LutStore::Store16([0, 65535].repeat(4)),
+            clut_table: LutStore::Store16((0..16 * 3).map(|i| 20000 + i * 300).collect()),
+            output_table: LutStore::Store16([0, 65535].repeat(3)),
+            lut_type: LutType::Lut16,
+        }));
+        let cmyk = profile.encode().unwrap();
+        assert_eq!(&cmyk[16..20], b"CMYK");
+        let srgb = moxcms::ColorProfile::new_srgb();
+        let parsed = moxcms::ColorProfile::new_from_slice(&cmyk).unwrap();
+        let options = moxcms::TransformOptions::default();
+        assert!(
+            parsed
+                .create_transform_8bit(Layout::Rgba, &srgb, Layout::Rgba, options)
+                .is_ok()
+        );
+        let photo = || {
+            image::DynamicImage::from(image::RgbImage::from_pixel(2, 2, image::Rgb([60, 160, 60])))
+        };
+        let unchanged = photo().into_rgba8();
+        assert_eq!(super::to_srgb(photo(), Some(&cmyk)).into_rgba8(), unchanged);
+        assert_eq!(
+            super::to_display(photo(), Some(&cmyk)).into_rgba8(),
+            unchanged
+        );
     }
 
     /// What Glimt hands out is in the colours the file says, whatever the view's settings are:
