@@ -3005,3 +3005,7 @@ msgstr "Mehrere umbenennen läuft ohne seinen Plan ({e}), daher wird ein Absturz
 #: src/model/folder.rs
 msgid "Still opening {name}… Open another folder to stop waiting."
 msgstr "{name} wird noch geöffnet… Einen anderen Ordner öffnen, um nicht länger zu warten."
+
+#: src/files/file_ops.rs
+msgid "Rename Many stopped, so the metadata edited for {count} was not saved"
+msgstr "Mehrere umbenennen hat aufgehört, daher wurden die für {count} bearbeiteten Metadaten nicht gespeichert"

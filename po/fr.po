@@ -3005,3 +3005,7 @@ msgstr "Renommer plusieurs s'exécute sans son plan ({e}) : un plantage en cours
 #: src/model/folder.rs
 msgid "Still opening {name}… Open another folder to stop waiting."
 msgstr "Ouverture de {name} toujours en cours… Ouvrez un autre dossier pour ne plus attendre."
+
+#: src/files/file_ops.rs
+msgid "Rename Many stopped, so the metadata edited for {count} was not saved"
+msgstr "Renommer plusieurs s'est arrêté, donc les métadonnées modifiées pour {count} n'ont pas été enregistrées"

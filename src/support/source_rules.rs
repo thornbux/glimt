@@ -2068,6 +2068,42 @@ fn an_image_and_its_sidecar_change_together() {
     );
 }
 
+/// The keywords, comment, alt text and stars in a sidecar of the user's are written only in the
+/// work handed to `write_sidecars`, which holds the one rule for when such a write runs beside
+/// other work on its file. The homes are the functions that hand that work over. Before, the
+/// rule was kept by the operations and the turn, and a keyword written while Rename Many swapped
+/// two names landed on the other photo.
+#[test]
+fn sidecars_are_written_through_write_sidecars() {
+    const IN_WRITE_SIDECARS: &[(&str, &str)] = &[
+        ("metadata/xmp.rs", ""),
+        ("ui/info_panel.rs", "save_metadata_edit"),
+        ("ui/info_panel.rs", "set_keyword_on_files"),
+        ("ui/info_panel.rs", "add_keywords"),
+        ("ui/actions.rs", "apply_mark"),
+        ("metadata/lightroom.rs", "import_lightroom"),
+    ];
+    const HOMES: &[(&str, &[(&str, &str)])] = &[
+        ("write_changed(", IN_WRITE_SIDECARS),
+        ("write_alt_text(", IN_WRITE_SIDECARS),
+        ("xmp::add_keywords(", IN_WRITE_SIDECARS),
+        ("tag_file(", IN_WRITE_SIDECARS),
+        ("add_tags(", IN_WRITE_SIDECARS),
+        ("write_xmp(", IN_WRITE_SIDECARS),
+        ("update_sidecar(", &[("metadata/marks.rs", "write_xmp")]),
+        (
+            "sidecar_writer(",
+            &[("files/file_ops.rs", "write_sidecars")],
+        ),
+    ];
+    let wrong = outside_their_homes(HOMES);
+    assert!(
+        wrong.is_empty(),
+        "a sidecar of the user's written around write_sidecars:\n{}",
+        wrong.join("\n")
+    );
+}
+
 /// Only Glimt's own files are written with `file_io::replace_file` and the writers built on it
 /// (`write_atomic`, `edit_shared`). They write through a link to the file it points to, as a
 /// settings file kept in a repository is a link, and do not refuse a read-only file. A file of

@@ -58,6 +58,20 @@ pub(crate) struct RenameOutcome {
     undo: Vec<Moved>,
 }
 
+/// What words the end of a sidecar job, from how many files failed (`write_sidecars`).
+type SidecarReport = Box<dyn FnOnce(usize, &Job) -> Option<String> + Send>;
+
+/// A sidecar write asked for while a rename runs (`write_sidecars`). It is sent once the rename
+/// is over, to the names its files have then.
+struct WaitingSidecarWrite {
+    activity: &'static str,
+    paths: Vec<PathBuf>,
+    write: Box<dyn Fn(&Path) -> bool + Send>,
+    report: SidecarReport,
+    /// Closing waits for the write while it waits, as for one that was sent.
+    _writing: Working,
+}
+
 /// What a delete, move, copy or tool reports, in one message. It holds the files it was asked
 /// to delete or move, and those that are gone now. The thread finds out which are gone, so the
 /// window does not `stat` each one. It also says whether to read the folder again, and holds
@@ -227,6 +241,8 @@ pub(crate) struct FileOperations {
     /// A Rename Many running in the background.
     renaming: Option<RenameJob>,
     renaming_rx: Receiving<(RenameOutcome, Working)>,
+    /// The sidecar writes asked for while `renaming` runs, in the order they were asked for.
+    sidecar_writes_waiting: Vec<WaitingSidecarWrite>,
     /// The names being deleted in the background. They are kept out of refreshed listings
     /// until the delete is done.
     deleting: HashSet<OsString>,
@@ -286,6 +302,7 @@ impl FileOperations {
             held_back_files: Vec::new(),
             renaming: None,
             renaming_rx: Receiving::none(),
+            sidecar_writes_waiting: Vec::new(),
             deleting: HashSet::new(),
             report_tx,
             report_rx,
@@ -923,6 +940,11 @@ impl crate::App {
         if !is_copy && let Some(to) = new_place(self.viewing.turned_file(), &moved) {
             self.viewing.turned_file_moved(to);
         }
+        // So does an edit in the panel not saved yet.
+        if !is_copy {
+            let ctx = self.ctx.clone();
+            self.follow_metadata_edit(&ctx, &moved);
+        }
         if !is_copy && self.folder.collection().is_some() {
             let renamed: Vec<(usize, OsString)> = (0..self.list.files().len())
                 .filter_map(|i| {
@@ -1255,13 +1277,17 @@ impl crate::App {
         }
         // The files are found by their old names, because the list may have changed while they
         // were renamed. When nothing was renamed, the names stay.
-        if !failed {
-            let pairs = (job.from.iter().zip(&job.to).enumerate())
+        let pairs: Vec<(PathBuf, PathBuf)> = match failed {
+            true => Vec::new(),
+            false => (job.from.iter().zip(&job.to).enumerate())
                 .filter(|(k, _)| left_alone.binary_search(k).is_err())
                 .map(|(_, (f, t))| (f.clone(), t.clone()))
-                .collect();
-            self.follow_moved_paths(pairs, false);
-        }
+                .collect(),
+        };
+        // The writes asked for during the rename go first, as they were asked for before
+        // anything that follows the files now.
+        self.send_waiting_sidecar_writes(ctx, Some(&pairs));
+        self.follow_moved_paths(pairs, false);
         if self.folder.collection().is_some() {
             return self.start_listing(ctx);
         }
@@ -1739,6 +1765,14 @@ impl crate::App {
     /// land in the order they were made and never cross. The status bar counts them, and
     /// `report` words the end from how many failed. The thread is its own rather than
     /// `file_io::write_later`'s, so settings saved meanwhile do not wait behind 3,000 sidecars.
+    ///
+    /// Every sidecar write of the user's metadata goes through here, and this is the one rule
+    /// for when it runs beside other work on its files. It is never refused, because an edit
+    /// would be lost. Other work refuses to start while it runs (`are_free_to_change`). Work
+    /// that already runs takes each sidecar under its lock, so a write that comes later finds
+    /// the file gone and says so. Only a rename puts another photo under a name, as Rename Many
+    /// does when it swaps names. A write asked for while one runs therefore waits until it is
+    /// over, and is then sent to the names its files have (`send_waiting_sidecar_writes`).
     pub(crate) fn write_sidecars(
         &mut self,
         ctx: &egui::Context,
@@ -1748,6 +1782,16 @@ impl crate::App {
         report: impl FnOnce(usize, &Job) -> Option<String> + Send + 'static,
     ) {
         use crate::files::file_io::QueuedWrite;
+        if self.file_operations.renaming.is_some() {
+            let waiting = WaitingSidecarWrite {
+                activity,
+                paths,
+                write: Box::new(write),
+                report: Box::new(report),
+                _writing: Working::new(&crate::files::file_io::WRITING),
+            };
+            return self.file_operations.sidecar_writes_waiting.push(waiting);
+        }
         let Some(job) = self.start_job_of(activity, paths.len(), true, paths.clone()) else {
             return;
         };
@@ -1786,6 +1830,36 @@ impl crate::App {
         });
         // When the send fails, the work is dropped, and the busy pointer goes with it.
         let _ = sidecar_writer().send(work);
+    }
+
+    /// Sends the sidecar writes that waited for a rename to the names their files have now, in
+    /// the order they were asked for. `renamed` holds the `(from, to)` names that the rename
+    /// changed. When it is `None`, the rename stopped without saying which names it changed.
+    /// A write could then land on another photo, so the writes are dropped, and the user is
+    /// told.
+    pub(crate) fn send_waiting_sidecar_writes(
+        &mut self,
+        ctx: &egui::Context,
+        renamed: Option<&[(PathBuf, PathBuf)]>,
+    ) {
+        let waiting = std::mem::take(&mut self.file_operations.sidecar_writes_waiting);
+        let Some(renamed) = renamed else {
+            let files: usize = waiting.iter().map(|w| w.paths.len()).sum();
+            if files > 0 {
+                self.notice.give(tf!(
+                    "Rename Many stopped, so the metadata edited for {count} was not saved",
+                    count = count(files, "file")
+                ));
+            }
+            return;
+        };
+        let moved = moves_by_source(renamed);
+        for waiting in waiting {
+            let paths = (waiting.paths.iter())
+                .map(|p| new_place(p, &moved).unwrap_or_else(|| p.clone()))
+                .collect();
+            self.write_sidecars(ctx, waiting.activity, paths, waiting.write, waiting.report);
+        }
     }
 
     /// Save frame `only` of `path` as the PNG `to`, or every frame as PNG files in a new folder
@@ -4868,8 +4942,59 @@ mod tests {
         std::fs::remove_dir_all(dir).unwrap();
     }
 
+    /// A sidecar write asked for while Rename Many swaps two names waits until the rename is
+    /// over, and then lands on the photo it was asked for, under its new name. Before, it was
+    /// written to the old name, which by then held the other photo. A writer held by another
+    /// job makes the write come after the rename, however fast the computer is.
+    #[test]
+    fn a_sidecar_write_during_a_rename_follows_its_photo() {
+        let d = contract_folder("write-during-rename");
+        let (a, b) = (d.join("a.png"), d.join("b.png"));
+        // The fixture's sidecars only say whose they are, which is not XMP to write into.
+        for p in [&a, &b] {
+            std::fs::remove_file(crate::metadata::xmp::sidecar(p)).unwrap();
+        }
+        let (mut app, ctx) = app_on(&d);
+        app.rename_in_background(&ctx, vec![a.clone(), b.clone()], vec![b.clone(), a.clone()]);
+        assert!(app.file_operations.renaming.is_some());
+        let (go, released) = std::sync::mpsc::channel::<()>();
+        let other = vec![d.join("sub")];
+        app.write_sidecars(
+            &ctx,
+            "Other",
+            other,
+            move |_| released.recv().is_err(),
+            |_, _| None,
+        );
+        let oslo = |p: &std::path::Path| crate::metadata::xmp::add_tags(p, &["Oslo".into()]);
+        app.write_sidecars(
+            &ctx,
+            "Keywords",
+            vec![a.clone()],
+            move |p| oslo(p).is_ok(),
+            |_, _| None,
+        );
+        assert!(run_background_until(&mut app, &ctx, |app| app
+            .file_operations
+            .renaming
+            .is_none()));
+        drop(go);
+        assert!(run_background_until(&mut app, &ctx, |app| !app
+            .file_operations
+            .is_writing_sidecars()));
+        let red = |p: &std::path::Path| image::open(p).unwrap().to_rgb8().get_pixel(0, 0)[0] == 255;
+        assert!(red(&b), "the names were not swapped");
+        let has_oslo = |p: &std::path::Path| crate::metadata::xmp::read(p).keywords == ["Oslo"];
+        assert!(
+            has_oslo(&b) && !has_oslo(&a),
+            "the keyword is on the other photo"
+        );
+        std::fs::remove_dir_all(d).unwrap();
+    }
+
     /// A move, a rename and a delete wait for a sidecar write of their files that holds the
-    /// sidecar's lock, so the write never lands on a name the photo has left.
+    /// sidecar's lock, so they never take the photo away while the write is on its way. A write
+    /// asked for while a rename runs is `a_sidecar_write_during_a_rename_follows_its_photo`.
     #[test]
     fn file_operations_wait_for_a_sidecar_write() {
         let d = contract_folder("held");

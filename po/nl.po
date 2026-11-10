@@ -3005,3 +3005,7 @@ msgstr "Meerdere hernoemen draait zonder zijn plan ({e}), dus een crash halverwe
 #: src/model/folder.rs
 msgid "Still opening {name}… Open another folder to stop waiting."
 msgstr "{name} wordt nog geopend… Open een andere map om niet langer te wachten."
+
+#: src/files/file_ops.rs
+msgid "Rename Many stopped, so the metadata edited for {count} was not saved"
+msgstr "Meerdere hernoemen is gestopt, dus de bewerkte metadata van {count} zijn niet opgeslagen"
