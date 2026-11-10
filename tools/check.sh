@@ -3,9 +3,9 @@
 # worktrees at once:
 #
 #   tools/check.sh                 cargo fmt, then clippy and the tests, without and with every
-#                                  feature, in --profile quick, and a cargo check with the
-#                                  oldest Rust that Cargo.toml's rust-version names, as CI does;
-#                                  exits nonzero when one fails
+#                                  feature, in --profile quick, and a cargo check in both
+#                                  builds with the oldest Rust that Cargo.toml's rust-version
+#                                  names, as CI does; exits nonzero when one fails
 #   tools/check.sh 'COMMANDS'      other cargo commands in the same container, such as
 #                                  'cargo test --profile quick NAME'
 #   tools/check.sh --clean         removes the build folders of checkouts that are gone
@@ -102,6 +102,7 @@ step cargo clippy -q --locked --profile quick --all-targets -- -D warnings
 step cargo test -q --locked --profile quick
 step cargo clippy -q --locked --profile quick --all-targets --all-features -- -D warnings
 step cargo test -q --locked --profile quick --all-features
+step cargo "+$MSRV" check -q --locked
 step cargo "+$MSRV" check -q --locked --all-features
 [ $r = 0 ] && echo "every check passed"
 exit $r'

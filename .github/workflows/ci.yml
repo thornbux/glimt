@@ -24,7 +24,8 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  # The oldest Rust that Cargo.toml's rust-version promises still builds Glimt.
+  # The oldest Rust that Cargo.toml's rust-version promises still builds Glimt, in both builds,
+  # as code behind cfg(not(feature)) is compiled only in the default one.
   rust-version:
     name: Rust 1.95 (rust-version)
     runs-on: ubuntu-latest
@@ -35,6 +36,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@686976e191b89faba57d3206551f0f330d8cb249 # stable, 2026-10-09
         with:
           toolchain: "1.95"
+      - run: cargo check --locked
       - run: cargo check --locked --all-features
   check:
     name: ${{ matrix.features == '' && 'default features' || matrix.features }}

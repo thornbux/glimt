@@ -624,12 +624,13 @@ python3 tools/pot.py              # po/glimt.pot, after a text is added or chang
 - Use `--profile quick` (Cargo.toml) for clippy and tests. It is optimised like the release, so
   the tests' timings hold, but it builds in many parts and incrementally, so a small change
   builds in a fraction of the time. A debug build as well would double the space in `target/`.
-- CI also runs `cargo check` with the oldest Rust that `rust-version` in Cargo.toml names, and
-  so does `tools/check.sh`, so use no standard library function newer than that. CI runs `cargo fmt --check`, and builds with
-  `--locked`, so a Cargo.toml changed without its Cargo.lock fails.
+- CI also runs `cargo check` in both builds with the oldest Rust that `rust-version` in
+  Cargo.toml names, and so does `tools/check.sh`, so use no standard library function newer
+  than that. CI runs `cargo fmt --check`, and builds with `--locked`, so a Cargo.toml changed
+  without its Cargo.lock fails.
 - `tools/check.sh` runs the five cargo checks above in Docker (`rust:1` with mold and sccache),
-  and a `cargo check` with the Rust of `rust-version`, as CI does. Use it on a computer without
-  cargo, or for several worktrees at once. CI runs the same checks on every push to any branch.
+  and a `cargo check` in both builds with the Rust of `rust-version`, as CI does. Use it on a
+  computer without cargo, or for several worktrees at once. CI runs the same checks on every push to any branch.
   Read its exit status directly, not through a pipe such as `| tail`, which hides a failed
   check.
 - Each checkout keeps a build folder of a few GB in the Docker volume `glimt-target`. The first
