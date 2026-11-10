@@ -176,8 +176,12 @@ Tell what is wrong in the settings file, or in
 .IR FILE ,
 line by line: a line that is not
 .IR setting = value ,
-a setting that does not exist or is set twice, and a value that cannot be read or is out of
-range, with the value used instead. Prints OK and exits with 0 when nothing is wrong, and also
+a setting that does not exist or is set twice, and a value that cannot be read, is out of
+range or is not one of the setting's choices (such as
+.B print_paper=letter
+for
+.BR Letter ),
+with the value used instead. Prints OK and exits with 0 when nothing is wrong, and also
 when there is no settings file yet, as Glimt then uses the defaults; else exits with 1, also
 when the file cannot be read or a
 .I FILE

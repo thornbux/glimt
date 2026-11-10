@@ -95,17 +95,30 @@ fn plural_form(code: &str, n: usize) -> usize {
 
 /// Use the language of `setting` (a code of `LANGUAGES`, "en"), or with "" the system's.
 pub fn set_language(setting: &str) {
-    let code = match setting {
-        "" => from_env(),
-        code => Some(code.to_owned()),
-    };
-    let chosen = code.and_then(|code| {
+    let chosen = translation_code(setting).and_then(|code| {
         let k = LANGUAGES.iter().position(|l| l.0 == code)?;
         Some(translation(k))
     });
     *CURRENT_TRANSLATION
         .write()
         .unwrap_or_else(|e| e.into_inner()) = chosen;
+}
+
+/// Returns the code in `LANGUAGES` of the translation that the language setting `setting`
+/// asks for, and `None` for English. A value that is not a translation's code is read as a
+/// locale is, so "nb" gives bokmål as `LANG=nb_NO` does. An empty value gives the system's
+/// language.
+fn translation_code(setting: &str) -> Option<String> {
+    match setting {
+        "" => from_env(),
+        setting => language(setting),
+    }
+}
+
+/// Whether the language setting's value `setting` names a language Glimt has. That is English,
+/// or a translation by its code or by a language code of `$LANG`, such as "nb" or "pt".
+pub fn is_language(setting: &str) -> bool {
+    setting.split(['_', '.', '@']).next() == Some(ENGLISH) || language(setting).is_some()
 }
 
 /// Each translation parsed once, the first time it is chosen, and kept: its texts are handed
@@ -329,6 +342,37 @@ fn unquote(s: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    /// The language setting takes a translation's code, and also a language's own code, as
+    /// `$LANG` does. Before, "nb", "nn" and "pt" gave English without a word.
+    #[test]
+    fn the_language_setting_reads_a_language_code() {
+        for (setting, code) in [
+            ("no_nb", Some("no_nb")),
+            ("nb", Some("no_nb")),
+            ("no", Some("no_nb")),
+            ("nn", Some("no_nn")),
+            ("no_nn", Some("no_nn")),
+            ("pt", Some("pt_BR")),
+            ("pt_BR", Some("pt_BR")),
+            ("de", Some("de")),
+            ("en", None),
+            ("xx", None),
+        ] {
+            assert_eq!(
+                super::translation_code(setting).as_deref(),
+                code,
+                "{setting}"
+            );
+        }
+        for setting in ["en", "en_GB", "nb", "pt_BR", "no_nn"] {
+            assert!(super::is_language(setting), "{setting}");
+        }
+        assert!(!super::is_language("xx"));
+        for l in super::LANGUAGES {
+            assert!(super::is_language(l.0), "{}", l.0);
+        }
+    }
+
     /// Every language has its own marks for numbers, and English keeps its comma and point.
     #[test]
     fn numbers_take_the_language_marks() {
