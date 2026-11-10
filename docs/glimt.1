@@ -247,6 +247,11 @@ kept, as the menu's.
 .TP
 .BI open " PATH"
 Show a file, folder or collection. If no Glimt is running, one is started.
+The commands sent after it wait until the place has been looked up, except
+.BR quit .
+A further
+.B open
+replaces the look-up, and the commands that waited for it are not done.
 .TP
 .BI title " [TEXT ...]"
 Give this window a title of its own, a template as in Preferences of
