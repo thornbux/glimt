@@ -428,7 +428,7 @@ impl crate::App {
         ui.horizontal(|ui| {
             ui.label(tr("Fade to the next image:"));
             for (k, (_, label, _)) in FADES.iter().enumerate() {
-                changed |= radio_choice(ui, &mut self.config.fade, k, tr(label))
+                changed |= radio_choice(ui, &mut self.config.slideshow_fade, k, tr(label))
                     .on_hover_text(tr("Not with CPU use Power saving"))
                     .changed();
             }
@@ -556,7 +556,7 @@ impl crate::App {
             self.thumb_size_setting(ui);
         });
         let icons = tr("Show the file list as icons (Ctrl+I)");
-        self.toggle_box(ui, self.config.icons, Action::Icons, icons);
+        self.toggle_box(ui, self.config.icon_grid, Action::Icons, icons);
         let mut names = self.config.grid_names;
         if checkbox(ui, &mut names, tr("Show File Names Under Thumbnails")).changed() {
             self.set_grid_names(names);
@@ -607,7 +607,12 @@ impl crate::App {
     /// values are Custom.
     pub(crate) fn memory_settings(&mut self, ui: &mut egui::Ui) -> bool {
         let c = &self.config;
-        let now = (c.preload, c.decode_threads, c.animation_mb, c.low_memory);
+        let now = (
+            c.preload,
+            c.decode_threads,
+            c.animation_mb,
+            c.one_malloc_arena,
+        );
         let level = (MEMORY_LEVELS.iter())
             .find(|l| (l.preload, l.decode_threads, l.animation_mb, l.one_arena) == now);
         let (mut chosen, mut custom) = (None, false);
@@ -629,7 +634,7 @@ impl crate::App {
             self.set_preload(l.preload);
             (self.config.decode_threads, self.config.animation_mb) =
                 (l.decode_threads, l.animation_mb);
-            self.config.low_memory = l.one_arena;
+            self.config.one_malloc_arena = l.one_arena;
             crate::images::decode::set_animation_limit(l.animation_mb);
         }
         let mut changed = chosen.is_some();
@@ -662,7 +667,7 @@ impl crate::App {
                     changed = true;
                 }
                 let low = tr("One malloc arena: much less memory, decoding up to ~8 % slower");
-                changed |= checkbox(ui, &mut c.low_memory, low).changed();
+                changed |= checkbox(ui, &mut c.one_malloc_arena, low).changed();
                 ui.weak(restart);
             });
         changed

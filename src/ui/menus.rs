@@ -440,7 +440,7 @@ impl crate::App {
         menu_toggle(ui, chosen, c.show_subfolders, Action::Subfolders);
         menu_toggle(ui, chosen, c.show_hidden, Action::HiddenFiles);
         menu_toggle(ui, chosen, c.thumbnails, Action::Thumbnails);
-        menu_toggle(ui, chosen, c.icons, Action::Icons);
+        menu_toggle(ui, chosen, c.icon_grid, Action::Icons);
         // Ticked only while the grid shows: from an image opened from it, the item goes back to
         // the grid, as G and Esc do.
         let grid = self.panel.is_area_grid_shown();
@@ -795,7 +795,7 @@ impl crate::App {
             Action::PathBar => &mut c.path_bar,
             Action::Toolbar => &mut c.toolbar,
             Action::FullScreenInfo => &mut c.full_screen_info,
-            Action::Icons => &mut c.icons,
+            Action::Icons => &mut c.icon_grid,
             Action::FolderTree => &mut c.folder_tree,
             Action::HistogramLog => &mut c.histogram_log,
             Action::Animate => {

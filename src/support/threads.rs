@@ -12,7 +12,7 @@ pub(crate) static CPU_USE_LEVEL: AtomicUsize = AtomicUsize::new(1);
 pub(crate) static CPU_CHANGED: (Mutex<()>, std::sync::Condvar) =
     (Mutex::new(()), std::sync::Condvar::new());
 
-/// Glimt runs with one malloc arena (`low_memory`): set at startup.
+/// Glimt runs with one malloc arena (`one_malloc_arena`): set at startup.
 pub(crate) static HAS_ONE_MALLOC_ARENA: AtomicBool = AtomicBool::new(false);
 
 /// What a background thread's receiver has: nothing yet, its answer, or the thread ended. For

@@ -184,7 +184,7 @@ impl App {
         }
         config.slideshow_random |= start.random;
         if let Some(fade) = start.fade {
-            config.fade = fade;
+            config.slideshow_fade = fade;
         }
         if start.layout.is_some() || start.random || start.fade.is_some() {
             config.save();
@@ -504,7 +504,7 @@ fn main() -> eframe::Result {
     // There is one malloc arena for all threads. With one arena per thread, freed image
     // buffers stayed in each decode thread's arena, and a folder of screenshots used 91 MB of
     // own memory instead of 29 MB. Decoding is at most a few percent slower.
-    if Config::load().low_memory {
+    if Config::load().one_malloc_arena {
         #[allow(unsafe_code)]
         // SAFETY: This is called before any other thread exists.
         unsafe {

@@ -136,11 +136,12 @@ as_version() {
     chmod 700 $XDG_RUNTIME_DIR
     export PATH=/tmp/stub:/usr/local/bin:/usr/bin:/bin
 }
-# config SETTING=VALUE…: the settings file. OLD before 0.74.0 reads only the old keys of the
-# settings renamed then, so it gets those.
+# config SETTING=VALUE…: the settings file. An OLD before 0.74.0 or 0.80.0 reads only the old
+# keys of the settings renamed then, so it gets those.
 OLD_KEYS='s/^delete_to_trash=/trash=/; s/^slideshow_delay=/delay=/; s/^slideshow_random=/random=/;
     s/^use_image_profile=/own_profile=/; s/^list_videos=/videos=/; s/^info_panel=/exif_panel=/;
-    s/^sort_case_sensitive=/sort_case=/; s/^search_case_sensitive=/search_case=/'
+    s/^sort_case_sensitive=/sort_case=/; s/^search_case_sensitive=/search_case=/;
+    s/^one_malloc_arena=/low_memory=/; s/^slideshow_fade=/fade=/; s/^icon_grid=/icons=/'
 config() {
     if [ "$V" = old ]; then printf '%s\n' "$@" | sed "$OLD_KEYS"; else printf '%s\n' "$@"; fi \
         >$XDG_CONFIG_HOME/glimt/config
@@ -592,13 +593,13 @@ for v in new old; do
     panes=$(busy)
     quit
     # No fade: it draws every frame for its 400 ms, which is wanted, not a busy loop.
-    config slideshow_random=true slideshow_repeat=true slideshow_delay=1 fade=0
+    config slideshow_random=true slideshow_repeat=true slideshow_delay=1 slideshow_fade=0
     start --slideshow $d/show; sleep 2
     key slash; xdotool type omega; sleep 2
     slideshow=$(busy)
     quit
     # Four panes, one image at a time, no fade: a new round shuffles once, then goes on.
-    config slideshow_random=true slideshow_repeat=true slideshow_delay=1 fade=0 layout=2x2 slideshow_one_image_at_a_time=2x2
+    config slideshow_random=true slideshow_repeat=true slideshow_delay=1 slideshow_fade=0 layout=2x2 slideshow_one_image_at_a_time=2x2
     start --slideshow $d/show; sleep 4
     shot turns-a-$v
     turns=$(busy)
@@ -2989,6 +2990,20 @@ start $d; sleep 2
 key ctrl+f; sleep 1; xdotool type holiday; key Return; sleep 1
 quit
 expect "the folder is there" "$([ -d $d/holiday ] && echo yes)" yes
+
+section "a settings file of 0.79: icons=true shows the icon grid, as icon_grid=true does"
+d=/tmp/old-setting
+mkdir -p $d
+for c in red lime blue; do convert -size 64x64 xc:$c $d/$c.png; done
+for setting in "" icons=true icon_grid=true; do
+    config $setting
+    start $d/red.png; sleep 2
+    settled old-setting-${setting%%=*}
+    quit
+done
+same() { md5sum </t/out/$1.png; }
+differ "icon_grid=true shows another list" "$(same old-setting-icon_grid)" "$(same old-setting-)"
+expect "the old key icons=true as icon_grid=true" "$(same old-setting-icons)" "$(same old-setting-icon_grid)"
 
 section "Up and Home in the toolbar: the parent folder, then the home folder"
 d=/tmp/up-home

@@ -1315,7 +1315,7 @@ impl crate::App {
         let form = if self.panel.is_area_grid_on() {
             [false, false]
         } else {
-            [self.config.icons, self.config.thumbnails]
+            [self.config.icon_grid, self.config.thumbnails]
         };
         // Room for a name next to the size and date columns, and the thumbnail before it.
         let thumb = if form[1] { self.thumb().x + 10.0 } else { 0.0 };
