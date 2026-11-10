@@ -1766,22 +1766,28 @@ fn panics_are_caught_in_one_place() {
 
 /// Returns the lines of `text` outside the tests that catch a panic: `catch_unwind`, or a
 /// thread's `join()` whose error is dropped with `.ok()`, `.unwrap_or_default()`,
-/// `.unwrap_or(…)`, `let _ =`, `_ =` or `drop(…)`, also on the next line.
+/// `.unwrap_or(…)`, `let _ =`, `_ =` or `drop(…)`, also on the next line. A join in an
+/// `.unwrap_or_else(…)`, an `if let Ok(…) =`, a `while let Ok(…) =` or a `match` counts too,
+/// unless its statement passes the panic on with `resume_unwind`.
 fn panics_caught_in(text: &str) -> Vec<usize> {
     const SWALLOWED: [&str; 3] = [".ok()", ".unwrap_or_default()", ".unwrap_or("];
+    const DROPPED: [&str; 3] = ["let _ =", "_ =", "drop("];
+    const UNLESS_PASSED_ON: [&str; 3] = ["if let Ok(", "while let Ok(", "match "];
     let lines = code_lines(text);
     let end = tests_start(&lines);
     let mut found = Vec::new();
     for (i, line) in lines[..end].iter().enumerate() {
         let after_join = line.split_once(".join()").map(|(_, after)| after.trim());
         let next = lines.get(i + 1).map_or("", |l| l.trim());
+        let statement = line.trim_start();
+        let passed_on = || statement_text(&lines[..end], i).contains("resume_unwind");
         let swallowed = after_join.is_some_and(|after| {
             let after = if after.is_empty() { next } else { after };
-            let statement = line.trim_start();
             SWALLOWED.iter().any(|s| after.starts_with(s))
-                || ["let _ =", "_ =", "drop("]
-                    .iter()
-                    .any(|s| statement.starts_with(s))
+                || DROPPED.iter().any(|s| statement.starts_with(s))
+                || ((after.starts_with(".unwrap_or_else(")
+                    || UNLESS_PASSED_ON.iter().any(|s| statement.starts_with(s)))
+                    && !passed_on())
         });
         if line.contains("catch_unwind") || swallowed {
             found.push(i + 1);
@@ -1790,8 +1796,27 @@ fn panics_caught_in(text: &str) -> Vec<usize> {
     found
 }
 
+/// Returns the text of the statement that starts on line `first` of `lines`: that line, the
+/// lines indented deeper after it, and the closing brace that ends them.
+fn statement_text(lines: &[String], first: usize) -> String {
+    let indent = |l: &str| l.len() - l.trim_start().len();
+    let start = indent(&lines[first]);
+    let mut text = lines[first].clone();
+    for line in &lines[first + 1..] {
+        if !line.trim().is_empty() && indent(line) <= start {
+            if line.trim_start().starts_with('}') {
+                text.push_str(line);
+            }
+            break;
+        }
+        text.push_str(line);
+    }
+    text
+}
+
 /// The check above finds `catch_unwind` and a join whose error is dropped, on its line or the
-/// next. It leaves a join that passes the panic on, one that unwraps in the tests, and a
+/// next, or taken by an `.unwrap_or_else(…)`, an `if let Ok(…)` or a `match` that does not
+/// pass it on. It leaves a join that passes the panic on, one that unwraps in the tests, and a
 /// `join` of text.
 #[test]
 fn finds_a_panic_caught() {
@@ -1799,9 +1824,13 @@ fn finds_a_panic_caught() {
         workers.flat_map(|w| w.join().unwrap_or_default());\n    let _ = feed.join();\n    \
         handle\n        .join()\n        .ok();\n    \
         p.join().unwrap_or_else(|e| std::panic::resume_unwind(e));\n    \
-        let text = parts.join(\", \");\n    drop(h.join());\n}\n\
-        mod tests {\n    fn t() {\n        h.join().ok();\n    }\n}\n";
-    assert_eq!(panics_caught_in(text), [2, 3, 4, 6, 10]);
+        let text = parts.join(\", \");\n    drop(h.join());\n    \
+        workers.flat_map(|w| w.join().unwrap_or_else(|_| Vec::new()));\n    \
+        if let Ok(part) = h.join() {\n        all.extend(part);\n    }\n    \
+        match h.join() {\n        Ok(p) => p,\n        Err(_) => Vec::new(),\n    };\n    \
+        match h.join() {\n        Ok(p) => p,\n        Err(e) => resume_unwind(e),\n    };\n\
+        }\nmod tests {\n    fn t() {\n        h.join().ok();\n    }\n}\n";
+    assert_eq!(panics_caught_in(text), [2, 3, 4, 6, 10, 11, 12, 15]);
 }
 
 /// A decoded image is turned by its EXIF orientation only after it is shrunk to the size shown
