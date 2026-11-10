@@ -76,6 +76,12 @@ and versions follow [Semantic Versioning](https://semver.org/).
   copies the shown image, while Copy Path and Copy Files in the Select menu copy the selection.
 - The Help Manual's differences from Geeqie name each key that Geeqie 3.2 changed, such as
   Ctrl+C, Ctrl+M, Ctrl+R and Ctrl+T, and what "/" does. Glimt keeps its keys.
+- Before 1.0, a few names that misled their reader are renamed: the settings `low_memory`,
+  `fade` and `icons` are now `one_malloc_arena`, `slideshow_fade` and `icon_grid`, and the
+  actions `CopyFiles`, `ExifRotate`, `Escape`, `Up` and `Home` are now `CopyFilesToClipboard`,
+  `AutoRotate`, `LeaveFullScreen`, `ParentFolder` and `HomeFolder`. The old names keep working
+  for good, in the settings file, in `keys=` and with `--remote run`, and Glimt writes the new
+  ones. The option `--fade` keeps its name.
 
 ### Fixed
 
