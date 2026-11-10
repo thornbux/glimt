@@ -2855,8 +2855,8 @@ msgid "the file system here ({kind}) does not allow this rename, as on some shar
 msgstr "filsystemet här ({kind}) tillåter inte det här namnbytet, som på vissa delade mappar, molnmappar och telefoner ({e})"
 
 #: src/files/file_io.rs
-msgid "{from} could not be removed after it was put at {to}, so the file is now under both names ({e})"
-msgstr "{from} kunde inte tas bort efter att den lagts på {to}, så filen har nu båda namnen ({e})"
+msgid "{from} could not be removed after it was put at {to}, so the file may be under both names or only at {to}; check both before removing either ({e})"
+msgstr "{from} kunde inte tas bort efter att den lagts på {to}, så filen kan ha båda namnen eller bara finnas på {to}; kontrollera båda innan du tar bort någon av dem ({e})"
 
 #: src/files/file_ops.rs
 msgid "\"{name}\": a {kind} file system, as on a camera card, allows none of : ? * \" < > | \\ in a name. Nothing was renamed."

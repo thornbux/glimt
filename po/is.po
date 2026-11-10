@@ -2855,8 +2855,8 @@ msgid "the file system here ({kind}) does not allow this rename, as on some shar
 msgstr "skráakerfið hér ({kind}) leyfir ekki þessa nafnbreytingu, eins og á sumum sameiginlegum möppum, skýjamöppum og símum ({e})"
 
 #: src/files/file_io.rs
-msgid "{from} could not be removed after it was put at {to}, so the file is now under both names ({e})"
-msgstr "ekki tókst að fjarlægja {from} eftir að það var sett á {to}, svo skráin ber nú bæði nöfnin ({e})"
+msgid "{from} could not be removed after it was put at {to}, so the file may be under both names or only at {to}; check both before removing either ({e})"
+msgstr "ekki tókst að fjarlægja {from} eftir að það var sett á {to}, svo skráin getur borið bæði nöfnin eða aðeins verið á {to}; athugaðu hvort tveggja áður en þú fjarlægir annað hvort ({e})"
 
 #: src/files/file_ops.rs
 msgid "\"{name}\": a {kind} file system, as on a camera card, allows none of : ? * \" < > | \\ in a name. Nothing was renamed."
