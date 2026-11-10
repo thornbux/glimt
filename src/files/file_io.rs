@@ -677,15 +677,23 @@ pub fn wait_for_queued_writes() {
 
 /// The lock beside `path`, held while it lives: another Glimt window's reading and writing of
 /// the same file does not fall between ours, which would lose its change. The lock is a file of
-/// its own, hidden beside it, as `path` is renamed over.
+/// its own, hidden beside it, as `path` is renamed over. Returns `None`, and the caller goes on
+/// without the lock, when the lock file cannot be made or is not a regular file.
 pub fn file_lock(path: &Path) -> Option<std::fs::File> {
+    use std::os::unix::fs::OpenOptionsExt;
     let name = path.file_name()?.to_string_lossy();
-    // Never truncated: a lock file that is a link planted in a shared folder must not empty
-    // the file it points to.
-    #[allow(clippy::disallowed_methods)] // a lock file, never truncated
+    // A collection may come with a download, and so may a lock file beside it. The lock is
+    // never truncated and never opened through a link, so a planted link neither empties nor
+    // makes the file it points to. It is opened without waiting, so that a planted pipe does
+    // not hold the thread for good, and what was opened must be a regular file.
+    #[allow(clippy::disallowed_methods)] // a lock file, never truncated and never a link
     let lock = (std::fs::OpenOptions::new().create(true).append(true))
+        .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
         .open(path.with_file_name(format!(".{name}.lock")))
         .ok()?;
+    if !lock.metadata().ok()?.is_file() {
+        return None;
+    }
     lock.lock().ok()?;
     Some(lock)
 }
@@ -1643,11 +1651,43 @@ mod tests {
         std::fs::write(&victim, "keep").unwrap();
         std::fs::write(&photo, "old").unwrap();
         symlink(&victim, dir.join(".trip.gqv.lock")).unwrap();
-        drop(super::file_lock(&photo));
+        assert!(super::file_lock(&photo).is_none(), "locked through a link");
         let tmp = super::tmp_path(&photo);
         symlink(&victim, &tmp).unwrap();
         drop(super::create_temp_beside(&tmp, &photo).unwrap());
         assert_eq!(std::fs::read_to_string(&victim).unwrap(), "keep");
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A lock file planted beside a collection that came with a download is never waited on,
+    /// and never made where a dangling link points. Before, a pipe there held the thread for
+    /// good, and the link made an empty file at its target.
+    #[test]
+    fn a_planted_pipe_or_dangling_link_is_no_lock() {
+        let dir =
+            std::env::temp_dir().join(format!("glimt-test-planted-lock-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let (with_pipe, with_link) = (dir.join("a.gqv"), dir.join("b.gqv"));
+        let made = std::process::Command::new("mkfifo")
+            .arg(dir.join(".a.gqv.lock"))
+            .status()
+            .unwrap();
+        assert!(made.success());
+        let target = dir.join("never-made");
+        std::os::unix::fs::symlink(&target, dir.join(".b.gqv.lock")).unwrap();
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let pipe_locked = super::file_lock(&with_pipe).is_some();
+            let link_locked = super::file_lock(&with_link).is_some();
+            tx.send((pipe_locked, link_locked)).unwrap();
+        });
+        let locked = rx.recv_timeout(std::time::Duration::from_secs(5));
+        assert_eq!(
+            locked,
+            Ok((false, false)),
+            "waited on the pipe or locked through the link"
+        );
+        assert!(!target.exists(), "the link's target was made");
         std::fs::remove_dir_all(dir).unwrap();
     }
 

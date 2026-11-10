@@ -95,6 +95,8 @@ pub(crate) struct OperationReport {
     pub(crate) overwritten: Vec<PathBuf>,
     /// A folder renamed (old, new), which the window follows.
     pub(crate) folder_renamed: Option<(PathBuf, PathBuf)>,
+    /// A collection's file renamed (old, new), which the window follows when it shows it.
+    pub(crate) collection_renamed: Option<(PathBuf, PathBuf)>,
     /// A folder made by New Folder. The tree reads its parent again, and the list reads its
     /// folder again.
     pub(crate) folder_made: Option<PathBuf>,
@@ -770,6 +772,7 @@ impl crate::App {
                 changed,
                 overwritten,
                 folder_renamed,
+                collection_renamed,
                 folder_made,
                 untrashable,
             },
@@ -796,6 +799,9 @@ impl crate::App {
             }
             if let Some((old, new)) = folder_renamed {
                 self.folder_renamed(ctx, old, new);
+            }
+            if let Some((old, new)) = collection_renamed {
+                self.collection_renamed(ctx, &old, new);
             }
             if let Some(made) = folder_made {
                 self.tree.forget(&made);

@@ -693,8 +693,52 @@ mod tests {
         app.run(&ctx, crate::ui::actions::Action::RenameCollection);
         crate::support::test_support::open_now(&mut app, &ctx, home.clone());
         app.act_on_prompt_answer(&ctx, crate::ui::dialogs::Prompt::RenameCollection, "summer");
-        assert!(dir.join("summer.gqv").is_file() && !trip.exists() && home.is_file());
+        let summer = dir.join("summer.gqv");
+        assert!(crate::support::test_support::run_background_until(
+            &mut app,
+            &ctx,
+            |_| summer.is_file()
+        ));
+        assert!(!trip.exists() && home.is_file());
         assert_eq!(app.folder.collection(), Some(home.as_path()));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// Rename Collection renames in the background, so a collection's lock that waits never
+    /// holds the window, and the window then shows the collection under its new name.
+    #[test]
+    fn renames_a_collection_in_the_background() {
+        let dir =
+            std::env::temp_dir().join(format!("glimt-test-gqv-renamed-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let trip = dir.join("trip.gqv");
+        std::fs::write(&trip, "#GQview collection\n#end\n").unwrap();
+        let (mut app, ctx) = crate::support::test_support::app_on(&dir);
+        crate::support::test_support::open_now(&mut app, &ctx, trip.clone());
+        // Another window's edit holds the lock until the window has acted, or for two seconds
+        // when the window waits for it. It is let go at once after, because the writer thread
+        // that waits for it is shared with the other tests.
+        let held = crate::files::file_io::file_lock(&trip).unwrap();
+        let (release, released) = std::sync::mpsc::channel::<()>();
+        std::thread::spawn(move || {
+            let _ = released.recv_timeout(std::time::Duration::from_secs(2));
+            drop(held);
+        });
+        app.run(&ctx, crate::ui::actions::Action::RenameCollection);
+        let started = std::time::Instant::now();
+        app.act_on_prompt_answer(&ctx, crate::ui::dialogs::Prompt::RenameCollection, "summer");
+        let waited = started.elapsed();
+        drop(release);
+        assert!(
+            waited < std::time::Duration::from_secs(1),
+            "the window waited"
+        );
+        let summer = dir.join("summer.gqv");
+        assert!(crate::support::test_support::run_background_until(
+            &mut app,
+            &ctx,
+            |app| app.folder.collection() == Some(summer.as_path())
+        ));
         std::fs::remove_dir_all(dir).unwrap();
     }
 

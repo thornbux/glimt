@@ -3543,6 +3543,13 @@ fn disk_calls_in_window_thread(text: &str, parts: &[&str]) -> Vec<(String, &'sta
         "fingerprint(",
         "same_file(",
         "file_system_type_or_test",
+        // A change in the user's folders waits for the disk as a read does, and a lock also
+        // for another window.
+        "file_lock(",
+        "collections::rename(",
+        "rename_never_over(",
+        "replace_name(",
+        "put_file(",
     ];
     const ELSEWHERE: &[&str] = &[
         "spawn(",
