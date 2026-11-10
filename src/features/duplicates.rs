@@ -490,7 +490,8 @@ fn on_all_cores<T: Send>(
             .collect();
         workers
             .into_iter()
-            .flat_map(|w| w.join().unwrap_or_default())
+            // A panic outside the catch of each file is passed on, not taken for no results.
+            .flat_map(|w| w.join().unwrap_or_else(|e| std::panic::resume_unwind(e)))
             .collect()
     });
     results.sort_unstable_by_key(|r| r.0);

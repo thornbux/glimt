@@ -1740,24 +1740,63 @@ fn agents_md_names_what_each_module_has() {
 
 /// A panic is caught only by `threads::catch_panic`, the one function whose doc says why. A worker
 /// that caught panics its own way once forgot it, and a broken file ended the thread. Eight
-/// commits added the catch one path at a time.
+/// commits added the catch one path at a time. A thread's `join()` whose error is swallowed
+/// catches a panic too, and drops the thread's work without a word, so it passes the panic on
+/// (`resume_unwind`) or tells it.
 #[test]
 fn panics_are_caught_in_one_place() {
     let mut wrong = Vec::new();
     for (file, text) in rust_sources() {
-        let lines = code_lines(&text);
-        let end = tests_start(&lines);
-        for (i, line) in lines[..end].iter().enumerate() {
-            if line.contains("catch_unwind") && !file.ends_with("threads.rs") {
-                wrong.push(format!("{file}:{}", i + 1));
-            }
+        if !file.ends_with("threads.rs") {
+            wrong.extend((panics_caught_in(&text).iter()).map(|line| format!("{file}:{line}")));
         }
     }
     assert!(
         wrong.is_empty(),
-        "a panic caught outside threads::catch_panic (use it instead):\n{}",
+        "a panic caught outside threads::catch_panic (use it, or resume_unwind a join's \
+         error):\n{}",
         wrong.join("\n")
     );
+}
+
+/// Returns the lines of `text` outside the tests that catch a panic: `catch_unwind`, or a
+/// thread's `join()` whose error is dropped with `.ok()`, `.unwrap_or_default()`,
+/// `.unwrap_or(…)`, `let _ =`, `_ =` or `drop(…)`, also on the next line.
+fn panics_caught_in(text: &str) -> Vec<usize> {
+    const SWALLOWED: [&str; 3] = [".ok()", ".unwrap_or_default()", ".unwrap_or("];
+    let lines = code_lines(text);
+    let end = tests_start(&lines);
+    let mut found = Vec::new();
+    for (i, line) in lines[..end].iter().enumerate() {
+        let after_join = line.split_once(".join()").map(|(_, after)| after.trim());
+        let next = lines.get(i + 1).map_or("", |l| l.trim());
+        let swallowed = after_join.is_some_and(|after| {
+            let after = if after.is_empty() { next } else { after };
+            let statement = line.trim_start();
+            SWALLOWED.iter().any(|s| after.starts_with(s))
+                || ["let _ =", "_ =", "drop("]
+                    .iter()
+                    .any(|s| statement.starts_with(s))
+        });
+        if line.contains("catch_unwind") || swallowed {
+            found.push(i + 1);
+        }
+    }
+    found
+}
+
+/// The check above finds `catch_unwind` and a join whose error is dropped, on its line or the
+/// next. It leaves a join that passes the panic on, one that unwraps in the tests, and a
+/// `join` of text.
+#[test]
+fn finds_a_panic_caught() {
+    let text = "fn a() {\n    std::panic::catch_unwind(f);\n    \
+        workers.flat_map(|w| w.join().unwrap_or_default());\n    let _ = feed.join();\n    \
+        handle\n        .join()\n        .ok();\n    \
+        p.join().unwrap_or_else(|e| std::panic::resume_unwind(e));\n    \
+        let text = parts.join(\", \");\n    drop(h.join());\n}\n\
+        mod tests {\n    fn t() {\n        h.join().ok();\n    }\n}\n";
+    assert_eq!(panics_caught_in(text), [2, 3, 4, 6, 10]);
 }
 
 /// A decoded image is turned by its EXIF orientation only after it is shrunk to the size shown

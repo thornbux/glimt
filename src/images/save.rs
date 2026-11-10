@@ -1267,7 +1267,8 @@ pub fn lossy_webp(img: &image::DynamicImage, quality: u8) -> Result<Vec<u8>, Str
         max,
         crate::files::external::PROGRAM_TIME_LIMIT,
     );
-    let _ = feed.join();
+    // Its write's failure shows in ffmpeg's output, and a panic is passed on.
+    (feed.join()).unwrap_or_else(|e| std::panic::resume_unwind(e));
     match webp {
         Some(webp) if ok && !webp.is_empty() => Ok(webp),
         _ if err.trim().is_empty() => Err("ffmpeg made no WebP".into()),
