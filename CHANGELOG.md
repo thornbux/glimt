@@ -13,8 +13,9 @@ and versions follow [Semantic Versioning](https://semver.org/).
   The man page names every case of exit 2.
 - A window that listens for `--remote` with remote control off, as a named window does, becomes
   the Glimt used last when it gets the focus, so plain `--remote` goes to it.
-- `glimt --remote open smb://nas/photos` mounts the share, as `glimt smb://nas/photos` does.
-  Before, it opened `smb:/nas/photos` in the working folder, which does not exist.
+- `glimt --remote open smb://nas/photos` mounts the share, as `glimt smb://nas/photos` does,
+  and the commands sent after it wait for the mount. Before, it opened `smb:/nas/photos` in the
+  working folder, which does not exist.
 - A tool's `%f` or `%u` inside a word, as in `--input=%f`, is filled in with each file, as an
   added format's is. Before, the tool ran once with the text as it was, and no file.
 - Printing on both sides with orientation Automatic turns every page as the first one, so the
@@ -51,7 +52,9 @@ and versions follow [Semantic Versioning](https://semver.org/).
   `print_paper=letter`, is put back to its default, and `glimt --check-config` tells the line.
   Before, the check said the file was fine, and the window fell back to another value without a
   word. The language setting takes a language's own code too, so `language=nb`, `nn` or `pt`
-  gives that language, as `LANG=nb_NO` does, and no longer English.
+  gives that language, as `LANG=nb_NO` does, and no longer English. A language Glimt does not
+  have still shows English, and a layout it does not know in `slideshow_one_image_at_a_time`
+  is kept, so that a value of a later Glimt is not lost; the check tells both.
 - Every action can be given a key of its own in Preferences → Keyboard and in `keys=`, also one
   without a default key, such as Toolbar or Open With. Before, such a key was kept and never
   used, without a word. `glimt --check-config` tells an own key that names no action or a key
