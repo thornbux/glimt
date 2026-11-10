@@ -488,6 +488,8 @@ method.
   with its reason on the same line or the next.
 - **A shortcut with a known limit** (work in the UI thread, a whole file rewritten) gets a
   comment `shortcut: <the limit>; <when to do more>`, so the next reader knows it was chosen.
+  A change to the code it names rewrites or removes it, so that it never names a limit that is
+  gone or a way out that was turned down.
 
 ## Errors, panics and `unsafe`
 

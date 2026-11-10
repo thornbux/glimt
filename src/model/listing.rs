@@ -305,8 +305,8 @@ pub fn list_tree(
 /// followed and its `..` worked out, as other programs (the trash, `--remote select`'s client)
 /// record it too. A folder that is not there (renamed, or a link to it renamed) gets the real
 /// path of the deepest folder above it that is, with the rest as written.
-// shortcut: realpath looks at the disk, which holds the caller's thread on a share that stopped
-// answering; the window calls it once per folder opened or moved to, as `App::open` always did.
+// It waits for the disk, and on a share that stopped answering it waits for ever, so it is
+// called only from background threads. The window-thread check in source_rules refuses it there.
 pub fn real_dir(dir: &Path) -> PathBuf {
     let Ok(dir) = std::path::absolute(dir) else {
         return dir.to_path_buf();

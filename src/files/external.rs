@@ -350,7 +350,9 @@ pub(crate) fn in_flatpak() -> bool {
 /// Flatpak the group is flatpak-spawn's, which passes INT on to the program's group on the
 /// host, but not a KILL.
 /// shortcut: there a child the tool started in the background (`cmd &` in a script) ignores
-/// INT and goes on; start tools with --watch-bus in their own session if that matters.
+/// INT and goes on; if that matters, send TERM to the tool's group on the host through
+/// `flatpak-spawn --host kill`. Starting tools with --watch-bus is no way out, because it would
+/// end an editor with unsaved work when Glimt closes (see `tools::run`).
 pub fn stop_process_group(pid: u32) {
     let group = -(pid as i32);
     // In a Flatpak, flatpak-spawn passes INT on to the program's whole group on the host, but

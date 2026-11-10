@@ -14,6 +14,11 @@ and versions follow [Semantic Versioning](https://semver.org/).
 - A file whose name has a line break is refused, with a notice, when it is added to a
   collection or given a mark or stars. Glimt's files keep a name on a line, so such a file
   seemed added or marked and was left out at the next save without a word (#92).
+### Changed
+
+- Marks and stars set one after another while the last one is still being saved go to the
+  marks file in one write, not one write each. With 500,000 files marked, a write takes about
+  0.4 s, so 500 mark keys took over three minutes to save, longer than a close waits for them.
 
 ## [0.78.0] - 2026-11-10
 

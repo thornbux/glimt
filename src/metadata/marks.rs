@@ -19,6 +19,11 @@ static KNOWN_STAMPS: std::sync::Mutex<std::collections::BTreeMap<PathBuf, Option
 static WRITING: std::sync::LazyLock<std::sync::Arc<std::sync::atomic::AtomicUsize>> =
     std::sync::LazyLock::new(Default::default);
 
+/// The edits sent to the writer thread and not yet taken by it. The writer takes all of them
+/// for one write, so the mark keys pressed while a write waits or runs cost one more write of
+/// the whole file, not one each.
+static QUEUED_EDITS: std::sync::Mutex<Vec<Edit>> = std::sync::Mutex::new(Vec::new());
+
 #[derive(Default)]
 pub struct Marks {
     /// Mark bits (bit 0 = mark 1) and stars, by path; files with neither are left out.
@@ -293,24 +298,45 @@ fn to_text(map: &HashMap<PathBuf, (u8, u8)>) -> Vec<u8> {
     text
 }
 
-/// Only the changes go to the file: one writer thread, so they land in order, merges them into
-/// the file as it is now, so the marks another Glimt window wrote meanwhile are kept. Renamed
-/// into place so a crash never leaves half a file.
-/// shortcut: the whole file each time, fine for thousands of marked files; write changes only
-/// if hundreds of thousands are marked.
+/// Sends `edit` to the marks file. Only the changes go to the file. The one writer thread makes
+/// them in order and merges them into the file as it is now, so the marks that another Glimt
+/// window wrote meanwhile are kept. The file is renamed into place, so a crash never leaves half
+/// of it. The edits that wait for the writer are made in one write.
+/// shortcut: each write rewrites the whole file, about 0.4 s with 500,000 marked; write only the
+/// changed lines if a single change must be quick at that scale.
 #[cfg(not(test))]
 fn save(edit: Edit) {
+    // The count is held from now until the edit is written, so a refresh does not read the
+    // file back as it was before. An edit that joins a waiting write is counted by that write.
+    let writing = crate::support::threads::Working::new(&WRITING);
+    if !queue_for_writer(edit) {
+        return;
+    }
     // Through the thread that writes Glimt's own files, which Glimt waits for before it ends:
     // a mark set, or moved with its file, just before closing is not lost.
-    let writing = crate::support::threads::Working::new(&WRITING);
     crate::files::file_io::write_later(move || {
         let _writing = writing;
+        let edits = take_queued_edits();
         // Only a change can add marks, so the other edits make no marks file where none is.
-        let adds = matches!(edit, Edit::Change(..));
+        let adds = edits.iter().any(|edit| matches!(edit, Edit::Change(..)));
         if let Some(file) = marks_file().filter(|f| adds || f.exists()) {
-            write(&file, &[edit]);
+            write(&file, &edits);
         }
     });
+}
+
+/// Adds `edit` to the edits that wait for the writer thread. Returns whether the writer must be
+/// asked to write them, which is so only when no edit was waiting: a write asked for earlier and
+/// not yet started takes this edit too.
+fn queue_for_writer(edit: Edit) -> bool {
+    let mut queued = lock_even_if_poisoned(&QUEUED_EDITS);
+    queued.push(edit);
+    queued.len() == 1
+}
+
+/// Takes every edit that waits for the writer thread, in the order they were made.
+fn take_queued_edits() -> Vec<Edit> {
+    std::mem::take(&mut *lock_even_if_poisoned(&QUEUED_EDITS))
 }
 
 /// `changes` applied to the marks file as it is now.
@@ -902,6 +928,32 @@ mod tests {
                 );
             }
         }
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A hundred edits made while a write waits go to the file in one write. Only the first asks
+    /// the writer thread for a write, which rewrites the whole file, about 0.4 s with 500,000
+    /// marked. Before, each edit asked for a write of its own.
+    #[test]
+    fn edits_waiting_for_the_writer_go_in_one_write() {
+        let dir =
+            std::env::temp_dir().join(format!("glimt-test-marks-batch-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("marks");
+        let paths: Vec<std::path::PathBuf> =
+            (0..100).map(|i| dir.join(format!("{i}.jpg"))).collect();
+        let writes_asked = (paths.iter())
+            .map(|p| super::Edit::Change(vec![p.clone()], super::Change::Stars(3)))
+            .map(super::queue_for_writer)
+            .filter(|&asked| asked)
+            .count();
+        let edits = super::take_queued_edits();
+        assert_eq!((writes_asked, edits.len()), (1, 100));
+        super::write(&file, &edits);
+        let now = super::parse(&std::fs::read(&file).unwrap());
+        let expected: std::collections::HashMap<_, _> =
+            paths.into_iter().map(|p| (p, (0, 3))).collect();
+        assert_eq!(now, expected);
         std::fs::remove_dir_all(dir).unwrap();
     }
 }
