@@ -1914,6 +1914,61 @@ mod tests {
         );
     }
 
+    /// A block with every field the panel shows gives a row for each of `LABELS`, in their
+    /// order, so `--remote info`, which prints only those, misses none of `parse`'s rows.
+    #[test]
+    fn the_rows_are_the_labels() {
+        let mut d = b"Exif\0\0II*\0\x08\0\0\0".to_vec();
+        let entry = |d: &mut Vec<u8>, tag: u16, kind: u16, count: u32, value: u32| {
+            d.extend(tag.to_le_bytes());
+            d.extend(kind.to_le_bytes());
+            d.extend(count.to_le_bytes());
+            d.extend(value.to_le_bytes());
+        };
+        // The offsets count from "II", 6 bytes into the block.
+        let at = |d: &Vec<u8>| d.len() - 6;
+        // IFD0 at 8, with the make at 50, the Exif directory at 56 and the GPS one at 215.
+        d.extend(3u16.to_le_bytes());
+        entry(&mut d, 0x010f, 2, 6, 50);
+        entry(&mut d, 0x8769, 4, 1, 56);
+        entry(&mut d, 0x8825, 4, 1, 215);
+        d.extend(0u32.to_le_bytes());
+        d.extend(b"Canon\0");
+        assert_eq!(at(&d), 56);
+        // The Exif directory, its values from 158: the date, the lens, and the rationals of
+        // the exposure, aperture, focal length and exposure bias. ISO and flash are inline.
+        d.extend(8u16.to_le_bytes());
+        entry(&mut d, 0xa434, 2, 5, 178);
+        entry(&mut d, 0x9003, 2, 20, 158);
+        entry(&mut d, 0x829a, 5, 1, 183);
+        entry(&mut d, 0x829d, 5, 1, 191);
+        entry(&mut d, 0x8827, 3, 1, 400);
+        entry(&mut d, 0x920a, 5, 1, 199);
+        entry(&mut d, 0x9204, 10, 1, 207);
+        entry(&mut d, 0x9209, 3, 1, 1);
+        d.extend(0u32.to_le_bytes());
+        assert_eq!(at(&d), 158);
+        d.extend(b"2020:01:02 03:04:05\0Lens\0");
+        for v in [1u32, 250, 28, 10, 50, 1, 1, 1] {
+            d.extend(v.to_le_bytes());
+        }
+        assert_eq!(at(&d), 215);
+        // The GPS directory, its two rationals at 269.
+        d.extend(4u16.to_le_bytes());
+        entry(&mut d, 1, 2, 2, u32::from(b'N'));
+        entry(&mut d, 2, 5, 1, 269);
+        entry(&mut d, 3, 2, 2, u32::from(b'E'));
+        entry(&mut d, 4, 5, 1, 277);
+        d.extend(0u32.to_le_bytes());
+        assert_eq!(at(&d), 269);
+        for v in [60u32, 1, 10, 1] {
+            d.extend(v.to_le_bytes());
+        }
+        let rows = super::parse(&d);
+        let labels: Vec<&str> = rows.iter().map(|r| r.0).collect();
+        assert_eq!(labels, super::LABELS, "{rows:?}");
+    }
+
     /// An EXIF block with strings, rationals, a short and the Exif directory.
     fn sample() -> Vec<u8> {
         let mut d = b"Exif\0\0II*\0\x08\0\0\0".to_vec();
