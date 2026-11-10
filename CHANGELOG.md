@@ -25,10 +25,12 @@ and versions follow [Semantic Versioning](https://semver.org/).
   camera and date were lost from a turned file. A chunk of either is now dropped only when the new
   file holds that kind anew, and an HDR PNG keeps its colour chunks (cICP, mDCV, cLLI).
 - A write that fails while Glimt waits to close, such as keywords typed for a photo on a
-  read-only folder and then Ctrl+Q or a logout, keeps the window open with the failure shown,
-  and prints it in the terminal. Close again to close. Before, the window closed as the failure
-  came, and the keywords were lost without a word. Failed moves, copies and deletes are printed
-  in the terminal too.
+  read-only folder and then Ctrl+Q, or a crop, Save As, Export Frames, Undo or folder rename on
+  a full disk, keeps the window open with the failure shown, and prints it in the terminal.
+  Close again to close. Before, the window closed as the failure came, and the keywords were
+  lost without a word. Failed moves, copies and deletes are printed in the terminal too. A
+  close at logout (SIGTERM or SIGHUP) prints the failure and still closes, so the session does
+  not wait for it and Glimt still saves its state.
 - A failed write stays on screen when another notice comes at the same moment. Before, a
   Lightroom import's "imported" could hide "Could not save the keyword tree".
 - A window closed twice while files are written still waits, when it closes, for the last
