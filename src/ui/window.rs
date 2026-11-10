@@ -81,7 +81,8 @@ impl Window {
             title_template: String::new(),
             close_requests: 0,
             turn_tried_at_close: None,
-            termination_signals_seen: TERMINATION_SIGNALS.load(Ordering::Relaxed),
+            // A signal that came before the window was made, while it started, closes it too.
+            termination_signals_seen: 0,
         }
     }
 
@@ -512,14 +513,31 @@ pub(crate) fn close_on_termination_signals(ctx: &egui::Context) {
         }
     });
     for signal in [libc::SIGTERM, libc::SIGHUP] {
-        let handler = on_termination_signal as extern "C" fn(libc::c_int);
-        #[allow(unsafe_code)]
-        // SAFETY: The handler only adds to an atomic and calls write, which are both
-        // async-signal-safe. A program started later gets the default action back at its exec.
-        unsafe {
-            libc::signal(signal, handler as libc::sighandler_t)
-        };
+        handle_unless_ignored(signal, on_termination_signal);
     }
+}
+
+/// Makes `handler` handle `signal`, unless the signal was ignored when Glimt started, as
+/// `nohup` ignores SIGHUP so that a program outlives its terminal.
+fn handle_unless_ignored(signal: libc::c_int, handler: extern "C" fn(libc::c_int)) {
+    #[allow(unsafe_code)]
+    // SAFETY: sigaction with no new action only fills `old`, which is a zeroed sigaction that
+    // lives through the call.
+    let ignored = unsafe {
+        let mut old: libc::sigaction = std::mem::zeroed();
+        libc::sigaction(signal, std::ptr::null(), &mut old) == 0
+            && old.sa_sigaction == libc::SIG_IGN
+    };
+    if ignored {
+        return;
+    }
+    #[allow(unsafe_code)]
+    // SAFETY: The handler given here does only what is async-signal-safe: on_termination_signal
+    // adds to an atomic and calls write. A program started later gets the default action back
+    // at its exec.
+    unsafe {
+        libc::signal(signal, handler as libc::sighandler_t)
+    };
 }
 
 /// Counts a SIGTERM or SIGHUP and wakes the window, which then closes as Ctrl+Q does.
@@ -742,6 +760,9 @@ mod tests {
             commands.is_some_and(|c| c.contains(&ViewportCommand::Close))
         };
         assert!(!closes(&mut app));
+        // A window starts having seen no signal, so one that came while it started, after the
+        // handler was set and before the window was made, closes it too.
+        assert_eq!(super::Window::new(false).termination_signals_seen, 0);
         // As if a signal came: the count differs from the one the window saw. The count itself
         // is left alone, as the windows of other tests would close at it.
         app.window.termination_signals_seen = usize::MAX;
@@ -749,6 +770,34 @@ mod tests {
         assert!(app.window.kiosk_may_quit);
         assert!(!closes(&mut app));
         std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A signal that was ignored when Glimt started stays ignored, as `nohup` ignores SIGHUP so
+    /// that Glimt outlives its terminal. A signal not ignored gets the handler. SIGUSR2 stands
+    /// in for SIGHUP, which the test runner must keep.
+    #[test]
+    #[allow(unsafe_code)]
+    fn a_signal_ignored_at_start_stays_ignored() {
+        extern "C" fn handler(_signal: libc::c_int) {}
+        let action_of = |signal| {
+            // SAFETY: sigaction with no new action only fills `old`, a zeroed sigaction.
+            unsafe {
+                let mut old: libc::sigaction = std::mem::zeroed();
+                libc::sigaction(signal, std::ptr::null(), &mut old);
+                old.sa_sigaction
+            }
+        };
+        // SAFETY: Ignoring a signal that nothing in the tests sends.
+        unsafe { libc::signal(libc::SIGUSR2, libc::SIG_IGN) };
+        super::handle_unless_ignored(libc::SIGUSR2, handler);
+        assert_eq!(action_of(libc::SIGUSR2), libc::SIG_IGN);
+        // SAFETY: The default action back, for a signal that nothing in the tests sends.
+        unsafe { libc::signal(libc::SIGUSR2, libc::SIG_DFL) };
+        super::handle_unless_ignored(libc::SIGUSR2, handler);
+        let handled = action_of(libc::SIGUSR2) == handler as *const () as libc::sighandler_t;
+        // SAFETY: As above.
+        unsafe { libc::signal(libc::SIGUSR2, libc::SIG_DFL) };
+        assert!(handled);
     }
 
     /// The exit takes a report that a job sent after the guard of the close took the others, so
