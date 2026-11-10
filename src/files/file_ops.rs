@@ -1986,6 +1986,10 @@ fn forget_in_collection(
     let Some(file) = collection.filter(|_| !gone.is_empty()) else {
         return Ok(Vec::new());
     };
+    // A rename or move that follows its files into the collection may still wait in the writer
+    // thread. Otherwise a file renamed and then deleted at once would not be found under its
+    // new name here, and the writer would then write that name of a trashed file.
+    crate::files::file_io::wait_for_queued_writes();
     // Each entry and the folders above it are looked up, rather than every gone file for each
     // entry, because 10,000 deleted from a collection of 50,000 were half a billion
     // comparisons.
@@ -3668,6 +3672,28 @@ mod tests {
             while app.working() {}
             assert!(app.are_free_to_change(&file), "{:?}", app.notice.text());
         }
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A delete takes its file out of the collection also when the rename that gave the file its
+    /// name still waits in the writer thread. Before, the delete found no entry under the new
+    /// name, and the writer then wrote that name of a trashed file into the collection.
+    #[test]
+    fn a_delete_waits_for_a_rename_queued_for_the_collection() {
+        let dir = contract_folder("forget-queued");
+        let (gqv, a, renamed) = (dir.join("col.gqv"), dir.join("a.png"), dir.join("c.png"));
+        let (file, from, to) = (gqv.clone(), a.clone(), renamed.clone());
+        crate::files::file_io::write_later(move || {
+            std::thread::sleep(std::time::Duration::from_millis(200));
+            let rename = |all: &mut Vec<std::path::PathBuf>| {
+                (all.iter_mut().filter(|p| **p == from)).for_each(|p| *p = to.clone())
+            };
+            crate::model::collections::edit_open_collection(&file, rename).unwrap();
+        });
+        let removed =
+            super::forget_in_collection(Some(gqv.as_path()), std::slice::from_ref(&renamed))
+                .unwrap();
+        assert_eq!(removed, [(0, renamed)]);
         std::fs::remove_dir_all(dir).unwrap();
     }
 
