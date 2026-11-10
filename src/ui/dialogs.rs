@@ -148,8 +148,11 @@ pub(crate) struct Dialogs {
     asked: Option<Asked>,
     /// The type of the FAT or exFAT file system that Rename Many renames on, looked up once as
     /// the dialog opens, so that its preview can warn without reading the mount table in every
-    /// frame. It is `None` on any other file system.
+    /// frame. It is `None` on any other file system, and until the look-up has answered.
     fat_file_system_type: Option<String>,
+    /// The look-up of `fat_file_system_type`, in the background, because the mount table is
+    /// read for it and the files' folder is looked at.
+    fat_file_system_answer: Receiving<Option<String>>,
     /// File → Copy for Sharing's dialog, while it is open.
     copy_for_sharing: Option<SharingDialog>,
     /// The files that Open With Default App asks about before it opens them, or none while it
@@ -158,6 +161,14 @@ pub(crate) struct Dialogs {
 }
 
 impl Dialogs {
+    /// Takes the type of the file system that Rename Many renames on, once its look-up in the
+    /// background has answered.
+    fn receive_fat_file_system_type(&mut self) {
+        if let Took::Answer(kind) = self.fat_file_system_answer.take() {
+            self.fat_file_system_type = kind;
+        }
+    }
+
     /// Opens the text dialog `prompt`, with `text` typed in already. A dialog about files
     /// opens through `ask_about` instead, which takes the files it asks about.
     fn ask(&mut self, prompt: Prompt, text: String) {
@@ -290,13 +301,21 @@ impl Dialogs {
 
 impl crate::App {
     /// Asks for Rename Many's pattern for the files `asked`. The file system of the first
-    /// file's folder is looked up here, once, for the preview of its new name.
+    /// file's folder is looked up once, in the background, for the preview of its new name.
     pub(crate) fn ask_rename_many(&mut self, asked: Asked) {
         let first = (asked.names.first()).map(|n| self.folder.dir().join(n));
-        self.dialogs.fat_file_system_type = first
+        let folder = first
             .as_deref()
             .and_then(Path::parent)
-            .and_then(fat_file_system_type);
+            .map(Path::to_path_buf);
+        let (tx, rx) = mpsc::channel();
+        let ctx = self.ctx.clone();
+        std::thread::spawn(move || {
+            let _ = tx.send(folder.and_then(|f| fat_file_system_type(&f)));
+            ctx.request_repaint();
+        });
+        self.dialogs.fat_file_system_type = None;
+        self.dialogs.fat_file_system_answer = Receiving::of(rx);
         self.dialogs
             .ask_about(asked, Prompt::RenameMany, "*_###".into());
     }
@@ -469,8 +488,9 @@ impl crate::App {
         self.dialogs.saved_theme = Receiving::of(rx);
     }
 
-    /// Takes the answer of Save as Theme. The theme saved is the one in use from then on.
-    pub(crate) fn receive_saved_theme(&mut self) {
+    /// Takes the answer of Save as Theme. The theme saved is the one in use from then on, and
+    /// the theme files are read again for it.
+    pub(crate) fn receive_saved_theme(&mut self, ctx: &egui::Context) {
         // The busy pointer stays until the answer is handled.
         let ((text, saved), _pointer) = match self.dialogs.saved_theme.take() {
             Took::Answer(answer) => answer,
@@ -481,6 +501,7 @@ impl crate::App {
             Ok(file) => {
                 self.config.theme = text;
                 self.config.save();
+                self.desktop_settings.read_theme_files_again(ctx);
                 tf!(
                     "Saved as {file}: edit it, then choose it again",
                     file = file.display()
@@ -526,10 +547,10 @@ impl crate::App {
                 (Pick::SavePdf(job), Some(file)) => self.print(ctx, job, PrintTo::File(file)),
                 (Pick::SortFolder, Some(dir)) => self.add_sort_folder(dir),
                 (Pick::ScreenProfile, Some(file)) => {
-                    self.set_screen_profile(file.to_string_lossy().into_owned())
+                    self.set_screen_profile(ctx, file.to_string_lossy().into_owned())
                 }
                 (Pick::InputProfile, Some(file)) => {
-                    self.set_input_profile(file.to_string_lossy().into_owned())
+                    self.set_input_profile(ctx, file.to_string_lossy().into_owned())
                 }
                 (Pick::Lightroom, Some(file)) => self.read_lightroom(ctx, file),
                 (Pick::BackUp, Some(dir)) => self.back_up(ctx, dir),
@@ -604,6 +625,7 @@ impl crate::App {
             };
             // The first new name, so the pattern can be checked before renaming.
             let first = (self.dialogs.asked_names().first()).map(|n| self.folder.dir().join(n));
+            self.dialogs.receive_fat_file_system_type();
             let fat = self.dialogs.fat_file_system_type.clone();
             let mut answer = None;
             let mut field = None;
@@ -688,17 +710,16 @@ impl crate::App {
     fn name_window(&mut self, ctx: &egui::Context, name: &str) {
         // The name typed is told in the user's language. The other reasons come from the
         // system, rarely, and are the English ones that `--remote name` prints too.
-        if !name.is_empty() && !crate::features::remote::can_be_window_name(name) {
+        // Whether it fits the socket's path is looked up with the rest in the background.
+        if !name.is_empty() && !crate::features::remote::valid_name(name) {
             let why = tr(
                 "Could not name this window: a name holds up to 64 letters, digits, \
                  - and _, and not only digits",
             );
             return self.notice.give(why.to_owned());
         }
-        if let Err(why) = self.set_window_name(ctx, name) {
-            self.notice
-                .give(tf!("Could not name this window: {why}", why));
-        }
+        let asked_by = crate::features::remote::NameAskedBy::Dialog;
+        self.set_window_name(ctx, name, asked_by);
     }
 
     /// The text dialog was answered with `text`, trimmed.
@@ -717,10 +738,8 @@ impl crate::App {
             if !self.select_for_action(ctx, found.into_iter().collect()) {
                 return;
             }
-            return match collections::new_file(text) {
-                Ok(file) => self.add_to_collection(ctx, &file),
-                Err(e) => self.notice.give(e),
-            };
+            let added_to = collections::CollectionAddedTo::New(text.to_owned());
+            return self.add_to_collection(ctx, added_to);
         }
         if let Prompt::RenameCollection = prompt {
             return self.rename_collection(ctx, text);
@@ -1281,7 +1300,8 @@ mod tests {
     }
 
     /// Rename Many's preview warns when the first new name has a character that the camera card
-    /// of the files refuses. The card's file system is looked up once, as the dialog opens.
+    /// of the files refuses. The card's file system is looked up once, in the background, as the
+    /// dialog opens.
     #[test]
     fn rename_many_warns_of_what_fat_refuses() {
         use crate::files::file_ops::test_mount;
@@ -1294,13 +1314,26 @@ mod tests {
         assert!(crate::support::test_support::run_background_until(
             &mut app, &ctx, listed
         ));
+        // The file system is looked up in the background.
+        let answered = |app: &mut crate::App| {
+            (0..250).any(|_| {
+                app.dialogs.receive_fat_file_system_type();
+                let done = app.dialogs.fat_file_system_answer.is_none();
+                if !done {
+                    std::thread::sleep(std::time::Duration::from_millis(20));
+                }
+                done
+            })
+        };
         test_mount(&d, Some("ext4"));
         let asked = app.ask_about_targets().unwrap();
         app.ask_rename_many(asked);
+        assert!(answered(&mut app));
         assert_eq!(app.dialogs.fat_file_system_type, None);
         test_mount(&d, Some("vfat"));
         let asked = app.ask_about_targets().unwrap();
         app.ask_rename_many(asked);
+        assert!(answered(&mut app));
         test_mount(&d, None);
         let fat = app.dialogs.fat_file_system_type.as_deref();
         assert_eq!(fat, Some("vfat"));
@@ -1585,6 +1618,14 @@ mod tests {
         assert!(crate::support::test_support::run_background_until(
             &mut app, &ctx, written
         ));
+        // A name taken already is told too, though it is looked up in the background.
+        app.run(&ctx, crate::ui::actions::Action::NewCollection);
+        app.act_on_prompt_answer(&ctx, super::Prompt::NewCollection, &name);
+        assert!(crate::support::test_support::run_background_until(
+            &mut app, &ctx, written
+        ));
+        let taken = crate::tf!("There is a collection called \"{name}\" already", name);
+        assert_eq!(app.notice.text(), Some(taken.as_str()));
         std::fs::remove_file(&file).unwrap();
         std::fs::remove_dir_all(&dir).unwrap();
     }

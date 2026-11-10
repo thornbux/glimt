@@ -23,6 +23,9 @@ impl crate::App {
             self.notice.give(error);
         }
         self.receive_desktop(ctx);
+        self.receive_window_name(ctx);
+        self.folder.receive_sort_folders();
+        self.info_panel.receive_keyword_tree();
         self.decoding
             .set_max_side(ctx.input(|i| i.max_texture_side) as u32);
         self.receive_decoded(ctx);
@@ -68,7 +71,7 @@ impl crate::App {
             self.open_folders(ctx, all);
         }
         self.receive_picked(ctx);
-        self.receive_saved_theme();
+        self.receive_saved_theme(ctx);
     }
 
     /// Takes the answers that need no frame: the sizes summed and freed, and the EXIF index.
@@ -80,15 +83,16 @@ impl crate::App {
         self.receive_exif_index(ctx);
     }
 
-    /// The desktop's look and screen profile, once read.
+    /// The desktop's look and screen profile, once read, and the colour profiles set.
     fn receive_desktop(&mut self, ctx: &egui::Context) {
         let (look, screen) = self.desktop_settings.receive();
         if look {
             self.apply_theme(ctx);
         }
         if screen {
-            self.choose_screen_profile();
+            self.choose_screen_profile(ctx);
         }
+        self.receive_profile_changes(ctx);
     }
 
     /// Takes what file operations finished: their jobs and the files they touch are let go (an
@@ -123,8 +127,9 @@ impl crate::App {
     fn receive_focus(&mut self, ctx: &egui::Context) {
         let focus = ctx.input(|i| i.viewport().focused.unwrap_or(false));
         let gained = self.window.set_focused(focus);
+        // The file that says so is Glimt's own, written in the writer's thread.
         if gained {
-            remote::mark_this_window_focused();
+            crate::files::file_io::write_later(remote::mark_this_window_focused);
         }
         // Back from another window, which may have marked files meanwhile.
         #[cfg(feature = "marks")]

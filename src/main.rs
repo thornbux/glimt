@@ -133,8 +133,8 @@ struct App {
     preferences: crate::ui::preferences::Preferences,
     /// Open With's programs for each file type, read in the background.
     open_with: crate::ui::menus::OpenWith,
-    /// Edit → Tools, read at start.
-    tools: Vec<crate::features::tools::Tool>,
+    /// Edit → Tools, read in the background at start.
+    tools: crate::features::tools::InstalledTools,
     /// The tools running, for Stop in their menu.
     tools_running: crate::features::tools::RunningTools,
     /// The help page open (F1), if any.
@@ -206,7 +206,10 @@ impl App {
         crate::images::decode::set_animation_limit(config.animation_mb);
         set_cpu_use(config.cpu_use);
         crate::ui::theme::fonts(ctx);
-        crate::ui::theme::apply(ctx, &crate::ui::theme::load(&config.theme), None, None);
+        // The user's own theme files are read in the background (`DesktopSettings`), and the
+        // chosen one is applied when it comes.
+        let built_in = crate::ui::theme::built_in_theme(&config.theme);
+        crate::ui::theme::apply(ctx, &built_in, None, None);
         // The size comes from Preferences and the desktop, so egui's own Ctrl+0 would undo it.
         ctx.options_mut(|o| o.zoom_with_keyboard = false);
         ctx.set_zoom_factor(config.ui_scale as f32 / 100.0);
@@ -256,7 +259,7 @@ impl App {
             dialogs: crate::ui::dialogs::Dialogs::default(),
             preferences: crate::ui::preferences::Preferences::default(),
             open_with: crate::ui::menus::OpenWith::default(),
-            tools: crate::features::tools::find(),
+            tools: crate::features::tools::InstalledTools::new(ctx),
             tools_running: crate::features::tools::RunningTools::default(),
             help: None,
             print_dialog: None,
@@ -267,7 +270,7 @@ impl App {
             save_as_choices: Default::default(),
             find_duplicates: None,
             check_images: None,
-            remote: crate::features::remote::Listener::new(ctx, listens_without_name),
+            remote: crate::features::remote::Listener::new(ctx, &busy, listens_without_name),
             config,
         };
         app.open_at_start(ctx, path, &start.more_paths, opens_last_folder);
@@ -382,8 +385,9 @@ impl eframe::App for App {
     /// The last folder is written once on exit, not on every folder change.
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
         // The listener closes to new clients first, because a client coming after the answers
-        // would get none.
-        crate::features::remote::close();
+        // would get none. Its socket is removed in a thread of its own, as every look at the
+        // disk is.
+        std::thread::spawn(crate::features::remote::close);
         self.answer_waiting_selects();
         crate::features::remote::stop(|| self.answer_waiting_selects());
         let ctx = self.ctx.clone();
@@ -501,6 +505,8 @@ fn main() -> eframe::Result {
     if let Some(path) = std::env::var_os(crate::images::svg::DRAW_SVG) {
         std::process::exit(crate::images::svg::draw_for_parent(&path));
     }
+    // This Glimt's name is found before any thread starts, so the window never reads it.
+    crate::features::remote::find_instance_id();
     // There is one malloc arena for all threads. With one arena per thread, freed image
     // buffers stayed in each decode thread's arena, and a folder of screenshots used 91 MB of
     // own memory instead of 29 MB. Decoding is at most a few percent slower.

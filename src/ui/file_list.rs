@@ -1195,22 +1195,31 @@ impl crate::App {
                 .give(tr("Could not save the sort manager's folders: no home folder").into());
         };
         let shown = self.folder.sort_folders().to_vec();
-        self.folder
-            .set_sort_folders(config::sort_folders_changed(shown, add, remove));
-        // The change is made on the file as it is now, so another window's folders stay. A file
-        // that cannot be read is not written over. It is written in the writer's thread, as a
-        // home on a share that stopped answering would hold the window.
+        let (tx, written) = mpsc::channel();
+        let dirs = config::sort_folders_changed(shown, add, remove);
+        self.folder.set_sort_folders(dirs, written);
+        // The change is made on the file as it is now, so another window's folders stay, and
+        // the folders as written come back. A file that cannot be read is not written over. It
+        // is written in the writer's thread, as a home on a share that stopped answering would
+        // hold the window.
         let (add, remove) = (add.map(Path::to_path_buf), remove.map(Path::to_path_buf));
+        let ctx = self.ctx.clone();
         crate::files::file_io::write_later(move || {
             let change = |old: &[u8]| {
                 let changed = (add.as_deref(), remove.as_deref());
                 let dirs =
                     config::sort_folders_changed(sort_folders_from(old), changed.0, changed.1);
-                (config::sort_folders_text(&dirs), ())
+                (config::sort_folders_text(&dirs), dirs)
             };
-            if let Err(e) = crate::files::file_io::edit_shared(&path, change) {
-                let told = tf!("Could not save the sort manager's folders: {e}", e);
-                crate::files::file_io::save_failed(told);
+            match crate::files::file_io::edit_shared(&path, change) {
+                Ok(dirs) => {
+                    let _ = tx.send(dirs);
+                    ctx.request_repaint();
+                }
+                Err(e) => {
+                    let told = tf!("Could not save the sort manager's folders: {e}", e);
+                    crate::files::file_io::save_failed(told);
+                }
             }
         });
     }
@@ -2004,6 +2013,42 @@ pub(crate) fn places_overlapped(lo: f32, hi: f32, step: f32, size: f32) -> std::
 #[cfg(test)]
 mod tests {
     use super::Panel;
+
+    /// Another window's sort folder, written to the file meanwhile, shows in this window's sort
+    /// manager once this window's own change is written, as it did when the window's thread
+    /// wrote the file and took the folders it wrote.
+    #[test]
+    fn another_windows_sort_folders_show_after_a_change() {
+        use crate::files::config::{sort_folders_changed, sort_folders_from, sort_folders_text};
+        let dir =
+            std::env::temp_dir().join(format!("glimt-test-sort-other-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let (mut app, ctx) = crate::support::test_support::app_on(&dir);
+        let (other, mine) = (dir.join("other"), dir.join("mine"));
+        let file = crate::files::config::sort_folders_path().unwrap();
+        let change = |add: Option<&std::path::Path>, remove: Option<&std::path::Path>| {
+            let edit = |old: &[u8]| {
+                let dirs = sort_folders_changed(sort_folders_from(old), add, remove);
+                (sort_folders_text(&dirs), ())
+            };
+            crate::files::file_io::edit_shared(&file, edit).unwrap();
+        };
+        change(Some(&other), None);
+        app.change_sort_folders(Some(&mine), None);
+        let has_both = |a: &crate::App| {
+            let shown = a.folder.sort_folders();
+            shown.contains(&other) && shown.contains(&mine)
+        };
+        let shown = crate::support::test_support::run_background_until(&mut app, &ctx, has_both);
+        crate::files::file_io::flush();
+        change(None, Some(&other));
+        change(None, Some(&mine));
+        std::fs::remove_dir_all(&dir).unwrap();
+        assert!(
+            shown,
+            "the other window's folder is not in the sort manager"
+        );
+    }
 
     /// A scroll to the shown image is made by every list of the frame after it was asked, the
     /// side panel and the grid both, and then it is done. One asked while a frame draws is made

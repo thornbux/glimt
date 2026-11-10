@@ -72,6 +72,11 @@ and versions follow [Semantic Versioning](https://semver.org/).
   computer's memory.
 - Find Duplicates shows the busy pointer while it compares, until its groups are listed, as
   other work in the background does.
+- The window no longer waits for the disk where a home folder or a share that stopped answering
+  could hold it. The theme menu and Preferences read the theme files in the background, and a
+  colour profile chosen is read there. Save As no longer reads a WebP file in every frame of its
+  dialog. New Collection, Set Window Name, Rename Many, Print to a file, opening a file, Import
+  Lightroom Catalog and Edit → Tools look up what they need in the background too.
 ### Changed
 
 - Copy Image to Clipboard moves from the Select menu to Edit, beside Crop and Orientation. It

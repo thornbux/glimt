@@ -9,6 +9,7 @@ use crate::metadata::marks;
 use crate::metadata::xmp::{KeywordChange, KeywordsAndComment};
 use crate::support::format::{count, human_size, thousands};
 use crate::support::lang::tr;
+use crate::support::threads::{Receiving, Took};
 use crate::ui::dialogs::entered;
 use crate::{files::config, images::decode, metadata::exif, metadata::xmp, tf};
 use eframe::egui;
@@ -123,6 +124,9 @@ pub(crate) struct InfoPanel {
     open_keywords: HashSet<String>,
     /// A path being typed to add to the keyword tree.
     new_keyword: String,
+    /// The keyword tree as its file has it once this window's last change is written, with
+    /// what other windows wrote there meanwhile.
+    keyword_tree_written: Receiving<Vec<String>>,
 }
 
 impl InfoPanel {
@@ -144,11 +148,21 @@ impl InfoPanel {
             keyword_names: HashSet::new(),
             open_keywords: HashSet::new(),
             new_keyword: String::new(),
+            keyword_tree_written: Receiving::none(),
         };
         let tree = (keyword_tree_path().and_then(|p| crate::images::decode::read_limited(p).ok()))
             .map_or_else(Vec::new, |file| xmp::keyword_tree_of(&file));
         panel.set_keyword_tree(tree);
         panel
+    }
+
+    /// Takes the keyword tree as its file has it once this window's last change is written.
+    /// So another window's keywords show here after this window's next change, as they did
+    /// when the window wrote the file itself.
+    pub(crate) fn receive_keyword_tree(&mut self) {
+        if let Took::Answer(tree) = self.keyword_tree_written.take() {
+            self.set_keyword_tree(tree);
+        }
     }
 
     /// Makes `tree` the keyword tree, and builds its levels and names once for the frames that
@@ -467,12 +481,23 @@ impl crate::App {
         let Some(p) = keyword_tree_path().filter(|_| !config::locked()) else {
             return;
         };
+        // The tree as written comes back, with what other windows wrote there meanwhile.
+        let (tx, rx) = mpsc::channel();
+        self.info_panel.keyword_tree_written = Receiving::of(rx);
+        let ctx = self.ctx.clone();
         crate::files::file_io::write_later(move || {
             // A file that cannot be read is not written over, because its keywords would be
             // lost.
             let change = |old: &[u8]| xmp::keyword_tree_file_changed(old, add, remove);
-            if let Err(e) = crate::files::file_io::edit_shared(&p, change) {
-                crate::files::file_io::save_failed(tf!("Could not save the keyword tree: {e}", e));
+            match crate::files::file_io::edit_shared(&p, change) {
+                Ok(tree) => {
+                    let _ = tx.send(tree);
+                    ctx.request_repaint();
+                }
+                Err(e) => crate::files::file_io::save_failed(tf!(
+                    "Could not save the keyword tree: {e}",
+                    e
+                )),
             }
         });
     }
@@ -783,6 +808,36 @@ pub(crate) fn spawn_exif_reader(
 #[cfg(test)]
 mod tests {
     use crate::support::test_support::{app_on, run_background_until};
+
+    /// Another window's keyword, written to the tree's file meanwhile, shows in this window's
+    /// tree once this window's own change is written, as it did when the window's thread wrote
+    /// the file and took the tree it wrote.
+    #[test]
+    fn another_windows_keywords_show_after_a_change() {
+        let id = std::process::id();
+        let dir = std::env::temp_dir().join(format!("glimt-test-kw-other-{id}"));
+        std::fs::create_dir_all(&dir).unwrap();
+        let (mut app, ctx) = app_on(&dir);
+        let (other, mine) = (format!("GlimtTestOther{id}"), format!("GlimtTestMine{id}"));
+        let file = crate::files::config::keyword_tree_path().unwrap();
+        let change = |add: Vec<String>, remove: Option<String>| {
+            let edit =
+                |old: &[u8]| crate::metadata::xmp::keyword_tree_file_changed(old, add, remove);
+            crate::files::file_io::edit_shared(&file, edit).unwrap();
+        };
+        change(vec![other.clone()], None);
+        app.change_keyword_tree(vec![mine.clone()], None);
+        let has_both = |a: &crate::App| {
+            let tree = &a.info_panel.keyword_tree;
+            tree.contains(&other) && tree.contains(&mine)
+        };
+        let shown = run_background_until(&mut app, &ctx, has_both);
+        crate::files::file_io::flush();
+        change(Vec::new(), Some(other.clone()));
+        change(Vec::new(), Some(mine.clone()));
+        std::fs::remove_dir_all(&dir).unwrap();
+        assert!(shown, "the other window's keyword is not in the tree");
+    }
 
     /// Keywords added to the selection show in the panel at once, and they stay after the
     /// writer is done, so a later edit in the panel keeps them.

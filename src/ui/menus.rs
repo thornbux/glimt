@@ -5,7 +5,7 @@ use crate::files::config::xdg_dir;
 use crate::files::external::{apps_for, command, open_own_folder, open_url};
 use crate::files::file_ops::OperationReport;
 use crate::images::colour::{
-    COLOR_MANAGEMENT, FILTERS, VIEW_FILTER, set_colour, set_input, set_intent, set_screen,
+    COLOR_MANAGEMENT, FILTERS, ProfileAsked, ProfileSet, VIEW_FILTER, set_colour, set_intent,
 };
 use crate::support::format::count;
 use crate::support::lang::tr;
@@ -92,7 +92,7 @@ impl OpenWith {
 impl crate::App {
     // ---- Settings and the menus that change them ----
 
-    /// The chosen theme, read from its file again, with the desktop's look where it sets none;
+    /// The chosen theme, from its file as last read, with the desktop's look where it sets none;
     /// High Contrast while the desktop asks for it, unless that is turned off.
     pub(crate) fn apply_theme(&self, ctx: &egui::Context) {
         let look = self.desktop_settings.look();
@@ -100,14 +100,15 @@ impl crate::App {
             true => theme::HIGH_CONTRAST,
             false => &self.config.theme,
         };
-        theme::apply(ctx, &theme::load(name), look.dark, look.accent);
+        let chosen = self.desktop_settings.theme(name);
+        theme::apply(ctx, &chosen, look.dark, look.accent);
         let desktop = look.text_scale.filter(|_| self.config.follow_text_scale);
         ctx.set_zoom_factor(self.config.ui_scale as f32 / 100.0 * desktop.unwrap_or(1.0));
     }
 
     /// View → Theme: the themes to choose from, then where to make and find more.
     pub(crate) fn theme_menu(&mut self, ui: &mut egui::Ui) {
-        for name in theme::names() {
+        for name in self.desktop_settings.theme_names(ui.ctx()) {
             let icon = match name.as_str() {
                 "Dark" => theme::icon::MOON,
                 "Light" => theme::icon::SUN,
@@ -117,7 +118,8 @@ impl crate::App {
                 theme::HIGH_CONTRAST_LIGHT => theme::icon::HALF_TILT,
                 _ => theme::icon::BRUSH,
             };
-            // Chosen again too, so a theme file just edited shows.
+            // Chosen again too, so a theme file just edited shows, as the open menu reads the
+            // files again every second.
             let shown = theme::shown_name(&name);
             #[allow(clippy::disallowed_methods)] // It has an icon before the text, noted below.
             let radio = ui.radio(self.config.theme == name, with_icon(ui, icon, shown));
@@ -182,14 +184,11 @@ impl crate::App {
     }
 
     /// Show everything through the screen profile in `path` (empty: none, the screen is sRGB).
-    pub(crate) fn set_screen_profile(&mut self, path: String) {
-        if let Err(e) = set_screen(&path) {
-            self.notice.give(e);
-            return;
-        }
-        self.config.screen_profile = path;
-        self.config.save();
-        self.choose_screen_profile();
+    /// The file is read in the background, and the setting changes when it could be
+    /// (`receive_profile_changes`).
+    pub(crate) fn set_screen_profile(&mut self, ctx: &egui::Context, path: String) {
+        let asked = ProfileAsked::Screen { path, chosen: true };
+        self.decoding.profile_changes().ask(&self.busy, ctx, asked);
     }
 
     /// Whether the desktop's screen profile goes before the chosen one; read from colord when on.
@@ -199,32 +198,58 @@ impl crate::App {
         if on {
             self.desktop_settings.ask_screen_profile(ctx);
         }
-        self.choose_screen_profile();
+        self.choose_screen_profile(ctx);
     }
 
     /// Show through the desktop's screen profile when it counts and colord has one, else through
-    /// the chosen one.
-    pub(crate) fn choose_screen_profile(&mut self) {
+    /// the chosen one. Its file is read in the background.
+    pub(crate) fn choose_screen_profile(&mut self, ctx: &egui::Context) {
         let path = match self.desktop_settings.screen_profile() {
             Some(p) if self.config.desktop_profile => p.to_owned(),
             _ => self.config.screen_profile.clone(),
         };
-        match set_screen(&path) {
-            Ok(false) => {}
-            Ok(true) => self.redecode(),
-            Err(e) => self.notice.give(e),
-        }
+        let asked = ProfileAsked::Screen {
+            path,
+            chosen: false,
+        };
+        self.decoding.profile_changes().ask(&self.busy, ctx, asked);
     }
 
-    /// The profile for images without one: srgb, adobe, p3 or an ICC file.
-    pub(crate) fn set_input_profile(&mut self, name: String) {
-        if let Err(e) = set_input(&name) {
-            self.notice.give(e);
-            return;
+    /// The profile for images without one: srgb, adobe, p3 or an ICC file, read in the
+    /// background.
+    pub(crate) fn set_input_profile(&mut self, ctx: &egui::Context, name: String) {
+        let asked = ProfileAsked::Input { name };
+        self.decoding.profile_changes().ask(&self.busy, ctx, asked);
+    }
+
+    /// Takes the colour profiles read and set in the background: a chosen one is kept in the
+    /// settings once it could be read, and the images are decoded again in its colours. A file
+    /// that is not an RGB profile is told, and the profile before it stays.
+    pub(crate) fn receive_profile_changes(&mut self, ctx: &egui::Context) {
+        while let Some((set, _pointer)) = self.decoding.profile_changes().next() {
+            match set {
+                ProfileSet::Screen { answer: Err(e), .. }
+                | ProfileSet::Input { answer: Err(e), .. } => {
+                    self.notice.give(e);
+                }
+                ProfileSet::Screen {
+                    path, chosen: true, ..
+                } => {
+                    self.config.screen_profile = path;
+                    self.config.save();
+                    self.choose_screen_profile(ctx);
+                }
+                ProfileSet::Screen {
+                    answer: Ok(true), ..
+                } => self.redecode(),
+                ProfileSet::Screen { .. } => {}
+                ProfileSet::Input { name, .. } => {
+                    self.config.input_profile = name;
+                    self.config.save();
+                    self.redecode();
+                }
+            }
         }
-        self.config.input_profile = name;
-        self.config.save();
-        self.redecode();
     }
 
     /// Whether an image's own profile counts, or the input profile is used for all.
@@ -523,7 +548,8 @@ impl crate::App {
                 let all = self.folder.saved_collections().listed(ui.ctx());
                 for (name, file) in all.into_iter().flatten() {
                     if icon_button(ui, theme::icon::STACK, &name).clicked() {
-                        self.add_to_collection(ui.ctx(), &file);
+                        let added_to = crate::model::collections::CollectionAddedTo::Saved(file);
+                        self.add_to_collection(ui.ctx(), added_to);
                     }
                 }
                 menu_item(ui, chosen, Action::NewCollection);
@@ -544,11 +570,12 @@ impl crate::App {
             ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Extend);
             // The folder to open is looked for only when it is opened, in its thread.
             let glimt_home = xdg_dir("XDG_DATA_HOME", ".local/share", "glimt");
-            if self.tools.is_empty() {
+            let tools = self.tools.listed().to_vec();
+            if tools.is_empty() {
                 ui.weak(tr("No tools"));
             }
             let mut chosen = None;
-            for (k, tool) in self.tools.iter().enumerate() {
+            for (k, tool) in tools.iter().enumerate() {
                 if icon_button(ui, theme::icon::TOOL, &tool.name).clicked() {
                     chosen = Some(k);
                 }
@@ -587,7 +614,7 @@ impl crate::App {
             let Some(targets) = self.targets() else {
                 return;
             };
-            let tool = self.tools[k].clone();
+            let tool = tools[k].clone();
             let (files, left): (Vec<PathBuf>, Vec<PathBuf>) =
                 (targets.iter().map(|&i| self.path(i))).partition(|p| tool.accepts(p));
             let name = &tool.name;

@@ -431,17 +431,20 @@ impl crate::App {
 
     /// Print `job` in the background.
     pub(crate) fn print(&mut self, ctx: &egui::Context, job: PrintJob, to: PrintTo) {
-        if to.is_an_image() {
-            let text = tr("Not saved over an image: choose a name ending in .pdf");
-            let _ = self.notice_sender.send(text.into());
-            return;
-        }
         let (tx, ctx) = (self.notice_sender.clone(), ctx.clone());
         let pointer = Working::new(&self.busy);
         // A PDF half made would be lost, its temporary file left beside the one chosen.
         let writing = Working::new(&crate::files::file_io::WRITING);
         std::thread::spawn(move || {
             let _writing = writing;
+            // Looked up here, as an added format's folder is read for it, and a home folder on
+            // a share that stopped answering would hold the window.
+            if to.is_an_image() {
+                let text = tr("Not saved over an image: choose a name ending in .pdf");
+                let _ = tx.send(text.into());
+                drop(pointer);
+                return;
+            }
             let max = print::max_pixels(&job.layout);
             let failed = std::cell::Cell::new(0);
             let pages = job.paths.iter().enumerate().filter_map(|(k, path)| {

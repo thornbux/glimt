@@ -6,6 +6,7 @@ use crate::files::config::Config;
 use crate::metadata::exif;
 use crate::support::lang::tr;
 use crate::support::threads::lock_even_if_poisoned;
+use crate::support::threads::{AnswerSender, Receiving, Took, Working, answer_channel};
 use eframe::egui;
 use std::collections::HashMap;
 use std::path::Path;
@@ -93,6 +94,10 @@ pub const INPUT_PROFILES: [(&str, &str, BuiltIn); 3] = [
     }),
 ];
 
+/// Held while a colour profile chosen is read and set (`ProfileChanges`), so that two chosen
+/// at once are set one after the other.
+static PROFILE_CHANGES: Mutex<()> = Mutex::new(());
+
 /// Held by the tests that change the colour settings or depend on them, as tests run at once.
 #[cfg(test)]
 pub static COLOUR_TEST: Mutex<()> = Mutex::new(());
@@ -122,6 +127,89 @@ pub struct Colour {
     /// than the transform itself. By (source, to the screen, the pixels' form): 0 is sRGB, 1
     /// the input profile, the rest a hash of the image's profile.
     pub transforms: Arc<Mutex<Transforms>>,
+}
+
+/// A colour profile to read and set in the background (`ProfileChanges::ask`).
+pub(crate) enum ProfileAsked {
+    /// The screen profile in the file at `path`, chosen by the user (`chosen`), or the one that
+    /// counts now, the desktop's or the chosen one.
+    Screen { path: String, chosen: bool },
+    /// The profile for images without one, by its name in `INPUT_PROFILES` or its file.
+    Input { name: String },
+}
+
+/// A colour profile read and set in the background, with what `set_screen` or `set_input`
+/// answered.
+pub(crate) enum ProfileSet {
+    Screen {
+        path: String,
+        chosen: bool,
+        answer: Result<bool, String>,
+    },
+    Input {
+        name: String,
+        answer: Result<(), String>,
+    },
+}
+
+/// The colour profiles chosen, read and set in threads of their own, because a profile's file
+/// may be on a share that stopped answering. Their answers keep the busy pointer until the
+/// window has taken them.
+#[derive(Default)]
+pub(crate) struct ProfileChanges {
+    sender: Option<AnswerSender<ProfileSet>>,
+    answers: Receiving<(ProfileSet, Working)>,
+}
+
+impl ProfileChanges {
+    /// Reads and sets the profile `asked` in a thread of its own, after the ones asked before.
+    pub(crate) fn ask(
+        &mut self,
+        busy: &Arc<AtomicUsize>,
+        ctx: &egui::Context,
+        asked: ProfileAsked,
+    ) {
+        let sender = match &self.sender {
+            Some(sender) => sender.clone(),
+            None => {
+                let (sender, answers) = answer_channel(busy);
+                self.answers = Receiving::of(answers);
+                self.sender.insert(sender).clone()
+            }
+        };
+        let (ctx, pointer) = (ctx.clone(), Working::new(busy));
+        std::thread::spawn(move || {
+            let set = {
+                let _one_at_a_time = lock_even_if_poisoned(&PROFILE_CHANGES);
+                match asked {
+                    ProfileAsked::Screen { path, chosen } => {
+                        let answer = set_screen(&path);
+                        ProfileSet::Screen {
+                            path,
+                            chosen,
+                            answer,
+                        }
+                    }
+                    ProfileAsked::Input { name } => {
+                        let answer = set_input(&name);
+                        ProfileSet::Input { name, answer }
+                    }
+                }
+            };
+            let _ = sender.send(set);
+            drop(pointer);
+            ctx.request_repaint();
+        });
+    }
+
+    /// Returns the next profile set, with the busy pointer it holds until it is handled, or
+    /// `None` while none has come.
+    pub(crate) fn next(&mut self) -> Option<(ProfileSet, Working)> {
+        match self.answers.next() {
+            Took::Answer(answer) => Some(answer),
+            Took::Nothing | Took::Gone => None,
+        }
+    }
 }
 
 /// Makes a built-in profile of `INPUT_PROFILES`.
@@ -611,6 +699,46 @@ pub(crate) fn set_up_colour(config: &Config) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use crate::support::threads::lock_even_if_poisoned;
+
+    /// A profile chosen is read and set in a thread of its own, and its answer comes back with
+    /// the busy pointer: a file that is no profile is refused with the reason, and a built-in
+    /// profile is set.
+    #[test]
+    fn a_profile_is_set_in_the_background() {
+        let _held = lock_even_if_poisoned(&super::COLOUR_TEST);
+        let junk =
+            std::env::temp_dir().join(format!("glimt-test-icc-chosen-{}", std::process::id()));
+        std::fs::write(&junk, b"no profile").unwrap();
+        let (busy, ctx) = (std::sync::Arc::default(), eframe::egui::Context::default());
+        let mut changes = super::ProfileChanges::default();
+        let junk_name = junk.to_string_lossy().into_owned();
+        let asked = super::ProfileAsked::Input {
+            name: junk_name.clone(),
+        };
+        changes.ask(&busy, &ctx, asked);
+        let srgb = super::ProfileAsked::Input {
+            name: "srgb".into(),
+        };
+        changes.ask(&busy, &ctx, srgb);
+        let mut answers = Vec::new();
+        let took = std::time::Instant::now();
+        while answers.len() < 2 && took.elapsed().as_secs() < 5 {
+            match changes.next() {
+                Some((super::ProfileSet::Input { name, answer }, _pointer)) => {
+                    answers.push((name, answer.is_ok()));
+                }
+                Some(_) => panic!("a screen profile was not asked for"),
+                None => std::thread::sleep(std::time::Duration::from_millis(10)),
+            }
+        }
+        std::fs::remove_file(&junk).unwrap();
+        answers.sort();
+        let mut expected = vec![(junk_name, false), ("srgb".to_owned(), true)];
+        expected.sort();
+        assert_eq!(answers, expected);
+        assert_eq!(busy.load(std::sync::atomic::Ordering::Relaxed), 0);
+    }
+
     /// A damaged colour profile in a photo gives the photo as it is, never a panic.
     #[test]
     fn survives_broken_device_lists() {

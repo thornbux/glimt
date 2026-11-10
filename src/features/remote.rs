@@ -8,9 +8,12 @@
 //! receives.
 
 use crate::features::remote;
+use crate::support::lang::tr;
 #[cfg(feature = "test-hooks")]
 use crate::support::test_hooks;
 use crate::support::threads::lock_even_if_poisoned;
+use crate::support::threads::{AnswerSender, Receiving, Took, Working, answer_channel};
+use crate::tf;
 use crate::ui::actions::Action;
 use eframe::egui;
 use std::collections::HashSet;
@@ -117,6 +120,9 @@ pub const NOT_DONE: i32 = 3;
 /// answer of a command is empty, and that of a query is paths, which start with "/".
 const NOT_DONE_ANSWER: &str = "not done: ";
 
+/// Why a name cannot be a window's, as `--remote name` prints it.
+const NOT_A_NAME: &str = "a name holds up to 64 letters, digits, - and _, not only digits";
+
 /// The keys of `--remote info`'s answer before the EXIF rows, in their order. Scripts read
 /// them, so they stay as they are, and a new one goes at the end, before the EXIF rows.
 const INFO_KEYS: [&str; 13] = [
@@ -190,12 +196,35 @@ static LISTENING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool:
 /// The listening socket's file number, -1 when this Glimt does not listen.
 static LISTENER: std::sync::atomic::AtomicI32 = std::sync::atomic::AtomicI32::new(-1);
 
+/// This Glimt's name, found once (`find_instance_id`), because every new thumbnail asks.
+static INSTANCE_ID: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+
+/// Held while the window's name is changed or its socket made, so that one change waits for
+/// the one before it, each in a thread of its own.
+static NAMING: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 /// Clients connected, and queries sent to the window whose answers are not written yet.
 static UNFINISHED_ANSWERS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
 
 /// Where the window sends a query's answer. It is paths, each ending in a NUL byte, as
 /// `find -print0` writes them, because a file name can hold a line break.
 pub type Reply = mpsc::Sender<Vec<u8>>;
+
+/// Who asked for a new window name, whom its answer goes back to.
+pub(crate) enum NameAskedBy {
+    /// Window → Set Window Name…, which tells a refusal in a notice.
+    Dialog,
+    /// `--remote name`, answered where there is a client to answer.
+    Remote(Option<Reply>),
+}
+
+/// A window name taken or refused in the background (`App::set_window_name`).
+pub(crate) struct NameAnswer {
+    asked_by: NameAskedBy,
+    /// `Err(None)` for a name that a window cannot take (`can_be_window_name`), and
+    /// `Err(Some(why))` for one refused for another reason.
+    taken: Result<(), Option<String>>,
+}
 
 /// One of `UNFINISHED_ANSWERS` while it lives.
 struct UnfinishedAnswer;
@@ -229,24 +258,39 @@ pub(crate) struct Listener {
     identify_until: Option<std::time::Instant>,
     /// The window listens for `--remote` also without a name (`listens`).
     listens_without_name: bool,
+    /// The names given to the window, taken or refused in the background, because the socket
+    /// is renamed for them.
+    name_sender: AnswerSender<NameAnswer>,
+    name_answers: Receiving<(NameAnswer, Working)>,
 }
 
 impl Listener {
     /// Listens for `--remote` when the window does without a name (`listens_without_name`), or
-    /// when it was started with --name.
-    pub(crate) fn new(ctx: &egui::Context, listens_without_name: bool) -> Self {
+    /// when it was started with --name. The socket is made in the background, as a name is.
+    pub(crate) fn new(
+        ctx: &egui::Context,
+        busy: &std::sync::Arc<std::sync::atomic::AtomicUsize>,
+        listens_without_name: bool,
+    ) -> Self {
         let (tx, rx) = mpsc::channel();
-        if listens(listens_without_name, given_name().is_some())
-            && let Err(why) = self::listen(tx.clone(), ctx.clone())
-        {
-            eprintln!("{why}");
+        if listens(listens_without_name, given_name().is_some()) {
+            let (tx, ctx) = (tx.clone(), ctx.clone());
+            std::thread::spawn(move || {
+                let _one_at_a_time = lock_even_if_poisoned(&NAMING);
+                if let Err(why) = self::listen(tx, ctx) {
+                    eprintln!("{why}");
+                }
+            });
         }
+        let (name_sender, name_answers) = answer_channel(busy);
         Listener {
             rx,
             tx,
             waiting_commands: Vec::new(),
             identify_until: None,
             listens_without_name,
+            name_sender,
+            name_answers: Receiving::of(name_answers),
         }
     }
 
@@ -364,6 +408,9 @@ impl crate::App {
         command: &str,
         reply: Option<Reply>,
     ) {
+        if let Some(name) = name_asked(command) {
+            return self.set_window_name(ctx, name, NameAskedBy::Remote(reply));
+        }
         match reply {
             Some(reply) if command.starts_with("select ") => {
                 let _ = reply.send(self.remote_select(ctx, command));
@@ -441,14 +488,6 @@ impl crate::App {
                 self.set_window_title(ctx, "");
                 None
             }
-            "name" => {
-                self.set_window_name(ctx, "")?;
-                None
-            }
-            other if other.starts_with("name ") => {
-                self.set_window_name(ctx, other["name ".len()..].trim())?;
-                None
-            }
             "identify" => {
                 self.remote.identify_until = Some(std::time::Instant::now() + IDENTIFY_TIME);
                 ctx.request_repaint();
@@ -497,34 +536,58 @@ impl crate::App {
         Ok(())
     }
 
-    /// Gives this window the --name `name`, or none when it is empty, and shows it in the title.
-    /// The window listens for `--remote` by the rule it started with (`listens`): one that did
-    /// not, with remote control off, starts to with a name, and stops again when the name is
-    /// taken away. Returns the reason when the name cannot be taken, or when the window cannot
-    /// listen by it, and the window then keeps the name it had.
+    /// Gives this window the --name `name`, or none when it is empty, in the background,
+    /// because its socket is renamed for it. The title shows it once it is taken
+    /// (`receive_window_name`), and `asked_by` gets the answer then.
     pub(crate) fn set_window_name(
         &mut self,
         ctx: &egui::Context,
         name: &str,
-    ) -> Result<(), String> {
-        let name = Some(name).filter(|n| !n.is_empty());
-        let should_listen = listens(self.remote.listens_without_name, name.is_some());
-        if listening() && !should_listen {
-            stop_listening();
-        } else {
-            let name_before = given_name();
-            remote::rename(name)?;
-            if !listening()
-                && should_listen
-                && let Err(why) = listen(self.remote.tx.clone(), ctx.clone())
-            {
-                // The window does not listen, so this only puts the name back.
-                remote::rename(name_before.as_deref())?;
-                return Err(why);
+        asked_by: NameAskedBy,
+    ) {
+        let name = Some(name.to_owned()).filter(|n| !n.is_empty());
+        let (commands, ctx) = (self.remote.tx.clone(), ctx.clone());
+        let listens_without_name = self.remote.listens_without_name;
+        let (tx, pointer) = (self.remote.name_sender.clone(), Working::new(&self.busy));
+        std::thread::spawn(move || {
+            let taken = {
+                let _one_at_a_time = lock_even_if_poisoned(&NAMING);
+                name_this_window(name.as_deref(), listens_without_name, commands, &ctx)
+            };
+            let _ = tx.send(NameAnswer { asked_by, taken });
+            drop(pointer);
+            ctx.request_repaint();
+        });
+    }
+
+    /// Takes the names taken or refused in the background: the title shows a name taken, and
+    /// whoever asked is answered.
+    pub(crate) fn receive_window_name(&mut self, ctx: &egui::Context) {
+        while let Took::Answer((answer, _pointer)) = self.remote.name_answers.next() {
+            if answer.taken.is_ok() {
+                self.update_window_title(ctx);
+            }
+            match (answer.asked_by, answer.taken) {
+                (NameAskedBy::Remote(Some(reply)), Ok(())) => drop(reply.send(Vec::new())),
+                (NameAskedBy::Remote(Some(reply)), Err(why)) => {
+                    let why = why.unwrap_or_else(|| NOT_A_NAME.to_owned());
+                    drop(reply.send(not_done_answer(&why)));
+                }
+                (NameAskedBy::Remote(None), _) | (NameAskedBy::Dialog, Ok(())) => {}
+                // The name typed is told in the user's language. The other reasons come from
+                // the system, rarely, and are the English ones that `--remote name` prints too.
+                (NameAskedBy::Dialog, Err(None)) => self.notice.give(
+                    tr(
+                        "Could not name this window: a name holds up to 64 letters, digits, \
+                        - and _, and not only digits",
+                    )
+                    .to_owned(),
+                ),
+                (NameAskedBy::Dialog, Err(Some(why))) => self
+                    .notice
+                    .give(tf!("Could not name this window: {why}", why)),
             }
         }
-        self.update_window_title(ctx);
-        Ok(())
     }
 
     /// The answer to `glimt --remote current` or `selection`, the paths, each ending in a NUL
@@ -814,11 +877,10 @@ fn is_own_or_missing(dir: &std::path::Path, uid: u32) -> bool {
     }
 }
 
-/// This Glimt's name. It is its process ID, and in a Flatpak, where every instance can have
-/// the same process ID, the Flatpak instance ID too (a new window from Ctrl+N shares the
-/// instance). It is found once, because every new thumbnail asks.
-pub fn instance_id() -> &'static str {
-    static INSTANCE_ID: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+/// Finds this Glimt's name (`instance_id`) once. In a Flatpak that reads /.flatpak-info, so
+/// `main` calls it first, before any thread starts and before the window opens, and the window
+/// never reads it.
+pub fn find_instance_id() {
     INSTANCE_ID.get_or_init(|| {
         let info = (crate::files::external::in_flatpak())
             .then(|| crate::images::decode::read_text("/.flatpak-info").ok())
@@ -828,7 +890,15 @@ pub fn instance_id() -> &'static str {
             .and_then(|i| i.lines().find_map(|l| l.strip_prefix("instance-id=")));
         let pid = std::process::id();
         instance.map_or_else(|| pid.to_string(), |i| format!("{i}-{pid}"))
-    })
+    });
+}
+
+/// This Glimt's name. It is its process ID, and in a Flatpak, where every instance can have
+/// the same process ID, the Flatpak instance ID too (a new window from Ctrl+N shares the
+/// instance), as `find_instance_id` found it at start. Without that, as in the tests, it is the
+/// process ID.
+pub fn instance_id() -> &'static str {
+    INSTANCE_ID.get_or_init(|| std::process::id().to_string())
 }
 
 /// Listen as `name` instead of the process ID.
@@ -1287,6 +1357,47 @@ pub fn listen(
     Ok(())
 }
 
+/// Returns the name that `command` gives the window, empty to take its name away, or `None`
+/// for another command.
+fn name_asked(command: &str) -> Option<&str> {
+    match command.trim() {
+        "name" => Some(""),
+        other => other.strip_prefix("name ").map(str::trim),
+    }
+}
+
+/// Gives this window the --name `name`, or none, and listens for `--remote` by the rule it
+/// started with (`listens`): one that did not, with remote control off, starts to with a name,
+/// and stops again when the name is taken away. Returns `Err(None)` for a name that a window
+/// cannot take, and the reason when the window cannot listen by it. The window then keeps the
+/// name it had. It renames the socket, so it is called in a thread of its own.
+fn name_this_window(
+    name: Option<&str>,
+    listens_without_name: bool,
+    commands: mpsc::Sender<(String, Option<Reply>)>,
+    ctx: &egui::Context,
+) -> Result<(), Option<String>> {
+    if name.is_some_and(|n| !can_be_window_name(n)) {
+        return Err(None);
+    }
+    let should_listen = listens(listens_without_name, name.is_some());
+    if listening() && !should_listen {
+        stop_listening();
+        return Ok(());
+    }
+    let name_before = given_name();
+    remote::rename(name).map_err(Some)?;
+    if !listening()
+        && should_listen
+        && let Err(why) = listen(commands, ctx.clone())
+    {
+        // The window does not listen, so this only puts the name back.
+        remote::rename(name_before.as_deref()).map_err(Some)?;
+        return Err(Some(why));
+    }
+    Ok(())
+}
+
 /// Whether a window listens for `--remote`: when it does without a name (`listens_without_name`,
 /// with remote control on in Preferences at start, or in a kiosk), or when it has a name, as
 /// a name is only of use with remote control. The same rule holds at start and for a name
@@ -1504,7 +1615,7 @@ fn bind_socket(path: &std::path::Path) -> Result<UnixListener, Option<std::io::E
 /// it already. Returns the reason when the name cannot be taken.
 pub fn rename(name: Option<&str>) -> Result<(), String> {
     if name.is_some_and(|n| !can_be_window_name(n)) {
-        return Err("a name holds up to 64 letters, digits, - and _, not only digits".into());
+        return Err(NOT_A_NAME.into());
     }
     if !listening() {
         *lock_even_if_poisoned(&GIVEN_NAME) = name.map(str::to_owned);
@@ -2129,6 +2240,8 @@ mod tests {
             waiting_commands: Vec::new(),
             identify_until: None,
             listens_without_name: false,
+            name_sender: super::answer_channel(&app.busy).0,
+            name_answers: Default::default(),
         };
         for _ in 0..500 {
             app.receive_remote(&ctx);
@@ -3018,8 +3131,13 @@ mod tests {
                 let shown_before = app.list.shown();
                 let (reply, answer) = std::sync::mpsc::channel();
                 app.handle_remote(&ctx, &command, Some(reply));
-                let answer = answer
-                    .recv_timeout(std::time::Duration::from_secs(10))
+                // A name is taken in the background, and answered when the window takes it.
+                let answer = (0..1000)
+                    .find_map(|_| {
+                        app.poll_background(&ctx);
+                        let wait = std::time::Duration::from_millis(10);
+                        answer.recv_timeout(wait).ok()
+                    })
                     .unwrap();
                 let answer = String::from_utf8_lossy(&answer);
                 assert!(!answer.contains("does not know"), "{command}: {answer}");
