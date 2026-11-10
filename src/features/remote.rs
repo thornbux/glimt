@@ -1680,8 +1680,9 @@ mod tests {
         let other = std::os::unix::net::UnixListener::bind(dir.join("glimt-right.sock")).unwrap();
         other.set_nonblocking(true).unwrap();
         assert!(!super::send_to(Some(dir.clone()), "left", "next"));
-        let accepted = other.accept();
-        assert!(accepted.is_err(), "the window named right was connected to");
+        // Every connection waiting on the other window is counted, also one closed at once.
+        let connections = std::iter::from_fn(|| other.accept().ok()).count();
+        assert_eq!(connections, 0, "the window named right was connected to");
         std::fs::remove_dir_all(dir).unwrap();
     }
 
