@@ -563,7 +563,7 @@ impl Listing {
         // entries in chunks, so the status bar fills in gradually without a copy of the whole
         // list in memory. A tree is read a folder at a time, unsorted.
         if self.recursive {
-            let sizes = walk(&self.dir, self.types).flat_map(|(rel, _, files)| {
+            let sizes = walk(&self.dir, self.types).flat_map(|(rel, _, files, _)| {
                 let folder = self.dir.join(rel);
                 (files.into_iter()).filter_map(move |f| Some(folder.join(f).metadata().ok()?.len()))
             });
