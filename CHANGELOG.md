@@ -5,6 +5,13 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- With Include Subfolders on, Auto Refresh now sees an image added to, removed from or renamed in
+  a subfolder, not only in the folder opened. The watcher still looks once a second, which works
+  on network shares too: at the open folders every second, and at up to 1,000 subfolders a
+  second, so a tree of 10,000 subfolders is looked through in ten seconds.
+
 ## [0.78.0] - 2026-11-10
 
 ### Added

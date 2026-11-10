@@ -61,6 +61,11 @@ pub const SORTS: [(Sort, &str, &str); 8] = [
     (Sort::Extension, "extension", "Sort by extension"),
 ];
 
+/// The folders a listing read, each with the modification time it had when it was read, so the
+/// folder watcher sees a change made after the reading. The time is `None` when it could not be
+/// read.
+pub type FoldersRead = Vec<(PathBuf, Option<std::time::SystemTime>)>;
+
 /// The file types the list shows, as Geeqie's file classes in its file filter.
 #[derive(Clone, Copy)]
 pub struct Types {
@@ -275,16 +280,22 @@ fn inside(real: std::io::Result<PathBuf>, top: &Path) -> Option<PathBuf> {
 /// folders as soon as they are read, and `part` the images found so far after each folder that
 /// had some, to show them as the tree is read: a large tree takes long to read whole. Cut short
 /// when `stop` is set: another folder was opened, and the tree would be read for nothing.
+/// Returns, third, every folder of the tree that was read, `dir` first, for the folder watcher.
 pub fn list_tree(
     dir: &Path,
     types: Types,
     stop: &std::sync::atomic::AtomicBool,
     top: impl FnOnce(&[PathBuf]),
     mut part: impl FnMut(&[OsString]),
-) -> (Vec<PathBuf>, Vec<OsString>) {
+) -> (Vec<PathBuf>, Vec<OsString>, FoldersRead) {
     use std::sync::atomic::Ordering::Relaxed;
     let (mut own, mut top, mut out) = (Vec::new(), Some(top), Vec::new());
+    let mut read = Vec::new();
     for (rel, dirs, files) in walk(dir, types).take_while(|_| !stop.load(Relaxed)) {
+        // The time is taken just after the folder was read: one stat a folder, not a file.
+        let folder = dir.join(&rel);
+        let modified = std::fs::metadata(&folder).and_then(|m| m.modified()).ok();
+        read.push((folder, modified));
         if rel.as_os_str().is_empty() {
             if let Some(top) = top.take() {
                 top(&dirs);
@@ -298,7 +309,7 @@ pub fn list_tree(
     }
     // In name order, as list_folder gives a single folder; sort_files builds on that.
     out.sort_unstable();
-    (own, out)
+    (own, out, read)
 }
 
 /// Returns `dir` in the form Glimt keeps and compares folders by: its real path, with its links
@@ -531,7 +542,7 @@ mod tests {
             hidden: false,
         };
         let mut parts: Vec<Vec<std::ffi::OsString>> = Vec::new();
-        let (_, all) = super::list_tree(
+        let (_, all, _) = super::list_tree(
             &dir,
             types,
             &AtomicBool::new(false),
@@ -579,7 +590,7 @@ mod tests {
         // Also when the tree is named through a link, as its real path is what counts.
         symlink(&tree, base.join("named")).unwrap();
         for top in [tree.clone(), base.join("named")] {
-            let (_, files) = super::list_tree(&top, types, &stop, |_| {}, |_| {});
+            let (_, files, _) = super::list_tree(&top, types, &stop, |_| {}, |_| {});
             // The hidden folder is not listed itself, so its image is seen only through the link,
             // and it is named by its real path in the tree.
             assert_eq!(files, [".inner/c.jpg", "a.jpg"], "{top:?}");
@@ -604,7 +615,7 @@ mod tests {
             hidden: false,
         };
         let stop = std::sync::atomic::AtomicBool::new(false);
-        let (_, files) = super::list_tree(&dir, types, &stop, |_| {}, |_| {});
+        let (_, files, _) = super::list_tree(&dir, types, &stop, |_| {}, |_| {});
         assert_eq!(files, ["real/x.jpg"]);
         std::fs::remove_dir_all(dir).unwrap();
     }
@@ -721,12 +732,12 @@ mod tests {
             1
         );
         let stopped = super::list_tree(&dir, types, &AtomicBool::new(true), |_| {}, |_| {});
-        assert_eq!(stopped, (Vec::new(), Vec::new()));
+        assert_eq!(stopped, (Vec::new(), Vec::new(), Vec::new()));
         // The top folder's own folders are told before any folder below is read: stopped
         // there, nothing of sub is listed.
         let stop = AtomicBool::new(false);
         let mut told = Vec::new();
-        let (_, files) = super::list_tree(
+        let (_, files, _) = super::list_tree(
             &dir,
             types,
             &stop,

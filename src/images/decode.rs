@@ -2093,19 +2093,16 @@ mod tests {
         // In the tree, a folder reached again through a link is read once.
         std::fs::copy(dir.join("a.png"), dir.join("sub/c.png")).unwrap();
         std::os::unix::fs::symlink(&dir, dir.join("sub/back")).unwrap();
+        let types = crate::model::listing::Types {
+            images: true,
+            raw: true,
+            videos: true,
+            hidden: false,
+        };
+        let (own, files, _) =
+            crate::model::listing::list_tree(&dir, types, &Default::default(), |_| {}, |_| {});
         assert_eq!(
-            crate::model::listing::list_tree(
-                &dir,
-                crate::model::listing::Types {
-                    images: true,
-                    raw: true,
-                    videos: true,
-                    hidden: false
-                },
-                &Default::default(),
-                |_| {},
-                |_| {}
-            ),
+            (own, files),
             (
                 vec![dir.join("sub")],
                 ["a.png", "b.gif", "sub/c.png"].map(Into::into).to_vec()
