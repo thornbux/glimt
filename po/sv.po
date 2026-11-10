@@ -529,6 +529,22 @@ msgid "Move {n} checked to trash…"
 msgstr "Flytta {n} ikryssade till papperskorgen …"
 
 #: src/features/duplicates.rs
+msgid "These groups were found by {by}, so the checked files may be different images, not copies."
+msgstr "Grupperna hittades efter ”{by}”, så de ikryssade filerna kan vara olika bilder, inte kopior."
+
+#: src/features/duplicates.rs
+msgid "Move to Trash Anyway"
+msgstr "Flytta till papperskorgen ändå"
+
+#: src/files/config.rs
+msgid "{files} left out: a name with a line break cannot be kept"
+msgstr "{files} utelämnade: ett namn med radbrytning kan inte sparas"
+
+#: src/features/duplicates.rs
+msgid "Cancel"
+msgstr "Avbryt"
+
+#: src/features/duplicates.rs
 msgid "Name"
 msgstr "Namn"
 

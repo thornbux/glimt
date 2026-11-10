@@ -5,6 +5,16 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- Find Duplicates offers "Check all but the first of each group" only when comparing by
+  checksum, the one way that finds copies. By name, size, dimensions or likeness a group may
+  hold different photos, and Move to Trash now warns so and asks before it goes on, also with
+  confirming turned off.
+- A file whose name has a line break is refused, with a notice, when it is added to a
+  collection or given a mark or stars. Glimt's files keep a name on a line, so such a file
+  seemed added or marked and was left out at the next save without a word (#92).
+
 ## [0.78.0] - 2026-11-10
 
 ### Added

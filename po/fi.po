@@ -529,6 +529,22 @@ msgid "Move {n} checked to trash…"
 msgstr "Siirrä {n} valittua roskakoriin…"
 
 #: src/features/duplicates.rs
+msgid "These groups were found by {by}, so the checked files may be different images, not copies."
+msgstr "Nämä ryhmät löytyivät vertaamalla: ”{by}”, joten valitut tiedostot voivat olla eri kuvia, eivät kopioita."
+
+#: src/features/duplicates.rs
+msgid "Move to Trash Anyway"
+msgstr "Siirrä silti roskakoriin"
+
+#: src/files/config.rs
+msgid "{files} left out: a name with a line break cannot be kept"
+msgstr "{files} jätettiin pois: rivinvaihdon sisältävää nimeä ei voi tallentaa"
+
+#: src/features/duplicates.rs
+msgid "Cancel"
+msgstr "Peruuta"
+
+#: src/features/duplicates.rs
 msgid "Name"
 msgstr "Nimi"
 

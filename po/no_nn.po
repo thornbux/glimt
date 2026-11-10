@@ -617,6 +617,22 @@ msgid "Move {n} checked to trash…"
 msgstr "Flytt {n} avkryssa til papirkorga …"
 
 #: src/features/duplicates.rs
+msgid "These groups were found by {by}, so the checked files may be different images, not copies."
+msgstr "Desse gruppene vart funne etter «{by}», så dei avkryssa filene kan vere ulike bilete, ikkje kopiar."
+
+#: src/features/duplicates.rs
+msgid "Move to Trash Anyway"
+msgstr "Flytt til papirkorga likevel"
+
+#: src/files/config.rs
+msgid "{files} left out: a name with a line break cannot be kept"
+msgstr "{files} utelatne: eit namn med linjeskift kan ikkje takast vare på"
+
+#: src/features/duplicates.rs
+msgid "Cancel"
+msgstr "Avbryt"
+
+#: src/features/duplicates.rs
 msgid "Name"
 msgstr "Namn"
 

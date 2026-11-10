@@ -792,6 +792,21 @@ pub fn fits_on_a_line(path: &Path) -> bool {
     !path.as_os_str().as_encoded_bytes().contains(&b'\n')
 }
 
+/// Takes out of `paths` those that do not fit on a line of Glimt's own files, so that a mark or
+/// a collection entry is refused at once rather than left out of the file at its next save.
+/// Returns the notice that says how many were left out, or `None` when every one fits.
+pub fn keep_those_that_fit_on_a_line(paths: &mut Vec<PathBuf>) -> Option<String> {
+    let before = paths.len();
+    paths.retain(|p| fits_on_a_line(p));
+    let files = crate::support::format::count(before - paths.len(), "file");
+    (paths.len() < before).then(|| {
+        crate::tf!(
+            "{files} left out: a name with a line break cannot be kept",
+            files
+        )
+    })
+}
+
 /// The window state's line that keeps `dir` as the last folder. It is empty when `dir` does
 /// not fit on a line.
 pub fn last_dir_line(dir: &Path) -> String {

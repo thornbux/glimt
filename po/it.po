@@ -529,6 +529,22 @@ msgid "Move {n} checked to trash…"
 msgstr "Sposta {n} spuntate nel cestino…"
 
 #: src/features/duplicates.rs
+msgid "These groups were found by {by}, so the checked files may be different images, not copies."
+msgstr "Questi gruppi sono stati trovati per «{by}», quindi i file spuntati possono essere immagini diverse, non copie."
+
+#: src/features/duplicates.rs
+msgid "Move to Trash Anyway"
+msgstr "Sposta comunque nel cestino"
+
+#: src/files/config.rs
+msgid "{files} left out: a name with a line break cannot be kept"
+msgstr "{files} esclusi: un nome con un a capo non può essere conservato"
+
+#: src/features/duplicates.rs
+msgid "Cancel"
+msgstr "Annulla"
+
+#: src/features/duplicates.rs
 msgid "Name"
 msgstr "Nome"
 

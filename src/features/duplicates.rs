@@ -73,6 +73,12 @@ pub(crate) struct FindDuplicates {
     /// The size of each file in the groups, looked at with the search in its thread, because
     /// the window's thread does not wait for the disk.
     sizes: HashMap<PathBuf, u64>,
+    /// What the groups shown were found by. Only Checksum finds copies; the other ways group
+    /// images that may differ, so trashing their files asks first.
+    found_by: duplicates::By,
+    /// Whether the window warns that the checked files may be different images, and waits
+    /// for Move to Trash Anyway.
+    is_warning_before_trash: bool,
 }
 
 impl FindDuplicates {
@@ -88,7 +94,10 @@ impl FindDuplicates {
         ));
         let mut trash = false;
         ui.horizontal(|ui| {
-            if crate::ui::menus::button(ui, tr("Check all but the first of each group")).clicked() {
+            if self.offers_check_all_but_first()
+                && crate::ui::menus::button(ui, tr("Check all but the first of each group"))
+                    .clicked()
+            {
                 self.checked = self
                     .groups
                     .iter()
@@ -101,8 +110,21 @@ impl FindDuplicates {
             let n = self.checked.len();
             trash =
                 crate::ui::menus::button_enabled(ui, n > 0, &tf!("Move {n} checked to trash…", n))
-                    .clicked();
+                    .clicked()
+                    && self.may_trash_without_warning();
         });
+        if self.is_warning_before_trash {
+            ui.label(tf!(
+                "These groups were found by {by}, so the checked files may be different images, not copies.",
+                by = tr(label_of(self.found_by))
+            ));
+            ui.horizontal(|ui| {
+                trash = crate::ui::menus::button(ui, tr("Move to Trash Anyway")).clicked();
+                if trash || crate::ui::menus::button(ui, tr("Cancel")).clicked() {
+                    self.is_warning_before_trash = false;
+                }
+            });
+        }
         ui.separator();
         let row_h = ui.text_style_height(&egui::TextStyle::Body) + 6.0;
         egui::ScrollArea::vertical().auto_shrink(false).show_rows(
@@ -156,7 +178,23 @@ impl FindDuplicates {
             rows: Vec::new(),
             checked: HashSet::new(),
             searched: 0,
+            found_by: duplicates::By::Checksum,
+            is_warning_before_trash: false,
         }
+    }
+
+    /// Whether the window offers to check all but the first file of each group. It does only
+    /// for groups of identical files, because in the other ways a group's files may be
+    /// different images.
+    fn offers_check_all_but_first(&self) -> bool {
+        self.found_by == By::Checksum
+    }
+
+    /// Answers a click on Move to Trash. Returns whether the checked files may go now, which
+    /// they may only when they are copies; otherwise the window warns first.
+    fn may_trash_without_warning(&mut self) -> bool {
+        self.is_warning_before_trash = self.found_by != By::Checksum;
+        !self.is_warning_before_trash
     }
 
     /// Stops the search and leaves it at once. A file being read on a stalled share holds its
@@ -207,6 +245,7 @@ impl crate::App {
                 find_duplicates.groups = groups;
                 find_duplicates.sizes = sizes;
                 find_duplicates.checked.clear();
+                find_duplicates.is_warning_before_trash = false;
                 find_duplicates.remove(&HashSet::new());
             }
         }
@@ -220,12 +259,8 @@ impl crate::App {
                         "Among the {count} in the list, compare by",
                         count = count(self.list.files().len(), "image")
                     ));
-                    let label = ALL
-                        .iter()
-                        .find(|a| a.0 == find_duplicates.by)
-                        .map_or("", |a| a.1);
                     egui::ComboBox::from_id_salt("compare by")
-                        .selected_text(tr(label))
+                        .selected_text(tr(label_of(find_duplicates.by)))
                         .show_ui(ui, |ui| {
                             for (by, label) in ALL {
                                 crate::ui::menus::choice(
@@ -297,6 +332,7 @@ impl crate::App {
         let (by, progress) = (find_duplicates.by, Arc::new(Progress::default()));
         let (rotate, save) = (self.config.exif_rotate, self.config.save_thumbnails);
         find_duplicates.searched = paths.len();
+        find_duplicates.found_by = by;
         find_duplicates.progress = progress.clone();
         find_duplicates.groups_rx = Receiving::of(tx.1);
         let sender = tx.0;
@@ -400,6 +436,11 @@ pub fn find(
     }
     groups.sort_by(|a, b| b.len().cmp(&a.len()).then_with(|| a.cmp(b)));
     groups
+}
+
+/// The name of the way `by` to compare, in English as `ALL` has it.
+fn label_of(by: By) -> &'static str {
+    ALL.iter().find(|a| a.0 == by).map_or("", |a| a.1)
 }
 
 fn size(path: &Path) -> Option<u64> {
@@ -758,6 +799,28 @@ mod tests {
         assert_eq!(app.list.selected(), &[2].into());
         assert!(!app.asking_about_selection());
         std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// Only groups of identical files offer to check all but the first, and trash at once.
+    /// Groups by name, size, dimensions or likeness hold different images, and two clicks
+    /// sent hundreds of them to the trash without a word when confirming was off.
+    #[test]
+    fn only_copies_are_trashed_without_a_warning() {
+        use super::By;
+        for by in [
+            By::Checksum,
+            By::Name,
+            By::Size,
+            By::Dimensions,
+            By::Similar(95),
+        ] {
+            let mut find_duplicates = super::FindDuplicates::new();
+            find_duplicates.found_by = by;
+            let copies = by == By::Checksum;
+            assert_eq!(find_duplicates.offers_check_all_but_first(), copies);
+            assert_eq!(find_duplicates.may_trash_without_warning(), copies);
+            assert_eq!(find_duplicates.is_warning_before_trash, !copies);
+        }
     }
 
     /// One file that breaks its reader is left out alone; every other file keeps its result,

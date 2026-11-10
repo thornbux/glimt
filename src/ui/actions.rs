@@ -1336,7 +1336,13 @@ impl crate::App {
         let Some(targets) = self.targets() else {
             return;
         };
-        let paths: Vec<PathBuf> = targets.iter().map(|&i| self.path(i)).collect();
+        let mut paths: Vec<PathBuf> = targets.iter().map(|&i| self.path(i)).collect();
+        if let Some(left_out) = crate::files::config::keep_those_that_fit_on_a_line(&mut paths) {
+            self.notice.give(left_out);
+        }
+        if paths.is_empty() {
+            return;
+        }
         if kind == 'm' {
             self.marks.toggle(&paths, n);
         } else {
@@ -2476,6 +2482,25 @@ mod tests {
             Some(Action::Escape),
             "Esc with nothing focused did nothing"
         );
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A mark or a star on a file whose name has a line break is refused with a notice, and the
+    /// other files take it. The marks file keeps a name on a line, so the mark was shown and
+    /// then lost without a word at its next save.
+    #[cfg(feature = "marks")]
+    #[test]
+    fn a_name_with_a_line_break_is_refused_a_mark() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-mark-nl-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let (mut app, ctx) = crate::support::test_support::app_on(&dir);
+        app.list
+            .set_files(["a\nb.png", "c.png"].map(Into::into).to_vec());
+        app.list.select([0, 1].into());
+        app.apply_mark(&ctx, Action::Rate3);
+        assert_eq!(app.marks.get(&dir.join("a\nb.png")), (0, 0));
+        assert_eq!(app.marks.get(&dir.join("c.png")), (0, 3));
+        assert!(app.notice.text().is_some_and(|n| n.contains("line break")));
         std::fs::remove_dir_all(dir).unwrap();
     }
 }

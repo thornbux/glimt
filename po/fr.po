@@ -529,6 +529,22 @@ msgid "Move {n} checked to trash…"
 msgstr "Mettre les {n} cochés à la corbeille…"
 
 #: src/features/duplicates.rs
+msgid "These groups were found by {by}, so the checked files may be different images, not copies."
+msgstr "Ces groupes ont été trouvés par « {by} », les fichiers cochés peuvent donc être des images différentes, pas des copies."
+
+#: src/features/duplicates.rs
+msgid "Move to Trash Anyway"
+msgstr "Mettre à la corbeille quand même"
+
+#: src/files/config.rs
+msgid "{files} left out: a name with a line break cannot be kept"
+msgstr "{files} laissés de côté : un nom contenant un saut de ligne ne peut pas être gardé"
+
+#: src/features/duplicates.rs
+msgid "Cancel"
+msgstr "Annuler"
+
+#: src/features/duplicates.rs
 msgid "Name"
 msgstr "Nom"
 
