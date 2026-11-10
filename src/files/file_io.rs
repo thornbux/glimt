@@ -11,7 +11,8 @@
 use crate::support::threads::lock_even_if_poisoned;
 use std::path::{Path, PathBuf};
 
-/// A file Glimt could not save, or a note about a save, for the window to tell: from any thread.
+/// The last save that failed, of a file of the user's or of Glimt's own, for the window to tell
+/// as a failed write. Any thread sets it, through `save_failed`.
 static SAVE_ERROR: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
 
 /// The thread that writes Glimt's own files (`write_later`), and the thread for the writes that

@@ -556,13 +556,17 @@ impl crate::App {
                 .collect();
             done.insert(0, count(all.len() - failed.len(), "collection"));
             let mut msg = tf!("Imported from Lightroom: {done}", done = done.join(", "));
+            let any_failed = !failed.is_empty();
             if !failed.is_empty() {
                 msg += &tf!("; not saved: {names}", names = failed.join(", "));
             }
             if dir.is_none() && !all.is_empty() {
                 msg += tr(" (no data folder: $HOME is not set)");
             }
-            Some(msg)
+            Some(match any_failed {
+                true => crate::support::threads::Told::FailedWrite(msg),
+                false => crate::support::threads::Told::Notice(msg),
+            })
         });
     }
 }

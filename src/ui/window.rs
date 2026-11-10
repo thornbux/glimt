@@ -1170,4 +1170,63 @@ mod tests {
         assert!(waits(&mut app).is_some_and(|(hidden, _)| hidden));
         std::fs::remove_dir_all(dir).unwrap();
     }
+
+    /// Runs one pass of `logic` as eframe does, with the desktop's close when `close`. Returns
+    /// whether the pass asked for the window to close.
+    fn close_pass(app: &mut crate::App, ctx: &eframe::egui::Context, close: bool) -> bool {
+        use eframe::egui::{RawInput, ViewportCommand, ViewportEvent, ViewportId, ViewportInfo};
+        let info = ViewportInfo {
+            events: if close {
+                vec![ViewportEvent::Close]
+            } else {
+                vec![]
+            },
+            ..Default::default()
+        };
+        let input = RawInput {
+            viewports: std::iter::once((ViewportId::ROOT, info)).collect(),
+            ..Default::default()
+        };
+        let out = ctx.run_logic(&input, |ctx| app.guard_close(ctx));
+        let commands = out.viewport_commands.get(&ViewportId::ROOT);
+        commands.is_some_and(|c| c.contains(&ViewportCommand::Close))
+    }
+
+    /// Starts work in the background that fails to write once the returned sender sends.
+    fn failing_write(
+        app: &mut crate::App,
+        ctx: &eframe::egui::Context,
+    ) -> std::sync::mpsc::Sender<()> {
+        let (go, wait) = std::sync::mpsc::channel::<()>();
+        assert!(app.run_in_background(ctx, Vec::new(), move || {
+            let _ = wait.recv();
+            let failure = "Could not crop the image: test".to_owned();
+            Some(crate::support::threads::Told::FailedWrite(failure))
+        }));
+        go
+    }
+
+    /// A write in the background (a crop, Save As, an Undo) that fails while a close waits for
+    /// it keeps the window open, with the failure kept for the screen. Before, the work's answer
+    /// was sent as a plain notice, and the close that waited closed the window over it.
+    #[test]
+    fn a_failed_write_in_the_background_keeps_a_waiting_close_open() {
+        let dir = contract_folder("background-write-fails");
+        let (mut app, ctx) = app_on(&dir);
+        let go = failing_write(&mut app, &ctx);
+        assert!(!close_pass(&mut app, &ctx, true));
+        assert_eq!(app.window.close_requests, 1);
+        go.send(()).unwrap();
+        let start = std::time::Instant::now();
+        while app.window.failed_writes_told == 0 && start.elapsed().as_secs() < 5 {
+            assert!(!close_pass(&mut app, &ctx, false));
+        }
+        for _ in 0..3 {
+            assert!(!close_pass(&mut app, &ctx, false));
+        }
+        let shown = app.window.take_failed_writes_to_show().unwrap_or_default();
+        assert_eq!(shown, "Could not crop the image: test");
+        assert_eq!(app.window.close_requests, 0);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
 }
