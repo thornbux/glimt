@@ -576,11 +576,25 @@ fn run_and_tell_a_panic(work: impl FnOnce()) {
 /// Wait for everything being written, a few seconds at most, before Glimt ends: the last
 /// change of a setting or a keyword must not be lost with its thread.
 pub fn flush() {
-    let until = std::time::Instant::now() + std::time::Duration::from_secs(5);
-    while WRITING.load(std::sync::atomic::Ordering::Relaxed) > 0
-        && std::time::Instant::now() < until
-    {
+    flush_within(std::time::Duration::from_secs(5));
+}
+
+/// Waits for everything being written, for `limit` at most. A write still running then is
+/// told on the terminal, as the window is gone. A Rename Many cut short so keeps its plan on
+/// disk, because Glimt ends without dropping it, and the next start puts it right.
+fn flush_within(limit: std::time::Duration) {
+    let until = std::time::Instant::now() + limit;
+    let is_writing = || WRITING.load(std::sync::atomic::Ordering::Relaxed) > 0;
+    while is_writing() && std::time::Instant::now() < until {
         std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    if is_writing() {
+        save_failed(
+            crate::support::lang::tr(
+                "Glimt ended before every write was done: the last change of the settings, marks, a collection or a file may be lost",
+            )
+            .to_owned(),
+        );
     }
 }
 
@@ -1196,6 +1210,22 @@ mod tests {
             .unwrap();
         wait.recv().unwrap();
         assert_eq!(super::take_saves_failed().len(), 1);
+    }
+
+    /// A write still running when `flush` stops waiting is told. Before, Glimt ended without
+    /// a word, and the change was lost unseen.
+    #[test]
+    fn a_write_that_flush_does_not_wait_for_is_told() {
+        super::take_saves_failed();
+        let (release, wait) = std::sync::mpsc::channel::<()>();
+        super::write_later(move || {
+            let _ = wait.recv_timeout(std::time::Duration::from_secs(5));
+        });
+        super::flush_within(std::time::Duration::from_millis(50));
+        assert_eq!(super::take_saves_failed().len(), 1);
+        release.send(()).unwrap();
+        super::flush();
+        assert!(super::take_saves_failed().is_empty());
     }
 
     /// A file reached through a link is written where the link points; the link stays.

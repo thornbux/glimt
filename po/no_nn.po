@@ -2984,3 +2984,7 @@ msgstr "Kunne ikkje gje vindauget eit namn: eit namn har opptil 64 bokstavar, si
 #: src/files/file_io.rs
 msgid "A change could not be saved, because Glimt met an error while writing it"
 msgstr "Ei endring kunne ikkje lagrast, fordi Glimt fekk ein feil medan ho vart skriven"
+
+#: src/files/file_io.rs
+msgid "Glimt ended before every write was done: the last change of the settings, marks, a collection or a file may be lost"
+msgstr "Glimt avslutta før alt var skrive: den siste endringa av innstillingane, merka, ei samling eller ei fil kan vere tapt"

@@ -2973,3 +2973,7 @@ msgstr "Vinduet kunne ikke få et navn: et navn har op til 64 bogstaver, cifre, 
 #: src/files/file_io.rs
 msgid "A change could not be saved, because Glimt met an error while writing it"
 msgstr "En ændring kunne ikke gemmes, fordi Glimt fik en fejl, mens den blev skrevet"
+
+#: src/files/file_io.rs
+msgid "Glimt ended before every write was done: the last change of the settings, marks, a collection or a file may be lost"
+msgstr "Glimt sluttede, før alt var skrevet: den seneste ændring af indstillingerne, mærkerne, en samling eller en fil kan være tabt"

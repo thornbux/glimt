@@ -7,6 +7,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- When Glimt closes while a write still runs after its five seconds' wait (a share that stopped
+  answering), it says so on the terminal. Before, it ended without a word.
 - A saved collection that cannot be written after its images were moved or renamed is told in
   the window. Before, it kept the old names without a word. The open collection, when none of
   the moved images was in its list yet, is told so too.

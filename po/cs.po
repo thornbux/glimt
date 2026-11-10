@@ -2995,3 +2995,7 @@ msgstr "Okno nelze pojmenovat: název má nejvýše 64 písmen, číslic, - a _,
 #: src/files/file_io.rs
 msgid "A change could not be saved, because Glimt met an error while writing it"
 msgstr "Změnu nelze uložit, protože Glimt při jejím zápisu narazil na chybu"
+
+#: src/files/file_io.rs
+msgid "Glimt ended before every write was done: the last change of the settings, marks, a collection or a file may be lost"
+msgstr "Glimt skončil dříve, než bylo vše zapsáno: poslední změna nastavení, značek, kolekce nebo souboru mohla být ztracena"

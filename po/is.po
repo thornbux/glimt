@@ -2973,3 +2973,7 @@ msgstr "Ekki tókst að gefa glugganum heiti: heiti hefur allt að 64 stafi, tö
 #: src/files/file_io.rs
 msgid "A change could not be saved, because Glimt met an error while writing it"
 msgstr "Ekki tókst að vista breytingu, því Glimt lenti í villu við að skrifa hana"
+
+#: src/files/file_io.rs
+msgid "Glimt ended before every write was done: the last change of the settings, marks, a collection or a file may be lost"
+msgstr "Glimt lokaðist áður en allt var skrifað: síðasta breyting á stillingum, merkjum, safni eða skrá gæti hafa tapast"
