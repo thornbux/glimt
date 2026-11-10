@@ -102,6 +102,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
   copy keeps, such as a GPS position inside a gain map's value or a keyword list, is left out
   unless that tag is kept too.
 - Preferences in Norwegian names the Delete key as the menus do, in "Use no trash at all".
+- Copy for Sharing knows the namespace that digiKam 4 wrote its keyword list in, so Place alone
+  keeps that list. Before, any ticked box left it out, as a tag Glimt did not know.
 
 ## [0.78.0] - 2026-11-10
 

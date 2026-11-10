@@ -4034,10 +4034,15 @@ for copy in $d/all $d/place; do
         "$(exiftool -s3 -MakerNotes:HDRHeadroom $copy/iphone-gain-map.jpg)" \
         "$(exiftool -s3 -MakerNotes:HDRHeadroom $d/in/iphone-gain-map.jpg)"
 done
-# Place alone keeps the keywords: digiKam's list, which Remove All took out above.
+# Place alone keeps the keywords: digiKam's list, which Remove All takes out. digiKam 4 wrote
+# it in a namespace that exiftool does not name XMP-digiKam, so it is read as XMP:TagsList.
+tags_list() { exiftool -q -q -s3 -XMP:TagsList "$1"; }
+expect "digikam-tags.jpg: the original holds digiKam's keyword list" \
+    "$(tags_list $d/in/digikam-tags.jpg)" Adrien
 expect "digikam-tags.jpg, Place: digiKam's keyword list kept" \
-    "$(exiftool -s3 -XMP-digiKam:TagsList $d/place/digikam-tags.jpg)" \
-    "$(exiftool -s3 -XMP-digiKam:TagsList $d/in/digikam-tags.jpg)"
+    "$(tags_list $d/place/digikam-tags.jpg)" Adrien
+expect_empty "digikam-tags.jpg, Remove All: digiKam's keyword list left out" \
+    "$(tags_list $d/all/digikam-tags.jpg)"
 expect "the originals unchanged" "$(cd $d/in && md5sum * | md5sum)" \
     "$(cd /samples && md5sum $(ls $d/in) | md5sum)"
 

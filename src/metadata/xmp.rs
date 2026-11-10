@@ -32,7 +32,7 @@ const SLASHED_TREE_LISTS: [(&str, &str, &str); 2] = [
 /// The namespaces whose properties Copy for Sharing names by the prefix here, whatever prefix a
 /// packet binds them to (`properties`). A packet may write Exif's GPS as `ns1:GPSLatitude`,
 /// and the old `xap:` is `xmp:`, so a name by the prefix as written would miss its group.
-const KNOWN_NAMESPACES: [(&str, &str); 30] = [
+const KNOWN_NAMESPACES: [(&str, &str); 31] = [
     ("dc", "http://purl.org/dc/elements/1.1/"),
     ("xmp", "http://ns.adobe.com/xap/1.0/"),
     ("xmpMM", "http://ns.adobe.com/xap/1.0/mm/"),
@@ -52,6 +52,8 @@ const KNOWN_NAMESPACES: [(&str, &str); 30] = [
     ("Iptc4xmpExt", "http://iptc.org/std/Iptc4xmpExt/2008-02-29/"),
     ("plus", "http://ns.useplus.org/ldf/xmp/1.0/"),
     ("digiKam", "http://www.digikam.org/ns/1.0/"),
+    // The namespace that digiKam 4 wrote its keyword list and labels in.
+    ("digiKam", "http://www.digikam.org/"),
     ("MicrosoftPhoto", "http://ns.microsoft.com/photo/1.0/"),
     (
         "mwg-rs",
@@ -2738,6 +2740,19 @@ mod tests {
             let groups = crate::images::shared_copy::Group::groups_of(name);
             assert_eq!(groups.len(), crate::images::shared_copy::Group::ALL.len());
         }
+    }
+
+    /// digiKam 4's keyword list, in the namespace that version wrote, is named as digiKam's, so
+    /// Copy for Sharing leaves it out with Keywords only and keeps it with Place.
+    #[test]
+    fn digikam_4s_namespace_is_known() {
+        let xmp = "<rdf:Description rdf:about=\"\" xmlns:digiKam=\"http://www.digikam.org/\">\
+                   <digiKam:TagsList><rdf:Seq><rdf:li>Adrien</rdf:li></rdf:Seq>\
+                   </digiKam:TagsList></rdf:Description>";
+        let read = super::properties(xmp);
+        assert_eq!(read.list[0].0, "digiKam:TagsList");
+        let groups = crate::images::shared_copy::Group::groups_of(&read.list[0].0);
+        assert_eq!(groups, [crate::images::shared_copy::Group::Keywords]);
     }
 
     /// A namespace declared with spaces around its "=", as XML allows, is read, so the
