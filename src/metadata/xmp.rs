@@ -1264,14 +1264,26 @@ fn property_name(name: &str, namespaces: &[(String, String)]) -> String {
     let Some((prefix, local)) = name.split_once(':') else {
         return name.to_owned();
     };
-    let uri = namespaces.iter().find(|(p, _)| p == prefix).map(|(_, u)| u);
-    match uri.and_then(|u| KNOWN_NAMESPACES.iter().find(|(_, known)| known == u)) {
+    let uri = namespaces
+        .iter()
+        .find(|(p, _)| p == prefix)
+        .map(|(_, u)| u.as_str());
+    name_in_namespace(prefix, local, uri)
+}
+
+/// Returns the name of the property `local` written with `prefix`, which is bound to the
+/// namespace `uri`, or to none, as `property_name` says. An empty prefix is a default
+/// namespace's, and a property in an unknown default namespace is named by it in braces too.
+fn name_in_namespace(prefix: &str, local: &str, uri: Option<&str>) -> String {
+    match uri.and_then(|u| KNOWN_NAMESPACES.iter().find(|(_, known)| *known == u)) {
         Some((known, _)) => format!("{known}:{local}"),
-        None if KNOWN_NAMESPACES.iter().any(|(known, _)| *known == prefix) => {
-            let uri = uri.map_or("", |u| u.as_str());
-            format!("{{{}}}{local}", without_control_characters(uri))
+        None if prefix.is_empty() || KNOWN_NAMESPACES.iter().any(|(known, _)| *known == prefix) => {
+            format!(
+                "{{{}}}{local}",
+                without_control_characters(uri.unwrap_or(""))
+            )
         }
-        None => name.to_owned(),
+        None => format!("{prefix}:{local}"),
     }
 }
 
@@ -1362,77 +1374,142 @@ pub(crate) fn packet(properties: &Properties) -> Vec<u8> {
 }
 
 /// Returns the property element `element` with only its own value. Every property written
-/// inside it, as an element or as an attribute, is left out unless `keeps` keeps its name, read
-/// with the packet's namespaces `namespaces` (`property_name`). The rdf: and xml: names that give
-/// the value its form (rdf:Seq, rdf:li, rdf:parseType, xml:lang) stay, and comments go. Without
+/// inside it, as an element or as an attribute, is left out unless `keeps` keeps its name. A
+/// name is read by the namespace its prefix is bound to there (`name_inside`): by a declaration
+/// inside the element, by a default namespace, or else by the packet's namespaces `namespaces`,
+/// as `property_name` reads the properties themselves. The RDF and XML names that give the
+/// value its form (rdf:Seq, rdf:li, rdf:parseType, xml:lang) stay, and comments go. Without
 /// it, a kept property could carry a value the user left out, such as a GPS position written
-/// inside a gain map's property.
+/// inside a gain map's property. Returns an empty text when the element does not read as
+/// balanced XML (an element that never ends, a start tag without its '>'), so that a property
+/// that cannot be read is left out whole rather than written into a packet broken.
 pub(crate) fn with_own_value_only(
     element: &str,
     namespaces: &[(String, String)],
     keeps: &dyn Fn(&str) -> bool,
 ) -> String {
-    let is_property = |name: &str| {
-        name.contains(':')
-            && !name.starts_with("rdf:")
-            && !name.starts_with("xml:")
-            && !name.starts_with("xmlns:")
-    };
-    let is_kept = |name: &str| !is_property(name) || keeps(&property_name(name, namespaces));
+    // The elements open at this point, each with the namespaces that it declares.
+    let mut open: Vec<(&str, Vec<(&str, &str)>)> = Vec::new();
     let mut out = String::with_capacity(element.len());
     let mut from = 0;
     while let Some(found) = element[from..].find('<') {
         let start = from + found;
         out += &element[from..start];
         let rest = &element[start..];
-        if rest.starts_with("<!--") {
-            from = rest
-                .find("-->")
-                .map_or(element.len(), |end| start + end + 3);
+        // A comment goes, and a CDATA section is text, which may hold a quote or a '<'.
+        if let Some(end_mark) = [("<!--", "-->"), ("<![CDATA[", "]]>")]
+            .into_iter()
+            .find_map(|(begins, ends)| rest.starts_with(begins).then_some(ends))
+        {
+            let Some(end) = rest.find(end_mark) else {
+                return String::new();
+            };
+            if end_mark == "]]>" {
+                out += &rest[..end + end_mark.len()];
+            }
+            from = start + end + end_mark.len();
             continue;
         }
-        // What does not end as a tag is left out with the rest, as it cannot be read.
         let Some(gt) = start_tag_end(element, start) else {
-            return out;
+            return String::new();
         };
+        let is_empty_element = element[..gt].ends_with('/');
         let tag = element[start + 1..gt].trim_end_matches('/');
-        let name_end = tag.find(char::is_whitespace).unwrap_or(tag.len());
-        let name = &tag[..name_end];
-        if rest.starts_with("</") || rest.starts_with("<!") || rest.starts_with("<?") {
+        if let Some(closed) = tag.strip_prefix('/') {
+            if open.pop().is_none_or(|(name, _)| name != closed.trim()) {
+                return String::new();
+            }
             out += &element[start..=gt];
-        } else if start > 0 && !is_kept(name) {
-            from = match element[..gt].ends_with('/') {
+            from = gt + 1;
+            continue;
+        }
+        if rest.starts_with("<!") || rest.starts_with("<?") {
+            out += &element[start..=gt];
+            from = gt + 1;
+            continue;
+        }
+        let name_end = tag.find(char::is_whitespace).unwrap_or(tag.len());
+        let (name, head) = tag.split_at(name_end);
+        let found = attributes(head);
+        let declared: Vec<(&str, &str)> = (found.iter())
+            .filter_map(|&(n, uri)| match n.strip_prefix("xmlns")? {
+                "" => Some(("", uri)),
+                prefix => Some((prefix.strip_prefix(':')?, uri)),
+            })
+            .collect();
+        let is_kept = |name: &str, is_attribute: bool| {
+            name_inside(name, is_attribute, &declared, &open, namespaces).is_none_or(|n| keeps(&n))
+        };
+        if start > 0 && !is_kept(name, false) {
+            from = match is_empty_element {
                 true => gt + 1,
                 false => element_end(element, gt + 1, name),
             };
             continue;
+        }
+        let kept: Vec<_> = found.iter().filter(|(n, _)| is_kept(n, true)).collect();
+        // The attributes end where the last value's closing quote is.
+        let read_to = found.last().map_or(0, |(_, value)| {
+            value.as_ptr() as usize - head.as_ptr() as usize + value.len() + 1
+        });
+        if kept.len() == found.len() && head[read_to..].trim().is_empty() {
+            out += &element[start..=gt];
         } else {
-            let head = &tag[name_end..];
-            let found = attributes(head);
-            let kept: Vec<_> = found.iter().filter(|(n, _)| is_kept(n)).collect();
-            // The attributes end where the last value's closing quote is.
-            let read_to = found.last().map_or(0, |(_, value)| {
-                value.as_ptr() as usize - head.as_ptr() as usize + value.len() + 1
-            });
-            if kept.len() == found.len() && head[read_to..].trim().is_empty() {
-                out += &element[start..=gt];
-            } else {
-                out.push('<');
-                out += name;
-                for (n, value) in kept {
-                    let quote = if value.contains('"') { '\'' } else { '"' };
-                    out += &format!(" {n}={quote}{value}{quote}");
-                }
-                out += if element[..gt].ends_with('/') {
-                    "/>"
-                } else {
-                    ">"
-                };
+            out.push('<');
+            out += name;
+            for (n, value) in kept {
+                let quote = if value.contains('"') { '\'' } else { '"' };
+                out += &format!(" {n}={quote}{value}{quote}");
             }
+            out += if is_empty_element { "/>" } else { ">" };
+        }
+        if !is_empty_element {
+            open.push((name, declared));
         }
         from = gt + 1;
     }
-    out + &element[from..]
+    match open.is_empty() {
+        true => out + &element[from..],
+        false => String::new(),
+    }
+}
+
+/// Returns the property name of the element or attribute `name` inside a property element, as
+/// `property_name` gives it. Its prefix is looked up in `declared`, the declarations of its own
+/// element, then in those of the elements `open` around it, innermost first, and last in the
+/// packet's `namespaces`. An element without a prefix is in the default namespace, if one is
+/// declared. Returns `None` for what is no property: a name in the RDF or XML namespace, a
+/// namespace declaration, an attribute without a prefix, and an element without a namespace.
+/// The rdf and xml prefixes bound to nothing count as theirs, as before the namespaces were read.
+fn name_inside(
+    name: &str,
+    is_attribute: bool,
+    declared: &[(&str, &str)],
+    open: &[(&str, Vec<(&str, &str)>)],
+    namespaces: &[(String, String)],
+) -> Option<String> {
+    const RDF: &str = "http://www.w3.org/1999/02/22-rdf-syntax-ns#";
+    const XML: &str = "http://www.w3.org/XML/1998/namespace";
+    if name == "xmlns" || name.starts_with("xmlns:") {
+        return None;
+    }
+    let (prefix, local) = name.split_once(':').unwrap_or(("", name));
+    if prefix.is_empty() && is_attribute {
+        return None;
+    }
+    let in_open = (open.iter().rev()).flat_map(|(_, d)| d.iter().rev());
+    let uri = (declared.iter().rev().chain(in_open))
+        .find(|(p, _)| *p == prefix)
+        .map(|(_, uri)| *uri)
+        .or_else(|| {
+            (namespaces.iter())
+                .find(|(p, _)| p == prefix)
+                .map(|(_, u)| u.as_str())
+        });
+    match (prefix, uri) {
+        ("xml", _) | (_, Some(RDF | XML)) | ("" | "rdf", None) => None,
+        _ => Some(name_in_namespace(prefix, local, uri)),
+    }
 }
 
 /// Returns where the element `name` whose start tag ends before `from` in `xmp` ends, past its
@@ -2799,6 +2876,59 @@ mod tests {
                 super::with_own_value_only(element, namespaces, &|n| n != name);
             }
         }
+    }
+
+    /// A GPS field inside a kept keyword list is known by its namespace, not by its prefix's
+    /// text: also in a default namespace, and with the prefix dc bound to Exif's namespace
+    /// inside the list, while the packet binds dc to Dublin Core.
+    #[test]
+    fn a_name_inside_a_property_is_read_by_its_namespace() {
+        let namespaces = [
+            ("dc", "http://purl.org/dc/elements/1.1/"),
+            ("rdf", "http://www.w3.org/1999/02/22-rdf-syntax-ns#"),
+        ]
+        .map(|(p, u)| (p.to_owned(), u.to_owned()));
+        let keeps = |name: &str| name != "exif:GPSLatitude";
+        for inside in [
+            "<GPSLatitude xmlns=\"http://ns.adobe.com/exif/1.0/\">59N</GPSLatitude>",
+            "<rdf:Description xmlns:dc=\"http://ns.adobe.com/exif/1.0/\" dc:GPSLatitude=\"59N\"/>",
+        ] {
+            let element = format!(
+                "<dc:subject><rdf:Bag><rdf:li>Oslo</rdf:li><rdf:li>{inside}</rdf:li>\
+                 </rdf:Bag></dc:subject>"
+            );
+            let kept = super::with_own_value_only(&element, &namespaces, &keeps);
+            assert!(!kept.contains("59N"), "{kept}");
+            assert!(kept.contains("<rdf:li>Oslo</rdf:li>"), "{kept}");
+            assert!(kept.ends_with("</dc:subject>"), "{kept}");
+        }
+    }
+
+    /// A property whose value does not read as balanced XML is left out whole, so the copy's
+    /// packet stays XML, and a CDATA section with a quote is kept as the text it is.
+    #[test]
+    fn a_property_that_is_not_balanced_is_left_out_whole() {
+        let namespaces = [
+            ("dc", "http://purl.org/dc/elements/1.1/"),
+            ("exif", "http://ns.adobe.com/exif/1.0/"),
+            ("rdf", "http://www.w3.org/1999/02/22-rdf-syntax-ns#"),
+        ]
+        .map(|(p, u)| (p.to_owned(), u.to_owned()));
+        let keeps = |name: &str| name != "exif:GPSLatitude";
+        for broken in [
+            "<dc:subject><rdf:Bag><rdf:li><exif:GPSLatitude>59N</rdf:li></rdf:Bag></dc:subject>",
+            "<dc:subject><rdf:Bag><rdf:li>Oslo</rdf:Bag></dc:subject>",
+            "<dc:subject><rdf:Bag><rdf:li>Oslo</rdf:li><!-- not closed",
+            "<dc:subject><rdf:Bag><rdf:li xml:lang='x",
+        ] {
+            assert_eq!(super::with_own_value_only(broken, &namespaces, &keeps), "");
+        }
+        let cdata = "<dc:description><rdf:Alt><rdf:li xml:lang=\"x-default\">\
+                     <![CDATA[It's <b>bold</b>]]></rdf:li></rdf:Alt></dc:description>";
+        assert_eq!(
+            super::with_own_value_only(cdata, &namespaces, &keeps),
+            cdata
+        );
     }
 
     /// A packet whose text puts a letter of two bytes across the 1 KB after a namespace is read
