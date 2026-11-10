@@ -2871,6 +2871,10 @@ msgstr ""
 msgid "the file system here ({kind}) does not allow this rename, as on some shares, cloud folders and phones ({e})"
 msgstr ""
 
+#: src/files/file_io.rs
+msgid "{from} could not be removed after it was put at {to}, so the file is now under both names ({e})"
+msgstr ""
+
 #: src/files/file_ops.rs
 msgid "\"{name}\": a {kind} file system, as on a camera card, allows none of : ? * \" < > | \\ in a name. Nothing was renamed."
 msgstr ""

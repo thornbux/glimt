@@ -498,7 +498,11 @@ fn trash_by_hand(trash: &Path, files: &[(&Path, String)]) -> Vec<(PathBuf, std::
     let mut taken_meanwhile = Vec::new();
     for (path, path_in_trashinfo, taken, trashinfo) in made {
         if let Err(e) = rename_never_over(path, &files_folder.join(&taken)) {
-            remove(&trashinfo);
+            // A move that may have been done keeps its .trashinfo, without which no trash view
+            // lists the file and Undo cannot find it.
+            if crate::files::file_io::was_surely_refused(&e) {
+                remove(&trashinfo);
+            }
             match e.kind() {
                 AlreadyExists => taken_meanwhile.push((path, path_in_trashinfo.clone())),
                 _ => failed.push((path.to_path_buf(), e)),
@@ -693,6 +697,29 @@ mod tests {
         let want: [(std::path::PathBuf, std::ffi::OsString); 2] =
             [(a, "a.png".into()), (b, "a.1.png".into())];
         assert_eq!(back, want);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// A move into the trash whose result the disk did not give (EIO after the file was linked
+    /// into files/) keeps its .trashinfo, so that the trash lists the file and Undo finds it.
+    #[test]
+    fn a_move_into_the_trash_that_may_have_been_done_keeps_its_trashinfo() {
+        use crate::files::file_io::{RENAME_WAYS_MISSING, UNLINK_FAILS};
+        let dir = std::env::temp_dir().join(format!("glimt-test-lostmove-{}", std::process::id()));
+        let (pics, trash) = (dir.join("pics"), dir.join("Trash"));
+        std::fs::create_dir_all(&pics).unwrap();
+        let a = pics.join("a.png");
+        std::fs::write(&a, "x").unwrap();
+        let uri = crate::images::thumbs::uri_path(&a);
+        RENAME_WAYS_MISSING.set(1);
+        UNLINK_FAILS.set(Some((a.clone(), libc::EIO)));
+        let failed = super::trash_by_hand(&trash, &[(a.as_path(), uri)]);
+        UNLINK_FAILS.set(None);
+        RENAME_WAYS_MISSING.set(0);
+        assert_eq!(failed.len(), 1);
+        assert!(a.exists() && trash.join("files/a.png").exists());
+        let listed = super::read_trash(&trash, std::path::Path::new("/"));
+        assert_eq!(listed.iter().map(|t| &t.from).collect::<Vec<_>>(), [&a]);
         std::fs::remove_dir_all(&dir).unwrap();
     }
 

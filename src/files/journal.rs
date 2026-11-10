@@ -3,7 +3,7 @@
 //! puts the old names back or finishes. The plan is locked while it runs, so a plan that another
 //! window is still carrying out is left alone.
 
-use crate::images::save::same_file;
+use crate::images::save::{same_file, same_file_by_opening};
 use std::collections::HashMap;
 use std::ffi::OsStr;
 use std::fs::File;
@@ -229,7 +229,7 @@ fn parse(bytes: &[u8]) -> Option<(Moves, Option<usize>)> {
 /// old name away. This is the one way a step is done, whether as Rename Many runs, as it is
 /// undone, or as it is put right at the next start.
 pub fn rename_step(a: &Path, b: &Path) -> std::io::Result<()> {
-    if same_file(a, b) {
+    if same_file_by_opening(a, b) {
         #[allow(clippy::disallowed_methods)] // a second name of the same file
         return std::fs::remove_file(a);
     }
@@ -346,7 +346,7 @@ pub fn repair_cut_short(
     #[allow(clippy::disallowed_methods)] // a second name of the same file
     if undo_them
         && let Some((a, b)) = done.and_then(|d| moves.get(d))
-        && same_file(a, b)
+        && same_file_by_opening(a, b)
         && std::fs::remove_file(b).is_ok()
     {
         first = 1;
@@ -998,6 +998,35 @@ mod tests {
             super::finish(&[(dir.join("gone"), dir.join("b.jpg"))], 0),
             (0, 0)
         );
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A step left under both names, where one of them may be gone from a share whose cache
+    /// still shows it, keeps the other name. It is removed only when an open of each name finds
+    /// one file, both as the step is done and as the plan is put back.
+    #[test]
+    fn a_second_name_goes_only_when_the_other_opens() {
+        use crate::images::save::GONE_FROM_THE_SERVER;
+        let dir = std::env::temp_dir().join(format!("glimt-test-cached-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let plans = dir.join("plans");
+        std::fs::create_dir_all(&plans).unwrap();
+        let p = |n: &str| dir.join(n);
+        let moves = vec![(p("a.jpg"), p("b.jpg"))];
+        std::fs::write(p("a.jpg"), "a").unwrap();
+        std::fs::hard_link(p("a.jpg"), p("b.jpg")).unwrap();
+        GONE_FROM_THE_SERVER.set(Some(p("b.jpg")));
+        let step = super::rename_step(&p("a.jpg"), &p("b.jpg"));
+        GONE_FROM_THE_SERVER.set(None);
+        assert!(step.is_err() && p("a.jpg").exists());
+        let plan = plans.join("cut");
+        let cut = super::start_journal(&plans, &moves).unwrap();
+        std::fs::copy(&cut.path, &plan).unwrap();
+        drop(cut);
+        GONE_FROM_THE_SERVER.set(Some(p("a.jpg")));
+        super::repair_cut_short(&plan, &moves, Some(0), true);
+        GONE_FROM_THE_SERVER.set(None);
+        assert!(p("b.jpg").exists());
         std::fs::remove_dir_all(dir).unwrap();
     }
 

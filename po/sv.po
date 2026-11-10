@@ -2850,6 +2850,10 @@ msgstr "Flytta samlingen ”{name}” till papperskorgen? Bilderna stannar där 
 msgid "the file system here ({kind}) does not allow this rename, as on some shares, cloud folders and phones ({e})"
 msgstr "filsystemet här ({kind}) tillåter inte det här namnbytet, som på vissa delade mappar, molnmappar och telefoner ({e})"
 
+#: src/files/file_io.rs
+msgid "{from} could not be removed after it was put at {to}, so the file is now under both names ({e})"
+msgstr "{from} kunde inte tas bort efter att den lagts på {to}, så filen har nu båda namnen ({e})"
+
 #: src/files/file_ops.rs
 msgid "\"{name}\": a {kind} file system, as on a camera card, allows none of : ? * \" < > | \\ in a name. Nothing was renamed."
 msgstr "”{name}”: ett {kind}-filsystem, som på minneskortet i en kamera, tillåter inget av : ? * \" < > | \\ i ett namn. Inget bytte namn."
