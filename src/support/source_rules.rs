@@ -3333,11 +3333,27 @@ fn the_lints_stay_on() {
     }
     let clippy = std::fs::read_to_string(root.join("clippy.toml")).unwrap();
     for call in REFUSED_CALLS {
-        if !clippy.contains(&format!("path = \"{call}\"")) {
+        if !is_refused(&clippy, call) {
             wrong.push(format!("clippy.toml: {call} is no longer refused"));
         }
     }
     assert!(wrong.is_empty(), "{}", wrong.join("\n"));
+}
+
+/// Returns whether clippy.toml's text `clippy` refuses the call `call`, on a line that is not
+/// commented out with `#`.
+fn is_refused(clippy: &str, call: &str) -> bool {
+    let entry = format!("path = \"{call}\"");
+    (clippy.lines()).any(|l| !l.trim_start().starts_with('#') && l.contains(&entry))
+}
+
+/// The check above takes a call as refused only on a line that is not commented out.
+#[test]
+fn a_call_commented_out_of_clippy_toml_is_not_refused() {
+    let clippy = "disallowed-methods = [\n    { path = \"std::fs::write\", reason = \"…\" },\n\
+        #    { path = \"std::fs::rename\", reason = \"…\" },\n]\n";
+    assert!(is_refused(clippy, "std::fs::write"));
+    assert!(!is_refused(clippy, "std::fs::rename"));
 }
 
 /// Returns the lines of `text` that turn off one of the lints of `the_lints_stay_on` for a
