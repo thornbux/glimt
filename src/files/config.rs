@@ -577,6 +577,15 @@ impl Config {
                         ));
                     }
                 }
+                Some(true)
+                    if now == "language"
+                        && !value.is_empty()
+                        && !crate::support::lang::is_language(value) =>
+                {
+                    problems.push(format!(
+                        "line {n}: {key}={value} is not a language Glimt has; English is used"
+                    ));
+                }
                 Some(true) if now == "keys" => {
                     for item in alone.keys.unusable_items() {
                         problems.push(format!(
@@ -960,8 +969,9 @@ fn unknown_choices_reset(c: &mut Config) {
 fn takes(key: &str, value: &str, values: &[&str]) -> bool {
     match key {
         // Sort is read into its own type, which takes only its values. A theme may also be a
-        // file of the user's own.
-        "sort" | "theme" => true,
+        // file of the user's own. A language that this Glimt does not have, such as one a later
+        // Glimt has, shows English, as it did in 0.79 (`lang::ENGLISH`), and the value is kept.
+        "sort" | "theme" | "language" => true,
         // A list of layouts keeps the ones a later Glimt has, so that a save keeps them in the
         // file. `parse_checked` tells them, and the slideshow does not use them.
         "slideshow_one_image_at_a_time" => true,
@@ -969,8 +979,6 @@ fn takes(key: &str, value: &str, values: &[&str]) -> bool {
         "input_profile" => {
             values.contains(&value) || value.is_empty() || Path::new(value).is_absolute()
         }
-        // An empty value is the system's language.
-        "language" => value.is_empty() || crate::support::lang::is_language(value),
         _ => values.contains(&value),
     }
 }
@@ -1174,7 +1182,7 @@ mod tests {
                 "line 5: 3x3 in slideshow_one_image_at_a_time is not a layout Glimt knows; \
                  it is kept and not used"
                     .to_owned(),
-                format!("line 6: language=xx {not} the default is used"),
+                "line 6: language=xx is not a language Glimt has; English is used".to_owned(),
                 format!("line 7: input_profile=srbg {not} srgb is used"),
             ]
         );
@@ -1182,8 +1190,12 @@ mod tests {
         // file. Before, the whole list was emptied, and the user's next change of it saved
         // only the layouts this Glimt knows.
         assert_eq!(config.slideshow_one_image_at_a_time, "1,3x3");
+        // A language this Glimt does not have shows English, as `lang::ENGLISH` says and as
+        // 0.79 did, and is kept. Before, it was emptied, which shows the system's language.
+        assert_eq!(config.language, "xx");
         let rest = super::Config {
             slideshow_one_image_at_a_time: String::new(),
+            language: String::new(),
             ..config
         };
         assert_eq!(rest, super::Config::default());
