@@ -219,31 +219,48 @@ pub fn undo(moves: &[(PathBuf, PathBuf)], done: usize) -> (usize, usize) {
     do_steps(back.map(|(a, b)| (b.as_path(), a.as_path())))
 }
 
-/// Does the steps of `moves` after the first `done`. Returns (renamed, left).
+/// Does the steps of `moves` after the first `done`. Returns (renamed, left). At the first step
+/// that fails, it stops and undoes the steps it did, so the names on disk stay those of the
+/// count that the plan keeps. Gone on, it left files under hidden names that no count
+/// described, and putting the old names back later missed them.
 pub fn finish(moves: &[(PathBuf, PathBuf)], done: usize) -> (usize, usize) {
-    let rest = moves[done.min(moves.len())..].iter();
-    do_steps(rest.map(|(a, b)| (a.as_path(), b.as_path())))
+    let mut done_here: Vec<(&Path, &Path)> = Vec::new();
+    for (a, b) in &moves[done.min(moves.len())..] {
+        match repair_step(a, b) {
+            Some(true) => done_here.push((b, a)),
+            Some(false) => {
+                let (_, stuck) = do_steps(done_here.into_iter().rev());
+                return (0, 1 + stuck);
+            }
+            None => {}
+        }
+    }
+    (done_here.len(), 0)
 }
 
+/// Does each of `steps`, as `repair_step` does. Returns (renamed, left).
 fn do_steps<'a>(steps: impl Iterator<Item = (&'a Path, &'a Path)>) -> (usize, usize) {
     let (mut renamed, mut left) = (0, 0);
     for (a, b) in steps {
-        // Only a name that is surely not there is passed over. One that cannot be looked at
-        // (a share that answers EIO) may still hold a file, so the plan is kept for it.
-        match std::fs::symlink_metadata(a) {
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => continue,
-            Err(_) => {
-                left += 1;
-                continue;
-            }
-            Ok(_) => {}
-        }
-        match rename_step(a, b) {
-            Ok(()) => renamed += 1,
-            Err(_) => left += 1,
+        match repair_step(a, b) {
+            Some(true) => renamed += 1,
+            Some(false) => left += 1,
+            None => {}
         }
     }
     (renamed, left)
+}
+
+/// Does one step of a repair, `a` to `b`. Returns whether it was done, and `None` when `a` is
+/// surely not there, so there is nothing of ours to move.
+fn repair_step(a: &Path, b: &Path) -> Option<bool> {
+    // Only a name that is surely not there is passed over. One that cannot be looked at (a
+    // share that answers EIO) may still hold a file, so the plan is kept for it.
+    match std::fs::symlink_metadata(a) {
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
+        Err(_) => Some(false),
+        Ok(_) => Some(rename_step(a, b).is_ok()),
+    }
 }
 
 /// The files a plan's `moves` take from their old names to their new ones, as (from, to). The
@@ -330,8 +347,10 @@ pub fn repair_cut_short(
 /// count alone, a swap cut short after a → .t0 and b → .t1 but counted at one put a back and
 /// left b's photo under its hidden name for good, with the plan deleted. A step cut short
 /// between its link and its unlink has both names for one file, and then that count is taken,
-/// with the step as the first not done. Where no count fits (a file changed by hand since), the
-/// count stays. It looks once at each name.
+/// with the step as the first not done. When no count from `done` on fits, the last earlier
+/// count that fits is taken, because the count may also have reached the disk before the names
+/// did (photos on a USB stick pulled out, the plan on another disk). Where no count fits at all
+/// (a file changed by hand since), the count stays. It looks once at each name.
 fn done_by_names(moves: &[(PathBuf, PathBuf)], done: usize) -> usize {
     // Each name gets a number, once. It records whether the name is there after the steps so
     // far, and whether it is on disk.
@@ -355,16 +374,17 @@ fn done_by_names(moves: &[(PathBuf, PathBuf)], done: usize) -> usize {
         made[b] = true;
     }
     let mut wrong = (0..there.len()).filter(|&n| there[n] != on_disk[n]).count();
+    let mut earlier = None;
     for (k, &[a, b]) in steps.iter().enumerate() {
-        if k >= done && wrong == 0 {
-            return k;
-        }
         // When cut short between this step's link and its unlink, the names are those of the
         // count before it, and its new name too, the same file as its old one. `repair_cut_short`
         // takes that name away.
         let (from, to) = (&moves[k].0, &moves[k].1);
-        if k >= done && wrong == 1 && !there[b] && on_disk[b] && same_file(from, to) {
-            return k;
+        let fits = wrong == 0 || (wrong == 1 && !there[b] && on_disk[b] && same_file(from, to));
+        match (fits, k >= done) {
+            (true, true) => return k,
+            (true, false) => earlier = Some(k),
+            (false, _) => {}
         }
         for (n, now) in [(a, false), (b, true)] {
             if there[n] != now {
@@ -376,7 +396,7 @@ fn done_by_names(moves: &[(PathBuf, PathBuf)], done: usize) -> usize {
     }
     match wrong == 0 && steps.len() >= done {
         true => steps.len(),
-        false => done,
+        false => earlier.unwrap_or(done),
     }
 }
 
@@ -569,6 +589,26 @@ mod tests {
             std::fs::remove_file(p("a.jpg")).unwrap();
             std::fs::remove_file(p("b.jpg")).unwrap();
         }
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A finish that fails halfway undoes its own steps, so no photo stays under a hidden name
+    /// that the plan's count does not describe.
+    #[test]
+    fn a_finish_that_fails_undoes_its_own_steps() {
+        let dir =
+            std::env::temp_dir().join(format!("glimt-test-finish-fails-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let p = |n: &str| dir.join(n);
+        std::fs::write(p("a.jpg"), "a").unwrap();
+        // A file put at the new name by hand stops the second step.
+        std::fs::write(p("b.jpg"), "other").unwrap();
+        let moves = vec![(p("a.jpg"), p(".tmp-0")), (p(".tmp-0"), p("b.jpg"))];
+        assert_eq!(super::finish(&moves, 0), (0, 1));
+        assert_eq!(std::fs::read_to_string(p("a.jpg")).unwrap(), "a");
+        assert_eq!(std::fs::read_to_string(p("b.jpg")).unwrap(), "other");
+        assert!(!p(".tmp-0").exists());
         std::fs::remove_dir_all(dir).unwrap();
     }
 
@@ -1016,7 +1056,72 @@ mod tests {
                     }
                 }
             }
+            for cut in 0..moves.len() {
+                for counted in cut + 1..=moves.len() {
+                    for undo in [false, true] {
+                        let case = format!("{from:?} -> {to:?}, cut {cut}, counted {counted}");
+                        let cuts = (cut, counted);
+                        repair_counted_ahead(&dir, &moves, (from, to), cuts, undo, &case);
+                    }
+                }
+            }
         }
         std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// Cuts `moves` short after `cut` steps on disk, with `counted` of them counted in the plan,
+    /// as when the count reached its disk and the photos' folder did not. Then it puts them
+    /// right, and checks that no photo is left under a hidden name or lost.
+    fn repair_counted_ahead(
+        dir: &std::path::Path,
+        moves: &super::Moves,
+        (from, to): (&[&str], &[&str]),
+        (cut, counted): (usize, usize),
+        undo: bool,
+        case: &str,
+    ) {
+        let plans = dir.join("plans");
+        let _ = std::fs::remove_dir_all(dir);
+        std::fs::create_dir_all(dir).unwrap();
+        for f in from {
+            std::fs::write(dir.join(f), f).unwrap();
+        }
+        let mut plan = super::start_journal(&plans, moves).unwrap();
+        for (a, b) in &moves[..cut] {
+            std::fs::rename(a, b).unwrap();
+        }
+        for _ in 0..counted {
+            plan.count_step_done();
+        }
+        let bytes = std::fs::read(&plan.path).unwrap();
+        drop(plan);
+        std::fs::write(plans.join("crashed"), bytes).unwrap();
+        let [(path, read, done)] = &super::cut_short_plans(&plans)[..] else {
+            panic!("one plan");
+        };
+        let (_, left) = super::repair_cut_short(path, read, *done, undo).unwrap();
+        assert_eq!(left, 0, "{case}");
+        assert!(!path.exists(), "{case}");
+        // Each photo is under a name it is meant to have, and none under a hidden one. A swap
+        // not begun has the names of one done, so which of the two it was cannot be told.
+        let mut there: Vec<(String, String)> = (std::fs::read_dir(dir).unwrap())
+            .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+            .filter(|n| n != "plans")
+            .map(|n| (std::fs::read_to_string(dir.join(&n)).unwrap(), n))
+            .collect();
+        there.sort();
+        assert!(
+            there.iter().all(|(_, n)| !n.starts_with('.')),
+            "{case}: {there:?}"
+        );
+        let photos: Vec<&str> = there.iter().map(|(photo, _)| photo.as_str()).collect();
+        assert_eq!(photos, from, "{case}");
+        if cut == 0 && to.iter().all(|t| from.contains(t)) {
+            return;
+        }
+        let names = if undo { from } else { to };
+        for (f, n) in from.iter().zip(names) {
+            assert_eq!(std::fs::read_to_string(dir.join(n)).unwrap(), *f, "{case}");
+        }
     }
 }
