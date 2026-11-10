@@ -4305,6 +4305,63 @@ fn the_window_thread_never_waits_for_the_disk() {
     );
 }
 
+/// The window's thread never waits for a lock that the writer thread holds while it waits for
+/// the disk, because a share that stopped answering would hang the window all the same. So no
+/// statement of the marks that locks `KNOWN_STAMPS` (`known_stamps()`) waits for the disk, and
+/// the window's own code, the methods of `Marks` outside the work they hand to the writer, does
+/// not lock it at all.
+#[test]
+fn the_marks_lock_is_never_held_across_the_disk() {
+    let file = "metadata/marks.rs";
+    let graph = CallGraph::new(&rust_sources());
+    let calls: Vec<Vec<Call>> = (graph.functions.iter())
+        .map(|f| graph.calls_of(f))
+        .collect();
+    let ways = ways_to_the_disk(&calls);
+    let to_the_disk: Vec<String> = (graph.functions.iter().zip(&ways))
+        .filter(|(_, way)| way.is_some())
+        .flat_map(|(f, _)| match f.owner {
+            // A method is called on a value or through its type, never by its name alone.
+            Some(_) => vec![format!(".{}(", f.name), format!("::{}(", f.name)],
+            None => vec![format!("{}(", f.name)],
+        })
+        .chain(DISK_CALLS.iter().map(|c| (*c).to_owned()))
+        .collect();
+    let lines = &graph.lines[file];
+    let mut wrong = Vec::new();
+    for (i, line) in lines[..tests_start(lines)].iter().enumerate() {
+        let statement = statement_text(lines, i);
+        let waits = (to_the_disk.iter()).find(|c| mentions_call(&statement, c));
+        if let Some(call) = waits.filter(|_| line.contains("known_stamps()")) {
+            wrong.push(format!("{file}:{} locks and then waits for {call}", i + 1));
+        }
+    }
+    for f in (graph.functions.iter()).filter(|f| f.owner.as_deref() == Some("Marks")) {
+        let mut handed_over = 0;
+        for i in f.lines.clone() {
+            if code_of_this_thread(&lines[i], &mut handed_over).contains("known_stamps()") {
+                wrong.push(format!(
+                    "{file}:{} the window locks it in {}",
+                    i + 1,
+                    f.name
+                ));
+            }
+        }
+    }
+    assert!(
+        wrong.is_empty(),
+        "the marks' lock is held across the disk:\n{}",
+        wrong.join("\n")
+    );
+}
+
+/// Returns whether `text` calls `call` (`name(`, or a call of `DISK_CALLS`), not merely a
+/// function whose name ends in it.
+fn mentions_call(text: &str, call: &str) -> bool {
+    let starts_a_name = call.starts_with(is_word_char);
+    (text.match_indices(call)).any(|(at, _)| !starts_a_name || !text[..at].ends_with(is_word_char))
+}
+
 /// Returns the calls in `sources` that wait for the disk in the window's thread, each as (file,
 /// function, call, line, the calls it goes through to the disk): in the functions of `App` and
 /// of its `parts` (each as (file, struct)), the calls of `DISK_CALLS` and of the crate's

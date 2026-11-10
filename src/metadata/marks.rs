@@ -48,14 +48,14 @@ impl Marks {
     /// stopped answering.
     pub fn refresh(&mut self) {
         if !own_writes_queued() {
-            self.read_file_again();
+            self.read_file_again(false);
         }
     }
 
     /// Reads the marks file again in the writer's thread, as `refresh` says, unless a read
     /// runs already. The read comes after this window's writes queued before it, as they go
-    /// through the same thread.
-    fn read_file_again(&mut self) {
+    /// through the same thread. A `forced` read reads the file also when it is as held.
+    fn read_file_again(&mut self, forced: bool) {
         if self.read_again.is_some() {
             return;
         }
@@ -64,9 +64,10 @@ impl Marks {
         let asked_at = self.edits_made;
         crate::files::file_io::write_later(move || {
             // As read, or changed only by this window's own writes: not read again on every
-            // mark key in a file of 500,000 marked.
-            // The lock is let go before the file is read, which takes it again.
-            let is_as_held = known_stamps().get(&file) == Some(&file_stamp(&file));
+            // mark key in a file of 500,000 marked. The file is looked at before the lock is
+            // taken, because the window takes the lock too, and must not wait for the disk.
+            let stamp = file_stamp(&file);
+            let is_as_held = !forced && known_stamps().get(&file) == Some(&stamp);
             let read = (!is_as_held).then(|| read_marks_file(&file));
             let _ = tx.send((asked_at, read));
         });
@@ -75,8 +76,8 @@ impl Marks {
 
     /// Takes the marks file as `refresh` read it again. When this window made an edit after it
     /// was asked for, what was read lacks that edit and is dropped, so a mark set meanwhile is
-    /// not lost. The file is then read again after that edit is written, so what another
-    /// window wrote shows all the same.
+    /// not lost. The file is then read again after that edit is written, also when that write
+    /// leaves it as this window holds it, so what another window wrote shows all the same.
     pub fn receive(&mut self) {
         let crate::support::threads::Took::Answer((asked_at, Some(by_path))) =
             self.read_again.take()
@@ -87,10 +88,7 @@ impl Marks {
             self.by_path = by_path;
             return;
         }
-        if let Some(file) = marks_file() {
-            known_stamps().remove(&file);
-        }
-        self.read_file_again();
+        self.read_file_again(true);
     }
 
     /// Every file with a mark or stars, and them.
@@ -232,7 +230,9 @@ pub fn read_marks() -> Marks {
 /// Returns the marks in the marks file `file`, none when it cannot be read, and notes the file
 /// as read (`known_stamps`).
 fn read_marks_file(file: &Path) -> HashMap<PathBuf, (u8, u8)> {
-    known_stamps().insert(file.to_path_buf(), file_stamp(file));
+    // The file is looked at before the lock is taken, as in `read_file_again`.
+    let stamp = file_stamp(file);
+    known_stamps().insert(file.to_path_buf(), stamp);
     let text = crate::images::decode::read_limited(file).unwrap_or_default();
     parse(&text)
 }
@@ -442,8 +442,10 @@ fn write(file: &Path, changes: &[Edit]) {
     // These changes on the file as another window may have left it; one that cannot be read
     // is not written over with these changes alone, as every other mark would be lost.
     let edit = |bytes: &[u8]| {
-        // Under the lock: no other window wrote since this one read or wrote it.
-        let ours = known_stamps().get(file) == Some(&file_stamp(file));
+        // Under the file's lock: no other window wrote since this one read or wrote it. The file
+        // is looked at before `KNOWN_STAMPS` is taken, as in `read_file_again`.
+        let stamp = file_stamp(file);
+        let ours = known_stamps().get(file) == Some(&stamp);
         let mut map = parse(bytes);
         let before = map.clone();
         for change in changes {
