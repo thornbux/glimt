@@ -8,7 +8,7 @@ use crate::support::threads::lock_even_if_poisoned;
 use crate::support::threads::{CPU_CHANGED, Took, cores, thumb_threads};
 use crate::ui::file_list::LARGE_THUMBS;
 use crate::ui::file_list::OnScreenFiles;
-use crate::{features::remote, images::thumbs, malloc_trim, metadata::lightroom, tf};
+use crate::{features::remote, images::thumbs, malloc_trim, tf};
 use eframe::egui;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -138,9 +138,7 @@ impl crate::App {
         match self.lightroom_catalog_answer.take() {
             Took::Nothing => {}
             Took::Gone => self.tell_background_stopped(tr("Reading the Lightroom catalog")),
-            Took::Answer((Ok(catalog), _pointer)) => {
-                self.lightroom = Some(lightroom::Import::new(catalog));
-            }
+            Took::Answer((Ok(import), _pointer)) => self.lightroom = Some(import),
             Took::Answer((Err(e), _pointer)) => self.notice.give(e),
         }
     }

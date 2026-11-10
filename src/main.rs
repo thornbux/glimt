@@ -17,7 +17,7 @@ use crate::features::duplicates::FindDuplicates;
 use crate::features::print::PrintDialog;
 use crate::files::config::{Config, WindowState, parse_last_dir, state_path};
 use crate::files::file_io::write_atomic;
-use crate::metadata::lightroom::Catalog;
+use crate::metadata::lightroom::Import;
 use crate::model::list::List;
 use crate::support::threads::{HAS_ONE_MALLOC_ARENA, Receiving, Working};
 use crate::support::threads::{cores, set_cpu_use, thread_cpu_us};
@@ -141,10 +141,10 @@ struct App {
     help: Option<crate::ui::help::Page>,
     /// File → Print's dialog, while open.
     print_dialog: Option<PrintDialog>,
-    /// A Lightroom catalog being read, then imported with the folders where its root folders
-    /// are now.
-    lightroom_catalog_answer: Receiving<(Result<Catalog, String>, Working)>,
-    lightroom: Option<crate::metadata::lightroom::Import>,
+    /// A Lightroom catalog being read, with where its root folders are now, then imported with
+    /// the folders typed for them.
+    lightroom_catalog_answer: Receiving<(Result<Import, String>, Working)>,
+    lightroom: Option<Import>,
     /// The pan view's window (Ctrl+J), while it is open.
     pan_view: Option<PanView>,
     /// File → Save As. It holds the dialog while it is open, and the answers given last.

@@ -3367,12 +3367,6 @@ fn the_window_thread_never_waits_for_the_disk() {
             "Glimt's own ICC folder under $HOME, once when the file dialog opens",
         ),
         (
-            "metadata/lightroom.rs",
-            "lightroom_dialog",
-            ".is_dir()",
-            "the few folders typed, while the Lightroom dialog is open; its shortcut comment",
-        ),
-        (
             "files/file_ops.rs",
             "written_anew",
             "canonicalize(",

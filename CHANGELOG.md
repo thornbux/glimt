@@ -41,6 +41,9 @@ and versions follow [Semantic Versioning](https://semver.org/).
 - Go → Back and Forward change their history when the place has been looked up, not when they
   are asked for. Back pressed twice before a slow share answers goes back one step, and a
   folder clicked meanwhile no longer leaves Forward holding the place the user is on.
+- File → Import Lightroom Catalog looks at the catalog's root folders, and at the folders typed
+  for them, in the background. Before, the window's thread looked at each of them in every
+  frame while the dialog was open, so a share that stopped answering held the window.
 
 ### Changed
 
