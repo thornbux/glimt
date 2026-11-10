@@ -274,13 +274,24 @@ pub(crate) fn follow_in_saved_collections(pairs: &[(PathBuf, PathBuf)], open: Op
             (open.as_deref()).is_some_and(|o| crate::images::save::same_file(o, file))
         };
         for (_, file) in saved_collections().into_iter().filter(|(_, f)| !is_open(f)) {
-            let _ = edit(&file, false, |all| {
+            let follow = |all: &mut Vec<PathBuf>| {
                 for p in all {
                     if let Some(to) = new_place(p, &moved) {
                         *p = to;
                     }
                 }
-            });
+            };
+            // A collection removed since the folder was read has no entries left to follow.
+            match edit(&file, false, follow) {
+                Err(e) if e.kind() != std::io::ErrorKind::NotFound => {
+                    crate::files::file_io::save_failed(tf!(
+                        "Could not save {name}: {e}",
+                        name = file.display(),
+                        e
+                    ));
+                }
+                _ => {}
+            }
         }
     });
 }
@@ -985,6 +996,26 @@ mod tests {
         assert!(super::edit(&gone, false, |all| all.clear()).is_err());
         assert!(!gone.exists());
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// A saved collection that cannot be written after its images moved is told, as every
+    /// failed save is. Before, it kept the old names, and the user was not told.
+    #[test]
+    fn a_saved_collection_that_cannot_follow_its_files_is_told() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = super::collections_dir().unwrap();
+        std::fs::create_dir_all(&dir).unwrap();
+        let saved = dir.join(format!("read-only-{}.gqv", std::process::id()));
+        let from = PathBuf::from(format!("/glimt-test-moved-{}/a.png", std::process::id()));
+        std::fs::write(&saved, super::to_text(std::slice::from_ref(&from), &[])).unwrap();
+        std::fs::set_permissions(&saved, std::fs::Permissions::from_mode(0o444)).unwrap();
+        crate::files::file_io::take_saves_failed();
+        super::follow_in_saved_collections(&[(from.clone(), from.with_file_name("b.png"))], None);
+        crate::files::file_io::flush();
+        let told = crate::files::file_io::take_saves_failed();
+        std::fs::remove_file(&saved).unwrap();
+        let name = saved.display().to_string();
+        assert!(told.iter().any(|e| e.contains(&name)), "{told:?}");
     }
 
     /// Collection files broken in thousands of ways: read without a panic.

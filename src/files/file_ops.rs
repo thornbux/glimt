@@ -943,11 +943,14 @@ impl crate::App {
                 self.edit_collection(follow);
             } else if let Some(file) = self.folder.collection() {
                 // None of them are in the list, because a refresh that started before they
-                // moved left them out. The file still follows, quietly, as it may hold none of
-                // them. It is written in the writer thread, as every edit of the collection.
+                // moved left them out. The file still follows, as it may hold none of them, and
+                // a failure is told. It is written in the writer thread, as every edit of the
+                // collection.
                 let file = file.to_path_buf();
                 crate::files::file_io::write_later(move || {
-                    let _ = collections::edit_open_collection(&file, follow);
+                    if let Err(e) = collections::edit_open_collection(&file, follow) {
+                        crate::files::file_io::save_failed(e);
+                    }
                 });
             }
             // The list is read again from the file, because a refresh that started before they

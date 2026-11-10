@@ -7,6 +7,9 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- A saved collection that cannot be written after its images were moved or renamed is told in
+  the window. Before, it kept the old names without a word. The open collection, when none of
+  the moved images was in its list yet, is told so too.
 - A write of the settings, marks, Open Recent or a collection that Glimt broke off with an error
   of its own is told in the window, as every failed save is. Before, the change was lost
   without a word. A sidecar write broken off so is told too.
