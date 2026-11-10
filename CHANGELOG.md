@@ -41,6 +41,9 @@ and versions follow [Semantic Versioning](https://semver.org/).
   reached it, the next start took the swap as finished. Finishing it moved the marks, stars and
   collection entries of each photo to the other, and putting back the old names swapped the
   photos themselves. Such a swap is now known as not begun.
+- When Rename Many failed and could not give every file its old name back, a keyword, comment,
+  alt text or star set meanwhile is no longer written to the old name, which may hold another
+  photo by then. It is left out, and the user is told with the rename's error.
 - A collection that came with a download, with a pipe or a link planted as its hidden lock file
   `.NAME.gqv.lock`, no longer hangs the window at Rename Collection or stops every later
   collection edit, and a link there no longer makes an empty file where it points. Rename

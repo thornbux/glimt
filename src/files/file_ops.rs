@@ -56,6 +56,26 @@ pub(crate) struct RenameOutcome {
     result: Result<(), String>,
     left_alone: Vec<usize>,
     undo: Vec<Moved>,
+    /// Whether each file is under a name the rename knows: its new one, or its old one again.
+    /// It is false when a failed rename could not put every old name back.
+    names_known: bool,
+}
+
+/// Why `rename_files` failed, and whether every file it renamed has its old name back.
+#[derive(Debug)]
+pub(crate) struct RenameFailed {
+    text: String,
+    names_put_back: bool,
+}
+
+impl From<String> for RenameFailed {
+    /// A failure before the first rename, which leaves every name as it was.
+    fn from(text: String) -> Self {
+        RenameFailed {
+            text,
+            names_put_back: true,
+        }
+    }
 }
 
 /// What words the end of a sidecar job, from how many files failed (`write_sidecars`).
@@ -1266,6 +1286,7 @@ impl crate::App {
             result,
             left_alone,
             undo,
+            names_known,
         } = answer;
         let failed = result.is_err();
         // The files an Undo left alone are told by name, as an Undo of a move tells them.
@@ -1273,16 +1294,16 @@ impl crate::App {
         let mut errors: Vec<String> = (left_alone.iter())
             .map(|&k| format!("{}: {other}", job.from[k].display()))
             .collect();
-        if !errors.is_empty() {
+        let told = if !errors.is_empty() {
             errors.extend(result.err());
-            self.notice.give(tf!(
+            Some(tf!(
                 "Undo failed ({count}): {first}",
                 count = count(errors.len(), "error"),
                 first = errors[0]
-            ));
-        } else if let Err(e) = result {
-            self.notice.give(e);
-        }
+            ))
+        } else {
+            result.err()
+        };
         self.set_selection(ctx, Default::default());
         // A rename that was itself an undo is not undone again, so Ctrl+Z twice does not give
         // the new names back. A failed Undo stays to be done again, unless an operation that
@@ -1300,8 +1321,17 @@ impl crate::App {
                 .collect(),
         };
         // The writes asked for during the rename go first, as they were asked for before
-        // anything that follows the files now.
-        self.send_waiting_sidecar_writes(ctx, Some(&pairs));
+        // anything that follows the files now. When a failed rename left names it does not
+        // know, a write could land on another photo, so the writes are dropped.
+        let dropped = self.send_waiting_sidecar_writes(ctx, names_known.then_some(&pairs[..]));
+        let told = told
+            .into_iter()
+            .chain(dropped)
+            .collect::<Vec<_>>()
+            .join("\n");
+        if !told.is_empty() {
+            self.notice.give(told);
+        }
         self.follow_moved_paths(pairs, false);
         if self.folder.collection().is_some() {
             return self.start_listing(ctx);
@@ -1859,23 +1889,23 @@ impl crate::App {
     /// Sends the sidecar writes that waited for a rename to the names their files have now, in
     /// the order they were asked for. `renamed` holds the `(from, to)` names that the rename
     /// changed. When it is `None`, the rename stopped without saying which names it changed.
-    /// A write could then land on another photo, so the writes are dropped, and the user is
-    /// told.
+    /// A write could then land on another photo, so the writes are dropped. Returns the text
+    /// that tells the user so, or `None` when no write was dropped.
+    #[must_use]
     pub(crate) fn send_waiting_sidecar_writes(
         &mut self,
         ctx: &egui::Context,
         renamed: Option<&[(PathBuf, PathBuf)]>,
-    ) {
+    ) -> Option<String> {
         let waiting = std::mem::take(&mut self.file_operations.sidecar_writes_waiting);
         let Some(renamed) = renamed else {
             let files: usize = waiting.iter().map(|w| w.paths.len()).sum();
-            if files > 0 {
-                self.notice.give(tf!(
+            return (files > 0).then(|| {
+                tf!(
                     "Rename Many stopped, so the metadata edited for {count} was not saved",
                     count = count(files, "file")
-                ));
-            }
-            return;
+                )
+            });
         };
         let moved = moves_by_source(renamed);
         // Each file keeps its place in the write, by which the write finds what it writes.
@@ -1887,6 +1917,7 @@ impl crate::App {
             let write = move |path: &Path, &k: &usize| write(k, path);
             self.write_sidecars(ctx, waiting.activity, files, write, waiting.report);
         }
+        None
     }
 
     /// Save frame `only` of `path` as the PNG `to`, or every frame as PNG files in a new folder
@@ -2311,9 +2342,12 @@ fn rename_undoable(
         .map(|(_, pair)| pair)
         .collect();
     let (kept_from, kept_to) = pairs.iter().cloned().unzip();
-    let result = match pairs.is_empty() {
-        true => Ok(()),
-        false => rename_files(kept_from, kept_to, job),
+    let (result, names_known) = match pairs.is_empty() {
+        true => (Ok(()), true),
+        false => match rename_files(kept_from, kept_to, job) {
+            Ok(()) => (Ok(()), true),
+            Err(e) => (Err(e.text), e.names_put_back),
+        },
     };
     // An Undo that failed put the names back, so what it still has to do is the rename it was
     // asked to undo, from the old name to the name the file has now. A file left under a
@@ -2329,6 +2363,7 @@ fn rename_undoable(
         result,
         left_alone,
         undo,
+        names_known,
     }
 }
 
@@ -2336,7 +2371,11 @@ fn rename_undoable(
 /// another file's. When names swap, it goes through temporary names. The plan is on disk while
 /// it runs, and a failure is undone. It never replaces a file, also not one that another
 /// program makes meanwhile.
-pub(crate) fn rename_files(from: Vec<PathBuf>, to: Vec<PathBuf>, job: &Job) -> Result<(), String> {
+pub(crate) fn rename_files(
+    from: Vec<PathBuf>,
+    to: Vec<PathBuf>,
+    job: &Job,
+) -> Result<(), RenameFailed> {
     // The sidecars are held as a sidecar write holds them, from before the look at which files
     // have one. Otherwise a keyword written meanwhile would land on an old name.
     let _locks = xmp::lock_sidecars(&from);
@@ -2404,7 +2443,7 @@ pub(crate) fn rename_files(from: Vec<PathBuf>, to: Vec<PathBuf>, job: &Job) -> R
                 // With a plan kept, the next start offers the repair. Without one (no state
                 // folder, or a full disk), the error tells where the files are, under hidden
                 // names.
-                return Err(match plan.take() {
+                let text = match plan.take() {
                     Some(plan) => {
                         plan.keep_on_disk();
                         tf!(
@@ -2420,14 +2459,14 @@ pub(crate) fn rename_files(from: Vec<PathBuf>, to: Vec<PathBuf>, job: &Job) -> R
                         t,
                         e
                     ),
+                };
+                let names_put_back = false;
+                return Err(RenameFailed {
+                    text,
+                    names_put_back,
                 });
             }
-            return Err(tf!(
-                "Could not rename {f} to {t}: {e}; nothing renamed",
-                f,
-                t,
-                e
-            ));
+            return Err(tf!("Could not rename {f} to {t}: {e}; nothing renamed", f, t, e).into());
         }
         if let Some(plan) = plan.as_mut() {
             match swap && k + 1 == moves.len() / 2 {
@@ -3106,7 +3145,7 @@ mod tests {
         job.stop_requested
             .store(true, std::sync::atomic::Ordering::Relaxed);
         let stopped = super::rename_files(vec![p("d.jpg")], vec![p("e.jpg")], &job);
-        assert!(stopped.unwrap_err().contains("stopped") && p("d.jpg").exists());
+        assert!(stopped.unwrap_err().text.contains("stopped") && p("d.jpg").exists());
         assert!(p("d.jpg").exists() && !p("c.jpg").exists());
         // The one rule, by name. The file in the way comes first, then the other file's
         // sidecar, and the operation's own names never count.
@@ -3139,7 +3178,7 @@ mod tests {
             Some(p("d.jpg"))
         );
         let refused = super::rename_files(vec![p("b.jpg")], vec![p("d.jpg.xmp")], &job);
-        assert!(refused.unwrap_err().contains("d.jpg exists already"));
+        assert!(refused.unwrap_err().text.contains("d.jpg exists already"));
         assert_eq!(
             (read("b.jpg"), read("c.jpg.xmp")),
             ("a".into(), "c's".into())
@@ -5060,6 +5099,53 @@ mod tests {
             [keywords(&b), keywords(&a)],
             [["Oslo"], ["Bergen"]],
             "a keyword is on the other photo"
+        );
+        std::fs::remove_dir_all(d).unwrap();
+    }
+
+    /// A sidecar write that waited for a Rename Many that failed, and could not put every old
+    /// name back, is dropped, and the user is told with the rename's error. Before, it was
+    /// written to the old name, which may hold the other photo of a swap by then.
+    #[test]
+    fn a_sidecar_write_is_dropped_when_a_failed_rename_leaves_names_unknown() {
+        let d = contract_folder("write-after-stuck-rename");
+        let a = d.join("a.png");
+        std::fs::remove_file(crate::metadata::xmp::sidecar(&a)).unwrap();
+        let (mut app, ctx) = app_on(&d);
+        let job = super::RenameJob {
+            list_version: app.list.version(),
+            from: vec![a.clone()],
+            to: vec![d.join("b.png")],
+            shown: None,
+            undoing: false,
+        };
+        app.file_operations.renaming = Some(job);
+        let oslo = |p: &std::path::Path| crate::metadata::xmp::add_tags(p, &["Oslo".into()]);
+        let asked = vec![(a.clone(), ())];
+        app.write_sidecars(
+            &ctx,
+            "Keywords",
+            asked,
+            move |p, _| oslo(p).is_ok(),
+            |_, _| None,
+        );
+        let job = app.file_operations.renaming.take().unwrap();
+        let outcome = super::RenameOutcome {
+            result: Err("not all names could be put back".into()),
+            left_alone: Vec::new(),
+            undo: Vec::new(),
+            names_known: false,
+        };
+        app.finish_rename_many(&ctx, job, outcome);
+        assert!(run_background_until(&mut app, &ctx, |app| !app
+            .file_operations
+            .is_writing_sidecars()
+            && !app.working()));
+        assert!(crate::metadata::xmp::read(&a).keywords.is_empty());
+        let notice = app.notice.text().unwrap_or_default();
+        assert!(
+            notice.contains("put back") && notice.contains("not saved"),
+            "{notice}"
         );
         std::fs::remove_dir_all(d).unwrap();
     }
