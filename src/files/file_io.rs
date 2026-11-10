@@ -461,7 +461,8 @@ pub(crate) fn put_file_until_stopped(
                 std::fs::set_permissions(&part, mode)?;
                 #[allow(clippy::disallowed_methods)] // the copy's time, as mv keeps it
                 out.set_modified(meta.modified()?)?;
-                copy_extended_attributes(from, &out);
+                // A copy leaves the ACL, as cp does without -p, and a move keeps it, as mv does.
+                copy_extended_attributes(from, &out, !is_copy);
                 out.sync_all()
             })
             .and_then(|_| rename_never_over(&part, to));
@@ -916,21 +917,23 @@ pub fn create_temp_beside(tmp: &Path, path: &Path) -> std::io::Result<std::fs::F
     };
     let file = new().mode(0o600).open(tmp)?;
     file.set_permissions(old.permissions())?;
-    copy_extended_attributes(path, &file);
+    copy_extended_attributes(path, &file, true);
     Ok(file)
 }
 
 /// Copies to `to` the extended attributes of the file named `from` that a user may set: the
 /// user's own (`user.*`, where KDE's Dolphin and Gwenview keep tags, ratings and comments) and
-/// the file's ACL (`system.posix_acl_access`). A file replaced by a new one (a turned image, a
-/// sidecar, Save As over a file) and a file moved to another disk keep them so, as with `mv`.
+/// the file's ACL (`system.posix_acl_access`) when `keeps_acl` says so. A file replaced by a new
+/// one (a turned image, a sidecar, Save As over a file) and a file moved to another disk keep
+/// them all, as with `mv`. A copy keeps the user's own but not the ACL, as with `cp` without
+/// `-p`, so that a grant to another user does not reach the user's own copy.
 /// Others are left: `security.*` (SELinux) is given to the new file by the system, and
 /// `trusted.*` needs root. The owner is not kept either, because only root may give a file to
 /// another user, so a file replaced by its group's member becomes that user's. A link at `from`
 /// gives nothing, so a replaced link does not take the attributes of the file it points to. An
 /// attribute that cannot be read or set (a file system without them, ENOTSUP) is passed over,
 /// as the file itself is written.
-fn copy_extended_attributes(from: &Path, to: &std::fs::File) {
+fn copy_extended_attributes(from: &Path, to: &std::fs::File, keeps_acl: bool) {
     use std::os::fd::AsRawFd;
     use std::os::unix::ffi::OsStrExt;
     let Ok(from) = std::ffi::CString::new(from.as_os_str().as_bytes()) else {
@@ -945,7 +948,7 @@ fn copy_extended_attributes(from: &Path, to: &std::fs::File) {
         return;
     };
     for name in names[..listed].split(|&b| b == 0) {
-        if !(name.starts_with(b"user.") || name == b"system.posix_acl_access") {
+        if !(name.starts_with(b"user.") || (keeps_acl && name == b"system.posix_acl_access")) {
             continue;
         }
         let Ok(name) = std::ffi::CString::new(name) else {
@@ -1236,6 +1239,63 @@ mod tests {
             assert_eq!(copied.as_deref(), Some(&b"holiday"[..]));
         } else {
             eprintln!("no extended attributes on this file system: not tested");
+        }
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A file's ACL stays with it when the file is replaced or moved to another disk, as `mv`
+    /// keeps it, but a copy does not take it, as `cp` without `-p` does not. A grant to another
+    /// user on the source would else reach the user's own copy, in place of the target folder's
+    /// default. The move to another disk needs /dev/shm on another file system than the
+    /// temporary folder, as in Docker and on GitHub's runners, and is passed over elsewhere.
+    #[test]
+    fn a_copy_leaves_the_acl_that_a_move_keeps() {
+        use crate::support::test_support::{attribute, set_attribute};
+        use std::os::unix::fs::MetadataExt;
+        const ACL: &str = "system.posix_acl_access";
+        let pid = std::process::id();
+        let dir = std::env::temp_dir().join(format!("glimt-test-acl-{pid}"));
+        std::fs::create_dir_all(dir.join("to")).unwrap();
+        let a = dir.join("a.jpg");
+        std::fs::write(&a, "a").unwrap();
+        // Version 2, then each entry as tag, permissions and ID: the owner rw, user 4321 r, the
+        // group r, the mask r and others nothing.
+        let mut acl = 2u32.to_le_bytes().to_vec();
+        for (tag, perm, id) in [(1u16, 6u16, u32::MAX), (2, 4, 4321), (4, 4, u32::MAX)] {
+            acl.extend(
+                [
+                    &tag.to_le_bytes()[..],
+                    &perm.to_le_bytes(),
+                    &id.to_le_bytes(),
+                ]
+                .concat(),
+            );
+        }
+        for (tag, perm) in [(0x10u16, 4u16), (0x20, 0)] {
+            let entry = [
+                &tag.to_le_bytes()[..],
+                &perm.to_le_bytes(),
+                &u32::MAX.to_le_bytes(),
+            ];
+            acl.extend(entry.concat());
+        }
+        if !set_attribute(&a, ACL, &acl) {
+            eprintln!("no ACLs on this file system: not tested");
+            std::fs::remove_dir_all(dir).unwrap();
+            return;
+        }
+        super::replace_name(&a, "b").unwrap();
+        assert!(attribute(&a, ACL).is_some(), "a replaced file lost its ACL");
+        super::put_file(&a, &dir.join("to/a.jpg"), true).unwrap();
+        assert_eq!(attribute(&dir.join("to/a.jpg"), ACL), None);
+        let shm = std::path::Path::new("/dev/shm");
+        let dev = |p: &std::path::Path| std::fs::metadata(p).map(|m| m.dev()).ok();
+        if dev(shm).is_some() && dev(shm) != dev(&dir) {
+            let moved = shm.join(format!("glimt-test-acl-{pid}.jpg"));
+            super::put_file(&a, &moved, false).unwrap();
+            let kept = attribute(&moved, ACL);
+            std::fs::remove_file(&moved).unwrap();
+            assert!(kept.is_some(), "a file moved to another disk lost its ACL");
         }
         std::fs::remove_dir_all(dir).unwrap();
     }
