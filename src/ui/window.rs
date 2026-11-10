@@ -68,6 +68,9 @@ pub(crate) struct Window {
     turn_tried_at_close: Option<(std::path::PathBuf, (u8, bool))>,
     /// How many termination signals the window had seen at its last pass.
     termination_signals_seen: usize,
+    /// A SIGTERM or SIGHUP asked for the close, as at logout. No one sees the window then, and
+    /// the session kills one that stays open, so a failed write does not keep it open.
+    is_closing_for_signal: bool,
     /// How many failed writes the window has told. `guard_close` compares it before and after
     /// it takes the answers, to know whether a failure came in with them.
     failed_writes_told: u64,
@@ -96,6 +99,7 @@ impl Window {
             turn_tried_at_close: None,
             // A signal that came before the window was made, while it started, closes it too.
             termination_signals_seen: 0,
+            is_closing_for_signal: false,
             failed_writes_told: 0,
             failed_writes_to_show: Vec::new(),
         }
@@ -214,6 +218,7 @@ impl crate::App {
         if signals != self.window.termination_signals_seen {
             self.window.termination_signals_seen = signals;
             self.window.let_kiosk_quit();
+            self.window.is_closing_for_signal = true;
             self.ask_to_close(ctx);
         }
         let close = ctx.input(|i| i.viewport().close_requested());
@@ -235,8 +240,11 @@ impl crate::App {
         self.receive_file_work(ctx);
         // A write that failed keeps the window open, with the failure on screen. Closing then
         // would hide it within a frame, and the user would believe the keywords or the turn
-        // saved. Telling it also forgot a close that waited, so the next close closes.
-        if self.window.failed_writes_told != failed_before {
+        // saved. Telling it also forgot a close that waited, so the next close closes. A close
+        // for a signal goes on, because the failure is printed on stderr, which is all that a
+        // logout can show.
+        let failed = self.window.failed_writes_told != failed_before;
+        if failed && !self.window.is_closing_for_signal {
             if close {
                 ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
             }
@@ -244,8 +252,10 @@ impl crate::App {
         }
         if close {
             self.refuse_or_delay_close(ctx);
-        } else if !was_writing {
-            // The close waited for the files, and they are written.
+        } else if !was_writing || failed {
+            // The close waited for the files, and they are written. After a failure, which
+            // forgot the close that waited, the close is asked for again, and it waits for the
+            // files still being written.
             self.ask_to_close(ctx);
         }
     }
@@ -1168,6 +1178,89 @@ mod tests {
         app.list.set_files(vec!["a.png".into()]);
         assert!(app.working());
         assert!(waits(&mut app).is_some_and(|(hidden, _)| hidden));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// Runs one pass of `logic` as eframe does, with the desktop's close when `close`. Returns
+    /// whether the pass asked for the window to close.
+    fn close_pass(app: &mut crate::App, ctx: &eframe::egui::Context, close: bool) -> bool {
+        use eframe::egui::{RawInput, ViewportCommand, ViewportEvent, ViewportId, ViewportInfo};
+        let info = ViewportInfo {
+            events: if close {
+                vec![ViewportEvent::Close]
+            } else {
+                vec![]
+            },
+            ..Default::default()
+        };
+        let input = RawInput {
+            viewports: std::iter::once((ViewportId::ROOT, info)).collect(),
+            ..Default::default()
+        };
+        let out = ctx.run_logic(&input, |ctx| app.guard_close(ctx));
+        let commands = out.viewport_commands.get(&ViewportId::ROOT);
+        commands.is_some_and(|c| c.contains(&ViewportCommand::Close))
+    }
+
+    /// Starts work in the background that fails to write once the returned sender sends.
+    fn failing_write(
+        app: &mut crate::App,
+        ctx: &eframe::egui::Context,
+    ) -> std::sync::mpsc::Sender<()> {
+        let (go, wait) = std::sync::mpsc::channel::<()>();
+        assert!(app.run_in_background(ctx, Vec::new(), move || {
+            let _ = wait.recv();
+            let failure = "Could not crop the image: test".to_owned();
+            Some(crate::support::threads::Told::FailedWrite(failure))
+        }));
+        go
+    }
+
+    /// A write in the background (a crop, Save As, an Undo) that fails while a close waits for
+    /// it keeps the window open, with the failure kept for the screen. Before, the work's answer
+    /// was sent as a plain notice, and the close that waited closed the window over it.
+    #[test]
+    fn a_failed_write_in_the_background_keeps_a_waiting_close_open() {
+        let dir = contract_folder("background-write-fails");
+        let (mut app, ctx) = app_on(&dir);
+        let go = failing_write(&mut app, &ctx);
+        assert!(!close_pass(&mut app, &ctx, true));
+        assert_eq!(app.window.close_requests, 1);
+        go.send(()).unwrap();
+        let start = std::time::Instant::now();
+        while app.window.failed_writes_told == 0 && start.elapsed().as_secs() < 5 {
+            assert!(!close_pass(&mut app, &ctx, false));
+        }
+        for _ in 0..3 {
+            assert!(!close_pass(&mut app, &ctx, false));
+        }
+        let shown = app.window.take_failed_writes_to_show().unwrap_or_default();
+        assert_eq!(shown, "Could not crop the image: test");
+        assert_eq!(app.window.close_requests, 0);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A close for SIGTERM or SIGHUP, as at logout, still closes after a write fails, which is
+    /// printed on stderr. No one sees the window then, and the session kills a window that
+    /// stays open, before `on_exit` saves the state. Before, the failure held it open.
+    #[test]
+    fn a_close_for_a_signal_ends_after_a_failed_write() {
+        let dir = contract_folder("signal-write-fails");
+        let (mut app, ctx) = app_on(&dir);
+        let go = failing_write(&mut app, &ctx);
+        // As a new signal. The count itself is left alone, as the windows of other tests would
+        // close at it.
+        app.window.termination_signals_seen = usize::MAX;
+        assert!(close_pass(&mut app, &ctx, false));
+        assert!(!close_pass(&mut app, &ctx, true));
+        go.send(()).unwrap();
+        let start = std::time::Instant::now();
+        let mut closes = false;
+        while !closes && start.elapsed().as_secs() < 5 {
+            closes = close_pass(&mut app, &ctx, false);
+        }
+        assert!(closes);
+        assert_eq!(app.window.failed_writes_told, 1);
         std::fs::remove_dir_all(dir).unwrap();
     }
 }

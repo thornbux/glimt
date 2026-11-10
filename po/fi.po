@@ -2858,8 +2858,8 @@ msgid "the file system here ({kind}) does not allow this rename, as on some shar
 msgstr "tämä tiedostojärjestelmä ({kind}) ei salli tätä uudelleennimeämistä, kuten jotkin jaetut kansiot, pilvikansiot ja puhelimet ({e})"
 
 #: src/files/file_io.rs
-msgid "{from} could not be removed after it was put at {to}, so the file is now under both names ({e})"
-msgstr "kohdetta {from} ei voitu poistaa sen jälkeen, kun se oli viety kohteeseen {to}, joten tiedostolla on nyt molemmat nimet ({e})"
+msgid "{from} could not be removed after it was put at {to}, so the file may be under both names or only at {to}; check both before removing either ({e})"
+msgstr "kohdetta {from} ei voitu poistaa sen jälkeen, kun se oli viety kohteeseen {to}, joten tiedostolla voi olla molemmat nimet tai se voi olla vain kohteessa {to}; tarkista molemmat ennen kuin poistat kumpaakaan ({e})"
 
 #: src/files/file_ops.rs
 msgid "\"{name}\": a {kind} file system, as on a camera card, allows none of : ? * \" < > | \\ in a name. Nothing was renamed."

@@ -16,7 +16,8 @@ use crate::model::listing::pattern_name;
 use crate::support::format::{count, thousands};
 use crate::support::lang::tr;
 use crate::support::threads::{
-    AnswerSender, NoticeSender, Receiving, Took, Working, answer_channel, lock_even_if_poisoned,
+    AnswerSender, NoticeSender, Receiving, Told, Took, Working, answer_channel,
+    lock_even_if_poisoned,
 };
 use crate::ui::actions::Action;
 use crate::ui::dialogs::Pick;
@@ -1182,13 +1183,20 @@ impl crate::App {
             || (self.folder.recursive() && dest.starts_with(self.folder.dir()));
         let pointer = Working::new(&self.busy);
         let undo_on_the_way = (!is_copy).then(|| self.file_operations.undo_on_the_way());
+        // The tests share one state folder, and a test's Move would leave its log there when
+        // the test does not take the report. They test the log on folders of their own.
+        #[cfg(not(test))]
+        let move_log_dir = (!is_copy).then(journal::move_log_dir).flatten();
+        #[cfg(test)]
+        let move_log_dir: Option<PathBuf> = None;
         std::thread::spawn(move || {
             if !is_copy && same_dir {
                 let _ = freed_tx.send(total_size(&paths));
             }
-            let mut move_log = (!is_copy).then(|| start_move_log_or_tell(&tx)).flatten();
+            let mut move_log = move_log_dir.and_then(|dir| start_move_log_or_tell(&dir, &tx));
             let at_pick = at_pick.as_deref();
-            let (errors, put) = put_files(&paths, at_pick, &dest, &job, move_log.as_mut());
+            let how = (is_copy, move_log.as_mut());
+            let (errors, put) = put_files(&paths, (at_pick, &dest), how, &job);
             let gone: Vec<PathBuf> = match is_copy {
                 true => Vec::new(),
                 false => put.iter().map(|(from, _)| from.clone()).collect(),
@@ -1576,14 +1584,14 @@ impl crate::App {
         self.run_in_background(ctx, vec![old.clone()], move || {
             // Never over an empty folder of that name, also one made since the look.
             if let Err(e) = rename_never_over(&old, &new) {
-                return Some(format!("{display}: {e}", display = new.display()));
+                return Some(Told::FailedWrite(format!("{}: {e}", new.display())));
             }
             // The marks and collections follow the new name, so it is on disk first. A failed
             // sync is told, but the window still follows the folder, which has its new name.
             let synced = crate::files::file_io::sync_folder_of(&new);
             let error = synced
                 .err()
-                .map(|e| format!("{display}: {e}", display = new.display()));
+                .map(|e| Told::FailedWrite(format!("{}: {e}", new.display())));
             let _ = report_tx.send(OperationReport {
                 folder_renamed: Some((old, new)),
                 ..Default::default()
@@ -1667,6 +1675,7 @@ impl crate::App {
             error
                 .map(|e| tf!("Could not move the folder to the trash: {e}", e))
                 .or(forgotten)
+                .map(Told::FailedWrite)
         });
     }
 
@@ -1728,12 +1737,12 @@ impl crate::App {
                     ..Default::default()
                 });
                 Some(match errors.first() {
-                    Some(first) => tf!(
+                    Some(first) => Told::FailedWrite(tf!(
                         "Undo failed ({count}): {first}",
                         count = count(errors.len(), "error"),
                         first
-                    ),
-                    None => tf!("{files} moved back", files),
+                    )),
+                    None => Told::Notice(tf!("{files} moved back", files)),
                 })
             })),
             Undo::Trash(trash_move) => self.undo_trash(ctx, trash_move, undone),
@@ -1760,7 +1769,7 @@ impl crate::App {
                     is_undo_remainder: true,
                     ..Default::default()
                 });
-                return Some(job.stopped_text());
+                return Some(Told::Notice(job.stopped_text()));
             };
             let (back, mut error) = restore(&trash_move, trash_dirs);
             // What went with the files comes back with them: their places in the
@@ -1812,9 +1821,9 @@ impl crate::App {
             );
             // The files that came back are told too when others did not.
             Some(match error {
-                None => done,
-                Some(e) if back.is_empty() => tf!("Undo failed: {e}", e),
-                Some(e) => format!("{done}; {}", tf!("Undo failed: {e}", e)),
+                None => Told::Notice(done),
+                Some(e) if back.is_empty() => Told::FailedWrite(tf!("Undo failed: {e}", e)),
+                Some(e) => Told::FailedWrite(format!("{done}; {}", tf!("Undo failed: {e}", e))),
             })
         });
     }
@@ -1836,14 +1845,16 @@ impl crate::App {
 
     /// Runs `work`, which writes files and changes `held_back_files`, in a thread of its own. The
     /// busy pointer shows meanwhile, closing waits for it, and what it returns is told in the
-    /// window. It is not started, and a notice says so, while something else works on
-    /// `held_back_files` (`are_free_to_change`). Returns whether it started. Work within a job
-    /// passes no `held_back_files`, because its job holds them.
+    /// window. The work says whether its answer is a notice or a failed write, because a failed
+    /// write keeps a close that waited for it open, so the user sees it. It is not started, and a
+    /// notice says so, while something else works on `held_back_files` (`are_free_to_change`).
+    /// Returns whether it started. Work within a job passes no `held_back_files`, because its
+    /// job holds them.
     pub(crate) fn run_in_background(
         &mut self,
         ctx: &egui::Context,
         held_back_files: Vec<PathBuf>,
-        work: impl FnOnce() -> Option<String> + Send + 'static,
+        work: impl FnOnce() -> Option<Told> + Send + 'static,
     ) -> bool {
         // Work that changes none of the user's files (within a job that holds them, or on
         // Glimt's own collections) waits for nothing. A Lightroom import's collections were
@@ -1855,8 +1866,10 @@ impl crate::App {
         let pointer = Working::new(&self.busy);
         let writing = Working::new(&crate::files::file_io::WRITING);
         std::thread::spawn(move || {
-            if let Some(text) = work() {
-                let _ = tx.send(text);
+            match work() {
+                Some(Told::Notice(text)) => drop(tx.send(text)),
+                Some(Told::FailedWrite(text)) => tx.send_failed_write(text),
+                None => {}
             }
             // The busy pointer goes last. A window that sees no work running starts the next
             // operation on these files, and the files still held back would refuse it.
@@ -2008,7 +2021,7 @@ impl crate::App {
             // that stalls would hold the window.
             if only.is_some() && crate::images::save::same_file(&path, &to) {
                 let e = tr("choose another name: the image itself is not changed");
-                return Some(tf!("Could not save the image: {e}", e));
+                return Some(Told::FailedWrite(tf!("Could not save the image: {e}", e)));
             }
             // The name's own bytes, also when they are not UTF-8.
             let named = |more: &str| crate::images::save::stem_with_suffix(&path, more);
@@ -2066,14 +2079,14 @@ impl crate::App {
                 });
             }
             Some(match (saved, only) {
-                (Ok(0), _) => tr("No such frame").to_owned(),
-                (Ok(_), Some(_)) => tf!("Saved {file}", file = to.display()),
-                (Ok(n), None) => tf!(
+                (Ok(0), _) => Told::Notice(tr("No such frame").to_owned()),
+                (Ok(_), Some(_)) => Told::Notice(tf!("Saved {file}", file = to.display())),
+                (Ok(n), None) => Told::Notice(tf!(
                     "{frames} saved in {folder}",
                     frames = count(n, "frame"),
                     folder = folder.display()
-                ),
-                (Err(e), _) => tf!("Could not save the frames: {e}", e),
+                )),
+                (Err(e), _) => Told::FailedWrite(tf!("Could not save the frames: {e}", e)),
             })
         });
     }
@@ -2087,9 +2100,12 @@ impl crate::App {
             return;
         };
         self.run_in_background(ctx, Vec::new(), move || {
-            let done = crate::files::backup::back_up_to(&dir).unwrap_or_else(|e| e);
+            let told = match crate::files::backup::back_up_to(&dir) {
+                Ok(done) => Told::Notice(done),
+                Err(e) => Told::FailedWrite(e),
+            };
             drop(job);
-            Some(done)
+            Some(told)
         });
     }
 
@@ -2489,7 +2505,8 @@ pub(crate) fn rename_files(
     let mut plan = journal::journal_dir().and_then(|d| journal::start_journal(&d, &moves));
     for (k, (a, b)) in moves.iter().enumerate() {
         // On Stop, the names done so far go back, by the same steps a failure takes.
-        let step = match job.is_stopped() {
+        let stopped = job.is_stopped();
+        let step = match stopped {
             true => Err(std::io::Error::other(tr("stopped"))),
             false => journal::rename_step(a, b),
         };
@@ -2506,38 +2523,23 @@ pub(crate) fn rename_files(
             // Named by the file and its new name, not a temporary one.
             let j = k % from.len();
             let name = |p: &PathBuf| p.file_name().unwrap_or_default().display().to_string();
-            // The renames are undone so that no file is left under a hidden temporary name,
-            // by the same steps the next start would take.
-            let (_, stuck) = journal::undo(&moves, done);
+            // A step that failed without the file system saying that it did nothing (a share
+            // that lost its answer) may have been done. Nothing is undone then, because an undo
+            // counts on knowing which steps were done. The plan stays as it is, and the next
+            // start finds the step by the names, once the share's cache has expired.
+            let may_be_done =
+                !stopped && done == k && !crate::files::file_io::was_surely_refused(&e);
+            // Otherwise the renames are undone so that no file is left under a hidden
+            // temporary name, by the same steps the next start would take.
+            let stuck = match may_be_done {
+                true => 1,
+                false => journal::undo(&moves, done).1,
+            };
             let (f, t) = (name(&from[j]), name(&to[j]));
             // When not all were put back (a share that stopped answering, say), the plan stays,
             // and the next start offers to put the files right.
             if stuck > 0 {
-                // With a plan kept, the next start offers the repair. Without one (no state
-                // folder, or a full disk), the error tells where the files are, under hidden
-                // names.
-                let text = match plan.take() {
-                    Some(plan) => {
-                        plan.keep_on_disk();
-                        tf!(
-                            "Could not rename {f} to {t}: {e}; not all names could be put back, Glimt offers to put them right at the next start",
-                            f,
-                            t,
-                            e
-                        )
-                    }
-                    None => tf!(
-                        "Could not rename {f} to {t}: {e}; not all names could be put back, and no plan could be kept: the files under .glimt-rename-* names next to them are theirs",
-                        f,
-                        t,
-                        e
-                    ),
-                };
-                let names_put_back = false;
-                return Err(RenameFailed {
-                    text,
-                    names_put_back,
-                });
+                return Err(names_left_for_the_next_start(plan.take(), (&f, &t), &e));
             }
             return Err(tf!("Could not rename {f} to {t}: {e}; nothing renamed", f, t, e).into());
         }
@@ -2556,6 +2558,38 @@ pub(crate) fn rename_files(
     Ok(())
 }
 
+/// Keeps the `plan` of a Rename Many whose names were not all put back after the rename of `f`
+/// to `t` failed with `e`, so that the next start offers the repair. Returns the failure to
+/// tell. Without a plan (no state folder, or a full disk), the error tells where the files
+/// are, under hidden names.
+fn names_left_for_the_next_start(
+    plan: Option<journal::Journal>,
+    (f, t): (&str, &str),
+    e: &std::io::Error,
+) -> RenameFailed {
+    let text = match plan {
+        Some(plan) => {
+            plan.keep_on_disk();
+            tf!(
+                "Could not rename {f} to {t}: {e}; not all names could be put back, Glimt offers to put them right at the next start",
+                f,
+                t,
+                e
+            )
+        }
+        None => tf!(
+            "Could not rename {f} to {t}: {e}; not all names could be put back, and no plan could be kept: the files under .glimt-rename-* names next to them are theirs",
+            f,
+            t,
+            e
+        ),
+    };
+    RenameFailed {
+        text,
+        names_put_back: false,
+    }
+}
+
 /// Sends to the window, through `report_tx`, the Moves that Glimt was killed during, found at
 /// the start. The marks and collections then follow the files that went, as the Moves' reports
 /// would have made them.
@@ -2571,30 +2605,27 @@ fn send_moves_cut_short(report_tx: &AnswerSender<OperationReport>) {
     }
 }
 
-/// Starts the log of a Move (`journal::MoveLog`). Returns `None` when there is no state folder,
-/// and when the log cannot be made, which `tx` tells. The Move then runs without it, as Rename
-/// Many runs without its plan.
-fn start_move_log_or_tell(tx: &NoticeSender) -> Option<journal::MoveLog> {
-    let dir = journal::move_log_dir()?;
-    let started = journal::start_move_log(&dir);
+/// Starts the log of a Move (`journal::MoveLog`) in `dir`. Returns `None` when the log cannot
+/// be made, which `tx` tells as a failed write. The Move then runs without it, as Rename Many
+/// runs without its plan.
+fn start_move_log_or_tell(dir: &Path, tx: &NoticeSender) -> Option<journal::MoveLog> {
+    let started = journal::start_move_log(dir);
     if let Err(e) = &started {
         tx.send_failed_write(tf!("Could not save {name}: {e}", name = dir.display(), e));
     }
     started.ok()
 }
 
-/// Copies `paths` into the folder `dest` for `transfer`, each with its sidecars, until `job` is
-/// stopped. With `move_log`, a Move's log, it moves them instead, and writes each file down in
-/// the log before it goes. A file that no longer has its fingerprint of `at_pick` is left where
-/// it is. Returns the errors to tell and the files put there, `(from, to)`.
+/// Copies or moves `paths` into the folder `dest` for `transfer`, each with its sidecars, until
+/// `job` is stopped. A Move with its log, `move_log`, writes each file down in the log before
+/// it goes. A file that no longer has its fingerprint of `at_pick` is left where it is. Returns
+/// the errors to tell and the files put there, `(from, to)`.
 fn put_files(
     paths: &[PathBuf],
-    at_pick: Option<&[Option<FileFingerprint>]>,
-    dest: &Path,
+    (at_pick, dest): (Option<&[Option<FileFingerprint>]>, &Path),
+    (is_copy, mut move_log): (bool, Option<&mut journal::MoveLog>),
     job: &Job,
-    mut move_log: Option<&mut journal::MoveLog>,
 ) -> (Vec<String>, Vec<(PathBuf, PathBuf)>) {
-    let is_copy = move_log.is_none();
     let (mut errors, mut put) = (Vec::new(), Vec::new());
     // Each folder is read once for the whole job (`xmp::AdobeNames`).
     let target_of = |path: &PathBuf| dest.join(path.file_name().unwrap_or_default());
@@ -3192,6 +3223,48 @@ mod tests {
         crate::files::file_io::FOLDER_SYNC_FAILS_IN.set(None);
         crate::files::file_io::take_saves_failed();
         assert!(swapped.is_err());
+        let read = |n: &str| std::fs::read_to_string(p(n)).unwrap();
+        assert_eq!((read("a.jpg"), read("b.jpg")), ("a".into(), "b".into()));
+        assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 2);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A swap whose step failed in a way that may have been done (a share that lost the answer
+    /// to an unlink) undoes nothing and keeps its plan, which the next start puts right. Before,
+    /// the steps before it were undone and the plan deleted, with "nothing renamed", which on a
+    /// share left a photo only under its hidden name.
+    #[test]
+    fn a_rename_step_that_may_have_been_done_keeps_the_plan() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-swap-lost-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let p = |n: &str| dir.join(n);
+        std::fs::write(p("a.jpg"), "a").unwrap();
+        std::fs::write(p("b.jpg"), "b").unwrap();
+        let job = super::Job::new("Renaming", 2, false, Vec::new());
+        // The second step, b.jpg to its hidden name, is linked and its unlink answers EIO.
+        crate::files::file_io::RENAME_WAYS_MISSING.set(1);
+        crate::files::file_io::UNLINK_FAILS.set(Some((p("b.jpg"), libc::EIO)));
+        let swapped = super::rename_files(
+            vec![p("a.jpg"), p("b.jpg")],
+            vec![p("b.jpg"), p("a.jpg")],
+            &job,
+        );
+        crate::files::file_io::UNLINK_FAILS.set(None);
+        crate::files::file_io::RENAME_WAYS_MISSING.set(0);
+        let error = swapped.unwrap_err();
+        assert!(
+            !error.names_put_back && error.text.contains("next start"),
+            "{}",
+            error.text
+        );
+        let plans = super::journal::journal_dir().unwrap();
+        let ours = super::journal::cut_short_plans(&plans)
+            .into_iter()
+            .find(|(_, moves, _)| moves[0].0 == p("a.jpg"));
+        let (plan, moves, done) = ours.expect("the plan is kept");
+        let (_, left) = super::journal::repair_cut_short(&plan, &moves, done, true).unwrap();
+        assert_eq!(left, 0);
         let read = |n: &str| std::fs::read_to_string(p(n)).unwrap();
         assert_eq!((read("a.jpg"), read("b.jpg")), ("a".into(), "b".into()));
         assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 2);
@@ -4133,7 +4206,12 @@ mod tests {
         let marked = if cfg!(feature = "marks") { 3 } else { 0 };
         let job = super::Job::new("Moving", 2, false, Vec::new());
         let mut log = super::journal::start_move_log(&logs).unwrap();
-        let moved = super::put_files(std::slice::from_ref(&a), None, &to, &job, Some(&mut log));
+        let moved = super::put_files(
+            std::slice::from_ref(&a),
+            (None, &to),
+            (false, Some(&mut log)),
+            &job,
+        );
         assert_eq!(moved, (Vec::new(), vec![(a.clone(), to.join("a.png"))]));
         // b.png was written down, and the kill came before it went.
         log.note(&b, &to.join("b.png")).unwrap();

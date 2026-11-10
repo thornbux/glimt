@@ -154,8 +154,15 @@ impl crate::App {
                 .into_owned();
             Some(
                 match crate::files::trash::trash(std::slice::from_ref(&file)) {
-                    Ok(()) => tf!("Collection {name} moved to the trash", name),
-                    Err(err) => tf!("Could not trash {name}: {err}", name, err),
+                    Ok(()) => crate::support::threads::Told::Notice(tf!(
+                        "Collection {name} moved to the trash",
+                        name
+                    )),
+                    Err(err) => crate::support::threads::Told::FailedWrite(tf!(
+                        "Could not trash {name}: {err}",
+                        name,
+                        err
+                    )),
                 },
             )
         }) || !shown
@@ -187,17 +194,24 @@ impl crate::App {
                 CollectionAddedTo::Saved(file) => file,
                 CollectionAddedTo::New(name) => match new_file(&name) {
                     Ok(file) => file,
-                    Err(why) => return Some(why),
+                    Err(why) => return Some(crate::support::threads::Told::FailedWrite(why)),
                 },
             };
             let name = file.file_stem().unwrap_or_default().to_string_lossy();
-            let told = match append(&file, &paths) {
-                Ok(n) => tf!("{n} added to the collection \"{name}\"", n, name),
-                Err(e) => tf!("Could not save the collection: {e}", e),
+            let (told, failed) = match append(&file, &paths) {
+                Ok(n) => (
+                    tf!("{n} added to the collection \"{name}\"", n, name),
+                    false,
+                ),
+                Err(e) => (tf!("Could not save the collection: {e}", e), true),
             };
-            Some(match left_out {
+            let told = match left_out {
                 Some(left_out) => format!("{told}\n{left_out}"),
                 None => told,
+            };
+            Some(match failed {
+                true => crate::support::threads::Told::FailedWrite(told),
+                false => crate::support::threads::Told::Notice(told),
             })
         });
     }

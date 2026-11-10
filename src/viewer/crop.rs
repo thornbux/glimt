@@ -181,9 +181,12 @@ impl crate::App {
                         is_copy: true,
                         ..Default::default()
                     });
-                    tf!("Saved {file}", file = new.display())
+                    crate::support::threads::Told::Notice(tf!("Saved {file}", file = new.display()))
                 }
-                Err(e) => tf!("Could not crop the image: {e}", e),
+                Err(e) => crate::support::threads::Told::FailedWrite(tf!(
+                    "Could not crop the image: {e}",
+                    e
+                )),
             })
         });
     }

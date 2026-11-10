@@ -2869,8 +2869,8 @@ msgid "the file system here ({kind}) does not allow this rename, as on some shar
 msgstr "filsystemet her ({kind}) tillater ikke denne omdøpingen, slik som på enkelte delte mapper, skymapper og telefoner ({e})"
 
 #: src/files/file_io.rs
-msgid "{from} could not be removed after it was put at {to}, so the file is now under both names ({e})"
-msgstr "{from} kunne ikke fjernes etter at den ble lagt på {to}, så filen har nå begge navnene ({e})"
+msgid "{from} could not be removed after it was put at {to}, so the file may be under both names or only at {to}; check both before removing either ({e})"
+msgstr "{from} kunne ikke fjernes etter at den ble lagt på {to}, så filen kan ha begge navnene eller bare ligge på {to}; sjekk begge før du fjerner noen av dem ({e})"
 
 #: src/files/file_ops.rs
 msgid "\"{name}\": a {kind} file system, as on a camera card, allows none of : ? * \" < > | \\ in a name. Nothing was renamed."

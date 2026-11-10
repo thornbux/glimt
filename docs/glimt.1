@@ -584,7 +584,8 @@ may take (Preferences \(-> Memory and CPU, the setting
 4096 by default). A program such as Java keeps its heap under it.
 .SH SIGNALS
 SIGTERM and SIGHUP close the window as Ctrl+Q does: Glimt waits while files are copied, moved
-or saved, then writes its state and ends. A second signal stops the files after the one at
+or saved, then writes its state and ends. A write that fails meanwhile is printed on standard
+error, and the window still closes, as no one may be at the screen. A second signal stops the files after the one at
 hand, and a third ends Glimt at once, whatever it waits for, with exit status 143; its state
 is not written then. SIGKILL always ends it at once. A signal ignored when
 Glimt starts stays ignored, so

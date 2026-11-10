@@ -9,9 +9,11 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 - A move or rename on an NFS, SMB or sshfs share, or a move from one to another disk, no longer
   removes the only copy of the photo when the share removed the old name but its answer was
-  lost. The file is kept under both names and the error says so. Rename Many's repair and a
+  lost. Neither name is removed then, and the error says that the file may be under both names
+  or only the new one, and to check both before removing either. Rename Many's repair and a
   move into the trash by hand no longer remove a name, or a file's `.trashinfo`, on what the
-  share's cache still shows either.
+  share's cache still shows either. A Rename Many whose step on a share may have been done
+  keeps its plan, and the next start puts the names right.
 - A turn of a photo that changed while the turn was saved is not saved, and the window says
   that the file was changed meanwhile. Before, a JPEG still being copied into the folder was
   turned from the part copied so far and written back cut off, and a slow PNG or WebP turn could
@@ -25,10 +27,12 @@ and versions follow [Semantic Versioning](https://semver.org/).
   camera and date were lost from a turned file. A chunk of either is now dropped only when the new
   file holds that kind anew, and an HDR PNG keeps its colour chunks (cICP, mDCV, cLLI).
 - A write that fails while Glimt waits to close, such as keywords typed for a photo on a
-  read-only folder and then Ctrl+Q or a logout, keeps the window open with the failure shown,
-  and prints it in the terminal. Close again to close. Before, the window closed as the failure
-  came, and the keywords were lost without a word. Failed moves, copies and deletes are printed
-  in the terminal too.
+  read-only folder and then Ctrl+Q, or a crop, Save As, Export Frames, Undo or folder rename on
+  a full disk, keeps the window open with the failure shown, and prints it in the terminal.
+  Close again to close. Before, the window closed as the failure came, and the keywords were
+  lost without a word. Failed moves, copies and deletes are printed in the terminal too. A
+  close at logout (SIGTERM or SIGHUP) prints the failure and still closes, so the session does
+  not wait for it and Glimt still saves its state.
 - A failed write stays on screen when another notice comes at the same moment. Before, a
   Lightroom import's "imported" could hide "Could not save the keyword tree".
 - A window closed twice while files are written still waits, when it closes, for the last

@@ -2858,8 +2858,8 @@ msgid "the file system here ({kind}) does not allow this rename, as on some shar
 msgstr "il file system qui ({kind}) non consente questa ridenominazione, come su alcune cartelle condivise, cartelle cloud e telefoni ({e})"
 
 #: src/files/file_io.rs
-msgid "{from} could not be removed after it was put at {to}, so the file is now under both names ({e})"
-msgstr "non è stato possibile rimuovere {from} dopo averlo messo in {to}, quindi il file ha ora entrambi i nomi ({e})"
+msgid "{from} could not be removed after it was put at {to}, so the file may be under both names or only at {to}; check both before removing either ({e})"
+msgstr "non è stato possibile rimuovere {from} dopo averlo messo in {to}, quindi il file può avere entrambi i nomi o trovarsi solo in {to}; controllali entrambi prima di rimuoverne uno ({e})"
 
 #: src/files/file_ops.rs
 msgid "\"{name}\": a {kind} file system, as on a camera card, allows none of : ? * \" < > | \\ in a name. Nothing was renamed."

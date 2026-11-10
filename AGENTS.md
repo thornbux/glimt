@@ -527,7 +527,9 @@ whole module. The tests may unwrap (main.rs allows it for them).
   (`source_rules::write_results_are_not_dropped`): handle it, or pass it on with `?`.
   A background thread tells a failed write through `save_failed` or
   `NoticeSender::send_failed_write`, never as a plain notice, and the window thread through
-  `App::tell_failed_write`. Both keep the window open when a close
+  `App::tell_failed_write`. Work in `run_in_background` answers with a `Told`, which says
+  whether it is a notice or a failed write, and a function that hands work to a writer thread
+  holds no `notice_sender`. Both keep the window open when a close
   waited for the writing. A Close is sent only by `App::ask_to_close`, and `guard_close` takes
   the failed writes before it lets one through
   (`source_rules::a_close_takes_the_failed_writes_first`).
