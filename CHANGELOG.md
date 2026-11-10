@@ -5,6 +5,16 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- A CMYK JPEG or TIFF with its CMYK profile in the file, as print and stock photos often are,
+  shows in its colours. Before, the view, the thumbnails (also in the shared cache that file
+  managers read), prints, Copy Image and Export Frames showed it nearly black.
+- Export Frames writes a 16-bit page with a colour profile in 16 bits, as one without a profile.
+  Before, it came out in 8 bits.
+- A file with `;` in its path has its thumbnail in the shared cache under the name GNOME and KDE
+  give it. Before, each program made a thumbnail of its own.
+
 ## [0.79.0] - 2026-11-10
 
 ### Changed
