@@ -5,6 +5,13 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- A turn of a photo that changed while the turn was saved is not saved, and the window says
+  that the file was changed meanwhile. Before, a JPEG still being copied into the folder was
+  turned from the part copied so far and written back cut off, and a slow PNG or WebP turn could
+  be saved over another photo that another window had given the name.
+
 ## [0.80.0] - 2026-11-10
 
 ### Added
