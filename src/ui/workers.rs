@@ -122,7 +122,7 @@ impl crate::App {
     fn receive_focus(&mut self, ctx: &egui::Context) {
         let focus = ctx.input(|i| i.viewport().focused.unwrap_or(false));
         let gained = self.window.set_focused(focus);
-        if gained && self.config.remote_control {
+        if gained {
             remote::mark_this_window_focused();
         }
         // Back from another window, which may have marked files meanwhile.

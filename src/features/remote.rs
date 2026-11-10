@@ -1566,8 +1566,12 @@ fn connected_in_time(
     rx.recv_timeout(limit).unwrap_or(true)
 }
 
-/// Marks that this Glimt got the focus, so `--remote` goes to it from now on.
+/// Marks that this Glimt got the focus, so `--remote` goes to it from now on, when it listens.
+/// A window that does not listen is never marked, as `--remote` could not reach it.
 pub fn mark_this_window_focused() {
+    if !listening() {
+        return;
+    }
     if let Some(dir) = runtime_dir() {
         mark_focused(&dir, &own_socket_id());
     }
