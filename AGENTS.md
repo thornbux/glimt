@@ -597,6 +597,12 @@ there, the background threads and the moments between a start and its answer) an
 fix against each. One fix of a list that named a folder took three audit rounds, because the
 first fix closed one way in and the next two were found by the audits.
 
+A class is the reason the bug could happen, not the forms an audit listed. A fix that covers
+only the listed forms (three kinds of chunk where the file can hold five) leaves the class
+open. Where a class lives in how the system behaves when it runs (a share that answers wrongly,
+a file written while it is read, a kill between two steps), no check of the source can catch
+it. Its check is then a release test that makes the failure happen.
+
 ## Releases
 
 The steps of a release, the release tests' list, the checks by hand and the packages are in
@@ -607,6 +613,9 @@ The steps of a release, the release tests' list, the checks by hand and the pack
   and another eight, and the next releases were spent fixing them.
 - **A dot release (X.Y.Z)** fixes only *must fix* bugs of the release before it, nothing else:
   no hardening, no refactoring, no feature. What else is found waits for the next minor.
+  A must fix still closes its whole class at the root, as *Fix the root, once* says: the
+  should findings of the same class, which that one fix in the shared place also closes, go
+  with it. Findings of other classes wait.
 - **Audited before the tag, not after.** A release is tagged only when an audit of its own
   changes (everything since the last tag) finds nothing it must or should fix by the bar in
   *What must be fixed, and when*. What the audit finds is fixed on the release branch, and those
