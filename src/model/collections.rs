@@ -459,6 +459,11 @@ pub fn edit(file: &Path, new: bool, change: impl FnOnce(&mut Vec<PathBuf>)) -> s
             .unzip();
     let before = all.clone();
     change(&mut all);
+    // A name that a line cannot hold is refused here, whatever the change: an add, an entry
+    // that follows a move, or a new order.
+    if let Some(left_out) = crate::files::config::keep_those_that_fit_on_a_line(&mut all) {
+        crate::files::file_io::save_failed(left_out);
+    }
     // Nothing changed (an unrelated folder renamed): the file stays as it is.
     if all == before {
         return Ok(());
@@ -1049,6 +1054,31 @@ mod tests {
         std::fs::remove_file(&saved).unwrap();
         let name = saved.display().to_string();
         assert!(told.iter().any(|e| e.contains(&name)), "{told:?}");
+    }
+
+    /// An entry that follows its file moved to a name with a line break, which a line of the
+    /// collection cannot hold, is taken out with a notice. Before, it was left out of the file
+    /// without a word.
+    #[test]
+    fn an_entry_moved_to_a_name_with_a_line_break_is_told() {
+        let dir = super::collections_dir().unwrap();
+        std::fs::create_dir_all(&dir).unwrap();
+        let saved = dir.join(format!("line-break-{}.gqv", std::process::id()));
+        let from = PathBuf::from(format!(
+            "/glimt-test-line-break-{}/a.png",
+            std::process::id()
+        ));
+        let kept = from.with_file_name("b.png");
+        std::fs::write(&saved, super::to_text(&[from.clone(), kept.clone()], &[])).unwrap();
+        crate::files::file_io::take_saves_failed();
+        let to = from.parent().unwrap().join("new\nline/a.png");
+        super::follow_in_saved_collections(&[(from, to)], None);
+        crate::files::file_io::flush();
+        let told = crate::files::file_io::take_saves_failed();
+        let now = super::load(&saved).unwrap();
+        std::fs::remove_file(&saved).unwrap();
+        assert_eq!(now, [kept]);
+        assert!(told.iter().any(|e| e.contains("line break")), "{told:?}");
     }
 
     /// Collection files broken in thousands of ways: read without a panic.

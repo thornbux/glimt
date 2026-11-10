@@ -31,6 +31,12 @@ use std::time::Instant;
 /// second, instead of 10,000 stats every second.
 const SUBFOLDERS_A_SECOND: usize = 1_000;
 
+/// How many times as long as the last listing took the window rests from it before a change
+/// that the watcher saw lists the folder again. A sync client that writes into a tree of
+/// 500,000 files every second then has it read at most a fifth of the time, while a small
+/// folder, listed in milliseconds, is read again at once.
+const REST_AFTER_LISTING: u32 = 4;
+
 /// How long a look-up of a place to open runs before a notice says that it is still opening.
 const STILL_OPENING_AFTER: std::time::Duration = std::time::Duration::from_secs(3);
 
@@ -90,6 +96,13 @@ pub(crate) struct Folder {
     /// Whether the folder changed while a listing was running. It is listed again when the
     /// listing is done.
     relist_when_done: bool,
+    /// The watcher saw the folder change, and the folder is read again once the window has
+    /// rested from the last listing (`relist_after_rest`).
+    change_waits: bool,
+    /// When the listing that runs, or the last one, started.
+    listing_started: Instant,
+    /// Until when the window rests from the last listing before a change lists it again.
+    rest_until: Instant,
     /// How many whole listings were taken since the start. Work that waits for the folder to be
     /// read again waits for this to grow.
     whole_listings: u64,
@@ -154,6 +167,9 @@ impl Folder {
             first_part_shown: None,
             listing_stop: Arc::default(),
             relist_when_done: false,
+            change_waits: false,
+            listing_started: Instant::now(),
+            rest_until: Instant::now(),
             whole_listings: 0,
             watcher_generation: Arc::new(AtomicUsize::new(0)),
             changed_tx,
@@ -267,6 +283,25 @@ impl Folder {
     /// runs.
     pub(crate) fn relist_later(&mut self) {
         self.relist_when_done = true;
+    }
+
+    /// Notes, when `changed`, that the watcher saw the folder change. A change has the folder
+    /// read again once no listing runs and the window has rested from the last one
+    /// `REST_AFTER_LISTING` times as long as it took. Returns how long the change still waits
+    /// for that rest, when it waits for it.
+    pub(crate) fn relist_after_rest(&mut self, changed: bool) -> Option<std::time::Duration> {
+        self.change_waits |= changed;
+        // A listing that runs sets a new rest when it is done.
+        if !self.change_waits || self.listing_rx.is_some() {
+            return None;
+        }
+        let left = self.rest_until.saturating_duration_since(Instant::now());
+        if !left.is_zero() {
+            return Some(left);
+        }
+        self.change_waits = false;
+        self.relist_when_done = true;
+        None
     }
 
     /// Whether the folder is to be read again.
@@ -563,7 +598,7 @@ impl Listing {
         // entries in chunks, so the status bar fills in gradually without a copy of the whole
         // list in memory. A tree is read a folder at a time, unsorted.
         if self.recursive {
-            let sizes = walk(&self.dir, self.types).flat_map(|(rel, _, files)| {
+            let sizes = walk(&self.dir, self.types).flat_map(|(rel, _, files, _)| {
                 let folder = self.dir.join(rel);
                 (files.into_iter()).filter_map(move |f| Some(folder.join(f).metadata().ok()?.len()))
             });
@@ -697,7 +732,7 @@ impl crate::App {
                 self.clear_still_opening();
                 return self.tell_background_stopped(tr("Reading the folder"));
             }
-            Took::Nothing => return self.tell_still_opening(),
+            Took::Nothing => return self.tell_still_opening(ctx),
         };
         self.clear_still_opening();
         if let Found::Folder {
@@ -728,12 +763,14 @@ impl crate::App {
     /// Tells once that the place being looked up has not answered after `STILL_OPENING_AFTER`,
     /// as on a share that stopped answering, and how to stop waiting for it. Before, only the
     /// busy pointer showed it.
-    fn tell_still_opening(&mut self) {
+    fn tell_still_opening(&mut self, ctx: &egui::Context) {
         let Some((since, path)) = &self.folder.looking_up_since else {
             return;
         };
-        if since.elapsed() < STILL_OPENING_AFTER {
-            return;
+        // Each frame forgets the repaint asked for before it, so a frame that came between
+        // (the pointer moved, a thumbnail came) asks again here for the notice to come in time.
+        if let Some(left) = STILL_OPENING_AFTER.checked_sub(since.elapsed()) {
+            return ctx.request_repaint_after(left);
         }
         let text = tf!(
             "Still opening {name}… Open another folder to stop waiting.",
@@ -1140,6 +1177,9 @@ impl crate::App {
         self.folder.listing_version = self.list.version();
         self.status_bar.sum_folder(size_rx);
         self.folder.relist_when_done = false;
+        // This listing reads every change seen before it.
+        self.folder.change_waits = false;
+        self.folder.listing_started = Instant::now();
     }
 
     /// Polls the folder's modification time once a second in the background (one `stat`, no
@@ -1251,6 +1291,9 @@ impl crate::App {
             self.watch_folders_read(ctx, read);
         }
         self.take_listed_files(ctx, files, true);
+        // The time taken counts the list made from it in this thread too.
+        let took = self.folder.listing_started.elapsed();
+        self.folder.rest_until = Instant::now() + took * REST_AFTER_LISTING;
         self.list.set_unchecked_entries(false);
         let c = &self.config;
         self.folder.listed_as = (self.folder.collection.is_none()
@@ -1805,6 +1848,34 @@ mod tests {
         app.receive_listing(&ctx, std::time::Duration::from_millis(500));
         assert_eq!(app.folder.whole_listings(), listings_before);
         std::fs::remove_dir_all(base).unwrap();
+    }
+
+    /// A burst of changes, as a sync client writes, lists a folder whose last listing took long
+    /// once, after the window has rested from that listing. Before, each change that the
+    /// watcher saw listed it again at once, and a large tree was read about once a second.
+    #[test]
+    fn a_burst_of_changes_is_listed_once_after_a_rest() {
+        let dir =
+            std::env::temp_dir().join(format!("glimt-test-change-burst-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        image::RgbImage::new(2, 2).save(dir.join("a.png")).unwrap();
+        let (mut app, ctx) = app_on(&dir);
+        // As after a listing of a large tree that took a quarter of a second.
+        app.folder.rest_until = std::time::Instant::now() + std::time::Duration::from_secs(1);
+        let before = app.folder.whole_listings();
+        for _ in 0..3 {
+            app.folder.changed_tx.send(()).unwrap();
+            app.poll_background(&ctx);
+            assert!(!app.folder.is_listing(), "listed during the rest");
+            std::thread::sleep(std::time::Duration::from_millis(100));
+        }
+        let listed = |app: &crate::App| app.folder.whole_listings() > before;
+        assert!(run_background_until(&mut app, &ctx, listed));
+        assert!(!run_background_until(&mut app, &ctx, |app| app
+            .folder
+            .is_listing()));
+        assert_eq!(app.folder.whole_listings(), before + 1);
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     /// The watcher looks at the open folders every second, and at the tree's subfolders a
@@ -2364,6 +2435,17 @@ mod tests {
         let _held = app.folder.hold_look_up();
         app.receive_looked_up(&ctx, std::time::Duration::ZERO);
         assert!(app.notice.text().is_none(), "told at once");
+        // A frame between the open and the notice forgets the repaint that the open asked for,
+        // so the look in that frame asks for it again. Before, the notice came only at the
+        // next input after three seconds.
+        for _ in 0..3 {
+            ctx.begin_pass(Default::default());
+            let _ = ctx.end_pass();
+        }
+        ctx.begin_pass(Default::default());
+        app.receive_looked_up(&ctx, std::time::Duration::ZERO);
+        assert!(ctx.has_requested_repaint(), "no repaint asked for");
+        let _ = ctx.end_pass();
         let long_ago = std::time::Instant::now().checked_sub(std::time::Duration::from_secs(60));
         app.folder.looking_up_since.as_mut().unwrap().0 = long_ago.unwrap();
         app.receive_looked_up(&ctx, std::time::Duration::ZERO);

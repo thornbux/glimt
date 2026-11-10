@@ -1713,7 +1713,7 @@ fn every_setting_has_a_control_in_preferences() {
         ("sort_case_sensitive", "the status bar's sort menu"),
         ("list_images", "the status bar's Types menu"),
         ("list_raw", "the status bar's Types menu"),
-        ("show_hidden", "View → Hidden Files and the Types menu"),
+        ("show_hidden", "View → Show Hidden Files"),
         ("search_case_sensitive", "the search field's Case box"),
         ("projector_pointer", "Window → Projector"),
         ("lightroom_keywords", "the Import Lightroom Catalog dialog"),

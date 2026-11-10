@@ -66,6 +66,15 @@ pub const SORTS: [(Sort, &str, &str); 8] = [
 /// read.
 pub type FoldersRead = Vec<(PathBuf, Option<std::time::SystemTime>)>;
 
+/// A folder as `walk` reads it: its path relative to the tree, its folders, its images, and
+/// its change time, taken before it was read.
+pub type WalkedFolder = (
+    PathBuf,
+    Vec<PathBuf>,
+    Vec<OsString>,
+    Option<std::time::SystemTime>,
+);
+
 /// The file types the list shows, as Geeqie's file classes in its file filter.
 #[derive(Clone, Copy)]
 pub struct Types {
@@ -226,29 +235,32 @@ pub fn built_in_format(path: &Path) -> bool {
     built_in_image(path) || has_ext(path, raw::EXTS) || is_video(path)
 }
 
-/// `dir` and every folder below it, one at a time: (its path relative to `dir`, its folders,
-/// its images). A folder reached again through a link or a bind mount is read once. A link to a
-/// folder is followed only when the folder it leads to is inside `dir`'s real path. A downloaded
-/// folder with `up -> ../..`, `pics -> ~/Pictures` or `root -> /` would else list the user's
-/// own photos or the whole disk, for Select All and Delete to act on.
-pub fn walk(
-    dir: &Path,
-    types: Types,
-) -> impl Iterator<Item = (PathBuf, Vec<PathBuf>, Vec<OsString>)> {
-    walk_by(dir, types, crate::images::save::file_id, |p| {
-        std::fs::canonicalize(p)
-    })
+/// `dir` and every folder below it, one at a time, as a `WalkedFolder`. A folder reached again
+/// through a link or a bind mount is read once. A link to a folder is followed only when the
+/// folder it leads to is inside `dir`'s real path. A downloaded folder with `up -> ../..`,
+/// `pics -> ~/Pictures` or `root -> /` would else list the user's own photos or the whole disk,
+/// for Select All and Delete to act on.
+pub fn walk(dir: &Path, types: Types) -> impl Iterator<Item = WalkedFolder> {
+    walk_by(
+        dir,
+        types,
+        crate::images::save::file_id,
+        |p| std::fs::canonicalize(p),
+        list_folder,
+    )
 }
 
-/// Walks the tree as `walk` does, with `file_id` telling the folders apart and `canonical`
-/// giving a link's real path, so a test can give the ids a file system without unique inodes
-/// has, and a real path that cannot be worked out.
+/// Walks the tree as `walk` does, with `file_id` telling the folders apart, `canonical`
+/// giving a link's real path and `list` reading a folder. A test can then give the ids that a
+/// file system without unique inodes has, a real path that cannot be worked out, and a file
+/// made while a folder is read.
 fn walk_by(
     dir: &Path,
     types: Types,
     file_id: impl Fn(&Path) -> Option<FileId>,
     canonical: impl Fn(&Path) -> std::io::Result<PathBuf>,
-) -> impl Iterator<Item = (PathBuf, Vec<PathBuf>, Vec<OsString>)> {
+    list: impl Fn(&Path, Types) -> (Vec<PathBuf>, Vec<OsString>),
+) -> impl Iterator<Item = WalkedFolder> {
     let (dir, mut todo) = (dir.to_path_buf(), vec![PathBuf::new()]);
     let mut seen: HashSet<FileId> = HashSet::new();
     let folder_id = move |full: &Path| file_id(full).unwrap_or_else(|| Err(real_dir(full)));
@@ -269,7 +281,10 @@ fn walk_by(
             if !seen.insert(folder_id(&full)) {
                 continue;
             }
-            let (dirs, files) = list_folder(&full, types);
+            // The time is taken before the folder is read, so the folder watcher sees a file
+            // made while it is read, which the read itself may have missed.
+            let modified = std::fs::metadata(&full).and_then(|m| m.modified()).ok();
+            let (dirs, files) = list(&full, types);
             // Last in, first out: pushed backwards, the folders are read in name order.
             todo.extend(
                 dirs.iter()
@@ -277,7 +292,7 @@ fn walk_by(
                     .filter_map(|d| d.file_name())
                     .map(|n| rel.join(n)),
             );
-            return Some((rel, dirs, files));
+            return Some((rel, dirs, files, modified));
         }
     })
 }
@@ -307,11 +322,8 @@ pub fn list_tree(
     use std::sync::atomic::Ordering::Relaxed;
     let (mut own, mut top, mut out) = (Vec::new(), Some(top), Vec::new());
     let mut read = Vec::new();
-    for (rel, dirs, files) in walk(dir, types).take_while(|_| !stop.load(Relaxed)) {
-        // The time is taken just after the folder was read: one stat a folder, not a file.
-        let folder = dir.join(&rel);
-        let modified = std::fs::metadata(&folder).and_then(|m| m.modified()).ok();
-        read.push((folder, modified));
+    for (rel, dirs, files, modified) in walk(dir, types).take_while(|_| !stop.load(Relaxed)) {
+        read.push((dir.join(&rel), modified));
         if rel.as_os_str().is_empty() {
             if let Some(top) = top.take() {
                 top(&dirs);
@@ -656,9 +668,10 @@ mod tests {
         let file_id =
             |p: &std::path::Path| Some(crate::images::save::file_id_from_inode(p, (1, 0)));
         let real = |p: &std::path::Path| std::fs::canonicalize(p);
-        let mut files: Vec<std::path::PathBuf> = super::walk_by(&dir, types, file_id, real)
-            .flat_map(|(rel, _, files)| files.into_iter().map(move |f| rel.join(f)))
-            .collect();
+        let mut files: Vec<std::path::PathBuf> =
+            super::walk_by(&dir, types, file_id, real, super::list_folder)
+                .flat_map(|(rel, _, files, _)| files.into_iter().map(move |f| rel.join(f)))
+                .collect();
         files.sort();
         assert_eq!(
             files,
@@ -691,10 +704,15 @@ mod tests {
             true => Err(std::io::Error::from_raw_os_error(36)),
             false => std::fs::canonicalize(p),
         };
-        let files: Vec<std::path::PathBuf> =
-            super::walk_by(&dir, types, crate::images::save::file_id, real)
-                .flat_map(|(rel, _, files)| files.into_iter().map(move |f| rel.join(f)))
-                .collect();
+        let files: Vec<std::path::PathBuf> = super::walk_by(
+            &dir,
+            types,
+            crate::images::save::file_id,
+            real,
+            super::list_folder,
+        )
+        .flat_map(|(rel, _, files, _)| files.into_iter().map(move |f| rel.join(f)))
+        .collect();
         assert_eq!(files, [std::path::PathBuf::from("a.jpg")]);
         std::fs::remove_dir_all(dir).unwrap();
     }
@@ -726,6 +744,42 @@ mod tests {
             super::real_dir(std::path::Path::new("/no/such")),
             std::path::Path::new("/no/such")
         );
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A folder's time is taken before it is read. A file made while the folder is read, which
+    /// the read may miss, then changes the folder's time from the one recorded, and the folder
+    /// watcher lists the folder again. Taken after the read, the time already held the file,
+    /// and the file stayed out of the list.
+    #[test]
+    fn a_folder_is_timed_before_it_is_read() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-walk-time-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join("sub")).unwrap();
+        // The folder's own changes are left a clock tick behind, so the file made below is
+        // the only change in its tick.
+        std::thread::sleep(std::time::Duration::from_millis(50));
+        let types = super::Types {
+            images: true,
+            raw: true,
+            videos: true,
+            hidden: false,
+        };
+        let list = |folder: &std::path::Path, types| {
+            let listed = super::list_folder(folder, types);
+            std::fs::write(folder.join("late.jpg"), "x").unwrap();
+            listed
+        };
+        let real = |p: &std::path::Path| std::fs::canonicalize(p);
+        for (rel, _, files, modified) in
+            super::walk_by(&dir, types, crate::images::save::file_id, real, list)
+        {
+            assert!(files.is_empty());
+            let now = std::fs::metadata(dir.join(&rel))
+                .unwrap()
+                .modified()
+                .unwrap();
+            assert_ne!(modified, Some(now), "{rel:?}");
+        }
         std::fs::remove_dir_all(dir).unwrap();
     }
 
