@@ -38,6 +38,9 @@ and versions follow [Semantic Versioning](https://semver.org/).
 - A third SIGTERM or SIGHUP ends Glimt at once also while it waits at its end for a write to a
   share that stopped answering, as the man page says, with exit status 143. Before, only
   SIGKILL ended it there.
+- Go → Back and Forward change their history when the place has been looked up, not when they
+  are asked for. Back pressed twice before a slow share answers goes back one step, and a
+  folder clicked meanwhile no longer leaves Forward holding the place the user is on.
 
 ### Changed
 
