@@ -19,8 +19,11 @@ and versions follow [Semantic Versioning](https://semver.org/).
   catalog. A moved file's marks are then forgotten under its old name too.
 - Delete to the trash works without `gio` (a `.deb` installed without its recommended packages,
   a tar.gz or AppImage on a small system): Glimt moves the files into the trash itself, as the
-  trash spec says. A file on another disk, such as a USB stick, goes into `.Trash-UID` at the
-  top of that disk; a file on a network share is refused, as gio refuses it.
+  trash spec says. A file on another disk, such as a USB stick, goes into `.Trash/UID` or
+  `.Trash-UID` at the top of that disk, also when it is reached through a link, and is named
+  there from that top, so the stick restores to its own folders wherever it is mounted; a file
+  on a network share is refused, as gio refuses it. A large delete syncs the trash once for
+  each hundred files, not twice for each file.
 - A file moved into the trash by Glimt itself has its `.trashinfo` on disk before it moves, so
   a power cut cannot leave it in the trash without one.
 - Undo of a delete waits for the marks as long as their writing takes, and shows in the status
@@ -68,11 +71,12 @@ and versions follow [Semantic Versioning](https://semver.org/).
   0.4 s, so 500 mark keys took over three minutes to save, longer than a close waits for them.
 - A turned PNG or WebP, a sidecar, a file saved over by name and a file moved to another disk
   keep their extended attributes, as `mv` does: the user's own (`user.*`, where KDE's Dolphin
-  and Gwenview keep tags, ratings and comments) and the file's ACL. Before, they were lost. The
-  owner is not kept, as only root may give a file to another user.
+  and Gwenview keep tags, ratings and comments) and the file's ACL. Before, they were lost. A
+  copy keeps the user's own but not the ACL, as `cp` does. The owner is not kept, as only root
+  may give a file to another user.
 - A turned PNG keeps its Photoshop resources ("Raw profile type 8bim"), where ImageMagick keeps
-  the IPTC caption, copyright and keywords, without the thumbnail among them. Before, a turn
-  dropped them, as a crop or copy still does.
+  the IPTC caption, copyright and keywords, without the thumbnail and the copies of the EXIF
+  and XMP among them. Before, a turn dropped them, as a crop or copy still does.
 - The manual says that a turned PNG with a palette, or of 1, 2 or 4-bit grey, keeps every pixel
   but is saved in full colour or 8-bit grey, so its file grows. It said a PNG lost nothing.
 - With Include Subfolders on, Auto Refresh now sees an image added to, removed from or renamed in
