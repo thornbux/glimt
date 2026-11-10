@@ -2785,4 +2785,46 @@ mod tests {
             .collect();
         assert!(missing.is_empty(), "docs/glimt.1 lacks {missing:?}");
     }
+
+    /// The window takes every command of `COMMANDS`, with each of its choices, so no command
+    /// is listed in `glimt --help` and taken only by the client. An optional argument is left
+    /// out, as `name` with one would start to listen on a socket.
+    #[test]
+    fn the_window_takes_every_listed_command() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-commands-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("a.png"), b"").unwrap();
+        let (mut app, ctx) = app_on(&dir);
+        let file = dir.join("a.png").display().to_string();
+        for (usage, _) in super::COMMANDS {
+            let mut parts = usage.split(' ');
+            let word = parts.next().unwrap();
+            let sent: Vec<String> = match parts.next() {
+                None => vec![word.to_owned()],
+                Some(argument) if argument.starts_with('[') && !argument.contains('|') => {
+                    vec![word.to_owned()]
+                }
+                Some(choices) if choices.contains('|') => {
+                    let each = choices.trim_matches(['[', ']']).split('|');
+                    let alone = choices.starts_with('[').then(|| word.to_owned());
+                    alone
+                        .into_iter()
+                        .chain(each.map(|c| format!("{word} {c}")))
+                        .collect()
+                }
+                Some("ACTION") => vec![format!("{word} Next")],
+                Some(_) => vec![format!("{word} {file}")],
+            };
+            for command in sent {
+                let (reply, answer) = std::sync::mpsc::channel();
+                app.handle_remote(&ctx, &command, Some(reply));
+                let answer = answer
+                    .recv_timeout(std::time::Duration::from_secs(10))
+                    .unwrap();
+                let answer = String::from_utf8_lossy(&answer);
+                assert!(!answer.contains("does not know"), "{command}: {answer}");
+            }
+        }
+        std::fs::remove_dir_all(dir).unwrap();
+    }
 }
