@@ -35,6 +35,9 @@ and versions follow [Semantic Versioning](https://semver.org/).
   without remote control.
 - Renaming a window to the name of a Glimt that hangs no longer hangs the renamed window too:
   a socket that has not taken the connection after half a second counts as taken.
+- A third SIGTERM or SIGHUP ends Glimt at once also while it waits at its end for a write to a
+  share that stopped answering, as the man page says, with exit status 143. Before, only
+  SIGKILL ended it there.
 
 ### Changed
 

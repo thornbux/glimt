@@ -17,6 +17,8 @@ const HIDE_POINTER_AFTER: std::time::Duration = std::time::Duration::from_secs(2
 
 /// How many SIGTERM and SIGHUP signals came. The window closes as Ctrl+Q does at each new one.
 static TERMINATION_SIGNALS: AtomicUsize = AtomicUsize::new(0);
+/// The count of termination signals at which Glimt ends at once, whatever the window does.
+const SIGNALS_THAT_END_AT_ONCE: usize = 3;
 /// The socket that the signal handler writes a byte to, so that a thread wakes the window. It is
 /// -1 until `close_on_termination_signals` makes it.
 static SIGNAL_WAKER: AtomicI32 = AtomicI32::new(-1);
@@ -497,9 +499,8 @@ fn is_window_visible(ctx: &egui::Context) -> bool {
 /// the files being written and saves the state. Only the window calls this: a `--remote` client
 /// and the SVG drawer end at a signal as before. SIGKILL always ends Glimt at once.
 pub(crate) fn close_on_termination_signals(ctx: &egui::Context) {
-    use std::io::Read;
     use std::os::fd::IntoRawFd;
-    let Ok((mut waiting, waker)) = std::os::unix::net::UnixStream::pair() else {
+    let Ok((waiting, waker)) = std::os::unix::net::UnixStream::pair() else {
         return;
     };
     // A full socket must not block the handler. The window is woken already then.
@@ -509,13 +510,34 @@ pub(crate) fn close_on_termination_signals(ctx: &egui::Context) {
     SIGNAL_WAKER.store(waker.into_raw_fd(), Ordering::Relaxed);
     let ctx = ctx.clone();
     std::thread::spawn(move || {
-        let mut byte = [0u8];
-        while waiting.read(&mut byte).is_ok_and(|n| n > 0) {
-            ctx.request_repaint();
-        }
+        wake_at_signals(
+            waiting,
+            &TERMINATION_SIGNALS,
+            || ctx.request_repaint(),
+            || std::process::exit(128 + libc::SIGTERM),
+        );
     });
     for signal in [libc::SIGTERM, libc::SIGHUP] {
         handle_unless_ignored(signal, on_termination_signal);
+    }
+}
+
+/// Calls `wake` at each byte that the signal handler writes to `waiting`, until it closes, so
+/// that the window meets the signal. At the third signal counted in `signals` it calls `end`
+/// instead. The window may then be in `on_exit`, waiting for a write to a share that stopped
+/// answering, where it meets no signal.
+fn wake_at_signals(
+    mut waiting: impl std::io::Read,
+    signals: &AtomicUsize,
+    wake: impl Fn(),
+    end: impl Fn(),
+) {
+    let mut byte = [0u8];
+    while waiting.read(&mut byte).is_ok_and(|n| n > 0) {
+        if signals.load(Ordering::Relaxed) >= SIGNALS_THAT_END_AT_ONCE {
+            end();
+        }
+        wake();
     }
 }
 
@@ -772,6 +794,42 @@ mod tests {
         assert!(app.window.kiosk_may_quit);
         assert!(!closes(&mut app));
         std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// The third termination signal ends Glimt from the thread that wakes the window, so it
+    /// ends also while the window waits in `on_exit` for a write to a share that stopped
+    /// answering. Before, only SIGKILL ended it there. The first two only wake the window.
+    #[test]
+    fn a_third_signal_ends_glimt_whatever_the_window_does() {
+        use std::io::Write;
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        let (waiting, mut handler) = std::os::unix::net::UnixStream::pair().unwrap();
+        let signals = std::sync::Arc::new(AtomicUsize::new(0));
+        let (woken_tx, woken) = std::sync::mpsc::channel();
+        let (ended_tx, ended) = std::sync::mpsc::channel();
+        let counted = signals.clone();
+        std::thread::spawn(move || {
+            let wake = || {
+                let _ = woken_tx.send(());
+            };
+            let end = || {
+                let _ = ended_tx.send(());
+            };
+            super::wake_at_signals(waiting, &counted, wake, end);
+        });
+        let wait = std::time::Duration::from_secs(5);
+        for _ in 0..2 {
+            signals.fetch_add(1, Ordering::Relaxed);
+            handler.write_all(&[1]).unwrap();
+            woken.recv_timeout(wait).unwrap();
+        }
+        assert!(ended.try_recv().is_err());
+        signals.fetch_add(1, Ordering::Relaxed);
+        handler.write_all(&[1]).unwrap();
+        assert!(
+            ended.recv_timeout(wait).is_ok(),
+            "the third signal did not end Glimt"
+        );
     }
 
     /// A signal that was ignored when Glimt started stays ignored, as `nohup` ignores SIGHUP so
