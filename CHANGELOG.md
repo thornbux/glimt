@@ -33,6 +33,12 @@ and versions follow [Semantic Versioning](https://semver.org/).
   Lightroom import's "imported" could hide "Could not save the keyword tree".
 - A window closed twice while files are written still waits, when it closes, for the last
   folder and window size and for the marks to be saved. Only a third close ends at once.
+- Glimt killed during a Move (a logout that does not wait, Ctrl+C in the terminal, a third
+  close) no longer loses the marks, stars and collection entries of the files already moved. A
+  Move keeps a log of its files while it runs, and the next start makes them follow. Before, they
+  followed only when the whole Move ended.
+- A turn is not saved to a JPEG, PNG or WebP whose end is not there yet, as one still being
+  copied in that paused for a moment, and the window says that the file looks incomplete.
 
 ## [0.80.0] - 2026-11-10
 
