@@ -249,7 +249,8 @@ fn thumb_source(thumb: &Path) -> Option<PathBuf> {
 }
 
 /// Percent-encode a path as GLib's g_filename_to_uri does, so the cache names match other
-/// programs'.
+/// programs'. The bytes left as they are are those of GLib's `acceptable` table that are safe in
+/// a path. Before, `;` was left too, where GLib writes `%3B`.
 pub(crate) fn uri_path(path: &Path) -> String {
     path.as_os_str()
         .as_encoded_bytes()
@@ -259,7 +260,7 @@ pub(crate) fn uri_path(path: &Path) -> String {
             b'-' | b'_' | b'.' | b'~' | b'!' | b'$' | b'&' | b'\'' | b'(' | b')' | b'*' => {
                 (b as char).to_string()
             }
-            b'+' | b',' | b';' | b'=' | b':' | b'@' | b'/' => (b as char).to_string(),
+            b'+' | b',' | b'=' | b':' | b'@' | b'/' => (b as char).to_string(),
             _ => format!("%{b:02X}"),
         })
         .collect()
@@ -568,5 +569,21 @@ mod tests {
         assert!(super::cache_file(&cache, super::FAILED_DIR, &uri).is_file());
         assert_eq!(make().unwrap_err(), "no thumbnail could be made before");
         std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// Every printable ASCII byte is escaped as GLib's g_filename_to_uri escapes it, so the
+    /// thumbnail's name is the one GNOME and KDE give the same file.
+    #[test]
+    fn escapes_a_path_as_glib_does() {
+        let printable: String = (b' '..=b'~').map(char::from).collect();
+        assert_eq!(
+            super::uri_path(std::path::Path::new(&format!("/{printable}"))),
+            "/%20!%22%23$%25&'()*+,-./0123456789:%3B%3C=%3E%3F@ABCDEFGHIJKLMNOPQRSTUVWXYZ\
+             %5B%5C%5D%5E_%60abcdefghijklmnopqrstuvwxyz%7B%7C%7D~"
+        );
+        assert_eq!(
+            super::uri_path(std::path::Path::new("/a\u{7f}\té")),
+            "/a%7F%09%C3%A9"
+        );
     }
 }

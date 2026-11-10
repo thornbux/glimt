@@ -1016,9 +1016,9 @@ fn encode(
 /// Makes `img` pixels that `encoding` writes, and keeps `icc` only where it describes them. A JPEG
 /// holds 8-bit grey or RGB, a WebP 8-bit RGB or RGBA, and a PNG no floats, so a 32-bit float
 /// TIFF is written in 16 bits. Before, a PNG copy of such a TIFF failed. A profile is kept only
-/// when its colour space, in bytes 16 to 20 of its header, is the pixels' own, grey or RGB.
-/// Before, a grey JPEG's Gray profile went with RGB pixels, and a CMYK JPEG's profile with the
-/// RGB it is decoded to, so other programs showed the copy in wrong colours.
+/// when it fits the pixels (`colour::profile_fits`). Before, a grey JPEG's Gray profile went
+/// with RGB pixels, and a CMYK JPEG's profile with the RGB it is decoded to, so other programs
+/// showed the copy in wrong colours.
 fn writable_pixels(
     img: image::DynamicImage,
     icc: Option<Vec<u8>>,
@@ -1037,12 +1037,9 @@ fn writable_pixels(
             img => img,
         },
     };
-    let space: &[u8] = if img.color().has_color() {
-        b"RGB "
-    } else {
-        b"GRAY"
-    };
-    (img, icc.filter(|p| p.get(16..20) == Some(space)))
+    let fits = |p: &Vec<u8>| crate::images::colour::profile_fits(p, img.color());
+    let icc = icc.filter(fits);
+    (img, icc)
 }
 
 /// Puts `xmp` into `jpeg` in an APP1 segment of Adobe's name, right after the start (SOI).
