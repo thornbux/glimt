@@ -97,16 +97,19 @@ pub const REMOTE: &str = "--remote";
 pub const REMOTE_ALL: &str = "--remote-all";
 
 /// The exit code of `glimt --remote` when a command cannot be sent: unknown, with the wrong
-/// arguments, or with a path that cannot go in the text sent.
+/// arguments, a `run` of an action that is not for scripts, more than `MAX_SELECT` files, or a
+/// path that cannot go in the text sent (not UTF-8, or with a line break in it).
 pub const NOT_SENT: i32 = 2;
 
-/// The exit code of `glimt --remote` when no Glimt takes the command, or none answers it.
+/// The exit code of `glimt --remote` and `--remote-all` when no Glimt takes the command, or
+/// none of those that took it answers in time. `exit_code` holds the rule that chooses between
+/// this and `NOT_DONE`.
 pub const NOT_TAKEN: i32 = 1;
 
 /// The exit code of `glimt --remote` when a window took the command but did not do it: a `run`
 /// refused while a dialog is open or a text field has the focus, or a command that window does
 /// not know (an older Glimt than the client). With `--remote-all` it is enough that one window
-/// did not do it.
+/// did not do it, or did not answer in time while another one answered.
 pub const NOT_DONE: i32 = 3;
 
 /// The start of the window's answer to a command it did not do, before the reason. Every other
@@ -169,6 +172,9 @@ static LISTENING_AS: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(No
 
 /// A window took a command but gave no answer in time.
 static TIMED_OUT: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// A window took a command and answered it in time, whether it did it or not.
+static ANSWERED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 /// A window answered that it did not do the command.
 static WAS_NOT_DONE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
@@ -934,6 +940,20 @@ fn was_not_done() -> bool {
     WAS_NOT_DONE.load(std::sync::atomic::Ordering::Relaxed)
 }
 
+/// Chooses the exit code of `--remote` and `--remote-all` from what the windows that took the
+/// command did: whether one `answered` in time, whether one `timed_out`, and whether one
+/// answered that it did `not_done` it. A window that did not answer while another one did has
+/// not done the command, as far as the client knows, so that is `NOT_DONE`, and a script that
+/// retries on `NOT_TAKEN` does not do it twice in the windows that did. Returns `None` when no
+/// window said no and none was silent, so the command was done or no Glimt took it.
+fn exit_code(answered: bool, timed_out: bool, not_done: bool) -> Option<i32> {
+    match (not_done || (answered && timed_out), timed_out) {
+        (true, _) => Some(NOT_DONE),
+        (false, true) => Some(NOT_TAKEN),
+        (false, false) => None,
+    }
+}
+
 /// The ID that this Glimt listens as, which is its --name or else its process ID.
 fn socket_id() -> String {
     given_name().unwrap_or_else(|| instance_id().to_owned())
@@ -1006,9 +1026,12 @@ fn send_and_print_answer(path: &std::path::Path, command: &str) -> bool {
     #[allow(clippy::disallowed_methods)] // a reply on Glimt's own private socket, with a time limit
     let read = s.read_to_end(&mut answer);
     let timed_out = read.is_err();
-    if let Err(e) = read {
-        eprintln!("glimt: no answer from {}: {e}", path.display());
-        TIMED_OUT.store(true, std::sync::atomic::Ordering::Relaxed);
+    match read {
+        Ok(_) => ANSWERED.store(true, std::sync::atomic::Ordering::Relaxed),
+        Err(e) => {
+            eprintln!("glimt: no answer from {}: {e}", path.display());
+            TIMED_OUT.store(true, std::sync::atomic::Ordering::Relaxed);
+        }
     }
     // An `info` that ends before its last record, because the window closed, is not done.
     let missing = info_records_missing(command, &answer);
@@ -1086,8 +1109,8 @@ pub fn send_all(command: &str) -> usize {
 /// `glimt --remote` and `--remote-all`. It sends `words` (the command and its arguments) to the
 /// Glimt used last, to the one of `name`, or to every one, and `paths` are `select`'s files,
 /// whole. Returns `None` once the command is done and its answer printed, or the path to open
-/// when `open` finds no Glimt running. It exits with 2 for a command that cannot be sent, with
-/// 1 when no Glimt takes it, and with 3 when a window did not do it.
+/// when `open` finds no Glimt running. It exits with `NOT_SENT` for a command that cannot be
+/// sent, and with what `exit_code` chooses from the windows' answers.
 pub fn client(
     words: &[String],
     paths: &[std::ffi::OsString],
@@ -1162,11 +1185,9 @@ pub fn client(
         (Some(name), false) => send_to(runtime_dir(), name, &command),
         (None, false) => send(&command),
     };
-    if timed_out() {
-        std::process::exit(NOT_TAKEN);
-    }
-    if was_not_done() {
-        std::process::exit(NOT_DONE);
+    let answered = ANSWERED.load(std::sync::atomic::Ordering::Relaxed);
+    if let Some(code) = exit_code(answered, timed_out(), was_not_done()) {
+        std::process::exit(code);
     }
     if sent {
         return None;
@@ -1632,6 +1653,33 @@ pub fn close() {
 mod tests {
     use crate::support::test_support::app_on;
     use eframe::egui;
+
+    /// The exit code keeps each frozen meaning when windows disagree. Before, one window that
+    /// did not answer made the exit 1 ("none answered") though another had done the command,
+    /// so a script that retried did it twice there, and it hid a 3 of another window.
+    #[test]
+    fn the_exit_code_tells_what_the_windows_did() {
+        use super::{NOT_DONE, NOT_TAKEN, exit_code};
+        // (answered, timed out, not done)
+        assert_eq!(exit_code(true, false, false), None, "done");
+        assert_eq!(exit_code(false, false, false), None, "none took it");
+        assert_eq!(
+            exit_code(false, true, false),
+            Some(NOT_TAKEN),
+            "none answered"
+        );
+        assert_eq!(exit_code(true, false, true), Some(NOT_DONE), "one said no");
+        assert_eq!(
+            exit_code(true, true, false),
+            Some(NOT_DONE),
+            "one done, one silent"
+        );
+        assert_eq!(
+            exit_code(true, true, true),
+            Some(NOT_DONE),
+            "one said no, one silent"
+        );
+    }
 
     /// An empty or relative $XDG_RUNTIME_DIR is not used, so nothing goes into ./glimt.
     #[test]

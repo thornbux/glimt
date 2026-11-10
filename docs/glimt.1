@@ -152,7 +152,11 @@ show it; a name of only digits is taken for nothing else.
 Send
 .I COMMAND
 to the Glimt window used last, on this computer, and wait for its answer. Exits with 0 when
-the command was done, with 2 for a command Glimt does not know, with 1 when no Glimt runs or
+the command was done; with 2 when it cannot be sent: a command Glimt does not know or with the
+wrong arguments, a
+.B run
+of an action that is not for scripts, more than 100,000 files, or a path that is not UTF-8 or
+has a line break in it; with 1 when no Glimt runs or
 none answers within 10 seconds (for each file of
 .BR info ),
 and with 3 when the window did not do it: a
@@ -166,7 +170,8 @@ Send
 .I COMMAND
 to every running Glimt of this user on this computer. Exits as
 .B \-\-remote
-does, with 3 when any of them did not do it.
+does, with 3 when any of them did not do it, also when one did not answer within 10 seconds
+while another answered, and with 1 only when none answered.
 .TP
 .BR \-h ", " \-\-help
 List the options and remote commands.

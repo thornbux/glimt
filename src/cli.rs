@@ -297,7 +297,8 @@ fn print_help() {
     println!("\nThe actions for run: glimt --action-list");
     println!(
         "\nExit status of --remote: {} done, {} no Glimt took it or none answered in time, {} \
-         it cannot be sent, {} a window did not do it (the reason on standard error)",
+         it cannot be sent, {} a window did not do it, or with --remote-all did not answer in \
+         time while another did (the reason on standard error)",
         DONE,
         remote::NOT_TAKEN,
         remote::NOT_SENT,
