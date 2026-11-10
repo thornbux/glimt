@@ -507,7 +507,7 @@ serde_derive 1.0.229 (LICENSE-MIT)
 serde_repr 0.1.21 (LICENSE-MIT)
 smol_str 0.2.2 (LICENSE-MIT)
 syn 2.0.119 (LICENSE-MIT)
-syn 3.0.9 (LICENSE-MIT)
+syn 3.0.10 (LICENSE-MIT)
 thiserror-impl 1.0.69 (LICENSE-MIT)
 thiserror-impl 2.0.21 (LICENSE-MIT)
 thiserror 1.0.69 (LICENSE-MIT)
@@ -572,8 +572,8 @@ event-listener-strategy 0.5.4 (LICENSE-APACHE)
 event-listener 5.4.2 (LICENSE-APACHE)
 fastrand 2.5.0 (LICENSE-APACHE)
 find-msvc-tools 0.1.15 (LICENSE-APACHE)
-fixedbitset 0.5.7 (LICENSE-APACHE)
-flate2 1.1.10 (LICENSE-APACHE)
+fixedbitset 0.5.9 (LICENSE-APACHE)
+flate2 1.1.11 (LICENSE-APACHE)
 futures-lite 2.6.1 (LICENSE-APACHE)
 gethostname 1.1.0 (LICENSE)
 gif 0.14.2 (LICENSE-APACHE)
@@ -613,7 +613,7 @@ scoped-tls 1.0.1 (LICENSE-APACHE)
 scopeguard 1.2.0 (LICENSE-APACHE)
 signal-hook-registry 1.4.8 (LICENSE-APACHE)
 simplecss 0.2.2 (LICENSE-APACHE)
-smallvec 1.16.4 (LICENSE-APACHE)
+smallvec 1.16.5 (LICENSE-APACHE)
 smol_str 0.2.2 (LICENSE-APACHE)
 svgtypes 0.16.2 (LICENSE-APACHE)
 ttf-parser 0.25.1 (LICENSE-APACHE)
@@ -622,7 +622,7 @@ unicode-properties 0.1.5 (LICENSE-APACHE)
 unicode-segmentation 1.13.3 (LICENSE-APACHE)
 unicode-vo 0.1.0 (LICENSE-APACHE)
 unicode-width 0.2.3 (LICENSE-APACHE)
-uuid 1.29.0 (LICENSE-APACHE)
+uuid 1.29.2 (LICENSE-APACHE)
 version_check 0.9.5 (LICENSE-APACHE)
 weezl 0.1.12 (LICENSE-APACHE)
 wl-clipboard-rs 0.9.5 (LICENSE-APACHE)
@@ -1501,7 +1501,7 @@ serde_core 1.0.229 (LICENSE-APACHE)
 serde_derive 1.0.229 (LICENSE-APACHE)
 serde_repr 0.1.21 (LICENSE-APACHE)
 syn 2.0.119 (LICENSE-APACHE)
-syn 3.0.9 (LICENSE-APACHE)
+syn 3.0.10 (LICENSE-APACHE)
 thiserror-impl 1.0.69 (LICENSE-APACHE)
 thiserror-impl 2.0.21 (LICENSE-APACHE)
 thiserror 1.0.69 (LICENSE-APACHE)
@@ -2408,7 +2408,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 ==============================================================================
-crc32fast 1.5.4 (LICENSE-APACHE)
+crc32fast 1.5.5 (LICENSE-APACHE)
 dpi 0.1.2 (LICENSE)
 hex 0.4.3 (LICENSE-APACHE)
 quick-error 2.0.1 (LICENSE-APACHE)
@@ -2619,7 +2619,7 @@ Apache License
    limitations under the License.
 
 ==============================================================================
-crc32fast 1.5.4 (LICENSE-MIT)
+crc32fast 1.5.5 (LICENSE-MIT)
 ------------------------------------------------------------------------------
 
 MIT License
@@ -3804,7 +3804,7 @@ IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 
 ==============================================================================
-fixedbitset 0.5.7 (LICENSE-MIT)
+fixedbitset 0.5.9 (LICENSE-MIT)
 ------------------------------------------------------------------------------
 
 Copyright (c) 2015-2017
@@ -3834,7 +3834,7 @@ IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 
 ==============================================================================
-flate2 1.1.10 (LICENSE-MIT)
+flate2 1.1.11 (LICENSE-MIT)
 ------------------------------------------------------------------------------
 
 Copyright (c) 2014-2026 Alex Crichton
@@ -7279,7 +7279,7 @@ the following restrictions:
  3. This notice may not be removed or altered from any source distribution.
 
 ==============================================================================
-smallvec 1.16.4 (LICENSE-MIT)
+smallvec 1.16.5 (LICENSE-MIT)
 ------------------------------------------------------------------------------
 
 Copyright (c) 2018 The Servo Project Developers
@@ -7482,8 +7482,8 @@ The above copyright notice and this permission notice shall be included in all c
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 ==============================================================================
-toml_datetime 1.1.2+spec-1.1.0 (LICENSE-APACHE)
-toml_edit 0.25.18+spec-1.1.0 (LICENSE-APACHE)
+toml_datetime 1.1.3+spec-1.1.0 (LICENSE-APACHE)
+toml_edit 0.25.19+spec-1.1.0 (LICENSE-APACHE)
 toml_parser 1.1.5+spec-1.1.0 (LICENSE-APACHE)
 ------------------------------------------------------------------------------
 
@@ -7690,8 +7690,8 @@ Apache License
    limitations under the License.
 
 ==============================================================================
-toml_datetime 1.1.2+spec-1.1.0 (LICENSE-MIT)
-toml_edit 0.25.18+spec-1.1.0 (LICENSE-MIT)
+toml_datetime 1.1.3+spec-1.1.0 (LICENSE-MIT)
+toml_edit 0.25.19+spec-1.1.0 (LICENSE-MIT)
 toml_parser 1.1.5+spec-1.1.0 (LICENSE-MIT)
 ------------------------------------------------------------------------------
 
@@ -8627,7 +8627,7 @@ IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 
 ==============================================================================
-uuid 1.29.0 (LICENSE-MIT)
+uuid 1.29.2 (LICENSE-MIT)
 ------------------------------------------------------------------------------
 
 Copyright (c) 2014 The Rust Project Developers

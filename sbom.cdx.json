@@ -1,7 +1,7 @@
 {
  "bomFormat": "CycloneDX",
  "specVersion": "1.5",
- "serialNumber": "urn:uuid:e8efb22e-a4e6-56e7-8cd2-847e5818213c",
+ "serialNumber": "urn:uuid:92d9ab53-ab90-5846-af56-4f048da742d7",
  "version": 1,
  "metadata": {
   "tools": {
@@ -1310,20 +1310,20 @@
   },
   {
    "type": "library",
-   "bom-ref": "pkg:cargo/crc32fast@1.5.4",
+   "bom-ref": "pkg:cargo/crc32fast@1.5.5",
    "name": "crc32fast",
-   "version": "1.5.4",
+   "version": "1.5.5",
    "description": "Fast, SIMD-accelerated CRC32 (IEEE) checksum computation",
    "licenses": [
     {
      "expression": "MIT OR Apache-2.0"
     }
    ],
-   "purl": "pkg:cargo/crc32fast@1.5.4",
+   "purl": "pkg:cargo/crc32fast@1.5.5",
    "hashes": [
     {
      "alg": "SHA-256",
-     "content": "5f97d3416d5337d15c4b0d78c8c91df922ca143f57ec20e2d1c188333047ef04"
+     "content": "2b929dd2a135771f40afabd1073f85eed59c800b7c61901e5c254270497dad64"
     }
    ],
    "externalReferences": [
@@ -2110,20 +2110,20 @@
   },
   {
    "type": "library",
-   "bom-ref": "pkg:cargo/fixedbitset@0.5.7",
+   "bom-ref": "pkg:cargo/fixedbitset@0.5.9",
    "name": "fixedbitset",
-   "version": "0.5.7",
+   "version": "0.5.9",
    "description": "FixedBitSet is a simple bitset collection",
    "licenses": [
     {
      "expression": "MIT OR Apache-2.0"
     }
    ],
-   "purl": "pkg:cargo/fixedbitset@0.5.7",
+   "purl": "pkg:cargo/fixedbitset@0.5.9",
    "hashes": [
     {
      "alg": "SHA-256",
-     "content": "1d674e81391d1e1ab681a28d99df07927c6d4aa5b027d7da16ba32d1d21ecd99"
+     "content": "5905ec755cc8386d7928353e4d356d2be3e89e81e5ca01fe630a1ca4d08dc175"
     }
    ],
    "externalReferences": [
@@ -2135,20 +2135,20 @@
   },
   {
    "type": "library",
-   "bom-ref": "pkg:cargo/flate2@1.1.10",
+   "bom-ref": "pkg:cargo/flate2@1.1.11",
    "name": "flate2",
-   "version": "1.1.10",
+   "version": "1.1.11",
    "description": "DEFLATE compression and decompression exposed as Read/BufRead/Write streams.\nSupports miniz_oxide and multiple zlib implementations. Supports zlib, gzip,\nand raw deflate streams.",
    "licenses": [
     {
      "expression": "MIT OR Apache-2.0"
     }
    ],
-   "purl": "pkg:cargo/flate2@1.1.10",
+   "purl": "pkg:cargo/flate2@1.1.11",
    "hashes": [
     {
      "alg": "SHA-256",
-     "content": "6e634e2e0ebac1ee034020da1ca582e17ffe4e0f5e985823721e168928136dcb"
+     "content": "626d4928326b646e70f65ed36fc7cf9f206bdb68a0019ee7c6b4709da4e084c4"
     }
    ],
    "externalReferences": [
@@ -5360,20 +5360,20 @@
   },
   {
    "type": "library",
-   "bom-ref": "pkg:cargo/smallvec@1.16.4",
+   "bom-ref": "pkg:cargo/smallvec@1.16.5",
    "name": "smallvec",
-   "version": "1.16.4",
+   "version": "1.16.5",
    "description": "'Small vector' optimization: store up to a small number of items on the stack",
    "licenses": [
     {
      "expression": "MIT OR Apache-2.0"
     }
    ],
-   "purl": "pkg:cargo/smallvec@1.16.4",
+   "purl": "pkg:cargo/smallvec@1.16.5",
    "hashes": [
     {
      "alg": "SHA-256",
-     "content": "d0d5d4b1981b8bbbb7aed204cae5726d683d5d6ac7e74ec54122ea28f315e7c8"
+     "content": "149309498a5f7334b12ddae0cad8aba81ce785fe91755068867e017cf98fee46"
     }
    ],
    "externalReferences": [
@@ -5585,20 +5585,20 @@
   },
   {
    "type": "library",
-   "bom-ref": "pkg:cargo/syn@3.0.9",
+   "bom-ref": "pkg:cargo/syn@3.0.10",
    "name": "syn",
-   "version": "3.0.9",
+   "version": "3.0.10",
    "description": "Parser for Rust source code",
    "licenses": [
     {
      "expression": "MIT OR Apache-2.0"
     }
    ],
-   "purl": "pkg:cargo/syn@3.0.9",
+   "purl": "pkg:cargo/syn@3.0.10",
    "hashes": [
     {
      "alg": "SHA-256",
-     "content": "d78c8dee4c7bf0e14673097256fed6142ce9d3b85a408189d07482442145823b"
+     "content": "4ae9ccbea3a7b0b09443036490c8f34a8b1b760fd345e5c0dae0aac718faea79"
     }
    ],
    "externalReferences": [
@@ -5860,20 +5860,20 @@
   },
   {
    "type": "library",
-   "bom-ref": "pkg:cargo/toml_datetime@1.1.2+spec-1.1.0",
+   "bom-ref": "pkg:cargo/toml_datetime@1.1.3+spec-1.1.0",
    "name": "toml_datetime",
-   "version": "1.1.2+spec-1.1.0",
+   "version": "1.1.3+spec-1.1.0",
    "description": "A TOML-compatible datetime type",
    "licenses": [
     {
      "expression": "MIT OR Apache-2.0"
     }
    ],
-   "purl": "pkg:cargo/toml_datetime@1.1.2+spec-1.1.0",
+   "purl": "pkg:cargo/toml_datetime@1.1.3+spec-1.1.0",
    "hashes": [
     {
      "alg": "SHA-256",
-     "content": "2b86d767906c6c42421dcba507eb9d203e779497710a47782a224bb871653053"
+     "content": "173f25c883cd2176a2d8212155638c0a60d484a9d84546d270866f40f56b6e49"
     }
    ],
    "externalReferences": [
@@ -5885,20 +5885,20 @@
   },
   {
    "type": "library",
-   "bom-ref": "pkg:cargo/toml_edit@0.25.18+spec-1.1.0",
+   "bom-ref": "pkg:cargo/toml_edit@0.25.19+spec-1.1.0",
    "name": "toml_edit",
-   "version": "0.25.18+spec-1.1.0",
+   "version": "0.25.19+spec-1.1.0",
    "description": "Yet another format-preserving TOML parser.",
    "licenses": [
     {
      "expression": "MIT OR Apache-2.0"
     }
    ],
-   "purl": "pkg:cargo/toml_edit@0.25.18+spec-1.1.0",
+   "purl": "pkg:cargo/toml_edit@0.25.19+spec-1.1.0",
    "hashes": [
     {
      "alg": "SHA-256",
-     "content": "1ec6e78bd70db9420d8d212fa9dc97f116448a1ceff5d00eabb991d407e21396"
+     "content": "dd43688c4858d7264ae1cf9a9f874a67c3feb74a883b1cd7bebd6a4ea8307218"
     }
    ],
    "externalReferences": [
@@ -6310,20 +6310,20 @@
   },
   {
    "type": "library",
-   "bom-ref": "pkg:cargo/uuid@1.29.0",
+   "bom-ref": "pkg:cargo/uuid@1.29.2",
    "name": "uuid",
-   "version": "1.29.0",
+   "version": "1.29.2",
    "description": "A library to generate and parse UUIDs.",
    "licenses": [
     {
      "expression": "Apache-2.0 OR MIT"
     }
    ],
-   "purl": "pkg:cargo/uuid@1.29.0",
+   "purl": "pkg:cargo/uuid@1.29.2",
    "hashes": [
     {
      "alg": "SHA-256",
-     "content": "4a0e2d11620c50695fe12bbbfde96b3477fe606e7284c22d505c12ce51214514"
+     "content": "bed99139f7dac9b5cfe5f17be4d66dc7079a34dee1d74bcc77217119240e267c"
     }
    ],
    "externalReferences": [
@@ -7549,7 +7549,7 @@
   {
    "ref": "pkg:cargo/accesskit@0.25.2",
    "dependsOn": [
-    "pkg:cargo/uuid@1.29.0"
+    "pkg:cargo/uuid@1.29.2"
    ]
   },
   {
@@ -7717,7 +7717,7 @@
    "dependsOn": [
     "pkg:cargo/proc-macro2@1.0.107",
     "pkg:cargo/quote@1.0.47",
-    "pkg:cargo/syn@3.0.9"
+    "pkg:cargo/syn@3.0.10"
    ]
   },
   {
@@ -7740,7 +7740,7 @@
    "dependsOn": [
     "pkg:cargo/proc-macro2@1.0.107",
     "pkg:cargo/quote@1.0.47",
-    "pkg:cargo/syn@3.0.9"
+    "pkg:cargo/syn@3.0.10"
    ]
   },
   {
@@ -7825,7 +7825,7 @@
    "dependsOn": [
     "pkg:cargo/proc-macro2@1.0.107",
     "pkg:cargo/quote@1.0.47",
-    "pkg:cargo/syn@3.0.9"
+    "pkg:cargo/syn@3.0.10"
    ]
   },
   {
@@ -7910,7 +7910,7 @@
    ]
   },
   {
-   "ref": "pkg:cargo/crc32fast@1.5.4",
+   "ref": "pkg:cargo/crc32fast@1.5.5",
    "dependsOn": [
     "pkg:cargo/cfg-if@1.0.5"
    ]
@@ -8020,7 +8020,7 @@
     "pkg:cargo/log@0.4.35",
     "pkg:cargo/nohash-hasher@0.2.0",
     "pkg:cargo/profiling@1.0.18",
-    "pkg:cargo/smallvec@1.16.4",
+    "pkg:cargo/smallvec@1.16.5",
     "pkg:cargo/unicode-segmentation@1.13.3"
    ]
   },
@@ -8080,7 +8080,7 @@
     "pkg:cargo/profiling@1.0.18",
     "pkg:cargo/self_cell@1.3.0",
     "pkg:cargo/skrifa@0.44.0",
-    "pkg:cargo/smallvec@1.16.4",
+    "pkg:cargo/smallvec@1.16.5",
     "pkg:cargo/unicode-general-category@1.1.0",
     "pkg:cargo/unicode-properties@0.1.5",
     "pkg:cargo/unicode-segmentation@1.13.3",
@@ -8155,13 +8155,13 @@
    "dependsOn": []
   },
   {
-   "ref": "pkg:cargo/fixedbitset@0.5.7",
+   "ref": "pkg:cargo/fixedbitset@0.5.9",
    "dependsOn": []
   },
   {
-   "ref": "pkg:cargo/flate2@1.1.10",
+   "ref": "pkg:cargo/flate2@1.1.11",
    "dependsOn": [
-    "pkg:cargo/crc32fast@1.5.4",
+    "pkg:cargo/crc32fast@1.5.5",
     "pkg:cargo/miniz_oxide@0.9.1",
     "pkg:cargo/zlib-rs@0.6.8"
    ]
@@ -8223,7 +8223,7 @@
    "dependsOn": [
     "pkg:cargo/proc-macro2@1.0.107",
     "pkg:cargo/quote@1.0.47",
-    "pkg:cargo/syn@3.0.9"
+    "pkg:cargo/syn@3.0.10"
    ]
   },
   {
@@ -8277,7 +8277,7 @@
     "pkg:cargo/log@0.4.35",
     "pkg:cargo/peniko@0.6.1",
     "pkg:cargo/skrifa@0.44.0",
-    "pkg:cargo/smallvec@1.16.4",
+    "pkg:cargo/smallvec@1.16.5",
     "pkg:cargo/vello_common@0.2.0"
    ]
   },
@@ -8287,7 +8287,7 @@
     "pkg:cargo/arboard@3.7.0",
     "pkg:cargo/eframe@0.37.0",
     "pkg:cargo/fast_image_resize@6.1.0",
-    "pkg:cargo/flate2@1.1.10",
+    "pkg:cargo/flate2@1.1.11",
     "pkg:cargo/futures-lite@2.6.1",
     "pkg:cargo/image@0.25.10",
     "pkg:cargo/jpeg-decoder@0.3.2",
@@ -8363,7 +8363,7 @@
     "pkg:cargo/bitflags@2.13.2",
     "pkg:cargo/bytemuck@1.25.2",
     "pkg:cargo/read-fonts@0.41.0",
-    "pkg:cargo/smallvec@1.16.4"
+    "pkg:cargo/smallvec@1.16.5"
    ]
   },
   {
@@ -8582,7 +8582,7 @@
     "pkg:cargo/arrayvec@0.7.8",
     "pkg:cargo/euclid@0.22.14",
     "pkg:cargo/polycool@0.4.0",
-    "pkg:cargo/smallvec@1.16.4"
+    "pkg:cargo/smallvec@1.16.5"
    ]
   },
   {
@@ -8743,7 +8743,7 @@
    "dependsOn": [
     "pkg:cargo/cfg-if@1.0.5",
     "pkg:cargo/libc@0.2.191",
-    "pkg:cargo/smallvec@1.16.4"
+    "pkg:cargo/smallvec@1.16.5"
    ]
   },
   {
@@ -8753,7 +8753,7 @@
     "pkg:cargo/color@0.3.3",
     "pkg:cargo/kurbo@0.13.1",
     "pkg:cargo/linebender_resource_handle@0.1.1",
-    "pkg:cargo/smallvec@1.16.4"
+    "pkg:cargo/smallvec@1.16.5"
    ]
   },
   {
@@ -8763,7 +8763,7 @@
   {
    "ref": "pkg:cargo/petgraph@0.8.3",
    "dependsOn": [
-    "pkg:cargo/fixedbitset@0.5.7",
+    "pkg:cargo/fixedbitset@0.5.9",
     "pkg:cargo/hashbrown@0.15.5",
     "pkg:cargo/indexmap@2.14.2"
    ]
@@ -8823,9 +8823,9 @@
    "ref": "pkg:cargo/png@0.18.1",
    "dependsOn": [
     "pkg:cargo/bitflags@2.13.2",
-    "pkg:cargo/crc32fast@1.5.4",
+    "pkg:cargo/crc32fast@1.5.5",
     "pkg:cargo/fdeflate@0.3.7",
-    "pkg:cargo/flate2@1.1.10",
+    "pkg:cargo/flate2@1.1.11",
     "pkg:cargo/miniz_oxide@0.8.9"
    ]
   },
@@ -8845,7 +8845,7 @@
   {
    "ref": "pkg:cargo/proc-macro-crate@3.5.0",
    "dependsOn": [
-    "pkg:cargo/toml_edit@0.25.18+spec-1.1.0"
+    "pkg:cargo/toml_edit@0.25.19+spec-1.1.0"
    ]
   },
   {
@@ -9016,7 +9016,7 @@
    "dependsOn": [
     "pkg:cargo/proc-macro2@1.0.107",
     "pkg:cargo/quote@1.0.47",
-    "pkg:cargo/syn@3.0.9"
+    "pkg:cargo/syn@3.0.10"
    ]
   },
   {
@@ -9024,7 +9024,7 @@
    "dependsOn": [
     "pkg:cargo/proc-macro2@1.0.107",
     "pkg:cargo/quote@1.0.47",
-    "pkg:cargo/syn@3.0.9"
+    "pkg:cargo/syn@3.0.10"
    ]
   },
   {
@@ -9070,7 +9070,7 @@
    ]
   },
   {
-   "ref": "pkg:cargo/smallvec@1.16.4",
+   "ref": "pkg:cargo/smallvec@1.16.5",
    "dependsOn": []
   },
   {
@@ -9159,7 +9159,7 @@
    ]
   },
   {
-   "ref": "pkg:cargo/syn@3.0.9",
+   "ref": "pkg:cargo/syn@3.0.10",
    "dependsOn": [
     "pkg:cargo/proc-macro2@1.0.107",
     "pkg:cargo/quote@1.0.47",
@@ -9179,7 +9179,7 @@
    "dependsOn": [
     "pkg:cargo/proc-macro2@1.0.107",
     "pkg:cargo/quote@1.0.47",
-    "pkg:cargo/syn@3.0.9"
+    "pkg:cargo/syn@3.0.10"
    ]
   },
   {
@@ -9198,7 +9198,7 @@
    "ref": "pkg:cargo/tiff@0.11.3",
    "dependsOn": [
     "pkg:cargo/fax@0.2.7",
-    "pkg:cargo/flate2@1.1.10",
+    "pkg:cargo/flate2@1.1.11",
     "pkg:cargo/half@2.7.1",
     "pkg:cargo/quick-error@2.0.1",
     "pkg:cargo/weezl@0.1.12",
@@ -9249,16 +9249,16 @@
    "dependsOn": []
   },
   {
-   "ref": "pkg:cargo/toml_datetime@1.1.2+spec-1.1.0",
+   "ref": "pkg:cargo/toml_datetime@1.1.3+spec-1.1.0",
    "dependsOn": [
     "pkg:cargo/serde_core@1.0.229"
    ]
   },
   {
-   "ref": "pkg:cargo/toml_edit@0.25.18+spec-1.1.0",
+   "ref": "pkg:cargo/toml_edit@0.25.19+spec-1.1.0",
    "dependsOn": [
     "pkg:cargo/indexmap@2.14.2",
-    "pkg:cargo/toml_datetime@1.1.2+spec-1.1.0",
+    "pkg:cargo/toml_datetime@1.1.3+spec-1.1.0",
     "pkg:cargo/toml_parser@1.1.5+spec-1.1.0",
     "pkg:cargo/winnow@1.0.5"
    ]
@@ -9347,7 +9347,7 @@
    "dependsOn": [
     "pkg:cargo/base64@0.23.1",
     "pkg:cargo/data-url@0.3.2",
-    "pkg:cargo/flate2@1.1.10",
+    "pkg:cargo/flate2@1.1.11",
     "pkg:cargo/fontdb@0.24.0",
     "pkg:cargo/harfrust@0.12.0",
     "pkg:cargo/imagesize@0.15.0",
@@ -9368,7 +9368,7 @@
    ]
   },
   {
-   "ref": "pkg:cargo/uuid@1.29.0",
+   "ref": "pkg:cargo/uuid@1.29.2",
    "dependsOn": [
     "pkg:cargo/serde_core@1.0.229"
    ]
@@ -9381,7 +9381,7 @@
     "pkg:cargo/guillotiere@0.7.0",
     "pkg:cargo/log@0.4.35",
     "pkg:cargo/peniko@0.6.1",
-    "pkg:cargo/smallvec@1.16.4",
+    "pkg:cargo/smallvec@1.16.5",
     "pkg:cargo/thiserror@2.0.21"
    ]
   },
@@ -9405,7 +9405,7 @@
     "pkg:cargo/downcast-rs@1.2.1",
     "pkg:cargo/rustix@1.1.6",
     "pkg:cargo/scoped-tls@1.0.1",
-    "pkg:cargo/smallvec@1.16.4",
+    "pkg:cargo/smallvec@1.16.5",
     "pkg:cargo/wayland-sys@0.31.11"
    ]
   },
@@ -9534,7 +9534,7 @@
     "pkg:cargo/profiling@1.0.18",
     "pkg:cargo/raw-window-handle@0.6.2",
     "pkg:cargo/rustc-hash@1.1.0",
-    "pkg:cargo/smallvec@1.16.4",
+    "pkg:cargo/smallvec@1.16.5",
     "pkg:cargo/thiserror@2.0.21",
     "pkg:cargo/wgpu-core-deps-windows-linux-android@30.0.1",
     "pkg:cargo/wgpu-hal@30.0.1",
@@ -9592,7 +9592,7 @@
     "pkg:cargo/log@0.4.35",
     "pkg:cargo/profiling@1.0.18",
     "pkg:cargo/raw-window-handle@0.6.2",
-    "pkg:cargo/smallvec@1.16.4",
+    "pkg:cargo/smallvec@1.16.5",
     "pkg:cargo/static_assertions@1.1.0",
     "pkg:cargo/wgpu-core@30.0.1",
     "pkg:cargo/wgpu-hal@30.0.1",
@@ -9739,7 +9739,7 @@
     "pkg:cargo/serde@1.0.229",
     "pkg:cargo/serde_repr@0.1.21",
     "pkg:cargo/tracing@0.1.44",
-    "pkg:cargo/uuid@1.29.0",
+    "pkg:cargo/uuid@1.29.2",
     "pkg:cargo/winnow@1.0.5",
     "pkg:cargo/zbus_macros@5.19.0",
     "pkg:cargo/zbus_names@4.3.5",
@@ -9752,7 +9752,7 @@
     "pkg:cargo/proc-macro-crate@3.5.0",
     "pkg:cargo/proc-macro2@1.0.107",
     "pkg:cargo/quote@1.0.47",
-    "pkg:cargo/syn@3.0.9",
+    "pkg:cargo/syn@3.0.10",
     "pkg:cargo/zbus_names@4.3.5",
     "pkg:cargo/zvariant@5.15.1",
     "pkg:cargo/zvariant_utils@4.2.0"
@@ -9827,7 +9827,7 @@
     "pkg:cargo/proc-macro-crate@3.5.0",
     "pkg:cargo/proc-macro2@1.0.107",
     "pkg:cargo/quote@1.0.47",
-    "pkg:cargo/syn@3.0.9",
+    "pkg:cargo/syn@3.0.10",
     "pkg:cargo/zvariant_utils@4.2.0"
    ]
   },
@@ -9837,7 +9837,7 @@
     "pkg:cargo/proc-macro2@1.0.107",
     "pkg:cargo/quote@1.0.47",
     "pkg:cargo/serde@1.0.229",
-    "pkg:cargo/syn@3.0.9",
+    "pkg:cargo/syn@3.0.10",
     "pkg:cargo/winnow@1.0.5"
    ]
   }
