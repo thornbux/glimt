@@ -5,6 +5,14 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- A move or rename on an NFS, SMB or sshfs share, or a move from one to another disk, no longer
+  removes the only copy of the photo when the share removed the old name but its answer was
+  lost. The file is kept under both names and the error says so. Rename Many's repair and a
+  move into the trash by hand no longer remove a name, or a file's `.trashinfo`, on what the
+  share's cache still shows either.
+
 ## [0.80.0] - 2026-11-10
 
 ### Added
