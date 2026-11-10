@@ -200,10 +200,10 @@ impl crate::App {
     /// Edit → Preferences: every setting, saved when one changes; Esc closes it.
     pub(crate) fn preferences_window(&mut self, ctx: &egui::Context) {
         let mut open = self.preferences.open;
-        // Esc closes Preferences (shortcuts are off while it is open), and a search in its
-        // field is cleared first. It does not close Preferences when a dialog on top of it, a
-        // popup (a combo box, the colour picker) or another text field takes the Esc, which
-        // there only closes the popup or leaves the field.
+        // Esc closes Preferences (shortcuts are off while it is open), and a search is cleared
+        // first. A dialog on top, a popup (a combo box) or another text field takes the Esc
+        // instead, to close the popup or leave the field. A focused checkbox does not, so one
+        // Esc closes Preferences for a user who moves with Tab.
         let search_id = egui::Id::unique("preferences search");
         let search_had_focus =
             ctx.memory(|m| m.has_focus(search_id) || m.had_focus_last_frame(search_id));
@@ -211,7 +211,7 @@ impl crate::App {
             && !self.modal_open()
             && self.preferences.key_being_chosen_for.is_none()
             && !egui::Popup::is_any_open(ctx)
-            && (search_had_focus || !self.focus_held(ctx))
+            && (search_had_focus || !self.focus_held(ctx, |id| is_text_field(ctx, id)))
             && ctx.input(|i| i.key_pressed(egui::Key::Escape))
         {
             open = !self.preferences.query.trim().is_empty();
@@ -1145,6 +1145,12 @@ fn key_actions() -> Vec<Action> {
     actions
 }
 
+/// Returns whether the widget `id` is a text field, which keeps a state of its own in egui's
+/// memory once it has been drawn.
+fn is_text_field(ctx: &egui::Context, id: egui::Id) -> bool {
+    egui::TextEdit::load_state(ctx, id).is_some()
+}
+
 /// Which sections of Preferences have a text the search `query` (lower case) finds, in the
 /// order they show: the look, keys, image, slideshow, file list, deleting, colour, memory,
 /// video and start.
@@ -1331,6 +1337,8 @@ mod tests {
 
     /// Esc in another field of Preferences, such as the custom window title, only leaves the
     /// field, and Esc in an open combo box only closes it. Both once closed Preferences too.
+    /// Esc on a checkbox that Tab moved to closes Preferences at once, as a checkbox does not
+    /// take the Esc. It once needed a second Esc.
     #[test]
     fn escape_in_a_field_or_popup_keeps_preferences_open() {
         use eframe::egui::{self, Event, Key, RawInput};
@@ -1339,15 +1347,21 @@ mod tests {
         let (mut app, ctx) = app_on(&dir);
         app.preferences.show();
         let field = egui::Id::unique("a field of Preferences");
-        let frame = |app: &mut crate::App, events: Vec<Event>, focus: bool, popup: bool| {
+        let (mut text, mut checked) = (String::new(), false);
+        // Draws a frame with a text field and a checkbox, and gives the focus to the one named.
+        let mut frame = |app: &mut crate::App, events: Vec<Event>, focus: &str, popup: bool| {
             let input = RawInput {
                 events,
                 ..Default::default()
             };
             let _ = ctx.run_ui(input, |ui| {
                 app.preferences_window(ui.ctx());
-                if focus {
-                    ui.memory_mut(|m| m.request_focus(field));
+                let text_field = ui.add(egui::TextEdit::singleline(&mut text).id(field));
+                let check = ui.checkbox(&mut checked, "a checkbox of Preferences");
+                match focus {
+                    "field" => text_field.request_focus(),
+                    "checkbox" => check.request_focus(),
+                    _ => {}
                 }
                 if popup {
                     egui::Popup::open_id(ui.ctx(), egui::Id::unique("a combo box"));
@@ -1364,19 +1378,25 @@ mod tests {
                 modifiers: Default::default(),
             }]
         };
-        frame(&mut app, Vec::new(), true, false);
-        frame(&mut app, esc(), false, false);
+        frame(&mut app, Vec::new(), "field", false);
+        frame(&mut app, esc(), "", false);
         assert!(
             app.preferences.open,
             "Esc that left a field closed Preferences"
         );
-        frame(&mut app, Vec::new(), false, true);
-        frame(&mut app, esc(), false, false);
+        frame(&mut app, Vec::new(), "", true);
+        frame(&mut app, esc(), "", false);
         assert!(
             app.preferences.open,
             "Esc that closed a popup closed Preferences"
         );
+        frame(&mut app, Vec::new(), "checkbox", false);
+        frame(&mut app, esc(), "", false);
         std::fs::remove_dir_all(dir).unwrap();
+        assert!(
+            !app.preferences.open,
+            "Esc on a checkbox did not close Preferences"
+        );
     }
 
     /// A search for an action that is not built in, such as Play Video without video, does

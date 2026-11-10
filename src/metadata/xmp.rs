@@ -76,6 +76,7 @@ const KNOWN_NAMESPACES: [(&str, &str); 31] = [
 ];
 
 /// The 64 locks within this Glimt, by `sidecar_lock_number`.
+#[cfg(not(test))]
 static SIDECAR_LOCKS: [std::sync::Mutex<()>; 64] = [const { std::sync::Mutex::new(()) }; 64];
 
 #[derive(Clone, Default, PartialEq, Debug)]
@@ -538,7 +539,7 @@ pub(crate) fn lock_sidecar(path: &Path) -> SidecarLock {
 
 fn lock_sidecar_in(dir: Option<&Path>, path: &Path) -> SidecarLock {
     let side = sidecar(path);
-    let guard = lock_even_if_poisoned(&SIDECAR_LOCKS[sidecar_lock_number(&side) as usize]);
+    let guard = lock_even_if_poisoned(lock_of(sidecar_lock_key(&side)));
     (dir.and_then(|d| lock_file(d, &side)), guard)
 }
 
@@ -556,21 +557,27 @@ fn lock_sidecars_in<'a>(
 ) -> Vec<SidecarLock> {
     let mut sides: Vec<(u64, PathBuf)> = (paths.into_iter())
         .map(|p| sidecar(p))
-        .map(|s| (sidecar_lock_number(&s), s))
+        .map(|s| (sidecar_lock_key(&s), s))
         .collect();
     sides.sort_by_key(|s| s.0);
     sides.dedup_by_key(|s| s.0);
     (sides.iter())
         .map(|(n, side)| {
-            let guard = lock_even_if_poisoned(&SIDECAR_LOCKS[*n as usize]);
+            let guard = lock_even_if_poisoned(lock_of(*n));
             (dir.and_then(|d| lock_file(d, side)), guard)
         })
         .collect()
 }
 
-/// The folder of the lock files, where there is a runtime folder.
+/// The folder of the lock files, where there is a runtime folder. Tests take only the mutexes,
+/// because the runtime folder's lock files are shared with a Glimt that runs there, and two
+/// tests' sidecars of one number would wait for each other at their lock file. The tests of the
+/// lock files name a folder of their own.
 fn lock_dir() -> Option<PathBuf> {
-    crate::features::remote::runtime_dir().map(|d| d.join("sidecar-locks"))
+    #[cfg(test)]
+    return None;
+    #[cfg(not(test))]
+    return crate::features::remote::runtime_dir().map(|d| d.join("sidecar-locks"));
 }
 
 fn lock_file(dir: &Path, side: &Path) -> Option<std::fs::File> {
@@ -588,11 +595,41 @@ fn lock_file(dir: &Path, side: &Path) -> Option<std::fs::File> {
 /// Which of the 64 lock files a sidecar has. It is FNV-1a of its path's bytes, the same in
 /// every Glimt, also one built with another Rust, whose own hasher may differ.
 pub(crate) fn sidecar_lock_number(side: &Path) -> u64 {
+    fnv(side) % 64
+}
+
+/// Returns FNV-1a of the bytes of the path `side`.
+fn fnv(side: &Path) -> u64 {
     use std::os::unix::ffi::OsStrExt;
-    let fnv = (side.as_os_str().as_bytes().iter()).fold(0xcbf2_9ce4_8422_2325_u64, |h, &b| {
+    (side.as_os_str().as_bytes().iter()).fold(0xcbf2_9ce4_8422_2325_u64, |h, &b| {
         (h ^ b as u64).wrapping_mul(0x100_0000_01b3)
-    });
-    fnv % 64
+    })
+}
+
+/// Returns the number of the mutex that the sidecar `side` takes: `sidecar_lock_number`. In
+/// tests every sidecar has a mutex of its own, because the tests run side by side in one
+/// process. A test that held a lock on purpose for seconds held up another test's sidecar of
+/// the same number, and that test timed out.
+fn sidecar_lock_key(side: &Path) -> u64 {
+    #[cfg(test)]
+    return fnv(side);
+    #[cfg(not(test))]
+    return sidecar_lock_number(side);
+}
+
+/// Returns the mutex of the lock number `key` (`sidecar_lock_key`).
+fn lock_of(key: u64) -> &'static std::sync::Mutex<()> {
+    #[cfg(not(test))]
+    return &SIDECAR_LOCKS[key as usize];
+    // Each lock is made when it is first taken, and kept for the rest of the tests.
+    #[cfg(test)]
+    {
+        static LOCKS: std::sync::Mutex<
+            std::collections::BTreeMap<u64, &'static std::sync::Mutex<()>>,
+        > = std::sync::Mutex::new(std::collections::BTreeMap::new());
+        let mut made = lock_even_if_poisoned(&LOCKS);
+        made.entry(key).or_insert_with(|| Box::leak(Box::default()))
+    }
 }
 
 /// Changes the sidecar of `path` with `change`, or a new, empty sidecar unless `only_if_there`,
@@ -1722,6 +1759,34 @@ mod tests {
         let out = super::unescape(&text);
         assert!(start.elapsed() < std::time::Duration::from_secs(2));
         assert!(out.ends_with("; & A B &ampno;") && out.len() == text.len() - 13);
+    }
+
+    /// Two tests never wait for each other's sidecar locks. A sidecar whose lock number
+    /// another test's sidecar shares is locked at once while that test holds its own, as
+    /// `a_copy_waits_for_its_sidecar_lock` does for seconds. Before, file operations' contract
+    /// timed out now and then on "save frame over b".
+    #[test]
+    fn tests_never_share_a_sidecar_lock() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-own-lock-{}", std::process::id()));
+        let mine = dir.join("b.png");
+        let number = super::sidecar_lock_number(&super::sidecar(&mine));
+        let other = (0..)
+            .map(|k| dir.join(format!("other-{k}.png")))
+            .find(|p| super::sidecar_lock_number(&super::sidecar(p)) == number)
+            .unwrap();
+        let others_lock = super::lock_sidecar(&other);
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let _lock = super::lock_sidecar(&mine);
+            tx.send(()).unwrap();
+        });
+        let taken = rx.recv_timeout(std::time::Duration::from_secs(2));
+        drop(others_lock);
+        assert_eq!(
+            taken,
+            Ok(()),
+            "a test waited for another test's sidecar lock"
+        );
     }
 
     /// The lock file of a sidecar is the same in every Glimt, by FNV-1a, as known for these
