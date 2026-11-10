@@ -32,8 +32,8 @@ thread_local! {
     // Makes `sync_folder_of` on this thread fail as a disk that fails would, for the tests of
     // what follows such a failure.
     pub(crate) static FOLDER_SYNC_FAILS: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
-    // The errors that `save_failed` told on this thread. The window's own slot is shared by
-    // every test, so a test that reads it could take another test's error.
+    // The errors that `save_failed` told on this thread. They do not go to the window's own
+    // slot in tests, where another test's window would take them as its notice.
     pub(crate) static SAVES_FAILED: std::cell::RefCell<Vec<String>> =
         const { std::cell::RefCell::new(Vec::new()) };
     // The saves over a file with other names (hard links) on this thread. They do not go to
@@ -803,13 +803,29 @@ pub fn write_atomic(path: &Path, bytes: impl AsRef<[u8]>) {
 /// A file that could not be saved, told on the terminal and, once, in the window.
 pub fn save_failed(error: String) {
     eprintln!("{error}");
+    // In tests the error stays on this thread. The window's own slot is shared by every test,
+    // and another test's window took the error as its notice in place of its own.
     #[cfg(test)]
-    SAVES_FAILED.with_borrow_mut(|told| told.push(error.clone()));
-    *lock_even_if_poisoned(&SAVE_ERROR) = Some(error);
+    SAVES_FAILED.with_borrow_mut(|told| told.push(error));
+    #[cfg(not(test))]
+    {
+        *lock_even_if_poisoned(&SAVE_ERROR) = Some(error);
+    }
 }
 
 #[cfg(test)]
 mod tests {
+    /// A save that fails in one test is not told in another test's window. Before, a window
+    /// took a save error of a test beside it as its notice, in place of the notice its own
+    /// test waited for (`every_undo_leaves_a_file_put_in_its_place`).
+    #[test]
+    fn a_save_error_in_a_test_stays_with_its_test() {
+        std::thread::spawn(|| super::save_failed("another test's error".into()))
+            .join()
+            .unwrap();
+        assert_eq!(super::take_save_error(), None);
+    }
+
     /// Saves over many files with other names (hard links), as a keywords job over a tree
     /// copied with `cp -al`, give one note with their count. Before, each file gave a note of
     /// its own, and the notice changed on every frame for the whole job.

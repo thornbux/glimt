@@ -604,7 +604,6 @@ mod tests {
         marks.rate(std::slice::from_ref(&a), 3);
         let stars = super::Edit::Change(vec![a.clone()], super::Change::Stars(3));
         super::write(&file, &[stars]);
-        let _ = crate::files::file_io::take_save_error();
         marks.refresh();
         assert_eq!(marks.get(&a), (0, 0));
         super::TEST_FILE.with(|f| *f.borrow_mut() = None);
