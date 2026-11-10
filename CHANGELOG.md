@@ -44,7 +44,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 - When Rename Many swapped names on a card or stick that was pulled out before its first renames
   reached it, the next start took the swap as finished. Finishing it moved the marks, stars and
   collection entries of each photo to the other, and putting back the old names swapped the
-  photos themselves. Such a swap is now known as not begun.
+  photos themselves. Such a swap is now known as not begun. A swap whose first renames the disk
+  says it could not keep is undone at once, with the error told.
 - When Rename Many failed and could not give every file its old name back, a keyword, comment,
   alt text or star set meanwhile is no longer written to the old name, which may hold another
   photo by then. It is left out, and the user is told with the rename's error.
