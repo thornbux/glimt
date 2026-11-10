@@ -81,8 +81,8 @@ pub(crate) struct OperationReport {
     pub(crate) read_folder_again: bool,
     /// What Undo puts back, when this was a move to the trash or a move.
     pub(crate) undo: Option<Undo>,
-    /// Whether `undo` is what an Undo from the trash could not put back. It is kept only when no
-    /// operation that finished meanwhile left an Undo of its own, which is newer.
+    /// Whether `undo` is what an Undo from the trash or of a move could not put back. It is kept
+    /// only when no operation that finished meanwhile left an Undo of its own, which is newer.
     pub(crate) is_undo_remainder: bool,
     /// The marks and stars to put back, for files that Undo brought back from the trash.
     pub(crate) restored_marks: Vec<(PathBuf, (u8, u8))>,
@@ -114,6 +114,10 @@ pub(crate) type FileFingerprint = (Option<(u64, u64)>, u64, (i64, i64));
 /// the file's at `to`. When Glimt itself writes the file anew there (a turn saved), it takes
 /// the new fingerprint.
 pub(crate) type Moved = (PathBuf, PathBuf, FileFingerprint);
+
+/// What an Undo of a move did: the pairs moved back as `(now, before)`, the files left to be
+/// undone again, and the errors to tell.
+type MovedBack = (Vec<(PathBuf, PathBuf)>, Vec<Moved>, Vec<String>);
 
 /// What waits for a folder's real path, which `App::with_real_folder` looks up in the
 /// background. It runs in the window's thread once the path is known.
@@ -1594,11 +1598,14 @@ impl crate::App {
                 self.rename_files_of(ctx, now, before, Some(fingerprints));
             }
             Undo::Move(pairs) => drop(self.run_in_background(ctx, undone, move || {
-                let (back, errors) = move_back(pairs);
+                let (back, left, errors) = move_back(pairs);
                 let files = count(back.len(), "file");
+                // Those that did not go back stay to be undone again, as the trash's do.
                 let _ = report_tx.send(OperationReport {
                     moved: back,
                     read_folder_again: true,
+                    undo: (!left.is_empty()).then_some(Undo::Move(left)),
+                    is_undo_remainder: true,
                     ..Default::default()
                 });
                 Some(match errors.first() {
@@ -2358,10 +2365,12 @@ pub(crate) fn rename_files(from: Vec<PathBuf>, to: Vec<PathBuf>, job: &Job) -> R
 }
 
 /// Moves the files of an Undo of a move back to where they came from, each with its sidecar.
-/// A file whose place another file has taken since the move is left where it is. Returns the
-/// pairs moved back, `(now, before)`, and the errors to tell.
-fn move_back(pairs: Vec<Moved>) -> (Vec<(PathBuf, PathBuf)>, Vec<String>) {
-    let (mut errors, mut back) = (Vec::new(), Vec::new());
+/// A file whose place another file has taken since the move is left where it is, and so is one
+/// that cannot go back. Returns the pairs moved back, `(now, before)`, the files left to be
+/// undone again (a name taken, a share that did not answer), and the errors to tell. A file
+/// that another file has replaced is not among those left, as no later Undo can take it back.
+fn move_back(pairs: Vec<Moved>) -> MovedBack {
+    let (mut errors, mut back, mut left) = (Vec::new(), Vec::new(), Vec::new());
     let mut names = xmp::AdobeNames::arriving(pairs.iter().map(|(from, _, _)| from.clone()));
     let mut sidecar_names = xmp::AdobeNames::default();
     let moving_back: Vec<PathBuf> = pairs.iter().map(|(_, now, _)| now.clone()).collect();
@@ -2386,10 +2395,13 @@ fn move_back(pairs: Vec<Moved>) -> (Vec<(PathBuf, PathBuf)>, Vec<String>) {
                 }
                 back.push((to, from));
             }
-            Err((at, e)) => errors.push(format!("{}: {e}", at.display())),
+            Err((at, e)) => {
+                errors.push(format!("{}: {e}", at.display()));
+                left.push((from, to, at_move));
+            }
         }
     }
-    (back, errors)
+    (back, left, errors)
 }
 
 /// Returns a file just moved or renamed from `from` to `to` with its fingerprint, for Undo. Returns
@@ -4239,6 +4251,37 @@ mod tests {
         app.written_anew(std::slice::from_ref(&saved));
         app.undo(&ctx);
         assert!(run_background_until(&mut app, &ctx, |app| !app.working() && b.exists()));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// Undo of a move keeps a file that could not go back, here because a new file has taken
+    /// its old name, as an Undo to be done again once the name is free. The others go back.
+    #[test]
+    fn undo_of_a_move_keeps_the_files_that_did_not_go_back() {
+        let dir =
+            std::env::temp_dir().join(format!("glimt-test-undo-move-left-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join("sub")).unwrap();
+        for n in ["a.png", "b.png"] {
+            image::RgbImage::new(2, 2).save(dir.join(n)).unwrap();
+        }
+        let (mut app, ctx) = app_on(&dir);
+        let (a, b) = (dir.join("a.png"), dir.join("b.png"));
+        app.transfer(vec![a.clone(), b.clone()], dir.join("sub"), false);
+        assert!(run_background_until(&mut app, &ctx, |app| app
+            .file_operations
+            .undo
+            .is_some()
+            && !app.working()));
+        std::fs::write(&a, b"another").unwrap();
+        app.undo(&ctx);
+        assert!(run_background_until(&mut app, &ctx, |app| !app.working()
+            && b.exists()
+            && app.file_operations.undo.is_some()));
+        assert!(dir.join("sub/a.png").exists());
+        std::fs::remove_file(&a).unwrap();
+        app.undo(&ctx);
+        assert!(run_background_until(&mut app, &ctx, |app| !app.working() && a.exists()));
+        assert!(!dir.join("sub/a.png").exists() && app.file_operations.undo.is_none());
         std::fs::remove_dir_all(dir).unwrap();
     }
 
