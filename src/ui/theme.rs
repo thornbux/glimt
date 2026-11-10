@@ -230,7 +230,10 @@ impl DesktopSettings {
             look_answer: Receiving::of(rx),
             screen_profile: None,
             screen_profile_answer: profile
-                .then(|| crate::images::colour::read_desktop_screen(ctx))
+                .then(|| {
+                    crate::images::colour::start_screen_wait();
+                    crate::images::colour::read_desktop_screen(ctx)
+                })
                 .map_or_else(Receiving::none, Receiving::of),
             theme_files: ThemeFiles::default(),
             theme_files_answer: Receiving::none(),
