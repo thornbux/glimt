@@ -1276,9 +1276,7 @@ impl crate::App {
             Action::Delete => self.request_delete(ctx, self.config.delete_to_trash),
             Action::DeletePermanently => self.request_delete(ctx, false),
             Action::Undo => self.undo(ctx),
-            Action::CloseWindow | Action::Quit => {
-                ctx.send_viewport_cmd(egui::ViewportCommand::Close)
-            }
+            Action::CloseWindow | Action::Quit => self.ask_to_close(ctx),
             Action::First | Action::Previous | Action::Next | Action::Last => {
                 self.move_along(ctx, action)
             }

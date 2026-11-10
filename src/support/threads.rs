@@ -129,7 +129,9 @@ impl Working {
 
 impl Drop for Working {
     fn drop(&mut self) {
-        self.0.fetch_sub(1, Ordering::Relaxed);
+        // Release, so that a thread that reads the count as done with Acquire also sees what
+        // the work told before it ended, such as a failed save (`is_writing`).
+        self.0.fetch_sub(1, Ordering::Release);
     }
 }
 
@@ -161,18 +163,28 @@ impl<T> AnswerSender<T> {
     }
 }
 
+/// What a background thread tells the window through a `NoticeSender`.
+#[derive(Debug, PartialEq)]
+pub(crate) enum Told {
+    /// A text for the notice over the image.
+    Notice(String),
+    /// A write that failed. The window shows it, and a close that waited for the writing stays
+    /// open, so the user sees it.
+    FailedWrite(String),
+}
+
 /// The way a background thread tells the user something: the text becomes the notice over the
 /// image. Sending also asks for a frame, because egui draws only when asked, and a notice sent
 /// without one waited in the channel until the mouse moved.
 #[derive(Clone)]
 pub(crate) struct NoticeSender {
-    tx: mpsc::Sender<String>,
+    tx: mpsc::Sender<Told>,
     ctx: eframe::egui::Context,
 }
 
 impl NoticeSender {
     /// Returns the sending half for the window's `ctx`, and the half the window reads.
-    pub(crate) fn new(ctx: &eframe::egui::Context) -> (Self, mpsc::Receiver<String>) {
+    pub(crate) fn new(ctx: &eframe::egui::Context) -> (Self, mpsc::Receiver<Told>) {
         let (tx, rx) = mpsc::channel();
         let ctx = ctx.clone();
         (NoticeSender { tx, ctx }, rx)
@@ -180,10 +192,20 @@ impl NoticeSender {
 
     /// Sends `text` to the window and asks it to draw a frame. Returns an error only when the
     /// window is gone, as `mpsc::Sender::send` does.
-    pub(crate) fn send(&self, text: String) -> Result<(), mpsc::SendError<String>> {
-        let sent = self.tx.send(text);
+    pub(crate) fn send(&self, text: String) -> Result<(), mpsc::SendError<Told>> {
+        let sent = self.tx.send(Told::Notice(text));
         self.ctx.request_repaint();
         sent
+    }
+
+    /// Prints a failed write on stderr, and sends it to the window, which shows it and stays
+    /// open when a close waited for the writing. It is printed here, so that it is told also
+    /// when the window is gone.
+    pub(crate) fn send_failed_write(&self, text: String) {
+        eprintln!("{text}");
+        // A window that is gone has nothing to show it in.
+        let _ = self.tx.send(Told::FailedWrite(text));
+        self.ctx.request_repaint();
     }
 }
 
@@ -327,7 +349,7 @@ mod tests {
         std::thread::spawn(move || notice_sender.send("done".into()).unwrap())
             .join()
             .unwrap();
-        assert_eq!(rx.try_recv().as_deref(), Ok("done"));
+        assert_eq!(rx.try_recv(), Ok(super::Told::Notice("done".into())));
         assert!(asked.load(Ordering::Relaxed) > 0);
     }
 

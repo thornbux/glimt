@@ -599,7 +599,7 @@ impl crate::App {
                 move |p, _| match xmp::write_alt_text(p, &alt_text) {
                     Ok(()) => true,
                     Err(e) => {
-                        let _ = tx.send(tf!("Could not save the alt text: {e}", e));
+                        tx.send_failed_write(tf!("Could not save the alt text: {e}", e));
                         false
                     }
                 },
@@ -644,7 +644,7 @@ impl crate::App {
             move |p, _| match xmp::write_changed(p, keywords.clone(), comment.clone()) {
                 Ok(_) => true,
                 Err(e) => {
-                    let _ = tx.send(tf!("Could not save the keywords: {e}", e));
+                    tx.send_failed_write(tf!("Could not save the keywords: {e}", e));
                     false
                 }
             },

@@ -122,7 +122,7 @@ struct App {
     notice: crate::viewer::view::Notice,
     /// Messages from background tasks (deleting, copying), to become the notice.
     notice_sender: crate::support::threads::NoticeSender,
-    notices: mpsc::Receiver<String>,
+    notices: mpsc::Receiver<crate::support::threads::Told>,
 
     // ---- Menus, dialogs and windows ----
     /// The small dialogs. They ask for a name, confirm a delete or the trashing of a folder,

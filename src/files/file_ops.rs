@@ -647,8 +647,8 @@ impl crate::App {
     /// image, a print, keywords or the settings, or a file operation waits for its folder's
     /// real path. Closing waits for them.
     pub(crate) fn is_writing(&self) -> bool {
-        crate::files::file_io::WRITING.load(Ordering::Relaxed) > 0
-            || (self.file_operations.real_folders_awaited).load(Ordering::Relaxed) > 0
+        crate::files::file_io::WRITING.load(Ordering::Acquire) > 0
+            || (self.file_operations.real_folders_awaited).load(Ordering::Acquire) > 0
     }
 
     /// A file operation on `total` files that changes `held_back_files`, shown in the status bar
@@ -760,7 +760,7 @@ impl crate::App {
                 job.count_done(chunk.len());
             }
             if let Some(first) = errors.first() {
-                let _ = tx.send(tf!(
+                tx.send_failed_write(tf!(
                     "Delete failed ({count}): {first}",
                     count = count(errors.len(), "error"),
                     first
@@ -775,7 +775,7 @@ impl crate::App {
                 let _ = tx.send(text);
             }
             let removed = forget_in_collection(collection.as_deref(), &gone).unwrap_or_else(|e| {
-                let _ = tx.send(e);
+                tx.send_failed_write(e);
                 Vec::new()
             });
             let (sides_gone, sidecars_left): (Vec<PathBuf>, Vec<PathBuf>) =
@@ -1147,7 +1147,7 @@ impl crate::App {
             let failed = !errors.is_empty() || job.is_stopped();
             if let Some(first) = errors.first() {
                 let verb = tr(if is_copy { "Copy" } else { "Move" });
-                let _ = tx.send(tf!(
+                tx.send_failed_write(tf!(
                     "{verb} failed ({count}): {first}",
                     verb,
                     count = count(errors.len(), "error"),
@@ -1339,8 +1339,9 @@ impl crate::App {
             .chain(dropped)
             .collect::<Vec<_>>()
             .join("\n");
+        // Each text told here is a failure, which a close must not hide.
         if !told.is_empty() {
-            self.notice.give(told);
+            self.tell_failed_write(told);
         }
         self.follow_moved_paths(pairs, false);
         if self.folder.collection().is_some() {
@@ -1871,7 +1872,7 @@ impl crate::App {
         let work: QueuedWrite = Box::new(move || {
             // A file that makes the writing panic ends this job, not the count or the busy
             // pointer.
-            let text = crate::support::threads::catch_panic(|| {
+            let told = crate::support::threads::catch_panic(|| {
                 let mut failed = 0;
                 for (k, path) in paths.iter().enumerate() {
                     if job.is_stopped() {
@@ -1880,13 +1881,16 @@ impl crate::App {
                     failed += !write(k, path) as usize;
                     job.count_done(1);
                 }
-                report(failed, &job)
+                (report(failed, &job), failed > 0)
             })
             .unwrap_or_else(|| {
-                Some(tr("Writing the sidecars stopped at a file that broke it").into())
+                let broke = tr("Writing the sidecars stopped at a file that broke it");
+                (Some(broke.into()), true)
             });
-            if let Some(text) = text {
-                let _ = tx.send(text);
+            match told {
+                (Some(text), true) => tx.send_failed_write(text),
+                (Some(text), false) => drop(tx.send(text)),
+                (None, _) => {}
             }
             drop(job);
             drop(pointer);

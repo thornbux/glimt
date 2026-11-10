@@ -574,13 +574,19 @@ pub fn read_or_none(path: &Path) -> std::io::Result<Option<Vec<u8>>> {
     }
 }
 
-/// The last file Glimt could not save, once. Otherwise the note of the saves over files with
-/// other names (hard links), once no file is being written any more. A job over many files then
-/// gives one note with their count, rather than a new one for each file every frame.
+/// Takes the last error that `save_failed` told. Returns `None` when no save failed since the
+/// last call.
 pub fn take_save_error() -> Option<String> {
-    let error = lock_even_if_poisoned(&SAVE_ERROR).take();
+    lock_even_if_poisoned(&SAVE_ERROR).take()
+}
+
+/// Takes the note of the saves over files with other names (hard links), once no file is being
+/// written any more. A job over many files then gives one note with their count, rather than a
+/// new one for each file every frame. Returns `None` while files are written, or when there is
+/// nothing to note.
+pub fn take_other_names_note() -> Option<String> {
     let is_writing = WRITING.load(std::sync::atomic::Ordering::Relaxed) > 0;
-    error.or_else(|| (!is_writing).then(other_names_note).flatten())
+    (!is_writing).then(other_names_note).flatten()
 }
 
 /// Returns the note of the saves over files with other names (hard links), and counts anew.

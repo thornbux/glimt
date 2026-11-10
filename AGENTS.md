@@ -521,6 +521,12 @@ whole module. The tests may unwrap (main.rs allows it for them).
   files goes to `file_io::save_failed`, which prints it and shows it once in the window. The
   result of a writer of file_io is never dropped with `let _ =`, `_ =` or `.ok();`
   (`source_rules::write_results_are_not_dropped`): handle it, or pass it on with `?`.
+  A background thread tells a failed write through `save_failed` or
+  `NoticeSender::send_failed_write`, never as a plain notice, and the window thread through
+  `App::tell_failed_write`. Both keep the window open when a close
+  waited for the writing. A Close is sent only by `App::ask_to_close`, and `guard_close` takes
+  the failed writes before it lets one through
+  (`source_rules::a_close_takes_the_failed_writes_first`).
 - **An `unwrap` or `expect` outside the tests** is only where it cannot fail, with
   `#[allow(clippy::unwrap_used)]` (or `expect_used`) on that one statement and the reason on
   the same line. Elsewhere use `?`, a default, or an error the user is told.
