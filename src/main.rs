@@ -133,8 +133,8 @@ struct App {
     preferences: crate::ui::preferences::Preferences,
     /// Open With's programs for each file type, read in the background.
     open_with: crate::ui::menus::OpenWith,
-    /// Edit → Tools, read at start.
-    tools: Vec<crate::features::tools::Tool>,
+    /// Edit → Tools, read in the background at start.
+    tools: crate::features::tools::InstalledTools,
     /// The tools running, for Stop in their menu.
     tools_running: crate::features::tools::RunningTools,
     /// The help page open (F1), if any.
@@ -259,7 +259,7 @@ impl App {
             dialogs: crate::ui::dialogs::Dialogs::default(),
             preferences: crate::ui::preferences::Preferences::default(),
             open_with: crate::ui::menus::OpenWith::default(),
-            tools: crate::features::tools::find(),
+            tools: crate::features::tools::InstalledTools::new(ctx),
             tools_running: crate::features::tools::RunningTools::default(),
             help: None,
             print_dialog: None,

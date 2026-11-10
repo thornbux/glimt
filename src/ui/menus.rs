@@ -570,11 +570,12 @@ impl crate::App {
             ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Extend);
             // The folder to open is looked for only when it is opened, in its thread.
             let glimt_home = xdg_dir("XDG_DATA_HOME", ".local/share", "glimt");
-            if self.tools.is_empty() {
+            let tools = self.tools.listed().to_vec();
+            if tools.is_empty() {
                 ui.weak(tr("No tools"));
             }
             let mut chosen = None;
-            for (k, tool) in self.tools.iter().enumerate() {
+            for (k, tool) in tools.iter().enumerate() {
                 if icon_button(ui, theme::icon::TOOL, &tool.name).clicked() {
                     chosen = Some(k);
                 }
@@ -613,7 +614,7 @@ impl crate::App {
             let Some(targets) = self.targets() else {
                 return;
             };
-            let tool = self.tools[k].clone();
+            let tool = tools[k].clone();
             let (files, left): (Vec<PathBuf>, Vec<PathBuf>) =
                 (targets.iter().map(|&i| self.path(i))).partition(|p| tool.accepts(p));
             let name = &tool.name;

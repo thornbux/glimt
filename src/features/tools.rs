@@ -27,6 +27,37 @@ pub const RENAMED_FOLDERS: [(&str, &str); 2] = [("plugins", "tools"), ("decoders
 /// editor that stays open for hours, or a script that never ends.
 pub type RunningTools = std::sync::Arc<std::sync::Mutex<Vec<(String, u32)>>>;
 
+/// The tools installed, read once in the background as the window opens, because their folders
+/// are in the home folder. Tools added later show after a restart.
+pub(crate) struct InstalledTools {
+    tools: Vec<Tool>,
+    answer: crate::support::threads::Receiving<Vec<Tool>>,
+}
+
+impl InstalledTools {
+    /// Starts to read the tools in the background.
+    pub(crate) fn new(ctx: &eframe::egui::Context) -> Self {
+        let (tx, rx) = std::sync::mpsc::channel();
+        let ctx = ctx.clone();
+        std::thread::spawn(move || {
+            let _ = tx.send(find());
+            ctx.request_repaint();
+        });
+        InstalledTools {
+            tools: Vec::new(),
+            answer: crate::support::threads::Receiving::of(rx),
+        }
+    }
+
+    /// Returns the tools, sorted by name, or none before they are read.
+    pub(crate) fn listed(&mut self) -> &[Tool] {
+        if let crate::support::threads::Took::Answer(tools) = self.answer.take() {
+            self.tools = tools;
+        }
+        &self.tools
+    }
+}
+
 #[derive(Clone)]
 pub struct Tool {
     pub name: String,
