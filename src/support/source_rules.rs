@@ -1080,9 +1080,13 @@ fn constant_name(line: &str) -> Option<&str> {
 /// Whether `line` names Enter or Esc other than as the key of an `answers(…, Key)` call, or
 /// renames `Key` or imports its variants so that a key could be named without it.
 fn names_enter_or_esc(line: &str) -> bool {
-    if ["Key as ", "Key::*", "Key::{"]
+    // A key renamed by a `use` or a type alias, or named by its text, hides `Key::Escape`.
+    let trimmed = without_qualifiers(line.trim_start());
+    let is_alias = trimmed.starts_with("type ") && line.ends_with("Key;");
+    if ["Key as ", "Key::*", "Key::{", "Key::from_name(\""]
         .iter()
         .any(|t| line.contains(t))
+        || is_alias
     {
         return true;
     }
@@ -2534,12 +2538,17 @@ fn keys_answer_through_one_place() {
         "self.answers(ctx, egui::Key::Enter) || i.key_released(Key::Enter)",
         "use egui::Key as K;",
         "use egui::Key::*;",
+        "type K = egui::Key;",
+        "pub(crate) type K = Key;",
+        "if i.key_pressed(egui::Key::from_name(\"      \").unwrap()) {",
     ] {
         assert!(names_enter_or_esc(caught), "missed: {caught}");
     }
     for answer in [
         "if self.answers(ctx, egui::Key::Escape) {",
         "&& self.answers(ui.ctx(), Key::Enter)",
+        "let key = egui::Key::from_name(parts.pop()?)?;",
+        "type Keys = Vec<Key>;",
     ] {
         assert!(!names_enter_or_esc(answer), "caught an answer: {answer}");
     }
