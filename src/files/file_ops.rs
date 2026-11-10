@@ -976,11 +976,20 @@ impl crate::App {
         is_copy: bool,
         move_log: Option<journal::MoveLog>,
     ) {
-        let moved = match &move_log {
-            Some(log) if log.is_found_at_start() => self.not_followed_before_a_kill(moved),
-            _ => moved,
-        };
-        self.follow_moved_paths(moved, is_copy);
+        match &move_log {
+            Some(log) if log.is_found_at_start() => {
+                // The names follow for every file, the open collection's entries among them.
+                self.follow_names_moved(&moved, false);
+                #[cfg(feature = "marks")]
+                {
+                    let not_followed = self.not_followed_before_a_kill(moved);
+                    if !not_followed.is_empty() {
+                        self.marks.follow_files(not_followed, false);
+                    }
+                }
+            }
+            _ => self.follow_moved_paths(moved, is_copy),
+        }
         if let Some(log) = move_log {
             log.remove_once_followed();
         }
@@ -989,16 +998,13 @@ impl crate::App {
     /// Returns the files of `went`, moved before Glimt was killed, whose marks have not
     /// followed them yet. A file whose old name holds no marks had them follow it before the
     /// kill, or had none, and following it again would take them off its new name. Its
-    /// collections' entries follow here, as entries already followed are not found again.
+    /// collections' entries follow all the same (`follow_names_moved`), as entries already
+    /// followed are not found again.
+    #[cfg(feature = "marks")]
     fn not_followed_before_a_kill(&self, went: Vec<(PathBuf, PathBuf)>) -> Vec<(PathBuf, PathBuf)> {
-        #[cfg(feature = "marks")]
-        let (went, followed): (Vec<_>, Vec<_>) =
-            (went.into_iter()).partition(|(from, _)| self.marks.get(from) != (0, 0));
-        #[cfg(feature = "marks")]
-        if !followed.is_empty() {
-            collections::follow_in_saved_collections(&followed, self.folder.collection());
-        }
-        went
+        (went.into_iter())
+            .filter(|(from, _)| self.marks.get(from) != (0, 0))
+            .collect()
     }
 
     /// Brings along what Glimt keeps about files or folders that were moved or renamed
@@ -1012,6 +1018,16 @@ impl crate::App {
         if pairs.is_empty() {
             return;
         }
+        self.follow_names_moved(&pairs, is_copy);
+        #[cfg(feature = "marks")]
+        self.marks.follow_files(pairs, is_copy);
+    }
+
+    /// Brings along all that `follow_moved_paths` does but the marks.
+    fn follow_names_moved(&mut self, pairs: &[(PathBuf, PathBuf)], is_copy: bool) {
+        if pairs.is_empty() {
+            return;
+        }
         // Both names hold another file now, or none, so a moved file's caches would show under
         // the new name what an old file of that name had.
         let names: Vec<PathBuf> = (pairs.iter())
@@ -1019,7 +1035,7 @@ impl crate::App {
             .flatten()
             .collect();
         self.forget_names(&names);
-        let moved = moves_by_source(&pairs);
+        let moved = moves_by_source(pairs);
         // A turn not saved yet goes with its file, saved under the new name.
         if !is_copy && let Some(to) = new_place(self.viewing.turned_file(), &moved) {
             self.viewing.turned_file_moved(to);
@@ -1040,7 +1056,7 @@ impl crate::App {
             let any = !renamed.is_empty();
             let ctx = self.ctx.clone();
             self.rename_in_list(&ctx, renamed);
-            let moves = pairs.clone();
+            let moves = pairs.to_vec();
             let follow = move |all: &mut Vec<PathBuf>| {
                 let moved = moves_by_source(&moves);
                 for p in all {
@@ -1068,11 +1084,9 @@ impl crate::App {
             self.folder.relist_later();
         }
         if !is_copy {
-            collections::follow_in_saved_collections(&pairs, self.folder.collection());
+            collections::follow_in_saved_collections(pairs, self.folder.collection());
         }
         self.index_new_names();
-        #[cfg(feature = "marks")]
-        self.marks.follow_files(pairs, is_copy);
     }
 
     /// Looks up the real path of `folder` and the type of its file system in the background, as
@@ -4263,6 +4277,36 @@ mod tests {
         assert_eq!(send_found(&app), 1);
         assert!(run_background_until(&mut app, &ctx, no_log_left));
         assert_eq!(stars(&app, &to.join("a.png")), marked);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// The collection open at the start follows a file that a killed Move moved, also when
+    /// the file has no marks. Before, such a file followed only in the saved collections that
+    /// were not open, and stayed under its old name in the open one.
+    #[test]
+    fn the_open_collection_follows_the_files_a_killed_move_moved() {
+        let dir = contract_folder("killed-move-collection");
+        let (gqv, logs) = (dir.join("col.gqv"), dir.join("logs"));
+        let (a, moved) = (dir.join("a.png"), dir.join("sub/a.png"));
+        let (mut app, ctx) = app_on(&gqv);
+        let mut log = super::journal::start_move_log(&logs).unwrap();
+        log.note(&a, &moved);
+        std::fs::rename(&a, &moved).unwrap();
+        drop(log);
+        for (log, went) in super::journal::moves_cut_short(&logs) {
+            assert_eq!(went, vec![(a.clone(), moved.clone())]);
+            let report = super::OperationReport {
+                moved: went,
+                move_log: Some(log),
+                ..Default::default()
+            };
+            let _ = app.file_operations.report_sender().send(report);
+        }
+        let followed = |_: &crate::App| {
+            std::fs::read_to_string(&gqv).unwrap().contains("sub/a.png")
+                && std::fs::read_dir(&logs).unwrap().count() == 0
+        };
+        assert!(run_background_until(&mut app, &ctx, followed));
         std::fs::remove_dir_all(dir).unwrap();
     }
 
