@@ -30,7 +30,10 @@ for Linux in Rust/egui, inspired by Geeqie. Read this before changing anything.
 - **Fast and snappy, always.** Nothing heavy on the UI thread: decoding, folder listing, file
   operations, mounting and external programs run in background threads and report back over
   `mpsc` channels, with a repaint request. Show the busy pointer while they run (the `busy`
-  count, or a `threads::Working` held for the work). The UI thread does not even look at a
+  count, or a `threads::Working` held for the work) when the user started the work and waits
+  for it. A look-up that nobody waits for, such as the folder's size in the status bar or the
+  list of printers, shows no busy pointer, so the pointer is not busy while the user can go
+  on. The UI thread does not even look at a
   user's file or folder (a stat, a real path, a read), because on a share that stopped
   answering that waits for ever and the window hangs.
   `source_rules::the_window_thread_never_waits_for_the_disk` finds such a call in the methods
