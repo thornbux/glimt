@@ -9,6 +9,7 @@ use crate::images::save;
 use crate::images::save::{CopyAs, Format};
 use crate::support::lang::tr;
 use crate::support::test_hooks::noted;
+use crate::support::threads::{Receiving, Took};
 use crate::tf;
 use crate::ui::dialogs::Pick;
 use eframe::egui;
@@ -60,11 +61,16 @@ pub struct SaveAs {
     copy_as: CopyAs,
     original_size: [usize; 2],
     choice: SaveAsChoices,
+    /// The format the image is saved in "as the original", or `None` until it is looked up.
+    original_format: Option<Format>,
+    /// The look-up of `original_format`, in the background, because a WebP file is read for it,
+    /// and the image may be on a share that stopped answering.
+    original_format_answer: Receiving<Format>,
 }
 
 impl crate::App {
     /// File → Save As (Ctrl+Shift+S): the dialog for the shown image.
-    pub(crate) fn start_save_as(&mut self) {
+    pub(crate) fn start_save_as(&mut self, ctx: &egui::Context) {
         let shown = self.list.shown();
         #[cfg(feature = "video")]
         if (self.list.files().get(shown)).is_some_and(|f| is_video(Path::new(f))) {
@@ -82,19 +88,34 @@ impl crate::App {
             [w, h]
         };
         let mut choice = self.save_as_choices;
-        // The quality starts at the one in Preferences for its format.
+        // The quality starts at the one in Preferences for its format, as soon as it is known.
+        if let Some(format) = choice.format {
+            choice.quality = self.quality_in_preferences(format);
+        }
         let path = self.path(shown);
-        choice.quality = match choice.format.unwrap_or_else(|| Format::of(&path)) {
-            Format::WebPLossy => self.config.webp_quality,
-            _ => self.config.jpeg_quality,
-        };
+        let (tx, rx) = std::sync::mpsc::channel();
+        let (looked_up, ctx) = (path.clone(), ctx.clone());
+        std::thread::spawn(move || {
+            let _ = tx.send(Format::of(&looked_up));
+            ctx.request_repaint();
+        });
         let copy_as = self.shown_copy();
         self.save_as = Some(SaveAs {
             path,
             copy_as,
             original_size,
             choice,
+            original_format: None,
+            original_format_answer: Receiving::of(rx),
         });
+    }
+
+    /// Returns the quality that Preferences gives for saving in `format`.
+    fn quality_in_preferences(&self, format: Format) -> u8 {
+        match format {
+            Format::WebPLossy => self.config.webp_quality,
+            _ => self.config.jpeg_quality,
+        }
     }
 
     /// The shown image as a copy saves it: turned as it is shown (by hand, and by its EXIF with
@@ -122,6 +143,12 @@ impl crate::App {
         let Some(mut dialog) = self.save_as.take() else {
             return;
         };
+        if let Took::Answer(format) = dialog.original_format_answer.take() {
+            dialog.original_format = Some(format);
+            if dialog.choice.format.is_none() {
+                dialog.choice.quality = self.quality_in_preferences(format);
+            }
+        }
         let mut go = false;
         let modal = egui::Modal::new(egui::Id::unique("save as")).show(ctx, |ui| {
             ui.strong(tr("Save As"));
@@ -146,10 +173,11 @@ impl crate::App {
             });
         });
         self.save_as_choices = dialog.choice;
-        if go {
+        // Until the original's format is known, Save… waits for it.
+        let format = dialog.choice.format.or(dialog.original_format);
+        if let Some(format) = format.filter(|_| go) {
             let c = dialog.choice;
             let [w, h] = dialog.original_size;
-            let format = c.format.unwrap_or_else(|| Format::of(&dialog.path));
             let copy_as = CopyAs {
                 long_side: c.long_side(w.max(h)),
                 format: c.format,
@@ -211,7 +239,9 @@ impl crate::App {
 
 /// Save As's format, size and quality, in a grid.
 fn save_as_fields(ui: &mut egui::Ui, dialog: &mut SaveAs) {
-    let original = Format::of(&dialog.path);
+    // "…" while the original's format is still looked up.
+    let original_format = dialog.original_format;
+    let original = original_format.map_or("…", format_name);
     let [w, h] = dialog.original_size;
     let c = &mut dialog.choice;
     egui::Grid::new("save as grid")
@@ -219,13 +249,13 @@ fn save_as_fields(ui: &mut egui::Ui, dialog: &mut SaveAs) {
         .show(ui, |ui| {
             ui.label(tr("Format:"));
             let shown = match c.format {
-                None => tf!("As the original ({format})", format = format_name(original)),
+                None => tf!("As the original ({format})", format = original),
                 Some(f) => format_name(f).to_owned(),
             };
             let combo = egui::ComboBox::from_id_salt("save as format")
                 .selected_text(&shown)
                 .show_ui(ui, |ui| {
-                    let text = tf!("As the original ({format})", format = format_name(original));
+                    let text = tf!("As the original ({format})", format = original);
                     crate::ui::menus::choice(ui, &mut c.format, None, &text);
                     for f in [Format::Jpeg, Format::Png, Format::WebP, Format::WebPLossy] {
                         crate::ui::menus::choice(ui, &mut c.format, Some(f), format_name(f));
@@ -268,8 +298,8 @@ fn save_as_fields(ui: &mut egui::Ui, dialog: &mut SaveAs) {
             };
             ui.weak(tf!("Saved {w} × {h}; never enlarged", w = nw, h = nh));
             ui.end_row();
-            let format = c.format.unwrap_or(original);
-            if matches!(format, Format::Jpeg | Format::WebPLossy) {
+            let format = c.format.or(original_format);
+            if matches!(format, Some(Format::Jpeg | Format::WebPLossy)) {
                 ui.label(tr("Quality:"));
                 ui.add(egui::Slider::new(&mut c.quality, 50..=100));
                 ui.end_row();

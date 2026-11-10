@@ -716,11 +716,13 @@ enum IfGone {
 
 /// What the paths asked to be opened are on disk, as `look_up` found them in the background.
 enum Found {
-    /// A folder by its real path, with the file to show in it, and whether the path asked for
-    /// is there at all.
+    /// A folder by its real path, with the file to show in it and that file's type, and
+    /// whether the path asked for is there at all. The type is found here too, because an added
+    /// format's folder is read for it.
     Folder {
         dir: PathBuf,
         file: Option<PathBuf>,
+        file_type: Types,
         is_there: bool,
     },
     /// A collection's file, made absolute, with its entries by their real paths relative to
@@ -814,7 +816,12 @@ impl crate::App {
         }
         self.step_history(opening.history);
         match found {
-            Found::Folder { dir, file, .. } => self.open_folder_found(ctx, dir, file),
+            Found::Folder {
+                dir,
+                file,
+                file_type,
+                ..
+            } => self.open_folder_found(ctx, dir, file, file_type),
             Found::Collection { file, entries } => self.open_collection(ctx, file, entries),
             Found::Folders(folders) => self.open_folders_found(ctx, folders),
         }
@@ -873,8 +880,15 @@ impl crate::App {
         }
     }
 
-    /// Opens the folder `dir`, by its real path, with `file` shown when there is one.
-    fn open_folder_found(&mut self, ctx: &egui::Context, dir: PathBuf, file: Option<PathBuf>) {
+    /// Opens the folder `dir`, by its real path, with `file`, of the type `file_type`, shown
+    /// when there is one.
+    fn open_folder_found(
+        &mut self,
+        ctx: &egui::Context,
+        dir: PathBuf,
+        file: Option<PathBuf>,
+        file_type: Types,
+    ) {
         // A file of the folder shown is only gone to. The folder is not read again, and its
         // thumbnails and EXIF index stay, which matters in a folder of 500,000 images.
         if let Some(i) = (file.as_deref()).and_then(|f| self.listed_here(&dir, f)) {
@@ -892,7 +906,7 @@ impl crate::App {
         self.forget_old_list();
         // A file of a type the menu does not list (a RAW with RAW off) is listed with the
         // folder it opens. A folder or several folders opened later go by the menu again.
-        self.folder.opened_type = file.as_deref().map_or(Types::NONE, Types::of);
+        self.folder.opened_type = file_type;
         // In another folder, a file of the same name is another image. It opens as one, not at
         // the zoom and place of the image before.
         if dir != self.folder.dir {
@@ -1748,6 +1762,7 @@ fn look_up(paths: &[PathBuf]) -> Found {
     // marks, stars and `--remote select` find the files whichever way the folder was named.
     Found::Folder {
         dir: listing::real_dir(&dir),
+        file_type: file.as_deref().map_or(Types::NONE, Types::of),
         file,
         is_there,
     }

@@ -1321,7 +1321,7 @@ impl crate::App {
             }
             Action::SaveOrientation => self.save_orientation(ctx),
             Action::Crop => self.start_crop(),
-            Action::SaveAs => self.start_save_as(),
+            Action::SaveAs => self.start_save_as(ctx),
             Action::Subfolders => self.set_subfolders(ctx, !self.config.show_subfolders),
             Action::HiddenFiles => self.toggle_hidden_files(ctx),
             // An animation: stopped at the frame before or after the one shown, which A plays on.

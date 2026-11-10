@@ -228,22 +228,6 @@ pub(crate) struct Import {
 }
 
 impl Import {
-    /// The import dialog for `catalog`, with the folders where its photos are now worked out
-    /// and nothing planned yet. It looks at the disk, so it is made in the thread that reads
-    /// the catalog.
-    pub(crate) fn new(catalog: Catalog) -> Self {
-        let root_folders_now = roots_now(&catalog);
-        let there = folders_there(&root_folders_now);
-        Import {
-            catalog: Arc::new(catalog),
-            typed_folders_there: (root_folders_now.clone(), there),
-            root_folders_now,
-            plan: None,
-            planning: Receiving::none(),
-            typed_folders_answer: Receiving::none(),
-        }
-    }
-
     /// Takes the answer of the look at the typed folders, and starts a new look in the
     /// background when a field changed since the last one. A share that stopped answering then
     /// holds only that thread, not the window. Before, the dialog looked at each folder in the
@@ -300,7 +284,7 @@ impl crate::App {
         let ctx = ctx.clone();
         let pointer = Working::new(&self.busy);
         std::thread::spawn(move || {
-            let _ = tx.send(read(&file).map(Import::new));
+            let _ = tx.send(read(&file).map(import_dialog_for));
             drop(pointer);
             ctx.request_repaint();
         });
@@ -720,6 +704,22 @@ pub fn typed_root_folder(typed: &str) -> PathBuf {
     }
 }
 
+/// Returns the import dialog for `catalog`, with the folders where its photos are now worked
+/// out and nothing planned yet. It looks at the disk, so it is called in the thread that reads
+/// the catalog, never in the window's.
+fn import_dialog_for(catalog: Catalog) -> Import {
+    let root_folders_now = roots_now(&catalog);
+    let there = folders_there(&root_folders_now);
+    Import {
+        catalog: Arc::new(catalog),
+        typed_folders_there: (root_folders_now.clone(), there),
+        root_folders_now,
+        plan: None,
+        planning: Receiving::none(),
+        typed_folders_answer: Receiving::none(),
+    }
+}
+
 /// Returns whether each folder typed for a root folder is there.
 fn folders_there(typed: &[String]) -> Vec<bool> {
     typed
@@ -862,7 +862,7 @@ mod tests {
         let (mut app, ctx) = crate::support::test_support::app_on(&dir);
         #[cfg(feature = "marks")]
         app.marks.rate(std::slice::from_ref(&a), 2);
-        let mut lr = super::Import::new(super::parse(rows.join("\x1e").as_bytes()));
+        let mut lr = super::import_dialog_for(super::parse(rows.join("\x1e").as_bytes()));
         lr.root_folders_now = vec![dir.display().to_string()];
         app.start_planning(&ctx, &mut lr);
         assert!(lr.plan.is_none() && lr.planning.is_some());
@@ -896,7 +896,7 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("glimt-test-lrtyped-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let rows = format!("r\x1f1\x1f{}/\x1f\x1f", dir.join("gone").display());
-        let mut lr = super::Import::new(super::parse(rows.as_bytes()));
+        let mut lr = super::import_dialog_for(super::parse(rows.as_bytes()));
         assert!(!lr.is_typed_folder_there(0));
         lr.root_folders_now = vec![dir.display().to_string()];
         let ctx = eframe::egui::Context::default();

@@ -148,8 +148,11 @@ pub(crate) struct Dialogs {
     asked: Option<Asked>,
     /// The type of the FAT or exFAT file system that Rename Many renames on, looked up once as
     /// the dialog opens, so that its preview can warn without reading the mount table in every
-    /// frame. It is `None` on any other file system.
+    /// frame. It is `None` on any other file system, and until the look-up has answered.
     fat_file_system_type: Option<String>,
+    /// The look-up of `fat_file_system_type`, in the background, because the mount table is
+    /// read for it and the files' folder is looked at.
+    fat_file_system_answer: Receiving<Option<String>>,
     /// File → Copy for Sharing's dialog, while it is open.
     copy_for_sharing: Option<SharingDialog>,
     /// The files that Open With Default App asks about before it opens them, or none while it
@@ -158,6 +161,14 @@ pub(crate) struct Dialogs {
 }
 
 impl Dialogs {
+    /// Takes the type of the file system that Rename Many renames on, once its look-up in the
+    /// background has answered.
+    fn receive_fat_file_system_type(&mut self) {
+        if let Took::Answer(kind) = self.fat_file_system_answer.take() {
+            self.fat_file_system_type = kind;
+        }
+    }
+
     /// Opens the text dialog `prompt`, with `text` typed in already. A dialog about files
     /// opens through `ask_about` instead, which takes the files it asks about.
     fn ask(&mut self, prompt: Prompt, text: String) {
@@ -290,13 +301,21 @@ impl Dialogs {
 
 impl crate::App {
     /// Asks for Rename Many's pattern for the files `asked`. The file system of the first
-    /// file's folder is looked up here, once, for the preview of its new name.
+    /// file's folder is looked up once, in the background, for the preview of its new name.
     pub(crate) fn ask_rename_many(&mut self, asked: Asked) {
         let first = (asked.names.first()).map(|n| self.folder.dir().join(n));
-        self.dialogs.fat_file_system_type = first
+        let folder = first
             .as_deref()
             .and_then(Path::parent)
-            .and_then(fat_file_system_type);
+            .map(Path::to_path_buf);
+        let (tx, rx) = mpsc::channel();
+        let ctx = self.ctx.clone();
+        std::thread::spawn(move || {
+            let _ = tx.send(folder.and_then(|f| fat_file_system_type(&f)));
+            ctx.request_repaint();
+        });
+        self.dialogs.fat_file_system_type = None;
+        self.dialogs.fat_file_system_answer = Receiving::of(rx);
         self.dialogs
             .ask_about(asked, Prompt::RenameMany, "*_###".into());
     }
@@ -604,6 +623,7 @@ impl crate::App {
             };
             // The first new name, so the pattern can be checked before renaming.
             let first = (self.dialogs.asked_names().first()).map(|n| self.folder.dir().join(n));
+            self.dialogs.receive_fat_file_system_type();
             let fat = self.dialogs.fat_file_system_type.clone();
             let mut answer = None;
             let mut field = None;
@@ -1281,7 +1301,8 @@ mod tests {
     }
 
     /// Rename Many's preview warns when the first new name has a character that the camera card
-    /// of the files refuses. The card's file system is looked up once, as the dialog opens.
+    /// of the files refuses. The card's file system is looked up once, in the background, as the
+    /// dialog opens.
     #[test]
     fn rename_many_warns_of_what_fat_refuses() {
         use crate::files::file_ops::test_mount;
@@ -1294,13 +1315,26 @@ mod tests {
         assert!(crate::support::test_support::run_background_until(
             &mut app, &ctx, listed
         ));
+        // The file system is looked up in the background.
+        let answered = |app: &mut crate::App| {
+            (0..250).any(|_| {
+                app.dialogs.receive_fat_file_system_type();
+                let done = app.dialogs.fat_file_system_answer.is_none();
+                if !done {
+                    std::thread::sleep(std::time::Duration::from_millis(20));
+                }
+                done
+            })
+        };
         test_mount(&d, Some("ext4"));
         let asked = app.ask_about_targets().unwrap();
         app.ask_rename_many(asked);
+        assert!(answered(&mut app));
         assert_eq!(app.dialogs.fat_file_system_type, None);
         test_mount(&d, Some("vfat"));
         let asked = app.ask_about_targets().unwrap();
         app.ask_rename_many(asked);
+        assert!(answered(&mut app));
         test_mount(&d, None);
         let fat = app.dialogs.fat_file_system_type.as_deref();
         assert_eq!(fat, Some("vfat"));
