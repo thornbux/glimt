@@ -17,6 +17,9 @@ and versions follow [Semantic Versioning](https://semver.org/).
   Before, it opened `smb:/nas/photos` in the working folder, which does not exist.
 - A tool's `%f` or `%u` inside a word, as in `--input=%f`, is filled in with each file, as an
   added format's is. Before, the tool ran once with the text as it was, and no file.
+- A tool's or added format's `%f` inside a "quoted" word, such as `sh -c "exiftool %f"`, stays
+  as it is, as the desktop entry specification says. Before, the file's name was put into the
+  shell script's text, and a downloaded file named `x$(command).jpg` ran the command.
 - Printing on both sides with orientation Automatic turns every page as the first one, so the
   back of a landscape page is no longer upside down.
 - A CMYK JPEG or TIFF with its CMYK profile in the file, as print and stock photos often are,
@@ -77,6 +80,13 @@ and versions follow [Semantic Versioning](https://semver.org/).
   colour profile chosen is read there. Save As no longer reads a WebP file in every frame of its
   dialog. New Collection, Set Window Name, Rename Many, Print to a file, opening a file, Import
   Lightroom Catalog and Edit → Tools look up what they need in the background too.
+### Added
+
+- Preferences → Memory and CPU sets the most memory an added format's program may take, 4096 MB
+  by default (the setting `added_format_memory_mb`), for Java with a large heap. A program that
+  runs out of it is told so, with the limit, and finds it in `GLIMT_FORMAT_MEMORY_MB`; the
+  Bio-Formats example keeps Java's heap under it.
+
 ### Changed
 
 - Copy Image to Clipboard moves from the Select menu to Edit, beside Crop and Orientation. It
