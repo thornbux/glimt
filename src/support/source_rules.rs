@@ -1698,7 +1698,8 @@ fn settings_change_through_their_setters() {
 
 /// Every setting of `config!` has a control in Preferences, so a user can find it there, or is
 /// listed here with the place that changes it instead. A setting counts as having a control
-/// when preferences.rs's code reads or writes it as a field (`.name`).
+/// when Preferences' drawing code gives it to a call, as a control is drawn (`gives_to_a_call`),
+/// not when it is only read, in a condition or in the tests.
 #[test]
 fn every_setting_has_a_control_in_preferences() {
     const ELSEWHERE: &[(&str, &str)] = &[
@@ -1709,6 +1710,7 @@ fn every_setting_has_a_control_in_preferences() {
         ("view_filter", "View → Filter"),
         ("sort_manager", "View → Sort Manager"),
         ("sort_move", "the sort manager's Copy and Move"),
+        ("sort", "the status bar's sort menu"),
         ("sort_ascending", "the status bar's sort menu"),
         ("sort_case_sensitive", "the status bar's sort menu"),
         ("list_images", "the status bar's Types menu"),
@@ -1735,13 +1737,8 @@ fn every_setting_has_a_control_in_preferences() {
         ),
     ];
     let preferences = code_lines(&source("ui/preferences.rs")).join("\n");
-    let has_control = |name: &str| {
-        let field = format!(".{name}");
-        (preferences.match_indices(&field)).any(|(at, _)| {
-            let next = preferences[at + field.len()..].chars().next();
-            !next.is_some_and(|c| c.is_alphanumeric() || c == '_')
-        })
-    };
+    let drawing = preferences.split("#[cfg(test)]").next().unwrap_or_default();
+    let has_control = |name: &str| gives_to_a_call(drawing, name);
     let text = crate::files::config::Config::default().to_text();
     let settings: Vec<&str> = (text.lines())
         .filter_map(|line| Some(line.split_once('=')?.0))
@@ -1758,6 +1755,81 @@ fn every_setting_has_a_control_in_preferences() {
         listed_wrongly.is_empty(),
         "not to be listed: {listed_wrongly:?}"
     );
+}
+
+/// Whether `code` gives the field `name` to a call, as Preferences gives a setting to the
+/// control that changes it: `.name` inside a call's brackets, or read into a local by `let`
+/// that a call in the same block then takes. A field only read in a condition is not given.
+fn gives_to_a_call(code: &str, name: &str) -> bool {
+    let field = format!(".{name}");
+    (code.match_indices(&field)).any(|(at, _)| {
+        let after = &code[at + field.len()..];
+        if after.starts_with(|c: char| c.is_alphanumeric() || c == '_') {
+            return false;
+        }
+        if innermost_bracket(&code[..at]) == Some('(') {
+            return true;
+        }
+        let line = &code[code[..at].rfind('\n').map_or(0, |i| i + 1)..at];
+        let local = (line.trim_start().strip_prefix("let ")).and_then(|rest| {
+            rest.trim_start_matches("mut ")
+                .split([' ', ':', '='])
+                .next()
+        });
+        local.is_some_and(|local| !local.is_empty() && a_call_takes(after, local))
+    })
+}
+
+/// Returns the bracket that is still open at the end of `code`: '(' inside a call's
+/// arguments, '{' in a block, or `None` outside every bracket.
+fn innermost_bracket(code: &str) -> Option<char> {
+    let mut open = Vec::new();
+    for c in code.chars() {
+        match c {
+            '(' | '[' | '{' => open.push(c),
+            ')' | ']' | '}' => {
+                open.pop();
+            }
+            _ => {}
+        }
+    }
+    open.pop()
+}
+
+/// Whether a call takes the word `local` in `code` before the block that `code` starts in ends.
+fn a_call_takes(code: &str, local: &str) -> bool {
+    let is_word = |c: char| c.is_alphanumeric() || c == '_';
+    let mut open = Vec::new();
+    for (at, c) in code.char_indices() {
+        match c {
+            '(' | '[' | '{' => open.push(c),
+            ')' | ']' | '}' if open.pop().is_none() => return false,
+            _ if open.last() == Some(&'(')
+                && code[at..].starts_with(local)
+                && !code[..at].ends_with(is_word)
+                && !code[at + local.len()..].starts_with(is_word) =>
+            {
+                return true;
+            }
+            _ => {}
+        }
+    }
+    false
+}
+
+/// The Preferences rule counts a setting given to a control, also through a local, and not one
+/// only read in a condition, as `.name` anywhere in the file once did.
+#[test]
+fn a_setting_counts_as_a_control_only_when_a_call_takes_it() {
+    let code = "fn draw(&mut self) {\n    if self.config.only_read {\n        x();\n    }\n    \
+         changed |= checkbox(ui, &mut c.given, t).changed();\n    \
+         let on = self.config.through;\n    self.toggle_box(ui, on, Action::A, t);\n    \
+         let unused = self.config.read_into;\n    if unused {\n        y();\n    }\n}\n";
+    assert!(!gives_to_a_call(code, "only_read"));
+    assert!(gives_to_a_call(code, "given"));
+    assert!(gives_to_a_call(code, "through"));
+    assert!(!gives_to_a_call(code, "read_into"));
+    assert!(!gives_to_a_call(code, "giv"));
 }
 
 /// The setter test sees a setting written however it is written: assigned, added to, or taken

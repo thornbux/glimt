@@ -514,7 +514,7 @@ pub(crate) fn close_on_termination_signals(ctx: &egui::Context) {
             waiting,
             &TERMINATION_SIGNALS,
             || ctx.request_repaint(),
-            || std::process::exit(128 + libc::SIGTERM),
+            || end_at_once(128 + libc::SIGTERM),
         );
     });
     for signal in [libc::SIGTERM, libc::SIGHUP] {
@@ -538,6 +538,19 @@ fn wake_at_signals(
             end();
         }
         wake();
+    }
+}
+
+/// Ends the process at once with exit status `status`, from any thread. It runs no exit
+/// handlers and no C library destructors, as `std::process::exit` would, because the window's
+/// thread may be inside OpenGL or eframe at that moment, and Mesa's destructors could crash or
+/// hang there. Nothing is lost by that, as the writes that the close waited for are given up
+/// either way.
+fn end_at_once(status: libc::c_int) {
+    #[allow(unsafe_code)]
+    // SAFETY: _exit takes no pointer and only ends the process, which is sound from any thread.
+    unsafe {
+        libc::_exit(status)
     }
 }
 
@@ -830,6 +843,16 @@ mod tests {
             ended.recv_timeout(wait).is_ok(),
             "the third signal did not end Glimt"
         );
+    }
+
+    /// The window's code ends Glimt only through `end_at_once`, never through
+    /// `std::process::exit`, whose exit handlers could crash or hang while the window's thread
+    /// is inside OpenGL.
+    #[test]
+    fn glimt_ends_at_once_without_exit_handlers() {
+        let code = crate::support::source_rules::code_lines(include_str!("window.rs")).join("\n");
+        assert!(!code.contains("process::exit("));
+        assert!(code.contains("|| end_at_once(128 + libc::SIGTERM)"));
     }
 
     /// A signal that was ignored when Glimt started stays ignored, as `nohup` ignores SIGHUP so

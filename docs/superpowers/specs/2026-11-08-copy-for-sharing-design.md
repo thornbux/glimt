@@ -194,3 +194,22 @@ the extra images as round 3 said.
   (`exif::apple_hdr_maker_note`). Nothing else of the maker note is kept.
 - `HDRGainMap:` properties of the main image are no tags, as `hdrgm:` ones are not: they are
   kept while the gain map is.
+
+## After audit round "0.79" (2026-11-10)
+
+- A property kept keeps only its own value (`xmp::with_own_value_only`): a known tag written
+  inside it, such as a GPS position inside a gain map's value or a keyword list, goes unless
+  that tag is kept too, and so does a tag that the image has as a property of its own and
+  that is left out. A name inside it is read by the namespace its prefix is bound to there,
+  also by a declaration inside the property and by a default namespace, as the properties
+  themselves are, so a rebound prefix cannot pass a GPS field for another one.
+- An unknown name inside a kept property stays with it, which departs from round 3's rule
+  that an unknown tag is in every group. A name inside a property is never listed in the
+  dialog, so no user chose to leave it out, and the structures whose fields can hold free
+  text are known by their own name and go by their contents' groups: face regions and
+  PersonInImage with Keywords, the histories with Date, Photographer and Software,
+  `CreatorContactInfo` with Photographer and the shown and created locations with Place.
+  A structure whose fields are the value itself, such as a face region's name, would lose
+  its value otherwise.
+- A property that does not read as balanced XML (an element that never ends, a start tag
+  without its '>') is left out whole, rather than written into the copy's packet broken.

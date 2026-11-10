@@ -142,8 +142,10 @@ const MANUAL: &[(&str, &str)] = &[
          The toolbar's arrows (Go → Back and Forward) go to the folders shown before, Up to the \
          parent and Home to the home folder. F5 (Go → Refresh) reads the folder again; with \
          Refresh the folder when files change (Preferences, on by default) Glimt does so itself, \
-         looking once a second. With Start in the last used folder, Glimt opens that one when it \
-         is given none.\n\n\
+         looking at the open folders once a second. With Include Subfolders on it looks at the \
+         subfolders too, up to 1,000 a second in turn, so a change deep in a tree of 10,000 \
+         folders shows within ten seconds. With Start in the last used folder, Glimt opens that \
+         one when it is given none.\n\n\
          Ctrl+N (File → New Window) starts another Glimt in the same folder; Ctrl+W and Ctrl+Q \
          close it. Starting Glimt a certain way, and controlling it from scripts, is under Command \
          line at the end.",
@@ -261,20 +263,28 @@ const MANUAL: &[(&str, &str)] = &[
          status bar counts the selected files it hides, and Delete's question says how many it \
          leaves out. Delete moves files to the trash and Shift+Delete \
          deletes them for good. Both ask first, as set under Deleting in Preferences, which can \
-         also turn the Delete key off or use no trash at all.\n\n\
+         also turn the Delete key off or use no trash at all. Without gio Glimt moves the files \
+         into the trash itself; a file on another disk, such as a USB stick, goes into the \
+         .Trash-UID folder at the top of that disk, and a file on a network share is refused, as \
+         gio refuses it.\n\n\
          Edit → Undo (Ctrl+Z) puts back what this window did last: files or a folder moved to the \
-         trash come back from it, moved files go back, renamed ones get their old names. Never over \
-         a file that has taken the name since. Their marks and stars, and their place in a \
-         collection, do not come back with them.\n\n\
+         trash come back from it, moved files go back, renamed ones get their old names, with \
+         their marks and stars. Undo of a delete also puts files back in the collection shown, \
+         and first waits for the marks to be saved, with Stop in the status bar. A file is never \
+         put back over one that has taken its name since; it stays where it is, to be undone \
+         again.\n\n\
          While files are copied, moved, deleted or given keywords, the status bar counts them \
-         (Copying 120 of 3,000…), and Stop ends it after the file at hand (to the trash: after the \
-         100 at hand); one that took long says when it is done. A copy is written under a hidden \
-         name and gets its own when whole, and closing Glimt waits for these to end (close again \
-         to stop them). So does a logout, or a SIGTERM or SIGHUP, which closes Glimt as Ctrl+Q \
+         (Copying 120 of 3,000…), and Stop ends it (to the trash: after the 100 at hand). A copy \
+         or move is stopped also in the middle of a large file, and no part of that file is left \
+         behind. One that took long says when it is done. A copy is written under a hidden name \
+         and gets its own when whole, and closing Glimt waits for these to end (close again to \
+         stop them). So does a logout, or a SIGTERM or SIGHUP, which closes Glimt as Ctrl+Q \
          does.\n\n\
          Rename with several files selected asks for a pattern: * is the old name and # a number \
          (### gives 001); existing files are never overwritten. If a crash or a power cut stops it \
-         halfway, the next start offers to put the old names back or to finish.\n\n\
+         halfway, the next start offers to put the old names back or to finish. A new name that \
+         starts with a dot, of a file or a folder, is refused unless View → Show Hidden Files is \
+         on, as the list would hide it.\n\n\
          File → Open Recent has the last ten folders and collections opened, in every window; \
          Clear Recent there empties it, and Preferences can keep none at all.\n\n\
          File → Open With (also in the right-click menu) opens them in another application, such \
@@ -572,7 +582,7 @@ const MANUAL: &[(&str, &str)] = &[
          - View → Include Subfolders lists the images of every folder below (File → Open Folder \
          Recursive… opens a folder with it on). A link to a folder is followed only when it \
          leads to a folder inside the one opened, so a downloaded folder cannot bring in your \
-         other folders\n\
+         other folders. Refresh the folder when files change then watches the subfolders too\n\
          - View → Show Hidden Files lists files and folders whose names start with a dot\n\
          - K shows a histogram (RGB, brightness, off) and J makes it logarithmic\n\
          - A stops and starts animations\n\
@@ -968,6 +978,12 @@ const DIFFERENCES: &[(&str, &str, &str)] = &[
         "Preferences → Files, and the folder pane's menu",
     ),
     (
+        "A new name starting with a dot",
+        "Refused in Rename, Rename Many, New Folder and Rename Folder unless hidden files are \
+         shown, as the list would hide the file",
+        "Taken",
+    ),
+    (
         "Compare (E)",
         "E shows the next image (or the other of two selected) beside the shown one, at the same zoom \
          and offset; U and Y as in Geeqie; L the next layout; a click on a pane or Alt+arrow shows \
@@ -1011,7 +1027,8 @@ const DIFFERENCES: &[(&str, &str, &str)] = &[
     ),
     (
         "Refresh on change",
-        "Setting, on by default; checks the folder once a second",
+        "Setting, on by default; checks the open folders once a second, and with Include \
+         Subfolders up to 1,000 subfolders a second in turn",
         "Setting",
     ),
 ];

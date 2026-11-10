@@ -2854,14 +2854,17 @@ mod tests {
         assert!(missing.is_empty(), "docs/glimt.1 lacks {missing:?}");
     }
 
-    /// The window takes every command of `COMMANDS`, with each of its choices, so no command
-    /// is listed in `glimt --help` and taken only by the client. An optional argument is left
-    /// out, as `name` with one would start to listen on a socket.
+    /// The window takes every command of `COMMANDS`, with each of its choices and with and
+    /// without an optional argument, so no command is listed in `glimt --help` and taken only
+    /// by the client. `name` is sent only without one, as a name would start to listen on a
+    /// socket. Where a command's effect is cheap to see, the test checks it too: a query
+    /// answers, `next` moves, `run Next` is done and `title` sets the title.
     #[test]
     fn the_window_takes_every_listed_command() {
         let dir = std::env::temp_dir().join(format!("glimt-test-commands-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(dir.join("a.png"), b"").unwrap();
+        std::fs::write(dir.join("b.png"), b"").unwrap();
         let (mut app, ctx) = app_on(&dir);
         let file = dir.join("a.png").display().to_string();
         for (usage, _) in super::COMMANDS {
@@ -2870,7 +2873,13 @@ mod tests {
             let sent: Vec<String> = match parts.next() {
                 None => vec![word.to_owned()],
                 Some(argument) if argument.starts_with('[') && !argument.contains('|') => {
-                    vec![word.to_owned()]
+                    let given = match argument {
+                        "[NAME]" => None,
+                        "[TEXT…]" => Some("Holiday".to_owned()),
+                        _ => Some(file.clone()),
+                    };
+                    let with = given.map(|given| format!("{word} {given}"));
+                    std::iter::once(word.to_owned()).chain(with).collect()
                 }
                 Some(choices) if choices.contains('|') => {
                     let each = choices.trim_matches(['[', ']']).split('|');
@@ -2884,6 +2893,7 @@ mod tests {
                 Some(_) => vec![format!("{word} {file}")],
             };
             for command in sent {
+                let shown_before = app.list.shown();
                 let (reply, answer) = std::sync::mpsc::channel();
                 app.handle_remote(&ctx, &command, Some(reply));
                 let answer = answer
@@ -2891,6 +2901,13 @@ mod tests {
                     .unwrap();
                 let answer = String::from_utf8_lossy(&answer);
                 assert!(!answer.contains("does not know"), "{command}: {answer}");
+                match command.as_str() {
+                    "current" | "selection" | "info" => assert!(!answer.is_empty(), "{command}"),
+                    "next" => assert_ne!(app.list.shown(), shown_before, "{command}"),
+                    "run Next" => assert!(answer.is_empty(), "{command}: {answer}"),
+                    "title Holiday" => assert_eq!(app.title_text(), "Holiday"),
+                    _ => {}
+                }
             }
         }
         std::fs::remove_dir_all(dir).unwrap();

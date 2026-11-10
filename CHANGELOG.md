@@ -60,12 +60,6 @@ and versions follow [Semantic Versioning](https://semver.org/).
   not go or was not reached after Stop, leaves Lightroom's `r.xmp` where it is, as it belongs to
   neither. Before, it went with the first when that one went first. The Undo of such a move
   does the same when one of them cannot go back.
-
-### Changed
-
-- A folder that takes more than three seconds to open, as on a share that stopped answering,
-  shows a notice that it is still opening and that opening another folder stops the wait.
-  Before, only the busy pointer showed it.
 - Marks and stars set one after another while the last one is still being saved go to the
   marks file in one write, not one write each. With 500,000 files marked, a write takes about
   0.4 s, so 500 mark keys took over three minutes to save, longer than a close waits for them.
@@ -79,17 +73,6 @@ and versions follow [Semantic Versioning](https://semver.org/).
   and XMP among them. Before, a turn dropped them, as a crop or copy still does.
 - The manual says that a turned PNG with a palette, or of 1, 2 or 4-bit grey, keeps every pixel
   but is saved in full colour or 8-bit grey, so its file grows. It said a PNG lost nothing.
-- With Include Subfolders on, Auto Refresh now sees an image added to, removed from or renamed in
-  a subfolder, not only in the folder opened. The watcher still looks once a second, which works
-  on network shares too: at the open folders every second, and at up to 1,000 subfolders a
-  second, so a tree of 10,000 subfolders is looked through in ten seconds. After a listing,
-  a change waits four times as long as the listing took before the folder is read again, so a
-  sync client writing into a large tree has it read at most a fifth of the time; a small folder
-  is read again at once.
-- Rename, Rename Many, New Folder and Rename Folder refuse a new name that starts with a dot, which
-  the list hides, unless hidden files are shown. Before, Rename Many with `.#` gave `.1.jpg`,
-  `.2.jpg` …, and the files vanished from the list. Collections refused such names already, by
-  the same rule now.
 - Cleaning the thumbnail cache removes a thumbnail only when its file is surely gone. Before, an
   error from a share that answered badly for a moment counted as gone, and the thumbnail went.
 - An edit of a collection that waits for a share that stopped answering no longer holds the
@@ -112,9 +95,25 @@ and versions follow [Semantic Versioning](https://semver.org/).
   copy keeps, such as a GPS position inside a gain map's value or a keyword list, is left out
   unless that tag is kept too.
 - Preferences in Norwegian names the Delete key as the menus do, in "Use no trash at all".
+
+### Changed
+
+- A folder that takes more than three seconds to open, as on a share that stopped answering,
+  shows a notice that it is still opening and that opening another folder stops the wait.
+  Before, only the busy pointer showed it.
+- With Include Subfolders on, Auto Refresh now sees an image added to, removed from or renamed in
+  a subfolder, not only in the folder opened. The watcher still looks once a second, which works
+  on network shares too: at the open folders every second, and at up to 1,000 subfolders a
+  second, so a tree of 10,000 subfolders is looked through in ten seconds. After a listing,
+  a change waits four times as long as the listing took before the folder is read again, so a
+  sync client writing into a large tree has it read at most a fifth of the time; a small folder
+  is read again at once.
+- Rename, Rename Many, New Folder and Rename Folder refuse a new name that starts with a dot, which
+  the list hides, unless hidden files are shown. Before, Rename Many with `.#` gave `.1.jpg`,
+  `.2.jpg` …, and the files vanished from the list. Collections refused such names already, by
+  the same rule now.
 - Copy for Sharing knows the namespace that digiKam 4 wrote its keyword list in, so Place alone
   keeps that list. Before, any ticked box left it out, as a tag Glimt did not know.
-
 ## [0.78.0] - 2026-11-10
 
 ### Added

@@ -450,9 +450,10 @@ msgstr[1] "bilder"
             let names = found.map(|name| name.trim_start_matches('+').split(' ').next());
             names.map(|name| name.unwrap().to_owned()).collect()
         };
-        // The straight quotation mark reads as code, and the fonts Glimt ships lack the others:
-        // the single and low single quotes, the single guillemets and the corner brackets. They
-        // are escaped, as the glyph test reads this file's texts too.
+        // The straight quotation mark reads as code. The single and low single quotes and the
+        // single guillemets are in Inter, but they are left out by choice, so that every
+        // language quotes in one style, with double marks. The corner brackets are not in
+        // Inter at all. They are escaped, as the glyph test reads this file's texts too.
         let other_quotes = [
             '"', '\u{2018}', '\u{201a}', '\u{2039}', '\u{203a}', '\u{300c}', '\u{300d}',
         ];
