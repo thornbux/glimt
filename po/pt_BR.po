@@ -3044,3 +3044,7 @@ msgstr "{file} não foi carregado: %f entre aspas não é o arquivo. Escreva %f 
 #: src/features/tools.rs
 msgid "{file} gets no files: %f inside quotes is not the file. Give %f as a word of its own, as in {example}"
 msgstr "{file} não recebe nenhum arquivo: %f entre aspas não é o arquivo. Escreva %f como uma palavra à parte, como em {example}"
+
+#: src/cli.rs
+msgid "Added formats and tools:"
+msgstr "Formatos adicionados e ferramentas:"

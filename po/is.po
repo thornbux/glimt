@@ -3033,3 +3033,7 @@ msgstr "{file} var ekki hlaðið: %f innan gæsalappa er ekki skráin. Skrifaðu
 #: src/features/tools.rs
 msgid "{file} gets no files: %f inside quotes is not the file. Give %f as a word of its own, as in {example}"
 msgstr "{file} fær engar skrár: %f innan gæsalappa er ekki skráin. Skrifaðu %f sem sérstakt orð, eins og í {example}"
+
+#: src/cli.rs
+msgid "Added formats and tools:"
+msgstr "Viðbætt snið og verkfæri:"

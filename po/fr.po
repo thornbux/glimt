@@ -3033,3 +3033,7 @@ msgstr "{file} n'est pas chargé : %f entre guillemets n'est pas le fichier. Don
 #: src/features/tools.rs
 msgid "{file} gets no files: %f inside quotes is not the file. Give %f as a word of its own, as in {example}"
 msgstr "{file} ne reçoit aucun fichier : %f entre guillemets n'est pas le fichier. Donnez %f comme un mot à part, comme dans {example}"
+
+#: src/cli.rs
+msgid "Added formats and tools:"
+msgstr "Formats ajoutés et outils :"

@@ -3033,3 +3033,7 @@ msgstr "{file} lästes inte in: %f inom citattecken är inte filen. Skriv %f som
 #: src/features/tools.rs
 msgid "{file} gets no files: %f inside quotes is not the file. Give %f as a word of its own, as in {example}"
 msgstr "{file} får inga filer: %f inom citattecken är inte filen. Skriv %f som ett eget ord, som i {example}"
+
+#: src/cli.rs
+msgid "Added formats and tools:"
+msgstr "Tillagda format och verktyg:"

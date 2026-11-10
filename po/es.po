@@ -3033,3 +3033,7 @@ msgstr "{file} no se ha cargado: %f entre comillas no es el archivo. Escriba %f 
 #: src/features/tools.rs
 msgid "{file} gets no files: %f inside quotes is not the file. Give %f as a word of its own, as in {example}"
 msgstr "{file} no recibe ningún archivo: %f entre comillas no es el archivo. Escriba %f como una palabra aparte, como en {example}"
+
+#: src/cli.rs
+msgid "Added formats and tools:"
+msgstr "Formatos añadidos y herramientas:"

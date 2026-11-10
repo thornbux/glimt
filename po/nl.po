@@ -3033,3 +3033,7 @@ msgstr "{file} is niet geladen: %f tussen aanhalingstekens is niet het bestand. 
 #: src/features/tools.rs
 msgid "{file} gets no files: %f inside quotes is not the file. Give %f as a word of its own, as in {example}"
 msgstr "{file} krijgt geen bestanden: %f tussen aanhalingstekens is niet het bestand. Geef %f als een eigen woord, zoals in {example}"
+
+#: src/cli.rs
+msgid "Added formats and tools:"
+msgstr "Toegevoegde formaten en hulpmiddelen:"

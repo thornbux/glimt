@@ -3033,3 +3033,7 @@ msgstr "{file} wurde nicht geladen: %f in Anführungszeichen ist nicht die Datei
 #: src/features/tools.rs
 msgid "{file} gets no files: %f inside quotes is not the file. Give %f as a word of its own, as in {example}"
 msgstr "{file} bekommt keine Dateien: %f in Anführungszeichen ist nicht die Datei. Geben Sie %f als eigenes Wort an, wie in {example}"
+
+#: src/cli.rs
+msgid "Added formats and tools:"
+msgstr "Hinzugefügte Formate und Werkzeuge:"

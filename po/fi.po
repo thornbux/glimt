@@ -3033,3 +3033,7 @@ msgstr "{file} ei latautunut: lainausmerkkien sisällä oleva %f ei ole tiedosto
 #: src/features/tools.rs
 msgid "{file} gets no files: %f inside quotes is not the file. Give %f as a word of its own, as in {example}"
 msgstr "{file} ei saa tiedostoja: lainausmerkkien sisällä oleva %f ei ole tiedosto. Kirjoita %f omaksi sanakseen, kuten {example}"
+
+#: src/cli.rs
+msgid "Added formats and tools:"
+msgstr "Lisätyt muodot ja työkalut:"

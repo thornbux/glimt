@@ -3044,3 +3044,7 @@ msgstr "Nie wczytano {file}: %f w cudzysłowie nie jest plikiem. Podaj %f jako o
 #: src/features/tools.rs
 msgid "{file} gets no files: %f inside quotes is not the file. Give %f as a word of its own, as in {example}"
 msgstr "{file} nie dostaje żadnych plików: %f w cudzysłowie nie jest plikiem. Podaj %f jako osobne słowo, jak w {example}"
+
+#: src/cli.rs
+msgid "Added formats and tools:"
+msgstr "Dodane formaty i narzędzia:"

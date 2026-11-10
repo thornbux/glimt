@@ -733,9 +733,9 @@ pub(crate) const MANUAL: &[(&str, &str)] = &[
          glimt --lock-settings, or a file /etc/glimt/lock-settings put there by the administrator, \
          is for a shared computer: Preferences do not open, and what is changed in the menus lasts \
          only until Glimt closes.\n\n\
-         glimt --check-config tells what is wrong in the settings file, line by line, and which \
-         tools and added formats have %f only inside quotes; Glimt also tells the first of it \
-         when it starts. man glimt says more, with examples. \
+         glimt --check-config tells what is wrong in the settings file, line by line, and \
+         under a heading of their own which tools and added formats have %f only inside quotes, \
+         which do not change its exit code; Glimt also tells the first of it when it starts.man glimt says more, with examples. \
          The options and commands:",
     ),
 ];

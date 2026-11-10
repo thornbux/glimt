@@ -3044,3 +3044,7 @@ msgstr "{file} er ikkje lasta inn: %f inne i hermeteikn er ikkje fila. Skriv %f 
 #: src/features/tools.rs
 msgid "{file} gets no files: %f inside quotes is not the file. Give %f as a word of its own, as in {example}"
 msgstr "{file} får ingen filer: %f inne i hermeteikn er ikkje fila. Skriv %f som eit eige ord, som i {example}"
+
+#: src/cli.rs
+msgid "Added formats and tools:"
+msgstr "Tilføydde format og verktøy:"

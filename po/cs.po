@@ -3055,3 +3055,7 @@ msgstr "{file} nebyl načten: %f v uvozovkách není soubor. Zadejte %f jako sam
 #: src/features/tools.rs
 msgid "{file} gets no files: %f inside quotes is not the file. Give %f as a word of its own, as in {example}"
 msgstr "{file} nedostane žádné soubory: %f v uvozovkách není soubor. Zadejte %f jako samostatné slovo, jako v {example}"
+
+#: src/cli.rs
+msgid "Added formats and tools:"
+msgstr "Přidané formáty a nástroje:"

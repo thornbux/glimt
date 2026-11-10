@@ -3044,3 +3044,7 @@ msgstr "{file} er ikke lastet inn: %f inne i anførselstegn er ikke filen. Skriv
 #: src/features/tools.rs
 msgid "{file} gets no files: %f inside quotes is not the file. Give %f as a word of its own, as in {example}"
 msgstr "{file} får ingen filer: %f inne i anførselstegn er ikke filen. Skriv %f som et eget ord, som i {example}"
+
+#: src/cli.rs
+msgid "Added formats and tools:"
+msgstr "Tilføyde formater og verktøy:"

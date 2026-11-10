@@ -195,7 +195,7 @@ when the file cannot be read or a
 .I FILE
 given is not there. When it starts, Glimt tells the first of these
 in its window, but not a setting it does not know, which a newer Glimt beside it may have
-written. It also tells, and exits with 1 for, an added format or tool whose
+written. Under a heading of its own, it also tells each added format or tool whose
 .B Exec
 has
 .B %f
@@ -206,6 +206,7 @@ such a format is not loaded and such a tool gets no files. Give
 as a word of its own, and the script reads it as
 .BR \(dq$1\(dq :
 .BR "sh -c \(dqconvert \e\(dq$1\e\(dq ppm:-\(dq sh %f" .
+These do not change the exit code, which tells only about the settings file.
 .TP
 .BI "\-\-back\-up " FOLDER
 Copy Glimt's own folders (settings, marks and stars, collections, keyword tree, tools and

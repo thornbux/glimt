@@ -3033,3 +3033,7 @@ msgstr "{file} non è stato caricato: %f tra virgolette non è il file. Scrivi %
 #: src/features/tools.rs
 msgid "{file} gets no files: %f inside quotes is not the file. Give %f as a word of its own, as in {example}"
 msgstr "{file} non riceve alcun file: %f tra virgolette non è il file. Scrivi %f come parola a sé, come in {example}"
+
+#: src/cli.rs
+msgid "Added formats and tools:"
+msgstr "Formati aggiunti e strumenti:"
