@@ -2965,3 +2965,7 @@ msgstr "Namnet på det här fönstret, som glimt --name NAME --remote når det m
 #: src/ui/dialogs.rs
 msgid "Could not name this window: {why}"
 msgstr "Kunde inte ge fönstret ett namn: {why}"
+
+#: src/ui/dialogs.rs
+msgid "Could not name this window: a name holds up to 64 letters, digits, - and _, and not only digits"
+msgstr "Kunde inte ge fönstret ett namn: ett namn har upp till 64 bokstäver, siffror, - och _, och inte bara siffror"

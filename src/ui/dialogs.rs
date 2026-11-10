@@ -599,6 +599,15 @@ impl crate::App {
     /// Window → Set Window Name… was answered with `name`. The notice says why when the name is
     /// not taken.
     fn name_window(&mut self, ctx: &egui::Context, name: &str) {
+        // The name typed is told in the user's language. The other reasons come from the
+        // system, rarely, and are the English ones that `--remote name` prints too.
+        if !name.is_empty() && !crate::features::remote::can_be_window_name(name) {
+            let why = tr(
+                "Could not name this window: a name holds up to 64 letters, digits, \
+                 - and _, and not only digits",
+            );
+            return self.notice.give(why.to_owned());
+        }
         if let Err(why) = self.set_window_name(ctx, name) {
             self.notice
                 .give(tf!("Could not name this window: {why}", why));
@@ -1128,6 +1137,21 @@ fn fat_warning(name: &std::ffi::OsStr, fat: Option<&str>) -> Option<String> {
 mod tests {
     use crate::support::test_support::app_on;
     use eframe::egui;
+
+    /// A name that a window cannot take is told in a text of its own, which is translated,
+    /// and not with the English reason that `--remote name` prints. The name is kept as it was.
+    #[test]
+    fn a_window_name_refused_is_told_in_the_users_language() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-name-told-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let (mut app, ctx) = app_on(&dir);
+        app.name_window(&ctx, "4242");
+        let told = "Could not name this window: a name holds up to 64 letters, digits, - and _, \
+                    and not only digits";
+        assert_eq!(app.notice.text(), Some(told));
+        assert!(include_str!("../../po/no_nb.po").contains(told));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
 
     /// Open With Default App asks before it opens more than five files, each in a program of
     /// its own, and Esc opens none of them. (Five or fewer would start the programs, so they

@@ -2965,3 +2965,7 @@ msgstr "Nome di questa finestra, con cui glimt --name NAME --remote la raggiunge
 #: src/ui/dialogs.rs
 msgid "Could not name this window: {why}"
 msgstr "Impossibile dare un nome a questa finestra: {why}"
+
+#: src/ui/dialogs.rs
+msgid "Could not name this window: a name holds up to 64 letters, digits, - and _, and not only digits"
+msgstr "Impossibile dare un nome a questa finestra: un nome ha fino a 64 lettere, cifre, - e _, e non solo cifre"

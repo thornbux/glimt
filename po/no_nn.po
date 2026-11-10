@@ -2976,3 +2976,7 @@ msgstr "Namnet på dette vindauget, som glimt --name NAME --remote når det med 
 #: src/ui/dialogs.rs
 msgid "Could not name this window: {why}"
 msgstr "Kunne ikkje gje vindauget eit namn: {why}"
+
+#: src/ui/dialogs.rs
+msgid "Could not name this window: a name holds up to 64 letters, digits, - and _, and not only digits"
+msgstr "Kunne ikkje gje vindauget eit namn: eit namn har opptil 64 bokstavar, siffer, - og _, og ikkje berre siffer"

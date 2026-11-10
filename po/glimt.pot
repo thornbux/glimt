@@ -2986,3 +2986,7 @@ msgstr ""
 #: src/ui/dialogs.rs
 msgid "Could not name this window: {why}"
 msgstr ""
+
+#: src/ui/dialogs.rs
+msgid "Could not name this window: a name holds up to 64 letters, digits, - and _, and not only digits"
+msgstr ""

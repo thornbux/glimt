@@ -2965,3 +2965,7 @@ msgstr "Tämän ikkunan nimi, jolla glimt --name NAME --remote tavoittaa sen (ty
 #: src/ui/dialogs.rs
 msgid "Could not name this window: {why}"
 msgstr "Ikkunalle ei voitu antaa nimeä: {why}"
+
+#: src/ui/dialogs.rs
+msgid "Could not name this window: a name holds up to 64 letters, digits, - and _, and not only digits"
+msgstr "Ikkunalle ei voitu antaa nimeä: nimessä on enintään 64 kirjainta, numeroa, - ja _, eikä pelkkiä numeroita"

@@ -230,6 +230,12 @@ impl Folder {
         self.listing_rx.is_some() || self.looking_up.is_some()
     }
 
+    /// Whether the place to open is still being looked up, so that the window still shows the
+    /// list from before it.
+    pub(crate) fn is_looking_up(&self) -> bool {
+        self.looking_up.is_some()
+    }
+
     /// Whether a network location is being mounted.
     pub(crate) fn is_mounting(&self) -> bool {
         self.mounting_rx.is_some()

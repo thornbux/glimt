@@ -78,7 +78,7 @@ pub const COMMANDS: &[(&str, &str)] = &[
     ),
     (
         "info [FILE…]",
-        "Print what Glimt knows about the image shown, or about these files: a key, a tab and a value to a line, and a blank line after each file",
+        "Print what Glimt knows about the image shown, or about these files: a key, a tab and a value to a line, with a backslash, tab, line break and a keyword's ; written as \\\\, \\t, \\n or \\r and \\;, and a blank line after each file",
     ),
     #[cfg(feature = "test-hooks")]
     (
@@ -149,8 +149,10 @@ const MOST_LINE: u64 = 64 * 1024;
 /// queue until one is done, or until its time limit tells it "no answer".
 const MOST_CLIENTS: usize = 16;
 
-/// How long a command and its answer may take. A client that sends nothing, or a window that
-/// does not answer, holds up the others no longer than this.
+/// How long a client waits for each part of an answer, and the window for a client's command.
+/// A client that sends nothing, or a window that does not answer, holds up the others no longer
+/// than this. `info` sends each file's record as soon as it is read, so its whole answer may take
+/// as long as its files take, while no one file takes longer than this.
 const WAIT: std::time::Duration = std::time::Duration::from_secs(10);
 
 /// The name from `--name`, set before the window opens, or later by `--remote name` and Window
@@ -203,10 +205,11 @@ pub(crate) struct Listener {
     rx: mpsc::Receiver<(String, Option<remote::Reply>)>,
     /// The sender of `rx`, for a window that starts to listen when it is given a name.
     tx: mpsc::Sender<(String, Option<remote::Reply>)>,
-    /// A `--remote select` that came while the folder was being read or while Delete or Rename
-    /// asked, and every command after it. They are done in the order they came, once neither
-    /// is the case.
-    waiting_selects: Vec<(String, Option<remote::Reply>)>,
+    /// The commands that came while the place to open was looked up, a `--remote select` that
+    /// came while the folder was read or while Delete or Rename asked, and the commands after
+    /// it that may open another folder or come after one that may. They are done in the order
+    /// they came (`must_wait`).
+    waiting_commands: Vec<(String, Option<remote::Reply>)>,
     /// The time until which `--remote identify` shows the window's ID over the image.
     identify_until: Option<std::time::Instant>,
     /// The window listens for `--remote` also without a name (`listens`).
@@ -226,7 +229,7 @@ impl Listener {
         Listener {
             rx,
             tx,
-            waiting_selects: Vec::new(),
+            waiting_commands: Vec::new(),
             identify_until: None,
             listens_without_name,
         }
@@ -244,36 +247,55 @@ impl Listener {
 impl crate::App {
     // ---- Remote control ----
 
-    /// Receives `glimt --remote` commands and queries. A `select` waits while the folder is
-    /// read or a dialog asks about the selection.
+    /// Receives `glimt --remote` commands and queries. While the place that an `open` named is
+    /// looked up, every command waits, and a `select` waits too while the folder is read or a
+    /// dialog asks about the selection.
     pub(crate) fn receive_remote(&mut self, ctx: &egui::Context) {
-        // After `open`, the folder is still being read, so its files are not all listed. A
-        // dialog asking about the selection (Delete, Rename) is answered for the files it asked
-        // about, not for a selection a script put in its place meanwhile.
-        let busy = |app: &Self| app.folder.is_listing() || app.asking_about_selection();
+        // `open` only starts a look-up, and the window shows the old list until its answer is
+        // taken. It is taken here first, because a hidden window runs no `ui`, which takes it
+        // too.
+        self.receive_looked_up(ctx, std::time::Duration::ZERO);
         // A hidden window runs no `ui`, which takes the listing, so a waiting select takes it
         // here. Otherwise the select would wait until the window is shown again.
-        if !self.remote.waiting_selects.is_empty() {
+        if !self.remote.waiting_commands.is_empty() {
             self.receive_listing(ctx, std::time::Duration::ZERO);
         }
-        // The waiting ones are done in the order they came, until one (an `open`) makes the
-        // window busy again. Each gets its own answer, from the list as it was when it was sent.
-        while !self.remote.waiting_selects.is_empty() && !busy(self) {
-            let (command, reply) = self.remote.waiting_selects.remove(0);
+        // The waiting ones are done in the order they came, until one (an `open`) makes them
+        // wait again. Each gets its own answer, from the list as it was when it was sent.
+        while let Some((command, reply)) = self.remote.waiting_commands.first()
+            && !self.must_wait(command, reply.is_some())
+        {
+            let (command, reply) = self.remote.waiting_commands.remove(0);
             self.handle_remote(ctx, &command, reply);
         }
         while let Ok((command, reply)) = self.remote.rx.try_recv() {
-            let select = reply.is_some() && command.starts_with("select ");
-            let wait = (may_relist(&command) && !self.remote.waiting_selects.is_empty())
-                || (select && busy(self));
+            // A command behind a waiting one that may open another folder waits its turn,
+            // because it would otherwise act on the list from before that folder.
+            let behind_an_open =
+                (self.remote.waiting_commands.iter()).any(|(waiting, _)| may_relist(waiting));
+            let wait = self.must_wait(&command, reply.is_some())
+                || (!self.remote.waiting_commands.is_empty()
+                    && (may_relist(&command) || behind_an_open));
             if !wait {
                 self.handle_remote(ctx, &command, reply);
-            } else if self.remote.waiting_selects.len() < 64 {
-                self.remote.waiting_selects.push((command, reply));
+            } else if self.remote.waiting_commands.len() < 64 {
+                self.remote.waiting_commands.push((command, reply));
             }
             // When more than that are waiting, the answer is dropped, and the client is told
             // "no answer" (serve), so the script tries again.
         }
+    }
+
+    /// Whether `command` must wait before it is done. Every command waits while the place to
+    /// open is looked up, because it would act on the list from before that place. A select
+    /// (with a reply, `is_query`) also waits while the folder is read, because its files are
+    /// not all listed yet. It waits as well while a dialog asks about the selection (Delete,
+    /// Rename), which is answered for the files it asked about, not for a selection that a
+    /// script put in their place.
+    fn must_wait(&self, command: &str, is_query: bool) -> bool {
+        let select = is_query && command.starts_with("select ");
+        self.folder.is_looking_up()
+            || (select && (self.folder.is_listing() || self.asking_about_selection()))
     }
 
     /// Answers each select still waiting at closing, with all its paths and none of them
@@ -282,7 +304,7 @@ impl crate::App {
     /// answered as usual (current, selection).
     pub(crate) fn answer_waiting_selects(&mut self) {
         let sent: Vec<_> = self.remote.rx.try_iter().collect();
-        let waiting = std::mem::take(&mut self.remote.waiting_selects);
+        let waiting = std::mem::take(&mut self.remote.waiting_commands);
         let ctx = self.ctx.clone();
         for (command, reply) in waiting.into_iter().chain(sent) {
             let Some(reply) = reply else { continue };
@@ -505,20 +527,25 @@ impl crate::App {
             }
             None => return drop(reply.send(not_done_answer("no image is shown"))),
         };
+        if paths.is_empty() {
+            return drop(reply.send(not_done_answer("no file is named")));
+        }
         #[cfg(feature = "marks")]
         let marks: Vec<_> = paths.iter().map(|p| Some(self.marks.get(p))).collect();
         #[cfg(not(feature = "marks"))]
         let marks = vec![None; paths.len()];
-        // shortcut: one thread reads the files one after the other, so some thousands of files
-        // on a slow share outlast the client's time limit (`WAIT`); read them in parts
-        // (`threads::in_parts`) if scripts ask about that many at once.
+        // Each record is sent as soon as it is read, so the client's time limit (`WAIT`) holds
+        // for each file and not for all of them. The thread stops when the client is gone.
         std::thread::spawn(move || {
-            // A blank line ends each record, so the answers of several windows (--remote-all)
-            // stay apart too.
-            let answer: String = (paths.iter().zip(marks))
-                .map(|(path, marks)| info_record(path, marks) + "\n")
-                .collect();
-            let _ = reply.send(answer.into_bytes());
+            for (path, marks) in paths.iter().zip(marks) {
+                // A blank line ends each record, so the answers of several windows
+                // (--remote-all) stay apart too.
+                let mut record = info_record(path, marks);
+                record.push(b'\n');
+                if reply.send(record).is_err() {
+                    return;
+                }
+            }
         });
     }
 
@@ -591,35 +618,46 @@ fn is_info(command: &str) -> bool {
 /// `marks`, or `None` when marks are not built in. Its form is frozen, as scripts read it:
 /// one `key<TAB>value` line for each of `INFO_KEYS` and then each EXIF row of
 /// `exif::LABELS`, always all of them in this order, and an empty value where the file has
-/// none. A tab or line break in a value is written as a space. A path that is not a regular
-/// file has every value but its path empty.
-fn info_record(path: &Path, marks: Option<(u8, u8)>) -> String {
+/// none. Each value is `escaped`, so it stays on its line and a script can undo it. The path
+/// is the file's bytes, also when they are not UTF-8, as `current` gives them. A path that is
+/// not a regular file has every value but its path empty.
+fn info_record(path: &Path, marks: Option<(u8, u8)>) -> Vec<u8> {
+    use std::os::unix::ffi::OsStrExt;
     let file = std::fs::metadata(path).ok().filter(|m| m.is_file());
     let (values, exif_rows) = match file {
         Some(file) => info_values(path, &file, marks),
         None => Default::default(),
     };
     let exif_value = |label: &str| exif_rows.iter().find(|r| r.0 == label).map(|r| r.1.clone());
-    let exif_lines = (crate::metadata::exif::LABELS.iter())
-        .map(|label| (info_exif_key(label), exif_value(label).unwrap_or_default()));
-    let path = path.to_string_lossy().into_owned();
-    (INFO_KEYS.iter().map(|k| k.to_string()))
+    let exif_lines = (crate::metadata::exif::LABELS.iter()).map(|label| {
+        let value = exif_value(label).unwrap_or_default();
+        (info_exif_key(label), escaped(value.as_bytes(), b""))
+    });
+    let path = escaped(path.as_os_str().as_bytes(), b"");
+    let lines = (INFO_KEYS.iter().map(|k| k.to_string()))
         .zip([path].into_iter().chain(values))
-        .chain(exif_lines)
-        .map(|(key, value)| format!("{key}\t{}\n", one_line(&value)))
-        .collect()
+        .chain(exif_lines);
+    let mut record = Vec::new();
+    for (key, value) in lines {
+        record.extend_from_slice(key.as_bytes());
+        record.push(b'\t');
+        record.extend_from_slice(&value);
+        record.push(b'\n');
+    }
+    record
 }
 
 /// The values of `INFO_KEYS` after the path, for the regular file at `path` with the metadata
 /// `file` and the (mark bits, stars) `marks`, and the EXIF rows the info panel shows. The
 /// width and height are as stored, before the orientation turns the image. The format is the
-/// one the file's first bytes tell, or else its extension in lower case. Keywords are joined
-/// by "; ", and a ";" inside a keyword is written as ",".
+/// one the file's first bytes tell, or else its extension in lower case. Each value is
+/// `escaped`. Keywords are joined by "; ", and a ";" inside a keyword is written as "\;", so a
+/// script splits them at a "; " that has no backslash before it.
 fn info_values(
     path: &Path,
     file: &std::fs::Metadata,
     marks: Option<(u8, u8)>,
-) -> ([String; 12], Vec<(&'static str, String)>) {
+) -> ([Vec<u8>; 12], Vec<(&'static str, String)>) {
     use crate::metadata::{exif, xmp};
     use crate::support::threads::catch_panic;
     let since_1970 = |t: std::time::SystemTime| t.duration_since(std::time::UNIX_EPOCH).ok();
@@ -637,21 +675,24 @@ fn info_values(
     let mark_numbers: Vec<String> = (mark_numbers.into_iter().flatten())
         .map(|n| n.to_string())
         .collect();
-    let keywords: Vec<String> = meta.keywords.iter().map(|k| k.replace(';', ",")).collect();
+    let keywords: Vec<Vec<u8>> = (meta.keywords.iter())
+        .map(|k| escaped(k.as_bytes(), b";"))
+        .collect();
+    let value = |text: String| escaped(text.as_bytes(), b"");
     let text = |value: Option<String>| value.unwrap_or_default();
     let values = [
-        file.len().to_string(),
-        text(modified),
-        text(size.map(|s| s.0.to_string())),
-        text(size.map(|s| s.1.to_string())),
-        text(format),
-        text(orientation.map(|o| o.to_string())),
-        text(marks.map(|m| m.1.to_string())),
-        mark_numbers.join(","),
-        keywords.join("; "),
-        meta.comment,
-        alt_text.text,
-        alt_text.extended_description,
+        value(file.len().to_string()),
+        value(text(modified)),
+        value(text(size.map(|s| s.0.to_string()))),
+        value(text(size.map(|s| s.1.to_string()))),
+        value(text(format)),
+        value(text(orientation.map(|o| o.to_string()))),
+        value(text(marks.map(|m| m.1.to_string()))),
+        value(mark_numbers.join(",")),
+        keywords.join(&b"; "[..]),
+        value(meta.comment),
+        value(alt_text.text),
+        value(alt_text.extended_description),
     ];
     (values, exif_rows)
 }
@@ -662,10 +703,38 @@ fn info_exif_key(label: &str) -> String {
     format!("exif.{}", label.to_lowercase().replace(' ', "_"))
 }
 
-/// Returns `value` with each tab and line break turned into a space, so it stays one value on
-/// one line.
-fn one_line(value: &str) -> String {
-    value.replace(['\t', '\n', '\r'], " ")
+/// Returns `value` as `--remote info` writes it, so it stays one value on one line and a
+/// script can undo it: a backslash as `\\`, a tab as `\t`, a line feed as `\n`, a carriage
+/// return as `\r`, and each byte of `also` with a backslash before it. Every other byte stays
+/// as it is.
+fn escaped(value: &[u8], also: &[u8]) -> Vec<u8> {
+    let mut out = Vec::with_capacity(value.len());
+    for &byte in value {
+        match byte {
+            b'\\' => out.extend_from_slice(b"\\\\"),
+            b'\t' => out.extend_from_slice(b"\\t"),
+            b'\n' => out.extend_from_slice(b"\\n"),
+            b'\r' => out.extend_from_slice(b"\\r"),
+            _ if also.contains(&byte) => out.extend_from_slice(&[b'\\', byte]),
+            _ => out.push(byte),
+        }
+    }
+    out
+}
+
+/// Returns how many records of `--remote info` the window had still to send when its answer
+/// `answer` to `command` ended, as when the window closed meanwhile. A blank line ends each
+/// record, and no value holds a line break. It is 0 for any other command.
+fn info_records_missing(command: &str, answer: &[u8]) -> usize {
+    if !is_info(command) {
+        return 0;
+    }
+    let asked = match command.strip_prefix("info ") {
+        Some(paths) => paths.split('\0').filter(|p| !p.is_empty()).count(),
+        None => 1,
+    };
+    let records = answer.windows(2).filter(|pair| pair == b"\n\n").count();
+    asked.saturating_sub(records)
 }
 
 /// Glimt's runtime folder, which only the user can reach. It holds the sockets and the sidecar
@@ -736,6 +805,11 @@ pub fn is_process_id(name: &str) -> bool {
 pub fn valid_name(name: &str) -> bool {
     let ok = |c: char| c.is_alphanumeric() || c == '-' || c == '_';
     name.chars().all(ok) && !name.chars().all(|c| c.is_ascii_digit()) && name.len() <= 64
+}
+
+/// Whether a window may take `name` as its own (`rename`): a `valid_name` whose socket fits.
+pub fn can_be_window_name(name: &str) -> bool {
+    !name.is_empty() && valid_name(name) && name_fits(name)
 }
 
 /// Whether the socket of `--name name` fits in the bytes a socket's path may have here. In a
@@ -892,34 +966,31 @@ fn send_and_print_answer(path: &std::path::Path, command: &str) -> bool {
     let mut answer = Vec::new();
     #[allow(clippy::disallowed_methods)] // a reply on Glimt's own private socket, with a time limit
     let read = s.read_to_end(&mut answer);
+    let timed_out = read.is_err();
     if let Err(e) = read {
         eprintln!("glimt: no answer from {}: {e}", path.display());
         TIMED_OUT.store(true, std::sync::atomic::Ordering::Relaxed);
     }
-    match not_done_reason(&answer) {
-        Some(why) => {
-            eprintln!("glimt: not done: {why}");
-            WAS_NOT_DONE.store(true, std::sync::atomic::Ordering::Relaxed);
+    // An `info` that ends before its last record, because the window closed, is not done.
+    let missing = info_records_missing(command, &answer);
+    let why = match not_done_reason(&answer) {
+        Some(why) => Some(why),
+        None => {
+            let _ = std::io::stdout().write_all(&answer);
+            let closed = format!("the window closed before it told about {missing} of the files");
+            (missing > 0 && !timed_out).then_some(closed)
         }
-        None => drop(std::io::stdout().write_all(&answer)),
+    };
+    if let Some(why) = why {
+        eprintln!("glimt: not done: {why}");
+        WAS_NOT_DONE.store(true, std::sync::atomic::Ordering::Relaxed);
     }
     true
 }
 
-/// The sockets in `dir` that a Glimt answers on. One that does not answer is left alone,
-/// because a Glimt that is starting refuses connections between binding its socket and
-/// listening on it, and removing it then would leave that Glimt without remote control.
-/// shortcut: the socket of a Glimt that crashed stays until the runtime folder is cleared at
-/// logout, and costs one refused connection each time; remove such sockets at start, under
-/// `bind_socket`'s lock, if they ever pile up.
-fn live_sockets(dir: Option<PathBuf>) -> Vec<PathBuf> {
-    let sockets = socket_files(dir).into_iter();
-    sockets.filter(|p| UnixStream::connect(p).is_ok()).collect()
-}
-
 /// The sockets in `dir`, whether or not a Glimt answers on them. A command is sent to these,
-/// not to `live_sockets`, whose test of each socket would be a connection of its own, without
-/// a command, to every window.
+/// without a test of each socket first, which would be a connection of its own, without a
+/// command, to every window.
 fn socket_files(dir: Option<PathBuf>) -> Vec<PathBuf> {
     let entries = dir.and_then(|d| std::fs::read_dir(d).ok());
     entries
@@ -929,6 +1000,19 @@ fn socket_files(dir: Option<PathBuf>) -> Vec<PathBuf> {
         .map(|e| e.path())
         .filter(|p| p.extension().is_some_and(|x| x == "sock"))
         .collect()
+}
+
+/// Whether a Glimt in the runtime folder `dir` answers, one that `--name name` reaches
+/// (`is_named`) when `name` is given. Only those sockets are connected to, so the windows of
+/// other names see no connection. A socket that does not answer is left alone, because a
+/// Glimt that is starting refuses connections between binding its socket and listening on it,
+/// and removing it then would leave that Glimt without remote control.
+/// shortcut: the socket of a Glimt that crashed stays until the runtime folder is cleared at
+/// logout, and costs one refused connection each time; remove such sockets at start, under
+/// `bind_socket`'s lock, if they ever pile up.
+fn is_running(dir: Option<PathBuf>, name: Option<&str>) -> bool {
+    let mut sockets = socket_files(dir).into_iter();
+    sockets.any(|p| name.is_none_or(|name| is_named(&p, name)) && UnixStream::connect(p).is_ok())
 }
 
 /// Sends `command` to the Glimt used last, or else to another one. Returns false if none runs.
@@ -1013,11 +1097,7 @@ pub fn client(
     if now[0] == "open"
         && let Some(path) = paths.iter().find(|p| p.to_str().is_none())
     {
-        let running = match name {
-            Some(name) => socket(name).is_some_and(|p| UnixStream::connect(p).is_ok()),
-            None => !live_sockets(runtime_dir()).is_empty(),
-        };
-        if !running {
+        if !is_running(runtime_dir(), name) {
             return Some(path.into());
         }
         eprintln!("glimt: cannot send {path:?}: not UTF-8");
@@ -1217,14 +1297,23 @@ fn serve(
         // The client is counted until its answer is written, because `stop` waits for that at
         // closing.
         let answering = UnfinishedAnswer::new();
+        let comes_in_parts = is_info(&line);
         if tx.send((line, Some(reply))).is_err() {
             return;
         }
         ctx.request_repaint();
         match answer.recv() {
             Ok(bytes) => {
-                if let Some(out) = out.as_mut() {
-                    let _ = out.write_all(&bytes);
+                // `info` sends each file's record as it is read, until it has sent them all.
+                // Each part is written at once, so the client's time limit holds for each part.
+                let rest = answer.iter().take_while(|_| comes_in_parts);
+                for bytes in std::iter::once(bytes).chain(rest) {
+                    if out
+                        .as_mut()
+                        .is_none_or(|out| out.write_all(&bytes).is_err())
+                    {
+                        break;
+                    }
                 }
             }
             // When the window dropped the answer (too many waiting, or closing), closing the
@@ -1307,9 +1396,7 @@ fn bind_socket(path: &std::path::Path) -> Result<UnixListener, Option<std::io::E
 /// never without remote control. The new name is shared, as at start, when another window has
 /// it already. Returns the reason when the name cannot be taken.
 pub fn rename(name: Option<&str>) -> Result<(), String> {
-    if let Some(n) = name
-        && (n.is_empty() || !valid_name(n) || !name_fits(n))
-    {
+    if name.is_some_and(|n| !can_be_window_name(n)) {
         return Err("a name holds up to 64 letters, digits, - and _, not only digits".into());
     }
     if !listening() {
@@ -1822,7 +1909,7 @@ mod tests {
         app.remote = super::Listener {
             rx,
             tx: std::sync::mpsc::channel().0,
-            waiting_selects: Vec::new(),
+            waiting_commands: Vec::new(),
             identify_until: None,
             listens_without_name: false,
         };
@@ -2055,9 +2142,9 @@ mod tests {
         assert!(read.is_err() && got.is_empty(), "{read:?} {got:?}");
     }
 
-    /// A socket that does not answer is passed over by `--remote-all` but left in place. A
-    /// Glimt between binding it and listening refuses connections just as a crashed one's
-    /// socket does, and `live_sockets` removed it, so that Glimt could not be reached.
+    /// A socket that does not answer is passed over but left in place. A Glimt between binding
+    /// it and listening refuses connections just as a crashed one's socket does, and removing
+    /// it would leave that Glimt unreachable.
     #[test]
     fn a_socket_not_answering_is_left_alone() {
         let dir = std::env::temp_dir().join(format!("glimt-test-live-{}", std::process::id()));
@@ -2069,10 +2156,27 @@ mod tests {
         // program, so it can answer a moment longer, as in `claims_only_a_left_socket`.
         let passed_over = (0..50).any(|_| {
             std::thread::sleep(std::time::Duration::from_millis(20));
-            super::live_sockets(Some(dir.clone())) == [answering.clone()]
+            !super::is_running(Some(dir.clone()), Some("1"))
         });
         assert!(passed_over);
+        assert!(super::is_running(Some(dir.clone()), Some("2")));
         assert!(quiet.exists());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// `open` with a path that cannot be sent finds a running window of a name as every other
+    /// command does (`is_named`): also one that shares the name, and by its own ID. Otherwise
+    /// a new Glimt started and took the name.
+    #[test]
+    fn a_window_of_a_name_is_found_running_by_each_of_its_sockets() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-running-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let _listening =
+            std::os::unix::net::UnixListener::bind(dir.join("glimt-left.4242.sock")).unwrap();
+        assert!(super::is_running(Some(dir.clone()), Some("left")));
+        assert!(super::is_running(Some(dir.clone()), Some("4242")));
+        assert!(super::is_running(Some(dir.clone()), None));
+        assert!(!super::is_running(Some(dir.clone()), Some("right")));
         std::fs::remove_dir_all(dir).unwrap();
     }
 
@@ -2167,20 +2271,24 @@ mod tests {
         let (reply, answer) = std::sync::mpsc::channel();
         let select = format!("select {}\0", dir.join("a.png").display());
         tx.send((select.clone(), Some(reply))).unwrap();
+        // A query is answered at once, also behind a waiting select.
+        let (reply, current) = std::sync::mpsc::channel();
+        tx.send(("current".to_owned(), Some(reply))).unwrap();
         tx.send((format!("open {}", other.display()), None))
             .unwrap();
-        // At most 64 wait, so one more is dropped.
+        // Behind a waiting open, it waits its turn, so it answers about the place opened.
+        let (reply, current_after_open) = std::sync::mpsc::channel();
+        tx.send(("current".to_owned(), Some(reply))).unwrap();
+        // At most 64 wait, so the last of these are dropped.
         let mut more = Vec::new();
         for _ in 0..63 {
             let (reply, answer) = std::sync::mpsc::channel();
             tx.send((select.clone(), Some(reply))).unwrap();
             more.push(answer);
         }
-        // A query is answered at once, also behind a waiting select.
-        let (reply, current) = std::sync::mpsc::channel();
-        tx.send(("current".to_owned(), Some(reply))).unwrap();
         app.receive_remote(&ctx);
         assert!(current.try_recv().is_ok(), "current answered at once");
+        assert!(current_after_open.try_recv().is_err());
         assert_eq!(app.folder.dir(), dir, "open waits behind the select");
         assert!(matches!(
             more[62].try_recv(),
@@ -2196,17 +2304,97 @@ mod tests {
         // background.
         app.receive_looked_up(&ctx, std::time::Duration::from_secs(5));
         assert_eq!(app.folder.dir(), other);
+        app.receive_remote(&ctx);
+        assert!(current_after_open.try_recv().is_ok());
         // Closing with selects still waiting, and one sent just before, tells each that none of
         // its paths was selected.
         let (reply, closing) = std::sync::mpsc::channel();
         app.remote
-            .waiting_selects
+            .waiting_commands
             .push((select.clone(), Some(reply)));
         let (reply, late) = std::sync::mpsc::channel();
         tx.send((select.clone(), Some(reply))).unwrap();
         app.answer_waiting_selects();
         assert!(String::from_utf8_lossy(&closing.try_recv().unwrap()).contains("a.png"));
         assert!(String::from_utf8_lossy(&late.try_recv().unwrap()).contains("a.png"));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// Runs `receive_remote` alone, as a hidden window's `logic` does without `ui`, until
+    /// `done` holds, for at most five seconds. Returns whether it held.
+    fn receive_remote_until(
+        app: &mut crate::App,
+        ctx: &eframe::egui::Context,
+        mut done: impl FnMut(&mut crate::App) -> bool,
+    ) -> bool {
+        let start = std::time::Instant::now();
+        while start.elapsed() < std::time::Duration::from_secs(5) {
+            app.receive_remote(ctx);
+            if done(app) {
+                return true;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        false
+    }
+
+    /// The commands after `open` wait until the place it named is looked up, also in a window
+    /// that runs no `ui`, so they act on that place and not on the list from before it:
+    /// `current` names the file opened, and `run Up` goes up from its folder.
+    #[test]
+    fn commands_after_an_open_act_on_the_place_it_opens() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-open-then-{}", std::process::id()));
+        let other = dir.join("other");
+        std::fs::create_dir_all(&other).unwrap();
+        image::RgbImage::new(4, 4).save(dir.join("a.png")).unwrap();
+        image::RgbImage::new(4, 4)
+            .save(other.join("b.png"))
+            .unwrap();
+        let (mut app, ctx) = app_on(&dir);
+        let (tx, rx) = std::sync::mpsc::channel();
+        app.remote.rx = rx;
+        let b = other.join("b.png");
+        let (reply, current) = std::sync::mpsc::channel();
+        tx.send((format!("open {}", b.display()), None)).unwrap();
+        tx.send(("current".to_owned(), Some(reply))).unwrap();
+        tx.send(("run Up".to_owned(), None)).unwrap();
+        let mut answer = None;
+        assert!(receive_remote_until(&mut app, &ctx, |_| {
+            answer = current.try_recv().ok();
+            answer.is_some()
+        }));
+        assert_eq!(answer.unwrap(), format!("{}\0", b.display()).into_bytes());
+        assert!(
+            receive_remote_until(&mut app, &ctx, |app| app.folder.dir() == dir),
+            "Up from {}, not from {}",
+            other.display(),
+            dir.display()
+        );
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// `slideshow on` after `open`, with subfolders in random order, runs on the folder opened
+    /// and keeps its shuffle, which opening the folder would otherwise take away.
+    #[test]
+    fn a_slideshow_after_an_open_keeps_its_shuffle() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-open-show-{}", std::process::id()));
+        let other = dir.join("other");
+        std::fs::create_dir_all(&other).unwrap();
+        image::RgbImage::new(4, 4).save(dir.join("a.png")).unwrap();
+        image::RgbImage::new(4, 4)
+            .save(other.join("b.png"))
+            .unwrap();
+        let (mut app, ctx) = app_on(&dir);
+        app.config.slideshow_subfolders = true;
+        app.config.slideshow_random = true;
+        let (tx, rx) = std::sync::mpsc::channel();
+        app.remote.rx = rx;
+        tx.send((format!("open {}", other.display()), None))
+            .unwrap();
+        tx.send(("slideshow on".to_owned(), None)).unwrap();
+        let shown = receive_remote_until(&mut app, &ctx, |app| app.slideshow.is_running());
+        assert!(shown && app.folder.dir() == other);
+        assert!(app.slideshow.is_shuffled());
         std::fs::remove_dir_all(dir).unwrap();
     }
 
@@ -2219,9 +2407,9 @@ mod tests {
     }
 
     /// `info`'s record of a file with EXIF, keywords, a comment, alt text, marks and stars, in
-    /// its frozen form: every key in its order, a ";" in a keyword as ",", and a line break or
-    /// tab in a value as a space. The values that change with each run (the path, the size and
-    /// the time) are read from the file.
+    /// its frozen form: every key in its order, a ";" in a keyword as "\;", and a backslash,
+    /// line break or tab in a value as "\\", "\n" or "\t". The values that change with each
+    /// run (the path, the size and the time) are read from the file.
     #[test]
     fn info_prints_a_known_file_in_its_frozen_form() {
         use crate::metadata::xmp;
@@ -2243,7 +2431,7 @@ mod tests {
         let comment = "line one\nline\ttwo".to_owned();
         xmp::write_changed(&file, Some(keywords), Some(comment)).unwrap();
         let alt_text = xmp::AltText {
-            text: "A red square".into(),
+            text: "A red \\ square".into(),
             extended_description: String::new(),
         };
         xmp::write_alt_text(&file, &alt_text).unwrap();
@@ -2255,17 +2443,18 @@ mod tests {
         let modified = crate::support::format::utc_time(modified.unwrap().as_secs() as i64);
         let expected = format!(
             "path\t{}\nsize\t{}\nmodified\t{modified}\nwidth\t8\nheight\t4\nformat\tpng\n\
-             orientation\t6\nstars\t3\nmarks\t1,4\nkeywords\tbeach; a,b\n\
-             comment\tline one line two\nalt_text\tA red square\nextended_description\t\n\
+             orientation\t6\nstars\t3\nmarks\t1,4\nkeywords\tbeach; a\\;b\n\
+             comment\tline one\\nline\\ttwo\nalt_text\tA red \\\\ square\nextended_description\t\n\
              exif.camera\tCanon\nexif.lens\t\nexif.taken\t2020:01:02 03:04:05\n\
              exif.exposure\t\nexif.aperture\t\nexif.iso\t\nexif.focal_length\t\n\
              exif.exposure_bias\t\nexif.flash\t\nexif.gps\t\n",
             file.display(),
             meta.len()
         );
-        assert_eq!(super::info_record(&file, Some((0b1001, 3))), expected);
+        let record = super::info_record(&file, Some((0b1001, 3)));
+        assert_eq!(String::from_utf8(record).unwrap(), expected);
         // Without marks built in, the stars and marks are empty, and the keys stay.
-        let without_marks = super::info_record(&file, None);
+        let without_marks = String::from_utf8(super::info_record(&file, None)).unwrap();
         assert!(
             without_marks.contains("\nstars\t\nmarks\t\n"),
             "{without_marks}"
@@ -2286,7 +2475,8 @@ mod tests {
             .write_to(&mut cursor, image::ImageFormat::Png)
             .unwrap();
         std::fs::write(&file, &png).unwrap();
-        let lines = info_lines(&super::info_record(&file, Some((0, 0))));
+        let record = super::info_record(&file, Some((0, 0)));
+        let lines = info_lines(&String::from_utf8(record).unwrap());
         let keys: Vec<String> = (super::INFO_KEYS.iter().map(|k| k.to_string()))
             .chain(crate::metadata::exif::LABELS.map(super::info_exif_key))
             .collect();
@@ -2302,7 +2492,8 @@ mod tests {
             ("stars", "0"),
         ];
         assert_eq!(filled, expected);
-        let missing = info_lines(&super::info_record(&dir.join("no.png"), Some((1, 2))));
+        let record = super::info_record(&dir.join("no.png"), Some((1, 2)));
+        let missing = info_lines(&String::from_utf8(record).unwrap());
         assert_eq!(
             missing.iter().map(|l| l.0.clone()).collect::<Vec<_>>(),
             keys
@@ -2312,6 +2503,53 @@ mod tests {
             "{missing:?}"
         );
         std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A value's backslash, tab and line breaks are written so that a script can undo them, a
+    /// ";" too in a keyword, and a path that is not UTF-8 keeps its bytes, as `current` gives
+    /// them.
+    #[test]
+    fn info_escapes_what_a_script_can_undo() {
+        use std::os::unix::ffi::OsStrExt;
+        assert_eq!(
+            super::escaped(b"a\\b\tc\nd\re;f", b""),
+            b"a\\\\b\\tc\\nd\\re;f"
+        );
+        assert_eq!(super::escaped(b"a;b\\", b";"), b"a\\;b\\\\");
+        let path = std::path::Path::new(std::ffi::OsStr::from_bytes(b"/no/\xff\tx\\.png"));
+        let record = super::info_record(path, None);
+        assert!(record.starts_with(b"path\t/no/\xff\\tx\\\\.png\nsize\t\n"));
+    }
+
+    /// `info`'s records go to the client as the window sends them, each at once, so the
+    /// client's time limit holds for each file. The client counts the records it got, and an
+    /// answer cut short, as by a window that closed, is not done.
+    #[test]
+    fn info_is_sent_a_record_at_a_time() {
+        use std::io::{Read, Write};
+        let (mut client, window) = std::os::unix::net::UnixStream::pair().unwrap();
+        let (tx, rx) = std::sync::mpsc::channel();
+        let ctx = eframe::egui::Context::default();
+        std::thread::spawn(move || super::serve(window, &tx, &ctx));
+        writeln!(client, "info /a.png\0/b.png").unwrap();
+        client.shutdown(std::net::Shutdown::Write).unwrap();
+        let (command, reply) = rx.recv().unwrap();
+        let reply = reply.unwrap();
+        reply.send(b"path\t/a.png\n\n".to_vec()).unwrap();
+        let mut first = [0; 13];
+        client.read_exact(&mut first).unwrap();
+        assert_eq!(super::info_records_missing(&command, &first), 1);
+        reply.send(b"path\t/b.png\n\n".to_vec()).unwrap();
+        drop(reply);
+        let mut rest = Vec::new();
+        client.read_to_end(&mut rest).unwrap();
+        assert_eq!(rest, b"path\t/b.png\n\n");
+        assert_eq!(
+            super::info_records_missing(&command, &[&first[..], &rest].concat()),
+            0
+        );
+        assert_eq!(super::info_records_missing("info", b""), 1);
+        assert_eq!(super::info_records_missing("next", b""), 0);
     }
 
     /// `info` through the listener: about the image shown, about files named (listed or not)

@@ -2987,3 +2987,7 @@ msgstr "Jméno tohoto okna, podle kterého ho najde glimt --name NAME --remote (
 #: src/ui/dialogs.rs
 msgid "Could not name this window: {why}"
 msgstr "Okno nelze pojmenovat: {why}"
+
+#: src/ui/dialogs.rs
+msgid "Could not name this window: a name holds up to 64 letters, digits, - and _, and not only digits"
+msgstr "Okno nelze pojmenovat: název má nejvýše 64 písmen, číslic, - a _, a ne jen číslice"
