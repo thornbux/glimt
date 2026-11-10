@@ -1325,6 +1325,25 @@ mod tests {
         std::fs::remove_dir_all(dir).unwrap();
     }
 
+    /// A turned PNG keeps its extended attributes, where KDE's Dolphin keeps its tags. Before,
+    /// the new file had none, so a turn in Glimt lost them without a word.
+    #[test]
+    fn a_turned_image_keeps_its_extended_attributes() {
+        use crate::support::test_support::{attribute, set_attribute};
+        let dir = std::env::temp_dir().join(format!("glimt-turn-xattr-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("a.png");
+        std::fs::write(&file, black_png(4, 2)).unwrap();
+        if set_attribute(&file, "user.test", b"kept") {
+            super::save_rotated(&file, false, 1, false, 90).unwrap();
+            assert_eq!(image::image_dimensions(&file).unwrap(), (2, 4));
+            assert_eq!(attribute(&file, "user.test").as_deref(), Some(&b"kept"[..]));
+        } else {
+            eprintln!("no extended attributes on this file system: not tested");
+        }
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
     /// A PNG turned keeps its text and DPI, and nothing tied to how the old pixels were stored.
     #[test]
     fn keeps_png_chunks() {

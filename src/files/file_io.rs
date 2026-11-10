@@ -435,6 +435,7 @@ pub(crate) fn put_file(from: &Path, to: &Path, is_copy: bool) -> std::io::Result
                 std::fs::set_permissions(&part, mode)?;
                 #[allow(clippy::disallowed_methods)] // the copy's time, as mv keeps it
                 out.set_modified(meta.modified()?)?;
+                copy_extended_attributes(from, &out);
                 out.sync_all()
             })
             .and_then(|_| rename_never_over(&part, to));
@@ -812,7 +813,67 @@ pub fn create_temp_beside(tmp: &Path, path: &Path) -> std::io::Result<std::fs::F
     };
     let file = new().mode(0o600).open(tmp)?;
     file.set_permissions(old.permissions())?;
+    copy_extended_attributes(path, &file);
     Ok(file)
+}
+
+/// Copies to `to` the extended attributes of the file named `from` that a user may set: the
+/// user's own (`user.*`, where KDE's Dolphin and Gwenview keep tags, ratings and comments) and
+/// the file's ACL (`system.posix_acl_access`). A file replaced by a new one (a turned image, a
+/// sidecar, Save As over a file) and a file moved to another disk keep them so, as with `mv`.
+/// Others are left: `security.*` (SELinux) is given to the new file by the system, and
+/// `trusted.*` needs root. The owner is not kept either, because only root may give a file to
+/// another user, so a file replaced by its group's member becomes that user's. A link at `from`
+/// gives nothing, so a replaced link does not take the attributes of the file it points to. An
+/// attribute that cannot be read or set (a file system without them, ENOTSUP) is passed over,
+/// as the file itself is written.
+fn copy_extended_attributes(from: &Path, to: &std::fs::File) {
+    use std::os::fd::AsRawFd;
+    use std::os::unix::ffi::OsStrExt;
+    let Ok(from) = std::ffi::CString::new(from.as_os_str().as_bytes()) else {
+        return;
+    };
+    // Linux's limits for the list of names (XATTR_LIST_MAX) and for one value (XATTR_SIZE_MAX).
+    let (mut names, mut value) = (vec![0u8; 65_536], vec![0u8; 65_536]);
+    #[allow(unsafe_code)]
+    // SAFETY: `from` is a C string and `names` a buffer of the length given, both alive here.
+    let listed = unsafe { libc::llistxattr(from.as_ptr(), names.as_mut_ptr().cast(), names.len()) };
+    let Ok(listed) = usize::try_from(listed) else {
+        return;
+    };
+    for name in names[..listed].split(|&b| b == 0) {
+        if !(name.starts_with(b"user.") || name == b"system.posix_acl_access") {
+            continue;
+        }
+        let Ok(name) = std::ffi::CString::new(name) else {
+            continue;
+        };
+        #[allow(unsafe_code)]
+        // SAFETY: both C strings and `value`, of the length given, live through the call.
+        let size = unsafe {
+            libc::lgetxattr(
+                from.as_ptr(),
+                name.as_ptr(),
+                value.as_mut_ptr().cast(),
+                value.len(),
+            )
+        };
+        let Ok(size) = usize::try_from(size) else {
+            continue;
+        };
+        #[allow(unsafe_code)]
+        // SAFETY: `to` is an open file, and `name` and the first `size` bytes of `value` live
+        // through the call.
+        unsafe {
+            libc::fsetxattr(
+                to.as_raw_fd(),
+                name.as_ptr(),
+                value.as_ptr().cast(),
+                size,
+                0,
+            )
+        };
+    }
 }
 
 /// `replace_file`, with a failure on stderr: for files Glimt keeps for itself.
@@ -1034,6 +1095,30 @@ mod tests {
         assert!(copied.is_empty());
         let replaced = synced(&|| super::replace_name(&dir.join("a.jpg"), "b").unwrap());
         assert_eq!(replaced, [dir.as_path()]);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A file replaced by name and a file copied keep the user's extended attributes, where KDE
+    /// keeps its tags and ratings. Before, both lost them, as the new file was made empty.
+    #[test]
+    fn a_replaced_or_copied_file_keeps_its_extended_attributes() {
+        use crate::support::test_support::{attribute, set_attribute};
+        let dir = std::env::temp_dir().join(format!("glimt-test-xattr-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join("to")).unwrap();
+        let a = dir.join("a.jpg");
+        std::fs::write(&a, "a").unwrap();
+        if set_attribute(&a, "user.xdg.tags", b"holiday") {
+            super::replace_name(&a, "b").unwrap();
+            assert_eq!(
+                attribute(&a, "user.xdg.tags").as_deref(),
+                Some(&b"holiday"[..])
+            );
+            super::put_file(&a, &dir.join("to/a.jpg"), true).unwrap();
+            let copied = attribute(&dir.join("to/a.jpg"), "user.xdg.tags");
+            assert_eq!(copied.as_deref(), Some(&b"holiday"[..]));
+        } else {
+            eprintln!("no extended attributes on this file system: not tested");
+        }
         std::fs::remove_dir_all(dir).unwrap();
     }
 

@@ -5,6 +5,13 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- A turned PNG or WebP, a sidecar, a file saved over by name and a file moved to another disk
+  keep their extended attributes, as `mv` does: the user's own (`user.*`, where KDE's Dolphin
+  and Gwenview keep tags, ratings and comments) and the file's ACL. Before, they were lost. The
+  owner is not kept, as only root may give a file to another user.
+
 ## [0.78.0] - 2026-11-10
 
 ### Added
