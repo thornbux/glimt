@@ -2774,7 +2774,10 @@ fn the_lints_stay_on() {
 /// of file_io's writers, with `let _ =`, `_ =`, `.ok();`, `drop(…)`, or `let _name =` where
 /// `_name` is not used again.
 fn dropped_writes_in(text: &str) -> Vec<usize> {
-    const WRITERS: [&str; 12] = [
+    const WRITERS: [&str; 14] = [
+        // collections::edit and edit_open_collection, which write through replace_name.
+        "edit(",
+        "edit_open_collection(",
         "sync_folder_of(",
         "sync_folder(",
         "write_beside_without_folder_sync(",
@@ -3390,6 +3393,7 @@ fn disk_calls_in_window_thread(text: &str, parts: &[&str]) -> Vec<(String, &'sta
     const ELSEWHERE: &[&str] = &[
         "spawn(",
         "write_later(",
+        "write_later_in_user_folders(",
         "run_in_background(",
         "write_sidecars(",
     ];

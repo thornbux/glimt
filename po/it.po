@@ -2989,3 +2989,15 @@ msgstr "Impossibile dare un nome a questa finestra: {why}"
 #: src/ui/dialogs.rs
 msgid "Could not name this window: a name holds up to 64 letters, digits, - and _, and not only digits"
 msgstr "Impossibile dare un nome a questa finestra: un nome ha fino a 64 lettere, cifre, - e _, e non solo cifre"
+
+#: src/files/file_io.rs
+msgid "A change could not be saved, because Glimt met an error while writing it"
+msgstr "Non è stato possibile salvare una modifica, perché Glimt ha incontrato un errore durante la scrittura"
+
+#: src/files/file_io.rs
+msgid "Glimt ended before every write was done: the last change of the settings, marks, a collection or a file may be lost"
+msgstr "Glimt si è chiuso prima di aver scritto tutto: l'ultima modifica delle impostazioni, dei segni, di una raccolta o di un file potrebbe essere persa"
+
+#: src/files/journal.rs
+msgid "Rename Many runs without its plan ({e}), so a crash halfway is not put right at the next start"
+msgstr "Rinomina multipla viene eseguita senza il suo piano ({e}), quindi un arresto a metà non viene riparato al prossimo avvio"

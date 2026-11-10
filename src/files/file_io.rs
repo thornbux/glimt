@@ -4,13 +4,22 @@
 //! (`edit_shared`). A file is renamed never over another (`rename_never_over`), and moved or
 //! copied whole or not at all (`put_file`). A rename that later steps count on is on disk with
 //! its folder (`sync_folder_of`) before they run. Glimt's own files are written in one thread, in
-//! order (`write_later`), and `flush` waits for them before Glimt ends.
+//! order (`write_later`), and the collections in another (`write_later_in_user_folders`), so a
+//! share that stopped answering does not hold the settings. `flush` waits for both before Glimt
+//! ends.
 
 use crate::support::threads::lock_even_if_poisoned;
 use std::path::{Path, PathBuf};
 
 /// A file Glimt could not save, or a note about a save, for the window to tell: from any thread.
 static SAVE_ERROR: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
+
+/// The thread that writes Glimt's own files (`write_later`), and the thread for the writes that
+/// reach the user's folders (`write_later_in_user_folders`).
+static OWN_FILES_WRITER: std::sync::OnceLock<std::sync::mpsc::Sender<QueuedWrite>> =
+    std::sync::OnceLock::new();
+static USER_FOLDERS_WRITER: std::sync::OnceLock<std::sync::mpsc::Sender<QueuedWrite>> =
+    std::sync::OnceLock::new();
 
 /// The saves that replaced a file with other names (hard links) since the window last told of
 /// them, from any thread.
@@ -40,10 +49,14 @@ thread_local! {
     // Makes `sync_folder_of` on this thread fail as a disk that fails would, for the tests of
     // what follows such a failure.
     pub(crate) static FOLDER_SYNC_FAILS: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
-    // The errors that `save_failed` told on this thread. They do not go to the window's own
-    // slot in tests, where another test's window would take them as its notice.
-    pub(crate) static SAVES_FAILED: std::cell::RefCell<Vec<String>> =
-        const { std::cell::RefCell::new(Vec::new()) };
+    // The errors that `save_failed` told for this thread's test. They do not go to the window's
+    // own slot in tests, where another test's window would take them as its notice. Each list is
+    // leaked, so that the writer thread can tell a test's errors to that test's list.
+    static SAVES_FAILED: &'static std::sync::Mutex<Vec<String>> = Box::leak(Box::default());
+    // The list of the test whose work the writer thread is doing now, so that what that work
+    // tells reaches the test that queued it. It is `None` on every other thread.
+    static TOLD_FOR: std::cell::Cell<Option<&'static std::sync::Mutex<Vec<String>>>> =
+        const { std::cell::Cell::new(None) };
     // The saves over a file with other names (hard links) on this thread. They do not go to
     // the window's own count in tests, where another test's window would take them as its
     // notice.
@@ -523,17 +536,36 @@ fn other_names_note() -> Option<String> {
     None
 }
 
-/// `work` in the one thread that writes Glimt's own files, in the order given.
+/// `work` in the one thread that writes Glimt's own files (the settings, marks, Open Recent), in
+/// the order given.
 pub fn write_later(work: impl FnOnce() + Send + 'static) {
-    static WRITER: std::sync::OnceLock<std::sync::mpsc::Sender<QueuedWrite>> =
-        std::sync::OnceLock::new();
+    queue_write(&OWN_FILES_WRITER, work);
+}
+
+/// `work` in the one thread for the writes that read or write the user's folders, in the order
+/// given: an edit of a collection, which looks up the folders of its entries. A share that
+/// stopped answering then holds only these writes, and not the settings and marks behind them.
+pub fn write_later_in_user_folders(work: impl FnOnce() + Send + 'static) {
+    queue_write(&USER_FOLDERS_WRITER, work);
+}
+
+/// Sends `work` to the thread of `writer`, counted in `WRITING` until it is done.
+fn queue_write(
+    writer: &'static std::sync::OnceLock<std::sync::mpsc::Sender<QueuedWrite>>,
+    work: impl FnOnce() + Send + 'static,
+) {
     // Dropped with the work, also when it panics or is never run: Glimt would wait for it at exit.
     let writing = crate::support::threads::Working::new(&WRITING);
+    #[cfg(test)]
+    let told = told_here();
     let counted = move || {
+        #[cfg(test)]
+        TOLD_FOR.set(Some(told));
+        // The count goes down after a panic is told, so that `flush` does not end before that.
         let _writing = writing;
-        let _ = crate::support::threads::catch_panic(work);
+        run_and_tell_a_panic(work);
     };
-    let _ = WRITER
+    let _ = writer
         .get_or_init(start_ordered_worker)
         .send(Box::new(counted));
 }
@@ -544,31 +576,68 @@ pub fn start_ordered_worker() -> std::sync::mpsc::Sender<QueuedWrite> {
     let (works, rx) = std::sync::mpsc::channel::<QueuedWrite>();
     std::thread::spawn(move || {
         for work in rx {
-            let _ = crate::support::threads::catch_panic(work);
+            run_and_tell_a_panic(work);
+            #[cfg(test)]
+            TOLD_FOR.set(None);
         }
     });
     works
 }
 
-/// Wait for everything being written, a few seconds at most, before Glimt ends: the last
-/// change of a setting or a keyword must not be lost with its thread.
-pub fn flush() {
-    let until = std::time::Instant::now() + std::time::Duration::from_secs(5);
-    while WRITING.load(std::sync::atomic::Ordering::Relaxed) > 0
-        && std::time::Instant::now() < until
-    {
-        std::thread::sleep(std::time::Duration::from_millis(10));
+/// Runs a queued write, and tells the user when it panics. Its change is then lost like that of
+/// any failed write.
+fn run_and_tell_a_panic(work: impl FnOnce()) {
+    if crate::support::threads::catch_panic(work).is_none() {
+        save_failed(
+            crate::support::lang::tr(
+                "A change could not be saved, because Glimt met an error while writing it",
+            )
+            .to_owned(),
+        );
     }
 }
 
-/// Waits until the writes queued before this call are done, five seconds at most. Unlike
-/// `flush`, it does not also wait for the writes that other work queues after it.
+/// Wait for everything being written, a few seconds at most, before Glimt ends: the last
+/// change of a setting or a keyword must not be lost with its thread.
+pub fn flush() {
+    flush_within(std::time::Duration::from_secs(5));
+}
+
+/// Waits for everything being written, for `limit` at most. A write still running then is
+/// told on the terminal, as the window is gone. A Rename Many cut short so keeps its plan on
+/// disk, because Glimt ends without dropping it, and the next start puts it right.
+fn flush_within(limit: std::time::Duration) {
+    let until = std::time::Instant::now() + limit;
+    let is_writing = || WRITING.load(std::sync::atomic::Ordering::Relaxed) > 0;
+    while is_writing() && std::time::Instant::now() < until {
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    if is_writing() {
+        save_failed(
+            crate::support::lang::tr(
+                "Glimt ended before every write was done: the last change of the settings, marks, a collection or a file may be lost",
+            )
+            .to_owned(),
+        );
+    }
+}
+
+/// Waits until the writes queued before this call in both writer threads are done, five
+/// seconds at most. Unlike `flush`, it does not also wait for the writes that other work
+/// queues after it.
 pub fn wait_for_queued_writes() {
+    let until = std::time::Instant::now() + std::time::Duration::from_secs(5);
     let (done, wait) = std::sync::mpsc::channel();
+    let done_too = done.clone();
     write_later(move || {
         let _ = done.send(());
     });
-    let _ = wait.recv_timeout(std::time::Duration::from_secs(5));
+    write_later_in_user_folders(move || {
+        let _ = done_too.send(());
+    });
+    for _ in 0..2 {
+        let _ = wait.recv_timeout(until.saturating_duration_since(std::time::Instant::now()));
+    }
 }
 
 /// The lock beside `path`, held while it lives: another Glimt window's reading and writing of
@@ -894,11 +963,26 @@ pub fn save_failed(error: String) {
     // In tests the error stays on this thread. The window's own slot is shared by every test,
     // and another test's window took the error as its notice in place of its own.
     #[cfg(test)]
-    SAVES_FAILED.with_borrow_mut(|told| told.push(error));
+    lock_even_if_poisoned(told_here()).push(error);
     #[cfg(not(test))]
     {
         *lock_even_if_poisoned(&SAVE_ERROR) = Some(error);
     }
+}
+
+/// Returns the list of the errors told for this thread's test, also on the writer thread while
+/// it does that test's work.
+#[cfg(test)]
+fn told_here() -> &'static std::sync::Mutex<Vec<String>> {
+    TOLD_FOR
+        .get()
+        .unwrap_or_else(|| SAVES_FAILED.with(|told| *told))
+}
+
+/// Returns the errors that `save_failed` told for this thread's test, and empties the list.
+#[cfg(test)]
+pub(crate) fn take_saves_failed() -> Vec<String> {
+    std::mem::take(&mut *lock_even_if_poisoned(told_here()))
 }
 
 #[cfg(test)]
@@ -1216,14 +1300,68 @@ mod tests {
     }
 
     /// A write that panics leaves the writer running: the next one is done, and flush waits.
+    /// The change it lost is told once, as every failed write is. Before, it was lost unseen.
     #[test]
     fn writer_survives_a_panic() {
         use std::sync::atomic::{AtomicBool, Ordering};
         static DONE: AtomicBool = AtomicBool::new(false);
+        super::take_saves_failed();
         super::write_later(|| panic!("a broken write"));
         super::write_later(|| DONE.store(true, Ordering::Relaxed));
         super::flush();
         assert!(DONE.load(Ordering::Relaxed));
+        assert_eq!(super::take_saves_failed().len(), 1);
+        // A write that panics in another ordered worker, as the sidecars' one, is told too.
+        let worker = super::start_ordered_worker();
+        let (done, wait) = std::sync::mpsc::channel();
+        let told = super::told_here();
+        worker
+            .send(Box::new(move || {
+                super::TOLD_FOR.set(Some(told));
+                panic!("a broken sidecar")
+            }))
+            .unwrap();
+        worker
+            .send(Box::new(move || done.send(()).unwrap()))
+            .unwrap();
+        wait.recv().unwrap();
+        assert_eq!(super::take_saves_failed().len(), 1);
+    }
+
+    /// A write in the user's folders that waits for a share that stopped answering does not
+    /// hold the settings and marks written after it (#103). Before, one thread did both.
+    #[test]
+    fn a_stalled_write_in_the_user_folders_does_not_hold_glimts_own_files() {
+        let (release, stalled) = std::sync::mpsc::channel::<()>();
+        super::write_later_in_user_folders(move || {
+            let _ = stalled.recv_timeout(std::time::Duration::from_secs(5));
+        });
+        let (done, own_write) = std::sync::mpsc::channel();
+        super::write_later(move || {
+            let _ = done.send(());
+        });
+        let own_write_is_done = own_write
+            .recv_timeout(std::time::Duration::from_secs(2))
+            .is_ok();
+        release.send(()).unwrap();
+        super::flush();
+        assert!(own_write_is_done);
+    }
+
+    /// A write still running when `flush` stops waiting is told. Before, Glimt ended without
+    /// a word, and the change was lost unseen.
+    #[test]
+    fn a_write_that_flush_does_not_wait_for_is_told() {
+        super::take_saves_failed();
+        let (release, wait) = std::sync::mpsc::channel::<()>();
+        super::write_later(move || {
+            let _ = wait.recv_timeout(std::time::Duration::from_secs(5));
+        });
+        super::flush_within(std::time::Duration::from_millis(50));
+        assert_eq!(super::take_saves_failed().len(), 1);
+        release.send(()).unwrap();
+        super::flush();
+        assert!(super::take_saves_failed().is_empty());
     }
 
     /// A file reached through a link is written where the link points; the link stays.

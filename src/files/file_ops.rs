@@ -943,11 +943,14 @@ impl crate::App {
                 self.edit_collection(follow);
             } else if let Some(file) = self.folder.collection() {
                 // None of them are in the list, because a refresh that started before they
-                // moved left them out. The file still follows, quietly, as it may hold none of
-                // them. It is written in the writer thread, as every edit of the collection.
+                // moved left them out. The file still follows, as it may hold none of them, and
+                // a failure is told. It is written in the writer thread, as every edit of the
+                // collection.
                 let file = file.to_path_buf();
-                crate::files::file_io::write_later(move || {
-                    let _ = collections::edit_open_collection(&file, follow);
+                crate::files::file_io::write_later_in_user_folders(move || {
+                    if let Err(e) = collections::edit_open_collection(&file, follow) {
+                        crate::files::file_io::save_failed(e);
+                    }
                 });
             }
             // The list is read again from the file, because a refresh that started before they
@@ -3778,8 +3781,9 @@ mod tests {
                 "journal's tests put every cut-short plan right",
             ),
             (
-                "write_later",
-                "the writer thread of Glimt's own files, which counts each work it is sent",
+                "queue_write",
+                "the writer threads of write_later and write_later_in_user_folders, which count \
+                 each work they are sent",
             ),
         ];
         let mut found = std::collections::BTreeSet::new();
@@ -3934,7 +3938,7 @@ mod tests {
         let dir = contract_folder("forget-queued");
         let (gqv, a, renamed) = (dir.join("col.gqv"), dir.join("a.png"), dir.join("c.png"));
         let (file, from, to) = (gqv.clone(), a.clone(), renamed.clone());
-        crate::files::file_io::write_later(move || {
+        crate::files::file_io::write_later_in_user_folders(move || {
             std::thread::sleep(std::time::Duration::from_millis(200));
             let rename = |all: &mut Vec<std::path::PathBuf>| {
                 (all.iter_mut().filter(|p| **p == from)).for_each(|p| *p = to.clone())

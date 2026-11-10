@@ -251,7 +251,7 @@ holds only its `mod` lines, and a new module goes into the folder of what it doe
 | `src/files/config.rs` | `Config` (the `config!` macro), the window state, the XDG paths |
 | `src/files/backup.rs` | File → Back Up and `--back-up` |
 | `src/files/file_ops.rs` | File operations as jobs with progress and Stop (`Job`), and Undo |
-| `src/files/file_io.rs` | The one way each change on disk is made (also `sync_folder_of`), the writer thread, `save_failed` |
+| `src/files/file_io.rs` | The one way each change on disk is made (also `sync_folder_of`), the writer threads (`write_later` for Glimt's own files, `write_later_in_user_folders` for collections), `save_failed` |
 | `src/files/trash.rs` | The trash, and putting a file back for Undo |
 | `src/files/external.rs` | Starting programs (`command`, `host_command`), and ffmpeg, gio and Open With |
 | `src/files/portal.rs` | The desktop portals through zbus (feature `portals`) |

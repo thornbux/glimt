@@ -27,9 +27,9 @@ impl crate::App {
     // ---- Collections ----
 
     /// Makes `change` to the open collection's file as it is then, with what other windows
-    /// changed. It is done in the writer thread, because the file and the folders of its entries
-    /// are read, and a share that stopped answering would hold the window. A failure is told as
-    /// every failed save is.
+    /// changed. It is done in the writer thread for the user's folders, because the file and
+    /// the folders of its entries are read, and a share that stopped answering would hold the
+    /// window. A failure is told as every failed save is.
     pub(crate) fn edit_collection(
         &mut self,
         change: impl FnOnce(&mut Vec<PathBuf>) + Send + 'static,
@@ -38,7 +38,7 @@ impl crate::App {
             return;
         };
         let file = file.to_path_buf();
-        crate::files::file_io::write_later(move || {
+        crate::files::file_io::write_later_in_user_folders(move || {
             if let Err(e) = edit_open_collection(&file, change) {
                 crate::files::file_io::save_failed(e);
             }
@@ -267,26 +267,38 @@ pub fn saved_collections() -> Vec<(String, PathBuf)> {
 /// Makes the entries of every saved collection follow the files or folders moved `(from, to)`,
 /// as Geeqie's collection manager does, so an entry never stays on a name that another file
 /// takes later. The `open` collection is left out, because the window has changed it already,
-/// and a second pass would move a swapped entry back. It runs in the writer thread, because it
-/// reads every saved collection, and a collection that holds none of the files is not written.
+/// and a second pass would move a swapped entry back. It runs in the writer thread for the
+/// user's folders, because it reads every saved collection and the folders of their entries.
+/// A collection that holds none of the files is not written.
 // shortcut: each move reads every saved collection whole; keep an index of their entries if
 // someone keeps thousands of large collections.
 pub(crate) fn follow_in_saved_collections(pairs: &[(PathBuf, PathBuf)], open: Option<&Path>) {
     let (pairs, open) = (pairs.to_vec(), open.map(Path::to_path_buf));
-    crate::files::file_io::write_later(move || {
+    crate::files::file_io::write_later_in_user_folders(move || {
         use crate::files::file_ops::{moves_by_source, new_place};
         let moved = moves_by_source(&pairs);
         let is_open = |file: &Path| {
             (open.as_deref()).is_some_and(|o| crate::images::save::same_file(o, file))
         };
         for (_, file) in saved_collections().into_iter().filter(|(_, f)| !is_open(f)) {
-            let _ = edit(&file, false, |all| {
+            let follow = |all: &mut Vec<PathBuf>| {
                 for p in all {
                     if let Some(to) = new_place(p, &moved) {
                         *p = to;
                     }
                 }
-            });
+            };
+            // A collection removed since the folder was read has no entries left to follow.
+            match edit(&file, false, follow) {
+                Err(e) if e.kind() != std::io::ErrorKind::NotFound => {
+                    crate::files::file_io::save_failed(tf!(
+                        "Could not save {name}: {e}",
+                        name = file.display(),
+                        e
+                    ));
+                }
+                _ => {}
+            }
         }
     });
 }
@@ -1017,6 +1029,26 @@ mod tests {
         assert!(super::edit(&gone, false, |all| all.clear()).is_err());
         assert!(!gone.exists());
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// A saved collection that cannot be written after its images moved is told, as every
+    /// failed save is. Before, it kept the old names, and the user was not told.
+    #[test]
+    fn a_saved_collection_that_cannot_follow_its_files_is_told() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = super::collections_dir().unwrap();
+        std::fs::create_dir_all(&dir).unwrap();
+        let saved = dir.join(format!("read-only-{}.gqv", std::process::id()));
+        let from = PathBuf::from(format!("/glimt-test-moved-{}/a.png", std::process::id()));
+        std::fs::write(&saved, super::to_text(std::slice::from_ref(&from), &[])).unwrap();
+        std::fs::set_permissions(&saved, std::fs::Permissions::from_mode(0o444)).unwrap();
+        crate::files::file_io::take_saves_failed();
+        super::follow_in_saved_collections(&[(from.clone(), from.with_file_name("b.png"))], None);
+        crate::files::file_io::flush();
+        let told = crate::files::file_io::take_saves_failed();
+        std::fs::remove_file(&saved).unwrap();
+        let name = saved.display().to_string();
+        assert!(told.iter().any(|e| e.contains(&name)), "{told:?}");
     }
 
     /// Collection files broken in thousands of ways: read without a panic.

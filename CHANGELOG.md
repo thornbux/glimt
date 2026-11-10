@@ -38,6 +38,22 @@ and versions follow [Semantic Versioning](https://semver.org/).
   the same rule now.
 - Cleaning the thumbnail cache removes a thumbnail only when its file is surely gone. Before, an
   error from a share that answered badly for a moment counted as gone, and the thumbnail went.
+- An edit of a collection that waits for a share that stopped answering no longer holds the
+  settings, marks and Open Recent saved after it: collections are written in a thread of their
+  own (#103).
+- Rename Many tells when it cannot write its plan (a full disk, a read-only state folder) and runs
+  without it, as a crash halfway is then not put right at the next start. Before, the user was
+  not told.
+- When Glimt closes while a write still runs after its five seconds' wait (a share that stopped
+  answering), it says so on the terminal. Before, it ended without a word.
+- A saved collection that cannot be written after its images were moved or renamed is told in
+  the window. Before, it kept the old names without a word. The open collection, when none of
+  the moved images was in its list yet, is told so too.
+- A write of the settings, marks, Open Recent or a collection that Glimt broke off with an error
+  of its own is told in the window, as every failed save is. Before, the change was lost
+  without a word. A sidecar write broken off so is told too.
+- README no longer says that Lightroom reads Glimt's sidecars: it reads only its own photo.xmp
+  beside a RAW file. Immich reads their ratings, comments and keyword tree.
 
 ## [0.78.0] - 2026-11-10
 

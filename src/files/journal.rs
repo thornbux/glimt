@@ -77,10 +77,22 @@ pub fn journal_dir() -> Option<PathBuf> {
 }
 
 /// Writes `moves` down in `dir`, locked and on disk with its name, before the first of them is
-/// done. Returns `None` if that fails, and the renames then run as they did before, without a
-/// plan.
+/// done. Returns `None` if that fails, and the renames then run without a plan. The user is told
+/// so, because a crash halfway is then not put right at the next start.
 pub fn start_journal(dir: &Path, moves: &[(PathBuf, PathBuf)]) -> Option<Journal> {
-    std::fs::create_dir_all(dir).ok()?;
+    let started = write_plan(dir, moves);
+    if let Err(e) = &started {
+        crate::files::file_io::save_failed(crate::tf!(
+            "Rename Many runs without its plan ({e}), so a crash halfway is not put right at the next start",
+            e
+        ));
+    }
+    started.ok()
+}
+
+/// Writes the plan of `moves` in `dir` for `start_journal`, and returns it.
+fn write_plan(dir: &Path, moves: &[(PathBuf, PathBuf)]) -> std::io::Result<Journal> {
+    std::fs::create_dir_all(dir)?;
     // The plan gets a name of its own, never one that is there, so a plan left by a crash, of a
     // Glimt that had the same process ID before a restart, is not written over and lost.
     let nanos = std::time::SystemTime::now()
@@ -94,8 +106,7 @@ pub fn start_journal(dir: &Path, moves: &[(PathBuf, PathBuf)]) -> Option<Journal
     let file = std::fs::OpenOptions::new()
         .write(true)
         .create_new(true)
-        .open(&path)
-        .ok()?;
+        .open(&path)?;
     // The plan is removed when dropped, also when what follows fails (a full disk). A plan left
     // half written would be offered at the next start, and finishing it would undo renames done
     // without it.
@@ -105,7 +116,7 @@ pub fn start_journal(dir: &Path, moves: &[(PathBuf, PathBuf)]) -> Option<Journal
         file,
         one_name_per_folder,
     };
-    plan.file.try_lock().ok()?;
+    plan.file.try_lock().map_err(std::io::Error::from)?;
     let mut bytes = [COUNTED, b"\0"].concat();
     for (a, b) in moves {
         for p in [a, b] {
@@ -117,9 +128,8 @@ pub fn start_journal(dir: &Path, moves: &[(PathBuf, PathBuf)]) -> Option<Journal
     (plan.file.write_all(&bytes))
         .and_then(|_| plan.file.sync_all())
         .and_then(|_| crate::files::file_io::sync_folder_of(&plan.path))
-        .and_then(|_| crate::files::file_io::sync_folder_of(dir))
-        .ok()?;
-    Some(plan)
+        .and_then(|_| crate::files::file_io::sync_folder_of(dir))?;
+    Ok(plan)
 }
 
 /// Takes `file`'s lock if no other window holds it, and returns whether it got it. The lock is
@@ -737,6 +747,23 @@ mod tests {
         }
     }
 
+    /// A Rename Many whose plan cannot be written is told so, as it then runs without the repair
+    /// at the next start. Before, the user was not told that this protection was gone.
+    #[test]
+    fn a_plan_that_cannot_be_written_is_told() {
+        use crate::files::file_io::take_saves_failed;
+        let dir = std::env::temp_dir().join(format!("glimt-test-no-plan-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        // A file where the plans' folder should be, so that no plan can be made in it.
+        let plans = dir.join("plans");
+        std::fs::write(&plans, "").unwrap();
+        take_saves_failed();
+        let moves = vec![(dir.join("a.jpg"), dir.join("b.jpg"))];
+        assert!(super::start_journal(&plans, &moves).is_none());
+        assert_eq!(take_saves_failed().len(), 1);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
     /// The plan is on disk with its name before the first rename, and the folder of the renames
     /// is synced before the plan is removed, once however many files it renames. A plan kept on
     /// disk needs no such sync.
@@ -770,16 +797,16 @@ mod tests {
     /// them again at the next start, or swap a swap's marks back.
     #[test]
     fn the_plan_goes_and_the_user_is_told_when_the_renames_did_not_reach_the_disk() {
-        use crate::files::file_io::{FOLDER_SYNC_FAILS, SAVES_FAILED};
+        use crate::files::file_io::{FOLDER_SYNC_FAILS, take_saves_failed};
         let dir =
             std::env::temp_dir().join(format!("glimt-test-sync-fails-{}", std::process::id()));
         let plans = dir.join("plans");
         let moves = vec![(dir.join("a.jpg"), dir.join("b.jpg"))];
         // What this thread told, which no other test can take.
-        let told_once = || SAVES_FAILED.take().len() == 1;
+        let told_once = || take_saves_failed().len() == 1;
         let plan = super::start_journal(&plans, &moves).unwrap();
         let path = plan.path.clone();
-        SAVES_FAILED.take();
+        take_saves_failed();
         FOLDER_SYNC_FAILS.set(true);
         drop(plan);
         FOLDER_SYNC_FAILS.set(false);

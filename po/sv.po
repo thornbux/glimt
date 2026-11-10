@@ -2989,3 +2989,15 @@ msgstr "Kunde inte ge fönstret ett namn: {why}"
 #: src/ui/dialogs.rs
 msgid "Could not name this window: a name holds up to 64 letters, digits, - and _, and not only digits"
 msgstr "Kunde inte ge fönstret ett namn: ett namn har upp till 64 bokstäver, siffror, - och _, och inte bara siffror"
+
+#: src/files/file_io.rs
+msgid "A change could not be saved, because Glimt met an error while writing it"
+msgstr "En ändring kunde inte sparas, eftersom Glimt stötte på ett fel när den skrevs"
+
+#: src/files/file_io.rs
+msgid "Glimt ended before every write was done: the last change of the settings, marks, a collection or a file may be lost"
+msgstr "Glimt avslutades innan allt var skrivet: den senaste ändringen av inställningarna, märkena, en samling eller en fil kan ha gått förlorad"
+
+#: src/files/journal.rs
+msgid "Rename Many runs without its plan ({e}), so a crash halfway is not put right at the next start"
+msgstr "Byt namn på flera körs utan sin plan ({e}), så en krasch halvvägs rättas inte vid nästa start"

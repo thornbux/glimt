@@ -96,9 +96,9 @@
 
     <rect x="650" y="516" width="490" height="82" rx="6" fill="#f1f1e4" stroke="#7a7a2a" stroke-width="1.5"/>
     <text x="664" y="536" font-size="13" font-weight="700">Writer threads</text>
-    <text x="664" y="554" font-size="12">file_io::write_later: one serial thread for settings and Glimt's own files</text>
+    <text x="664" y="554" font-size="12">write_later: settings, marks · write_later_in_user_folders: collections</text>
     <text x="664" y="572" font-size="12">sidecar_writer: keywords and stars, in the order they were made</text>
-    <text x="664" y="590" font-size="12">both counted in file_io::WRITING; on_exit waits for them (flush)</text>
+    <text x="664" y="590" font-size="12">all counted in file_io::WRITING; on_exit waits for them (flush)</text>
 
     <rect x="650" y="614" width="490" height="64" rx="6" fill="#e0f5f5" stroke="#138a8a" stroke-width="1.5"/>
     <text x="664" y="634" font-size="13"><tspan font-weight="700">Thumbnail workers</tspan> <tspan font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" font-size="12">spawn_thumbnailers</tspan>, one per core</text>

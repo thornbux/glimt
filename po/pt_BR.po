@@ -3000,3 +3000,15 @@ msgstr "Não foi possível dar nome a esta janela: {why}"
 #: src/ui/dialogs.rs
 msgid "Could not name this window: a name holds up to 64 letters, digits, - and _, and not only digits"
 msgstr "Não foi possível dar nome a esta janela: um nome tem até 64 letras, algarismos, - e _, e não só algarismos"
+
+#: src/files/file_io.rs
+msgid "A change could not be saved, because Glimt met an error while writing it"
+msgstr "Não foi possível salvar uma alteração, porque o Glimt encontrou um erro ao gravá-la"
+
+#: src/files/file_io.rs
+msgid "Glimt ended before every write was done: the last change of the settings, marks, a collection or a file may be lost"
+msgstr "O Glimt encerrou antes de gravar tudo: a última alteração das configurações, marcas, de uma coleção ou de um arquivo pode ter sido perdida"
+
+#: src/files/journal.rs
+msgid "Rename Many runs without its plan ({e}), so a crash halfway is not put right at the next start"
+msgstr "“Renomear vários” é executado sem seu plano ({e}), então uma falha no meio não será corrigida na próxima inicialização"
