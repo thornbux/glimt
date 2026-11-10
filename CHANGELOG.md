@@ -5,6 +5,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.78.0] - 2026-11-10
+
 ### Added
 
 - `glimt --action-list` prints the actions that `glimt --remote run` takes, one to a line: the
@@ -19,6 +21,16 @@ and versions follow [Semantic Versioning](https://semver.org/).
   script can undo them. Each file is sent as soon as it is read, so 100,000 files answer too,
   and an answer cut short by a window that closes exits with 3. Its form is frozen in 1.x, so
   scripts and AI assistants can read it.
+- Window → Set Window Name… and `glimt --remote name NAME` give a running window a new
+  `--name`, which `--remote` reaches it by from then on; without a name, its process ID does.
+  With remote control off in Preferences, a window listens while it has a name, as with
+  `--name` at start.
+- `glimt --remote-all identify` shows each window's ID large over the image for a few seconds,
+  and `%id%` puts it in the window title: its name, or its process ID when it has none.
+- Several windows may share a `--name`, and `glimt --name NAME --remote` reaches each of them.
+  A window that shares its name with one started before it shows its own ID beside the name,
+  as `left (4242)`, and `--name 4242` reaches it alone, as it reaches a window without a name.
+
 ### Changed
 
 - Saving a file that has other names (hard links), such as a turned image, a copy saved over
@@ -26,25 +38,23 @@ and versions follow [Semantic Versioning](https://semver.org/).
   through. A job over many such files tells it once, with their count. The save gives the
   name a new file, so the other names are not changed with it. Before, they were left behind
   without a word.
-### Changed
-
 - SIGTERM and SIGHUP, as a logout, a session manager or `kill` sends them, close Glimt as
   Ctrl+Q does: it waits while files are copied, moved or saved, so the marks follow the moved
   files, and writes its state. Each further signal counts as closing again (the second stops
   the files after the one at hand, the third ends at once), and SIGKILL always ends it at once.
   A signal that was ignored when Glimt started, as `nohup glimt` ignores SIGHUP, stays
   ignored. Before, either signal ended Glimt halfway through a job.
+
 ### Fixed
 
-- The IMG_1.xmp that Lightroom, Camera Raw, Bridge and Capture One write beside a RAW file
-  IMG_1.CR2 now goes with it when Glimt moves, copies, renames, deletes or trashes it, and comes
-  back with an Undo. Before, it stayed behind, and the next IMG_1.CR2 in that folder got
-  Lightroom's edits and keywords. IMG_1.XMP, as Capture One and Photo Mechanic name it, goes
-  too. An IMG_1.JPG or IMG_1.DNG beside the RAW file leaves it alone, as Lightroom keeps their
-  metadata inside them, and two RAW files of one name (IMG_1.CR2 and IMG_1.NEF) leave it where
-  it is, unless both are moved together, in any order, and it goes along. The manual no longer says that Lightroom reads Glimt's own IMG_1.CR2.xmp.
-### Fixed
-
+- The IMG_1.xmp that Lightroom, Camera Raw, Bridge and Capture One write beside a RAW file IMG_1.CR2
+  now goes with it when Glimt moves, copies, renames, deletes or trashes it, and comes back with an
+  Undo. Before, it stayed behind, and the next IMG_1.CR2 in that folder got Lightroom's edits and
+  keywords. IMG_1.XMP, as Capture One and Photo Mechanic name it, goes too. An IMG_1.JPG or
+  IMG_1.DNG beside the RAW file leaves it alone, as Lightroom keeps their metadata inside them, and
+  two RAW files of one name (IMG_1.CR2 and IMG_1.NEF) leave it where it is, unless both are moved
+  together, in any order, and it goes along. The manual no longer says that Lightroom reads Glimt's
+  own IMG_1.CR2.xmp.
 - A network share that stops answering (a NAS gone to sleep, Wi-Fi lost) no longer hangs the
   window. Opening a folder, a file or a collection, Open Recent, the file list's size and date
   columns, the status bar's file size, editing a collection, turning random order off, and
@@ -56,15 +66,6 @@ and versions follow [Semantic Versioning](https://semver.org/).
   the commands that waited for the old place are answered that they were not done. A command
   that waits longer than a client does lets its place go, so waiting ones never keep the
   next clients out.
-- Window → Set Window Name… and `glimt --remote name NAME` give a running window a new
-  `--name`, which `--remote` reaches it by from then on; without a name, its process ID does.
-  With remote control off in Preferences, a window listens while it has a name, as with
-  `--name` at start.
-- `glimt --remote-all identify` shows each window's ID large over the image for a few seconds,
-  and `%id%` puts it in the window title: its name, or its process ID when it has none.
-- Several windows may share a `--name`, and `glimt --name NAME --remote` reaches each of them.
-  A window that shares its name with one started before it shows its own ID beside the name,
-  as `left (4242)`, and `--name 4242` reaches it alone, as it reaches a window without a name.
 - An Undo of a move, and other work in the background, now lets go of its files before the
   busy pointer goes. On a busy computer, an operation started on the same files at that moment
   was refused with "Still working on these files".
@@ -3380,7 +3381,8 @@ The first release. Glimt is not 1.0 yet: it is in daily use, but expect rough ed
 - Remote control from the command line: `glimt --remote` and `--remote-all`.
 - Remembers the folder, window size and position.
 
-[Unreleased]: https://github.com/thornbux/glimt/compare/v0.77.0...HEAD
+[Unreleased]: https://github.com/thornbux/glimt/compare/v0.78.0...HEAD
+[0.78.0]: https://github.com/thornbux/glimt/compare/v0.77.0...v0.78.0
 [0.77.0]: https://github.com/thornbux/glimt/compare/v0.76.0...v0.77.0
 [0.76.0]: https://github.com/thornbux/glimt/compare/v0.75.0...v0.76.0
 [0.75.0]: https://github.com/thornbux/glimt/compare/v0.74.0...v0.75.0
