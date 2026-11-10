@@ -23,6 +23,8 @@ impl crate::App {
             self.notice.give(error);
         }
         self.receive_desktop(ctx);
+        self.folder.receive_sort_folders();
+        self.info_panel.receive_keyword_tree();
         self.decoding
             .set_max_side(ctx.input(|i| i.max_texture_side) as u32);
         self.receive_decoded(ctx);

@@ -129,6 +129,9 @@ pub(crate) struct Folder {
     sort_folders: Vec<PathBuf>,
     /// The saved collections that the File menu lists.
     saved_collections: crate::model::collections::SavedCollections,
+    /// The sort manager's folders as their file has them once this window's last change is
+    /// written, with what other windows wrote there meanwhile.
+    sort_folders_written: Receiving<Vec<PathBuf>>,
 }
 
 impl Folder {
@@ -187,6 +190,7 @@ impl Folder {
                 .and_then(|p| crate::images::decode::read_limited(p).ok()))
             .map_or_else(Vec::new, |t| sort_folders_from(&t)),
             saved_collections: Default::default(),
+            sort_folders_written: Receiving::none(),
         }
     }
 
@@ -359,9 +363,24 @@ impl Folder {
         &self.sort_folders
     }
 
-    /// Takes the sort manager's folders as its file has them now.
-    pub(crate) fn set_sort_folders(&mut self, dirs: Vec<PathBuf>) {
+    /// Shows the sort manager's folders `dirs` at once, and those that `written` sends once
+    /// they are written to their file, with another window's folders.
+    pub(crate) fn set_sort_folders(
+        &mut self,
+        dirs: Vec<PathBuf>,
+        written: std::sync::mpsc::Receiver<Vec<PathBuf>>,
+    ) {
         self.sort_folders = dirs;
+        self.sort_folders_written = Receiving::of(written);
+    }
+
+    /// Takes the sort manager's folders as their file has them once this window's last change
+    /// is written. So another window's folders show here after this window's next change, as
+    /// they did when the window wrote the file itself.
+    pub(crate) fn receive_sort_folders(&mut self) {
+        if let Took::Answer(dirs) = self.sort_folders_written.take() {
+            self.sort_folders = dirs;
+        }
     }
 
     /// The type of the file opened directly, which is listed even when the Types menu leaves
