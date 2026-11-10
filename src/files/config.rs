@@ -1934,6 +1934,7 @@ mod tests {
             shown(super::recent_path()),
             shown(super::sharing_path()),
             shown(crate::files::journal::journal_dir()),
+            shown(crate::files::journal::move_log_dir()),
             shown(crate::model::collections::collections_dir()),
         ];
         #[cfg(feature = "marks")]

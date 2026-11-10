@@ -2,6 +2,9 @@
 //! their new names, their old ones, or hidden temporary ones. The next start finds the plan and
 //! puts the old names back or finishes. The plan is locked while it runs, so a plan that another
 //! window is still carrying out is left alone.
+//!
+//! A Move keeps a log of the same kind (`MoveLog`), so that the marks and collections of the
+//! files that went before Glimt was killed follow them at the next start.
 
 use crate::images::save::{same_file, same_file_by_opening};
 use std::collections::HashMap;
@@ -95,9 +98,125 @@ impl Drop for Journal {
     }
 }
 
+/// The log of a Move while it runs: each file's old and new name, written down before the file
+/// goes. The marks and collections follow the files only once the Move has ended, so Glimt
+/// killed halfway (a logout's SIGKILL, Ctrl+C, a third close) left the marks and stars of every
+/// file that went under the old names. The log is removed once they have followed
+/// (`remove_once_followed`). Left on disk by a kill, it is found at the next start
+/// (`moves_cut_short`). It is locked while in use, so the start of another window leaves it
+/// alone.
+pub struct MoveLog {
+    path: PathBuf,
+    file: File,
+    /// Whether the log was found at the start, left by a Glimt that was killed.
+    is_found_at_start: bool,
+}
+
+impl MoveLog {
+    /// Writes down that the file `from` goes to `to`, before it goes. It is not synced, because
+    /// a kill of Glimt does not need that. Returns an error that names the log.
+    pub fn note(&mut self, from: &Path, to: &Path) -> std::io::Result<()> {
+        let mut bytes = Vec::new();
+        for p in [from, to] {
+            bytes.extend(p.as_os_str().as_bytes());
+            bytes.push(0);
+        }
+        (self.file.write_all(&bytes))
+            .map_err(|e| std::io::Error::new(e.kind(), format!("{}: {e}", self.path.display())))
+    }
+
+    /// Whether the log was found at the start, left by a Glimt that was killed during its Move.
+    pub fn is_found_at_start(&self) -> bool {
+        self.is_found_at_start
+    }
+
+    /// Removes the log once the marks and collections have followed its files. The window sent
+    /// their edits before, to the thread of Glimt's own files and to that of the user's folders,
+    /// and the log goes after both. A log that is dropped instead stays on disk, and the next
+    /// start makes them follow.
+    pub fn remove_once_followed(self) {
+        crate::files::file_io::write_later_in_user_folders(move || {
+            crate::files::file_io::write_later(move || {
+                #[allow(clippy::disallowed_methods)] // the log, Glimt's own file
+                let _ = std::fs::remove_file(&self.path);
+            });
+        });
+    }
+}
+
 pub fn journal_dir() -> Option<PathBuf> {
     crate::files::config::xdg_dir("XDG_STATE_HOME", ".local/state", "glimt")
         .map(|d| d.join("renames"))
+}
+
+/// The folder of the logs of Moves (`MoveLog`).
+pub fn move_log_dir() -> Option<PathBuf> {
+    crate::files::config::xdg_dir("XDG_STATE_HOME", ".local/state", "glimt")
+        .map(|d| d.join("moves"))
+}
+
+/// Makes a new log of a Move in `dir`, locked.
+pub fn start_move_log(dir: &Path) -> std::io::Result<MoveLog> {
+    std::fs::create_dir_all(dir)?;
+    let path = dir.join(new_name());
+    #[allow(clippy::disallowed_methods)] // a log made new, in Glimt's own state folder
+    let file = std::fs::OpenOptions::new()
+        .append(true)
+        .create_new(true)
+        .open(&path)?;
+    file.try_lock().map_err(std::io::Error::from)?;
+    Ok(MoveLog {
+        path,
+        file,
+        is_found_at_start: false,
+    })
+}
+
+/// The logs in `dir` of Moves that Glimt was killed during, which are those no running window
+/// holds locked. Each comes with the files that went, `(from, to)`: those whose old name is
+/// surely not there any more and whose new one is. A file that had not gone yet is still at its
+/// old name. Each log is held locked until it is removed.
+pub fn moves_cut_short(dir: &Path) -> Vec<(MoveLog, Moves)> {
+    let entries = std::fs::read_dir(dir).into_iter().flatten().flatten();
+    entries
+        .filter_map(|e| {
+            // A pipe or a link planted in the state folder is no log.
+            e.file_type().ok().filter(|t| t.is_file())?;
+            let file = crate::images::decode::open_regular(e.path())
+                .ok()
+                .filter(take_lock_if_free)
+                .filter(is_linked)?;
+            let mut bytes = Vec::new();
+            #[allow(clippy::disallowed_methods)] // bounded by take, and only a file
+            let read = (&file)
+                .take(crate::images::decode::MAX_DECODE_BYTES)
+                .read_to_end(&mut bytes);
+            read.ok()?;
+            // A log made a moment ago and not yet locked is not one left by a kill.
+            if bytes.is_empty() {
+                return None;
+            }
+            let paths: Vec<PathBuf> = (bytes.split(|&b| b == 0))
+                .filter(|p| !p.is_empty())
+                .map(|p| PathBuf::from(OsStr::from_bytes(p)))
+                .collect();
+            let is_surely_gone = |p: &Path| {
+                matches!(std::fs::symlink_metadata(p),
+                    Err(e) if e.kind() == std::io::ErrorKind::NotFound)
+            };
+            // A pair cut off by the kill has names that are not there, and is left out so.
+            let went: Moves = (paths.as_chunks::<2>().0.iter())
+                .filter(|[from, to]| is_surely_gone(from) && std::fs::symlink_metadata(to).is_ok())
+                .map(|[from, to]| (from.clone(), to.clone()))
+                .collect();
+            let log = MoveLog {
+                path: e.path(),
+                file,
+                is_found_at_start: true,
+            };
+            Some((log, went))
+        })
+        .collect()
 }
 
 /// Writes `moves` down in `dir`, locked and on disk with its name, before the first of them is
@@ -117,15 +236,7 @@ pub fn start_journal(dir: &Path, moves: &[(PathBuf, PathBuf)]) -> Option<Journal
 /// Writes the plan of `moves` in `dir` for `start_journal`, and returns it.
 fn write_plan(dir: &Path, moves: &[(PathBuf, PathBuf)]) -> std::io::Result<Journal> {
     std::fs::create_dir_all(dir)?;
-    // The plan gets a name of its own, never one that is there, so a plan left by a crash, of a
-    // Glimt that had the same process ID before a restart, is not written over and lost.
-    let nanos = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_or(0, |d| d.as_nanos());
-    let path = dir.join(format!(
-        "{}-{nanos}",
-        crate::features::remote::instance_id()
-    ));
+    let path = dir.join(new_name());
     #[allow(clippy::disallowed_methods)] // a plan made new, in Glimt's own state folder
     let file = std::fs::OpenOptions::new()
         .write(true)
@@ -154,6 +265,16 @@ fn write_plan(dir: &Path, moves: &[(PathBuf, PathBuf)]) -> std::io::Result<Journ
         .and_then(|_| crate::files::file_io::sync_folder_of(&plan.path))
         .and_then(|_| crate::files::file_io::sync_folder_of(dir))?;
     Ok(plan)
+}
+
+/// Returns a name for a new plan or log. It is a name of its own, never one that is there, so a
+/// plan left by a crash, of a Glimt that had the same process ID before a restart, is not
+/// written over and lost.
+fn new_name() -> String {
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_nanos());
+    format!("{}-{nanos}", crate::features::remote::instance_id())
 }
 
 /// Takes `file`'s lock if no other window holds it, and returns whether it got it. The lock is

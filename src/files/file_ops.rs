@@ -16,7 +16,7 @@ use crate::model::listing::pattern_name;
 use crate::support::format::{count, thousands};
 use crate::support::lang::tr;
 use crate::support::threads::{
-    AnswerSender, Receiving, Took, Working, answer_channel, lock_even_if_poisoned,
+    AnswerSender, NoticeSender, Receiving, Took, Working, answer_channel, lock_even_if_poisoned,
 };
 use crate::ui::actions::Action;
 use crate::ui::dialogs::Pick;
@@ -146,6 +146,9 @@ pub(crate) struct OperationReport {
     /// The type of a network or cloud mount whose files the trash refused, and those files,
     /// which are still there. The window asks whether to delete them for good instead.
     pub(crate) untrashable: Option<(String, Vec<PathBuf>)>,
+    /// The log of a Move, removed once the marks and collections have followed `moved`. One
+    /// found at the start comes with the files that went before Glimt was killed.
+    pub(crate) move_log: Option<journal::MoveLog>,
 }
 
 /// A file moved or renamed, `(from, to, fingerprint)`, as Undo puts it back. The fingerprint is
@@ -324,10 +327,17 @@ impl FileOperations {
         let (saved_tx, saved_rx) = answer_channel(busy);
         let (tx, cut_short_rx) = mpsc::channel();
         let (real_folder_tx, real_folder_found) = answer_channel(busy);
+        let moves_tx = report_tx.clone();
         std::thread::spawn(move || {
             let _ = tx.send(
                 journal::journal_dir().map_or_else(Vec::new, |d| journal::cut_short_plans(&d)),
             );
+            // The tests share one state folder, so a test's window would take the logs of
+            // another test.
+            #[cfg(not(test))]
+            send_moves_cut_short(&moves_tx);
+            #[cfg(test)]
+            drop(moves_tx);
         });
         FileOperations {
             jobs: Vec::new(),
@@ -827,6 +837,7 @@ impl crate::App {
                 collection_renamed,
                 folder_made,
                 untrashable,
+                move_log,
             },
             _pointer,
         ) in self
@@ -863,9 +874,8 @@ impl crate::App {
             // its sidecar was not. They go before a copy's marks are put on it.
             #[cfg(feature = "marks")]
             self.marks.forget(&overwritten, None);
-            // The moves are handled before their sources are taken for deleted files, so the
-            // marks go along first.
-            self.follow_moved_paths(moved, is_copy);
+            // The moves come before the deleted files, so the marks go along first.
+            self.follow_moves_reported(moved, is_copy, move_log);
             self.written_anew(&changed);
             self.files_changed(ctx, &changed);
             self.files_changed(ctx, &overwritten);
@@ -956,6 +966,39 @@ impl crate::App {
         }
         let asked = Asked::new(self.opened_folder_hash(), names, None);
         self.dialogs.confirm_delete_instead(asked, kind);
+    }
+
+    /// Brings along what Glimt keeps about the files a report says were `moved`, or copied
+    /// (`is_copy`), as `follow_moved_paths` does. A Move's log goes once they have followed.
+    fn follow_moves_reported(
+        &mut self,
+        moved: Vec<(PathBuf, PathBuf)>,
+        is_copy: bool,
+        move_log: Option<journal::MoveLog>,
+    ) {
+        let moved = match &move_log {
+            Some(log) if log.is_found_at_start() => self.not_followed_before_a_kill(moved),
+            _ => moved,
+        };
+        self.follow_moved_paths(moved, is_copy);
+        if let Some(log) = move_log {
+            log.remove_once_followed();
+        }
+    }
+
+    /// Returns the files of `went`, moved before Glimt was killed, whose marks have not
+    /// followed them yet. A file whose old name holds no marks had them follow it before the
+    /// kill, or had none, and following it again would take them off its new name. Its
+    /// collections' entries follow here, as entries already followed are not found again.
+    fn not_followed_before_a_kill(&self, went: Vec<(PathBuf, PathBuf)>) -> Vec<(PathBuf, PathBuf)> {
+        #[cfg(feature = "marks")]
+        let (went, followed): (Vec<_>, Vec<_>) =
+            (went.into_iter()).partition(|(from, _)| self.marks.get(from) != (0, 0));
+        #[cfg(feature = "marks")]
+        if !followed.is_empty() {
+            collections::follow_in_saved_collections(&followed, self.folder.collection());
+        }
+        went
     }
 
     /// Brings along what Glimt keeps about files or folders that were moved or renamed
@@ -1143,7 +1186,9 @@ impl crate::App {
             if !is_copy && same_dir {
                 let _ = freed_tx.send(total_size(&paths));
             }
-            let (errors, put) = put_files(&paths, at_pick.as_deref(), &dest, is_copy, &job);
+            let mut move_log = (!is_copy).then(|| start_move_log_or_tell(&tx)).flatten();
+            let at_pick = at_pick.as_deref();
+            let (errors, put) = put_files(&paths, at_pick, &dest, &job, move_log.as_mut());
             let gone: Vec<PathBuf> = match is_copy {
                 true => Vec::new(),
                 false => put.iter().map(|(from, _)| from.clone()).collect(),
@@ -1180,6 +1225,7 @@ impl crate::App {
                 is_copy,
                 read_folder_again,
                 undo,
+                move_log,
                 ..Default::default()
             });
             drop(undo_on_the_way);
@@ -2510,16 +2556,45 @@ pub(crate) fn rename_files(
     Ok(())
 }
 
-/// Copies or moves `paths` into the folder `dest` for `transfer`, each with its sidecars, until
-/// `job` is stopped. A file that no longer has its fingerprint of `at_pick` is left where it is.
-/// Returns the errors to tell and the files put there, `(from, to)`.
+/// Sends to the window, through `report_tx`, the Moves that Glimt was killed during, found at
+/// the start. The marks and collections then follow the files that went, as the Moves' reports
+/// would have made them.
+#[cfg(not(test))]
+fn send_moves_cut_short(report_tx: &AnswerSender<OperationReport>) {
+    let logs = journal::move_log_dir().map(|d| journal::moves_cut_short(&d));
+    for (log, went) in logs.into_iter().flatten() {
+        let _ = report_tx.send(OperationReport {
+            moved: went,
+            move_log: Some(log),
+            ..Default::default()
+        });
+    }
+}
+
+/// Starts the log of a Move (`journal::MoveLog`). Returns `None` when there is no state folder,
+/// and when the log cannot be made, which `tx` tells. The Move then runs without it, as Rename
+/// Many runs without its plan.
+fn start_move_log_or_tell(tx: &NoticeSender) -> Option<journal::MoveLog> {
+    let dir = journal::move_log_dir()?;
+    let started = journal::start_move_log(&dir);
+    if let Err(e) = &started {
+        tx.send_failed_write(tf!("Could not save {name}: {e}", name = dir.display(), e));
+    }
+    started.ok()
+}
+
+/// Copies `paths` into the folder `dest` for `transfer`, each with its sidecars, until `job` is
+/// stopped. With `move_log`, a Move's log, it moves them instead, and writes each file down in
+/// the log before it goes. A file that no longer has its fingerprint of `at_pick` is left where
+/// it is. Returns the errors to tell and the files put there, `(from, to)`.
 fn put_files(
     paths: &[PathBuf],
     at_pick: Option<&[Option<FileFingerprint>]>,
     dest: &Path,
-    is_copy: bool,
     job: &Job,
+    mut move_log: Option<&mut journal::MoveLog>,
 ) -> (Vec<String>, Vec<(PathBuf, PathBuf)>) {
+    let is_copy = move_log.is_none();
     let (mut errors, mut put) = (Vec::new(), Vec::new());
     // Each folder is read once for the whole job (`xmp::AdobeNames`).
     let target_of = |path: &PathBuf| dest.join(path.file_name().unwrap_or_default());
@@ -2553,6 +2628,10 @@ fn put_files(
             moving.remove(path);
         } else if let Some(at) = name_in_the_way(&target, &HashSet::new(), &mut names) {
             failed(&at, std::io::ErrorKind::AlreadyExists.into());
+            moving.remove(path);
+        } else if let Some(Err(e)) = (move_log.as_deref_mut()).map(|log| log.note(path, &target)) {
+            // Without its line in the log, a kill would leave its marks behind, so it stays.
+            failed(path, e);
             moving.remove(path);
         } else if let Err(e) = put_file_until_stopped(path, &target, is_copy, &|| job.is_stopped())
         {
@@ -4036,6 +4115,59 @@ mod tests {
             assert!(stayed, "{order:?}: r.xmp went back with r.cr2");
             std::fs::remove_dir_all(&d).unwrap();
         }
+    }
+
+    /// Glimt killed during a Move leaves the Move's log, and the next start makes the marks
+    /// follow the files that went, and only those. Before, the marks followed only the Move's
+    /// last report, so a kill (a logout's SIGKILL, Ctrl+C) left the stars of every file already
+    /// moved under its old name. The kill here is the log dropped without a report, with one
+    /// file of two gone.
+    #[test]
+    fn the_marks_follow_the_files_a_killed_move_moved() {
+        let dir = contract_folder("killed-move");
+        let (to, logs) = (dir.join("sub"), dir.join("logs"));
+        let (a, b) = (dir.join("a.png"), dir.join("b.png"));
+        let (mut app, ctx) = app_on(&dir);
+        #[cfg(feature = "marks")]
+        app.marks.rate(&[a.clone(), b.clone()], 3);
+        let marked = if cfg!(feature = "marks") { 3 } else { 0 };
+        let job = super::Job::new("Moving", 2, false, Vec::new());
+        let mut log = super::journal::start_move_log(&logs).unwrap();
+        let moved = super::put_files(std::slice::from_ref(&a), None, &to, &job, Some(&mut log));
+        assert_eq!(moved, (Vec::new(), vec![(a.clone(), to.join("a.png"))]));
+        // b.png was written down, and the kill came before it went.
+        log.note(&b, &to.join("b.png")).unwrap();
+        drop(log);
+        let send_found = |app: &crate::App| {
+            let found = super::journal::moves_cut_short(&logs);
+            let count = found.len();
+            for (log, went) in found {
+                assert_eq!(went, vec![(a.clone(), to.join("a.png"))]);
+                // Another window that starts meanwhile leaves the log alone.
+                assert!(super::journal::moves_cut_short(&logs).is_empty());
+                let report = super::OperationReport {
+                    moved: went,
+                    move_log: Some(log),
+                    ..Default::default()
+                };
+                let _ = app.file_operations.report_sender().send(report);
+            }
+            count
+        };
+        let no_log_left = |_: &crate::App| std::fs::read_dir(&logs).unwrap().count() == 0;
+        assert_eq!(send_found(&app), 1);
+        assert!(run_background_until(&mut app, &ctx, no_log_left));
+        assert_eq!(stars(&app, &to.join("a.png")), marked);
+        assert_eq!(stars(&app, &a), 0);
+        assert_eq!(stars(&app, &b), marked);
+        // Found again, as after a kill just before the log went, the stars stay on a.png.
+        let mut again = super::journal::start_move_log(&logs).unwrap();
+        again.note(&a, &to.join("a.png")).unwrap();
+        drop(again);
+        assert_eq!(send_found(&app), 1);
+        assert!(run_background_until(&mut app, &ctx, no_log_left));
+        assert_eq!(stars(&app, &to.join("a.png")), marked);
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     /// A Move holds its files back from the request, while its folder's real path is looked
