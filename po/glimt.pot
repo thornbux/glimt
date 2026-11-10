@@ -2746,6 +2746,10 @@ msgstr ""
 msgid "the file was moved, renamed or deleted meanwhile"
 msgstr ""
 
+#: src/files/file_io.rs
+msgid "the file was changed meanwhile"
+msgstr ""
+
 msgid "the file is read-only"
 msgstr ""
 

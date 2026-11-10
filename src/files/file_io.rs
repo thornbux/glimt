@@ -137,6 +137,13 @@ impl OtherNames {
     }
 }
 
+/// A file's fingerprint: (device and inode, size, modification time in seconds and nanoseconds).
+/// The inode stays the same through a rename on one disk. FAT, exFAT and FUSE without use_ino may
+/// give the same file another inode later, so there the size and time tell the file instead. The
+/// device and inode are `None` where the file system gives every file inode 0
+/// (`save::file_id_from_metadata`), and then only the size and time tell the file.
+pub(crate) type FileFingerprint = (Option<(u64, u64)>, u64, (i64, i64));
+
 /// A write queued for a `start_ordered_worker` thread.
 pub type QueuedWrite = Box<dyn FnOnce() + Send>;
 
@@ -723,7 +730,7 @@ pub fn file_lock(path: &Path) -> Option<std::fs::File> {
 /// This Glimt's name is in it (in a Flatpak more than the process ID, which windows can share),
 /// so concurrent sessions never write to the same temporary file.
 pub fn replace_file(path: &Path, bytes: impl AsRef<[u8]>) -> std::io::Result<()> {
-    replace(path, bytes, false, || Ok(()))
+    replace(path, bytes, None, || Ok(()))
 }
 
 /// `replace_file` for a file of the user's that must still be there: a turned image, whose
@@ -732,13 +739,17 @@ pub fn replace_file(path: &Path, bytes: impl AsRef<[u8]>) -> std::io::Result<()>
 /// every operation, whether or not it asked `are_free_to_change` first. The step `before` runs
 /// after the file is found writable and still there and the new version is written whole, just
 /// before the rename. The image's sidecar is changed there, so a write that fails (a read-only
-/// file, a full disk) leaves the file and its sidecar as they were.
+/// file, a full disk) leaves the file and its sidecar as they were. `read` is the fingerprint of
+/// the file that `bytes` were made from, taken before it was read (`fingerprint_before_reading`).
+/// A file that changed since (a copy still being written into it, another file given its name)
+/// is not written over.
 pub fn replace_existing(
     path: &Path,
     bytes: impl AsRef<[u8]>,
+    read: FileFingerprint,
     before: impl FnOnce() -> std::io::Result<()>,
 ) -> std::io::Result<()> {
-    replace(path, bytes, true, before)
+    replace(path, bytes, Some(read), before)
 }
 
 /// Replaces the file named `path` with `bytes`, written whole beside it first. Unlike
@@ -776,16 +787,18 @@ pub fn replace_name_with(
 fn replace(
     path: &Path,
     bytes: impl AsRef<[u8]>,
-    existing: bool,
+    existing: Option<FileFingerprint>,
     before: impl FnOnce() -> std::io::Result<()>,
 ) -> std::io::Result<()> {
     use std::io::Write;
     let write = |f: &mut std::fs::File| f.write_all(bytes.as_ref());
     // Through a link (dotfiles kept in a repository), the file it points to: the link stays.
     let path = &std::fs::canonicalize(path).unwrap_or_else(|_| path.to_owned());
-    let there = || match !existing || std::fs::symlink_metadata(path).is_ok() {
-        true => Ok(()),
-        false => Err(std::io::Error::new(
+    let there = || match existing.map(|read| (read, fingerprint(path))) {
+        None => Ok(()),
+        Some((read, Some(now))) if same_fingerprint(read, now) => Ok(()),
+        Some((_, Some(_))) => Err(changed_meanwhile()),
+        Some((_, None)) => Err(std::io::Error::new(
             std::io::ErrorKind::NotFound,
             crate::support::lang::tr("the file was moved, renamed or deleted meanwhile"),
         )),
@@ -793,7 +806,7 @@ fn replace(
     // shortcut: `there` is looked at just before the rename, not in the same step; a file that
     // goes in those microseconds comes back. renameat2 with RENAME_EXCHANGE if that is ever seen.
     there()?;
-    let has_other_names = existing && check_writable(path)?;
+    let has_other_names = existing.is_some() && check_writable(path)?;
     #[allow(clippy::disallowed_methods)] // replaces on purpose: the one writer of a file again
     write_beside(&tmp_path(path), path, write, |tmp| {
         // `before` may take a while (a sidecar written under its lock), so the file is looked
@@ -805,6 +818,47 @@ fn replace(
     })?;
     tell_other_names(path, has_other_names);
     Ok(())
+}
+
+/// Returns the fingerprint of the file at `path`, taken before a save reads it, for
+/// `replace_existing`. Returns an error when nothing is there.
+pub(crate) fn fingerprint_before_reading(path: &Path) -> std::io::Result<FileFingerprint> {
+    fingerprint(path).ok_or_else(|| {
+        std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            crate::support::lang::tr("the file was moved, renamed or deleted meanwhile"),
+        )
+    })
+}
+
+/// Returns the error for a file that is no longer the one read or picked: another file has its
+/// name, or it was written since.
+pub(crate) fn changed_meanwhile() -> std::io::Error {
+    std::io::Error::other(crate::support::lang::tr("the file was changed meanwhile"))
+}
+
+/// Returns the fingerprint of the file or link at `path`, or `None` when nothing is there.
+pub(crate) fn fingerprint(path: &Path) -> Option<FileFingerprint> {
+    use std::os::unix::fs::MetadataExt;
+    let m = std::fs::symlink_metadata(path).ok()?;
+    let key = crate::images::save::file_id_from_metadata(path, &m).ok();
+    Some((key, m.len(), (m.mtime(), m.mtime_nsec())))
+}
+
+/// Returns whether fingerprints `a` and `b` are of the same file, the one rule Glimt tells a file
+/// by: Undo, and a save or move of a file read or picked earlier. The size and modification time
+/// must be the same, and the device too, or both have no inode. The inode alone says nothing: a
+/// file system gives a freed inode to the next new file, so a file copied in at the name after the
+/// first one was deleted may have the same inode. The inode itself may differ, as FAT gives the
+/// same file another one later. Glimt's own rewrites of the
+/// file (a turn saved) update the fingerprint through `written_anew`, so they still match.
+pub(crate) fn same_fingerprint(a: FileFingerprint, b: FileFingerprint) -> bool {
+    (a.1, a.2) == (b.1, b.2)
+        && match (a.0, b.0) {
+            (Some(x), Some(y)) => x.0 == y.0,
+            (None, None) => true,
+            _ => false,
+        }
 }
 
 /// Refuses to replace the file at `path` when this user may not write it: a photo made
@@ -1622,7 +1676,8 @@ mod tests {
         let file = dir.join("a.png");
         std::fs::write(&file, b"old").unwrap();
         let gone = || std::fs::remove_file(&file);
-        assert!(super::replace_existing(&file, b"new", gone).is_err());
+        let read = super::fingerprint(&file).unwrap();
+        assert!(super::replace_existing(&file, b"new", read, gone).is_err());
         assert!(!file.exists());
         assert_eq!(
             std::fs::read_dir(&dir).unwrap().count(),
@@ -1643,8 +1698,9 @@ mod tests {
         let file = dir.join("a.jpg");
         std::fs::write(&file, "old").unwrap();
         std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o444)).unwrap();
+        let read = super::fingerprint(&file).unwrap();
         for result in [
-            super::replace_existing(&file, "new", || Ok(())),
+            super::replace_existing(&file, "new", read, || Ok(())),
             super::replace_name(&file, "new"),
         ] {
             let refused = result.unwrap_err().kind();
@@ -1671,16 +1727,47 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let file = dir.join("a.png");
         std::fs::write(&file, "old").unwrap();
-        assert!(super::replace_existing(&file, "new", || Ok(())).is_ok());
+        let read = super::fingerprint(&file).unwrap();
+        assert!(super::replace_existing(&file, "new", read, || Ok(())).is_ok());
         assert_eq!(std::fs::read_to_string(&file).unwrap(), "new");
+        let read = super::fingerprint(&file).unwrap();
         std::fs::remove_file(&file).unwrap();
-        let late = super::replace_existing(&file, "late", || Ok(()));
+        let late = super::replace_existing(&file, "late", read, || Ok(()));
         assert_eq!(late.unwrap_err().kind(), std::io::ErrorKind::NotFound);
         assert_eq!(
             std::fs::read_dir(&dir).unwrap().count(),
             0,
             "nothing made, no tmp left"
         );
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A file that changed after it was read is not written over, and the save says why. A
+    /// JPEG still being copied in grows, and another window may give the name to another file.
+    /// Before, the turn of the part read was renamed over it, and the copier wrote on into the
+    /// file taken away, which left the folder a cut-off photo.
+    #[test]
+    fn a_file_changed_after_its_read_is_not_written_over() {
+        use std::io::Write;
+        let dir = std::env::temp_dir().join(format!("glimt-test-changed-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("a.jpg");
+        let other = dir.join("b.jpg");
+        std::fs::write(&file, "part").unwrap();
+        std::fs::write(&other, "else").unwrap();
+        let read = super::fingerprint(&file).unwrap();
+        let grows = || {
+            let mut copier = std::fs::OpenOptions::new().append(true).open(&file)?;
+            copier.write_all(b" and the rest")
+        };
+        let refused = super::replace_existing(&file, "turned", read, grows).unwrap_err();
+        assert!(refused.to_string().contains("changed"), "{refused}");
+        assert_eq!(std::fs::read_to_string(&file).unwrap(), "part and the rest");
+        let read = super::fingerprint(&file).unwrap();
+        let swapped = || std::fs::rename(&other, &file);
+        assert!(super::replace_existing(&file, "turned", read, swapped).is_err());
+        assert_eq!(std::fs::read_to_string(&file).unwrap(), "else");
+        assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 1, "no tmp left");
         std::fs::remove_dir_all(dir).unwrap();
     }
 

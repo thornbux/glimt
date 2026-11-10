@@ -4,7 +4,10 @@
 //! whole. No file is ever overwritten.
 
 use crate::files::external;
-use crate::files::file_io::{put_file, put_file_until_stopped, rename_never_over};
+use crate::files::file_io::{
+    FileFingerprint, fingerprint, put_file, put_file_until_stopped, rename_never_over,
+    same_fingerprint,
+};
 use crate::files::trash::{TrashMove, restore, trash_dirs};
 use crate::images::decode::catch_panic_as_error;
 use crate::images::save::save_rotated;
@@ -144,13 +147,6 @@ pub(crate) struct OperationReport {
     /// which are still there. The window asks whether to delete them for good instead.
     pub(crate) untrashable: Option<(String, Vec<PathBuf>)>,
 }
-
-/// A file's fingerprint: (device and inode, size, modification time in seconds and nanoseconds).
-/// The inode stays the same through a rename on one disk. FAT, exFAT and FUSE without use_ino may
-/// give the same file another inode later, so there the size and time tell the file instead. The
-/// device and inode are `None` where the file system gives every file inode 0
-/// (`save::file_id_from_metadata`), and then only the size and time tell the file.
-pub(crate) type FileFingerprint = (Option<(u64, u64)>, u64, (i64, i64));
 
 /// A file moved or renamed, `(from, to, fingerprint)`, as Undo puts it back. The fingerprint is
 /// the file's at `to`. When Glimt itself writes the file anew there (a turn saved), it takes
@@ -2686,29 +2682,6 @@ fn move_back(pairs: Vec<Moved>) -> MovedBack {
 /// `None` when nothing is at `to` any more.
 fn with_fingerprint((from, to): &(PathBuf, PathBuf)) -> Option<Moved> {
     Some((from.clone(), to.clone(), fingerprint(to)?))
-}
-
-/// Returns the fingerprint of the file or link at `path`, or `None` when nothing is there.
-fn fingerprint(path: &Path) -> Option<FileFingerprint> {
-    use std::os::unix::fs::MetadataExt;
-    let m = std::fs::symlink_metadata(path).ok()?;
-    let key = crate::images::save::file_id_from_metadata(path, &m).ok();
-    Some((key, m.len(), (m.mtime(), m.mtime_nsec())))
-}
-
-/// Returns whether fingerprints `a` and `b` are of the same file, the one rule Undo tells its own
-/// file by. The size and modification time must be the same, and the device too, or both have no
-/// inode. The inode alone says nothing: a file system gives a freed inode to the next new file, so
-/// a file copied in at the name after the first one was deleted may have the same inode. The inode
-/// itself may differ, as FAT gives the same file another one later. Glimt's own rewrites of the
-/// file (a turn saved) update the fingerprint through `written_anew`, so they still match.
-fn same_fingerprint(a: FileFingerprint, b: FileFingerprint) -> bool {
-    (a.1, a.2) == (b.1, b.2)
-        && match (a.0, b.0) {
-            (Some(x), Some(y)) => x.0 == y.0,
-            (None, None) => true,
-            _ => false,
-        }
 }
 
 /// Checks that every name in the way of a rename is one of the files being renamed, under a

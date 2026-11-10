@@ -2725,6 +2725,10 @@ msgstr "Die Sicherung nach {folder} ist unvollständig: {e}"
 msgid "the file was moved, renamed or deleted meanwhile"
 msgstr "die Datei wurde inzwischen verschoben, umbenannt oder gelöscht"
 
+#: src/files/file_io.rs
+msgid "the file was changed meanwhile"
+msgstr "die Datei wurde inzwischen geändert"
+
 msgid "the file is read-only"
 msgstr "die Datei ist schreibgeschützt"
 

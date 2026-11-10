@@ -2736,6 +2736,10 @@ msgstr "Kopia zapasowa w {folder} nie jest pełna: {e}"
 msgid "the file was moved, renamed or deleted meanwhile"
 msgstr "plik został w międzyczasie przeniesiony, przemianowany lub usunięty"
 
+#: src/files/file_io.rs
+msgid "the file was changed meanwhile"
+msgstr "plik został w międzyczasie zmieniony"
+
 msgid "the file is read-only"
 msgstr "plik jest tylko do odczytu"
 

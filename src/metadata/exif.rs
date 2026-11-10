@@ -497,10 +497,13 @@ pub fn write_orientation(
 ) -> Result<(), String> {
     // Through a symlink, the file it points to: the new file is renamed over that, not the link.
     let real = &std::fs::canonicalize(path).map_err(|e| e.to_string())?;
+    // Taken before the read, so a JPEG still being copied in is not written back cut off.
+    let read =
+        crate::files::file_io::fingerprint_before_reading(real).map_err(|e| e.to_string())?;
     let data = crate::images::decode::read_limited(real).map_err(|e| e.to_string())?;
     let (data, new) = oriented(data, turns, mirrored, rotate)?;
     let how = crate::images::save::Derived::Oriented(new);
-    crate::images::save::replace_with_sidecar(real, path, data, how)
+    crate::images::save::replace_with_sidecar(real, path, read, data, how)
 }
 
 /// The JPEG `data` with the view's rotation as its EXIF orientation, as `write_orientation`

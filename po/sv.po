@@ -2725,6 +2725,10 @@ msgstr "Säkerhetskopian till {folder} är inte fullständig: {e}"
 msgid "the file was moved, renamed or deleted meanwhile"
 msgstr "filen flyttades, bytte namn eller togs bort under tiden"
 
+#: src/files/file_io.rs
+msgid "the file was changed meanwhile"
+msgstr "filen ändrades under tiden"
+
 msgid "the file is read-only"
 msgstr "filen är skrivskyddad"
 

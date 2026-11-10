@@ -2725,6 +2725,10 @@ msgstr "Varmuuskopio kansioon {folder} ei ole täydellinen: {e}"
 msgid "the file was moved, renamed or deleted meanwhile"
 msgstr "tiedosto siirrettiin, nimettiin uudelleen tai poistettiin sillä välin"
 
+#: src/files/file_io.rs
+msgid "the file was changed meanwhile"
+msgstr "tiedostoa muutettiin sillä välin"
+
 msgid "the file is read-only"
 msgstr "tiedosto on kirjoitussuojattu"
 
