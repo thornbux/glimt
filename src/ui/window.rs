@@ -39,6 +39,9 @@ pub(crate) struct Window {
     projector: bool,
     /// The projector's image area in pixels, which images are decoded to cover too.
     projector_size: [u32; 2],
+    /// The projector's window is full screen, so the screen saver is kept off as for the main
+    /// window's.
+    is_projector_full_screen: bool,
     /// The screen saver inhibitor running while in full screen, and how many times full screen
     /// was turned on or off: the inhibitor is looked for and started in a thread, and one that
     /// comes after full screen ended again is ended at once.
@@ -75,6 +78,7 @@ impl Window {
             kiosk_may_quit: false,
             projector: false,
             projector_size: [0, 0],
+            is_projector_full_screen: false,
             inhibitor: Arc::default(),
             inhibit_asked: false,
             pointer_left_menu_at: None,
@@ -108,12 +112,14 @@ impl Window {
     pub(crate) fn toggle_projector(&mut self) {
         self.projector = !self.projector;
         self.projector_size = [0, 0];
+        self.is_projector_full_screen = false;
     }
 
     /// The projector window was closed.
     pub(crate) fn close_projector(&mut self) {
         self.projector = false;
         self.projector_size = [0, 0];
+        self.is_projector_full_screen = false;
     }
 
     pub(crate) fn has_projector(&self) -> bool {
@@ -123,6 +129,11 @@ impl Window {
     /// The projector's image area in pixels.
     pub(crate) fn projector_size(&self) -> [u32; 2] {
         self.projector_size
+    }
+
+    /// The projector's window is full screen when `full`, as it reported in its last frame.
+    pub(crate) fn set_projector_full_screen(&mut self, full: bool) {
+        self.is_projector_full_screen = full;
     }
 
     /// The projector's image area is `size` now: the size before when it changed.
@@ -249,8 +260,9 @@ impl crate::App {
         self.receive_renames(ctx);
     }
 
-    /// Keeps a kiosk in full screen and the screensaver off in full screen, and remembers the
-    /// window's size and place. Returns whether the window is full screen.
+    /// Keeps a kiosk in full screen and the screensaver off while this window or the projector
+    /// is full screen, and remembers the window's size and place. Returns whether the window is
+    /// full screen.
     pub(crate) fn track_window(&mut self, ctx: &egui::Context) -> bool {
         let fullscreen = ctx.input(|i| i.viewport().fullscreen).unwrap_or(false);
         // Full screen comes back if the desktop ends it. `guard_close` refuses the close.
@@ -260,7 +272,8 @@ impl crate::App {
         {
             ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(true));
         }
-        self.inhibit(fullscreen && self.config.inhibit_screensaver);
+        let projector_full = self.window.projector && self.window.is_projector_full_screen;
+        self.inhibit((fullscreen || projector_full) && self.config.inhibit_screensaver);
         // Geometry of the normal window only, so leaving full screen or maximized restores it.
         // The size from egui's own area: the viewport's inner_rect needs the window position,
         // which Wayland does not give, so it stayed empty there and the size was never saved.
@@ -598,6 +611,33 @@ extern "C" fn on_termination_signal(_signal: libc::c_int) {
 #[cfg(test)]
 mod tests {
     use crate::support::test_support::{app_on, contract_folder, run_background_until};
+
+    /// The screen saver is kept off while the projector is full screen, as for the main window,
+    /// and allowed again when the projector leaves full screen or closes. The projector's own
+    /// full screen once counted for nothing, so a slideshow on a projector went blank.
+    #[test]
+    fn the_projector_in_full_screen_keeps_the_screen_saver_off() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-projector-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let (mut app, ctx) = app_on(&dir);
+        app.config.inhibit_screensaver = true;
+        let asked = |app: &mut crate::App| {
+            let _ = ctx.run_ui(Default::default(), |ui| {
+                app.track_window(ui.ctx());
+            });
+            app.window.inhibit_asked
+        };
+        assert!(!asked(&mut app));
+        app.window.toggle_projector();
+        app.window.set_projector_full_screen(true);
+        assert!(asked(&mut app));
+        app.window.set_projector_full_screen(false);
+        assert!(!asked(&mut app));
+        app.window.set_projector_full_screen(true);
+        app.window.close_projector();
+        assert!(!asked(&mut app));
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
 
     /// A kiosk that may close lets Quit through, but still refuses what changes the settings.
     #[test]

@@ -614,7 +614,8 @@ const MANUAL: &[(&str, &str)] = &[
          View also shows or hides the toolbar and the folder path, and Preferences the search \
          field and each file's size and date in the list. A click opens a menu; with one open, \
          pointing at another opens that, and it closes a moment after the pointer leaves. Full \
-         screen keeps the screen saver off, unless Preferences say otherwise.",
+         screen, also the projector's, keeps the screen saver off, unless Preferences say \
+         otherwise.",
     ),
     (
         "Colour",

@@ -983,6 +983,7 @@ impl crate::App {
         let closed = ctx.show_viewport_immediate(id, builder, |ui, _| {
             let pctx = ui.ctx().clone();
             let full = pctx.input(|i| i.viewport().fullscreen).unwrap_or(false);
+            self.window.set_projector_full_screen(full);
             let (f, esc) = pctx.input(|i| {
                 let f = i.key_pressed(egui::Key::F) || i.key_pressed(egui::Key::F11);
                 (f && i.modifiers.is_none(), i.key_pressed(egui::Key::Escape))
