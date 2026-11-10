@@ -802,6 +802,12 @@ const DIFFERENCES: &[(&str, &str, &str)] = &[
          change when it is closed. Other collections keep theirs",
     ),
     (
+        "An image twice in a collection",
+        "A collection file that names an image twice (edited by hand) shows it once, and writes \
+         it once at its next change",
+        "Shows and keeps both entries",
+    ),
+    (
         "Close Window (Ctrl+W)",
         "Same as Quit (one window per process)",
         "Closes one of several windows",
