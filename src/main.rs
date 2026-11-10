@@ -270,6 +270,22 @@ impl App {
             remote: crate::features::remote::Listener::new(ctx, listens_without_name),
             config,
         };
+        app.open_at_start(ctx, path, &start.more_paths, opens_last_folder);
+        // Small folders are listed before the first frame. A large one holds startup back for
+        // at most 50 ms.
+        app.receive_listing(ctx, std::time::Duration::from_millis(50));
+        app
+    }
+
+    /// Opens what the command line names, or the folder shown last when it names nothing and
+    /// `opens_last_folder` is set. Several paths open together as one list.
+    fn open_at_start(
+        &mut self,
+        ctx: &egui::Context,
+        path: PathBuf,
+        more_paths: &[PathBuf],
+        opens_last_folder: bool,
+    ) {
         // When a URI is on the command line, Glimt starts where it would otherwise and goes to
         // the URI once it is mounted.
         match path
@@ -277,20 +293,16 @@ impl App {
             .and_then(crate::files::external::network_location)
         {
             Some(uri) => {
-                app.open(ctx, ".".into());
-                app.mount(ctx, uri.to_owned());
+                self.open(ctx, ".".into());
+                self.mount(ctx, uri.to_owned());
             }
-            None if !start.more_paths.is_empty() => {
-                let all = std::iter::once(path).chain(start.more_paths.iter().cloned());
-                app.open_folders(ctx, all.collect());
+            None if !more_paths.is_empty() => {
+                let all = std::iter::once(path).chain(more_paths.iter().cloned());
+                self.open_folders(ctx, all.collect());
             }
-            None if opens_last_folder => app.open_last_folder(ctx, path),
-            None => app.open(ctx, path),
+            None if opens_last_folder => self.open_last_folder(ctx, path),
+            None => self.open(ctx, path),
         }
-        // Small folders are listed before the first frame. A large one holds startup back for
-        // at most 50 ms.
-        app.receive_listing(ctx, std::time::Duration::from_millis(50));
-        app
     }
 
     fn frame_ui(&mut self, ui: &mut egui::Ui) {
