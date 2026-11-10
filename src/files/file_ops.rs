@@ -2433,7 +2433,9 @@ pub(crate) fn rename_files(
         // counted, because its names did not reach the disk, it is undone with the rest.
         let is_middle_of_swap = swap && k + 1 == moves.len() / 2;
         let step = step.map_err(|e| (e, k)).and_then(|()| {
-            let counted = plan.as_mut().map(|plan| plan.count(is_middle_of_swap));
+            let counted = plan
+                .as_mut()
+                .map(|plan| plan.count_rename_done(is_middle_of_swap));
             counted.unwrap_or(Ok(())).map_err(|e| (e, k + 1))
         });
         if let Err((e, done)) = step {

@@ -58,7 +58,7 @@ impl Journal {
 
     /// Counts one more rename done, through `count_middle_of_swap_done` when `is_middle_of_swap`
     /// and otherwise `count_step_done`. Returns an error when the middle did not reach the disk.
-    pub fn count(&mut self, is_middle_of_swap: bool) -> std::io::Result<()> {
+    pub fn count_rename_done(&mut self, is_middle_of_swap: bool) -> std::io::Result<()> {
         if is_middle_of_swap {
             return self.count_middle_of_swap_done();
         }
