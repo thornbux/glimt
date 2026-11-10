@@ -4049,12 +4049,6 @@ fn the_window_thread_never_waits_for_the_disk() {
             "only files just written with a moved file's name; its shortcut comment",
         ),
         (
-            "metadata/marks.rs",
-            "load",
-            "read_limited(",
-            "Glimt's own marks file, read once at start, before the window opens",
-        ),
-        (
             "model/folder.rs",
             "new",
             "read_limited(",
