@@ -2193,12 +2193,53 @@ fn outside_homes_in(file: &str, text: &str, homes: &[(&str, &[(&str, &str)])]) -
             let at_home =
                 (allowed.iter()).any(|(f, s)| file == *f && (s.is_empty() || function == *s));
             let defined = line.contains(&format!("fn {call}"));
-            if line.contains(call) && !at_home && !defined {
+            if mentions(line, call) && !at_home && !defined {
                 wrong.push(format!("{file}:{} ({call})", i + 1));
             }
         }
     }
     wrong
+}
+
+/// Returns whether `line` holds `text`. A call (`name(`) is also found as a function value
+/// (`.map(name)`, `f(name, x)`), and as renamed by a `use` (`use …::name as other;`), whose
+/// calls by the new name would not hold `text`.
+fn mentions(line: &str, text: &str) -> bool {
+    let Some(name) = text.strip_suffix('(').filter(|n| n.ends_with(is_word_char)) else {
+        return line.contains(text);
+    };
+    let is_whole = |at: usize| !line[..at].ends_with(is_word_char);
+    let is_use = without_qualifiers(line.trim_start()).starts_with("use ");
+    line.contains(text)
+        || (line.match_indices(name)).any(|(at, _)| {
+            let after = &line[at + name.len()..];
+            is_whole(at)
+                && match is_use {
+                    true => after.starts_with(" as "),
+                    false => after.starts_with([')', ',']),
+                }
+        })
+}
+
+/// Returns whether `c` can be part of a name.
+fn is_word_char(c: char) -> bool {
+    c.is_alphanumeric() || c == '_'
+}
+
+/// A call is found also as a function value and as renamed by a `use`, but not in a `use` that
+/// keeps its name, nor in a longer name.
+#[test]
+fn finds_a_call_by_another_spelling() {
+    const HOMES: &[(&str, &[(&str, &str)])] = &[("replace_file(", &[("a.rs", "home")])];
+    let text = "use crate::files::file_io::replace_file as write_own;\n\
+        use crate::files::file_io::{replace_file, write_atomic};\nfn a() {\n    \
+        paths.iter().map(file_io::replace_file);\n    try_all(replace_file, &paths);\n    \
+        try_all(own_replace_file, &paths);\n    replace_files(p);\n}\n";
+    let wrong = outside_homes_in("a.rs", text, HOMES);
+    let lines: Vec<&str> = (wrong.iter())
+        .map(|w| w.split(' ').next().unwrap())
+        .collect();
+    assert_eq!(lines, ["a.rs:1", "a.rs:4", "a.rs:5"]);
 }
 
 /// A home ends at the next top-level item. Before, a static or const after a home function
