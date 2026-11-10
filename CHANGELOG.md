@@ -37,6 +37,10 @@ and versions follow [Semantic Versioning](https://semver.org/).
 - When Rename Many was cut short with its plan on another disk than the photos, putting it right
   at the next start could leave a photo under a hidden `.glimt-rename-*` name with no plan left
   to find it. A repair that cannot finish now puts back the steps it did.
+- When Rename Many swapped names on a card or stick that was pulled out before its first renames
+  reached it, the next start took the swap as finished. Finishing it moved the marks, stars and
+  collection entries of each photo to the other, and putting back the old names swapped the
+  photos themselves. Such a swap is now known as not begun.
 - A collection that came with a download, with a pipe or a link planted as its hidden lock file
   `.NAME.gqv.lock`, no longer hangs the window at Rename Collection or stops every later
   collection edit, and a link there no longer makes an empty file where it points. Rename
