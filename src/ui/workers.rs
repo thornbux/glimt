@@ -24,6 +24,8 @@ impl crate::App {
         }
         self.receive_desktop(ctx);
         self.receive_window_name(ctx);
+        #[cfg(feature = "marks")]
+        self.marks.receive();
         self.folder.receive_sort_folders();
         self.info_panel.receive_keyword_tree();
         self.decoding
