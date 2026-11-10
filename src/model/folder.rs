@@ -24,7 +24,7 @@ use std::sync::atomic::AtomicBool;
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, mpsc};
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 /// How many of a tree's subfolders the folder watcher looks at each second, besides the open
 /// folders. A tree of 10,000 subfolders is looked through in ten seconds, at 1,000 stats a
@@ -74,7 +74,7 @@ pub(crate) struct Folder {
     /// answers or another one replaces it.
     still_opening_notice: Option<String>,
     /// The folder listing in the background, as (subfolders, images).
-    listing_rx: Receiving<(Vec<PathBuf>, Vec<OsString>, FoldersRead)>,
+    listing_rx: Receiving<Listed>,
     /// The list's version when the listing that runs started. A collection's listing works
     /// from the list or file as they were then.
     listing_version: usize,
@@ -99,8 +99,6 @@ pub(crate) struct Folder {
     /// The watcher saw the folder change, and the folder is read again once the window has
     /// rested from the last listing (`relist_after_rest`).
     change_waits: bool,
-    /// When the listing that runs, or the last one, started.
-    listing_started: Instant,
     /// Until when the window rests from the last listing before a change lists it again.
     rest_until: Instant,
     /// How many whole listings were taken since the start. Work that waits for the folder to be
@@ -168,7 +166,6 @@ impl Folder {
             listing_stop: Arc::default(),
             relist_when_done: false,
             change_waits: false,
-            listing_started: Instant::now(),
             rest_until: Instant::now(),
             whole_listings: 0,
             watcher_generation: Arc::new(AtomicUsize::new(0)),
@@ -402,10 +399,7 @@ impl Folder {
 #[cfg(test)]
 impl Folder {
     /// Makes `listing` the listing in the background.
-    pub(crate) fn hold_listing(
-        &mut self,
-        listing: mpsc::Receiver<(Vec<PathBuf>, Vec<OsString>, FoldersRead)>,
-    ) {
+    pub(crate) fn hold_listing(&mut self, listing: mpsc::Receiver<Listed>) {
         self.listing_rx = Receiving::of(listing);
     }
 
@@ -423,6 +417,11 @@ impl Folder {
     }
 }
 
+/// What a listing thread sends when it has read the folder: its subfolders, its files, the
+/// folders it read with their modification times, and how long the reading took in that
+/// thread.
+type Listed = (Vec<PathBuf>, Vec<OsString>, FoldersRead, Duration);
+
 /// What a listing thread reads with, and where it sends the list and then the sizes.
 struct Listing {
     /// The folder listed, or the one the paths of a collection or of several folders are
@@ -436,8 +435,11 @@ struct Listing {
     shuffled: bool,
     /// Set when another listing starts, so this one stops reading a tree.
     stop: Arc<AtomicBool>,
-    tx: mpsc::Sender<(Vec<PathBuf>, Vec<OsString>, FoldersRead)>,
+    tx: mpsc::Sender<Listed>,
     size_tx: mpsc::Sender<u64>,
+    /// When the thread started reading. The time it took is measured here, in the thread,
+    /// because a window that is not drawn takes the list late, and that wait is no listing.
+    started: Instant,
     ctx: egui::Context,
 }
 
@@ -473,7 +475,11 @@ impl Listing {
         }
         // The sizes come after, as for a folder, so the list shows first.
         let paths: Vec<PathBuf> = files.iter().map(|f| self.dir.join(f)).collect();
-        if self.tx.send((Vec::new(), files, read)).is_ok() {
+        if self
+            .tx
+            .send((Vec::new(), files, read, self.started.elapsed()))
+            .is_ok()
+        {
             self.ctx.request_repaint();
             let sizes = paths
                 .into_iter()
@@ -519,7 +525,11 @@ impl Listing {
         if self.shuffled {
             shuffle(&mut files);
         }
-        if self.tx.send((Vec::new(), files, Vec::new())).is_ok() {
+        if self
+            .tx
+            .send((Vec::new(), files, Vec::new(), self.started.elapsed()))
+            .is_ok()
+        {
             self.ctx.request_repaint();
             send_sizes(sizes.into_iter(), self.size_tx, &self.ctx);
         }
@@ -590,7 +600,11 @@ impl Listing {
             shuffle(&mut files);
         }
         // The receiver is gone if another folder was opened meanwhile; then we stop.
-        if self.tx.send((dirs, files, read)).is_err() {
+        if self
+            .tx
+            .send((dirs, files, read, self.started.elapsed()))
+            .is_err()
+        {
             return;
         }
         self.ctx.request_repaint();
@@ -1163,6 +1177,7 @@ impl crate::App {
             tx,
             size_tx,
             ctx: ctx2,
+            started: Instant::now(),
         };
         std::thread::spawn(move || {
             if !folders.is_empty() {
@@ -1179,7 +1194,6 @@ impl crate::App {
         self.folder.relist_when_done = false;
         // This listing reads every change seen before it.
         self.folder.change_waits = false;
-        self.folder.listing_started = Instant::now();
     }
 
     /// Polls the folder's modification time once a second in the background (one `stat`, no
@@ -1258,7 +1272,7 @@ impl crate::App {
         if let Took::Answer(part) = self.folder.part_rx.latest() {
             self.take_listed_files(ctx, part, false);
         }
-        let (dirs, files, read) = match self.folder.listing_rx.wait(wait) {
+        let (dirs, files, read, read_in) = match self.folder.listing_rx.wait(wait) {
             Took::Answer(listed) => listed,
             // When the listing thread broke, a notice says so once, and nothing (the busy
             // pointer, a parked --remote select, auto refresh) waits for it any more.
@@ -1290,9 +1304,10 @@ impl crate::App {
         if !read.is_empty() {
             self.watch_folders_read(ctx, read);
         }
+        let listed_from = Instant::now();
         self.take_listed_files(ctx, files, true);
         // The time taken counts the list made from it in this thread too.
-        let took = self.folder.listing_started.elapsed();
+        let took = read_in + listed_from.elapsed();
         self.folder.rest_until = Instant::now() + took * REST_AFTER_LISTING;
         self.list.set_unchecked_entries(false);
         let c = &self.config;
@@ -1875,6 +1890,33 @@ mod tests {
             .folder
             .is_listing()));
         assert_eq!(app.folder.whole_listings(), before + 1);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A window that is not drawn (minimized, or on another workspace) takes the list late.
+    /// That wait is no listing, so the rest after it is measured from the time the thread took,
+    /// not from the start to the frame that took the list. Before, a relist that a window on
+    /// another workspace took an hour later rested four hours.
+    #[test]
+    fn the_rest_after_a_listing_does_not_count_the_time_the_window_was_not_drawn() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-late-rest-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        image::RgbImage::new(2, 2).save(dir.join("a.png")).unwrap();
+        let (mut app, ctx) = app_on(&dir);
+        let before = app.folder.whole_listings();
+        app.start_listing(&ctx);
+        // The thread is done in a few milliseconds, and the window takes it half a second later.
+        std::thread::sleep(std::time::Duration::from_millis(500));
+        let listed = |app: &crate::App| app.folder.whole_listings() > before;
+        assert!(run_background_until(&mut app, &ctx, listed));
+        let rest = app
+            .folder
+            .rest_until
+            .saturating_duration_since(std::time::Instant::now());
+        assert!(
+            rest < std::time::Duration::from_millis(400),
+            "rests {rest:?}"
+        );
         std::fs::remove_dir_all(dir).unwrap();
     }
 
