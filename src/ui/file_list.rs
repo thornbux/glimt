@@ -2039,14 +2039,14 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("glimt-test-area-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let (mut app, ctx) = crate::support::test_support::app_on(&dir);
-        use crate::ui::actions::Action::{Escape, ThumbnailGrid};
-        app.run(&ctx, Escape);
+        use crate::ui::actions::Action::{LeaveFullScreen, ThumbnailGrid};
+        app.run(&ctx, LeaveFullScreen);
         assert!(!app.panel.is_area_grid_on());
         app.run(&ctx, ThumbnailGrid);
         assert!(app.panel.is_area_grid_shown());
         app.panel.open_from_grid();
         assert!(app.panel.is_area_grid_on() && !app.panel.is_area_grid_shown());
-        app.run(&ctx, Escape);
+        app.run(&ctx, LeaveFullScreen);
         assert!(app.panel.is_area_grid_shown());
         app.panel.open_from_grid();
         app.run(&ctx, ThumbnailGrid);
@@ -2081,11 +2081,11 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("glimt-test-area-show-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let (mut app, ctx) = crate::support::test_support::app_on(&dir);
-        use crate::ui::actions::Action::{Escape, Slideshow, ThumbnailGrid};
+        use crate::ui::actions::Action::{LeaveFullScreen, Slideshow, ThumbnailGrid};
         app.run(&ctx, ThumbnailGrid);
         app.run(&ctx, Slideshow);
         assert!(app.panel.is_area_grid_on() && !app.panel.is_area_grid_shown());
-        app.run(&ctx, Escape);
+        app.run(&ctx, LeaveFullScreen);
         assert!(app.panel.is_area_grid_shown() && !app.slideshow.is_running());
         std::fs::remove_dir_all(dir).unwrap();
     }

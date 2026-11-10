@@ -3005,6 +3005,22 @@ same() { md5sum </t/out/$1.png; }
 differ "icon_grid=true shows another list" "$(same old-setting-icon_grid)" "$(same old-setting-)"
 expect "the old key icons=true as icon_grid=true" "$(same old-setting-icons)" "$(same old-setting-icon_grid)"
 
+section "the action names of 0.79: Up in keys= and --remote run Home still work"
+d=/tmp/old-actions
+mkdir -p $d/sub
+convert -size 64x64 xc:red $d/sub/a.png
+convert -size 64x64 xc:blue $d/b.png
+convert -size 64x64 xc:lime $HOME/h.png
+config "keys=Up=F9"
+start $d/sub/a.png; sleep 2
+key F9; sleep 2
+up=$(remote current 2>/dev/null | tr -d '\0')
+remote run Home >/dev/null 2>&1; ran=$?
+sleep 2
+home=$(remote current 2>/dev/null | tr -d '\0')
+quit
+expect "F9 for Up goes to the parent, run Home to the home folder" "$up $ran $home" "$d/b.png 0 $HOME/h.png"
+
 section "Up and Home in the toolbar: the parent folder, then the home folder"
 d=/tmp/up-home
 mkdir -p $d/sub
@@ -3137,7 +3153,7 @@ shot key-capture-table
 menu "Change Auto Rotate Using EXIF"; key F9; sleep 1
 key Escape; sleep 1
 quit
-expect "the own key in the settings" "$(grep -c 'ExifRotate=F9' $XDG_CONFIG_HOME/glimt/config)" 1
+expect "the own key in the settings" "$(grep -c 'AutoRotate=F9' $XDG_CONFIG_HOME/glimt/config)" 1
 
 section "the Help windows: Help Manual (F1), Keyboard Shortcuts, Keyboard Map and About open"
 d=/tmp/help-windows

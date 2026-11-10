@@ -511,3 +511,8 @@ value slideshow_fade off
 value slideshow_fade short
 value slideshow_fade long
 setting icon_grid
+script CopyFilesToClipboard
+script AutoRotate
+script LeaveFullScreen
+script ParentFolder
+script HomeFolder

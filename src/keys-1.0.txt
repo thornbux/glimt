@@ -204,3 +204,9 @@ key 3
 key 4
 key 5
 key 6
+# Added in 0.80.0: actions renamed from names that misled their reader
+action CopyFilesToClipboard
+action AutoRotate
+action LeaveFullScreen
+action ParentFolder
+action HomeFolder
