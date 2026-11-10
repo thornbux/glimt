@@ -5,6 +5,21 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- A setting of a few values with a value it does not take, such as `layout=3x3` or
+  `print_paper=letter`, is put back to its default, and `glimt --check-config` tells the line.
+  Before, the check said the file was fine, and the window fell back to another value without a
+  word. The language setting takes a language's own code too, so `language=nb`, `nn` or `pt`
+  gives that language, as `LANG=nb_NO` does, and no longer English.
+- Every action can be given a key of its own in Preferences → Keyboard and in `keys=`, also one
+  without a default key, such as Toolbar or Open With. Before, such a key was kept and never
+  used, without a word. `glimt --check-config` tells an own key that names no action or a key
+  it cannot read.
+- A change of the settings whose save failed, as on a full disk, is written by the next save
+  that works. Before, that save put the file's old value back, and the change was lost at the
+  next start.
+
 ## [0.79.0] - 2026-11-10
 
 ### Changed
