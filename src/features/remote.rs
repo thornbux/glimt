@@ -1433,7 +1433,9 @@ fn bind_socket(path: &std::path::Path) -> Result<UnixListener, Option<std::io::E
     }
     #[allow(clippy::disallowed_methods)] // a socket left by a Glimt gone
     let _ = std::fs::remove_file(path);
-    UnixListener::bind(path).map_err(Some)
+    // Another window can take the name between the remove and this bind, as a rename links its
+    // socket there without this lock. Its socket then answers, so it counts as taken.
+    UnixListener::bind(path).map_err(|e| (e.kind() != std::io::ErrorKind::AddrInUse).then_some(e))
 }
 
 /// Gives this Glimt the --name `name`, or no name for `None`, so that `--remote` reaches it by
@@ -2280,6 +2282,19 @@ mod tests {
         assert!(taken);
         std::fs::remove_file(path.with_extension("lock")).unwrap();
         std::fs::remove_file(path).unwrap();
+    }
+
+    /// A socket that another window takes after a left one was removed and before this window
+    /// binds its own, as by a rename to this name, counts as taken. The window then shares the
+    /// name under its own ID. Before, it had no remote control. A folder stands in for the
+    /// other window's socket, as it cannot be removed either.
+    #[test]
+    fn a_socket_taken_while_a_left_one_is_replaced_counts_as_taken() {
+        let path = std::env::temp_dir().join(format!("glimt-taken-{}.sock", std::process::id()));
+        std::fs::create_dir_all(&path).unwrap();
+        assert!(super::bind_socket(&path).is_err_and(|e| e.is_none()));
+        std::fs::remove_file(path.with_extension("lock")).unwrap();
+        std::fs::remove_dir(path).unwrap();
     }
 
     /// `--remote select` of a file the search hides selects nothing and answers every path, so

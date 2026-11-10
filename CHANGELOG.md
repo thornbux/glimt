@@ -30,6 +30,9 @@ and versions follow [Semantic Versioning](https://semver.org/).
   answer) to be undone again, as Undo of a delete does.
 - Stop during a copy or move acts inside a large file, such as a video copied to a slow stick,
   and leaves no part of it behind.
+- A window started with a `--name` that another window took by a rename at the same moment
+  shares the name under its own ID, as when the name is taken already. Before, it was left
+  without remote control.
 
 ### Changed
 
