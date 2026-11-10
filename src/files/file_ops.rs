@@ -16,7 +16,7 @@ use crate::model::listing::pattern_name;
 use crate::support::format::{count, thousands};
 use crate::support::lang::tr;
 use crate::support::threads::{
-    AnswerSender, Receiving, Took, Working, answer_channel, lock_even_if_poisoned,
+    AnswerSender, Receiving, Told, Took, Working, answer_channel, lock_even_if_poisoned,
 };
 use crate::ui::actions::Action;
 use crate::ui::dialogs::Pick;
@@ -1530,14 +1530,14 @@ impl crate::App {
         self.run_in_background(ctx, vec![old.clone()], move || {
             // Never over an empty folder of that name, also one made since the look.
             if let Err(e) = rename_never_over(&old, &new) {
-                return Some(format!("{display}: {e}", display = new.display()));
+                return Some(Told::FailedWrite(format!("{}: {e}", new.display())));
             }
             // The marks and collections follow the new name, so it is on disk first. A failed
             // sync is told, but the window still follows the folder, which has its new name.
             let synced = crate::files::file_io::sync_folder_of(&new);
             let error = synced
                 .err()
-                .map(|e| format!("{display}: {e}", display = new.display()));
+                .map(|e| Told::FailedWrite(format!("{}: {e}", new.display())));
             let _ = report_tx.send(OperationReport {
                 folder_renamed: Some((old, new)),
                 ..Default::default()
@@ -1621,6 +1621,7 @@ impl crate::App {
             error
                 .map(|e| tf!("Could not move the folder to the trash: {e}", e))
                 .or(forgotten)
+                .map(Told::FailedWrite)
         });
     }
 
@@ -1682,12 +1683,12 @@ impl crate::App {
                     ..Default::default()
                 });
                 Some(match errors.first() {
-                    Some(first) => tf!(
+                    Some(first) => Told::FailedWrite(tf!(
                         "Undo failed ({count}): {first}",
                         count = count(errors.len(), "error"),
                         first
-                    ),
-                    None => tf!("{files} moved back", files),
+                    )),
+                    None => Told::Notice(tf!("{files} moved back", files)),
                 })
             })),
             Undo::Trash(trash_move) => self.undo_trash(ctx, trash_move, undone),
@@ -1714,7 +1715,7 @@ impl crate::App {
                     is_undo_remainder: true,
                     ..Default::default()
                 });
-                return Some(job.stopped_text());
+                return Some(Told::Notice(job.stopped_text()));
             };
             let (back, mut error) = restore(&trash_move, trash_dirs);
             // What went with the files comes back with them: their places in the
@@ -1766,9 +1767,9 @@ impl crate::App {
             );
             // The files that came back are told too when others did not.
             Some(match error {
-                None => done,
-                Some(e) if back.is_empty() => tf!("Undo failed: {e}", e),
-                Some(e) => format!("{done}; {}", tf!("Undo failed: {e}", e)),
+                None => Told::Notice(done),
+                Some(e) if back.is_empty() => Told::FailedWrite(tf!("Undo failed: {e}", e)),
+                Some(e) => Told::FailedWrite(format!("{done}; {}", tf!("Undo failed: {e}", e))),
             })
         });
     }
@@ -1790,14 +1791,16 @@ impl crate::App {
 
     /// Runs `work`, which writes files and changes `held_back_files`, in a thread of its own. The
     /// busy pointer shows meanwhile, closing waits for it, and what it returns is told in the
-    /// window. It is not started, and a notice says so, while something else works on
-    /// `held_back_files` (`are_free_to_change`). Returns whether it started. Work within a job
-    /// passes no `held_back_files`, because its job holds them.
+    /// window. The work says whether its answer is a notice or a failed write, because a failed
+    /// write keeps a close that waited for it open, so the user sees it. It is not started, and a
+    /// notice says so, while something else works on `held_back_files` (`are_free_to_change`).
+    /// Returns whether it started. Work within a job passes no `held_back_files`, because its
+    /// job holds them.
     pub(crate) fn run_in_background(
         &mut self,
         ctx: &egui::Context,
         held_back_files: Vec<PathBuf>,
-        work: impl FnOnce() -> Option<String> + Send + 'static,
+        work: impl FnOnce() -> Option<Told> + Send + 'static,
     ) -> bool {
         // Work that changes none of the user's files (within a job that holds them, or on
         // Glimt's own collections) waits for nothing. A Lightroom import's collections were
@@ -1809,8 +1812,10 @@ impl crate::App {
         let pointer = Working::new(&self.busy);
         let writing = Working::new(&crate::files::file_io::WRITING);
         std::thread::spawn(move || {
-            if let Some(text) = work() {
-                let _ = tx.send(text);
+            match work() {
+                Some(Told::Notice(text)) => drop(tx.send(text)),
+                Some(Told::FailedWrite(text)) => tx.send_failed_write(text),
+                None => {}
             }
             // The busy pointer goes last. A window that sees no work running starts the next
             // operation on these files, and the files still held back would refuse it.
@@ -1962,7 +1967,7 @@ impl crate::App {
             // that stalls would hold the window.
             if only.is_some() && crate::images::save::same_file(&path, &to) {
                 let e = tr("choose another name: the image itself is not changed");
-                return Some(tf!("Could not save the image: {e}", e));
+                return Some(Told::FailedWrite(tf!("Could not save the image: {e}", e)));
             }
             // The name's own bytes, also when they are not UTF-8.
             let named = |more: &str| crate::images::save::stem_with_suffix(&path, more);
@@ -2020,14 +2025,14 @@ impl crate::App {
                 });
             }
             Some(match (saved, only) {
-                (Ok(0), _) => tr("No such frame").to_owned(),
-                (Ok(_), Some(_)) => tf!("Saved {file}", file = to.display()),
-                (Ok(n), None) => tf!(
+                (Ok(0), _) => Told::Notice(tr("No such frame").to_owned()),
+                (Ok(_), Some(_)) => Told::Notice(tf!("Saved {file}", file = to.display())),
+                (Ok(n), None) => Told::Notice(tf!(
                     "{frames} saved in {folder}",
                     frames = count(n, "frame"),
                     folder = folder.display()
-                ),
-                (Err(e), _) => tf!("Could not save the frames: {e}", e),
+                )),
+                (Err(e), _) => Told::FailedWrite(tf!("Could not save the frames: {e}", e)),
             })
         });
     }
@@ -2041,9 +2046,12 @@ impl crate::App {
             return;
         };
         self.run_in_background(ctx, Vec::new(), move || {
-            let done = crate::files::backup::back_up_to(&dir).unwrap_or_else(|e| e);
+            let told = match crate::files::backup::back_up_to(&dir) {
+                Ok(done) => Told::Notice(done),
+                Err(e) => Told::FailedWrite(e),
+            };
             drop(job);
-            Some(done)
+            Some(told)
         });
     }
 

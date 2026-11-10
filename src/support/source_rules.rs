@@ -2186,6 +2186,12 @@ fn notices_are_given_through_their_setter() {
 /// waited for keywords to be written closed the window in the pass that took their failure, so
 /// the user never saw that the keywords were lost. A Close sent from another place, or a failed
 /// write taken in another place, could skip that again.
+///
+/// A failure must also reach the window as a failed write, not as a plain notice, which a
+/// close does not wait for. Work in `run_in_background` answers with a `Told`, so it says which
+/// its answer is, and a function that hands work to a writer thread holds no `notice_sender`,
+/// so the writer tells a failure through `save_failed`. A crop, Save As, an Undo and Rename
+/// Collection sent their failures as plain notices, and a close that waited closed over them.
 #[test]
 fn a_close_takes_the_failed_writes_first() {
     const HOMES: &[(&str, &[(&str, &str)])] = &[
@@ -2197,12 +2203,52 @@ fn a_close_takes_the_failed_writes_first() {
         ("take_saved(", &[("ui/workers.rs", "take_saves")]),
         ("self.notices.", &[("ui/workers.rs", "take_saves")]),
     ];
-    let wrong = outside_their_homes(HOMES);
+    let mut wrong = outside_their_homes(HOMES);
+    for (file, text) in rust_sources() {
+        wrong.extend(notices_beside_writers(&file, &text));
+    }
     assert!(
         wrong.is_empty(),
-        "send a Close with ask_to_close, and take a failed write in take_saves:\n{}",
+        "send a Close with ask_to_close, take a failed write in take_saves, and tell a writer \
+         thread's failure with save_failed:\n{}",
         wrong.join("\n")
     );
+    let file_ops = include_str!("../files/file_ops.rs");
+    assert!(file_ops.contains("work: impl FnOnce() -> Option<Told> + Send + 'static,"));
+}
+
+/// The check above finds a function that hands work to a writer thread and holds a
+/// `notice_sender` too, as Rename Collection did.
+#[test]
+fn finds_a_notice_sender_beside_a_writer() {
+    let text = "impl A {\n    fn a(&self) {\n        let n = self.notice_sender.clone();\n        \
+        write_later_in_user_folders(move || drop(n.send(e)));\n    }\n    fn b(&self) {\n        \
+        write_later(move || save_failed(e));\n    }\n    fn c(&self) {\n        \
+        let n = self.notice_sender.clone();\n    }\n}\n";
+    assert_eq!(notices_beside_writers("x.rs", text), ["x.rs: a"]);
+}
+
+/// Returns the functions in `text`, the source of `file`, that hand work to a writer thread
+/// (`write_later` or `write_later_in_user_folders`) and also hold a `notice_sender`, by which
+/// that work could send a failure as a plain notice.
+fn notices_beside_writers(file: &str, text: &str) -> Vec<String> {
+    let lines = code_lines(text);
+    let end = tests_start(&lines);
+    let (mut function, mut writes, mut notices) = (String::new(), false, false);
+    let mut wrong = Vec::new();
+    // A last line that starts no function ends the last one, so it is checked too.
+    let last = "fn end".to_owned();
+    for line in lines[..end].iter().chain([&last]) {
+        if let Some(name) = function_name(line) {
+            if writes && notices {
+                wrong.push(format!("{file}: {function}"));
+            }
+            (function, writes, notices) = (name.to_owned(), false, false);
+        }
+        writes |= mentions(line, "write_later(") || mentions(line, "write_later_in_user_folders(");
+        notices |= line.contains("notice_sender");
+    }
+    wrong
 }
 
 /// A setting that has a setter (an App `set_…` method, or a View action's `toggle_setting`) is

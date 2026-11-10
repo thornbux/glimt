@@ -693,10 +693,7 @@ impl crate::App {
         let Some(old) = self.dialogs.take_folder() else {
             return;
         };
-        let (report_tx, notices) = (
-            self.file_operations.report_sender(),
-            self.notice_sender.clone(),
-        );
+        let report_tx = self.file_operations.report_sender();
         let (text, ctx) = (text.to_owned(), ctx.clone());
         let pointer = crate::support::threads::Working::new(&self.busy);
         crate::files::file_io::write_later_in_user_folders(move || {
@@ -705,7 +702,7 @@ impl crate::App {
                     collection_renamed: Some((old, new)),
                     ..Default::default()
                 })),
-                Err(e) => drop(notices.send(e)),
+                Err(e) => crate::files::file_io::save_failed(e),
             }
             drop(pointer);
             ctx.request_repaint();
@@ -814,7 +811,8 @@ impl crate::App {
                 let report_tx = self.file_operations.report_sender();
                 self.run_in_background(ctx, Vec::new(), move || {
                     if let Err(e) = std::fs::create_dir(&target) {
-                        return Some(format!("{display}: {e}", display = target.display()));
+                        let told = format!("{display}: {e}", display = target.display());
+                        return Some(crate::support::threads::Told::FailedWrite(told));
                     }
                     let _ = report_tx.send(OperationReport {
                         folder_made: Some(target),
@@ -907,18 +905,19 @@ impl crate::App {
                 ..Default::default()
             });
             let files = count(renamed, "file");
-            let mut msg = match undo {
+            let mut message = match undo {
                 true => tf!("{files} given their old names back", files),
                 false => tf!("{files} renamed", files),
             };
             if left > 0 {
                 let files = count(left, "file");
-                msg += &tf!(
+                message += &tf!(
                     "; {files} could not be, asked again at the next start",
                     files
                 );
+                return Some(crate::support::threads::Told::FailedWrite(message));
             }
-            Some(msg)
+            Some(crate::support::threads::Told::Notice(message))
         });
     }
 
