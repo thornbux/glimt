@@ -767,15 +767,17 @@ pub(crate) fn adobe_sidecars_of(
 /// Returns each sidecar of `path` that is there, Glimt's own and Adobe's, paired with its name
 /// for the file at `to`. Every operation that moves, renames, copies or deletes a file asks
 /// this, so a sidecar never stays behind for the next file of the old name. `names` holds the
-/// folders that the operation has read already.
+/// folders that the operation has read already, and `ours` the RAW files leaving with it
+/// (`adobe_sidecars_of`).
 pub(crate) fn sidecars_moving_with(
     path: &Path,
     to: &Path,
+    ours: &std::collections::HashSet<&PathBuf>,
     names: &mut AdobeNames,
 ) -> Vec<(PathBuf, PathBuf)> {
     let own = sidecar_of(path).map(|side| (side, sidecar(to)));
     // Adobe's sidecar keeps the case of its extension: IMG_1.XMP goes to IMG_2.XMP.
-    let adobe = adobe_sidecars_of(path, &Default::default(), names).into_iter();
+    let adobe = adobe_sidecars_of(path, ours, names).into_iter();
     let adobe = adobe.map(|side| {
         let to = to.with_extension(side.extension().unwrap_or_default());
         (side, to)
@@ -788,7 +790,7 @@ pub(crate) fn sidecars_moving_with(
 pub(crate) fn sidecars_of(paths: &[PathBuf]) -> Vec<PathBuf> {
     let mut names = AdobeNames::default();
     let sides: std::collections::BTreeSet<PathBuf> = (paths.iter())
-        .flat_map(|path| sidecars_moving_with(path, path, &mut names))
+        .flat_map(|path| sidecars_moving_with(path, path, &Default::default(), &mut names))
         .map(|(side, _)| side)
         .collect();
     sides.into_iter().collect()
@@ -802,15 +804,19 @@ pub(crate) fn is_link(path: &Path) -> bool {
 
 /// Copies or moves the sidecars of `from` (`sidecars_moving_with`) with the file that went to
 /// `to`. Returns the first sidecar that could not follow, by its new name, with the error.
-/// `names` holds the folders that the operation has read already.
+/// `names` holds the folders that the operation has read already. `moving` are all the files
+/// that a move takes, so that two RAW files of one name stem moved together take Adobe's
+/// sidecar with the first of them, whatever their order. A copy passes none, because both
+/// files stay, and the sidecar then stays theirs alone.
 pub fn follow(
     from: &Path,
     to: &Path,
     is_copy: bool,
+    moving: &std::collections::HashSet<&PathBuf>,
     names: &mut AdobeNames,
 ) -> Result<(), (PathBuf, std::io::Error)> {
     let mut result = Ok(());
-    for (side, to) in sidecars_moving_with(from, to, names) {
+    for (side, to) in sidecars_moving_with(from, to, moving, names) {
         if let Err(e) = follow_one(&side, &to, is_copy)
             && result.is_ok()
         {
@@ -1496,7 +1502,14 @@ mod tests {
         };
         std::thread::sleep(std::time::Duration::from_millis(50));
         crate::files::file_io::put_file(&from, &to, false).unwrap();
-        super::follow(&from, &to, false, &mut Default::default()).unwrap();
+        super::follow(
+            &from,
+            &to,
+            false,
+            &Default::default(),
+            &mut Default::default(),
+        )
+        .unwrap();
         drop(move_lock);
         assert!(writer.join().unwrap().is_err());
         assert!(!super::sidecar(&from).exists());
@@ -2347,10 +2360,10 @@ mod tests {
         write_changed(&a, adding(&meta.keywords), Some(meta.comment.clone())).unwrap();
         assert_eq!(read(&a), meta);
         std::fs::rename(&a, &b).unwrap();
-        follow(&a, &b, false, &mut Default::default()).unwrap();
+        follow(&a, &b, false, &Default::default(), &mut Default::default()).unwrap();
         assert_eq!(read(&b), meta);
         std::fs::copy(&b, &c).unwrap();
-        follow(&b, &c, true, &mut Default::default()).unwrap();
+        follow(&b, &c, true, &Default::default(), &mut Default::default()).unwrap();
         assert_eq!(read(&c), meta);
         // A sidecar at the target belongs to another file, so it is kept, not replaced.
         std::fs::write(&a, b"").unwrap();
@@ -2359,7 +2372,7 @@ mod tests {
             comment: String::new(),
         };
         write_changed(&a, adding(&other.keywords), Some(other.comment.clone())).unwrap();
-        assert!(follow(&b, &a, true, &mut Default::default()).is_err());
+        assert!(follow(&b, &a, true, &Default::default(), &mut Default::default()).is_err());
         assert_eq!(read(&a), other);
         std::fs::remove_dir_all(&dir).unwrap();
     }
@@ -2372,11 +2385,17 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         let p = |name: &str| dir.join(name);
+        let ours = std::collections::HashSet::new();
         for name in ["IMG_1.CR2", "IMG_1.JPG", "IMG_1.xmp", "IMG_1.CR2.xmp"] {
             std::fs::write(p(name), name).unwrap();
         }
         assert_eq!(
-            sidecars_moving_with(&p("IMG_1.CR2"), &p("IMG_2.CR2"), &mut Default::default()),
+            sidecars_moving_with(
+                &p("IMG_1.CR2"),
+                &p("IMG_2.CR2"),
+                &ours,
+                &mut Default::default()
+            ),
             [
                 (p("IMG_1.CR2.xmp"), p("IMG_2.CR2.xmp")),
                 (p("IMG_1.xmp"), p("IMG_2.xmp"))
@@ -2407,13 +2426,17 @@ mod tests {
             std::fs::write(p(name), name).unwrap();
         }
         assert_eq!(
-            sidecars_moving_with(&p("IMG_3.CR2"), &p("IMG_5.CR2"), &mut Default::default()),
+            sidecars_moving_with(
+                &p("IMG_3.CR2"),
+                &p("IMG_5.CR2"),
+                &ours,
+                &mut Default::default()
+            ),
             [(p("IMG_3.XMP"), p("IMG_5.XMP"))]
         );
         assert!(sidecars_of(&[p("IMG_4.CR2")]).is_empty());
         // A RAW file that an operation brings to the stem counts as another one.
         let mut arriving = AdobeNames::arriving([p("IMG_3.NEF"), p("IMG_3.CR2")]);
-        let ours = Default::default();
         assert!(adobe_sidecars_of(&p("IMG_3.CR2"), &ours, &mut arriving).is_empty());
         std::fs::remove_dir_all(&dir).unwrap();
     }
@@ -2454,7 +2477,7 @@ mod tests {
         image::RgbaImage::new(2, 2).save(&a).unwrap();
         std::os::unix::fs::symlink(&secret, sidecar(&a)).unwrap();
         std::fs::copy(&a, &b).unwrap();
-        follow(&a, &b, true, &mut Default::default()).unwrap();
+        follow(&a, &b, true, &Default::default(), &mut Default::default()).unwrap();
         assert!(
             std::fs::symlink_metadata(sidecar(&b)).is_err(),
             "copied through the link"
@@ -2465,7 +2488,14 @@ mod tests {
             "landed through the link"
         );
         std::fs::rename(&a, b.with_file_name("d.png")).unwrap();
-        follow(&a, &dir.join("d.png"), false, &mut Default::default()).unwrap();
+        follow(
+            &a,
+            &dir.join("d.png"),
+            false,
+            &Default::default(),
+            &mut Default::default(),
+        )
+        .unwrap();
         assert!(is_link(&sidecar(&dir.join("d.png"))), "moved as itself");
         assert_eq!(std::fs::read_to_string(&secret).unwrap(), "PRIVATE KEY");
         std::fs::remove_dir_all(&dir).unwrap();

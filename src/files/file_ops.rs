@@ -1056,6 +1056,7 @@ impl crate::App {
             let target_of = |path: &PathBuf| dest.join(path.file_name().unwrap_or_default());
             let mut names = xmp::AdobeNames::arriving(paths.iter().map(target_of));
             let mut sidecar_names = xmp::AdobeNames::default();
+            let moving: HashSet<&PathBuf> = paths.iter().filter(|_| !is_copy).collect();
             for path in &paths {
                 if job.is_stopped() {
                     break;
@@ -1075,8 +1076,8 @@ impl crate::App {
                 } else if let Err(e) = put_file(path, &target, is_copy) {
                     failed(&target, e);
                 } else {
-                    if let Err((side, e)) = xmp::follow(path, &target, is_copy, &mut sidecar_names)
-                    {
+                    let followed = xmp::follow(path, &target, is_copy, &moving, &mut sidecar_names);
+                    if let Err((side, e)) = followed {
                         failed(&side, e);
                     }
                     put.push((path.clone(), target));
@@ -2223,7 +2224,7 @@ pub(crate) fn rename_files(from: Vec<PathBuf>, to: Vec<PathBuf>, job: &Job) -> R
     let (mut from, mut to) = (from, to);
     let mut sidecar_names = xmp::AdobeNames::default();
     let sides: Vec<(PathBuf, PathBuf)> = (from.iter().zip(&to))
-        .flat_map(|(f, t)| xmp::sidecars_moving_with(f, t, &mut sidecar_names))
+        .flat_map(|(f, t)| xmp::sidecars_moving_with(f, t, &HashSet::new(), &mut sidecar_names))
         .collect();
     // Adobe's sidecar keeps its name when only the extension's case changes (IMG_1.cr2). It
     // stays where it is, and its name is still one of the rename's own.
@@ -2338,6 +2339,8 @@ fn move_back(pairs: Vec<Moved>) -> (Vec<(PathBuf, PathBuf)>, Vec<String>) {
     let (mut errors, mut back) = (Vec::new(), Vec::new());
     let mut names = xmp::AdobeNames::arriving(pairs.iter().map(|(from, _, _)| from.clone()));
     let mut sidecar_names = xmp::AdobeNames::default();
+    let moving_back: Vec<PathBuf> = pairs.iter().map(|(_, now, _)| now.clone()).collect();
+    let moving: HashSet<&PathBuf> = moving_back.iter().collect();
     for (from, to, at_move) in pairs {
         let _lock = xmp::lock_sidecar(&to);
         // Another program may have put another file at `to` since the move.
@@ -2352,7 +2355,8 @@ fn move_back(pairs: Vec<Moved>) -> (Vec<(PathBuf, PathBuf)>, Vec<String>) {
         };
         match result {
             Ok(()) => {
-                if let Err((side, e)) = xmp::follow(&to, &from, false, &mut sidecar_names) {
+                if let Err((side, e)) = xmp::follow(&to, &from, false, &moving, &mut sidecar_names)
+                {
                     errors.push(format!("{}: {e}", side.display()));
                 }
                 back.push((to, from));
@@ -3432,7 +3436,8 @@ mod tests {
     /// the case of its extension keeps the sidecar. `r.XMP` is Lightroom's too. When two RAW files
     /// share the stem `r`, `r.xmp` stays where it is through an operation on either, and the
     /// Undo of a move, a trash or a rename is not refused because of it. Two RAW files trashed
-    /// together come back with it, and no error is told.
+    /// together come back with it, two moved together take it along in either order, and no
+    /// error is told.
     #[test]
     fn adobe_sidecars_of_one_stem_never_block_a_rename_or_undo() {
         use eframe::egui::Context;
@@ -3446,7 +3451,26 @@ mod tests {
             &'static [&'static str],
             &'static [&'static str],
         );
-        let cases: [Case; 9] = [
+        let cases: [Case; 11] = [
+            (
+                "move both after another RAW file",
+                &["a.cr2", "r.cr2", "r.nef", "r.xmp"],
+                |app, _, d| {
+                    let paths = ["a.cr2", "r.cr2", "r.nef"].map(|f| d.join(f)).to_vec();
+                    app.transfer(paths, d.join("sub"), false)
+                },
+                &[],
+                &["a.cr2", "r.cr2", "r.nef", "r.xmp"],
+            ),
+            (
+                "move both in the other order",
+                &["r.cr2", "r.nef", "r.xmp"],
+                |app, _, d| {
+                    app.transfer(vec![d.join("r.nef"), d.join("r.cr2")], d.join("sub"), false)
+                },
+                &[],
+                &["r.cr2", "r.nef", "r.xmp"],
+            ),
             (
                 "rename the case",
                 &["r.cr2", "r.xmp"],

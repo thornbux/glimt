@@ -42,7 +42,7 @@ and versions follow [Semantic Versioning](https://semver.org/).
   Lightroom's edits and keywords. IMG_1.XMP, as Capture One and Photo Mechanic name it, goes
   too. An IMG_1.JPG or IMG_1.DNG beside the RAW file leaves it alone, as Lightroom keeps their
   metadata inside them, and two RAW files of one name (IMG_1.CR2 and IMG_1.NEF) leave it where
-  it is. The manual no longer says that Lightroom reads Glimt's own IMG_1.CR2.xmp.
+  it is, unless both are moved together, in any order, and it goes along. The manual no longer says that Lightroom reads Glimt's own IMG_1.CR2.xmp.
 ### Fixed
 
 - A network share that stops answering (a NAS gone to sleep, Wi-Fi lost) no longer hangs the
