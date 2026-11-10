@@ -1914,7 +1914,8 @@ fn agents_md_names_what_each_module_has() {
 /// that caught panics its own way once forgot it, and a broken file ended the thread. Eight
 /// commits added the catch one path at a time. A thread's `join()` whose error is swallowed
 /// catches a panic too, and drops the thread's work without a word, so it passes the panic on
-/// (`resume_unwind`) or tells it.
+/// (`resume_unwind` or `.unwrap()`) or hands it to its caller (`?`). Only those spellings pass,
+/// because a list of the ways to drop the error always missed one.
 #[test]
 fn panics_are_caught_in_one_place() {
     let mut wrong = Vec::new();
@@ -1932,31 +1933,24 @@ fn panics_are_caught_in_one_place() {
 }
 
 /// Returns the lines of `text` outside the tests that catch a panic: `catch_unwind`, or a
-/// thread's `join()` whose error is dropped with `.ok()`, `.unwrap_or_default()`,
-/// `.unwrap_or(…)`, `let _ =`, `_ =` or `drop(…)`, also on the next line. A join in an
-/// `.unwrap_or_else(…)`, an `if let Ok(…) =`, a `while let Ok(…) =` or a `match` counts too,
-/// unless its statement passes the panic on with `resume_unwind`.
+/// thread's `join()` whose error is not passed on. A join passes it on only when `?`,
+/// `.unwrap()` or `.expect(` follows it, also on the next line, or when the rest of its
+/// statement calls `resume_unwind`. Every other spelling counts, because there are many ways to
+/// drop an error (`.ok()`, `let Ok(…) = … else`, `match`, `.is_ok()`, `.into_iter()`).
 fn panics_caught_in(text: &str) -> Vec<usize> {
-    const SWALLOWED: [&str; 3] = [".ok()", ".unwrap_or_default()", ".unwrap_or("];
-    const DROPPED: [&str; 3] = ["let _ =", "_ =", "drop("];
-    const UNLESS_PASSED_ON: [&str; 3] = ["if let Ok(", "while let Ok(", "match "];
+    const PASSED_ON: [&str; 3] = ["?", ".unwrap()", ".expect("];
     let lines = code_lines(text);
     let end = tests_start(&lines);
     let mut found = Vec::new();
     for (i, line) in lines[..end].iter().enumerate() {
-        let after_join = line.split_once(".join()").map(|(_, after)| after.trim());
-        let next = lines.get(i + 1).map_or("", |l| l.trim());
-        let statement = line.trim_start();
-        let passed_on = || statement_text(&lines[..end], i).contains("resume_unwind");
-        let swallowed = after_join.is_some_and(|after| {
-            let after = if after.is_empty() { next } else { after };
-            SWALLOWED.iter().any(|s| after.starts_with(s))
-                || DROPPED.iter().any(|s| statement.starts_with(s))
-                || ((after.starts_with(".unwrap_or_else(")
-                    || UNLESS_PASSED_ON.iter().any(|s| statement.starts_with(s)))
-                    && !passed_on())
+        let is_caught = line.split_once(".join()").is_some_and(|(_, after)| {
+            let next = lines.get(i + 1).map_or("", |l| l.trim());
+            let after = Some(after.trim()).filter(|a| !a.is_empty()).unwrap_or(next);
+            let statement = statement_text(&lines[..end], i);
+            let rest = statement.split_once(".join()").map_or("", |(_, rest)| rest);
+            !(PASSED_ON.iter().any(|s| after.starts_with(s)) || rest.contains("resume_unwind"))
         });
-        if line.contains("catch_unwind") || swallowed {
+        if line.contains("catch_unwind") || is_caught {
             found.push(i + 1);
         }
     }
@@ -1981,10 +1975,9 @@ fn statement_text(lines: &[String], first: usize) -> String {
     text
 }
 
-/// The check above finds `catch_unwind` and a join whose error is dropped, on its line or the
-/// next, or taken by an `.unwrap_or_else(…)`, an `if let Ok(…)` or a `match` that does not
-/// pass it on. It leaves a join that passes the panic on, one that unwraps in the tests, and a
-/// `join` of text.
+/// The check above finds `catch_unwind` and every join that does not pass its error on, in
+/// each way an error is dropped. It leaves a join that passes the panic on, one in the tests,
+/// and a `join` of text.
 #[test]
 fn finds_a_panic_caught() {
     let text = "fn a() {\n    std::panic::catch_unwind(f);\n    \
@@ -1995,9 +1988,16 @@ fn finds_a_panic_caught() {
         workers.flat_map(|w| w.join().unwrap_or_else(|_| Vec::new()));\n    \
         if let Ok(part) = h.join() {\n        all.extend(part);\n    }\n    \
         match h.join() {\n        Ok(p) => p,\n        Err(_) => Vec::new(),\n    };\n    \
-        match h.join() {\n        Ok(p) => p,\n        Err(e) => resume_unwind(e),\n    };\n\
+        match h.join() {\n        Ok(p) => p,\n        Err(e) => resume_unwind(e),\n    };\n    \
+        let parts = match h.join() {\n        Ok(p) => p,\n        Err(_) => Vec::new(),\n    \
+        };\n    let Ok(part) = h.join() else {\n        continue;\n    };\n    \
+        } else if let Ok(part) = h.join() {\n    \
+        workers.flat_map(|w| w.join().into_iter().flatten());\n    if h.join().is_ok() {\n    \
+        let part = h.join()?;\n    let part = h.join().unwrap();\n    \
+        let part = h\n        .join()\n        .unwrap();\n\
         }\nmod tests {\n    fn t() {\n        h.join().ok();\n    }\n}\n";
-    assert_eq!(panics_caught_in(text), [2, 3, 4, 6, 10, 11, 12, 15]);
+    let found = panics_caught_in(text);
+    assert_eq!(found, [2, 3, 4, 6, 10, 11, 12, 15, 23, 27, 30, 31, 32]);
 }
 
 /// A decoded image is turned by its EXIF orientation only after it is shrunk to the size shown
