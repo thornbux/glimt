@@ -33,6 +33,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 - A window started with a `--name` that another window took by a rename at the same moment
   shares the name under its own ID, as when the name is taken already. Before, it was left
   without remote control.
+- Renaming a window to the name of a Glimt that hangs no longer hangs the renamed window too:
+  a socket that has not taken the connection after half a second counts as taken.
 
 ### Changed
 

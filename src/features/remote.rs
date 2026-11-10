@@ -155,6 +155,10 @@ const MOST_CLIENTS: usize = 16;
 /// as long as its files take, while no one file takes longer than this.
 const WAIT: std::time::Duration = std::time::Duration::from_secs(10);
 
+/// How long a look for a running Glimt on a socket waits for the connection (`answers`). A Glimt
+/// that runs takes it at once, unless it hangs.
+const PROBE_WAIT: std::time::Duration = std::time::Duration::from_millis(500);
+
 /// The name from `--name`, set before the window opens, or later by `--remote name` and Window
 /// → Set Window Name….
 static GIVEN_NAME: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
@@ -1428,7 +1432,7 @@ fn bind_socket(path: &std::path::Path) -> Result<UnixListener, Option<std::io::E
     #[allow(clippy::disallowed_methods)] // an empty lock file in the private runtime folder
     let lock = std::fs::File::create(path.with_extension("lock")).map_err(Some)?;
     lock.lock().map_err(Some)?;
-    if UnixStream::connect(path).is_ok() {
+    if answers(path) {
         return Err(None);
     }
     #[allow(clippy::disallowed_methods)] // a socket left by a Glimt gone
@@ -1504,7 +1508,7 @@ fn link_socket(from: &std::path::Path, to: &std::path::Path) -> std::io::Result<
             #[allow(clippy::disallowed_methods)] // an empty lock file in the private runtime folder
             let lock = std::fs::File::create(to.with_extension("lock"))?;
             lock.lock()?;
-            if UnixStream::connect(to).is_ok() {
+            if answers(to) {
                 return Err(e);
             }
             #[allow(clippy::disallowed_methods)] // a socket left by a Glimt gone
@@ -1514,6 +1518,31 @@ fn link_socket(from: &std::path::Path, to: &std::path::Path) -> std::io::Result<
         }
         other => other,
     }
+}
+
+/// Returns whether a running Glimt answers on the socket at `path`. The connection is tried in
+/// a thread of its own, because a connection to a Glimt that hangs with a full queue of clients
+/// waits until that Glimt takes it, and the window that asks must not wait with it. A connection
+/// that has not come after `PROBE_WAIT` counts as answered, as only a running Glimt holds one
+/// back that long.
+// shortcut: the thread waits as long as the hung Glimt does, one for each probe; give the
+// connection a deadline of its own if hung windows are probed often.
+fn answers(path: &Path) -> bool {
+    let path = path.to_path_buf();
+    connected_in_time(move || UnixStream::connect(path).is_ok(), PROBE_WAIT)
+}
+
+/// Runs `connect` in a thread of its own and returns what it returns. Returns true when it has
+/// not returned after `limit`, as `answers` says.
+fn connected_in_time(
+    connect: impl FnOnce() -> bool + Send + 'static,
+    limit: std::time::Duration,
+) -> bool {
+    let (tx, rx) = mpsc::channel();
+    std::thread::spawn(move || {
+        let _ = tx.send(connect());
+    });
+    rx.recv_timeout(limit).unwrap_or(true)
 }
 
 /// Marks that this Glimt got the focus, so `--remote` goes to it from now on.
@@ -1658,6 +1687,30 @@ mod tests {
         assert!(replaced);
         assert!(std::os::unix::net::UnixStream::connect(&c).is_ok());
         std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A look for a running Glimt on a socket does not wait for a connection that a Glimt that
+    /// hangs with a full queue of clients holds back, and counts it as answered. Before, a
+    /// rename to the name of such a Glimt hung the renamed window too. A connection that takes
+    /// ten seconds stands in for one held back.
+    #[test]
+    fn a_connection_held_back_counts_as_answered_without_waiting() {
+        let (_never, held_back) = std::sync::mpsc::channel::<()>();
+        let slow = move || {
+            held_back
+                .recv_timeout(std::time::Duration::from_secs(10))
+                .is_ok()
+        };
+        let started = std::time::Instant::now();
+        assert!(super::connected_in_time(
+            slow,
+            std::time::Duration::from_millis(100)
+        ));
+        assert!(started.elapsed() < std::time::Duration::from_secs(5));
+        assert!(!super::connected_in_time(
+            || false,
+            std::time::Duration::from_secs(5)
+        ));
     }
 
     /// A new name whose socket's path would be too long for a client to connect to is not
