@@ -526,6 +526,88 @@ const RETIRED_IN_FILE: &[(&str, &str)] = &[
     ("viewer/view.rs", "wheel"),            // wheel_notches
 ];
 
+/// The calls that clippy.toml refuses (`disallowed-methods`), each kept there: the rules of
+/// AGENTS.md on touching the disk, starting programs, decoding, locks and drawing a button
+/// rest on them, so a line taken out of clippy.toml fails `the_lints_stay_on`.
+const REFUSED_CALLS: &[&str] = &[
+    "std::fs::read",
+    "std::fs::read_to_string",
+    "std::io::read_to_string",
+    "std::io::Read::read_to_end",
+    "std::fs::write",
+    "std::fs::File::create",
+    "std::fs::File::create_new",
+    "std::fs::OpenOptions::open",
+    "std::fs::rename",
+    "std::fs::copy",
+    "std::fs::remove_file",
+    "std::fs::remove_dir",
+    "std::fs::remove_dir_all",
+    "std::fs::hard_link",
+    "std::os::unix::fs::symlink",
+    "std::fs::set_permissions",
+    "std::fs::File::set_modified",
+    "std::fs::File::set_times",
+    "image::DynamicImage::save",
+    "image::DynamicImage::save_with_format",
+    "image::ImageBuffer::save",
+    "image::ImageBuffer::save_with_format",
+    "image::save_buffer",
+    "image::save_buffer_with_format",
+    "std::process::Command::new",
+    "std::process::Command::output",
+    "std::process::Command::status",
+    "std::fs::File::open",
+    "image::ImageReader::open",
+    "image::image_dimensions",
+    "image::DynamicImage::from_decoder",
+    "image::load_from_memory",
+    "image::load_from_memory_with_format",
+    "jpeg_decoder::Decoder::decode",
+    "image::open",
+    "image::load",
+    "image::ImageReader::decode",
+    "image::ImageReader::no_limits",
+    "image::Limits::no_limits",
+    "image::ImageDecoder::read_image",
+    "image::ImageDecoder::read_image_boxed",
+    "image::AnimationDecoder::into_frames",
+    "tiff::decoder::Decoder::read_image",
+    "std::process::Child::wait",
+    "std::process::Child::wait_with_output",
+    "egui::Ui::button",
+    "egui::Ui::small_button",
+    "egui::Ui::selectable_label",
+    "egui::Ui::selectable_value",
+    "egui::Ui::radio",
+    "egui::Ui::radio_value",
+    "egui::Button::selectable",
+    "egui::Button::new",
+    "egui::Ui::checkbox",
+    "egui::Checkbox::new",
+    "egui::RadioButton::new",
+    "egui::Ui::toggle_value",
+    "egui::Button::image_and_text",
+    "egui::Button::opt_image_and_text",
+    "egui::Ui::link",
+    "egui::Ui::hyperlink",
+    "egui::Ui::hyperlink_to",
+    "egui::Ui::menu_button",
+    "egui::Ui::menu_image_button",
+    "egui::Ui::menu_image_text_button",
+    "egui::containers::menu::MenuButton::new",
+    "egui::Link::new",
+    "egui::Hyperlink::new",
+    "egui::Hyperlink::from_label_and_url",
+    "std::io::Read::read_to_string",
+    "png::Reader::next_frame",
+    "std::os::unix::fs::MetadataExt::ino",
+    "std::os::linux::fs::MetadataExt::st_ino",
+    "std::os::unix::fs::DirEntryExt::ino",
+    "glimt::files::file_io::file_lock",
+    "std::sync::Mutex::lock",
+];
+
 /// The calls that look at or change the disk: the standard library's, and Glimt's own functions
 /// that do, the writers of file_io among them. Each is found anywhere in a line, also as a
 /// method (`path.read_dir()`).
@@ -3006,9 +3088,11 @@ fn finds_a_rename_without_its_folder_synced() {
 
 /// The lints in Cargo.toml's `[lints]` that hold Glimt's rules on unsafe code and on errors.
 /// Each must stay at deny: one taken out or lowered to warn lets an undocumented unsafe block or
-/// a panic on an error back in without a word from `cargo clippy`. No module turns one off for
-/// all its code either: an exception is an allow on the narrowest statement, with its reason.
-/// clippy.toml refuses `Mutex::lock`, so a lock goes through `threads::lock_even_if_poisoned`.
+/// a panic on an error back in without a word from `cargo clippy`. No module, `impl` or `mod`
+/// turns one off for all its code either, nor clippy's `disallowed_methods`, which refuses the
+/// raw calls of clippy.toml: an exception is an allow on the narrowest statement or function,
+/// with its reason. Every call of `REFUSED_CALLS` stays in clippy.toml, `Mutex::lock` among
+/// them, so a lock goes through `threads::lock_even_if_poisoned`.
 #[test]
 fn the_lints_stay_on() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR"));
@@ -3032,28 +3116,69 @@ fn the_lints_stay_on() {
             ));
         }
     }
-    let lints = [
+    for (file, text) in rust_sources() {
+        for line in lints_turned_off_widely(&text) {
+            wrong.push(format!(
+                "{file}:{line}: a lint turned off for a whole module or block"
+            ));
+        }
+    }
+    let clippy = std::fs::read_to_string(root.join("clippy.toml")).unwrap();
+    for call in REFUSED_CALLS {
+        if !clippy.contains(&format!("path = \"{call}\"")) {
+            wrong.push(format!("clippy.toml: {call} is no longer refused"));
+        }
+    }
+    assert!(wrong.is_empty(), "{}", wrong.join("\n"));
+}
+
+/// Returns the lines of `text` that turn off one of the lints of `the_lints_stay_on` for a
+/// whole module (`#![allow(…)]`, outside the tests), or for a whole `impl` or `mod`.
+fn lints_turned_off_widely(text: &str) -> Vec<usize> {
+    const LINTS: [&str; 5] = [
         "unsafe_code",
         "undocumented_unsafe",
         "unwrap_used",
         "expect_used",
+        "disallowed_methods",
     ];
-    for (file, text) in rust_sources() {
-        for (i, line) in code_lines(&text).iter().enumerate() {
-            let for_a_module = line.trim_start().starts_with("#![") && !line.contains("(test,");
-            if for_a_module && lints.iter().any(|lint| line.contains(lint)) {
-                wrong.push(format!(
-                    "{file}:{}: a lint turned off for a whole module",
-                    i + 1
-                ));
-            }
+    let lines = code_lines(text);
+    let mut found = Vec::new();
+    for (i, line) in lines.iter().enumerate() {
+        let line = line.trim_start();
+        if !line.starts_with("#") || !LINTS.iter().any(|lint| line.contains(lint)) {
+            continue;
+        }
+        // The item the attribute stands on, after any other attributes.
+        let item = (lines[i + 1..].iter())
+            .map(|l| without_qualifiers(l.trim_start()))
+            .find(|l| !l.is_empty() && !l.starts_with('#'))
+            .unwrap_or("");
+        let is_for_a_block = item.starts_with("impl") || item.starts_with("mod ");
+        let is_wide = match line.starts_with("#![") {
+            true => !line.contains("(test,"),
+            false => is_for_a_block,
+        };
+        if is_wide {
+            found.push(i + 1);
         }
     }
-    let clippy = std::fs::read_to_string(root.join("clippy.toml")).unwrap();
-    if !clippy.contains("\"std::sync::Mutex::lock\"") {
-        wrong.push("clippy.toml: Mutex::lock is no longer refused".into());
-    }
-    assert!(wrong.is_empty(), "{}", wrong.join("\n"));
+    found
+}
+
+/// The check above finds a lint turned off for a module, for an `impl` (also behind another
+/// attribute) and for a `mod`. It leaves one turned off for a statement or a function, and the
+/// tests' own `cfg_attr(test, …)`.
+#[test]
+fn finds_a_lint_turned_off_widely() {
+    let text = "#![allow(clippy::disallowed_methods)]\n\
+        #![cfg_attr(test, allow(clippy::unwrap_used))]\n\
+        #[allow(clippy::disallowed_methods)]\nimpl crate::App {\n}\n\
+        #[allow(clippy::unwrap_used)]\n#[cfg(unix)]\nunsafe impl Send for A {\n}\n\
+        #[allow(clippy::expect_used)]\nmod inner {\n}\n\
+        #[allow(clippy::disallowed_methods)] // a reason\nfn f() {\n    \
+        #[allow(clippy::unwrap_used)] // a reason\n    let x = y.unwrap();\n}\n";
+    assert_eq!(lints_turned_off_widely(text), [1, 3, 6, 10]);
 }
 
 /// Returns the lines of the statements of `text` outside the tests that drop the result of one
