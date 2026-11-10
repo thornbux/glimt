@@ -971,12 +971,21 @@ impl crate::App {
 
     /// Looks up the real path of `folder` in the background, as it waits for the disk, and then
     /// runs `then` with it in the window's thread. The busy pointer shows meanwhile. A close
-    /// waits for it too, as for a file operation, because `then` starts one (a Copy, say).
+    /// waits for it too, as for a file operation, because `then` starts one (a Copy, say). The
+    /// files `held_back_files` that its job will change are held back from now on, and let go
+    /// just before `then` starts the job that holds them in turn. Nothing is looked up, and a
+    /// notice says so, while other work changes them.
     pub(crate) fn with_real_folder(
         &mut self,
         folder: PathBuf,
+        held_back_files: Vec<PathBuf>,
         then: impl FnOnce(&mut crate::App, &egui::Context, PathBuf) + Send + 'static,
     ) {
+        // Before, the files were held only from the job's start, so a delete and a rename in
+        // the moment before could hand a Move another file of the same name.
+        let Some(held_back) = self.hold_back_while_writing(held_back_files) else {
+            return;
+        };
         let tx = self.file_operations.real_folder_tx.clone();
         let (pointer, ctx) = (Working::new(&self.busy), self.ctx.clone());
         let awaited = Working::new(&self.file_operations.real_folders_awaited);
@@ -986,6 +995,8 @@ impl crate::App {
             // from then on.
             let _ = tx.send(Box::new(
                 move |app: &mut crate::App, ctx: &egui::Context| {
+                    // The window's thread runs both, so no other work comes between them.
+                    drop(held_back);
                     then(app, ctx, real);
                     drop(awaited);
                 },
@@ -1010,7 +1021,7 @@ impl crate::App {
         // through a link is seen as one. It is looked up in the background, because it waits
         // for the disk, and checked before the files leave the list, so a refused move keeps
         // the view.
-        self.with_real_folder(dest, move |app, ctx, dest| {
+        self.with_real_folder(dest, paths.clone(), move |app, ctx, dest| {
             app.transfer_into_real_folder(ctx, paths, dest, is_copy)
         });
     }
@@ -3702,6 +3713,23 @@ mod tests {
         std::fs::remove_dir_all(&d).unwrap();
     }
 
+    /// A Move holds its files back from the request, while its folder's real path is looked
+    /// up, so a delete of them in that moment waits. Before, they were held only once the job
+    /// started, and a delete and a rename in between could hand the Move another file.
+    #[test]
+    fn a_move_holds_its_files_back_while_its_folder_is_looked_up() {
+        let d = std::env::temp_dir().join(format!("glimt-test-move-held-{}", std::process::id()));
+        std::fs::create_dir_all(d.join("sub")).unwrap();
+        std::fs::write(d.join("a.png"), b"").unwrap();
+        let (mut app, ctx) = app_on(&d);
+        app.transfer(vec![d.join("a.png")], d.join("sub"), false);
+        assert!(!app.are_free_to_change(&[d.join("a.png")]));
+        let moved = |app: &crate::App| !app.working() && d.join("sub/a.png").exists();
+        assert!(run_background_until(&mut app, &ctx, moved));
+        assert!(app.are_free_to_change(&[d.join("sub/a.png")]));
+        std::fs::remove_dir_all(&d).unwrap();
+    }
+
     /// The name that the "rename folder" operation gives the contract's folder `d`.
     fn renamed(d: &std::path::Path) -> std::path::PathBuf {
         let name = d.file_name().unwrap().to_string_lossy();
@@ -3810,6 +3838,8 @@ mod tests {
             ("delete_now", "trash"),
             ("undo_trash", "undo a trash"),
             ("transfer_into_real_folder", "move"),
+            // It holds the files of a Move, a Copy and a Copy for Sharing until their job starts.
+            ("with_real_folder", "move"),
             // Through rename_in_background, and the Undo of a rename.
             ("rename_files_of", "rename"),
             ("undo", "undo a move"),
@@ -4048,7 +4078,9 @@ mod tests {
         for _ in 0..300 {
             let ran = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
             let then = ran.clone();
-            app.with_real_folder(dir.clone(), move |_, _, _| then.store(true, SeqCst));
+            app.with_real_folder(dir.clone(), Vec::new(), move |_, _, _| {
+                then.store(true, SeqCst)
+            });
             // The pending look-up counts as work that a close waits for.
             assert!(app.is_writing() || ran.load(SeqCst));
             assert!(idle_and(&mut app, &|_| ran.load(SeqCst)));

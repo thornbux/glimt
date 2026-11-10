@@ -271,7 +271,7 @@ impl crate::App {
         kept: HashSet<String>,
     ) {
         // The folder by its real path, looked up in the background as for a copy (`transfer`).
-        self.with_real_folder(folder, move |app, ctx, folder| {
+        self.with_real_folder(folder, paths.clone(), move |app, ctx, folder| {
             app.copy_for_sharing_into_real_folder(ctx, paths, folder, kept)
         });
     }

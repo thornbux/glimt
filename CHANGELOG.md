@@ -44,6 +44,9 @@ and versions follow [Semantic Versioning](https://semver.org/).
 - File → Import Lightroom Catalog looks at the catalog's root folders, and at the folders typed
   for them, in the background. Before, the window's thread looked at each of them in every
   frame while the dialog was open, so a share that stopped answering held the window.
+- Move, Copy and Copy for Sharing hold their files back from other work from the moment they
+  are asked for, while the folder's real path is looked up. Before, a delete and a rename in
+  that moment could hand a Move to a slow share another file of the same name.
 
 ### Changed
 
