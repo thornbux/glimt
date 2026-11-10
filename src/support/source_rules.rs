@@ -867,9 +867,24 @@ impl CallGraph {
         let lines = &self.lines[&g.file][g.lines.clone()];
         let opens = lines.iter().position(|l| l.ends_with('{')).unwrap_or(0);
         let signature = lines[..=opens].join(" ");
-        let parameters = signature
-            .split_once('(')
-            .map_or("", |(_, p)| p.trim_start());
+        // The parameters start after `fn name` and its generics, not at the first `(`, which
+        // may be the one of `pub(crate)` or of a generic's `Fn(&Path)`.
+        let after_name = (signature.match_indices(&format!("fn {}", g.name)))
+            .map(|(at, found)| &signature[at + found.len()..])
+            .find(|rest| rest.starts_with(['<', '(']))
+            .unwrap_or("");
+        let mut depth = 0usize;
+        let mut previous = ' ';
+        let open = after_name.char_indices().find(|&(_, c)| {
+            match c {
+                '<' => depth += 1,
+                '>' if previous != '-' => depth = depth.saturating_sub(1),
+                _ => {}
+            }
+            previous = c;
+            c == '(' && depth == 0
+        });
+        let parameters = open.map_or("", |(at, _)| after_name[at + 1..].trim_start());
         let parameters = parameters.trim_start_matches('&');
         let parameters = parameters.strip_prefix("mut ").unwrap_or(parameters);
         parameters.starts_with("self") && !parameters[4..].starts_with(is_word_char)
@@ -4678,7 +4693,7 @@ fn finds_a_disk_call_in_the_window_thread() {
         fn h(&self) {\n        self.part.get().label();\n        \
         for x in items {\n            x.label();\n        }\n        \
         items.map(|t| t.label());\n    }\n    \
-        fn i(&self, other: &Other, part: Arc<Part>) {\n        other.label();\n        \
+        fn i(&self, other: &Other, part: Arc<Part>) {\n        other.label();\n        other.each(f);\n        \
         part.label();\n        let tool: Thing = make();\n        tool.label();\n        part\n            .label();\n        \
         text.look(p);\n    }\n}\nfn helper(p: &Path) -> bool {\n    \
         look_deeper(p)\n}\nfn look_deeper(p: &Path) -> bool {\n    p.is_dir()\n}\nfn in_thread() {\n    \
@@ -4687,7 +4702,8 @@ fn finds_a_disk_call_in_the_window_thread() {
         p.is_dir();\n}\nstruct App {\n    part: Part,\n}\nimpl Part {\n    fn d(&self) {\n        \
         p.metadata();\n    }\n}\nimpl Default for Part {\n    fn default() -> Self {\n        \
         p.is_symlink();\n    }\n}\nimpl Other {\n    fn look(p: &Path) {\n        \
-        p.is_dir();\n    }\n    fn label(&self) {\n        p.is_dir();\n    }\n}\n";
+        p.is_dir();\n    }\n    pub(crate) fn label(&self) {\n        p.is_dir();\n    }\n    \
+        fn each<F: Fn(&Path) -> bool>(&self, f: F) {\n        p.is_dir();\n    }\n}\n";
     // A chain three calls deep, through the functions of two other modules, to the disk. The
     // way is told by where each call on it is made.
     let b = "pub fn deep(p: &Path) {\n    middle(p);\n}\nfn middle(p: &Path) {\n    \
@@ -4718,8 +4734,9 @@ fn finds_a_disk_call_in_the_window_thread() {
             ("a.rs", "h", "label(", 34),
             ("a.rs", "h", "label(", 36),
             ("a.rs", "i", "label(", 39),
-            ("a.rs", "d", ".metadata()", 71),
-            ("a.rs", "default", ".is_symlink()", 76),
+            ("a.rs", "i", "each(", 40),
+            ("a.rs", "d", ".metadata()", 72),
+            ("a.rs", "default", ".is_symlink()", 77),
         ]
     );
 }
