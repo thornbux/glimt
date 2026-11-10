@@ -269,6 +269,13 @@ impl crate::App {
             self.handle_remote(ctx, &command, reply);
         }
         while let Ok((command, reply)) = self.remote.rx.try_recv() {
+            // An `open` replaces a look-up that has not answered, as a click in the folder tree
+            // does, so that a script can leave a share that stopped answering. The commands that
+            // waited for the old place were sent for a place that will not open, so they are
+            // not done.
+            if is_open(&command) && self.folder.is_looking_up() {
+                self.cancel_waiting_commands("the place is no longer being opened");
+            }
             // A command behind a waiting one that may open another folder waits its turn,
             // because it would otherwise act on the list from before that folder.
             let behind_an_open =
@@ -294,14 +301,11 @@ impl crate::App {
     /// (with a reply, `is_query`) also waits while the folder is read, because its files are
     /// not all listed yet. It waits as well while a dialog asks about the selection (Delete,
     /// Rename), which is answered for the files it asked about, not for a selection that a
-    /// script put in their place. An `open` with nothing queued does not wait for the look-up:
-    /// it replaces it, as a click in the folder tree does, so that a script can leave a share
-    /// that stopped answering.
+    /// script put in their place. An `open` does not wait for the look-up: it replaces it
+    /// (`receive_remote`).
     fn must_wait(&self, command: &str, is_query: bool) -> bool {
         let select = is_query && command.starts_with("select ");
-        let replaces_look_up =
-            command.trim_start().starts_with("open ") && self.remote.waiting_commands.is_empty();
-        (self.folder.is_looking_up() && !replaces_look_up)
+        (self.folder.is_looking_up() && !is_open(command))
             || (select && (self.folder.is_listing() || self.asking_about_selection()))
     }
 
@@ -315,17 +319,23 @@ impl crate::App {
         let ctx = self.ctx.clone();
         for (command, reply) in waiting.into_iter().chain(sent) {
             let Some(reply) = reply else { continue };
-            match command.strip_prefix("select ") {
-                Some(paths) => {
-                    let paths = paths.split('\0').filter(|p| !p.is_empty());
-                    let _ = reply.send(paths.flat_map(|p| p.bytes().chain([0])).collect());
+            // A query other than a select is answered as at any other time (`where` too, in the
+            // release tests' build). Any other command is not done as the window closes.
+            match is_query(&command) && !command.starts_with("select ") {
+                true => self.handle_remote(&ctx, &command, Some(reply)),
+                false => {
+                    let _ = reply.send(not_done_reply(&command, "this Glimt is closing"));
                 }
-                // A command is not done as the window closes, and the client is told so.
-                None if !is_query(&command) => {
-                    let _ = reply.send(not_done_answer("this Glimt is closing"));
-                }
-                // Answered as at any other time (`where` too, in the release tests' build).
-                None => self.handle_remote(&ctx, &command, Some(reply)),
+            }
+        }
+    }
+
+    /// Answers each waiting command that it was not done, for the reason `why`, and forgets
+    /// them all.
+    fn cancel_waiting_commands(&mut self, why: &str) {
+        for (command, reply) in std::mem::take(&mut self.remote.waiting_commands) {
+            if let Some(reply) = reply {
+                let _ = reply.send(not_done_reply(&command, why));
             }
         }
     }
@@ -599,6 +609,19 @@ fn not_done_answer(why: &str) -> Vec<u8> {
     format!("{NOT_DONE_ANSWER}{why}\n").into_bytes()
 }
 
+/// Returns the answer to `command` when it was not done, for the reason `why`. A select is answered
+/// with all its paths, none of them selected, because an empty answer would read as "all
+/// found".
+fn not_done_reply(command: &str, why: &str) -> Vec<u8> {
+    match command.strip_prefix("select ") {
+        Some(paths) => {
+            let paths = paths.split('\0').filter(|p| !p.is_empty());
+            paths.flat_map(|p| p.bytes().chain([0])).collect()
+        }
+        None => not_done_answer(why),
+    }
+}
+
 /// Returns the reason in a window's answer `answer`, or `None` when the answer says that the
 /// command was done, or is a query's.
 fn not_done_reason(answer: &[u8]) -> Option<String> {
@@ -838,7 +861,12 @@ fn socket_path_fits(path: &Path) -> bool {
 fn may_relist(command: &str) -> bool {
     ["open ", "subfolders", "slideshow", "run "]
         .iter()
-        .any(|c| command.starts_with(c))
+        .any(|c| command.trim_start().starts_with(c))
+}
+
+/// Whether `command` is `open`, which replaces a look-up that has not answered.
+fn is_open(command: &str) -> bool {
+    command.trim_start().starts_with("open ")
 }
 
 /// Whether `words` is one of `COMMANDS`, with a path where it takes one and none where it does
@@ -1209,7 +1237,7 @@ pub fn listen(
     mark_this_window_focused();
     std::thread::spawn(move || {
         serve_clients(listener, MOST_CLIENTS, move |stream| {
-            serve(stream, &tx, &ctx)
+            serve(stream, &tx, &ctx, WAIT)
         });
     });
     Ok(())
@@ -1272,13 +1300,15 @@ fn serve_clients(
     }
 }
 
-/// One client's commands, each passed to the window, and its answer to a query sent back.
+/// One client's commands, each passed to the window, and its answer to a query sent back. The
+/// client has `wait` (`WAIT`) to send each command, and the window a second more to answer it.
 fn serve(
     stream: UnixStream,
     tx: &mpsc::Sender<(String, Option<Reply>)>,
     ctx: &eframe::egui::Context,
+    wait: std::time::Duration,
 ) {
-    let _ = stream.set_read_timeout(Some(WAIT));
+    let _ = stream.set_read_timeout(Some(wait));
     let mut out = stream.try_clone().ok();
     // A client may send as much as `select` may, and no more, so a client that sends without
     // end does not fill the memory.
@@ -1309,7 +1339,10 @@ fn serve(
             return;
         }
         ctx.request_repaint();
-        match answer.recv() {
+        // The client gives up after `wait`, so a command that waits longer for a look-up that
+        // does not answer lets its thread and its place among `MOST_CLIENTS` go. The command
+        // may still be done later, and its answer then goes nowhere.
+        match answer.recv_timeout(wait + std::time::Duration::from_secs(1)) {
             Ok(bytes) => {
                 // `info` sends each file's record as it is read, until it has sent them all.
                 // Each part is written at once, so the client's time limit holds for each part.
@@ -1323,12 +1356,18 @@ fn serve(
                     }
                 }
             }
+            Err(mpsc::RecvTimeoutError::Timeout) => {
+                if let Some(out) = out.as_mut() {
+                    let _ = out.write_all(&not_done_answer("no answer"));
+                }
+                return;
+            }
             // When the window dropped the answer (too many waiting, or closing), closing the
             // connection now would make the client read nothing, "all found" or "done". Held
             // open, its time limit says "no answer".
-            Err(_) => {
+            Err(mpsc::RecvTimeoutError::Disconnected) => {
                 drop(answering);
-                return std::thread::sleep(WAIT + std::time::Duration::from_secs(1));
+                return std::thread::sleep(wait + std::time::Duration::from_secs(1));
             }
         }
         drop(answering);
@@ -1899,7 +1938,8 @@ mod tests {
         drop(client);
         // The listener waits for each command's answer, so the window's part runs here.
         let window_ctx = ctx.clone();
-        let server = std::thread::spawn(move || super::serve(window, &tx, &window_ctx));
+        let server =
+            std::thread::spawn(move || super::serve(window, &tx, &window_ctx, super::WAIT));
         for (_, new) in super::RENAMED_COMMANDS {
             for _ in 0..2 {
                 let (line, reply) = rx.recv().unwrap();
@@ -1913,7 +1953,8 @@ mod tests {
         writeln!(client, "prev").unwrap();
         drop(client);
         let window_ctx = ctx.clone();
-        let server = std::thread::spawn(move || super::serve(window, &tx, &window_ctx));
+        let server =
+            std::thread::spawn(move || super::serve(window, &tx, &window_ctx, super::WAIT));
         app.remote = super::Listener {
             rx,
             tx: std::sync::mpsc::channel().0,
@@ -2040,7 +2081,9 @@ mod tests {
         // The listener writes the window's answer back to the client.
         let (mut client, window) = std::os::unix::net::UnixStream::pair().unwrap();
         let (tx, rx) = std::sync::mpsc::channel();
-        std::thread::spawn(move || super::serve(window, &tx, &eframe::egui::Context::default()));
+        std::thread::spawn(move || {
+            super::serve(window, &tx, &eframe::egui::Context::default(), super::WAIT)
+        });
         writeln!(client, "nxet").unwrap();
         client.shutdown(std::net::Shutdown::Write).unwrap();
         let (line, reply) = rx.recv().unwrap();
@@ -2092,7 +2135,7 @@ mod tests {
         let (tx, _rx) = std::sync::mpsc::channel();
         let (mut client, window) = super::UnixStream::pair().unwrap();
         let ctx = eframe::egui::Context::default();
-        let server = std::thread::spawn(move || super::serve(window, &tx, &ctx));
+        let server = std::thread::spawn(move || super::serve(window, &tx, &ctx, super::WAIT));
         let long = "x".repeat(4 * super::MOST_LINE as usize);
         client
             .write_all(format!("title {long}\n").as_bytes())
@@ -2131,6 +2174,37 @@ mod tests {
         std::fs::remove_file(path).unwrap();
     }
 
+    /// A command whose answer does not come in time (it waits for a look-up that never answers)
+    /// is told "no answer", and its client's place is given to the next client. Before, the
+    /// thread waited for ever, and 16 such clients kept every other one out.
+    #[test]
+    fn a_command_not_answered_in_time_frees_its_place() {
+        use std::io::{Read, Write};
+        let path = std::env::temp_dir().join(format!("glimt-slow-{}.sock", std::process::id()));
+        let _ = std::fs::remove_file(&path);
+        let listener = std::os::unix::net::UnixListener::bind(&path).unwrap();
+        let (tx, rx) = std::sync::mpsc::channel();
+        let wait = std::time::Duration::from_millis(200);
+        let serve = move |stream| {
+            super::serve(stream, &tx, &eframe::egui::Context::default(), wait);
+        };
+        std::thread::spawn(move || super::serve_clients(listener, 1, serve));
+        let connect = || std::os::unix::net::UnixStream::connect(&path).unwrap();
+        let (mut first, mut second) = (connect(), connect());
+        writeln!(first, "current").unwrap();
+        writeln!(second, "current").unwrap();
+        let five_seconds = std::time::Duration::from_secs(5);
+        // Both replies are kept, as the window keeps a waiting command's, and never answered.
+        let first_reply = rx.recv_timeout(five_seconds).unwrap();
+        let second_reply = rx.recv_timeout(five_seconds);
+        assert!(second_reply.is_ok(), "the second client was not served");
+        let mut got = Vec::new();
+        first.read_to_end(&mut got).unwrap();
+        assert_eq!(super::not_done_reason(&got).as_deref(), Some("no answer"));
+        drop((first_reply, second_reply));
+        std::fs::remove_file(path).unwrap();
+    }
+
     /// A query whose answer the window drops (too many waiting) is not closed at once, because
     /// the client would read an empty answer, "all found". It is left to time out, "no answer".
     #[test]
@@ -2138,7 +2212,9 @@ mod tests {
         use std::io::{Read, Write};
         let (mut client, server) = std::os::unix::net::UnixStream::pair().unwrap();
         let (tx, rx) = std::sync::mpsc::channel();
-        std::thread::spawn(move || super::serve(server, &tx, &eframe::egui::Context::default()));
+        std::thread::spawn(move || {
+            super::serve(server, &tx, &eframe::egui::Context::default(), super::WAIT)
+        });
         writeln!(client, "select /a.jpg\0").unwrap();
         let (_, reply) = rx.recv().unwrap();
         drop(reply);
@@ -2426,20 +2502,43 @@ mod tests {
         std::fs::remove_dir_all(dir).unwrap();
     }
 
-    /// An `open` with nothing queued replaces a look-up that never answers, so a script can
-    /// leave a share that stopped answering.
+    /// An `open` replaces a look-up that never answers, also while a command waits for it, so a
+    /// script can leave a share that stopped answering. The waiting command is told it was not
+    /// done, and a later one acts on the place opened. Before, the `open` waited behind it.
     #[test]
     fn an_open_replaces_a_look_up_that_never_answers() {
         let dir = std::env::temp_dir().join(format!("glimt-test-open-over-{}", std::process::id()));
         let other = dir.join("other");
         std::fs::create_dir_all(&other).unwrap();
+        image::RgbImage::new(4, 4)
+            .save(other.join("b.png"))
+            .unwrap();
         let (mut app, ctx) = app_on(&dir);
         let (tx, rx) = std::sync::mpsc::channel();
         app.remote.rx = rx;
         let _held = app.folder.hold_look_up();
-        tx.send((format!("open {}", other.display()), None))
+        let (reply, parked) = std::sync::mpsc::channel();
+        tx.send(("current".to_owned(), Some(reply))).unwrap();
+        app.receive_remote(&ctx);
+        assert_eq!(app.remote.waiting_commands.len(), 1, "current waits");
+        let b = other.join("b.png");
+        let (reply, opened) = std::sync::mpsc::channel();
+        tx.send((format!("open {}", b.display()), Some(reply)))
             .unwrap();
-        assert!(receive_remote_until(&mut app, &ctx, |app| app.folder.dir() == other));
+        let (reply, current) = std::sync::mpsc::channel();
+        tx.send(("current".to_owned(), Some(reply))).unwrap();
+        let mut answer = None;
+        assert!(receive_remote_until(&mut app, &ctx, |_| {
+            answer = current.try_recv().ok();
+            answer.is_some()
+        }));
+        assert_eq!(answer.unwrap(), format!("{}\0", b.display()).into_bytes());
+        let not_done = super::not_done_reason(&parked.try_recv().unwrap());
+        assert_eq!(
+            not_done.as_deref(),
+            Some("the place is no longer being opened")
+        );
+        assert_eq!(opened.try_recv().unwrap(), b"");
         std::fs::remove_dir_all(dir).unwrap();
     }
 
@@ -2575,7 +2674,7 @@ mod tests {
         let (mut client, window) = std::os::unix::net::UnixStream::pair().unwrap();
         let (tx, rx) = std::sync::mpsc::channel();
         let ctx = eframe::egui::Context::default();
-        std::thread::spawn(move || super::serve(window, &tx, &ctx));
+        std::thread::spawn(move || super::serve(window, &tx, &ctx, super::WAIT));
         writeln!(client, "info /a.png\0/b.png").unwrap();
         client.shutdown(std::net::Shutdown::Write).unwrap();
         let (command, reply) = rx.recv().unwrap();
@@ -2622,7 +2721,7 @@ mod tests {
         let (mut client, window) = std::os::unix::net::UnixStream::pair().unwrap();
         let (tx, rx) = std::sync::mpsc::channel();
         let window_ctx = ctx.clone();
-        std::thread::spawn(move || super::serve(window, &tx, &window_ctx));
+        std::thread::spawn(move || super::serve(window, &tx, &window_ctx, super::WAIT));
         let named = format!("{}\0{}", shown.display(), other.join("b.png").display());
         writeln!(client, "info").unwrap();
         writeln!(client, "info {named}").unwrap();

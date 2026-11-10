@@ -1056,11 +1056,10 @@ impl crate::App {
             let target_of = |path: &PathBuf| dest.join(path.file_name().unwrap_or_default());
             let mut names = xmp::AdobeNames::arriving(paths.iter().map(target_of));
             let mut sidecar_names = xmp::AdobeNames::default();
-            let moving: HashSet<&PathBuf> = paths.iter().filter(|_| !is_copy).collect();
-            for path in &paths {
-                if job.is_stopped() {
-                    break;
-                }
+            // The RAW files that leave with this move: those that went and those yet to come. One
+            // that could not go is taken out, so that its stem's sidecar stays beside it.
+            let mut moving: HashSet<&PathBuf> = paths.iter().filter(|_| !is_copy).collect();
+            for path in paths.iter().take_while(|_| !job.is_stopped()) {
                 let target = target_of(path);
                 let mut failed = |at: &Path, e: std::io::Error| {
                     errors.push(format!("{display}: {e}", display = at.display()));
@@ -1073,8 +1072,10 @@ impl crate::App {
                 let _lock = (!is_copy).then(|| xmp::lock_sidecar(path));
                 if let Some(at) = name_in_the_way(&target, &HashSet::new(), &mut names) {
                     failed(&at, std::io::ErrorKind::AlreadyExists.into());
+                    moving.remove(path);
                 } else if let Err(e) = put_file(path, &target, is_copy) {
                     failed(&target, e);
+                    moving.remove(path);
                 } else {
                     let followed = xmp::follow(path, &target, is_copy, &moving, &mut sidecar_names);
                     if let Err((side, e)) = followed {
@@ -3602,6 +3603,25 @@ mod tests {
             empty_trash_of(&d);
         }
         assert!(failed.is_empty(), "{failed:#?}");
+    }
+
+    /// A RAW file that cannot go, because its name is taken in the folder it was moved to,
+    /// keeps Lightroom's sidecar of its stem, although another RAW file of that stem went after
+    /// it. Before, the sidecar went with the other one, as both were counted as leaving.
+    #[test]
+    fn an_adobe_sidecar_stays_with_a_raw_file_that_could_not_go() {
+        let d = std::env::temp_dir().join(format!("glimt-test-adobe-stays-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&d);
+        std::fs::create_dir_all(d.join("sub")).unwrap();
+        for f in ["r.nef", "r.cr2", "r.xmp", "sub/r.nef"] {
+            std::fs::write(d.join(f), b"").unwrap();
+        }
+        let (mut app, ctx) = app_on(&d);
+        app.transfer(vec![d.join("r.nef"), d.join("r.cr2")], d.join("sub"), false);
+        let moved = |app: &crate::App| !app.working() && d.join("sub/r.cr2").exists();
+        assert!(run_background_until(&mut app, &ctx, moved));
+        assert!(d.join("r.xmp").exists() && !d.join("sub/r.xmp").exists());
+        std::fs::remove_dir_all(&d).unwrap();
     }
 
     /// The name that the "rename folder" operation gives the contract's folder `d`.

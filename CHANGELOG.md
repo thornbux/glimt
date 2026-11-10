@@ -52,7 +52,10 @@ and versions follow [Semantic Versioning](https://semver.org/).
   responsive while the share is silent. A `glimt --remote` command sent after `open` waits
   until the place to open has been looked up, so it acts on that place, also in a minimized
   window. `--remote quit` does not wait, and a further `--remote open` replaces the look-up,
-  as a click in the folder tree does, so a script can leave a share that stopped answering.
+  as a click in the folder tree does, so a script can leave a share that stopped answering;
+  the commands that waited for the old place are answered that they were not done. A command
+  that waits longer than a client does lets its place go, so waiting ones never keep the
+  next clients out.
 - Window → Set Window Name… and `glimt --remote name NAME` give a running window a new
   `--name`, which `--remote` reaches it by from then on; without a name, its process ID does.
   With remote control off in Preferences, a window listens while it has a name, as with
