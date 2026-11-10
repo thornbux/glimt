@@ -182,6 +182,12 @@ impl crate::App {
     pub(crate) fn request_and_take_exif(&mut self, ctx: &egui::Context) {
         self.reread_when_written();
         let path = self.path(self.list.shown());
+        // The edit of the image before is saved as soon as another image is shown, before this
+        // one's read is asked for. Saved only at the next answer, it could still wait when the
+        // user came back, and the panel then read the file as it was before the edit.
+        if (self.info_panel.metadata_edit.as_ref()).is_some_and(|edit| edit.path != path) {
+            self.save_metadata_edit(ctx);
+        }
         // An image shown again while its own save still waits behind a long job (a Lightroom
         // import) is read once the save is written, or the panel would show it without the save.
         if self.info_panel.exif_asked.as_ref() != Some(&path)
@@ -792,6 +798,58 @@ mod tests {
         assert!(run_background_until(&mut app, &ctx, |_| comment(&b) == "Red"));
         assert_eq!(comment(&a), "");
         std::fs::remove_dir_all(&d).unwrap();
+    }
+
+    /// Coming back to an image whose edit was not saved yet, while the next image is still being
+    /// read, shows the edit. Before, the edit was saved only when the next image's answer came,
+    /// after this image's read was asked for, so the panel showed the file as it was before.
+    #[test]
+    fn an_edit_is_saved_when_its_image_is_left() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-edit-left-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let a = dir.join("a.png");
+        for p in [&a, &dir.join("b.png")] {
+            image::RgbImage::new(4, 4).save(p).unwrap();
+        }
+        let (mut app, ctx) = app_on(&dir);
+        assert!(run_background_until(&mut app, &ctx, |a| !a
+            .folder
+            .is_listing()));
+        app.show_file(&ctx, 0);
+        read_panel(&mut app, &ctx);
+        // A long sidecar job of another file holds the one sidecar thread, so the save of the
+        // edit cannot land before the panel reads the image again, however fast the computer.
+        let (release, released) = std::sync::mpsc::channel::<()>();
+        let other = vec![dir.join("c.png")];
+        app.write_sidecars(
+            &ctx,
+            "Other",
+            other,
+            move |_| released.recv().is_err(),
+            |_, _| None,
+        );
+        app.info_panel.metadata_edit.as_mut().unwrap().alt_text = "Red".into();
+        app.show_file(&ctx, 1);
+        app.request_and_take_exif(&ctx);
+        app.show_file(&ctx, 0);
+        app.request_and_take_exif(&ctx);
+        drop(release);
+        let shows_a = |app: &crate::App| {
+            !app.file_operations.is_writing_sidecars()
+                && app.info_panel.reread_after_write.is_none()
+                && (app.info_panel.metadata_edit.as_ref()).is_some_and(|edit| edit.path == a)
+        };
+        for _ in 0..500 {
+            app.request_and_take_exif(&ctx);
+            if shows_a(&app) {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        assert!(shows_a(&app), "the panel never read the image again");
+        let edit = app.info_panel.metadata_edit.as_ref().unwrap();
+        assert_eq!(edit.saved_alt_text.text, "Red");
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     /// A keyword written to the shown file behind the panel's back, as another window or a
