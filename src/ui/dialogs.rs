@@ -4,18 +4,19 @@
 use crate::features::copy_for_sharing::SharingDialog;
 use crate::features::print::{PrintJob, PrintTo};
 use crate::files::config::xdg_dir;
-use crate::files::external::{Login, command};
+use crate::files::external::Login;
 use crate::files::file_io::{FileFingerprint, fingerprint};
 use crate::files::file_ops::{NOT_ON_FAT, OperationReport, fat_file_system_type};
 use crate::model::listing::pattern_name;
 use crate::support::format::count;
 use crate::support::lang::tr;
 use crate::support::threads::{Receiving, Took, Working, answer_channel};
-use crate::{files::external, files::journal, images::save, model::collections, tf, ui::theme};
+use crate::{files::journal, images::save, model::collections, tf, ui::theme};
 use eframe::egui;
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc;
+use std::time::Duration;
 
 /// How long the question to delete for good what the trash refused is on screen before Enter
 /// answers it. It opens by itself, when the folder has been read again, so an Enter pressed for
@@ -25,6 +26,23 @@ const ENTER_IGNORED_FOR: f64 = 0.5;
 /// The system's folder of colour profiles, where the file dialog for a profile starts when the
 /// user has none of their own.
 const SYSTEM_PROFILES: &str = "/usr/share/color/icc";
+
+/// How long Move To and Copy To wait, once the folder is picked, for each next fingerprint of
+/// the files picked. A file that a share has not answered about by then counts as changed.
+#[cfg(not(test))]
+const FINGERPRINT_WAIT: Duration = Duration::from_secs(5);
+#[cfg(test)]
+const FINGERPRINT_WAIT: Duration = Duration::from_millis(200);
+
+/// In a test, a file picked whose fingerprint never comes, as on a share that stopped
+/// answering, until the test takes it away.
+#[cfg(test)]
+static FINGERPRINT_STALLS: std::sync::Mutex<Option<PathBuf>> = std::sync::Mutex::new(None);
+
+/// In a test, the folder that the file chooser answers with, or `None` for Cancel. A test never
+/// opens a real chooser.
+#[cfg(test)]
+static CHOOSER_PICKS: std::sync::Mutex<Option<PathBuf>> = std::sync::Mutex::new(None);
 
 /// What a file dialog (zenity or kdialog) was opened for.
 pub(crate) enum Pick {
@@ -146,8 +164,9 @@ pub(crate) struct Dialogs {
     confirm_collection: Option<PathBuf>,
     /// Answer from an open file dialog (zenity or kdialog).
     file_dialog: Option<Pick>,
-    /// The path picked, and the fingerprints of the files a Move To or Copy To picked.
-    picked_path: Receiving<PickedPath>,
+    /// The path picked, and the fingerprints of the files a Move To or Copy To picked. The busy
+    /// pointer stays until the answer is handled.
+    picked_path: Receiving<(PickedPath, Working)>,
     /// Save as Theme's answer while its file is written.
     saved_theme: Receiving<(SavedTheme, Working)>,
     /// The files a dialog asks about, by their names in the list, where the list was
@@ -339,7 +358,8 @@ impl crate::App {
             self.notice.give(tr("A file dialog is open already").into());
             return;
         }
-        let (tx, rx) = mpsc::channel();
+        let (tx, rx) = answer_channel(&self.busy);
+        let busy = self.busy.clone();
         let start = self.dialog_start(&purpose);
         let save = matches!(
             purpose,
@@ -372,10 +392,12 @@ impl crate::App {
             Pick::CopyTo(paths) | Pick::MoveTo(paths) => paths.clone(),
             _ => Vec::new(),
         };
+        // The fingerprints are taken while the chooser is open. Taken before it, 500,000 files
+        // on a share kept it from opening for minutes, and one file that the share no longer
+        // answered about kept it from opening at all.
+        let picked_count = picked_files.len();
+        let fingerprints = fingerprints_in_background(picked_files);
         std::thread::spawn(move || {
-            // Taken now, as the files are picked, so that a file whose name another one took
-            // while the chooser was open is not moved or copied in its place.
-            let at_pick: Vec<_> = picked_files.iter().map(|p| fingerprint(p)).collect();
             if make_start_first {
                 drop(std::fs::create_dir_all(&start));
             }
@@ -383,44 +405,7 @@ impl crate::App {
                 true => Path::new(SYSTEM_PROFILES).join(""),
                 false => start,
             };
-            #[allow(clippy::disallowed_methods)] // waits for the user, in its own thread
-            let zenity = || {
-                let mut cmd = command("zenity");
-                cmd.arg("--file-selection").arg("--title").arg(title);
-                cmd.arg("--filename").arg(&start);
-                if save {
-                    cmd.arg("--save").arg("--confirm-overwrite");
-                }
-                if folder {
-                    cmd.arg("--directory");
-                }
-                if several {
-                    cmd.arg("--multiple").arg("--separator=\n");
-                }
-                cmd.output()
-            };
-            // KDE desktops often have kdialog but not zenity.
-            #[allow(clippy::disallowed_methods)] // waits for the user, in its own thread
-            let kdialog = || {
-                let mode = if save {
-                    "--getsavefilename"
-                } else if folder {
-                    "--getexistingdirectory"
-                } else {
-                    "--getopenfilename"
-                };
-                let mut cmd = command("kdialog");
-                cmd.arg("--title").arg(title).arg(mode).arg(&start);
-                cmd.output()
-            };
-            let output = match (
-                external::has_program("zenity"),
-                external::has_program("kdialog"),
-            ) {
-                (true, _) => zenity(),
-                (false, true) => kdialog(),
-                (false, false) => Err(std::io::ErrorKind::NotFound.into()),
-            };
+            let output = run_chooser(title, &start, (save, folder, several));
             let picked = match output {
                 Err(e) => {
                     let _ = notices.send(tf!("No file dialog (install zenity or kdialog): {e}", e));
@@ -432,6 +417,16 @@ impl crate::App {
                     o.stdout.pop_if(|b| *b == b'\n');
                     Some(PathBuf::from(std::ffi::OsString::from_vec(o.stdout)))
                 }
+            };
+            // A file whose fingerprint did not come in time counts as changed, so that a file
+            // whose name another one took meanwhile is not moved or copied in its place.
+            // The busy pointer is on while the user waits for them, once the folder is picked.
+            let at_pick = match picked {
+                Some(_) => {
+                    let _pointer = Working::new(&busy);
+                    fingerprints_taken(fingerprints, picked_count, FINGERPRINT_WAIT)
+                }
+                None => Vec::new(),
             };
             let _ = tx.send((picked, at_pick));
             ctx.request_repaint();
@@ -535,7 +530,8 @@ impl crate::App {
 
     /// The file dialog's answer, for what it was opened for.
     pub(crate) fn receive_picked(&mut self, ctx: &egui::Context) {
-        let (picked, at_pick) = match self.dialogs.picked_path.take() {
+        // The busy pointer stays until the answer is handled.
+        let ((picked, at_pick), _pointer) = match self.dialogs.picked_path.take() {
             Took::Answer(answer) => answer,
             // A dialog whose thread ended without an answer is over too: the next may open.
             Took::Gone => return self.dialogs.file_dialog = None,
@@ -1241,10 +1237,164 @@ fn fat_warning(name: &std::ffi::OsStr, fat: Option<&str>) -> Option<String> {
     ))
 }
 
+/// Takes the fingerprints of `paths`, in their order, in a thread of its own. Returns the channel
+/// they come through. It shows no busy pointer while the chooser is open, as the user does not
+/// wait for it then, and a file on a share that stopped answering would keep it on for good.
+fn fingerprints_in_background(paths: Vec<PathBuf>) -> mpsc::Receiver<Option<FileFingerprint>> {
+    let (tx, rx) = mpsc::channel();
+    std::thread::spawn(move || {
+        for path in paths {
+            // Once nobody waits for them, the rest are not taken.
+            if tx.send(picked_fingerprint(&path)).is_err() {
+                break;
+            }
+        }
+    });
+    rx
+}
+
+/// Returns the fingerprint of the file at `path`, picked for Move To or Copy To, or `None` when
+/// nothing is there.
+fn picked_fingerprint(path: &Path) -> Option<FileFingerprint> {
+    #[cfg(test)]
+    loop {
+        let stalls = crate::support::threads::lock_even_if_poisoned(&FINGERPRINT_STALLS).as_deref()
+            == Some(path);
+        if !stalls {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    fingerprint(path)
+}
+
+/// Collects the `count` fingerprints that `fingerprints_in_background` sends, waiting at most
+/// `wait` for each next one. Returns them in order, with `None` for each that did not come in
+/// time, which a move or copy then refuses as changed.
+fn fingerprints_taken(
+    fingerprints: mpsc::Receiver<Option<FileFingerprint>>,
+    count: usize,
+    wait: Duration,
+) -> Vec<Option<FileFingerprint>> {
+    let mut taken = Vec::with_capacity(count);
+    while taken.len() < count {
+        match fingerprints.recv_timeout(wait) {
+            Ok(fingerprint) => taken.push(fingerprint),
+            Err(_) => break,
+        }
+    }
+    taken.resize(count, None);
+    taken
+}
+
+/// Runs zenity's file chooser, or kdialog's where zenity is missing, titled `title` and
+/// starting at `start`, to save a file, pick a folder or pick several, and waits for it.
+#[cfg(not(test))]
+#[allow(clippy::disallowed_methods)] // waits for the user, in the chooser's own thread
+fn run_chooser(
+    title: &str,
+    start: &Path,
+    (save, folder, several): (bool, bool, bool),
+) -> std::io::Result<std::process::Output> {
+    use crate::files::external;
+    let zenity = || {
+        let mut cmd = external::command("zenity");
+        cmd.arg("--file-selection").arg("--title").arg(title);
+        cmd.arg("--filename").arg(start);
+        if save {
+            cmd.arg("--save").arg("--confirm-overwrite");
+        }
+        if folder {
+            cmd.arg("--directory");
+        }
+        if several {
+            cmd.arg("--multiple").arg("--separator=\n");
+        }
+        cmd.output()
+    };
+    // KDE desktops often have kdialog but not zenity.
+    let kdialog = || {
+        let mode = if save {
+            "--getsavefilename"
+        } else if folder {
+            "--getexistingdirectory"
+        } else {
+            "--getopenfilename"
+        };
+        let mut cmd = external::command("kdialog");
+        cmd.arg("--title").arg(title).arg(mode).arg(start);
+        cmd.output()
+    };
+    match (
+        external::has_program("zenity"),
+        external::has_program("kdialog"),
+    ) {
+        (true, _) => zenity(),
+        (false, true) => kdialog(),
+        (false, false) => Err(std::io::ErrorKind::NotFound.into()),
+    }
+}
+
+/// Answers as the file chooser would, with the folder of `CHOOSER_PICKS`, or as Cancel.
+#[cfg(test)]
+fn run_chooser(
+    _title: &str,
+    _start: &Path,
+    _kind: (bool, bool, bool),
+) -> std::io::Result<std::process::Output> {
+    use std::os::unix::{ffi::OsStringExt, process::ExitStatusExt};
+    let picked = crate::support::threads::lock_even_if_poisoned(&CHOOSER_PICKS).clone();
+    Ok(std::process::Output {
+        // Cancel exits with status 1, which is 256 in a raw wait status.
+        status: std::process::ExitStatus::from_raw(if picked.is_some() { 0 } else { 256 }),
+        stdout: picked.map_or_else(Vec::new, |p| p.into_os_string().into_vec()),
+        stderr: Vec::new(),
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use crate::support::test_support::app_on;
     use eframe::egui;
+
+    /// Move To opens the folder chooser before the files picked are looked at, so that a file
+    /// that a share no longer answers about does not keep it from opening. Before, every file
+    /// was looked at first, and one such file kept the chooser, and every later one, from
+    /// opening. A file whose fingerprint did not come in time counts as changed and stays,
+    /// told, and a file looked at in time goes.
+    #[test]
+    fn the_chooser_opens_while_a_picked_file_cannot_be_looked_at() {
+        use super::{CHOOSER_PICKS, FINGERPRINT_STALLS, Pick};
+        use crate::support::test_support::run_background_until;
+        use crate::support::threads::lock_even_if_poisoned;
+        let dir =
+            std::env::temp_dir().join(format!("glimt-test-pick-stall-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("sub")).unwrap();
+        let (a, b) = (dir.join("a.png"), dir.join("b.png"));
+        for path in [&a, &b] {
+            image::RgbImage::new(2, 2).save(path).unwrap();
+        }
+        let (mut app, ctx) = app_on(&dir);
+        *lock_even_if_poisoned(&CHOOSER_PICKS) = Some(dir.join("sub"));
+        *lock_even_if_poisoned(&FINGERPRINT_STALLS) = Some(a.clone());
+        app.pick(&ctx, true, Pick::MoveTo(vec![a.clone(), b.clone()]));
+        let answered =
+            run_background_until(&mut app, &ctx, |app| app.dialogs.file_dialog.is_none());
+        *lock_even_if_poisoned(&FINGERPRINT_STALLS) = None;
+        assert!(answered, "the chooser's answer never came");
+        assert!(run_background_until(&mut app, &ctx, |app| !app.working()));
+        assert!(a.exists() && b.exists());
+        let told = app.notice.text().unwrap_or_default().to_owned();
+        assert!(told.contains("changed"), "{told}");
+        app.pick(&ctx, true, Pick::MoveTo(vec![b.clone()]));
+        assert!(run_background_until(&mut app, &ctx, |app| {
+            app.dialogs.file_dialog.is_none() && !app.working() && !b.exists()
+        }));
+        *lock_even_if_poisoned(&CHOOSER_PICKS) = None;
+        assert!(dir.join("sub/b.png").exists());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
 
     /// A name that a window cannot take is told in a text of its own, which is translated,
     /// and not with the English reason that `--remote name` prints. The name is kept as it was.

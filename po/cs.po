@@ -2877,8 +2877,8 @@ msgid "the file system here ({kind}) does not allow this rename, as on some shar
 msgstr "souborový systém zde ({kind}) toto přejmenování nepovoluje, stejně jako některá sdílení, cloudové složky a telefony ({e})"
 
 #: src/files/file_io.rs
-msgid "{from} could not be removed after it was put at {to}, so the file is now under both names ({e})"
-msgstr "{from} se nepodařilo odstranit poté, co byl umístěn do {to}, takže soubor má nyní obě jména ({e})"
+msgid "{from} could not be removed after it was put at {to}, so the file may be under both names or only at {to}; check both before removing either ({e})"
+msgstr "{from} se nepodařilo odstranit poté, co byl umístěn do {to}, takže soubor může mít obě jména, nebo být jen v {to}; před odstraněním kteréhokoli z nich zkontrolujte obě ({e})"
 
 #: src/files/file_ops.rs
 msgid "\"{name}\": a {kind} file system, as on a camera card, allows none of : ? * \" < > | \\ in a name. Nothing was renamed."

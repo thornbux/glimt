@@ -208,7 +208,8 @@ pub(crate) fn rename_never_over(from: &Path, to: &Path) -> std::io::Result<()> {
 /// disk) has its new name taken away again. Any other failure keeps both names, because a share
 /// may have done the unlink and lost its answer (EIO, a timeout) while its cache still says the
 /// old name is there. Taking the new name away then would remove the only copy left. The error
-/// then says that the file is under both names. A file gone after all (deleted or moved in
+/// then says that the file may be under both names or only the new one, and that both are to
+/// be checked before either is removed. A file gone after all (deleted or moved in
 /// another window, or a share that said no but did it) is done, as the new name may be the only
 /// one left. This is the one place where a name is taken back after a failed unlink.
 fn unlink_linked(from: &Path, to: &Path) -> std::io::Result<()> {
@@ -234,7 +235,7 @@ fn unlink_linked(from: &Path, to: &Path) -> std::io::Result<()> {
     Err(std::io::Error::new(
         e.kind(),
         crate::tf!(
-            "{from} could not be removed after it was put at {to}, so the file is now under both names ({e})",
+            "{from} could not be removed after it was put at {to}, so the file may be under both names or only at {to}; check both before removing either ({e})",
             from,
             to,
             e
@@ -1395,7 +1396,13 @@ mod tests {
             let error = renamed.unwrap_err().to_string();
             assert!(a.exists(), "{errno}");
             assert_eq!(b.exists(), keeps_both, "{errno}");
-            assert_eq!(error.contains("both names"), keeps_both, "{error}");
+            // The text says what is known: the old name may be gone, so the user checks both.
+            assert_eq!(
+                error.contains("may be under both names"),
+                keeps_both,
+                "{error}"
+            );
+            assert_eq!(error.contains("check both"), keeps_both, "{error}");
         }
         std::fs::remove_dir_all(dir).unwrap();
     }

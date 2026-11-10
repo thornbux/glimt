@@ -2876,7 +2876,7 @@ msgid "the file system here ({kind}) does not allow this rename, as on some shar
 msgstr ""
 
 #: src/files/file_io.rs
-msgid "{from} could not be removed after it was put at {to}, so the file is now under both names ({e})"
+msgid "{from} could not be removed after it was put at {to}, so the file may be under both names or only at {to}; check both before removing either ({e})"
 msgstr ""
 
 #: src/files/file_ops.rs
