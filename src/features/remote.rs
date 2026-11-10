@@ -138,8 +138,12 @@ pub(crate) const IDENTIFY_TIME: std::time::Duration = std::time::Duration::from_
 pub const FOCUSED_FILE: &str = "focused";
 
 /// The most files `select` and `info` take, because the window finds a select's files in its
-/// own thread.
+/// own thread. Glimt's client checks it, and the window too (`read_command`), for any other
+/// program that sends on the socket.
 pub const MAX_SELECT: usize = 100_000;
+
+/// What a client is told when its `select` or `info` names more files than `MAX_SELECT`.
+const TOO_MANY_FILES: &str = "more than 100000 files";
 
 /// The longest line of a command other than `select` and `info`, in bytes: room for a path or
 /// a title. Only those two may be as long as their files take.
@@ -1391,7 +1395,22 @@ fn read_command(reader: &mut impl BufRead) -> Option<Result<String, &'static str
     let ended = line.ends_with(b"\n");
     let takes_files = |line: &[u8]| line.starts_with(b"select ") || line.starts_with(b"info ");
     if !ended && takes_files(line.trim_ascii_start()) {
-        reader.read_until(b'\n', &mut line).ok()?;
+        // The rest is read in parts, and the files counted, so that a select of more files than
+        // `MAX_SELECT` is refused here, and not split into a list on the window thread.
+        let mut files = line.iter().filter(|&&b| b == 0).count();
+        loop {
+            let start = line.len();
+            std::io::Read::take(&mut *reader, MOST_LINE)
+                .read_until(b'\n', &mut line)
+                .ok()?;
+            files += line[start..].iter().filter(|&&b| b == 0).count();
+            if files > MAX_SELECT {
+                return Some(Err(TOO_MANY_FILES));
+            }
+            if line.len() == start || line.ends_with(b"\n") {
+                break;
+            }
+        }
     } else if !ended && line.len() as u64 >= MOST_LINE {
         return Some(Err("too long"));
     }
@@ -2179,6 +2198,15 @@ mod tests {
         );
         assert_eq!(read("next".into()), [Ok("next".into())]);
         assert!(read(String::new()).is_empty());
+        // A select or info of more files than `MAX_SELECT` is refused when it is read, from
+        // any program on the socket. Before, only Glimt's own client counted them.
+        let files = |n: usize| "/x\0".repeat(n);
+        let most = format!("select {}", files(super::MAX_SELECT));
+        assert_eq!(read(format!("{most}\n")), [Ok(most)]);
+        for command in ["select", "info"] {
+            let more = format!("{command} {}\nnext\n", files(super::MAX_SELECT + 1));
+            assert_eq!(read(more), [Err(super::TOO_MANY_FILES)]);
+        }
     }
 
     /// A line too long, longer too than the socket's buffer, reaches the client over a real
