@@ -1329,10 +1329,10 @@ impl crate::App {
         std::thread::spawn(move || {
             let _writing = writing;
             // When another program removed or renamed the file meanwhile, there is nothing to
-            // save the turn into, and nothing to tell. It is looked at here, not in the window's
-            // thread, because it waits for the disk.
+            // save the turn into, and the user is told that it was not saved. It is looked at
+            // here, not in the window's thread, because it waits for the disk.
             let result = catch_panic_as_error(|| match jpeg {
-                _ if !path.is_file() => Ok(()),
+                _ if !path.is_file() => Err(tf!("{name} is gone", name = path.display())),
                 true => exif::write_orientation(&path, turns, mirrored, rotate),
                 false => save_rotated(&path, rotate, turns, mirrored, quality),
             });
@@ -3672,6 +3672,30 @@ mod tests {
             while app.working() {}
             assert!(app.are_free_to_change(&file), "{:?}", app.notice.text());
         }
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A turn saved after another program removed the file is told as not saved. Before, it was
+    /// taken as saved, and a JPEG with Auto Rotate off was even told "Saved".
+    #[test]
+    fn a_turn_of_a_file_removed_meanwhile_is_not_saved() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-turn-gone-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let a = dir.join("a.jpg");
+        image::RgbImage::new(4, 4).save(&a).unwrap();
+        let (mut app, ctx) = app_on(&dir);
+        app.config.exif_rotate = false;
+        app.viewing.set_turn((1, false), a.clone());
+        std::fs::remove_file(&a).unwrap();
+        app.notice.clear();
+        app.save_orientation(&ctx);
+        // Another test's failed save may be told in this window too, so the notice is watched
+        // as it comes rather than read at the end.
+        let not_saved = |app: &crate::App| {
+            (app.notice.text()).is_some_and(|t| t.starts_with("Could not save the orientation"))
+        };
+        assert!(run_background_until(&mut app, &ctx, not_saved));
+        assert!(!a.exists());
         std::fs::remove_dir_all(dir).unwrap();
     }
 
