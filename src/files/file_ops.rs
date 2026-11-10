@@ -3236,7 +3236,7 @@ mod tests {
     /// Each is held back while other work changes its files, except those that change none. A
     /// copy only reads them, and keywords never wait, because an edit would be lost. Their job
     /// holds back the rest instead.
-    fn contract_ops() -> [(&'static str, Op, Check); 15] {
+    fn contract_ops() -> [(&'static str, Op, Check); 17] {
         [
             (
                 "move",
@@ -3426,6 +3426,39 @@ mod tests {
                         && (!cfg!(feature = "marks") || stars(app, &a) == 3)
                 },
             ),
+            // The contract's folder itself goes to the trash, with what follows its files.
+            (
+                "trash folder",
+                |app, ctx, d| {
+                    app.dialogs.act_on_folder(d.to_path_buf());
+                    app.trash_folder(ctx);
+                },
+                |app, d| {
+                    !d.exists()
+                        && matches!(app.file_operations.undo, Some(super::Undo::Trash(_)))
+                        && (!cfg!(feature = "marks") || stars(app, &d.join("a.png")) == 0)
+                },
+            ),
+            (
+                "undo a trash folder",
+                |app, ctx, d| {
+                    app.dialogs.act_on_folder(d.to_path_buf());
+                    app.trash_folder(ctx);
+                    // This waits only when the operation started. When it was held back, it
+                    // says so, and there is nothing to wait for.
+                    if app.notice.text().is_none() {
+                        run_background_until(app, ctx, |app| app.file_operations.undo.is_some());
+                    }
+                    app.undo(ctx);
+                },
+                |app, d| {
+                    let a = d.join("a.png");
+                    a.exists()
+                        && side(&a) == "a"
+                        && side(&d.join("b.png")) == "b"
+                        && (!cfg!(feature = "marks") || stars(app, &a) == 3)
+                },
+            ),
             (
                 "rename folder",
                 |app, ctx, d| {
@@ -3474,7 +3507,7 @@ mod tests {
     /// release after release, held for every operation at once. The contract's folder is no
     /// collection, so the collection's entry is checked apart, for these operations only:
     /// rename, move, rename folder and delete in `a_collection_follows_its_files`, and Rename
-    /// Many, trash and the Undo of each, and the Undo of a move, in
+    /// Many, trash, a folder moved to the trash and the Undo of each, and the Undo of a move, in
     /// `a_collection_follows_undo_and_the_trash`. A saved collection that is not open follows a
     /// rename in `saved_collections_follow_their_files`.
     /// A new operation joins `contract_ops`, and `every_file_operation_is_in_the_contract` fails
@@ -3931,12 +3964,18 @@ mod tests {
         let Ok(infos) = std::fs::read_dir(trash.join("info")) else {
             return;
         };
-        let inside = format!("{}/", dir.display());
+        // The folder itself is there too, when it went to the trash whole.
+        let (inside, itself) = (
+            format!("{}/", dir.display()),
+            format!("Path={}", dir.display()),
+        );
+        let is_of_dir = |t: String| t.contains(&inside) || t.lines().any(|l| l == itself);
         for info in infos.flatten().map(|i| i.path()) {
-            if std::fs::read_to_string(&info).is_ok_and(|t| t.contains(&inside))
+            if std::fs::read_to_string(&info).is_ok_and(is_of_dir)
                 && let Some(name) = info.file_stem()
             {
-                let _ = std::fs::remove_file(trash.join("files").join(name));
+                let file = trash.join("files").join(name);
+                let _ = std::fs::remove_dir_all(&file).or_else(|_| std::fs::remove_file(&file));
                 let _ = std::fs::remove_file(&info);
             }
         }
@@ -4026,6 +4065,8 @@ mod tests {
             ("delete_now", "delete"),
             ("delete_now", "trash"),
             ("undo_trash", "undo a trash"),
+            ("trash_folder", "trash folder"),
+            ("undo_trash", "undo a trash folder"),
             ("transfer_into_real_folder", "move"),
             // It holds the files of a Move, a Copy and a Copy for Sharing until their job starts.
             ("with_real_folder", "move"),
@@ -4055,7 +4096,6 @@ mod tests {
                 "save_crop",
                 "a new file beside the image: save::save_copy_with_sidecar's tests; it needs a decoded image",
             ),
-            ("trash_folder", "gio trash; Undo's restore has its own test"),
             (
                 "act_on_prompt_answer",
                 "New Folder: an empty folder, nothing to follow; makes_a_new_folder_in_the_background",
@@ -5240,6 +5280,21 @@ mod tests {
             "saved while held"
         );
         drop(held);
+        // A Rename Many of other files holds the turn back too, as it may give the file's name
+        // to another photo.
+        let (b, c) = (dir.join("b.png"), dir.join("c.png"));
+        image::RgbImage::new(4, 4).save(&b).unwrap();
+        app.rename_in_background(&ctx, vec![b], vec![c]);
+        app.notice.clear();
+        app.save_orientation(&ctx);
+        assert!(
+            app.file_operations.saving.is_empty() && app.notice.text().is_some(),
+            "saved while renaming"
+        );
+        assert!(run_background_until(&mut app, &ctx, |app| app
+            .file_operations
+            .renaming
+            .is_none()));
         std::fs::remove_dir_all(dir).unwrap();
     }
 
@@ -5482,6 +5537,27 @@ mod tests {
         assert!(run_background_until(&mut app, &ctx, |app| has(
             app,
             &["a.png", "b.png"]
+        )));
+        // A folder moved to the trash takes the entries of its files along, and its Undo puts
+        // them back in their places.
+        app.transfer(vec![d.join("a.png")], d.join("sub"), false);
+        assert!(run_background_until(&mut app, &ctx, |app| has(
+            app,
+            &["sub/a.png", "b.png"]
+        )));
+        app.dialogs.act_on_folder(d.join("sub"));
+        app.trash_folder(&ctx);
+        assert!(run_background_until(&mut app, &ctx, |app| has(
+            app,
+            &["b.png"]
+        ) && matches!(
+            app.file_operations.undo,
+            Some(super::Undo::Trash(_))
+        )));
+        app.undo(&ctx);
+        assert!(run_background_until(&mut app, &ctx, |app| has(
+            app,
+            &["sub/a.png", "b.png"]
         )));
         empty_trash_of(&d);
         std::fs::remove_dir_all(d).unwrap();
