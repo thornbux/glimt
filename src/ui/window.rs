@@ -59,7 +59,8 @@ pub(crate) struct Window {
     /// Window → Set Window Title: this window's title template; empty, the one in Preferences.
     title_template: String,
     /// Close asked for while files were being written (`is_writing`): 1, it waits for them; 2,
-    /// they are stopped after the file at hand and it waits for that; a third close ends at once.
+    /// they are stopped after the file at hand and it waits for that; 3, a third close ends at
+    /// once, and `on_exit` does not wait for the writes it queues.
     close_requests: u8,
     /// The image and turn that a close last tried to save. A close saves a turn only when it
     /// differs, so a failed save is not tried again at every close, but a newer turn is saved.
@@ -159,9 +160,10 @@ impl Window {
         &self.title_template
     }
 
-    /// How many times closing was asked for while files were being written.
-    pub(crate) fn close_requests(&self) -> u8 {
-        self.close_requests
+    /// Returns whether `on_exit` waits for the writes it queues itself, as the state file. Only
+    /// a third close, made while files were still written, ends without waiting.
+    pub(crate) fn waits_at_exit(&self) -> bool {
+        self.close_requests < 3
     }
 
     /// Keeps a failed write for the frame's last notice, and forgets a close that waited for the
@@ -286,7 +288,12 @@ impl crate::App {
         }
         // Files still being copied, moved, renamed or saved: closed when they are done, not
         // halfway; a second close stops them after the file at hand, a third does not wait.
-        if self.is_writing() && self.window.close_requests < 2 {
+        let is_writing = self.is_writing();
+        if is_writing && self.window.close_requests == 2 {
+            // The third close ends at once. The second one still waits at exit.
+            self.window.close_requests = 3;
+        }
+        if is_writing && self.window.close_requests < 2 {
             ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
             self.window.close_requests += 1;
             if self.window.close_requests == 2 {
@@ -819,6 +826,35 @@ mod tests {
         close(&mut app);
         assert!(app.file_operations.is_saving(&a));
         assert!(run_background_until(&mut app, &ctx, over));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A window closed twice while files are written still waits at exit for the writes that
+    /// `on_exit` queues itself, as the state file. Only a third close ends without waiting.
+    /// Before, the second close skipped that wait too, and the state file was lost.
+    #[test]
+    fn only_a_third_close_ends_without_waiting() {
+        use eframe::egui::{RawInput, ViewportEvent, ViewportId, ViewportInfo};
+        let dir = contract_folder("third-close");
+        let (mut app, ctx) = app_on(&dir);
+        let close = |app: &mut crate::App| {
+            let info = ViewportInfo {
+                events: vec![ViewportEvent::Close],
+                ..Default::default()
+            };
+            let input = RawInput {
+                viewports: std::iter::once((ViewportId::ROOT, info)).collect(),
+                ..Default::default()
+            };
+            let _ = ctx.run_logic(&input, |ctx| app.guard_close(ctx));
+        };
+        let writing = crate::support::threads::Working::new(&crate::files::file_io::WRITING);
+        close(&mut app);
+        close(&mut app);
+        assert!(app.window.waits_at_exit());
+        close(&mut app);
+        assert!(!app.window.waits_at_exit());
+        drop(writing);
         std::fs::remove_dir_all(dir).unwrap();
     }
 
