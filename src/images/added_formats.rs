@@ -12,7 +12,8 @@
 //! ```
 //!
 //! The group's header is not checked, so files with the header that formats had before 0.76.0
-//! are read as well. In `Exec`, `%f` is the file, also inside a word, and `%%` is a `%`.
+//! are read as well. In `Exec`, `%f` is the file, also inside a word that has no quotes, and
+//! `%%` is a `%`.
 //! The other `%` codes are kept for later meanings, so a file should not use them.
 //!
 //! The command gets the file's absolute path as one argument of its own, never through a shell,
@@ -38,7 +39,7 @@ pub struct AddedFormat {
     pub name: String,
     /// The endings it takes, with their dot and in lower case: ".jp2", ".nii.gz".
     exts: Vec<String>,
-    exec: Vec<String>,
+    exec: Vec<crate::features::tools::CommandWord>,
     /// The folder of the desktop file: a program there is found without being on the PATH.
     dir: PathBuf,
 }
@@ -84,10 +85,10 @@ impl AddedFormat {
     }
 
     /// Returns the command's words for the file at `path`: `%f` is the path, also inside a
-    /// word, and `%%` is a `%`, as `tools::filled_in` fills a tool's. Another code stays as it
-    /// is.
+    /// word without quotes, and `%%` is a `%`, as `tools::filled_in` fills a tool's. Another
+    /// code stays as it is.
     fn arguments(&self, path: &Path) -> Vec<std::ffi::OsString> {
-        let filled = |w: &String| crate::features::tools::filled_in(w, &["f"], path);
+        let filled = |w| crate::features::tools::filled_in(w, &["f"], path);
         self.exec.iter().map(filled).collect()
     }
 }
@@ -111,7 +112,7 @@ pub fn installed_formats() -> &'static [AddedFormat] {
 }
 
 /// The added format of a desktop file. Returns `None` without a name, extensions, or %f in its
-/// command (also inside a word, as ImageMagick's %f[0] for a file's first frame).
+/// command (also inside a word without quotes, as ImageMagick's %f[0] for a file's first frame).
 fn parse(text: &str, dir: &Path) -> Option<AddedFormat> {
     let value = crate::features::tools::desktop_entry_values(text);
     let exts: Vec<String> = (value("Extensions")?.split(';'))
@@ -120,7 +121,7 @@ fn parse(text: &str, dir: &Path) -> Option<AddedFormat> {
         .map(|e| format!(".{e}"))
         .collect();
     let exec = crate::features::tools::command_words(value("Exec")?);
-    let has_file = |w: &String| crate::features::tools::names_a_file(w, &["f"]);
+    let has_file = |w| crate::features::tools::names_a_file(w, &["f"]);
     if exts.is_empty() || !exec.iter().any(has_file) {
         return None;
     }
@@ -213,6 +214,12 @@ mod tests {
             limit.decode(&file).unwrap_err(),
             format!("Limit: {}", super::PROGRAM_MEMORY / 1024)
         );
+        // A %f inside a quoted word, a shell script here, stays as it is. Before, the file's
+        // name was put into the script's text, and a downloaded x$(cmd).xyz ran cmd.
+        let quoted = "Name=Quoted\nExtensions=xyz\nExec=sh -c \": %f; exit 1\" %f";
+        let quoted = super::parse(quoted, &dir).unwrap();
+        let injected = dir.join("x$(echo injected >&2).xyz");
+        assert_eq!(quoted.decode(&injected).unwrap_err(), "Quoted: no image");
         assert!(super::parse("Name=No file\nExtensions=xyz\nExec=cat", &dir).is_none());
         assert!(super::parse("Name=No ext\nExec=cat %f", Path::new("/")).is_none());
         std::fs::remove_dir_all(dir).unwrap();

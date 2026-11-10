@@ -162,6 +162,26 @@ impl Tool {
     }
 }
 
+/// A word of a desktop file's Exec line or of the video player's command, without its quotes.
+#[derive(Clone, Debug, PartialEq)]
+pub struct CommandWord {
+    pub text: String,
+    /// Whether any of the word was written in "quotes".
+    pub is_quoted: bool,
+}
+
+impl CommandWord {
+    /// Returns whether `code` (such as "f" for `%f`) in this word is filled in with a file: it
+    /// is one of `file_codes`, and inside a word only when nothing of the word was quoted. A
+    /// quoted word is often a shell script, as in `sh -c "exiftool %f"`, and a file's name put
+    /// into it would be read as the script's text, so a downloaded `x$(cmd).jpg` would run
+    /// `cmd`. The desktop entry specification does not allow a code inside a quoted word
+    /// either. A quoted word that is only the code, `"%f"`, is still the file, as one argument.
+    fn fills(&self, code: &str, file_codes: &[&str]) -> bool {
+        file_codes.contains(&code) && (!self.is_quoted || self.text.strip_prefix('%') == Some(code))
+    }
+}
+
 /// The tools, sorted by name. A desktop file in the user's folder hides one of the same name
 /// in the system's.
 pub fn find() -> Vec<Tool> {
@@ -331,18 +351,22 @@ fn globs(text: &str) -> HashMap<String, String> {
 
 /// The words of a desktop file's Exec line or the video player's command: separated by spaces,
 /// "quoted" ones may hold them.
-pub fn command_words(exec: &str) -> Vec<String> {
+pub fn command_words(exec: &str) -> Vec<CommandWord> {
+    let new_word = || CommandWord {
+        text: String::new(),
+        is_quoted: false,
+    };
     let (mut out, mut word, mut quoted, mut chars) =
-        (Vec::new(), None::<String>, false, exec.chars());
+        (Vec::new(), None::<CommandWord>, false, exec.chars());
     while let Some(c) = chars.next() {
         match c {
             '"' => {
                 quoted = !quoted;
-                word.get_or_insert_default();
+                word.get_or_insert_with(new_word).is_quoted = true;
             }
-            '\\' if quoted => word.get_or_insert_default().extend(chars.next()),
+            '\\' if quoted => word.get_or_insert_with(new_word).text.extend(chars.next()),
             ' ' | '\t' if !quoted => out.extend(word.take()),
-            c => word.get_or_insert_default().push(c),
+            c => word.get_or_insert_with(new_word).text.push(c),
         }
     }
     out.extend(word);
@@ -353,36 +377,37 @@ pub fn command_words(exec: &str) -> Vec<String> {
 /// a word with %f or %u in it is given once for each file, filled in by `filled_in`, %% is a %,
 /// and other field codes as words of their own (%i, %c, %k) are left out, as the specification
 /// says.
-fn arguments(words: &[String], files: &[PathBuf]) -> Vec<std::ffi::OsString> {
+fn arguments(words: &[CommandWord], files: &[PathBuf]) -> Vec<std::ffi::OsString> {
     let mut args = Vec::new();
     for w in words {
-        match w.as_str() {
+        match w.text.as_str() {
             "%F" | "%U" => args.extend(files.iter().map(|f| f.as_os_str().to_owned())),
-            w if names_a_file(w, &TOOL_FILE_CODES) => {
+            _ if names_a_file(w, &TOOL_FILE_CODES) => {
                 args.extend(files.iter().map(|f| filled_in(w, &TOOL_FILE_CODES, f)))
             }
             code if code.len() == 2 && code.starts_with('%') && code != "%%" => {}
-            _ => args.push(w.replace("%%", "%").into()),
+            text => args.push(text.replace("%%", "%").into()),
         }
     }
     args
 }
 
 /// Returns whether `word` of a desktop file's `Exec` holds one of `file_codes` (such as "f" for
-/// `%f`), also inside a word, read from left to right (`format::pieces`), so `%%f` holds none.
-pub fn names_a_file(word: &str, file_codes: &[&str]) -> bool {
-    pieces(word, None).any(|p| matches!(p, Piece::Code(code) if file_codes.contains(&code)))
+/// `%f`) that is filled in (`CommandWord::fills`), read from left to right
+/// (`format::pieces`), so `%%f` holds none.
+pub fn names_a_file(word: &CommandWord, file_codes: &[&str]) -> bool {
+    pieces(&word.text, None).any(|p| matches!(p, Piece::Code(code) if word.fills(code, file_codes)))
 }
 
-/// Returns `word` of a desktop file's `Exec` with each of `file_codes` in it, also inside a
-/// word, filled in with `file`, and `%%` as a `%`, read from left to right (`format::pieces`).
-/// Another code stays as it is. Tools and added formats both fill their words here, so
-/// `--file=%f` means the same in both.
-pub fn filled_in(word: &str, file_codes: &[&str], file: &Path) -> std::ffi::OsString {
+/// Returns `word` of a desktop file's `Exec` with each of `file_codes` in it filled in with
+/// `file`, also inside a word without quotes (`CommandWord::fills`), and `%%` as a `%`, read
+/// from left to right (`format::pieces`). Another code stays as it is. Tools and added formats
+/// both fill their words here, so `--file=%f` means the same in both.
+pub fn filled_in(word: &CommandWord, file_codes: &[&str], file: &Path) -> std::ffi::OsString {
     let mut arg = std::ffi::OsString::new();
-    for piece in pieces(word, None) {
+    for piece in pieces(&word.text, None) {
         match piece {
-            Piece::Code(code) if file_codes.contains(&code) => arg.push(file),
+            Piece::Code(code) if word.fills(code, file_codes) => arg.push(file),
             Piece::Code(other) => arg.push(format!("%{other}")),
             Piece::Text(text) => arg.push(text),
         }
@@ -457,9 +482,7 @@ mod tests {
     /// The files where %F stands, %% as a %, other field codes left out.
     #[test]
     fn builds_the_command_line() {
-        let words: Vec<String> = ["printf", "%%", "%i", "100%%", "%F"]
-            .map(String::from)
-            .into();
+        let words = super::command_words("printf %% %i 100%% %F");
         let files = [
             std::path::PathBuf::from("/a.jpg"),
             std::path::PathBuf::from("/b c.jpg"),
@@ -542,9 +565,19 @@ mod tests {
 
     #[test]
     fn reads_and_runs_a_tool() {
+        let words = command_words(r#"sh -c "echo \"a b\" >> log" x %F"#);
         assert_eq!(
-            command_words(r#"sh -c "echo \"a b\" >> log" x %F"#),
-            ["sh", "-c", "echo \"a b\" >> log", "x", "%F"]
+            words
+                .iter()
+                .map(|w| (w.text.as_str(), w.is_quoted))
+                .collect::<Vec<_>>(),
+            [
+                ("sh", false),
+                ("-c", false),
+                ("echo \"a b\" >> log", true),
+                ("x", false),
+                ("%F", false)
+            ]
         );
         let dir = std::env::temp_dir().join(format!("glimt-test-tools-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
@@ -640,5 +673,19 @@ mod tests {
         ];
         assert_eq!(words("x --file=%f %u[0]"), each.map(OsString::from));
         assert_eq!(words("x a%%f %F%"), ["x", "a%f", "%F%"].map(OsString::from));
+        // A code inside a quoted word stays as it is, as the specification says. Such a word
+        // is often a shell script, and a downloaded file named x$(cmd).jpg would run cmd. A
+        // quoted word that is only the code is still the file, one argument of its own.
+        let script = ["sh", "-c", "exiftool %f | head 100%", "/a.png", "/b.png"];
+        assert_eq!(
+            words("sh -c \"exiftool %f | head 100%%\" %F"),
+            script.map(OsString::from)
+        );
+        let quoted = ["x", "/a.png", "/b.png", "-o", "a b%u"];
+        assert_eq!(words("x \"%f\" -o \"a b%u\""), quoted.map(OsString::from));
+        let injected = [PathBuf::from("/x$(echo injected >&2).jpg")];
+        let tool = super::parse("Name=Q\nExec=sh -c \": %f; exit 1\"\n", dir).unwrap();
+        let ran = tool.run(&injected, Path::new("/"), &RunningTools::default());
+        assert_eq!(ran, Err("failed".into()));
     }
 }

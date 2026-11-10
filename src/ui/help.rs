@@ -380,7 +380,8 @@ pub(crate) const MANUAL: &[(&str, &str)] = &[
          one, as Geeqie's plugins do, and shows them again afterwards.\n\n\
          A tool is a desktop file in ~/.local/share/glimt/tools (the menu opens that folder), \
          for example Name=Rotate and Exec=mogrify -rotate 90 %f:\n\n\
-         - %f runs it once for each file, also inside a word, as --file=%f\n\
+         - %f runs it once for each file, also inside a word, as --file=%f, but not inside \
+         a \"quoted\" word such as a shell script's, where it stays %f\n\
          - %F once for all\n\
          - without either it runs once in the folder.\n\n\
          A program next to the desktop file is found there. New tools show after a restart. The \
@@ -412,7 +413,8 @@ pub(crate) const MANUAL: &[(&str, &str)] = &[
          A format of your own teaches Glimt one it does not read itself, such as JPEG 2000, FITS, \
          DICOM or OpenEXR: a desktop file in ~/.local/share/glimt/formats that starts with \
          [Glimt Format] and has Name=, Extensions=jp2;j2k and an Exec command that writes the image \
-         (PNM, PNG …) to its standard output, %f being the file (also inside a word) and %% a %. \
+         (PNM, PNG …) to its standard output, %f being the file (also inside a word, but not a \
+         \"quoted\" one) and %% a %. \
          The other % codes are kept for later, so do not use them. Such files are then listed and \
          shown as any other, with thumbnails. The command runs without a shell, for 30 seconds at \
          most. The folder's old name, ~/.local/share/glimt/decoders, and the old header [Glimt \
