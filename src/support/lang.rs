@@ -426,7 +426,10 @@ msgstr[1] "bilder"
     }
 
     /// The translation built in: every placeholder of a text kept in its translation, so a
-    /// value is never lost or shown as "{name}".
+    /// value is never lost or shown as "{name}". A translation also keeps the key names as the
+    /// menus show them (Ctrl, Shift, Enter, Esc, and Delete where it names the key and not the
+    /// verb) and the `%field%` names of a template, and uses only the quotation marks that
+    /// Inter has.
     #[test]
     fn translations_keep_placeholders() {
         let names = |s: &str| {
@@ -438,10 +441,33 @@ msgstr[1] "bilder"
             v.sort();
             v
         };
+        let key_or_field = regex::Regex::new(
+            r"\b(Ctrl|Shift|Enter|Esc)\b|\+Delete\b|\bDelete( key| deletes)|%[a-z_]+%",
+        )
+        .unwrap();
+        let keys_and_fields = |text: &str| -> Vec<String> {
+            let found = key_or_field.find_iter(text).map(|m| m.as_str());
+            let names = found.map(|name| name.trim_start_matches('+').split(' ').next());
+            names.map(|name| name.unwrap().to_owned()).collect()
+        };
+        // The straight quotation mark reads as code, and the fonts Glimt ships lack the others:
+        // the single and low single quotes, the single guillemets and the corner brackets. They
+        // are escaped, as the glyph test reads this file's texts too.
+        let other_quotes = [
+            '"', '\u{2018}', '\u{201a}', '\u{2039}', '\u{203a}', '\u{300c}', '\u{300d}',
+        ];
         for (code, _, _, po) in super::LANGUAGES {
             let t = super::parse(po);
-            for (en, text) in &t.texts {
+            let plurals =
+                (t.plurals.iter()).flat_map(|(en, forms)| forms.iter().map(move |form| (en, form)));
+            for (en, text) in t.texts.iter().chain(plurals) {
                 assert_eq!(names(en), names(text), "{code}: {en}");
+                let lost: Vec<String> = (keys_and_fields(en).into_iter())
+                    .filter(|name| !text.contains(name.as_str()))
+                    .collect();
+                assert!(lost.is_empty(), "{code} lacks {lost:?}: {en} → {text}");
+                let quote = (text.chars()).find(|c| other_quotes.contains(c) && !en.contains(*c));
+                assert_eq!(quote, None, "{code}: {text}");
             }
             println!("{code}: {} texts, {} nouns", t.texts.len(), t.plurals.len());
         }
