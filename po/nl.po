@@ -2725,6 +2725,10 @@ msgstr "De back-up naar {folder} is niet volledig: {e}"
 msgid "the file was moved, renamed or deleted meanwhile"
 msgstr "het bestand is intussen verplaatst, hernoemd of verwijderd"
 
+#: src/files/file_io.rs
+msgid "the file was changed meanwhile"
+msgstr "het bestand is intussen gewijzigd"
+
 msgid "the file is read-only"
 msgstr "het bestand is alleen-lezen"
 

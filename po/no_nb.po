@@ -2736,6 +2736,10 @@ msgstr "Sikkerhetskopien til {folder} er ikke fullstendig: {e}"
 msgid "the file was moved, renamed or deleted meanwhile"
 msgstr "filen ble flyttet, fikk nytt navn eller ble slettet i mellomtiden"
 
+#: src/files/file_io.rs
+msgid "the file was changed meanwhile"
+msgstr "filen ble endret i mellomtiden"
+
 msgid "the file is read-only"
 msgstr "filen er skrivebeskyttet"
 

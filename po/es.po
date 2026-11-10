@@ -2725,6 +2725,10 @@ msgstr "La copia de seguridad en {folder} no está completa: {e}"
 msgid "the file was moved, renamed or deleted meanwhile"
 msgstr "el archivo se movió, se renombró o se eliminó mientras tanto"
 
+#: src/files/file_io.rs
+msgid "the file was changed meanwhile"
+msgstr "el archivo se modificó mientras tanto"
+
 msgid "the file is read-only"
 msgstr "el archivo es de solo lectura"
 

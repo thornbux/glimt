@@ -5,6 +5,7 @@ use crate::features::copy_for_sharing::SharingDialog;
 use crate::features::print::{PrintJob, PrintTo};
 use crate::files::config::xdg_dir;
 use crate::files::external::{Login, command};
+use crate::files::file_io::{FileFingerprint, fingerprint};
 use crate::files::file_ops::{NOT_ON_FAT, OperationReport, fat_file_system_type};
 use crate::model::listing::pattern_name;
 use crate::support::format::count;
@@ -59,6 +60,10 @@ pub(crate) enum Pick {
     /// Copy for Sharing: the folder for the copies of these images, which keep the tags named.
     CopyForSharing(Vec<PathBuf>, std::collections::HashSet<String>),
 }
+
+/// What a file dialog answers: the path picked, or `None` when it was cancelled, and the
+/// fingerprints that the files of a Move To or Copy To had when they were picked.
+type PickedPath = (Option<PathBuf>, Vec<Option<FileFingerprint>>);
 
 /// What the one-line text dialog is asking for.
 #[derive(Clone, Copy)]
@@ -141,7 +146,8 @@ pub(crate) struct Dialogs {
     confirm_collection: Option<PathBuf>,
     /// Answer from an open file dialog (zenity or kdialog).
     file_dialog: Option<Pick>,
-    picked_path: Receiving<Option<PathBuf>>,
+    /// The path picked, and the fingerprints of the files a Move To or Copy To picked.
+    picked_path: Receiving<PickedPath>,
     /// Save as Theme's answer while its file is written.
     saved_theme: Receiving<(SavedTheme, Working)>,
     /// The files a dialog asks about, by their names in the list, where the list was
@@ -362,7 +368,14 @@ impl crate::App {
         let notices = self.notice_sender.clone();
         let make_start_first = matches!(purpose, Pick::Collection);
         let is_profile = matches!(purpose, Pick::ScreenProfile | Pick::InputProfile);
+        let picked_files = match &purpose {
+            Pick::CopyTo(paths) | Pick::MoveTo(paths) => paths.clone(),
+            _ => Vec::new(),
+        };
         std::thread::spawn(move || {
+            // Taken now, as the files are picked, so that a file whose name another one took
+            // while the chooser was open is not moved or copied in its place.
+            let at_pick: Vec<_> = picked_files.iter().map(|p| fingerprint(p)).collect();
             if make_start_first {
                 drop(std::fs::create_dir_all(&start));
             }
@@ -420,7 +433,7 @@ impl crate::App {
                     Some(PathBuf::from(std::ffi::OsString::from_vec(o.stdout)))
                 }
             };
-            let _ = tx.send(picked);
+            let _ = tx.send((picked, at_pick));
             ctx.request_repaint();
         });
         self.dialogs.file_dialog = Some(purpose);
@@ -522,8 +535,8 @@ impl crate::App {
 
     /// The file dialog's answer, for what it was opened for.
     pub(crate) fn receive_picked(&mut self, ctx: &egui::Context) {
-        let picked = match self.dialogs.picked_path.take() {
-            Took::Answer(picked) => picked,
+        let (picked, at_pick) = match self.dialogs.picked_path.take() {
+            Took::Answer(answer) => answer,
             // A dialog whose thread ended without an answer is over too: the next may open.
             Took::Gone => return self.dialogs.file_dialog = None,
             Took::Nothing => return,
@@ -551,8 +564,12 @@ impl crate::App {
                         .collect();
                     self.open_folders(ctx, all);
                 }
-                (Pick::CopyTo(paths), Some(dest)) => self.transfer(paths, dest, true),
-                (Pick::MoveTo(paths), Some(dest)) => self.transfer(paths, dest, false),
+                (Pick::CopyTo(paths), Some(dest)) => {
+                    self.transfer(paths, dest, true, Some(at_pick))
+                }
+                (Pick::MoveTo(paths), Some(dest)) => {
+                    self.transfer(paths, dest, false, Some(at_pick))
+                }
                 (Pick::SavePdf(job), Some(file)) => self.print(ctx, job, PrintTo::File(file)),
                 (Pick::SortFolder, Some(dir)) => self.add_sort_folder(dir),
                 (Pick::ScreenProfile, Some(file)) => {

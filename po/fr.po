@@ -2725,6 +2725,10 @@ msgstr "La sauvegarde dans {folder} n'est pas complète : {e}"
 msgid "the file was moved, renamed or deleted meanwhile"
 msgstr "le fichier a été déplacé, renommé ou supprimé entre-temps"
 
+#: src/files/file_io.rs
+msgid "the file was changed meanwhile"
+msgstr "le fichier a été modifié entre-temps"
+
 msgid "the file is read-only"
 msgstr "le fichier est en lecture seule"
 

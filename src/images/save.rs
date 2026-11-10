@@ -1,6 +1,7 @@
 //! Saving a turned image. The pixels are turned, the EXIF is kept with orientation 1, and the
 //! XMP is kept, all in the same format. (A lossy WebP gets them back in RIFF chunks.)
 
+use crate::files::file_io::FileFingerprint;
 use crate::images::decode::load_icc;
 use crate::metadata::exif;
 use crate::model::listing::has_ext;
@@ -304,6 +305,9 @@ pub fn save_rotated(
     let path = &std::fs::canonicalize(path).map_err(|e| e.to_string())?;
     // A read-only file is refused before the whole image is decoded and encoded for nothing.
     crate::files::file_io::check_writable(path).map_err(|e| e.to_string())?;
+    // Taken before any read, so a file changed while it is turned is not written over.
+    let read =
+        crate::files::file_io::fingerprint_before_reading(path).map_err(|e| e.to_string())?;
     let png = has_ext(path, &["png"]);
     if !png && !has_ext(path, &["webp"]) {
         return Err(tr("only JPEG, PNG and WebP can store the rotation").into());
@@ -323,7 +327,7 @@ pub fn save_rotated(
     if png {
         out = png_with_photoshop_resources(&out, path)?;
     }
-    replace_with_sidecar(path, named, out, Derived::Turned)
+    replace_with_sidecar(path, named, read, out, Derived::Turned)
 }
 
 /// Replaces the image at `real` with `out` and makes the sidecar of `named`, the name the list
@@ -331,14 +335,17 @@ pub fn save_rotated(
 /// write can no longer fail: the file is writable and still there and `out` is on disk beside
 /// it. Before, the sidecar was changed first, so a read-only image or a full disk left a
 /// sidecar that said the image was turned. This is the one way an image and its sidecar are
-/// written again together, for a JPEG's orientation and a PNG or WebP turned.
+/// written again together, for a JPEG's orientation and a PNG or WebP turned. `read` is the
+/// fingerprint of the image that `out` was made from (`file_io::replace_existing`).
 pub(crate) fn replace_with_sidecar(
     real: &Path,
     named: &Path,
+    read: FileFingerprint,
     out: Vec<u8>,
     how: Derived,
 ) -> Result<(), String> {
-    replace_with_sidecar_locked(real, named, out, |lock| derive_sidecar(lock, named, how))
+    let step = |lock: &crate::metadata::xmp::SidecarLock| derive_sidecar(lock, named, how);
+    replace_with_sidecar_locked(real, named, read, out, step)
 }
 
 /// Replaces the image at `real` with `out` after `step` changed the sidecar of `named`. The
@@ -350,6 +357,7 @@ pub(crate) fn replace_with_sidecar(
 fn replace_with_sidecar_locked(
     real: &Path,
     named: &Path,
+    read: FileFingerprint,
     out: Vec<u8>,
     step: impl FnOnce(&crate::metadata::xmp::SidecarLock) -> Result<(), String>,
 ) -> Result<(), String> {
@@ -358,7 +366,7 @@ fn replace_with_sidecar_locked(
         let lock = lock.get_or_init(|| crate::metadata::xmp::lock_sidecar(named));
         step(lock).map_err(std::io::Error::other)
     };
-    crate::files::file_io::replace_existing(real, out, before).map_err(|e| e.to_string())
+    crate::files::file_io::replace_existing(real, out, read, before).map_err(|e| e.to_string())
 }
 
 /// The copy of `path` that `how` asks for, encoded, and its format. It has its profile, and
@@ -2763,7 +2771,8 @@ mod tests {
             let _ = moved.recv_timeout(std::time::Duration::from_millis(200));
             Ok(())
         };
-        let replaced = super::replace_with_sidecar_locked(&a, &a, b"new".to_vec(), step);
+        let read = crate::files::file_io::fingerprint(&a).unwrap();
+        let replaced = super::replace_with_sidecar_locked(&a, &a, read, b"new".to_vec(), step);
         mover.join().unwrap();
         assert!(replaced.is_ok(), "{replaced:?}");
         assert_eq!(std::fs::read_to_string(&b).unwrap(), "new");
