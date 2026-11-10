@@ -2698,6 +2698,7 @@ fn finds_an_undo_left_without_waiting() {
 fn renames_that_later_steps_count_on_are_synced() {
     const STANDING_ALONE: &[(&str, &str)] = &[
         ("files/file_io.rs", "rename_never_over"), // the rename itself, synced by its callers
+        ("files/file_io.rs", "put_file"),          // its move on one disk, synced by its callers
         ("files/journal.rs", "rename_step"),       // a step, synced by `sync_folders` after
         ("files/trash.rs", "trash_by_hand"),       // a file into the trash on its own disk
         ("images/thumbs.rs", "write_thumbnail"),   // a thumbnail, made again when it is lost
@@ -2754,7 +2755,11 @@ fn renames_in(text: &str) -> Vec<(String, bool)> {
         }
         let calls = ["rename_never_over(", "fs::rename(", "rename_noreplace("];
         renames |= calls.iter().any(|call| line.contains(call));
-        renames |= line.contains("put_file(") && !line.contains(", true)");
+        let moves = ["put_file(", "put_file_until_stopped("];
+        renames |= moves.iter().any(|call| line.contains(call))
+            && ![", true)", ", true,"]
+                .iter()
+                .any(|copy| line.contains(copy));
         let syncs = ["sync_folder_of(", "sync_folder(", "write_beside("];
         synced |= syncs.iter().any(|call| line.contains(call));
     }
@@ -2770,7 +2775,8 @@ fn finds_a_rename_without_its_folder_synced() {
         fn d() {\n    rename_noreplace(x, y)\n}\nfn e() {\n    put_file(x, y, true)\n}\n\
         fn f() {\n    write_beside_without_folder_sync(t, p, w, |t| std::fs::rename(t, p))\n}\n\
         fn g() {\n    std::fs::rename(x, y)?;\n    sync_folder(z)?;\n}\n\
-        fn h() {\n    put_file(x, y, is_copy)\n}\n";
+        fn h() {\n    put_file(x, y, is_copy)\n}\n\
+        fn i() {\n    put_file_until_stopped(x, y, true, &stop)\n}\n";
     let found = renames_in(text);
     let names: Vec<(&str, bool)> = found.iter().map(|(f, s)| (f.as_str(), *s)).collect();
     assert_eq!(

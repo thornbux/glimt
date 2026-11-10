@@ -416,6 +416,19 @@ fn rename_noreplace(from: &Path, to: &Path) -> std::io::Result<()> {
 /// the source, so nothing is lost when its name does not reach the disk, and a folder sync for
 /// each file would make a copy of many small files to a USB stick up to twice as slow.
 pub(crate) fn put_file(from: &Path, to: &Path, is_copy: bool) -> std::io::Result<()> {
+    put_file_until_stopped(from, to, is_copy, &|| false)
+}
+
+/// Copies or moves `from` to `to` as `put_file` does, and stops inside a large file when
+/// `is_stopped` says so. A copy, also that of a move to another disk, is made in parts of a few
+/// megabytes, and `is_stopped` is asked before each. A stopped copy leaves no part of the file
+/// at `to`, and a stopped move leaves the file where it was. Returns `Interrupted` when stopped.
+pub(crate) fn put_file_until_stopped(
+    from: &Path,
+    to: &Path,
+    is_copy: bool,
+    is_stopped: &dyn Fn() -> bool,
+) -> std::io::Result<()> {
     use std::io::ErrorKind::{AlreadyExists, CrossesDevices};
     use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt};
     let copy = || -> std::io::Result<()> {
@@ -438,7 +451,7 @@ pub(crate) fn put_file(from: &Path, to: &Path, is_copy: bool) -> std::io::Result
             .open(&part)?;
         // Its time kept, as mv does (sorting by date), and on disk before it takes its name.
         let copied = crate::images::decode::open_regular(from)
-            .and_then(|mut f| std::io::copy(&mut f, &mut out))
+            .and_then(|mut f| copy_until_stopped(&mut f, &mut out, is_stopped))
             .and_then(|_| {
                 // Its read, write and run bits, as cp gives them: not set-user-ID, set-group-ID
                 // or sticky, which a copy owned by this user would carry for its owner.
@@ -466,6 +479,27 @@ pub(crate) fn put_file(from: &Path, to: &Path, is_copy: bool) -> std::io::Result
             .and_then(|_| sync_folder_of(to))
             .and_then(|_| unlink_linked(from, to)),
         done => done,
+    }
+}
+
+/// Copies all of `from` to `to` in parts, and stops before the next part when `is_stopped`
+/// says so. Each part is an `io::copy`, which the kernel does without passing the bytes
+/// through Glimt where it can. Returns `Interrupted` when stopped.
+fn copy_until_stopped(
+    from: &mut std::fs::File,
+    to: &mut std::fs::File,
+    is_stopped: &dyn Fn() -> bool,
+) -> std::io::Result<()> {
+    use std::io::Read;
+    // Small in the tests, so that a stop inside a file needs no file of many megabytes.
+    const PART: u64 = if cfg!(test) { 4 << 10 } else { 8 << 20 };
+    loop {
+        if is_stopped() {
+            return Err(std::io::ErrorKind::Interrupted.into());
+        }
+        if std::io::copy(&mut from.by_ref().take(PART), to)? == 0 {
+            return Ok(());
+        }
     }
 }
 
@@ -1203,6 +1237,28 @@ mod tests {
         } else {
             eprintln!("no extended attributes on this file system: not tested");
         }
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// Stop acts inside a large file: a copy stopped halfway leaves nothing at the destination,
+    /// not even its hidden part, and the source as it was.
+    #[test]
+    fn a_copy_stops_inside_a_large_file() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-put-stop-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join("to")).unwrap();
+        let a = dir.join("a.mp4");
+        std::fs::write(&a, vec![7u8; 1 << 20]).unwrap();
+        let asked = std::cell::Cell::new(0);
+        // Stopped after the first part.
+        let is_stopped = || {
+            asked.set(asked.get() + 1);
+            asked.get() > 1
+        };
+        let stopped = super::put_file_until_stopped(&a, &dir.join("to/a.mp4"), true, &is_stopped);
+        assert_eq!(stopped.unwrap_err().kind(), std::io::ErrorKind::Interrupted);
+        assert_eq!(asked.get(), 2, "not stopped inside the file");
+        assert_eq!(std::fs::read_dir(dir.join("to")).unwrap().count(), 0);
+        assert_eq!(std::fs::read(&a).unwrap().len(), 1 << 20);
         std::fs::remove_dir_all(dir).unwrap();
     }
 

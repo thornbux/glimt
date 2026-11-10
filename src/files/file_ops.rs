@@ -4,7 +4,7 @@
 //! whole. No file is ever overwritten.
 
 use crate::files::external;
-use crate::files::file_io::{put_file, rename_never_over};
+use crate::files::file_io::{put_file, put_file_until_stopped, rename_never_over};
 use crate::files::trash::{TrashMove, restore, trash_dirs};
 use crate::images::decode::catch_panic_as_error;
 use crate::images::save::save_rotated;
@@ -2367,8 +2367,12 @@ fn put_files(
         if let Some(at) = name_in_the_way(&target, &HashSet::new(), &mut names) {
             failed(&at, std::io::ErrorKind::AlreadyExists.into());
             moving.remove(path);
-        } else if let Err(e) = put_file(path, &target, is_copy) {
-            failed(&target, e);
+        } else if let Err(e) = put_file_until_stopped(path, &target, is_copy, &|| job.is_stopped())
+        {
+            // A file stopped halfway is not there, and the stop itself is told.
+            if !(e.kind() == std::io::ErrorKind::Interrupted && job.is_stopped()) {
+                failed(&target, e);
+            }
             moving.remove(path);
         } else {
             let followed = xmp::follow(path, &target, is_copy, &moving, &mut sidecar_names);
