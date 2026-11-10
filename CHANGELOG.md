@@ -11,6 +11,9 @@ and versions follow [Semantic Versioning](https://semver.org/).
   that the file was changed meanwhile. Before, a JPEG still being copied into the folder was
   turned from the part copied so far and written back cut off, and a slow PNG or WebP turn could
   be saved over another photo that another window had given the name.
+- Move To and Copy To leave a picked file where it is, and say so, when another photo took its
+  name while the folder chooser was open (a Rename Many, another window, a sync program).
+  Before, the other photo was moved or copied in its place.
 
 ## [0.80.0] - 2026-11-10
 
