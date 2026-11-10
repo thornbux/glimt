@@ -200,6 +200,48 @@ enum Edited {
 /// mutex in `SIDECAR_LOCKS` that its number picks.
 pub(crate) type SidecarLock = (Option<std::fs::File>, std::sync::MutexGuard<'static, ()>);
 
+/// The RAW files and Adobe sidecars of each folder that one operation looks at, by their name
+/// stem (`adobe_stem`). A folder is read once for the whole operation, and only when a RAW file
+/// in it is asked about, so a folder of JPEG files is never read. Before, every RAW extension
+/// was looked up in two cases for each file, about 56 lookups a file on a network share.
+#[derive(Default)]
+pub(crate) struct AdobeNames {
+    folders: std::collections::HashMap<PathBuf, std::collections::HashMap<String, StemNames>>,
+    /// The RAW files that the operation brings into a folder, by folder and name stem.
+    arriving: std::collections::HashMap<(PathBuf, String), Vec<PathBuf>>,
+}
+
+impl AdobeNames {
+    /// Returns the names for an operation that brings files to the names `arriving` (an Undo, a
+    /// move, a rename). A RAW file among them counts as another RAW file of its name stem for
+    /// each of the others, because it will be there too.
+    pub(crate) fn arriving(arriving: impl IntoIterator<Item = PathBuf>) -> Self {
+        let mut names = Self::default();
+        for path in arriving.into_iter().filter(|p| is_adobe_raw(p)) {
+            if let Some((dir, stem)) = adobe_stem(&path) {
+                let key = (dir.to_owned(), stem);
+                names.arriving.entry(key).or_default().push(path);
+            }
+        }
+        names
+    }
+
+    /// Returns the RAW files and Adobe sidecars in the folder of `path` that have its name stem.
+    /// Returns `None` when there are none, also when the folder cannot be read.
+    fn of_stem(&mut self, path: &Path) -> Option<&StemNames> {
+        let (dir, stem) = adobe_stem(path)?;
+        let folder = (self.folders.entry(dir.to_owned())).or_insert_with(|| list_adobe_names(dir));
+        folder.get(&stem)
+    }
+}
+
+/// The RAW files and Adobe sidecars of one name stem in a folder, by their names there.
+#[derive(Default)]
+struct StemNames {
+    raw_files: Vec<std::ffi::OsString>,
+    sidecars: Vec<std::ffi::OsString>,
+}
+
 fn parse_alt_text(xmp: &str) -> AltText {
     AltText {
         text: language_text(xmp, ALT),
@@ -625,51 +667,128 @@ pub(crate) fn sidecar_of(path: &Path) -> Option<PathBuf> {
     std::fs::symlink_metadata(&side).is_ok().then_some(side)
 }
 
-/// Returns the name of the sidecar that Lightroom, Camera Raw, Bridge and Capture One write
-/// beside a camera RAW file: `IMG_1.xmp` for `IMG_1.CR2`. Returns `None` when `path` is no RAW
-/// file that Adobe writes one for. A DNG, like a JPEG, has Adobe's metadata inside it. Glimt
-/// never reads or writes this file. It only keeps it with its RAW file.
-pub(crate) fn adobe_sidecar(path: &Path) -> Option<PathBuf> {
-    let ext = path.extension()?.to_str()?.to_ascii_lowercase();
-    let is_raw = ext != "dng" && crate::images::raw::EXTS.contains(&ext.as_str());
-    is_raw.then(|| path.with_extension("xmp"))
+/// Whether `path` is a camera RAW file that Lightroom, Camera Raw, Bridge and Capture One write
+/// a sidecar beside: `IMG_1.xmp` for `IMG_1.CR2`. A DNG, like a JPEG, has Adobe's metadata
+/// inside it, and so is no such file. Glimt never reads or writes Adobe's sidecar. It only
+/// keeps it with its RAW file.
+fn is_adobe_raw(path: &Path) -> bool {
+    let ext = path
+        .extension()
+        .map(|e| e.to_string_lossy().to_ascii_lowercase());
+    ext.is_some_and(|ext| ext != "dng" && crate::images::raw::EXTS.contains(&ext.as_str()))
 }
 
-/// Returns the Adobe sidecar of `path` (`adobe_sidecar`) when it is there and belongs to this
-/// file alone. Another RAW file with the same name stem (an `IMG_1.NEF` beside `IMG_1.CR2`)
-/// could own it as well, so then it is left where it is. A JPEG beside the RAW owns none,
-/// because Lightroom writes a JPEG's metadata into the JPEG.
-fn adobe_sidecar_of(path: &Path) -> Option<PathBuf> {
-    let side = adobe_sidecar(path)?;
-    std::fs::symlink_metadata(&side).ok()?;
-    // A file is told by who it is, because on a camera card IMG_1.cr2 names IMG_1.CR2 too.
-    let identity = |p: &Path| {
-        let meta = std::fs::symlink_metadata(p).ok()?;
-        Some(crate::images::save::file_id_from_metadata(p, &meta))
+/// Whether `path` has the name of an Adobe sidecar: `NAME.xmp`, with the extension in any case,
+/// because Capture One and Photo Mechanic write `NAME.XMP`.
+fn is_adobe_sidecar_name(path: &Path) -> bool {
+    path.extension()
+        .is_some_and(|e| e.eq_ignore_ascii_case("xmp"))
+}
+
+/// Returns the folder and the name stem, in lowercase, that tie a RAW file and its Adobe
+/// sidecar together: `IMG_1` for both `IMG_1.CR2` and `IMG_1.XMP`. The case is left out, as
+/// Lightroom's own disks ignore it. Returns `None` for a path that is neither.
+pub(crate) fn adobe_stem(path: &Path) -> Option<(&Path, String)> {
+    let is_either = is_adobe_raw(path) || is_adobe_sidecar_name(path);
+    let stem = path.file_stem().filter(|_| is_either)?;
+    Some((path.parent()?, stem.to_string_lossy().to_lowercase()))
+}
+
+/// Returns the RAW files and Adobe sidecars in the folder `dir`, by name stem. A folder that
+/// cannot be read has none.
+fn list_adobe_names(dir: &Path) -> std::collections::HashMap<String, StemNames> {
+    let mut stems: std::collections::HashMap<String, StemNames> = Default::default();
+    for entry in std::fs::read_dir(dir).into_iter().flatten().flatten() {
+        let name = entry.file_name();
+        let Some((_, stem)) = adobe_stem(Path::new(&name)) else {
+            continue;
+        };
+        let names = stems.entry(stem).or_default();
+        match is_adobe_sidecar_name(Path::new(&name)) {
+            true => names.sidecars.push(name),
+            false => names.raw_files.push(name),
+        }
+    }
+    stems
+}
+
+/// Returns the Adobe sidecars that belong to the RAW file `path`, whether or not it is there
+/// yet. This is the one rule of whose such a sidecar is. It is the file's when no other RAW file
+/// of its name stem is in its folder. Another one (an `IMG_1.NEF` beside `IMG_1.CR2`, also as
+/// `IMG_1.Nef`) could own it as well, and then it belongs to neither and stays where it is. A
+/// RAW file whose path is in `ours` is leaving with the operation, and so does not count, while
+/// one that `names` has arriving does. A JPEG beside the RAW owns none, because Lightroom writes
+/// a JPEG's metadata into the JPEG.
+pub(crate) fn adobe_sidecars_of(
+    path: &Path,
+    ours: &std::collections::HashSet<&PathBuf>,
+    names: &mut AdobeNames,
+) -> Vec<PathBuf> {
+    let Some((dir, stem)) = adobe_stem(path).filter(|_| is_adobe_raw(path)) else {
+        return Vec::new();
     };
-    let own = identity(path);
-    let another_raw = (crate::images::raw::EXTS.iter())
-        .flat_map(|e| [e.to_string(), e.to_ascii_uppercase()])
-        .map(|e| path.with_extension(e))
-        .filter(|other| other != path && adobe_sidecar(other).is_some())
-        .any(|other| identity(&other).is_some_and(|i| Some(i) != own));
-    (!another_raw).then_some(side)
+    let another_arriving = (names.arriving.get(&(dir.to_owned(), stem)))
+        .is_some_and(|arriving| arriving.iter().any(|p| p != path));
+    let Some(stem) = names.of_stem(path).filter(|s| !s.sidecars.is_empty()) else {
+        return Vec::new();
+    };
+    let own_name = path.file_name();
+    let mut others = (stem.raw_files.iter())
+        .filter(|n| Some(n.as_os_str()) != own_name)
+        .map(|n| dir.join(n))
+        .filter(|p| !ours.contains(p));
+    let another_raw = match stem
+        .raw_files
+        .iter()
+        .any(|n| Some(n.as_os_str()) == own_name)
+    {
+        true => others.next().is_some(),
+        // The file is gone (a move or delete), or named in another case on a camera card,
+        // where IMG_1.cr2 names IMG_1.CR2 too. The other names are then told by who they are.
+        false => {
+            let identity = |p: &Path| {
+                let meta = std::fs::symlink_metadata(p).ok()?;
+                Some(crate::images::save::file_id_from_metadata(p, &meta))
+            };
+            let own = identity(path);
+            others.any(|other| identity(&other).is_some_and(|i| Some(i) != own))
+        }
+    };
+    if another_raw || another_arriving {
+        return Vec::new();
+    }
+    // The folder was read once for the whole operation, so each sidecar is looked at again.
+    (stem.sidecars.iter())
+        .map(|n| dir.join(n))
+        .filter(|p| std::fs::symlink_metadata(p).is_ok())
+        .collect()
 }
 
 /// Returns each sidecar of `path` that is there, Glimt's own and Adobe's, paired with its name
 /// for the file at `to`. Every operation that moves, renames, copies or deletes a file asks
-/// this, so a sidecar never stays behind for the next file of the old name.
-pub(crate) fn sidecars_moving_with(path: &Path, to: &Path) -> Vec<(PathBuf, PathBuf)> {
+/// this, so a sidecar never stays behind for the next file of the old name. `names` holds the
+/// folders that the operation has read already.
+pub(crate) fn sidecars_moving_with(
+    path: &Path,
+    to: &Path,
+    names: &mut AdobeNames,
+) -> Vec<(PathBuf, PathBuf)> {
     let own = sidecar_of(path).map(|side| (side, sidecar(to)));
-    let adobe = adobe_sidecar_of(path).map(|side| (side, to.with_extension("xmp")));
+    // Adobe's sidecar keeps the case of its extension: IMG_1.XMP goes to IMG_2.XMP.
+    let adobe = adobe_sidecars_of(path, &Default::default(), names).into_iter();
+    let adobe = adobe.map(|side| {
+        let to = to.with_extension(side.extension().unwrap_or_default());
+        (side, to)
+    });
     own.into_iter().chain(adobe).collect()
 }
 
 /// Returns each sidecar of `paths` that is there, Glimt's own and Adobe's, for a delete. Each
 /// is named once, also when two RAW files of one name stem, both gone, each found Adobe's theirs.
 pub(crate) fn sidecars_of(paths: &[PathBuf]) -> Vec<PathBuf> {
+    let mut names = AdobeNames::default();
     let sides: std::collections::BTreeSet<PathBuf> = (paths.iter())
-        .flat_map(|path| sidecars_moving_with(path, path))
+        .flat_map(|path| sidecars_moving_with(path, path, &mut names))
         .map(|(side, _)| side)
         .collect();
     sides.into_iter().collect()
@@ -683,9 +802,15 @@ pub(crate) fn is_link(path: &Path) -> bool {
 
 /// Copies or moves the sidecars of `from` (`sidecars_moving_with`) with the file that went to
 /// `to`. Returns the first sidecar that could not follow, by its new name, with the error.
-pub fn follow(from: &Path, to: &Path, is_copy: bool) -> Result<(), (PathBuf, std::io::Error)> {
+/// `names` holds the folders that the operation has read already.
+pub fn follow(
+    from: &Path,
+    to: &Path,
+    is_copy: bool,
+    names: &mut AdobeNames,
+) -> Result<(), (PathBuf, std::io::Error)> {
     let mut result = Ok(());
-    for (side, to) in sidecars_moving_with(from, to) {
+    for (side, to) in sidecars_moving_with(from, to, names) {
         if let Err(e) = follow_one(&side, &to, is_copy)
             && result.is_ok()
         {
@@ -1371,7 +1496,7 @@ mod tests {
         };
         std::thread::sleep(std::time::Duration::from_millis(50));
         crate::files::file_io::put_file(&from, &to, false).unwrap();
-        super::follow(&from, &to, false).unwrap();
+        super::follow(&from, &to, false, &mut Default::default()).unwrap();
         drop(move_lock);
         assert!(writer.join().unwrap().is_err());
         assert!(!super::sidecar(&from).exists());
@@ -2222,10 +2347,10 @@ mod tests {
         write_changed(&a, adding(&meta.keywords), Some(meta.comment.clone())).unwrap();
         assert_eq!(read(&a), meta);
         std::fs::rename(&a, &b).unwrap();
-        follow(&a, &b, false).unwrap();
+        follow(&a, &b, false, &mut Default::default()).unwrap();
         assert_eq!(read(&b), meta);
         std::fs::copy(&b, &c).unwrap();
-        follow(&b, &c, true).unwrap();
+        follow(&b, &c, true, &mut Default::default()).unwrap();
         assert_eq!(read(&c), meta);
         // A sidecar at the target belongs to another file, so it is kept, not replaced.
         std::fs::write(&a, b"").unwrap();
@@ -2234,7 +2359,7 @@ mod tests {
             comment: String::new(),
         };
         write_changed(&a, adding(&other.keywords), Some(other.comment.clone())).unwrap();
-        assert!(follow(&b, &a, true).is_err());
+        assert!(follow(&b, &a, true, &mut Default::default()).is_err());
         assert_eq!(read(&a), other);
         std::fs::remove_dir_all(&dir).unwrap();
     }
@@ -2251,7 +2376,7 @@ mod tests {
             std::fs::write(p(name), name).unwrap();
         }
         assert_eq!(
-            sidecars_moving_with(&p("IMG_1.CR2"), &p("IMG_2.CR2")),
+            sidecars_moving_with(&p("IMG_1.CR2"), &p("IMG_2.CR2"), &mut Default::default()),
             [
                 (p("IMG_1.CR2.xmp"), p("IMG_2.CR2.xmp")),
                 (p("IMG_1.xmp"), p("IMG_2.xmp"))
@@ -2270,6 +2395,26 @@ mod tests {
             sidecars_of(&[p("IMG_1.CR2")]),
             [p("IMG_1.CR2.xmp"), p("IMG_1.xmp")]
         );
+        // `IMG_3.XMP` is Adobe's too and keeps its case, and a RAW file of the stem in mixed
+        // case (`IMG_4.Nef`) is another RAW file.
+        for name in [
+            "IMG_3.CR2",
+            "IMG_3.XMP",
+            "IMG_4.CR2",
+            "IMG_4.Nef",
+            "IMG_4.xmp",
+        ] {
+            std::fs::write(p(name), name).unwrap();
+        }
+        assert_eq!(
+            sidecars_moving_with(&p("IMG_3.CR2"), &p("IMG_5.CR2"), &mut Default::default()),
+            [(p("IMG_3.XMP"), p("IMG_5.XMP"))]
+        );
+        assert!(sidecars_of(&[p("IMG_4.CR2")]).is_empty());
+        // A RAW file that an operation brings to the stem counts as another one.
+        let mut arriving = AdobeNames::arriving([p("IMG_3.NEF"), p("IMG_3.CR2")]);
+        let ours = Default::default();
+        assert!(adobe_sidecars_of(&p("IMG_3.CR2"), &ours, &mut arriving).is_empty());
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
@@ -2309,7 +2454,7 @@ mod tests {
         image::RgbaImage::new(2, 2).save(&a).unwrap();
         std::os::unix::fs::symlink(&secret, sidecar(&a)).unwrap();
         std::fs::copy(&a, &b).unwrap();
-        follow(&a, &b, true).unwrap();
+        follow(&a, &b, true, &mut Default::default()).unwrap();
         assert!(
             std::fs::symlink_metadata(sidecar(&b)).is_err(),
             "copied through the link"
@@ -2320,7 +2465,7 @@ mod tests {
             "landed through the link"
         );
         std::fs::rename(&a, b.with_file_name("d.png")).unwrap();
-        follow(&a, &dir.join("d.png"), false).unwrap();
+        follow(&a, &dir.join("d.png"), false, &mut Default::default()).unwrap();
         assert!(is_link(&sidecar(&dir.join("d.png"))), "moved as itself");
         assert_eq!(std::fs::read_to_string(&secret).unwrap(), "PRIVATE KEY");
         std::fs::remove_dir_all(&dir).unwrap();

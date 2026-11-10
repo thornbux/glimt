@@ -324,9 +324,10 @@ const MANUAL: &[(&str, &str)] = &[
          digiKam also read (as dc:subject and dc:description); keywords written into the image by \
          other programs are shown too. With several files selected, a button adds the keywords to \
          all of them. exif: searches find keywords and comments. Renaming, moving, copying and \
-         deleting in Glimt take the sidecar along, and beside a RAW file also the photo.xmp \
-         that Lightroom, Camera Raw and Capture One write for it, which Glimt does not read or \
-         change. When two RAW files share that name, photo.xmp stays where it is.\n\n\
+         deleting in Glimt take the sidecar along, and beside a RAW file also the photo.xmp (or \
+         photo.XMP) that Lightroom, Camera Raw and Capture One write for it, which Glimt does not \
+         read or change. A DNG, like a JPEG, keeps that metadata inside, and has none. When two \
+         RAW files share that name, photo.xmp stays where it is.\n\n\
          The keyword tree below them, as Geeqie's, holds keywords in levels (type \
          Places|Norway|Oslo and Add): a box is ticked when the image has that keyword, and a click \
          sets it on the selected images, or the shown one, or takes it off. The path goes into the \
