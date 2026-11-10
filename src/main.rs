@@ -193,13 +193,16 @@ impl App {
         crate::ui::actions::use_user_keys(&config.keys);
         // The folder shown last is looked at only in the background (`open_last_folder`),
         // because a share that stopped answering would hold the start before the window opens.
-        let last_folder = (path.is_none() && config.remember_dir)
+        // It is read also when a path is given, because it is kept until another place opens.
+        let remembered = config
+            .remember_dir
             .then(|| {
                 let state = crate::images::decode::read_text(state_path()?).ok()?;
                 parse_last_dir(&state)
             })
             .flatten();
-        let path = (path.or_else(|| last_folder.clone())).unwrap_or_else(|| ".".into());
+        let opens_last_folder = path.is_none() && remembered.is_some();
+        let path = (path.or_else(|| remembered.clone())).unwrap_or_else(|| ".".into());
         crate::images::decode::set_animation_limit(config.animation_mb);
         set_cpu_use(config.cpu_use);
         crate::ui::theme::fonts(ctx);
@@ -223,7 +226,7 @@ impl App {
         let mut app = App {
             ctx: ctx.clone(),
             desktop_settings: crate::ui::theme::DesktopSettings::new(ctx, config.desktop_profile),
-            folder: crate::model::folder::Folder::new(&config),
+            folder: crate::model::folder::Folder::new(&config, remembered),
             list: List::default(),
             file_operations: crate::files::file_ops::FileOperations::new(&busy),
             busy: busy.clone(),
@@ -281,7 +284,7 @@ impl App {
                 let all = std::iter::once(path).chain(start.more_paths.iter().cloned());
                 app.open_folders(ctx, all.collect());
             }
-            None if last_folder.is_some() => app.open_last_folder(ctx, path),
+            None if opens_last_folder => app.open_last_folder(ctx, path),
             None => app.open(ctx, path),
         }
         // Small folders are listed before the first frame. A large one holds startup back for
@@ -376,8 +379,9 @@ impl eframe::App for App {
         // shortcut: the path is stored as UTF-8, lossless for ordinary paths; store its bytes
         // if a folder name that is not UTF-8 must be remembered.
         let mut state = String::new();
-        if self.config.remember_dir {
-            let last = self.folder.collection().unwrap_or(self.folder.dir());
+        if self.config.remember_dir
+            && let Some(last) = self.folder.place_to_remember()
+        {
             state += &crate::files::config::last_dir_line(last);
         }
         if self.config.remember_window {
