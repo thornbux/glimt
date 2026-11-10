@@ -181,7 +181,10 @@ range or is not one of the setting's choices (such as
 .B print_paper=letter
 for
 .BR Letter ),
-with the value used instead. Prints OK and exits with 0 when nothing is wrong, and also
+with the value used instead, and an own key in
+.B keys=
+that names no action or a key that cannot be read (such as
+.BR Next=ctrl+N ). Prints OK and exits with 0 when nothing is wrong, and also
 when there is no settings file yet, as Glimt then uses the defaults; else exits with 1, also
 when the file cannot be read or a
 .I FILE

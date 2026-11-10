@@ -514,8 +514,9 @@ impl Config {
     }
 
     /// The settings in `text`, and what is wrong in it, line by line. A problem is a line that
-    /// is not key=value, a setting that does not exist or is set twice, or a value that cannot
-    /// be read or is out of range. Empty lines and lines starting with # are left alone.
+    /// is not key=value, a setting that does not exist or is set twice, a value that cannot be
+    /// read, is out of range or is not one of its choices, or an own key that no build can use.
+    /// Empty lines and lines starting with # are left alone.
     pub fn parse_checked(text: &str) -> (Self, Vec<String>) {
         let config = Config::parse(text);
         let used = config.to_text();
@@ -562,6 +563,14 @@ impl Config {
                 }
                 // When the setting is set again later, that later line is the one checked.
                 Some(true) if later => {}
+                Some(true) if now == "keys" => {
+                    for item in alone.keys.unusable_items() {
+                        problems.push(format!(
+                            "line {n}: {item} in keys is not an action and a key Glimt knows; \
+                             it is kept and not used"
+                        ));
+                    }
+                }
                 Some(true) => {
                     old_values_mapped(&mut alone);
                     let wanted = value_in(&alone.to_text(), now);
@@ -1148,6 +1157,19 @@ mod tests {
         let (config, problems) = super::Config::parse_checked(text);
         assert_eq!(problems, Vec::<String>::new());
         assert_eq!(config.language, "nb");
+    }
+
+    /// An own key that no build of Glimt can use is told, as a value out of range is.
+    #[test]
+    fn an_unusable_key_is_told() {
+        let (_, problems) = super::Config::parse_checked("keys=Toolbar=Ctrl+B;Next=ctrl+N\n");
+        assert_eq!(
+            problems,
+            [
+                "line 1: Next=ctrl+N in keys is not an action and a key Glimt knows; it is kept and \
+              not used"
+            ]
+        );
     }
 
     /// Another window's folder stays when this one adds or takes out one.
