@@ -2872,6 +2872,10 @@ msgstr "Přesunout kolekci „{name}“ do koše? Její obrázky zůstanou, kde 
 msgid "the file system here ({kind}) does not allow this rename, as on some shares, cloud folders and phones ({e})"
 msgstr "souborový systém zde ({kind}) toto přejmenování nepovoluje, stejně jako některá sdílení, cloudové složky a telefony ({e})"
 
+#: src/files/file_io.rs
+msgid "{from} could not be removed after it was put at {to}, so the file is now under both names ({e})"
+msgstr "{from} se nepodařilo odstranit poté, co byl umístěn do {to}, takže soubor má nyní obě jména ({e})"
+
 #: src/files/file_ops.rs
 msgid "\"{name}\": a {kind} file system, as on a camera card, allows none of : ? * \" < > | \\ in a name. Nothing was renamed."
 msgstr "„{name}“: souborový systém {kind}, jako na paměťové kartě fotoaparátu, nepovoluje v názvu žádný ze znaků : ? * \" < > | \\. Nic nebylo přejmenováno."

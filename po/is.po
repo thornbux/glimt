@@ -2850,6 +2850,10 @@ msgstr "Færa safnið „{name}“ í ruslið? Myndirnar í því verða áfram 
 msgid "the file system here ({kind}) does not allow this rename, as on some shares, cloud folders and phones ({e})"
 msgstr "skráakerfið hér ({kind}) leyfir ekki þessa nafnbreytingu, eins og á sumum sameiginlegum möppum, skýjamöppum og símum ({e})"
 
+#: src/files/file_io.rs
+msgid "{from} could not be removed after it was put at {to}, so the file is now under both names ({e})"
+msgstr "ekki tókst að fjarlægja {from} eftir að það var sett á {to}, svo skráin ber nú bæði nöfnin ({e})"
+
 #: src/files/file_ops.rs
 msgid "\"{name}\": a {kind} file system, as on a camera card, allows none of : ? * \" < > | \\ in a name. Nothing was renamed."
 msgstr "„{name}“: {kind}-skráakerfi, eins og á minniskorti myndavélar, leyfir ekkert af : ? * \" < > | \\ í heiti. Engu var gefið nýtt heiti."

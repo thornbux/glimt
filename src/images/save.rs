@@ -76,6 +76,14 @@ pub(crate) const MAX_JPEG_EXIF: usize = 65_527;
 /// hold the old orientation.
 const DROPPED_PHOTOSHOP_RESOURCES: [u16; 4] = [0x0409, 0x040C, 0x0422, 0x0424];
 
+// Makes `same_file_by_opening` on this thread find this name gone, while a look still finds it,
+// as on a share whose cache still shows a name that the server removed.
+#[cfg(test)]
+thread_local! {
+    pub(crate) static GONE_FROM_THE_SERVER: std::cell::RefCell<Option<std::path::PathBuf>> =
+        const { std::cell::RefCell::new(None) };
+}
+
 /// How a copy of an image is made (Edit → Crop, File → Save As). It is made as the view shows
 /// it (turned by `turns` and `mirrored`, by EXIF with `rotate`, and the page `page` of a TIFF),
 /// as a part of it, smaller, and in a format. `App::shown_copy` makes it from the view, for
@@ -570,6 +578,30 @@ pub(crate) fn same_file(a: &Path, b: &Path) -> bool {
     use std::os::unix::fs::MetadataExt;
     let named = |p: &Path| {
         let m = std::fs::metadata(p).ok()?;
+        Some((
+            file_id_from_metadata(p, &m),
+            (m.len(), m.mtime(), m.mtime_nsec()),
+        ))
+    };
+    match (named(a), named(b)) {
+        (Some(x), Some(y)) => same_named(x, y),
+        _ => false,
+    }
+}
+
+/// Whether `a` and `b` are names of one file, as `same_file` says, but by opening each name
+/// rather than looking it up. On a share, a look may be answered from the cache, which still
+/// shows a name that the server removed when its answer was lost. An open asks the server
+/// (NFS's close-to-open, SMB, SFTP). So a name may be removed as a second name of a file only
+/// when this says so, and a name that cannot be opened counts as not there.
+pub(crate) fn same_file_by_opening(a: &Path, b: &Path) -> bool {
+    use std::os::unix::fs::MetadataExt;
+    let named = |p: &Path| {
+        #[cfg(test)]
+        if GONE_FROM_THE_SERVER.with_borrow(|gone| gone.as_deref() == Some(p)) {
+            return None;
+        }
+        let (_file, m) = crate::images::decode::open_regular_with_metadata(p).ok()?;
         Some((
             file_id_from_metadata(p, &m),
             (m.len(), m.mtime(), m.mtime_nsec()),

@@ -3484,6 +3484,72 @@ fn renames_that_later_steps_count_on_are_synced() {
     );
 }
 
+/// A name is never removed on the belief that another name still holds the file, when that
+/// belief rests on a look a share may answer from its cache. A share that did a step but lost
+/// its answer still shows the old name, and removing the other name then removes the only one
+/// left. So a file is linked under a second name only by `rename_never_over`, whose
+/// `unlink_linked` takes the new name back only when the unlink was surely refused
+/// (`was_surely_refused`). And a second name of a file is removed only after
+/// `same_file_by_opening`, never after `same_file`, a look. Glimt's own socket is linked too,
+/// by `link_socket`, and is no user's file.
+#[test]
+fn no_name_is_removed_on_a_cached_look() {
+    let mut wrong = outside_their_homes(&[(
+        "hard_link(",
+        &[
+            ("files/file_io.rs", "rename_never_over"),
+            ("features/remote.rs", "link_socket"),
+        ],
+    )]);
+    for (file, text) in rust_sources() {
+        let found = removals_after_a_look(&text);
+        wrong.extend(
+            found
+                .into_iter()
+                .map(|f| format!("{file}: {f} (same_file)")),
+        );
+    }
+    assert!(
+        wrong.is_empty(),
+        "a file linked outside rename_never_over, or a name removed after same_file rather \
+         than same_file_by_opening:\n{}",
+        wrong.join("\n")
+    );
+}
+
+/// Returns the functions of `text` outside the tests that both look with `same_file` and
+/// remove a name.
+fn removals_after_a_look(text: &str) -> Vec<String> {
+    let lines = code_lines(text);
+    let end = tests_start(&lines);
+    let mut found = Vec::new();
+    let mut function = String::new();
+    let (mut looks, mut removes) = (false, false);
+    for line in lines[..end].iter().map(String::as_str).chain(["fn end"]) {
+        if let Some(name) = function_name(line) {
+            if looks && removes {
+                found.push(function);
+            }
+            function = name.to_owned();
+            (looks, removes) = (false, false);
+            continue;
+        }
+        looks |= mentions(line, "same_file(");
+        removes |= line.contains("remove_file(");
+    }
+    found
+}
+
+/// The check above finds a name removed after `same_file`, and not one removed after
+/// `same_file_by_opening`, nor a look that removes nothing.
+#[test]
+fn finds_a_name_removed_after_a_cached_look() {
+    let text = "fn a() {\n    if same_file(x, y) {\n        std::fs::remove_file(x)\n    }\n}\n\
+        fn b() {\n    if same_file_by_opening(x, y) {\n        std::fs::remove_file(x)\n    }\n}\n\
+        fn c() {\n    same_file(x, y)\n}\n";
+    assert_eq!(removals_after_a_look(text), ["a"]);
+}
+
 /// Returns the functions of `text` outside the tests that rename a file, also by a move through
 /// `put_file`, each with whether it syncs the folder, itself or through `write_beside`.
 // shortcut: a function counts as synced when it syncs anywhere, so a branch that renames

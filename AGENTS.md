@@ -490,7 +490,11 @@ method.
     `write_beside` and `put_file`'s move to another disk do this themselves; a plain copy
     and a thumbnail (`write_beside_without_folder_sync`) do not, as nothing counts on them, and
     `source_rules::renames_that_later_steps_count_on_are_synced` lists the renames that
-    stand alone;
+    stand alone. A name is never removed on the belief that another name still holds the
+    file, as a share that lost its answer still shows a removed name from its cache: a step
+    that failed is undone only when `file_io::was_surely_refused` says it did nothing, and a
+    second name goes only after `save::same_file_by_opening`
+    (`source_rules::no_name_is_removed_on_a_cached_look`);
   - start one of Glimt's own programs with `external::command` or `stoppable_command` (inside
     a Flatpak's sandbox), and one of the user's with `host_command` or `stoppable_host_command`
     (on the host). Wait for it only with `run_limited`, `short_output_of`, `output_of` or a

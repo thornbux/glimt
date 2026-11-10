@@ -2850,6 +2850,10 @@ msgstr "Mettre la collection « {name} » à la corbeille ? Ses images restent o
 msgid "the file system here ({kind}) does not allow this rename, as on some shares, cloud folders and phones ({e})"
 msgstr "le système de fichiers ici ({kind}) ne permet pas ce renommage, comme sur certains partages, dossiers cloud et téléphones ({e})"
 
+#: src/files/file_io.rs
+msgid "{from} could not be removed after it was put at {to}, so the file is now under both names ({e})"
+msgstr "{from} n'a pas pu être supprimé après avoir été placé en {to}, le fichier porte donc maintenant les deux noms ({e})"
+
 #: src/files/file_ops.rs
 msgid "\"{name}\": a {kind} file system, as on a camera card, allows none of : ? * \" < > | \\ in a name. Nothing was renamed."
 msgstr "« {name} » : un système de fichiers {kind}, comme sur la carte d'un appareil photo, n'accepte aucun de : ? * \" < > | \\ dans un nom. Rien n'a été renommé."

@@ -2850,6 +2850,10 @@ msgstr "Die Sammlung »{name}« in den Papierkorb verschieben? Ihre Bilder bleib
 msgid "the file system here ({kind}) does not allow this rename, as on some shares, cloud folders and phones ({e})"
 msgstr "das Dateisystem hier ({kind}) erlaubt diese Umbenennung nicht, wie auf manchen Freigaben, Cloud-Ordnern und Telefonen ({e})"
 
+#: src/files/file_io.rs
+msgid "{from} could not be removed after it was put at {to}, so the file is now under both names ({e})"
+msgstr "{from} konnte nicht entfernt werden, nachdem es unter {to} abgelegt wurde, daher hat die Datei jetzt beide Namen ({e})"
+
 #: src/files/file_ops.rs
 msgid "\"{name}\": a {kind} file system, as on a camera card, allows none of : ? * \" < > | \\ in a name. Nothing was renamed."
 msgstr "»{name}«: Ein {kind}-Dateisystem, wie auf der Speicherkarte einer Kamera, erlaubt keines der Zeichen : ? * \" < > | \\ in einem Namen. Nichts wurde umbenannt."

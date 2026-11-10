@@ -56,6 +56,10 @@ thread_local! {
     // Takes ways to rename away from `rename_never_over` on this thread, as a file system
     // without them would: 1 takes RENAME_NOREPLACE, 2 takes hard links too.
     pub(crate) static RENAME_WAYS_MISSING: std::cell::Cell<u8> = const { std::cell::Cell::new(0) };
+    // Makes `unlink_linked` on this thread fail for this name with this error number while the
+    // name stays, as a share does that lost its answer.
+    pub(crate) static UNLINK_FAILS: std::cell::RefCell<Option<(PathBuf, i32)>> =
+        const { std::cell::RefCell::new(None) };
     // The errors that `save_failed` told for this thread's test. They do not go to the window's
     // own slot in tests, where another test's window would take them as its notice. Each list is
     // leaked, so that the writer thread can tell a test's errors to that test's list.
@@ -191,20 +195,62 @@ pub(crate) fn rename_never_over(from: &Path, to: &Path) -> std::io::Result<()> {
     }
 }
 
-/// `from`, now also at `to`, unlinked: a move is all or nothing, so one that cannot be removed
-/// (a shared folder with the sticky bit, someone else's file) has its new name taken away
-/// again. One gone after all (deleted or moved in another window, or a share that said no but
-/// did it) is done: the new name may be the only one left.
+/// Unlinks `from`, which is now also at `to`. A move is all or nothing, so a file that surely
+/// was not unlinked (a shared folder with the sticky bit, someone else's file, a read-only
+/// disk) has its new name taken away again. Any other failure keeps both names, because a share
+/// may have done the unlink and lost its answer (EIO, a timeout) while its cache still says the
+/// old name is there. Taking the new name away then would remove the only copy left. The error
+/// then says that the file is under both names. A file gone after all (deleted or moved in
+/// another window, or a share that said no but did it) is done, as the new name may be the only
+/// one left. This is the one place where a name is taken back after a failed unlink.
 fn unlink_linked(from: &Path, to: &Path) -> std::io::Result<()> {
-    #[allow(clippy::disallowed_methods)] // the old name, linked at its new one
-    match std::fs::remove_file(from) {
-        Err(e) if std::fs::symlink_metadata(from).is_ok() => {
-            #[allow(clippy::disallowed_methods)] // the new name, taken back
-            let _ = std::fs::remove_file(to);
-            Err(e)
-        }
-        _ => Ok(()),
+    #[cfg(test)]
+    let unlinked = match UNLINK_FAILS.with_borrow(|fails| fails.clone()) {
+        Some((name, errno)) if name == from => Err(std::io::Error::from_raw_os_error(errno)),
+        _ => unlink(from),
+    };
+    #[cfg(not(test))]
+    let unlinked = unlink(from);
+    let Err(e) = unlinked else {
+        return Ok(());
+    };
+    if std::fs::symlink_metadata(from).is_err_and(|e| e.kind() == std::io::ErrorKind::NotFound) {
+        return Ok(());
     }
+    if was_surely_refused(&e) {
+        #[allow(clippy::disallowed_methods)] // the new name, taken back
+        let _ = std::fs::remove_file(to);
+        return Err(e);
+    }
+    let (from, to) = (from.display(), to.display());
+    Err(std::io::Error::new(
+        e.kind(),
+        crate::tf!(
+            "{from} could not be removed after it was put at {to}, so the file is now under both names ({e})",
+            from,
+            to,
+            e
+        ),
+    ))
+}
+
+/// Returns whether the error `e` of a rename, link or unlink is the file system's answer that
+/// it did nothing. A share whose answer was lost gives another error (EIO, ETIMEDOUT, ENOTCONN,
+/// ESTALE), after which the step may have been done. Then no other name may be removed on the
+/// belief that this one is as it was.
+pub(crate) fn was_surely_refused(e: &std::io::Error) -> bool {
+    use std::io::ErrorKind::{AlreadyExists, CrossesDevices};
+    matches!(e.kind(), AlreadyExists | CrossesDevices)
+        || matches!(
+            e.raw_os_error(),
+            Some(libc::EPERM | libc::EACCES | libc::EROFS | libc::EBUSY | libc::EISDIR)
+        )
+}
+
+/// Unlinks `path`, the old name of a file that `unlink_linked` has linked or copied.
+fn unlink(path: &Path) -> std::io::Result<()> {
+    #[allow(clippy::disallowed_methods)] // the old name, linked or copied at its new one
+    std::fs::remove_file(path)
 }
 
 /// Syncs the folder that holds `path` to disk, as `sync_folder` does.
@@ -1227,7 +1273,7 @@ mod tests {
 
     /// Where the file system cannot rename in one step without replacing (FAT, exFAT, ntfs-3g,
     /// NFS, many FUSE shares), a rename is a link and an unlink, and where it cannot link
-    /// either, a rename after a look. Neither replaces a file. A source that cannot be unlinked
+    /// either, a rename after a look. Neither replaces a file. A source whose unlink is refused
     /// keeps its name and loses the new one, and a source gone meanwhile counts as moved.
     #[test]
     fn renames_without_one_step_never_over_a_file() {
@@ -1259,6 +1305,37 @@ mod tests {
         std::fs::write(&linked, "x").unwrap();
         super::unlink_linked(&dir.join("gone"), &linked).unwrap();
         assert_eq!(text(&linked), "x");
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A move whose old name a share failed to unlink without saying that it did nothing (EIO
+    /// after a lost answer, while its cache still shows the old name) keeps both names and says
+    /// so, because the new name may be the only copy left. One surely refused takes the new name
+    /// back, so that the move is all or nothing.
+    #[test]
+    fn an_unlink_that_may_have_been_done_keeps_both_names() {
+        use super::{RENAME_WAYS_MISSING, UNLINK_FAILS};
+        let dir = std::env::temp_dir().join(format!("glimt-test-unlink-{}", std::process::id()));
+        let (a, b) = (dir.join("a.jpg"), dir.join("b.jpg"));
+        let answers = [
+            (libc::EIO, true),
+            (libc::ETIMEDOUT, true),
+            (libc::EPERM, false),
+        ];
+        for (errno, keeps_both) in answers {
+            let _ = std::fs::remove_dir_all(&dir);
+            std::fs::create_dir_all(&dir).unwrap();
+            std::fs::write(&a, "a").unwrap();
+            RENAME_WAYS_MISSING.set(1);
+            UNLINK_FAILS.set(Some((a.clone(), errno)));
+            let renamed = super::rename_never_over(&a, &b);
+            UNLINK_FAILS.set(None);
+            RENAME_WAYS_MISSING.set(0);
+            let error = renamed.unwrap_err().to_string();
+            assert!(a.exists(), "{errno}");
+            assert_eq!(b.exists(), keeps_both, "{errno}");
+            assert_eq!(error.contains("both names"), keeps_both, "{error}");
+        }
         std::fs::remove_dir_all(dir).unwrap();
     }
 
