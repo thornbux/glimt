@@ -191,15 +191,15 @@ impl App {
         }
         let screen_error = crate::images::colour::set_up_colour(&config);
         crate::ui::actions::use_user_keys(&config.keys);
-        let path = path
-            .or_else(|| {
+        // The folder shown last is looked at only in the background (`open_last_folder`),
+        // because a share that stopped answering would hold the start before the window opens.
+        let last_folder = (path.is_none() && config.remember_dir)
+            .then(|| {
                 let state = crate::images::decode::read_text(state_path()?).ok()?;
-                parse_last_dir(&state).filter(|d| {
-                    config.remember_dir
-                        && (d.is_dir() || crate::model::collections::is_collection(d))
-                })
+                parse_last_dir(&state)
             })
-            .unwrap_or_else(|| ".".into());
+            .flatten();
+        let path = (path.or_else(|| last_folder.clone())).unwrap_or_else(|| ".".into());
         crate::images::decode::set_animation_limit(config.animation_mb);
         set_cpu_use(config.cpu_use);
         crate::ui::theme::fonts(ctx);
@@ -278,6 +278,7 @@ impl App {
                 let all = std::iter::once(path).chain(start.more_paths.iter().cloned());
                 app.open_folders(ctx, all.collect());
             }
+            None if last_folder.is_some() => app.open_last_folder(ctx, path),
             None => app.open(ctx, path),
         }
         // Small folders are listed before the first frame. A large one holds startup back for

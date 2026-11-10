@@ -3279,12 +3279,6 @@ fn the_window_thread_never_waits_for_the_disk() {
         (
             "main.rs",
             "with_config",
-            ".is_dir()",
-            "the last folder, looked at once at start, before the window opens",
-        ),
-        (
-            "main.rs",
-            "with_config",
             "read_text(",
             "Glimt's own window state, read once at start, before the window opens",
         ),
