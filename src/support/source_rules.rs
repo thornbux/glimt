@@ -3367,10 +3367,16 @@ fn the_window_thread_never_waits_for_the_disk() {
             "Glimt's own ICC folder under $HOME, once when the file dialog opens",
         ),
         (
-            "metadata/lightroom.rs",
-            "lightroom_dialog",
-            ".is_dir()",
-            "the few folders typed, while the Lightroom dialog is open; its shortcut comment",
+            "files/file_ops.rs",
+            "rename_files_of",
+            "file_system_type_or_test",
+            "only a new name with one of : ? * \" < > | \\, once before its job starts",
+        ),
+        (
+            "files/file_ops.rs",
+            "rename_folder",
+            "file_system_type_or_test",
+            "only a new name with one of : ? * \" < > | \\, once before its thread starts",
         ),
         (
             "files/file_ops.rs",
@@ -3464,6 +3470,7 @@ fn disk_calls_in_window_thread(text: &str, parts: &[&str]) -> Vec<(String, &'sta
         "open_regular(",
         "fingerprint(",
         "same_file(",
+        "file_system_type_or_test",
     ];
     const ELSEWHERE: &[&str] = &[
         "spawn(",

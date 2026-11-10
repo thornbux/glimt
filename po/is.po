@@ -3001,3 +3001,7 @@ msgstr "Glimt lokaðist áður en allt var skrifað: síðasta breyting á still
 #: src/files/journal.rs
 msgid "Rename Many runs without its plan ({e}), so a crash halfway is not put right at the next start"
 msgstr "Endurnefna margar keyrir án áætlunar sinnar ({e}), svo hrun í miðju verki er ekki lagað við næstu ræsingu"
+
+#: src/model/folder.rs
+msgid "Still opening {name}… Open another folder to stop waiting."
+msgstr "Enn að opna {name}… Opnaðu aðra möppu til að hætta að bíða."

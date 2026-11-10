@@ -31,6 +31,9 @@ use std::time::Instant;
 /// second, instead of 10,000 stats every second.
 const SUBFOLDERS_A_SECOND: usize = 1_000;
 
+/// How long a look-up of a place to open runs before a notice says that it is still opening.
+const STILL_OPENING_AFTER: std::time::Duration = std::time::Duration::from_secs(3);
+
 /// What is open (a folder, a collection or several folders), its listing in the background, the way
 /// back and forward, and the folders sorted into.
 pub(crate) struct Folder {
@@ -58,6 +61,12 @@ pub(crate) struct Folder {
     /// whether each is a folder, a file or a collection, and its real path. A share that stopped
     /// answering holds only that thread, not the window.
     looking_up: Receiving<(Opening, Found)>,
+    /// When the look-up that runs started, and the path it looks up. It is forgotten once the
+    /// notice that the place is still opening has been given (`tell_still_opening`).
+    looking_up_since: Option<(Instant, PathBuf)>,
+    /// The notice that the place is still opening, as given. It is taken away when the look-up
+    /// answers or another one replaces it.
+    still_opening_notice: Option<String>,
     /// The folder listing in the background, as (subfolders, images).
     listing_rx: Receiving<(Vec<PathBuf>, Vec<OsString>, FoldersRead)>,
     /// The list's version when the listing that runs started. A collection's listing works
@@ -134,6 +143,8 @@ impl Folder {
             folders: Vec::new(),
             together: None,
             looking_up: Receiving::none(),
+            looking_up_since: None,
+            still_opening_notice: None,
             listing_rx: Receiving::none(),
             listing_version: 0,
             subdirs_rx: Receiving::none(),
@@ -573,10 +584,27 @@ impl Listing {
 struct Opening {
     /// One path (a folder, a file or a collection), or several folders shown as one list.
     paths: Vec<PathBuf>,
-    /// Whether it opens as a new step of Go → Back and Forward (`visit`).
-    is_step: bool,
+    /// How it changes Go → Back and Forward's history, once its look-up answers.
+    history: HistoryStep,
     /// What happens when the path is not there.
     if_gone: IfGone,
+}
+
+/// How opening a place changes Go → Back and Forward's history. The change is made when the
+/// look-up of the place answers, not when it is asked for, so a look-up that another replaces
+/// changes nothing.
+#[derive(Clone, Copy)]
+enum HistoryStep {
+    /// The history stays as it is.
+    None,
+    /// The place is a new step (`visit`): the place before goes onto Back, and Forward is
+    /// emptied.
+    New,
+    /// Go → Back: the last place of Back is taken off, and the place before goes onto Forward.
+    Back,
+    /// Go → Forward: the last place of Forward is taken off, and the place before goes onto
+    /// Back.
+    Forward,
 }
 
 /// What happens when the one path asked to be opened is not there.
@@ -618,7 +646,7 @@ impl crate::App {
     pub(crate) fn open(&mut self, ctx: &egui::Context, path: PathBuf) {
         let opening = Opening {
             paths: vec![path],
-            is_step: false,
+            history: HistoryStep::None,
             if_gone: IfGone::OpenItsFolder,
         };
         self.look_up(ctx, opening);
@@ -631,7 +659,7 @@ impl crate::App {
     pub(crate) fn open_last_folder(&mut self, ctx: &egui::Context, path: PathBuf) {
         let opening = Opening {
             paths: vec![path],
-            is_step: false,
+            history: HistoryStep::None,
             if_gone: IfGone::OpenCurrentFolder,
         };
         self.look_up(ctx, opening);
@@ -647,6 +675,10 @@ impl crate::App {
             self.folder.mounting_rx = Receiving::none();
             self.notice.clear();
         }
+        self.clear_still_opening();
+        let path = opening.paths.first().cloned().unwrap_or_default();
+        self.folder.looking_up_since = Some((Instant::now(), path));
+        ctx.request_repaint_after(STILL_OPENING_AFTER);
         let (tx, rx) = mpsc::channel();
         self.folder.looking_up = Receiving::of(rx);
         let ctx = ctx.clone();
@@ -661,9 +693,13 @@ impl crate::App {
     pub(crate) fn receive_looked_up(&mut self, ctx: &egui::Context, wait: std::time::Duration) {
         let (opening, found) = match self.folder.looking_up.wait(wait) {
             Took::Answer(answer) => answer,
-            Took::Gone => return self.tell_background_stopped(tr("Reading the folder")),
-            Took::Nothing => return,
+            Took::Gone => {
+                self.clear_still_opening();
+                return self.tell_background_stopped(tr("Reading the folder"));
+            }
+            Took::Nothing => return self.tell_still_opening(),
         };
+        self.clear_still_opening();
         if let Found::Folder {
             is_there: false, ..
         } = &found
@@ -681,19 +717,62 @@ impl crate::App {
                 IfGone::OpenCurrentFolder => return self.open(ctx, ".".into()),
             }
         }
-        if opening.is_step {
-            self.folder.back.push(self.back_step());
-            // The history does not grow without end, because a slideshow of folders, or a
-            // script's --remote open, visits many.
-            if self.folder.back.len() > 200 {
-                self.folder.back.remove(0);
-            }
-            self.folder.forward.clear();
-        }
+        self.step_history(opening.history);
         match found {
             Found::Folder { dir, file, .. } => self.open_folder_found(ctx, dir, file),
             Found::Collection { file, entries } => self.open_collection(ctx, file, entries),
             Found::Folders(folders) => self.open_folders_found(ctx, folders),
+        }
+    }
+
+    /// Tells once that the place being looked up has not answered after `STILL_OPENING_AFTER`,
+    /// as on a share that stopped answering, and how to stop waiting for it. Before, only the
+    /// busy pointer showed it.
+    fn tell_still_opening(&mut self) {
+        let Some((since, path)) = &self.folder.looking_up_since else {
+            return;
+        };
+        if since.elapsed() < STILL_OPENING_AFTER {
+            return;
+        }
+        let text = tf!(
+            "Still opening {name}… Open another folder to stop waiting.",
+            name = path.display()
+        );
+        self.folder.looking_up_since = None;
+        self.folder.still_opening_notice = Some(text.clone());
+        self.notice.give(text);
+    }
+
+    /// Takes away the notice that a place is still opening while it is shown, and forgets when
+    /// its look-up started.
+    fn clear_still_opening(&mut self) {
+        self.folder.looking_up_since = None;
+        let told = self.folder.still_opening_notice.take();
+        if told.is_some() && self.notice.text() == told.as_deref() {
+            self.notice.clear();
+        }
+    }
+
+    /// Changes Go → Back and Forward's history as `step` says, when the place it opens has been
+    /// looked up.
+    fn step_history(&mut self, step: HistoryStep) {
+        let here = self.back_step();
+        let folder = &mut self.folder;
+        match step {
+            HistoryStep::None => {}
+            HistoryStep::New => {
+                folder.back.push(here);
+                // The history does not grow without end, because a slideshow of folders, or a
+                // script's --remote open, visits many.
+                if folder.back.len() > 200 {
+                    folder.back.remove(0);
+                }
+                folder.forward.clear();
+            }
+            HistoryStep::Back if folder.back.pop().is_some() => folder.forward.push(here),
+            HistoryStep::Forward if folder.forward.pop().is_some() => folder.back.push(here),
+            HistoryStep::Back | HistoryStep::Forward => {}
         }
     }
 
@@ -883,7 +962,7 @@ impl crate::App {
         }
         let opening = Opening {
             paths,
-            is_step: false,
+            history: HistoryStep::None,
             if_gone: IfGone::OpenItsFolder,
         };
         self.look_up(ctx, opening);
@@ -920,7 +999,7 @@ impl crate::App {
         self.notice.clear();
         let opening = Opening {
             paths: vec![path],
-            is_step: true,
+            history: HistoryStep::New,
             if_gone: IfGone::OpenItsFolder,
         };
         self.look_up(ctx, opening);
@@ -937,7 +1016,7 @@ impl crate::App {
         self.notice.clear();
         let opening = Opening {
             paths: vec![path],
-            is_step: true,
+            history: HistoryStep::New,
             if_gone: IfGone::Tell(gone),
         };
         self.look_up(ctx, opening);
@@ -1442,18 +1521,23 @@ impl crate::App {
         self.list.set_match_size(size);
     }
 
-    /// Go → Back and Forward. They go to the folder opened before or after this one.
+    /// Go → Back and Forward. They go to the folder opened before or after this one. The
+    /// history changes once the place is looked up (`step_history`), so Back pressed twice
+    /// before the answer goes back one step, and a place opened meanwhile leaves it as it is.
     pub(crate) fn back_or_forward(&mut self, ctx: &egui::Context, action: Action) {
-        let here = self.back_step();
-        let (from, to) = if action == Action::Back {
-            (&mut self.folder.back, &mut self.folder.forward)
+        let (from, history) = if action == Action::Back {
+            (&self.folder.back, HistoryStep::Back)
         } else {
-            (&mut self.folder.forward, &mut self.folder.back)
+            (&self.folder.forward, HistoryStep::Forward)
         };
-        if let Some(path) = from.pop() {
-            to.push(here);
+        if let Some(path) = from.last().cloned() {
             self.notice.clear();
-            self.open(ctx, path);
+            let opening = Opening {
+                paths: vec![path],
+                history,
+                if_gone: IfGone::OpenItsFolder,
+            };
+            self.look_up(ctx, opening);
         }
     }
 
@@ -2264,6 +2348,64 @@ mod tests {
         assert!(app.folder.dir() == a && app.folder.is_listing());
         let b = dir.join("b").canonicalize().unwrap();
         assert!(run_background_until(&mut app, &ctx, |app| app.folder.dir() == b));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A look-up that takes long, as on a share that stopped answering, tells that the place is
+    /// still opening and how to stop waiting. Opening another place takes the notice away.
+    /// Before, only the busy pointer showed that something was waited for.
+    #[test]
+    fn a_look_up_that_takes_long_is_told() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-slow-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join("share")).unwrap();
+        let (mut app, ctx) = app_on(&dir);
+        let share = dir.join("share");
+        app.open(&ctx, share.clone());
+        let _held = app.folder.hold_look_up();
+        app.receive_looked_up(&ctx, std::time::Duration::ZERO);
+        assert!(app.notice.text().is_none(), "told at once");
+        let long_ago = std::time::Instant::now().checked_sub(std::time::Duration::from_secs(60));
+        app.folder.looking_up_since.as_mut().unwrap().0 = long_ago.unwrap();
+        app.receive_looked_up(&ctx, std::time::Duration::ZERO);
+        let told = app.notice.text().unwrap_or_default().to_owned();
+        assert!(
+            told.starts_with(&format!("Still opening {}", share.display())),
+            "{told}"
+        );
+        app.open(&ctx, dir.clone());
+        assert!(app.notice.text().is_none());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// Back pressed twice before the look-up of the place answers goes back one step, and puts
+    /// the place it left onto Forward once. Back followed by a click on another folder leaves
+    /// the history as that click makes it. Before, the history changed at each request.
+    #[test]
+    fn back_changes_the_history_at_the_answer() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-back-{}", std::process::id()));
+        for sub in ["a", "b", "c"] {
+            std::fs::create_dir_all(dir.join(sub)).unwrap();
+        }
+        let (mut app, ctx) = app_on(&dir.join("a"));
+        let real = |sub: &str| dir.join(sub).canonicalize().unwrap();
+        let visit = |app: &mut crate::App, sub: &str| {
+            app.visit(&ctx, dir.join(sub));
+            app.receive_looked_up(&ctx, std::time::Duration::from_secs(5));
+        };
+        visit(&mut app, "b");
+        visit(&mut app, "c");
+        app.back_or_forward(&ctx, crate::ui::actions::Action::Back);
+        app.back_or_forward(&ctx, crate::ui::actions::Action::Back);
+        app.receive_looked_up(&ctx, std::time::Duration::from_secs(5));
+        assert_eq!(app.folder.dir(), real("b"));
+        assert_eq!(app.folder.back, [real("a")]);
+        assert_eq!(app.folder.forward, [real("c")]);
+        app.back_or_forward(&ctx, crate::ui::actions::Action::Back);
+        app.visit(&ctx, dir.join("c"));
+        app.receive_looked_up(&ctx, std::time::Duration::from_secs(5));
+        assert_eq!(app.folder.dir(), real("c"));
+        assert_eq!(app.folder.back, [real("a"), real("b")]);
+        assert!(app.folder.forward.is_empty());
         std::fs::remove_dir_all(dir).unwrap();
     }
 

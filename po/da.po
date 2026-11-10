@@ -3001,3 +3001,7 @@ msgstr "Glimt sluttede, før alt var skrevet: den seneste ændring af indstillin
 #: src/files/journal.rs
 msgid "Rename Many runs without its plan ({e}), so a crash halfway is not put right at the next start"
 msgstr "Omdøb flere kører uden sin plan ({e}), så et nedbrud halvvejs bliver ikke rettet ved næste start"
+
+#: src/model/folder.rs
+msgid "Still opening {name}… Open another folder to stop waiting."
+msgstr "Åbner stadig {name}… Åbn en anden mappe for at holde op med at vente."

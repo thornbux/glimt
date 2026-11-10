@@ -220,19 +220,58 @@ pub(crate) struct Import {
     plan: Option<Plan>,
     /// The plan while its thread makes it, with the folders it is made for.
     planning: Receiving<((Vec<String>, Plan), Working)>,
+    /// Whether each folder typed for a root folder is there, as last looked at in the
+    /// background, with the texts it was looked at for (`look_at_typed_folders`).
+    typed_folders_there: (Vec<String>, Vec<bool>),
+    /// The look at the typed folders that runs in the background.
+    typed_folders_answer: Receiving<(Vec<String>, Vec<bool>)>,
 }
 
 impl Import {
     /// The import dialog for `catalog`, with the folders where its photos are now worked out
-    /// and nothing planned yet.
+    /// and nothing planned yet. It looks at the disk, so it is made in the thread that reads
+    /// the catalog.
     pub(crate) fn new(catalog: Catalog) -> Self {
         let root_folders_now = roots_now(&catalog);
+        let there = folders_there(&root_folders_now);
         Import {
             catalog: Arc::new(catalog),
+            typed_folders_there: (root_folders_now.clone(), there),
             root_folders_now,
             plan: None,
             planning: Receiving::none(),
+            typed_folders_answer: Receiving::none(),
         }
+    }
+
+    /// Takes the answer of the look at the typed folders, and starts a new look in the
+    /// background when a field changed since the last one. A share that stopped answering then
+    /// holds only that thread, not the window. Before, the dialog looked at each folder in the
+    /// window's thread in every frame.
+    fn look_at_typed_folders(&mut self, ctx: &egui::Context) {
+        if let Took::Answer(answer) = self.typed_folders_answer.take() {
+            self.typed_folders_there = answer;
+        }
+        if self.typed_folders_answer.is_some()
+            || self.typed_folders_there.0 == self.root_folders_now
+        {
+            return;
+        }
+        let (tx, rx) = std::sync::mpsc::channel();
+        let (typed, ctx) = (self.root_folders_now.clone(), ctx.clone());
+        std::thread::spawn(move || {
+            let there = folders_there(&typed);
+            let _ = tx.send((typed, there));
+            ctx.request_repaint();
+        });
+        self.typed_folders_answer = Receiving::of(rx);
+    }
+
+    /// Returns whether the folder typed in field `i` was there when it was last looked at. A
+    /// field changed since is not, until it has been looked at again.
+    fn is_typed_folder_there(&self, i: usize) -> bool {
+        let (typed, there) = &self.typed_folders_there;
+        typed.get(i) == self.root_folders_now.get(i) && there.get(i).copied().unwrap_or(false)
     }
 }
 
@@ -261,7 +300,7 @@ impl crate::App {
         let ctx = ctx.clone();
         let pointer = Working::new(&self.busy);
         std::thread::spawn(move || {
-            let _ = tx.send(read(&file));
+            let _ = tx.send(read(&file).map(Import::new));
             drop(pointer);
             ctx.request_repaint();
         });
@@ -276,6 +315,10 @@ impl crate::App {
             return;
         };
         self.take_plan_of(&mut lr);
+        lr.look_at_typed_folders(ctx);
+        let there: Vec<bool> = (0..lr.root_folders_now.len())
+            .map(|i| lr.is_typed_folder_there(i))
+            .collect();
         let (mut next, mut back, mut go) = (false, false, false);
         let modal = egui::Modal::new(egui::Id::unique("lightroom")).show(ctx, |ui| {
             ui.strong(tr("Import from Lightroom"));
@@ -283,8 +326,8 @@ impl crate::App {
                 None => {
                     ui.label(tr("Where the catalog's folders are now (empty: left out):"));
                     egui::Grid::new("lightroom roots").show(ui, |ui| {
-                        for ((_, was), now) in lr.catalog.roots.iter().zip(&mut lr.root_folders_now)
-                        {
+                        let roots = lr.catalog.roots.iter().zip(&mut lr.root_folders_now);
+                        for (((_, was), now), is_there) in roots.zip(&there) {
                             ui.label(was);
                             // A size of its own: in the grid the field would be as narrow as
                             // its text.
@@ -293,13 +336,7 @@ impl crate::App {
                                 ui.add_sized([360.0, height], egui::TextEdit::singleline(now));
                             // The screenshots click the field by the folder it stands for.
                             crate::support::test_hooks::noted(&field, was);
-                            // shortcut: a few folders looked at in the window's thread, each frame
-                            // the dialog is open; look in the background if a share holds it.
-                            ui.label(if typed_root_folder(now).is_dir() {
-                                "✓"
-                            } else {
-                                ""
-                            });
+                            ui.label(if *is_there { "✓" } else { "" });
                             ui.end_row();
                         }
                     });
@@ -683,6 +720,14 @@ pub fn typed_root_folder(typed: &str) -> PathBuf {
     }
 }
 
+/// Returns whether each folder typed for a root folder is there.
+fn folders_there(typed: &[String]) -> Vec<bool> {
+    typed
+        .iter()
+        .map(|t| typed_root_folder(t).is_dir())
+        .collect()
+}
+
 /// Where each root folder is now: the same place if it is there, else empty for the user to
 /// fill in.
 pub fn roots_now(catalog: &Catalog) -> Vec<String> {
@@ -841,6 +886,28 @@ mod tests {
             app.take_plan_of(&mut lr);
         }
         assert!(lr.plan.is_none());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// Whether each typed folder is there is looked at in the background, and the ✓ comes from
+    /// that answer. A field changed since shows no ✓ until it has been looked at again.
+    #[test]
+    fn the_typed_folders_are_looked_at_in_the_background() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-lrtyped-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let rows = format!("r\x1f1\x1f{}/\x1f\x1f", dir.join("gone").display());
+        let mut lr = super::Import::new(super::parse(rows.as_bytes()));
+        assert!(!lr.is_typed_folder_there(0));
+        lr.root_folders_now = vec![dir.display().to_string()];
+        let ctx = eframe::egui::Context::default();
+        let took = std::time::Instant::now();
+        while !lr.is_typed_folder_there(0) {
+            assert!(took.elapsed().as_secs() < 5, "no answer came");
+            lr.look_at_typed_folders(&ctx);
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        lr.root_folders_now = vec![dir.join("gone").display().to_string()];
+        assert!(!lr.is_typed_folder_there(0));
         std::fs::remove_dir_all(dir).unwrap();
     }
 

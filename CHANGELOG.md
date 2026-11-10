@@ -30,9 +30,36 @@ and versions follow [Semantic Versioning](https://semver.org/).
   answer) to be undone again, as Undo of a delete does.
 - Stop during a copy or move acts inside a large file, such as a video copied to a slow stick,
   and leaves no part of it behind.
+- A window started with a `--name` that another window took by a rename at the same moment
+  shares the name under its own ID, as when the name is taken already. Before, it was left
+  without remote control.
+- Renaming a window to the name of a Glimt that hangs no longer hangs the renamed window too:
+  a socket that has not taken the connection after half a second counts as taken.
+- A third SIGTERM or SIGHUP ends Glimt at once also while it waits at its end for a write to a
+  share that stopped answering, as the man page says, with exit status 143. Before, only
+  SIGKILL ended it there.
+- Go → Back and Forward change their history when the place has been looked up, not when they
+  are asked for. Back pressed twice before a slow share answers goes back one step, and a
+  folder clicked meanwhile no longer leaves Forward holding the place the user is on.
+- File → Import Lightroom Catalog looks at the catalog's root folders, and at the folders typed
+  for them, in the background. Before, the window's thread looked at each of them in every
+  frame while the dialog was open, so a share that stopped answering held the window.
+- Move, Copy and Copy for Sharing hold their files back from other work from the moment they
+  are asked for, while the folder's real path is looked up. Before, a delete and a rename in
+  that moment could hand a Move to a slow share another file of the same name.
+- A Copy or Move looks up the file system of the folder it goes to in the background, with the
+  folder's real path, to refuse a name that a camera card does not allow. Before, the window's
+  thread looked it up, which a share that stalled in that moment held.
+- A Move of two RAW files of one name stem, such as `r.cr2` and `r.nef`, where the second could
+  not go or was not reached after Stop, leaves Lightroom's `r.xmp` where it is, as it belongs to
+  neither. Before, it went with the first when that one went first. The Undo of such a move
+  does the same when one of them cannot go back.
 
 ### Changed
 
+- A folder that takes more than three seconds to open, as on a share that stopped answering,
+  shows a notice that it is still opening and that opening another folder stops the wait.
+  Before, only the busy pointer showed it.
 - Marks and stars set one after another while the last one is still being saved go to the
   marks file in one write, not one write each. With 500,000 files marked, a write takes about
   0.4 s, so 500 mark keys took over three minutes to save, longer than a close waits for them.

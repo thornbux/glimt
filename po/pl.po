@@ -3012,3 +3012,7 @@ msgstr "Glimt zakończył działanie, zanim wszystko zostało zapisane: ostatnia
 #: src/files/journal.rs
 msgid "Rename Many runs without its plan ({e}), so a crash halfway is not put right at the next start"
 msgstr "Zmień wiele nazw działa bez swojego planu ({e}), więc awaria w połowie nie zostanie naprawiona przy następnym uruchomieniu"
+
+#: src/model/folder.rs
+msgid "Still opening {name}… Open another folder to stop waiting."
+msgstr "Wciąż trwa otwieranie {name}… Otwórz inny folder, aby przestać czekać."

@@ -3001,3 +3001,7 @@ msgstr "Glimt si è chiuso prima di aver scritto tutto: l'ultima modifica delle 
 #: src/files/journal.rs
 msgid "Rename Many runs without its plan ({e}), so a crash halfway is not put right at the next start"
 msgstr "Rinomina multipla viene eseguita senza il suo piano ({e}), quindi un arresto a metà non viene riparato al prossimo avvio"
+
+#: src/model/folder.rs
+msgid "Still opening {name}… Open another folder to stop waiting."
+msgstr "Apertura di {name} ancora in corso… Apri un'altra cartella per smettere di aspettare."

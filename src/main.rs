@@ -17,7 +17,7 @@ use crate::features::duplicates::FindDuplicates;
 use crate::features::print::PrintDialog;
 use crate::files::config::{Config, WindowState, parse_last_dir, state_path};
 use crate::files::file_io::write_atomic;
-use crate::metadata::lightroom::Catalog;
+use crate::metadata::lightroom::Import;
 use crate::model::list::List;
 use crate::support::threads::{HAS_ONE_MALLOC_ARENA, Receiving, Working};
 use crate::support::threads::{cores, set_cpu_use, thread_cpu_us};
@@ -141,10 +141,10 @@ struct App {
     help: Option<crate::ui::help::Page>,
     /// File → Print's dialog, while open.
     print_dialog: Option<PrintDialog>,
-    /// A Lightroom catalog being read, then imported with the folders where its root folders
-    /// are now.
-    lightroom_catalog_answer: Receiving<(Result<Catalog, String>, Working)>,
-    lightroom: Option<crate::metadata::lightroom::Import>,
+    /// A Lightroom catalog being read, with where its root folders are now, then imported with
+    /// the folders typed for them.
+    lightroom_catalog_answer: Receiving<(Result<Import, String>, Working)>,
+    lightroom: Option<Import>,
     /// The pan view's window (Ctrl+J), while it is open.
     pan_view: Option<PanView>,
     /// File → Save As. It holds the dialog while it is open, and the answers given last.
@@ -404,15 +404,17 @@ impl eframe::App for App {
         );
     }
 
-    /// Guards a close of the window and takes the `--remote` commands. eframe calls this before
-    /// each `ui`, and also while the window is minimized or hidden, when it calls no `ui`. So a
-    /// script gets its answer at once, and a close meets the guard also while no `ui` runs.
+    /// Guards a close of the window, takes the `--remote` commands and the answers that need no
+    /// frame. eframe calls this before each `ui`, and also while the window is minimized or
+    /// hidden, when it calls no `ui`. So a script gets its answer at once, a close meets the
+    /// guard also while no `ui` runs, and the busy pointer of an answer taken here goes then.
     fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         // A `where` from the release tests is answered from the frame drawn last.
         #[cfg(feature = "test-hooks")]
         crate::support::test_hooks::begin_frame();
         self.guard_close(ctx);
         self.receive_remote(ctx);
+        self.receive_answers_without_a_frame(ctx);
     }
 
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {

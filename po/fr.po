@@ -3001,3 +3001,7 @@ msgstr "Glimt s'est fermé avant que tout soit écrit : la dernière modificatio
 #: src/files/journal.rs
 msgid "Rename Many runs without its plan ({e}), so a crash halfway is not put right at the next start"
 msgstr "Renommer plusieurs s'exécute sans son plan ({e}) : un plantage en cours de route ne sera pas réparé au prochain démarrage"
+
+#: src/model/folder.rs
+msgid "Still opening {name}… Open another folder to stop waiting."
+msgstr "Ouverture de {name} toujours en cours… Ouvrez un autre dossier pour ne plus attendre."
