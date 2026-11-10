@@ -492,7 +492,7 @@ method.
     `source_rules::renames_that_later_steps_count_on_are_synced` lists the renames that
     stand alone. A name is never removed on the belief that another name still holds the
     file, as a share that lost its answer still shows a removed name from its cache: a step
-    that failed is undone only when `file_io::was_surely_refused` says it did nothing, and a
+    that failed is undone unless `file_io::may_have_been_done` says it may have been done, and a
     second name goes only after `save::same_file_by_opening`
     (`source_rules::no_name_is_removed_on_a_cached_look`);
   - start one of Glimt's own programs with `external::command` or `stoppable_command` (inside

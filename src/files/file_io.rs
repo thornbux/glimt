@@ -165,6 +165,20 @@ struct Mount<'a> {
     kind: &'a [u8],
 }
 
+/// The text of `unlink_linked`'s error when the old name may be gone and the file may be only
+/// under its new one. The error number is not kept in an error made with a text of its own, so
+/// this type is what tells `may_have_been_done` that the step may have been done.
+#[derive(Debug)]
+struct MayBeUnderBothNames(String);
+
+impl std::fmt::Display for MayBeUnderBothNames {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+impl std::error::Error for MayBeUnderBothNames {}
+
 /// Rename `from` to `to`, never over a file or folder there, also one another window put there
 /// a moment ago: in one step where the file system can (RENAME_NOREPLACE); where it cannot (FAT,
 /// NTFS or exFAT through FUSE, some shares), a link, which never replaces a file, and then the
@@ -203,13 +217,13 @@ pub(crate) fn rename_never_over(from: &Path, to: &Path) -> std::io::Result<()> {
     }
 }
 
-/// Unlinks `from`, which is now also at `to`. A move is all or nothing, so a file that surely
-/// was not unlinked (a shared folder with the sticky bit, someone else's file, a read-only
-/// disk) has its new name taken away again. Any other failure keeps both names, because a share
-/// may have done the unlink and lost its answer (EIO, a timeout) while its cache still says the
-/// old name is there. Taking the new name away then would remove the only copy left. The error
-/// then says that the file may be under both names or only the new one, and that both are to
-/// be checked before either is removed. A file gone after all (deleted or moved in
+/// Unlinks `from`, which is now also at `to`. A move is all or nothing, so a file that was not
+/// unlinked (a shared folder with the sticky bit, someone else's file, a read-only disk) has its
+/// new name taken away again. A failure that may have been done keeps both names, because a
+/// share may have done the unlink and lost its answer (EIO, a timeout) while its cache still
+/// says the old name is there. Taking the new name away then would remove the only copy left.
+/// The error then says that the file may be under both names or only the new one, and that both
+/// are to be checked before either is removed. A file gone after all (deleted or moved in
 /// another window, or a share that said no but did it) is done, as the new name may be the only
 /// one left. This is the one place where a name is taken back after a failed unlink.
 fn unlink_linked(from: &Path, to: &Path) -> std::io::Result<()> {
@@ -226,33 +240,58 @@ fn unlink_linked(from: &Path, to: &Path) -> std::io::Result<()> {
     if std::fs::symlink_metadata(from).is_err_and(|e| e.kind() == std::io::ErrorKind::NotFound) {
         return Ok(());
     }
-    if was_surely_refused(&e) {
+    if !may_have_been_done(&e) {
         #[allow(clippy::disallowed_methods)] // the new name, taken back
         let _ = std::fs::remove_file(to);
         return Err(e);
     }
     let (from, to) = (from.display(), to.display());
-    Err(std::io::Error::new(
-        e.kind(),
-        crate::tf!(
-            "{from} could not be removed after it was put at {to}, so the file may be under both names or only at {to}; check both before removing either ({e})",
-            from,
-            to,
-            e
-        ),
-    ))
+    let text = crate::tf!(
+        "{from} could not be removed after it was put at {to}, so the file may be under both names or only at {to}; check both before removing either ({e})",
+        from,
+        to,
+        e
+    );
+    Err(std::io::Error::new(e.kind(), MayBeUnderBothNames(text)))
 }
 
-/// Returns whether the error `e` of a rename, link or unlink is the file system's answer that
-/// it did nothing. A share whose answer was lost gives another error (EIO, ETIMEDOUT, ENOTCONN,
-/// ESTALE), after which the step may have been done. Then no other name may be removed on the
-/// belief that this one is as it was.
-pub(crate) fn was_surely_refused(e: &std::io::Error) -> bool {
-    use std::io::ErrorKind::{AlreadyExists, CrossesDevices};
-    matches!(e.kind(), AlreadyExists | CrossesDevices)
+/// Returns whether the failed rename, link or unlink that gave the error `e` may have been done
+/// all the same. A share or a FUSE file system whose answer was lost on the way (EIO, a timeout,
+/// a lost connection, an interrupted call) may have done the step. Then no other name may be
+/// removed on the belief that this one is as it was. Every other error is the file system's
+/// answer that it did nothing: a name too long, a full disk, a file that is gone, no right to
+/// it. So is an error of Glimt's own without an error number, except `unlink_linked`'s.
+pub(crate) fn may_have_been_done(e: &std::io::Error) -> bool {
+    use libc::{
+        EAGAIN, ECOMM, ECONNABORTED, ECONNREFUSED, ECONNRESET, EHOSTDOWN, EHOSTUNREACH, EINTR, EIO,
+        ENETDOWN, ENETRESET, ENETUNREACH, ENOBUFS, ENOLINK, ENOMEM, ENOTCONN, EPROTO, EREMOTEIO,
+        ESTALE, ETIMEDOUT,
+    };
+    e.get_ref()
+        .is_some_and(|inner| inner.is::<MayBeUnderBothNames>())
         || matches!(
             e.raw_os_error(),
-            Some(libc::EPERM | libc::EACCES | libc::EROFS | libc::EBUSY | libc::EISDIR)
+            Some(
+                EIO | ETIMEDOUT
+                    | ENOTCONN
+                    | ESTALE
+                    | ECONNRESET
+                    | ECONNABORTED
+                    | ECONNREFUSED
+                    | EHOSTDOWN
+                    | EHOSTUNREACH
+                    | ENETDOWN
+                    | ENETUNREACH
+                    | ENETRESET
+                    | EREMOTEIO
+                    | ECOMM
+                    | EPROTO
+                    | ENOLINK
+                    | EINTR
+                    | EAGAIN
+                    | ENOMEM
+                    | ENOBUFS
+            )
         )
 }
 
@@ -1372,8 +1411,8 @@ mod tests {
 
     /// A move whose old name a share failed to unlink without saying that it did nothing (EIO
     /// after a lost answer, while its cache still shows the old name) keeps both names and says
-    /// so, because the new name may be the only copy left. One surely refused takes the new name
-    /// back, so that the move is all or nothing.
+    /// so, because the new name may be the only copy left. One refused (no right to it, a name
+    /// too long) takes the new name back, so that the move is all or nothing.
     #[test]
     fn an_unlink_that_may_have_been_done_keeps_both_names() {
         use super::{RENAME_WAYS_MISSING, UNLINK_FAILS};
@@ -1383,6 +1422,8 @@ mod tests {
             (libc::EIO, true),
             (libc::ETIMEDOUT, true),
             (libc::EPERM, false),
+            (libc::ENAMETOOLONG, false),
+            (libc::EINVAL, false),
         ];
         for (errno, keeps_both) in answers {
             let _ = std::fs::remove_dir_all(&dir);

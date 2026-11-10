@@ -500,7 +500,7 @@ fn trash_by_hand(trash: &Path, files: &[(&Path, String)]) -> Vec<(PathBuf, std::
         if let Err(e) = rename_never_over(path, &files_folder.join(&taken)) {
             // A move that may have been done keeps its .trashinfo, without which no trash view
             // lists the file and Undo cannot find it.
-            if crate::files::file_io::was_surely_refused(&e) {
+            if !crate::files::file_io::may_have_been_done(&e) {
                 remove(&trashinfo);
             }
             match e.kind() {

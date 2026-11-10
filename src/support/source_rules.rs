@@ -3559,8 +3559,8 @@ fn renames_that_later_steps_count_on_are_synced() {
 /// belief rests on a look a share may answer from its cache. A share that did a step but lost
 /// its answer still shows the old name, and removing the other name then removes the only one
 /// left. So a file is linked under a second name only by `rename_never_over`, whose
-/// `unlink_linked` takes the new name back only when the unlink was surely refused
-/// (`was_surely_refused`). And a second name of a file is removed only after
+/// `unlink_linked` takes the new name back only when the unlink cannot have been done
+/// (`may_have_been_done`). And a second name of a file is removed only after
 /// `same_file_by_opening`, never after `same_file`, a look. Glimt's own socket is linked too,
 /// by `link_socket`, and is no user's file.
 #[test]
