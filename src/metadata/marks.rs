@@ -123,9 +123,12 @@ impl Marks {
     /// Whether all have it is decided on the marks file as it is when the edit is written, not
     /// on this window's copy, which may lack a mark that another window set meanwhile. So the
     /// file is read back after the write, and this window then shows what the file decided.
+    /// The read back reads the file only when another window wrote it, because the write keeps
+    /// the file's stamp as known only when no other window wrote in between. So a key pressed
+    /// with 500,000 files marked does not cost a read of the whole file.
     pub fn toggle(&mut self, paths: &[PathBuf], n: u8) {
         self.change(paths, Change::Toggle(1 << (n - 1)));
-        self.read_file_again(true);
+        self.read_file_again(false);
     }
 
     pub fn rate(&mut self, paths: &[PathBuf], stars: u8) {
@@ -791,6 +794,40 @@ mod tests {
         let file_now = super::read_marks();
         assert_eq!((file_now.get(&a), file_now.get(&b)), ((1, 0), (1, 0)));
         settled(&mut marks);
+        super::TEST_FILE.with(|f| *f.borrow_mut() = None);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A toggle with no other window writing the marks file does not read the whole file back.
+    /// The file's bytes are taken away here with its stamp kept, so a read would lose the
+    /// marks. Before, every mark key read the file again, also with 500,000 files marked.
+    #[test]
+    fn a_toggle_alone_does_not_read_the_file_again() {
+        let dir = std::env::temp_dir().join(format!(
+            "glimt-test-marks-toggle-alone-{}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("marks");
+        super::TEST_FILE.with(|f| *f.borrow_mut() = Some(file.clone()));
+        let (a, b) = (dir.join("a.png"), dir.join("b.png"));
+        std::fs::write(&file, format!("1\t0\t{}\n", a.display())).unwrap();
+        let mut marks = super::read_marks();
+        let t = std::fs::metadata(&file).unwrap().modified().unwrap();
+        let f = std::fs::OpenOptions::new()
+            .write(true)
+            .truncate(true)
+            .open(&file)
+            .unwrap();
+        f.set_modified(t).unwrap();
+        marks.toggle(std::slice::from_ref(&b), 1);
+        settled(&mut marks);
+        assert_eq!(
+            (marks.get(&a), marks.get(&b)),
+            ((1, 0), (1, 0)),
+            "read again"
+        );
+        super::SENT.with(|sent| sent.borrow_mut().clear());
         super::TEST_FILE.with(|f| *f.borrow_mut() = None);
         std::fs::remove_dir_all(dir).unwrap();
     }
