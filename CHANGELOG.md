@@ -75,7 +75,10 @@ and versions follow [Semantic Versioning](https://semver.org/).
 - With Include Subfolders on, Auto Refresh now sees an image added to, removed from or renamed in
   a subfolder, not only in the folder opened. The watcher still looks once a second, which works
   on network shares too: at the open folders every second, and at up to 1,000 subfolders a
-  second, so a tree of 10,000 subfolders is looked through in ten seconds.
+  second, so a tree of 10,000 subfolders is looked through in ten seconds. After a listing,
+  a change waits four times as long as the listing took before the folder is read again, so a
+  sync client writing into a large tree has it read at most a fifth of the time; a small folder
+  is read again at once.
 - Rename, Rename Many, New Folder and Rename Folder refuse a new name that starts with a dot, which
   the list hides, unless hidden files are shown. Before, Rename Many with `.#` gave `.1.jpg`,
   `.2.jpg` …, and the files vanished from the list. Collections refused such names already, by

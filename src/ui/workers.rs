@@ -50,8 +50,9 @@ impl crate::App {
         if self.working() {
             ctx.set_cursor_icon(egui::CursorIcon::Progress);
         }
-        if self.folder.changed_on_disk() && self.config.auto_refresh {
-            self.folder.relist_later();
+        let changed = self.folder.changed_on_disk() && self.config.auto_refresh;
+        if let Some(left) = self.folder.relist_after_rest(changed) {
+            ctx.request_repaint_after(left);
         }
         if self.folder.wants_relist() && !self.folder.is_listing() {
             self.start_listing(ctx);
