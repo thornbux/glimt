@@ -733,10 +733,11 @@ pub(crate) const MANUAL: &[(&str, &str)] = &[
          glimt --lock-settings, or a file /etc/glimt/lock-settings put there by the administrator, \
          is for a shared computer: Preferences do not open, and what is changed in the menus lasts \
          only until Glimt closes.\n\n\
-         glimt --check-config tells what is wrong in the settings file, line by line, and \
-         under a heading of their own which tools and added formats have %f only inside quotes, \
-         which do not change its exit code; Glimt also tells the first of it when it starts.man glimt says more, with examples. \
-         The options and commands:",
+         glimt --check-config tells what is wrong in the settings file, line by line, and Glimt \
+         tells the first of these problems when it starts. Under a heading of its own, \
+         --check-config also lists the tools and added formats that have %f only inside quotes; \
+         these do not change its exit code. man glimt says more, with examples. The options and \
+         commands:",
     ),
 ];
 
@@ -1516,6 +1517,34 @@ mod tests {
                 items.contains(&order),
                 "the manual's sort list lacks {order}: {items:?}"
             );
+        }
+    }
+
+    /// A full stop between two letters in the manual is in a name, such as a.jpg, and never
+    /// the end of a sentence whose space was lost ("when it starts.man glimt").
+    #[test]
+    fn the_manual_has_a_space_after_each_full_stop() {
+        const NAMES: &[&str] = &[
+            "tar.gz",
+            "show.txt",
+            "photo.xmp",
+            "photo.XMP",
+            "photo.jpg.xmp",
+            "glimt.pario.no",
+            "exif.camera",
+            "a.jpg",
+        ];
+        for (heading, text) in super::MANUAL {
+            for word in text.split_whitespace() {
+                let word = word.trim_matches(|c: char| !c.is_alphanumeric());
+                let joined = word.as_bytes().windows(3).any(|w| {
+                    w[0].is_ascii_alphabetic() && w[1] == b'.' && w[2].is_ascii_alphabetic()
+                });
+                assert!(
+                    !joined || NAMES.contains(&word),
+                    "{heading}: {word} lacks a space after its full stop, or is a name to list"
+                );
+            }
         }
     }
 }
