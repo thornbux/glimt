@@ -21,7 +21,6 @@ use crate::{
 use eframe::egui;
 use std::collections::HashSet;
 use std::path::PathBuf;
-use std::sync::mpsc;
 
 pub const NONE: egui::Modifiers = egui::Modifiers::NONE;
 
@@ -1397,7 +1396,7 @@ impl crate::App {
     pub(crate) fn copy_image(&mut self, ctx: &egui::Context) {
         let (path, how) = (self.path(self.list.shown()), self.shown_copy());
         let (tx, ctx) = (self.notice_sender.clone(), ctx.clone());
-        let (clip_tx, clip_rx) = mpsc::channel();
+        let (clip_tx, clip_rx) = crate::support::threads::answer_channel(&self.busy);
         self.file_operations.copy_image_from(clip_rx);
         let pointer = Working::new(&self.busy);
         std::thread::spawn(move || {

@@ -12,7 +12,7 @@ use crate::model::folder::total_size;
 use crate::model::listing::pattern_name;
 use crate::support::format::{count, thousands};
 use crate::support::lang::tr;
-use crate::support::threads::{Receiving, Took, Working};
+use crate::support::threads::{AnswerSender, Receiving, Took, Working, answer_channel};
 use crate::ui::actions::Action;
 use crate::ui::dialogs::Pick;
 use crate::ui::dialogs::{Asked, Prompt};
@@ -119,6 +119,9 @@ pub(crate) type Moved = (PathBuf, PathBuf, FileFingerprint);
 /// background. It runs in the window's thread once the path is known.
 pub(crate) type WithRealFolder = Box<dyn FnOnce(&mut crate::App, &egui::Context) + Send>;
 
+/// A file saved in the background (a turned image, or a tool's file), and how it went.
+type SavedFile = (PathBuf, Result<(), String>);
+
 /// What Edit → Undo puts back. It is the last files or folder moved to the trash, the last
 /// files moved, or the last files renamed, each `(from, to, fingerprint)`. The fingerprint
 /// is the file's `FileFingerprint` at `to`, so an Undo leaves alone a file that another program put
@@ -219,20 +222,20 @@ pub(crate) struct FileOperations {
     held_back_files: Vec<Arc<Vec<PathBuf>>>,
     /// A Rename Many running in the background.
     renaming: Option<RenameJob>,
-    renaming_rx: Receiving<RenameOutcome>,
+    renaming_rx: Receiving<(RenameOutcome, Working)>,
     /// The names being deleted in the background. They are kept out of refreshed listings
     /// until the delete is done.
     deleting: HashSet<OsString>,
     /// What deletes, moves and copies report (`OperationReport`). A tool and Move Folder to Trash
     /// send it too, only for the list to be read again.
-    report_tx: mpsc::Sender<OperationReport>,
-    report_rx: mpsc::Receiver<OperationReport>,
+    report_tx: AnswerSender<OperationReport>,
+    report_rx: mpsc::Receiver<(OperationReport, Working)>,
     /// Those still being saved.
     saving: HashSet<PathBuf>,
     /// The PNG and WebP files saved turned in the background. A tool sends its files here
     /// too, because it may have changed them, so they are decoded again.
-    saved_tx: mpsc::Sender<(PathBuf, Result<(), String>)>,
-    saved_rx: mpsc::Receiver<(PathBuf, Result<(), String>)>,
+    saved_tx: AnswerSender<SavedFile>,
+    saved_rx: mpsc::Receiver<(SavedFile, Working)>,
     /// What Edit → Undo puts back. It is the last move to the trash, move or rename.
     undo: Option<Undo>,
     /// Held by each running operation that will leave an Undo of its own, until it has sent
@@ -250,21 +253,25 @@ pub(crate) struct FileOperations {
     /// Our own clipboard for file lists, kept so it can serve them (X11).
     clipboard: Option<arboard::Clipboard>,
     /// An image decoded for the clipboard. egui takes it only during a frame.
-    clip_rx: Receiving<egui::ColorImage>,
+    clip_rx: Receiving<(egui::ColorImage, Working)>,
     /// What waits for a folder's real path, sent once it is looked up (`with_real_folder`). The
     /// sender is kept, so the receiver lasts as long as the window.
-    real_folder_tx: mpsc::Sender<WithRealFolder>,
-    real_folder_found: Receiving<WithRealFolder>,
+    real_folder_tx: AnswerSender<WithRealFolder>,
+    real_folder_found: Receiving<(WithRealFolder, Working)>,
+    /// How many of those wait. Each starts a file operation (a Copy, say), so a close waits for
+    /// them as for the files being written.
+    real_folders_awaited: Arc<AtomicUsize>,
 }
 
 impl FileOperations {
-    /// A `FileOperations` with nothing running. It looks in the background for Rename Many's steps
+    /// A `FileOperations` with nothing running, whose answers keep the busy pointer `busy` on
+    /// until the window has handled them. It looks in the background for Rename Many's steps
     /// that a crash cut short.
-    pub(crate) fn new() -> Self {
-        let (report_tx, report_rx) = mpsc::channel();
-        let (saved_tx, saved_rx) = mpsc::channel();
+    pub(crate) fn new(busy: &Arc<AtomicUsize>) -> Self {
+        let (report_tx, report_rx) = answer_channel(busy);
+        let (saved_tx, saved_rx) = answer_channel(busy);
         let (tx, cut_short_rx) = mpsc::channel();
-        let (real_folder_tx, real_folder_found) = mpsc::channel();
+        let (real_folder_tx, real_folder_found) = answer_channel(busy);
         std::thread::spawn(move || {
             let _ = tx.send(
                 journal::journal_dir().map_or_else(Vec::new, |d| journal::cut_short_plans(&d)),
@@ -290,11 +297,12 @@ impl FileOperations {
             clip_rx: Receiving::none(),
             real_folder_tx,
             real_folder_found: Receiving::of(real_folder_found),
+            real_folders_awaited: Arc::default(),
         }
     }
 
     /// Where deletes, moves and copies report what they did.
-    pub(crate) fn report_sender(&self) -> mpsc::Sender<OperationReport> {
+    pub(crate) fn report_sender(&self) -> AnswerSender<OperationReport> {
         self.report_tx.clone()
     }
 
@@ -341,11 +349,12 @@ impl FileOperations {
         (self.jobs.iter()).for_each(|job| job.stop_requested.store(true, Ordering::Relaxed));
     }
 
-    /// A turned image saved in the background, or a tool's file, with how it went.
-    pub(crate) fn take_saved(&mut self) -> Option<(PathBuf, Result<(), String>)> {
-        let (path, result) = self.saved_rx.try_recv().ok()?;
+    /// A turned image saved in the background, or a tool's file, with how it went, and the busy
+    /// pointer that the window drops once it has handled it.
+    pub(crate) fn take_saved(&mut self) -> Option<(PathBuf, Result<(), String>, Working)> {
+        let ((path, result), pointer) = self.saved_rx.try_recv().ok()?;
         self.saving.remove(&path);
-        Some((path, result))
+        Some((path, result, pointer))
     }
 
     /// Whether the turn of `path` is still being saved.
@@ -353,10 +362,15 @@ impl FileOperations {
         self.saving.contains(path)
     }
 
-    /// Takes Rename Many's answer, when it has come: the job it was and how it went.
-    pub(crate) fn take_rename_outcome(&mut self) -> Took<(Option<RenameJob>, RenameOutcome)> {
+    /// Takes Rename Many's answer, when it has come: the job it was, how it went, and the busy
+    /// pointer that the window drops once it has handled it.
+    pub(crate) fn take_rename_outcome(
+        &mut self,
+    ) -> Took<(Option<RenameJob>, RenameOutcome, Working)> {
         match self.renaming_rx.take() {
-            Took::Answer(result) => Took::Answer((self.renaming.take(), result)),
+            Took::Answer((result, pointer)) => {
+                Took::Answer((self.renaming.take(), result, pointer))
+            }
             // The thread ended without an answer. Closing does not wait for it, and Rename
             // Many is not refused for ever.
             Took::Gone => {
@@ -411,14 +425,15 @@ impl FileOperations {
     }
 
     /// The image for the clipboard, decoded in the background from `rx`.
-    pub(crate) fn copy_image_from(&mut self, rx: mpsc::Receiver<egui::ColorImage>) {
+    pub(crate) fn copy_image_from(&mut self, rx: mpsc::Receiver<(egui::ColorImage, Working)>) {
         self.clip_rx = Receiving::of(rx);
     }
 
-    /// The image decoded for the clipboard, once it came.
-    pub(crate) fn take_image(&mut self) -> Option<egui::ColorImage> {
+    /// The image decoded for the clipboard, once it came, with the busy pointer that the window
+    /// drops once the image is on the clipboard.
+    pub(crate) fn take_image(&mut self) -> Option<(egui::ColorImage, Working)> {
         match self.clip_rx.take() {
-            Took::Answer(img) => Some(img),
+            Took::Answer(answer) => Some(answer),
             _ => None,
         }
     }
@@ -567,9 +582,11 @@ impl crate::App {
     }
 
     /// Whether files are still being written (`file_io::WRITING`), by file jobs, a turned
-    /// image, a print, keywords or the settings. Closing waits for them.
+    /// image, a print, keywords or the settings, or a file operation waits for its folder's
+    /// real path. Closing waits for them.
     pub(crate) fn is_writing(&self) -> bool {
         crate::files::file_io::WRITING.load(Ordering::Relaxed) > 0
+            || (self.file_operations.real_folders_awaited).load(Ordering::Relaxed) > 0
     }
 
     /// A file operation on `total` files that changes `held_back_files`, shown in the status bar
@@ -734,22 +751,26 @@ impl crate::App {
     /// that are gone leave the list, the marks and Find Duplicates. After a failure, the folder
     /// is read again instead.
     pub(crate) fn receive_operation_report(&mut self, ctx: &egui::Context) {
-        for OperationReport {
-            requested,
-            gone,
-            any_failed,
-            moved,
-            is_copy,
-            read_folder_again,
-            undo,
-            is_undo_remainder,
-            restored_marks,
-            changed,
-            overwritten,
-            folder_renamed,
-            folder_made,
-            untrashable,
-        } in self
+        // The busy pointer of each report goes once the report has been handled.
+        for (
+            OperationReport {
+                requested,
+                gone,
+                any_failed,
+                moved,
+                is_copy,
+                read_folder_again,
+                undo,
+                is_undo_remainder,
+                restored_marks,
+                changed,
+                overwritten,
+                folder_renamed,
+                folder_made,
+                untrashable,
+            },
+            _pointer,
+        ) in self
             .file_operations
             .report_rx
             .try_iter()
@@ -942,7 +963,8 @@ impl crate::App {
     }
 
     /// Looks up the real path of `folder` in the background, as it waits for the disk, and then
-    /// runs `then` with it in the window's thread. The busy pointer shows meanwhile.
+    /// runs `then` with it in the window's thread. The busy pointer shows meanwhile. A close
+    /// waits for it too, as for a file operation, because `then` starts one (a Copy, say).
     pub(crate) fn with_real_folder(
         &mut self,
         folder: PathBuf,
@@ -950,10 +972,16 @@ impl crate::App {
     ) {
         let tx = self.file_operations.real_folder_tx.clone();
         let (pointer, ctx) = (Working::new(&self.busy), self.ctx.clone());
+        let awaited = Working::new(&self.file_operations.real_folders_awaited);
         std::thread::spawn(move || {
             let real = crate::model::listing::real_dir(&folder);
+            // The close waits until `then` has run, and the job it starts holds the close
+            // from then on.
             let _ = tx.send(Box::new(
-                move |app: &mut crate::App, ctx: &egui::Context| then(app, ctx, real),
+                move |app: &mut crate::App, ctx: &egui::Context| {
+                    then(app, ctx, real);
+                    drop(awaited);
+                },
             ));
             drop(pointer);
             ctx.request_repaint();
@@ -962,7 +990,7 @@ impl crate::App {
 
     /// Runs what waited for a folder's real path, once the path is known.
     pub(crate) fn receive_real_folders(&mut self, ctx: &egui::Context) {
-        while let Took::Answer(then) = self.file_operations.real_folder_found.next() {
+        while let Took::Answer((then, _pointer)) = self.file_operations.real_folder_found.next() {
             then(self, ctx);
         }
     }
@@ -1181,7 +1209,7 @@ impl crate::App {
             shown,
             undoing: fingerprints.is_some(),
         };
-        let (tx, rx) = mpsc::channel();
+        let (tx, rx) = answer_channel(&self.busy);
         let ctx = ctx.clone();
         let pointer = Working::new(&self.busy);
         let undo_on_the_way = self.file_operations.undo_on_the_way();
@@ -3639,6 +3667,45 @@ mod tests {
             // A spin, not a sleep, so the check falls into the moment between the two.
             while app.working() {}
             assert!(app.are_free_to_change(&file), "{:?}", app.notice.text());
+        }
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// An answer that the window must handle keeps the busy pointer on until the window has
+    /// handled it. Before, the thread let the pointer go as it sent the answer, so a window that
+    /// saw no work running had not yet started the Copy that waited for its folder's real path,
+    /// and still held a turn as being saved. A close at that moment dropped the Copy.
+    #[test]
+    fn answers_keep_the_busy_pointer_until_the_window_handled_them() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-answer-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join("empty")).unwrap();
+        use std::sync::atomic::Ordering::SeqCst;
+        let (mut app, ctx) = app_on(&dir.join("empty"));
+        // A spin that takes the answers, so the check falls into the moment between the send
+        // and the window's handling. It returns whether `handled` holds once no work runs.
+        let idle_and = |app: &mut crate::App, handled: &dyn Fn(&crate::App) -> bool| loop {
+            if !app.working() {
+                return handled(app);
+            }
+            app.poll_background(&ctx);
+        };
+        for _ in 0..300 {
+            let ran = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+            let then = ran.clone();
+            app.with_real_folder(dir.clone(), move |_, _, _| then.store(true, SeqCst));
+            // The pending look-up counts as work that a close waits for.
+            assert!(app.is_writing() || ran.load(SeqCst));
+            assert!(idle_and(&mut app, &|_| ran.load(SeqCst)));
+        }
+        let a = dir.join("a.png");
+        image::RgbImage::new(4, 4).save(&a).unwrap();
+        crate::support::test_support::open_now(&mut app, &ctx, dir.clone());
+        for _ in 0..100 {
+            app.viewing.set_turn((1, false), a.clone());
+            app.save_orientation(&ctx);
+            assert!(idle_and(&mut app, &|app| !app
+                .file_operations
+                .is_saving(&a)));
         }
         std::fs::remove_dir_all(dir).unwrap();
     }

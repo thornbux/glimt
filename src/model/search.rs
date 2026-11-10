@@ -7,7 +7,8 @@ use crate::model::folder::{add_sent_sizes, send_sizes};
 use crate::model::list::FileRow;
 use crate::support::lang::tr;
 use crate::support::threads::small_alloc_threads;
-use crate::support::threads::{Receiving, Took, Working, background_threads, in_parts};
+use crate::support::threads::{Receiving, Took, Working, answer_channel};
+use crate::support::threads::{background_threads, in_parts};
 use crate::{metadata::exif, metadata::xmp};
 use crate::{tf, ui::theme};
 use eframe::egui;
@@ -60,7 +61,7 @@ pub(crate) struct Search {
     /// The files whose keywords or comment changed after they were indexed. The next "exif:"
     /// search reads only these files again, not the whole folder.
     exif_to_read_again: HashSet<OsString>,
-    exif_index_rx: Receiving<HashMap<OsString, String>>,
+    exif_index_rx: Receiving<(HashMap<OsString, String>, Working)>,
     /// Set when the index being read is no longer wanted (another folder), so the thread stops.
     exif_index_stop: Arc<AtomicBool>,
 }
@@ -275,14 +276,15 @@ impl crate::App {
 
     /// Takes the exif: search index once it is read, and runs the search again with it.
     pub(crate) fn receive_exif_index(&mut self, ctx: &egui::Context) {
-        let index = match self.search.exif_index_rx.take() {
+        // The busy pointer goes when this returns, once the search has the index.
+        let (index, _pointer) = match self.search.exif_index_rx.take() {
             Took::Nothing => return,
-            Took::Answer(index) => index,
+            Took::Answer(answer) => (answer.0, Some(answer.1)),
             // Without any index, the search would start reading again at once, so it gets an
             // empty one, and the user is told.
             Took::Gone => {
                 self.tell_background_stopped(tr("The EXIF index"));
-                HashMap::new()
+                (HashMap::new(), None)
             }
         };
         // The files read again go into the index there is. Otherwise this is the whole index.
@@ -426,7 +428,7 @@ impl crate::App {
             && !self.search.exif_to_read_again.is_empty()
             && self.search.exif_index_rx.is_none()
         {
-            let (tx, rx) = mpsc::channel();
+            let (tx, rx) = answer_channel(&self.busy);
             let names: Vec<OsString> = self.search.exif_to_read_again.drain().collect();
             let (dir, ctx) = (self.folder.dir().to_path_buf(), ctx.clone());
             let pointer = Working::new(&self.busy);
@@ -445,7 +447,7 @@ impl crate::App {
                 if !writing {
                     self.search.exif_to_read_again.clear();
                 }
-                let (tx, rx) = mpsc::channel();
+                let (tx, rx) = answer_channel(&self.busy);
                 let (dir, files, ctx) = (
                     self.folder.dir().to_path_buf(),
                     self.list.files().to_vec(),

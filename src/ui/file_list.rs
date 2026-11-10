@@ -8,7 +8,7 @@ use crate::model::listing::{SORTS, Types, list_folder};
 use crate::support::format::{count, local_time, middle_cut, size_text, thousands};
 use crate::support::lang::tr;
 use crate::support::threads::lock_even_if_poisoned;
-use crate::support::threads::{Receiving, Took};
+use crate::support::threads::{AnswerSender, Receiving, Took, Working, answer_channel};
 use crate::ui::actions::Action;
 use crate::ui::dialogs::{Pick, entered};
 use crate::ui::menus::{checkbox, radio_choice, scroll_menu, selectable, submenu};
@@ -20,7 +20,7 @@ use std::collections::HashMap;
 use std::collections::HashSet;
 use std::ffi::{OsStr, OsString};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
@@ -386,8 +386,8 @@ pub(crate) struct StatusBar {
     /// The partial sums from the background. It is `None` once all have arrived.
     folder_sums: Receiving<u64>,
     /// Bytes freed by deletions in the background.
-    freed_sender: mpsc::Sender<u64>,
-    freed_bytes: mpsc::Receiver<u64>,
+    freed_sender: AnswerSender<u64>,
+    freed_bytes: mpsc::Receiver<(u64, Working)>,
     /// The size of the selected files. It is worked out in the background when the selection
     /// changes.
     selected_size: Option<u64>,
@@ -396,9 +396,20 @@ pub(crate) struct StatusBar {
     selected_size_due: Option<Instant>,
 }
 
-impl Default for StatusBar {
-    fn default() -> Self {
-        let (freed_tx, freed_rx) = mpsc::channel();
+/// Whether the selection's size is to be worked out now.
+pub(crate) enum SizeDue {
+    /// The size is not asked for, because nothing is selected, or it is known.
+    No,
+    /// The selection may change again within this time.
+    Later(std::time::Duration),
+    Now,
+}
+
+impl StatusBar {
+    /// A status bar with nothing counted yet, whose bytes freed keep the busy pointer `busy` on
+    /// until it has taken them.
+    pub(crate) fn new(busy: &Arc<AtomicUsize>) -> Self {
+        let (freed_tx, freed_rx) = answer_channel(busy);
         StatusBar {
             sizes_and_dates_asked: None,
             sizes_and_dates_found: Receiving::none(),
@@ -415,20 +426,9 @@ impl Default for StatusBar {
             selected_size_due: None,
         }
     }
-}
 
-/// Whether the selection's size is to be worked out now.
-pub(crate) enum SizeDue {
-    /// The size is not asked for, because nothing is selected, or it is known.
-    No,
-    /// The selection may change again within this time.
-    Later(std::time::Duration),
-    Now,
-}
-
-impl StatusBar {
     /// Where the background tells of bytes freed by a delete.
-    pub(crate) fn freed_sender(&self) -> mpsc::Sender<u64> {
+    pub(crate) fn freed_sender(&self) -> AnswerSender<u64> {
         self.freed_sender.clone()
     }
 
@@ -486,7 +486,7 @@ impl StatusBar {
     /// Takes what the background sent: the bytes freed, the selection's size and the folder's
     /// sums.
     pub(crate) fn receive_sizes(&mut self) {
-        while let Ok(freed) = self.freed_bytes.try_recv() {
+        while let Ok((freed, _pointer)) = self.freed_bytes.try_recv() {
             // shortcut: a delete while the sum is still being computed can make it slightly off;
             // fine for a status bar figure.
             self.total_size = self.total_size.saturating_sub(freed);

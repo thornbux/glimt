@@ -17,8 +17,10 @@ use crate::features::duplicates::FindDuplicates;
 use crate::features::print::PrintDialog;
 use crate::files::config::{Config, WindowState, parse_last_dir, state_path};
 use crate::files::file_io::write_atomic;
+use crate::metadata::lightroom::Catalog;
 use crate::model::list::List;
-use crate::support::threads::{HAS_ONE_MALLOC_ARENA, Receiving, cores, set_cpu_use, thread_cpu_us};
+use crate::support::threads::{HAS_ONE_MALLOC_ARENA, Receiving, Working};
+use crate::support::threads::{cores, set_cpu_use, thread_cpu_us};
 use crate::viewer::pan::PanView;
 use crate::viewer::view::ImageArea;
 use crate::viewer::view::frame_at;
@@ -141,7 +143,7 @@ struct App {
     print_dialog: Option<PrintDialog>,
     /// A Lightroom catalog being read, then imported with the folders where its root folders
     /// are now.
-    lightroom_catalog_answer: Receiving<Result<crate::metadata::lightroom::Catalog, String>>,
+    lightroom_catalog_answer: Receiving<(Result<Catalog, String>, Working)>,
     lightroom: Option<crate::metadata::lightroom::Import>,
     /// The pan view's window (Ctrl+J), while it is open.
     pan_view: Option<PanView>,
@@ -217,18 +219,19 @@ impl App {
         // because --remote quit is its way out.
         let listens_without_name = config.remote_control || start.kiosk;
         let (notice_sender, notices) = crate::support::threads::NoticeSender::new(ctx);
+        let busy = Arc::default();
         let mut app = App {
             ctx: ctx.clone(),
             desktop_settings: crate::ui::theme::DesktopSettings::new(ctx, config.desktop_profile),
             folder: crate::model::folder::Folder::new(&config),
             list: List::default(),
-            file_operations: crate::files::file_ops::FileOperations::new(),
-            busy: Arc::default(),
+            file_operations: crate::files::file_ops::FileOperations::new(&busy),
+            busy: busy.clone(),
             panel: crate::ui::file_list::Panel::default(),
             tree: crate::ui::file_list::Tree::default(),
             thumbs,
             search: crate::model::search::Search::default(),
-            status_bar: crate::ui::file_list::StatusBar::default(),
+            status_bar: crate::ui::file_list::StatusBar::new(&busy),
             broken_files: HashSet::new(),
             #[cfg(feature = "marks")]
             marks: crate::metadata::marks::Marks::load(),

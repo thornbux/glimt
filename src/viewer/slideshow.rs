@@ -6,7 +6,7 @@ use crate::model::collections;
 use crate::model::listing::shuffle;
 use crate::model::selection::round_ends;
 use crate::support::lang::tr;
-use crate::support::threads::{Receiving, Took};
+use crate::support::threads::{Receiving, Took, Working, answer_channel};
 use crate::ui::actions::Action;
 use eframe::egui;
 use std::ffi::OsString;
@@ -55,7 +55,7 @@ pub(crate) struct Slideshow {
     next_pane: usize,
     /// The open collection's entries in their saved order, by their real paths, read in the
     /// background when random order is turned off.
-    saved_order: Receiving<Option<Vec<PathBuf>>>,
+    saved_order: Receiving<(Option<Vec<PathBuf>>, Working)>,
 }
 
 impl Slideshow {
@@ -155,8 +155,9 @@ impl crate::App {
                 .collection()
                 .filter(|_| !self.folder.sorts_collection())
             {
-                let (file, (tx, rx)) = (file.to_path_buf(), std::sync::mpsc::channel());
-                let ctx = ctx.clone();
+                let file = file.to_path_buf();
+                let (tx, rx) = answer_channel(&self.busy);
+                let (ctx, pointer) = (ctx.clone(), Working::new(&self.busy));
                 std::thread::spawn(move || {
                     // A move in the collection may still wait in the writer thread.
                     crate::files::file_io::wait_for_queued_writes();
@@ -167,6 +168,7 @@ impl crate::App {
                             .collect()
                     });
                     let _ = tx.send(saved);
+                    drop(pointer);
                     ctx.request_repaint();
                 });
                 self.slideshow.saved_order = Receiving::of(rx);
@@ -191,9 +193,10 @@ impl crate::App {
     /// Puts the open collection back in its saved order, once `shuffle_list` read it. A file
     /// that could not be read leaves the order to the listing, in the chosen sort order.
     pub(crate) fn receive_saved_order(&mut self, ctx: &egui::Context) {
-        let saved = match self.slideshow.saved_order.take() {
-            Took::Answer(Some(saved)) => saved,
-            Took::Answer(None) => return self.start_listing(ctx),
+        // The busy pointer goes when this returns, once the order is in the list.
+        let (saved, _pointer) = match self.slideshow.saved_order.take() {
+            Took::Answer((Some(saved), pointer)) => (saved, pointer),
+            Took::Answer((None, _)) => return self.start_listing(ctx),
             Took::Gone => return self.tell_background_stopped(tr("Reading the folder")),
             Took::Nothing => return,
         };
@@ -580,12 +583,12 @@ mod tests {
         let order = app.list.files().to_vec();
         app.shuffle_list(&ctx, true);
         app.shuffle_list(&ctx, false);
-        // The saved order is read in the background, not in the window's thread.
+        // The saved order is read in the background, not in the window's thread. The busy
+        // pointer stays until the list has it.
         assert!(app.slideshow.saved_order.is_some());
-        assert!(run_background_until(&mut app, &ctx, |a| a
-            .slideshow
-            .saved_order
-            .is_none()));
+        while app.working() {
+            app.poll_background(&ctx);
+        }
         assert_eq!(app.list.files(), order);
         std::fs::remove_dir_all(&d).unwrap();
     }

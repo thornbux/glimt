@@ -179,9 +179,11 @@ impl crate::App {
         let close = ctx.input(|i| i.viewport().close_requested());
         // eframe may run no `ui` for a long time, as while the window is minimized. So the file
         // jobs' reports, by which marks follow moved files, are taken here before the guard
-        // decides. While a close waits, `receive_file_work` also closes the window once the
-        // files are written, and asks for a pass every 250 ms until then.
+        // decides, and a Copy or Move that waited for its folder's real path starts its job.
+        // While a close waits, `receive_file_work` also closes the window once the files are
+        // written, and asks for a pass every 250 ms until then.
         if close || self.window.close_requests > 0 {
+            self.receive_real_folders(ctx);
             self.receive_operation_report(ctx);
             self.receive_renames(ctx);
             self.receive_file_work(ctx);

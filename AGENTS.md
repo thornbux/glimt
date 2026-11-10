@@ -259,7 +259,7 @@ holds only its `mod` lines, and a new module goes into the folder of what it doe
 | `src/support.rs` | **The support/ folder:** what the rest is built on |
 | `src/support/test_hooks.rs` | The release tests' hook (feature `test-hooks`): where a widget was drawn (`noted`) |
 | `src/support/test_support.rs` | What tests start from: `app_on`, `contract_folder`, `broken` |
-| `src/support/threads.rs` | Threads: how many for each kind of work, `Receiving`, `catch_panic` |
+| `src/support/threads.rs` | Threads: how many for each kind of work, `Receiving`, `AnswerSender`, `catch_panic` |
 | `src/support/format.rs` | Text for the user: sizes, counts, times, templates |
 | `src/support/lang.rs` | The languages: the `.po` files, `tr`/`tf!`, the plural rules |
 | `src/support/source_rules.rs` | Tests of the source itself, the rules of this file kept by tests |
@@ -400,7 +400,11 @@ method.
   `self.list` among them, and a new part joins that list.
 - **Background work:** spawn a thread, send the result over a channel stored in `App` as a
   `Receiving<T>` (never a bare `Option<Receiver>`), and take it in `update` with `take`, `next`,
-  `latest` or `wait`, which also tell, once, when the thread is gone. egui takes clipboard and
+  `latest` or `wait`, which also tell, once, when the thread is gone. An answer that the window
+  must still act on (a report, a path looked up, a file saved) goes through a
+  `threads::AnswerSender`, whose answer keeps the busy pointer on until the window has handled
+  it, so the window never sees no work running in between
+  (`source_rules::answers_keep_the_busy_pointer`). egui takes clipboard and
   other output only during a frame, so hand results to the UI thread instead of calling the
   context from a worker. A mutex is locked only with `threads::lock_even_if_poisoned` (clippy
   refuses `Mutex::lock`), because a panic that `catch_panic` caught may have poisoned it. Do

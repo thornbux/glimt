@@ -9,7 +9,7 @@ use crate::files::file_ops::OperationReport;
 use crate::images::shared_copy::{Group, LeftOut, copy, tags_of};
 use crate::support::format::count;
 use crate::support::lang::tr;
-use crate::support::threads::{Receiving, Took, Working};
+use crate::support::threads::{Receiving, Took, Working, answer_channel};
 use crate::tf;
 use crate::ui::actions::Action;
 use crate::ui::dialogs::Pick;
@@ -28,7 +28,7 @@ pub(crate) struct SharingDialog {
     /// them, because the copies keep only tags the dialog showed.
     found: Option<Vec<String>>,
     /// The choice made last time and the tags of the images, read in the background.
-    reading: Receiving<(LeftOut, Vec<String>)>,
+    reading: Receiving<((LeftOut, Vec<String>), Working)>,
     /// How many images the background has read. The background stops when it holds the only
     /// count left, as the dialog that held the other is closed.
     read_count: Arc<AtomicUsize>,
@@ -40,7 +40,7 @@ impl SharingDialog {
     /// Takes what the background read, when it is done.
     fn receive_tags(&mut self) -> Took<()> {
         match self.reading.take() {
-            Took::Answer((left_out, found)) => {
+            Took::Answer(((left_out, found), _pointer)) => {
                 (self.left_out, self.found) = (left_out, Some(found));
                 Took::Answer(())
             }
@@ -201,7 +201,7 @@ impl crate::App {
             return;
         };
         let paths: Vec<PathBuf> = targets.iter().map(|&i| self.path(i)).collect();
-        let (tx, rx) = std::sync::mpsc::channel();
+        let (tx, rx) = answer_channel(&self.busy);
         let read_count = Arc::new(AtomicUsize::new(0));
         let (counter, images, ctx) = (read_count.clone(), paths.clone(), ctx.clone());
         let pointer = Working::new(&self.busy);
