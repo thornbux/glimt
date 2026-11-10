@@ -194,6 +194,12 @@ impl crate::App {
     pub(crate) fn request_and_take_exif(&mut self, ctx: &egui::Context) {
         self.reread_when_written();
         let path = self.path(self.list.shown());
+        // The edit of the image before is saved as soon as another image is shown, before this
+        // one's read is asked for. Saved only at the next answer, it could still wait when the
+        // user came back, and the panel then read the file as it was before the edit.
+        if (self.info_panel.metadata_edit.as_ref()).is_some_and(|edit| edit.path != path) {
+            self.save_metadata_edit(ctx);
+        }
         // An image shown again while its own save still waits behind a long job (a Lightroom
         // import) is read once the save is written, or the panel would show it without the save.
         if self.info_panel.exif_asked.as_ref() != Some(&path)
@@ -621,6 +627,29 @@ impl crate::App {
         );
     }
 
+    /// Saves the panel's edit under the new name of its file, when a move or rename in `moved`
+    /// took the file there, and lets the panel read the file again under that name. Without
+    /// this, an edit typed while Rename Many swapped two names was saved under the old name,
+    /// which then belonged to the other photo.
+    pub(crate) fn follow_metadata_edit(
+        &mut self,
+        ctx: &egui::Context,
+        moved: &std::collections::HashMap<&Path, &Path>,
+    ) {
+        let Some(edit) = &mut self.info_panel.metadata_edit else {
+            return;
+        };
+        let Some(to) = crate::files::file_ops::new_place(&edit.path, moved) else {
+            return;
+        };
+        edit.path = to;
+        self.save_metadata_edit(ctx);
+        self.info_panel.metadata_edit = None;
+        self.info_panel.exif = None;
+        self.info_panel.exif_asked = None;
+        self.info_panel.reread_after_write = None;
+    }
+
     /// Add `keywords` to every selected file, in the background.
     pub(crate) fn add_keywords(&mut self, ctx: &egui::Context, keywords: Vec<String>) {
         // The shown image's own edit is saved first. The panel then shows the added keywords at
@@ -817,6 +846,80 @@ mod tests {
             std::thread::sleep(std::time::Duration::from_millis(10));
         }
         panic!("the panel never read the file");
+    }
+
+    /// An edit typed in the panel while Rename Many swaps two names is saved to its photo under
+    /// the new name. Before, it was saved under the old name, which then held the other photo.
+    #[test]
+    fn an_edit_follows_its_photo_through_a_rename() {
+        let d = crate::support::test_support::contract_folder("panel-edit-rename");
+        let (a, b) = (d.join("a.png"), d.join("b.png"));
+        // The fixture's sidecars only say whose they are, which is not XMP to write into.
+        for p in [&a, &b] {
+            std::fs::remove_file(crate::metadata::xmp::sidecar(p)).unwrap();
+        }
+        let (mut app, ctx) = app_on(&d);
+        app.show_file(&ctx, 0);
+        read_panel(&mut app, &ctx);
+        assert_eq!(app.info_panel.metadata_edit.as_ref().unwrap().path, a);
+        app.rename_in_background(&ctx, vec![a.clone(), b.clone()], vec![b.clone(), a.clone()]);
+        app.info_panel.metadata_edit.as_mut().unwrap().comment = "Red".into();
+        let comment = |p: &std::path::Path| crate::metadata::xmp::read(p).comment;
+        assert!(run_background_until(&mut app, &ctx, |_| comment(&b) == "Red"));
+        assert_eq!(comment(&a), "");
+        std::fs::remove_dir_all(&d).unwrap();
+    }
+
+    /// Coming back to an image whose edit was not saved yet, while the next image is still being
+    /// read, shows the edit. Before, the edit was saved only when the next image's answer came,
+    /// after this image's read was asked for, so the panel showed the file as it was before.
+    #[test]
+    fn an_edit_is_saved_when_its_image_is_left() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-edit-left-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let a = dir.join("a.png");
+        for p in [&a, &dir.join("b.png")] {
+            image::RgbImage::new(4, 4).save(p).unwrap();
+        }
+        let (mut app, ctx) = app_on(&dir);
+        assert!(run_background_until(&mut app, &ctx, |a| !a
+            .folder
+            .is_listing()));
+        app.show_file(&ctx, 0);
+        read_panel(&mut app, &ctx);
+        // A long sidecar job of another file holds the one sidecar thread, so the save of the
+        // edit cannot land before the panel reads the image again, however fast the computer.
+        let (release, released) = std::sync::mpsc::channel::<()>();
+        let other = vec![dir.join("c.png")];
+        app.write_sidecars(
+            &ctx,
+            "Other",
+            other,
+            move |_| released.recv().is_err(),
+            |_, _| None,
+        );
+        app.info_panel.metadata_edit.as_mut().unwrap().alt_text = "Red".into();
+        app.show_file(&ctx, 1);
+        app.request_and_take_exif(&ctx);
+        app.show_file(&ctx, 0);
+        app.request_and_take_exif(&ctx);
+        drop(release);
+        let shows_a = |app: &crate::App| {
+            !app.file_operations.is_writing_sidecars()
+                && app.info_panel.reread_after_write.is_none()
+                && (app.info_panel.metadata_edit.as_ref()).is_some_and(|edit| edit.path == a)
+        };
+        for _ in 0..500 {
+            app.request_and_take_exif(&ctx);
+            if shows_a(&app) {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        assert!(shows_a(&app), "the panel never read the image again");
+        let edit = app.info_panel.metadata_edit.as_ref().unwrap();
+        assert_eq!(edit.saved_alt_text.text, "Red");
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     /// A keyword written to the shown file behind the panel's back, as another window or a

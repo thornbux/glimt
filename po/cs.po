@@ -3027,3 +3027,7 @@ msgstr "Hromadné přejmenování běží bez svého plánu ({e}), takže pád v
 #: src/model/folder.rs
 msgid "Still opening {name}… Open another folder to stop waiting."
 msgstr "{name} se stále otevírá… Otevřete jinou složku, abyste přestali čekat."
+
+#: src/files/file_ops.rs
+msgid "Rename Many stopped, so the metadata edited for {count} was not saved"
+msgstr "Hromadné přejmenování se zastavilo, takže upravená metadata nebyla uložena: {count}"

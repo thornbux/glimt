@@ -58,6 +58,20 @@ pub(crate) struct RenameOutcome {
     undo: Vec<Moved>,
 }
 
+/// What words the end of a sidecar job, from how many files failed (`write_sidecars`).
+type SidecarReport = Box<dyn FnOnce(usize, &Job) -> Option<String> + Send>;
+
+/// A sidecar write asked for while a rename runs (`write_sidecars`). It is sent once the rename
+/// is over, to the names its files have then.
+struct WaitingSidecarWrite {
+    activity: &'static str,
+    paths: Vec<PathBuf>,
+    write: Box<dyn Fn(&Path) -> bool + Send>,
+    report: SidecarReport,
+    /// Closing waits for the write while it waits, as for one that was sent.
+    _writing: Working,
+}
+
 /// What a delete, move, copy or tool reports, in one message. It holds the files it was asked
 /// to delete or move, and those that are gone now. The thread finds out which are gone, so the
 /// window does not `stat` each one. It also says whether to read the folder again, and holds
@@ -229,6 +243,8 @@ pub(crate) struct FileOperations {
     /// A Rename Many running in the background.
     renaming: Option<RenameJob>,
     renaming_rx: Receiving<(RenameOutcome, Working)>,
+    /// The sidecar writes asked for while `renaming` runs, in the order they were asked for.
+    sidecar_writes_waiting: Vec<WaitingSidecarWrite>,
     /// The names being deleted in the background. They are kept out of refreshed listings
     /// until the delete is done.
     deleting: HashSet<OsString>,
@@ -288,6 +304,7 @@ impl FileOperations {
             held_back_files: Vec::new(),
             renaming: None,
             renaming_rx: Receiving::none(),
+            sidecar_writes_waiting: Vec::new(),
             deleting: HashSet::new(),
             report_tx,
             report_rx,
@@ -350,9 +367,14 @@ impl FileOperations {
         Some((self.jobs.first()?, self.jobs.len()))
     }
 
-    /// Every job stops after the file at hand.
+    /// Every job stops after the file at hand, except a sidecar write of one file. That is an
+    /// edit the user made, such as the info panel's save, which may wait behind a long job.
+    /// Stop acts between files, so it has nothing to cut short there, and the edit would only
+    /// be lost while the panel shows it as saved.
     pub(crate) fn stop_jobs(&self) {
-        (self.jobs.iter()).for_each(|job| job.stop_requested.store(true, Ordering::Relaxed));
+        (self.jobs.iter())
+            .filter(|job| !(job.writes_sidecars && job.total == 1))
+            .for_each(|job| job.stop_requested.store(true, Ordering::Relaxed));
     }
 
     /// A turned image saved in the background, or a tool's file, with how it went, and the busy
@@ -929,6 +951,11 @@ impl crate::App {
         if !is_copy && let Some(to) = new_place(self.viewing.turned_file(), &moved) {
             self.viewing.turned_file_moved(to);
         }
+        // So does an edit in the panel not saved yet.
+        if !is_copy {
+            let ctx = self.ctx.clone();
+            self.follow_metadata_edit(&ctx, &moved);
+        }
         if !is_copy && self.folder.collection().is_some() {
             let renamed: Vec<(usize, OsString)> = (0..self.list.files().len())
                 .filter_map(|i| {
@@ -1261,13 +1288,17 @@ impl crate::App {
         }
         // The files are found by their old names, because the list may have changed while they
         // were renamed. When nothing was renamed, the names stay.
-        if !failed {
-            let pairs = (job.from.iter().zip(&job.to).enumerate())
+        let pairs: Vec<(PathBuf, PathBuf)> = match failed {
+            true => Vec::new(),
+            false => (job.from.iter().zip(&job.to).enumerate())
                 .filter(|(k, _)| left_alone.binary_search(k).is_err())
                 .map(|(_, (f, t))| (f.clone(), t.clone()))
-                .collect();
-            self.follow_moved_paths(pairs, false);
-        }
+                .collect(),
+        };
+        // The writes asked for during the rename go first, as they were asked for before
+        // anything that follows the files now.
+        self.send_waiting_sidecar_writes(ctx, Some(&pairs));
+        self.follow_moved_paths(pairs, false);
         if self.folder.collection().is_some() {
             return self.start_listing(ctx);
         }
@@ -1745,6 +1776,15 @@ impl crate::App {
     /// land in the order they were made and never cross. The status bar counts them, and
     /// `report` words the end from how many failed. The thread is its own rather than
     /// `file_io::write_later`'s, so settings saved meanwhile do not wait behind 3,000 sidecars.
+    ///
+    /// Every sidecar write of the user's metadata goes through here, and this is the one rule
+    /// for when it runs beside other work on its files. It is never refused, because an edit
+    /// would be lost. Other work refuses to start while it runs (`are_free_to_change`). Work
+    /// that already runs takes each sidecar under its lock, so a write that comes later finds
+    /// the file gone and says so. Only a rename puts another photo under a name, as Rename Many
+    /// does when it swaps names. A write asked for while one runs therefore waits until it is
+    /// over, and is then sent to the names its files have (`send_waiting_sidecar_writes`).
+    /// Stop leaves a write of one file, which is an edit the user made (`stop_jobs`).
     pub(crate) fn write_sidecars(
         &mut self,
         ctx: &egui::Context,
@@ -1754,6 +1794,16 @@ impl crate::App {
         report: impl FnOnce(usize, &Job) -> Option<String> + Send + 'static,
     ) {
         use crate::files::file_io::QueuedWrite;
+        if self.file_operations.renaming.is_some() {
+            let waiting = WaitingSidecarWrite {
+                activity,
+                paths,
+                write: Box::new(write),
+                report: Box::new(report),
+                _writing: Working::new(&crate::files::file_io::WRITING),
+            };
+            return self.file_operations.sidecar_writes_waiting.push(waiting);
+        }
         let Some(job) = self.start_job_of(activity, paths.len(), true, paths.clone()) else {
             return;
         };
@@ -1792,6 +1842,36 @@ impl crate::App {
         });
         // When the send fails, the work is dropped, and the busy pointer goes with it.
         let _ = sidecar_writer().send(work);
+    }
+
+    /// Sends the sidecar writes that waited for a rename to the names their files have now, in
+    /// the order they were asked for. `renamed` holds the `(from, to)` names that the rename
+    /// changed. When it is `None`, the rename stopped without saying which names it changed.
+    /// A write could then land on another photo, so the writes are dropped, and the user is
+    /// told.
+    pub(crate) fn send_waiting_sidecar_writes(
+        &mut self,
+        ctx: &egui::Context,
+        renamed: Option<&[(PathBuf, PathBuf)]>,
+    ) {
+        let waiting = std::mem::take(&mut self.file_operations.sidecar_writes_waiting);
+        let Some(renamed) = renamed else {
+            let files: usize = waiting.iter().map(|w| w.paths.len()).sum();
+            if files > 0 {
+                self.notice.give(tf!(
+                    "Rename Many stopped, so the metadata edited for {count} was not saved",
+                    count = count(files, "file")
+                ));
+            }
+            return;
+        };
+        let moved = moves_by_source(renamed);
+        for waiting in waiting {
+            let paths = (waiting.paths.iter())
+                .map(|p| new_place(p, &moved).unwrap_or_else(|| p.clone()))
+                .collect();
+            self.write_sidecars(ctx, waiting.activity, paths, waiting.write, waiting.report);
+        }
     }
 
     /// Save frame `only` of `path` as the PNG `to`, or every frame as PNG files in a new folder
@@ -3163,7 +3243,7 @@ mod tests {
     /// Each is held back while other work changes its files, except those that change none. A
     /// copy only reads them, and keywords never wait, because an edit would be lost. Their job
     /// holds back the rest instead.
-    fn contract_ops() -> [(&'static str, Op, Check); 15] {
+    fn contract_ops() -> [(&'static str, Op, Check); 17] {
         [
             (
                 "move",
@@ -3353,6 +3433,39 @@ mod tests {
                         && (!cfg!(feature = "marks") || stars(app, &a) == 3)
                 },
             ),
+            // The contract's folder itself goes to the trash, with what follows its files.
+            (
+                "trash folder",
+                |app, ctx, d| {
+                    app.dialogs.act_on_folder(d.to_path_buf());
+                    app.trash_folder(ctx);
+                },
+                |app, d| {
+                    !d.exists()
+                        && matches!(app.file_operations.undo, Some(super::Undo::Trash(_)))
+                        && (!cfg!(feature = "marks") || stars(app, &d.join("a.png")) == 0)
+                },
+            ),
+            (
+                "undo a trash folder",
+                |app, ctx, d| {
+                    app.dialogs.act_on_folder(d.to_path_buf());
+                    app.trash_folder(ctx);
+                    // This waits only when the operation started. When it was held back, it
+                    // says so, and there is nothing to wait for.
+                    if app.notice.text().is_none() {
+                        run_background_until(app, ctx, |app| app.file_operations.undo.is_some());
+                    }
+                    app.undo(ctx);
+                },
+                |app, d| {
+                    let a = d.join("a.png");
+                    a.exists()
+                        && side(&a) == "a"
+                        && side(&d.join("b.png")) == "b"
+                        && (!cfg!(feature = "marks") || stars(app, &a) == 3)
+                },
+            ),
             (
                 "rename folder",
                 |app, ctx, d| {
@@ -3401,7 +3514,7 @@ mod tests {
     /// release after release, held for every operation at once. The contract's folder is no
     /// collection, so the collection's entry is checked apart, for these operations only:
     /// rename, move, rename folder and delete in `a_collection_follows_its_files`, and Rename
-    /// Many, trash and the Undo of each, and the Undo of a move, in
+    /// Many, trash, a folder moved to the trash and the Undo of each, and the Undo of a move, in
     /// `a_collection_follows_undo_and_the_trash`. A saved collection that is not open follows a
     /// rename in `saved_collections_follow_their_files`.
     /// A new operation joins `contract_ops`, and `every_file_operation_is_in_the_contract` fails
@@ -3858,12 +3971,18 @@ mod tests {
         let Ok(infos) = std::fs::read_dir(trash.join("info")) else {
             return;
         };
-        let inside = format!("{}/", dir.display());
+        // The folder itself is there too, when it went to the trash whole.
+        let (inside, itself) = (
+            format!("{}/", dir.display()),
+            format!("Path={}", dir.display()),
+        );
+        let is_of_dir = |t: String| t.contains(&inside) || t.lines().any(|l| l == itself);
         for info in infos.flatten().map(|i| i.path()) {
-            if std::fs::read_to_string(&info).is_ok_and(|t| t.contains(&inside))
+            if std::fs::read_to_string(&info).is_ok_and(is_of_dir)
                 && let Some(name) = info.file_stem()
             {
-                let _ = std::fs::remove_file(trash.join("files").join(name));
+                let file = trash.join("files").join(name);
+                let _ = std::fs::remove_dir_all(&file).or_else(|_| std::fs::remove_file(&file));
                 let _ = std::fs::remove_file(&info);
             }
         }
@@ -3953,6 +4072,8 @@ mod tests {
             ("delete_now", "delete"),
             ("delete_now", "trash"),
             ("undo_trash", "undo a trash"),
+            ("trash_folder", "trash folder"),
+            ("undo_trash", "undo a trash folder"),
             ("transfer_into_real_folder", "move"),
             // It holds the files of a Move, a Copy and a Copy for Sharing until their job starts.
             ("with_real_folder", "move"),
@@ -3982,7 +4103,6 @@ mod tests {
                 "save_crop",
                 "a new file beside the image: save::save_copy_with_sidecar's tests; it needs a decoded image",
             ),
-            ("trash_folder", "gio trash; Undo's restore has its own test"),
             (
                 "act_on_prompt_answer",
                 "New Folder: an empty folder, nothing to follow; makes_a_new_folder_in_the_background",
@@ -4875,8 +4995,95 @@ mod tests {
         std::fs::remove_dir_all(dir).unwrap();
     }
 
+    /// A sidecar write asked for while Rename Many swaps two names waits until the rename is
+    /// over, and then lands on the photo it was asked for, under its new name. Before, it was
+    /// written to the old name, which by then held the other photo. A writer held by another
+    /// job makes the write come after the rename, however fast the computer is.
+    #[test]
+    fn a_sidecar_write_during_a_rename_follows_its_photo() {
+        let d = contract_folder("write-during-rename");
+        let (a, b) = (d.join("a.png"), d.join("b.png"));
+        // The fixture's sidecars only say whose they are, which is not XMP to write into.
+        for p in [&a, &b] {
+            std::fs::remove_file(crate::metadata::xmp::sidecar(p)).unwrap();
+        }
+        let (mut app, ctx) = app_on(&d);
+        app.rename_in_background(&ctx, vec![a.clone(), b.clone()], vec![b.clone(), a.clone()]);
+        assert!(app.file_operations.renaming.is_some());
+        let (go, released) = std::sync::mpsc::channel::<()>();
+        let other = vec![d.join("sub")];
+        app.write_sidecars(
+            &ctx,
+            "Other",
+            other,
+            move |_| released.recv().is_err(),
+            |_, _| None,
+        );
+        let oslo = |p: &std::path::Path| crate::metadata::xmp::add_tags(p, &["Oslo".into()]);
+        app.write_sidecars(
+            &ctx,
+            "Keywords",
+            vec![a.clone()],
+            move |p| oslo(p).is_ok(),
+            |_, _| None,
+        );
+        assert!(run_background_until(&mut app, &ctx, |app| app
+            .file_operations
+            .renaming
+            .is_none()));
+        drop(go);
+        assert!(run_background_until(&mut app, &ctx, |app| !app
+            .file_operations
+            .is_writing_sidecars()));
+        let red = |p: &std::path::Path| image::open(p).unwrap().to_rgb8().get_pixel(0, 0)[0] == 255;
+        assert!(red(&b), "the names were not swapped");
+        let has_oslo = |p: &std::path::Path| crate::metadata::xmp::read(p).keywords == ["Oslo"];
+        assert!(
+            has_oslo(&b) && !has_oslo(&a),
+            "the keyword is on the other photo"
+        );
+        std::fs::remove_dir_all(d).unwrap();
+    }
+
+    /// Stop, or a second close, leaves a sidecar write of one file, such as the info panel's
+    /// save waiting behind a long job. Before, the save was dropped without a word, while the
+    /// panel showed the edit as saved.
+    #[test]
+    fn stop_leaves_a_sidecar_write_of_one_file() {
+        let d = contract_folder("stop-one-sidecar");
+        let a = d.join("a.png");
+        // The fixture's sidecar only says whose it is, which is not XMP to write into.
+        std::fs::remove_file(crate::metadata::xmp::sidecar(&a)).unwrap();
+        let (mut app, ctx) = app_on(&d);
+        let (go, released) = std::sync::mpsc::channel::<()>();
+        let long = vec![d.join("sub"), d.join("b.png")];
+        app.write_sidecars(
+            &ctx,
+            "Other",
+            long,
+            move |_| released.recv().is_err(),
+            |_, _| None,
+        );
+        let oslo = |p: &std::path::Path| crate::metadata::xmp::add_tags(p, &["Oslo".into()]);
+        app.write_sidecars(
+            &ctx,
+            "Keywords",
+            vec![a.clone()],
+            move |p| oslo(p).is_ok(),
+            |_, _| None,
+        );
+        app.file_operations.stop_jobs();
+        drop(go);
+        assert!(run_background_until(&mut app, &ctx, |app| !app
+            .file_operations
+            .is_writing_sidecars()));
+        assert_eq!(crate::metadata::xmp::read(&a).keywords, ["Oslo"]);
+        std::fs::remove_dir_all(d).unwrap();
+    }
+
     /// A move, a rename and a delete wait for a sidecar write of their files that holds the
-    /// sidecar's lock, so the write never lands on a name the photo has left.
+    /// sidecar's lock, so they never take the photo away while the write is on its way. A write
+    /// asked for while a rename runs is `a_sidecar_write_during_a_rename_follows_its_photo`.
     #[test]
     fn file_operations_wait_for_a_sidecar_write() {
         let d = contract_folder("held");
@@ -5080,6 +5287,21 @@ mod tests {
             "saved while held"
         );
         drop(held);
+        // A Rename Many of other files holds the turn back too, as it may give the file's name
+        // to another photo.
+        let (b, c) = (dir.join("b.png"), dir.join("c.png"));
+        image::RgbImage::new(4, 4).save(&b).unwrap();
+        app.rename_in_background(&ctx, vec![b], vec![c]);
+        app.notice.clear();
+        app.save_orientation(&ctx);
+        assert!(
+            app.file_operations.saving.is_empty() && app.notice.text().is_some(),
+            "saved while renaming"
+        );
+        assert!(run_background_until(&mut app, &ctx, |app| app
+            .file_operations
+            .renaming
+            .is_none()));
         std::fs::remove_dir_all(dir).unwrap();
     }
 
@@ -5322,6 +5544,27 @@ mod tests {
         assert!(run_background_until(&mut app, &ctx, |app| has(
             app,
             &["a.png", "b.png"]
+        )));
+        // A folder moved to the trash takes the entries of its files along, and its Undo puts
+        // them back in their places.
+        app.transfer(vec![d.join("a.png")], d.join("sub"), false);
+        assert!(run_background_until(&mut app, &ctx, |app| has(
+            app,
+            &["sub/a.png", "b.png"]
+        )));
+        app.dialogs.act_on_folder(d.join("sub"));
+        app.trash_folder(&ctx);
+        assert!(run_background_until(&mut app, &ctx, |app| has(
+            app,
+            &["b.png"]
+        ) && matches!(
+            app.file_operations.undo,
+            Some(super::Undo::Trash(_))
+        )));
+        app.undo(&ctx);
+        assert!(run_background_until(&mut app, &ctx, |app| has(
+            app,
+            &["sub/a.png", "b.png"]
         )));
         empty_trash_of(&d);
         std::fs::remove_dir_all(d).unwrap();

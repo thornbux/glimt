@@ -3005,3 +3005,7 @@ msgstr "Rinomina multipla viene eseguita senza il suo piano ({e}), quindi un arr
 #: src/model/folder.rs
 msgid "Still opening {name}… Open another folder to stop waiting."
 msgstr "Apertura di {name} ancora in corso… Apri un'altra cartella per smettere di aspettare."
+
+#: src/files/file_ops.rs
+msgid "Rename Many stopped, so the metadata edited for {count} was not saved"
+msgstr "Rinomina multipla si è fermata, quindi i metadati modificati di {count} non sono stati salvati"
