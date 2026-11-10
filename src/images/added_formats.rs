@@ -18,21 +18,29 @@
 //!
 //! The command gets the file's absolute path as one argument of its own, never through a shell,
 //! and writes the image (PNM, PNG, TIFF, BMP …) to its standard output. It has 30 seconds and
-//! at most `MAX_DECODE_BYTES` bytes, as ffmpeg has, and at most `PROGRAM_MEMORY` of memory.
+//! at most `MAX_DECODE_BYTES` bytes, as ffmpeg has, and at most the memory of the setting
+//! `added_format_memory_mb`, which it finds in `GLIMT_FORMAT_MEMORY_MB`.
 
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
-/// The most memory (address space) an added format's program, and each program it starts, may
-/// take. The image it writes is at most `MAX_DECODE_BYTES`, and the rest is room for an
-/// interpreter and its libraries, such as Python with NumPy, or Java. Without it, a small
+/// The default of the setting `added_format_memory_mb`, 4 GiB. The image a program writes is at
+/// most `MAX_DECODE_BYTES`, and the rest is room for an interpreter and its libraries, such as
+/// Python with NumPy, or Java.
+pub const DEFAULT_MEMORY_MB: usize = 4096;
+
+/// The most memory (address space) in MB that an added format's program, and each program it
+/// starts, may take, from the setting `added_format_memory_mb`. Without a limit, a small
 /// downloaded file whose header claims a huge picture made a script take gigabytes.
-const PROGRAM_MEMORY: u64 = 8 * crate::images::decode::MAX_DECODE_BYTES;
+static MEMORY_LIMIT_MB: AtomicUsize = AtomicUsize::new(DEFAULT_MEMORY_MB);
 
 /// The shell script that starts an added format's program under the memory limit in its first
-/// argument, in kilobytes. The program and its arguments follow. When the limit cannot be set,
-/// the program does not run, and the shell's error is told.
-const LIMITED_PROGRAM: &str = "ulimit -v \"$1\" || exit 1; shift; exec \"$@\"";
+/// argument, in MB. The program and its arguments follow. The limit is also given to the program
+/// in `GLIMT_FORMAT_MEMORY_MB`, so that a program such as Java can keep its heap under it. When
+/// the limit cannot be set, the program does not run, and the shell's error is told.
+const LIMITED_PROGRAM: &str = "export GLIMT_FORMAT_MEMORY_MB=\"$1\"; \
+                               ulimit -v \"$(($1 * 1024))\" || exit 1; shift; exec \"$@\"";
 
 /// A format added by a desktop file, and the program that reads it.
 pub struct AddedFormat {
@@ -53,10 +61,18 @@ impl AddedFormat {
 
     /// The image the command writes for `path`.
     pub fn decode(&self, path: &Path) -> Result<image::DynamicImage, String> {
-        self.run(path, crate::files::external::PROGRAM_TIME_LIMIT)
+        let memory_mb = MEMORY_LIMIT_MB.load(Ordering::Relaxed);
+        self.run(path, crate::files::external::PROGRAM_TIME_LIMIT, memory_mb)
     }
 
-    fn run(&self, path: &Path, limit: Duration) -> Result<image::DynamicImage, String> {
+    /// Runs the command for `path` for at most `limit`, with at most `memory_mb` MB of memory,
+    /// and returns the image it wrote.
+    fn run(
+        &self,
+        path: &Path,
+        limit: Duration,
+        memory_mb: usize,
+    ) -> Result<image::DynamicImage, String> {
         // Absolute, so the path never reads as an option or as ImageMagick's "format:" prefix.
         let path = std::path::absolute(path).map_err(|e| e.to_string())?;
         let args = self.arguments(&path);
@@ -67,9 +83,8 @@ impl AddedFormat {
         // does what the program starts. The limit, the program and the file are arguments,
         // never part of the script's text. In a Flatpak the shell runs on the host through
         // flatpak-spawn, so the limit holds for the program there too.
-        let kilobytes = (PROGRAM_MEMORY / 1024).to_string();
         let mut child = crate::files::external::stoppable_host_command("sh")
-            .args(["-c", LIMITED_PROGRAM, "sh", &kilobytes])
+            .args(["-c", LIMITED_PROGRAM, "sh", &memory_mb.to_string()])
             .arg(&program)
             .args(&args[1..])
             .spawn()
@@ -78,8 +93,18 @@ impl AddedFormat {
         let (image, err, ok) = crate::files::external::output_of(&mut child, max, limit);
         let image = image.ok_or_else(|| format!("{}: image too large", self.name))?;
         if !ok || image.is_empty() {
-            let last = crate::files::external::last_line(&err, "no image");
-            return Err(format!("{}: {last}", self.name));
+            let error = crate::files::external::last_line(&err, "no image");
+            if !ok && ran_out_of_memory(&err) {
+                let (name, mb) = (&self.name, memory_mb);
+                return Err(crate::tf!(
+                    "{name} ran out of memory under its limit of {mb} MB (Preferences → Memory \
+                     and CPU): {error}",
+                    name,
+                    mb,
+                    error
+                ));
+            }
+            return Err(format!("{}: {error}", self.name));
         }
         crate::images::decode::from_memory(&image).map_err(|e| format!("{}: {e}", self.name))
     }
@@ -109,6 +134,22 @@ pub fn installed_formats() -> &'static [AddedFormat] {
             .into_values()
             .collect()
     })
+}
+
+/// Makes `mb` megabytes the most memory an added format's program may take, from the setting
+/// `added_format_memory_mb`, at start and when it changes in Preferences.
+pub fn set_memory_limit(mb: usize) {
+    MEMORY_LIMIT_MB.store(mb, Ordering::Relaxed);
+}
+
+/// Returns whether the error output `err` of a program that failed says that it ran out of
+/// memory: an allocation that failed (C's "Cannot allocate memory", Python's MemoryError, C++'s
+/// bad_alloc), or Java or a loader that could not reserve or map its space under the limit.
+fn ran_out_of_memory(err: &str) -> bool {
+    let err = err.to_lowercase();
+    ["memory", "alloc", "reserve", "failed to map"]
+        .iter()
+        .any(|word| err.contains(word))
 }
 
 /// The added format of a desktop file. Returns `None` without a name, extensions, or %f in its
@@ -188,7 +229,9 @@ mod tests {
         let slow = "Name=Slow\nExtensions=xyz\nExec=sh -c \"sleep 30\" %f";
         let slow = super::parse(slow, &dir).unwrap();
         let start = std::time::Instant::now();
-        let error = slow.run(&file, Duration::from_millis(300)).unwrap_err();
+        let error = slow
+            .run(&file, Duration::from_millis(300), 4096)
+            .unwrap_err();
         assert_eq!(
             error,
             format!("Slow: {}", crate::files::external::TIMED_OUT)
@@ -198,21 +241,36 @@ mod tests {
         let stubborn = "Name=Stubborn\nExtensions=xyz\nExec=sh -c \"trap '' TERM; sleep 30\" %f";
         let stubborn = super::parse(stubborn, &dir).unwrap();
         let start = std::time::Instant::now();
-        assert!(stubborn.run(&file, Duration::from_millis(300)).is_err());
+        assert!(
+            stubborn
+                .run(&file, Duration::from_millis(300), 4096)
+                .is_err()
+        );
         assert!(start.elapsed() < Duration::from_secs(5));
         // One that leaves a helper holding its errors open: stopped too, not waited for.
         let left = "Name=Left\nExtensions=xyz\nExec=sh -c \"sleep 30 >/dev/null & exit 0\" %f";
         let left = super::parse(left, &dir).unwrap();
         let start = std::time::Instant::now();
-        assert!(left.run(&file, Duration::from_millis(300)).is_err());
+        assert!(left.run(&file, Duration::from_millis(300), 4096).is_err());
         assert!(start.elapsed() < Duration::from_secs(5));
         // Its memory is limited, and that of what it starts. Before, it had no limit, and a
         // script took gigabytes for a small file whose header claimed a huge picture.
-        let limit = "Name=Limit\nExtensions=xyz\nExec=sh -c \"ulimit -v >&2; exit 1\" %f";
+        // The limit is the setting's, also told to it in GLIMT_FORMAT_MEMORY_MB.
+        let limit = "Name=Limit\nExtensions=xyz\n\
+                     Exec=sh -c \"echo $(ulimit -v) $GLIMT_FORMAT_MEMORY_MB >&2; exit 1\" %f";
         let limit = super::parse(limit, &dir).unwrap();
+        assert_eq!(limit.decode(&file).unwrap_err(), "Limit: 4194304 4096");
+        let ten_seconds = Duration::from_secs(10);
+        let error = limit.run(&file, ten_seconds, 1500).unwrap_err();
+        assert_eq!(error, "Limit: 1536000 1500");
+        // A program that ran out of memory is told so, with the limit that stopped it.
+        let full = "Name=Full\nExtensions=xyz\n\
+                    Exec=sh -c \"echo x: Cannot allocate memory >&2; exit 1\" %f";
+        let full = super::parse(full, &dir).unwrap();
         assert_eq!(
-            limit.decode(&file).unwrap_err(),
-            format!("Limit: {}", super::PROGRAM_MEMORY / 1024)
+            full.run(&file, ten_seconds, 1500).unwrap_err(),
+            "Full ran out of memory under its limit of 1500 MB (Preferences → Memory and CPU): \
+             x: Cannot allocate memory"
         );
         // A %f inside a quoted word, a shell script here, stays as it is. Before, the file's
         // name was put into the script's text, and a downloaded x$(cmd).xyz ran cmd.

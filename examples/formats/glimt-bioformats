@@ -9,6 +9,11 @@ which is removed afterwards. Each channel becomes a file of its own; the first i
 
 Needs Java and Bio-Formats' command line tools (bftools, from openmicroscopy.org): bfconvert on
 the PATH, or GLIMT_BFTOOLS set to the folder that holds it.
+
+Glimt runs it with at most the memory of Preferences → Memory and CPU, which it finds in
+GLIMT_FORMAT_MEMORY_MB. Java's heap (BF_MAX_MEM) is kept to a quarter of that, as Java reserves
+about a gigabyte more for its classes and threads, and fails to start when that does not fit.
+For a larger heap, raise the limit in Preferences.
 """
 
 import glob
@@ -30,6 +35,20 @@ def bfconvert():
     return found
 
 
+def java_heap():
+    """BF_MAX_MEM as the user set it, at most a quarter of Glimt's memory limit, in MB."""
+    limit = int(os.environ.get("GLIMT_FORMAT_MEMORY_MB") or 4096)
+    most = max(128, limit // 4)
+    # bftools' own default is 512m.
+    wanted = (os.environ.get("BF_MAX_MEM") or "512m").strip().lower()
+    units = {"k": 1 / 1024, "m": 1, "g": 1024}
+    try:
+        asked = int(float(wanted[:-1]) * units[wanted[-1]])
+    except (ValueError, KeyError, IndexError):
+        asked = most
+    return f"{min(asked, most)}m"
+
+
 def main(path):
     # Glimt stops a format's program that takes too long with TERM: as an exit, so the folder
     # below is removed and bfconvert stopped, not left in /tmp.
@@ -42,6 +61,7 @@ def main(path):
             text=True,
             # Bio-Formats asks nothing, but a JVM may wait for input that never comes.
             stdin=subprocess.DEVNULL,
+            env={**os.environ, "BF_MAX_MEM": java_heap()},
         )
         planes = sorted(glob.glob(os.path.join(out, "plane_C*.png")))
         if made.returncode != 0 or not planes:

@@ -417,7 +417,10 @@ pub(crate) const MANUAL: &[(&str, &str)] = &[
          \"quoted\" one) and %% a %. \
          The other % codes are kept for later, so do not use them. Such files are then listed and \
          shown as any other, with thumbnails. The command runs without a shell, for 30 seconds at \
-         most. The folder's old name, ~/.local/share/glimt/decoders, and the old header [Glimt \
+         most, and with at most 4096 MB of memory, which Preferences → Memory and CPU can raise for \
+         a program such as Java; the program finds that limit in GLIMT_FORMAT_MEMORY_MB. When it \
+         runs out of memory, Glimt says so. The folder's old name, \
+         ~/.local/share/glimt/decoders, and the old header [Glimt \
          Decoder] are still read.\n\n\
          /usr/share/doc/glimt/examples/formats (examples/formats in the tar.gz and the \
          source) has formats for:\n\n\

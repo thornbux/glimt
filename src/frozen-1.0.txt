@@ -516,3 +516,4 @@ script AutoRotate
 script LeaveFullScreen
 script ParentFolder
 script HomeFolder
+setting added_format_memory_mb

@@ -377,6 +377,9 @@ config! {
     cpu_use: usize = 1,
     /// Frames of an animation kept, in MB.
     animation_mb: usize = 128,
+    /// The most memory an added format's program may take, in MB. Java for microscope files
+    /// may need more than the default.
+    added_format_memory_mb: usize = crate::images::added_formats::DEFAULT_MEMORY_MB,
     /// Folder path above the folder list.
     path_bar: bool = true,
     /// Restore the window's size, position and maximized state at startup.
@@ -506,6 +509,7 @@ impl Config {
         c.print_margin = c.print_margin.min(50);
         c.print_scale = c.print_scale.clamp(10, 100);
         c.animation_mb = c.animation_mb.clamp(8, 1024);
+        c.added_format_memory_mb = c.added_format_memory_mb.clamp(512, 65536);
         c.ui_scale = c.ui_scale.clamp(50, 300);
         c.histogram = c.histogram.min(2);
         c.thumb_size = c.thumb_size.min(2);
@@ -1279,6 +1283,9 @@ mod tests {
         assert_eq!(Config::parse("preload=99").preload, 20);
         let c = Config::parse("decode_threads=0\nanimation_mb=5000");
         assert_eq!((c.decode_threads, c.animation_mb), (1, 1024));
+        let low = Config::parse("added_format_memory_mb=1").added_format_memory_mb;
+        let high = Config::parse("added_format_memory_mb=999999").added_format_memory_mb;
+        assert_eq!((low, high), (512, 65536));
         // The defaults are the Medium level.
         let d = Config::default();
         let medium = super::MEMORY_LEVELS
