@@ -506,8 +506,9 @@ const MANUAL: &[(&str, &str)] = &[
          Each file is compared once. Two names of one file, by a hard link or a path through a \
          link or a bind mount, are no duplicates of each other: trashing one would free no space, \
          or lose the only copy.\n\n\
-         The groups found are listed; click a name to show it, check the ones to remove (or check \
-         all but the first of each group) and move them to the trash.",
+         The groups found are listed; click a name to show it, check the ones to remove (or, \
+         by checksum, check all but the first of each group) and move them to the trash. Only \
+         the checksum finds copies, so in the other ways the window warns before the trash.",
     ),
     (
         "Themes",
@@ -894,9 +895,11 @@ const DIFFERENCES: &[(&str, &str, &str)] = &[
     (
         "Find Duplicates (D)",
         "Compares the images in the list, hard links of one file as one file; checked files go \
-         to the trash",
+         to the trash. Check all but the first is offered only by checksum, and the trash warns \
+         first in the other ways, which group images that may differ",
         "Files and folders dropped on its window; more methods, two sets, results to a \
-         collection; hard links of one file are duplicates",
+         collection; hard links of one file are duplicates; Select group 2 duplicates in \
+         every method, deleted without a warning about it",
     ),
     (
         "Layouts (View → Layout)",

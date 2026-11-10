@@ -617,6 +617,18 @@ msgid "Move {n} checked to trash…"
 msgstr "Přesunout zaškrtnuté ({n}) do koše…"
 
 #: src/features/duplicates.rs
+msgid "These groups were found by {by}, so the checked files may be different images, not copies."
+msgstr "Tyto skupiny byly nalezeny podle „{by}“, takže zaškrtnuté soubory mohou být různé obrázky, ne kopie."
+
+#: src/features/duplicates.rs
+msgid "Move to Trash Anyway"
+msgstr "Přesto přesunout do koše"
+
+#: src/features/duplicates.rs
+msgid "Cancel"
+msgstr "Zrušit"
+
+#: src/features/duplicates.rs
 msgid "Name"
 msgstr "Název"
 

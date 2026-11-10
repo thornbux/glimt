@@ -5,6 +5,13 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- Find Duplicates offers "Check all but the first of each group" only when comparing by
+  checksum, the one way that finds copies. By name, size, dimensions or likeness a group may
+  hold different photos, and Move to Trash now warns so and asks before it goes on, also with
+  confirming turned off.
+
 ## [0.78.0] - 2026-11-10
 
 ### Added

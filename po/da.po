@@ -529,6 +529,18 @@ msgid "Move {n} checked to trash…"
 msgstr "Flyt {n} markerede til papirkurven …"
 
 #: src/features/duplicates.rs
+msgid "These groups were found by {by}, so the checked files may be different images, not copies."
+msgstr "Disse grupper blev fundet efter »{by}«, så de markerede filer kan være forskellige billeder, ikke kopier."
+
+#: src/features/duplicates.rs
+msgid "Move to Trash Anyway"
+msgstr "Flyt til papirkurven alligevel"
+
+#: src/features/duplicates.rs
+msgid "Cancel"
+msgstr "Annuller"
+
+#: src/features/duplicates.rs
 msgid "Name"
 msgstr "Navn"
 

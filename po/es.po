@@ -529,6 +529,18 @@ msgid "Move {n} checked to trash…"
 msgstr "Mover {n} marcadas a la papelera…"
 
 #: src/features/duplicates.rs
+msgid "These groups were found by {by}, so the checked files may be different images, not copies."
+msgstr "Estos grupos se encontraron por «{by}», así que los archivos marcados pueden ser imágenes distintas, no copias."
+
+#: src/features/duplicates.rs
+msgid "Move to Trash Anyway"
+msgstr "Mover a la papelera de todos modos"
+
+#: src/features/duplicates.rs
+msgid "Cancel"
+msgstr "Cancelar"
+
+#: src/features/duplicates.rs
 msgid "Name"
 msgstr "Nombre"
 

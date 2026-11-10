@@ -529,6 +529,18 @@ msgid "Move {n} checked to trash…"
 msgstr "{n} aangevinkte naar prullenbak verplaatsen …"
 
 #: src/features/duplicates.rs
+msgid "These groups were found by {by}, so the checked files may be different images, not copies."
+msgstr "Deze groepen zijn gevonden op „{by}”, dus de aangevinkte bestanden kunnen verschillende afbeeldingen zijn, geen kopieën."
+
+#: src/features/duplicates.rs
+msgid "Move to Trash Anyway"
+msgstr "Toch naar prullenbak verplaatsen"
+
+#: src/features/duplicates.rs
+msgid "Cancel"
+msgstr "Annuleren"
+
+#: src/features/duplicates.rs
 msgid "Name"
 msgstr "Naam"
 
