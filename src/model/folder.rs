@@ -697,7 +697,7 @@ impl crate::App {
                 self.clear_still_opening();
                 return self.tell_background_stopped(tr("Reading the folder"));
             }
-            Took::Nothing => return self.tell_still_opening(),
+            Took::Nothing => return self.tell_still_opening(ctx),
         };
         self.clear_still_opening();
         if let Found::Folder {
@@ -728,12 +728,14 @@ impl crate::App {
     /// Tells once that the place being looked up has not answered after `STILL_OPENING_AFTER`,
     /// as on a share that stopped answering, and how to stop waiting for it. Before, only the
     /// busy pointer showed it.
-    fn tell_still_opening(&mut self) {
+    fn tell_still_opening(&mut self, ctx: &egui::Context) {
         let Some((since, path)) = &self.folder.looking_up_since else {
             return;
         };
-        if since.elapsed() < STILL_OPENING_AFTER {
-            return;
+        // Each frame forgets the repaint asked for before it, so a frame that came between
+        // (the pointer moved, a thumbnail came) asks again here for the notice to come in time.
+        if let Some(left) = STILL_OPENING_AFTER.checked_sub(since.elapsed()) {
+            return ctx.request_repaint_after(left);
         }
         let text = tf!(
             "Still opening {name}… Open another folder to stop waiting.",
@@ -2364,6 +2366,17 @@ mod tests {
         let _held = app.folder.hold_look_up();
         app.receive_looked_up(&ctx, std::time::Duration::ZERO);
         assert!(app.notice.text().is_none(), "told at once");
+        // A frame between the open and the notice forgets the repaint that the open asked for,
+        // so the look in that frame asks for it again. Before, the notice came only at the
+        // next input after three seconds.
+        for _ in 0..3 {
+            ctx.begin_pass(Default::default());
+            let _ = ctx.end_pass();
+        }
+        ctx.begin_pass(Default::default());
+        app.receive_looked_up(&ctx, std::time::Duration::ZERO);
+        assert!(ctx.has_requested_repaint(), "no repaint asked for");
+        let _ = ctx.end_pass();
         let long_ago = std::time::Instant::now().checked_sub(std::time::Duration::from_secs(60));
         app.folder.looking_up_since.as_mut().unwrap().0 = long_ago.unwrap();
         app.receive_looked_up(&ctx, std::time::Duration::ZERO);
