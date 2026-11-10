@@ -2689,14 +2689,16 @@ fn finds_an_undo_left_without_waiting() {
 /// after a power cut a move to a USB stick could lose both the source and its copy, and an older
 /// sidecar come back. The renames listed here stand alone: one rename is one step, so a power
 /// cut leaves the old name or the new one, and nothing after it counts on the new one. A new
-/// rename is synced or added here with its reason. Copies go through `put_file`, which syncs
-/// before a move removes the source, and never through `std::fs::copy`. Clippy refuses that
-/// too, but an allow would let it pass there.
+/// rename is synced or added here with its reason. A move through `put_file` counts as a
+/// rename here, because its move on one disk is a rename that it does not sync: its caller does,
+/// once for the folder of all its moves. A copy (`put_file(…, true)`) is not a rename. Copies
+/// go through `put_file`, which syncs before a move to another disk removes the source, and
+/// never through `std::fs::copy`. Clippy refuses that too, but an allow would let it pass there.
 #[test]
 fn renames_that_later_steps_count_on_are_synced() {
     const STANDING_ALONE: &[(&str, &str)] = &[
         ("files/file_io.rs", "rename_never_over"), // the rename itself, synced by its callers
-        ("files/file_ops.rs", "rename_folder"),    // a folder renamed
+        ("files/journal.rs", "rename_step"),       // a step, synced by `sync_folders` after
         ("files/trash.rs", "trash_by_hand"),       // a file into the trash on its own disk
         ("images/thumbs.rs", "write_thumbnail"),   // a thumbnail, made again when it is lost
         ("metadata/xmp.rs", "follow_one"),         // a sidecar after its file
@@ -2729,12 +2731,12 @@ fn renames_that_later_steps_count_on_are_synced() {
     );
 }
 
-/// Returns the functions of `text` outside the tests that rename a file, each with whether it
-/// syncs the folder, itself or through `write_beside`.
+/// Returns the functions of `text` outside the tests that rename a file, also by a move through
+/// `put_file`, each with whether it syncs the folder, itself or through `write_beside`.
 // shortcut: a function counts as synced when it syncs anywhere, so a branch that renames
-// without a sync passes with the rest (put_file's move on one disk, which the marks and
-// collections follow unsynced); following each branch would need a parser, worth it if this
-// class is found again.
+// without a sync passes with the rest. put_file's move on one disk was such a branch, and is
+// now its callers' to sync; following each branch would need a parser, worth it if this class
+// is found again.
 fn renames_in(text: &str) -> Vec<(String, bool)> {
     let lines = code_lines(text);
     let end = tests_start(&lines);
@@ -2752,21 +2754,23 @@ fn renames_in(text: &str) -> Vec<(String, bool)> {
         }
         let calls = ["rename_never_over(", "fs::rename(", "rename_noreplace("];
         renames |= calls.iter().any(|call| line.contains(call));
+        renames |= line.contains("put_file(") && !line.contains(", true)");
         let syncs = ["sync_folder_of(", "sync_folder(", "write_beside("];
         synced |= syncs.iter().any(|call| line.contains(call));
     }
     found
 }
 
-/// The check above finds a rename by any of the three calls, and sees it synced by each way.
-/// A write without its folder synced is not.
+/// The check above finds a rename by any of the three calls, and a move through `put_file`,
+/// and sees it synced by each way. A write without its folder synced is not, nor is a copy.
 #[test]
 fn finds_a_rename_without_its_folder_synced() {
     let text = "fn a() {\n    rename_never_over(x, y)?;\n}\nfn b() {\n    std::fs::rename(x, y)?;\n\
         sync_folder_of(y)?;\n}\nfn c() {\n    write_beside(t, p, w, |t| std::fs::rename(t, p))\n}\n\
         fn d() {\n    rename_noreplace(x, y)\n}\nfn e() {\n    put_file(x, y, true)\n}\n\
         fn f() {\n    write_beside_without_folder_sync(t, p, w, |t| std::fs::rename(t, p))\n}\n\
-        fn g() {\n    std::fs::rename(x, y)?;\n    sync_folder(z)?;\n}\n";
+        fn g() {\n    std::fs::rename(x, y)?;\n    sync_folder(z)?;\n}\n\
+        fn h() {\n    put_file(x, y, is_copy)\n}\n";
     let found = renames_in(text);
     let names: Vec<(&str, bool)> = found.iter().map(|(f, s)| (f.as_str(), *s)).collect();
     assert_eq!(
@@ -2777,7 +2781,8 @@ fn finds_a_rename_without_its_folder_synced() {
             ("c", true),
             ("d", false),
             ("f", false),
-            ("g", true)
+            ("g", true),
+            ("h", false)
         ]
     );
 }

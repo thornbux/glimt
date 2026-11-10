@@ -1058,40 +1058,7 @@ impl crate::App {
             if !is_copy && same_dir {
                 let _ = freed_tx.send(total_size(&paths));
             }
-            let (mut errors, mut put) = (Vec::new(), Vec::new());
-            // Each folder is read once for the whole job (`xmp::AdobeNames`).
-            let target_of = |path: &PathBuf| dest.join(path.file_name().unwrap_or_default());
-            let mut names = xmp::AdobeNames::arriving(paths.iter().map(target_of));
-            let mut sidecar_names = xmp::AdobeNames::default();
-            // The RAW files that leave with this move: those that went and those yet to come. One
-            // that could not go is taken out, so that its stem's sidecar stays beside it.
-            let mut moving: HashSet<&PathBuf> = paths.iter().filter(|_| !is_copy).collect();
-            for path in paths.iter().take_while(|_| !job.is_stopped()) {
-                let target = target_of(path);
-                let mut failed = |at: &Path, e: std::io::Error| {
-                    errors.push(format!("{display}: {e}", display = at.display()));
-                };
-                // The file is moved first and then its sidecar, and a failed sidecar is told by
-                // its own name, because the photo went and its keywords did not. A move holds the
-                // sidecar as a write does, so a write that waited lands on no old name. A copy
-                // does not hold it, because the photo stays. A move to another disk holds it
-                // while the photo is copied, which only makes writes under the same lock wait.
-                let _lock = (!is_copy).then(|| xmp::lock_sidecar(path));
-                if let Some(at) = name_in_the_way(&target, &HashSet::new(), &mut names) {
-                    failed(&at, std::io::ErrorKind::AlreadyExists.into());
-                    moving.remove(path);
-                } else if let Err(e) = put_file(path, &target, is_copy) {
-                    failed(&target, e);
-                    moving.remove(path);
-                } else {
-                    let followed = xmp::follow(path, &target, is_copy, &moving, &mut sidecar_names);
-                    if let Err((side, e)) = followed {
-                        failed(&side, e);
-                    }
-                    put.push((path.clone(), target));
-                }
-                job.count_done(1);
-            }
+            let (errors, put) = put_files(&paths, &dest, is_copy, &job);
             let gone: Vec<PathBuf> = match is_copy {
                 true => Vec::new(),
                 false => put.iter().map(|(from, _)| from.clone()).collect(),
@@ -1465,11 +1432,17 @@ impl crate::App {
             if let Err(e) = rename_never_over(&old, &new) {
                 return Some(format!("{display}: {e}", display = new.display()));
             }
+            // The marks and collections follow the new name, so it is on disk first. A failed
+            // sync is told, but the window still follows the folder, which has its new name.
+            let synced = crate::files::file_io::sync_folder_of(&new);
+            let error = synced
+                .err()
+                .map(|e| format!("{display}: {e}", display = new.display()));
             let _ = report_tx.send(OperationReport {
                 folder_renamed: Some((old, new)),
                 ..Default::default()
             });
-            None
+            error
         });
     }
 
@@ -2364,6 +2337,60 @@ pub(crate) fn rename_files(from: Vec<PathBuf>, to: Vec<PathBuf>, job: &Job) -> R
     Ok(())
 }
 
+/// Copies or moves `paths` into the folder `dest` for `transfer`, each with its sidecars, until
+/// `job` is stopped. Returns the errors to tell and the files put there, `(from, to)`.
+fn put_files(
+    paths: &[PathBuf],
+    dest: &Path,
+    is_copy: bool,
+    job: &Job,
+) -> (Vec<String>, Vec<(PathBuf, PathBuf)>) {
+    let (mut errors, mut put) = (Vec::new(), Vec::new());
+    // Each folder is read once for the whole job (`xmp::AdobeNames`).
+    let target_of = |path: &PathBuf| dest.join(path.file_name().unwrap_or_default());
+    let mut names = xmp::AdobeNames::arriving(paths.iter().map(target_of));
+    let mut sidecar_names = xmp::AdobeNames::default();
+    // The RAW files that leave with this move: those that went and those yet to come. One
+    // that could not go is taken out, so that its stem's sidecar stays beside it.
+    let mut moving: HashSet<&PathBuf> = paths.iter().filter(|_| !is_copy).collect();
+    for path in paths.iter().take_while(|_| !job.is_stopped()) {
+        let target = target_of(path);
+        let mut failed = |at: &Path, e: std::io::Error| {
+            errors.push(format!("{display}: {e}", display = at.display()));
+        };
+        // The file is moved first and then its sidecar, and a failed sidecar is told by
+        // its own name, because the photo went and its keywords did not. A move holds the
+        // sidecar as a write does, so a write that waited lands on no old name. A copy
+        // does not hold it, because the photo stays. A move to another disk holds it
+        // while the photo is copied, which only makes writes under the same lock wait.
+        let _lock = (!is_copy).then(|| xmp::lock_sidecar(path));
+        if let Some(at) = name_in_the_way(&target, &HashSet::new(), &mut names) {
+            failed(&at, std::io::ErrorKind::AlreadyExists.into());
+            moving.remove(path);
+        } else if let Err(e) = put_file(path, &target, is_copy) {
+            failed(&target, e);
+            moving.remove(path);
+        } else {
+            let followed = xmp::follow(path, &target, is_copy, &moving, &mut sidecar_names);
+            if let Err((side, e)) = followed {
+                failed(&side, e);
+            }
+            put.push((path.clone(), target));
+        }
+        job.count_done(1);
+    }
+    // A move on one disk is a rename, which is on disk only with its folder. The marks
+    // and collections follow the new names once the report arrives, so after a stick
+    // pulled out the file and its marks must not be under different names.
+    if !is_copy
+        && !put.is_empty()
+        && let Err(e) = crate::files::file_io::sync_folder(dest)
+    {
+        errors.push(format!("{display}: {e}", display = dest.display()));
+    }
+    (errors, put)
+}
+
 /// Moves the files of an Undo of a move back to where they came from, each with its sidecar.
 /// A file whose place another file has taken since the move is left where it is, and so is one
 /// that cannot go back. Returns the pairs moved back, `(now, before)`, the files left to be
@@ -2399,6 +2426,17 @@ fn move_back(pairs: Vec<Moved>) -> MovedBack {
                 errors.push(format!("{}: {e}", at.display()));
                 left.push((from, to, at_move));
             }
+        }
+    }
+    // The names moved back are on disk with their folders before the marks and collections
+    // follow them, once for each folder.
+    let folders: HashSet<&Path> = back
+        .iter()
+        .filter_map(|(_, before)| before.parent())
+        .collect();
+    for folder in folders {
+        if let Err(e) = crate::files::file_io::sync_folder(folder) {
+            errors.push(format!("{}: {e}", folder.display()));
         }
     }
     (back, left, errors)
@@ -4282,6 +4320,24 @@ mod tests {
         app.undo(&ctx);
         assert!(run_background_until(&mut app, &ctx, |app| !app.working() && a.exists()));
         assert!(!dir.join("sub/a.png").exists() && app.file_operations.undo.is_none());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// Undo of a move syncs the folder that the files went back to, before the marks and
+    /// collections follow them there.
+    #[test]
+    fn undo_of_a_move_syncs_the_folder_it_moved_back_to() {
+        let dir =
+            std::env::temp_dir().join(format!("glimt-test-undo-move-sync-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join("sub")).unwrap();
+        let (a, moved) = (dir.join("a.png"), dir.join("sub/a.png"));
+        std::fs::write(&moved, "x").unwrap();
+        let pair = super::with_fingerprint(&(a.clone(), moved)).unwrap();
+        crate::files::file_io::FOLDERS_SYNCED.take();
+        let (back, left, errors) = super::move_back(vec![pair]);
+        assert_eq!((back.len(), left.len(), errors.len()), (1, 0, 0));
+        assert!(a.exists());
+        assert!(crate::files::file_io::FOLDERS_SYNCED.take().contains(&dir));
         std::fs::remove_dir_all(dir).unwrap();
     }
 
