@@ -2173,7 +2173,12 @@ fn is_motion_photo_flag(name: &str) -> bool {
 /// Returns a new MPF segment, big-endian, whose index names the main image of `main_size`
 /// bytes and the gain map of `gain_map_size` bytes at `offset` from the segment's TIFF header,
 /// with their attributes `attributes`. It is `MPF_SEGMENT_SIZE` bytes long.
-fn mpf_segment(attributes: [u32; 2], main_size: u32, gain_map_size: u32, offset: u32) -> Vec<u8> {
+pub(crate) fn mpf_segment(
+    attributes: [u32; 2],
+    main_size: u32,
+    gain_map_size: u32,
+    offset: u32,
+) -> Vec<u8> {
     // The header and a directory of three entries: the version, the number of images, and the
     // index of 32 bytes, which follows the directory at 50.
     let mut mpf = b"MPF\0MM\0*\0\0\0\x08\0\x03".to_vec();
@@ -2194,7 +2199,7 @@ fn mpf_segment(attributes: [u32; 2], main_size: u32, gain_map_size: u32, offset:
 }
 
 /// Returns the JPEG segment of marker `marker` with the contents `body`, which fit in one.
-fn jpeg_segment(marker: u8, body: &[u8]) -> Vec<u8> {
+pub(crate) fn jpeg_segment(marker: u8, body: &[u8]) -> Vec<u8> {
     let len = (2 + body.len()) as u16;
     [&[0xff, marker][..], &len.to_be_bytes(), body].concat()
 }

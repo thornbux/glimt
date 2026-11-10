@@ -343,14 +343,17 @@ pub(crate) fn replace_with_sidecar(
 }
 
 /// Returns whether the JPEG, PNG or WebP `data` ends before its own end shows. That is a JPEG
-/// with no end marker (FF D9) after its image data, a PNG without its IEND chunk or with a
-/// chunk longer than the file, or a WebP shorter than its RIFF header says. A file that is still
-/// being copied in looks so. Data after the end, such as a phone's motion photo, is no matter.
+/// with no end marker (FF D9) after its image data, or shorter than its own lengths say of what
+/// follows that image (`jpeg_trailer_is_cut`), a PNG without its IEND chunk or with a chunk
+/// longer than the file, or a WebP shorter than its RIFF header says. A file that is still being
+/// copied in looks so.
 fn looks_cut_short(data: &[u8]) -> bool {
     if data.starts_with(&[0xff, 0xd8]) {
         // Inside the image data, a 0xff byte is always followed by 0 or a restart marker.
         let scan = crate::metadata::exif::jpeg_scan_start(data);
-        return !scan.is_some_and(|s| data[s..].windows(2).any(|w| w == [0xff, 0xd9]));
+        let eoi =
+            scan.and_then(|s| Some(s + data[s..].windows(2).position(|w| w == [0xff, 0xd9])?));
+        return eoi.is_none_or(|eoi| jpeg_trailer_is_cut(data, eoi + 2));
     }
     if data.starts_with(b"\x89PNG\r\n\x1a\n") {
         let mut i = 8;
@@ -373,6 +376,58 @@ fn looks_cut_short(data: &[u8]) -> bool {
         return data.len() < 8 + size;
     }
     false
+}
+
+/// Returns whether what follows the main image of the JPEG `data`, which ends at `image_end`, is
+/// shorter than the file's own lengths say: the images that its MPF index names (a camera's
+/// second image, a gain map), the items of its XMP `Container:Directory`, or the video at the
+/// end that `GCamera:MicroVideoOffset` counts back to (a phone's motion photo). The first end
+/// marker is only the main image's end, so a copy that paused in the video passed before and
+/// was written back without the rest. Data that none of them names is no matter.
+fn jpeg_trailer_is_cut(data: &[u8], image_end: usize) -> bool {
+    if image_end >= data.len() {
+        return false;
+    }
+    let mpf = exif::jpeg_segment_with(data, 0xe2, b"MPF\0");
+    // The offsets count from the index's TIFF header, after "MPF\0".
+    let mpf_end = mpf.and_then(|(at, body)| {
+        let entries = exif::mp_entries(body)?;
+        let ends = entries.iter().filter(|e| e[2] != 0);
+        ends.map(|&[_, size, offset]| at as u64 + 4 + offset as u64 + size as u64)
+            .max()
+    });
+    let xmp = exif::jpeg_segment_with(data, 0xe1, b"http://ns.adobe.com/xap/1.0/\0");
+    let xmp = xmp
+        .map(|(_, body)| String::from_utf8_lossy(body))
+        .unwrap_or_default();
+    // The first item is the main image, and the others follow it in their order.
+    let items = xmp.split("<Container:Item").skip(2);
+    let lengths = items.flat_map(|i| [xmp_number(i, "Item:Length"), xmp_number(i, "Item:Padding")]);
+    let items_length: u64 = lengths.flatten().sum();
+    let video_is_cut = xmp_number(&xmp, "GCamera:MicroVideoOffset").is_some_and(|back| {
+        let start = (data.len() as u64)
+            .checked_sub(back)
+            .filter(|&s| s >= image_end as u64);
+        let start = start.map(|s| s as usize);
+        start.and_then(|s| data.get(s + 4..s + 8)) != Some(b"ftyp")
+    });
+    let length = data.len() as u64;
+    video_is_cut
+        || mpf_end.is_some_and(|end| length < end)
+        || length < image_end as u64 + items_length
+}
+
+/// Returns the number that the XMP `text` gives the property `name`, written as an attribute
+/// (`name="12"`) or as an element (`<name>12</name>`). Returns `None` when it has none.
+fn xmp_number(text: &str, name: &str) -> Option<u64> {
+    let after = &text[text.find(name)? + name.len()..];
+    let value = after
+        .strip_prefix("=\"")
+        .or_else(|| after.strip_prefix('>'))?;
+    let digits = value
+        .find(|c: char| !c.is_ascii_digit())
+        .unwrap_or(value.len());
+    value[..digits].parse().ok()
 }
 
 /// Replaces the image at `real` with `out` after `step` changed the sidecar of `named`. The
@@ -2649,6 +2704,56 @@ mod tests {
         }
         std::fs::write(&jpeg, &jpeg_bytes).unwrap();
         crate::metadata::exif::write_orientation(&jpeg, 1, false, true).unwrap();
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A camera's MPF JPEG or a phone's motion photo whose copy paused after the main image is
+    /// not turned, and it is left byte for byte. Before, the main image's end marker passed it,
+    /// and the second image or the video was cut off.
+    #[test]
+    fn a_jpeg_cut_after_its_main_image_is_not_turned() {
+        use crate::images::shared_copy::{jpeg_segment, mpf_segment};
+        let mut main = Vec::new();
+        image::RgbImage::from_fn(16, 8, |x, y| image::Rgb([x as u8, y as u8, 7]))
+            .write_to(
+                &mut std::io::Cursor::new(&mut main),
+                image::ImageFormat::Jpeg,
+            )
+            .unwrap();
+        let second = main.clone();
+        // The MPF segment goes after SOI, so its TIFF header is at 10 and the main image is
+        // 90 bytes longer.
+        let main_size = (main.len() + 90) as u32;
+        let mpf = mpf_segment(
+            [0x030000, 0],
+            main_size,
+            second.len() as u32,
+            main_size - 10,
+        );
+        let mpf_file = [&main[..2], &mpf, &main[2..], &second].concat();
+        let video = [&b"\0\0\0\x18ftypmp42"[..], &[7; 200]].concat();
+        let with_xmp = |xmp: String| {
+            let body = [&b"http://ns.adobe.com/xap/1.0/\0"[..], xmp.as_bytes()].concat();
+            [&main[..2], &jpeg_segment(0xe1, &body), &main[2..], &video].concat()
+        };
+        let micro_video = with_xmp(format!("<x GCamera:MicroVideoOffset=\"{}\"/>", video.len()));
+        let container = with_xmp(format!(
+            "<Container:Directory><rdf:Seq><rdf:li><Container:Item Item:Semantic=\"Primary\"/>\
+             </rdf:li><rdf:li><Container:Item Item:Semantic=\"MotionPhoto\" \
+             Item:Length=\"{}\"/></rdf:li></rdf:Seq></Container:Directory>",
+            video.len()
+        ));
+        for whole in [&mpf_file, &micro_video, &container] {
+            assert!(!super::looks_cut_short(whole));
+            assert!(super::looks_cut_short(&whole[..whole.len() - 10]));
+        }
+        let dir = std::env::temp_dir().join(format!("glimt-turn-mpf-cut-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("a.jpg");
+        let cut = &mpf_file[..mpf_file.len() - 10];
+        std::fs::write(&file, cut).unwrap();
+        assert!(crate::metadata::exif::write_orientation(&file, 1, false, true).is_err());
+        assert_eq!(std::fs::read(&file).unwrap(), cut);
         std::fs::remove_dir_all(dir).unwrap();
     }
 
