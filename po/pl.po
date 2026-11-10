@@ -2980,3 +2980,7 @@ msgstr "Nie można nazwać tego okna: {why}"
 #: src/ui/dialogs.rs
 msgid "Could not name this window: a name holds up to 64 letters, digits, - and _, and not only digits"
 msgstr "Nie można nazwać tego okna: nazwa ma do 64 liter, cyfr, - i _, i nie składa się z samych cyfr"
+
+#: src/files/file_io.rs
+msgid "A change could not be saved, because Glimt met an error while writing it"
+msgstr "Nie można zapisać zmiany, ponieważ Glimt napotkał błąd podczas jej zapisywania"

@@ -2969,3 +2969,7 @@ msgstr "Ikkunalle ei voitu antaa nimeä: {why}"
 #: src/ui/dialogs.rs
 msgid "Could not name this window: a name holds up to 64 letters, digits, - and _, and not only digits"
 msgstr "Ikkunalle ei voitu antaa nimeä: nimessä on enintään 64 kirjainta, numeroa, - ja _, eikä pelkkiä numeroita"
+
+#: src/files/file_io.rs
+msgid "A change could not be saved, because Glimt met an error while writing it"
+msgstr "Muutosta ei voitu tallentaa, koska Glimt kohtasi virheen sitä kirjoittaessaan"

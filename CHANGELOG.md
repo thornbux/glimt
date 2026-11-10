@@ -7,6 +7,9 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- A write of the settings, marks, Open Recent or a collection that Glimt broke off with an error
+  of its own is told in the window, as every failed save is. Before, the change was lost
+  without a word. A sidecar write broken off so is told too.
 - README no longer says that Lightroom reads Glimt's sidecars: it reads only its own photo.xmp
   beside a RAW file. Immich reads their ratings, comments and keyword tree.
 

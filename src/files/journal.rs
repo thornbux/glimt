@@ -770,16 +770,16 @@ mod tests {
     /// them again at the next start, or swap a swap's marks back.
     #[test]
     fn the_plan_goes_and_the_user_is_told_when_the_renames_did_not_reach_the_disk() {
-        use crate::files::file_io::{FOLDER_SYNC_FAILS, SAVES_FAILED};
+        use crate::files::file_io::{FOLDER_SYNC_FAILS, take_saves_failed};
         let dir =
             std::env::temp_dir().join(format!("glimt-test-sync-fails-{}", std::process::id()));
         let plans = dir.join("plans");
         let moves = vec![(dir.join("a.jpg"), dir.join("b.jpg"))];
         // What this thread told, which no other test can take.
-        let told_once = || SAVES_FAILED.take().len() == 1;
+        let told_once = || take_saves_failed().len() == 1;
         let plan = super::start_journal(&plans, &moves).unwrap();
         let path = plan.path.clone();
-        SAVES_FAILED.take();
+        take_saves_failed();
         FOLDER_SYNC_FAILS.set(true);
         drop(plan);
         FOLDER_SYNC_FAILS.set(false);

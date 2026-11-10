@@ -40,10 +40,14 @@ thread_local! {
     // Makes `sync_folder_of` on this thread fail as a disk that fails would, for the tests of
     // what follows such a failure.
     pub(crate) static FOLDER_SYNC_FAILS: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
-    // The errors that `save_failed` told on this thread. They do not go to the window's own
-    // slot in tests, where another test's window would take them as its notice.
-    pub(crate) static SAVES_FAILED: std::cell::RefCell<Vec<String>> =
-        const { std::cell::RefCell::new(Vec::new()) };
+    // The errors that `save_failed` told for this thread's test. They do not go to the window's
+    // own slot in tests, where another test's window would take them as its notice. Each list is
+    // leaked, so that the writer thread can tell a test's errors to that test's list.
+    static SAVES_FAILED: &'static std::sync::Mutex<Vec<String>> = Box::leak(Box::default());
+    // The list of the test whose work the writer thread is doing now, so that what that work
+    // tells reaches the test that queued it. It is `None` on every other thread.
+    static TOLD_FOR: std::cell::Cell<Option<&'static std::sync::Mutex<Vec<String>>>> =
+        const { std::cell::Cell::new(None) };
     // The saves over a file with other names (hard links) on this thread. They do not go to
     // the window's own count in tests, where another test's window would take them as its
     // notice.
@@ -528,9 +532,14 @@ pub fn write_later(work: impl FnOnce() + Send + 'static) {
         std::sync::OnceLock::new();
     // Dropped with the work, also when it panics or is never run: Glimt would wait for it at exit.
     let writing = crate::support::threads::Working::new(&WRITING);
+    #[cfg(test)]
+    let told = told_here();
     let counted = move || {
+        #[cfg(test)]
+        TOLD_FOR.set(Some(told));
+        // The count goes down after a panic is told, so that `flush` does not end before that.
         let _writing = writing;
-        let _ = crate::support::threads::catch_panic(work);
+        run_and_tell_a_panic(work);
     };
     let _ = WRITER
         .get_or_init(start_ordered_worker)
@@ -543,10 +552,25 @@ pub fn start_ordered_worker() -> std::sync::mpsc::Sender<QueuedWrite> {
     let (works, rx) = std::sync::mpsc::channel::<QueuedWrite>();
     std::thread::spawn(move || {
         for work in rx {
-            let _ = crate::support::threads::catch_panic(work);
+            run_and_tell_a_panic(work);
+            #[cfg(test)]
+            TOLD_FOR.set(None);
         }
     });
     works
+}
+
+/// Runs a queued write, and tells the user when it panics. Its change is then lost like that of
+/// any failed write.
+fn run_and_tell_a_panic(work: impl FnOnce()) {
+    if crate::support::threads::catch_panic(work).is_none() {
+        save_failed(
+            crate::support::lang::tr(
+                "A change could not be saved, because Glimt met an error while writing it",
+            )
+            .to_owned(),
+        );
+    }
 }
 
 /// Wait for everything being written, a few seconds at most, before Glimt ends: the last
@@ -833,11 +857,26 @@ pub fn save_failed(error: String) {
     // In tests the error stays on this thread. The window's own slot is shared by every test,
     // and another test's window took the error as its notice in place of its own.
     #[cfg(test)]
-    SAVES_FAILED.with_borrow_mut(|told| told.push(error));
+    lock_even_if_poisoned(told_here()).push(error);
     #[cfg(not(test))]
     {
         *lock_even_if_poisoned(&SAVE_ERROR) = Some(error);
     }
+}
+
+/// Returns the list of the errors told for this thread's test, also on the writer thread while
+/// it does that test's work.
+#[cfg(test)]
+fn told_here() -> &'static std::sync::Mutex<Vec<String>> {
+    TOLD_FOR
+        .get()
+        .unwrap_or_else(|| SAVES_FAILED.with(|told| *told))
+}
+
+/// Returns the errors that `save_failed` told for this thread's test, and empties the list.
+#[cfg(test)]
+pub(crate) fn take_saves_failed() -> Vec<String> {
+    std::mem::take(&mut *lock_even_if_poisoned(told_here()))
 }
 
 #[cfg(test)]
@@ -1131,14 +1170,32 @@ mod tests {
     }
 
     /// A write that panics leaves the writer running: the next one is done, and flush waits.
+    /// The change it lost is told once, as every failed write is. Before, it was lost unseen.
     #[test]
     fn writer_survives_a_panic() {
         use std::sync::atomic::{AtomicBool, Ordering};
         static DONE: AtomicBool = AtomicBool::new(false);
+        super::take_saves_failed();
         super::write_later(|| panic!("a broken write"));
         super::write_later(|| DONE.store(true, Ordering::Relaxed));
         super::flush();
         assert!(DONE.load(Ordering::Relaxed));
+        assert_eq!(super::take_saves_failed().len(), 1);
+        // A write that panics in another ordered worker, as the sidecars' one, is told too.
+        let worker = super::start_ordered_worker();
+        let (done, wait) = std::sync::mpsc::channel();
+        let told = super::told_here();
+        worker
+            .send(Box::new(move || {
+                super::TOLD_FOR.set(Some(told));
+                panic!("a broken sidecar")
+            }))
+            .unwrap();
+        worker
+            .send(Box::new(move || done.send(()).unwrap()))
+            .unwrap();
+        wait.recv().unwrap();
+        assert_eq!(super::take_saves_failed().len(), 1);
     }
 
     /// A file reached through a link is written where the link points; the link stays.
