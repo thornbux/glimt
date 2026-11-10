@@ -40,6 +40,14 @@ struct TrashEntry {
     info: PathBuf,
 }
 
+/// The trash that the files of one folder go to by hand, and how their .trashinfo names them.
+struct TrashPlace {
+    trash: PathBuf,
+    /// The folder's real path from the top of its file system, which a trash there names its
+    /// files from. It is `None` for the home trash, which names them by their absolute path.
+    folder_from_top: Option<PathBuf>,
+}
+
 /// Takes the marks that a delete took away out of `marks`, for its Undo. The marks writer adds
 /// them as it takes them out of the marks file, so this first waits for the writes queued
 /// before it, as long as they take. A writer held by another window's lock or a share that
@@ -297,34 +305,75 @@ pub(crate) fn trash(paths: &[PathBuf]) -> Result<(), String> {
         return Err(e);
     };
     // Each one left is tried, and the first that still fails is told as it failed.
-    let left = paths
-        .iter()
-        .filter(|p| std::fs::symlink_metadata(p).is_ok());
-    let failed: Vec<String> = (left.map(|p| (p, trash_by_hand_anywhere(p, &home))))
-        .filter_map(|(p, done)| done.err().map(|e| format!("{}: {e}", p.display())))
+    let left: Vec<&Path> = (paths.iter())
+        .filter(|p| std::fs::symlink_metadata(p).is_ok())
+        .map(PathBuf::as_path)
         .collect();
-    match failed.into_iter().next() {
+    match trash_by_hand_anywhere(&left, &home).into_iter().next() {
         None => Ok(()),
-        Some(first) => Err(first),
+        Some((path, e)) => Err(format!("{}: {e}", path.display())),
     }
 }
 
-/// Moves `path` into a trash by hand, the one that gio would choose. A file on the file system of
-/// the home trash `home` goes there, named by its path as given. A file on another (a USB stick,
-/// a second disk) goes into the trash at the top of its own file system, as the trash spec says,
-/// named by its real path from that top. The top is found from the real path of the file's
-/// folder, so a file reached through a link to another disk goes to that disk's trash, where
-/// file managers look. A file on a network share is refused, as gio refuses it, so the window
-/// asks whether to delete it for good instead.
-fn trash_by_hand_anywhere(path: &Path, home: &Path) -> std::io::Result<()> {
+/// Moves `paths` into a trash by hand, the one that gio would choose for each. A file on the file
+/// system of the home trash `home` goes there, named by its path as given. A file on another (a
+/// USB stick, a second disk) goes into the trash at the top of its own file system, as the trash
+/// spec says, named by its real path from that top. The top is found from the real path of the
+/// file's folder, so a file reached through a link to another disk goes to that disk's trash,
+/// where file managers look. A file on a network share is refused, as gio refuses it, so the
+/// window asks whether to delete it for good instead. Returns the files that did not go, each
+/// with its error.
+fn trash_by_hand_anywhere(paths: &[&Path], home: &Path) -> Vec<(PathBuf, std::io::Error)> {
     use crate::images::thumbs::uri_path;
+    // Each folder's trash is looked up once, because its real path, its disk's top and the
+    // file system's type take several system calls and a read of the mount table.
+    let mut trash_of_folder: HashMap<&Path, std::io::Result<TrashPlace>> = HashMap::new();
+    let mut by_trash: Vec<(PathBuf, Vec<(&Path, String)>)> = Vec::new();
+    let mut failed = Vec::new();
+    for &path in paths {
+        let folder = path.parent().unwrap_or(path);
+        let place = (trash_of_folder.entry(folder)).or_insert_with(|| trash_place(folder, home));
+        let place = match place {
+            Ok(place) => place,
+            Err(e) => {
+                failed.push((
+                    path.to_path_buf(),
+                    std::io::Error::new(e.kind(), e.to_string()),
+                ));
+                continue;
+            }
+        };
+        // The spec asks for a path relative to the top in a trash there, so that a stick
+        // mounted elsewhere next time still restores to its own folders.
+        let path_in_trashinfo = match &place.folder_from_top {
+            None => uri_path(path),
+            Some(folder) => uri_path(&folder.join(path.file_name().unwrap_or_default())),
+        };
+        match by_trash.iter_mut().find(|(trash, _)| *trash == place.trash) {
+            Some((_, files)) => files.push((path, path_in_trashinfo)),
+            None => by_trash.push((place.trash.clone(), vec![(path, path_in_trashinfo)])),
+        }
+    }
+    for (trash, files) in by_trash {
+        failed.extend(trash_by_hand(&trash, &files));
+    }
+    failed
+}
+
+/// Returns the trash that the files of `folder` go to by hand (`trash_by_hand_anywhere`): the
+/// home trash `home` for a folder on its file system, and otherwise the user's trash at the top
+/// of the folder's own. Returns an error for a folder on a network share, or on a disk whose top
+/// has no trash that the user may use.
+fn trash_place(folder: &Path, home: &Path) -> std::io::Result<TrashPlace> {
     use std::io::ErrorKind::{CrossesDevices, Unsupported};
     use std::os::unix::fs::MetadataExt;
     let dev = |p: &Path| std::fs::metadata(p).map(|m| m.dev()).ok();
-    let folder = path.parent().unwrap_or(path);
     // The home trash may not be there yet, so the nearest folder of it that is tells its disk.
     if dev(folder) == home.ancestors().find_map(dev) {
-        return trash_by_hand(path, home, &uri_path(path));
+        return Ok(TrashPlace {
+            trash: home.to_path_buf(),
+            folder_from_top: None,
+        });
     }
     let real_folder = crate::model::listing::real_dir(folder);
     let (Some(top), Some(uid)) = (top_of_file_system(&real_folder), own_uid()) else {
@@ -334,12 +383,11 @@ fn trash_by_hand_anywhere(path: &Path, home: &Path) -> std::io::Result<()> {
     if kind.is_some_and(|kind| crate::files::file_io::is_remote(&kind)) {
         return Err(Unsupported.into());
     }
-    let trash = top_trash(&top, uid)?;
-    // The spec asks for a path relative to the top in a trash there, so that a stick mounted
-    // elsewhere next time still restores to its own folders.
-    let relative = real_folder.strip_prefix(&top).unwrap_or(Path::new(""));
-    let relative = relative.join(path.file_name().unwrap_or_default());
-    trash_by_hand(path, &trash, &uri_path(&relative))
+    let folder_from_top = real_folder.strip_prefix(&top).unwrap_or(Path::new(""));
+    Ok(TrashPlace {
+        trash: top_trash(&top, uid)?,
+        folder_from_top: Some(folder_from_top.to_path_buf()),
+    })
 }
 
 /// Returns the user's trash folder at `top`, the top of a file system, as the trash spec says:
@@ -371,54 +419,98 @@ fn top_trash(top: &Path, uid: u32) -> std::io::Result<PathBuf> {
     }
 }
 
-/// Moves `path` into the trash folder `trash` by hand, as freedesktop.org's trash spec says, with
-/// `path_in_trashinfo` as its .trashinfo's `Path`. Its .trashinfo is made first under a name not
-/// taken (name.1.ext …), and then the file is renamed into files/. The .trashinfo is on disk with
-/// its folder before the file moves, so a power cut never leaves a file in the trash that no
-/// trash view lists and Undo cannot find. It works only within one file system, and a file on
-/// another keeps its error.
-fn trash_by_hand(path: &Path, trash: &Path, path_in_trashinfo: &str) -> std::io::Result<()> {
-    use std::os::unix::fs::{DirBuilderExt, MetadataExt};
-    let (files, info) = (trash.join("files"), trash.join("info"));
-    for dir in [&files, &info] {
-        std::fs::DirBuilder::new()
+/// Moves `files` into the trash folder `trash` by hand, as freedesktop.org's trash spec says, each
+/// with the text for its .trashinfo's `Path`. The .trashinfo files are made first, each under a
+/// name not taken (name.1.ext …), and are put on disk with one sync of the info/ folder. Then
+/// each file is renamed into files/. So a power cut never leaves a file in the trash that no
+/// trash view lists and Undo cannot find, and a hundred files cost one folder sync rather than a
+/// hundred. A move works only within one file system, and a file on another keeps its error.
+/// Returns the files that did not go, each with its error.
+fn trash_by_hand(trash: &Path, files: &[(&Path, String)]) -> Vec<(PathBuf, std::io::Error)> {
+    use std::io::ErrorKind::AlreadyExists;
+    use std::os::unix::fs::DirBuilderExt;
+    let (files_folder, info) = (trash.join("files"), trash.join("info"));
+    let all_failed = |e: &std::io::Error| {
+        let failed = files.iter().map(|(path, _)| path.to_path_buf());
+        failed
+            .map(|path| (path, std::io::Error::new(e.kind(), e.to_string())))
+            .collect()
+    };
+    for dir in [&files_folder, &info] {
+        let made = std::fs::DirBuilder::new()
             .recursive(true)
             .mode(0o700)
-            .create(dir)?;
-    }
-    let dev = |p: &Path| std::fs::metadata(p).map(|m| m.dev()).ok();
-    if dev(path.parent().unwrap_or(path)) != dev(&files) {
-        return Err(std::io::ErrorKind::CrossesDevices.into());
+            .create(dir);
+        if let Err(e) = made {
+            return all_failed(&e);
+        }
     }
     let secs = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH);
     let date = crate::support::format::local_time(secs.map_or(0, |d| d.as_secs()) as i64)
         .replacen(' ', "T", 1);
-    let text = format!("[Trash Info]\nPath={path_in_trashinfo}\nDeletionDate={date}\n");
-    let name = path.file_name().unwrap_or_default();
-    for n in 0..10_000 {
-        let taken = name_in_trash(name, n);
-        let mut trashinfo = taken.clone();
-        trashinfo.push(".trashinfo");
-        let trashinfo = info.join(trashinfo);
-        // Made new, never over another's, and synced with its folder (`write_beside`).
-        match crate::files::file_io::create_file(&trashinfo, &text) {
-            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
-            made => made?,
+    let (mut made, mut failed) = (Vec::new(), Vec::new());
+    for &(path, ref path_in_trashinfo) in files {
+        let text = format!("[Trash Info]\nPath={path_in_trashinfo}\nDeletionDate={date}\n");
+        let name = path.file_name().unwrap_or_default();
+        let mut written = Err(AlreadyExists.into());
+        for n in 0..10_000 {
+            let taken = name_in_trash(name, n);
+            // A name taken in files/ is passed over too, so that the move below seldom fails.
+            if std::fs::symlink_metadata(files_folder.join(&taken)).is_ok() {
+                continue;
+            }
+            let mut trashinfo = taken.clone();
+            trashinfo.push(".trashinfo");
+            let trashinfo = info.join(trashinfo);
+            // Made new, never over another's, and on disk whole. Its name is synced below, once
+            // for the whole folder.
+            written = crate::files::file_io::write_beside_without_folder_sync(
+                &crate::files::file_io::tmp_path(&trashinfo),
+                &trashinfo,
+                |f| std::io::Write::write_all(f, text.as_bytes()),
+                |tmp| rename_never_over(tmp, &trashinfo),
+            )
+            .map(|()| (taken, trashinfo));
+            match &written {
+                Err(e) if e.kind() == AlreadyExists => continue,
+                _ => break,
+            }
         }
-        match rename_never_over(path, &files.join(&taken)) {
-            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
-                #[allow(clippy::disallowed_methods)] // the .trashinfo made just now
-                let _ = std::fs::remove_file(&trashinfo);
-            }
-            Err(e) => {
-                #[allow(clippy::disallowed_methods)] // the .trashinfo made just now
-                let _ = std::fs::remove_file(&trashinfo);
-                return Err(e);
-            }
-            Ok(()) => return Ok(()),
+        match written {
+            Ok((taken, trashinfo)) => made.push((path, path_in_trashinfo, taken, trashinfo)),
+            Err(e) => failed.push((path.to_path_buf(), e)),
         }
     }
-    Err(std::io::ErrorKind::AlreadyExists.into())
+    let remove = |trashinfo: &Path| {
+        #[allow(clippy::disallowed_methods)] // a .trashinfo made just now, of a file not moved
+        let _ = std::fs::remove_file(trashinfo);
+    };
+    if let Err(e) = crate::files::file_io::sync_folder(&info) {
+        for (path, _, _, trashinfo) in made {
+            remove(&trashinfo);
+            failed.push((
+                path.to_path_buf(),
+                std::io::Error::new(e.kind(), e.to_string()),
+            ));
+        }
+        return failed;
+    }
+    let mut taken_meanwhile = Vec::new();
+    for (path, path_in_trashinfo, taken, trashinfo) in made {
+        if let Err(e) = rename_never_over(path, &files_folder.join(&taken)) {
+            remove(&trashinfo);
+            match e.kind() {
+                AlreadyExists => taken_meanwhile.push((path, path_in_trashinfo.clone())),
+                _ => failed.push((path.to_path_buf(), e)),
+            }
+        }
+    }
+    // A name that another program took in files/ after the look above is tried again, under a
+    // name that is free now.
+    if !taken_meanwhile.is_empty() {
+        failed.extend(trash_by_hand(trash, &taken_meanwhile));
+    }
+    failed
 }
 
 /// Returns the name that a file called `name` takes in the trash's files/ folder at try `n`: the
@@ -581,7 +673,8 @@ mod tests {
             std::fs::write(f, "x").unwrap();
             std::fs::set_permissions(f, std::fs::Permissions::from_mode(0o444)).unwrap();
             crate::files::file_io::FOLDERS_SYNCED.take();
-            super::trash_by_hand(f, &trash, &crate::images::thumbs::uri_path(f)).unwrap();
+            let uri = crate::images::thumbs::uri_path(f);
+            assert!(super::trash_by_hand(&trash, &[(f.as_path(), uri)]).is_empty());
             let synced = crate::files::file_io::FOLDERS_SYNCED.take();
             assert!(synced.contains(&trash.join("info")), "{synced:?}");
             assert!(!f.exists());
@@ -735,6 +828,41 @@ mod tests {
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
+    /// Files trashed by hand together have their .trashinfo files put on disk with one sync of
+    /// the trash's info/ folder, not one for each file, before any of them moves. A sync takes
+    /// tens of milliseconds on a USB stick, so one for each file made a large delete take hours.
+    #[test]
+    fn syncs_the_trash_once_for_files_trashed_together() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-one-sync-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let files: Vec<_> = (0..3).map(|n| dir.join(format!("{n}.png"))).collect();
+        for f in &files {
+            std::fs::write(f, "x").unwrap();
+        }
+        let home = crate::files::config::host_xdg_dir("XDG_DATA_HOME", ".local/share", "Trash");
+        let home = home.unwrap();
+        let dev = |p: &std::path::Path| {
+            use std::os::unix::fs::MetadataExt;
+            std::fs::metadata(p).map(|m| m.dev()).ok()
+        };
+        if dev(&dir) != home.ancestors().find_map(dev) {
+            eprintln!("the home trash is on another file system here: not tested");
+            std::fs::remove_dir_all(&dir).unwrap();
+            return;
+        }
+        crate::files::file_io::FOLDERS_SYNCED.take();
+        super::trash(&files).unwrap();
+        let synced = crate::files::file_io::FOLDERS_SYNCED.take();
+        assert_eq!(synced, [home.join("info")]);
+        assert!(files.iter().all(|f| !f.exists()));
+        let entries = super::read_trash(&home, std::path::Path::new("/"));
+        for t in entries.iter().filter(|t| t.from.starts_with(&dir)) {
+            std::fs::remove_file(&t.file).unwrap();
+            std::fs::remove_file(&t.info).unwrap();
+        }
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
     /// A file whose name leaves no room for ".trashinfo" goes into the trash by hand under a
     /// shorter name, a second of the same name beside it, and Undo finds both where they were.
     #[test]
@@ -746,7 +874,8 @@ mod tests {
         let (a, b) = (pics.join(&long), pics.join("sub").join(&long));
         for f in [&a, &b] {
             std::fs::write(f, "x").unwrap();
-            super::trash_by_hand(f, &trash, &crate::images::thumbs::uri_path(f)).unwrap();
+            let uri = crate::images::thumbs::uri_path(f);
+            assert!(super::trash_by_hand(&trash, &[(f.as_path(), uri)]).is_empty());
             assert!(!f.exists());
         }
         let mut names: Vec<_> = std::fs::read_dir(trash.join("info"))
