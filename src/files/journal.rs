@@ -408,12 +408,21 @@ fn sync_folders(names: &[PathBuf]) -> Result<(), (&Path, std::io::Error)> {
     first_failed
 }
 
-/// Removes `plan` after syncing the folders of `names`. The plan goes also when the disk says a
-/// folder did not get there, and the user is told. The marks and collections follow the new
-/// names as soon as the renames are done, and a plan kept beside them would move them again
-/// at the next start, or swap a swap's marks back.
-fn remove_plan(plan: &Path, names: &[PathBuf]) {
-    if let Err((name, e)) = sync_folders(names) {
+/// Makes the renames of `moves` last on disk before the marks and collections follow them. The
+/// plan goes after the renames' folders are synced, and without a plan (no state folder, or a
+/// full disk) the folders are synced all the same. Otherwise a power cut could bring the old
+/// names back while the marks are on the new ones.
+pub fn renames_done(plan: Option<Journal>, moves: &[(PathBuf, PathBuf)]) {
+    match plan {
+        Some(plan) => drop(plan),
+        None => tell_when_not_synced(sync_folders(&one_name_per_folder(moves))),
+    }
+}
+
+/// Tells the user when `synced`, the answer of `sync_folders`, says that a folder did not get
+/// to the disk.
+fn tell_when_not_synced(synced: Result<(), (&Path, std::io::Error)>) {
+    if let Err((name, e)) = synced {
         let folder = name.parent().unwrap_or(name);
         crate::files::file_io::save_failed(crate::tf!(
             "Could not save {name}: {e}",
@@ -421,8 +430,20 @@ fn remove_plan(plan: &Path, names: &[PathBuf]) {
             e
         ));
     }
+}
+
+/// Removes `plan` after syncing the folders of `names`. The plan goes also when the disk says a
+/// folder did not get there, and the user is told. The marks and collections follow the new
+/// names as soon as the renames are done, and a plan kept beside them would move them again
+/// at the next start, or swap a swap's marks back.
+fn remove_plan(plan: &Path, names: &[PathBuf]) {
+    let renames_synced = sync_folders(names);
     #[allow(clippy::disallowed_methods)] // the plan, Glimt's own file
     let _ = std::fs::remove_file(plan);
+    // The plan's folder is synced too, because a plan brought back by a power cut, after the
+    // marks followed, would move them again. A disk that fails both is told once.
+    let plan_name = [plan.to_path_buf()];
+    tell_when_not_synced(renames_synced.and(sync_folders(&plan_name)));
 }
 
 /// Whether `file` still has a name. A plan that another window put right and deleted has none.
@@ -780,6 +801,12 @@ mod tests {
             [plans.clone(), dir.clone()]
         );
         drop(plan);
+        assert_eq!(
+            crate::files::file_io::FOLDERS_SYNCED.take(),
+            [dir.join("photos"), plans.clone()]
+        );
+        // Without a plan, the renames' folders are synced all the same.
+        super::renames_done(None, &moves);
         assert_eq!(
             crate::files::file_io::FOLDERS_SYNCED.take(),
             [dir.join("photos")]

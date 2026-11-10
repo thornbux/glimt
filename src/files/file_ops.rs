@@ -2348,6 +2348,7 @@ pub(crate) fn rename_files(from: Vec<PathBuf>, to: Vec<PathBuf>, job: &Job) -> R
             job.count_done(1);
         }
     }
+    journal::renames_done(plan, &moves);
     Ok(())
 }
 
