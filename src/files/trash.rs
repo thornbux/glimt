@@ -1,6 +1,6 @@
 //! The trash: files moved to it (with gio, or by hand as freedesktop.org's trash spec says when
-//! the Flatpak's trash portal refuses one), and put back from it for Undo by reading the trash
-//! folders' own files.
+//! gio is not there or the Flatpak's trash portal refuses one), and put back from it for Undo by
+//! reading the trash folders' own files.
 
 use crate::files::file_io::rename_never_over;
 use crate::{files::config, model::collections, tf};
@@ -249,42 +249,80 @@ fn first_of_each<K: Ord>(
     by_name
 }
 
-/// `paths` moved to the trash with gio; in a Flatpak, one the trash portal refused (a file that
-/// is not writable: GLib hands the portal a descriptor open for writing, though a move needs only
-/// the folder) by hand into the home trash, as gio on the host would.
+/// Moves `paths` to the trash with gio. Without gio (a .deb installed without its recommended
+/// packages, or a tar.gz or AppImage on a small system), every file goes by hand, as gio would
+/// move it. In a Flatpak, a file that the trash portal refused goes by hand too. The portal
+/// refuses a file that is not writable, because GLib hands it a descriptor open for writing,
+/// though a move needs only the folder.
 pub(crate) fn trash(paths: &[PathBuf]) -> Result<(), String> {
-    // Within two minutes, because a share that stopped answering once left the delete running
-    // for good, with no Stop. One gio for every file, so thousands do not become thousands of
-    // processes.
-    let mut gio = crate::files::external::stoppable_command("gio");
-    gio.args(["trash", "--"]).args(paths);
-    let limit = crate::files::external::PROGRAM_TIME_LIMIT * 4;
+    use crate::files::external::{has_program, in_flatpak};
     // Tests trash by hand into their own home's trash, where Undo looks. gio would put the
     // files into the user's own trash.
-    let refused = match cfg!(test) {
-        true => Err("gio is not used in tests".to_owned()),
-        false => crate::files::external::run_limited(gio, 64 << 10, limit).map(drop),
+    let has_gio = !cfg!(test) && has_program("gio");
+    let refused = match has_gio {
+        false => Err("gio is not there".to_owned()),
+        true => {
+            // Within two minutes, because a share that stopped answering once left the delete
+            // running for good, with no Stop. One gio for every file, so thousands do not
+            // become thousands of processes.
+            let mut gio = crate::files::external::stoppable_command("gio");
+            gio.args(["trash", "--"]).args(paths);
+            let limit = crate::files::external::PROGRAM_TIME_LIMIT * 4;
+            crate::files::external::run_limited(gio, 64 << 10, limit).map(drop)
+        }
     };
     let Err(e) = refused else {
         return Ok(());
     };
     // The host's trash, also where the host has its own XDG_DATA_HOME.
     let home = config::host_xdg_dir("XDG_DATA_HOME", ".local/share", "Trash");
-    let by_hand = cfg!(test) || crate::files::external::in_flatpak();
-    let (true, Some(home)) = (by_hand, home) else {
+    let (true, Some(home)) = (!has_gio || in_flatpak(), home) else {
         return Err(e);
     };
-    // Each one left tried, and the first that still fails told as it failed.
+    // Each one left is tried, and the first that still fails is told as it failed.
     let left = paths
         .iter()
         .filter(|p| std::fs::symlink_metadata(p).is_ok());
-    let failed: Vec<String> = (left.map(|p| (p, trash_by_hand(p, &home))))
+    let failed: Vec<String> = (left.map(|p| (p, trash_by_hand_anywhere(p, &home))))
         .filter_map(|(p, done)| done.err().map(|e| format!("{}: {e}", p.display())))
         .collect();
     match failed.into_iter().next() {
         None => Ok(()),
         Some(first) => Err(first),
     }
+}
+
+/// Moves `path` into a trash by hand, the one that gio would choose. A file on the file system of
+/// the home trash `home` goes there. A file on another (a USB stick, a second disk) goes into
+/// `.Trash-UID` at the top of its own file system, which is made when it is not there yet, as
+/// the trash spec says. The spec's other trash there, `.Trash/UID`, is read by Undo but never
+/// made. A file on a network share is refused, as gio refuses it, so the window asks whether to
+/// delete it for good instead.
+fn trash_by_hand_anywhere(path: &Path, home: &Path) -> std::io::Result<()> {
+    use std::io::ErrorKind::{AlreadyExists, CrossesDevices, PermissionDenied, Unsupported};
+    use std::os::unix::fs::{DirBuilderExt, MetadataExt};
+    let dev = |p: &Path| std::fs::metadata(p).map(|m| m.dev()).ok();
+    // The home trash may not be there yet, so the nearest folder of it that is tells its disk.
+    if dev(path.parent().unwrap_or(path)) == home.ancestors().find_map(dev) {
+        return trash_by_hand(path, home);
+    }
+    let (Some(top), Some(uid)) = (top_of_file_system(path), own_uid()) else {
+        return Err(CrossesDevices.into());
+    };
+    let kind = crate::files::file_io::file_system_type(&top);
+    if kind.is_some_and(|kind| crate::files::file_io::is_remote(&kind)) {
+        return Err(Unsupported.into());
+    }
+    let trash = top.join(format!(".Trash-{uid}"));
+    match std::fs::DirBuilder::new().mode(0o700).create(&trash) {
+        Err(e) if e.kind() != AlreadyExists => return Err(e),
+        _ => {}
+    }
+    // Another user who can write at the top may have made it first, or made it a link.
+    if !is_usable_top_trash(&trash, Some(uid), false) {
+        return Err(PermissionDenied.into());
+    }
+    trash_by_hand(path, &trash)
 }
 
 /// Moves `path` into the trash folder `trash` by hand, as freedesktop.org's trash spec says. Its
@@ -372,22 +410,12 @@ fn name_in_trash(name: &std::ffi::OsStr, n: u32) -> OsString {
 /// The trash folders a file at `path` may have gone to, each with the folder its relative paths
 /// start from: the home trash, and the two at the top of the file system `path` is on.
 pub(crate) fn trash_dirs(path: &Path) -> Vec<(PathBuf, PathBuf)> {
-    use std::os::unix::fs::MetadataExt;
     // In a Flatpak, gio trash goes through the trash portal, into the host's trash.
     let home = config::host_xdg_dir("XDG_DATA_HOME", ".local/share", "Trash");
     let mut dirs: Vec<(PathBuf, PathBuf)> = home.map(|h| (h, "/".into())).into_iter().collect();
-    // The top of its file system: the last folder up on the same device.
-    let dev = |p: &Path| std::fs::metadata(p).map(|m| m.dev()).ok();
-    let uid = std::fs::metadata("/proc/self").map(|m| m.uid());
-    let (Some(mut top), Ok(uid)) = (path.parent(), uid) else {
+    let (Some(top), Some(uid)) = (top_of_file_system(path), own_uid()) else {
         return dirs;
     };
-    let Some(here) = dev(top) else {
-        return dirs;
-    };
-    while let Some(up) = top.parent().filter(|up| dev(up) == Some(here)) {
-        top = up;
-    }
     let shared = top.join(".Trash");
     let tops = [
         (
@@ -398,10 +426,29 @@ pub(crate) fn trash_dirs(path: &Path) -> Vec<(PathBuf, PathBuf)> {
     ];
     for (dir, shared_ok) in tops {
         if shared_ok && is_usable_top_trash(&dir, Some(uid), false) {
-            dirs.push((dir, top.to_path_buf()));
+            dirs.push((dir, top.clone()));
         }
     }
     dirs
+}
+
+/// Returns the top of the file system that `path` is on: the last folder up from it on the same
+/// device. Returns `None` when its folder cannot be read.
+fn top_of_file_system(path: &Path) -> Option<PathBuf> {
+    use std::os::unix::fs::MetadataExt;
+    let dev = |p: &Path| std::fs::metadata(p).map(|m| m.dev()).ok();
+    let mut top = path.parent()?;
+    let here = dev(top)?;
+    while let Some(up) = top.parent().filter(|up| dev(up) == Some(here)) {
+        top = up;
+    }
+    Some(top.to_path_buf())
+}
+
+/// Returns the user ID that Glimt runs as, or `None` when it cannot be read.
+fn own_uid() -> Option<u32> {
+    use std::os::unix::fs::MetadataExt;
+    std::fs::metadata("/proc/self").map(|m| m.uid()).ok()
 }
 
 /// Returns whether `dir` may be read as a trash folder at the top of a file system, as
@@ -503,6 +550,48 @@ mod tests {
             [(a, "a.png".into()), (b, "a.1.png".into())];
         assert_eq!(back, want);
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// Without gio, a file on another file system than the home trash (a USB stick) goes by
+    /// hand into `.Trash-UID` at the top of its own file system, and Undo puts it back from
+    /// there. The test needs /dev/shm on another file system than the temporary folder, as in
+    /// Docker and on GitHub's runners, and passes over the rest where it is not.
+    #[test]
+    fn trashes_a_file_on_another_disk_by_hand() {
+        use std::os::unix::fs::MetadataExt;
+        let shm = std::path::Path::new("/dev/shm");
+        let dev = |p: &std::path::Path| std::fs::metadata(p).map(|m| m.dev()).ok();
+        if dev(shm).is_none() || dev(shm) == dev(&std::env::temp_dir()) {
+            eprintln!("/dev/shm is not another file system here: not tested");
+            return;
+        }
+        let dir = shm.join(format!("glimt-test-other-disk-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("a.png");
+        std::fs::write(&file, "x").unwrap();
+        let since = std::time::SystemTime::now() - std::time::Duration::from_secs(1);
+        super::trash(std::slice::from_ref(&file)).unwrap();
+        assert!(!file.exists());
+        let uid = super::own_uid().unwrap();
+        let trash = super::top_of_file_system(&file)
+            .unwrap()
+            .join(format!(".Trash-{uid}"));
+        assert!(trash.join("info").read_dir().unwrap().next().is_some());
+        let trash_move = super::TrashMove {
+            files: vec![file.clone()],
+            sidecars: Vec::new(),
+            sidecars_left: Vec::new(),
+            since,
+            marks: Default::default(),
+            collection: None,
+        };
+        let (back, error) = super::restore(&trash_move, super::trash_dirs);
+        assert_eq!((back, error), (vec![file], None));
+        std::fs::remove_dir_all(dir).unwrap();
+        // The trash folders stay when another test or program has put something there.
+        for d in [trash.join("files"), trash.join("info"), trash] {
+            let _ = std::fs::remove_dir(d);
+        }
     }
 
     /// A file whose name leaves no room for ".trashinfo" goes into the trash by hand under a
