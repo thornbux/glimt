@@ -1867,19 +1867,6 @@ fn iim_element(name: &str, form: char, texts: Vec<String>) -> String {
     }
 }
 
-/// Reads the EXIF block (eXIf) and the XMP packet of the PNG `data`, wherever they stand. Returns
-/// `(None, None)` for a PNG that cannot be walked. The decoder reads only the chunks before the
-/// pixels, but ExifTool adds XMP after them. A turn reads these too, because the PNG it writes
-/// drops the old chunks of both (`save::png_with_chunks`), and before, it lost what lay there.
-pub(crate) fn png_exif_and_xmp(data: &[u8]) -> (Option<Vec<u8>>, Option<Vec<u8>>) {
-    walk_png(data).map_or((None, None), |walked| {
-        (
-            walked.exif.map(<[u8]>::to_vec),
-            walked.xmp.map(<[u8]>::to_vec),
-        )
-    })
-}
-
 /// Walks a PNG: each chunk up to its end (IEND). What follows IEND is left out. Returns `None`
 /// when a chunk runs past the file or the first is not the header (IHDR).
 fn walk_png(data: &[u8]) -> Option<Walked<'_>> {

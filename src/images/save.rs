@@ -49,19 +49,6 @@ const DROPPED_FROM_COPIES: [&str; 13] = [
     "darktable:masks_history",
 ];
 
-/// The keys of a PNG's text chunks that a file written with new pixels drops. The first three
-/// are ImageMagick's copies of the EXIF and XMP, with the old orientation, which exiv2 (Geeqie,
-/// digiKam) reads, so the turned file would be turned again there. The last is Photoshop's
-/// resources, which may hold a thumbnail of the whole frame. A turned image gets them back
-/// without their thumbnail and their copies of the EXIF and XMP
-/// (`png_with_photoshop_resources`), as they hold its IPTC caption, copyright and keywords.
-const DROPPED_PNG_TEXT: [&[u8]; 4] = [
-    b"Raw profile type exif",
-    b"Raw profile type APP1",
-    b"Raw profile type xmp",
-    b"Raw profile type 8bim",
-];
-
 /// The XMP properties every copy for sharing keeps, also after Remove All, as its EXIF keeps
 /// their tags (`exif::shared_block`): the orientation keeps a photo upright, and the colour
 /// space says which colours its pixels are in.
@@ -163,9 +150,9 @@ pub(crate) enum Derived {
     Oriented(u8),
     /// The image's own pixels written anew as the view showed them: a PNG or WebP turned. The
     /// orientation is 1, and what showed or measured the old pixels is dropped (`DROPPED_XMP`,
-    /// `DROPPED_PNG_TEXT`, and in EXIF the thumbnail, with the pixel sizes set anew). A PNG's
-    /// Photoshop resources are kept without their thumbnail. Other programs' edits of the image
-    /// stay, as they do on a JPEG's turn.
+    /// a PNG's old copies of its EXIF and XMP, which it gets anew, and in EXIF the thumbnail,
+    /// with the pixel sizes set anew). A PNG's Photoshop resources are kept without their
+    /// thumbnail. Other programs' edits of the image stay, as they do on a JPEG's turn.
     Turned,
     /// A new file made from the image: a crop or a copy (Save As). It drops what `Turned` drops,
     /// and other programs' edits of the image it came from (`DROPPED_FROM_COPIES`).
@@ -737,16 +724,17 @@ fn derived_metadata(
             (d.xmp_metadata().ok().flatten(), stored)
         })
         .unwrap_or_default();
-    // A PNG's XMP and eXIf after the pixels, which the decoder does not read, are read here,
-    // because the PNG written drops them (`png_with_chunks`). Their orientation was not shown,
-    // so `stored` is read without it.
+    // A PNG's EXIF and XMP that the decoder does not read, after the pixels, compressed or in
+    // ImageMagick's raw profiles, are read here, by the reader of every chunk the PNG written
+    // may drop (`png_with_chunks`). Their orientation was not shown, so `stored` is read
+    // without it.
     if has_ext(path, &["png"])
         && (xmp.is_none() || exif.is_none())
         && let Ok(bytes) = crate::images::decode::read_limited(path)
     {
-        let (after_exif, after_xmp) = crate::images::shared_copy::png_exif_and_xmp(&bytes);
-        exif = exif.or_else(|| exif::derived_of(&after_exif?, how));
-        xmp = xmp.or(after_xmp);
+        let found = exif::png_metadata(&bytes);
+        exif = exif.or_else(|| exif::derived_of(&found.exif?, how));
+        xmp = xmp.or(found.xmp);
     }
     if let Some(exif) = &mut exif {
         exif::set_upright(exif, size)?;
@@ -984,6 +972,15 @@ fn encode(
         }
         return Ok(webp);
     }
+    // A PNG's old chunks of EXIF or XMP are dropped only when the new file carries them anew.
+    // Photoshop's resources are always dropped, because they may hold a thumbnail of the whole
+    // frame; a turn puts them back without it (`png_with_photoshop_resources`).
+    let carried = (exif.is_some(), xmp.is_some());
+    let carries = |kind| match kind {
+        exif::PngMetadataKind::Exif => carried.0,
+        exif::PngMetadataKind::Xmp => carried.1,
+        exif::PngMetadataKind::PhotoshopResources => true,
+    };
     let mut out = Vec::new();
     let written = match encoding {
         Encoding::Png => {
@@ -1027,7 +1024,7 @@ fn encode(
         && has_ext(path, &["png"])
         && let Ok(old) = crate::images::decode::read_limited(path)
     {
-        out = png_with_chunks(&out, &old, quarter);
+        out = png_with_chunks(&out, &old, quarter, &carries);
     }
     if let Some(xmp) = &xmp {
         out = match encoding {
@@ -1124,20 +1121,9 @@ fn png_with_chunk_after_header(png: &[u8], chunk: &[u8]) -> Result<Vec<u8>, Stri
 /// drops them from every file written with new pixels, because the thumbnail shows the whole
 /// frame, so a crop or copy keeps none of them. Resources that cannot be read stay dropped, as
 /// before.
-/// shortcut: only the text before the pixels is read, as `exif::png_exif` reads it; read the
-/// text after IDAT too if a program is found that writes the resources there.
 fn png_with_photoshop_resources(new: &[u8], old: &Path) -> Result<Vec<u8>, String> {
-    let resources = (crate::images::decode::open_regular(old).ok())
-        .and_then(|file| {
-            png::Decoder::new(std::io::BufReader::new(file))
-                .read_info()
-                .ok()
-        })
-        .and_then(|reader| {
-            let keys: [&[u8]; 1] = [b"Raw profile type 8bim"];
-            let text = exif::png_texts(reader.info(), &keys).next()?;
-            exif::raw_profile_bytes(&text)
-        })
+    let resources = (crate::images::decode::read_limited(old).ok())
+        .and_then(|bytes| exif::png_metadata(&bytes).photoshop_resources)
         .and_then(|bytes| without_dropped_photoshop_resources(&bytes));
     let Some(resources) = resources.filter(|r| !r.is_empty()) else {
         return Ok(new.to_vec());
@@ -1177,12 +1163,22 @@ fn without_dropped_photoshop_resources(bytes: &[u8]) -> Option<Vec<u8>> {
 }
 
 /// The PNG `new` with the chunks of `old` that still hold for its pixels put after its header.
-/// They are text, physical size, time and colour space. The profile, EXIF and XMP are not
-/// taken, because they are written anew, nor what depends on how the pixels are stored
-/// (palette, transparency, bit depth), nor the text of `DROPPED_PNG_TEXT`.
-fn png_with_chunks(new: &[u8], old: &[u8], quarter: bool) -> Vec<u8> {
-    const KEPT: [&[u8; 4]; 8] = [
-        b"tEXt", b"zTXt", b"iTXt", b"pHYs", b"tIME", b"gAMA", b"cHRM", b"sRGB",
+/// They are text, physical size, time, colour space and the HDR colour chunks (cICP, mDCV,
+/// cLLI, in both spellings), which hold for the same pixel values. The profile is
+/// not taken, because it is written anew from the decoder's reading of it, which the PNG allows
+/// only before the pixels, nor what depends on how the pixels are stored (palette,
+/// transparency, bit depth). A chunk of EXIF, XMP or Photoshop resources
+/// (`exif::png_metadata_kind`) is dropped only when `carries` says the new file holds that kind
+/// anew, and it is kept otherwise.
+fn png_with_chunks(
+    new: &[u8],
+    old: &[u8],
+    quarter: bool,
+    carries: &dyn Fn(exif::PngMetadataKind) -> bool,
+) -> Vec<u8> {
+    const KEPT: [&[u8; 4]; 13] = [
+        b"tEXt", b"zTXt", b"iTXt", b"pHYs", b"tIME", b"gAMA", b"cHRM", b"sRGB", b"cICP", b"mDCV",
+        b"mDCv", b"cLLI", b"cLLi",
     ];
     let (end, mut kept) = (33, Vec::new());
     // Turned a quarter, pHYs, the pixels per unit across and down, are swapped too, also for a
@@ -1195,15 +1191,14 @@ fn png_with_chunks(new: &[u8], old: &[u8], quarter: bool) -> Vec<u8> {
             break;
         };
         let name = &chunk[4..8];
-        let xmp = name == b"iTXt" && chunk[8..].starts_with(b"XML:com.adobe.xmp\0");
-        let old_profile = (DROPPED_PNG_TEXT.iter())
-            .any(|key| matches!(name, b"tEXt" | b"zTXt" | b"iTXt") && chunk[8..].starts_with(key));
+        let metadata = exif::png_metadata_kind(name, &chunk[8..8 + len]);
+        let carried = metadata.is_some_and(carries);
         if name == b"pHYs" && swapped && len == 9 {
             let body = [&b"pHYs"[..], &chunk[12..16], &chunk[8..12], &chunk[16..17]].concat();
             kept.extend(9u32.to_be_bytes());
             kept.extend(&body);
             kept.extend(crc32(&body).to_be_bytes());
-        } else if KEPT.iter().any(|k| *k == name) && !xmp && !old_profile {
+        } else if (KEPT.iter().any(|k| *k == name) || metadata.is_some()) && !carried {
             kept.extend_from_slice(chunk);
         }
         // Text may come after the pixels too, so it reads up to the end.
@@ -1475,7 +1470,7 @@ mod tests {
         old.extend(chunk(b"zTXt", b"Raw profile type exif\0\0x"));
         old.extend(chunk(b"tEXt", b"Raw profile type xmp\0x"));
         old.extend(&new[new.len() - 12..]);
-        let out = super::png_with_chunks(&new, &old, false);
+        let out = super::png_with_chunks(&new, &old, false, &|_| true);
         let has = |name: &[u8]| out.windows(4).any(|w| w == name);
         assert!(has(b"pHYs") && has(b"tEXt"));
         assert!(!out.windows(16).any(|w| w == b"Raw profile type"));
@@ -1495,7 +1490,7 @@ mod tests {
         let mut old = wide[..33].to_vec();
         old.extend(chunk(b"pHYs", &[0, 0, 0, 204, 0, 0, 0, 98, 1]));
         old.extend(&wide[33..]);
-        let out = super::png_with_chunks(&tall, &old, true);
+        let out = super::png_with_chunks(&tall, &old, true, &|_| true);
         let at = out.windows(4).position(|w| w == b"pHYs").unwrap();
         assert_eq!(&out[at + 4..at + 13], &[0, 0, 0, 98, 0, 0, 0, 204, 1]);
         image::codecs::png::PngDecoder::new(std::io::Cursor::new(&out)).unwrap();
@@ -1664,7 +1659,7 @@ mod tests {
         let (tall, mut old) = (black_png(2, 3), black_png(3, 2));
         old.splice(33..33, png_chunk(b"pHYs", &[0, 0, 0, 204, 0, 0, 0, 98, 1]));
         for broken in crate::support::test_support::broken(&old) {
-            super::png_with_chunks(&tall, &broken, true);
+            super::png_with_chunks(&tall, &broken, true, &|_| true);
         }
     }
 
@@ -1837,6 +1832,129 @@ mod tests {
         let rows = crate::metadata::exif::read(&file);
         assert!(rows.contains(&("Camera", "Canon".to_string())), "{rows:?}");
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// A PNG turned keeps the XMP and EXIF that sit only in a chunk the turn drops: ImageMagick's
+    /// raw XMP profile, XMP compressed after the pixels, and a raw EXIF profile after them.
+    /// Before, the turn dropped each of these chunks without reading it, so the keywords or the
+    /// camera and date were lost from the user's own file.
+    #[test]
+    fn a_turned_png_keeps_metadata_in_every_chunk_it_drops() {
+        use crate::support::test_support::{CANON_EXIF, png_with_texts, raw_profile_text};
+        use image::ImageDecoder;
+        let dir = std::env::temp_dir().join(format!("glimt-turn-forms-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("a.png");
+        let xmp = "<x:xmpmeta>Oslo</x:xmpmeta>";
+        let raw_xmp = raw_profile_text("xmp", xmp.as_bytes());
+        let raw_exif = raw_profile_text("exif", CANON_EXIF);
+        let cases = [
+            (
+                "raw XMP profile",
+                ("zTXt", "Raw profile type xmp", &raw_xmp[..]),
+                true,
+            ),
+            (
+                "compressed XMP after",
+                ("iTXt", "XML:com.adobe.xmp", xmp),
+                false,
+            ),
+            (
+                "raw EXIF after",
+                ("zTXt", "Raw profile type exif", &raw_exif[..]),
+                false,
+            ),
+        ];
+        let mut lost = Vec::new();
+        for (case, text, before) in cases {
+            std::fs::write(&file, png_with_texts(&[text], before)).unwrap();
+            super::save_rotated(&file, false, 1, false, 90).unwrap();
+            let kept = match case {
+                "raw EXIF after" => {
+                    let rows = crate::metadata::exif::read(&file);
+                    rows.iter()
+                        .any(|(label, value)| *label == "Camera" && value.contains("Canon"))
+                }
+                _ => {
+                    let reader = image::ImageReader::open(&file).unwrap();
+                    let mut dec = reader.into_decoder().unwrap();
+                    let xmp = dec.xmp_metadata().unwrap().unwrap_or_default();
+                    xmp.windows(4).any(|w| w == b"Oslo")
+                }
+            };
+            if !kept {
+                lost.push(case);
+            }
+        }
+        assert!(lost.is_empty(), "lost: {lost:?}");
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// Every chunk of what is said about a PNG that a PNG written with new pixels drops, when the
+    /// new file carries every kind of metadata, is one that `exif::png_metadata` reads back, and
+    /// none is dropped when the new file carries none. The chunks are every text chunk of
+    /// `PNG_METADATA_TEXT` and others, eXIf, and the colour and size chunks that hold for the
+    /// same pixel values. A list of dropped chunks kept apart from the reader once dropped XMP
+    /// and EXIF that nothing read, and the HDR colour chunks were dropped as well.
+    #[test]
+    fn a_png_chunk_is_dropped_only_when_it_is_read_back() {
+        use crate::support::test_support::{CANON_EXIF, raw_profile_text};
+        let raw = raw_profile_text("x", CANON_EXIF);
+        let keys = (crate::metadata::exif::PNG_METADATA_TEXT.iter())
+            .map(|(key, _)| *key)
+            .chain([
+                &b"Raw profile type iptc"[..],
+                b"Raw profile type icc",
+                b"Comment",
+            ]);
+        let mut chunks: Vec<(&[u8], Vec<u8>)> = keys
+            .map(|key| {
+                let text = match key {
+                    b"XML:com.adobe.xmp" => b"<x:xmpmeta>Oslo</x:xmpmeta>".to_vec(),
+                    _ => raw.as_bytes().to_vec(),
+                };
+                (&b"tEXt"[..], [key, b"\0", &text].concat())
+            })
+            .collect();
+        chunks.push((b"eXIf", CANON_EXIF.to_vec()));
+        chunks.push((b"tIME", vec![7, 234, 1, 2, 3, 4, 5]));
+        chunks.push((b"pHYs", vec![0, 0, 11, 19, 0, 0, 11, 19, 1]));
+        chunks.push((b"gAMA", 45_455u32.to_be_bytes().to_vec()));
+        chunks.push((b"cHRM", vec![1; 32]));
+        chunks.push((b"sRGB", vec![0]));
+        // BT.2100 PQ, as an HDR PNG says it, and its mastering display and light levels.
+        chunks.push((b"cICP", vec![9, 16, 0, 1]));
+        for name in [b"mDCV", b"mDCv"] {
+            chunks.push((name, vec![2; 24]));
+        }
+        for name in [b"cLLI", b"cLLi"] {
+            chunks.push((name, vec![3; 8]));
+        }
+        let new = black_png(2, 2);
+        for (name, body) in chunks {
+            let chunk = png_chunk(name, &body);
+            let mut old = new.clone();
+            old.splice(old.len() - 12..old.len() - 12, chunk.clone());
+            let has = |out: &[u8]| out.windows(chunk.len()).any(|w| w == chunk);
+            let shown = if name == b"tEXt" {
+                &body[..body.len().min(21)]
+            } else {
+                name
+            };
+            let label = String::from_utf8_lossy(shown).into_owned();
+            assert!(
+                has(&super::png_with_chunks(&new, &old, false, &|_| false)),
+                "{label}"
+            );
+            if !has(&super::png_with_chunks(&new, &old, false, &|_| true)) {
+                let found = crate::metadata::exif::png_metadata(&old);
+                let read = [found.exif, found.xmp, found.photoshop_resources];
+                assert!(
+                    read.iter().any(Option::is_some),
+                    "{label} dropped, not read"
+                );
+            }
+        }
     }
 
     /// A PNG turned upright by its EXIF orientation and then a quarter turn keeps its EXIF,
