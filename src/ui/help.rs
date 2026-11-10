@@ -1,7 +1,7 @@
 //! The Help menu's pages: manual, keyboard shortcuts, keyboard map and About.
 
 use crate::ui::actions::Action;
-use crate::ui::actions::shortcuts as all_shortcuts;
+use crate::ui::actions::shortcuts_in_effect;
 use eframe::egui;
 use egui::Key;
 
@@ -115,12 +115,12 @@ const ARROWS: [(&str, Key, f32, f32); 4] = [
     ("→", Key::ArrowRight, 2.0, 1.0),
 ];
 
-const MANUAL: &[(&str, &str)] = &[
+pub(crate) const MANUAL: &[(&str, &str)] = &[
     (
         "Opening images",
         "Start Glimt with a folder or an image (glimt ~/Pictures), drop one on the window, use \
-         File → Open, type a path in the folder field above the folder list and press Enter, or \
-         click a folder in the list. ⬆ .. goes to the parent folder.\n\n\
+         File → Open Folder…, type a path in the folder field above the folder list and press \
+         Enter, or click a folder in the list. ⬆ .. goes to the parent folder.\n\n\
          Network shares work too: type smb://server/share (or sftp://…) and Glimt mounts it with \
          gio, asking for user, domain and password if the share needs them (a password saved in \
          the keyring from Files is used without asking).\n\n\
@@ -140,13 +140,13 @@ const MANUAL: &[(&str, &str)] = &[
          - Show Together with These Images in a folder's right-click menu.\n\n\
          A slideshow then goes through all of them, and random order mixes them.\n\n\
          The toolbar's arrows (Go → Back and Forward) go to the folders shown before, Up to the \
-         parent and Home to the home folder. F5 (Go → Refresh) reads the folder again; with \
+         parent and Home to the home folder. F5 (View → Refresh) reads the folder again; with \
          Refresh the folder when files change (Preferences, on by default) Glimt does so itself, \
          looking at the open folders once a second. With Include Subfolders on it looks at the \
          subfolders too, up to 1,000 a second in turn, so a change deep in a tree of 10,000 \
          folders shows within ten seconds. With Start in the last used folder, Glimt opens that \
          one when it is given none.\n\n\
-         Ctrl+N (File → New Window) starts another Glimt in the same folder; Ctrl+W and Ctrl+Q \
+         Ctrl+N (Window → New Window) starts another Glimt in the same folder; Ctrl+W and Ctrl+Q \
          close it. Starting Glimt a certain way, and controlling it from scripts, is under Command \
          line at the end.",
     ),
@@ -1137,8 +1137,9 @@ impl Page {
     }
 }
 
-/// The open help page in a window; closing the window sets `page` to `None`.
-pub fn window(ctx: &egui::Context, page: &mut Option<Page>) {
+/// The open help page in a window; closing the window sets `page` to `None`. The keys shown
+/// leave out the Delete key when `delete_key` is off, as the keys read do.
+pub fn window(ctx: &egui::Context, page: &mut Option<Page>, delete_key: bool) {
     let Some(shown) = *page else { return };
     let mut open = true;
     egui::Window::new(shown.title())
@@ -1151,8 +1152,8 @@ pub fn window(ctx: &egui::Context, page: &mut Option<Page>) {
             ui.spacing_mut().scroll = egui::style::ScrollStyle::solid();
             egui::ScrollArea::vertical().show(ui, |ui| match shown {
                 Page::Manual => manual(ui),
-                Page::Shortcuts => shortcuts(ui),
-                Page::Keymap => keymap(ui),
+                Page::Shortcuts => shortcuts(ui, delete_key),
+                Page::Keymap => keymap(ui, delete_key),
                 Page::About => about(ui),
             });
         });
@@ -1210,10 +1211,11 @@ fn table(ui: &mut egui::Ui, id: &str, rows: &[(&str, &str)]) {
 }
 
 /// Every shortcut of an action on one row, in menu order, then the mouse.
-fn shortcuts(ui: &mut egui::Ui) {
+fn shortcuts(ui: &mut egui::Ui, delete_key: bool) {
     let ctx = ui.ctx().clone();
     let mut rows: Vec<(Action, Vec<String>)> = Vec::new();
-    for &(action, mods, key) in all_shortcuts().iter() {
+    // Remove from Collection is listed also outside a collection, as its key works in one.
+    for (action, mods, key) in shortcuts_in_effect(delete_key, true) {
         let text = ctx.format_shortcut(&egui::KeyboardShortcut::new(mods, key));
         match rows.iter_mut().find(|r| r.0 == action) {
             Some(row) => row.1.push(text),
@@ -1236,7 +1238,7 @@ fn shortcuts(ui: &mut egui::Ui) {
 }
 
 /// A keyboard with the keys Glimt uses highlighted; hover a key to see what it does.
-fn keymap(ui: &mut egui::Ui) {
+fn keymap(ui: &mut egui::Ui, delete_key: bool) {
     ui.label("Highlighted keys do something; bright ones also without Ctrl, Shift or Alt.");
     ui.label("Hover a key to see its actions.");
     ui.add_space(8.0);
@@ -1244,7 +1246,7 @@ fn keymap(ui: &mut egui::Ui) {
     let (rect, _) =
         ui.allocate_exact_size(egui::vec2(unit * 19.5, unit * 6.6), egui::Sense::hover());
     // Once for the map, not twice for each of its keys.
-    let all = all_shortcuts();
+    let all = shortcuts_in_effect(delete_key, true);
     let draw = |ui: &mut egui::Ui, label: &str, key: Option<Key>, at: egui::Rect| {
         let actions: Vec<String> = key
             .map(|k| {

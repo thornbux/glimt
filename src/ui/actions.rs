@@ -1008,14 +1008,9 @@ impl crate::App {
                     .find(|s| same_keys(s, &(s.0, CTRL, key)))
                     .map(|s| s.0);
             }
-            all.iter()
-                .filter(|s| collection || s.0 != Action::RemoveFromCollection)
-                .filter(|s| {
-                    delete_key || s.2 != egui::Key::Delete || s.0 == Action::RemoveFromCollection
-                })
-                .find(|&&(_, mods, key)| {
-                    i.consume_shortcut(&egui::KeyboardShortcut::new(mods, key))
-                })
+            shortcuts_in_effect(delete_key, collection)
+                .into_iter()
+                .find(|&(_, mods, key)| i.consume_shortcut(&egui::KeyboardShortcut::new(mods, key)))
                 .map(|s| s.0)
         })
     }
@@ -1371,7 +1366,7 @@ impl crate::App {
         }
     }
 
-    /// File → New Window (Ctrl+N): another Glimt at this place.
+    /// Window → New Window (Ctrl+N): another Glimt at this place.
     pub(crate) fn new_window(&mut self) {
         let exe = std::env::current_exe().map(|exe| {
             let var = std::env::var_os;
@@ -1576,6 +1571,17 @@ pub fn shortcuts() -> std::sync::Arc<[Shortcut]> {
     let all: std::sync::Arc<[Shortcut]> = shortcuts_with(&own).into();
     *made = Some((own, all.clone()));
     all
+}
+
+/// Returns the shortcuts that run their action now, in the order `shortcuts` gives them. With
+/// `delete_key` off the Delete key does nothing, and outside a `collection` Remove from
+/// Collection has no key. The keys read and the keys that Help shows both come from here.
+pub fn shortcuts_in_effect(delete_key: bool, collection: bool) -> Vec<Shortcut> {
+    let remove = Action::RemoveFromCollection;
+    (shortcuts().iter().copied())
+        .filter(|s| collection || s.0 != remove)
+        .filter(|s| delete_key || s.2 != egui::Key::Delete || s.0 == remove)
+        .collect()
 }
 
 /// Returns the shortcuts in use with the user's own keys `own`, in the order `shortcuts`
@@ -1991,6 +1997,70 @@ mod tests {
             frame(&mut app);
         }
         std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// With the Delete key turned off, Help's keyboard map and shortcut list leave Delete and
+    /// Shift+Delete out, as the keys read do. Both once showed them as if they worked.
+    #[test]
+    fn the_delete_key_is_shown_only_when_it_works() {
+        let on_delete = |delete_key| {
+            (super::shortcuts_in_effect(delete_key, true).iter())
+                .filter(|s| s.2 == eframe::egui::Key::Delete)
+                .map(|s| s.0)
+                .collect::<Vec<_>>()
+        };
+        assert!(on_delete(true).contains(&Action::Delete));
+        assert!(on_delete(true).contains(&Action::DeletePermanently));
+        assert_eq!(on_delete(false), [Action::RemoveFromCollection]);
+    }
+
+    /// Each "Menu → Item" of the Help Manual names an item its menu has: an action's label or
+    /// a submenu's title, drawn by the menu's function or by one it calls. The manual once sent
+    /// the reader to Go → Refresh and File → New Window, which are under View and Window.
+    #[test]
+    fn the_manual_names_items_its_menus_have() {
+        let src = [
+            include_str!("menus.rs"),
+            include_str!("../model/folder.rs"),
+            include_str!("../model/collections.rs"),
+            include_str!("../viewer/view.rs"),
+        ]
+        .concat();
+        fn body<'a>(src: &'a str, name: &str) -> &'a str {
+            let Some(start) = src.find(&format!("fn {name}(")) else {
+                return "";
+            };
+            &src[start..start + src[start..].find("\n    }\n").unwrap_or(0)]
+        }
+        let names_in = |body: &str| -> Vec<String> {
+            let actions = (body.split("Action::").skip(1)).filter_map(|rest| {
+                let name = rest.split(|c: char| !c.is_ascii_alphanumeric()).next()?;
+                let action = ALL.iter().find(|a| format!("{a:?}") == name)?;
+                Some(action.english().to_owned())
+            });
+            let titles = (body.split("tr(\"").skip(1))
+                .filter_map(|rest| rest.split('"').next().map(str::to_owned));
+            actions.chain(titles).collect()
+        };
+        for menu in ["File", "Go", "Select", "Edit", "View", "Window", "Help"] {
+            let main = body(&src, &format!("menu_{}", menu.to_lowercase()));
+            assert!(!main.is_empty(), "menu_{menu}");
+            let mut names = names_in(main);
+            for call in main.split("self.").skip(1) {
+                names.extend(names_in(body(&src, call.split('(').next().unwrap())));
+            }
+            for (_, text) in crate::ui::help::MANUAL {
+                for after in text.split(&format!("{menu} → ")).skip(1) {
+                    let has = names.iter().any(|name| {
+                        let name = name.trim_end_matches('…');
+                        after.starts_with(name)
+                            && !after[name.len()..].starts_with(char::is_alphanumeric)
+                    });
+                    let named: String = after.chars().take(30).collect();
+                    assert!(has, "the manual's {menu} → {named}");
+                }
+            }
+        }
     }
 
     /// The file list's right-click menu acts on the row right-clicked, which it selects. Every
