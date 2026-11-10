@@ -56,6 +56,21 @@ and versions follow [Semantic Versioning](https://semver.org/).
 - An Undo of a move, and other work in the background, now lets go of its files before the
   busy pointer goes. On a busy computer, an operation started on the same files at that moment
   was refused with "Still working on these files".
+- A Copy to or Move to a folder that is closed at once now waits for the copy or move, as
+  closing does for every file operation. While the folder's real path was looked up, a close
+  went through, and the files were not copied. The busy pointer now also stays until the window
+  has taken what work in the background sent back, such as a report or a turn saved.
+- With Remember Last Folder on, Glimt opens its window at once when the last folder is on a
+  share that stopped answering, and opens the current folder when the last one is gone.
+  Before, it hung before it showed a window.
+- Find Duplicates no longer looks at each file's size as its row is drawn, which a share that
+  stopped answering held for ever.
+- A file renamed and then at once deleted is taken out of the open collection. Before, the
+  collection could keep the new name of a file in the trash.
+- A turn saved after another program removed the file is told as not saved. Before, it was
+  taken as saved, and a JPEG with Auto Rotate off was told "Saved".
+- The file list's size and date columns answer the rows on screen first. On a slow share,
+  after scrolling through a large folder, they waited behind every row scrolled past.
 
 ## [0.77.0] - 2026-11-09
 
