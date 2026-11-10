@@ -2523,12 +2523,12 @@ pub(crate) fn rename_files(
             // Named by the file and its new name, not a temporary one.
             let j = k % from.len();
             let name = |p: &PathBuf| p.file_name().unwrap_or_default().display().to_string();
-            // A step that failed without the file system saying that it did nothing (a share
-            // that lost its answer) may have been done. Nothing is undone then, because an undo
-            // counts on knowing which steps were done. The plan stays as it is, and the next
-            // start finds the step by the names, once the share's cache has expired.
+            // A step whose answer was lost (a share's EIO or timeout) may have been done.
+            // Nothing is undone then, because an undo counts on knowing which steps were done.
+            // The plan stays as it is, and the next start finds the step by the names, once the
+            // share's cache has expired. Any other failure did nothing, and is undone at once.
             let may_be_done =
-                !stopped && done == k && !crate::files::file_io::was_surely_refused(&e);
+                !stopped && done == k && crate::files::file_io::may_have_been_done(&e);
             // Otherwise the renames are undone so that no file is left under a hidden
             // temporary name, by the same steps the next start would take.
             let stuck = match may_be_done {
@@ -3268,6 +3268,39 @@ mod tests {
         let read = |n: &str| std::fs::read_to_string(p(n)).unwrap();
         assert_eq!((read("a.jpg"), read("b.jpg")), ("a".into(), "b".into()));
         assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 2);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A swap whose step the disk refused (a new name longer than 255 bytes) is undone at once:
+    /// "nothing renamed", no file left under a hidden name, and no plan kept for the next
+    /// start. In 0.80.0 only five refusals were known, and every other one kept the files under
+    /// hidden names until the next start.
+    #[test]
+    fn a_rename_step_the_disk_refused_is_undone_at_once() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-swap-long-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let p = |n: &str| dir.join(n);
+        std::fs::write(p("a.jpg"), "a").unwrap();
+        std::fs::write(p("b.jpg"), "b").unwrap();
+        let long = format!("{}.jpg", "x".repeat(300));
+        let job = super::Job::new("Renaming", 2, false, Vec::new());
+        // The last step, b.jpg's hidden name to the long name, fails with ENAMETOOLONG.
+        let swapped = super::rename_files(
+            vec![p("a.jpg"), p("b.jpg")],
+            vec![p("b.jpg"), p(&long)],
+            &job,
+        );
+        let error = swapped.unwrap_err();
+        assert!(error.text.contains("nothing renamed"), "{}", error.text);
+        let read = |n: &str| std::fs::read_to_string(p(n)).unwrap();
+        assert_eq!((read("a.jpg"), read("b.jpg")), ("a".into(), "b".into()));
+        assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 2);
+        let plans = super::journal::journal_dir().unwrap();
+        let kept = super::journal::cut_short_plans(&plans)
+            .into_iter()
+            .any(|(_, moves, _)| moves[0].0 == p("a.jpg"));
+        assert!(!kept, "a plan was kept");
         std::fs::remove_dir_all(dir).unwrap();
     }
 
