@@ -2732,6 +2732,9 @@ msgstr "le fichier a été modifié entre-temps"
 msgid "the file looks incomplete, as if it is still being copied"
 msgstr "le fichier semble incomplet, comme s'il était encore en cours de copie"
 
+msgid "the file looks incomplete or damaged"
+msgstr "le fichier semble incomplet ou endommagé"
+
 msgid "the file is read-only"
 msgstr "le fichier est en lecture seule"
 

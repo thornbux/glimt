@@ -2732,6 +2732,9 @@ msgstr "filen blev ændret i mellemtiden"
 msgid "the file looks incomplete, as if it is still being copied"
 msgstr "filen ser ufuldstændig ud, som om den stadig bliver kopieret"
 
+msgid "the file looks incomplete or damaged"
+msgstr "filen ser ufuldstændig eller beskadiget ud"
+
 msgid "the file is read-only"
 msgstr "filen er skrivebeskyttet"
 

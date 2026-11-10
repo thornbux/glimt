@@ -2732,6 +2732,9 @@ msgstr "die Datei wurde inzwischen geändert"
 msgid "the file looks incomplete, as if it is still being copied"
 msgstr "die Datei wirkt unvollständig, als würde sie noch kopiert"
 
+msgid "the file looks incomplete or damaged"
+msgstr "die Datei wirkt unvollständig oder beschädigt"
+
 msgid "the file is read-only"
 msgstr "die Datei ist schreibgeschützt"
 

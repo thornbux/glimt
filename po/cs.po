@@ -2754,6 +2754,9 @@ msgstr "soubor byl mezitím změněn"
 msgid "the file looks incomplete, as if it is still being copied"
 msgstr "soubor vypadá neúplně, jako by se stále kopíroval"
 
+msgid "the file looks incomplete or damaged"
+msgstr "soubor vypadá neúplně nebo poškozeně"
+
 msgid "the file is read-only"
 msgstr "soubor je jen pro čtení"
 

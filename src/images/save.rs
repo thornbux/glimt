@@ -334,12 +334,25 @@ pub(crate) fn replace_with_sidecar(
     // The fingerprint finds a copier that wrote on after the read, but not one that paused
     // meanwhile. The file's own end shows that it is not all there yet.
     let bytes = crate::images::decode::read_limited(real).map_err(|e| e.to_string())?;
-    if looks_cut_short(&bytes) {
-        return Err(tr("the file looks incomplete, as if it is still being copied").into());
+    if let Some(why) = why_cut_short(&bytes) {
+        return Err(why);
     }
     drop(bytes);
     let step = |lock: &crate::metadata::xmp::SidecarLock| derive_sidecar(lock, named, how);
     replace_with_sidecar_locked(real, named, read, out, step)
+}
+
+/// Returns why the JPEG, PNG or WebP `data` is not turned when it `looks_cut_short`, and `None`
+/// when it does not. A JPEG whose image data is not reached may be damaged before it, as well
+/// as still being copied, so it is not called the one.
+fn why_cut_short(data: &[u8]) -> Option<String> {
+    if !looks_cut_short(data) {
+        return None;
+    }
+    if data.starts_with(&[0xff, 0xd8]) && exif::jpeg_scan_start(data).is_none() {
+        return Some(tr("the file looks incomplete or damaged").into());
+    }
+    Some(tr("the file looks incomplete, as if it is still being copied").into())
 }
 
 /// Returns whether the JPEG, PNG or WebP `data` ends before its own end shows. That is a JPEG
@@ -2705,6 +2718,29 @@ mod tests {
         std::fs::write(&jpeg, &jpeg_bytes).unwrap();
         crate::metadata::exif::write_orientation(&jpeg, 1, false, true).unwrap();
         std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A JPEG whose image data is not reached is called incomplete or damaged, not still being
+    /// copied, as a wrong segment length before it looks the same. One cut in its image data is
+    /// still being copied.
+    #[test]
+    fn a_jpeg_without_image_data_is_called_damaged() {
+        let mut jpeg = Vec::new();
+        image::RgbImage::new(16, 8)
+            .write_to(
+                &mut std::io::Cursor::new(&mut jpeg),
+                image::ImageFormat::Jpeg,
+            )
+            .unwrap();
+        // SOI and the whole JFIF segment, and nothing after.
+        let damaged = super::why_cut_short(&jpeg[..20]).unwrap();
+        assert_eq!(
+            damaged,
+            crate::support::lang::tr("the file looks incomplete or damaged")
+        );
+        let copied = super::why_cut_short(&jpeg[..jpeg.len() - 2]).unwrap();
+        assert!(copied.contains("still being copied"), "{copied}");
+        assert_eq!(super::why_cut_short(&jpeg), None);
     }
 
     /// A camera's MPF JPEG or a phone's motion photo whose copy paused after the main image is
