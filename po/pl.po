@@ -2740,6 +2740,9 @@ msgstr "plik został w międzyczasie przeniesiony, przemianowany lub usunięty"
 msgid "the file was changed meanwhile"
 msgstr "plik został w międzyczasie zmieniony"
 
+msgid "the file looks incomplete, as if it is still being copied"
+msgstr "plik wygląda na niekompletny, jakby wciąż był kopiowany"
+
 msgid "the file is read-only"
 msgstr "plik jest tylko do odczytu"
 

@@ -2729,6 +2729,9 @@ msgstr "skráin var færð, endurnefnd eða henni eytt á meðan"
 msgid "the file was changed meanwhile"
 msgstr "skránni var breytt á meðan"
 
+msgid "the file looks incomplete, as if it is still being copied"
+msgstr "skráin virðist ófullgerð, eins og enn sé verið að afrita hana"
+
 msgid "the file is read-only"
 msgstr "skráin er skrifvarin"
 

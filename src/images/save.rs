@@ -331,8 +331,48 @@ pub(crate) fn replace_with_sidecar(
     out: Vec<u8>,
     how: Derived,
 ) -> Result<(), String> {
+    // The fingerprint finds a copier that wrote on after the read, but not one that paused
+    // meanwhile. The file's own end shows that it is not all there yet.
+    let bytes = crate::images::decode::read_limited(real).map_err(|e| e.to_string())?;
+    if looks_cut_short(&bytes) {
+        return Err(tr("the file looks incomplete, as if it is still being copied").into());
+    }
+    drop(bytes);
     let step = |lock: &crate::metadata::xmp::SidecarLock| derive_sidecar(lock, named, how);
     replace_with_sidecar_locked(real, named, read, out, step)
+}
+
+/// Returns whether the JPEG, PNG or WebP `data` ends before its own end shows. That is a JPEG
+/// with no end marker (FF D9) after its image data, a PNG without its IEND chunk or with a
+/// chunk longer than the file, or a WebP shorter than its RIFF header says. A file that is still
+/// being copied in looks so. Data after the end, such as a phone's motion photo, is no matter.
+fn looks_cut_short(data: &[u8]) -> bool {
+    if data.starts_with(&[0xff, 0xd8]) {
+        // Inside the image data, a 0xff byte is always followed by 0 or a restart marker.
+        let scan = crate::metadata::exif::jpeg_scan_start(data);
+        return !scan.is_some_and(|s| data[s..].windows(2).any(|w| w == [0xff, 0xd9]));
+    }
+    if data.starts_with(b"\x89PNG\r\n\x1a\n") {
+        let mut i = 8;
+        while let Some(head) = data.get(i..i + 8) {
+            let len = u32::from_be_bytes([head[0], head[1], head[2], head[3]]) as usize;
+            // The chunk's length, type, data and CRC.
+            let next = i.saturating_add(12).saturating_add(len);
+            if next > data.len() {
+                return true;
+            }
+            if &head[4..] == b"IEND" {
+                return false;
+            }
+            i = next;
+        }
+        return true;
+    }
+    if data.starts_with(b"RIFF") && data.get(8..12) == Some(b"WEBP") {
+        let size = u32::from_le_bytes([data[4], data[5], data[6], data[7]]) as usize;
+        return data.len() < 8 + size;
+    }
+    false
 }
 
 /// Replaces the image at `real` with `out` after `step` changed the sidecar of `named`. The
@@ -1401,7 +1441,7 @@ mod tests {
     }
 
     /// A damaged PNG or WebP given a chunk is refused or carried on as far as it goes, with no
-    /// panic.
+    /// panic. A damaged JPEG, PNG or WebP is looked at for its end with no panic.
     #[test]
     fn survives_broken_files_given_a_chunk() {
         let mut png = Vec::new();
@@ -1410,6 +1450,7 @@ mod tests {
             .unwrap();
         for bytes in crate::support::test_support::broken(&png) {
             let _ = super::png_with_xmp(&bytes, b"<x:xmpmeta/>");
+            let _ = super::looks_cut_short(&bytes);
         }
         let mut webp = Vec::new();
         image::RgbImage::new(4, 2)
@@ -1420,6 +1461,17 @@ mod tests {
             .unwrap();
         for bytes in crate::support::test_support::broken(&webp) {
             let _ = super::webp_with_chunk(&bytes, b"EXIF", b"Exif", 4, 2);
+            let _ = super::looks_cut_short(&bytes);
+        }
+        let mut jpeg = Vec::new();
+        image::RgbImage::new(4, 2)
+            .write_to(
+                &mut std::io::Cursor::new(&mut jpeg),
+                image::ImageFormat::Jpeg,
+            )
+            .unwrap();
+        for bytes in crate::support::test_support::broken(&jpeg) {
+            let _ = super::looks_cut_short(&bytes);
         }
     }
 
@@ -2549,6 +2601,54 @@ mod tests {
             let now = std::fs::read_to_string(crate::metadata::xmp::sidecar(file)).unwrap();
             assert_eq!(now, side, "{}", file.display());
         }
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A JPEG, PNG or WebP whose end is not there yet, as one still being copied in, is not
+    /// turned, and it is left byte for byte. Before, a JPEG was turned from the part copied so
+    /// far, and the copier then wrote the rest into the file taken away, so the photo was left
+    /// cut off at its name. The PNG and WebP decoders refuse such a file too, and the end is
+    /// checked for them all the same.
+    #[test]
+    fn a_file_cut_short_is_not_turned() {
+        let dir = std::env::temp_dir().join(format!("glimt-turn-cut-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let whole = |name: &str, format| {
+            let mut bytes = Vec::new();
+            let img = image::RgbImage::from_fn(64, 32, |x, y| image::Rgb([x as u8, y as u8, 7]));
+            img.write_to(&mut std::io::Cursor::new(&mut bytes), format)
+                .unwrap();
+            (dir.join(name), bytes)
+        };
+        let (jpeg, jpeg_bytes) = whole("a.jpg", image::ImageFormat::Jpeg);
+        let (png, png_bytes) = whole("b.png", image::ImageFormat::Png);
+        let (webp, webp_bytes) = whole("c.webp", image::ImageFormat::WebP);
+        // The JPEG without its end marker, the PNG without its IEND chunk, and the WebP
+        // without its last byte.
+        let cut = [
+            (&jpeg, &jpeg_bytes[..jpeg_bytes.len() - 2]),
+            (&png, &png_bytes[..png_bytes.len() - 12]),
+            (&webp, &webp_bytes[..webp_bytes.len() - 1]),
+        ];
+        for (file, bytes) in cut {
+            std::fs::write(file, bytes).unwrap();
+        }
+        assert!(crate::metadata::exif::write_orientation(&jpeg, 1, false, true).is_err());
+        assert!(super::save_rotated(&png, false, 1, false, 90).is_err());
+        assert!(super::save_rotated(&webp, false, 1, false, 90).is_err());
+        for (file, bytes) in cut {
+            assert_eq!(std::fs::read(file).unwrap(), bytes, "{}", file.display());
+        }
+        // Whole, each is turned.
+        for (file, bytes) in [
+            (&jpeg, &jpeg_bytes),
+            (&png, &png_bytes),
+            (&webp, &webp_bytes),
+        ] {
+            assert!(!super::looks_cut_short(bytes), "{}", file.display());
+        }
+        std::fs::write(&jpeg, &jpeg_bytes).unwrap();
+        crate::metadata::exif::write_orientation(&jpeg, 1, false, true).unwrap();
         std::fs::remove_dir_all(dir).unwrap();
     }
 

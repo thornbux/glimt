@@ -2740,6 +2740,9 @@ msgstr "o arquivo foi movido, renomeado ou excluído nesse meio-tempo"
 msgid "the file was changed meanwhile"
 msgstr "o arquivo foi modificado nesse meio-tempo"
 
+msgid "the file looks incomplete, as if it is still being copied"
+msgstr "o arquivo parece incompleto, como se ainda estivesse sendo copiado"
+
 msgid "the file is read-only"
 msgstr "o arquivo é somente leitura"
 

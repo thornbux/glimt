@@ -2750,6 +2750,9 @@ msgstr ""
 msgid "the file was changed meanwhile"
 msgstr ""
 
+msgid "the file looks incomplete, as if it is still being copied"
+msgstr ""
+
 msgid "the file is read-only"
 msgstr ""
 

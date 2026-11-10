@@ -2729,6 +2729,9 @@ msgstr "tiedosto siirrettiin, nimettiin uudelleen tai poistettiin sillä välin"
 msgid "the file was changed meanwhile"
 msgstr "tiedostoa muutettiin sillä välin"
 
+msgid "the file looks incomplete, as if it is still being copied"
+msgstr "tiedosto näyttää keskeneräiseltä, ikään kuin sitä kopioitaisiin yhä"
+
 msgid "the file is read-only"
 msgstr "tiedosto on kirjoitussuojattu"
 

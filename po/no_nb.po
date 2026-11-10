@@ -2740,6 +2740,9 @@ msgstr "filen ble flyttet, fikk nytt navn eller ble slettet i mellomtiden"
 msgid "the file was changed meanwhile"
 msgstr "filen ble endret i mellomtiden"
 
+msgid "the file looks incomplete, as if it is still being copied"
+msgstr "filen ser ufullstendig ut, som om den fortsatt blir kopiert"
+
 msgid "the file is read-only"
 msgstr "filen er skrivebeskyttet"
 
