@@ -978,6 +978,23 @@ fn shared_tag_name(dir: &str, tag: u16) -> String {
     tag_name(dir == "GPS", tag).map_or_else(|| format!("{dir} 0x{tag:04x}"), str::to_owned)
 }
 
+/// Returns the names a copy for sharing gives the tags of IFD0, Exif and GPS: each name of
+/// `tag_name`, and in each directory one name of the form a tag without a name gets
+/// (`shared_tag_name`). The file of the last choice holds them, so src/frozen-1.0.txt pins them.
+#[cfg(test)]
+pub(crate) fn every_shared_tag_name() -> Vec<String> {
+    let mut names = Vec::new();
+    for dir in ["Image", "Exif", "GPS"] {
+        let all = (0..=u16::MAX).map(|tag| shared_tag_name(dir, tag));
+        let (unnamed, named): (Vec<String>, Vec<String>) = all.partition(|n| n.contains(" 0x"));
+        names.extend(named);
+        names.extend(unnamed.last().cloned());
+    }
+    names.sort();
+    names.dedup();
+    names
+}
+
 /// Whether the tag `tag` of the directory `dir` is in every copy for sharing, also after Remove
 /// All. The orientation keeps a photo upright, and the colour space says that a photo without a
 /// profile is Adobe RGB, so both decide how the copy looks.

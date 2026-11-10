@@ -1550,6 +1550,9 @@ mod tests {
         // The words of the groups that Copy for Sharing keeps in its file of the last choice.
         let groups = crate::images::shared_copy::Group::ALL.iter();
         now.extend(groups.map(|group| format!("sharing {}", group.key())));
+        // The single tags and parts that the same file names, each left out on its own.
+        let tags = crate::images::shared_copy::names_of_single_tags().into_iter();
+        now.extend(tags.map(|tag| format!("sharing_tag {tag}")));
         // The actions a script may run with --remote run. One taken out of the list would
         // break every script that runs it.
         let script = crate::ui::actions::SCRIPT_ACTIONS.iter();

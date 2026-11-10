@@ -1269,6 +1269,42 @@ pub(crate) fn tags_of(path: &Path) -> Result<Option<Vec<String>>, String> {
     })
 }
 
+/// Returns the names of the single tags and parts that the file of the last choice can hold:
+/// those of the EXIF tags (`exif::every_shared_tag_name`), those of the parts, and one name of
+/// each form that a part without a name of its own gets, from a JPEG, a PNG and a WebP walked.
+/// src/frozen-1.0.txt pins them, because a name changed would turn a tag that the user left out
+/// into one kept, and no one would see it.
+#[cfg(test)]
+pub(crate) fn names_of_single_tags() -> Vec<String> {
+    use crate::metadata::exif::{EXIF_THUMBNAIL, every_shared_tag_name};
+    let mut names = every_shared_tag_name();
+    let parts = [
+        JFIF_THUMBNAIL,
+        MPF,
+        AFTER_IMAGE,
+        PHOTOSHOP_RESOURCES,
+        RAW_PROFILES,
+        JPEG_COMMENT,
+        EXIF_THUMBNAIL,
+    ];
+    names.extend(parts.map(str::to_owned));
+    let header = png_chunk(b"IHDR", &[0, 0, 0, 1, 0, 0, 0, 1, 8, 2, 0, 0, 0]);
+    let png = [
+        &b"\x89PNG\r\n\x1a\n"[..],
+        &header,
+        &png_chunk(b"vpAg", b""),
+        &png_chunk(b"IEND", b""),
+    ];
+    let jpeg = [&b"\xff\xd8"[..], &jpeg_segment(0xec, b"x"), b"\xff\xd9"].concat();
+    let webp = b"RIFF\x0c\0\0\0WEBPXYZW\0\0\0\0".to_vec();
+    for data in [jpeg, png.concat(), webp] {
+        if let Ok(Some(walked)) = walk(&data) {
+            names.extend(walked.parts.iter().filter_map(|p| p.tag.clone()));
+        }
+    }
+    names
+}
+
 /// Makes the copy for sharing of `path` that keeps the tags `kept`, besides what every copy
 /// keeps. Returns `None` for a file that is not a JPEG, PNG or WebP, and an error for one that
 /// cannot be read or is damaged.
