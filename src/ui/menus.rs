@@ -618,6 +618,7 @@ impl crate::App {
             let targets: Vec<PathBuf> = targets.iter().map(|&i| self.path(i)).collect();
             // A turned image still being saved would be written over the tool's edit. The
             // files are held while the tool runs, so a delete, move or rename of them waits.
+            // The thread lets go of the files the tool does not take once it has sorted them.
             let Some(held_back) = self.hold_back_while_writing(targets.clone()) else {
                 return;
             };
@@ -631,6 +632,7 @@ impl crate::App {
                 // first time, so the files are sorted here and not in the window's thread.
                 let (files, left): (Vec<PathBuf>, Vec<PathBuf>) =
                     targets.into_iter().partition(|p| tool.accepts(p));
+                held_back.hold_only(&files);
                 let name = &tool.name;
                 if files.is_empty() {
                     let _ = tx.send(tf!("{name} takes none of these files", name));

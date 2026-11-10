@@ -12,7 +12,9 @@ use crate::model::folder::total_size;
 use crate::model::listing::pattern_name;
 use crate::support::format::{count, thousands};
 use crate::support::lang::tr;
-use crate::support::threads::{AnswerSender, Receiving, Took, Working, answer_channel};
+use crate::support::threads::{
+    AnswerSender, Receiving, Took, Working, answer_channel, lock_even_if_poisoned,
+};
 use crate::ui::actions::Action;
 use crate::ui::dialogs::Pick;
 use crate::ui::dialogs::{Asked, Prompt};
@@ -24,7 +26,7 @@ use std::collections::{HashMap, HashSet};
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{Arc, mpsc};
+use std::sync::{Arc, Mutex, mpsc};
 use std::time::Instant;
 
 /// The characters that FAT and exFAT refuse in a name, as on a camera card.
@@ -180,8 +182,16 @@ pub(crate) enum Undo {
 /// operations on them wait while it lives. The work moves it into its thread, so the files are
 /// let go when the work ends, also when the thread panics.
 pub(crate) struct HeldBackFiles {
-    /// The files, counted by `is_changed_by_running_work` while this lives. It is never read.
-    _paths: Arc<Vec<PathBuf>>,
+    /// The files, counted by `is_changed_by_running_work` while this lives.
+    paths: Arc<Mutex<Vec<PathBuf>>>,
+}
+
+impl HeldBackFiles {
+    /// Lets go of every held file but `files`, once the work knows that it changes only those.
+    /// A tool that takes only RAW files then leaves the JPEGs beside them free to change.
+    pub(crate) fn hold_only(&self, files: &[PathBuf]) {
+        *lock_even_if_poisoned(&self.paths) = files.to_vec();
+    }
 }
 
 /// A file operation running in the background (copy, move, delete, keywords, a Lightroom
@@ -263,7 +273,7 @@ pub(crate) struct FileOperations {
     jobs: Vec<Arc<Job>>,
     /// The files that `run_in_background` work changes, held back (`HeldBackFiles`) by its thread
     /// as long as it runs.
-    held_back_files: Vec<Arc<Vec<PathBuf>>>,
+    held_back_files: Vec<Arc<Mutex<Vec<PathBuf>>>>,
     /// A Rename Many running in the background.
     renaming: Option<RenameJob>,
     renaming_rx: Receiving<(RenameOutcome, Working)>,
@@ -616,14 +626,14 @@ impl crate::App {
     /// path against path, because a delete of 1,000 files beside a keywords job on 100,000 was
     /// 10^8 comparisons.
     fn is_changed_by_running_work(&self, paths: &[PathBuf]) -> bool {
+        let held_back: Vec<_> = (self.file_operations.held_back_files.iter())
+            .filter(|t| Arc::strong_count(t) > 1)
+            .map(|t| lock_even_if_poisoned(t))
+            .collect();
         let running = (self.file_operations.jobs.iter())
             .filter(|j| Arc::strong_count(j) > 1)
             .flat_map(|j| &j.held_back_files)
-            .chain(
-                (self.file_operations.held_back_files.iter())
-                    .filter(|t| Arc::strong_count(t) > 1)
-                    .flat_map(|t| t.iter()),
-            );
+            .chain(held_back.iter().flat_map(|t| t.iter()));
         let held: HashSet<&Path> = running.map(PathBuf::as_path).collect();
         if held.is_empty() {
             return false;
@@ -1768,9 +1778,9 @@ impl crate::App {
         if !paths.is_empty() && !self.are_free_to_change(&paths) {
             return None;
         }
-        let held = Arc::new(paths);
+        let held = Arc::new(Mutex::new(paths));
         self.file_operations.held_back_files.push(held.clone());
-        Some(HeldBackFiles { _paths: held })
+        Some(HeldBackFiles { paths: held })
     }
 
     /// Runs `work`, which writes files and changes `held_back_files`, in a thread of its own. The
@@ -3300,7 +3310,7 @@ mod tests {
                 .map(|k| dir.join(top).join(format!("{k}.jpg")))
                 .collect()
         };
-        let held = std::sync::Arc::new(many("busy"));
+        let held = std::sync::Arc::new(std::sync::Mutex::new(many("busy")));
         app.file_operations.held_back_files.push(held.clone());
         let asked = many("free");
         let start = std::time::Instant::now();
@@ -5718,6 +5728,22 @@ mod tests {
         assert!(app.hold_back_while_writing(vec![a.clone()]).is_none());
         drop(held_back);
         assert!(app.are_free_to_change(std::slice::from_ref(&a)));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A tool's thread holds only the files the tool takes, once it has sorted them, so a tool
+    /// for RAW files left open does not hold back the JPEGs selected beside them.
+    #[test]
+    fn held_back_files_let_go_of_what_the_work_does_not_change() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-hold-only-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let (raw, jpeg) = (dir.join("a.cr2"), dir.join("a.jpg"));
+        let (mut app, _ctx) = crate::support::test_support::app_on(&dir);
+        let held_back = (app.hold_back_while_writing(vec![raw.clone(), jpeg.clone()])).unwrap();
+        held_back.hold_only(std::slice::from_ref(&raw));
+        assert!(app.are_free_to_change(std::slice::from_ref(&jpeg)));
+        assert!(!app.are_free_to_change(std::slice::from_ref(&raw)));
+        drop(held_back);
         std::fs::remove_dir_all(dir).unwrap();
     }
 }
