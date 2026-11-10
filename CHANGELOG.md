@@ -50,6 +50,10 @@ and versions follow [Semantic Versioning](https://semver.org/).
 - A Copy or Move looks up the file system of the folder it goes to in the background, with the
   folder's real path, to refuse a name that a camera card does not allow. Before, the window's
   thread looked it up, which a share that stalled in that moment held.
+- A Move of two RAW files of one name stem, such as `r.cr2` and `r.nef`, where the second could
+  not go or was not reached after Stop, leaves Lightroom's `r.xmp` where it is, as it belongs to
+  neither. Before, it went with the first when that one went first. The Undo of such a move
+  does the same when one of them cannot go back.
 
 ### Changed
 
