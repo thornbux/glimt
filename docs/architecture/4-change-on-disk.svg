@@ -117,9 +117,9 @@
       <text x="42" y="535" font-size="13" font-weight="700" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace">trash::trash</text>
       <text x="42" y="555">gio trash in chunks, timed;</text>
       <text x="42" y="571">without gio, or a file the</text>
-      <text x="42" y="587">Flatpak's portal refuses, by</text>
-      <text x="42" y="603">hand: .Trash/UID on another</text>
-      <text x="42" y="619">disk, never a network share</text>
+      <text x="42" y="587">portal refuses, by hand:</text>
+      <text x="42" y="603">.Trash/UID or .Trash-UID on</text>
+      <text x="42" y="619">another disk; no network share</text>
       <text x="42" y="641" fill="#57606a">files/trash.rs</text>
 
       <rect x="260" y="514" width="220" height="138" rx="6" fill="#f6f8fa" stroke="#1f2328" stroke-width="1.5"/>
