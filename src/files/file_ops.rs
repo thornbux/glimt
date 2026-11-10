@@ -1610,66 +1610,87 @@ impl crate::App {
                     None => tf!("{files} moved back", files),
                 })
             })),
-            Undo::Trash(trash_move) => drop(self.run_in_background(ctx, undone, move || {
-                let (back, mut error) = restore(&trash_move, trash_dirs);
-                // What went with the files comes back with them: their places in the
-                // collection, their marks and their stars.
-                let set: HashSet<&Path> = back.iter().map(PathBuf::as_path).collect();
-                let returned = |p: &Path| p.ancestors().any(|a| set.contains(a));
-                if let Some((file, removed)) = &trash_move.collection {
-                    let removed: Vec<_> = (removed.iter())
-                        .filter(|(_, p)| returned(p))
-                        .cloned()
-                        .collect();
-                    if let Err(e) =
-                        collections::edit_open_collection(file, |all| put_back(all, &removed))
-                    {
-                        error.get_or_insert(e);
-                    }
-                }
-                // Those not put back (a name taken, a rename that failed) stay to be undone
-                // again, with their marks and places, which would be lost with this Undo.
-                let all_marks = crate::files::trash::take_forgotten_marks(&trash_move.marks);
-                let (marks, kept) = all_marks.into_iter().partition(|(p, _)| returned(p));
-                let left: Vec<PathBuf> = (trash_move.files.into_iter())
-                    .filter(|p| !returned(p))
-                    .collect();
-                let undo = (!left.is_empty()).then(|| {
-                    Undo::Trash(TrashMove {
-                        files: left,
-                        sidecars: trash_move.sidecars,
-                        sidecars_left: trash_move.sidecars_left,
-                        since: trash_move.since,
-                        marks: std::sync::Arc::new(std::sync::Mutex::new(kept)),
-                        collection: (trash_move.collection).map(|(file, removed)| {
-                            (
-                                file,
-                                removed.into_iter().filter(|(_, p)| !returned(p)).collect(),
-                            )
-                        }),
-                    })
-                });
-                let _ = report_tx.send(OperationReport {
-                    read_folder_again: true,
-                    undo,
-                    is_undo_remainder: true,
-                    restored_marks: marks,
-                    ..Default::default()
-                });
-                let done = tf!(
-                    "{count} back from the trash",
-                    count = count(back.len(), "file")
-                );
-                // The files that came back are told too when others did not.
-                Some(match error {
-                    None => done,
-                    Some(e) if back.is_empty() => tf!("Undo failed: {e}", e),
-                    Some(e) => format!("{done}; {}", tf!("Undo failed: {e}", e)),
-                })
-            })),
+            Undo::Trash(trash_move) => self.undo_trash(ctx, trash_move, undone),
         }
         // A folder that came back shows in the tree again.
         self.tree.read_again();
+    }
+
+    /// Puts back what `trash_move` moved to the trash, as `undo` says. The marks writer must
+    /// first have taken the files' marks out of the marks file, which may take long, so the
+    /// status bar shows the Undo with Stop meanwhile. A stopped Undo puts nothing back and stays
+    /// to be done again. `undone` are the files it holds back.
+    fn undo_trash(&mut self, ctx: &egui::Context, trash_move: TrashMove, undone: Vec<PathBuf>) {
+        let report_tx = self.file_operations.report_tx.clone();
+        let Some(job) = self.start_job(tr("Undo"), trash_move.files.len(), Vec::new()) else {
+            return;
+        };
+        self.run_in_background(ctx, undone, move || {
+            let Some(all_marks) =
+                crate::files::trash::take_forgotten_marks(&trash_move.marks, || job.is_stopped())
+            else {
+                let _ = report_tx.send(OperationReport {
+                    undo: Some(Undo::Trash(trash_move)),
+                    is_undo_remainder: true,
+                    ..Default::default()
+                });
+                return Some(job.stopped_text());
+            };
+            let (back, mut error) = restore(&trash_move, trash_dirs);
+            // What went with the files comes back with them: their places in the
+            // collection, their marks and their stars.
+            let set: HashSet<&Path> = back.iter().map(PathBuf::as_path).collect();
+            let returned = |p: &Path| p.ancestors().any(|a| set.contains(a));
+            if let Some((file, removed)) = &trash_move.collection {
+                let removed: Vec<_> = (removed.iter())
+                    .filter(|(_, p)| returned(p))
+                    .cloned()
+                    .collect();
+                if let Err(e) =
+                    collections::edit_open_collection(file, |all| put_back(all, &removed))
+                {
+                    error.get_or_insert(e);
+                }
+            }
+            // Those not put back (a name taken, a rename that failed) stay to be undone
+            // again, with their marks and places, which would be lost with this Undo.
+            let (marks, kept) = all_marks.into_iter().partition(|(p, _)| returned(p));
+            let left: Vec<PathBuf> = (trash_move.files.into_iter())
+                .filter(|p| !returned(p))
+                .collect();
+            let undo = (!left.is_empty()).then(|| {
+                Undo::Trash(TrashMove {
+                    files: left,
+                    sidecars: trash_move.sidecars,
+                    sidecars_left: trash_move.sidecars_left,
+                    since: trash_move.since,
+                    marks: std::sync::Arc::new(std::sync::Mutex::new(kept)),
+                    collection: (trash_move.collection).map(|(file, removed)| {
+                        (
+                            file,
+                            removed.into_iter().filter(|(_, p)| !returned(p)).collect(),
+                        )
+                    }),
+                })
+            });
+            let _ = report_tx.send(OperationReport {
+                read_folder_again: true,
+                undo,
+                is_undo_remainder: true,
+                restored_marks: marks,
+                ..Default::default()
+            });
+            let done = tf!(
+                "{count} back from the trash",
+                count = count(back.len(), "file")
+            );
+            // The files that came back are told too when others did not.
+            Some(match error {
+                None => done,
+                Some(e) if back.is_empty() => tf!("Undo failed: {e}", e),
+                Some(e) => format!("{done}; {}", tf!("Undo failed: {e}", e)),
+            })
+        });
     }
 
     // ---- Work in the background: sidecars, frames, the backup and other jobs ----
@@ -3733,7 +3754,7 @@ mod tests {
         const IN_CONTRACT: &[(&str, &str)] = &[
             ("delete_now", "delete"),
             ("delete_now", "trash"),
-            ("undo", "undo a trash"),
+            ("undo_trash", "undo a trash"),
             ("transfer_into_real_folder", "move"),
             // Through rename_in_background, and the Undo of a rename.
             ("rename_files_of", "rename"),
@@ -4551,6 +4572,55 @@ mod tests {
             [(a.clone(), (1, 3))]
         );
         assert_eq!(trash_move.collection, Some((gqv, vec![(0, a)])));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// Undo from the trash waits for the marks writer as long as it is held, and puts no file
+    /// back without its marks. Stopped, it puts nothing back and stays to be done again with its
+    /// marks. Once the writer goes on, the file comes back.
+    #[test]
+    fn undo_from_the_trash_waits_for_the_marks_or_stops() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-undo-held-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let a = dir.join("a.png");
+        image::RgbImage::new(2, 2).save(&a).unwrap();
+        let (mut app, ctx) = app_on(&dir);
+        let since = std::time::SystemTime::now() - std::time::Duration::from_secs(1);
+        crate::files::trash::trash(std::slice::from_ref(&a)).unwrap();
+        app.file_operations.undo = Some(super::Undo::Trash(crate::files::trash::TrashMove {
+            files: vec![a.clone()],
+            sidecars: Vec::new(),
+            sidecars_left: Vec::new(),
+            since,
+            marks: std::sync::Arc::new(std::sync::Mutex::new(vec![(a.clone(), (1, 3))])),
+            collection: None,
+        }));
+        // The writer is held, as by another window's lock, until `release` is dropped.
+        let (release, held) = std::sync::mpsc::channel::<()>();
+        crate::files::file_io::write_later(move || {
+            let _ = held.recv();
+        });
+        app.undo(&ctx);
+        std::thread::sleep(std::time::Duration::from_millis(300));
+        assert!(!a.exists(), "the file came back before its marks");
+        app.file_operations.stop_jobs();
+        assert!(run_background_until(&mut app, &ctx, |app| app
+            .file_operations
+            .undo
+            .is_some()
+            && !app.working()));
+        assert!(!a.exists());
+        let Some(super::Undo::Trash(trash_move)) = &app.file_operations.undo else {
+            panic!("the Undo was lost");
+        };
+        assert_eq!(
+            *lock_even_if_poisoned(&trash_move.marks),
+            [(a.clone(), (1, 3))]
+        );
+        drop(release);
+        app.undo(&ctx);
+        assert!(run_background_until(&mut app, &ctx, |app| !app.working() && a.exists()));
+        assert!(app.file_operations.undo.is_none());
         std::fs::remove_dir_all(dir).unwrap();
     }
 

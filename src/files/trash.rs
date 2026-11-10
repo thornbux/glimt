@@ -42,10 +42,27 @@ struct TrashEntry {
 
 /// Takes the marks that a delete took away out of `marks`, for its Undo. The marks writer adds
 /// them as it takes them out of the marks file, so this first waits for the writes queued
-/// before it.
-pub(crate) fn take_forgotten_marks(marks: &ForgottenMarks) -> Vec<(PathBuf, (u8, u8))> {
-    crate::files::file_io::wait_for_queued_writes();
-    std::mem::take(&mut *crate::support::threads::lock_even_if_poisoned(marks))
+/// before it, as long as they take. A writer held by another window's lock or a share that
+/// stalls must not let Undo bring the files back without their marks. Returns `None`, with
+/// `marks` left as they are, when `is_stopped` says that the user stopped the wait.
+pub(crate) fn take_forgotten_marks(
+    marks: &ForgottenMarks,
+    is_stopped: impl Fn() -> bool,
+) -> Option<Vec<(PathBuf, (u8, u8))>> {
+    use std::sync::mpsc::RecvTimeoutError::Timeout;
+    let (done, wait) = std::sync::mpsc::channel();
+    crate::files::file_io::write_later(move || {
+        let _ = done.send(());
+    });
+    // A wait that ends without an answer (the writer thread is gone) waits no longer.
+    while let Err(Timeout) = wait.recv_timeout(std::time::Duration::from_millis(100)) {
+        if is_stopped() {
+            return None;
+        }
+    }
+    Some(std::mem::take(
+        &mut *crate::support::threads::lock_even_if_poisoned(marks),
+    ))
 }
 
 /// What `trash_move` moved to the trash put back where it was, with the sidecars that went with it:
