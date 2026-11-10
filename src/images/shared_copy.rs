@@ -1082,14 +1082,16 @@ pub(crate) struct LeftOut {
 
 impl LeftOut {
     /// Reads a choice from the text of its file, one word to a line: a group's key or a tag's
-    /// name.
+    /// name. A tag stored by its number is read under the name it has now
+    /// (`exif::shared_tag_name_now`).
     pub(crate) fn parse(text: &str) -> LeftOut {
         let mut left_out = LeftOut::default();
         for word in text.lines().map(str::trim).filter(|l| !l.is_empty()) {
             match Group::of_key(word) {
                 Some(group) => left_out.groups_left_out[group as usize] = true,
                 None => {
-                    left_out.tags_left_out.insert(word.to_owned());
+                    let tag = crate::metadata::exif::shared_tag_name_now(word);
+                    left_out.tags_left_out.insert(tag);
                 }
             }
         }
@@ -2252,6 +2254,21 @@ fn webp_with_metadata(
 #[cfg(test)]
 mod tests {
     use std::collections::HashSet;
+
+    /// A tag left out while it had no name, stored by its number, stays left out after a later
+    /// Glimt names it, and the next save writes its name. Before, the stored number no longer
+    /// matched the tag, and every copy kept it without a word.
+    #[test]
+    fn a_tag_left_out_by_its_number_stays_left_out_once_named() {
+        let stored = "Exif 0x9003\nGPS 0x0002\nExif 0xffff\nExif 0x+abc\n";
+        let left_out = super::LeftOut::parse(stored);
+        assert!(left_out.is_left_out("DateTimeOriginal"));
+        assert!(left_out.is_left_out("GPSLatitude"));
+        assert!(left_out.is_left_out("Exif 0xffff"));
+        assert!(left_out.is_left_out("Exif 0x+abc"));
+        let saved = left_out.text();
+        assert!(saved.contains("DateTimeOriginal\n") && !saved.contains("Exif 0x9003"));
+    }
 
     /// The EXIF block of the tests, big-endian: Make "Canon", orientation 6, a body serial
     /// number in the Exif directory and a map datum in the GPS directory, each a text that is
