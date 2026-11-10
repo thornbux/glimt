@@ -5,6 +5,21 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- `--remote-all` exits with 3, not 1, when one window does not answer within 10 seconds while
+  another answered, so a script that retries on 1 no longer does the command twice in the
+  windows that did it. It exits with 1 only when no window took the command or none answered.
+  The man page names every case of exit 2.
+- A window that listens for `--remote` with remote control off, as a named window does, becomes
+  the Glimt used last when it gets the focus, so plain `--remote` goes to it.
+- `glimt --remote open smb://nas/photos` mounts the share, as `glimt smb://nas/photos` does.
+  Before, it opened `smb:/nas/photos` in the working folder, which does not exist.
+- A tool's `%f` or `%u` inside a word, as in `--input=%f`, is filled in with each file, as an
+  added format's is. Before, the tool ran once with the text as it was, and no file.
+- Printing on both sides with orientation Automatic turns every page as the first one, so the
+  back of a landscape page is no longer upside down.
+
 ## [0.79.0] - 2026-11-10
 
 ### Changed
