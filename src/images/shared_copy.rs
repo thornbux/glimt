@@ -1728,7 +1728,7 @@ fn local_name(tag: &str) -> &str {
 /// (`KNOWN_NAMES`, and EXIF's GPS tags, named or not), or as a block (`BLOCKS`,
 /// `UNKNOWN_BLOCKS`), which goes with the groups it can hold anyway. No namespace is known
 /// whole, because any namespace can hold a blob of other tags under a name of its own.
-fn is_known(tag: &str) -> bool {
+pub(crate) fn is_known(tag: &str) -> bool {
     let local = local_name(tag);
     KNOWN_NAMES.contains(&local) || local.starts_with("GPS") || !block_groups(tag).is_empty()
 }
@@ -2048,7 +2048,7 @@ fn gain_map_xmp(xmp: &[u8]) -> Option<Vec<u8>> {
     let properties = crate::metadata::xmp::properties(std::str::from_utf8(xmp).ok()?);
     let (mut attributes, mut elements) = (String::new(), String::new());
     let mut namespaces_used = Vec::new();
-    for (name, element, _) in &properties.list {
+    for (name, element, namespaces) in &properties.list {
         let Some(&(prefix, uri, _)) =
             (GAIN_MAP_PROPERTIES.iter()).find(|(_, _, kept)| kept.contains(&name.as_str()))
         else {
@@ -2061,7 +2061,11 @@ fn gain_map_xmp(xmp: &[u8]) -> Option<Vec<u8>> {
             Some(value) if !value.contains('<') => {
                 attributes += &format!(" {name}=\"{}\"", value.replace('"', "&quot;"));
             }
-            _ if element.starts_with(&format!("<{name}>")) => elements += element,
+            // A value for each colour is a list, and only the list stays (`with_own_value_only`).
+            _ if element.starts_with(&format!("<{name}>")) => {
+                elements +=
+                    &crate::metadata::xmp::with_own_value_only(element, namespaces, &|_| false)
+            }
             _ => continue,
         }
         if !namespaces_used.contains(&(prefix, uri)) {
@@ -2232,12 +2236,14 @@ mod tests {
         d
     }
 
-    /// The XMP packet inside the test files: a latitude and a keyword.
+    /// The XMP packet inside the test files: a latitude, and a keyword with an altitude
+    /// planted inside its list.
     const XMP: &str = "<x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><rdf:RDF \
         xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\"><rdf:Description \
         rdf:about=\"\" xmlns:exif=\"http://ns.adobe.com/exif/1.0/\" \
         xmlns:dc=\"http://purl.org/dc/elements/1.1/\" exif:GPSLatitude=\"59,55.123N\">\
-        <dc:subject><rdf:Bag><rdf:li>harbour</rdf:li></rdf:Bag></dc:subject>\
+        <dc:subject><rdf:Bag><rdf:li>harbour</rdf:li><rdf:li><rdf:Description \
+        exif:GPSAltitude=\"Alt-Secret\"/></rdf:li></rdf:Bag></dc:subject>\
         </rdf:Description></rdf:RDF></x:xmpmeta>";
 
     /// The sidecar of the test files: an alt text written in Glimt for publishing.
@@ -2249,7 +2255,13 @@ mod tests {
         </x:xmpmeta>";
 
     /// The texts a copy that leaves out the place and the serial number must not hold.
-    const LEFT_OUT: [&[u8]; 4] = [b"WGS-84-SECRET", b"59,55.123N", b"SN-77777", b"Oslo-Secret"];
+    const LEFT_OUT: [&[u8]; 5] = [
+        b"WGS-84-SECRET",
+        b"59,55.123N",
+        b"SN-77777",
+        b"Alt-Secret",
+        b"Oslo-Secret",
+    ];
 
     /// The texts it must still hold: the make, the keyword and the alt text of the sidecar.
     const KEPT: [&[u8]; 3] = [b"Canon", b"harbour", b"A boat"];
@@ -2294,7 +2306,7 @@ mod tests {
         let has = |text: &[u8]| copy.windows(text.len()).any(|w| w == text);
         // The original holds them, so their absence in the copy says something.
         let had = |text: &[u8]| original.windows(text.len()).any(|w| w == text);
-        assert!(LEFT_OUT[..3].iter().chain(&KEPT[..1]).all(|t| had(t)));
+        assert!(LEFT_OUT[..4].iter().chain(&KEPT[..1]).all(|t| had(t)));
         for text in LEFT_OUT {
             assert!(
                 !has(text),
@@ -2972,9 +2984,19 @@ mod tests {
         let rdf = "<x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><rdf:RDF \
             xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\"><rdf:Description \
             rdf:about=\"\" xmlns:hdrgm=\"http://ns.adobe.com/hdr-gain-map/1.0/\"";
+        // A value for each colour is a list, here with a place planted inside it.
+        let gain_map_min = |planted: &str| {
+            format!(
+                "<hdrgm:GainMapMin><rdf:Seq><rdf:li>0.25</rdf:li><rdf:li><rdf:Description \
+                 exif:GPSLatitude=\"{planted}\"/></rdf:li><exif:GPSLongitude>{planted}\
+                 </exif:GPSLongitude></rdf:Seq></hdrgm:GainMapMin>"
+            )
+        };
+        let exif_namespace = "xmlns:exif=\"http://ns.adobe.com/exif/1.0/\"";
         let gain_map_xmp = format!(
-            "{rdf} hdrgm:Version=\"1.0\" hdrgm:GainMapMax=\"2.3\" hdrgm:HDRCapacityMax=\"2.3\"/>\
-             </rdf:RDF></x:xmpmeta>"
+            "{rdf} {exif_namespace} hdrgm:Version=\"1.0\" hdrgm:GainMapMax=\"2.3\" \
+             hdrgm:HDRCapacityMax=\"2.3\">{}</rdf:Description></rdf:RDF></x:xmpmeta>",
+            gain_map_min("Gain-Map-Secret")
         );
         // Apple's XMP is written with elements, as an iPhone writes it, and with places that no
         // copy may keep: one of its own, and one in a property of each gain map namespace.
@@ -3003,12 +3025,13 @@ mod tests {
         let main_xmp = format!(
             "{rdf} xmlns:Container=\"http://ns.google.com/photos/1.0/container/\" \
              xmlns:Item=\"http://ns.google.com/photos/1.0/container/item/\" \
-             hdrgm:Version=\"1.0\"><Container:Directory><rdf:Seq><rdf:li \
+             {exif_namespace} hdrgm:Version=\"1.0\">{}<Container:Directory><rdf:Seq><rdf:li \
              rdf:parseType=\"Resource\"><Container:Item Item:Semantic=\"Primary\" \
              Item:Mime=\"image/jpeg\"/></rdf:li><rdf:li rdf:parseType=\"Resource\">\
              <Container:Item Item:Semantic=\"GainMap\" Item:Mime=\"image/jpeg\" \
              Item:Length=\"{}\"/></rdf:li></rdf:Seq></Container:Directory></rdf:Description>\
              </rdf:RDF></x:xmpmeta>",
+            gain_map_min("Main-Image-Secret"),
             gain_map.len()
         );
         // An iPhone's main image has no XMP. This one has a place in Apple's namespace.
@@ -3057,6 +3080,15 @@ mod tests {
         let copy = super::copy(&path, &left_out.kept(&found)).unwrap().unwrap();
         let has = |text: &[u8]| copy.windows(text.len()).any(|w| w == text);
         assert!(!has(b"WGS-84-SECRET"), "the GPS is in the copy");
+        // A gain map's property keeps its own value, not what was planted inside it.
+        for planted in [&b"Gain-Map-Secret"[..], b"Main-Image-Secret"] {
+            assert!(original.windows(planted.len()).any(|w| w == planted));
+            let planted_text = String::from_utf8_lossy(planted);
+            assert!(!has(planted), "{planted_text} is in the copy");
+        }
+        let list = b"<hdrgm:GainMapMin><rdf:Seq><rdf:li>0.25</rdf:li>";
+        let lists = copy.windows(list.len()).filter(|w| w == list).count();
+        assert_eq!(lists, 2, "a gain map's list lost its value");
         assert!(has(&gain_map_scans), "the gain map's image data is gone");
         assert!(
             has(b"hdrgm:GainMapMax=\"2.3\""),
