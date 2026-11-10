@@ -3009,3 +3009,7 @@ msgstr "{name} wird noch geöffnet… Einen anderen Ordner öffnen, um nicht lä
 #: src/files/file_ops.rs
 msgid "Rename Many stopped, so the metadata edited for {count} was not saved"
 msgstr "Mehrere umbenennen hat aufgehört, daher wurden die für {count} bearbeiteten Metadaten nicht gespeichert"
+
+#: src/ui/file_list.rs
+msgid "( {w} x {h} ) {bytes}{position}{page}"
+msgstr "( {w} x {h} ) {bytes}{position}{page}"

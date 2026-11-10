@@ -701,13 +701,18 @@ msgstr[1] "bilder"
     }
 
     /// Every text the window shows goes through tr, tf! or plural: a literal handed straight to
-    /// a widget, or one that starts with a capital and has two words, is translated where it
-    /// stands, or is a text of no_nb.po in a table (a const or static) translated where it is
-    /// shown, or stays English for a reason below. Each literal in tr, tf! or plural is a text
-    /// of no_nb.po, so the translation test above finds it in every language.
+    /// a widget, also through format!, or one that starts with a capital and has two words, is
+    /// translated where it stands, or is a text of no_nb.po in a table (a const or static)
+    /// translated where it is shown, or stays English for a reason below. Each literal in tr or
+    /// tf! is a text of no_nb.po, and each noun of count or plural a noun of it, so the
+    /// translation test above finds it in every language. Before, a noun of count was not
+    /// checked, a text in format! was not seen, and an exception excused every text that
+    /// started with it.
     #[test]
     fn every_text_shown_is_translated() {
+        use std::collections::HashSet;
         // (file, the literals or the item they are in ("" for the whole file), why English).
+        // A literal is matched whole, and an exception that excuses no text fails.
         const ENGLISH: &[(&str, &[&str], &str)] = &[
             ("ui/help.rs", &[""], "the Help Manual stays English"),
             (
@@ -742,7 +747,16 @@ msgstr[1] "bilder"
             ),
             (
                 "images/svg.rs",
-                &["SVG "],
+                &[
+                    "SVG too large once unpacked",
+                    "SVG too large",
+                    "SVG needs too much memory to draw",
+                    "SVG could not be drawn",
+                    "SVG cut short",
+                    "SVG gzipped twice",
+                    "SVG whose entities would grow too large",
+                    "SVG size mismatch",
+                ],
                 "what is wrong in a file, as the system's errors",
             ),
             (
@@ -763,17 +777,16 @@ msgstr[1] "bilder"
             (
                 "images/shared_copy.rs",
                 &[
-                    "const GROUP_EXCEPTIONS",
                     "const KNOWN_NAMES",
                     "const UNKNOWN_BLOCKS",
                     "JFIF thumbnail",
-                    "Extra images",
-                    "Data after",
+                    "Extra images (MPF)",
+                    "Data after the image",
                     "Photoshop resources",
                     "Raw profiles",
                     "JPEG comment",
-                    "PNG chunk",
-                    "WebP chunk",
+                    "PNG chunk {}",
+                    "WebP chunk {}",
                 ],
                 "tags' names, shown as files name tags",
             ),
@@ -800,20 +813,24 @@ msgstr[1] "bilder"
             (
                 "images/thumbs.rs",
                 &[
-                    "No such file",
+                    "No such file or directory",
                     "Permission denied",
                     "Input/output error",
-                    "Transport endpoint",
+                    "Transport endpoint is not connected",
                     "Host is down",
                 ],
                 "read in programs' errors",
             ),
             (
                 "metadata/lightroom.rs",
-                &["SELECT ", "FROM "],
+                &["const QUERY", "fn non_table_check("],
                 "SQL for sqlite3",
             ),
-            ("features/print.rs", &["BT /F "], "PDF operators"),
+            (
+                "features/print.rs",
+                &["BT /F {size} Tf {tx:.2} {y:.2} Td ({}) Tj ET"],
+                "PDF operators",
+            ),
             (
                 "viewer/view.rs",
                 &["Glimt Projector"],
@@ -846,6 +863,7 @@ msgstr[1] "bilder"
             ".hint_text(",
             ".selected_text(",
             ".text(",
+            ".give(",
             "Window::new(",
             "Button::new(",
             "button(",
@@ -917,8 +935,11 @@ msgstr[1] "bilder"
         };
         let nb = super::parse(include_str!("../../po/no_nb.po"));
         let msgid = |t: &str| nb.texts.contains_key(t) || nb.plurals.contains_key(t);
-        let mut wrong = Vec::new();
-        for (file, text) in crate::support::source_rules::rust_sources() {
+        let nouns = |t: &str| nb.plurals.contains_key(t);
+        // The texts of one file that are shown in English, each with its place. An exception
+        // of ENGLISH that excuses one is put in `used`.
+        let check = |file: &str, text: &str, used: &mut HashSet<(String, String)>| {
+            let mut wrong = Vec::new();
             let code = text.split("\n#[cfg(test)]\nmod tests").next().unwrap();
             let mut tables = Vec::new();
             for (at, _) in code.match_indices('\n') {
@@ -929,38 +950,91 @@ msgstr[1] "bilder"
                     tables.push(item(code, at + 1));
                 }
             }
+            // Each exception is a whole file (""), an item, or one literal, matched whole.
             let mut english = Vec::new();
             for (_, marks, _) in ENGLISH.iter().filter(|e| e.0 == file) {
                 for mark in *marks {
-                    let is_item = mark.starts_with("const ") || mark.starts_with("pub");
+                    let is_item = ["const ", "pub", "fn "].iter().any(|s| mark.starts_with(s));
                     match code.find(mark).filter(|_| is_item) {
-                        Some(start) => english.push(Err(item(code, start))),
-                        None => english.push(Ok(*mark)),
+                        Some(start) => english.push((*mark, Err(item(code, start)))),
+                        None => english.push((*mark, Ok(*mark))),
                     }
                 }
             }
             for (at, text) in crate::support::source_rules::literals(code) {
                 let before = code[..at].trim_end();
                 let line = code[..at].matches('\n').count() + 1;
-                if called(before, &["tr(", "tf!(", "plural("]) {
+                // A noun of count or plural, wherever it stands among the arguments.
+                if called(enclosing(code, at), &["count(", "plural("]) {
+                    if !nouns(&text) {
+                        wrong.push(format!("{file}:{line}: not a noun of no_nb.po: {text:?}"));
+                    }
+                    continue;
+                }
+                if called(before, &["tr(", "tf!("]) {
                     if !msgid(&text) {
                         wrong.push(format!("{file}:{line}: not in no_nb.po: {text:?}"));
                     }
                     continue;
                 }
+                // A text made with format! is shown where the format! is.
+                let mut call = enclosing(code, at);
+                while call.ends_with("format!(") {
+                    call = enclosing(code, call.len() - "format!(".len());
+                }
                 let shown = (text.starts_with(char::is_uppercase) && words(&text) >= 2)
-                    || (called(enclosing(code, at), &shown_by) && words(&text) >= 1);
+                    || (called(call, &shown_by) && words(&text) >= 1);
                 let table = tables.iter().any(|r| r.contains(&at)) && msgid(&text);
                 let terminal = called(
                     before,
                     &["println!(", "eprintln!(", "print!(", "eprint!(", "panic!("],
                 );
-                let kept = english.iter().any(|e| match e {
-                    Ok(start) => text.starts_with(start),
+                if !shown || table || terminal {
+                    continue;
+                }
+                let kept = english.iter().find(|(mark, e)| match e {
+                    _ if mark.is_empty() => true,
+                    Ok(literal) => text == *literal,
                     Err(range) => range.contains(&at),
                 });
-                if shown && !table && !terminal && !kept {
-                    wrong.push(format!("{file}:{line}: not translated: {text:?}"));
+                match kept {
+                    Some((mark, _)) => _ = used.insert((file.to_owned(), mark.to_string())),
+                    None => wrong.push(format!("{file}:{line}: not translated: {text:?}")),
+                }
+            }
+            wrong
+        };
+        // What each spelling that slipped through before is found as.
+        let mut used = HashSet::new();
+        let samples = [
+            ("x.rs", "fn f() {\n    count(n, \"folderz\");\n}\n"),
+            (
+                "x.rs",
+                "fn f() {\n    ui.label(format!(\"{n} files copied\"));\n}\n",
+            ),
+            (
+                "x.rs",
+                "fn f() {\n    self.notice.give(\"Saved\".into());\n}\n",
+            ),
+            (
+                "images/svg.rs",
+                "fn f() {\n    ui.label(\"SVG files need svg\");\n}\n",
+            ),
+        ];
+        for (file, text) in samples {
+            assert_eq!(check(file, text, &mut used).len(), 1, "{text}");
+        }
+        let mut used = HashSet::new();
+        let mut wrong = Vec::new();
+        for (file, text) in crate::support::source_rules::rust_sources() {
+            wrong.extend(check(&file, &text, &mut used));
+        }
+        for (file, marks, _) in ENGLISH {
+            for mark in *marks {
+                if !used.contains(&(file.to_string(), mark.to_string())) {
+                    wrong.push(format!(
+                        "{file}: an exception that excuses nothing: {mark:?}"
+                    ));
                 }
             }
         }
