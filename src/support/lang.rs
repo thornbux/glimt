@@ -118,7 +118,8 @@ fn translation_code(setting: &str) -> Option<String> {
 /// Whether the language setting's value `setting` names a language Glimt has. That is English,
 /// or a translation by its code or by a language code of `$LANG`, such as "nb" or "pt".
 pub fn is_language(setting: &str) -> bool {
-    setting.split(['_', '.', '@']).next() == Some(ENGLISH) || language(setting).is_some()
+    let english = |l: &str| l.eq_ignore_ascii_case(ENGLISH);
+    setting.split(['_', '.', '@']).next().is_some_and(english) || language(setting).is_some()
 }
 
 /// Each translation parsed once, the first time it is chosen, and kept: its texts are handed
@@ -364,7 +365,7 @@ mod tests {
                 "{setting}"
             );
         }
-        for setting in ["en", "en_GB", "nb", "pt_BR", "no_nn"] {
+        for setting in ["en", "EN", "en_GB", "nb", "pt_BR", "no_nn"] {
             assert!(super::is_language(setting), "{setting}");
         }
         assert!(!super::is_language("xx"));
