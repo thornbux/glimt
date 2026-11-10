@@ -2998,3 +2998,7 @@ msgstr ""
 #: src/files/file_io.rs
 msgid "Glimt ended before every write was done: the last change of the settings, marks, a collection or a file may be lost"
 msgstr ""
+
+#: src/files/journal.rs
+msgid "Rename Many runs without its plan ({e}), so a crash halfway is not put right at the next start"
+msgstr ""

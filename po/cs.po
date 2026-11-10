@@ -2999,3 +2999,7 @@ msgstr "Změnu nelze uložit, protože Glimt při jejím zápisu narazil na chyb
 #: src/files/file_io.rs
 msgid "Glimt ended before every write was done: the last change of the settings, marks, a collection or a file may be lost"
 msgstr "Glimt skončil dříve, než bylo vše zapsáno: poslední změna nastavení, značek, kolekce nebo souboru mohla být ztracena"
+
+#: src/files/journal.rs
+msgid "Rename Many runs without its plan ({e}), so a crash halfway is not put right at the next start"
+msgstr "Hromadné přejmenování běží bez svého plánu ({e}), takže pád v polovině se při dalším spuštění nenapraví"

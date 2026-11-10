@@ -2988,3 +2988,7 @@ msgstr "Nie można zapisać zmiany, ponieważ Glimt napotkał błąd podczas jej
 #: src/files/file_io.rs
 msgid "Glimt ended before every write was done: the last change of the settings, marks, a collection or a file may be lost"
 msgstr "Glimt zakończył działanie, zanim wszystko zostało zapisane: ostatnia zmiana ustawień, znaczników, kolekcji lub pliku mogła zostać utracona"
+
+#: src/files/journal.rs
+msgid "Rename Many runs without its plan ({e}), so a crash halfway is not put right at the next start"
+msgstr "Zmień wiele nazw działa bez swojego planu ({e}), więc awaria w połowie nie zostanie naprawiona przy następnym uruchomieniu"

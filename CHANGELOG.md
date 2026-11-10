@@ -7,6 +7,9 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- Rename Many tells when it cannot write its plan (a full disk, a read-only state folder) and runs
+  without it, as a crash halfway is then not put right at the next start. Before, the user was
+  not told.
 - When Glimt closes while a write still runs after its five seconds' wait (a share that stopped
   answering), it says so on the terminal. Before, it ended without a word.
 - A saved collection that cannot be written after its images were moved or renamed is told in

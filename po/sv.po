@@ -2977,3 +2977,7 @@ msgstr "En ändring kunde inte sparas, eftersom Glimt stötte på ett fel när d
 #: src/files/file_io.rs
 msgid "Glimt ended before every write was done: the last change of the settings, marks, a collection or a file may be lost"
 msgstr "Glimt avslutades innan allt var skrivet: den senaste ändringen av inställningarna, märkena, en samling eller en fil kan ha gått förlorad"
+
+#: src/files/journal.rs
+msgid "Rename Many runs without its plan ({e}), so a crash halfway is not put right at the next start"
+msgstr "Byt namn på flera körs utan sin plan ({e}), så en krasch halvvägs rättas inte vid nästa start"

@@ -2977,3 +2977,7 @@ msgstr "En ændring kunne ikke gemmes, fordi Glimt fik en fejl, mens den blev sk
 #: src/files/file_io.rs
 msgid "Glimt ended before every write was done: the last change of the settings, marks, a collection or a file may be lost"
 msgstr "Glimt sluttede, før alt var skrevet: den seneste ændring af indstillingerne, mærkerne, en samling eller en fil kan være tabt"
+
+#: src/files/journal.rs
+msgid "Rename Many runs without its plan ({e}), so a crash halfway is not put right at the next start"
+msgstr "Omdøb flere kører uden sin plan ({e}), så et nedbrud halvvejs bliver ikke rettet ved næste start"

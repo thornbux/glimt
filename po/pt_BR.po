@@ -2988,3 +2988,7 @@ msgstr "Não foi possível salvar uma alteração, porque o Glimt encontrou um e
 #: src/files/file_io.rs
 msgid "Glimt ended before every write was done: the last change of the settings, marks, a collection or a file may be lost"
 msgstr "O Glimt encerrou antes de gravar tudo: a última alteração das configurações, marcas, de uma coleção ou de um arquivo pode ter sido perdida"
+
+#: src/files/journal.rs
+msgid "Rename Many runs without its plan ({e}), so a crash halfway is not put right at the next start"
+msgstr "“Renomear vários” é executado sem seu plano ({e}), então uma falha no meio não será corrigida na próxima inicialização"
