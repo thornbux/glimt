@@ -1539,6 +1539,18 @@ msgid "MB at most for an animation's frames"
 msgstr "Mt enintään animaation ruuduille"
 
 #: src/ui/preferences.rs
+msgid "MB at most for an added format's program"
+msgstr "Mt enintään lisätyn muodon ohjelmalle"
+
+#: src/ui/preferences.rs
+msgid "A program that reads an added format, such as Java for microscope files, gets at most this much memory. Raise it when such a program runs out of memory."
+msgstr "Lisättyä muotoa lukeva ohjelma, kuten Java mikroskooppitiedostoille, saa enintään näin paljon muistia. Kasvata arvoa, kun tällaiselta ohjelmalta loppuu muisti."
+
+#: src/images/added_formats.rs
+msgid "{name} ran out of memory under its limit of {mb} MB (Preferences → Memory and CPU): {error}"
+msgstr "{name}: muisti loppui {mb} Mt:n rajalla (Asetukset → Muisti ja suoritin): {error}"
+
+#: src/ui/preferences.rs
 msgid "Medium"
 msgstr "Keskikokoinen"
 

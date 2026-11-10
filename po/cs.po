@@ -1687,6 +1687,18 @@ msgid "MB at most for an animation's frames"
 msgstr "MB nejvýše pro snímky animace"
 
 #: src/ui/preferences.rs
+msgid "MB at most for an added format's program"
+msgstr "MB nejvýše pro program přidaného formátu"
+
+#: src/ui/preferences.rs
+msgid "A program that reads an added format, such as Java for microscope files, gets at most this much memory. Raise it when such a program runs out of memory."
+msgstr "Program, který čte přidaný formát, například Java pro soubory z mikroskopu, dostane nejvýše tolik paměti. Zvyšte ji, když takovému programu dojde paměť."
+
+#: src/images/added_formats.rs
+msgid "{name} ran out of memory under its limit of {mb} MB (Preferences → Memory and CPU): {error}"
+msgstr "{name}: došla paměť při limitu {mb} MB (Předvolby → Paměť a CPU): {error}"
+
+#: src/ui/preferences.rs
 msgid "Medium"
 msgstr "Střední"
 

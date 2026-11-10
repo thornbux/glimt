@@ -136,6 +136,9 @@ const MEMORY: &[&str] = &[
     "Decoding threads and one malloc arena take effect after a restart.",
     "Details",
     "MB at most for an animation's frames",
+    "MB at most for an added format's program",
+    "A program that reads an added format, such as Java for microscope files, gets at most this \
+     much memory. Raise it when such a program runs out of memory.",
     "Memory use:",
     "One malloc arena: much less memory, decoding up to ~8 % slower",
     "Preload next and previous images:",
@@ -671,6 +674,19 @@ impl crate::App {
                 changed |= checkbox(ui, &mut c.one_malloc_arena, low).changed();
                 ui.weak(restart);
             });
+        let c = &mut self.config;
+        let program = egui::Slider::new(&mut c.added_format_memory_mb, 512..=65536)
+            .logarithmic(true)
+            .text(tr("MB at most for an added format's program"));
+        let explained = tr(
+            "A program that reads an added format, such as Java for microscope \
+                            files, gets at most this much memory. Raise it when such a program \
+                            runs out of memory.",
+        );
+        if ui.add(program).on_hover_text(explained).changed() {
+            crate::images::added_formats::set_memory_limit(c.added_format_memory_mb);
+            changed = true;
+        }
         changed
     }
 

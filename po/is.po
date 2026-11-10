@@ -1539,6 +1539,18 @@ msgid "MB at most for an animation's frames"
 msgstr "MB í mesta lagi fyrir ramma hreyfimyndar"
 
 #: src/ui/preferences.rs
+msgid "MB at most for an added format's program"
+msgstr "MB í mesta lagi fyrir forrit viðbætts sniðs"
+
+#: src/ui/preferences.rs
+msgid "A program that reads an added format, such as Java for microscope files, gets at most this much memory. Raise it when such a program runs out of memory."
+msgstr "Forrit sem les viðbætt snið, til dæmis Java fyrir smásjárskrár, fær í mesta lagi svona mikið minni. Hækkaðu það þegar slíkt forrit verður uppiskroppa með minni."
+
+#: src/images/added_formats.rs
+msgid "{name} ran out of memory under its limit of {mb} MB (Preferences → Memory and CPU): {error}"
+msgstr "{name} varð uppiskroppa með minni við mörkin {mb} MB (Kjörstillingar → Minni og örgjörvi): {error}"
+
+#: src/ui/preferences.rs
 msgid "Medium"
 msgstr "Miðlungs"
 
