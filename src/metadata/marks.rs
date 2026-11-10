@@ -24,40 +24,73 @@ static WRITING: std::sync::LazyLock<std::sync::Arc<std::sync::atomic::AtomicUsiz
 /// the whole file, not one each.
 static QUEUED_EDITS: std::sync::Mutex<Vec<Edit>> = std::sync::Mutex::new(Vec::new());
 
+/// Mark bits (bit 0 = mark 1) and stars, by path.
+type MarksByPath = HashMap<PathBuf, (u8, u8)>;
+
 #[derive(Default)]
 pub struct Marks {
     /// Mark bits (bit 0 = mark 1) and stars, by path; files with neither are left out.
     by_path: HashMap<PathBuf, (u8, u8)>,
+    /// How many edits this window has made, so that a read of the file asked for before one of
+    /// them is not taken over it.
+    edits_made: u64,
+    /// The marks file read again in the writer's thread (`refresh`), with `edits_made` when it
+    /// was asked for. The answer is `None` when the file is as this window holds it.
+    read_again: crate::support::threads::Receiving<(u64, Option<MarksByPath>)>,
 }
 
 impl Marks {
-    pub fn load() -> Self {
-        let file = marks_file();
-        if let Some(f) = &file {
-            known_stamps().insert(f.clone(), file_stamp(f));
-        }
-        let text = file
-            .and_then(|f| crate::images::decode::read_limited(f).ok())
-            .unwrap_or_default();
-        Marks {
-            by_path: parse(&text),
+    /// Reads the file again in the writer's thread, unless it is as this window's marks hold
+    /// it: what another Glimt window marked meanwhile, so a mark toggled here goes from what is
+    /// there, and after a write that failed, what the file kept. Not while this window's own
+    /// changes are still on their way to it: those would be read back as they were before. The
+    /// marks read are taken by `receive`, at the next frame, as the file may be on a share that
+    /// stopped answering.
+    pub fn refresh(&mut self) {
+        if !own_writes_queued() {
+            self.read_file_again();
         }
     }
 
-    /// Read the file again unless it is as this window's marks hold it: what another Glimt
-    /// window marked meanwhile, so a mark toggled here goes from what is there, and after a write
-    /// that failed, what the file kept. Not while this window's own changes are still on their
-    /// way to it: those would be read back as they were before.
-    pub fn refresh(&mut self) {
-        if own_writes_queued() {
+    /// Reads the marks file again in the writer's thread, as `refresh` says, unless a read
+    /// runs already. The read comes after this window's writes queued before it, as they go
+    /// through the same thread.
+    fn read_file_again(&mut self) {
+        if self.read_again.is_some() {
             return;
         }
         let Some(file) = marks_file() else { return };
-        // As read, or changed only by this window's own writes: not read again on every mark key
-        // in a file of 500,000 marked.
-        if known_stamps().get(&file) != Some(&file_stamp(&file)) {
-            *self = Self::load();
+        let (tx, rx) = std::sync::mpsc::channel();
+        let asked_at = self.edits_made;
+        crate::files::file_io::write_later(move || {
+            // As read, or changed only by this window's own writes: not read again on every
+            // mark key in a file of 500,000 marked.
+            // The lock is let go before the file is read, which takes it again.
+            let is_as_held = known_stamps().get(&file) == Some(&file_stamp(&file));
+            let read = (!is_as_held).then(|| read_marks_file(&file));
+            let _ = tx.send((asked_at, read));
+        });
+        self.read_again = crate::support::threads::Receiving::of(rx);
+    }
+
+    /// Takes the marks file as `refresh` read it again. When this window made an edit after it
+    /// was asked for, what was read lacks that edit and is dropped, so a mark set meanwhile is
+    /// not lost. The file is then read again after that edit is written, so what another
+    /// window wrote shows all the same.
+    pub fn receive(&mut self) {
+        let crate::support::threads::Took::Answer((asked_at, Some(by_path))) =
+            self.read_again.take()
+        else {
+            return;
+        };
+        if asked_at == self.edits_made {
+            self.by_path = by_path;
+            return;
         }
+        if let Some(file) = marks_file() {
+            known_stamps().remove(&file);
+        }
+        self.read_file_again();
     }
 
     /// Every file with a mark or stars, and them.
@@ -136,6 +169,7 @@ impl Marks {
     /// Makes `edit` to this window's marks and sends it to the file, where it is made again to
     /// the marks as they are there, so the two agree on what it did.
     fn edit(&mut self, edit: Edit) {
+        self.edits_made += 1;
         for edit in refuse_names_with_line_breaks(edit, &self.by_path) {
             apply_edit(&mut self.by_path, &edit);
             save(edit);
@@ -181,6 +215,26 @@ enum Change {
     Stars(u8),
     /// These marks and stars, as they were.
     Set(u8, u8),
+}
+
+/// Returns this window's marks, read from the marks file. It waits for the disk, so it is called
+/// before the window opens (`main`), or in a test.
+pub fn read_marks() -> Marks {
+    let by_path = marks_file()
+        .map(|f| read_marks_file(&f))
+        .unwrap_or_default();
+    Marks {
+        by_path,
+        ..Default::default()
+    }
+}
+
+/// Returns the marks in the marks file `file`, none when it cannot be read, and notes the file
+/// as read (`known_stamps`).
+fn read_marks_file(file: &Path) -> HashMap<PathBuf, (u8, u8)> {
+    known_stamps().insert(file.to_path_buf(), file_stamp(file));
+    let text = crate::images::decode::read_limited(file).unwrap_or_default();
+    parse(&text)
 }
 
 /// Returns the inode and time of `file`, which show that the file at the path changed since,
@@ -523,6 +577,62 @@ pub fn text((bits, stars): (u8, u8)) -> String {
 #[cfg(test)]
 mod tests {
     use crate::support::threads::lock_even_if_poisoned;
+
+    /// Reads the marks file again as `refresh` does, and takes what it read, as the window
+    /// does at its next frames.
+    fn refreshed(marks: &mut super::Marks) {
+        marks.refresh();
+        settled(marks);
+    }
+
+    /// Takes what the marks file's reads in the background give, until none runs.
+    fn settled(marks: &mut super::Marks) {
+        for _ in 0..10 {
+            crate::files::file_io::flush();
+            marks.receive();
+            if marks.read_again.is_none() {
+                break;
+            }
+        }
+    }
+
+    /// A mark set while the file is read again in the background is not lost: what was read
+    /// lacks it, so the window keeps its own marks, and reads the file again at the next
+    /// refresh.
+    #[test]
+    fn a_mark_set_while_the_file_is_read_again_is_kept() {
+        let id = std::process::id();
+        let dir = std::env::temp_dir().join(format!("glimt-test-marks-meanwhile-{id}"));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("marks");
+        super::TEST_FILE.with(|f| *f.borrow_mut() = Some(file.clone()));
+        let (a, b) = (dir.join("a.png"), dir.join("b.png"));
+        let mut marks = super::read_marks();
+        // Another window rates b.png.
+        crate::files::file_io::edit_shared(&file, |_| {
+            (format!("0\t3\t{}\n", b.display()).into_bytes(), ())
+        })
+        .unwrap();
+        // The file is read before this window rates a.png, and the rating is written after
+        // that read, as the writer's thread does them in that order.
+        marks.refresh();
+        crate::files::file_io::flush();
+        marks.rate(std::slice::from_ref(&a), 4);
+        super::write(&file, &super::SENT.with(|sent| sent.take()));
+        marks.receive();
+        assert_eq!(marks.get(&a), (0, 4), "the mark set meanwhile is lost");
+        // The file is read again after the rating was written, and has both.
+        settled(&mut marks);
+        let both = (marks.get(&a), marks.get(&b));
+        assert_eq!(
+            both,
+            ((0, 4), (0, 3)),
+            "the other window's stars are not read"
+        );
+        super::TEST_FILE.with(|f| *f.borrow_mut() = None);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
     /// A name in another encoding (Latin-1) keeps its bytes, read from the marks file.
     #[test]
     fn reads_a_name_that_is_not_utf8() {
@@ -587,6 +697,9 @@ mod tests {
         let text = format!("0\t3\t{}\n0\t2\t{}\n", a.display(), b.display());
         std::fs::write(&file, text).unwrap();
         marks.follow_files(vec![(a.clone(), c.clone())], false);
+        // The file read before the move lacks it, so it is read again once the move is written.
+        super::write(&file, &super::SENT.with(|sent| sent.take()));
+        settled(&mut marks);
         assert_eq!((marks.get(&c), marks.get(&a)), ((0, 3), (0, 0)));
         let for_undo = crate::files::trash::ForgottenMarks::default();
         marks.forget(std::slice::from_ref(&b), Some(for_undo.clone()));
@@ -638,7 +751,7 @@ mod tests {
         super::TEST_FILE.with(|f| *f.borrow_mut() = Some(file.clone()));
         let (a, b, c) = (dir.join("a.png"), dir.join("b.png"), dir.join("c.png"));
         std::fs::write(&file, format!("1\t0\t{}\n", c.display())).unwrap();
-        let mut marks = super::Marks::load();
+        let mut marks = super::read_marks();
         marks.rate(std::slice::from_ref(&a), 4);
         // Another window marked b.png while this window's stars of a.png were still queued.
         let mut text = std::fs::read(&file).unwrap();
@@ -668,7 +781,7 @@ mod tests {
         let file = dir.join("marks");
         super::TEST_FILE.with(|f| *f.borrow_mut() = Some(file.clone()));
         let (a, b) = (dir.join("a.png"), dir.join("b.png"));
-        let mut marks = super::Marks::load();
+        let mut marks = super::read_marks();
         let stars =
             |p: &std::path::Path, n| super::Edit::Change(vec![p.into()], super::Change::Stars(n));
         marks.rate(std::slice::from_ref(&a), 4);
@@ -682,7 +795,7 @@ mod tests {
             .open(&file)
             .unwrap();
         f.set_modified(t).unwrap();
-        marks.refresh();
+        refreshed(&mut marks);
         assert_eq!(marks.get(&a), (0, 4));
         // Another window's write just after, maybe in the same tick of the clock: read.
         super::write(&file, &[stars(&a, 4)]);
@@ -692,7 +805,7 @@ mod tests {
             (text, ())
         })
         .unwrap();
-        marks.refresh();
+        refreshed(&mut marks);
         assert_eq!((marks.get(&a), marks.get(&b)), ((0, 4), (0, 2)));
         super::TEST_FILE.with(|f| *f.borrow_mut() = None);
         std::fs::remove_dir_all(dir).unwrap();
@@ -708,11 +821,11 @@ mod tests {
         std::fs::create_dir_all(&file).unwrap();
         super::TEST_FILE.with(|f| *f.borrow_mut() = Some(file.clone()));
         let a = dir.join("a.png");
-        let mut marks = super::Marks::load();
+        let mut marks = super::read_marks();
         marks.rate(std::slice::from_ref(&a), 3);
         let stars = super::Edit::Change(vec![a.clone()], super::Change::Stars(3));
         super::write(&file, &[stars]);
-        marks.refresh();
+        refreshed(&mut marks);
         assert_eq!(marks.get(&a), (0, 0));
         super::TEST_FILE.with(|f| *f.borrow_mut() = None);
         std::fs::remove_dir_all(dir).unwrap();
@@ -733,7 +846,7 @@ mod tests {
         let newer = "192\t3\t/a.jpg\nrejected\t1\t/b.jpg\ngarbage\nx\ty\tz\n\t\t/d.jpg\n";
         std::fs::write(&file, newer).unwrap();
         let a = std::path::PathBuf::from("/a.jpg");
-        let mut marks = super::Marks::load();
+        let mut marks = super::read_marks();
         assert_eq!(marks.get(&a), (192, 3));
         marks.toggle(std::slice::from_ref(&a), 1);
         assert_eq!(marks.get(&a), (193, 3));
@@ -886,7 +999,7 @@ mod tests {
         let none =
             std::env::temp_dir().join(format!("glimt-test-marks-none-{}", std::process::id()));
         super::TEST_FILE.with(|f| *f.borrow_mut() = Some(none.join("marks")));
-        let mut m = super::Marks::load();
+        let mut m = super::read_marks();
         m.rate(&[p("/a.jpg"), p("/b.jpg")], 4);
         m.toggle(&[p("/a.jpg")], 1);
         m.follow_files(vec![(p("/a.jpg"), p("/to/a.jpg"))], false);

@@ -619,10 +619,6 @@ impl Config {
         (config, problems)
     }
 
-    pub fn load() -> Self {
-        Self::load_checked().0
-    }
-
     /// The settings, and what is wrong in their file. That is its lines, or that it cannot be
     /// read.
     pub fn load_checked() -> (Self, Vec<String>) {

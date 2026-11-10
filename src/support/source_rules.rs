@@ -608,9 +608,11 @@ const REFUSED_CALLS: &[&str] = &[
     "std::sync::Mutex::lock",
 ];
 
-/// The calls that look at or change the disk: the standard library's, and Glimt's own functions
-/// that do, the writers of file_io among them. Each is found anywhere in a line, also as a
-/// method (`path.read_dir()`).
+/// The standard library's calls that look at or change the disk, and the system's that Glimt
+/// makes through libc. Each is found anywhere in a line, also as a method (`path.read_dir()`).
+/// Glimt's own functions that make one of them, such as `read_limited` or the writers of
+/// file_io, are not listed: `the_window_thread_never_waits_for_the_disk` follows every call to
+/// the functions it reaches.
 const DISK_CALLS: &[&str] = &[
     "fs::metadata(",
     ".metadata()",
@@ -622,6 +624,7 @@ const DISK_CALLS: &[&str] = &[
     "File::open(",
     "File::create(",
     "OpenOptions",
+    "DirBuilder",
     ".exists()",
     "try_exists(",
     ".is_file()",
@@ -636,44 +639,12 @@ const DISK_CALLS: &[&str] = &[
     "create_dir",
     "set_permissions(",
     "hard_link(",
-    "real_dir(",
-    "real_path(",
-    "by_real_path(",
-    "collections::load(",
-    "edit_open_collection(",
-    "read_limited(",
-    "read_text(",
-    "read_head(",
-    "open_regular(",
-    "image_reader(",
-    "fingerprint(",
-    "same_file(",
-    "file_system_type_or_test",
-    "rename_never_over(",
-    "collections::rename(",
-    "put_file(",
-    "replace_name(",
-    "replace_name_with(",
-    "replace_file(",
-    "replace_existing(",
-    "write_beside(",
-    "write_beside_without_folder_sync(",
-    "create_file(",
-    "create_temp_beside(",
-    "edit_shared(",
-    "remove_shared(",
-    "file_lock(",
-    "sync_folder(",
-    "sync_folder_of(",
-    "trash::trash(",
-    "collections::edit(",
-    "write_atomic(",
+    "symlink(",
+    "xattr(",
+    "libc::access(",
+    "UnixListener::bind(",
+    "UnixStream::connect(",
 ];
-
-/// Glimt's own small functions that wrap a call of `DISK_CALLS`, by a name that is common
-/// enough to be a method too. Each is found only as a call of a function of that name
-/// (`calls_function`).
-const DISK_HELPERS: &[&str] = &["modified(", "saved_collections(", "open_own_folder("];
 
 /// The calls that hand work to another thread, whose text `DISK_CALLS` are not looked for in.
 const HANDED_TO_A_THREAD: &[&str] = &[
@@ -705,6 +676,202 @@ impl Section {
             Section::AppBlock => "the impl crate::App block",
             Section::Functions => "functions",
             Section::Tests => "the tests",
+        }
+    }
+}
+
+/// A function of the crate outside the tests, as `CallGraph` follows it.
+struct Function {
+    file: String,
+    /// The type of the `impl` or `trait` block it is in, or `None` for a free function.
+    owner: Option<String>,
+    name: String,
+    /// The lines of its file's `code_lines` that it spans, from its `fn` line to its last.
+    lines: std::ops::RangeInclusive<usize>,
+}
+
+/// A call that a function makes in its own thread, as `CallGraph::calls_of` finds it.
+struct Call {
+    /// The function of the crate called, or `None` for a call of `DISK_CALLS`.
+    callee: Option<usize>,
+    /// The call as it is written: `name(`, or `name` for a function given as a value.
+    text: String,
+    /// Its line in the file, counted from 1.
+    line: usize,
+}
+
+/// The crate's functions, and how a call in one of them names another. A call is followed by
+/// what it says: `self.name(` and `self.field.name(` to the method of that type, `Type::name(`
+/// and `module::name(` to that function, `name(` to the free function of that name, and
+/// `value.name(` to a method of that name of a type that the calling function names. A name
+/// that the function binds itself (a `let`, a parameter, a closure's argument) is its own.
+struct CallGraph {
+    functions: Vec<Function>,
+    /// Each file's `code_lines`.
+    lines: std::collections::HashMap<String, Vec<String>>,
+    /// The type of each field of the crate's structs, by (struct, field).
+    fields: std::collections::HashMap<(String, String), String>,
+    /// The free functions by their names.
+    free: std::collections::HashMap<String, Vec<usize>>,
+    /// The methods and associated functions by their names.
+    methods: std::collections::HashMap<String, Vec<usize>>,
+}
+
+impl CallGraph {
+    fn new(sources: &[(String, String)]) -> Self {
+        let mut graph = CallGraph {
+            functions: Vec::new(),
+            lines: Default::default(),
+            fields: field_types(sources),
+            free: Default::default(),
+            methods: Default::default(),
+        };
+        for (file, text) in sources {
+            let lines = code_lines(text);
+            graph.functions.extend(functions_in(file, &lines));
+            graph.lines.insert(file.clone(), lines);
+        }
+        for (i, f) in graph.functions.iter().enumerate() {
+            let by_name = match f.owner {
+                Some(_) => &mut graph.methods,
+                None => &mut graph.free,
+            };
+            by_name.entry(f.name.clone()).or_default().push(i);
+        }
+        graph
+    }
+
+    /// Returns the calls that function `f` makes in its own thread, line by line, outside the
+    /// work it hands to another thread.
+    fn calls_of(&self, f: &Function) -> Vec<Call> {
+        let lines = &self.lines[&f.file];
+        let text = lines[f.lines.clone()].join("\n");
+        // Its parameters are in the lines up to the one that opens its body.
+        let opens = (f.lines.clone()).find(|&i| lines[i].ends_with('{'));
+        let signature = lines[*f.lines.start()..=opens.unwrap_or(*f.lines.start())].join(" ");
+        let mut calls = Vec::new();
+        let mut handed_over = 0usize;
+        for i in f.lines.clone() {
+            let code = code_of_this_thread(&lines[i], &mut handed_over);
+            let disk = DISK_CALLS.iter().find(|c| code.contains(**c));
+            calls.extend(disk.map(|c| Call {
+                callee: None,
+                text: (*c).to_owned(),
+                line: i + 1,
+            }));
+            for (callee, text) in self.callees(f, &text, &signature, code) {
+                let line = i + 1;
+                let callee = Some(callee);
+                calls.push(Call { callee, text, line });
+            }
+        }
+        calls
+    }
+
+    /// Returns the functions of the crate that `code`, a part of a line of `f`, calls or gives
+    /// as a value, each with the call as it is written. `text` is all of `f`, and `signature`
+    /// its lines up to its body.
+    fn callees(
+        &self,
+        f: &Function,
+        text: &str,
+        signature: &str,
+        code: &str,
+    ) -> Vec<(usize, String)> {
+        let mut found = Vec::new();
+        for (at, path) in paths_in(code) {
+            let (before, after) = (&code[..at], &code[at + path.len()..]);
+            let name = path.rsplit("::").next().unwrap_or(&path);
+            let is_call = after.starts_with('(');
+            // A function given as a value is told from a local by a name of more than one word
+            // or a path, because a local of one word is often named as a function is.
+            let is_value = after.starts_with([')', ','])
+                && before.trim_end().ends_with(['(', ','])
+                && (name.contains('_') || path.contains("::"));
+            let is_type = name.starts_with(char::is_uppercase);
+            if !(is_call || is_value) || before.ends_with("fn ") || is_type {
+                continue;
+            }
+            let callees = match path.rsplit_once("::") {
+                _ if before.ends_with('.') && is_call => self.method_callees(f, text, before, name),
+                _ if before.ends_with('.') => Vec::new(),
+                Some((qualifier, _)) => self.qualified_callees(f, qualifier, name),
+                None if binds_locally(text, signature, name) => Vec::new(),
+                None => self.free_callees(f, name),
+            };
+            let written = if is_call {
+                format!("{name}(")
+            } else {
+                name.to_owned()
+            };
+            found.extend(callees.into_iter().map(|c| (c, written.clone())));
+        }
+        found
+    }
+
+    /// Returns the methods `name` that `before` followed by `name(` calls in `f`, whose code is
+    /// `text`.
+    fn method_callees(&self, f: &Function, text: &str, before: &str, name: &str) -> Vec<usize> {
+        let receiver = &before[..before.len() - 1];
+        let receiver_start =
+            (receiver.rfind(|c: char| !(is_word_char(c) || c == '.'))).map_or(0, |at| at + 1);
+        let methods = self.methods.get(name).map_or(&[][..], Vec::as_slice);
+        let mut fields = receiver[receiver_start..].split('.');
+        if fields.next() == Some("self") {
+            // The type of `self.a.b` is found through the types of the fields.
+            let mut owner = f.owner.clone();
+            for field in fields {
+                owner = owner.and_then(|o| self.fields.get(&(o, field.to_owned())).cloned());
+            }
+            return (methods.iter().copied())
+                .filter(|&m| owner.is_some() && self.functions[m].owner == owner)
+                .collect();
+        }
+        (methods.iter().copied())
+            .filter(|&m| {
+                let owner = self.functions[m].owner.as_deref().unwrap_or("");
+                f.owner.as_deref() == Some(owner) || mentions_word(text, owner)
+            })
+            .collect()
+    }
+
+    /// Returns the functions that `qualifier::name` names in `f`: a method or associated
+    /// function of a type (`Self`, `Folder`), or a free function of a module (`xmp`).
+    fn qualified_callees(&self, f: &Function, qualifier: &str, name: &str) -> Vec<usize> {
+        let qualifier = qualifier.rsplit("::").next().unwrap_or(qualifier);
+        if qualifier.starts_with(char::is_uppercase) {
+            let owner = match qualifier {
+                "Self" => f.owner.as_deref(),
+                _ => Some(qualifier),
+            };
+            let methods = self.methods.get(name).map_or(&[][..], Vec::as_slice);
+            return (methods.iter().copied())
+                .filter(|&m| self.functions[m].owner.as_deref() == owner)
+                .collect();
+        }
+        let free = self.free.get(name).map_or(&[][..], Vec::as_slice);
+        let module_of = |file: &str| {
+            let stem = file.rsplit('/').next().unwrap_or(file);
+            stem.trim_end_matches(".rs").to_owned()
+        };
+        (free.iter().copied())
+            .filter(|&g| {
+                ["super", "self", "crate"].contains(&qualifier)
+                    || module_of(&self.functions[g].file) == qualifier
+            })
+            .collect()
+    }
+
+    /// Returns the free functions `name` that `name(` calls in `f`: the one in `f`'s file when
+    /// there is one, as it hides one imported, and else those of every file.
+    fn free_callees(&self, f: &Function, name: &str) -> Vec<usize> {
+        let free = self.free.get(name).map_or(&[][..], Vec::as_slice);
+        let in_file: Vec<usize> = (free.iter().copied())
+            .filter(|&g| self.functions[g].file == f.file)
+            .collect();
+        match in_file.is_empty() {
+            true => free.to_vec(),
+            false => in_file,
         }
     }
 }
@@ -4044,16 +4211,19 @@ fn the_rules_name_what_exists() {
     );
 }
 
-/// The window's thread never waits for the disk of a user's file or folder. On a share that
-/// stopped answering (a NAS asleep, Wi-Fi gone) such a call waits for ever, and the window hangs
-/// and cannot be closed. The window's thread is the code of `App`'s methods: the
+/// The window's thread never waits for the disk: not for a user's file or folder, and not for
+/// Glimt's own files either, because a home folder can be on a share too. On a share that
+/// stopped answering (a NAS asleep, Wi-Fi gone) such a call waits for ever, and the window
+/// hangs and cannot be closed. The window's thread is the code of `App`'s functions: the
 /// `impl crate::App` blocks of every module, and main.rs's `impl App` and
-/// `impl eframe::App for App`, because an `App` is never sent to another thread. The methods
-/// of App's parts (`app_parts`) run there too, as App calls them. Inside them, the text of a
-/// call that hands work to another thread (`spawn`, `write_later`, `run_in_background`,
-/// `write_sidecars`) is left out, because that work runs there. A function of Glimt's own
-/// that looks at the disk is found by its name too. A call that must stay is listed here with
-/// its function and the reason, and a line here that no longer matches a call fails too.
+/// `impl eframe::App for App`, because an `App` is never sent to another thread. The functions
+/// of App's parts (`app_parts`) run there too, as App calls them. A call of `DISK_CALLS` there
+/// is found, and so is a call of any other function of the crate that reaches one, however
+/// many calls deep (`CallGraph`). The text of a call that hands work to another thread
+/// (`spawn`, `write_later`, `run_in_background`, `write_sidecars`) is left out, in the window's
+/// code and in the functions followed alike, because that work runs there. A call that must
+/// stay is listed here with its function and the reason, and a line here that no longer
+/// matches a call fails too.
 #[test]
 fn the_window_thread_never_waits_for_the_disk() {
     const WAITS_ON_PURPOSE: &[(&str, &str, &str, &str)] = &[
@@ -4094,12 +4264,6 @@ fn the_window_thread_never_waits_for_the_disk() {
             "only files just written with a moved file's name; its shortcut comment",
         ),
         (
-            "metadata/marks.rs",
-            "load",
-            "read_limited(",
-            "Glimt's own marks file, read once at start, before the window opens",
-        ),
-        (
             "model/folder.rs",
             "new",
             "read_limited(",
@@ -4112,24 +4276,15 @@ fn the_window_thread_never_waits_for_the_disk() {
             "Glimt's own keyword tree, read once at start",
         ),
     ];
-    let mut found: Vec<(String, String, String, usize)> = Vec::new();
-    let app_parts = app_parts();
-    let sources = rust_sources();
-    for (file, text) in &sources {
-        let parts: Vec<&str> = (app_parts.iter())
-            .filter(|(f, _)| f == file)
-            .map(|(_, part)| part.as_str())
-            .collect();
-        for (function, call, line) in disk_calls_in_window_thread(text, &parts) {
-            found.push((file.clone(), function, call, line));
-        }
-    }
+    let found = disk_calls_in_window_thread(&rust_sources(), &app_parts());
     let is_on_purpose = |file: &str, function: &str, call: &str| {
         (WAITS_ON_PURPOSE.iter()).any(|w| (w.0, w.1, w.2) == (file, function, call))
     };
     let wrong: Vec<String> = (found.iter())
-        .filter(|(file, function, call, _)| !is_on_purpose(file, function, call))
-        .map(|(file, function, call, line)| format!("{file}:{line} {function}: {call}"))
+        .filter(|(file, function, call, ..)| !is_on_purpose(file, function, call))
+        .map(|(file, function, call, line, through)| {
+            format!("{file}:{line} {function}: {call} ({through})")
+        })
         .collect();
     assert!(
         wrong.is_empty(),
@@ -4138,7 +4293,9 @@ fn the_window_thread_never_waits_for_the_disk() {
     );
     let unused: Vec<_> = (WAITS_ON_PURPOSE.iter())
         .filter(|w| {
-            let is_w = |f: &(String, String, String, usize)| f.0 == w.0 && f.1 == w.1 && f.2 == w.2;
+            let is_w = |f: &(String, String, String, usize, String)| {
+                (f.0.as_str(), f.1.as_str(), f.2.as_str()) == (w.0, w.1, w.2)
+            };
             !found.iter().any(is_w)
         })
         .collect();
@@ -4148,127 +4305,284 @@ fn the_window_thread_never_waits_for_the_disk() {
     );
 }
 
-/// Returns the calls in `text` that look at the disk in the window's thread, as the methods of
-/// `App` and of its `parts` in `text` outside the work they hand to other threads, each as
-/// (function, call, line).
-fn disk_calls_in_window_thread(text: &str, parts: &[&str]) -> Vec<(String, String, usize)> {
-    let lines = code_lines(text);
-    let end = tests_start(&lines);
+/// Returns the calls in `sources` that wait for the disk in the window's thread, each as (file,
+/// function, call, line, the calls it goes through to the disk): in the functions of `App` and
+/// of its `parts` (each as (file, struct)), the calls of `DISK_CALLS` and of the crate's
+/// functions that reach one. A call of another function of the window's thread is not counted
+/// where it is made, because that function's own calls are.
+fn disk_calls_in_window_thread(
+    sources: &[(String, String)],
+    parts: &[(String, String)],
+) -> Vec<(String, String, String, usize, String)> {
+    let graph = CallGraph::new(sources);
+    let calls: Vec<Vec<Call>> = (graph.functions.iter())
+        .map(|f| graph.calls_of(f))
+        .collect();
+    let ways = ways_to_the_disk(&calls);
+    let is_window = |f: &Function| {
+        f.owner.as_deref().is_some_and(|owner| {
+            owner == "App" || (parts.iter()).any(|(file, part)| *file == f.file && part == owner)
+        })
+    };
     let mut found = Vec::new();
-    let (mut in_app, mut function) = (false, String::new());
-    // How deep the parentheses of a call that hands work to another thread still go.
-    let mut handed_over = 0usize;
-    for (i, line) in lines[..end].iter().enumerate() {
-        let item = without_qualifiers(line);
-        let is_part = |part: &&str| {
-            item.starts_with("impl")
-                && (item.ends_with(&format!(" {part} {{"))
-                    || item.ends_with(&format!(">{part} {{")))
-        };
-        if [
-            "impl crate::App {",
-            "impl App {",
-            "impl eframe::App for App {",
-        ]
-        .contains(&item)
-            || parts.iter().any(is_part)
-        {
-            in_app = true;
+    for (f, calls_of_f) in graph.functions.iter().zip(&calls) {
+        if !is_window(f) {
             continue;
         }
-        if line.starts_with('}') {
-            in_app = false;
+        for call in calls_of_f {
+            let waits =
+                (call.callee).is_none_or(|g| ways[g].is_some() && !is_window(&graph.functions[g]));
+            if !waits {
+                continue;
+            }
+            // The way on, from the function called to a call of `DISK_CALLS`.
+            let mut through = Vec::new();
+            let mut next = call.callee;
+            while let Some(g) = next.filter(|_| through.len() < 20) {
+                let on = &calls[g][ways[g].unwrap_or(0)];
+                through.push(format!("{} {}", graph.functions[g].file, on.text));
+                next = on.callee;
+            }
+            let (file, function, text) = (f.file.clone(), f.name.clone(), call.text.clone());
+            found.push((file, function, text, call.line, through.join(" → ")));
         }
-        if !in_app {
-            continue;
-        }
-        if let Some(name) = function_name(line) {
-            function = name.to_owned();
-        }
-        let call = disk_call_in_line(line, &mut handed_over);
-        found.extend(call.map(|c| (function.clone(), c, i + 1)));
     }
+    found.dedup();
     found
 }
 
-/// Returns the first call of `DISK_CALLS` or `DISK_HELPERS` that `line` makes outside the work
-/// it hands to another thread, and counts in `handed_over` how deep the parentheses of such a
-/// hand-over still go after it.
-fn disk_call_in_line(line: &str, handed_over: &mut usize) -> Option<String> {
-    let mut code = line;
-    let mut found = None;
-    if *handed_over == 0 {
-        let at = HANDED_TO_A_THREAD.iter().filter_map(|c| line.find(c)).min();
-        // What stands before the hand-over is still the window's.
-        let before = &line[..at.unwrap_or(line.len())];
-        found = (DISK_CALLS.iter().find(|c| before.contains(*c)))
-            .map(|c| (*c).to_owned())
-            .or_else(|| {
-                DISK_HELPERS
-                    .iter()
-                    .find(|c| calls_function(before, c))
-                    .map(|c| (*c).to_owned())
-            });
-        match at {
-            Some(at) => code = &line[at..],
-            None => return found,
+/// Returns, for each function of `calls` (the calls of each function, by its index), which of
+/// its calls reaches a call of `DISK_CALLS`, being one or through the functions it calls, or
+/// `None` when none does.
+fn ways_to_the_disk(calls: &[Vec<Call>]) -> Vec<Option<usize>> {
+    let mut ways: Vec<Option<usize>> = (calls.iter())
+        .map(|c| c.iter().position(|call| call.callee.is_none()))
+        .collect();
+    loop {
+        let mut changed = false;
+        for (i, calls) in calls.iter().enumerate() {
+            if ways[i].is_none() {
+                ways[i] = (calls.iter()).position(|c| c.callee.is_some_and(|g| ways[g].is_some()));
+                changed |= ways[i].is_some();
+            }
+        }
+        if !changed {
+            return ways;
         }
     }
-    for c in code.chars() {
+}
+
+/// Returns the functions of `file`, whose `code_lines` are `lines`, outside its tests: the free
+/// ones and the methods of its `impl` and `trait` blocks. A function inside another is part of
+/// that one.
+fn functions_in(file: &str, lines: &[String]) -> Vec<Function> {
+    let end = tests_start(lines);
+    let (mut functions, mut owner, mut i) = (Vec::new(), None, 0);
+    while i < end {
+        let line = &lines[i];
+        if indent(line) == 0 && line.ends_with('{') {
+            owner = block_owner(without_qualifiers(line));
+        }
+        let name = function_name(line).filter(|_| indent(line) <= 4 && !line.ends_with(';'));
+        let Some(name) = name else {
+            i += 1;
+            continue;
+        };
+        let braces = |brace: char| line.matches(brace).count();
+        let is_one_line = line.ends_with('}') && braces('{') == braces('}');
+        let last = match is_one_line {
+            true => i,
+            false => block_end(lines, i).unwrap_or(i),
+        };
+        functions.push(Function {
+            file: file.to_owned(),
+            owner: owner.clone().filter(|_| indent(line) == 4),
+            name: name.to_owned(),
+            lines: i..=last,
+        });
+        i = last + 1;
+    }
+    functions
+}
+
+/// Returns the type whose `impl` or `trait` block the top-level `item` starts, such as `Folder`
+/// for `impl Default for Folder {` and `App` for `impl crate::App {`, or `None` for another item.
+fn block_owner(item: &str) -> Option<String> {
+    if let Some(name) = item.strip_prefix("trait ") {
+        return name.split([' ', '<', ':', '{']).next().map(str::to_owned);
+    }
+    let rest = item.strip_prefix("impl")?;
+    // The generic parameters of `impl<T>` come before the type.
+    let rest = match rest.strip_prefix('<') {
+        Some(generic) => generic.split_once("> ")?.1,
+        None => rest,
+    };
+    let rest = rest.trim().trim_end_matches('{').trim();
+    let rest = rest.rsplit(" for ").next()?.split(" where").next()?;
+    let name = rest.split('<').next()?.rsplit("::").next()?.trim();
+    Some(name.to_owned())
+}
+
+/// Returns the type of each field of the crate's structs with named fields, by (struct, field),
+/// as `part_held_by` reads it: without the `Option` around it and its generic arguments.
+fn field_types(
+    sources: &[(String, String)],
+) -> std::collections::HashMap<(String, String), String> {
+    let mut types = std::collections::HashMap::new();
+    for (_, text) in sources {
+        let lines = code_lines(text);
+        let mut held_by: Option<String> = None;
+        for line in &lines[..tests_start(&lines)] {
+            if let Some(name) = struct_name(line) {
+                held_by = Some(name.to_owned());
+                continue;
+            }
+            if line.starts_with('}') {
+                held_by = None;
+            }
+            let field = without_qualifiers(line.trim_start());
+            if let Some(owner) = &held_by
+                && indent(line) == 4
+                && let Some((name, field_type)) = field.split_once(": ")
+            {
+                let held = part_held_by(field_type).1.to_owned();
+                types.insert((owner.clone(), name.to_owned()), held);
+            }
+        }
+    }
+    types
+}
+
+/// Returns the paths in `code` that may name a function (`name`, `module::name`,
+/// `Type::name`), each with where it starts.
+fn paths_in(code: &str) -> Vec<(usize, String)> {
+    let mut paths = Vec::new();
+    let mut chars = code.char_indices().peekable();
+    let mut previous = ' ';
+    while let Some((at, c)) = chars.next() {
+        if !(c.is_alphabetic() || c == '_') || is_word_char(previous) {
+            previous = c;
+            continue;
+        }
+        let mut path = String::from(c);
+        while let Some(&(_, next)) = chars.peek() {
+            if !(is_word_char(next) || next == ':') {
+                break;
+            }
+            path.push(next);
+            chars.next();
+        }
+        previous = path.chars().last().unwrap_or(c);
+        paths.push((at, path.trim_end_matches(':').to_owned()));
+    }
+    paths
+}
+
+/// Returns whether the function whose code is `text`, and whose lines up to its body are
+/// `signature`, binds `name` itself: as a parameter, a `let` or a closure's argument. A call of
+/// that name is then a call of the local, not of a function.
+fn binds_locally(text: &str, signature: &str, name: &str) -> bool {
+    let bound = |code: &str, binds: &dyn Fn(&str, &str) -> bool| {
+        code.match_indices(name).any(|(at, _)| {
+            let (before, after) = (&code[..at], &code[at + name.len()..]);
+            let is_word = !before.ends_with(is_word_char) && !after.starts_with(is_word_char);
+            is_word && binds(before, after)
+        })
+    };
+    let is_parameter =
+        |before: &str, after: &str| after.starts_with(": ") && !before.ends_with(':');
+    let is_local = |before: &str, after: &str| {
+        before.ends_with("let ")
+            || before.ends_with("let mut ")
+            || before.ends_with('|')
+            || after.starts_with('|')
+    };
+    bound(signature, &is_parameter) || bound(text, &is_local)
+}
+
+/// Returns whether `text` has `word` as a whole word.
+fn mentions_word(text: &str, word: &str) -> bool {
+    !word.is_empty()
+        && text.match_indices(word).any(|(at, _)| {
+            !text[..at].ends_with(is_word_char)
+                && !text[at + word.len()..].starts_with(is_word_char)
+        })
+}
+
+/// Returns the part of `line` that runs in the thread the line runs in: all of it, the part
+/// before a call that hands work to another thread, or nothing while the parentheses of such a
+/// call on an earlier line are still open. `handed_over` counts how deep they still go.
+fn code_of_this_thread<'l>(line: &'l str, handed_over: &mut usize) -> &'l str {
+    let (mut own, mut handed) = ("", line);
+    if *handed_over == 0 {
+        match HANDED_TO_A_THREAD.iter().filter_map(|c| line.find(c)).min() {
+            None => return line,
+            Some(at) => (own, handed) = line.split_at(at),
+        }
+    }
+    for c in handed.chars() {
         match c {
             '(' => *handed_over += 1,
             ')' => *handed_over = handed_over.saturating_sub(1),
             _ => {}
         }
     }
-    found
+    own
 }
 
-/// Returns whether `code` calls the function `call` (`name(`): no other name, method's dot or
-/// `fn ` stands right before it, so the helper `modified(` is not found in `meta.modified()`,
-/// `last_modified(` or a method of that name.
-fn calls_function(code: &str, call: &str) -> bool {
-    code.match_indices(call).any(|(at, _)| {
-        let before = &code[..at];
-        !before.ends_with(|c: char| c.is_alphanumeric() || c == '_' || c == '.')
-            && !before.ends_with("fn ")
-    })
-}
-
-/// The check above finds a look at the disk or a change on it in `App`'s methods, also through
-/// Glimt's own functions and helpers, before a thread is started on the same line, and after
-/// the thread's call ends. It passes the work handed to a thread, a free function, a method of
-/// the same name as a helper, a comment and a string.
+/// The check above finds a look at the disk or a change on it in the functions of `App` and of
+/// its parts, also through the crate's functions that reach one however deep, and also through
+/// a function given as a value. It finds them before a thread is started on the same line, and
+/// after the thread's call ends. It passes the work handed to a thread, also inside a function
+/// followed; a function of the window's thread, whose own calls are found instead; a local or a
+/// parameter of the same name as a function; a method of a type that the caller does not name;
+/// a free function; a comment and a string.
 #[test]
 fn finds_a_disk_call_in_the_window_thread() {
-    let text = "impl crate::App {\n    fn a(&self) {\n        std::fs::metadata(p);\n    }\n    \
+    let a = "impl crate::App {\n    fn a(&self) {\n        std::fs::metadata(p);\n    }\n    \
         fn b(&self) {\n        std::thread::spawn(move || {\n            p.exists();\n        \
-        });\n        let d = real_dir(&p);\n    }\n    fn c(&self) {\n        \
-        write_later(move || drop(p.canonicalize()));\n        // p.is_dir()\n        \
+        });\n        let d = helper(&p);\n    }\n    fn c(&self) {\n        \
+        write_later(move || drop(helper(&p)));\n        // p.is_dir()\n        \
         let s = \".is_file()\";\n        let x = q.is_dir(); std::thread::spawn(f);\n    \
-        }\n}\nfn free() {\n    std::fs::read_dir(p);\n}\nimpl Part {\n    fn d(&self) {\n        \
-        fingerprint(p);\n    }\n}\nimpl Default for Part {\n    fn default() -> Self {\n        \
-        p.metadata();\n    }\n}\nimpl Other {\n    fn e(&self) {\n        p.is_dir();\n    }\n}\n\
-        impl crate::App {\n    fn f(&mut self) {\n        let _ = file_io::rename_never_over(a, b);\n        \
-        trash::trash(&paths);\n        modified(p);\n        m.modified();\n        \
-        remove_file(p);\n        fn modified(&self) {}\n        p.is_symlink();\n    }\n}\n";
-    let found = disk_calls_in_window_thread(text, &["Part"]);
-    let found: Vec<(&str, &str, usize)> = (found.iter())
-        .map(|(f, c, l)| (f.as_str(), c.as_str(), *l))
+        }\n    fn f(&mut self, look: L) {\n        self.part.d();\n        b::deep(&p);\n        \
+        Other::look(p);\n        let helper = |p| p;\n        helper(p);\n        look(p);\n        \
+        q.map(in_thread);\n        refuse(&p, look_deeper);\n    }\n    fn g(&self) {\n        \
+        ui.label(p);\n        modified(p);\n    }\n}\nfn helper(p: &Path) -> bool {\n    \
+        look_deeper(p)\n}\nfn look_deeper(p: &Path) -> bool {\n    p.is_dir()\n}\nfn in_thread() {\n    \
+        std::thread::spawn(move || p.exists());\n}\nfn refuse(p: &Path, look: L) -> bool {\n    \
+        look(p)\n}\nfn modified(p: &Path) {\n    p.metadata();\n}\nfn look(p: &Path) {\n    \
+        p.is_dir();\n}\nstruct App {\n    part: Part,\n}\nimpl Part {\n    fn d(&self) {\n        \
+        p.metadata();\n    }\n}\nimpl Default for Part {\n    fn default() -> Self {\n        \
+        p.is_symlink();\n    }\n}\nimpl Other {\n    fn look(p: &Path) {\n        \
+        p.is_dir();\n    }\n    fn label(&self) {\n        p.is_dir();\n    }\n}\n";
+    // A chain three calls deep, through the functions of two other modules, to the disk. The
+    // way is told by where each call on it is made.
+    let b = "pub fn deep(p: &Path) {\n    middle(p);\n}\nfn middle(p: &Path) {\n    \
+        crate::c::inner(p);\n}\n";
+    let c = "pub fn inner(p: &Path) {\n    std::fs::read_dir(p);\n}\n";
+    let sources = [
+        ("a.rs".into(), a.into()),
+        ("b.rs".into(), b.into()),
+        ("c.rs".into(), c.into()),
+    ];
+    let found = disk_calls_in_window_thread(&sources, &[("a.rs".into(), "Part".into())]);
+    let deep = found.iter().find(|f| f.2 == "deep(").map(|f| f.4.as_str());
+    assert_eq!(deep, Some("b.rs middle( → b.rs inner( → c.rs read_dir("));
+    let found: Vec<(&str, &str, &str, usize)> = (found.iter())
+        .map(|(file, f, c, l, _)| (file.as_str(), f.as_str(), c.as_str(), *l))
         .collect();
     assert_eq!(
         found,
         [
-            ("a", "fs::metadata(", 3),
-            ("b", "real_dir(", 9),
-            ("c", ".is_dir()", 15),
-            ("d", "fingerprint(", 23),
-            ("default", ".metadata()", 28),
-            ("f", "rename_never_over(", 38),
-            ("f", "trash::trash(", 39),
-            ("f", "modified(", 40),
-            ("f", "remove_file(", 42),
-            ("modified", ".is_symlink()", 44),
+            ("a.rs", "a", "fs::metadata(", 3),
+            ("a.rs", "b", "helper(", 9),
+            ("a.rs", "c", ".is_dir()", 15),
+            ("a.rs", "f", "deep(", 19),
+            ("a.rs", "f", "look(", 20),
+            ("a.rs", "f", "look_deeper", 25),
+            ("a.rs", "g", "modified(", 29),
+            ("a.rs", "d", ".metadata()", 55),
+            ("a.rs", "default", ".is_symlink()", 60),
         ]
     );
 }

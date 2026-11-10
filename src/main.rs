@@ -159,24 +159,42 @@ struct App {
     remote: crate::features::remote::Listener,
 }
 
+/// What Glimt reads of its own files before the window opens, in `main`, and hands to `App`: a
+/// home folder on a share that stopped answering then holds the start, but never a window. A
+/// test makes these itself (`app_on`).
+struct ReadAtStart {
+    config: Config,
+    /// What is wrong in the settings file, line by line.
+    problems: Vec<String>,
+    /// Why the screen profile or the profile for images without one could not be read, when one
+    /// could not (`set_up_colour`, which also sets them up).
+    colour_error: Option<String>,
+    #[cfg(feature = "marks")]
+    marks: crate::metadata::marks::Marks,
+}
+
 impl App {
     // ---- Starting up ----
 
-    fn new(cc: &eframe::CreationContext, path: Option<PathBuf>, start: Start) -> Self {
-        let (config, problems) = Config::load_checked();
-        crate::ui::window::close_on_termination_signals(&cc.egui_ctx);
-        Self::with_config(&cc.egui_ctx, config, &problems, path, start)
-    }
-
-    /// The window's state from the settings `new` reads, or a test gives, so a test makes an
-    /// `App` on `egui::Context::default()` with settings of its own.
-    fn with_config(
-        ctx: &egui::Context,
-        mut config: Config,
-        problems: &[String],
+    fn new(
+        cc: &eframe::CreationContext,
+        read: ReadAtStart,
         path: Option<PathBuf>,
         start: Start,
     ) -> Self {
+        crate::ui::window::close_on_termination_signals(&cc.egui_ctx);
+        Self::with_config(&cc.egui_ctx, read, path, start)
+    }
+
+    /// The window's state from what `main` read before the window opened, or what a test
+    /// gives, so a test makes an `App` on `egui::Context::default()` with settings of its own.
+    fn with_config(
+        ctx: &egui::Context,
+        read: ReadAtStart,
+        path: Option<PathBuf>,
+        start: Start,
+    ) -> Self {
+        let mut config = read.config;
         crate::support::lang::set_language(&config.language);
         // Start options are kept, as choosing them in the View menu would.
         if let Some(layout) = start.layout {
@@ -189,7 +207,6 @@ impl App {
         if start.layout.is_some() || start.random || start.fade.is_some() {
             config.save();
         }
-        let screen_error = crate::images::colour::set_up_colour(&config);
         crate::ui::actions::use_user_keys(&config.keys);
         // The folder shown last is looked at only in the background (`open_last_folder`),
         // because a share that stopped answering would hold the start before the window opens.
@@ -241,7 +258,7 @@ impl App {
             status_bar: crate::ui::file_list::StatusBar::new(&busy),
             broken_files: HashSet::new(),
             #[cfg(feature = "marks")]
-            marks: crate::metadata::marks::Marks::load(),
+            marks: read.marks,
             decoding,
             viewing: crate::viewer::view::Viewing::default(),
             zoom: crate::viewer::view::Zoom::default(),
@@ -253,7 +270,7 @@ impl App {
             window: crate::ui::window::Window::new(start.kiosk),
             info_panel: crate::ui::info_panel::InfoPanel::new(ctx),
             notice: crate::viewer::view::Notice::new(
-                screen_error.or_else(|| config_notice(problems)),
+                read.colour_error.or_else(|| config_notice(&read.problems)),
             ),
             notice_sender,
             notices,
@@ -500,6 +517,20 @@ fn config_notice(problems: &[String]) -> Option<String> {
     Some(tf!("Settings file: {first}{more}", first, more))
 }
 
+/// Returns what the window starts from of Glimt's own files, with the settings `config` and
+/// their `problems` read already: the colour profiles are read and set up, and the marks file
+/// is read. It waits for the disk, so `main` calls it before the window opens.
+fn read_at_start(config: Config, problems: Vec<String>) -> ReadAtStart {
+    let colour_error = crate::images::colour::set_up_colour(&config);
+    ReadAtStart {
+        config,
+        problems,
+        colour_error,
+        #[cfg(feature = "marks")]
+        marks: crate::metadata::marks::read_marks(),
+    }
+}
+
 fn main() -> eframe::Result {
     // A Glimt started by another to draw an SVG draws it and ends, before anything else.
     #[cfg(feature = "svg")]
@@ -511,7 +542,10 @@ fn main() -> eframe::Result {
     // There is one malloc arena for all threads. With one arena per thread, freed image
     // buffers stayed in each decode thread's arena, and a folder of screenshots used 91 MB of
     // own memory instead of 29 MB. Decoding is at most a few percent slower.
-    if Config::load().one_malloc_arena {
+    // The settings are read once, here, before the window opens, as is all of Glimt's own that
+    // the window starts from (`read_at_start`).
+    let (config, problems) = Config::load_checked();
+    if config.one_malloc_arena {
         #[allow(unsafe_code)]
         // SAFETY: This is called before any other thread exists.
         unsafe {
@@ -588,7 +622,7 @@ fn main() -> eframe::Result {
     if start.lock_settings || start.kiosk || Path::new(crate::files::config::LOCK_FILE).exists() {
         crate::files::config::lock();
     }
-    if Config::load().remember_window
+    if config.remember_window
         && let Some(state) = state_path().and_then(|p| crate::images::decode::read_text(p).ok())
     {
         let win = WindowState::parse(&state);
@@ -610,10 +644,11 @@ fn main() -> eframe::Result {
         viewport,
         ..Default::default()
     };
+    let read = read_at_start(config, problems);
     eframe::run_native(
         "glimt",
         options,
-        Box::new(move |cc| Ok(Box::new(App::new(cc, arg, start)))),
+        Box::new(move |cc| Ok(Box::new(App::new(cc, read, arg, start)))),
     )
 }
 

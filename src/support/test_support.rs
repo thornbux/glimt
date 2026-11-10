@@ -36,7 +36,14 @@ pub(crate) fn app_on(dir: &std::path::Path) -> (crate::App, eframe::egui::Contex
     let held = crate::images::colour::COLOUR_TEST
         .lock()
         .unwrap_or_else(|e| e.into_inner());
-    let mut app = crate::App::with_config(&ctx, config, &[], Some(dir.into()), start);
+    let read = crate::ReadAtStart {
+        colour_error: crate::images::colour::set_up_colour(&config),
+        config,
+        problems: Vec::new(),
+        #[cfg(feature = "marks")]
+        marks: crate::metadata::marks::read_marks(),
+    };
+    let mut app = crate::App::with_config(&ctx, read, Some(dir.into()), start);
     drop(held);
     app.receive_listing(&ctx, std::time::Duration::from_secs(5));
     (app, ctx)
