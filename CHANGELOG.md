@@ -37,6 +37,16 @@ and versions follow [Semantic Versioning](https://semver.org/).
 - When Rename Many was cut short with its plan on another disk than the photos, putting it right
   at the next start could leave a photo under a hidden `.glimt-rename-*` name with no plan left
   to find it. A repair that cannot finish now puts back the steps it did.
+- A collection that came with a download, with a pipe or a link planted as its hidden lock file
+  `.NAME.gqv.lock`, no longer hangs the window at Rename Collection or stops every later
+  collection edit, and a link there no longer makes an empty file where it points. Rename
+  Collection now renames in the background, so another window's edit on a share that stopped
+  answering no longer holds the window either.
+- `--remote select` and `info` with more than 100,000 files are refused by the window too, with
+  "not done", not only by Glimt's own client. Another program on the socket could freeze the
+  window with millions of paths.
+- The programs of added formats get a memory limit of 4 GB. Before, a small downloaded file
+  whose header claimed a huge picture could make an example script take gigabytes.
 
 ## [0.79.0] - 2026-11-10
 

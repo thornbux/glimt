@@ -17,10 +17,21 @@
 //!
 //! The command gets the file's absolute path as one argument of its own, never through a shell,
 //! and writes the image (PNM, PNG, TIFF, BMP …) to its standard output. It has 30 seconds and
-//! at most `MAX_DECODE_BYTES` bytes, as ffmpeg has.
+//! at most `MAX_DECODE_BYTES` bytes, as ffmpeg has, and at most `PROGRAM_MEMORY` of memory.
 
 use std::path::{Path, PathBuf};
 use std::time::Duration;
+
+/// The most memory (address space) an added format's program, and each program it starts, may
+/// take. The image it writes is at most `MAX_DECODE_BYTES`, and the rest is room for an
+/// interpreter and its libraries, such as Python with NumPy, or Java. Without it, a small
+/// downloaded file whose header claims a huge picture made a script take gigabytes.
+const PROGRAM_MEMORY: u64 = 8 * crate::images::decode::MAX_DECODE_BYTES;
+
+/// The shell script that starts an added format's program under the memory limit in its first
+/// argument, in kilobytes. The program and its arguments follow. When the limit cannot be set,
+/// the program does not run, and the shell's error is told.
+const LIMITED_PROGRAM: &str = "ulimit -v \"$1\" || exit 1; shift; exec \"$@\"";
 
 /// A format added by a desktop file, and the program that reads it.
 pub struct AddedFormat {
@@ -51,11 +62,17 @@ impl AddedFormat {
         let program = PathBuf::from(&args[0]);
         let local = self.dir.join(&program);
         let program = if local.is_file() { local } else { program };
-        let mut child =
-            crate::files::external::stoppable_host_command(program.to_string_lossy().as_ref())
-                .args(&args[1..])
-                .spawn()
-                .map_err(|e| format!("{} ({}): {e}", self.name, program.display()))?;
+        // The shell sets the memory limit and then becomes the program, which inherits it, as
+        // does what the program starts. The limit, the program and the file are arguments,
+        // never part of the script's text. In a Flatpak the shell runs on the host through
+        // flatpak-spawn, so the limit holds for the program there too.
+        let kilobytes = (PROGRAM_MEMORY / 1024).to_string();
+        let mut child = crate::files::external::stoppable_host_command("sh")
+            .args(["-c", LIMITED_PROGRAM, "sh", &kilobytes])
+            .arg(&program)
+            .args(&args[1..])
+            .spawn()
+            .map_err(|e| format!("{} ({}): {e}", self.name, program.display()))?;
         let max = crate::images::decode::MAX_DECODE_BYTES + 64;
         let (image, err, ok) = crate::files::external::output_of(&mut child, max, limit);
         let image = image.ok_or_else(|| format!("{}: image too large", self.name))?;
@@ -188,6 +205,14 @@ mod tests {
         let start = std::time::Instant::now();
         assert!(left.run(&file, Duration::from_millis(300)).is_err());
         assert!(start.elapsed() < Duration::from_secs(5));
+        // Its memory is limited, and that of what it starts. Before, it had no limit, and a
+        // script took gigabytes for a small file whose header claimed a huge picture.
+        let limit = "Name=Limit\nExtensions=xyz\nExec=sh -c \"ulimit -v >&2; exit 1\" %f";
+        let limit = super::parse(limit, &dir).unwrap();
+        assert_eq!(
+            limit.decode(&file).unwrap_err(),
+            format!("Limit: {}", super::PROGRAM_MEMORY / 1024)
+        );
         assert!(super::parse("Name=No file\nExtensions=xyz\nExec=cat", &dir).is_none());
         assert!(super::parse("Name=No ext\nExec=cat %f", Path::new("/")).is_none());
         std::fs::remove_dir_all(dir).unwrap();
