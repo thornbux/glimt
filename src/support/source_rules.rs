@@ -1972,11 +1972,51 @@ fn settings_change_through_their_setters() {
             }
         }
     }
+    // The settings replaced all at once skip every setter.
+    for (file, text) in sources.iter().filter(|(f, _)| f != "files/config.rs") {
+        wrong.extend((whole_config_writes(text).iter()).map(|line| format!("{file}:{line} (all)")));
+    }
     assert!(
         wrong.is_empty(),
         "set through their setters instead:\n{}",
         wrong.join("\n")
     );
+}
+
+/// Returns the lines of `text` outside the tests that replace every setting at once:
+/// `self.config` assigned, or given to `mem::replace`, `swap` or `take`.
+fn whole_config_writes(text: &str) -> Vec<usize> {
+    let lines = code_lines(text);
+    let end = tests_start(&lines);
+    let mut found = Vec::new();
+    for (i, line) in lines[..end].iter().enumerate() {
+        let assigned = (line.match_indices("self.config")).any(|(at, name)| {
+            let after = line[at + name.len()..].trim_start();
+            after.starts_with('=') && !after.starts_with("==") && !after.starts_with("=>")
+        });
+        let swapped = [
+            "replace(&mut self.config",
+            "swap(&mut self.config",
+            "take(&mut self.config",
+        ]
+        .iter()
+        .any(|t| line.contains(t));
+        if assigned || swapped {
+            found.push(i + 1);
+        }
+    }
+    found
+}
+
+/// The check above finds the settings assigned or swapped all at once, and leaves one setting
+/// written, a comparison and a binding.
+#[test]
+fn finds_every_setting_replaced_at_once() {
+    let text = "fn a(&mut self) {\n    self.config = edited;\n    \
+        *self.config = edited;\n    std::mem::swap(&mut self.config, &mut other);\n    \
+        self.config.thumbnails = true;\n    if self.config == old {}\n    \
+        let c = &mut self.config;\n}\n";
+    assert_eq!(whole_config_writes(text), [2, 3, 4]);
 }
 
 /// Every setting of `config!` has a control in Preferences, so a user can find it there, or is
