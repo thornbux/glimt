@@ -526,6 +526,40 @@ const RETIRED_IN_FILE: &[(&str, &str)] = &[
     ("viewer/view.rs", "wheel"),            // wheel_notches
 ];
 
+/// The parts of `App`: each struct that one of its fields holds, by its file. Their fields stay
+/// private (`parts_keep_their_fields`), and their methods run in the window's thread as App's
+/// own do (`the_window_thread_never_waits_for_the_disk`).
+const APP_PARTS: &[(&str, &str)] = &[
+    ("features/check.rs", "ImageCheck"),
+    ("features/duplicates.rs", "FindDuplicates"),
+    ("features/print.rs", "PrintDialog"),
+    ("features/remote.rs", "Listener"),
+    ("files/file_ops.rs", "FileOperations"),
+    ("metadata/lightroom.rs", "Import"),
+    ("metadata/marks.rs", "Marks"),
+    ("model/folder.rs", "Folder"),
+    ("model/list.rs", "List"),
+    ("model/search.rs", "Search"),
+    ("ui/dialogs.rs", "Dialogs"),
+    ("ui/file_list.rs", "Panel"),
+    ("ui/file_list.rs", "StatusBar"),
+    ("ui/file_list.rs", "Thumbs"),
+    ("ui/file_list.rs", "Tree"),
+    ("ui/info_panel.rs", "InfoPanel"),
+    ("ui/menus.rs", "OpenWith"),
+    ("ui/preferences.rs", "Preferences"),
+    ("ui/theme.rs", "DesktopSettings"),
+    ("ui/window.rs", "Window"),
+    ("viewer/pan.rs", "PanView"),
+    ("viewer/save_as.rs", "SaveAsChoices"),
+    ("viewer/save_as.rs", "SaveAs"),
+    ("viewer/slideshow.rs", "Slideshow"),
+    ("viewer/view.rs", "Decoding"),
+    ("viewer/view.rs", "Notice"),
+    ("viewer/view.rs", "Viewing"),
+    ("viewer/view.rs", "Zoom"),
+];
+
 /// Where a top-level item stands in a file's order, as AGENTS.md gives it under "Within a
 /// file"; the variants are in that order.
 #[derive(Clone, Copy, PartialEq, PartialOrd)]
@@ -1068,42 +1102,12 @@ fn app_stays_small() {
 
 /// A part of App keeps its fields to itself: only its module changes them, and other modules
 /// call methods whose names say what happens (`self.slideshow.toggle_pause()`), so the
-/// compiler, not a convention, keeps a part's rules in one place. A public field in one of these
-/// structs fails this.
+/// compiler, not a convention, keeps a part's rules in one place. A public field in one of the
+/// structs of `APP_PARTS` fails this.
 #[test]
 fn parts_keep_their_fields() {
-    const PARTS: &[(&str, &str)] = &[
-        ("features/check.rs", "ImageCheck"),
-        ("features/duplicates.rs", "FindDuplicates"),
-        ("features/print.rs", "PrintDialog"),
-        ("features/remote.rs", "Listener"),
-        ("files/file_ops.rs", "FileOperations"),
-        ("metadata/lightroom.rs", "Import"),
-        ("metadata/marks.rs", "Marks"),
-        ("model/folder.rs", "Folder"),
-        ("model/list.rs", "List"),
-        ("model/search.rs", "Search"),
-        ("ui/dialogs.rs", "Dialogs"),
-        ("ui/file_list.rs", "Panel"),
-        ("ui/file_list.rs", "StatusBar"),
-        ("ui/file_list.rs", "Thumbs"),
-        ("ui/file_list.rs", "Tree"),
-        ("ui/info_panel.rs", "InfoPanel"),
-        ("ui/menus.rs", "OpenWith"),
-        ("ui/preferences.rs", "Preferences"),
-        ("ui/theme.rs", "DesktopSettings"),
-        ("ui/window.rs", "Window"),
-        ("viewer/pan.rs", "PanView"),
-        ("viewer/save_as.rs", "SaveAsChoices"),
-        ("viewer/save_as.rs", "SaveAs"),
-        ("viewer/slideshow.rs", "Slideshow"),
-        ("viewer/view.rs", "Decoding"),
-        ("viewer/view.rs", "Notice"),
-        ("viewer/view.rs", "Viewing"),
-        ("viewer/view.rs", "Zoom"),
-    ];
     let mut wrong = Vec::new();
-    for (file, part) in PARTS {
+    for (file, part) in APP_PARTS {
         let lines = code_lines(&source(file));
         let heads = [
             format!("pub(crate) struct {part} {{"),
@@ -3263,9 +3267,10 @@ fn the_rules_name_what_exists() {
 /// stopped answering (a NAS asleep, Wi-Fi gone) such a call waits for ever, and the window hangs
 /// and cannot be closed. The window's thread is the code of `App`'s methods: the
 /// `impl crate::App` blocks of every module, and main.rs's `impl App` and
-/// `impl eframe::App for App`, because an `App` is never sent to another thread. Inside them,
-/// the text of a call that hands work to another thread (`spawn`, `write_later`,
-/// `run_in_background`) is left out, because that work runs there. A function of Glimt's own
+/// `impl eframe::App for App`, because an `App` is never sent to another thread. The methods
+/// of App's parts (`APP_PARTS`) run there too, as App calls them. Inside them, the text of a
+/// call that hands work to another thread (`spawn`, `write_later`, `run_in_background`,
+/// `write_sidecars`) is left out, because that work runs there. A function of Glimt's own
 /// that looks at the disk is found by its name too. A call that must stay is listed here with
 /// its function and the reason, and a line here that no longer matches a call fails too.
 #[test]
@@ -3296,21 +3301,43 @@ fn the_window_thread_never_waits_for_the_disk() {
             "the few folders typed, while the Lightroom dialog is open; its shortcut comment",
         ),
         (
-            "metadata/lightroom.rs",
-            "import_lightroom",
-            ".is_file()",
-            "in the closure that write_sidecars runs in its job thread",
-        ),
-        (
             "files/file_ops.rs",
             "written_anew",
             "canonicalize(",
             "only files just written with a moved file's name; its shortcut comment",
         ),
+        (
+            "files/file_ops.rs",
+            "written_anew",
+            "fingerprint(",
+            "only files just written with a moved file's name; its shortcut comment",
+        ),
+        (
+            "metadata/marks.rs",
+            "load",
+            "read_limited(",
+            "Glimt's own marks file, read once at start, before the window opens",
+        ),
+        (
+            "model/folder.rs",
+            "new",
+            "read_limited(",
+            "Glimt's own Open Recent and sorted folders, read once at start",
+        ),
+        (
+            "ui/info_panel.rs",
+            "new",
+            "read_limited(",
+            "Glimt's own keyword tree, read once at start",
+        ),
     ];
     let mut found: Vec<(String, String, &str, usize)> = Vec::new();
     for (file, text) in rust_sources() {
-        for (function, call, line) in disk_calls_in_window_thread(&text) {
+        let parts: Vec<&str> = (APP_PARTS.iter())
+            .filter(|(f, _)| *f == file)
+            .map(|(_, part)| *part)
+            .collect();
+        for (function, call, line) in disk_calls_in_window_thread(&text, &parts) {
             found.push((file.clone(), function, call, line));
         }
     }
@@ -3335,9 +3362,10 @@ fn the_window_thread_never_waits_for_the_disk() {
     );
 }
 
-/// Returns the calls in `text` that look at the disk in the window's thread, as `App`'s
-/// methods outside the work they hand to other threads, each as (function, call, line).
-fn disk_calls_in_window_thread(text: &str) -> Vec<(String, &'static str, usize)> {
+/// Returns the calls in `text` that look at the disk in the window's thread, as the methods of
+/// `App` and of its `parts` in `text` outside the work they hand to other threads, each as
+/// (function, call, line).
+fn disk_calls_in_window_thread(text: &str, parts: &[&str]) -> Vec<(String, &'static str, usize)> {
     // The standard library's look at the disk, and Glimt's own functions that do.
     const DISK_CALLS: &[&str] = &[
         "fs::metadata(",
@@ -3362,8 +3390,15 @@ fn disk_calls_in_window_thread(text: &str) -> Vec<(String, &'static str, usize)>
         "read_text(",
         "read_head(",
         "open_regular(",
+        "fingerprint(",
+        "same_file(",
     ];
-    const ELSEWHERE: &[&str] = &["spawn(", "write_later(", "run_in_background("];
+    const ELSEWHERE: &[&str] = &[
+        "spawn(",
+        "write_later(",
+        "run_in_background(",
+        "write_sidecars(",
+    ];
     let lines = code_lines(text);
     let mut found = Vec::new();
     let (mut in_app, mut function) = (false, String::new());
@@ -3371,12 +3406,18 @@ fn disk_calls_in_window_thread(text: &str) -> Vec<(String, &'static str, usize)>
     let mut handed_over = 0usize;
     for (i, line) in lines[..tests_start(&lines)].iter().enumerate() {
         let item = without_qualifiers(line);
+        let is_part = |part: &&str| {
+            item.starts_with("impl")
+                && (item.ends_with(&format!(" {part} {{"))
+                    || item.ends_with(&format!(">{part} {{")))
+        };
         if [
             "impl crate::App {",
             "impl App {",
             "impl eframe::App for App {",
         ]
         .contains(&item)
+            || parts.iter().any(is_part)
         {
             in_app = true;
             continue;
@@ -3428,8 +3469,10 @@ fn finds_a_disk_call_in_the_window_thread() {
         });\n        let d = real_dir(&p);\n    }\n    fn c(&self) {\n        \
         write_later(move || drop(p.canonicalize()));\n        // p.is_dir()\n        \
         let s = \".is_file()\";\n        let x = q.is_dir(); std::thread::spawn(f);\n    \
-        }\n}\nfn free() {\n    std::fs::read_dir(p);\n}\n";
-    let found = disk_calls_in_window_thread(text);
+        }\n}\nfn free() {\n    std::fs::read_dir(p);\n}\nimpl Part {\n    fn d(&self) {\n        \
+        fingerprint(p);\n    }\n}\nimpl Default for Part {\n    fn default() -> Self {\n        \
+        p.metadata();\n    }\n}\nimpl Other {\n    fn e(&self) {\n        p.is_dir();\n    }\n}\n";
+    let found = disk_calls_in_window_thread(text, &["Part"]);
     let found: Vec<(&str, &str, usize)> = (found.iter())
         .map(|(f, c, l)| (f.as_str(), *c, *l))
         .collect();
@@ -3438,7 +3481,9 @@ fn finds_a_disk_call_in_the_window_thread() {
         [
             ("a", "fs::metadata(", 3),
             ("b", "real_dir(", 9),
-            ("c", ".is_dir()", 15)
+            ("c", ".is_dir()", 15),
+            ("d", "fingerprint(", 23),
+            ("default", ".metadata()", 28),
         ]
     );
 }
