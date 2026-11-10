@@ -2187,4 +2187,33 @@ mod tests {
         assert_eq!(app.folder.dir(), here.canonicalize().unwrap());
         std::fs::remove_dir_all(dir).unwrap();
     }
+
+    /// A file of the same name opened in another folder is another image, so it opens fitted,
+    /// not at the zoom of the one before. The same file opened again keeps its zoom. Both are
+    /// decided when the look-up's answer is applied, not when the open is asked for.
+    #[test]
+    fn the_same_name_in_another_folder_opens_fitted() {
+        let name = format!("glimt-test-same-name-{}", std::process::id());
+        let dir = std::env::temp_dir().join(name);
+        for sub in ["a", "b"] {
+            std::fs::create_dir_all(dir.join(sub)).unwrap();
+            image::RgbImage::new(4, 4)
+                .save(dir.join(sub).join("x.png"))
+                .unwrap();
+        }
+        let (mut app, ctx) = app_on(&dir.join("a/x.png"));
+        app.config.keep_zoom = false;
+        let visit = |app: &mut crate::App, path: std::path::PathBuf| {
+            app.visit(&ctx, path);
+            app.receive_looked_up(&ctx, std::time::Duration::from_secs(5));
+            assert!(run_background_until(app, &ctx, |a| !a.folder.is_listing()));
+        };
+        app.zoom.one_to_one();
+        visit(&mut app, dir.join("a/x.png"));
+        assert!(!app.zoom.is_fitted(), "the same file keeps its zoom");
+        visit(&mut app, dir.join("b/x.png"));
+        assert!(app.folder.dir().ends_with("b"));
+        assert!(app.zoom.is_fitted(), "another folder's x.png opens fitted");
+        std::fs::remove_dir_all(dir).unwrap();
+    }
 }
