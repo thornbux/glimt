@@ -221,18 +221,13 @@ pub fn moves_cut_short(dir: &Path) -> Vec<(MoveLog, Moves)> {
             if bytes.is_empty() {
                 return None;
             }
-            let paths: Vec<PathBuf> = (bytes.split(|&b| b == 0))
-                .filter(|p| !p.is_empty())
-                .map(|p| PathBuf::from(OsStr::from_bytes(p)))
-                .collect();
             let is_surely_gone = |p: &Path| {
                 matches!(std::fs::symlink_metadata(p),
                     Err(e) if e.kind() == std::io::ErrorKind::NotFound)
             };
             // A pair cut off by the kill has names that are not there, and is left out so.
-            let went: Moves = (paths.as_chunks::<2>().0.iter())
-                .filter(|[from, to]| is_surely_gone(from) && std::fs::symlink_metadata(to).is_ok())
-                .map(|[from, to]| (from.clone(), to.clone()))
+            let went: Moves = (parse_move_log(&bytes).into_iter())
+                .filter(|(from, to)| is_surely_gone(from) && std::fs::symlink_metadata(to).is_ok())
                 .collect();
             let log = MoveLog {
                 path: e.path(),
@@ -242,6 +237,18 @@ pub fn moves_cut_short(dir: &Path) -> Vec<(MoveLog, Moves)> {
             };
             Some((log, went))
         })
+        .collect()
+}
+
+/// Returns the pairs `(from, to)` that the log of a Move holds, `bytes`: each name ends in a
+/// NUL byte. A pair cut off by a kill, at the end, is left out.
+fn parse_move_log(bytes: &[u8]) -> Moves {
+    let paths: Vec<PathBuf> = (bytes.split(|&b| b == 0))
+        .filter(|p| !p.is_empty())
+        .map(|p| PathBuf::from(OsStr::from_bytes(p)))
+        .collect();
+    (paths.as_chunks::<2>().0.iter())
+        .map(|[from, to]| (from.clone(), to.clone()))
         .collect()
 }
 
@@ -982,6 +989,17 @@ mod tests {
             if let Some((moves, Some(done))) = super::parse(&bytes) {
                 assert!(done <= moves.len());
             }
+        }
+    }
+
+    /// Damaged logs of a Move are read without a panic, and give no more pairs than names.
+    #[test]
+    fn survives_broken_move_logs() {
+        let seed = b"/p/a.jpg\0/q/a.jpg\0/p/b.jpg\0/q/b.jpg\0/p/c.jp";
+        assert_eq!(super::parse_move_log(seed).len(), 2);
+        for bytes in crate::support::test_support::broken(seed) {
+            let names = bytes.split(|&b| b == 0).filter(|p| !p.is_empty()).count();
+            assert!(2 * super::parse_move_log(&bytes).len() <= names);
         }
     }
 
