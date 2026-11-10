@@ -3321,6 +3321,72 @@ mod tests {
         std::fs::remove_dir_all(dir).unwrap();
     }
 
+    /// Remove All keeps what decides how the copy looks, in a JPEG, a PNG and a WebP: the colour
+    /// profile, the EXIF orientation and the XMP orientation. The dialog says they are always
+    /// kept, and before, no test held a file with a profile or an orientation in the XMP.
+    #[test]
+    fn remove_all_keeps_the_profile_and_the_orientation() {
+        use image::{ImageDecoder, ImageEncoder};
+        let dir = folder("always-kept");
+        let profile = b"ICC-PROFILE-OF-THE-TEST".to_vec();
+        let xmp = "<x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><rdf:RDF \
+            xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\"><rdf:Description \
+            rdf:about=\"\" xmlns:tiff=\"http://ns.adobe.com/tiff/1.0/\">\
+            <tiff:Orientation>6</tiff:Orientation></rdf:Description></rdf:RDF></x:xmpmeta>";
+        let mut jpeg = Vec::new();
+        let mut encoder = image::codecs::jpeg::JpegEncoder::new_with_quality(&mut jpeg, 90);
+        encoder.set_icc_profile(profile.clone()).unwrap();
+        encoder.set_exif_metadata(exif_block()).unwrap();
+        picture().write_with_encoder(encoder).unwrap();
+        let xmp_segment = [&b"http://ns.adobe.com/xap/1.0/\0"[..], xmp.as_bytes()].concat();
+        let jpeg = [
+            &jpeg[..2],
+            &super::jpeg_segment(0xe1, &xmp_segment),
+            &jpeg[2..],
+        ]
+        .concat();
+        let mut png = Vec::new();
+        let mut encoder = image::codecs::png::PngEncoder::new(&mut png);
+        encoder.set_icc_profile(profile.clone()).unwrap();
+        encoder.set_exif_metadata(exif_block()).unwrap();
+        picture().write_with_encoder(encoder).unwrap();
+        let text = [&b"XML:com.adobe.xmp\0\0\0\0\0"[..], xmp.as_bytes()].concat();
+        let png = [&png[..33], &super::png_chunk(b"iTXt", &text), &png[33..]].concat();
+        let mut webp = Vec::new();
+        let mut encoder = image::codecs::webp::WebPEncoder::new_lossless(&mut webp);
+        encoder.set_icc_profile(profile.clone()).unwrap();
+        encoder.set_exif_metadata(exif_block()).unwrap();
+        picture().write_with_encoder(encoder).unwrap();
+        let webp =
+            crate::images::save::webp_with_chunk(&webp, b"XMP ", xmp.as_bytes(), 16, 16).unwrap();
+        for (name, original) in [("a.jpg", jpeg), ("a.png", png), ("a.webp", webp)] {
+            let path = dir.join(name);
+            std::fs::write(&path, &original).unwrap();
+            let found = super::tags_of(&path).unwrap().unwrap();
+            let mut left_out = super::LeftOut::default();
+            left_out.remove_all();
+            let copy = super::copy(&path, &left_out.kept(&found)).unwrap().unwrap();
+            let has = |text: &[u8]| copy.windows(text.len()).any(|w| w == text);
+            assert!(!has(b"Canon"), "{name}: the make is in the copy");
+            assert!(
+                has(b"\x01\x12\0\x03\0\0\0\x01\0\x06"),
+                "{name}: no EXIF orientation"
+            );
+            assert!(
+                has(b"<tiff:Orientation>6</tiff:Orientation>"),
+                "{name}: no XMP one"
+            );
+            let reader = image::ImageReader::new(std::io::Cursor::new(&copy));
+            let mut decoder = (reader.with_guessed_format().unwrap().into_decoder()).unwrap();
+            assert_eq!(
+                decoder.icc_profile().unwrap(),
+                Some(profile.clone()),
+                "{name}"
+            );
+        }
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
     /// Content credentials (C2PA) are never copied, nor listed as a tag, from a JPEG (APP11), a
     /// PNG (caBX) or a WebP (C2PA): the copy's new bytes would no longer match their hash, and
     /// a validator would call it tampered with. They go also when nothing is left out.
