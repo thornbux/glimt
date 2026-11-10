@@ -3001,3 +3001,7 @@ msgstr "Glimt sloot af voordat alles was geschreven: de laatste wijziging van de
 #: src/files/journal.rs
 msgid "Rename Many runs without its plan ({e}), so a crash halfway is not put right at the next start"
 msgstr "Meerdere hernoemen draait zonder zijn plan ({e}), dus een crash halverwege wordt bij de volgende start niet hersteld"
+
+#: src/model/folder.rs
+msgid "Still opening {name}… Open another folder to stop waiting."
+msgstr "{name} wordt nog geopend… Open een andere map om niet langer te wachten."

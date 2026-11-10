@@ -3001,3 +3001,7 @@ msgstr "Glimt päättyi ennen kuin kaikki oli kirjoitettu: asetusten, merkintöj
 #: src/files/journal.rs
 msgid "Rename Many runs without its plan ({e}), so a crash halfway is not put right at the next start"
 msgstr "Nimeä useita uudelleen toimii ilman suunnitelmaansa ({e}), joten puolivälissä tapahtuvaa kaatumista ei korjata seuraavalla käynnistyskerralla"
+
+#: src/model/folder.rs
+msgid "Still opening {name}… Open another folder to stop waiting."
+msgstr "{name} avautuu yhä… Avaa toinen kansio, niin odotus loppuu."

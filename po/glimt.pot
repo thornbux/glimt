@@ -3022,3 +3022,7 @@ msgstr ""
 #: src/files/journal.rs
 msgid "Rename Many runs without its plan ({e}), so a crash halfway is not put right at the next start"
 msgstr ""
+
+#: src/model/folder.rs
+msgid "Still opening {name}… Open another folder to stop waiting."
+msgstr ""

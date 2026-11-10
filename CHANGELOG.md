@@ -41,6 +41,9 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
+- A folder that takes more than three seconds to open, as on a share that stopped answering,
+  shows a notice that it is still opening and that opening another folder stops the wait.
+  Before, only the busy pointer showed it.
 - Marks and stars set one after another while the last one is still being saved go to the
   marks file in one write, not one write each. With 500,000 files marked, a write takes about
   0.4 s, so 500 mark keys took over three minutes to save, longer than a close waits for them.

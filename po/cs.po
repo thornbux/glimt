@@ -3023,3 +3023,7 @@ msgstr "Glimt skončil dříve, než bylo vše zapsáno: poslední změna nastav
 #: src/files/journal.rs
 msgid "Rename Many runs without its plan ({e}), so a crash halfway is not put right at the next start"
 msgstr "Hromadné přejmenování běží bez svého plánu ({e}), takže pád v polovině se při dalším spuštění nenapraví"
+
+#: src/model/folder.rs
+msgid "Still opening {name}… Open another folder to stop waiting."
+msgstr "{name} se stále otevírá… Otevřete jinou složku, abyste přestali čekat."
