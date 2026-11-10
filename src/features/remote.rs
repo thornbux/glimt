@@ -216,6 +216,9 @@ pub(crate) enum NameAskedBy {
     Dialog,
     /// `--remote name`, answered where there is a client to answer.
     Remote(Option<Reply>),
+    /// The window's start, which listens as its --name, or as its name and process ID when
+    /// another window has that name already. The title shows which once it is answered.
+    Start,
 }
 
 /// A window name taken or refused in the background (`App::set_window_name`).
@@ -272,17 +275,44 @@ impl Listener {
         busy: &std::sync::Arc<std::sync::atomic::AtomicUsize>,
         listens_without_name: bool,
     ) -> Self {
+        let start_listening =
+            listens(listens_without_name, given_name().is_some()).then_some(listen);
+        Self::start(ctx, busy, listens_without_name, start_listening)
+    }
+
+    /// Makes the listener, and runs `start_listening` in the background when it is given. Its
+    /// answer comes back as a name's does (`receive_window_name`), because the title shows the
+    /// ID that the window listens as, which is known only once the socket is made.
+    fn start(
+        ctx: &egui::Context,
+        busy: &std::sync::Arc<std::sync::atomic::AtomicUsize>,
+        listens_without_name: bool,
+        start_listening: Option<
+            impl FnOnce(mpsc::Sender<(String, Option<Reply>)>, egui::Context) -> Result<(), String>
+            + Send
+            + 'static,
+        >,
+    ) -> Self {
         let (tx, rx) = mpsc::channel();
-        if listens(listens_without_name, given_name().is_some()) {
-            let (tx, ctx) = (tx.clone(), ctx.clone());
+        let (name_sender, name_answers) = answer_channel(busy);
+        if let Some(start_listening) = start_listening {
+            let (tx, ctx, answers) = (tx.clone(), ctx.clone(), name_sender.clone());
             std::thread::spawn(move || {
-                let _one_at_a_time = lock_even_if_poisoned(&NAMING);
-                if let Err(why) = self::listen(tx, ctx) {
+                let taken = {
+                    let _one_at_a_time = lock_even_if_poisoned(&NAMING);
+                    start_listening(tx, ctx.clone())
+                };
+                if let Err(why) = &taken {
                     eprintln!("{why}");
                 }
+                let taken = taken.map_err(Some);
+                let _ = answers.send(NameAnswer {
+                    asked_by: NameAskedBy::Start,
+                    taken,
+                });
+                ctx.request_repaint();
             });
         }
-        let (name_sender, name_answers) = answer_channel(busy);
         Listener {
             rx,
             tx,
@@ -576,7 +606,9 @@ impl crate::App {
                     let why = why.unwrap_or_else(|| NOT_A_NAME.to_owned());
                     drop(reply.send(not_done_answer(&why)));
                 }
-                (NameAskedBy::Remote(None), _) | (NameAskedBy::Dialog, Ok(())) => {}
+                // A start that could not listen printed why in its thread.
+                (NameAskedBy::Remote(None) | NameAskedBy::Start, _)
+                | (NameAskedBy::Dialog, Ok(())) => {}
                 // The name typed is told in the user's language. The other reasons come from
                 // the system, rarely, and are the English ones that `--remote name` prints too.
                 (NameAskedBy::Dialog, Err(None)) => self.notice.give(
@@ -1895,6 +1927,30 @@ mod tests {
         assert!(!named("/run/glimt/glimt-left.sock", "4242"));
         assert_eq!(super::shown_id("left.4242"), "left (4242)");
         assert_eq!(super::shown_id("left"), "left");
+    }
+
+    /// The start's listening is answered to the window as a name is, so that the title shows
+    /// the ID the window listens as: a window that shares its name shows its process ID too.
+    /// Before, the socket was made in the background and the title never learned of it.
+    #[test]
+    fn the_listening_at_start_is_answered_to_the_window() {
+        let busy = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let ctx = eframe::egui::Context::default();
+        let mut listener = super::Listener::start(&ctx, &busy, false, Some(|_, _| Ok(())));
+        let answered = (0..250).any(|_| {
+            std::thread::sleep(std::time::Duration::from_millis(20));
+            matches!(
+                listener.name_answers.next(),
+                crate::support::threads::Took::Answer((
+                    super::NameAnswer {
+                        asked_by: super::NameAskedBy::Start,
+                        taken: Ok(())
+                    },
+                    _
+                ))
+            )
+        });
+        assert!(answered);
     }
 
     /// A window's socket is linked to its new name, so it answers there, but never over the
