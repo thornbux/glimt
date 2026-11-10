@@ -2973,3 +2973,7 @@ msgstr "Nazwa tego okna, po której glimt --name NAME --remote do niego trafia (
 #: src/ui/dialogs.rs
 msgid "Could not name this window: {why}"
 msgstr "Nie można nazwać tego okna: {why}"
+
+#: src/ui/dialogs.rs
+msgid "Could not name this window: a name holds up to 64 letters, digits, - and _, and not only digits"
+msgstr "Nie można nazwać tego okna: nazwa ma do 64 liter, cyfr, - i _, i nie składa się z samych cyfr"

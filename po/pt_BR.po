@@ -2973,3 +2973,7 @@ msgstr "Nome desta janela, pelo qual glimt --name NAME --remote a alcança (vazi
 #: src/ui/dialogs.rs
 msgid "Could not name this window: {why}"
 msgstr "Não foi possível dar nome a esta janela: {why}"
+
+#: src/ui/dialogs.rs
+msgid "Could not name this window: a name holds up to 64 letters, digits, - and _, and not only digits"
+msgstr "Não foi possível dar nome a esta janela: um nome tem até 64 letras, algarismos, - e _, e não só algarismos"

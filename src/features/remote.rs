@@ -738,6 +738,11 @@ pub fn valid_name(name: &str) -> bool {
     name.chars().all(ok) && !name.chars().all(|c| c.is_ascii_digit()) && name.len() <= 64
 }
 
+/// Whether a window may take `name` as its own (`rename`): a `valid_name` whose socket fits.
+pub fn can_be_window_name(name: &str) -> bool {
+    !name.is_empty() && valid_name(name) && name_fits(name)
+}
+
 /// Whether the socket of `--name name` fits in the bytes a socket's path may have here. In a
 /// Flatpak its folder alone takes some 60.
 pub fn name_fits(name: &str) -> bool {
@@ -1307,9 +1312,7 @@ fn bind_socket(path: &std::path::Path) -> Result<UnixListener, Option<std::io::E
 /// never without remote control. The new name is shared, as at start, when another window has
 /// it already. Returns the reason when the name cannot be taken.
 pub fn rename(name: Option<&str>) -> Result<(), String> {
-    if let Some(n) = name
-        && (n.is_empty() || !valid_name(n) || !name_fits(n))
-    {
+    if name.is_some_and(|n| !can_be_window_name(n)) {
         return Err("a name holds up to 64 letters, digits, - and _, not only digits".into());
     }
     if !listening() {
