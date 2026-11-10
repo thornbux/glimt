@@ -547,10 +547,10 @@ impl crate::App {
                 (Pick::SavePdf(job), Some(file)) => self.print(ctx, job, PrintTo::File(file)),
                 (Pick::SortFolder, Some(dir)) => self.add_sort_folder(dir),
                 (Pick::ScreenProfile, Some(file)) => {
-                    self.set_screen_profile(file.to_string_lossy().into_owned())
+                    self.set_screen_profile(ctx, file.to_string_lossy().into_owned())
                 }
                 (Pick::InputProfile, Some(file)) => {
-                    self.set_input_profile(file.to_string_lossy().into_owned())
+                    self.set_input_profile(ctx, file.to_string_lossy().into_owned())
                 }
                 (Pick::Lightroom, Some(file)) => self.read_lightroom(ctx, file),
                 (Pick::BackUp, Some(dir)) => self.back_up(ctx, dir),

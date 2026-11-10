@@ -5,7 +5,7 @@ use crate::files::config::xdg_dir;
 use crate::files::external::{apps_for, command, open_own_folder, open_url};
 use crate::files::file_ops::OperationReport;
 use crate::images::colour::{
-    COLOR_MANAGEMENT, FILTERS, VIEW_FILTER, set_colour, set_input, set_intent, set_screen,
+    COLOR_MANAGEMENT, FILTERS, ProfileAsked, ProfileSet, VIEW_FILTER, set_colour, set_intent,
 };
 use crate::support::format::count;
 use crate::support::lang::tr;
@@ -184,14 +184,11 @@ impl crate::App {
     }
 
     /// Show everything through the screen profile in `path` (empty: none, the screen is sRGB).
-    pub(crate) fn set_screen_profile(&mut self, path: String) {
-        if let Err(e) = set_screen(&path) {
-            self.notice.give(e);
-            return;
-        }
-        self.config.screen_profile = path;
-        self.config.save();
-        self.choose_screen_profile();
+    /// The file is read in the background, and the setting changes when it could be
+    /// (`receive_profile_changes`).
+    pub(crate) fn set_screen_profile(&mut self, ctx: &egui::Context, path: String) {
+        let asked = ProfileAsked::Screen { path, chosen: true };
+        self.decoding.profile_changes().ask(&self.busy, ctx, asked);
     }
 
     /// Whether the desktop's screen profile goes before the chosen one; read from colord when on.
@@ -201,32 +198,58 @@ impl crate::App {
         if on {
             self.desktop_settings.ask_screen_profile(ctx);
         }
-        self.choose_screen_profile();
+        self.choose_screen_profile(ctx);
     }
 
     /// Show through the desktop's screen profile when it counts and colord has one, else through
-    /// the chosen one.
-    pub(crate) fn choose_screen_profile(&mut self) {
+    /// the chosen one. Its file is read in the background.
+    pub(crate) fn choose_screen_profile(&mut self, ctx: &egui::Context) {
         let path = match self.desktop_settings.screen_profile() {
             Some(p) if self.config.desktop_profile => p.to_owned(),
             _ => self.config.screen_profile.clone(),
         };
-        match set_screen(&path) {
-            Ok(false) => {}
-            Ok(true) => self.redecode(),
-            Err(e) => self.notice.give(e),
-        }
+        let asked = ProfileAsked::Screen {
+            path,
+            chosen: false,
+        };
+        self.decoding.profile_changes().ask(&self.busy, ctx, asked);
     }
 
-    /// The profile for images without one: srgb, adobe, p3 or an ICC file.
-    pub(crate) fn set_input_profile(&mut self, name: String) {
-        if let Err(e) = set_input(&name) {
-            self.notice.give(e);
-            return;
+    /// The profile for images without one: srgb, adobe, p3 or an ICC file, read in the
+    /// background.
+    pub(crate) fn set_input_profile(&mut self, ctx: &egui::Context, name: String) {
+        let asked = ProfileAsked::Input { name };
+        self.decoding.profile_changes().ask(&self.busy, ctx, asked);
+    }
+
+    /// Takes the colour profiles read and set in the background: a chosen one is kept in the
+    /// settings once it could be read, and the images are decoded again in its colours. A file
+    /// that is not an RGB profile is told, and the profile before it stays.
+    pub(crate) fn receive_profile_changes(&mut self, ctx: &egui::Context) {
+        while let Some((set, _pointer)) = self.decoding.profile_changes().next() {
+            match set {
+                ProfileSet::Screen { answer: Err(e), .. }
+                | ProfileSet::Input { answer: Err(e), .. } => {
+                    self.notice.give(e);
+                }
+                ProfileSet::Screen {
+                    path, chosen: true, ..
+                } => {
+                    self.config.screen_profile = path;
+                    self.config.save();
+                    self.choose_screen_profile(ctx);
+                }
+                ProfileSet::Screen {
+                    answer: Ok(true), ..
+                } => self.redecode(),
+                ProfileSet::Screen { .. } => {}
+                ProfileSet::Input { name, .. } => {
+                    self.config.input_profile = name;
+                    self.config.save();
+                    self.redecode();
+                }
+            }
         }
-        self.config.input_profile = name;
-        self.config.save();
-        self.redecode();
     }
 
     /// Whether an image's own profile counts, or the input profile is used for all.

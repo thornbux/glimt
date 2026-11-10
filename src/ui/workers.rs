@@ -82,15 +82,16 @@ impl crate::App {
         self.receive_exif_index(ctx);
     }
 
-    /// The desktop's look and screen profile, once read.
+    /// The desktop's look and screen profile, once read, and the colour profiles set.
     fn receive_desktop(&mut self, ctx: &egui::Context) {
         let (look, screen) = self.desktop_settings.receive();
         if look {
             self.apply_theme(ctx);
         }
         if screen {
-            self.choose_screen_profile();
+            self.choose_screen_profile(ctx);
         }
+        self.receive_profile_changes(ctx);
     }
 
     /// Takes what file operations finished: their jobs and the files they touch are let go (an

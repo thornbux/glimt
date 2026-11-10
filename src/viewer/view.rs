@@ -102,6 +102,8 @@ pub(crate) struct Decoding {
     /// every frame slow, while the slowest frame alone varies with one-off work such as Select
     /// All.
     frame_ms: [u32; 256],
+    /// The colour profiles chosen, read and set in the background, as decoding goes by them.
+    profile_changes: crate::images::colour::ProfileChanges,
 }
 
 impl Decoding {
@@ -134,7 +136,13 @@ impl Decoding {
             opened: Instant::now(),
             started: Some(Instant::now()),
             frame_ms: [0; 256],
+            profile_changes: Default::default(),
         }
+    }
+
+    /// The colour profiles chosen and being read in the background.
+    pub(crate) fn profile_changes(&mut self) -> &mut crate::images::colour::ProfileChanges {
+        &mut self.profile_changes
     }
 
     /// Whether Auto Rotate is on, shared with the thumbnail workers, which turn by it as well.

@@ -702,7 +702,7 @@ impl crate::App {
             let current = self.config.input_profile.clone();
             for (value, label, _) in INPUT_PROFILES {
                 if radio(ui, current == value, label).clicked() && current != value {
-                    self.set_input_profile(value.to_owned());
+                    self.set_input_profile(ui.ctx(), value.to_owned());
                 }
             }
             let own_file = !INPUT_PROFILES.iter().any(|p| p.0 == current);
@@ -739,7 +739,7 @@ impl crate::App {
                 if !self.config.screen_profile.is_empty()
                     && crate::ui::menus::button(ui, tr("None")).clicked()
                 {
-                    self.set_screen_profile(String::new());
+                    self.set_screen_profile(ui.ctx(), String::new());
                 }
             });
             ui.label(tr("Rendering intent:"));
