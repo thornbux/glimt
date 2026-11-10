@@ -119,16 +119,46 @@ pub struct Colour {
     /// Geeqie's rendering intent.
     pub intent: moxcms::RenderingIntent,
     /// Made once for each source and target: some profiles cost more to make a transform from
-    /// than the transform itself. By (source, to the screen): 0 is sRGB, 1 the input profile,
-    /// the rest a hash of the image's profile.
+    /// than the transform itself. By (source, to the screen, the pixels' form): 0 is sRGB, 1
+    /// the input profile, the rest a hash of the image's profile.
     pub transforms: Arc<Mutex<Transforms>>,
 }
 
 /// Makes a built-in profile of `INPUT_PROFILES`.
 pub type BuiltIn = fn() -> Option<moxcms::ColorProfile>;
 
-/// Colour transforms by (source, to the screen); `None` where none can be made.
-pub type Transforms = HashMap<(u64, bool), Option<Arc<moxcms::Transform8BitExecutor>>>;
+/// Colour transforms by (source, to the screen, the pixels' form); `None` where none can be
+/// made.
+pub type Transforms = HashMap<(u64, bool, Form), Option<Transform>>;
+
+/// The form of the pixels a colour transform reads and writes.
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+pub struct Form {
+    /// 16 bits for each channel, else 8.
+    pub sixteen_bits: bool,
+    /// An alpha channel, which the transform carries over unchanged.
+    pub alpha: bool,
+}
+
+impl Form {
+    /// The form `img` goes through a transform in: its own depth (a float as 16 bits) and its
+    /// own alpha, grey as RGB. Before, every image came out in 8-bit RGBA, so Export Frames
+    /// wrote a 16-bit page with a profile in 8 bits.
+    pub fn of(img: &image::DynamicImage) -> Form {
+        let colour = img.color();
+        Form {
+            sixteen_bits: colour.bytes_per_pixel() > colour.channel_count(),
+            alpha: colour.has_alpha(),
+        }
+    }
+}
+
+/// A colour transform of 8-bit or of 16-bit pixels.
+#[derive(Clone)]
+pub enum Transform {
+    Eight(Arc<moxcms::Transform8BitExecutor>),
+    Sixteen(Arc<moxcms::Transform16BitExecutor>),
+}
 
 // What a test runs on its thread where an image's profile is about to be parsed, to see that the
 // transform cache is not locked then.
@@ -242,12 +272,13 @@ fn converted(
     if from == 0 && !screen {
         return img;
     }
-    let key = (from, screen);
+    let form = Form::of(&img);
+    let key = (from, screen, form);
     let cached = (lock_even_if_poisoned(&c.transforms)).get(&key).cloned();
     let t = cached.unwrap_or_else(|| {
         // The transform is made without the cache locked. A large or crafted profile can take
         // long to parse, and the other decoding threads should not wait for it.
-        let t = make_transform(c, icc, from, screen);
+        let t = make_transform(c, icc, from, screen, form);
         let mut transforms = lock_even_if_poisoned(&c.transforms);
         // The cache keeps a transform for each profile the images have. Profiles that differ
         // only in the date written into them (exports of one editor) count as others, so a few
@@ -259,7 +290,7 @@ fn converted(
         t
     });
     match t {
-        Some(t) => transformed(&*t, img),
+        Some(t) => transformed(&t, img),
         None => img,
     }
 }
@@ -468,14 +499,15 @@ pub fn first_quoted(text: &str) -> Option<&str> {
 }
 
 /// Makes the transform of an image's colours from `icc` (or the profile `from` stands for, see
-/// `Colour::transforms`) to the screen with `screen`, else to sRGB. Returns `None` where none
-/// is needed or none can be made.
+/// `Colour::transforms`) to the screen with `screen`, else to sRGB, for pixels of the form
+/// `form`. Returns `None` where none is needed or none can be made.
 fn make_transform(
     c: &Colour,
     icc: Option<&[u8]>,
     from: u64,
     screen: bool,
-) -> Option<Arc<moxcms::Transform8BitExecutor>> {
+    form: Form,
+) -> Option<Transform> {
     use moxcms::{ColorProfile, Layout, RenderingIntent, TransformOptions};
     #[cfg(test)]
     if let Some(hook) = PARSING.get() {
@@ -506,28 +538,56 @@ fn make_transform(
             rendering_intent,
             ..TransformOptions::default()
         };
-        source.create_transform_8bit(Layout::Rgba, &target, Layout::Rgba, options)
+        let layout = if form.alpha {
+            Layout::Rgba
+        } else {
+            Layout::Rgb
+        };
+        if form.sixteen_bits {
+            (source.create_transform_16bit(layout, &target, layout, options))
+                .map(Transform::Sixteen)
+        } else {
+            (source.create_transform_8bit(layout, &target, layout, options)).map(Transform::Eight)
+        }
     };
     // A profile without tables for the intent has the perceptual ones, as ICC says.
     (make(c.intent).or_else(|_| make(RenderingIntent::Perceptual))).ok()
 }
 
-/// `img` through the colour transform `t`, a megabyte at a time through one small buffer: a
-/// full-size photo for printing or saving does not need a second copy of itself.
-pub fn transformed(
-    t: &moxcms::Transform8BitExecutor,
-    img: image::DynamicImage,
-) -> image::DynamicImage {
-    const PART: usize = 1 << 20; // whole RGBA pixels
-    let mut rgba = img.into_rgba8();
-    let mut out = vec![0; PART.min(rgba.len())];
-    for part in rgba.chunks_mut(PART) {
+/// `img` through the colour transform `t`, made for the pixels' form (`Form::of`), in that
+/// form.
+pub fn transformed(t: &Transform, img: image::DynamicImage) -> image::DynamicImage {
+    let alpha = img.color().has_alpha();
+    match t {
+        Transform::Eight(t) if alpha => in_place(&**t, img.into_rgba8(), 4),
+        Transform::Eight(t) => in_place(&**t, img.into_rgb8(), 3),
+        Transform::Sixteen(t) if alpha => in_place(&**t, img.into_rgba16(), 4),
+        Transform::Sixteen(t) => in_place(&**t, img.into_rgb16(), 3),
+    }
+}
+
+/// `pixels` of `channels` channels through `t`, a quarter of a million pixels at a time through
+/// one small buffer: a full-size photo for printing or saving does not need a second copy of
+/// itself.
+fn in_place<P, T>(
+    t: &(dyn moxcms::TransformExecutor<T> + Send + Sync),
+    mut pixels: image::ImageBuffer<P, Vec<T>>,
+    channels: usize,
+) -> image::DynamicImage
+where
+    P: image::Pixel<Subpixel = T>,
+    T: Copy + Default,
+    image::DynamicImage: From<image::ImageBuffer<P, Vec<T>>>,
+{
+    let part = (1 << 18) * channels; // whole pixels
+    let mut out = vec![T::default(); part.min(pixels.len())];
+    for part in pixels.chunks_mut(part) {
         let out = &mut out[..part.len()];
         if t.transform(part, out).is_ok() {
             part.copy_from_slice(out);
         }
     }
-    rgba.into()
+    pixels.into()
 }
 
 /// Sets up the colour settings in effect at start. Returns the screen profile's or input profile's
@@ -581,8 +641,28 @@ mod tests {
         });
         let mut whole = vec![0; img.len()];
         t.transform(&img, &mut whole).unwrap();
-        let parts = super::transformed(&*t, img.into()).into_rgba8();
+        let parts = super::transformed(&super::Transform::Eight(t), img.into()).into_rgba8();
         assert_eq!(parts.as_raw(), &whole);
+    }
+
+    /// A 16-bit page with a profile comes out in 16 bits and without an alpha channel it did
+    /// not have, so Export Frames writes it as it writes one without a profile. Before, every
+    /// page with a profile came out as 8-bit RGBA.
+    #[test]
+    fn keeps_the_pixels_form() {
+        let deep = image::DynamicImage::from(image::ImageBuffer::from_pixel(
+            2,
+            2,
+            image::Rgb([15000u16, 41000, 15000]),
+        ));
+        let srgb = super::to_srgb(deep.clone(), Some(&super::ADOBE_RGB));
+        assert_eq!(srgb.color(), image::ColorType::Rgb16);
+        assert_ne!(srgb, deep);
+        let flat =
+            image::DynamicImage::from(image::RgbImage::from_pixel(2, 2, image::Rgb([60, 160, 60])));
+        let srgb = super::to_srgb(flat.clone(), Some(&super::ADOBE_RGB));
+        assert_eq!(srgb.color(), image::ColorType::Rgb8);
+        assert_ne!(srgb, flat);
     }
 
     /// Greyscale keeps white white, inverted turns red cyan, more contrast spreads from the
@@ -674,7 +754,7 @@ mod tests {
         };
         let c = super::COLOUR.read().unwrap();
         assert!(matches!(
-            lock_even_if_poisoned(&c.transforms).get(&(key, false)),
+            lock_even_if_poisoned(&c.transforms).get(&(key, false, super::Form::of(&grey()))),
             Some(None)
         ));
         drop(c);
