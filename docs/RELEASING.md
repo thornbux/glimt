@@ -79,6 +79,14 @@ leaves out the large folder and the EXIF timings. Screenshots of the steps are i
 - **Copy for Sharing of real photos** of `samples.txt` (a Pixel's Ultra HDR, an iPhone's HDR, a
   DJI drone's, a Lightroom export, content credentials), with Remove All and with Place: no
   place, serial number, maker note, credentials or keyword left, the gain maps and pixels kept.
+- **A failing environment,** made to fail on purpose: a full disk (a 16 MB tmpfs) during a Move,
+  a Copy, a turned save and a sidecar write; a share (a FUSE pass-through) that removes a file
+  but answers its unlink with an error while its cache still finds the name, under a Move and a
+  Rename; a JPEG still being written when it is turned with Save Orientation on; `kill -9`
+  during a Move and a Rename Many, then a new start; a read-only folder or sidecar under a
+  keyword save that Ctrl+Q waits for. No photo, sidecar or star lost or put on another file,
+  and the failure told. The full disk and the share need `--privileged`, which `run.sh` gives
+  the parts with those checks (`faults=yes`).
 - **Large folder** (500,000 hard links) and **sorting 3,000 JPEGs by EXIF date:** "first image"
   time and RssAnon of both versions.
 
