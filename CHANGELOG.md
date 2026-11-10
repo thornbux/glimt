@@ -70,6 +70,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 - Copy for Sharing leaves out the EXIF of a crafted PNG or WebP whose tags all name one large
   value, and copies a tag named twice once. Before, such a file could make Glimt fill the
   computer's memory.
+- Find Duplicates shows the busy pointer while it compares, until its groups are listed, as
+  other work in the background does.
 ### Changed
 
 - Copy Image to Clipboard moves from the Select menu to Edit, beside Crop and Orientation. It
