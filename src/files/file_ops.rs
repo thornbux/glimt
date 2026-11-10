@@ -969,8 +969,9 @@ impl crate::App {
         self.marks.follow_files(pairs, is_copy);
     }
 
-    /// Looks up the real path of `folder` in the background, as it waits for the disk, and then
-    /// runs `then` with it in the window's thread. The busy pointer shows meanwhile. A close
+    /// Looks up the real path of `folder` and the type of its file system in the background, as
+    /// both wait for the disk, and then runs `then` with them in the window's thread. The busy
+    /// pointer shows meanwhile. A close
     /// waits for it too, as for a file operation, because `then` starts one (a Copy, say). The
     /// files `held_back_files` that its job will change are held back from now on, and let go
     /// just before `then` starts the job that holds them in turn. Nothing is looked up, and a
@@ -979,7 +980,7 @@ impl crate::App {
         &mut self,
         folder: PathBuf,
         held_back_files: Vec<PathBuf>,
-        then: impl FnOnce(&mut crate::App, &egui::Context, PathBuf) + Send + 'static,
+        then: impl FnOnce(&mut crate::App, &egui::Context, PathBuf, Option<String>) + Send + 'static,
     ) {
         // Before, the files were held only from the job's start, so a delete and a rename in
         // the moment before could hand a Move another file of the same name.
@@ -991,13 +992,14 @@ impl crate::App {
         let awaited = Working::new(&self.file_operations.real_folders_awaited);
         std::thread::spawn(move || {
             let real = crate::model::listing::real_dir(&folder);
+            let file_system = file_system_type_or_test(&real);
             // The close waits until `then` has run, and the job it starts holds the close
             // from then on.
             let _ = tx.send(Box::new(
                 move |app: &mut crate::App, ctx: &egui::Context| {
                     // The window's thread runs both, so no other work comes between them.
                     drop(held_back);
-                    then(app, ctx, real);
+                    then(app, ctx, real, file_system);
                     drop(awaited);
                 },
             ));
@@ -1021,20 +1023,21 @@ impl crate::App {
         // through a link is seen as one. It is looked up in the background, because it waits
         // for the disk, and checked before the files leave the list, so a refused move keeps
         // the view.
-        self.with_real_folder(dest, paths.clone(), move |app, ctx, dest| {
-            app.transfer_into_real_folder(ctx, paths, dest, is_copy)
+        self.with_real_folder(dest, paths.clone(), move |app, ctx, dest, file_system| {
+            app.transfer_into_real_folder(ctx, paths, (dest, file_system), is_copy)
         });
     }
 
-    /// Copies or moves `paths` into `dest`, a folder by its real path, as `transfer` says.
+    /// Copies or moves `paths` into `dest`, a folder by its real path, as `transfer` says. Its
+    /// file system's type, `dest_file_system`, was looked up with it in the background.
     fn transfer_into_real_folder(
         &mut self,
         ctx: &egui::Context,
         paths: Vec<PathBuf>,
-        dest: PathBuf,
+        (dest, dest_file_system): (PathBuf, Option<String>),
         is_copy: bool,
     ) {
-        if let Some(text) = refused_transfer(&paths, &dest, is_copy, file_system_type_or_test) {
+        if let Some(text) = refused_transfer(&paths, &dest, is_copy, |_| dest_file_system.clone()) {
             self.notice.give(text);
             return;
         }
@@ -4078,7 +4081,7 @@ mod tests {
         for _ in 0..300 {
             let ran = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
             let then = ran.clone();
-            app.with_real_folder(dir.clone(), Vec::new(), move |_, _, _| {
+            app.with_real_folder(dir.clone(), Vec::new(), move |_, _, _, _| {
                 then.store(true, SeqCst)
             });
             // The pending look-up counts as work that a close waits for.

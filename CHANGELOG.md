@@ -47,6 +47,9 @@ and versions follow [Semantic Versioning](https://semver.org/).
 - Move, Copy and Copy for Sharing hold their files back from other work from the moment they
   are asked for, while the folder's real path is looked up. Before, a delete and a rename in
   that moment could hand a Move to a slow share another file of the same name.
+- A Copy or Move looks up the file system of the folder it goes to in the background, with the
+  folder's real path, to refuse a name that a camera card does not allow. Before, the window's
+  thread looked it up, which a share that stalled in that moment held.
 
 ### Changed
 
