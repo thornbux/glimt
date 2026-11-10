@@ -82,8 +82,9 @@ if [ "$(id -u)" = 0 ]; then
     # The checks of a failing environment (faults=yes): a small tmpfs at /mnt/full, which they
     # fill, and at /mnt/lossy a FUSE pass-through of /opt/lossy whose unlink of a file named
     # lost-* removes it but answers EIO, and then answers stat of that name from a cache for 30
-    # seconds, as a share whose reply was lost does (NFS, SMB, sshfs). Both need --privileged,
-    # which run.sh gives the parts with these checks; without it those checks fail.
+    # seconds, as a share whose reply was lost does (NFS, SMB, sshfs). It writes each EIO it
+    # gives to /tmp/lossyfs.log, so that a check knows that the fault did happen. Both need
+    # --privileged, which run.sh gives the parts with these checks; without it those checks fail.
     if grep -q '^faults=[y]es' "${SCRIPT:-/t/tests.sh}"; then
         mkdir -p /mnt/full /mnt/lossy /opt/lossy && chown tester: /opt/lossy
         mount -t tmpfs -o size=16m,uid=$(id -u tester),gid=$(id -g tester) full /mnt/full
@@ -124,6 +125,7 @@ class Lossy(Operations):
             st = self.getattr(path)
             os.unlink(self.r(path))
             self.ghosts[path] = (st, time.time() + 30)
+            print("EIO", path, flush=True)
             raise FuseOSError(errno.EIO)
         os.unlink(self.r(path))
 
@@ -4829,17 +4831,23 @@ else
         key ctrl+m
         until_notice lossy-move-$v; told_move=$?
         quit
+        # A Move that simply went through also leaves one copy and a notice. So the share must
+        # have answered EIO, and Glimt must have said that the photo may be under both names.
+        both=$(grep -q "may be under both names" /tmp/glimt.err && echo "both names")
         start $lossy/$v/lost-b.jpg
         key ctrl+r; sleep 1; key ctrl+a
         xdotool type --delay 30 kept-b.jpg; key Return
         until_notice lossy-rename-$v; told_rename=$?
         quit
-        move="$(copies "$a") $([ $told_move = 0 ] && echo told)"
-        rename="$(copies "$b") $([ $told_rename = 0 ] && echo told)"
+        eio() { grep -qx "EIO /$v/$1" /tmp/lossyfs.log && echo EIO; }
+        move="$(copies "$a") $([ $told_move = 0 ] && echo told) $(eio lost-a.jpg) $both"
+        rename="$(copies "$b") $([ $told_rename = 0 ] && echo told) $(eio lost-b.jpg)"
         files="$(ls -A $back | tr '\n' ' ')| $(ls -A $to | tr '\n' ' ')"
         if [ $v = new ]; then
-            expect "a Move from the share: the photo still on a disk, the failure told" "$move" "1 told"
-            expect "a Rename on the share: the photo still on its disk, the failure told" "$rename" "1 told"
+            expect "a Move from the share: the photo still on a disk, the failure told" "$move" \
+                "1 told EIO both names"
+            expect "a Rename on the share: the photo still on its disk, the failure told" "$rename" \
+                "1 told EIO"
         else note "old: Move $move, Rename $rename (copies left, told); files $files"; fi
         [ $v = new ] && note "new: files $files"
     done
@@ -4877,9 +4885,14 @@ with open(sys.argv[2], 'wb') as f:
     quit
     got="$writing $(identify -format '%#' $d/a.jpg 2>/dev/null) $(stat -c %s $d/a.jpg)"
     want="writing $(identify -format '%#' $whole) $(stat -c %s $whole)"
+    # A turn that was never saved (the key missed, or the half not shown) also leaves the photo
+    # whole, so the refusal must have been told.
+    refused=$(grep -E "^Could not save the orientation: .*(looks incomplete|changed meanwhile)" \
+        /tmp/glimt.err >/dev/null && echo refused)
     if [ $v = new ]; then
         expect "the photo whole at its name, its pixels as the copier wrote them" "$got" "$want"
-        note "new: the turn $([ $told = 0 ] && echo told || echo not told)"
+        expect "the turn refused while the copier writes, and told" \
+            "$refused $([ $told = 0 ] && echo told)" "refused told"
     else note "old: $([ "$got" = "$want" ] && echo whole || echo "cut off: $got, whole: $want")"; fi
     rm -rf $d $whole
 done
@@ -4930,6 +4943,9 @@ PY
     if [ $v = new ]; then
         expect "killed during a Move: every photo under a name, its sidecar beside it, its stars on it" \
             "$got" "200 200 200"
+        # A Move that never started, or that ended before the kill, passes the line above too.
+        expect "killed in the middle of the Move" \
+            "$([ $moved -gt 0 ] && [ $moved -lt 200 ] && echo yes)" yes
         note "new: $moved moved when killed, $hidden hidden parts left"
     else note "old: named, sidecar beside, starred: $got ($moved moved when killed, $hidden hidden left)"; fi
     # Rename Many of 10,000 photos, sorted descending to 00001…: each takes the name of another,
@@ -5030,7 +5046,10 @@ time.sleep(12)" &
         for x in $(seq 1100 4 1240); do xdotool mousemove $x 500; done
         sleep 1
         menu Animals; key ctrl+q
-        waits=$(kill -0 $GPID 2>/dev/null && echo waits)
+        # The window got the Ctrl+Q when it says that it closes when the work is done: no other
+        # notice comes while the locks are held. Only then does a window still there wait.
+        waits=
+        until_notice close-asked-$v-$kind 3 && waits=$(kill -0 $GPID 2>/dev/null && echo waits)
         wait $locker
         sleep 3
         open=$(kill -0 $GPID 2>/dev/null && echo open || echo closed)
