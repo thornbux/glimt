@@ -798,8 +798,14 @@ pub fn fits_on_a_line(path: &Path) -> bool {
 pub fn keep_those_that_fit_on_a_line(paths: &mut Vec<PathBuf>) -> Option<String> {
     let before = paths.len();
     paths.retain(|p| fits_on_a_line(p));
-    let files = crate::support::format::count(before - paths.len(), "file");
-    (paths.len() < before).then(|| {
+    left_out_for_line_breaks(before - paths.len())
+}
+
+/// Returns the notice that `left_out` files were left out of Glimt's own files because their
+/// names have a line break, or `None` when none was.
+pub fn left_out_for_line_breaks(left_out: usize) -> Option<String> {
+    let files = crate::support::format::count(left_out, "file");
+    (left_out > 0).then(|| {
         crate::tf!(
             "{files} left out: a name with a line break cannot be kept",
             files

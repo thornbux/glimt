@@ -13,7 +13,10 @@ and versions follow [Semantic Versioning](https://semver.org/).
   confirming turned off.
 - A file whose name has a line break is refused, with a notice, when it is added to a
   collection or given a mark or stars. Glimt's files keep a name on a line, so such a file
-  seemed added or marked and was left out at the next save without a word (#92).
+  seemed added or marked and was left out at the next save without a word (#92). The same
+  notice comes when such a name is reached otherwise: a file moved, copied or renamed into a
+  folder whose name has a line break, a folder renamed to one, or stars from a Lightroom
+  catalog. A moved file's marks are then forgotten under its old name too.
 - Delete to the trash works without `gio` (a `.deb` installed without its recommended packages,
   a tar.gz or AppImage on a small system): Glimt moves the files into the trash itself, as the
   trash spec says. A file on another disk, such as a USB stick, goes into `.Trash-UID` at the

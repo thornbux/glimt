@@ -136,8 +136,10 @@ impl Marks {
     /// Makes `edit` to this window's marks and sends it to the file, where it is made again to
     /// the marks as they are there, so the two agree on what it did.
     fn edit(&mut self, edit: Edit) {
-        apply_edit(&mut self.by_path, &edit);
-        save(edit);
+        for edit in refuse_names_with_line_breaks(edit, &self.by_path) {
+            apply_edit(&mut self.by_path, &edit);
+            save(edit);
+        }
     }
 }
 
@@ -211,6 +213,48 @@ pub(crate) fn marks_file() -> Option<PathBuf> {
     }
     crate::files::config::xdg_dir("XDG_STATE_HOME", ".local/state", "glimt")
         .map(|d| d.join("marks"))
+}
+
+/// Leaves out of `edit` the names that a line of the marks file cannot hold, and tells the user
+/// how many files lost their marks and stars so. A file moved, or a folder renamed, to such a
+/// name has the marks of its old name forgotten, so that a new file of that name does not get
+/// them. Returns the edits to make in place of `edit`, which `map`, this window's marks, counts
+/// the files of.
+fn refuse_names_with_line_breaks(edit: Edit, map: &HashMap<PathBuf, (u8, u8)>) -> Vec<Edit> {
+    let (edits, left_out) = match edit {
+        Edit::Change(mut paths, change) => {
+            let before = paths.len();
+            paths.retain(|p| fits_on_a_line(p));
+            let left_out = before - paths.len();
+            let edits = (!paths.is_empty()).then_some(Edit::Change(paths, change));
+            (edits.into_iter().collect(), left_out)
+        }
+        Edit::Follow(pairs, is_copy) => {
+            let (kept, refused): (Vec<_>, Vec<_>) =
+                (pairs.into_iter()).partition(|(_, to)| fits_on_a_line(to));
+            let left_out = (refused.iter())
+                .filter(|(from, _)| map.contains_key(from))
+                .count();
+            let gone: Vec<PathBuf> = (refused.into_iter())
+                .filter(|_| !is_copy)
+                .map(|(from, _)| from)
+                .collect();
+            let edits = [
+                (!kept.is_empty()).then_some(Edit::Follow(kept, is_copy)),
+                (!gone.is_empty()).then_some(Edit::Forget(gone, None)),
+            ];
+            (edits.into_iter().flatten().collect(), left_out)
+        }
+        Edit::FollowFolder(from, to) if !fits_on_a_line(&to) => {
+            let left_out = map.keys().filter(|p| p.starts_with(&from)).count();
+            (vec![Edit::Forget(vec![from], None)], left_out)
+        }
+        edit => (vec![edit], 0),
+    };
+    if let Some(notice) = crate::files::config::left_out_for_line_breaks(left_out) {
+        crate::files::file_io::save_failed(notice);
+    }
+    edits
 }
 
 /// Apply `change` to each path's marks and stars; a path with neither is removed.
@@ -487,6 +531,44 @@ mod tests {
         let (path, value) = marks.into_iter().next().unwrap();
         assert_eq!(path.as_os_str().as_bytes(), b"/p/bl\xe5b\xe6r.jpg");
         assert_eq!(value, (3, 2));
+    }
+
+    /// Stars set on a name with a line break, which a line of the marks file cannot hold, are
+    /// refused with a notice. A file moved or a folder renamed to such a name loses its marks
+    /// with a notice too, and the old name forgets them. Before, they were shown and then left
+    /// out of the file at its next save without a word.
+    #[test]
+    fn a_name_with_a_line_break_is_refused_with_a_notice() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-marks-nl-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("marks");
+        super::TEST_FILE.with(|f| *f.borrow_mut() = Some(file.clone()));
+        // The file is taken as read, so a follow does not read it again over these marks.
+        super::known_stamps().insert(file.clone(), super::file_stamp(&file));
+        let (a, b, odd) = (
+            dir.join("a.png"),
+            dir.join("sub/b.png"),
+            dir.join("new\nline"),
+        );
+        let mut marks = super::Marks::default();
+        marks.rate(&[a.clone(), b.clone()], 3);
+        crate::files::file_io::take_saves_failed();
+        marks.rate(&[odd.join("c.png")], 2);
+        marks.follow_files(vec![(a.clone(), odd.join("a.png"))], false);
+        marks.follow_folder(dir.join("sub"), odd.clone());
+        let lost = [
+            &odd.join("c.png"),
+            &a,
+            &odd.join("a.png"),
+            &b,
+            &odd.join("b.png"),
+        ];
+        assert!(lost.iter().all(|p| marks.get(p) == (0, 0)));
+        let told = crate::files::file_io::take_saves_failed();
+        assert_eq!(told.len(), 3, "{told:?}");
+        super::SENT.with(|sent| sent.borrow_mut().clear());
+        super::TEST_FILE.with(|f| *f.borrow_mut() = None);
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     /// Stars set in another window follow a move and go with a delete made in this one, which
