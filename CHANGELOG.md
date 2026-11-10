@@ -14,8 +14,11 @@ and versions follow [Semantic Versioning](https://semver.org/).
 - `glimt --remote info` prints what Glimt knows about the image shown, and `info FILE…` about
   the files named: the size, date, dimensions, format, orientation, stars, marks, keywords,
   comment, alt text and the info panel's EXIF fields, as a key, a tab and a value on each line,
-  with a blank line after each file. Its form is frozen in 1.x, so scripts and AI assistants
-  can read it.
+  with a blank line after each file. A value's backslash, tab and line breaks are written as
+  `\\`, `\t`, `\n` and `\r`, a `;` inside a keyword as `\;`, and the path keeps its bytes, so a
+  script can undo them. Each file is sent as soon as it is read, so 100,000 files answer too,
+  and an answer cut short by a window that closes exits with 3. Its form is frozen in 1.x, so
+  scripts and AI assistants can read it.
 ### Changed
 
 - Saving a file that has other names (hard links), such as a turned image, a copy saved over
@@ -28,7 +31,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
   Ctrl+Q does: it waits while files are copied, moved or saved, so the marks follow the moved
   files, and writes its state. Each further signal counts as closing again (the second stops
   the files after the one at hand, the third ends at once), and SIGKILL always ends it at once.
-  Before, either signal ended Glimt halfway through a job.
+  A signal that was ignored when Glimt started, as `nohup glimt` ignores SIGHUP, stays
+  ignored. Before, either signal ended Glimt halfway through a job.
 ### Fixed
 
 - The IMG_1.xmp that Lightroom, Camera Raw, Bridge and Capture One write beside a RAW file
@@ -43,7 +47,9 @@ and versions follow [Semantic Versioning](https://semver.org/).
   window. Opening a folder, a file or a collection, Open Recent, the file list's size and date
   columns, the status bar's file size, editing a collection, turning random order off, and
   Copy and Move to a folder now look at the disk in the background, and the window stays
-  responsive while the share is silent.
+  responsive while the share is silent. A `glimt --remote` command sent after `open` waits
+  until the place to open has been looked up, so it acts on that place, also in a minimized
+  window.
 - Window → Set Window Name… and `glimt --remote name NAME` give a running window a new
   `--name`, which `--remote` reaches it by from then on; without a name, its process ID does.
   With remote control off in Preferences, a window listens while it has a name, as with
