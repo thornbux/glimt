@@ -70,6 +70,10 @@ impl crate::App {
         }
         self.receive_picked(ctx);
         self.receive_saved_theme(ctx);
+        // The failed writes go last, so that no other notice of this frame hides them.
+        if let Some(failed) = self.window.take_failed_writes_to_show() {
+            self.notice.give(failed);
+        }
     }
 
     /// Takes the answers that need no frame: the sizes summed and freed, and the EXIF index.
@@ -114,16 +118,12 @@ impl crate::App {
     fn take_saves(&mut self, ctx: &egui::Context) {
         // `save_failed` and `send_failed_write` printed theirs already.
         if let Some(error) = crate::files::file_io::take_save_error() {
-            self.notice.give(error);
-            self.window.count_failed_write();
+            self.window.keep_failed_write(error);
         }
         while let Ok(told) = self.notices.try_recv() {
             match told {
                 Told::Notice(text) => self.notice.give(text),
-                Told::FailedWrite(text) => {
-                    self.notice.give(text);
-                    self.window.count_failed_write();
-                }
+                Told::FailedWrite(text) => self.window.keep_failed_write(text),
             }
             ctx.request_repaint();
         }
@@ -299,6 +299,20 @@ mod tests {
         let logic = &main[main.find("fn logic(").unwrap()..];
         let logic = &logic[..logic.find("\n    }\n").unwrap()];
         assert!(logic.contains("self.receive_answers_without_a_frame(ctx);"));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A failed write stays on screen when another notice comes in the same frame. Before, the
+    /// failure was given first, and the notice took its place at once.
+    #[test]
+    fn a_failed_write_is_not_hidden_by_a_later_notice() {
+        let dir = contract_folder("failure-not-hidden");
+        let (mut app, ctx) = app_on(&dir);
+        let failed = "Could not save the keywords: test";
+        app.tell_failed_write(failed.into());
+        app.notice_sender.send("3 files moved".into()).unwrap();
+        app.poll_background(&ctx);
+        assert_eq!(app.notice.text(), Some(failed));
         std::fs::remove_dir_all(dir).unwrap();
     }
 }

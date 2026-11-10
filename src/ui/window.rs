@@ -70,6 +70,9 @@ pub(crate) struct Window {
     /// How many failed writes the window has told. `guard_close` compares it before and after
     /// it takes the answers, to know whether a failure came in with them.
     failed_writes_told: u64,
+    /// The failed writes told since the last frame. `poll_background` shows them as the frame's
+    /// last notice, so that no other notice of the frame hides them.
+    failed_writes_to_show: Vec<String>,
 }
 
 impl Window {
@@ -93,6 +96,7 @@ impl Window {
             // A signal that came before the window was made, while it started, closes it too.
             termination_signals_seen: 0,
             failed_writes_told: 0,
+            failed_writes_to_show: Vec::new(),
         }
     }
 
@@ -160,12 +164,20 @@ impl Window {
         self.close_requests
     }
 
-    /// Counts a failed write that the window told, and forgets a close that waited for the
+    /// Keeps a failed write for the frame's last notice, and forgets a close that waited for the
     /// writing. The window then stays open with the failure on screen, and the user's next close
     /// is a first close again.
-    pub(crate) fn count_failed_write(&mut self) {
+    pub(crate) fn keep_failed_write(&mut self, text: String) {
         self.failed_writes_told += 1;
+        self.failed_writes_to_show.push(text);
         self.close_requests = 0;
+    }
+
+    /// Takes the failed writes kept since the last call, one line for each. Returns `None` when
+    /// no write failed.
+    pub(crate) fn take_failed_writes_to_show(&mut self) -> Option<String> {
+        let texts = std::mem::take(&mut self.failed_writes_to_show);
+        (!texts.is_empty()).then(|| texts.join("\n"))
     }
 
     /// Forgets the turn a close tried to save, because a save worked. A turn made after it,
@@ -244,11 +256,11 @@ impl crate::App {
     }
 
     /// Tells a failed write of the user's files or of Glimt's own, on stderr and in the window,
-    /// and keeps the window open when a close waited for the writing.
+    /// and keeps the window open when a close waited for the writing. The window shows it as
+    /// the last notice of the frame, so that no notice given later in the frame hides it.
     pub(crate) fn tell_failed_write(&mut self, text: String) {
         eprintln!("{text}");
-        self.notice.give(text);
-        self.window.count_failed_write();
+        self.window.keep_failed_write(text);
     }
 
     /// Answers the close that `guard_close` saw. A kiosk cancels it. Otherwise it waits while
