@@ -621,18 +621,10 @@ impl Config {
         }
         if let Some(p) = config_path() {
             let ours = self.to_text();
-            let before =
-                std::mem::replace(&mut *lock_even_if_poisoned(&LAST_SAVED_TEXT), ours.clone());
             // The file is read, merged and written in the background, because each toggle in a
             // menu saves, and the file's sync must not hold the window.
             write_later(move || {
-                let merge = |on_disk: &[u8]| {
-                    let on_disk = String::from_utf8_lossy(on_disk);
-                    (merged(&ours, &before, &on_disk).into_bytes(), ())
-                };
-                // A file that cannot be read is not written over, because every setting would
-                // be lost.
-                if let Err(e) = edit_shared(&p, merge) {
+                if let Err(e) = write_settings(&p, &ours, &LAST_SAVED_TEXT) {
                     save_failed(crate::tf!(
                         "Could not save {name}: {e}",
                         name = p.display(),
@@ -642,6 +634,27 @@ impl Config {
             });
         }
     }
+}
+
+/// Writes the settings `ours` to the file at `path`, merged with what other windows wrote there,
+/// and records them in `last_saved` once they are written. A write that fails leaves
+/// `last_saved` as it was, so the next save writes this window's changes again. Before, they
+/// counted as saved, and the next save kept the file's old values in their place. The saves run
+/// one after another in one thread, so `last_saved` is what the file last got from this window.
+fn write_settings(
+    path: &Path,
+    ours: &str,
+    last_saved: &std::sync::Mutex<String>,
+) -> std::io::Result<()> {
+    let before = lock_even_if_poisoned(last_saved).clone();
+    let merge = |on_disk: &[u8]| {
+        let on_disk = String::from_utf8_lossy(on_disk);
+        (merged(ours, &before, &on_disk).into_bytes(), ())
+    };
+    // A file that cannot be read is not written over, because every setting would be lost.
+    edit_shared(path, merge)?;
+    *lock_even_if_poisoned(last_saved) = ours.to_owned();
+    Ok(())
 }
 
 /// `$XDG_CONFIG_HOME/glimt/config`, otherwise `~/.config/glimt/config`.
@@ -1157,6 +1170,32 @@ mod tests {
         let (config, problems) = super::Config::parse_checked(text);
         assert_eq!(problems, Vec::<String>::new());
         assert_eq!(config.language, "nb");
+    }
+
+    /// A change whose save failed is written by the next save that works. Before, the failed
+    /// save counted as written, and the next one kept the file's old value of that setting.
+    #[test]
+    fn a_failed_save_is_written_by_the_next() {
+        let dir =
+            std::env::temp_dir().join(format!("glimt-test-failed-save-{}", std::process::id()));
+        let path = dir.join("config");
+        // A folder in the file's place cannot be read, so the save fails.
+        std::fs::create_dir_all(&path).unwrap();
+        let start = super::Config::default();
+        let last_saved = std::sync::Mutex::new(start.to_text());
+        let mut changed = super::Config {
+            thumbnails: !start.thumbnails,
+            ..super::Config::default()
+        };
+        assert!(super::write_settings(&path, &changed.to_text(), &last_saved).is_err());
+        std::fs::remove_dir(&path).unwrap();
+        std::fs::write(&path, start.to_text()).unwrap();
+        changed.show_marks = !start.show_marks;
+        super::write_settings(&path, &changed.to_text(), &last_saved).unwrap();
+        let saved = super::Config::parse(&std::fs::read_to_string(&path).unwrap());
+        assert_eq!(saved.thumbnails, changed.thumbnails);
+        assert_eq!(saved.show_marks, changed.show_marks);
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     /// An own key that no build of Glimt can use is told, as a value out of range is.
