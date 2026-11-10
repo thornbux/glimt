@@ -2,7 +2,7 @@
 
 use crate::support::format::{count, thousands};
 use crate::support::lang::tr;
-use crate::support::threads::{Working, background_threads};
+use crate::support::threads::{Receiving, Took, Working, background_threads};
 use crate::{images::decode, tf};
 use eframe::egui;
 use std::ffi::OsString;
@@ -18,7 +18,7 @@ pub(crate) struct ImageCheck {
     working: Arc<AtomicUsize>,
     stop: Arc<std::sync::atomic::AtomicBool>,
     total: usize,
-    found_rx: mpsc::Receiver<(OsString, String)>,
+    found_rx: Receiving<(OsString, String)>,
     /// The broken ones found: (name in the list, why).
     broken: Vec<(OsString, String)>,
 }
@@ -40,7 +40,7 @@ impl crate::App {
             return;
         };
         if let Some(c) = &mut check {
-            for (name, why) in c.found_rx.try_iter() {
+            while let Took::Answer((name, why)) = c.found_rx.next() {
                 self.broken_files.insert(name.clone());
                 c.broken.push((name, why));
             }
@@ -146,7 +146,7 @@ impl crate::App {
             working: Arc::default(),
             stop: Arc::default(),
             total: files.len(),
-            found_rx: found,
+            found_rx: Receiving::of(found),
             broken: Vec::new(),
         };
         for _ in 0..threads {

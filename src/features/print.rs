@@ -249,13 +249,13 @@ pub(crate) struct PrintDialog {
     /// The printers and the default, from lpstat in the background. It is `None` until they are
     /// known.
     printers: Option<Vec<String>>,
-    printers_rx: mpsc::Receiver<(Vec<String>, Option<String>)>,
+    printers_rx: Receiving<(Vec<String>, Option<String>)>,
     copies: u32,
     /// The first page's images, small, for the preview, as they come from the background, with
     /// their sizes upright as printed (for %dimensions%). `decoded` is set once all have come.
     previews: Vec<Option<egui::TextureHandle>>,
     sizes: Vec<Option<[usize; 2]>>,
-    preview_rx: mpsc::Receiver<(usize, [usize; 2], egui::ColorImage)>,
+    preview_rx: Receiving<(usize, [usize; 2], egui::ColorImage)>,
     decoded: bool,
     /// Their texts, from the template they were made of. They are made again after it changed.
     captions: Option<(String, Vec<String>)>,
@@ -308,7 +308,7 @@ impl crate::App {
 
     /// Takes what the print dialog's threads sent: the printers, the previews and the captions.
     fn receive_print_answers(&mut self, ctx: &egui::Context, dialog: &mut PrintDialog) {
-        if let Ok((names, default)) = dialog.printers_rx.try_recv() {
+        if let Took::Answer((names, default)) = dialog.printers_rx.take() {
             // The printer used last is chosen, and otherwise CUPS's default. A PDF file is
             // chosen if neither is there.
             let c = &mut self.config;
@@ -318,14 +318,15 @@ impl crate::App {
             dialog.printers = Some(names);
         }
         loop {
-            match dialog.preview_rx.try_recv() {
-                Ok((k, size, pixels)) => {
+            match dialog.preview_rx.next() {
+                Took::Answer((k, size, pixels)) => {
                     let texture =
                         ctx.load_texture(format!("print preview {k}"), pixels, Default::default());
                     (dialog.previews[k], dialog.sizes[k]) = (Some(texture), Some(size));
                 }
-                Err(mpsc::TryRecvError::Disconnected) => break dialog.decoded = true,
-                Err(mpsc::TryRecvError::Empty) => break,
+                // The previews' thread ends after the last one.
+                Took::Gone => break dialog.decoded = true,
+                Took::Nothing => break,
             }
         }
         if let Took::Answer(made) = dialog.captions_rx.take() {
@@ -392,9 +393,9 @@ impl crate::App {
             decoded: false,
             paths,
             printers: None,
-            printers_rx: rx,
+            printers_rx: Receiving::of(rx),
             copies: 1,
-            preview_rx: shown_rx,
+            preview_rx: Receiving::of(shown_rx),
             captions: None,
             captions_rx: Receiving::none(),
         });

@@ -3442,15 +3442,17 @@ fn finds_a_dropped_write() {
 #[test]
 fn answers_are_received_through_receiving() {
     let mut wrong = Vec::new();
-    for (file, text) in rust_sources() {
-        if !file.ends_with("support/threads.rs") {
-            wrong.extend(
-                bare_receivers_in(&text)
-                    .iter()
-                    .map(|line| format!("{file}:{line}")),
-            );
-        }
+    let sources: Vec<(String, String)> = (rust_sources().into_iter())
+        .filter(|(file, _)| !file.ends_with("support/threads.rs"))
+        .collect();
+    for (file, text) in &sources {
+        wrong.extend(
+            bare_receivers_in(text)
+                .iter()
+                .map(|line| format!("{file}:{line}")),
+        );
     }
+    wrong.extend(receivers_held_in_options(&sources));
     assert!(
         wrong.is_empty(),
         "a bare Option<Receiver> (hold it in a threads::Receiving):\n{}",
@@ -3458,17 +3460,77 @@ fn answers_are_received_through_receiving() {
     );
 }
 
+/// Returns the places in `sources` outside the tests, as "file:line", where an `Option` holds a
+/// struct with a bare `Receiver` field: the struct comes and goes as an answer held in an
+/// `Option` would, and its receiver is a bare one held in an `Option` all the same.
+fn receivers_held_in_options(sources: &[(String, String)]) -> Vec<String> {
+    let mut holding = Vec::new();
+    for (_, text) in sources {
+        let lines = code_lines(text);
+        let lines = &lines[..tests_start(&lines)];
+        for (i, line) in lines.iter().enumerate() {
+            let (Some(name), Some(end)) = (struct_name(line), block_end(lines, i)) else {
+                continue;
+            };
+            let is_receiver = |l: &String| {
+                let bare = l.replace("std::sync::", "").replace("mpsc::", "");
+                bare.split_once(": ")
+                    .is_some_and(|(_, t)| t.starts_with("Receiver<"))
+            };
+            if lines[i + 1..end].iter().any(is_receiver) {
+                holding.push(name.to_owned());
+            }
+        }
+    }
+    let mut found = Vec::new();
+    for (file, text) in sources {
+        let lines = code_lines(text);
+        for (i, line) in lines[..tests_start(&lines)].iter().enumerate() {
+            let held = line.split_once(": ").map(|(_, t)| part_held_by(t).1);
+            let in_option = line.contains(": Option<");
+            if in_option && held.is_some_and(|h| holding.iter().any(|n| n == h)) {
+                found.push(format!("{file}:{}", i + 1));
+            }
+        }
+    }
+    found
+}
+
+/// The check above finds a struct with a bare `Receiver` held in an `Option`, also in two, and
+/// leaves one held for good and a struct whose answer is in a `Receiving`.
+#[test]
+fn finds_a_receiver_inside_a_struct_held_in_an_option() {
+    let text = "struct Check {\n    found: mpsc::Receiver<u8>,\n}\nstruct Kept {\n    \
+        answer: Receiving<u8>,\n}\nstruct App {\n    check: Option<Option<Check>>,\n    \
+        print: Option<crate::features::print::Check>,\n    held: Check,\n    \
+        kept: Option<Kept>,\n}\n";
+    let sources = [("a.rs".to_owned(), text.to_owned())];
+    assert_eq!(receivers_held_in_options(&sources), ["a.rs:8", "a.rs:9"]);
+}
+
 /// Returns the lines of `text` outside the tests that hold a `Receiver` in an `Option`, also
-/// in a tuple there (`Option<(Receiver<…>, …)>`), or name a `Receiver` with a type alias, which
-/// an `Option` could then hold unseen.
+/// in a tuple or a `Box` there (`Option<(Receiver<…>, …)>`), or name a `Receiver` with a type
+/// alias or a `use … as`, which an `Option` could then hold unseen.
 fn bare_receivers_in(text: &str) -> Vec<usize> {
     let lines = code_lines(text);
     let mut found = Vec::new();
     for (i, line) in lines[..tests_start(&lines)].iter().enumerate() {
         let bare = line.replace("std::sync::", "").replace("mpsc::", "");
-        let is_alias = without_qualifiers(bare.trim_start()).starts_with("type ")
-            && bare.contains("Receiver<");
-        if bare.contains("Option<Receiver<") || bare.contains("Option<(Receiver<") || is_alias {
+        let item = without_qualifiers(bare.trim_start());
+        let is_alias = (item.starts_with("type ") && bare.contains("Receiver<"))
+            || (item.starts_with("use ") && bare.contains("Receiver as "));
+        // The receiver inside an `Option`, also in a tuple or a `Box` there.
+        let in_option = (bare.match_indices("Option<")).any(|(at, option)| {
+            let mut inside = &bare[at + option.len()..];
+            while let Some(rest) = inside
+                .strip_prefix("Box<")
+                .or_else(|| inside.strip_prefix('('))
+            {
+                inside = rest;
+            }
+            inside.starts_with("Receiver<")
+        });
+        if in_option || is_alias {
             found.push(i + 1);
         }
     }
@@ -3481,8 +3543,9 @@ fn bare_receivers_in(text: &str) -> Vec<usize> {
 fn finds_a_bare_receiver() {
     let text = "struct A {\n    a: Option<Receiver<u8>>,\n    \
         b: Option<std::sync::mpsc::Receiver<u8>>,\n    c: Option<(mpsc::Receiver<u8>, u8)>,\n    \
-        d: mpsc::Receiver<u8>,\n    e: Receiving<u8>,\n}\npub type Answer = Receiver<u8>;\n";
-    assert_eq!(bare_receivers_in(text), [2, 3, 4, 8]);
+        d: mpsc::Receiver<u8>,\n    e: Receiving<u8>,\n}\npub type Answer = Receiver<u8>;\n\
+        use std::sync::mpsc::Receiver as Rx;\nstruct B {\n    f: Option<Box<Receiver<u8>>>,\n}\n";
+    assert_eq!(bare_receivers_in(text), [2, 3, 4, 8, 9, 11]);
 }
 
 /// A thread that shows the busy pointer sends the window what it must still handle through an
