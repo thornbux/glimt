@@ -1516,8 +1516,8 @@ impl crate::App {
                 self.write_sidecars(
                     ctx,
                     tr("Writing stars"),
-                    paths,
-                    move |path| marks::write_xmp(path, n).is_ok(),
+                    paths.into_iter().map(|p| (p, ())).collect(),
+                    move |path, _| marks::write_xmp(path, n).is_ok(),
                     |failed, job| match () {
                         _ if failed > 0 => Some(tf!(
                             "The stars could not be written to the XMP sidecar of {count}",

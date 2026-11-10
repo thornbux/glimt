@@ -41,6 +41,13 @@ and versions follow [Semantic Versioning](https://semver.org/).
 - When Rename Many was cut short with its plan on another disk than the photos, putting it right
   at the next start could leave a photo under a hidden `.glimt-rename-*` name with no plan left
   to find it. A repair that cannot finish now puts back the steps it did.
+- When Rename Many swapped names on a card or stick that was pulled out before its first renames
+  reached it, the next start took the swap as finished. Finishing it moved the marks, stars and
+  collection entries of each photo to the other, and putting back the old names swapped the
+  photos themselves. Such a swap is now known as not begun.
+- When Rename Many failed and could not give every file its old name back, a keyword, comment,
+  alt text or star set meanwhile is no longer written to the old name, which may hold another
+  photo by then. It is left out, and the user is told with the rename's error.
 - A collection that came with a download, with a pipe or a link planted as its hidden lock file
   `.NAME.gqv.lock`, no longer hangs the window at Rename Collection or stops every later
   collection edit, and a link there no longer makes an empty file where it points. Rename
@@ -119,9 +126,9 @@ and versions follow [Semantic Versioning](https://semver.org/).
   and shortcut list leave the Delete key out while Enable Delete key is off.
 - The Help Manual says that a change on a network share shows by itself within seconds, and
   that a caching mount such as rclone or s3fs can hold it back until its cache expires.
-- A keyword, comment, alt text or star written while Rename Many runs is saved to its photo
-  under the photo's new name. Before, when the new names swapped with old ones, it landed on the
-  photo that took the old name. An edit in the info panel not saved yet follows its file through
+- A keyword, comment, alt text or star written while Rename Many runs, also by Import Lightroom
+  Catalog, is saved to its photo under the photo's new name. Before, when the new names swapped
+  with old ones, it landed on the photo that took the old name. An edit in the info panel not saved yet follows its file through
   a move or rename too.
 - Stop in the status bar, or closing the window a second time, no longer drops the info panel's
   save of keywords, comment or alt text that waits behind a long job, such as a Lightroom
