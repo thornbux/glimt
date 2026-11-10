@@ -303,8 +303,12 @@ rss() { awk '/RssAnon/ {printf "%d MB", $2 / 1024}' /proc/$GPID/status; }
 # can be slow by chance. within: yes when $1 is at most 1.5 times $2, plus the slack $3 (ms or
 # MB): a few hundred ms vary by more than half when something else runs on the machine.
 best() { eval "best_seen=\${$1:-}"; { [ -z "$best_seen" ] || [ "${2:-999999}" -lt "$best_seen" ]; } && eval "$1=${2:-999999}"; }
-# Never yes without a value of the new version: both missing would compare as equal.
-within() { [ "${1:-999999}" != 999999 ] && [ $(( $1 * 2 )) -le $(( ${2:-0} * 3 + ${3:-0} * 2 )) ] && echo yes; }
+# Never yes without a value of each version: a missing new one would compare as equal, and a
+# missing old one (999999, its run gave no number) would let any new value pass the limit.
+within() {
+    [ "${1:-999999}" != 999999 ] && [ "${2:-999999}" != 999999 ] &&
+        [ $(( $1 * 2 )) -le $(( $2 * 3 + ${3:-0} * 2 )) ] && echo yes
+}
 hwm() { awk '/VmHWM/ {print $2}' /proc/$GPID/status; }
 # The control of a check that expects nothing to change: that the keys reach the window at all.
 # t turns the thumbnails off, which is saved to the settings file; a key lost on the way leaves
