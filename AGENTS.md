@@ -44,8 +44,8 @@ for Linux in Rust/egui, inspired by Geeqie. Read this before changing anything.
   decoding or caches.
 - **The limits a release is held to.** The release tests fail when, in a folder of 500,000
   files, the first image takes more than 1.5 times the last release's time or RssAnon is more
-  than 1.5 times the last release's; when a frame takes more than 10 ms of the window thread's
-  processor time with all 500,000 files selected; or when sorting 3,000 JPEGs by EXIF date takes
+  than 1.5 times the last release's; when the median frame takes more than 10 ms of the window
+  thread's processor time with all 500,000 files selected; or when sorting 3,000 JPEGs by EXIF date takes
   more than 1.5 times the last release's time (each with a small slack, `within` in `tests.sh`).
   The maintainer sets these numbers, and an agent does not change them. The other timings and
   memory figures in the release tests (`note` lines) are only printed, to compare: they stop
