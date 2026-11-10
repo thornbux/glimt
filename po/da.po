@@ -3025,3 +3025,15 @@ msgstr "Omdøb flere stoppede, så de metadata, der blev redigeret for {count}, 
 #: src/ui/file_list.rs
 msgid "( {w} x {h} ) {bytes}{position}{page}"
 msgstr "( {w} x {h} ) {bytes}{position}{page}"
+
+#: src/features/tools.rs
+msgid "{file} is not loaded: %f inside quotes is not the file. Give %f as a word of its own, as in {example}"
+msgstr "{file} er ikke indlæst: %f inde i anførselstegn er ikke filen. Skriv %f som et ord for sig, som i {example}"
+
+#: src/features/tools.rs
+msgid "{file} gets no files: %f inside quotes is not the file. Give %f as a word of its own, as in {example}"
+msgstr "{file} får ingen filer: %f inde i anførselstegn er ikke filen. Skriv %f som et ord for sig, som i {example}"
+
+#: src/cli.rs
+msgid "Added formats and tools:"
+msgstr "Tilføjede formater og værktøjer:"

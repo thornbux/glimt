@@ -3047,3 +3047,15 @@ msgstr "Hromadné přejmenování se zastavilo, takže upravená metadata nebyla
 #: src/ui/file_list.rs
 msgid "( {w} x {h} ) {bytes}{position}{page}"
 msgstr "( {w} x {h} ) {bytes}{position}{page}"
+
+#: src/features/tools.rs
+msgid "{file} is not loaded: %f inside quotes is not the file. Give %f as a word of its own, as in {example}"
+msgstr "{file} nebyl načten: %f v uvozovkách není soubor. Zadejte %f jako samostatné slovo, jako v {example}"
+
+#: src/features/tools.rs
+msgid "{file} gets no files: %f inside quotes is not the file. Give %f as a word of its own, as in {example}"
+msgstr "{file} nedostane žádné soubory: %f v uvozovkách není soubor. Zadejte %f jako samostatné slovo, jako v {example}"
+
+#: src/cli.rs
+msgid "Added formats and tools:"
+msgstr "Přidané formáty a nástroje:"

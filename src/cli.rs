@@ -61,7 +61,8 @@ pub(crate) const START_OPTIONS: &[(&str, &str)] = &[
 pub(crate) const DONE: i32 = 0;
 
 /// The exit code of --check-config when something is wrong in the settings file, or it cannot
-/// be read.
+/// be read. A problem in the desktop files of added formats and tools is printed, but it does
+/// not give this code (`config_report`).
 pub(crate) const CHECK_CONFIG_PROBLEMS: i32 = 1;
 
 /// The exit code of --back-up when the backup fails.
@@ -226,25 +227,39 @@ pub(crate) fn answer_without_window(start: &Start, args_os: &[OsString]) -> bool
     true
 }
 
-/// glimt --check-config [FILE]: what is wrong in the settings file, or FILE; exit 1 if anything.
+/// Tells, for glimt --check-config [FILE], what is wrong in the settings file, or FILE, and in
+/// the desktop files of added formats and tools (`config_report`). It exits with 1 only when
+/// something is wrong in the settings file.
 fn check_config(file: Option<PathBuf>) -> ! {
     let given = file.is_some();
     let Some(path) = file.or_else(config::config_path) else {
         eprintln!("glimt: no home folder, so no settings file");
         std::process::exit(CHECK_CONFIG_PROBLEMS);
     };
-    match config_check(&path, given) {
-        Ok(line) => {
-            println!("{line}");
-            std::process::exit(DONE)
-        }
-        Err(problems) => {
-            for p in &problems {
-                eprintln!("{p}");
-            }
-            std::process::exit(CHECK_CONFIG_PROBLEMS)
-        }
+    let desktop_file_problems = crate::features::tools::desktop_file_problems();
+    let (out, err, code) = config_report(config_check(&path, given), &desktop_file_problems);
+    out.iter().for_each(|line| println!("{line}"));
+    err.iter().for_each(|line| eprintln!("{line}"));
+    std::process::exit(code)
+}
+
+/// Returns what --check-config prints on its output and on its errors, and its exit code, for
+/// the settings file's check `checked` and the `desktop_file_problems` of added formats and
+/// tools. Those are printed under a heading of their own and leave the exit code as it is,
+/// because a script reads exit 1 as a problem in the settings file, as it was in 0.79.
+fn config_report(
+    checked: Result<String, Vec<String>>,
+    desktop_file_problems: &[String],
+) -> (Vec<String>, Vec<String>, i32) {
+    let (mut out, err, code) = match checked {
+        Ok(line) => (vec![line], Vec::new(), DONE),
+        Err(problems) => (Vec::new(), problems, CHECK_CONFIG_PROBLEMS),
+    };
+    if !desktop_file_problems.is_empty() {
+        out.push(crate::support::lang::tr("Added formats and tools:").to_owned());
+        out.extend(desktop_file_problems.iter().cloned());
     }
+    (out, err, code)
 }
 
 /// Checks the settings file at `path` for --check-config. Returns the line that says it is
@@ -318,6 +333,20 @@ fn action_list() -> String {
 #[cfg(test)]
 mod tests {
     use super::Start;
+
+    /// A desktop file's problem alone is printed under its heading, and --check-config still
+    /// exits with 0. Exit 1 stays a problem in the settings file, as scripts read it.
+    #[test]
+    fn a_desktop_file_problem_alone_keeps_check_config_at_0() {
+        let problem = ["t.desktop gets no files".to_owned()];
+        let (out, err, code) = super::config_report(Ok("settings: OK".into()), &problem);
+        assert_eq!(code, super::DONE);
+        assert!(err.is_empty() && out.ends_with(&problem) && out.len() == 3);
+        let (_, err, code) = super::config_report(Err(vec!["bad line".into()]), &problem);
+        assert_eq!((code, err.len()), (super::CHECK_CONFIG_PROBLEMS, 1));
+        let (out, _, _) = super::config_report(Ok("settings: OK".into()), &[]);
+        assert_eq!(out, ["settings: OK"]);
+    }
 
     /// Start options in front of the file or folder; the rest is left as it was.
     #[test]

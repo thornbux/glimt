@@ -381,7 +381,9 @@ pub(crate) const MANUAL: &[(&str, &str)] = &[
          A tool is a desktop file in ~/.local/share/glimt/tools (the menu opens that folder), \
          for example Name=Rotate and Exec=mogrify -rotate 90 %f:\n\n\
          - %f runs it once for each file, also inside a word, as --file=%f, but not inside \
-         a \"quoted\" word such as a shell script's, where it stays %f\n\
+         a \"quoted\" word such as a shell script's, where it stays %f; such a script gets the \
+         file as $1, as in sh -c \"exiftool \\\"$1\\\"\" sh %f, and Glimt says when it starts \
+         that a tool has %f only inside quotes\n\
          - %F once for all\n\
          - without either it runs once in the folder.\n\n\
          A program next to the desktop file is found there. New tools show after a restart. The \
@@ -414,7 +416,9 @@ pub(crate) const MANUAL: &[(&str, &str)] = &[
          DICOM or OpenEXR: a desktop file in ~/.local/share/glimt/formats that starts with \
          [Glimt Format] and has Name=, Extensions=jp2;j2k and an Exec command that writes the image \
          (PNM, PNG …) to its standard output, %f being the file (also inside a word, but not a \
-         \"quoted\" one) and %% a %. \
+         \"quoted\" one) and %% a %. A shell script in quotes gets the file as $1, from a %f of \
+         its own after it: sh -c \"convert \\\"$1\\\" ppm:-\" sh %f. A format whose %f is only \
+         inside quotes is not loaded, and Glimt says so when it starts. \
          The other % codes are kept for later, so do not use them. Such files are then listed and \
          shown as any other, with thumbnails. The command runs without a shell, for 30 seconds at \
          most, and with at most 4096 MB of memory, which Preferences → Memory and CPU can raise for \
@@ -729,8 +733,9 @@ pub(crate) const MANUAL: &[(&str, &str)] = &[
          glimt --lock-settings, or a file /etc/glimt/lock-settings put there by the administrator, \
          is for a shared computer: Preferences do not open, and what is changed in the menus lasts \
          only until Glimt closes.\n\n\
-         glimt --check-config tells what is wrong in the settings file, line by line; Glimt also \
-         tells the first of it when it starts. man glimt says more, with examples. \
+         glimt --check-config tells what is wrong in the settings file, line by line, and \
+         under a heading of their own which tools and added formats have %f only inside quotes, \
+         which do not change its exit code; Glimt also tells the first of it when it starts.man glimt says more, with examples. \
          The options and commands:",
     ),
 ];

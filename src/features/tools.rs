@@ -399,6 +399,48 @@ pub fn names_a_file(word: &CommandWord, file_codes: &[&str]) -> bool {
     pieces(&word.text, None).any(|p| matches!(p, Piece::Code(code) if word.fills(code, file_codes)))
 }
 
+/// Returns whether the command `words` gives its program no file because each of `file_codes`
+/// in it is inside a "quoted" word, where it is not filled in (`CommandWord::fills`), as in
+/// `sh -c "convert %f ppm:-"`. In 0.79 an added format filled such a word.
+fn file_code_only_in_quotes(words: &[CommandWord], file_codes: &[&str]) -> bool {
+    let not_filled = |w: &CommandWord| {
+        pieces(&w.text, None).any(
+            |p| matches!(p, Piece::Code(code) if file_codes.contains(&code) && !w.fills(code, file_codes)),
+        )
+    };
+    words.iter().any(not_filled) && !words.iter().any(|w| names_a_file(w, file_codes))
+}
+
+/// Returns a line for each added format and tool whose desktop file gives its program no file,
+/// because its file code is only inside a "quoted" word (`file_code_only_in_quotes`). Such a
+/// format is not loaded, and such a tool runs without files. Each line names the desktop file
+/// and the form to write instead. Glimt tells them at start, and `glimt --check-config` too.
+pub fn desktop_file_problems() -> Vec<String> {
+    let given_no_file = |kind: &str, file_codes: &'static [&'static str]| {
+        desktop_files(kind)
+            .into_iter()
+            .filter_map(move |(path, text)| {
+                let exec = desktop_entry_values(&text)("Exec")?;
+                file_code_only_in_quotes(&command_words(exec), file_codes).then_some(path)
+            })
+    };
+    let formats = given_no_file("formats", &["f"]).map(|path| {
+        crate::tf!(
+            "{file} is not loaded: %f inside quotes is not the file. Give %f as a word of its own, as in {example}",
+            file = path.display(),
+            example = "sh -c \"convert \\\"$1\\\" ppm:-\" sh %f"
+        )
+    });
+    let tools = given_no_file("tools", &["f", "u", "F", "U"]).map(|path| {
+        crate::tf!(
+            "{file} gets no files: %f inside quotes is not the file. Give %f as a word of its own, as in {example}",
+            file = path.display(),
+            example = "sh -c \"exiftool \\\"$1\\\"\" sh %f"
+        )
+    });
+    formats.chain(tools).collect()
+}
+
 /// Returns `word` of a desktop file's `Exec` with each of `file_codes` in it filled in with
 /// `file`, also inside a word without quotes (`CommandWord::fills`), and `%%` as a `%`, read
 /// from left to right (`format::pieces`). Another code stays as it is. Tools and added formats
@@ -427,6 +469,31 @@ mod tests {
                 std::path::Path::new("/tmp"),
             );
         }
+    }
+
+    /// A command whose %f is only inside a quoted word, as an added format of 0.79 could have,
+    /// is found, so that the user is told. One that gives the file as a word of its own is not.
+    #[test]
+    fn a_file_code_only_in_quotes_is_found() {
+        let only_in_quotes =
+            |exec, codes| super::file_code_only_in_quotes(&super::command_words(exec), codes);
+        let format = &["f"][..];
+        assert!(only_in_quotes("sh -c \"convert %f ppm:-\"", format));
+        assert!(only_in_quotes(
+            "convert \"fits:%f[0]\" -depth 8 ppm:-",
+            format
+        ));
+        assert!(!only_in_quotes(
+            "sh -c \"convert \\\"$1\\\" ppm:-\" sh %f",
+            format
+        ));
+        assert!(!only_in_quotes("convert \"%f\" ppm:-", format));
+        assert!(!only_in_quotes("sh -c \"x %f\" sh %f", format));
+        assert!(!only_in_quotes("convert x%f ppm:- \"%%f\"", format));
+        let tool = &["f", "u", "F", "U"][..];
+        assert!(only_in_quotes("sh -c \"exiftool %F\"", tool));
+        assert!(!only_in_quotes("exiftool %F", tool));
+        assert!(!only_in_quotes("gimp", tool));
     }
 
     /// A globs2 file broken in thousands of ways does not make the parser panic.

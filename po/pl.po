@@ -3036,3 +3036,15 @@ msgstr "Zmień wiele nazw się zatrzymało, więc zmienione metadane nie został
 #: src/ui/file_list.rs
 msgid "( {w} x {h} ) {bytes}{position}{page}"
 msgstr "( {w} x {h} ) {bytes}{position}{page}"
+
+#: src/features/tools.rs
+msgid "{file} is not loaded: %f inside quotes is not the file. Give %f as a word of its own, as in {example}"
+msgstr "Nie wczytano {file}: %f w cudzysłowie nie jest plikiem. Podaj %f jako osobne słowo, jak w {example}"
+
+#: src/features/tools.rs
+msgid "{file} gets no files: %f inside quotes is not the file. Give %f as a word of its own, as in {example}"
+msgstr "{file} nie dostaje żadnych plików: %f w cudzysłowie nie jest plikiem. Podaj %f jako osobne słowo, jak w {example}"
+
+#: src/cli.rs
+msgid "Added formats and tools:"
+msgstr "Dodane formaty i narzędzia:"

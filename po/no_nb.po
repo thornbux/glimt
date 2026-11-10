@@ -3036,3 +3036,15 @@ msgstr "Gi mange nye navn stoppet, så metadataene som ble redigert for {count},
 #: src/ui/file_list.rs
 msgid "( {w} x {h} ) {bytes}{position}{page}"
 msgstr "( {w} x {h} ) {bytes}{position}{page}"
+
+#: src/features/tools.rs
+msgid "{file} is not loaded: %f inside quotes is not the file. Give %f as a word of its own, as in {example}"
+msgstr "{file} er ikke lastet inn: %f inne i anførselstegn er ikke filen. Skriv %f som et eget ord, som i {example}"
+
+#: src/features/tools.rs
+msgid "{file} gets no files: %f inside quotes is not the file. Give %f as a word of its own, as in {example}"
+msgstr "{file} får ingen filer: %f inne i anførselstegn er ikke filen. Skriv %f som et eget ord, som i {example}"
+
+#: src/cli.rs
+msgid "Added formats and tools:"
+msgstr "Tilføyde formater og verktøy:"

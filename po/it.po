@@ -3025,3 +3025,15 @@ msgstr "Rinomina multipla si è fermata, quindi i metadati modificati di {count}
 #: src/ui/file_list.rs
 msgid "( {w} x {h} ) {bytes}{position}{page}"
 msgstr "( {w} x {h} ) {bytes}{position}{page}"
+
+#: src/features/tools.rs
+msgid "{file} is not loaded: %f inside quotes is not the file. Give %f as a word of its own, as in {example}"
+msgstr "{file} non è stato caricato: %f tra virgolette non è il file. Scrivi %f come parola a sé, come in {example}"
+
+#: src/features/tools.rs
+msgid "{file} gets no files: %f inside quotes is not the file. Give %f as a word of its own, as in {example}"
+msgstr "{file} non riceve alcun file: %f tra virgolette non è il file. Scrivi %f come parola a sé, come in {example}"
+
+#: src/cli.rs
+msgid "Added formats and tools:"
+msgstr "Formati aggiunti e strumenti:"
