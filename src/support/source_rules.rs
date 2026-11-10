@@ -526,40 +526,6 @@ const RETIRED_IN_FILE: &[(&str, &str)] = &[
     ("viewer/view.rs", "wheel"),            // wheel_notches
 ];
 
-/// The parts of `App`: each struct that one of its fields holds, by its file. Their fields stay
-/// private (`parts_keep_their_fields`), and their methods run in the window's thread as App's
-/// own do (`the_window_thread_never_waits_for_the_disk`).
-const APP_PARTS: &[(&str, &str)] = &[
-    ("features/check.rs", "ImageCheck"),
-    ("features/duplicates.rs", "FindDuplicates"),
-    ("features/print.rs", "PrintDialog"),
-    ("features/remote.rs", "Listener"),
-    ("files/file_ops.rs", "FileOperations"),
-    ("metadata/lightroom.rs", "Import"),
-    ("metadata/marks.rs", "Marks"),
-    ("model/folder.rs", "Folder"),
-    ("model/list.rs", "List"),
-    ("model/search.rs", "Search"),
-    ("ui/dialogs.rs", "Dialogs"),
-    ("ui/file_list.rs", "Panel"),
-    ("ui/file_list.rs", "StatusBar"),
-    ("ui/file_list.rs", "Thumbs"),
-    ("ui/file_list.rs", "Tree"),
-    ("ui/info_panel.rs", "InfoPanel"),
-    ("ui/menus.rs", "OpenWith"),
-    ("ui/preferences.rs", "Preferences"),
-    ("ui/theme.rs", "DesktopSettings"),
-    ("ui/window.rs", "Window"),
-    ("viewer/pan.rs", "PanView"),
-    ("viewer/save_as.rs", "SaveAsChoices"),
-    ("viewer/save_as.rs", "SaveAs"),
-    ("viewer/slideshow.rs", "Slideshow"),
-    ("viewer/view.rs", "Decoding"),
-    ("viewer/view.rs", "Notice"),
-    ("viewer/view.rs", "Viewing"),
-    ("viewer/view.rs", "Zoom"),
-];
-
 /// Where a top-level item stands in a file's order, as AGENTS.md gives it under "Within a
 /// file"; the variants are in that order.
 #[derive(Clone, Copy, PartialEq, PartialOrd)]
@@ -620,6 +586,64 @@ pub(crate) fn sources() -> Vec<(String, String)> {
     }
     files.sort();
     files
+}
+
+/// Returns the parts of `App`, each as (file, struct): every struct of the crate that one of
+/// `App`'s fields holds, also inside an `Option`. They are read from `struct App`, so a new part
+/// is checked without being listed. Their fields stay private (`parts_keep_their_fields`), and
+/// their methods run in the window's thread as App's own do
+/// (`the_window_thread_never_waits_for_the_disk`).
+fn app_parts() -> Vec<(String, String)> {
+    parts_of_app(&source("main.rs"), &rust_sources())
+}
+
+/// Returns the parts of the `App` in `main`, each as (file, struct), found in `sources`.
+fn parts_of_app(main: &str, sources: &[(String, String)]) -> Vec<(String, String)> {
+    let main = code_lines(main);
+    let start = main.iter().position(|l| l == "struct App {").unwrap();
+    let end = block_end(&main, start).unwrap();
+    let held: Vec<(Option<String>, &str)> = (main[start + 1..end].iter())
+        .filter(|l| indent(l) == 4)
+        .filter_map(|l| Some(part_held_by(l.split_once(": ")?.1)))
+        .collect();
+    let mut parts = Vec::new();
+    for (file, text) in sources {
+        for line in code_lines(text) {
+            let Some(name) = struct_name(&line) else {
+                continue;
+            };
+            let is_held = |(in_file, part): &(Option<String>, &str)| {
+                *part == name && in_file.as_ref().is_none_or(|in_file| in_file == file)
+            };
+            if held.iter().any(is_held) {
+                parts.push((file.clone(), name.to_owned()));
+            }
+        }
+    }
+    parts
+}
+
+/// Returns the type that a field of type `field_type` holds, without the `Option`s around it
+/// and without its generic arguments, as (its file when a `crate::` path names it, its name).
+fn part_held_by(field_type: &str) -> (Option<String>, &str) {
+    let mut held = field_type.trim_end_matches(',');
+    while let Some(inner) = (held.strip_prefix("Option<")).and_then(|t| t.strip_suffix('>')) {
+        held = inner;
+    }
+    let without_arguments = held.split('<').next().unwrap_or(held);
+    let (module, name) = (without_arguments.rsplit_once("::")).unwrap_or(("", without_arguments));
+    let file =
+        (module.strip_prefix("crate::")).map(|path| format!("{}.rs", path.replace("::", "/")));
+    (file, name)
+}
+
+/// Returns the name of the struct with named fields that the top-level `line` starts.
+fn struct_name(line: &str) -> Option<&str> {
+    let rest = (line.strip_prefix("pub(crate) struct "))
+        .or_else(|| line.strip_prefix("pub struct "))
+        .or_else(|| line.strip_prefix("struct "))?;
+    let name = rest.split(['<', ' ']).next()?;
+    rest.ends_with('{').then_some(name)
 }
 
 /// The names a `crate::` path can start with: every module, which is a file's name without its
@@ -1103,20 +1127,20 @@ fn app_stays_small() {
 /// A part of App keeps its fields to itself: only its module changes them, and other modules
 /// call methods whose names say what happens (`self.slideshow.toggle_pause()`), so the
 /// compiler, not a convention, keeps a part's rules in one place. A public field in one of the
-/// structs of `APP_PARTS` fails this.
+/// structs of `app_parts` fails this, and so does a part's name given to two
+/// structs, which would leave one of them unchecked.
 #[test]
 fn parts_keep_their_fields() {
     let mut wrong = Vec::new();
-    for (file, part) in APP_PARTS {
+    let parts = app_parts();
+    for (file, part) in &parts {
         let lines = code_lines(&source(file));
-        let heads = [
-            format!("pub(crate) struct {part} {{"),
-            format!("pub struct {part} {{"),
-        ];
-        let Some(start) = lines.iter().position(|l| heads.contains(l)) else {
-            wrong.push(format!("{file}: no struct {part}"));
-            continue;
-        };
+        if (parts.iter()).any(|(other, name)| name == part && other != file) {
+            wrong.push(format!("{file}: a struct {part} in another file too"));
+        }
+        let start = (lines.iter())
+            .position(|l| struct_name(l) == Some(part.as_str()))
+            .unwrap();
         let end = block_end(&lines, start).unwrap();
         for (i, line) in lines.iter().enumerate().take(end).skip(start + 1) {
             if indent(line) == 4 && line.trim_start().starts_with("pub") {
@@ -1128,6 +1152,46 @@ fn parts_keep_their_fields() {
         wrong.is_empty(),
         "make these private, and give the part a method that says what happens:\n{}",
         wrong.join("\n")
+    );
+}
+
+/// The parts are found from App's fields: a struct held directly, by its path, or in
+/// `Option`s, also with generic arguments. A tuple struct, a type of the standard library, a
+/// struct inside a macro and one of the same name in another module than the path names are
+/// not parts.
+#[test]
+fn finds_the_parts_of_app() {
+    let main = "struct App {\n    /// A field.\n    gallery: crate::viewer::gallery::Gallery,\n    \
+        check: Option<Option<Check>>,\n    pages: Pages<u8>,\n    \
+        answer: Receiving<(Result<Import, String>, Working)>,\n    \
+        #[cfg(feature = \"x\")]\n    busy: Arc<AtomicUsize>,\n}\n";
+    let sources = [
+        (
+            "viewer/gallery.rs".to_owned(),
+            "pub(crate) struct Gallery {\n    pub shown: usize,\n}\n".to_owned(),
+        ),
+        (
+            "viewer/other.rs".to_owned(),
+            "pub(crate) struct Gallery {\n    pub shown: usize,\n}\n".to_owned(),
+        ),
+        (
+            "a.rs".to_owned(),
+            "struct Check {\n}\npub struct Pages<T> {\n}\npub(crate) struct Receiving<T>(u8);\n\
+             macro_rules! m {\n    pub struct Import {\n    }\n}\n"
+                .to_owned(),
+        ),
+    ];
+    let parts = parts_of_app(main, &sources);
+    let parts: Vec<(&str, &str)> = (parts.iter())
+        .map(|(file, part)| (file.as_str(), part.as_str()))
+        .collect();
+    assert_eq!(
+        parts,
+        [
+            ("viewer/gallery.rs", "Gallery"),
+            ("a.rs", "Check"),
+            ("a.rs", "Pages")
+        ]
     );
 }
 
@@ -3418,7 +3482,7 @@ fn the_rules_name_what_exists() {
 /// and cannot be closed. The window's thread is the code of `App`'s methods: the
 /// `impl crate::App` blocks of every module, and main.rs's `impl App` and
 /// `impl eframe::App for App`, because an `App` is never sent to another thread. The methods
-/// of App's parts (`APP_PARTS`) run there too, as App calls them. Inside them, the text of a
+/// of App's parts (`app_parts`) run there too, as App calls them. Inside them, the text of a
 /// call that hands work to another thread (`spawn`, `write_later`, `run_in_background`,
 /// `write_sidecars`) is left out, because that work runs there. A function of Glimt's own
 /// that looks at the disk is found by its name too. A call that must stay is listed here with
@@ -3482,10 +3546,11 @@ fn the_window_thread_never_waits_for_the_disk() {
         ),
     ];
     let mut found: Vec<(String, String, &str, usize)> = Vec::new();
+    let app_parts = app_parts();
     for (file, text) in rust_sources() {
-        let parts: Vec<&str> = (APP_PARTS.iter())
+        let parts: Vec<&str> = (app_parts.iter())
             .filter(|(f, _)| *f == file)
-            .map(|(_, part)| *part)
+            .map(|(_, part)| part.as_str())
             .collect();
         for (function, call, line) in disk_calls_in_window_thread(&text, &parts) {
             found.push((file.clone(), function, call, line));

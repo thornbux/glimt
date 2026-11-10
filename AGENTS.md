@@ -398,8 +398,9 @@ method.
   held by one field in `App`. Never loose fields in `App` (`source_rules::app_stays_small`).
   The parts' fields are private: other modules call their methods, named for what they do
   (`self.slideshow.toggle_pause()`, `self.panel.is_hidden()`), and never write their fields.
-  `source_rules::parts_keep_their_fields` lists every part of `App`, `self.folder` and
-  `self.list` among them, and a new part joins that list.
+  `source_rules::parts_keep_their_fields` checks every part of `App`, `self.folder` and
+  `self.list` among them: each struct of the crate that a field of `App` holds, so a new part
+  is checked without being listed.
 - **Background work:** spawn a thread, send the result over a channel stored in `App` as a
   `Receiving<T>` (never a bare `Option<Receiver>`), and take it in `update` with `take`, `next`,
   `latest` or `wait`, which also tell, once, when the thread is gone. An answer that the window
