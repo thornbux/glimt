@@ -725,7 +725,9 @@ for v in new old; do
     sleep 2
     key equal; key equal; sleep 1
     remote open $d/two/a.png >/dev/null 2>&1; until_current $d/two/a.png
-    shot same-name-$v
+    # A screen at rest: `current` is answered in the frame that opens two/a.png, before that
+    # frame is drawn, so a shot at once still shows one/a.png zoomed in.
+    settled same-name-$v
     quit
     got=$(colour same-name-$v 400 410)
     if [ $v = new ]; then expect "fitted, not zoomed" "$got" blue
