@@ -203,10 +203,11 @@ pub(crate) struct Listener {
     rx: mpsc::Receiver<(String, Option<remote::Reply>)>,
     /// The sender of `rx`, for a window that starts to listen when it is given a name.
     tx: mpsc::Sender<(String, Option<remote::Reply>)>,
-    /// A `--remote select` that came while the folder was being read or while Delete or Rename
-    /// asked, and every command after it. They are done in the order they came, once neither
-    /// is the case.
-    waiting_selects: Vec<(String, Option<remote::Reply>)>,
+    /// The commands that came while the place to open was looked up, a `--remote select` that
+    /// came while the folder was read or while Delete or Rename asked, and the commands after
+    /// it that may open another folder or come after one that may. They are done in the order
+    /// they came (`must_wait`).
+    waiting_commands: Vec<(String, Option<remote::Reply>)>,
     /// The time until which `--remote identify` shows the window's ID over the image.
     identify_until: Option<std::time::Instant>,
     /// The window listens for `--remote` also without a name (`listens`).
@@ -226,7 +227,7 @@ impl Listener {
         Listener {
             rx,
             tx,
-            waiting_selects: Vec::new(),
+            waiting_commands: Vec::new(),
             identify_until: None,
             listens_without_name,
         }
@@ -244,36 +245,55 @@ impl Listener {
 impl crate::App {
     // ---- Remote control ----
 
-    /// Receives `glimt --remote` commands and queries. A `select` waits while the folder is
-    /// read or a dialog asks about the selection.
+    /// Receives `glimt --remote` commands and queries. While the place that an `open` named is
+    /// looked up, every command waits, and a `select` waits too while the folder is read or a
+    /// dialog asks about the selection.
     pub(crate) fn receive_remote(&mut self, ctx: &egui::Context) {
-        // After `open`, the folder is still being read, so its files are not all listed. A
-        // dialog asking about the selection (Delete, Rename) is answered for the files it asked
-        // about, not for a selection a script put in its place meanwhile.
-        let busy = |app: &Self| app.folder.is_listing() || app.asking_about_selection();
+        // `open` only starts a look-up, and the window shows the old list until its answer is
+        // taken. It is taken here first, because a hidden window runs no `ui`, which takes it
+        // too.
+        self.receive_looked_up(ctx, std::time::Duration::ZERO);
         // A hidden window runs no `ui`, which takes the listing, so a waiting select takes it
         // here. Otherwise the select would wait until the window is shown again.
-        if !self.remote.waiting_selects.is_empty() {
+        if !self.remote.waiting_commands.is_empty() {
             self.receive_listing(ctx, std::time::Duration::ZERO);
         }
-        // The waiting ones are done in the order they came, until one (an `open`) makes the
-        // window busy again. Each gets its own answer, from the list as it was when it was sent.
-        while !self.remote.waiting_selects.is_empty() && !busy(self) {
-            let (command, reply) = self.remote.waiting_selects.remove(0);
+        // The waiting ones are done in the order they came, until one (an `open`) makes them
+        // wait again. Each gets its own answer, from the list as it was when it was sent.
+        while let Some((command, reply)) = self.remote.waiting_commands.first()
+            && !self.must_wait(command, reply.is_some())
+        {
+            let (command, reply) = self.remote.waiting_commands.remove(0);
             self.handle_remote(ctx, &command, reply);
         }
         while let Ok((command, reply)) = self.remote.rx.try_recv() {
-            let select = reply.is_some() && command.starts_with("select ");
-            let wait = (may_relist(&command) && !self.remote.waiting_selects.is_empty())
-                || (select && busy(self));
+            // A command behind a waiting one that may open another folder waits its turn,
+            // because it would otherwise act on the list from before that folder.
+            let behind_an_open =
+                (self.remote.waiting_commands.iter()).any(|(waiting, _)| may_relist(waiting));
+            let wait = self.must_wait(&command, reply.is_some())
+                || (!self.remote.waiting_commands.is_empty()
+                    && (may_relist(&command) || behind_an_open));
             if !wait {
                 self.handle_remote(ctx, &command, reply);
-            } else if self.remote.waiting_selects.len() < 64 {
-                self.remote.waiting_selects.push((command, reply));
+            } else if self.remote.waiting_commands.len() < 64 {
+                self.remote.waiting_commands.push((command, reply));
             }
             // When more than that are waiting, the answer is dropped, and the client is told
             // "no answer" (serve), so the script tries again.
         }
+    }
+
+    /// Whether `command` must wait before it is done. Every command waits while the place to
+    /// open is looked up, because it would act on the list from before that place. A select
+    /// (with a reply, `is_query`) also waits while the folder is read, because its files are
+    /// not all listed yet. It waits as well while a dialog asks about the selection (Delete,
+    /// Rename), which is answered for the files it asked about, not for a selection that a
+    /// script put in their place.
+    fn must_wait(&self, command: &str, is_query: bool) -> bool {
+        let select = is_query && command.starts_with("select ");
+        self.folder.is_looking_up()
+            || (select && (self.folder.is_listing() || self.asking_about_selection()))
     }
 
     /// Answers each select still waiting at closing, with all its paths and none of them
@@ -282,7 +302,7 @@ impl crate::App {
     /// answered as usual (current, selection).
     pub(crate) fn answer_waiting_selects(&mut self) {
         let sent: Vec<_> = self.remote.rx.try_iter().collect();
-        let waiting = std::mem::take(&mut self.remote.waiting_selects);
+        let waiting = std::mem::take(&mut self.remote.waiting_commands);
         let ctx = self.ctx.clone();
         for (command, reply) in waiting.into_iter().chain(sent) {
             let Some(reply) = reply else { continue };
@@ -1825,7 +1845,7 @@ mod tests {
         app.remote = super::Listener {
             rx,
             tx: std::sync::mpsc::channel().0,
-            waiting_selects: Vec::new(),
+            waiting_commands: Vec::new(),
             identify_until: None,
             listens_without_name: false,
         };
@@ -2170,20 +2190,24 @@ mod tests {
         let (reply, answer) = std::sync::mpsc::channel();
         let select = format!("select {}\0", dir.join("a.png").display());
         tx.send((select.clone(), Some(reply))).unwrap();
+        // A query is answered at once, also behind a waiting select.
+        let (reply, current) = std::sync::mpsc::channel();
+        tx.send(("current".to_owned(), Some(reply))).unwrap();
         tx.send((format!("open {}", other.display()), None))
             .unwrap();
-        // At most 64 wait, so one more is dropped.
+        // Behind a waiting open, it waits its turn, so it answers about the place opened.
+        let (reply, current_after_open) = std::sync::mpsc::channel();
+        tx.send(("current".to_owned(), Some(reply))).unwrap();
+        // At most 64 wait, so the last of these are dropped.
         let mut more = Vec::new();
         for _ in 0..63 {
             let (reply, answer) = std::sync::mpsc::channel();
             tx.send((select.clone(), Some(reply))).unwrap();
             more.push(answer);
         }
-        // A query is answered at once, also behind a waiting select.
-        let (reply, current) = std::sync::mpsc::channel();
-        tx.send(("current".to_owned(), Some(reply))).unwrap();
         app.receive_remote(&ctx);
         assert!(current.try_recv().is_ok(), "current answered at once");
+        assert!(current_after_open.try_recv().is_err());
         assert_eq!(app.folder.dir(), dir, "open waits behind the select");
         assert!(matches!(
             more[62].try_recv(),
@@ -2199,17 +2223,97 @@ mod tests {
         // background.
         app.receive_looked_up(&ctx, std::time::Duration::from_secs(5));
         assert_eq!(app.folder.dir(), other);
+        app.receive_remote(&ctx);
+        assert!(current_after_open.try_recv().is_ok());
         // Closing with selects still waiting, and one sent just before, tells each that none of
         // its paths was selected.
         let (reply, closing) = std::sync::mpsc::channel();
         app.remote
-            .waiting_selects
+            .waiting_commands
             .push((select.clone(), Some(reply)));
         let (reply, late) = std::sync::mpsc::channel();
         tx.send((select.clone(), Some(reply))).unwrap();
         app.answer_waiting_selects();
         assert!(String::from_utf8_lossy(&closing.try_recv().unwrap()).contains("a.png"));
         assert!(String::from_utf8_lossy(&late.try_recv().unwrap()).contains("a.png"));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// Runs `receive_remote` alone, as a hidden window's `logic` does without `ui`, until
+    /// `done` holds, for at most five seconds. Returns whether it held.
+    fn receive_remote_until(
+        app: &mut crate::App,
+        ctx: &eframe::egui::Context,
+        mut done: impl FnMut(&mut crate::App) -> bool,
+    ) -> bool {
+        let start = std::time::Instant::now();
+        while start.elapsed() < std::time::Duration::from_secs(5) {
+            app.receive_remote(ctx);
+            if done(app) {
+                return true;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        false
+    }
+
+    /// The commands after `open` wait until the place it named is looked up, also in a window
+    /// that runs no `ui`, so they act on that place and not on the list from before it:
+    /// `current` names the file opened, and `run Up` goes up from its folder.
+    #[test]
+    fn commands_after_an_open_act_on_the_place_it_opens() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-open-then-{}", std::process::id()));
+        let other = dir.join("other");
+        std::fs::create_dir_all(&other).unwrap();
+        image::RgbImage::new(4, 4).save(dir.join("a.png")).unwrap();
+        image::RgbImage::new(4, 4)
+            .save(other.join("b.png"))
+            .unwrap();
+        let (mut app, ctx) = app_on(&dir);
+        let (tx, rx) = std::sync::mpsc::channel();
+        app.remote.rx = rx;
+        let b = other.join("b.png");
+        let (reply, current) = std::sync::mpsc::channel();
+        tx.send((format!("open {}", b.display()), None)).unwrap();
+        tx.send(("current".to_owned(), Some(reply))).unwrap();
+        tx.send(("run Up".to_owned(), None)).unwrap();
+        let mut answer = None;
+        assert!(receive_remote_until(&mut app, &ctx, |_| {
+            answer = current.try_recv().ok();
+            answer.is_some()
+        }));
+        assert_eq!(answer.unwrap(), format!("{}\0", b.display()).into_bytes());
+        assert!(
+            receive_remote_until(&mut app, &ctx, |app| app.folder.dir() == dir),
+            "Up from {}, not from {}",
+            other.display(),
+            dir.display()
+        );
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// `slideshow on` after `open`, with subfolders in random order, runs on the folder opened
+    /// and keeps its shuffle, which opening the folder would otherwise take away.
+    #[test]
+    fn a_slideshow_after_an_open_keeps_its_shuffle() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-open-show-{}", std::process::id()));
+        let other = dir.join("other");
+        std::fs::create_dir_all(&other).unwrap();
+        image::RgbImage::new(4, 4).save(dir.join("a.png")).unwrap();
+        image::RgbImage::new(4, 4)
+            .save(other.join("b.png"))
+            .unwrap();
+        let (mut app, ctx) = app_on(&dir);
+        app.config.slideshow_subfolders = true;
+        app.config.slideshow_random = true;
+        let (tx, rx) = std::sync::mpsc::channel();
+        app.remote.rx = rx;
+        tx.send((format!("open {}", other.display()), None))
+            .unwrap();
+        tx.send(("slideshow on".to_owned(), None)).unwrap();
+        let shown = receive_remote_until(&mut app, &ctx, |app| app.slideshow.is_running());
+        assert!(shown && app.folder.dir() == other);
+        assert!(app.slideshow.is_shuffled());
         std::fs::remove_dir_all(dir).unwrap();
     }
 
