@@ -2443,7 +2443,8 @@ pub(crate) fn rename_files(
     let mut plan = journal::journal_dir().and_then(|d| journal::start_journal(&d, &moves));
     for (k, (a, b)) in moves.iter().enumerate() {
         // On Stop, the names done so far go back, by the same steps a failure takes.
-        let step = match job.is_stopped() {
+        let stopped = job.is_stopped();
+        let step = match stopped {
             true => Err(std::io::Error::other(tr("stopped"))),
             false => journal::rename_step(a, b),
         };
@@ -2460,38 +2461,23 @@ pub(crate) fn rename_files(
             // Named by the file and its new name, not a temporary one.
             let j = k % from.len();
             let name = |p: &PathBuf| p.file_name().unwrap_or_default().display().to_string();
-            // The renames are undone so that no file is left under a hidden temporary name,
-            // by the same steps the next start would take.
-            let (_, stuck) = journal::undo(&moves, done);
+            // A step that failed without the file system saying that it did nothing (a share
+            // that lost its answer) may have been done. Nothing is undone then, because an undo
+            // counts on knowing which steps were done. The plan stays as it is, and the next
+            // start finds the step by the names, once the share's cache has expired.
+            let may_be_done =
+                !stopped && done == k && !crate::files::file_io::was_surely_refused(&e);
+            // Otherwise the renames are undone so that no file is left under a hidden
+            // temporary name, by the same steps the next start would take.
+            let stuck = match may_be_done {
+                true => 1,
+                false => journal::undo(&moves, done).1,
+            };
             let (f, t) = (name(&from[j]), name(&to[j]));
             // When not all were put back (a share that stopped answering, say), the plan stays,
             // and the next start offers to put the files right.
             if stuck > 0 {
-                // With a plan kept, the next start offers the repair. Without one (no state
-                // folder, or a full disk), the error tells where the files are, under hidden
-                // names.
-                let text = match plan.take() {
-                    Some(plan) => {
-                        plan.keep_on_disk();
-                        tf!(
-                            "Could not rename {f} to {t}: {e}; not all names could be put back, Glimt offers to put them right at the next start",
-                            f,
-                            t,
-                            e
-                        )
-                    }
-                    None => tf!(
-                        "Could not rename {f} to {t}: {e}; not all names could be put back, and no plan could be kept: the files under .glimt-rename-* names next to them are theirs",
-                        f,
-                        t,
-                        e
-                    ),
-                };
-                let names_put_back = false;
-                return Err(RenameFailed {
-                    text,
-                    names_put_back,
-                });
+                return Err(names_left_for_the_next_start(plan.take(), (&f, &t), &e));
             }
             return Err(tf!("Could not rename {f} to {t}: {e}; nothing renamed", f, t, e).into());
         }
@@ -2508,6 +2494,38 @@ pub(crate) fn rename_files(
     }
     journal::renames_done(plan, &moves);
     Ok(())
+}
+
+/// Keeps the `plan` of a Rename Many whose names were not all put back after the rename of `f`
+/// to `t` failed with `e`, so that the next start offers the repair. Returns the failure to
+/// tell. Without a plan (no state folder, or a full disk), the error tells where the files
+/// are, under hidden names.
+fn names_left_for_the_next_start(
+    plan: Option<journal::Journal>,
+    (f, t): (&str, &str),
+    e: &std::io::Error,
+) -> RenameFailed {
+    let text = match plan {
+        Some(plan) => {
+            plan.keep_on_disk();
+            tf!(
+                "Could not rename {f} to {t}: {e}; not all names could be put back, Glimt offers to put them right at the next start",
+                f,
+                t,
+                e
+            )
+        }
+        None => tf!(
+            "Could not rename {f} to {t}: {e}; not all names could be put back, and no plan could be kept: the files under .glimt-rename-* names next to them are theirs",
+            f,
+            t,
+            e
+        ),
+    };
+    RenameFailed {
+        text,
+        names_put_back: false,
+    }
 }
 
 /// Copies or moves `paths` into the folder `dest` for `transfer`, each with its sidecars, until
@@ -3113,6 +3131,48 @@ mod tests {
         crate::files::file_io::FOLDER_SYNC_FAILS_IN.set(None);
         crate::files::file_io::take_saves_failed();
         assert!(swapped.is_err());
+        let read = |n: &str| std::fs::read_to_string(p(n)).unwrap();
+        assert_eq!((read("a.jpg"), read("b.jpg")), ("a".into(), "b".into()));
+        assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 2);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A swap whose step failed in a way that may have been done (a share that lost the answer
+    /// to an unlink) undoes nothing and keeps its plan, which the next start puts right. Before,
+    /// the steps before it were undone and the plan deleted, with "nothing renamed", which on a
+    /// share left a photo only under its hidden name.
+    #[test]
+    fn a_rename_step_that_may_have_been_done_keeps_the_plan() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-swap-lost-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let p = |n: &str| dir.join(n);
+        std::fs::write(p("a.jpg"), "a").unwrap();
+        std::fs::write(p("b.jpg"), "b").unwrap();
+        let job = super::Job::new("Renaming", 2, false, Vec::new());
+        // The second step, b.jpg to its hidden name, is linked and its unlink answers EIO.
+        crate::files::file_io::RENAME_WAYS_MISSING.set(1);
+        crate::files::file_io::UNLINK_FAILS.set(Some((p("b.jpg"), libc::EIO)));
+        let swapped = super::rename_files(
+            vec![p("a.jpg"), p("b.jpg")],
+            vec![p("b.jpg"), p("a.jpg")],
+            &job,
+        );
+        crate::files::file_io::UNLINK_FAILS.set(None);
+        crate::files::file_io::RENAME_WAYS_MISSING.set(0);
+        let error = swapped.unwrap_err();
+        assert!(
+            !error.names_put_back && error.text.contains("next start"),
+            "{}",
+            error.text
+        );
+        let plans = super::journal::journal_dir().unwrap();
+        let ours = super::journal::cut_short_plans(&plans)
+            .into_iter()
+            .find(|(_, moves, _)| moves[0].0 == p("a.jpg"));
+        let (plan, moves, done) = ours.expect("the plan is kept");
+        let (_, left) = super::journal::repair_cut_short(&plan, &moves, done, true).unwrap();
+        assert_eq!(left, 0);
         let read = |n: &str| std::fs::read_to_string(p(n)).unwrap();
         assert_eq!((read("a.jpg"), read("b.jpg")), ("a".into(), "b".into()));
         assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 2);
