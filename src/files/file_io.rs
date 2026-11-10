@@ -49,6 +49,9 @@ thread_local! {
     // Makes `sync_folder_of` on this thread fail as a disk that fails would, for the tests of
     // what follows such a failure.
     pub(crate) static FOLDER_SYNC_FAILS: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    // Takes ways to rename away from `rename_never_over` on this thread, as a file system
+    // without them would: 1 takes RENAME_NOREPLACE, 2 takes hard links too.
+    pub(crate) static RENAME_WAYS_MISSING: std::cell::Cell<u8> = const { std::cell::Cell::new(0) };
     // The errors that `save_failed` told for this thread's test. They do not go to the window's
     // own slot in tests, where another test's window would take them as its notice. Each list is
     // leaked, so that the writer thread can tell a test's errors to that test's list.
@@ -158,8 +161,20 @@ struct Mount<'a> {
 #[allow(clippy::disallowed_methods)] // its last fallback, a rename after looking
 pub(crate) fn rename_never_over(from: &Path, to: &Path) -> std::io::Result<()> {
     use std::io::ErrorKind::{AlreadyExists, CrossesDevices, Unsupported};
-    match rename_noreplace(from, to) {
-        Err(e) if e.kind() == Unsupported => match std::fs::hard_link(from, to) {
+    #[cfg(test)]
+    let missing = RENAME_WAYS_MISSING.get();
+    #[cfg(not(test))]
+    let missing = 0;
+    let one_step = match missing {
+        0 => rename_noreplace(from, to),
+        _ => Err(Unsupported.into()),
+    };
+    let link = || match missing {
+        0 | 1 => std::fs::hard_link(from, to),
+        _ => Err(Unsupported.into()),
+    };
+    match one_step {
+        Err(e) if e.kind() == Unsupported => match link() {
             Ok(()) => unlink_linked(from, to),
             Err(e) if matches!(e.kind(), AlreadyExists | CrossesDevices) => Err(e),
             Err(_) if to.exists() => Err(AlreadyExists.into()),
@@ -1193,6 +1208,43 @@ mod tests {
         assert!(!a.exists() && c.exists());
         let gone = super::rename_noreplace(&a, &dir.join("d")).unwrap_err();
         assert_eq!(gone.kind(), std::io::ErrorKind::NotFound);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// Where the file system cannot rename in one step without replacing (FAT, exFAT, ntfs-3g,
+    /// NFS, many FUSE shares), a rename is a link and an unlink, and where it cannot link
+    /// either, a rename after a look. Neither replaces a file. A source that cannot be unlinked
+    /// keeps its name and loses the new one, and a source gone meanwhile counts as moved.
+    #[test]
+    fn renames_without_one_step_never_over_a_file() {
+        use super::RENAME_WAYS_MISSING;
+        let dir = std::env::temp_dir().join(format!("glimt-test-fallback-{}", std::process::id()));
+        let (a, b, c) = (dir.join("a"), dir.join("b"), dir.join("c"));
+        let text = |p: &std::path::Path| std::fs::read_to_string(p).unwrap();
+        for missing in [1, 2] {
+            let _ = std::fs::remove_dir_all(&dir);
+            std::fs::create_dir_all(&dir).unwrap();
+            std::fs::write(&a, "a").unwrap();
+            std::fs::write(&b, "b").unwrap();
+            RENAME_WAYS_MISSING.set(missing);
+            let taken = super::rename_never_over(&a, &b);
+            let renamed = super::rename_never_over(&a, &c);
+            RENAME_WAYS_MISSING.set(0);
+            assert_eq!(taken.unwrap_err().kind(), std::io::ErrorKind::AlreadyExists);
+            assert_eq!(text(&b), "b");
+            renamed.unwrap();
+            assert!(!a.exists() && text(&c) == "a");
+        }
+        // A folder cannot be unlinked as a file, as a file in another user's sticky folder
+        // cannot.
+        let (folder, linked) = (dir.join("folder"), dir.join("linked"));
+        std::fs::create_dir(&folder).unwrap();
+        std::fs::write(&linked, "x").unwrap();
+        assert!(super::unlink_linked(&folder, &linked).is_err());
+        assert!(folder.is_dir() && !linked.exists());
+        std::fs::write(&linked, "x").unwrap();
+        super::unlink_linked(&dir.join("gone"), &linked).unwrap();
+        assert_eq!(text(&linked), "x");
         std::fs::remove_dir_all(dir).unwrap();
     }
 
