@@ -15,8 +15,10 @@ pub(crate) static CPU_CHANGED: (Mutex<()>, std::sync::Condvar) =
 /// Glimt runs with one malloc arena (`low_memory`): set at startup.
 pub(crate) static HAS_ONE_MALLOC_ARENA: AtomicBool = AtomicBool::new(false);
 
-/// What a background thread's receiver has: nothing yet, its answer, or the thread gone without
-/// one (it panicked). Taken, the receiver is dropped, so nothing waits for it for ever.
+/// What a background thread's receiver has: nothing yet, its answer, or the thread ended. For
+/// `take` and `wait`, `Gone` means the thread ended without its answer (it panicked); for `next`
+/// and `latest`, a stream that ended as it should gives `Gone` too. With `Gone` the receiver is
+/// dropped, so nothing waits for it for ever.
 pub(crate) enum Took<T> {
     Nothing,
     Answer(T),
@@ -81,14 +83,18 @@ impl<T> Receiving<T> {
     }
 
     /// The last of the messages queued, the earlier ones dropped: for a thread that sends the
-    /// state so far again and again. The receiver stays, as `next`.
+    /// state so far again and again. The receiver stays, as `next`. When the thread ended after
+    /// its last message, that message is given now and `Gone` at the next call, so the end is
+    /// still told once.
     pub(crate) fn latest(&mut self) -> Took<T> {
         let mut last = Took::Nothing;
         loop {
-            match self.next() {
-                Took::Answer(a) => last = Took::Answer(a),
-                Took::Gone if matches!(last, Took::Nothing) => return Took::Gone,
-                _ => return last,
+            match self.0.as_ref().map(mpsc::Receiver::try_recv) {
+                Some(Ok(answer)) => last = Took::Answer(answer),
+                // Also when the thread is gone: the receiver is kept, so that the next call
+                // finds it gone and tells.
+                _ if matches!(last, Took::Answer(_)) => return last,
+                _ => return self.next(),
             }
         }
     }
@@ -364,6 +370,15 @@ mod tests {
         assert!(matches!(rx.latest(), Took::Answer(2)) && rx.is_some());
         drop(tx);
         assert!(matches!(rx.latest(), Took::Gone) && rx.is_none());
+        // A last message and then the end in the same moment: the message now, and the end at
+        // the next call, told once.
+        let (tx, rx) = std::sync::mpsc::channel::<u8>();
+        let mut rx = super::Receiving::of(rx);
+        tx.send(3).unwrap();
+        drop(tx);
+        assert!(matches!(rx.latest(), Took::Answer(3)));
+        assert!(matches!(rx.latest(), Took::Gone) && rx.is_none());
+        assert!(matches!(rx.latest(), Took::Nothing));
     }
 
     /// CPU use: thumbnails and background threads for each level.
