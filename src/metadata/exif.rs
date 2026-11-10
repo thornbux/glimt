@@ -1056,16 +1056,25 @@ pub fn shared_block(
     keeps_hdr_headroom: bool,
 ) -> Option<Vec<u8>> {
     let (t, ifd0, exif, gps) = ifds(raw)?;
+    // The value bytes taken so far. A real block holds no more of them than its own size, but a
+    // crafted one can name one large value from every entry, which would fill memory if each
+    // were copied. Such a block is refused whole.
+    let taken = std::cell::Cell::new(0usize);
     let value = |e: &Entry| {
         let len = type_size(e.field_type).checked_mul(e.count as usize)?;
-        Some(
-            t.data
-                .get(e.value_offset..e.value_offset.checked_add(len)?)?
-                .to_vec(),
-        )
+        let bytes = t
+            .data
+            .get(e.value_offset..e.value_offset.checked_add(len)?)?;
+        taken.set(taken.get().saturating_add(len));
+        (taken.get() <= t.data.len()).then(|| bytes.to_vec())
     };
     let mut dirs: [NewIfd; 5] = Default::default();
+    let mut seen = std::collections::HashSet::new();
     for (dir, tag, e) in shareable(&ifd0, &exif, &gps) {
+        // A tag named twice is taken once, the first time, as the reader takes it (`find`).
+        if !seen.insert((dir, tag)) {
+            continue;
+        }
         if is_always_shared(dir, tag) || keeps(&shared_tag_name(dir, tag)) {
             let at = ["Image", "Exif", "GPS"]
                 .iter()
@@ -1086,6 +1095,9 @@ pub fn shared_block(
         // The index ("R98", "R03") and the version ("0100") are four bytes each.
         let value = value(&e).filter(|v| matches!(tag, 0x0001 | 0x0002) && v.len() <= 4);
         dirs[3].extend(value.map(|v| (tag, e.field_type, e.count, v)));
+    }
+    if taken.get() > t.data.len() {
+        return None;
     }
     let thumbnail = keeps(EXIF_THUMBNAIL).then(|| exif_thumbnail(&t)).flatten();
     write_block(t.is_little_endian, dirs, thumbnail)
@@ -2259,6 +2271,18 @@ mod tests {
         big.extend(&blob);
         let read: usize = super::fields(&big).iter().map(|f| f.2.len()).sum();
         assert!(read > 0 && read <= n as usize * super::MAX_TEXT, "{read}");
+        // A copy for sharing takes no more value bytes than the block holds. Before, it copied
+        // the part once for each field, which a block of 64 MB made 64 GB.
+        let shared = super::shared_block(&big, &|_| true, false);
+        assert!(shared.is_none_or(|b| b.len() <= big.len()));
+        // A tag named twice is taken once, the first time.
+        let twice = b"MM\0*\0\0\0\x08\0\x02\x01\x0f\0\x02\0\0\0\x02A\0\0\0\
+                      \x01\x0f\0\x02\0\0\0\x02B\0\0\0\0\0\0\0";
+        let shared = super::shared_block(twice, &|_| true, false).unwrap();
+        let makes: Vec<_> = (super::fields(&shared).into_iter())
+            .filter(|f| f.0 == "Image" && f.1 == "Make")
+            .collect();
+        assert_eq!(makes.len(), 1, "{makes:?}");
         let mm = b"Exif\0\0MM\0*\0\0\0\x08\0\x02\x01\x0f\0\x02\0\0\0\x06\0\0\0\x26\
                    \x01\x12\0\x03\0\0\0\x01\0\x06\0\0\0\0\0\0Canon\0";
         for seed in [sample(), mm.to_vec()] {
