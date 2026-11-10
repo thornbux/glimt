@@ -5,6 +5,19 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- A keyword, comment, alt text or star written while Rename Many runs is saved to its photo
+  under the photo's new name. Before, when the new names swapped with old ones, it landed on the
+  photo that took the old name. An edit in the info panel not saved yet follows its file through
+  a move or rename too.
+- Stop in the status bar, or closing the window a second time, no longer drops the info panel's
+  save of keywords, comment or alt text that waits behind a long job, such as a Lightroom
+  import. Before, the edit was lost without a word while the panel showed it as saved.
+- Going back to an image whose edit in the info panel was not saved yet shows the edit. Before,
+  while the next image was still being read, the panel could show the file as it was, and a
+  later edit wrote the old alt text or comment back.
+
 ## [0.79.0] - 2026-11-10
 
 ### Changed
