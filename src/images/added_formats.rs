@@ -19,7 +19,6 @@
 //! and writes the image (PNM, PNG, TIFF, BMP …) to its standard output. It has 30 seconds and
 //! at most `MAX_DECODE_BYTES` bytes, as ffmpeg has.
 
-use crate::support::format::{Piece, pieces};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -68,22 +67,11 @@ impl AddedFormat {
     }
 
     /// Returns the command's words for the file at `path`: `%f` is the path, also inside a
-    /// word, and `%%` is a `%`, read from left to right (`format::pieces`). Another code stays
-    /// as it is.
+    /// word, and `%%` is a `%`, as `tools::filled_in` fills a tool's. Another code stays as it
+    /// is.
     fn arguments(&self, path: &Path) -> Vec<std::ffi::OsString> {
-        (self.exec.iter())
-            .map(|w| {
-                let mut arg = std::ffi::OsString::new();
-                for piece in pieces(w, None) {
-                    match piece {
-                        Piece::Code("f") => arg.push(path),
-                        Piece::Code(other) => arg.push(format!("%{other}")),
-                        Piece::Text(text) => arg.push(text),
-                    }
-                }
-                arg
-            })
-            .collect()
+        let filled = |w: &String| crate::features::tools::filled_in(w, &["f"], path);
+        self.exec.iter().map(filled).collect()
     }
 }
 
@@ -115,7 +103,7 @@ fn parse(text: &str, dir: &Path) -> Option<AddedFormat> {
         .map(|e| format!(".{e}"))
         .collect();
     let exec = crate::features::tools::command_words(value("Exec")?);
-    let has_file = |w: &String| pieces(w, None).any(|p| p == Piece::Code("f"));
+    let has_file = |w: &String| crate::features::tools::names_a_file(w, &["f"]);
     if exts.is_empty() || !exec.iter().any(has_file) {
         return None;
     }

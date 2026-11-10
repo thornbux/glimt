@@ -376,7 +376,7 @@ const MANUAL: &[(&str, &str)] = &[
          one, as Geeqie's plugins do, and shows them again afterwards.\n\n\
          A tool is a desktop file in ~/.local/share/glimt/tools (the menu opens that folder), \
          for example Name=Rotate and Exec=mogrify -rotate 90 %f:\n\n\
-         - %f runs it once for each file\n\
+         - %f runs it once for each file, also inside a word, as --file=%f\n\
          - %F once for all\n\
          - without either it runs once in the folder.\n\n\
          A program next to the desktop file is found there. New tools show after a restart. The \
