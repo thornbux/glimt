@@ -265,8 +265,8 @@ const MANUAL: &[(&str, &str)] = &[
          deletes them for good. Both ask first, as set under Deleting in Preferences, which can \
          also turn the Delete key off or use no trash at all. Without gio Glimt moves the files \
          into the trash itself; a file on another disk, such as a USB stick, goes into the \
-         .Trash-UID folder at the top of that disk, and a file on a network share is refused, as \
-         gio refuses it.\n\n\
+         .Trash/UID or .Trash-UID folder at the top of that disk, and a file on a network share is \
+         refused, as gio refuses it.\n\n\
          Edit → Undo (Ctrl+Z) puts back what this window did last: files or a folder moved to the \
          trash come back from it, moved files go back, renamed ones get their old names, with \
          their marks and stars. Undo of a delete also puts files back in the collection shown, \

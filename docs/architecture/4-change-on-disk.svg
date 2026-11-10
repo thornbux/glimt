@@ -118,7 +118,7 @@
       <text x="42" y="555">gio trash in chunks, timed;</text>
       <text x="42" y="571">without gio, or a file the</text>
       <text x="42" y="587">Flatpak's portal refuses, by</text>
-      <text x="42" y="603">hand: .Trash-UID on another</text>
+      <text x="42" y="603">hand: .Trash/UID on another</text>
       <text x="42" y="619">disk, never a network share</text>
       <text x="42" y="641" fill="#57606a">files/trash.rs</text>
 
