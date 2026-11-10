@@ -869,11 +869,9 @@ pub(crate) fn xmp_without_property(xmp: &[u8], name: &[u8]) -> Vec<u8> {
             Some(b'<')
                 if after.is_some_and(|c| c == b'>' || c == b'/' || c.is_ascii_whitespace()) =>
             {
-                match gts.at(end) {
-                    Some(gt) if xmp[gt - 1] == b'/' => Some(gt + 1),
-                    Some(gt) => ends.at(gt).map(|e| e + end_tag.len()),
-                    None => None,
-                }
+                (gts.at(end)).and_then(|gt| {
+                    element_end_after_start_tag(xmp, gt, &end_tag, |from| ends.at(from))
+                })
             }
             // An attribute: its name, "=" and the quoted value, with the blank before it.
             Some(c) if c.is_ascii_whitespace() => {
@@ -909,6 +907,23 @@ pub(crate) fn xmp_without_property(xmp: &[u8], name: &[u8]) -> Vec<u8> {
     }
     out.extend_from_slice(&xmp[copied..]);
     out
+}
+
+/// Returns where an element of XMP ends, given `gt`, the place of the ">" that ends its start
+/// tag. An empty element (`<name/>`) ends just after that ">", and any other just after its end
+/// tag, which `find_end_tag` finds from a place. Returns `None` when the end tag is missing. The
+/// readers of the XMP fields and `xmp_without_property` both end an element here, so a reader
+/// never reads past an empty element into the lists that follow it.
+pub(crate) fn element_end_after_start_tag(
+    xmp: &[u8],
+    gt: usize,
+    end_tag: &[u8],
+    find_end_tag: impl FnOnce(usize) -> Option<usize>,
+) -> Option<usize> {
+    match gt.checked_sub(1).map(|i| xmp[i]) {
+        Some(b'/') => Some(gt + 1),
+        _ => find_end_tag(gt).map(|e| e + end_tag.len()),
+    }
 }
 
 /// `img` turned as the view turns it, mirrored first and then turned clockwise `turns`
