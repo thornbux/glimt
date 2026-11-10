@@ -1361,6 +1361,110 @@ pub(crate) fn packet(properties: &Properties) -> Vec<u8> {
     out.into_bytes()
 }
 
+/// Returns the property element `element` with only its own value. Every property written
+/// inside it, as an element or as an attribute, is left out unless `keeps` keeps its name, read
+/// with the packet's namespaces `namespaces` (`property_name`). The rdf: and xml: names that give
+/// the value its form (rdf:Seq, rdf:li, rdf:parseType, xml:lang) stay, and comments go. Without
+/// it, a kept property could carry a value the user left out, such as a GPS position written
+/// inside a gain map's property.
+pub(crate) fn with_own_value_only(
+    element: &str,
+    namespaces: &[(String, String)],
+    keeps: &dyn Fn(&str) -> bool,
+) -> String {
+    let is_property = |name: &str| {
+        name.contains(':')
+            && !name.starts_with("rdf:")
+            && !name.starts_with("xml:")
+            && !name.starts_with("xmlns:")
+    };
+    let is_kept = |name: &str| !is_property(name) || keeps(&property_name(name, namespaces));
+    let mut out = String::with_capacity(element.len());
+    let mut from = 0;
+    while let Some(found) = element[from..].find('<') {
+        let start = from + found;
+        out += &element[from..start];
+        let rest = &element[start..];
+        if rest.starts_with("<!--") {
+            from = rest
+                .find("-->")
+                .map_or(element.len(), |end| start + end + 3);
+            continue;
+        }
+        // What does not end as a tag is left out with the rest, as it cannot be read.
+        let Some(gt) = start_tag_end(element, start) else {
+            return out;
+        };
+        let tag = element[start + 1..gt].trim_end_matches('/');
+        let name_end = tag.find(char::is_whitespace).unwrap_or(tag.len());
+        let name = &tag[..name_end];
+        if rest.starts_with("</") || rest.starts_with("<!") || rest.starts_with("<?") {
+            out += &element[start..=gt];
+        } else if start > 0 && !is_kept(name) {
+            from = match element[..gt].ends_with('/') {
+                true => gt + 1,
+                false => element_end(element, gt + 1, name),
+            };
+            continue;
+        } else {
+            let head = &tag[name_end..];
+            let found = attributes(head);
+            let kept: Vec<_> = found.iter().filter(|(n, _)| is_kept(n)).collect();
+            // The attributes end where the last value's closing quote is.
+            let read_to = found.last().map_or(0, |(_, value)| {
+                value.as_ptr() as usize - head.as_ptr() as usize + value.len() + 1
+            });
+            if kept.len() == found.len() && head[read_to..].trim().is_empty() {
+                out += &element[start..=gt];
+            } else {
+                out.push('<');
+                out += name;
+                for (n, value) in kept {
+                    let quote = if value.contains('"') { '\'' } else { '"' };
+                    out += &format!(" {n}={quote}{value}{quote}");
+                }
+                out += if element[..gt].ends_with('/') {
+                    "/>"
+                } else {
+                    ">"
+                };
+            }
+        }
+        from = gt + 1;
+    }
+    out + &element[from..]
+}
+
+/// Returns where the element `name` whose start tag ends before `from` in `xmp` ends, past its
+/// end tag, counting the elements of the same name inside it. Returns the end of `xmp` when it
+/// does not end.
+fn element_end(xmp: &str, mut from: usize, name: &str) -> usize {
+    let (open, close) = (format!("<{name}"), format!("</{name}>"));
+    let mut depth = 1;
+    while let Some(found) = xmp[from..].find('<') {
+        let at = from + found;
+        let rest = &xmp[at..];
+        if rest.starts_with(&close) {
+            depth -= 1;
+            from = at + close.len();
+            if depth == 0 {
+                return from;
+            }
+            continue;
+        }
+        let Some(gt) = start_tag_end(xmp, at) else {
+            break;
+        };
+        let after_name = rest.strip_prefix(&open).and_then(|r| r.chars().next());
+        let opens = after_name.is_some_and(|c| c.is_whitespace() || c == '>' || c == '/');
+        if opens && !xmp[..gt].ends_with('/') {
+            depth += 1;
+        }
+        from = gt + 1;
+    }
+    xmp.len()
+}
+
 /// `text` as XML character data or an attribute's value. The characters that XML 1.0 does not
 /// allow (the control characters below U+0020 but tab, line feed and carriage return, and the
 /// noncharacters U+FFFE and U+FFFF) are left out, as no entity can stand for them either. Left
@@ -2675,8 +2779,9 @@ mod tests {
         let seed = "<x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><rdf:RDF><rdf:Description \
                     rdf:about=\"\" xmlns:dc=\"http://purl.org/dc/elements/1.1/\" \
                     dc:format='image/jpeg'><!--c--><dc:subject><rdf:Bag><rdf:li>a</rdf:li>\
-                    </rdf:Bag></dc:subject><dc:rights/></rdf:Description><rdf:Description \
-                    rdf:about=\"\"/></rdf:RDF></x:xmpmeta>";
+                    <rdf:li><rdf:Description dc:x='1' dc:y=\"2\"/></rdf:li><dc:z><dc:z>3\
+                    </dc:z></dc:z></rdf:Bag></dc:subject><dc:rights/></rdf:Description>\
+                    <rdf:Description rdf:about=\"\"/></rdf:RDF></x:xmpmeta>";
         // A text of letters of two, three and four bytes, longer than the 1 KB that a namespace
         // is read in, so a cut lands inside a letter.
         let text = "Ålesund bæt 東京 \u{1f30a} ".repeat(80);
@@ -2690,6 +2795,9 @@ mod tests {
         {
             let read = super::properties(&String::from_utf8_lossy(&bytes));
             super::packet(&read);
+            for (name, element, namespaces) in &read.list {
+                super::with_own_value_only(element, namespaces, &|n| n != name);
+            }
         }
     }
 

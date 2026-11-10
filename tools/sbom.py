@@ -62,6 +62,55 @@ def component(node_id, kind="library"):
     return c
 
 
+# The licenses compatible with Glimt's MIT license, which a crate may be under. A crate under
+# another fails the script, so a new dependency's license is weighed before it is shipped.
+# epaint's default fonts are under OFL-1.1 and the Ubuntu font license, which allow fonts to be
+# bundled with a program under any license.
+ALLOWED_LICENSES = {
+    "MIT", "MIT-0", "Apache-2.0", "BSD-2-Clause", "BSD-3-Clause", "0BSD", "ISC", "Zlib",
+    "Unicode-3.0", "Unicode-DFS-2016", "MPL-2.0", "CC0-1.0", "Unlicense", "BSL-1.0",
+    "OFL-1.1", "Ubuntu-font-1.0",
+}
+
+
+def is_allowed(expression):
+    """Whether the SPDX license expression `expression` lets the crate be used under the
+    licenses of ALLOWED_LICENSES: one side of each OR, and both sides of each AND. An exception
+    after WITH (LLVM-exception) only adds permissions, so it is read as the license before it.
+    The words are turned into Python's True, False, and, or and brackets, and nothing else, so
+    the text that is evaluated holds no word of the crate's own."""
+    words = re.findall(r"\(|\)|[^\s()]+", expression)
+    python, skip = [], False
+    for word in words:
+        if skip:
+            skip = False
+        elif word == "WITH":
+            skip = True
+        elif word in ("AND", "OR"):
+            python.append(word.lower())
+        elif word in ("(", ")"):
+            python.append(word)
+        else:
+            python.append(str(word in ALLOWED_LICENSES))
+    try:
+        return eval(" ".join(python), {"__builtins__": {}}) is True
+    except SyntaxError:
+        return False
+
+
+assert is_allowed("(MIT OR Apache-2.0) AND Unicode-3.0")
+assert is_allowed("Apache-2.0 WITH LLVM-exception OR GPL-3.0-only")
+assert not is_allowed("MIT AND GPL-3.0-only") and not is_allowed("GPL-3.0-or-later")
+assert not is_allowed("MIT OR") and not is_allowed("")
+
+not_allowed = [
+    f"{packages[i]['name']} {packages[i]['version']}: {packages[i].get('license') or 'no license'}"
+    for i in sorted(used - {root}, key=ref)
+    if not is_allowed((packages[i].get("license") or "").replace("/", " OR "))
+]
+if not_allowed:
+    raise SystemExit("Crates under a license not in ALLOWED_LICENSES:\n" + "\n".join(not_allowed))
+
 sbom = {
     "bomFormat": "CycloneDX",
     "specVersion": "1.5",

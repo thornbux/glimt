@@ -3955,12 +3955,14 @@ done
 
 section "File → Copy for Sharing… of real photos (samples.txt): no place, serial or keyword left; gain maps kept"
 # The samples are a Pixel's Ultra HDR, an iPhone's HDR with Apple's gain map, a DJI drone's
-# photo, a Lightroom export with its keyword tree and one with content credentials. Only NEW is
-# run: the section checks what a copy holds, which tells nothing new about OLD.
+# photo, a Lightroom export with its keyword tree, one with content credentials and one with
+# digiKam's keyword list. Only NEW is run: the section checks what a copy holds, which tells
+# nothing new about OLD.
 note "old: not run, the copies of NEW only are checked"
 d=/tmp/sharing-real
 mkdir -p $d/in $d/all $d/place
-for name in ultrahdr-pixel.jpg iphone-gain-map.jpg dji-drone.jpg lightroom-keywords.jpg c2pa.jpg; do
+for name in ultrahdr-pixel.jpg iphone-gain-map.jpg dji-drone.jpg lightroom-keywords.jpg c2pa.jpg \
+    digikam-tags.jpg; do
     if [ -f /samples/$name ]; then cp /samples/$name $d/in/; else fail "$name not downloaded"; fi
 done
 # copy_shared FOLDER GROUP…: copies every sample into FOLDER, with Remove All when no GROUP is
@@ -4032,6 +4034,10 @@ for copy in $d/all $d/place; do
         "$(exiftool -s3 -MakerNotes:HDRHeadroom $copy/iphone-gain-map.jpg)" \
         "$(exiftool -s3 -MakerNotes:HDRHeadroom $d/in/iphone-gain-map.jpg)"
 done
+# Place alone keeps the keywords: digiKam's list, which Remove All took out above.
+expect "digikam-tags.jpg, Place: digiKam's keyword list kept" \
+    "$(exiftool -s3 -XMP-digiKam:TagsList $d/place/digikam-tags.jpg)" \
+    "$(exiftool -s3 -XMP-digiKam:TagsList $d/in/digikam-tags.jpg)"
 expect "the originals unchanged" "$(cd $d/in && md5sum * | md5sum)" \
     "$(cd /samples && md5sum $(ls $d/in) | md5sum)"
 

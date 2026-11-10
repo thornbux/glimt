@@ -1872,7 +1872,7 @@ msgstr "Opptil ≈ {mb} MB, hvert bilde høyst {w}×{h}"
 
 #: src/ui/preferences.rs
 msgid "Use no trash at all (Delete deletes permanently)"
-msgstr "Ikke bruk papirkurv (Slett sletter permanent)"
+msgstr "Ikke bruk papirkurv (Delete sletter permanent)"
 
 #: src/ui/preferences.rs
 msgid "Use the desktop's screen profile"

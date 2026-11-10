@@ -1696,6 +1696,70 @@ fn settings_change_through_their_setters() {
     );
 }
 
+/// Every setting of `config!` has a control in Preferences, so a user can find it there, or is
+/// listed here with the place that changes it instead. A setting counts as having a control
+/// when preferences.rs's code reads or writes it as a field (`.name`).
+#[test]
+fn every_setting_has_a_control_in_preferences() {
+    const ELSEWHERE: &[(&str, &str)] = &[
+        ("layout", "View → Layout"),
+        ("slideshow_one_image_at_a_time", "View → Layout"),
+        ("layout_names", "View → Layout"),
+        ("fit_mode", "View → Zoom"),
+        ("view_filter", "View → Filter"),
+        ("sort_manager", "View → Sort Manager"),
+        ("sort_move", "the sort manager's Copy and Move"),
+        ("sort_ascending", "the status bar's sort menu"),
+        ("sort_case_sensitive", "the status bar's sort menu"),
+        ("list_images", "the status bar's Types menu"),
+        ("list_raw", "the status bar's Types menu"),
+        ("show_hidden", "View → Hidden Files and the Types menu"),
+        ("search_case_sensitive", "the search field's Case box"),
+        ("projector_pointer", "Window → Projector"),
+        ("lightroom_keywords", "the Import Lightroom Catalog dialog"),
+        ("print_printer", "the print dialog"),
+        ("print_paper", "the print dialog"),
+        ("print_orientation", "the print dialog"),
+        ("print_caption", "the print dialog"),
+        ("print_template", "the print dialog"),
+        ("print_per_page", "the print dialog"),
+        ("print_margin", "the print dialog"),
+        ("print_scale", "the print dialog"),
+        ("print_fill", "the print dialog"),
+        ("print_header", "the print dialog"),
+        ("print_footer", "the print dialog"),
+        ("print_two_sided", "the print dialog"),
+        (
+            "app_name_first",
+            "retired in 0.76.0, read once into window_title",
+        ),
+    ];
+    let preferences = code_lines(&source("ui/preferences.rs")).join("\n");
+    let has_control = |name: &str| {
+        let field = format!(".{name}");
+        (preferences.match_indices(&field)).any(|(at, _)| {
+            let next = preferences[at + field.len()..].chars().next();
+            !next.is_some_and(|c| c.is_alphanumeric() || c == '_')
+        })
+    };
+    let text = crate::files::config::Config::default().to_text();
+    let settings: Vec<&str> = (text.lines())
+        .filter_map(|line| Some(line.split_once('=')?.0))
+        .collect();
+    let without: Vec<&&str> = (settings.iter())
+        .filter(|name| !has_control(name) && !ELSEWHERE.iter().any(|(n, _)| n == *name))
+        .collect();
+    assert!(without.is_empty(), "no control in Preferences: {without:?}");
+    let listed_wrongly: Vec<&str> = (ELSEWHERE.iter())
+        .map(|(name, _)| *name)
+        .filter(|name| !settings.contains(name) || has_control(name))
+        .collect();
+    assert!(
+        listed_wrongly.is_empty(),
+        "not to be listed: {listed_wrongly:?}"
+    );
+}
+
 /// The setter test sees a setting written however it is written: assigned, added to, or taken
 /// as `&mut`, also through `&mut self.config` bound to any name, but not compared or read.
 #[test]

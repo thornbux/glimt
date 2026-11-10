@@ -54,6 +54,10 @@ and versions follow [Semantic Versioning](https://semver.org/).
   without a word. A sidecar write broken off so is told too.
 - README no longer says that Lightroom reads Glimt's sidecars: it reads only its own photo.xmp
   beside a RAW file. Immich reads their ratings, comments and keyword tree.
+- Copy for Sharing keeps only a property's own value: a tag written inside a property that the
+  copy keeps, such as a GPS position inside a gain map's value or a keyword list, is left out
+  unless that tag is kept too.
+- Preferences in Norwegian names the Delete key as the menus do, in "Use no trash at all".
 
 ## [0.78.0] - 2026-11-10
 

@@ -210,6 +210,10 @@ impl SharedMetadata {
     /// the tags `keeps` keeps, and always the orientation and the colour space. With
     /// `keeps_hdr_headroom`, a copy that leaves out an iPhone's maker note keeps its HDR
     /// headroom and gain, which its gain map needs. Each is `None` when nothing of it is kept.
+    /// A property kept keeps only its own value (`xmp::with_own_value_only`): a known tag
+    /// written inside it goes unless `keeps` keeps that tag, and so does any tag of the image's
+    /// own that is left out. The fields of a structure, such as a face region's name, are no
+    /// known tags and stay with it.
     pub(crate) fn written(
         &self,
         keeps: &dyn Fn(&str) -> bool,
@@ -220,6 +224,14 @@ impl SharedMetadata {
         let mut kept = self.xmp.clone();
         kept.list
             .retain(|(name, ..)| ALWAYS_SHARED_XMP.contains(&name.as_str()) || keeps(name));
+        let is_own_tag = |name: &str| self.xmp.list.iter().any(|(n, ..)| n == name);
+        let keeps_inside = |name: &str| {
+            keeps(name) || !(crate::images::shared_copy::is_known(name) || is_own_tag(name))
+        };
+        for (_, element, namespaces) in &mut kept.list {
+            *element =
+                crate::metadata::xmp::with_own_value_only(element, namespaces, &keeps_inside);
+        }
         let xmp = (!kept.list.is_empty()).then(|| crate::metadata::xmp::packet(&kept));
         (exif, xmp)
     }
