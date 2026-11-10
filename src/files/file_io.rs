@@ -49,6 +49,10 @@ thread_local! {
     // Makes `sync_folder_of` on this thread fail as a disk that fails would, for the tests of
     // what follows such a failure.
     pub(crate) static FOLDER_SYNC_FAILS: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    // Makes `sync_folder_of` on this thread fail for this one folder only, so that a test can
+    // let Glimt's own state folder sync while the folder of the renames fails.
+    pub(crate) static FOLDER_SYNC_FAILS_IN: std::cell::RefCell<Option<PathBuf>> =
+        const { std::cell::RefCell::new(None) };
     // Takes ways to rename away from `rename_never_over` on this thread, as a file system
     // without them would: 1 takes RENAME_NOREPLACE, 2 takes hard links too.
     pub(crate) static RENAME_WAYS_MISSING: std::cell::Cell<u8> = const { std::cell::Cell::new(0) };
@@ -220,7 +224,9 @@ pub(crate) fn sync_folder(folder: &Path) -> std::io::Result<()> {
     #[cfg(test)]
     FOLDERS_SYNCED.with_borrow_mut(|synced| synced.push(folder.to_owned()));
     #[cfg(test)]
-    if FOLDER_SYNC_FAILS.get() {
+    if FOLDER_SYNC_FAILS.get()
+        || FOLDER_SYNC_FAILS_IN.with_borrow(|failing| failing.as_deref() == Some(folder))
+    {
         return Err(std::io::Error::from_raw_os_error(libc::EIO));
     }
     #[allow(clippy::disallowed_methods)] // a folder, opened only to sync it

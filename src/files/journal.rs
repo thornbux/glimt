@@ -46,11 +46,24 @@ impl Journal {
     /// synced before and after. Once the swap is done, the names on disk are those of the start
     /// again, and the plan could not tell a power cut after the swap from one before it. The
     /// names reach the disk before the count does, so a count of half is never there without
-    /// them, and a count below half tells a swap not begun (`done_by_names`).
-    pub fn count_middle_of_swap_done(&mut self) {
-        self.sync();
+    /// them, and a count below half tells a swap not begun (`done_by_names`). Returns an error,
+    /// with nothing counted, when the disk says that the names did not get there, so that the
+    /// caller undoes the swap (a USB stick pulled out during the sync).
+    pub fn count_middle_of_swap_done(&mut self) -> std::io::Result<()> {
+        sync_folders(&self.one_name_per_folder).map_err(|(_, e)| e)?;
         self.count_step_done();
         self.sync();
+        Ok(())
+    }
+
+    /// Counts one more rename done, through `count_middle_of_swap_done` when `is_middle_of_swap`
+    /// and otherwise `count_step_done`. Returns an error when the middle did not reach the disk.
+    pub fn count(&mut self, is_middle_of_swap: bool) -> std::io::Result<()> {
+        if is_middle_of_swap {
+            return self.count_middle_of_swap_done();
+        }
+        self.count_step_done();
+        Ok(())
     }
 
     /// The steps done and counted so far on the disk, past a power cut: the renames' folders
@@ -905,6 +918,24 @@ mod tests {
         );
         FOLDER_SYNC_FAILS.set(false);
         assert!(!path.exists() && told_once());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// When the middle of a swap does not reach the disk, it is not counted. A count of half
+    /// would otherwise tell the next start that the swap was done while the names are those
+    /// of the start.
+    #[test]
+    fn the_middle_of_a_swap_is_not_counted_when_its_names_did_not_reach_the_disk() {
+        use crate::files::file_io::FOLDER_SYNC_FAILS;
+        let dir = std::env::temp_dir().join(format!("glimt-test-middle-{}", std::process::id()));
+        let moves = vec![(dir.join("a"), dir.join("b"))];
+        let mut plan = super::start_journal(&dir, &moves).unwrap();
+        FOLDER_SYNC_FAILS.set(true);
+        let counted = plan.count_middle_of_swap_done();
+        FOLDER_SYNC_FAILS.set(false);
+        assert!(counted.is_err());
+        plan.keep_on_disk();
+        assert_eq!(super::cut_short_plans(&dir)[0].2, Some(0));
         std::fs::remove_dir_all(dir).unwrap();
     }
 

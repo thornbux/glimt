@@ -2429,13 +2429,20 @@ pub(crate) fn rename_files(
             true => Err(std::io::Error::other(tr("stopped"))),
             false => journal::rename_step(a, b),
         };
-        if let Err(e) = step {
+        // A step is counted in the plan once done. When the middle of a swap cannot be
+        // counted, because its names did not reach the disk, it is undone with the rest.
+        let is_middle_of_swap = swap && k + 1 == moves.len() / 2;
+        let step = step.map_err(|e| (e, k)).and_then(|()| {
+            let counted = plan.as_mut().map(|plan| plan.count(is_middle_of_swap));
+            counted.unwrap_or(Ok(())).map_err(|e| (e, k + 1))
+        });
+        if let Err((e, done)) = step {
             // Named by the file and its new name, not a temporary one.
             let j = k % from.len();
             let name = |p: &PathBuf| p.file_name().unwrap_or_default().display().to_string();
             // The renames are undone so that no file is left under a hidden temporary name,
             // by the same steps the next start would take.
-            let (_, stuck) = journal::undo(&moves, k);
+            let (_, stuck) = journal::undo(&moves, done);
             let (f, t) = (name(&from[j]), name(&to[j]));
             // When not all were put back (a share that stopped answering, say), the plan stays,
             // and the next start offers to put the files right.
@@ -2467,12 +2474,6 @@ pub(crate) fn rename_files(
                 });
             }
             return Err(tf!("Could not rename {f} to {t}: {e}; nothing renamed", f, t, e).into());
-        }
-        if let Some(plan) = plan.as_mut() {
-            match swap && k + 1 == moves.len() / 2 {
-                true => plan.count_middle_of_swap_done(),
-                false => plan.count_step_done(),
-            }
         }
         // A file is counted when it lands under its name. That is the later half of a swap's
         // steps, and the sidecars do not count.
@@ -3082,6 +3083,32 @@ mod tests {
         assert_eq!(at("/trip/day/1.jpg"), Some(p("/trip 2024/day/1.jpg")));
         assert_eq!(at("/trip").unwrap().as_os_str(), "/trip 2024");
         assert_eq!(at("/a/z.jpg"), None);
+    }
+
+    /// A swap whose middle does not reach the disk (a USB stick pulled out during the sync) is
+    /// undone and told, so that no plan says it was done while the names are those of the start.
+    #[test]
+    fn a_swap_whose_middle_did_not_reach_the_disk_is_undone() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-swap-eio-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let p = |n: &str| dir.join(n);
+        std::fs::write(p("a.jpg"), "a").unwrap();
+        std::fs::write(p("b.jpg"), "b").unwrap();
+        let job = super::Job::new("Renaming", 2, false, Vec::new());
+        // The renames' folder fails to sync, and the state folder with the plan does not.
+        crate::files::file_io::FOLDER_SYNC_FAILS_IN.set(Some(dir.clone()));
+        let swapped = super::rename_files(
+            vec![p("a.jpg"), p("b.jpg")],
+            vec![p("b.jpg"), p("a.jpg")],
+            &job,
+        );
+        crate::files::file_io::FOLDER_SYNC_FAILS_IN.set(None);
+        crate::files::file_io::take_saves_failed();
+        assert!(swapped.is_err());
+        let read = |n: &str| std::fs::read_to_string(p(n)).unwrap();
+        assert_eq!((read("a.jpg"), read("b.jpg")), ("a".into(), "b".into()));
+        assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 2);
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     /// Rename Many swaps names with their sidecars, and refuses, renaming nothing, when a new
