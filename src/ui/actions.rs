@@ -42,9 +42,10 @@ const NO_IMAGE: &str = "there is no image to act on";
 /// selected file.
 const HIDDEN_BY_SEARCH: &str = "the search hides the files it would act on";
 
-/// Geeqie's default shortcuts, except R (random order; Geeqie: refresh) and F5 (refresh). The first
-/// one for an action is shown in the menu. egui ignores an extra Shift or Alt when matching, so
-/// those combinations come before the plain key.
+/// Geeqie's default shortcuts up to 3.1, except R (random order; Geeqie: refresh) and F5
+/// (refresh). Glimt keeps them where Geeqie 3.2 changed its keys, and DIFFERENCES in help.rs
+/// lists each such key. The first one for an action is shown in the menu. egui ignores an extra
+/// Shift or Alt when matching, so those combinations come before the plain key.
 pub const SHORTCUTS: &[(Action, egui::Modifiers, egui::Key)] = {
     use Action::*;
     use egui::Key;

@@ -738,9 +738,66 @@ const DIFFERENCES: &[(&str, &str, &str)] = &[
     (
         "R",
         "Toggles random order in the slideshow, also while it runs",
-        "Refresh",
+        "Nothing since Geeqie 3.2; Refresh before",
     ),
-    ("Refresh", "F5", "R"),
+    ("Refresh", "F5", "Ctrl+R since Geeqie 3.2; R before"),
+    // Glimt keeps the keys that Geeqie 3.2 changed. These rows give each one, as Geeqie's
+    // data/accels.ini has it at the tags v3.1 and v3.2.
+    (
+        "Ctrl+C",
+        "Copies the selected files to a folder",
+        "Copies their paths since Geeqie 3.2; copying to a folder has no key",
+    ),
+    (
+        "Ctrl+M",
+        "Moves the selected files to a folder",
+        "Nothing since Geeqie 3.2, where Move is Ctrl+Shift+M",
+    ),
+    (
+        "Ctrl+R",
+        "Renames the selected files",
+        "Refresh since Geeqie 3.2, where Rename is F2",
+    ),
+    (
+        "Ctrl+T",
+        "Shows the folders as a tree",
+        "Thumbnails on and off; the folder tree is Ctrl+Shift+T since Geeqie 3.2",
+    ),
+    (
+        "Ctrl+O",
+        "Preferences",
+        "Open File; Preferences is Ctrl+, since Geeqie 3.2",
+    ),
+    (
+        "V",
+        "Full screen, as F and F11",
+        "View in a new window; no longer full screen since Geeqie 3.2",
+    ),
+    (
+        "Backspace, Shift+Space",
+        "Backspace shows the previous image, Shift+Space the next, as Space",
+        "Shift+Space shows the previous image since Geeqie 3.2, and Backspace nothing",
+    ),
+    (
+        "Slideshow faster and slower",
+        "Ctrl+= and Ctrl+-",
+        "+ (Shift+=) and - since Geeqie 3.2, where Ctrl+= and Ctrl+- zoom",
+    ),
+    (
+        "Ctrl+Shift+← and →",
+        "Nothing",
+        "The previous and next folder, since Geeqie 3.2",
+    ),
+    (
+        "Ctrl+Shift+S",
+        "Save As",
+        "Also saves a collection under another name in its file list, since Geeqie 3.2",
+    ),
+    (
+        "/",
+        "Puts the cursor in the search field",
+        "Search and Run Command",
+    ),
     (
         "Remote control",
         "glimt --remote with next, previous, first, last, slideshow, random, fullscreen (each also \
@@ -782,7 +839,8 @@ const DIFFERENCES: &[(&str, &str, &str)] = &[
     (
         "Esc / Q",
         "Stops the slideshow and leaves full screen; never quits",
-        "Leaves full screen",
+        "Esc leaves full screen; Q shows four panes, and no longer leaves full screen since \
+         Geeqie 3.2",
     ),
     (
         "Slideshow delay",
