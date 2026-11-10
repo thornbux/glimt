@@ -169,7 +169,9 @@ same commit**:
   `no_nb.po`, and `translations_keep_placeholders` while a translation drops a `{name}`.
 - Keep the key names as the menus show them (Ctrl, Shift, Enter, Esc, Delete), and the
   `%field%` template names unchanged.
-- Use only the quotation marks that the Inter font has (`«»`, `“”`, `„`, `”`).
+- Use only the double quotation marks (`«»`, `“”`, `„`, `”`), one style of quotes in every
+  language. The single ones (`‘`, `‚`, `‹`, `›`) are left out by choice, as Inter has them;
+  the corner brackets (`「」`) also because Inter lacks them.
 - A noun counted with `count` has the forms that its language's `plural_form` picks from: two
   in most languages, three in Polish and Czech (one, few, many).
 
