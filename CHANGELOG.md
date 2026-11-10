@@ -9,9 +9,11 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 - A move or rename on an NFS, SMB or sshfs share, or a move from one to another disk, no longer
   removes the only copy of the photo when the share removed the old name but its answer was
-  lost. The file is kept under both names and the error says so. Rename Many's repair and a
+  lost. Neither name is removed then, and the error says that the file may be under both names
+  or only the new one, and to check both before removing either. Rename Many's repair and a
   move into the trash by hand no longer remove a name, or a file's `.trashinfo`, on what the
-  share's cache still shows either.
+  share's cache still shows either. A Rename Many whose step on a share may have been done
+  keeps its plan, and the next start puts the names right.
 - A turn of a photo that changed while the turn was saved is not saved, and the window says
   that the file was changed meanwhile. Before, a JPEG still being copied into the folder was
   turned from the part copied so far and written back cut off, and a slow PNG or WebP turn could
