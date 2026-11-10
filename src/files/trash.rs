@@ -287,9 +287,11 @@ pub(crate) fn trash(paths: &[PathBuf]) -> Result<(), String> {
     }
 }
 
-/// `path` into the trash folder `trash` by hand, as freedesktop.org's trash spec says: its
-/// .trashinfo made first under a name not taken (name.1.ext …), then the file renamed into
-/// files/. Only within one file system: a file on another keeps its error.
+/// Moves `path` into the trash folder `trash` by hand, as freedesktop.org's trash spec says. Its
+/// .trashinfo is made first under a name not taken (name.1.ext …), and then the file is renamed
+/// into files/. The .trashinfo is on disk with its folder before the file moves, so a power cut
+/// never leaves a file in the trash that no trash view lists and Undo cannot find. It works only
+/// within one file system, and a file on another keeps its error.
 fn trash_by_hand(path: &Path, trash: &Path) -> std::io::Result<()> {
     use std::os::unix::fs::{DirBuilderExt, MetadataExt};
     let (files, info) = (trash.join("files"), trash.join("info"));
@@ -316,18 +318,12 @@ fn trash_by_hand(path: &Path, trash: &Path) -> std::io::Result<()> {
         let mut trashinfo = taken.clone();
         trashinfo.push(".trashinfo");
         let trashinfo = info.join(trashinfo);
-        #[allow(clippy::disallowed_methods)] // made new, never over another's
-        let made = std::fs::File::options()
-            .write(true)
-            .create_new(true)
-            .open(&trashinfo);
-        let mut made = match made {
+        // Made new, never over another's, and synced with its folder (`write_beside`).
+        match crate::files::file_io::create_file(&trashinfo, &text) {
             Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
             made => made?,
-        };
-        let moved = std::io::Write::write_all(&mut made, text.as_bytes())
-            .and_then(|()| rename_never_over(path, &files.join(&taken)));
-        match moved {
+        }
+        match rename_never_over(path, &files.join(&taken)) {
             Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
                 #[allow(clippy::disallowed_methods)] // the .trashinfo made just now
                 let _ = std::fs::remove_file(&trashinfo);
@@ -474,7 +470,8 @@ mod tests {
     }
 
     /// A file that is not writable goes into the trash by hand as the trash spec says, a second
-    /// of the same name beside it, and the trash reader of Undo finds both where they were.
+    /// of the same name beside it, and the trash reader of Undo finds both where they were. Each
+    /// .trashinfo is on disk with its folder before its file moves.
     #[test]
     fn trashes_by_hand() {
         use std::os::unix::fs::PermissionsExt;
@@ -485,7 +482,10 @@ mod tests {
         for f in [&a, &b] {
             std::fs::write(f, "x").unwrap();
             std::fs::set_permissions(f, std::fs::Permissions::from_mode(0o444)).unwrap();
+            crate::files::file_io::FOLDERS_SYNCED.take();
             super::trash_by_hand(f, &trash).unwrap();
+            let synced = crate::files::file_io::FOLDERS_SYNCED.take();
+            assert!(synced.contains(&trash.join("info")), "{synced:?}");
             assert!(!f.exists());
         }
         let mut names: Vec<_> = std::fs::read_dir(trash.join("files"))
