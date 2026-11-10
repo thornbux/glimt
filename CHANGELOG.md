@@ -20,7 +20,10 @@ and versions follow [Semantic Versioning](https://semver.org/).
   added format's is. Before, the tool ran once with the text as it was, and no file.
 - A tool's or added format's `%f` inside a "quoted" word, such as `sh -c "exiftool %f"`, stays
   as it is, as the desktop entry specification says. Before, the file's name was put into the
-  shell script's text, and a downloaded file named `x$(command).jpg` ran the command.
+  shell script's text, and a downloaded file named `x$(command).jpg` ran the command. An added
+  format whose `%f` is only inside quotes, such as `sh -c "convert %f ppm:-"`, is therefore no
+  longer loaded, and Glimt says so at start and in `glimt --check-config`. Rewrite it with `%f`
+  as a word of its own, read by the script as `"$1"`: `sh -c "convert \"$1\" ppm:-" sh %f`.
 - Printing on both sides with orientation Automatic turns every page as the first one, so the
   back of a landscape page is no longer upside down.
 - A CMYK JPEG or TIFF with its CMYK profile in the file, as print and stock photos often are,
