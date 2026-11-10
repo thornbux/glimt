@@ -360,7 +360,8 @@ const MANUAL: &[(&str, &str)] = &[
          (Images per page: 2 to 20, in a grid). The dialog shows the first page as it will \
          print.\n\n\
          - Paper: A4, Letter, A3, A5, Legal, or photo paper of 10 × 15 and 13 × 18 cm\n\
-         - Orientation: by the image (a wide one alone goes landscape), portrait or landscape\n\
+         - Orientation: by the image (a wide one alone goes landscape; on both sides of the \
+         paper every page turns as the first one), portrait or landscape\n\
          - Margin: 0 to 50 mm.\n\n\
          Fill each box cuts each image to its box instead of fitting it in. The text under each \
          image comes from a template, as the full screen info's: %name% by default, or %Taken%, \
