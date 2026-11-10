@@ -11,6 +11,9 @@ and versions follow [Semantic Versioning](https://semver.org/).
   keep their extended attributes, as `mv` does: the user's own (`user.*`, where KDE's Dolphin
   and Gwenview keep tags, ratings and comments) and the file's ACL. Before, they were lost. The
   owner is not kept, as only root may give a file to another user.
+- A turned PNG keeps its Photoshop resources ("Raw profile type 8bim"), where ImageMagick keeps
+  the IPTC caption, copyright and keywords, without the thumbnail among them. Before, a turn
+  dropped them, as a crop or copy still does.
 
 ## [0.78.0] - 2026-11-10
 
