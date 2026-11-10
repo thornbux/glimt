@@ -125,8 +125,11 @@ pub(crate) const MANUAL: &[(&str, &str)] = &[
          gio, asking for user, domain and password if the share needs them (a password saved in \
          the keyring from Files is used without asking).\n\n\
          A folder on another computer or in a cloud (a share, an rclone or s3fs mount) is slow the \
-         first time, while its images and their thumbnails come over the network. Glimt does not \
-         see changes made there from another computer by itself: press F5. The trash does not \
+         first time, while its images and their thumbnails come over the network. A change made \
+         there from another computer shows by itself within seconds, as Glimt looks at the open \
+         folders once a second, but a mount that keeps its listing for a while (rclone's \
+         dir-cache-time, s3fs's stat cache) holds it back until that expires, often for \
+         minutes. The trash does not \
          work there, so Delete asks whether to delete the files for good instead. Where the file \
          system cannot rename a file in one safe step (rclone, s3fs, a phone), Glimt looks first \
          that the new name is free, and a rename the file system refuses names its type. A camera \
