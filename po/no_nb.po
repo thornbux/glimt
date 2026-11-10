@@ -1687,6 +1687,18 @@ msgid "MB at most for an animation's frames"
 msgstr "MB høyst for en animasjons ruter"
 
 #: src/ui/preferences.rs
+msgid "MB at most for an added format's program"
+msgstr "MB høyst for programmet til et tilføyd format"
+
+#: src/ui/preferences.rs
+msgid "A program that reads an added format, such as Java for microscope files, gets at most this much memory. Raise it when such a program runs out of memory."
+msgstr "Et program som leser et tilføyd format, som Java for mikroskopfiler, får høyst så mye minne. Øk det når et slikt program går tom for minne."
+
+#: src/images/added_formats.rs
+msgid "{name} ran out of memory under its limit of {mb} MB (Preferences → Memory and CPU): {error}"
+msgstr "{name} gikk tom for minne under grensen på {mb} MB (Innstillinger → Minne og prosessor): {error}"
+
+#: src/ui/preferences.rs
 msgid "Medium"
 msgstr "Middels"
 

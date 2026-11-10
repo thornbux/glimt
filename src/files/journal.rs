@@ -42,6 +42,17 @@ impl Journal {
         let _ = self.file.write_all(&[0]);
     }
 
+    /// Counts the step that puts the last file of a swap under its hidden name, with the disk
+    /// synced before and after. Once the swap is done, the names on disk are those of the start
+    /// again, and the plan could not tell a power cut after the swap from one before it. The
+    /// names reach the disk before the count does, so a count of half is never there without
+    /// them, and a count below half tells a swap not begun (`done_by_names`).
+    pub fn count_middle_of_swap_done(&mut self) {
+        self.sync();
+        self.count_step_done();
+        self.sync();
+    }
+
     /// The steps done and counted so far on the disk, past a power cut: the renames' folders
     /// first, so that the count never says more than the names on disk show.
     pub fn sync(&mut self) {
@@ -350,7 +361,9 @@ pub fn repair_cut_short(
 /// with the step as the first not done. When no count from `done` on fits, the last earlier
 /// count that fits is taken, because the count may also have reached the disk before the names
 /// did (photos on a USB stick pulled out, the plan on another disk). Where no count fits at all
-/// (a file changed by hand since), the count stays. It looks once at each name.
+/// (a file changed by hand since), the count stays. A swap's names at its start are also those
+/// of its end, and below half its count tells that it was not begun. It looks once at each
+/// name.
 fn done_by_names(moves: &[(PathBuf, PathBuf)], done: usize) -> usize {
     // Each name gets a number, once. It records whether the name is there after the steps so
     // far, and whether it is on disk.
@@ -394,9 +407,13 @@ fn done_by_names(moves: &[(PathBuf, PathBuf)], done: usize) -> usize {
             }
         }
     }
-    match wrong == 0 && steps.len() >= done {
-        true => steps.len(),
-        false => earlier.unwrap_or(done),
+    // A swap ends under the names it started with. Its count passes half only after its
+    // middle is on disk (`rename_files`), so with a count below half those names say that it
+    // was not begun.
+    match (wrong == 0 && steps.len() >= done, earlier) {
+        (true, Some(k)) if done < steps.len() / 2 => k,
+        (true, _) => steps.len(),
+        (false, _) => earlier.unwrap_or(done),
     }
 }
 
@@ -1103,7 +1120,10 @@ mod tests {
         assert_eq!(left, 0, "{case}");
         assert!(!path.exists(), "{case}");
         // Each photo is under a name it is meant to have, and none under a hidden one. A swap
-        // not begun has the names of one done, so which of the two it was cannot be told.
+        // not begun has the names of one done. Its count is below half then, because the
+        // middle of a swap is on disk, names first, before its count (`rename_files`). A count
+        // of half or more with no step on disk cannot happen, and which of the two it was
+        // cannot be told.
         let mut there: Vec<(String, String)> = (std::fs::read_dir(dir).unwrap())
             .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
             .filter(|n| n != "plans")
@@ -1116,7 +1136,7 @@ mod tests {
         );
         let photos: Vec<&str> = there.iter().map(|(photo, _)| photo.as_str()).collect();
         assert_eq!(photos, from, "{case}");
-        if cut == 0 && to.iter().all(|t| from.contains(t)) {
+        if cut == 0 && counted >= moves.len() / 2 && to.iter().all(|t| from.contains(t)) {
             return;
         }
         let names = if undo { from } else { to };

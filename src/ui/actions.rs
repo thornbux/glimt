@@ -1516,8 +1516,8 @@ impl crate::App {
                 self.write_sidecars(
                     ctx,
                     tr("Writing stars"),
-                    paths,
-                    move |path| marks::write_xmp(path, n).is_ok(),
+                    paths.into_iter().map(|p| (p, ())).collect(),
+                    move |path, _| marks::write_xmp(path, n).is_ok(),
                     |failed, job| match () {
                         _ if failed > 0 => Some(tf!(
                             "The stars could not be written to the XMP sidecar of {count}",
@@ -1599,7 +1599,7 @@ impl crate::App {
     pub(crate) fn read_keys(&mut self, ctx: &egui::Context) -> Option<Action> {
         // Shortcuts go to the dialogs while one is open, and to the widget with the focus (the
         // toolbar's folder path), also in the frame Esc takes the focus from it.
-        let typing = self.focus_held(ctx);
+        let typing = self.focus_held(ctx, |_| true);
         // Choosing a part to crop: Escape stops and Enter saves it. Both are read before the
         // shortcuts could take them, and neither while a widget has the focus, because the key
         // belongs to the widget then.

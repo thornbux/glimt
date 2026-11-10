@@ -978,6 +978,21 @@ fn shared_tag_name(dir: &str, tag: u16) -> String {
     tag_name(dir == "GPS", tag).map_or_else(|| format!("{dir} 0x{tag:04x}"), str::to_owned)
 }
 
+/// Returns the name that the word `stored` of the file of the last choice (`LeftOut`) has now.
+/// A tag without a name is stored as its directory and number, such as "Exif 0xa460". When a
+/// later Glimt gives that tag a name in `tag_name`, the stored number still means the same tag,
+/// now under its name, so a tag the user left out is not kept unseen. Returns `stored` itself
+/// for every other word.
+pub fn shared_tag_name_now(stored: &str) -> String {
+    let named = stored.split_once(" 0x").and_then(|(dir, number)| {
+        let dir = ["Image", "Exif", "GPS"].into_iter().find(|d| *d == dir)?;
+        let is_hex = number.len() == 4 && number.bytes().all(|b| b.is_ascii_hexdigit());
+        let tag = u16::from_str_radix(number, 16).ok().filter(|_| is_hex)?;
+        Some(shared_tag_name(dir, tag))
+    });
+    named.unwrap_or_else(|| stored.to_owned())
+}
+
 /// Returns the names a copy for sharing gives the tags of IFD0, Exif and GPS: each name of
 /// `tag_name`, and in each directory one name of the form a tag without a name gets
 /// (`shared_tag_name`). The file of the last choice holds them, so src/frozen-1.0.txt pins them.

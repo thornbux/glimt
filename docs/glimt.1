@@ -561,6 +561,12 @@ The system's folders that tools and added formats are read from after the user's
 The language of the interface while the language setting is empty, as gettext reads them:
 the first of LC_ALL, LC_MESSAGES and LANG that is set, or the list in LANGUAGE when that
 locale is not C.
+.TP
+.B GLIMT_FORMAT_MEMORY_MB
+Set by Glimt for an added format's program: the most memory, in MB, that it and what it starts
+may take (Preferences \(-> Memory and CPU, the setting
+.BR added_format_memory_mb ,
+4096 by default). A program such as Java keeps its heap under it.
 .SH SIGNALS
 SIGTERM and SIGHUP close the window as Ctrl+Q does: Glimt waits while files are copied, moved
 or saved, then writes its state and ends. A second signal stops the files after the one at

@@ -221,6 +221,7 @@ impl App {
         let opens_last_folder = path.is_none() && remembered.is_some();
         let path = (path.or_else(|| remembered.clone())).unwrap_or_else(|| ".".into());
         crate::images::decode::set_animation_limit(config.animation_mb);
+        crate::images::added_formats::set_memory_limit(config.added_format_memory_mb);
         set_cpu_use(config.cpu_use);
         crate::ui::theme::fonts(ctx);
         // The user's own theme files are read in the background (`DesktopSettings`), and the

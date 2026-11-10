@@ -170,7 +170,9 @@ impl crate::App {
             Took::Answer((None, ..)) | Took::Nothing => {}
             Took::Gone => {
                 self.tell_background_stopped(tr("Rename Many"));
-                self.send_waiting_sidecar_writes(ctx, None);
+                if let Some(dropped) = self.send_waiting_sidecar_writes(ctx, None) {
+                    self.notice.give(dropped);
+                }
             }
         }
         if !self.file_operations.receive_cut_short() {

@@ -515,16 +515,15 @@ impl crate::App {
         for (path, tags) in image_keywords {
             sidecars.entry(path).or_default().1 = tags;
         }
-        let paths: Vec<PathBuf> = sidecars.keys().cloned().collect();
         self.write_sidecars(
             ctx,
             tr("Importing"),
-            paths,
-            move |path| {
+            sidecars.into_iter().collect(),
+            move |path, (n, tags)| {
                 // Not for photos gone since: no sidecar beside nothing.
-                let Some((n, tags)) = sidecars.get(path).filter(|_| path.is_file()) else {
+                if !path.is_file() {
                     return true;
-                };
+                }
                 #[cfg(feature = "marks")]
                 let stars = *n == 0 || marks::write_xmp(path, *n).is_ok();
                 #[cfg(not(feature = "marks"))]

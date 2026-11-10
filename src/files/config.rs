@@ -377,6 +377,9 @@ config! {
     cpu_use: usize = 1,
     /// Frames of an animation kept, in MB.
     animation_mb: usize = 128,
+    /// The most memory an added format's program may take, in MB. Java for microscope files
+    /// may need more than the default.
+    added_format_memory_mb: usize = crate::images::added_formats::DEFAULT_MEMORY_MB,
     /// Folder path above the folder list.
     path_bar: bool = true,
     /// Restore the window's size, position and maximized state at startup.
@@ -506,6 +509,7 @@ impl Config {
         c.print_margin = c.print_margin.min(50);
         c.print_scale = c.print_scale.clamp(10, 100);
         c.animation_mb = c.animation_mb.clamp(8, 1024);
+        c.added_format_memory_mb = c.added_format_memory_mb.clamp(512, 65536);
         c.ui_scale = c.ui_scale.clamp(50, 300);
         c.histogram = c.histogram.min(2);
         c.thumb_size = c.thumb_size.min(2);
@@ -569,6 +573,23 @@ impl Config {
                 }
                 // When the setting is set again later, that later line is the one checked.
                 Some(true) if later => {}
+                Some(true) if now == "slideshow_one_image_at_a_time" => {
+                    for layout in unknown_layouts(value) {
+                        problems.push(format!(
+                            "line {n}: {layout} in {key} is not a layout Glimt knows; \
+                             it is kept and not used"
+                        ));
+                    }
+                }
+                Some(true)
+                    if now == "language"
+                        && !value.is_empty()
+                        && !crate::support::lang::is_language(value) =>
+                {
+                    problems.push(format!(
+                        "line {n}: {key}={value} is not a language Glimt has; English is used"
+                    ));
+                }
                 Some(true) if now == "keys" => {
                     for item in alone.keys.unusable_items() {
                         problems.push(format!(
@@ -948,19 +969,24 @@ fn unknown_choices_reset(c: &mut Config) {
 fn takes(key: &str, value: &str, values: &[&str]) -> bool {
     match key {
         // Sort is read into its own type, which takes only its values. A theme may also be a
-        // file of the user's own.
-        "sort" | "theme" => true,
-        "slideshow_one_image_at_a_time" => (value.split(','))
-            .filter(|l| !l.is_empty())
-            .all(|l| values.contains(&l)),
+        // file of the user's own. A language that this Glimt does not have, such as one a later
+        // Glimt has, shows English, as it did in 0.79 (`lang::ENGLISH`), and the value is kept.
+        "sort" | "theme" | "language" => true,
+        // A list of layouts keeps the ones a later Glimt has, so that a save keeps them in the
+        // file. `parse_checked` tells them, and the slideshow does not use them.
+        "slideshow_one_image_at_a_time" => true,
         // An ICC file of the user's own is named by its path. An empty one is sRGB.
         "input_profile" => {
             values.contains(&value) || value.is_empty() || Path::new(value).is_absolute()
         }
-        // An empty value is the system's language.
-        "language" => value.is_empty() || crate::support::lang::is_language(value),
         _ => values.contains(&value),
     }
+}
+
+/// Returns the entries of the list of layouts `value` that are not layouts of `LAYOUTS`.
+fn unknown_layouts(value: &str) -> impl Iterator<Item = &str> {
+    let layouts = crate::viewer::view::LAYOUTS;
+    (value.split(',')).filter(move |l| !l.is_empty() && !layouts.iter().any(|known| known.0 == *l))
 }
 
 /// Moves the retired app_name_first=true into the window title it stood for, when the user has
@@ -1153,12 +1179,26 @@ mod tests {
                 format!("line 2: rendering_intent=perceptive {not} perceptual is used"),
                 format!("line 3: print_paper=letter {not} A4 is used"),
                 format!("line 4: print_orientation=sideways {not} auto is used"),
-                format!("line 5: slideshow_one_image_at_a_time=1,3x3 {not} the default is used"),
-                format!("line 6: language=xx {not} the default is used"),
+                "line 5: 3x3 in slideshow_one_image_at_a_time is not a layout Glimt knows; \
+                 it is kept and not used"
+                    .to_owned(),
+                "line 6: language=xx is not a language Glimt has; English is used".to_owned(),
                 format!("line 7: input_profile=srbg {not} srgb is used"),
             ]
         );
-        assert_eq!(config, super::Config::default());
+        // A list of layouts keeps the one it does not know, so that a save keeps it in the
+        // file. Before, the whole list was emptied, and the user's next change of it saved
+        // only the layouts this Glimt knows.
+        assert_eq!(config.slideshow_one_image_at_a_time, "1,3x3");
+        // A language this Glimt does not have shows English, as `lang::ENGLISH` says and as
+        // 0.79 did, and is kept. Before, it was emptied, which shows the system's language.
+        assert_eq!(config.language, "xx");
+        let rest = super::Config {
+            slideshow_one_image_at_a_time: String::new(),
+            language: String::new(),
+            ..config
+        };
+        assert_eq!(rest, super::Config::default());
         // Every value of the table is taken, and so are a language's own code, a list of
         // layouts, an ICC file and a theme of the user's own.
         for (key, values) in super::choices() {
@@ -1275,6 +1315,9 @@ mod tests {
         assert_eq!(Config::parse("preload=99").preload, 20);
         let c = Config::parse("decode_threads=0\nanimation_mb=5000");
         assert_eq!((c.decode_threads, c.animation_mb), (1, 1024));
+        let low = Config::parse("added_format_memory_mb=1").added_format_memory_mb;
+        let high = Config::parse("added_format_memory_mb=999999").added_format_memory_mb;
+        assert_eq!((low, high), (512, 65536));
         // The defaults are the Medium level.
         let d = Config::default();
         let medium = super::MEMORY_LEVELS

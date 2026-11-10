@@ -1539,6 +1539,18 @@ msgid "MB at most for an animation's frames"
 msgstr "MB como máximo para los fotogramas de una animación"
 
 #: src/ui/preferences.rs
+msgid "MB at most for an added format's program"
+msgstr "MB como máximo para el programa de un formato añadido"
+
+#: src/ui/preferences.rs
+msgid "A program that reads an added format, such as Java for microscope files, gets at most this much memory. Raise it when such a program runs out of memory."
+msgstr "Un programa que lee un formato añadido, como Java para archivos de microscopio, recibe como máximo esta memoria. Auméntela cuando a uno de esos programas se le acabe la memoria."
+
+#: src/images/added_formats.rs
+msgid "{name} ran out of memory under its limit of {mb} MB (Preferences → Memory and CPU): {error}"
+msgstr "{name} se quedó sin memoria con su límite de {mb} MB (Preferencias → Memoria y procesador): {error}"
+
+#: src/ui/preferences.rs
 msgid "Medium"
 msgstr "Mediano"
 

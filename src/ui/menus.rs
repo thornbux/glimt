@@ -749,7 +749,9 @@ impl crate::App {
     /// `command_line` is empty. It runs in its own thread, which waits for each program to exit.
     pub(crate) fn open_in(&self, command_line: &str, files: Vec<PathBuf>) {
         let tx = self.notice_sender.clone();
-        let words = tools::command_words(command_line);
+        let words: Vec<String> = (tools::command_words(command_line).into_iter())
+            .map(|word| word.text)
+            .collect();
         std::thread::spawn(move || {
             for path in files {
                 if let Err(told) = open_one_in(&words, &path) {
