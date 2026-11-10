@@ -37,15 +37,25 @@ pub struct Marks {
     /// The marks file read again in the writer's thread (`refresh`), with `edits_made` when it
     /// was asked for. The answer is `None` when the file is as this window holds it.
     read_again: crate::support::threads::Receiving<(u64, Option<MarksByPath>)>,
+    /// The window's context, asked for a frame when the file has been read again, so that
+    /// marks another window set show at once, not at the next input.
+    repaint: eframe::egui::Context,
 }
 
 impl Marks {
+    /// Returns these marks, which ask `ctx` for a frame when the file has been read again.
+    pub fn repainting(self, ctx: &eframe::egui::Context) -> Self {
+        Marks {
+            repaint: ctx.clone(),
+            ..self
+        }
+    }
+
     /// Reads the file again in the writer's thread, unless it is as this window's marks hold
     /// it: what another Glimt window marked meanwhile, and after a write that failed, what the
-    /// file kept. Not while this window's own
-    /// changes are still on their way to it: those would be read back as they were before. The
-    /// marks read are taken by `receive`, at the next frame, as the file may be on a share that
-    /// stopped answering.
+    /// file kept. Not while this window's own changes are still on their way to it: those would
+    /// be read back as they were before. The marks read are taken by `receive`, at the next
+    /// frame, as the file may be on a share that stopped answering.
     pub fn refresh(&mut self) {
         if !own_writes_queued() {
             self.read_file_again(false);
@@ -68,14 +78,16 @@ impl Marks {
         let Some(file) = marks_file() else { return };
         let (tx, rx) = std::sync::mpsc::channel();
         let asked_at = self.edits_made;
+        let repaint = self.repaint.clone();
         crate::files::file_io::write_later(move || {
             // As read, or changed only by this window's own writes: not read again on every
             // mark key in a file of 500,000 marked. The file is looked at before the lock is
-            // taken, because the window takes the lock too, and must not wait for the disk.
+            // taken, so the lock is never held while the disk is waited for.
             let stamp = file_stamp(&file);
             let is_as_held = !forced && known_stamps().get(&file) == Some(&stamp);
             let read = (!is_as_held).then(|| read_marks_file(&file));
             let _ = tx.send((asked_at, read));
+            repaint.request_repaint();
         });
         self.read_again = crate::support::threads::Receiving::of(rx);
     }
@@ -649,6 +661,28 @@ mod tests {
             ((0, 4), (0, 3)),
             "the other window's stars are not read"
         );
+        super::TEST_FILE.with(|f| *f.borrow_mut() = None);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// The marks file read again in the writer's thread asks the window for a frame, so that
+    /// another window's marks show at once. Before, they showed only at the next input.
+    #[test]
+    fn a_read_again_asks_for_a_frame() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        let dir =
+            std::env::temp_dir().join(format!("glimt-test-marks-repaint-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        super::TEST_FILE.with(|f| *f.borrow_mut() = Some(dir.join("marks")));
+        let ctx = eframe::egui::Context::default();
+        let asked = std::sync::Arc::new(AtomicBool::new(false));
+        let set = asked.clone();
+        ctx.set_request_repaint_callback(move |_| set.store(true, Ordering::Relaxed));
+        let mut marks = super::read_marks().repainting(&ctx);
+        marks.refresh();
+        crate::files::file_io::flush();
+        assert!(asked.load(Ordering::Relaxed), "no frame asked for");
+        settled(&mut marks);
         super::TEST_FILE.with(|f| *f.borrow_mut() = None);
         std::fs::remove_dir_all(dir).unwrap();
     }

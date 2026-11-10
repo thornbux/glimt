@@ -258,7 +258,7 @@ impl App {
             status_bar: crate::ui::file_list::StatusBar::new(&busy),
             broken_files: HashSet::new(),
             #[cfg(feature = "marks")]
-            marks: read.marks,
+            marks: read.marks.repainting(ctx),
             decoding,
             viewing: crate::viewer::view::Viewing::default(),
             zoom: crate::viewer::view::Zoom::default(),
