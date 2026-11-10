@@ -53,6 +53,12 @@ pub(crate) const DETAILS_WIDTH: f32 = DATE_WIDTH + 90.0;
 /// Thumbnails kept in memory (≈ 64 kB each) before those far from view are dropped.
 pub(crate) const MAX_THUMBS: usize = 600;
 
+/// The most questions about sizes and dates that wait in the thread that answers them. The
+/// newest are answered first, as they are the rows on screen. The older ones are about rows
+/// scrolled past, and they are dropped, so that on a slow share the rows on screen do not wait
+/// behind thousands of them. A row dropped and still drawn is asked about again.
+const SIZES_AND_DATES_WAITING: usize = 500;
+
 /// A rectangle being dragged in the icon grid to select.
 pub(crate) struct RubberBand {
     /// Where it started, from the top left of the grid's content, so it scrolls along.
@@ -371,8 +377,9 @@ pub(crate) struct StatusBar {
     /// is asked for, and let go when another folder opens. A share that stopped answering may
     /// hold that thread for ever, and the next folder's sizes then come from a new one.
     sizes_and_dates_asked: Option<mpsc::Sender<(OsString, PathBuf)>>,
-    /// The answers: the file's name in the list, its path, and its size and date.
-    sizes_and_dates_found: Receiving<(OsString, PathBuf, (u64, i64))>,
+    /// The answers: the file's name in the list, its path, and its size and date, or `None`
+    /// when the question was dropped.
+    sizes_and_dates_found: Receiving<SizeAndDate>,
     /// Image and scale in each pane of the last frame, the pane the status bar tells about (the
     /// one under the pointer, else the first) and the panes as [columns, rows].
     pane_images: Vec<(usize, Option<f32>)>,
@@ -395,6 +402,10 @@ pub(crate) struct StatusBar {
     /// When to work out that size, once the selection has stayed the same for a moment.
     selected_size_due: Option<Instant>,
 }
+
+/// A file's name in the list, its path, and its size and date, or `None` when the question
+/// about it was dropped (`SIZES_AND_DATES_WAITING`).
+pub(crate) type SizeAndDate = (OsString, PathBuf, Option<(u64, i64)>);
 
 /// Whether the selection's size is to be worked out now.
 pub(crate) enum SizeDue {
@@ -438,16 +449,7 @@ impl StatusBar {
             let (asked, questions) = mpsc::channel::<(OsString, PathBuf)>();
             let (found, answers) = mpsc::channel();
             let ctx = ctx.clone();
-            std::thread::spawn(move || {
-                use std::os::unix::fs::MetadataExt;
-                for (name, path) in questions {
-                    let d = std::fs::metadata(&path).map_or((0, 0), |m| (m.len(), m.mtime()));
-                    if found.send((name, path, d)).is_err() {
-                        return;
-                    }
-                    ctx.request_repaint();
-                }
-            });
+            std::thread::spawn(move || answer_sizes_and_dates(&questions, &found, &ctx));
             self.sizes_and_dates_found = Receiving::of(answers);
             asked
         });
@@ -455,8 +457,8 @@ impl StatusBar {
     }
 
     /// Returns the next size and date found in the background, as the file's name in the list,
-    /// its path, and its size and date.
-    pub(crate) fn next_size_and_date(&mut self) -> Took<(OsString, PathBuf, (u64, i64))> {
+    /// its path, and its size and date, or `None` when the question was dropped.
+    pub(crate) fn next_size_and_date(&mut self) -> Took<SizeAndDate> {
         let took = self.sizes_and_dates_found.next();
         // A thread that ended is made again at the next question.
         if matches!(took, Took::Gone) {
@@ -984,10 +986,19 @@ impl crate::App {
         while let Took::Answer((name, path, d)) = self.status_bar.next_size_and_date() {
             // An answer about a file of the folder before, or about one forgotten since because
             // it changed, is dropped.
-            if self.list.sizes_and_dates().contains_key(&name)
-                && self.folder.dir().join(&name) == path
+            if !self.list.sizes_and_dates().contains_key(&name)
+                || self.folder.dir().join(&name) != path
             {
-                self.list.remember_size_and_date(name, d);
+                continue;
+            }
+            match d {
+                Some(d) => self.list.remember_size_and_date(name, d),
+                // The row had left the screen, so its question was dropped. It is asked again
+                // when it is drawn again.
+                None if self.list.sizes_and_dates().get(&name) == Some(&None) => {
+                    self.list.forget_size_and_date_of(&name)
+                }
+                None => {}
             }
         }
     }
@@ -1946,6 +1957,41 @@ pub(crate) fn speak_item(response: &egui::Response, marked: bool, name: &str) {
     (response.ctx).accesskit_node_builder(response.id, |node| node.set_selected(marked));
 }
 
+/// Answers the questions about sizes and dates that come in `questions` through `found`, the
+/// newest first. Only the newest `SIZES_AND_DATES_WAITING` wait, and the older ones are answered
+/// as dropped, with no look at the disk. It returns when the window no longer asks or listens.
+fn answer_sizes_and_dates(
+    questions: &mpsc::Receiver<(OsString, PathBuf)>,
+    found: &mpsc::Sender<SizeAndDate>,
+    ctx: &egui::Context,
+) {
+    use std::os::unix::fs::MetadataExt;
+    let mut waiting = Vec::new();
+    loop {
+        if waiting.is_empty() {
+            match questions.recv() {
+                Ok(question) => waiting.push(question),
+                Err(_) => return,
+            }
+        }
+        waiting.extend(questions.try_iter());
+        let stale = waiting.len().saturating_sub(SIZES_AND_DATES_WAITING);
+        for (name, path) in waiting.drain(..stale) {
+            if found.send((name, path, None)).is_err() {
+                return;
+            }
+        }
+        let Some((name, path)) = waiting.pop() else {
+            continue;
+        };
+        let d = std::fs::metadata(&path).map_or((0, 0), |m| (m.len(), m.mtime()));
+        if found.send((name, path, Some(d))).is_err() {
+            return;
+        }
+        ctx.request_repaint();
+    }
+}
+
 /// The places along a row or column of items `size` long, one every `step`, that the span
 /// `lo..hi` (from the first item's start) overlaps.
 pub(crate) fn places_overlapped(lo: f32, hi: f32, step: f32, size: f32) -> std::ops::Range<usize> {
@@ -2118,5 +2164,32 @@ mod tests {
         assert!(run_background_until(&mut app, &ctx, known));
         assert_eq!(app.file_details(0).map(|d| d.0), Some(size));
         std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// The thread that looks at sizes and dates answers the newest question first, and drops
+    /// those older than the newest `SIZES_AND_DATES_WAITING`, which are about rows scrolled
+    /// past. Before, it answered every question in order, so on a slow share the rows on
+    /// screen waited behind every row scrolled past.
+    #[test]
+    fn sizes_and_dates_answer_the_newest_first() {
+        use super::{SIZES_AND_DATES_WAITING, answer_sizes_and_dates};
+        use std::ffi::OsString;
+        let (asked, questions) = std::sync::mpsc::channel();
+        let (found, answers) = std::sync::mpsc::channel();
+        let count = SIZES_AND_DATES_WAITING + 100;
+        for k in 0..count {
+            let name = OsString::from(k.to_string());
+            asked.send((name, "/nonexistent".into())).unwrap();
+        }
+        drop(asked);
+        answer_sizes_and_dates(&questions, &found, &eframe::egui::Context::default());
+        drop(found);
+        let answers: Vec<_> = answers.into_iter().collect();
+        assert_eq!(answers.len(), count);
+        let dropped: Vec<_> = (answers.iter()).take_while(|a| a.2.is_none()).collect();
+        assert_eq!(dropped.len(), 100);
+        assert_eq!(dropped[0].0, "0");
+        assert_eq!(answers[100].0, OsString::from((count - 1).to_string()));
+        assert!(answers[100..].iter().all(|a| a.2.is_some()));
     }
 }
