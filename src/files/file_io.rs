@@ -4,13 +4,22 @@
 //! (`edit_shared`). A file is renamed never over another (`rename_never_over`), and moved or
 //! copied whole or not at all (`put_file`). A rename that later steps count on is on disk with
 //! its folder (`sync_folder_of`) before they run. Glimt's own files are written in one thread, in
-//! order (`write_later`), and `flush` waits for them before Glimt ends.
+//! order (`write_later`), and the collections in another (`write_later_in_user_folders`), so a
+//! share that stopped answering does not hold the settings. `flush` waits for both before Glimt
+//! ends.
 
 use crate::support::threads::lock_even_if_poisoned;
 use std::path::{Path, PathBuf};
 
 /// A file Glimt could not save, or a note about a save, for the window to tell: from any thread.
 static SAVE_ERROR: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
+
+/// The thread that writes Glimt's own files (`write_later`), and the thread for the writes that
+/// reach the user's folders (`write_later_in_user_folders`).
+static OWN_FILES_WRITER: std::sync::OnceLock<std::sync::mpsc::Sender<QueuedWrite>> =
+    std::sync::OnceLock::new();
+static USER_FOLDERS_WRITER: std::sync::OnceLock<std::sync::mpsc::Sender<QueuedWrite>> =
+    std::sync::OnceLock::new();
 
 /// The saves that replaced a file with other names (hard links) since the window last told of
 /// them, from any thread.
@@ -526,10 +535,24 @@ fn other_names_note() -> Option<String> {
     None
 }
 
-/// `work` in the one thread that writes Glimt's own files, in the order given.
+/// `work` in the one thread that writes Glimt's own files (the settings, marks, Open Recent), in
+/// the order given.
 pub fn write_later(work: impl FnOnce() + Send + 'static) {
-    static WRITER: std::sync::OnceLock<std::sync::mpsc::Sender<QueuedWrite>> =
-        std::sync::OnceLock::new();
+    queue_write(&OWN_FILES_WRITER, work);
+}
+
+/// `work` in the one thread for the writes that read or write the user's folders, in the order
+/// given: an edit of a collection, which looks up the folders of its entries. A share that
+/// stopped answering then holds only these writes, and not the settings and marks behind them.
+pub fn write_later_in_user_folders(work: impl FnOnce() + Send + 'static) {
+    queue_write(&USER_FOLDERS_WRITER, work);
+}
+
+/// Sends `work` to the thread of `writer`, counted in `WRITING` until it is done.
+fn queue_write(
+    writer: &'static std::sync::OnceLock<std::sync::mpsc::Sender<QueuedWrite>>,
+    work: impl FnOnce() + Send + 'static,
+) {
     // Dropped with the work, also when it panics or is never run: Glimt would wait for it at exit.
     let writing = crate::support::threads::Working::new(&WRITING);
     #[cfg(test)]
@@ -541,7 +564,7 @@ pub fn write_later(work: impl FnOnce() + Send + 'static) {
         let _writing = writing;
         run_and_tell_a_panic(work);
     };
-    let _ = WRITER
+    let _ = writer
         .get_or_init(start_ordered_worker)
         .send(Box::new(counted));
 }
@@ -598,14 +621,22 @@ fn flush_within(limit: std::time::Duration) {
     }
 }
 
-/// Waits until the writes queued before this call are done, five seconds at most. Unlike
-/// `flush`, it does not also wait for the writes that other work queues after it.
+/// Waits until the writes queued before this call in both writer threads are done, five
+/// seconds at most. Unlike `flush`, it does not also wait for the writes that other work
+/// queues after it.
 pub fn wait_for_queued_writes() {
+    let until = std::time::Instant::now() + std::time::Duration::from_secs(5);
     let (done, wait) = std::sync::mpsc::channel();
+    let done_too = done.clone();
     write_later(move || {
         let _ = done.send(());
     });
-    let _ = wait.recv_timeout(std::time::Duration::from_secs(5));
+    write_later_in_user_folders(move || {
+        let _ = done_too.send(());
+    });
+    for _ in 0..2 {
+        let _ = wait.recv_timeout(until.saturating_duration_since(std::time::Instant::now()));
+    }
 }
 
 /// The lock beside `path`, held while it lives: another Glimt window's reading and writing of
@@ -1210,6 +1241,26 @@ mod tests {
             .unwrap();
         wait.recv().unwrap();
         assert_eq!(super::take_saves_failed().len(), 1);
+    }
+
+    /// A write in the user's folders that waits for a share that stopped answering does not
+    /// hold the settings and marks written after it (#103). Before, one thread did both.
+    #[test]
+    fn a_stalled_write_in_the_user_folders_does_not_hold_glimts_own_files() {
+        let (release, stalled) = std::sync::mpsc::channel::<()>();
+        super::write_later_in_user_folders(move || {
+            let _ = stalled.recv_timeout(std::time::Duration::from_secs(5));
+        });
+        let (done, own_write) = std::sync::mpsc::channel();
+        super::write_later(move || {
+            let _ = done.send(());
+        });
+        let own_write_is_done = own_write
+            .recv_timeout(std::time::Duration::from_secs(2))
+            .is_ok();
+        release.send(()).unwrap();
+        super::flush();
+        assert!(own_write_is_done);
     }
 
     /// A write still running when `flush` stops waiting is told. Before, Glimt ended without

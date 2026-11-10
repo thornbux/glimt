@@ -3393,6 +3393,7 @@ fn disk_calls_in_window_thread(text: &str, parts: &[&str]) -> Vec<(String, &'sta
     const ELSEWHERE: &[&str] = &[
         "spawn(",
         "write_later(",
+        "write_later_in_user_folders(",
         "run_in_background(",
         "write_sidecars(",
     ];

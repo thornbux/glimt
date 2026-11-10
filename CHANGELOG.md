@@ -7,6 +7,9 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- An edit of a collection that waits for a share that stopped answering no longer holds the
+  settings, marks and Open Recent saved after it: collections are written in a thread of their
+  own (#103).
 - Rename Many tells when it cannot write its plan (a full disk, a read-only state folder) and runs
   without it, as a crash halfway is then not put right at the next start. Before, the user was
   not told.
