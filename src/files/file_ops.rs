@@ -16,8 +16,7 @@ use crate::model::listing::pattern_name;
 use crate::support::format::{count, thousands};
 use crate::support::lang::tr;
 use crate::support::threads::{
-    AnswerSender, NoticeSender, Receiving, Told, Took, Working, answer_channel,
-    lock_even_if_poisoned,
+    AnswerSender, Receiving, Told, Took, Working, answer_channel, lock_even_if_poisoned,
 };
 use crate::ui::actions::Action;
 use crate::ui::dialogs::Pick;
@@ -977,11 +976,20 @@ impl crate::App {
         is_copy: bool,
         move_log: Option<journal::MoveLog>,
     ) {
-        let moved = match &move_log {
-            Some(log) if log.is_found_at_start() => self.not_followed_before_a_kill(moved),
-            _ => moved,
-        };
-        self.follow_moved_paths(moved, is_copy);
+        match &move_log {
+            Some(log) if log.is_found_at_start() => {
+                // The names follow for every file, the open collection's entries among them.
+                self.follow_names_moved(&moved, false);
+                #[cfg(feature = "marks")]
+                {
+                    let not_followed = self.not_followed_before_a_kill(moved);
+                    if !not_followed.is_empty() {
+                        self.marks.follow_files(not_followed, false);
+                    }
+                }
+            }
+            _ => self.follow_moved_paths(moved, is_copy),
+        }
         if let Some(log) = move_log {
             log.remove_once_followed();
         }
@@ -990,16 +998,13 @@ impl crate::App {
     /// Returns the files of `went`, moved before Glimt was killed, whose marks have not
     /// followed them yet. A file whose old name holds no marks had them follow it before the
     /// kill, or had none, and following it again would take them off its new name. Its
-    /// collections' entries follow here, as entries already followed are not found again.
+    /// collections' entries follow all the same (`follow_names_moved`), as entries already
+    /// followed are not found again.
+    #[cfg(feature = "marks")]
     fn not_followed_before_a_kill(&self, went: Vec<(PathBuf, PathBuf)>) -> Vec<(PathBuf, PathBuf)> {
-        #[cfg(feature = "marks")]
-        let (went, followed): (Vec<_>, Vec<_>) =
-            (went.into_iter()).partition(|(from, _)| self.marks.get(from) != (0, 0));
-        #[cfg(feature = "marks")]
-        if !followed.is_empty() {
-            collections::follow_in_saved_collections(&followed, self.folder.collection());
-        }
-        went
+        (went.into_iter())
+            .filter(|(from, _)| self.marks.get(from) != (0, 0))
+            .collect()
     }
 
     /// Brings along what Glimt keeps about files or folders that were moved or renamed
@@ -1013,6 +1018,16 @@ impl crate::App {
         if pairs.is_empty() {
             return;
         }
+        self.follow_names_moved(&pairs, is_copy);
+        #[cfg(feature = "marks")]
+        self.marks.follow_files(pairs, is_copy);
+    }
+
+    /// Brings along all that `follow_moved_paths` does but the marks.
+    fn follow_names_moved(&mut self, pairs: &[(PathBuf, PathBuf)], is_copy: bool) {
+        if pairs.is_empty() {
+            return;
+        }
         // Both names hold another file now, or none, so a moved file's caches would show under
         // the new name what an old file of that name had.
         let names: Vec<PathBuf> = (pairs.iter())
@@ -1020,7 +1035,7 @@ impl crate::App {
             .flatten()
             .collect();
         self.forget_names(&names);
-        let moved = moves_by_source(&pairs);
+        let moved = moves_by_source(pairs);
         // A turn not saved yet goes with its file, saved under the new name.
         if !is_copy && let Some(to) = new_place(self.viewing.turned_file(), &moved) {
             self.viewing.turned_file_moved(to);
@@ -1041,7 +1056,7 @@ impl crate::App {
             let any = !renamed.is_empty();
             let ctx = self.ctx.clone();
             self.rename_in_list(&ctx, renamed);
-            let moves = pairs.clone();
+            let moves = pairs.to_vec();
             let follow = move |all: &mut Vec<PathBuf>| {
                 let moved = moves_by_source(&moves);
                 for p in all {
@@ -1069,11 +1084,9 @@ impl crate::App {
             self.folder.relist_later();
         }
         if !is_copy {
-            collections::follow_in_saved_collections(&pairs, self.folder.collection());
+            collections::follow_in_saved_collections(pairs, self.folder.collection());
         }
         self.index_new_names();
-        #[cfg(feature = "marks")]
-        self.marks.follow_files(pairs, is_copy);
     }
 
     /// Looks up the real path of `folder` and the type of its file system in the background, as
@@ -1193,30 +1206,44 @@ impl crate::App {
             if !is_copy && same_dir {
                 let _ = freed_tx.send(total_size(&paths));
             }
-            let mut move_log = move_log_dir.and_then(|dir| start_move_log_or_tell(&dir, &tx));
+            let started = move_log_dir.as_deref().map(journal::start_move_log);
+            let (mut move_log, start_failure) = match started.transpose() {
+                Ok(log) => (log, None),
+                Err(e) => (None, Some(e)),
+            };
             let at_pick = at_pick.as_deref();
             let how = (is_copy, move_log.as_mut());
             let (errors, put) = put_files(&paths, (at_pick, &dest), how, &job);
+            let log_failure = start_failure.or_else(|| move_log.as_mut()?.take_failure());
+            let log_warning = move_log_dir
+                .zip(log_failure)
+                .map(|(d, e)| move_log_warning(&d, e));
             let gone: Vec<PathBuf> = match is_copy {
                 true => Vec::new(),
                 false => put.iter().map(|(from, _)| from.clone()).collect(),
             };
             let failed = !errors.is_empty() || job.is_stopped();
+            // The log's warning goes with the Move's own text, so that neither hides the other.
+            let with_warning = |text: Option<String>| {
+                let texts: Vec<String> = [text, log_warning].into_iter().flatten().collect();
+                (!texts.is_empty()).then(|| texts.join("\n"))
+            };
             if let Some(first) = errors.first() {
                 let verb = tr(if is_copy { "Copy" } else { "Move" });
-                tx.send_failed_write(tf!(
+                let failed = tf!(
                     "{verb} failed ({count}): {first}",
                     verb,
                     count = count(errors.len(), "error"),
                     first
-                ));
-            } else if let Some(text) = job.report(|| {
+                );
+                tx.send_failed_write(with_warning(Some(failed)).unwrap_or_default());
+            } else if let Some(text) = with_warning(job.report(|| {
                 let (files, folder) = (count(paths.len(), "file"), dest.display());
                 match is_copy {
                     true => tf!("{files} copied to {folder}", files, folder),
                     false => tf!("{files} moved to {folder}", files, folder),
                 }
-            }) {
+            })) {
                 let _ = tx.send(text);
             }
             // A move takes the files out of `deleting`. The folder is read again for files that
@@ -2605,15 +2632,18 @@ fn send_moves_cut_short(report_tx: &AnswerSender<OperationReport>) {
     }
 }
 
-/// Starts the log of a Move (`journal::MoveLog`) in `dir`. Returns `None` when the log cannot
-/// be made, which `tx` tells as a failed write. The Move then runs without it, as Rename Many
-/// runs without its plan.
-fn start_move_log_or_tell(dir: &Path, tx: &NoticeSender) -> Option<journal::MoveLog> {
-    let started = journal::start_move_log(dir);
-    if let Err(e) = &started {
-        tx.send_failed_write(tf!("Could not save {name}: {e}", name = dir.display(), e));
-    }
-    started.ok()
+/// Words the warning that the log of a Move in `dir` could not be made or written, `failure`,
+/// and prints it. The Move goes on without the log, as in Glimt 0.80.0: a Move is how a full
+/// disk is cleared, and a kill halfway then only leaves the marks of the files that went
+/// behind. It is no failed write, because the Move itself works, so a close does not wait.
+fn move_log_warning(dir: &Path, failure: std::io::Error) -> String {
+    let warning = tf!(
+        "Could not save {name}: {e}",
+        name = dir.display(),
+        e = failure
+    );
+    eprintln!("{warning}");
+    warning
 }
 
 /// Copies or moves `paths` into the folder `dest` for `transfer`, each with its sidecars, until
@@ -2660,12 +2690,14 @@ fn put_files(
         } else if let Some(at) = name_in_the_way(&target, &HashSet::new(), &mut names) {
             failed(&at, std::io::ErrorKind::AlreadyExists.into());
             moving.remove(path);
-        } else if let Some(Err(e)) = (move_log.as_deref_mut()).map(|log| log.note(path, &target)) {
-            // Without its line in the log, a kill would leave its marks behind, so it stays.
-            failed(path, e);
-            moving.remove(path);
-        } else if let Err(e) = put_file_until_stopped(path, &target, is_copy, &|| job.is_stopped())
-        {
+        } else if let Err(e) = {
+            // The file is written down before it goes, so that a kill leaves none gone
+            // without its line.
+            if let Some(log) = move_log.as_deref_mut() {
+                log.note(path, &target);
+            }
+            put_file_until_stopped(path, &target, is_copy, &|| job.is_stopped())
+        } {
             // A file stopped halfway is not there, and the stop itself is told.
             if !(e.kind() == std::io::ErrorKind::Interrupted && job.is_stopped()) {
                 failed(&target, e);
@@ -4247,7 +4279,7 @@ mod tests {
         );
         assert_eq!(moved, (Vec::new(), vec![(a.clone(), to.join("a.png"))]));
         // b.png was written down, and the kill came before it went.
-        log.note(&b, &to.join("b.png")).unwrap();
+        log.note(&b, &to.join("b.png"));
         drop(log);
         let send_found = |app: &crate::App| {
             let found = super::journal::moves_cut_short(&logs);
@@ -4273,11 +4305,60 @@ mod tests {
         assert_eq!(stars(&app, &b), marked);
         // Found again, as after a kill just before the log went, the stars stay on a.png.
         let mut again = super::journal::start_move_log(&logs).unwrap();
-        again.note(&a, &to.join("a.png")).unwrap();
+        again.note(&a, &to.join("a.png"));
         drop(again);
         assert_eq!(send_found(&app), 1);
         assert!(run_background_until(&mut app, &ctx, no_log_left));
         assert_eq!(stars(&app, &to.join("a.png")), marked);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// The collection open at the start follows a file that a killed Move moved, also when
+    /// the file has no marks. Before, such a file followed only in the saved collections that
+    /// were not open, and stayed under its old name in the open one.
+    #[test]
+    fn the_open_collection_follows_the_files_a_killed_move_moved() {
+        let dir = contract_folder("killed-move-collection");
+        let (gqv, logs) = (dir.join("col.gqv"), dir.join("logs"));
+        let (a, moved) = (dir.join("a.png"), dir.join("sub/a.png"));
+        let (mut app, ctx) = app_on(&gqv);
+        let mut log = super::journal::start_move_log(&logs).unwrap();
+        log.note(&a, &moved);
+        std::fs::rename(&a, &moved).unwrap();
+        drop(log);
+        for (log, went) in super::journal::moves_cut_short(&logs) {
+            assert_eq!(went, vec![(a.clone(), moved.clone())]);
+            let report = super::OperationReport {
+                moved: went,
+                move_log: Some(log),
+                ..Default::default()
+            };
+            let _ = app.file_operations.report_sender().send(report);
+        }
+        let followed = |_: &crate::App| {
+            std::fs::read_to_string(&gqv).unwrap().contains("sub/a.png")
+                && std::fs::read_dir(&logs).unwrap().count() == 0
+        };
+        assert!(run_background_until(&mut app, &ctx, followed));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A Move whose log cannot be written, on a full home disk say, still moves its files, and
+    /// the log keeps the failure to be told once. Before, every file stayed, because its line
+    /// could not be written, and a Move is how a full disk is cleared.
+    #[test]
+    fn a_move_goes_on_when_its_log_cannot_be_written() {
+        let dir = contract_folder("move-log-full");
+        let to = dir.join("sub");
+        let (a, b) = (dir.join("a.png"), dir.join("b.png"));
+        let job = super::Job::new("Moving", 2, false, Vec::new());
+        let mut log = super::journal::MoveLog::refusing_writes(&dir.join("log"));
+        let paths = [a.clone(), b.clone()];
+        let moved = super::put_files(&paths, (None, &to), (false, Some(&mut log)), &job);
+        let went = vec![(a, to.join("a.png")), (b, to.join("b.png"))];
+        assert_eq!(moved, (Vec::new(), went));
+        assert!(log.take_failure().is_some());
+        assert!(log.take_failure().is_none(), "told once");
         std::fs::remove_dir_all(dir).unwrap();
     }
 

@@ -2753,6 +2753,9 @@ msgstr ""
 msgid "the file looks incomplete, as if it is still being copied"
 msgstr ""
 
+msgid "the file looks incomplete or damaged"
+msgstr ""
+
 msgid "the file is read-only"
 msgstr ""
 

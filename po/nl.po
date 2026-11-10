@@ -2732,6 +2732,9 @@ msgstr "het bestand is intussen gewijzigd"
 msgid "the file looks incomplete, as if it is still being copied"
 msgstr "het bestand lijkt onvolledig, alsof het nog wordt gekopieerd"
 
+msgid "the file looks incomplete or damaged"
+msgstr "het bestand lijkt onvolledig of beschadigd"
+
 msgid "the file is read-only"
 msgstr "het bestand is alleen-lezen"
 

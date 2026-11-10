@@ -110,19 +110,43 @@ pub struct MoveLog {
     file: File,
     /// Whether the log was found at the start, left by a Glimt that was killed.
     is_found_at_start: bool,
+    /// The first write of the log that failed, on a full disk say. The log takes no more lines
+    /// after it, and the Move goes on without them.
+    failure: Option<std::io::Error>,
 }
 
 impl MoveLog {
     /// Writes down that the file `from` goes to `to`, before it goes. It is not synced, because
-    /// a kill of Glimt does not need that. Returns an error that names the log.
-    pub fn note(&mut self, from: &Path, to: &Path) -> std::io::Result<()> {
+    /// a kill of Glimt does not need that. A write that fails is kept for `take_failure`, and the
+    /// file goes all the same: a Move is how a full disk is cleared, and without the line a kill
+    /// only leaves the file's marks behind, as before there was a log.
+    pub fn note(&mut self, from: &Path, to: &Path) {
+        if self.failure.is_some() {
+            return;
+        }
         let mut bytes = Vec::new();
         for p in [from, to] {
             bytes.extend(p.as_os_str().as_bytes());
             bytes.push(0);
         }
-        (self.file.write_all(&bytes))
-            .map_err(|e| std::io::Error::new(e.kind(), format!("{}: {e}", self.path.display())))
+        self.failure = self.file.write_all(&bytes).err();
+    }
+
+    /// Returns the first write of the log that failed, and `None` when every one worked.
+    pub fn take_failure(&mut self) -> Option<std::io::Error> {
+        self.failure.take()
+    }
+
+    /// Returns a log at `path` that refuses every write, as on a full disk.
+    #[cfg(test)]
+    pub fn refusing_writes(path: &Path) -> MoveLog {
+        std::fs::write(path, b"").unwrap();
+        MoveLog {
+            path: path.to_path_buf(),
+            file: File::open(path).unwrap(),
+            is_found_at_start: false,
+            failure: None,
+        }
     }
 
     /// Whether the log was found at the start, left by a Glimt that was killed during its Move.
@@ -169,6 +193,7 @@ pub fn start_move_log(dir: &Path) -> std::io::Result<MoveLog> {
         path,
         file,
         is_found_at_start: false,
+        failure: None,
     })
 }
 
@@ -196,26 +221,34 @@ pub fn moves_cut_short(dir: &Path) -> Vec<(MoveLog, Moves)> {
             if bytes.is_empty() {
                 return None;
             }
-            let paths: Vec<PathBuf> = (bytes.split(|&b| b == 0))
-                .filter(|p| !p.is_empty())
-                .map(|p| PathBuf::from(OsStr::from_bytes(p)))
-                .collect();
             let is_surely_gone = |p: &Path| {
                 matches!(std::fs::symlink_metadata(p),
                     Err(e) if e.kind() == std::io::ErrorKind::NotFound)
             };
             // A pair cut off by the kill has names that are not there, and is left out so.
-            let went: Moves = (paths.as_chunks::<2>().0.iter())
-                .filter(|[from, to]| is_surely_gone(from) && std::fs::symlink_metadata(to).is_ok())
-                .map(|[from, to]| (from.clone(), to.clone()))
+            let went: Moves = (parse_move_log(&bytes).into_iter())
+                .filter(|(from, to)| is_surely_gone(from) && std::fs::symlink_metadata(to).is_ok())
                 .collect();
             let log = MoveLog {
                 path: e.path(),
                 file,
                 is_found_at_start: true,
+                failure: None,
             };
             Some((log, went))
         })
+        .collect()
+}
+
+/// Returns the pairs `(from, to)` that the log of a Move holds, `bytes`: each name ends in a
+/// NUL byte. A pair cut off by a kill, at the end, is left out.
+fn parse_move_log(bytes: &[u8]) -> Moves {
+    let paths: Vec<PathBuf> = (bytes.split(|&b| b == 0))
+        .filter(|p| !p.is_empty())
+        .map(|p| PathBuf::from(OsStr::from_bytes(p)))
+        .collect();
+    (paths.as_chunks::<2>().0.iter())
+        .map(|[from, to]| (from.clone(), to.clone()))
         .collect()
 }
 
@@ -956,6 +989,17 @@ mod tests {
             if let Some((moves, Some(done))) = super::parse(&bytes) {
                 assert!(done <= moves.len());
             }
+        }
+    }
+
+    /// Damaged logs of a Move are read without a panic, and give no more pairs than names.
+    #[test]
+    fn survives_broken_move_logs() {
+        let seed = b"/p/a.jpg\0/q/a.jpg\0/p/b.jpg\0/q/b.jpg\0/p/c.jp";
+        assert_eq!(super::parse_move_log(seed).len(), 2);
+        for bytes in crate::support::test_support::broken(seed) {
+            let names = bytes.split(|&b| b == 0).filter(|p| !p.is_empty()).count();
+            assert!(2 * super::parse_move_log(&bytes).len() <= names);
         }
     }
 

@@ -40,9 +40,12 @@ and versions follow [Semantic Versioning](https://semver.org/).
 - Glimt killed during a Move (a logout that does not wait, Ctrl+C in the terminal, a third
   close) no longer loses the marks, stars and collection entries of the files already moved. A
   Move keeps a log of its files while it runs, and the next start makes them follow. Before, they
-  followed only when the whole Move ended.
+  followed only when the whole Move ended. When the log cannot be written, as on a full home
+  disk, the Move goes on as before and says so.
 - A turn is not saved to a JPEG, PNG or WebP whose end is not there yet, as one still being
-  copied in that paused for a moment, and the window says that the file looks incomplete.
+  copied in that paused for a moment, and the window says that the file looks incomplete. A
+  phone's motion photo or a camera's JPEG with a second image (MPF) counts as whole only when
+  its video or second image is all there.
 
 ## [0.80.0] - 2026-11-10
 

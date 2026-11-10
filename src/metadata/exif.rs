@@ -789,6 +789,20 @@ pub fn jpeg_scan_start(data: &[u8]) -> Option<usize> {
     reached.then(|| segments.last().map_or(2, |&(_, start, len)| start + len))
 }
 
+/// Returns the contents of the first segment of the JPEG `data`, before its image data, that
+/// has `marker` and starts with `prefix`, with where they start in `data`. Returns `None` when
+/// it has none.
+pub fn jpeg_segment_with<'a>(
+    data: &'a [u8],
+    marker: u8,
+    prefix: &[u8],
+) -> Option<(usize, &'a [u8])> {
+    let (segments, _) = jpeg_segments(data)?;
+    let found =
+        (segments.iter()).find(|s| s.0 == marker && segment(data, s).starts_with(prefix))?;
+    Some((found.1, segment(data, found)))
+}
+
 /// The bytes of a segment from `jpeg_segments`, as far as `data` has them: a prefix is looked
 /// for in the segment only, not in what follows a short one.
 fn segment<'a>(data: &'a [u8], &(_, start, len): &(u8, usize, usize)) -> &'a [u8] {
