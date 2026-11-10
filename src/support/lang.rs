@@ -10,17 +10,22 @@ use std::collections::HashMap;
 use std::sync::RwLock;
 
 /// `tf!("Could not save {name}: {e}", name, e = err)`: the text in the language in use, its
-/// `{name}`s filled in. A name alone is a variable of that name.
+/// `{name}`s filled in. A name alone is a variable of that name. A text whose `{name}`s are not
+/// the names passed does not compile, as the user would see the "{name}" left in it.
 #[macro_export]
 macro_rules! tf {
     (@value $name:ident = $value:expr) => { $value };
     (@value $name:ident) => { $name };
-    ($text:literal $(, $name:ident $(= $value:expr)?)* $(,)?) => {
+    ($text:literal $(, $name:ident $(= $value:expr)?)* $(,)?) => {{
+        const _: () = assert!(
+            $crate::support::lang::names_every_placeholder($text, &[$(stringify!($name)),*]),
+            "tf! passes each placeholder of its text, and nothing else"
+        );
         $crate::support::lang::fill_placeholders(
             $crate::support::lang::tr($text),
             &[$((stringify!($name), &$crate::tf!(@value $name $(= $value)?) as &dyn ::std::fmt::Display)),*],
         )
-    };
+    }};
 }
 
 /// The language setting's value for English, which Preferences writes. Any value that is not
@@ -237,6 +242,47 @@ pub fn fill_placeholders(template: &str, values: &[(&str, &dyn std::fmt::Display
     }
     out.push_str(rest);
     out
+}
+
+/// Returns whether the `{name}`s of `text` are exactly `names`: each placeholder is among the
+/// names, and each name fills a placeholder. `tf!` asks this when it is compiled.
+pub const fn names_every_placeholder(text: &str, names: &[&str]) -> bool {
+    let text = text.as_bytes();
+    let (mut used, mut i) = (0u128, 0);
+    while i < text.len() {
+        if text[i] != b'{' {
+            i += 1;
+            continue;
+        }
+        let mut close = i + 1;
+        while close < text.len() && text[close] != b'}' {
+            close += 1;
+        }
+        if close == text.len() {
+            break;
+        }
+        let mut k = 0;
+        let mut is_passed = false;
+        while k < names.len() {
+            let name = names[k].as_bytes();
+            let mut is_same = name.len() == close - i - 1;
+            let mut j = 0;
+            while is_same && j < name.len() {
+                is_same = name[j] == text[i + 1 + j];
+                j += 1;
+            }
+            if is_same {
+                used |= 1 << k;
+                is_passed = true;
+            }
+            k += 1;
+        }
+        if !is_passed {
+            return false;
+        }
+        i = close + 1;
+    }
+    used.count_ones() as usize == names.len()
 }
 
 /// The `.po` file's entries: msgid and msgstr, and msgid_plural with msgstr[0], [1] …; the
@@ -517,6 +563,19 @@ msgstr[1] "bilder"
             }
             println!("{code}: {} texts, {} nouns", t.texts.len(), t.plurals.len());
         }
+    }
+
+    /// A text of `tf!` names exactly the values passed. A `{name}` left out was shown to the
+    /// user as it is, as fill_placeholders leaves a name it is not given.
+    #[test]
+    fn every_placeholder_is_passed() {
+        use super::names_every_placeholder as names_all;
+        assert!(names_all("Could not save {name}: {e}", &["name", "e"]));
+        assert!(names_all("{e}, {e} and {name}", &["name", "e"]));
+        assert!(names_all("No value", &[]));
+        assert!(!names_all("Could not save {name}: {e}", &["name"]));
+        assert!(!names_all("Saved {name}", &["name", "e"]));
+        assert!(!names_all("Saved {name", &["name"]));
     }
 
     /// Each language's form for a number: Polish's few and many, Icelandic's 21, French's 0.

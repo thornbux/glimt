@@ -172,7 +172,9 @@ same commit**:
 `po/no_nb.po` first, then the others.
 
 - `lang::tests::every_language_has_every_text` fails while a language lacks a text of
-  `no_nb.po`, and `translations_keep_placeholders` while a translation drops a `{name}`.
+  `no_nb.po`, and `translations_keep_placeholders` while a translation drops a `{name}`. A
+  `tf!` whose text has a `{name}` it is not given, or that is given a name its text lacks,
+  does not compile.
 - Keep the key names as the menus show them (Ctrl, Shift, Enter, Esc, Delete), and the
   `%field%` template names unchanged.
 - Use only the double quotation marks (`«»`, `“”`, `„`, `”`), one style of quotes in every
