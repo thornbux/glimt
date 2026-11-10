@@ -988,20 +988,9 @@ fn send_and_print_answer(path: &std::path::Path, command: &str) -> bool {
     true
 }
 
-/// The sockets in `dir` that a Glimt answers on. One that does not answer is left alone,
-/// because a Glimt that is starting refuses connections between binding its socket and
-/// listening on it, and removing it then would leave that Glimt without remote control.
-/// shortcut: the socket of a Glimt that crashed stays until the runtime folder is cleared at
-/// logout, and costs one refused connection each time; remove such sockets at start, under
-/// `bind_socket`'s lock, if they ever pile up.
-fn live_sockets(dir: Option<PathBuf>) -> Vec<PathBuf> {
-    let sockets = socket_files(dir).into_iter();
-    sockets.filter(|p| UnixStream::connect(p).is_ok()).collect()
-}
-
 /// The sockets in `dir`, whether or not a Glimt answers on them. A command is sent to these,
-/// not to `live_sockets`, whose test of each socket would be a connection of its own, without
-/// a command, to every window.
+/// without a test of each socket first, which would be a connection of its own, without a
+/// command, to every window.
 fn socket_files(dir: Option<PathBuf>) -> Vec<PathBuf> {
     let entries = dir.and_then(|d| std::fs::read_dir(d).ok());
     entries
@@ -1011,6 +1000,19 @@ fn socket_files(dir: Option<PathBuf>) -> Vec<PathBuf> {
         .map(|e| e.path())
         .filter(|p| p.extension().is_some_and(|x| x == "sock"))
         .collect()
+}
+
+/// Whether a Glimt in the runtime folder `dir` answers, one that `--name name` reaches
+/// (`is_named`) when `name` is given. Only those sockets are connected to, so the windows of
+/// other names see no connection. A socket that does not answer is left alone, because a
+/// Glimt that is starting refuses connections between binding its socket and listening on it,
+/// and removing it then would leave that Glimt without remote control.
+/// shortcut: the socket of a Glimt that crashed stays until the runtime folder is cleared at
+/// logout, and costs one refused connection each time; remove such sockets at start, under
+/// `bind_socket`'s lock, if they ever pile up.
+fn is_running(dir: Option<PathBuf>, name: Option<&str>) -> bool {
+    let mut sockets = socket_files(dir).into_iter();
+    sockets.any(|p| name.is_none_or(|name| is_named(&p, name)) && UnixStream::connect(p).is_ok())
 }
 
 /// Sends `command` to the Glimt used last, or else to another one. Returns false if none runs.
@@ -1095,11 +1097,7 @@ pub fn client(
     if now[0] == "open"
         && let Some(path) = paths.iter().find(|p| p.to_str().is_none())
     {
-        let running = match name {
-            Some(name) => socket(name).is_some_and(|p| UnixStream::connect(p).is_ok()),
-            None => !live_sockets(runtime_dir()).is_empty(),
-        };
-        if !running {
+        if !is_running(runtime_dir(), name) {
             return Some(path.into());
         }
         eprintln!("glimt: cannot send {path:?}: not UTF-8");
@@ -2144,9 +2142,9 @@ mod tests {
         assert!(read.is_err() && got.is_empty(), "{read:?} {got:?}");
     }
 
-    /// A socket that does not answer is passed over by `--remote-all` but left in place. A
-    /// Glimt between binding it and listening refuses connections just as a crashed one's
-    /// socket does, and `live_sockets` removed it, so that Glimt could not be reached.
+    /// A socket that does not answer is passed over but left in place. A Glimt between binding
+    /// it and listening refuses connections just as a crashed one's socket does, and removing
+    /// it would leave that Glimt unreachable.
     #[test]
     fn a_socket_not_answering_is_left_alone() {
         let dir = std::env::temp_dir().join(format!("glimt-test-live-{}", std::process::id()));
@@ -2158,10 +2156,27 @@ mod tests {
         // program, so it can answer a moment longer, as in `claims_only_a_left_socket`.
         let passed_over = (0..50).any(|_| {
             std::thread::sleep(std::time::Duration::from_millis(20));
-            super::live_sockets(Some(dir.clone())) == [answering.clone()]
+            !super::is_running(Some(dir.clone()), Some("1"))
         });
         assert!(passed_over);
+        assert!(super::is_running(Some(dir.clone()), Some("2")));
         assert!(quiet.exists());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// `open` with a path that cannot be sent finds a running window of a name as every other
+    /// command does (`is_named`): also one that shares the name, and by its own ID. Otherwise
+    /// a new Glimt started and took the name.
+    #[test]
+    fn a_window_of_a_name_is_found_running_by_each_of_its_sockets() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-running-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let _listening =
+            std::os::unix::net::UnixListener::bind(dir.join("glimt-left.4242.sock")).unwrap();
+        assert!(super::is_running(Some(dir.clone()), Some("left")));
+        assert!(super::is_running(Some(dir.clone()), Some("4242")));
+        assert!(super::is_running(Some(dir.clone()), None));
+        assert!(!super::is_running(Some(dir.clone()), Some("right")));
         std::fs::remove_dir_all(dir).unwrap();
     }
 
