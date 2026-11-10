@@ -5,6 +5,20 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- Remember Last Folder keeps only a place that opened. Closing the window while several folders
+  were shown together kept `/`, and the next start listed the whole disk; closing it before a
+  slow folder had opened lost the folder remembered.
+- A path that is not there, among several opened, is left out. Before, it stood for its parent
+  folder, whose images were shown with the others.
+- After Rename Many, the new names and the removal of its plan are on disk before the marks and
+  collections follow them, also when no plan could be kept. A power cut right after could
+  otherwise put the marks on the wrong photos at the next start.
+- When Rename Many was cut short with its plan on another disk than the photos, putting it right
+  at the next start could leave a photo under a hidden `.glimt-rename-*` name with no plan left
+  to find it. A repair that cannot finish now puts back the steps it did.
+
 ## [0.79.0] - 2026-11-10
 
 ### Changed
