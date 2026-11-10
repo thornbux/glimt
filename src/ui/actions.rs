@@ -1460,7 +1460,8 @@ impl crate::App {
             check.stop();
         }
         // A zoomed image larger than the window: the arrow keys move it, as in Geeqie; along a
-        // side where it fits they still browse.
+        // side where it fits they still browse. Only an arrow pressed alone moves it, because
+        // `consume_key` ignores an extra Shift or Alt, which belong to the selection and panes.
         if !self.dialog_open()
             && !typing
             && !self.zoom.is_fitted()
@@ -1476,7 +1477,10 @@ impl crate::App {
                     (egui::Key::ArrowDown, egui::vec2(0.0, -step)),
                 ] {
                     let along = if d.x != 0.0 { max.x } else { max.y };
-                    if along > 0.0 && i.consume_key(egui::Modifiers::NONE, key) {
+                    if along > 0.0
+                        && i.modifiers.is_none()
+                        && i.consume_key(egui::Modifiers::NONE, key)
+                    {
                         self.zoom.pan_by(d);
                     }
                 }
@@ -2415,6 +2419,40 @@ mod tests {
             ["ui/actions.rs"],
             "read a window's shortcuts with shortcut_unless_dialog_open"
         );
+    }
+
+    /// A zoomed image larger than the view moves with the arrow keys alone. Alt+arrow still
+    /// changes the pane and Shift+arrow extends the selection. egui's `consume_key` ignores
+    /// an extra Shift or Alt, so both once moved the image instead.
+    #[test]
+    fn a_zoomed_image_moves_only_with_the_arrows_alone() {
+        use eframe::egui;
+        let dir = std::env::temp_dir().join(format!("glimt-test-pan-keys-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let (mut app, ctx) = crate::support::test_support::app_on(&dir);
+        app.zoom.one_to_one();
+        app.zoom.set_pan_room(egui::vec2(500.0, 500.0));
+        let mut press = |modifiers: egui::Modifiers| {
+            let key = egui::Event::Key {
+                key: egui::Key::ArrowRight,
+                physical_key: None,
+                pressed: true,
+                repeat: false,
+                modifiers,
+            };
+            ctx.begin_pass(egui::RawInput {
+                events: vec![egui::Event::ModifiersChanged(modifiers), key],
+                ..Default::default()
+            });
+            let action = app.read_keys(&ctx);
+            let _ = ctx.end_pass();
+            action
+        };
+        assert_eq!(press(super::ALT), Some(Action::PaneRight));
+        assert_eq!(press(super::SHIFT), Some(Action::Next));
+        // Alone, the arrow moves the image and browses no further.
+        assert_eq!(press(super::NONE), None);
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     /// Plain Ctrl+C comes from egui-winit as a Copy event, and so does the Copy key with no

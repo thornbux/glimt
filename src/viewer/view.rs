@@ -252,6 +252,12 @@ impl Zoom {
     pub(crate) fn scale_shown(&self) -> f32 {
         self.last_scale
     }
+
+    /// Gives the image `room` to move each way, as painting an image larger than the view does.
+    #[cfg(test)]
+    pub(crate) fn set_pan_room(&mut self, room: egui::Vec2) {
+        self.max_pan = room;
+    }
 }
 
 /// What belongs to the image shown, beside its place in the list (`List.shown`). That is the page
