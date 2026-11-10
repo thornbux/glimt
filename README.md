@@ -19,8 +19,9 @@ images to several hundred thousand. The name *Glimt* is Norwegian for "glimpse".
   list draws only what is on screen: as smooth with 500,000 images as with ten.
 - **Small.** Images are kept at the size they are shown, and a broken file cannot take
   gigabytes or bring the viewer down.
-- **Respects your files.** Ratings, keywords and comments go to XMP sidecars that darktable,
-  digiKam, Lightroom and Immich read. Copy and move never overwrite a file.
+- **Respects your files.** Ratings, keywords and comments go to XMP sidecars that darktable
+  and digiKam read, and Immich reads their ratings, comments and keyword tree. Copy and move
+  never overwrite a file.
 - **Every format a photographer meets**, RAW and HEIC included, and more through formats you
   add (DICOM, FITS, microscopy …). Imports Lightroom Classic catalogs.
 - **One binary** for any distribution with glibc 2.28 or newer: `.deb`, `.rpm`, `.tar.gz`,

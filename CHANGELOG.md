@@ -5,6 +5,11 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- README no longer says that Lightroom reads Glimt's sidecars: it reads only its own photo.xmp
+  beside a RAW file. Immich reads their ratings, comments and keyword tree.
+
 ## [0.78.0] - 2026-11-10
 
 ### Added
