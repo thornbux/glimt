@@ -2180,6 +2180,31 @@ fn notices_are_given_through_their_setter() {
     );
 }
 
+/// A Close is sent only by `ask_to_close`, and the answers that tell of a failed write (the
+/// save error, the notices channel and the turns saved) are taken only in `take_saves`, which
+/// `guard_close` calls before it lets a close through. A close that
+/// waited for keywords to be written closed the window in the pass that took their failure, so
+/// the user never saw that the keywords were lost. A Close sent from another place, or a failed
+/// write taken in another place, could skip that again.
+#[test]
+fn a_close_takes_the_failed_writes_first() {
+    const HOMES: &[(&str, &[(&str, &str)])] = &[
+        (
+            "ViewportCommand::Close",
+            &[("ui/window.rs", "ask_to_close")],
+        ),
+        ("take_save_error(", &[("ui/workers.rs", "take_saves")]),
+        ("take_saved(", &[("ui/workers.rs", "take_saves")]),
+        ("self.notices.", &[("ui/workers.rs", "take_saves")]),
+    ];
+    let wrong = outside_their_homes(HOMES);
+    assert!(
+        wrong.is_empty(),
+        "send a Close with ask_to_close, and take a failed write in take_saves:\n{}",
+        wrong.join("\n")
+    );
+}
+
 /// A setting that has a setter (an App `set_…` method, or a View action's `toggle_setting`) is
 /// changed only through that setter, in every file, so each place that changes it does what
 /// the menu does besides. Preferences wrote the names under the thumbnails directly and skipped

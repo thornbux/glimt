@@ -59,7 +59,8 @@ pub(crate) struct Window {
     /// Window → Set Window Title: this window's title template; empty, the one in Preferences.
     title_template: String,
     /// Close asked for while files were being written (`is_writing`): 1, it waits for them; 2,
-    /// they are stopped after the file at hand and it waits for that; a third close ends at once.
+    /// they are stopped after the file at hand and it waits for that; 3, a third close ends at
+    /// once, and `on_exit` does not wait for the writes it queues.
     close_requests: u8,
     /// The image and turn that a close last tried to save. A close saves a turn only when it
     /// differs, so a failed save is not tried again at every close, but a newer turn is saved.
@@ -67,6 +68,12 @@ pub(crate) struct Window {
     turn_tried_at_close: Option<(std::path::PathBuf, (u8, bool))>,
     /// How many termination signals the window had seen at its last pass.
     termination_signals_seen: usize,
+    /// How many failed writes the window has told. `guard_close` compares it before and after
+    /// it takes the answers, to know whether a failure came in with them.
+    failed_writes_told: u64,
+    /// The failed writes told since the last frame. `poll_background` shows them as the frame's
+    /// last notice, so that no other notice of the frame hides them.
+    failed_writes_to_show: Vec<String>,
 }
 
 impl Window {
@@ -89,6 +96,8 @@ impl Window {
             turn_tried_at_close: None,
             // A signal that came before the window was made, while it started, closes it too.
             termination_signals_seen: 0,
+            failed_writes_told: 0,
+            failed_writes_to_show: Vec::new(),
         }
     }
 
@@ -151,9 +160,26 @@ impl Window {
         &self.title_template
     }
 
-    /// How many times closing was asked for while files were being written.
-    pub(crate) fn close_requests(&self) -> u8 {
-        self.close_requests
+    /// Returns whether `on_exit` waits for the writes it queues itself, as the state file. Only
+    /// a third close, made while files were still written, ends without waiting.
+    pub(crate) fn waits_at_exit(&self) -> bool {
+        self.close_requests < 3
+    }
+
+    /// Keeps a failed write for the frame's last notice, and forgets a close that waited for the
+    /// writing. The window then stays open with the failure on screen, and the user's next close
+    /// is a first close again.
+    pub(crate) fn keep_failed_write(&mut self, text: String) {
+        self.failed_writes_told += 1;
+        self.failed_writes_to_show.push(text);
+        self.close_requests = 0;
+    }
+
+    /// Takes the failed writes kept since the last call, one line for each. Returns `None` when
+    /// no write failed.
+    pub(crate) fn take_failed_writes_to_show(&mut self) -> Option<String> {
+        let texts = std::mem::take(&mut self.failed_writes_to_show);
+        (!texts.is_empty()).then(|| texts.join("\n"))
     }
 
     /// Forgets the turn a close tried to save, because a save worked. A turn made after it,
@@ -188,23 +214,55 @@ impl crate::App {
         if signals != self.window.termination_signals_seen {
             self.window.termination_signals_seen = signals;
             self.window.let_kiosk_quit();
-            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+            self.ask_to_close(ctx);
         }
         let close = ctx.input(|i| i.viewport().close_requested());
+        if !close && self.window.close_requests == 0 {
+            return;
+        }
+        // Whether files are written is read before their answers are taken. A job tells its
+        // failure before it stops counting as writing, so a failure cannot slip in between.
+        let was_writing = self.is_writing();
+        let failed_before = self.window.failed_writes_told;
         // eframe may run no `ui` for a long time, as while the window is minimized. So the file
         // jobs' reports, by which marks follow moved files, are taken here before the guard
         // decides, and a Copy or Move that waited for its folder's real path starts its job.
-        // While a close waits, `receive_file_work` also closes the window once the files are
-        // written, and asks for a pass every 250 ms until then.
-        if close || self.window.close_requests > 0 {
-            self.receive_real_folders(ctx);
-            self.receive_operation_report(ctx);
-            self.receive_renames(ctx);
-            self.receive_file_work(ctx);
+        // `receive_file_work` takes the failed writes, and asks for a pass every 250 ms while
+        // files are written.
+        self.receive_real_folders(ctx);
+        self.receive_operation_report(ctx);
+        self.receive_renames(ctx);
+        self.receive_file_work(ctx);
+        // A write that failed keeps the window open, with the failure on screen. Closing then
+        // would hide it within a frame, and the user would believe the keywords or the turn
+        // saved. Telling it also forgot a close that waited, so the next close closes.
+        if self.window.failed_writes_told != failed_before {
+            if close {
+                ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
+            }
+            return;
         }
         if close {
             self.refuse_or_delay_close(ctx);
+        } else if !was_writing {
+            // The close waited for the files, and they are written.
+            self.ask_to_close(ctx);
         }
+    }
+
+    /// Asks for the window to close. This is the one place a Close is sent. `guard_close` meets
+    /// the close in the next pass, takes the answers that can tell of a failed write, and only
+    /// then lets the window close.
+    pub(crate) fn ask_to_close(&mut self, ctx: &egui::Context) {
+        ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+    }
+
+    /// Tells a failed write of the user's files or of Glimt's own, on stderr and in the window,
+    /// and keeps the window open when a close waited for the writing. The window shows it as
+    /// the last notice of the frame, so that no notice given later in the frame hides it.
+    pub(crate) fn tell_failed_write(&mut self, text: String) {
+        eprintln!("{text}");
+        self.window.keep_failed_write(text);
     }
 
     /// Answers the close that `guard_close` saw. A kiosk cancels it. Otherwise it waits while
@@ -230,7 +288,12 @@ impl crate::App {
         }
         // Files still being copied, moved, renamed or saved: closed when they are done, not
         // halfway; a second close stops them after the file at hand, a third does not wait.
-        if self.is_writing() && self.window.close_requests < 2 {
+        let is_writing = self.is_writing();
+        if is_writing && self.window.close_requests == 2 {
+            // The third close ends at once. The second one still waits at exit.
+            self.window.close_requests = 3;
+        }
+        if is_writing && self.window.close_requests < 2 {
             ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
             self.window.close_requests += 1;
             if self.window.close_requests == 2 {
@@ -710,11 +773,12 @@ mod tests {
         std::fs::remove_dir_all(dir).unwrap();
     }
 
-    /// A turn that cannot be saved is tried once at closing. The Close sent when the save ends
-    /// starts no second save, which would count as a second close and stop the jobs.
+    /// A turn that cannot be saved is tried once at closing. Its failure keeps the window open
+    /// and on screen, and the user's next close starts no second save, which would count as a
+    /// second close and stop the jobs.
     #[test]
     fn closing_saves_a_turn_once() {
-        use eframe::egui::{RawInput, ViewportEvent, ViewportId, ViewportInfo};
+        use eframe::egui::{RawInput, ViewportCommand, ViewportEvent, ViewportId, ViewportInfo};
         let dir = std::env::temp_dir().join(format!("glimt-test-close-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         crate::files::file_io::create_file(&dir.join("a.png"), b"not a PNG").unwrap();
@@ -742,6 +806,19 @@ mod tests {
         // The save's thread lets go of the file just after it tells the result.
         let over = |app: &crate::App| !app.file_operations.is_saving(&a);
         assert!(run_background_until(&mut app, &ctx, over));
+        // The failure keeps the window open and stays on screen, also in the passes after it.
+        // Before, the close that waited for the save closed the window as the failure came.
+        for _ in 0..3 {
+            let out = ctx.run_logic(&RawInput::default(), |ctx| app.guard_close(ctx));
+            let commands = out.viewport_commands.get(&ViewportId::ROOT);
+            assert!(!commands.is_some_and(|c| c.contains(&ViewportCommand::Close)));
+        }
+        let shown = app.notice.text().unwrap_or_default();
+        assert!(
+            shown.starts_with("Could not save the orientation"),
+            "{shown}"
+        );
+        assert_eq!(app.window.close_requests, 0);
         close(&mut app);
         assert!(!app.file_operations.is_saving(&a));
         // A turn made after that, while the window waits for other work, is saved.
@@ -749,6 +826,35 @@ mod tests {
         close(&mut app);
         assert!(app.file_operations.is_saving(&a));
         assert!(run_background_until(&mut app, &ctx, over));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A window closed twice while files are written still waits at exit for the writes that
+    /// `on_exit` queues itself, as the state file. Only a third close ends without waiting.
+    /// Before, the second close skipped that wait too, and the state file was lost.
+    #[test]
+    fn only_a_third_close_ends_without_waiting() {
+        use eframe::egui::{RawInput, ViewportEvent, ViewportId, ViewportInfo};
+        let dir = contract_folder("third-close");
+        let (mut app, ctx) = app_on(&dir);
+        let close = |app: &mut crate::App| {
+            let info = ViewportInfo {
+                events: vec![ViewportEvent::Close],
+                ..Default::default()
+            };
+            let input = RawInput {
+                viewports: std::iter::once((ViewportId::ROOT, info)).collect(),
+                ..Default::default()
+            };
+            let _ = ctx.run_logic(&input, |ctx| app.guard_close(ctx));
+        };
+        let writing = crate::support::threads::Working::new(&crate::files::file_io::WRITING);
+        close(&mut app);
+        close(&mut app);
+        assert!(app.window.waits_at_exit());
+        close(&mut app);
+        assert!(!app.window.waits_at_exit());
+        drop(writing);
         std::fs::remove_dir_all(dir).unwrap();
     }
 

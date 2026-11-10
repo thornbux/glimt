@@ -5,7 +5,7 @@ use crate::images::colour::srgb_to_display;
 use crate::images::decode::color_image;
 use crate::support::lang::tr;
 use crate::support::threads::lock_even_if_poisoned;
-use crate::support::threads::{CPU_CHANGED, Took, cores, thumb_threads};
+use crate::support::threads::{CPU_CHANGED, Told, Took, cores, thumb_threads};
 use crate::ui::file_list::LARGE_THUMBS;
 use crate::ui::file_list::OnScreenFiles;
 use crate::{features::remote, images::thumbs, malloc_trim, tf};
@@ -19,8 +19,8 @@ impl crate::App {
     /// images and thumbnails, the folder listing, saves, dropped files, mounts, notices and the
     /// file dialog's answer. The remote commands are taken in `logic` (main.rs) instead.
     pub(crate) fn poll_background(&mut self, ctx: &egui::Context) {
-        if let Some(error) = crate::files::file_io::take_save_error() {
-            self.notice.give(error);
+        if let Some(note) = crate::files::file_io::take_other_names_note() {
+            self.notice.give(note);
         }
         self.receive_desktop(ctx);
         self.receive_window_name(ctx);
@@ -64,16 +64,16 @@ impl crate::App {
         }
         self.receive_lightroom();
         self.receive_renames(ctx);
-        while let Ok(msg) = self.notices.try_recv() {
-            self.notice.give(msg);
-            ctx.request_repaint();
-        }
         self.slideshow_tick(ctx);
         if let Some(all) = self.folder.take_together() {
             self.open_folders(ctx, all);
         }
         self.receive_picked(ctx);
         self.receive_saved_theme(ctx);
+        // The failed writes go last, so that no other notice of this frame hides them.
+        if let Some(failed) = self.window.take_failed_writes_to_show() {
+            self.notice.give(failed);
+        }
     }
 
     /// Takes the answers that need no frame: the sizes summed and freed, and the EXIF index.
@@ -98,8 +98,8 @@ impl crate::App {
     }
 
     /// Takes what file operations finished: their jobs and the files they touch are let go (an
-    /// `exif:` search then reads the files it waited for), a window asked to close closes once
-    /// they are done, and saved turns are taken.
+    /// `exif:` search then reads the files it waited for), and the saves that worked or failed
+    /// are taken. `guard_close` decides a close that waits for the files.
     pub(crate) fn receive_file_work(&mut self, ctx: &egui::Context) {
         // The keywords are written, so an `exif:` search reads the files it waited for.
         if self.file_operations.drop_ended_jobs() && self.search.exif_search_waits_for_writes() {
@@ -107,8 +107,25 @@ impl crate::App {
         }
         if self.is_writing() {
             ctx.request_repaint_after(std::time::Duration::from_millis(250));
-        } else if self.window.close_requests() > 0 {
-            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+        }
+        self.take_saves(ctx);
+    }
+
+    /// Takes every answer that can tell of a failed write: the error that
+    /// `file_io::save_failed` told from any thread, the notices and failures that background
+    /// threads sent, and the turns saved. This is the one place they are taken, and
+    /// `guard_close` calls it, so each failure is seen before the window closes.
+    fn take_saves(&mut self, ctx: &egui::Context) {
+        // `save_failed` and `send_failed_write` printed theirs already.
+        if let Some(error) = crate::files::file_io::take_save_error() {
+            self.window.keep_failed_write(error);
+        }
+        while let Ok(told) = self.notices.try_recv() {
+            match told {
+                Told::Notice(text) => self.notice.give(text),
+                Told::FailedWrite(text) => self.window.keep_failed_write(text),
+            }
+            ctx.request_repaint();
         }
         while let Some((path, result, _pointer)) = self.file_operations.take_saved() {
             match result {
@@ -117,9 +134,7 @@ impl crate::App {
                     self.written_anew(std::slice::from_ref(&path));
                     self.files_changed(ctx, &[path]);
                 }
-                Err(e) => self
-                    .notice
-                    .give(tf!("Could not save the orientation: {e}", e)),
+                Err(e) => self.tell_failed_write(tf!("Could not save the orientation: {e}", e)),
             }
         }
     }
@@ -171,7 +186,7 @@ impl crate::App {
             Took::Gone => {
                 self.tell_background_stopped(tr("Rename Many"));
                 if let Some(dropped) = self.send_waiting_sidecar_writes(ctx, None) {
-                    self.notice.give(dropped);
+                    self.tell_failed_write(dropped);
                 }
             }
         }
@@ -284,6 +299,20 @@ mod tests {
         let logic = &main[main.find("fn logic(").unwrap()..];
         let logic = &logic[..logic.find("\n    }\n").unwrap()];
         assert!(logic.contains("self.receive_answers_without_a_frame(ctx);"));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A failed write stays on screen when another notice comes in the same frame. Before, the
+    /// failure was given first, and the notice took its place at once.
+    #[test]
+    fn a_failed_write_is_not_hidden_by_a_later_notice() {
+        let dir = contract_folder("failure-not-hidden");
+        let (mut app, ctx) = app_on(&dir);
+        let failed = "Could not save the keywords: test";
+        app.tell_failed_write(failed.into());
+        app.notice_sender.send("3 files moved".into()).unwrap();
+        app.poll_background(&ctx);
+        assert_eq!(app.notice.text(), Some(failed));
         std::fs::remove_dir_all(dir).unwrap();
     }
 }

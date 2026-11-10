@@ -122,7 +122,7 @@ struct App {
     notice: crate::viewer::view::Notice,
     /// Messages from background tasks (deleting, copying), to become the notice.
     notice_sender: crate::support::threads::NoticeSender,
-    notices: mpsc::Receiver<String>,
+    notices: mpsc::Receiver<crate::support::threads::Told>,
 
     // ---- Menus, dialogs and windows ----
     /// The small dialogs. They ask for a name, confirm a delete or the trashing of a folder,
@@ -444,7 +444,7 @@ impl eframe::App for App {
         // This waits a few seconds at most for the state above, the settings, and the keywords
         // queued at the first close. After a third close it does not wait, and Glimt ends at
         // once whatever still runs.
-        if self.window.close_requests() < 2 {
+        if self.window.waits_at_exit() {
             crate::files::file_io::flush();
         }
         let at = |share| frame_at(self.decoding.frame_times(), share);
