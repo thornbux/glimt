@@ -90,7 +90,7 @@
     <text x="664" y="406" font-size="12">a stat of each open folder a second, 1,000 subfolders → changed_tx → relist_later</text>
 
     <rect x="650" y="428" width="490" height="78" rx="6" fill="#f1f1e4" stroke="#7a7a2a" stroke-width="1.5"/>
-    <text x="664" y="448" font-size="13"><tspan font-weight="700">File jobs</tspan> (files/file_ops.rs; progress and Stop between files)</text>
+    <text x="664" y="448" font-size="13"><tspan font-weight="700">File jobs</tspan> (files/file_ops.rs; progress, and Stop inside a file)</text>
     <text x="664" y="466" font-size="12" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace">delete_now · transfer · rename_in_background · save_orientation</text>
     <text x="664" y="484" font-size="12">→ report_tx: OperationReport · saved_tx: (path, result) · notice_sender</text>
 
