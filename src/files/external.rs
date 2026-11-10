@@ -605,6 +605,12 @@ fn unknown_host(uri: &str) -> String {
     }
 }
 
+/// Returns `text` when it is a network location to mount, such as smb://nas/photos, and not a
+/// path. Glimt's command line, `--remote open` and the path field all go by this one rule.
+pub fn network_location(text: &str) -> Option<&str> {
+    text.contains("://").then_some(text)
+}
+
 /// `uri` without a password written into it (smb://user:secret@nas/share), and that password,
 /// percent-decoded. Given to gio as a URI, the password would be on gio's command line, which
 /// every user of the computer can read in the process list, and on the screen in "Connecting

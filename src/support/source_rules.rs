@@ -1608,6 +1608,29 @@ fn copies_of_settings_have_one_writer() {
     );
 }
 
+/// The remote control setting decides only at start whether a window listens for `--remote`
+/// without a name. After that, `remote::listening()` says whether it listens, as a named window
+/// or a kiosk listens with the setting off. Before, a window marked itself as the one used last
+/// only with the setting on, so plain `--remote` reached another window than the one in use.
+#[test]
+fn whether_a_window_listens_is_asked_in_one_place() {
+    const HOMES: &[(&str, &[(&str, &str)])] = &[(
+        "remote_control",
+        &[
+            ("main.rs", "with_config"),
+            ("files/config.rs", ""),
+            ("ui/preferences.rs", "window_settings"),
+            ("support/test_support.rs", "app_on"),
+        ],
+    )];
+    let wrong = outside_their_homes(HOMES);
+    assert!(
+        wrong.is_empty(),
+        "the remote control setting read where remote::listening() is meant:\n{}",
+        wrong.join("\n")
+    );
+}
+
 /// A notice is given only through `Notice::give`, which gives it a number of its own, so a
 /// screen reader reads out a notice given again with the same text. Before, the screen reader's
 /// code told a notice given again by its text's address, and the second of two notices given

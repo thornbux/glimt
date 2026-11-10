@@ -360,7 +360,8 @@ const MANUAL: &[(&str, &str)] = &[
          (Images per page: 2 to 20, in a grid). The dialog shows the first page as it will \
          print.\n\n\
          - Paper: A4, Letter, A3, A5, Legal, or photo paper of 10 × 15 and 13 × 18 cm\n\
-         - Orientation: by the image (a wide one alone goes landscape), portrait or landscape\n\
+         - Orientation: by the image (a wide one alone goes landscape; on both sides of the \
+         paper every page turns as the first one), portrait or landscape\n\
          - Margin: 0 to 50 mm.\n\n\
          Fill each box cuts each image to its box instead of fitting it in. The text under each \
          image comes from a template, as the full screen info's: %name% by default, or %Taken%, \
@@ -376,7 +377,7 @@ const MANUAL: &[(&str, &str)] = &[
          one, as Geeqie's plugins do, and shows them again afterwards.\n\n\
          A tool is a desktop file in ~/.local/share/glimt/tools (the menu opens that folder), \
          for example Name=Rotate and Exec=mogrify -rotate 90 %f:\n\n\
-         - %f runs it once for each file\n\
+         - %f runs it once for each file, also inside a word, as --file=%f\n\
          - %F once for all\n\
          - without either it runs once in the folder.\n\n\
          A program next to the desktop file is found there. New tools show after a restart. The \

@@ -1300,8 +1300,8 @@ impl crate::App {
                 }
                 _ => PathBuf::from(text),
             };
-            if text.contains("://") {
-                self.mount(ui.ctx(), text.to_owned());
+            if let Some(uri) = crate::files::external::network_location(text) {
+                self.mount(ui.ctx(), uri.to_owned());
             } else {
                 let gone = |p: &Path| tf!("No such folder: {folder}", folder = p.display());
                 self.visit_if_there(ui.ctx(), path, gone);

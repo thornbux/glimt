@@ -5,9 +5,13 @@
 //! `geeqie --remote`. The desktop files of added formats are read with the same `desktop_files`
 //! and `desktop_entry_values`.
 
+use crate::support::format::{Piece, pieces};
 use crate::support::threads::lock_even_if_poisoned;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+
+/// The field codes of a tool's `Exec` that stand for one file, without their `%`.
+const TOOL_FILE_CODES: [&str; 2] = ["f", "u"];
 
 /// The folders of desktop files that 0.75.0 renamed, by their old name and the new one, in
 /// Glimt's folder of the user's data folder and of the system's. Glimt reads the old folder too,
@@ -53,10 +57,10 @@ impl Tool {
         })
     }
 
-    /// Run the tool on `files` and wait for it: once for each file with %f or %u, once for all
-    /// with %F or %U, and once in `folder` without any. Each run is in `running` while it runs;
-    /// one taken out of it there was stopped, and the runs after it are not made. The error
-    /// output if it failed.
+    /// Run the tool on `files` and wait for it: once for each file with %f or %u (also inside
+    /// a word), once for all with %F or %U, and once in `folder` without any. Each run is in
+    /// `running` while it runs; one taken out of it there was stopped, and the runs after it are
+    /// not made. The error output if it failed.
     pub fn run(
         &self,
         files: &[PathBuf],
@@ -64,7 +68,7 @@ impl Tool {
         running: &RunningTools,
     ) -> Result<(), String> {
         let words = command_words(&self.exec);
-        let each = words.iter().any(|w| w == "%f" || w == "%u");
+        let each = words.iter().any(|w| names_a_file(w, &TOOL_FILE_CODES));
         let runs: Vec<&[PathBuf]> = if each {
             files.chunks(1).collect()
         } else {
@@ -314,20 +318,45 @@ pub fn command_words(exec: &str) -> Vec<String> {
     out
 }
 
-/// The command line of `words` (a desktop file's Exec) for `files`: %f, %u, %F and %U are the
-/// files, %% is a %, and other field codes (%i, %c, %k) are left out, as the specification says.
+/// The command line of `words` (a desktop file's Exec) for `files`: %F and %U are the files,
+/// a word with %f or %u in it is given once for each file, filled in by `filled_in`, %% is a %,
+/// and other field codes as words of their own (%i, %c, %k) are left out, as the specification
+/// says.
 fn arguments(words: &[String], files: &[PathBuf]) -> Vec<std::ffi::OsString> {
     let mut args = Vec::new();
     for w in words {
         match w.as_str() {
-            "%f" | "%u" | "%F" | "%U" => {
-                args.extend(files.iter().map(|f| f.as_os_str().to_owned()))
+            "%F" | "%U" => args.extend(files.iter().map(|f| f.as_os_str().to_owned())),
+            w if names_a_file(w, &TOOL_FILE_CODES) => {
+                args.extend(files.iter().map(|f| filled_in(w, &TOOL_FILE_CODES, f)))
             }
             code if code.len() == 2 && code.starts_with('%') && code != "%%" => {}
             _ => args.push(w.replace("%%", "%").into()),
         }
     }
     args
+}
+
+/// Returns whether `word` of a desktop file's `Exec` holds one of `file_codes` (such as "f" for
+/// `%f`), also inside a word, read from left to right (`format::pieces`), so `%%f` holds none.
+pub fn names_a_file(word: &str, file_codes: &[&str]) -> bool {
+    pieces(word, None).any(|p| matches!(p, Piece::Code(code) if file_codes.contains(&code)))
+}
+
+/// Returns `word` of a desktop file's `Exec` with each of `file_codes` in it, also inside a
+/// word, filled in with `file`, and `%%` as a `%`, read from left to right (`format::pieces`).
+/// Another code stays as it is. Tools and added formats both fill their words here, so
+/// `--file=%f` means the same in both.
+pub fn filled_in(word: &str, file_codes: &[&str], file: &Path) -> std::ffi::OsString {
+    let mut arg = std::ffi::OsString::new();
+    for piece in pieces(word, None) {
+        match piece {
+            Piece::Code(code) if file_codes.contains(&code) => arg.push(file),
+            Piece::Code(other) => arg.push(format!("%{other}")),
+            Piece::Text(text) => arg.push(text),
+        }
+    }
+    arg
 }
 
 #[cfg(test)]
@@ -569,5 +598,16 @@ mod tests {
             assert_eq!(words(&format!("x {code}")), all, "{code}");
         }
         assert_eq!(words("x 100%% %i %c %k"), ["x", "100%"].map(OsString::from));
+        // A file code inside a word is filled in too, once for each file, as an added
+        // format's is. Before, the word went to the tool as it was, with no file.
+        let each = [
+            "x",
+            "--file=/a.png",
+            "--file=/b.png",
+            "/a.png[0]",
+            "/b.png[0]",
+        ];
+        assert_eq!(words("x --file=%f %u[0]"), each.map(OsString::from));
+        assert_eq!(words("x a%%f %F%"), ["x", "a%f", "%F%"].map(OsString::from));
     }
 }
