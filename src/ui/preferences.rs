@@ -8,7 +8,7 @@ use crate::images::colour::{INPUT_PROFILES, INTENTS};
 use crate::support::format::thousands;
 use crate::support::lang::tr;
 use crate::support::threads::{Working, set_cpu_use};
-use crate::ui::actions::{Action, SHORTCUTS, shortcuts};
+use crate::ui::actions::{ALL, Action, SHORTCUTS, shortcuts};
 use crate::ui::dialogs::Pick;
 use crate::ui::menus::{checkbox, radio, radio_choice};
 use crate::{files::config, images::thumbs, support::lang, tf, ui::actions, ui::theme};
@@ -1102,13 +1102,14 @@ fn section_matches(query: &str, texts: &[&'static str], more: &[&str]) -> bool {
     query.split_whitespace().all(|w| all.contains(w))
 }
 
-/// Returns the actions the keyboard section lists: each one with a key, once, when it is built
-/// in. The section's rows and its search both read this list.
+/// Returns the actions the keyboard section lists: every action built in, once. Those with a
+/// default key come first, in the order of `SHORTCUTS`, and the others follow, as each can be
+/// given a key of its own. The section's rows and its search both read this list.
 fn key_actions() -> Vec<Action> {
     let mut actions: Vec<Action> = Vec::new();
-    for s in SHORTCUTS {
-        if !actions.contains(&s.0) && s.0.is_in_build() {
-            actions.push(s.0);
+    for &action in (SHORTCUTS.iter().map(|s| &s.0)).chain(ALL) {
+        if !actions.contains(&action) && action.is_in_build() {
+            actions.push(action);
         }
     }
     actions
@@ -1286,6 +1287,16 @@ mod tests {
         escape(&mut app);
         assert!(app.preferences.open);
         std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// The keyboard section lists every action built in, also one without a default key, so
+    /// that each can be given a key of its own. Before, it listed only those of `SHORTCUTS`.
+    #[test]
+    fn every_action_built_in_can_be_given_a_key() {
+        let listed = super::key_actions();
+        for action in crate::ui::actions::ALL.iter().filter(|a| a.is_in_build()) {
+            assert!(listed.contains(action), "{action:?}");
+        }
     }
 
     /// A search for an action that is not built in, such as Play Video without video, does

@@ -2114,7 +2114,7 @@ fn only_glimts_own_files_are_written_through_links() {
             "edit_shared(",
             &[
                 ("features/copy_for_sharing.rs", "save_choice"),
-                ("files/config.rs", "save"),
+                ("files/config.rs", "write_settings"),
                 ("metadata/marks.rs", "write"),
                 ("model/folder.rs", "remember_recent"),
                 ("ui/file_list.rs", "change_sort_folders"),

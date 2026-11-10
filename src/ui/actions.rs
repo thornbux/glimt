@@ -185,6 +185,160 @@ pub const SHORTCUTS: &[(Action, egui::Modifiers, egui::Key)] = {
     ]
 };
 
+/// Every action, in name order. Each one can be given a key of its own in `keys=` and
+/// Preferences, also one without a default key. Kept whole by `all_lists_every_action`.
+pub const ALL: &[Action] = &[
+    Action::About,
+    Action::AboveEachOther,
+    Action::Animate,
+    Action::Back,
+    Action::BackUp,
+    Action::CheckImages,
+    Action::CloseWindow,
+    Action::Compare,
+    Action::CopyFiles,
+    Action::CopyForSharing,
+    Action::CopyImage,
+    Action::CopyPath,
+    Action::CopyPathUnquoted,
+    Action::CopyTo,
+    Action::Crop,
+    Action::Delete,
+    Action::DeletePermanently,
+    Action::Escape,
+    Action::ExifRotate,
+    Action::ExifWindow,
+    Action::ExportFrames,
+    Action::FindDuplicates,
+    Action::First,
+    Action::FitFill,
+    Action::FitHeight,
+    Action::FitWidth,
+    Action::Flip,
+    Action::FocusKeywords,
+    Action::FocusSearch,
+    Action::FolderTree,
+    Action::Forward,
+    Action::FullScreen,
+    Action::FullScreenInfo,
+    Action::GridNames,
+    Action::Help,
+    Action::HiddenFiles,
+    Action::HideFileList,
+    Action::Histogram,
+    Action::HistogramLog,
+    Action::Home,
+    Action::Icons,
+    Action::ImportLightroom,
+    Action::InfoPanel,
+    Action::InvertSelection,
+    Action::KeyboardMap,
+    Action::Last,
+    #[cfg(feature = "marks")]
+    Action::Mark1,
+    #[cfg(feature = "marks")]
+    Action::Mark2,
+    #[cfg(feature = "marks")]
+    Action::Mark3,
+    #[cfg(feature = "marks")]
+    Action::Mark4,
+    #[cfg(feature = "marks")]
+    Action::Mark5,
+    #[cfg(feature = "marks")]
+    Action::Mark6,
+    Action::Mirror,
+    Action::MoveEarlier,
+    Action::MoveFirst,
+    Action::MoveLast,
+    Action::MoveLater,
+    Action::MoveTo,
+    Action::NewCollection,
+    Action::NewFolder,
+    Action::NewWindow,
+    Action::Next,
+    Action::NextFilter,
+    Action::NextLayout,
+    Action::NextPage,
+    Action::OneImage,
+    Action::OpenCollection,
+    Action::OpenFile,
+    Action::OpenFolder,
+    Action::OpenFolders,
+    Action::OpenRecursive,
+    Action::OpenWith,
+    Action::PanView,
+    Action::PaneDown,
+    Action::PaneLeft,
+    Action::PaneRight,
+    Action::PaneUp,
+    Action::PathBar,
+    Action::Pause,
+    Action::PlayVideo,
+    Action::Preferences,
+    Action::Previous,
+    Action::PreviousPage,
+    Action::Print,
+    Action::Projector,
+    Action::ProjectorPointer,
+    Action::Quit,
+    Action::RandomOrder,
+    #[cfg(feature = "marks")]
+    Action::Rate0,
+    #[cfg(feature = "marks")]
+    Action::Rate1,
+    #[cfg(feature = "marks")]
+    Action::Rate2,
+    #[cfg(feature = "marks")]
+    Action::Rate3,
+    #[cfg(feature = "marks")]
+    Action::Rate4,
+    #[cfg(feature = "marks")]
+    Action::Rate5,
+    Action::Refresh,
+    Action::RemoveFromCollection,
+    Action::Rename,
+    Action::RenameCollection,
+    Action::Rotate180,
+    Action::RotateCcw,
+    Action::RotateCw,
+    Action::SaveAs,
+    Action::SaveFrame,
+    Action::SaveOrientation,
+    Action::SelectAll,
+    #[cfg(feature = "marks")]
+    Action::SelectMark1,
+    #[cfg(feature = "marks")]
+    Action::SelectMark2,
+    #[cfg(feature = "marks")]
+    Action::SelectMark3,
+    #[cfg(feature = "marks")]
+    Action::SelectMark4,
+    #[cfg(feature = "marks")]
+    Action::SelectMark5,
+    #[cfg(feature = "marks")]
+    Action::SelectMark6,
+    Action::SelectNone,
+    Action::SetWallpaper,
+    Action::Shortcuts,
+    Action::Slideshow,
+    Action::SlideshowFaster,
+    Action::SlideshowSlower,
+    Action::SortManager,
+    Action::Subfolders,
+    Action::ThumbnailGrid,
+    Action::Thumbnails,
+    Action::Toolbar,
+    Action::TrashCollection,
+    Action::Undo,
+    Action::Up,
+    Action::WindowName,
+    Action::WindowTitle,
+    Action::Zoom1To1,
+    Action::ZoomFit,
+    Action::ZoomIn,
+    Action::ZoomOut,
+];
+
 /// The user's own keys (Preferences), which replace the defaults of their actions.
 pub static USER_KEYS: std::sync::RwLock<Vec<(Action, egui::Modifiers, egui::Key)>> =
     std::sync::RwLock::new(Vec::new());
@@ -908,24 +1062,27 @@ pub type Shortcut = (Action, egui::Modifiers, egui::Key);
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Keys(pub Vec<(Action, egui::Modifiers, egui::Key)>, Vec<String>);
 
+impl Keys {
+    /// Returns the items kept unused that no build of Glimt can use either: a name that is no
+    /// action of any build, or a key that cannot be read, such as "Next=ctrl+N". An item for an
+    /// action that only another build has, such as a mark's without the marks feature, is not
+    /// one of them, so `--check-config` tells only what is wrong in every build.
+    pub fn unusable_items(&self) -> Vec<&str> {
+        // Every action of every build is in this file, also under an old name. It holds the
+        // key names too, so a key's name in the place of an action's is not found here.
+        let names_of_1_0 = include_str!("../keys-1.0.txt");
+        (self.1.iter().map(String::as_str))
+            .filter(|item| {
+                let (name, combo) = item.split_once('=').unwrap_or((item, ""));
+                !names_of_1_0.lines().any(|l| l == name) || combo_of(combo).is_none()
+            })
+            .collect()
+    }
+}
+
 impl std::str::FromStr for Keys {
     type Err = ();
     fn from_str(text: &str) -> Result<Self, ()> {
-        let combo_of = |combo: &str| {
-            let mut mods = egui::Modifiers::NONE;
-            let mut parts: Vec<&str> = combo.split('+').collect();
-            let key = egui::Key::from_name(parts.pop()?)?;
-            for part in parts {
-                match part {
-                    "Ctrl" => mods.command = true,
-                    "Shift" => mods.shift = true,
-                    "Alt" => mods.alt = true,
-                    _ => return None,
-                }
-            }
-            mods.ctrl = mods.command;
-            Some((mods, key))
-        };
         let mut keys = Keys::default();
         for item in text.split(';') {
             let Some((name, combo)) = item.split_once('=') else {
@@ -935,10 +1092,10 @@ impl std::str::FromStr for Keys {
             // cannot read, is kept as it is for the build that wrote it.
             let name = action_name_now(name);
             match (
-                SHORTCUTS.iter().find(|s| format!("{:?}", s.0) == name),
+                ALL.iter().find(|a| format!("{a:?}") == name),
                 combo_of(combo),
             ) {
-                (Some(&(action, ..)), Some((m, k))) => keys.0.push((action, m, k)),
+                (Some(&action), Some((m, k))) => keys.0.push((action, m, k)),
                 _ => keys.1.push(item.to_owned()),
             }
         }
@@ -1592,6 +1749,24 @@ pub fn shortcut_text(ctx: &egui::Context, action: Action) -> Option<String> {
     Some(ctx.format_shortcut(&egui::KeyboardShortcut::new(mods, key)))
 }
 
+/// Returns the modifiers and key of a key's name in `keys=`, such as "Ctrl+Shift+N", or `None`
+/// when a part of it cannot be read.
+fn combo_of(combo: &str) -> Option<(egui::Modifiers, egui::Key)> {
+    let mut mods = egui::Modifiers::NONE;
+    let mut parts: Vec<&str> = combo.split('+').collect();
+    let key = egui::Key::from_name(parts.pop()?)?;
+    for part in parts {
+        match part {
+            "Ctrl" => mods.command = true,
+            "Shift" => mods.shift = true,
+            "Alt" => mods.alt = true,
+            _ => return None,
+        }
+    }
+    mods.ctrl = mods.command;
+    Some((mods, key))
+}
+
 /// Returns the name an action has now: the new name of one renamed in `RENAMED_ACTIONS`, and
 /// `name` itself for every other.
 fn action_name_now(name: &str) -> &str {
@@ -1612,161 +1787,7 @@ pub(crate) fn clipboard_key(e: &egui::Event) -> Option<egui::Key> {
 
 #[cfg(test)]
 mod tests {
-    use super::{Action, Target};
-
-    /// Every action, in name order, for the tests that run each one. Kept whole by
-    /// `all_lists_every_action`.
-    const ALL: &[Action] = &[
-        Action::About,
-        Action::AboveEachOther,
-        Action::Animate,
-        Action::Back,
-        Action::BackUp,
-        Action::CheckImages,
-        Action::CloseWindow,
-        Action::Compare,
-        Action::CopyFiles,
-        Action::CopyForSharing,
-        Action::CopyImage,
-        Action::CopyPath,
-        Action::CopyPathUnquoted,
-        Action::CopyTo,
-        Action::Crop,
-        Action::Delete,
-        Action::DeletePermanently,
-        Action::Escape,
-        Action::ExifRotate,
-        Action::ExifWindow,
-        Action::ExportFrames,
-        Action::FindDuplicates,
-        Action::First,
-        Action::FitFill,
-        Action::FitHeight,
-        Action::FitWidth,
-        Action::Flip,
-        Action::FocusKeywords,
-        Action::FocusSearch,
-        Action::FolderTree,
-        Action::Forward,
-        Action::FullScreen,
-        Action::FullScreenInfo,
-        Action::GridNames,
-        Action::Help,
-        Action::HiddenFiles,
-        Action::HideFileList,
-        Action::Histogram,
-        Action::HistogramLog,
-        Action::Home,
-        Action::Icons,
-        Action::ImportLightroom,
-        Action::InfoPanel,
-        Action::InvertSelection,
-        Action::KeyboardMap,
-        Action::Last,
-        #[cfg(feature = "marks")]
-        Action::Mark1,
-        #[cfg(feature = "marks")]
-        Action::Mark2,
-        #[cfg(feature = "marks")]
-        Action::Mark3,
-        #[cfg(feature = "marks")]
-        Action::Mark4,
-        #[cfg(feature = "marks")]
-        Action::Mark5,
-        #[cfg(feature = "marks")]
-        Action::Mark6,
-        Action::Mirror,
-        Action::MoveEarlier,
-        Action::MoveFirst,
-        Action::MoveLast,
-        Action::MoveLater,
-        Action::MoveTo,
-        Action::NewCollection,
-        Action::NewFolder,
-        Action::NewWindow,
-        Action::Next,
-        Action::NextFilter,
-        Action::NextLayout,
-        Action::NextPage,
-        Action::OneImage,
-        Action::OpenCollection,
-        Action::OpenFile,
-        Action::OpenFolder,
-        Action::OpenFolders,
-        Action::OpenRecursive,
-        Action::OpenWith,
-        Action::PanView,
-        Action::PaneDown,
-        Action::PaneLeft,
-        Action::PaneRight,
-        Action::PaneUp,
-        Action::PathBar,
-        Action::Pause,
-        Action::PlayVideo,
-        Action::Preferences,
-        Action::Previous,
-        Action::PreviousPage,
-        Action::Print,
-        Action::Projector,
-        Action::ProjectorPointer,
-        Action::Quit,
-        Action::RandomOrder,
-        #[cfg(feature = "marks")]
-        Action::Rate0,
-        #[cfg(feature = "marks")]
-        Action::Rate1,
-        #[cfg(feature = "marks")]
-        Action::Rate2,
-        #[cfg(feature = "marks")]
-        Action::Rate3,
-        #[cfg(feature = "marks")]
-        Action::Rate4,
-        #[cfg(feature = "marks")]
-        Action::Rate5,
-        Action::Refresh,
-        Action::RemoveFromCollection,
-        Action::Rename,
-        Action::RenameCollection,
-        Action::Rotate180,
-        Action::RotateCcw,
-        Action::RotateCw,
-        Action::SaveAs,
-        Action::SaveFrame,
-        Action::SaveOrientation,
-        Action::SelectAll,
-        #[cfg(feature = "marks")]
-        Action::SelectMark1,
-        #[cfg(feature = "marks")]
-        Action::SelectMark2,
-        #[cfg(feature = "marks")]
-        Action::SelectMark3,
-        #[cfg(feature = "marks")]
-        Action::SelectMark4,
-        #[cfg(feature = "marks")]
-        Action::SelectMark5,
-        #[cfg(feature = "marks")]
-        Action::SelectMark6,
-        Action::SelectNone,
-        Action::SetWallpaper,
-        Action::Shortcuts,
-        Action::Slideshow,
-        Action::SlideshowFaster,
-        Action::SlideshowSlower,
-        Action::SortManager,
-        Action::Subfolders,
-        Action::ThumbnailGrid,
-        Action::Thumbnails,
-        Action::Toolbar,
-        Action::TrashCollection,
-        Action::Undo,
-        Action::Up,
-        Action::WindowName,
-        Action::WindowTitle,
-        Action::Zoom1To1,
-        Action::ZoomFit,
-        Action::ZoomIn,
-        Action::ZoomOut,
-    ];
+    use super::{ALL, Action, Target};
 
     /// Each action is either one a script may run or one it may not, chosen on purpose: a new
     /// action fails here until it is in `SCRIPT_ACTIONS` or in the list below, which names
@@ -2328,6 +2349,25 @@ mod tests {
             !all.iter()
                 .any(|s| s.0 == Action::NewWindow && super::same_keys(s, &ctrl_n.0[0]))
         );
+    }
+
+    /// Every action takes a key of its own, also one without a default key. Before, `keys=`
+    /// read only the actions of `SHORTCUTS`, and kept the others unused without a word.
+    #[test]
+    fn every_action_takes_a_key_of_its_own() {
+        use super::{Action, Keys};
+        let keys: Keys = "Toolbar=Ctrl+B;FitFill=Ctrl+F12".parse().unwrap();
+        assert_eq!(keys.1, Vec::<String>::new());
+        let all = super::shortcuts_with(&keys.0);
+        for action in [Action::Toolbar, Action::FitFill] {
+            assert!(all.iter().any(|s| s.0 == action), "{action:?}");
+        }
+        // What no build can use is told, and a mark's key, which a build with marks uses, is
+        // not.
+        let keys: Keys = "Bogus=X;Next=ctrl+N;Mark1=Ctrl+M;Up=Alt+Up"
+            .parse()
+            .unwrap();
+        assert_eq!(keys.unusable_items(), ["Bogus=X", "Next=ctrl+N"]);
     }
 
     /// A dialog in the main window holds the keys of every window. The projector once browsed

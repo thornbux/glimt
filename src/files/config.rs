@@ -315,8 +315,8 @@ config! {
     /// How colours outside the target are brought in: perceptual, relative, saturation or
     /// absolute. Only profiles with tables for it (LUT profiles) tell them apart.
     rendering_intent: String = "perceptual".to_owned(),
-    /// The interface's language, as a translation's code (no_nb) or "en". When it is empty,
-    /// the system's language is used.
+    /// The interface's language, as a translation's code (no_nb), a language's own code (nb),
+    /// or "en". When it is empty, the system's language is used.
     language: String = String::new(),
     /// Marks and stars shown in the file list and overlay (marks feature).
     show_marks: bool = true,
@@ -509,12 +509,14 @@ impl Config {
         c.toolbar_icons = c.toolbar_icons.min(2);
         c.view_filter = c.view_filter.min(3);
         old_values_mapped(&mut c);
+        unknown_choices_reset(&mut c);
         c
     }
 
     /// The settings in `text`, and what is wrong in it, line by line. A problem is a line that
-    /// is not key=value, a setting that does not exist or is set twice, or a value that cannot
-    /// be read or is out of range. Empty lines and lines starting with # are left alone.
+    /// is not key=value, a setting that does not exist or is set twice, a value that cannot be
+    /// read, is out of range or is not one of its choices, or an own key that no build can use.
+    /// Empty lines and lines starting with # are left alone.
     pub fn parse_checked(text: &str) -> (Self, Vec<String>) {
         let config = Config::parse(text);
         let used = config.to_text();
@@ -561,13 +563,27 @@ impl Config {
                 }
                 // When the setting is set again later, that later line is the one checked.
                 Some(true) if later => {}
+                Some(true) if now == "keys" => {
+                    for item in alone.keys.unusable_items() {
+                        problems.push(format!(
+                            "line {n}: {item} in keys is not an action and a key Glimt knows; \
+                             it is kept and not used"
+                        ));
+                    }
+                }
                 Some(true) => {
                     old_values_mapped(&mut alone);
                     let wanted = value_in(&alone.to_text(), now);
+                    let wrong = match choices().iter().any(|c| c.0 == now) {
+                        true => "is not a value it takes",
+                        false => "is out of range",
+                    };
+                    // An empty value, such as language's, is the default.
+                    let used_now = Some(used(now)).filter(|u| !u.is_empty());
                     if wanted != used(now) {
                         problems.push(format!(
-                            "line {n}: {key}={value} is out of range; {} is used",
-                            used(now)
+                            "line {n}: {key}={value} {wrong}; {} is used",
+                            used_now.unwrap_or_else(|| "the default".to_owned())
                         ));
                     }
                 }
@@ -605,18 +621,10 @@ impl Config {
         }
         if let Some(p) = config_path() {
             let ours = self.to_text();
-            let before =
-                std::mem::replace(&mut *lock_even_if_poisoned(&LAST_SAVED_TEXT), ours.clone());
             // The file is read, merged and written in the background, because each toggle in a
             // menu saves, and the file's sync must not hold the window.
             write_later(move || {
-                let merge = |on_disk: &[u8]| {
-                    let on_disk = String::from_utf8_lossy(on_disk);
-                    (merged(&ours, &before, &on_disk).into_bytes(), ())
-                };
-                // A file that cannot be read is not written over, because every setting would
-                // be lost.
-                if let Err(e) = edit_shared(&p, merge) {
+                if let Err(e) = write_settings(&p, &ours, &LAST_SAVED_TEXT) {
                     save_failed(crate::tf!(
                         "Could not save {name}: {e}",
                         name = p.display(),
@@ -626,6 +634,27 @@ impl Config {
             });
         }
     }
+}
+
+/// Writes the settings `ours` to the file at `path`, merged with what other windows wrote there,
+/// and records them in `last_saved` once they are written. A write that fails leaves
+/// `last_saved` as it was, so the next save writes this window's changes again. Before, they
+/// counted as saved, and the next save kept the file's old values in their place. The saves run
+/// one after another in one thread, so `last_saved` is what the file last got from this window.
+fn write_settings(
+    path: &Path,
+    ours: &str,
+    last_saved: &std::sync::Mutex<String>,
+) -> std::io::Result<()> {
+    let before = lock_even_if_poisoned(last_saved).clone();
+    let merge = |on_disk: &[u8]| {
+        let on_disk = String::from_utf8_lossy(on_disk);
+        (merged(ours, &before, &on_disk).into_bytes(), ())
+    };
+    // A file that cannot be read is not written over, because every setting would be lost.
+    edit_shared(path, merge)?;
+    *lock_even_if_poisoned(last_saved) = ours.to_owned();
+    Ok(())
 }
 
 /// `$XDG_CONFIG_HOME/glimt/config`, otherwise `~/.config/glimt/config`.
@@ -869,6 +898,69 @@ fn old_values_mapped(c: &mut Config) {
     c.theme = crate::ui::theme::theme_name_now(&c.theme).to_owned();
 }
 
+/// Returns the settings that take one of a few values named outside `NAMED`, each with the
+/// values of the table it is read by. They are written by name, so their order does not count.
+/// `Config::parse` puts a value they do not take back to its default, and the frozen names are
+/// taken from here, so the values are held in one place.
+fn choices() -> [(&'static str, Vec<&'static str>); 9] {
+    use crate::features::print::{ORIENTATIONS, PAPERS};
+    use crate::support::lang::{ENGLISH, LANGUAGES};
+    let layouts = crate::viewer::view::LAYOUTS.map(|l| l.0).to_vec();
+    [
+        ("sort", crate::model::listing::SORTS.map(|s| s.1).to_vec()),
+        ("layout", layouts.clone()),
+        // This setting is a list of layouts, separated by commas.
+        ("slideshow_one_image_at_a_time", layouts),
+        (
+            "rendering_intent",
+            crate::images::colour::INTENTS.map(|i| i.0).to_vec(),
+        ),
+        ("print_paper", PAPERS.map(|p| p.0).to_vec()),
+        ("print_orientation", ORIENTATIONS.map(|o| o.0).to_vec()),
+        ("theme", crate::ui::theme::BUILT_IN.map(|t| t.0).to_vec()),
+        (
+            "language",
+            (LANGUAGES.iter().map(|l| l.0)).chain([ENGLISH]).collect(),
+        ),
+        (
+            "input_profile",
+            crate::images::colour::INPUT_PROFILES.map(|p| p.0).to_vec(),
+        ),
+    ]
+}
+
+/// Puts each setting of `choices()` whose value it does not take back to its default, as
+/// `Config::parse` clamps a number into its range. `parse_checked` then tells the line, and
+/// the window never falls back to another value without a word.
+fn unknown_choices_reset(c: &mut Config) {
+    let text = c.to_text();
+    let defaults = Config::default().to_text();
+    for (key, values) in choices() {
+        if !takes(key, &value_in(&text, key), &values) {
+            c.set(key, &value_in(&defaults, key));
+        }
+    }
+}
+
+/// Whether the setting `key` of `choices()` takes `value`, one of its `values`.
+fn takes(key: &str, value: &str, values: &[&str]) -> bool {
+    match key {
+        // Sort is read into its own type, which takes only its values. A theme may also be a
+        // file of the user's own.
+        "sort" | "theme" => true,
+        "slideshow_one_image_at_a_time" => (value.split(','))
+            .filter(|l| !l.is_empty())
+            .all(|l| values.contains(&l)),
+        // An ICC file of the user's own is named by its path. An empty one is sRGB.
+        "input_profile" => {
+            values.contains(&value) || value.is_empty() || Path::new(value).is_absolute()
+        }
+        // An empty value is the system's language.
+        "language" => value.is_empty() || crate::support::lang::is_language(value),
+        _ => values.contains(&value),
+    }
+}
+
 /// Moves the retired app_name_first=true into the window title it stood for, when the user has
 /// no title of their own. The setting is false afterwards, so it is moved only once, and a
 /// title the user empties later stays empty.
@@ -1039,6 +1131,83 @@ mod tests {
         assert_eq!(
             (config.slideshow_delay, config.fit_mode, config.ui_scale),
             (5, 2, 300)
+        );
+    }
+
+    /// A value that a setting of a few values does not take is put back to its default, and
+    /// the check tells it. Before, the window fell back without a word, and --check-config
+    /// said that the file was fine.
+    #[test]
+    fn an_unknown_choice_is_told_and_its_default_used() {
+        let text = "layout=3x3\nrendering_intent=perceptive\nprint_paper=letter\n\
+                    print_orientation=sideways\nslideshow_one_image_at_a_time=1,3x3\n\
+                    language=xx\ninput_profile=srbg\n";
+        let (config, problems) = super::Config::parse_checked(text);
+        let not = "is not a value it takes;";
+        assert_eq!(
+            problems,
+            [
+                format!("line 1: layout=3x3 {not} 1 is used"),
+                format!("line 2: rendering_intent=perceptive {not} perceptual is used"),
+                format!("line 3: print_paper=letter {not} A4 is used"),
+                format!("line 4: print_orientation=sideways {not} auto is used"),
+                format!("line 5: slideshow_one_image_at_a_time=1,3x3 {not} the default is used"),
+                format!("line 6: language=xx {not} the default is used"),
+                format!("line 7: input_profile=srbg {not} srgb is used"),
+            ]
+        );
+        assert_eq!(config, super::Config::default());
+        // Every value of the table is taken, and so are a language's own code, a list of
+        // layouts, an ICC file and a theme of the user's own.
+        for (key, values) in super::choices() {
+            for value in values {
+                let line = format!("{key}={value}");
+                assert_eq!(super::Config::parse_checked(&line).1, Vec::<String>::new());
+            }
+        }
+        let text = "language=nb\nslideshow_one_image_at_a_time=1,2x2\n\
+                    input_profile=/usr/share/color/icc/my.icc\ntheme=My own\n";
+        let (config, problems) = super::Config::parse_checked(text);
+        assert_eq!(problems, Vec::<String>::new());
+        assert_eq!(config.language, "nb");
+    }
+
+    /// A change whose save failed is written by the next save that works. Before, the failed
+    /// save counted as written, and the next one kept the file's old value of that setting.
+    #[test]
+    fn a_failed_save_is_written_by_the_next() {
+        let dir =
+            std::env::temp_dir().join(format!("glimt-test-failed-save-{}", std::process::id()));
+        let path = dir.join("config");
+        // A folder in the file's place cannot be read, so the save fails.
+        std::fs::create_dir_all(&path).unwrap();
+        let start = super::Config::default();
+        let last_saved = std::sync::Mutex::new(start.to_text());
+        let mut changed = super::Config {
+            thumbnails: !start.thumbnails,
+            ..super::Config::default()
+        };
+        assert!(super::write_settings(&path, &changed.to_text(), &last_saved).is_err());
+        std::fs::remove_dir(&path).unwrap();
+        std::fs::write(&path, start.to_text()).unwrap();
+        changed.show_marks = !start.show_marks;
+        super::write_settings(&path, &changed.to_text(), &last_saved).unwrap();
+        let saved = super::Config::parse(&std::fs::read_to_string(&path).unwrap());
+        assert_eq!(saved.thumbnails, changed.thumbnails);
+        assert_eq!(saved.show_marks, changed.show_marks);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// An own key that no build of Glimt can use is told, as a value out of range is.
+    #[test]
+    fn an_unusable_key_is_told() {
+        let (_, problems) = super::Config::parse_checked("keys=Toolbar=Ctrl+B;Next=ctrl+N\n");
+        assert_eq!(
+            problems,
+            [
+                "line 1: Next=ctrl+N in keys is not an action and a key Glimt knows; it is kept and \
+              not used"
+            ]
         );
     }
 
@@ -1406,12 +1575,16 @@ mod tests {
         let defaults = Config::default().to_text();
         for (old, new) in super::RENAMED_SETTINGS {
             let value = super::value_in(&defaults, new);
-            // Another value than the default: a bool turned, a number one larger, or a text with
-            // a letter more.
-            let other = match value.as_str() {
-                "true" => "false".to_owned(),
-                "false" => "true".to_owned(),
-                text => text
+            // Another value than the default: another of its choices, a bool turned, a number
+            // one larger, or a text with a letter more.
+            let choice = (super::choices().into_iter())
+                .find(|c| c.0 == new)
+                .and_then(|c| c.1.into_iter().find(|v| *v != value));
+            let other = match (choice, value.as_str()) {
+                (Some(choice), _) => choice.to_owned(),
+                (_, "true") => "false".to_owned(),
+                (_, "false") => "true".to_owned(),
+                (_, text) => text
                     .parse::<u64>()
                     .map_or_else(|_| format!("{text}x"), |n| (n + 1).to_string()),
             };
@@ -1761,34 +1934,7 @@ mod tests {
     /// Returns the values of the settings that name something outside `NAMED`. They are
     /// written by name, so their order does not count.
     fn named_values() -> Vec<String> {
-        use crate::features::print::{ORIENTATIONS, PAPERS};
-        let layouts = crate::viewer::view::LAYOUTS.map(|l| l.0).to_vec();
-        let lists: [(&str, Vec<&str>); 9] = [
-            ("sort", crate::model::listing::SORTS.map(|s| s.1).to_vec()),
-            ("layout", layouts.clone()),
-            // This setting is a list of layouts, separated by commas.
-            ("slideshow_one_image_at_a_time", layouts),
-            (
-                "rendering_intent",
-                crate::images::colour::INTENTS.map(|i| i.0).to_vec(),
-            ),
-            ("print_paper", PAPERS.map(|p| p.0).to_vec()),
-            ("print_orientation", ORIENTATIONS.map(|o| o.0).to_vec()),
-            ("theme", crate::ui::theme::BUILT_IN.map(|t| t.0).to_vec()),
-            (
-                "language",
-                crate::support::lang::LANGUAGES
-                    .iter()
-                    .map(|l| l.0)
-                    .chain([crate::support::lang::ENGLISH])
-                    .collect(),
-            ),
-            (
-                "input_profile",
-                crate::images::colour::INPUT_PROFILES.map(|p| p.0).to_vec(),
-            ),
-        ];
-        (lists.iter())
+        (super::choices().iter())
             .flat_map(|(key, values)| values.iter().map(move |v| format!("value {key} {v}")))
             .collect()
     }
