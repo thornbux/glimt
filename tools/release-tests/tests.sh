@@ -303,8 +303,12 @@ rss() { awk '/RssAnon/ {printf "%d MB", $2 / 1024}' /proc/$GPID/status; }
 # can be slow by chance. within: yes when $1 is at most 1.5 times $2, plus the slack $3 (ms or
 # MB): a few hundred ms vary by more than half when something else runs on the machine.
 best() { eval "best_seen=\${$1:-}"; { [ -z "$best_seen" ] || [ "${2:-999999}" -lt "$best_seen" ]; } && eval "$1=${2:-999999}"; }
-# Never yes without a value of the new version: both missing would compare as equal.
-within() { [ "${1:-999999}" != 999999 ] && [ $(( $1 * 2 )) -le $(( ${2:-0} * 3 + ${3:-0} * 2 )) ] && echo yes; }
+# Never yes without a value of each version: a missing new one would compare as equal, and a
+# missing old one (999999, its run gave no number) would let any new value pass the limit.
+within() {
+    [ "${1:-999999}" != 999999 ] && [ "${2:-999999}" != 999999 ] &&
+        [ $(( $1 * 2 )) -le $(( $2 * 3 + ${3:-0} * 2 )) ] && echo yes
+}
 hwm() { awk '/VmHWM/ {print $2}' /proc/$GPID/status; }
 # The control of a check that expects nothing to change: that the keys reach the window at all.
 # t turns the thumbnails off, which is saved to the settings file; a key lost on the way leaves
@@ -1010,7 +1014,11 @@ for v in new old; do
     quit
     # The side panel below the toolbar, left of the grid: red only where a thumbnail is drawn.
     reds=$(matching grid-names-$v 235x700+0+100 '(r>0.5&&g<0.3&&b<0.3)')
-    if [ $v = new ]; then expect "no thumbnails over the side panel's names" "$reds" 0
+    # The control: the grid right of it has its red thumbnails, so they were drawn at all.
+    grid_reds=$(matching grid-names-$v 600x500+300+100 '(r>0.5&&g<0.3&&b<0.3)')
+    if [ $v = new ]; then
+        expect "no thumbnails over the side panel's names" "$reds" 0
+        expect "the grid has its thumbnails (the control)" "$([ "${grid_reds:-0}" -gt 0 ] && echo yes)" yes
     else note "old: $reds red pixels in the side panel"; fi
 done
 
@@ -1214,8 +1222,9 @@ was=$(remote current 2>/dev/null | tr -d '\0'); sleep 2.5
 still=$(remote current 2>/dev/null | tr -d '\0')
 remote random on >/dev/null 2>&1; remote random on >/dev/null 2>&1; sleep 1
 quit
-expect "on twice: running, past a.png" "$([ "$moved" != a.png ] && echo moved)" moved
-expect "off twice: stopped, the image stays" "$([ "$was" = "$still" ] && echo stays)" stays
+# Empty answers are refused: a window that did not answer would pass both.
+expect "on twice: running, past a.png" "$([ -n "$moved" ] && [ "$moved" != a.png ] && echo moved)" moved
+expect "off twice: stopped, the image stays" "$([ -n "$was" ] && [ "$was" = "$still" ] && echo stays)" stays
 expect "random on twice: on" "$(grep -c '^slideshow_random=true$' $XDG_CONFIG_HOME/glimt/config)" 1
 
 section "--remote open of a folder whose name ends in a space: opened as named"
@@ -2535,6 +2544,7 @@ for v in new old; do
         sleep 0.5
         # The line is below c; then over the grid below its only row, let go in the same move.
         xdotool mousemove ${cell% *} $(( ${cell#* } + 250 )) mouseup 1 2>/dev/null; sleep 1
+    elif [ $v = new ]; then fail "the side panel's rows and the grid's cell are found"
     fi
     quit
     order=$(grep -o '[abc]\.jpg' $d/show.gqv | tr '\n' ' ')
@@ -2800,6 +2810,9 @@ for v in new old; do
     got="$missing $(ls -d $d/typo 2>/dev/null | wc -l) $(ls $d/to/glimt-backup-*/state 2>/dev/null | grep -c renames)"
     if [ $v = new ]; then expect "refused, nothing made; no plan in the backup" "$got" "1 0 0"
         expect "a backup into Glimt's own folder refused" "$inside" 1
+        # The control: the backup that left the plan out was made, with the collection in it.
+        expect "the backup made (the control)" \
+            "$(ls $d/to/glimt-backup-*/data/collections 2>/dev/null)" Mine.gqv
     else note "old: $got"; fi
 done
 
@@ -3164,14 +3177,16 @@ for v in new old; do
     config
     start $d/a.png; sleep 2
     key bracketright; sleep 1        # turned a quarter clockwise, not saved
-    menu Select "Copy Image to Clipboard"; sleep 3
+    if [ $v = new ]; then menu Edit "Copy Image to Clipboard"
+    else menu Select "Copy Image to Clipboard"; fi   # 0.79 had it in the Select menu
+    sleep 3
     size=$(xclip -o -selection clipboard -t image/png 2>/dev/null | identify -format '%wx%h' - 2>/dev/null)
     quit
     if [ $v = new ]; then expect "the turned image, 48x64" "$size" 48x64
     else note "old: $size"; fi
 done
 
-section "the clipboard: Copy Path, Copy Image and Copy Files from the Select menu, read back with xclip"
+section "the clipboard: Copy Path and Copy Files from the Select menu, Copy Image from Edit, read back with xclip"
 d=/tmp/clipboard
 mkdir -p $d
 convert -size 64x48 xc:red $d/a.png
@@ -3179,7 +3194,7 @@ config
 start $d/a.png; sleep 2
 menu Select "Copy Path to Clipboard"; sleep 1
 path=$(xclip -o -selection clipboard 2>/dev/null)
-menu Select "Copy Image to Clipboard"; sleep 3
+menu Edit "Copy Image to Clipboard"; sleep 3
 size=$(xclip -o -selection clipboard -t image/png 2>/dev/null | identify -format '%wx%h' - 2>/dev/null)
 menu Select "Copy Files to Clipboard"; sleep 1
 files=$(xclip -o -selection clipboard -t text/uri-list 2>/dev/null | tr -d '\r' | grep -c "file://$d/a.png")
@@ -3633,10 +3648,12 @@ for v in new old; do
     start $d/Trip.gqv
     sleep 2
     mv $d/Trip.gqv $d/Holiday.gqv            # renamed elsewhere meanwhile
+    arrived=$(keys_arrive)
     key Delete; sleep 1                      # the shown one out of the collection: a save
     quit
     got="$(cd $d && ls *.gqv | tr '\n' ' ')"
     if [ $v = new ]; then expect "only Holiday.gqv" "$got" "Holiday.gqv "
+        expect "the keys reach the window (the control)" "$arrived" yes
     else note "old: $got"; fi
 done
 
@@ -4107,9 +4124,13 @@ for v in new old; do
     sleep 2
     answer $d/a.jpg; key ctrl+a; key ctrl+p; sleep 1; key Return
     sleep 4
+    # The control: the same keys print to a name that is no image.
+    answer $d/out.pdf; key ctrl+a; key ctrl+p; sleep 1; key Return
+    until_ok "pdfinfo $d/out.pdf" 30
     quit
     kind=$(identify -format '%m' "$d/a.jpg[0]" 2>/dev/null)
     if [ $v = new ]; then expect "a.jpg is still the JPEG" "$kind" JPEG
+        expect "out.pdf printed (the control)" "$(pdfinfo $d/out.pdf >/dev/null 2>&1 && echo yes)" yes
     else note "old: a.jpg is $kind"; fi
 done
 

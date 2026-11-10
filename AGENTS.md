@@ -44,8 +44,8 @@ for Linux in Rust/egui, inspired by Geeqie. Read this before changing anything.
   decoding or caches.
 - **The limits a release is held to.** The release tests fail when, in a folder of 500,000
   files, the first image takes more than 1.5 times the last release's time or RssAnon is more
-  than 1.5 times the last release's; when a frame takes more than 10 ms of the window thread's
-  processor time with all 500,000 files selected; or when sorting 3,000 JPEGs by EXIF date takes
+  than 1.5 times the last release's; when the median frame takes more than 10 ms of the window
+  thread's processor time with all 500,000 files selected; or when sorting 3,000 JPEGs by EXIF date takes
   more than 1.5 times the last release's time (each with a small slack, `within` in `tests.sh`).
   The maintainer sets these numbers, and an agent does not change them. The other timings and
   memory figures in the release tests (`note` lines) are only printed, to compare: they stop
@@ -58,7 +58,8 @@ for Linux in Rust/egui, inspired by Geeqie. Read this before changing anything.
 
 - Shortcuts and behaviour follow **Geeqie's defaults** (see its keyboard reference). Every
   deliberate deviation goes in the `DIFFERENCES` table in `src/ui/help.rs`, which the Help Manual
-  (F1) shows. Remove a row when Glimt starts behaving like Geeqie.
+  (F1) shows. Remove a row when Glimt starts behaving like Geeqie. The keys are Geeqie's up to
+  3.1: where Geeqie 3.2 changed a default key, Glimt keeps its own, and `DIFFERENCES` says so.
 - New user-visible features are described in `src/ui/help.rs` (manual, shortcuts, keyboard map)
   and, where relevant, on the website (the `glimt-web` repository, glimt.pario.no). `README.md`
   keeps only what the website does not have: building from source, the optional features'
@@ -96,7 +97,11 @@ out of use is still read, and ignored.
   `Theme::parse`);
 - the files and folders Glimt owns (`file` lines, from `config_path` and the other functions
   that name them, `LOCK_FILE`, `RENAMED_FOLDERS`, `remote::socket_name` and `FOCUSED_FILE`);
-- the words of the groups in the sharing file (`sharing` lines, `Group::key`).
+- the words of the groups in the sharing file (`sharing` lines, `Group::key`), and the names
+  of the single tags and parts it holds (`sharing_tag` lines, from
+  `shared_copy::names_of_single_tags`): each EXIF tag's name, one of each form a tag or part
+  without a name of its own gets ("Image 0x…", "JPEG APP…", "PNG chunk …"), and the parts'
+  names.
 
 The tests that hold this:
 
@@ -626,12 +631,13 @@ python3 tools/pot.py              # po/glimt.pot, after a text is added or chang
 - Use `--profile quick` (Cargo.toml) for clippy and tests. It is optimised like the release, so
   the tests' timings hold, but it builds in many parts and incrementally, so a small change
   builds in a fraction of the time. A debug build as well would double the space in `target/`.
-- CI also runs `cargo check` with the oldest Rust that `rust-version` in Cargo.toml names, and
-  so does `tools/check.sh`, so use no standard library function newer than that. CI runs `cargo fmt --check`, and builds with
-  `--locked`, so a Cargo.toml changed without its Cargo.lock fails.
+- CI also runs `cargo check` in both builds with the oldest Rust that `rust-version` in
+  Cargo.toml names, and so does `tools/check.sh`, so use no standard library function newer
+  than that. CI runs `cargo fmt --check`, and builds with `--locked`, so a Cargo.toml changed
+  without its Cargo.lock fails.
 - `tools/check.sh` runs the five cargo checks above in Docker (`rust:1` with mold and sccache),
-  and a `cargo check` with the Rust of `rust-version`, as CI does. Use it on a computer without
-  cargo, or for several worktrees at once. CI runs the same checks on every push to any branch.
+  and a `cargo check` in both builds with the Rust of `rust-version`, as CI does. Use it on a
+  computer without cargo, or for several worktrees at once. CI runs the same checks on every push to any branch.
   Read its exit status directly, not through a pipe such as `| tail`, which hides a failed
   check.
 - Each checkout keeps a build folder of a few GB in the Docker volume `glimt-target`. The first

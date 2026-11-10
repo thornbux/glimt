@@ -3005,3 +3005,7 @@ msgstr "Byt namn på flera körs utan sin plan ({e}), så en krasch halvvägs r�
 #: src/model/folder.rs
 msgid "Still opening {name}… Open another folder to stop waiting."
 msgstr "Öppnar fortfarande {name}… Öppna en annan mapp för att sluta vänta."
+
+#: src/files/file_ops.rs
+msgid "Rename Many stopped, so the metadata edited for {count} was not saved"
+msgstr "Byt namn på flera stoppade, så metadata som redigerades för {count} sparades inte"

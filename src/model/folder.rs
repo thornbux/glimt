@@ -73,6 +73,10 @@ pub(crate) struct Folder {
     /// The notice that the place is still opening, as given. It is taken away when the look-up
     /// answers or another one replaces it.
     still_opening_notice: Option<String>,
+    /// The place that Remember Last Folder keeps while the one shown cannot be kept: the place
+    /// remembered at the start, until the first look-up answers, and the folder or collection
+    /// shown before several folders were shown together.
+    place_before: Option<PathBuf>,
     /// The folder listing in the background, as (subfolders, images).
     listing_rx: Receiving<Listed>,
     /// The list's version when the listing that runs started. A collection's listing works
@@ -129,8 +133,8 @@ pub(crate) struct Folder {
 
 impl Folder {
     /// A `Folder` with nothing open yet. The recent list and the sort manager's folders are read
-    /// from their files.
-    pub(crate) fn new(config: &Config) -> Self {
+    /// from their files. `remembered` is the last folder kept from the window before, if any.
+    pub(crate) fn new(config: &Config, remembered: Option<PathBuf>) -> Self {
         // When no list is kept, one from before goes too, also when the setting was changed in
         // the file.
         let recent = match config::recent_path() {
@@ -158,6 +162,7 @@ impl Folder {
             looking_up: Receiving::none(),
             looking_up_since: None,
             still_opening_notice: None,
+            place_before: remembered,
             listing_rx: Receiving::none(),
             listing_version: 0,
             subdirs_rx: Receiving::none(),
@@ -194,6 +199,20 @@ impl Folder {
     /// to it.
     pub(crate) fn dir(&self) -> &Path {
         &self.dir
+    }
+
+    /// Returns the place that Remember Last Folder keeps: the collection or the one folder
+    /// shown. The "/" that stands for several folders shown together is never kept, and neither
+    /// is the empty folder before the first look-up answers. Then it is the place kept before
+    /// (`place_before`), and `None` when there is none.
+    pub(crate) fn place_to_remember(&self) -> Option<&Path> {
+        if let Some(file) = &self.collection {
+            return Some(file);
+        }
+        match self.folders.is_empty() && !self.dir.as_os_str().is_empty() {
+            true => Some(&self.dir),
+            false => self.place_before.as_deref(),
+        }
     }
 
     /// The open collection's file, or `None` when no collection is open.
@@ -1029,6 +1048,7 @@ impl crate::App {
 
     /// Shows the images of `folders`, each by its real path, as one list.
     fn open_folders_found(&mut self, ctx: &egui::Context, folders: Vec<PathBuf>) {
+        self.folder.place_before = self.folder.place_to_remember().map(Path::to_path_buf);
         self.leave_image(ctx);
         self.folder.collection = None;
         // As when a folder is opened, the subfolders come with it when the menu says so,
@@ -1652,10 +1672,17 @@ impl crate::App {
 /// which on a share that stopped answering is for ever.
 fn look_up(paths: &[PathBuf]) -> Found {
     let mut folders: Vec<PathBuf> = Vec::new();
+    let mut first_there = None;
     for p in paths.iter().filter(|_| paths.len() > 1) {
+        // A path that is not there is left out. Taken for a file, it stood for its parent
+        // folder, whose images the user never asked for.
+        let Ok(found) = std::fs::metadata(p) else {
+            continue;
+        };
+        first_there.get_or_insert(p);
         // Each folder by its real path, as one folder opened alone, so the list names a file as
         // it does then: marks and stars are kept by that name. A file stands for its folder.
-        let dir = match p.is_dir() {
+        let dir = match found.is_dir() {
             true => listing::real_dir(p),
             false => {
                 let real = listing::real_path(p);
@@ -1669,8 +1696,9 @@ fn look_up(paths: &[PathBuf]) -> Found {
     if folders.len() > 1 {
         return Found::Folders(folders);
     }
-    // One folder (several of its files, from a file manager) opens at the first file.
-    let path = paths.first().cloned().unwrap_or_default();
+    // One folder (several of its files, from a file manager) opens at the first file that is
+    // there.
+    let path = first_there.or(paths.first()).cloned().unwrap_or_default();
     if collections::is_collection(&path) {
         // The path is absolute from here on, because it is kept in Open Recent and as the last
         // folder. A relative name was another file, or none, for a window started elsewhere.
@@ -1844,6 +1872,53 @@ mod tests {
         app.poll_background(&ctx);
         app.receive_listing(&ctx, std::time::Duration::from_millis(500));
         assert_eq!(app.folder.whole_listings(), listings_before);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A path that is not there, among several, is left out. Before, it was taken for a file
+    /// and stood for its parent folder, which was shown with the others.
+    #[test]
+    fn a_missing_path_among_several_is_left_out() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-typo-{}", std::process::id()));
+        let (x, y) = (dir.join("x"), dir.join("y"));
+        for d in [&x, &y] {
+            std::fs::create_dir_all(d).unwrap();
+        }
+        let typo = dir.join("typo");
+        let real = |p: &std::path::Path| crate::model::listing::real_dir(p);
+        let found = super::look_up(&[x.clone(), typo.clone(), y.clone()]);
+        assert!(matches!(found, super::Found::Folders(f) if f == [real(&x), real(&y)]));
+        // With one left, it opens alone.
+        let found = super::look_up(&[typo.clone(), x.clone()]);
+        assert!(
+            matches!(found, super::Found::Folder { dir, is_there: true, .. } if dir == real(&x))
+        );
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// Remember Last Folder keeps a place that opened. Before the first look-up answers, it
+    /// is the place remembered at the start, and while folders are shown together, the place
+    /// shown before them. Before, it kept "" (the remembered folder lost) or "/" (the next start
+    /// listed the whole disk).
+    #[test]
+    fn the_place_remembered_is_one_that_opened() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-remember-{}", std::process::id()));
+        let (x, y) = (dir.join("x"), dir.join("y"));
+        for d in [&x, &y] {
+            std::fs::create_dir_all(d).unwrap();
+        }
+        let config = crate::files::config::Config::default();
+        let kept = Some(std::path::PathBuf::from("/kept"));
+        let not_opened = super::Folder::new(&config, kept.clone());
+        assert_eq!(not_opened.place_to_remember(), kept.as_deref());
+        assert_eq!(super::Folder::new(&config, None).place_to_remember(), None);
+        let (mut app, ctx) = app_on(&x);
+        let x = crate::model::listing::real_dir(&x);
+        assert_eq!(app.folder.place_to_remember(), Some(x.as_path()));
+        app.open_folders(&ctx, vec![x.clone(), y.clone()]);
+        app.receive_looked_up(&ctx, std::time::Duration::from_secs(5));
+        assert_eq!(app.folder.folders().len(), 2);
+        assert_eq!(app.folder.place_to_remember(), Some(x.as_path()));
         std::fs::remove_dir_all(dir).unwrap();
     }
 

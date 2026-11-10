@@ -425,7 +425,7 @@ pub fn frame_png(img: image::DynamicImage, how: &CopyAs) -> Result<Vec<u8>, Stri
     )
 }
 
-/// The image as `how` shows it, in sRGB, for Select → Copy Image. That copied the image
+/// The image as `how` shows it, in sRGB, for Edit → Copy Image. That copied the image
 /// unturned, and only its first page.
 pub fn shown_image(path: &Path, how: &CopyAs) -> Result<image::DynamicImage, String> {
     let (img, icc) = pixels(path, how)?;
@@ -737,6 +737,17 @@ fn derived_metadata(
             (d.xmp_metadata().ok().flatten(), stored)
         })
         .unwrap_or_default();
+    // A PNG's XMP and eXIf after the pixels, which the decoder does not read, are read here,
+    // because the PNG written drops them (`png_with_chunks`). Their orientation was not shown,
+    // so `stored` is read without it.
+    if has_ext(path, &["png"])
+        && (xmp.is_none() || exif.is_none())
+        && let Ok(bytes) = crate::images::decode::read_limited(path)
+    {
+        let (after_exif, after_xmp) = crate::images::shared_copy::png_exif_and_xmp(&bytes);
+        exif = exif.or_else(|| exif::derived_of(&after_exif?, how));
+        xmp = xmp.or(after_xmp);
+    }
     if let Some(exif) = &mut exif {
         exif::set_upright(exif, size)?;
     }
@@ -869,11 +880,9 @@ pub(crate) fn xmp_without_property(xmp: &[u8], name: &[u8]) -> Vec<u8> {
             Some(b'<')
                 if after.is_some_and(|c| c == b'>' || c == b'/' || c.is_ascii_whitespace()) =>
             {
-                match gts.at(end) {
-                    Some(gt) if xmp[gt - 1] == b'/' => Some(gt + 1),
-                    Some(gt) => ends.at(gt).map(|e| e + end_tag.len()),
-                    None => None,
-                }
+                (gts.at(end)).and_then(|gt| {
+                    element_end_after_start_tag(xmp, gt, &end_tag, |from| ends.at(from))
+                })
             }
             // An attribute: its name, "=" and the quoted value, with the blank before it.
             Some(c) if c.is_ascii_whitespace() => {
@@ -909,6 +918,23 @@ pub(crate) fn xmp_without_property(xmp: &[u8], name: &[u8]) -> Vec<u8> {
     }
     out.extend_from_slice(&xmp[copied..]);
     out
+}
+
+/// Returns where an element of XMP ends, given `gt`, the place of the ">" that ends its start
+/// tag. An empty element (`<name/>`) ends just after that ">", and any other just after its end
+/// tag, which `find_end_tag` finds from a place. Returns `None` when the end tag is missing. The
+/// readers of the XMP fields and `xmp_without_property` both end an element here, so a reader
+/// never reads past an empty element into the lists that follow it.
+pub(crate) fn element_end_after_start_tag(
+    xmp: &[u8],
+    gt: usize,
+    end_tag: &[u8],
+    find_end_tag: impl FnOnce(usize) -> Option<usize>,
+) -> Option<usize> {
+    match gt.checked_sub(1).map(|i| xmp[i]) {
+        Some(b'/') => Some(gt + 1),
+        _ => find_end_tag(gt).map(|e| e + end_tag.len()),
+    }
 }
 
 /// `img` turned as the view turns it, mirrored first and then turned clockwise `turns`
@@ -1016,9 +1042,9 @@ fn encode(
 /// Makes `img` pixels that `encoding` writes, and keeps `icc` only where it describes them. A JPEG
 /// holds 8-bit grey or RGB, a WebP 8-bit RGB or RGBA, and a PNG no floats, so a 32-bit float
 /// TIFF is written in 16 bits. Before, a PNG copy of such a TIFF failed. A profile is kept only
-/// when its colour space, in bytes 16 to 20 of its header, is the pixels' own, grey or RGB.
-/// Before, a grey JPEG's Gray profile went with RGB pixels, and a CMYK JPEG's profile with the
-/// RGB it is decoded to, so other programs showed the copy in wrong colours.
+/// when it fits the pixels (`colour::profile_fits`). Before, a grey JPEG's Gray profile went
+/// with RGB pixels, and a CMYK JPEG's profile with the RGB it is decoded to, so other programs
+/// showed the copy in wrong colours.
 fn writable_pixels(
     img: image::DynamicImage,
     icc: Option<Vec<u8>>,
@@ -1037,12 +1063,9 @@ fn writable_pixels(
             img => img,
         },
     };
-    let space: &[u8] = if img.color().has_color() {
-        b"RGB "
-    } else {
-        b"GRAY"
-    };
-    (img, icc.filter(|p| p.get(16..20) == Some(space)))
+    let fits = |p: &Vec<u8>| crate::images::colour::profile_fits(p, img.color());
+    let icc = icc.filter(fits);
+    (img, icc)
 }
 
 /// Puts `xmp` into `jpeg` in an APP1 segment of Adobe's name, right after the start (SOI).
@@ -1775,6 +1798,45 @@ mod tests {
         std::fs::write(&file, b"RIFF\x04\0\0\0WEBP").unwrap();
         assert_eq!(super::webp_lossless(&file), None);
         std::fs::remove_file(file).unwrap();
+    }
+
+    /// A PNG turned keeps its XMP and EXIF when they come after the pixels, where ExifTool adds
+    /// XMP. Before, the decoder read neither, and the turned PNG dropped both chunks, so the
+    /// keywords were lost from the user's own file.
+    #[test]
+    fn a_turned_png_keeps_the_metadata_after_its_pixels() {
+        use image::ImageDecoder;
+        let dir = std::env::temp_dir().join(format!("glimt-turn-after-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("a.png");
+        image::RgbImage::new(4, 2).save(&file).unwrap();
+        // IFD0 with Make "Canon".
+        let exif = b"MM\0*\0\0\0\x08\0\x01\x01\x0f\0\x02\0\0\0\x06\0\0\0\x1a\0\0\0\0Canon\0";
+        let xmp = b"<x:xmpmeta>Oslo</x:xmpmeta>";
+        let chunk = |body: Vec<u8>| {
+            let mut out = ((body.len() - 4) as u32).to_be_bytes().to_vec();
+            out.extend(&body);
+            out.extend(super::crc32(&body).to_be_bytes());
+            out
+        };
+        let mut bytes = std::fs::read(&file).unwrap();
+        let iend = bytes.len() - 12;
+        let after = [
+            chunk([&b"iTXtXML:com.adobe.xmp\0\0\0\0\0"[..], xmp].concat()),
+            chunk([&b"eXIf"[..], exif].concat()),
+        ];
+        bytes.splice(iend..iend, after.concat());
+        std::fs::write(&file, &bytes).unwrap();
+        super::save_rotated(&file, false, 1, false, 90).unwrap();
+        let mut dec = image::ImageReader::open(&file)
+            .unwrap()
+            .into_decoder()
+            .unwrap();
+        assert_eq!(dec.dimensions(), (2, 4));
+        assert_eq!(dec.xmp_metadata().unwrap().as_deref(), Some(&xmp[..]));
+        let rows = crate::metadata::exif::read(&file);
+        assert!(rows.contains(&("Camera", "Canon".to_string())), "{rows:?}");
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     /// A PNG turned upright by its EXIF orientation and then a quarter turn keeps its EXIF,

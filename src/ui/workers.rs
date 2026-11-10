@@ -123,7 +123,7 @@ impl crate::App {
     fn receive_focus(&mut self, ctx: &egui::Context) {
         let focus = ctx.input(|i| i.viewport().focused.unwrap_or(false));
         let gained = self.window.set_focused(focus);
-        if gained && self.config.remote_control {
+        if gained {
             remote::mark_this_window_focused();
         }
         // Back from another window, which may have marked files meanwhile.
@@ -161,7 +161,10 @@ impl crate::App {
                 self.finish_rename_many(ctx, job, result)
             }
             Took::Answer((None, ..)) | Took::Nothing => {}
-            Took::Gone => self.tell_background_stopped(tr("Rename Many")),
+            Took::Gone => {
+                self.tell_background_stopped(tr("Rename Many"));
+                self.send_waiting_sidecar_writes(ctx, None);
+            }
         }
         if !self.file_operations.receive_cut_short() {
             self.tell_background_stopped(tr("Looking for renames cut short"));

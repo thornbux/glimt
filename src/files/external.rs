@@ -491,7 +491,7 @@ pub fn is_video(_: &Path) -> bool {
 pub fn gio_mount(uri: &str, login: Option<&Login>) -> Mounted {
     use std::io::{Read, Write};
     // An option is not a place, and -u or -e would unmount or eject. It is not given to gio at
-    // all, rather than after a --, because `gio info` reads that as a file of its own as well.
+    // all, because `gio mount` takes no -- before its places. `gio info` does, and gets one.
     if uri.starts_with('-') {
         return Err(Some(crate::tf!(
             "Could not mount {uri}: not an address",
@@ -603,6 +603,12 @@ fn unknown_host(uri: &str) -> String {
             host
         ),
     }
+}
+
+/// Returns `text` when it is a network location to mount, such as smb://nas/photos, and not a
+/// path. Glimt's command line, `--remote open` and the path field all go by this one rule.
+pub fn network_location(text: &str) -> Option<&str> {
+    text.contains("://").then_some(text)
 }
 
 /// `uri` without a password written into it (smb://user:secret@nas/share), and that password,

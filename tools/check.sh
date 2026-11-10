@@ -2,10 +2,10 @@
 # The checks before a commit (AGENTS.md) in Docker, for a computer without cargo, or for several
 # worktrees at once:
 #
-#   tools/check.sh                 cargo fmt, then clippy and the tests, without and with every
-#                                  feature, in --profile quick, and a cargo check with the
-#                                  oldest Rust that Cargo.toml's rust-version names, as CI does;
-#                                  exits nonzero when one fails
+#   tools/check.sh                 cargo fmt --check, then clippy and the tests, without and
+#                                  with every feature, in --profile quick, and a cargo check
+#                                  in both builds with the oldest Rust that Cargo.toml's
+#                                  rust-version names, as CI does; exits nonzero when one fails
 #   tools/check.sh 'COMMANDS'      other cargo commands in the same container, such as
 #                                  'cargo test --profile quick NAME'
 #   tools/check.sh --clean         removes the build folders of checkouts that are gone
@@ -15,7 +15,8 @@
 # Each checkout has a target folder of its own in the volume glimt-target, so worktrees do not
 # wait for each other's lock.
 # At most one check per 5 GB of Docker's memory runs at once; the others wait their turn.
-# cargo fmt changes the files in place: the checkout is mounted, not copied.
+# Files that cargo fmt --check finds are formatted in place, as the checkout is mounted, not
+# copied, and the check fails: run it again on the formatted files.
 set -u
 cd "$(dirname "$0")/.." || exit 2
 # The real path, as git worktree list prints it, so --clean knows this checkout's folder also
@@ -97,11 +98,15 @@ locks=$HOME/.cache/glimt-check-locks
 mkdir -p "$locks"
 checks='r=0
 step() { echo "-- $*"; "$@" || { echo "FAIL: $*"; r=1; }; }
-step cargo fmt
+# Unformatted files fail the check, as cargo fmt --check fails them in CI, and are formatted
+# for the next run.
+formatted() { cargo fmt --check >/dev/null || { cargo fmt; echo "cargo fmt changed files"; false; }; }
+step formatted
 step cargo clippy -q --locked --profile quick --all-targets -- -D warnings
 step cargo test -q --locked --profile quick
 step cargo clippy -q --locked --profile quick --all-targets --all-features -- -D warnings
 step cargo test -q --locked --profile quick --all-features
+step cargo "+$MSRV" check -q --locked
 step cargo "+$MSRV" check -q --locked --all-features
 [ $r = 0 ] && echo "every check passed"
 exit $r'

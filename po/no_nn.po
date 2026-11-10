@@ -3016,3 +3016,7 @@ msgstr "Endra mange namn køyrer utan planen sin ({e}), så eit krasj halvvegs b
 #: src/model/folder.rs
 msgid "Still opening {name}… Open another folder to stop waiting."
 msgstr "Opnar framleis {name}… Opna ei anna mappe for å slutte å vente."
+
+#: src/files/file_ops.rs
+msgid "Rename Many stopped, so the metadata edited for {count} was not saved"
+msgstr "Endra mange namn stoppa, så metadataa som vart redigerte for {count}, vart ikkje lagra"

@@ -1056,20 +1056,8 @@ impl crate::App {
                         return drop(ui.label("…"));
                     }
                     let open = self.tree.expanded.contains(path);
-                    let caret = match open {
-                        true => theme::icon::CARET_DOWN,
-                        false => theme::icon::CARET_RIGHT,
-                    };
                     let name = path.file_name().map_or("/".into(), |n| n.to_string_lossy());
-                    #[allow(clippy::disallowed_methods)] // A caret has no text to note.
-                    let toggle = ui.add(egui::Button::new(caret).frame(false));
-                    // Told to a screen reader by the folder's name and whether it is open, not
-                    // by the icon's glyph.
-                    toggle.widget_info(|| {
-                        let role = egui::Role::DisclosureTriangle;
-                        egui::WidgetInfo::selected(role, true, open, &name)
-                    });
-                    if toggle.clicked() {
+                    if crate::ui::menus::caret(ui, open, &name).clicked() {
                         toggled = Some(path.to_path_buf());
                     }
                     let label = selectable(ui, path == self.folder.dir(), name.as_ref());
@@ -1307,8 +1295,8 @@ impl crate::App {
                 }
                 _ => PathBuf::from(text),
             };
-            if text.contains("://") {
-                self.mount(ui.ctx(), text.to_owned());
+            if let Some(uri) = crate::files::external::network_location(text) {
+                self.mount(ui.ctx(), uri.to_owned());
             } else {
                 let gone = |p: &Path| tf!("No such folder: {folder}", folder = p.display());
                 self.visit_if_there(ui.ctx(), path, gone);

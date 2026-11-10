@@ -140,9 +140,11 @@ impl KeywordChange {
         }
     }
 
-    /// Takes the removed keywords out of `keywords` and adds the added ones at its end.
+    /// Takes the removed keywords out of `keywords` and adds the added ones at its end. A removed
+    /// keyword is taken out only as it is spelled, because `between` chose it by its spelling,
+    /// and "Rose" stays when "rose" goes.
     pub fn apply(&self, keywords: &mut Vec<String>) {
-        keywords.retain(|k| !self.removed.iter().any(|r| same_keyword(r, k)));
+        keywords.retain(|k| !self.removed.contains(k));
         add_to(keywords, &self.added);
     }
 }
@@ -912,12 +914,9 @@ fn language_alternative(xmp: &str, tag: &str, text: &str, say_empty: bool) -> St
 /// The rdf:li items of element `tag`, each as the language its start tag names (xml:lang, or
 /// empty for none) and its text.
 fn items_with_languages(xmp: &str, tag: &str) -> Vec<(String, String)> {
-    let Some(start) = xmp.find(&format!("<{tag}")) else {
+    let Some((start, end)) = element_span(xmp, tag) else {
         return Vec::new();
     };
-    let end = xmp[start..]
-        .find(&format!("</{tag}>"))
-        .map_or(xmp.len(), |e| start + e);
     let (mut rest, mut out) = (&xmp[start..end], Vec::new());
     while let Some(i) = rest.find("<rdf:li") {
         rest = &rest[i..];
@@ -963,12 +962,28 @@ fn set_keywords(xmp: &str, meta: &KeywordsAndComment, say_empty: bool) -> Option
     })
 }
 
-/// The whole element `tag` in `xmp`, from its start tag to its end tag.
+/// The whole element `tag` in `xmp`, from its start tag to its end tag, or the empty element
+/// (`<tag/>`) alone.
 fn element(xmp: &str, tag: &str) -> Option<String> {
-    let start = xmp.find(&format!("<{tag}"))?;
-    let close = format!("</{tag}>");
-    let end = start + xmp[start..].find(&close)? + close.len();
+    let (start, end) = element_span(xmp, tag)?;
     Some(xmp[start..end].to_owned())
+}
+
+/// Returns where the first element `tag` of `xmp` starts and where it ends, as
+/// `save::xmp_without_property` ends it (`save::element_end_after_start_tag`). Returns `None`
+/// when there is none, or when its end tag is missing.
+fn element_span(xmp: &str, tag: &str) -> Option<(usize, usize)> {
+    let start = xmp.find(&format!("<{tag}"))?;
+    let gt = start + xmp[start..].find('>')?;
+    let close = format!("</{tag}>");
+    let find_close = |from: usize| xmp[from..].find(&close).map(|e| from + e);
+    let end = crate::images::save::element_end_after_start_tag(
+        xmp.as_bytes(),
+        gt,
+        close.as_bytes(),
+        find_close,
+    )?;
+    Some((start, end))
 }
 
 /// `xmp` with the keywords and comment of `meta`, in its first rdf:Description. The comment
@@ -2078,6 +2093,24 @@ mod tests {
         assert_eq!(edited("Smith, Jon, x"), ["x", "Smith", "Jon"]);
     }
 
+    /// Taking out one of two keywords that differ only in letter case keeps the other. Before,
+    /// `apply` took out every keyword the same but for letter case, so both went.
+    #[test]
+    fn taking_out_one_spelling_keeps_the_other() {
+        let k = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        let saved = k(&["Rose", "rose"]);
+        let mut keywords = saved.clone();
+        KeywordChange::between(&saved, &k(&["Rose"])).apply(&mut keywords);
+        assert_eq!(keywords, ["Rose"]);
+        let mut keywords = k(&["rose"]);
+        KeywordChange::between(&keywords.clone(), &k(&["Rose"])).apply(&mut keywords);
+        assert_eq!(
+            keywords,
+            ["Rose"],
+            "a change of letter case is still written"
+        );
+    }
+
     /// An edit of the keywords field changes only the keywords it added or took out. A keyword
     /// that another window or a Lightroom import wrote after the panel read the file stays, and
     /// so does one that holds a comma, which the field would split in two.
@@ -2451,6 +2484,25 @@ mod tests {
         }
         assert_eq!(parse(&new), meta);
         assert!(new.contains("dc:title='t'") && !new.contains("\n\n"));
+    }
+
+    /// An empty `<dc:subject/>` or `<dc:description/>` ends where it stands. Before, the
+    /// readers looked for its end tag, read the items of the lists after it as keywords and
+    /// comment, and a keyword edit wrote them into the sidecar.
+    #[test]
+    fn an_empty_element_holds_nothing() {
+        let xmp = r#"<rdf:Description rdf:about="">
+   <dc:subject/>
+   <dc:description/>
+   <lr:hierarchicalSubject><rdf:Bag><rdf:li>Places|Oslo</rdf:li></rdf:Bag></lr:hierarchicalSubject>
+  </rdf:Description>"#;
+        assert_eq!(parse(xmp), KeywordsAndComment::default());
+        let meta = KeywordsAndComment {
+            keywords: vec!["Beach".into()],
+            comment: String::new(),
+        };
+        let new = set_keywords(xmp, &meta, false).unwrap();
+        assert_eq!(parse(&new), meta, "{new}");
     }
 
     #[test]

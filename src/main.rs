@@ -193,13 +193,16 @@ impl App {
         crate::ui::actions::use_user_keys(&config.keys);
         // The folder shown last is looked at only in the background (`open_last_folder`),
         // because a share that stopped answering would hold the start before the window opens.
-        let last_folder = (path.is_none() && config.remember_dir)
+        // It is read also when a path is given, because it is kept until another place opens.
+        let remembered = config
+            .remember_dir
             .then(|| {
                 let state = crate::images::decode::read_text(state_path()?).ok()?;
                 parse_last_dir(&state)
             })
             .flatten();
-        let path = (path.or_else(|| last_folder.clone())).unwrap_or_else(|| ".".into());
+        let opens_last_folder = path.is_none() && remembered.is_some();
+        let path = (path.or_else(|| remembered.clone())).unwrap_or_else(|| ".".into());
         crate::images::decode::set_animation_limit(config.animation_mb);
         set_cpu_use(config.cpu_use);
         crate::ui::theme::fonts(ctx);
@@ -223,7 +226,7 @@ impl App {
         let mut app = App {
             ctx: ctx.clone(),
             desktop_settings: crate::ui::theme::DesktopSettings::new(ctx, config.desktop_profile),
-            folder: crate::model::folder::Folder::new(&config),
+            folder: crate::model::folder::Folder::new(&config, remembered),
             list: List::default(),
             file_operations: crate::files::file_ops::FileOperations::new(&busy),
             busy: busy.clone(),
@@ -267,24 +270,39 @@ impl App {
             remote: crate::features::remote::Listener::new(ctx, listens_without_name),
             config,
         };
-        // When a URI is on the command line, Glimt starts where it would otherwise and goes to
-        // the URI once it is mounted.
-        match path.to_str().filter(|p| p.contains("://")) {
-            Some(uri) => {
-                app.open(ctx, ".".into());
-                app.mount(ctx, uri.to_owned());
-            }
-            None if !start.more_paths.is_empty() => {
-                let all = std::iter::once(path).chain(start.more_paths.iter().cloned());
-                app.open_folders(ctx, all.collect());
-            }
-            None if last_folder.is_some() => app.open_last_folder(ctx, path),
-            None => app.open(ctx, path),
-        }
+        app.open_at_start(ctx, path, &start.more_paths, opens_last_folder);
         // Small folders are listed before the first frame. A large one holds startup back for
         // at most 50 ms.
         app.receive_listing(ctx, std::time::Duration::from_millis(50));
         app
+    }
+
+    /// Opens what the command line names, or the folder shown last when it names nothing and
+    /// `opens_last_folder` is set. Several paths open together as one list.
+    fn open_at_start(
+        &mut self,
+        ctx: &egui::Context,
+        path: PathBuf,
+        more_paths: &[PathBuf],
+        opens_last_folder: bool,
+    ) {
+        // When a URI is on the command line, Glimt starts where it would otherwise and goes to
+        // the URI once it is mounted.
+        match path
+            .to_str()
+            .and_then(crate::files::external::network_location)
+        {
+            Some(uri) => {
+                self.open(ctx, ".".into());
+                self.mount(ctx, uri.to_owned());
+            }
+            None if !more_paths.is_empty() => {
+                let all = std::iter::once(path).chain(more_paths.iter().cloned());
+                self.open_folders(ctx, all.collect());
+            }
+            None if opens_last_folder => self.open_last_folder(ctx, path),
+            None => self.open(ctx, path),
+        }
     }
 
     fn frame_ui(&mut self, ui: &mut egui::Ui) {
@@ -328,7 +346,7 @@ impl App {
         self.confirm_open_dialog(ctx);
         self.duplicates_window(ctx);
         self.check_window(ctx);
-        crate::ui::help::window(ctx, &mut self.help);
+        crate::ui::help::window(ctx, &mut self.help, self.config.delete_key);
         self.focus_ring(ctx);
         if !bare {
             self.status_bar(ctx, ui);
@@ -373,8 +391,9 @@ impl eframe::App for App {
         // shortcut: the path is stored as UTF-8, lossless for ordinary paths; store its bytes
         // if a folder name that is not UTF-8 must be remembered.
         let mut state = String::new();
-        if self.config.remember_dir {
-            let last = self.folder.collection().unwrap_or(self.folder.dir());
+        if self.config.remember_dir
+            && let Some(last) = self.folder.place_to_remember()
+        {
             state += &crate::files::config::last_dir_line(last);
         }
         if self.config.remember_window {

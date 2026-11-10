@@ -477,7 +477,8 @@ impl crate::App {
             // makes the count one too high at the end of a sheet. Read them all first to know.
             let total = job.paths.len().div_ceil(job.layout.per_page.max(1));
             let title = format!("Glimt: {}", count(job.paths.len(), "image"));
-            let sides = job.two_sided.then(|| print::sides(&job.layout));
+            let first = pages.peek().map(|(img, _)| [img.width(), img.height()]);
+            let (layout, sides) = print::layout_and_sides(&job.layout, job.two_sided, first);
             // The printer chosen in the desktop's print dialog, for the message.
             #[cfg_attr(not(feature = "portals"), allow(unused_mut))]
             let mut chosen: Option<String> = None;
@@ -485,7 +486,7 @@ impl crate::App {
                 #[cfg(feature = "portals")]
                 PrintTo::Printer(printer) if printer == print::SYSTEM_DIALOG => {
                     let sent = crate::files::portal::print(job.copies, sides, &title, |w| {
-                        print::pdf(pages, &job.layout, total, w)
+                        print::pdf(pages, &layout, total, w)
                     });
                     match sent {
                         Ok(Some(printer)) => {
@@ -502,7 +503,7 @@ impl crate::App {
                     }
                 }
                 PrintTo::Printer(printer) => print::send(printer, job.copies, sides, &title, |w| {
-                    print::pdf(pages, &job.layout, total, w)
+                    print::pdf(pages, &layout, total, w)
                 }),
                 // The PDF is written beside the file first. The file chosen is replaced only by
                 // a whole PDF, after every image was read, because one of them may be the file
@@ -512,7 +513,7 @@ impl crate::App {
                     // downloaded folder may hold IMG_0001.pdf pointing at any file of the user's.
                     let write = |f: &mut std::fs::File| {
                         let mut out = std::io::BufWriter::new(f);
-                        print::pdf(pages, &job.layout, total, &mut out)?;
+                        print::pdf(pages, &layout, total, &mut out)?;
                         out.flush()
                     };
                     crate::files::file_io::replace_name_with(file, write, || Ok(()))
@@ -555,15 +556,21 @@ fn grid(per_page: usize) -> [usize; 2] {
         .map_or([1, 1], |p| p.1)
 }
 
+/// Whether the page for images of `sizes` (pixels) is turned to landscape: always or never by
+/// the orientation chosen, and with Automatic when it holds one wide image.
+fn is_landscape(layout: &Layout, sizes: &[[u32; 2]]) -> bool {
+    let wide = sizes.first().is_some_and(|s| s[0] > s[1]);
+    match layout.orientation {
+        Orientation::Portrait => false,
+        Orientation::Landscape => true,
+        Orientation::Auto => layout.per_page == 1 && wide,
+    }
+}
+
 /// The page for images of `sizes` (pixels), with room for captions if `captions`.
 pub fn lay_out_page(layout: &Layout, sizes: &[[u32; 2]], captions: bool) -> Page {
     let one = layout.per_page == 1;
-    let wide = sizes.first().is_some_and(|s| s[0] > s[1]);
-    let landscape = match layout.orientation {
-        Orientation::Portrait => false,
-        Orientation::Landscape => true,
-        Orientation::Auto => one && wide,
-    };
+    let landscape = is_landscape(layout, sizes);
     let [pw, ph] = match landscape {
         true => [layout.paper[1], layout.paper[0]],
         false => layout.paper,
@@ -891,12 +898,33 @@ fn lp_args(printer: &str, copies: u32, sides: Option<&str>, title: &str) -> Vec<
 }
 
 /// CUPS's way of printing on both sides for `layout`. Portrait pages turn on the long edge and
-/// landscape ones on the short edge, so the back is the right way up.
+/// landscape ones on the short edge, so the back is the right way up. It holds for every page
+/// only when they all turn one way, which `layout_and_sides` makes sure of.
 pub fn sides(layout: &Layout) -> &'static str {
     match layout.orientation {
         Orientation::Landscape => "two-sided-short-edge",
         _ => "two-sided-long-edge",
     }
+}
+
+/// Returns the layout of a job and, when it is printed on `two_sided` paper, its `sides`. lp
+/// is told one way to turn the paper for the whole job, so on both sides every page turns as
+/// the first one does, whose image is `first` in size: Automatic becomes Portrait or Landscape
+/// for all of them.
+pub fn layout_and_sides(
+    layout: &Layout,
+    two_sided: bool,
+    first: Option<[u32; 2]>,
+) -> (Layout, Option<&'static str>) {
+    let mut layout = layout.clone();
+    if two_sided && layout.orientation == Orientation::Auto {
+        layout.orientation = match first.is_some_and(|size| is_landscape(&layout, &[size])) {
+            true => Orientation::Landscape,
+            false => Orientation::Portrait,
+        };
+    }
+    let sides = two_sided.then(|| sides(&layout));
+    (layout, sides)
 }
 
 /// Sends the PDF that `write` makes to `printer` with `lp`, through its input, so no file is
@@ -1187,6 +1215,34 @@ mod tests {
         };
         assert_eq!(sides(&wide), "two-sided-short-edge");
         assert_eq!(sides(&Layout::new(PAPERS[0].1, 1)), "two-sided-long-edge");
+    }
+
+    /// On both sides of the paper, every page of an Automatic job turns as the first one does,
+    /// so the one `sides` lp is told fits each page. Before, wide photos went on landscape pages
+    /// while lp was told to turn on the long edge, so their backs came out upside down.
+    #[test]
+    fn both_sides_turn_every_page_one_way() {
+        use super::{Layout, PAPERS, lay_out_page, layout_and_sides};
+        let auto = Layout::new(PAPERS[0].1, 1);
+        let is_landscape = |l: &Layout, size| {
+            let [w, h] = lay_out_page(l, &[size], false).size;
+            w > h
+        };
+        for (first, edge) in [
+            ([40, 20], "two-sided-short-edge"),
+            ([20, 40], "two-sided-long-edge"),
+        ] {
+            let (layout, sides) = layout_and_sides(&auto, true, Some(first));
+            assert_eq!(sides, Some(edge), "{first:?}");
+            let landscape = edge == "two-sided-short-edge";
+            for page in [[40, 20], [20, 40]] {
+                assert_eq!(is_landscape(&layout, page), landscape, "{first:?} {page:?}");
+            }
+        }
+        // On one side, each page still turns to its own image.
+        let (layout, sides) = layout_and_sides(&auto, false, Some([40, 20]));
+        assert_eq!(sides, None);
+        assert!(is_landscape(&layout, [40, 20]) && !is_landscape(&layout, [20, 40]));
     }
 
     /// A page's header and footer take %% for a %, as the other templates, so "100%%page%"

@@ -49,6 +49,9 @@ thread_local! {
     // Makes `sync_folder_of` on this thread fail as a disk that fails would, for the tests of
     // what follows such a failure.
     pub(crate) static FOLDER_SYNC_FAILS: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    // Takes ways to rename away from `rename_never_over` on this thread, as a file system
+    // without them would: 1 takes RENAME_NOREPLACE, 2 takes hard links too.
+    pub(crate) static RENAME_WAYS_MISSING: std::cell::Cell<u8> = const { std::cell::Cell::new(0) };
     // The errors that `save_failed` told for this thread's test. They do not go to the window's
     // own slot in tests, where another test's window would take them as its notice. Each list is
     // leaked, so that the writer thread can tell a test's errors to that test's list.
@@ -158,8 +161,20 @@ struct Mount<'a> {
 #[allow(clippy::disallowed_methods)] // its last fallback, a rename after looking
 pub(crate) fn rename_never_over(from: &Path, to: &Path) -> std::io::Result<()> {
     use std::io::ErrorKind::{AlreadyExists, CrossesDevices, Unsupported};
-    match rename_noreplace(from, to) {
-        Err(e) if e.kind() == Unsupported => match std::fs::hard_link(from, to) {
+    #[cfg(test)]
+    let missing = RENAME_WAYS_MISSING.get();
+    #[cfg(not(test))]
+    let missing = 0;
+    let one_step = match missing {
+        0 => rename_noreplace(from, to),
+        _ => Err(Unsupported.into()),
+    };
+    let link = || match missing {
+        0 | 1 => std::fs::hard_link(from, to),
+        _ => Err(Unsupported.into()),
+    };
+    match one_step {
+        Err(e) if e.kind() == Unsupported => match link() {
             Ok(()) => unlink_linked(from, to),
             Err(e) if matches!(e.kind(), AlreadyExists | CrossesDevices) => Err(e),
             Err(_) if to.exists() => Err(AlreadyExists.into()),
@@ -677,15 +692,23 @@ pub fn wait_for_queued_writes() {
 
 /// The lock beside `path`, held while it lives: another Glimt window's reading and writing of
 /// the same file does not fall between ours, which would lose its change. The lock is a file of
-/// its own, hidden beside it, as `path` is renamed over.
+/// its own, hidden beside it, as `path` is renamed over. Returns `None`, and the caller goes on
+/// without the lock, when the lock file cannot be made or is not a regular file.
 pub fn file_lock(path: &Path) -> Option<std::fs::File> {
+    use std::os::unix::fs::OpenOptionsExt;
     let name = path.file_name()?.to_string_lossy();
-    // Never truncated: a lock file that is a link planted in a shared folder must not empty
-    // the file it points to.
-    #[allow(clippy::disallowed_methods)] // a lock file, never truncated
+    // A collection may come with a download, and so may a lock file beside it. The lock is
+    // never truncated and never opened through a link, so a planted link neither empties nor
+    // makes the file it points to. It is opened without waiting, so that a planted pipe does
+    // not hold the thread for good, and what was opened must be a regular file.
+    #[allow(clippy::disallowed_methods)] // a lock file, never truncated and never a link
     let lock = (std::fs::OpenOptions::new().create(true).append(true))
+        .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
         .open(path.with_file_name(format!(".{name}.lock")))
         .ok()?;
+    if !lock.metadata().ok()?.is_file() {
+        return None;
+    }
     lock.lock().ok()?;
     Some(lock)
 }
@@ -1196,6 +1219,43 @@ mod tests {
         std::fs::remove_dir_all(dir).unwrap();
     }
 
+    /// Where the file system cannot rename in one step without replacing (FAT, exFAT, ntfs-3g,
+    /// NFS, many FUSE shares), a rename is a link and an unlink, and where it cannot link
+    /// either, a rename after a look. Neither replaces a file. A source that cannot be unlinked
+    /// keeps its name and loses the new one, and a source gone meanwhile counts as moved.
+    #[test]
+    fn renames_without_one_step_never_over_a_file() {
+        use super::RENAME_WAYS_MISSING;
+        let dir = std::env::temp_dir().join(format!("glimt-test-fallback-{}", std::process::id()));
+        let (a, b, c) = (dir.join("a"), dir.join("b"), dir.join("c"));
+        let text = |p: &std::path::Path| std::fs::read_to_string(p).unwrap();
+        for missing in [1, 2] {
+            let _ = std::fs::remove_dir_all(&dir);
+            std::fs::create_dir_all(&dir).unwrap();
+            std::fs::write(&a, "a").unwrap();
+            std::fs::write(&b, "b").unwrap();
+            RENAME_WAYS_MISSING.set(missing);
+            let taken = super::rename_never_over(&a, &b);
+            let renamed = super::rename_never_over(&a, &c);
+            RENAME_WAYS_MISSING.set(0);
+            assert_eq!(taken.unwrap_err().kind(), std::io::ErrorKind::AlreadyExists);
+            assert_eq!(text(&b), "b");
+            renamed.unwrap();
+            assert!(!a.exists() && text(&c) == "a");
+        }
+        // A folder cannot be unlinked as a file, as a file in another user's sticky folder
+        // cannot.
+        let (folder, linked) = (dir.join("folder"), dir.join("linked"));
+        std::fs::create_dir(&folder).unwrap();
+        std::fs::write(&linked, "x").unwrap();
+        assert!(super::unlink_linked(&folder, &linked).is_err());
+        assert!(folder.is_dir() && !linked.exists());
+        std::fs::write(&linked, "x").unwrap();
+        super::unlink_linked(&dir.join("gone"), &linked).unwrap();
+        assert_eq!(text(&linked), "x");
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
     /// A new file and a file replaced are on disk with their names when the call returns: the
     /// folder that holds each is synced. A copy is not, as nothing counts on its name. A move to
     /// another disk syncs the copy's folder before it unlinks the source, which a test cannot
@@ -1643,11 +1703,43 @@ mod tests {
         std::fs::write(&victim, "keep").unwrap();
         std::fs::write(&photo, "old").unwrap();
         symlink(&victim, dir.join(".trip.gqv.lock")).unwrap();
-        drop(super::file_lock(&photo));
+        assert!(super::file_lock(&photo).is_none(), "locked through a link");
         let tmp = super::tmp_path(&photo);
         symlink(&victim, &tmp).unwrap();
         drop(super::create_temp_beside(&tmp, &photo).unwrap());
         assert_eq!(std::fs::read_to_string(&victim).unwrap(), "keep");
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A lock file planted beside a collection that came with a download is never waited on,
+    /// and never made where a dangling link points. Before, a pipe there held the thread for
+    /// good, and the link made an empty file at its target.
+    #[test]
+    fn a_planted_pipe_or_dangling_link_is_no_lock() {
+        let dir =
+            std::env::temp_dir().join(format!("glimt-test-planted-lock-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let (with_pipe, with_link) = (dir.join("a.gqv"), dir.join("b.gqv"));
+        let made = std::process::Command::new("mkfifo")
+            .arg(dir.join(".a.gqv.lock"))
+            .status()
+            .unwrap();
+        assert!(made.success());
+        let target = dir.join("never-made");
+        std::os::unix::fs::symlink(&target, dir.join(".b.gqv.lock")).unwrap();
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let pipe_locked = super::file_lock(&with_pipe).is_some();
+            let link_locked = super::file_lock(&with_link).is_some();
+            tx.send((pipe_locked, link_locked)).unwrap();
+        });
+        let locked = rx.recv_timeout(std::time::Duration::from_secs(5));
+        assert_eq!(
+            locked,
+            Ok((false, false)),
+            "waited on the pipe or locked through the link"
+        );
+        assert!(!target.exists(), "the link's target was made");
         std::fs::remove_dir_all(dir).unwrap();
     }
 

@@ -650,6 +650,7 @@ const DISK_CALLS: &[&str] = &[
     "same_file(",
     "file_system_type_or_test",
     "rename_never_over(",
+    "collections::rename(",
     "put_file(",
     "replace_name(",
     "replace_name_with(",
@@ -1891,6 +1892,29 @@ fn copies_of_settings_have_one_writer() {
     );
 }
 
+/// The remote control setting decides only at start whether a window listens for `--remote`
+/// without a name. After that, `remote::listening()` says whether it listens, as a named window
+/// or a kiosk listens with the setting off. Before, a window marked itself as the one used last
+/// only with the setting on, so plain `--remote` reached another window than the one in use.
+#[test]
+fn whether_a_window_listens_is_asked_in_one_place() {
+    const HOMES: &[(&str, &[(&str, &str)])] = &[(
+        "remote_control",
+        &[
+            ("main.rs", "with_config"),
+            ("files/config.rs", ""),
+            ("ui/preferences.rs", "window_settings"),
+            ("support/test_support.rs", "app_on"),
+        ],
+    )];
+    let wrong = outside_their_homes(HOMES);
+    assert!(
+        wrong.is_empty(),
+        "the remote control setting read where remote::listening() is meant:\n{}",
+        wrong.join("\n")
+    );
+}
+
 /// A notice is given only through `Notice::give`, which gives it a number of its own, so a
 /// screen reader reads out a notice given again with the same text. Before, the screen reader's
 /// code told a notice given again by its text's address, and the second of two notices given
@@ -2432,6 +2456,42 @@ fn an_image_and_its_sidecar_change_together() {
     );
 }
 
+/// The keywords, comment, alt text and stars in a sidecar of the user's are written only in the
+/// work handed to `write_sidecars`, which holds the one rule for when such a write runs beside
+/// other work on its file. The homes are the functions that hand that work over. Before, the
+/// rule was kept by the operations and the turn, and a keyword written while Rename Many swapped
+/// two names landed on the other photo.
+#[test]
+fn sidecars_are_written_through_write_sidecars() {
+    const IN_WRITE_SIDECARS: &[(&str, &str)] = &[
+        ("metadata/xmp.rs", ""),
+        ("ui/info_panel.rs", "save_metadata_edit"),
+        ("ui/info_panel.rs", "set_keyword_on_files"),
+        ("ui/info_panel.rs", "add_keywords"),
+        ("ui/actions.rs", "apply_mark"),
+        ("metadata/lightroom.rs", "import_lightroom"),
+    ];
+    const HOMES: &[(&str, &[(&str, &str)])] = &[
+        ("write_changed(", IN_WRITE_SIDECARS),
+        ("write_alt_text(", IN_WRITE_SIDECARS),
+        ("xmp::add_keywords(", IN_WRITE_SIDECARS),
+        ("tag_file(", IN_WRITE_SIDECARS),
+        ("add_tags(", IN_WRITE_SIDECARS),
+        ("write_xmp(", IN_WRITE_SIDECARS),
+        ("update_sidecar(", &[("metadata/marks.rs", "write_xmp")]),
+        (
+            "sidecar_writer(",
+            &[("files/file_ops.rs", "write_sidecars")],
+        ),
+    ];
+    let wrong = outside_their_homes(HOMES);
+    assert!(
+        wrong.is_empty(),
+        "a sidecar of the user's written around write_sidecars:\n{}",
+        wrong.join("\n")
+    );
+}
+
 /// Only Glimt's own files are written with `file_io::replace_file` and the writers built on it
 /// (`write_atomic`, `edit_shared`). They write through a link to the file it points to, as a
 /// settings file kept in a repository is a link, and do not refuse a read-only file. A file of
@@ -2455,7 +2515,7 @@ fn only_glimts_own_files_are_written_through_links() {
             "edit_shared(",
             &[
                 ("features/copy_for_sharing.rs", "save_choice"),
-                ("files/config.rs", "save"),
+                ("files/config.rs", "write_settings"),
                 ("metadata/marks.rs", "write"),
                 ("model/folder.rs", "remember_recent"),
                 ("ui/file_list.rs", "change_sort_folders"),

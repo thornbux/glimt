@@ -252,6 +252,12 @@ impl Zoom {
     pub(crate) fn scale_shown(&self) -> f32 {
         self.last_scale
     }
+
+    /// Gives the image `room` to move each way, as painting an image larger than the view does.
+    #[cfg(test)]
+    pub(crate) fn set_pan_room(&mut self, room: egui::Vec2) {
+        self.max_pan = room;
+    }
 }
 
 /// What belongs to the image shown, beside its place in the list (`List.shown`). That is the page
@@ -977,6 +983,7 @@ impl crate::App {
         let closed = ctx.show_viewport_immediate(id, builder, |ui, _| {
             let pctx = ui.ctx().clone();
             let full = pctx.input(|i| i.viewport().fullscreen).unwrap_or(false);
+            self.window.set_projector_full_screen(full);
             let (f, esc) = pctx.input(|i| {
                 let f = i.key_pressed(egui::Key::F) || i.key_pressed(egui::Key::F11);
                 (f && i.modifiers.is_none(), i.key_pressed(egui::Key::Escape))

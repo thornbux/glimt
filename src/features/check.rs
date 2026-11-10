@@ -83,10 +83,7 @@ impl crate::App {
                         ctx.request_repaint_after(std::time::Duration::from_millis(200));
                     }
                 });
-                ui.label(match (c.broken.len(), working) {
-                    (0, 0) => tr("None broken.").to_owned(),
-                    (n, _) => tf!("{n} broken:", n = thousands(n)),
-                });
+                ui.label(summary(c.broken.len(), working, done, c.total));
                 if !c.broken.is_empty() && crate::ui::menus::button(ui, tr("Select Them")).clicked()
                 {
                     select = true;
@@ -171,5 +168,43 @@ impl crate::App {
             });
         }
         check
+    }
+}
+
+/// Says what the check found: `broken` files, with `working` threads still at work after `done`
+/// of `total` files. A check that stopped early says so, and never "None broken.", as Find
+/// Duplicates gives no result when it was stopped.
+fn summary(broken: usize, working: usize, done: usize, total: usize) -> String {
+    let found = match (broken, working) {
+        (0, 0) => tr("None broken.").to_owned(),
+        (n, _) => tf!("{n} broken:", n = thousands(n)),
+    };
+    if working > 0 || done >= total {
+        return found;
+    }
+    let stopped = tf!(
+        "Stopped: {done} of {total}",
+        done = thousands(done),
+        total = thousands(total)
+    );
+    match broken {
+        0 => stopped,
+        _ => format!("{stopped}\n{found}"),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    /// A check stopped after 300 of 5,000 files says it stopped, not "None broken.", which it
+    /// once said although most files were never checked.
+    #[test]
+    fn a_stopped_check_says_it_stopped() {
+        assert_eq!(super::summary(0, 0, 5_000, 5_000), "None broken.");
+        assert_eq!(super::summary(0, 0, 300, 5_000), "Stopped: 300 of 5,000");
+        assert_eq!(
+            super::summary(2, 0, 300, 5_000),
+            "Stopped: 300 of 5,000\n2 broken:"
+        );
+        assert_eq!(super::summary(0, 3, 300, 5_000), "0 broken:");
     }
 }

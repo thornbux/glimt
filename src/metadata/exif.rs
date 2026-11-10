@@ -895,10 +895,15 @@ fn read_exif_block(path: &Path) -> Option<Vec<u8>> {
 /// the tags the user keeps into a block made new (`shared_block`). Returns `None` when there is
 /// no block.
 pub fn derived(path: &Path, how: crate::images::save::Derived) -> Option<Vec<u8>> {
-    let raw = read_exif_block(path)?;
+    derived_of(&read_exif_block(path)?, how)
+}
+
+/// Makes the EXIF block `raw` what a file made as `how` keeps of it, as `derived` does.
+/// Returns `None` for a block without a TIFF header.
+pub fn derived_of(raw: &[u8], how: crate::images::save::Derived) -> Option<Vec<u8>> {
     match how {
-        crate::images::save::Derived::Copy => derived_block(&raw),
-        _ => Some(ifds(&raw)?.0.data.to_vec()),
+        crate::images::save::Derived::Copy => derived_block(raw),
+        _ => Some(ifds(raw)?.0.data.to_vec()),
     }
 }
 
@@ -971,6 +976,23 @@ fn drop_pixel_fields(data: &mut [u8]) {
 /// number, so a tag without a name can still be left out.
 fn shared_tag_name(dir: &str, tag: u16) -> String {
     tag_name(dir == "GPS", tag).map_or_else(|| format!("{dir} 0x{tag:04x}"), str::to_owned)
+}
+
+/// Returns the names a copy for sharing gives the tags of IFD0, Exif and GPS: each name of
+/// `tag_name`, and in each directory one name of the form a tag without a name gets
+/// (`shared_tag_name`). The file of the last choice holds them, so src/frozen-1.0.txt pins them.
+#[cfg(test)]
+pub(crate) fn every_shared_tag_name() -> Vec<String> {
+    let mut names = Vec::new();
+    for dir in ["Image", "Exif", "GPS"] {
+        let all = (0..=u16::MAX).map(|tag| shared_tag_name(dir, tag));
+        let (unnamed, named): (Vec<String>, Vec<String>) = all.partition(|n| n.contains(" 0x"));
+        names.extend(named);
+        names.extend(unnamed.last().cloned());
+    }
+    names.sort();
+    names.dedup();
+    names
 }
 
 /// Whether the tag `tag` of the directory `dir` is in every copy for sharing, also after Remove
@@ -1051,16 +1073,25 @@ pub fn shared_block(
     keeps_hdr_headroom: bool,
 ) -> Option<Vec<u8>> {
     let (t, ifd0, exif, gps) = ifds(raw)?;
+    // The value bytes taken so far. A real block holds no more of them than its own size, but a
+    // crafted one can name one large value from every entry, which would fill memory if each
+    // were copied. Such a block is refused whole.
+    let taken = std::cell::Cell::new(0usize);
     let value = |e: &Entry| {
         let len = type_size(e.field_type).checked_mul(e.count as usize)?;
-        Some(
-            t.data
-                .get(e.value_offset..e.value_offset.checked_add(len)?)?
-                .to_vec(),
-        )
+        let bytes = t
+            .data
+            .get(e.value_offset..e.value_offset.checked_add(len)?)?;
+        taken.set(taken.get().saturating_add(len));
+        (taken.get() <= t.data.len()).then(|| bytes.to_vec())
     };
     let mut dirs: [NewIfd; 5] = Default::default();
+    let mut seen = std::collections::HashSet::new();
     for (dir, tag, e) in shareable(&ifd0, &exif, &gps) {
+        // A tag named twice is taken once, the first time, as the reader takes it (`find`).
+        if !seen.insert((dir, tag)) {
+            continue;
+        }
         if is_always_shared(dir, tag) || keeps(&shared_tag_name(dir, tag)) {
             let at = ["Image", "Exif", "GPS"]
                 .iter()
@@ -1081,6 +1112,9 @@ pub fn shared_block(
         // The index ("R98", "R03") and the version ("0100") are four bytes each.
         let value = value(&e).filter(|v| matches!(tag, 0x0001 | 0x0002) && v.len() <= 4);
         dirs[3].extend(value.map(|v| (tag, e.field_type, e.count, v)));
+    }
+    if taken.get() > t.data.len() {
+        return None;
     }
     let thumbnail = keeps(EXIF_THUMBNAIL).then(|| exif_thumbnail(&t)).flatten();
     write_block(t.is_little_endian, dirs, thumbnail)
@@ -1323,7 +1357,8 @@ pub fn stored_orientation(dec: &mut impl image::ImageDecoder, exif: Option<&[u8]
 /// `Some(None)` for a PNG without one, and `None` when the png crate cannot read the file.
 fn png_exif(path: &Path) -> Option<Option<Vec<u8>>> {
     // shortcut: only the text before the pixels is read, where exiv2 and ImageMagick put it;
-    // read the chunks after IDAT too if a program is found that writes EXIF there.
+    // read the chunks after IDAT too if a program is found that writes EXIF there. A turn or
+    // copy reads an eXIf after them (`shared_copy::png_exif_and_xmp`), as it drops that chunk.
     const KEYS: [&[u8]; 2] = [b"Raw profile type exif", b"Raw profile type APP1"];
     let file = std::io::BufReader::new(crate::images::decode::open_regular(path).ok()?);
     let reader = png::Decoder::new(file).read_info().ok()?;
@@ -2253,6 +2288,18 @@ mod tests {
         big.extend(&blob);
         let read: usize = super::fields(&big).iter().map(|f| f.2.len()).sum();
         assert!(read > 0 && read <= n as usize * super::MAX_TEXT, "{read}");
+        // A copy for sharing takes no more value bytes than the block holds. Before, it copied
+        // the part once for each field, which a block of 64 MB made 64 GB.
+        let shared = super::shared_block(&big, &|_| true, false);
+        assert!(shared.is_none_or(|b| b.len() <= big.len()));
+        // A tag named twice is taken once, the first time.
+        let twice = b"MM\0*\0\0\0\x08\0\x02\x01\x0f\0\x02\0\0\0\x02A\0\0\0\
+                      \x01\x0f\0\x02\0\0\0\x02B\0\0\0\0\0\0\0";
+        let shared = super::shared_block(twice, &|_| true, false).unwrap();
+        let makes: Vec<_> = (super::fields(&shared).into_iter())
+            .filter(|f| f.0 == "Image" && f.1 == "Make")
+            .collect();
+        assert_eq!(makes.len(), 1, "{makes:?}");
         let mm = b"Exif\0\0MM\0*\0\0\0\x08\0\x02\x01\x0f\0\x02\0\0\0\x06\0\0\0\x26\
                    \x01\x12\0\x03\0\0\0\x01\0\x06\0\0\0\0\0\0Canon\0";
         for seed in [sample(), mm.to_vec()] {

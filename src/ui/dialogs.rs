@@ -637,20 +637,40 @@ impl crate::App {
         }
     }
 
-    /// Renames the collection Rename Collection asked about to `text`.
+    /// Renames the collection Rename Collection asked about to `text`. It is done in the writer
+    /// thread for the user's folders, after this window's edits of the collection, because the
+    /// rename waits for the collection's lock, and a share that stopped answering would hold
+    /// the window. `collection_renamed` makes the window follow it.
     fn rename_collection(&mut self, ctx: &egui::Context, text: &str) {
         let Some(old) = self.dialogs.take_folder() else {
             return;
         };
-        match collections::rename(&old, text) {
-            // The window follows only when it still shows the collection it asked about.
-            Ok(new) if self.folder.collection() == Some(old.as_path()) => {
-                self.folder.collection_renamed(new);
-                self.start_watching(ctx);
-                self.update_window_title(ctx);
+        let (report_tx, notices) = (
+            self.file_operations.report_sender(),
+            self.notice_sender.clone(),
+        );
+        let (text, ctx) = (text.to_owned(), ctx.clone());
+        let pointer = crate::support::threads::Working::new(&self.busy);
+        crate::files::file_io::write_later_in_user_folders(move || {
+            match collections::rename(&old, &text) {
+                Ok(new) => drop(report_tx.send(OperationReport {
+                    collection_renamed: Some((old, new)),
+                    ..Default::default()
+                })),
+                Err(e) => drop(notices.send(e)),
             }
-            Ok(_) => {}
-            Err(e) => self.notice.give(e),
+            drop(pointer);
+            ctx.request_repaint();
+        });
+    }
+
+    /// Makes the window follow the collection `old`, which was renamed to `new`, when it still
+    /// shows that collection.
+    pub(crate) fn collection_renamed(&mut self, ctx: &egui::Context, old: &Path, new: PathBuf) {
+        if self.folder.collection() == Some(old) {
+            self.folder.collection_renamed(new);
+            self.start_watching(ctx);
+            self.update_window_title(ctx);
         }
     }
 

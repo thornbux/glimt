@@ -17,8 +17,8 @@ images to several hundred thousand. The name *Glimt* is Norwegian for "glimpse".
 
 - **Fast at any size.** The images on each side are decoded ahead at window size, and the file
   list draws only what is on screen: as smooth with 500,000 images as with ten.
-- **Small.** Images are kept at the size they are shown, and a broken file cannot take
-  gigabytes or bring the viewer down.
+- **Small.** Images are kept at the size they are shown, and a broken file cannot bring the
+  viewer down: every decode has a memory limit, also the programs of added formats.
 - **Respects your files.** Ratings, keywords and comments go to XMP sidecars that darktable
   and digiKam read, and Immich reads their ratings, comments and keyword tree. Copy and move
   never overwrite a file.

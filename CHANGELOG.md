@@ -5,6 +5,105 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- `--remote-all` exits with 3, not 1, when one window does not answer within 10 seconds while
+  another answered, so a script that retries on 1 no longer does the command twice in the
+  windows that did it. It exits with 1 only when no window took the command or none answered.
+  The man page names every case of exit 2.
+- A window that listens for `--remote` with remote control off, as a named window does, becomes
+  the Glimt used last when it gets the focus, so plain `--remote` goes to it.
+- `glimt --remote open smb://nas/photos` mounts the share, as `glimt smb://nas/photos` does.
+  Before, it opened `smb:/nas/photos` in the working folder, which does not exist.
+- A tool's `%f` or `%u` inside a word, as in `--input=%f`, is filled in with each file, as an
+  added format's is. Before, the tool ran once with the text as it was, and no file.
+- Printing on both sides with orientation Automatic turns every page as the first one, so the
+  back of a landscape page is no longer upside down.
+- A CMYK JPEG or TIFF with its CMYK profile in the file, as print and stock photos often are,
+  shows in its colours. Before, the view, the thumbnails (also in the shared cache that file
+  managers read), prints, Copy Image and Export Frames showed it nearly black.
+- Export Frames writes a 16-bit page with a colour profile in 16 bits, as one without a profile.
+  Before, it came out in 8 bits.
+- A file with `;` in its path has its thumbnail in the shared cache under the name GNOME and KDE
+  give it. Before, each program made a thumbnail of its own.
+- Remember Last Folder keeps only a place that opened. Closing the window while several folders
+  were shown together kept `/`, and the next start listed the whole disk; closing it before a
+  slow folder had opened lost the folder remembered.
+- A path that is not there, among several opened, is left out. Before, it stood for its parent
+  folder, whose images were shown with the others.
+- After Rename Many, the new names and the removal of its plan are on disk before the marks and
+  collections follow them, also when no plan could be kept. A power cut right after could
+  otherwise put the marks on the wrong photos at the next start.
+- When Rename Many was cut short with its plan on another disk than the photos, putting it right
+  at the next start could leave a photo under a hidden `.glimt-rename-*` name with no plan left
+  to find it. A repair that cannot finish now puts back the steps it did.
+- A collection that came with a download, with a pipe or a link planted as its hidden lock file
+  `.NAME.gqv.lock`, no longer hangs the window at Rename Collection or stops every later
+  collection edit, and a link there no longer makes an empty file where it points. Rename
+  Collection now renames in the background, so another window's edit on a share that stopped
+  answering no longer holds the window either.
+- `--remote select` and `info` with more than 100,000 files are refused by the window too, with
+  "not done", not only by Glimt's own client. Another program on the socket could freeze the
+  window with millions of paths.
+- The programs of added formats get a memory limit of 4 GB. Before, a small downloaded file
+  whose header claimed a huge picture could make an example script take gigabytes.
+- A setting of a few values with a value it does not take, such as `layout=3x3` or
+  `print_paper=letter`, is put back to its default, and `glimt --check-config` tells the line.
+  Before, the check said the file was fine, and the window fell back to another value without a
+  word. The language setting takes a language's own code too, so `language=nb`, `nn` or `pt`
+  gives that language, as `LANG=nb_NO` does, and no longer English.
+- Every action can be given a key of its own in Preferences → Keyboard and in `keys=`, also one
+  without a default key, such as Toolbar or Open With. Before, such a key was kept and never
+  used, without a word. `glimt --check-config` tells an own key that names no action or a key
+  it cannot read.
+- A change of the settings whose save failed, as on a full disk, is written by the next save
+  that works. Before, that save put the file's old value back, and the change was lost at the
+  next start.
+- Taking out one of two keywords that differ only in letter case, such as "rose" beside
+  "Rose", keeps the other. Before, both went from the sidecar.
+- Turning a PNG keeps its XMP (keywords, title, description) and its EXIF when they come after
+  the pixels, where ExifTool adds XMP. Before, the turned PNG that replaced the file had lost
+  them. A copy (Save As, Crop) keeps them too.
+- An empty `<dc:subject/>` or `<dc:description/>` in a sidecar is read as empty. Before, the
+  keywords and comment were read from the lists after it, such as the keyword tree, and a
+  keyword edit wrote them into the sidecar.
+- Copy for Sharing leaves out the EXIF of a crafted PNG or WebP whose tags all name one large
+  value, and copies a tag named twice once. Before, such a file could make Glimt fill the
+  computer's memory.
+### Changed
+
+- Copy Image to Clipboard moves from the Select menu to Edit, beside Crop and Orientation. It
+  copies the shown image, while Copy Path and Copy Files in the Select menu copy the selection.
+- The Help Manual's differences from Geeqie name each key that Geeqie 3.2 changed, such as
+  Ctrl+C, Ctrl+M, Ctrl+R and Ctrl+T, and what "/" does. Glimt keeps its keys.
+
+### Fixed
+
+- Zoomed in, Alt+arrow changes the pane and Shift+arrow extends the selection again. Before,
+  both moved the image, as only an arrow pressed alone should.
+- The screen saver stays off while the projector is full screen, also when the main window is
+  not, as during a slideshow on a projector.
+- The keyword tree in the info panel lays out only the keywords on screen, and is built only
+  when it changes, so a tree of thousands of keywords from a Lightroom import no longer slows
+  every frame. A keyword's children open with the caret before it.
+- Check Images stopped before the end says how far it got, not "None broken.".
+- Esc in a text field or an open list of Preferences only leaves the field or closes the list.
+  Before, it closed Preferences as well.
+- The Help Manual names Refresh under View and New Window under Window, and the keyboard map
+  and shortcut list leave the Delete key out while Enable Delete key is off.
+- The Help Manual says that a change on a network share shows by itself within seconds, and
+  that a caching mount such as rclone or s3fs can hold it back until its cache expires.
+- A keyword, comment, alt text or star written while Rename Many runs is saved to its photo
+  under the photo's new name. Before, when the new names swapped with old ones, it landed on the
+  photo that took the old name. An edit in the info panel not saved yet follows its file through
+  a move or rename too.
+- Stop in the status bar, or closing the window a second time, no longer drops the info panel's
+  save of keywords, comment or alt text that waits behind a long job, such as a Lightroom
+  import. Before, the edit was lost without a word while the panel showed it as saved.
+- Going back to an image whose edit in the info panel was not saved yet shows the edit. Before,
+  while the next image was still being read, the panel could show the file as it was, and a
+  later edit wrote the old alt text or comment back.
+
 ## [0.79.0] - 2026-11-10
 
 ### Changed

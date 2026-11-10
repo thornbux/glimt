@@ -42,9 +42,10 @@ const NO_IMAGE: &str = "there is no image to act on";
 /// selected file.
 const HIDDEN_BY_SEARCH: &str = "the search hides the files it would act on";
 
-/// Geeqie's default shortcuts, except R (random order; Geeqie: refresh) and F5 (refresh). The first
-/// one for an action is shown in the menu. egui ignores an extra Shift or Alt when matching, so
-/// those combinations come before the plain key.
+/// Geeqie's default shortcuts up to 3.1, except R (random order; Geeqie: refresh) and F5
+/// (refresh). Glimt keeps them where Geeqie 3.2 changed its keys, and DIFFERENCES in help.rs
+/// lists each such key. The first one for an action is shown in the menu. egui ignores an extra
+/// Shift or Alt when matching, so those combinations come before the plain key.
 pub const SHORTCUTS: &[(Action, egui::Modifiers, egui::Key)] = {
     use Action::*;
     use egui::Key;
@@ -184,6 +185,160 @@ pub const SHORTCUTS: &[(Action, egui::Modifiers, egui::Key)] = {
         (Help, NONE, Key::F1),
     ]
 };
+
+/// Every action, in name order. Each one can be given a key of its own in `keys=` and
+/// Preferences, also one without a default key. Kept whole by `all_lists_every_action`.
+pub const ALL: &[Action] = &[
+    Action::About,
+    Action::AboveEachOther,
+    Action::Animate,
+    Action::Back,
+    Action::BackUp,
+    Action::CheckImages,
+    Action::CloseWindow,
+    Action::Compare,
+    Action::CopyFiles,
+    Action::CopyForSharing,
+    Action::CopyImage,
+    Action::CopyPath,
+    Action::CopyPathUnquoted,
+    Action::CopyTo,
+    Action::Crop,
+    Action::Delete,
+    Action::DeletePermanently,
+    Action::Escape,
+    Action::ExifRotate,
+    Action::ExifWindow,
+    Action::ExportFrames,
+    Action::FindDuplicates,
+    Action::First,
+    Action::FitFill,
+    Action::FitHeight,
+    Action::FitWidth,
+    Action::Flip,
+    Action::FocusKeywords,
+    Action::FocusSearch,
+    Action::FolderTree,
+    Action::Forward,
+    Action::FullScreen,
+    Action::FullScreenInfo,
+    Action::GridNames,
+    Action::Help,
+    Action::HiddenFiles,
+    Action::HideFileList,
+    Action::Histogram,
+    Action::HistogramLog,
+    Action::Home,
+    Action::Icons,
+    Action::ImportLightroom,
+    Action::InfoPanel,
+    Action::InvertSelection,
+    Action::KeyboardMap,
+    Action::Last,
+    #[cfg(feature = "marks")]
+    Action::Mark1,
+    #[cfg(feature = "marks")]
+    Action::Mark2,
+    #[cfg(feature = "marks")]
+    Action::Mark3,
+    #[cfg(feature = "marks")]
+    Action::Mark4,
+    #[cfg(feature = "marks")]
+    Action::Mark5,
+    #[cfg(feature = "marks")]
+    Action::Mark6,
+    Action::Mirror,
+    Action::MoveEarlier,
+    Action::MoveFirst,
+    Action::MoveLast,
+    Action::MoveLater,
+    Action::MoveTo,
+    Action::NewCollection,
+    Action::NewFolder,
+    Action::NewWindow,
+    Action::Next,
+    Action::NextFilter,
+    Action::NextLayout,
+    Action::NextPage,
+    Action::OneImage,
+    Action::OpenCollection,
+    Action::OpenFile,
+    Action::OpenFolder,
+    Action::OpenFolders,
+    Action::OpenRecursive,
+    Action::OpenWith,
+    Action::PanView,
+    Action::PaneDown,
+    Action::PaneLeft,
+    Action::PaneRight,
+    Action::PaneUp,
+    Action::PathBar,
+    Action::Pause,
+    Action::PlayVideo,
+    Action::Preferences,
+    Action::Previous,
+    Action::PreviousPage,
+    Action::Print,
+    Action::Projector,
+    Action::ProjectorPointer,
+    Action::Quit,
+    Action::RandomOrder,
+    #[cfg(feature = "marks")]
+    Action::Rate0,
+    #[cfg(feature = "marks")]
+    Action::Rate1,
+    #[cfg(feature = "marks")]
+    Action::Rate2,
+    #[cfg(feature = "marks")]
+    Action::Rate3,
+    #[cfg(feature = "marks")]
+    Action::Rate4,
+    #[cfg(feature = "marks")]
+    Action::Rate5,
+    Action::Refresh,
+    Action::RemoveFromCollection,
+    Action::Rename,
+    Action::RenameCollection,
+    Action::Rotate180,
+    Action::RotateCcw,
+    Action::RotateCw,
+    Action::SaveAs,
+    Action::SaveFrame,
+    Action::SaveOrientation,
+    Action::SelectAll,
+    #[cfg(feature = "marks")]
+    Action::SelectMark1,
+    #[cfg(feature = "marks")]
+    Action::SelectMark2,
+    #[cfg(feature = "marks")]
+    Action::SelectMark3,
+    #[cfg(feature = "marks")]
+    Action::SelectMark4,
+    #[cfg(feature = "marks")]
+    Action::SelectMark5,
+    #[cfg(feature = "marks")]
+    Action::SelectMark6,
+    Action::SelectNone,
+    Action::SetWallpaper,
+    Action::Shortcuts,
+    Action::Slideshow,
+    Action::SlideshowFaster,
+    Action::SlideshowSlower,
+    Action::SortManager,
+    Action::Subfolders,
+    Action::ThumbnailGrid,
+    Action::Thumbnails,
+    Action::Toolbar,
+    Action::TrashCollection,
+    Action::Undo,
+    Action::Up,
+    Action::WindowName,
+    Action::WindowTitle,
+    Action::Zoom1To1,
+    Action::ZoomFit,
+    Action::ZoomIn,
+    Action::ZoomOut,
+];
 
 /// The user's own keys (Preferences), which replace the defaults of their actions.
 pub static USER_KEYS: std::sync::RwLock<Vec<(Action, egui::Modifiers, egui::Key)>> =
@@ -908,24 +1063,29 @@ pub type Shortcut = (Action, egui::Modifiers, egui::Key);
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Keys(pub Vec<(Action, egui::Modifiers, egui::Key)>, Vec<String>);
 
+impl Keys {
+    /// Returns the items kept unused that no build of Glimt can use either: a name that is no
+    /// action of any build, or a key that cannot be read, such as "Next=ctrl+N". An item for an
+    /// action that only another build has, such as a mark's without the marks feature, is not
+    /// one of them, so `--check-config` tells only what is wrong in every build.
+    pub fn unusable_items(&self) -> Vec<&str> {
+        // Every action of every build is in this file, also under an old name, on a line of
+        // its own kind, so a key's name in the place of an action's is not found here.
+        let names_of_1_0 = include_str!("../keys-1.0.txt");
+        let is_action_of_1_0 =
+            |name: &str| (names_of_1_0.lines()).any(|l| l.strip_prefix("action ") == Some(name));
+        (self.1.iter().map(String::as_str))
+            .filter(|item| {
+                let (name, combo) = item.split_once('=').unwrap_or((item, ""));
+                !is_action_of_1_0(name) || combo_of(combo).is_none()
+            })
+            .collect()
+    }
+}
+
 impl std::str::FromStr for Keys {
     type Err = ();
     fn from_str(text: &str) -> Result<Self, ()> {
-        let combo_of = |combo: &str| {
-            let mut mods = egui::Modifiers::NONE;
-            let mut parts: Vec<&str> = combo.split('+').collect();
-            let key = egui::Key::from_name(parts.pop()?)?;
-            for part in parts {
-                match part {
-                    "Ctrl" => mods.command = true,
-                    "Shift" => mods.shift = true,
-                    "Alt" => mods.alt = true,
-                    _ => return None,
-                }
-            }
-            mods.ctrl = mods.command;
-            Some((mods, key))
-        };
         let mut keys = Keys::default();
         for item in text.split(';') {
             let Some((name, combo)) = item.split_once('=') else {
@@ -935,10 +1095,10 @@ impl std::str::FromStr for Keys {
             // cannot read, is kept as it is for the build that wrote it.
             let name = action_name_now(name);
             match (
-                SHORTCUTS.iter().find(|s| format!("{:?}", s.0) == name),
+                ALL.iter().find(|a| format!("{a:?}") == name),
                 combo_of(combo),
             ) {
-                (Some(&(action, ..)), Some((m, k))) => keys.0.push((action, m, k)),
+                (Some(&action), Some((m, k))) => keys.0.push((action, m, k)),
                 _ => keys.1.push(item.to_owned()),
             }
         }
@@ -1008,14 +1168,9 @@ impl crate::App {
                     .find(|s| same_keys(s, &(s.0, CTRL, key)))
                     .map(|s| s.0);
             }
-            all.iter()
-                .filter(|s| collection || s.0 != Action::RemoveFromCollection)
-                .filter(|s| {
-                    delete_key || s.2 != egui::Key::Delete || s.0 == Action::RemoveFromCollection
-                })
-                .find(|&&(_, mods, key)| {
-                    i.consume_shortcut(&egui::KeyboardShortcut::new(mods, key))
-                })
+            shortcuts_in_effect(delete_key, collection)
+                .into_iter()
+                .find(|&(_, mods, key)| i.consume_shortcut(&egui::KeyboardShortcut::new(mods, key)))
                 .map(|s| s.0)
         })
     }
@@ -1371,7 +1526,7 @@ impl crate::App {
         }
     }
 
-    /// File → New Window (Ctrl+N): another Glimt at this place.
+    /// Window → New Window (Ctrl+N): another Glimt at this place.
     pub(crate) fn new_window(&mut self) {
         let exe = std::env::current_exe().map(|exe| {
             let var = std::env::var_os;
@@ -1398,7 +1553,7 @@ impl crate::App {
         }
     }
 
-    /// Select → Copy Image: the shown image's pixels to the clipboard, decoded in the background.
+    /// Edit → Copy Image: the shown image's pixels to the clipboard, decoded in the background.
     pub(crate) fn copy_image(&mut self, ctx: &egui::Context) {
         let (path, how) = (self.path(self.list.shown()), self.shown_copy());
         let (tx, ctx) = (self.notice_sender.clone(), ctx.clone());
@@ -1460,7 +1615,8 @@ impl crate::App {
             check.stop();
         }
         // A zoomed image larger than the window: the arrow keys move it, as in Geeqie; along a
-        // side where it fits they still browse.
+        // side where it fits they still browse. Only an arrow pressed alone moves it, because
+        // `consume_key` ignores an extra Shift or Alt, which belong to the selection and panes.
         if !self.dialog_open()
             && !typing
             && !self.zoom.is_fitted()
@@ -1476,7 +1632,10 @@ impl crate::App {
                     (egui::Key::ArrowDown, egui::vec2(0.0, -step)),
                 ] {
                     let along = if d.x != 0.0 { max.x } else { max.y };
-                    if along > 0.0 && i.consume_key(egui::Modifiers::NONE, key) {
+                    if along > 0.0
+                        && i.modifiers.is_none()
+                        && i.consume_key(egui::Modifiers::NONE, key)
+                    {
                         self.zoom.pan_by(d);
                     }
                 }
@@ -1574,6 +1733,17 @@ pub fn shortcuts() -> std::sync::Arc<[Shortcut]> {
     all
 }
 
+/// Returns the shortcuts that run their action now, in the order `shortcuts` gives them. With
+/// `delete_key` off the Delete key does nothing, and outside a `collection` Remove from
+/// Collection has no key. The keys read and the keys that Help shows both come from here.
+pub fn shortcuts_in_effect(delete_key: bool, collection: bool) -> Vec<Shortcut> {
+    let remove = Action::RemoveFromCollection;
+    (shortcuts().iter().copied())
+        .filter(|s| collection || s.0 != remove)
+        .filter(|s| delete_key || s.2 != egui::Key::Delete || s.0 == remove)
+        .collect()
+}
+
 /// Returns the shortcuts in use with the user's own keys `own`, in the order `shortcuts`
 /// gives them.
 fn shortcuts_with(own: &[Shortcut]) -> Vec<Shortcut> {
@@ -1590,6 +1760,24 @@ fn shortcuts_with(own: &[Shortcut]) -> Vec<Shortcut> {
 pub fn shortcut_text(ctx: &egui::Context, action: Action) -> Option<String> {
     let (_, mods, key) = shortcuts().iter().copied().find(|s| s.0 == action)?;
     Some(ctx.format_shortcut(&egui::KeyboardShortcut::new(mods, key)))
+}
+
+/// Returns the modifiers and key of a key's name in `keys=`, such as "Ctrl+Shift+N", or `None`
+/// when a part of it cannot be read.
+fn combo_of(combo: &str) -> Option<(egui::Modifiers, egui::Key)> {
+    let mut mods = egui::Modifiers::NONE;
+    let mut parts: Vec<&str> = combo.split('+').collect();
+    let key = egui::Key::from_name(parts.pop()?)?;
+    for part in parts {
+        match part {
+            "Ctrl" => mods.command = true,
+            "Shift" => mods.shift = true,
+            "Alt" => mods.alt = true,
+            _ => return None,
+        }
+    }
+    mods.ctrl = mods.command;
+    Some((mods, key))
 }
 
 /// Returns the name an action has now: the new name of one renamed in `RENAMED_ACTIONS`, and
@@ -1612,161 +1800,7 @@ pub(crate) fn clipboard_key(e: &egui::Event) -> Option<egui::Key> {
 
 #[cfg(test)]
 mod tests {
-    use super::{Action, Target};
-
-    /// Every action, in name order, for the tests that run each one. Kept whole by
-    /// `all_lists_every_action`.
-    const ALL: &[Action] = &[
-        Action::About,
-        Action::AboveEachOther,
-        Action::Animate,
-        Action::Back,
-        Action::BackUp,
-        Action::CheckImages,
-        Action::CloseWindow,
-        Action::Compare,
-        Action::CopyFiles,
-        Action::CopyForSharing,
-        Action::CopyImage,
-        Action::CopyPath,
-        Action::CopyPathUnquoted,
-        Action::CopyTo,
-        Action::Crop,
-        Action::Delete,
-        Action::DeletePermanently,
-        Action::Escape,
-        Action::ExifRotate,
-        Action::ExifWindow,
-        Action::ExportFrames,
-        Action::FindDuplicates,
-        Action::First,
-        Action::FitFill,
-        Action::FitHeight,
-        Action::FitWidth,
-        Action::Flip,
-        Action::FocusKeywords,
-        Action::FocusSearch,
-        Action::FolderTree,
-        Action::Forward,
-        Action::FullScreen,
-        Action::FullScreenInfo,
-        Action::GridNames,
-        Action::Help,
-        Action::HiddenFiles,
-        Action::HideFileList,
-        Action::Histogram,
-        Action::HistogramLog,
-        Action::Home,
-        Action::Icons,
-        Action::ImportLightroom,
-        Action::InfoPanel,
-        Action::InvertSelection,
-        Action::KeyboardMap,
-        Action::Last,
-        #[cfg(feature = "marks")]
-        Action::Mark1,
-        #[cfg(feature = "marks")]
-        Action::Mark2,
-        #[cfg(feature = "marks")]
-        Action::Mark3,
-        #[cfg(feature = "marks")]
-        Action::Mark4,
-        #[cfg(feature = "marks")]
-        Action::Mark5,
-        #[cfg(feature = "marks")]
-        Action::Mark6,
-        Action::Mirror,
-        Action::MoveEarlier,
-        Action::MoveFirst,
-        Action::MoveLast,
-        Action::MoveLater,
-        Action::MoveTo,
-        Action::NewCollection,
-        Action::NewFolder,
-        Action::NewWindow,
-        Action::Next,
-        Action::NextFilter,
-        Action::NextLayout,
-        Action::NextPage,
-        Action::OneImage,
-        Action::OpenCollection,
-        Action::OpenFile,
-        Action::OpenFolder,
-        Action::OpenFolders,
-        Action::OpenRecursive,
-        Action::OpenWith,
-        Action::PanView,
-        Action::PaneDown,
-        Action::PaneLeft,
-        Action::PaneRight,
-        Action::PaneUp,
-        Action::PathBar,
-        Action::Pause,
-        Action::PlayVideo,
-        Action::Preferences,
-        Action::Previous,
-        Action::PreviousPage,
-        Action::Print,
-        Action::Projector,
-        Action::ProjectorPointer,
-        Action::Quit,
-        Action::RandomOrder,
-        #[cfg(feature = "marks")]
-        Action::Rate0,
-        #[cfg(feature = "marks")]
-        Action::Rate1,
-        #[cfg(feature = "marks")]
-        Action::Rate2,
-        #[cfg(feature = "marks")]
-        Action::Rate3,
-        #[cfg(feature = "marks")]
-        Action::Rate4,
-        #[cfg(feature = "marks")]
-        Action::Rate5,
-        Action::Refresh,
-        Action::RemoveFromCollection,
-        Action::Rename,
-        Action::RenameCollection,
-        Action::Rotate180,
-        Action::RotateCcw,
-        Action::RotateCw,
-        Action::SaveAs,
-        Action::SaveFrame,
-        Action::SaveOrientation,
-        Action::SelectAll,
-        #[cfg(feature = "marks")]
-        Action::SelectMark1,
-        #[cfg(feature = "marks")]
-        Action::SelectMark2,
-        #[cfg(feature = "marks")]
-        Action::SelectMark3,
-        #[cfg(feature = "marks")]
-        Action::SelectMark4,
-        #[cfg(feature = "marks")]
-        Action::SelectMark5,
-        #[cfg(feature = "marks")]
-        Action::SelectMark6,
-        Action::SelectNone,
-        Action::SetWallpaper,
-        Action::Shortcuts,
-        Action::Slideshow,
-        Action::SlideshowFaster,
-        Action::SlideshowSlower,
-        Action::SortManager,
-        Action::Subfolders,
-        Action::ThumbnailGrid,
-        Action::Thumbnails,
-        Action::Toolbar,
-        Action::TrashCollection,
-        Action::Undo,
-        Action::Up,
-        Action::WindowName,
-        Action::WindowTitle,
-        Action::Zoom1To1,
-        Action::ZoomFit,
-        Action::ZoomIn,
-        Action::ZoomOut,
-    ];
+    use super::{ALL, Action, Target};
 
     /// Each action is either one a script may run or one it may not, chosen on purpose: a new
     /// action fails here until it is in `SCRIPT_ACTIONS` or in the list below, which names
@@ -1989,9 +2023,75 @@ mod tests {
         std::fs::remove_dir_all(dir).unwrap();
     }
 
+    /// With the Delete key turned off, Help's keyboard map and shortcut list leave Delete and
+    /// Shift+Delete out, as the keys read do. Both once showed them as if they worked.
+    #[test]
+    fn the_delete_key_is_shown_only_when_it_works() {
+        let on_delete = |delete_key| {
+            (super::shortcuts_in_effect(delete_key, true).iter())
+                .filter(|s| s.2 == eframe::egui::Key::Delete)
+                .map(|s| s.0)
+                .collect::<Vec<_>>()
+        };
+        assert!(on_delete(true).contains(&Action::Delete));
+        assert!(on_delete(true).contains(&Action::DeletePermanently));
+        assert_eq!(on_delete(false), [Action::RemoveFromCollection]);
+    }
+
+    /// Each "Menu → Item" of the Help Manual names an item its menu has: an action's label or
+    /// a submenu's title, drawn by the menu's function or by one it calls. The manual once sent
+    /// the reader to Go → Refresh and File → New Window, which are under View and Window.
+    #[test]
+    fn the_manual_names_items_its_menus_have() {
+        let src = [
+            include_str!("menus.rs"),
+            include_str!("../model/folder.rs"),
+            include_str!("../model/collections.rs"),
+            include_str!("../viewer/view.rs"),
+        ]
+        .concat();
+        fn body<'a>(src: &'a str, name: &str) -> &'a str {
+            let Some(start) = src.find(&format!("fn {name}(")) else {
+                return "";
+            };
+            &src[start..start + src[start..].find("\n    }\n").unwrap_or(0)]
+        }
+        let names_in = |body: &str| -> Vec<String> {
+            let actions = (body.split("Action::").skip(1)).filter_map(|rest| {
+                let name = rest.split(|c: char| !c.is_ascii_alphanumeric()).next()?;
+                let action = ALL.iter().find(|a| format!("{a:?}") == name)?;
+                Some(action.english().to_owned())
+            });
+            let titles = (body.split("tr(\"").skip(1))
+                .filter_map(|rest| rest.split('"').next().map(str::to_owned));
+            actions.chain(titles).collect()
+        };
+        for menu in ["File", "Go", "Select", "Edit", "View", "Window", "Help"] {
+            let main = body(&src, &format!("menu_{}", menu.to_lowercase()));
+            assert!(!main.is_empty(), "menu_{menu}");
+            let mut names = names_in(main);
+            for call in main.split("self.").skip(1) {
+                names.extend(names_in(body(&src, call.split('(').next().unwrap())));
+            }
+            for (_, text) in crate::ui::help::MANUAL {
+                for after in text.split(&format!("{menu} → ")).skip(1) {
+                    let has = names.iter().any(|name| {
+                        let name = name.trim_end_matches('…');
+                        after.starts_with(name)
+                            && !after[name.len()..].starts_with(char::is_alphanumeric)
+                    });
+                    let named: String = after.chars().take(30).collect();
+                    assert!(has, "the manual's {menu} → {named}");
+                }
+            }
+        }
+    }
+
     /// The file list's right-click menu acts on the row right-clicked, which it selects. Every
     /// action it offers acts on the selection, and its Open With submenu asks about no other
     /// file. Copy Image there once copied the shown image instead of the file right-clicked.
+    /// The Select menu offers no action on the shown image either. Copy Image there copied the
+    /// shown image, while Copy Path and Copy Files beside it copied the selected file.
     #[test]
     fn the_file_menu_acts_on_the_selection() {
         let src = include_str!("menus.rs");
@@ -1999,21 +2099,34 @@ mod tests {
             let start = src.find(&format!("fn {name}(")).unwrap();
             &src[start..start + src[start..].find("\n    }\n").unwrap()]
         };
+        let actions_in = |menu: &str| -> Vec<Action> {
+            (menu.split("Action::").skip(1))
+                .map(|rest| {
+                    let name = rest
+                        .split(|c: char| !c.is_ascii_alphanumeric())
+                        .next()
+                        .unwrap();
+                    *ALL.iter().find(|a| format!("{a:?}") == name).unwrap()
+                })
+                .collect()
+        };
         let menu = body("file_menu");
-        let named: Vec<&str> = (menu.split("Action::").skip(1))
-            .map(|rest| {
-                rest.split(|c: char| !c.is_ascii_alphanumeric())
-                    .next()
-                    .unwrap()
-            })
-            .collect();
+        let named = actions_in(menu);
         assert!(
             named.len() >= 8,
             "file_menu names its actions as Action::Name"
         );
-        for name in named {
-            let action = ALL.iter().find(|a| format!("{a:?}") == name).unwrap();
-            assert_eq!(action.target(), Target::Selection, "{name} in file_menu");
+        for action in named {
+            assert_eq!(
+                action.target(),
+                Target::Selection,
+                "{action:?} in file_menu"
+            );
+        }
+        let select = actions_in(body("menu_select"));
+        assert!(select.contains(&Action::CopyFiles));
+        for action in select {
+            assert_ne!(action.target(), Target::Shown, "{action:?} in menu_select");
         }
         assert!(menu.contains("self.open_with_menu(ui)"));
         let open_with = body("open_with_menu");
@@ -2340,6 +2453,25 @@ mod tests {
         );
     }
 
+    /// Every action takes a key of its own, also one without a default key. Before, `keys=`
+    /// read only the actions of `SHORTCUTS`, and kept the others unused without a word.
+    #[test]
+    fn every_action_takes_a_key_of_its_own() {
+        use super::{Action, Keys};
+        let keys: Keys = "Toolbar=Ctrl+B;FitFill=Ctrl+F12".parse().unwrap();
+        assert_eq!(keys.1, Vec::<String>::new());
+        let all = super::shortcuts_with(&keys.0);
+        for action in [Action::Toolbar, Action::FitFill] {
+            assert!(all.iter().any(|s| s.0 == action), "{action:?}");
+        }
+        // What no build can use is told, and a mark's key, which a build with marks uses, is
+        // not.
+        let keys: Keys = "Bogus=X;Next=ctrl+N;Mark1=Ctrl+M;Up=Alt+Up"
+            .parse()
+            .unwrap();
+        assert_eq!(keys.unusable_items(), ["Bogus=X", "Next=ctrl+N"]);
+    }
+
     /// A dialog in the main window holds the keys of every window. The projector once browsed
     /// on with Space behind the Delete question, as it read its shortcuts without asking about
     /// dialogs. Every window now reads them through `shortcut_unless_dialog_open`, and no code
@@ -2410,6 +2542,40 @@ mod tests {
             ["ui/actions.rs"],
             "read a window's shortcuts with shortcut_unless_dialog_open"
         );
+    }
+
+    /// A zoomed image larger than the view moves with the arrow keys alone. Alt+arrow still
+    /// changes the pane and Shift+arrow extends the selection. egui's `consume_key` ignores
+    /// an extra Shift or Alt, so both once moved the image instead.
+    #[test]
+    fn a_zoomed_image_moves_only_with_the_arrows_alone() {
+        use eframe::egui;
+        let dir = std::env::temp_dir().join(format!("glimt-test-pan-keys-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let (mut app, ctx) = crate::support::test_support::app_on(&dir);
+        app.zoom.one_to_one();
+        app.zoom.set_pan_room(egui::vec2(500.0, 500.0));
+        let mut press = |modifiers: egui::Modifiers| {
+            let key = egui::Event::Key {
+                key: egui::Key::ArrowRight,
+                physical_key: None,
+                pressed: true,
+                repeat: false,
+                modifiers,
+            };
+            ctx.begin_pass(egui::RawInput {
+                events: vec![egui::Event::ModifiersChanged(modifiers), key],
+                ..Default::default()
+            });
+            let action = app.read_keys(&ctx);
+            let _ = ctx.end_pass();
+            action
+        };
+        assert_eq!(press(super::ALT), Some(Action::PaneRight));
+        assert_eq!(press(super::SHIFT), Some(Action::Next));
+        // Alone, the arrow moves the image and browses no further.
+        assert_eq!(press(super::NONE), None);
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     /// Plain Ctrl+C comes from egui-winit as a Copy event, and so does the Copy key with no

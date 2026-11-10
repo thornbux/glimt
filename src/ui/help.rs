@@ -1,7 +1,7 @@
 //! The Help menu's pages: manual, keyboard shortcuts, keyboard map and About.
 
 use crate::ui::actions::Action;
-use crate::ui::actions::shortcuts as all_shortcuts;
+use crate::ui::actions::shortcuts_in_effect;
 use eframe::egui;
 use egui::Key;
 
@@ -115,18 +115,21 @@ const ARROWS: [(&str, Key, f32, f32); 4] = [
     ("→", Key::ArrowRight, 2.0, 1.0),
 ];
 
-const MANUAL: &[(&str, &str)] = &[
+pub(crate) const MANUAL: &[(&str, &str)] = &[
     (
         "Opening images",
         "Start Glimt with a folder or an image (glimt ~/Pictures), drop one on the window, use \
-         File → Open, type a path in the folder field above the folder list and press Enter, or \
-         click a folder in the list. ⬆ .. goes to the parent folder.\n\n\
+         File → Open Folder…, type a path in the folder field above the folder list and press \
+         Enter, or click a folder in the list. ⬆ .. goes to the parent folder.\n\n\
          Network shares work too: type smb://server/share (or sftp://…) and Glimt mounts it with \
          gio, asking for user, domain and password if the share needs them (a password saved in \
          the keyring from Files is used without asking).\n\n\
          A folder on another computer or in a cloud (a share, an rclone or s3fs mount) is slow the \
-         first time, while its images and their thumbnails come over the network. Glimt does not \
-         see changes made there from another computer by itself: press F5. The trash does not \
+         first time, while its images and their thumbnails come over the network. A change made \
+         there from another computer shows by itself within seconds, as Glimt looks at the open \
+         folders once a second, but a mount that keeps its listing for a while (rclone's \
+         dir-cache-time, s3fs's stat cache) holds it back until that expires, often for \
+         minutes. The trash does not \
          work there, so Delete asks whether to delete the files for good instead. Where the file \
          system cannot rename a file in one safe step (rclone, s3fs, a phone), Glimt looks first \
          that the new name is free, and a rename the file system refuses names its type. A camera \
@@ -140,13 +143,13 @@ const MANUAL: &[(&str, &str)] = &[
          - Show Together with These Images in a folder's right-click menu.\n\n\
          A slideshow then goes through all of them, and random order mixes them.\n\n\
          The toolbar's arrows (Go → Back and Forward) go to the folders shown before, Up to the \
-         parent and Home to the home folder. F5 (Go → Refresh) reads the folder again; with \
+         parent and Home to the home folder. F5 (View → Refresh) reads the folder again; with \
          Refresh the folder when files change (Preferences, on by default) Glimt does so itself, \
          looking at the open folders once a second. With Include Subfolders on it looks at the \
          subfolders too, up to 1,000 a second in turn, so a change deep in a tree of 10,000 \
          folders shows within ten seconds. With Start in the last used folder, Glimt opens that \
          one when it is given none.\n\n\
-         Ctrl+N (File → New Window) starts another Glimt in the same folder; Ctrl+W and Ctrl+Q \
+         Ctrl+N (Window → New Window) starts another Glimt in the same folder; Ctrl+W and Ctrl+Q \
          close it. Starting Glimt a certain way, and controlling it from scripts, is under Command \
          line at the end.",
     ),
@@ -360,7 +363,8 @@ const MANUAL: &[(&str, &str)] = &[
          (Images per page: 2 to 20, in a grid). The dialog shows the first page as it will \
          print.\n\n\
          - Paper: A4, Letter, A3, A5, Legal, or photo paper of 10 × 15 and 13 × 18 cm\n\
-         - Orientation: by the image (a wide one alone goes landscape), portrait or landscape\n\
+         - Orientation: by the image (a wide one alone goes landscape; on both sides of the \
+         paper every page turns as the first one), portrait or landscape\n\
          - Margin: 0 to 50 mm.\n\n\
          Fill each box cuts each image to its box instead of fitting it in. The text under each \
          image comes from a template, as the full screen info's: %name% by default, or %Taken%, \
@@ -376,7 +380,7 @@ const MANUAL: &[(&str, &str)] = &[
          one, as Geeqie's plugins do, and shows them again afterwards.\n\n\
          A tool is a desktop file in ~/.local/share/glimt/tools (the menu opens that folder), \
          for example Name=Rotate and Exec=mogrify -rotate 90 %f:\n\n\
-         - %f runs it once for each file\n\
+         - %f runs it once for each file, also inside a word, as --file=%f\n\
          - %F once for all\n\
          - without either it runs once in the folder.\n\n\
          A program next to the desktop file is found there. New tools show after a restart. The \
@@ -614,7 +618,8 @@ const MANUAL: &[(&str, &str)] = &[
          View also shows or hides the toolbar and the folder path, and Preferences the search \
          field and each file's size and date in the list. A click opens a menu; with one open, \
          pointing at another opens that, and it closes a moment after the pointer leaves. Full \
-         screen keeps the screen saver off, unless Preferences say otherwise.",
+         screen, also the projector's, keeps the screen saver off, unless Preferences say \
+         otherwise.",
     ),
     (
         "Colour",
@@ -734,9 +739,66 @@ const DIFFERENCES: &[(&str, &str, &str)] = &[
     (
         "R",
         "Toggles random order in the slideshow, also while it runs",
-        "Refresh",
+        "Nothing since Geeqie 3.2; Refresh before",
     ),
-    ("Refresh", "F5", "R"),
+    ("Refresh", "F5", "Ctrl+R since Geeqie 3.2; R before"),
+    // Glimt keeps the keys that Geeqie 3.2 changed. These rows give each one, as Geeqie's
+    // data/accels.ini has it at the tags v3.1 and v3.2.
+    (
+        "Ctrl+C",
+        "Copies the selected files to a folder",
+        "Copies their paths since Geeqie 3.2; copying to a folder has no key",
+    ),
+    (
+        "Ctrl+M",
+        "Moves the selected files to a folder",
+        "Nothing since Geeqie 3.2, where Move is Ctrl+Shift+M",
+    ),
+    (
+        "Ctrl+R",
+        "Renames the selected files",
+        "Refresh since Geeqie 3.2, where Rename is F2",
+    ),
+    (
+        "Ctrl+T",
+        "Shows the folders as a tree",
+        "Thumbnails on and off; the folder tree is Ctrl+Shift+T since Geeqie 3.2",
+    ),
+    (
+        "Ctrl+O",
+        "Preferences",
+        "Open File; Preferences is Ctrl+, since Geeqie 3.2",
+    ),
+    (
+        "V",
+        "Full screen, as F and F11",
+        "View in a new window; no longer full screen since Geeqie 3.2",
+    ),
+    (
+        "Backspace, Shift+Space",
+        "Backspace shows the previous image, Shift+Space the next, as Space",
+        "Shift+Space shows the previous image since Geeqie 3.2, and Backspace nothing",
+    ),
+    (
+        "Slideshow faster and slower",
+        "Ctrl+= and Ctrl+-",
+        "+ (Shift+=) and - since Geeqie 3.2, where Ctrl+= and Ctrl+- zoom",
+    ),
+    (
+        "Ctrl+Shift+← and →",
+        "Nothing",
+        "The previous and next folder, since Geeqie 3.2",
+    ),
+    (
+        "Ctrl+Shift+S",
+        "Save As",
+        "Also saves a collection under another name in its file list, since Geeqie 3.2",
+    ),
+    (
+        "/",
+        "Puts the cursor in the search field",
+        "Search and Run Command",
+    ),
     (
         "Remote control",
         "glimt --remote with next, previous, first, last, slideshow, random, fullscreen (each also \
@@ -778,7 +840,8 @@ const DIFFERENCES: &[(&str, &str, &str)] = &[
     (
         "Esc / Q",
         "Stops the slideshow and leaves full screen; never quits",
-        "Leaves full screen",
+        "Esc leaves full screen; Q shows four panes, and no longer leaves full screen since \
+         Geeqie 3.2",
     ),
     (
         "Slideshow delay",
@@ -1136,8 +1199,9 @@ impl Page {
     }
 }
 
-/// The open help page in a window; closing the window sets `page` to `None`.
-pub fn window(ctx: &egui::Context, page: &mut Option<Page>) {
+/// The open help page in a window; closing the window sets `page` to `None`. The keys shown
+/// leave out the Delete key when `delete_key` is off, as the keys read do.
+pub fn window(ctx: &egui::Context, page: &mut Option<Page>, delete_key: bool) {
     let Some(shown) = *page else { return };
     let mut open = true;
     egui::Window::new(shown.title())
@@ -1150,8 +1214,8 @@ pub fn window(ctx: &egui::Context, page: &mut Option<Page>) {
             ui.spacing_mut().scroll = egui::style::ScrollStyle::solid();
             egui::ScrollArea::vertical().show(ui, |ui| match shown {
                 Page::Manual => manual(ui),
-                Page::Shortcuts => shortcuts(ui),
-                Page::Keymap => keymap(ui),
+                Page::Shortcuts => shortcuts(ui, delete_key),
+                Page::Keymap => keymap(ui, delete_key),
                 Page::About => about(ui),
             });
         });
@@ -1209,10 +1273,11 @@ fn table(ui: &mut egui::Ui, id: &str, rows: &[(&str, &str)]) {
 }
 
 /// Every shortcut of an action on one row, in menu order, then the mouse.
-fn shortcuts(ui: &mut egui::Ui) {
+fn shortcuts(ui: &mut egui::Ui, delete_key: bool) {
     let ctx = ui.ctx().clone();
     let mut rows: Vec<(Action, Vec<String>)> = Vec::new();
-    for &(action, mods, key) in all_shortcuts().iter() {
+    // Remove from Collection is listed also outside a collection, as its key works in one.
+    for (action, mods, key) in shortcuts_in_effect(delete_key, true) {
         let text = ctx.format_shortcut(&egui::KeyboardShortcut::new(mods, key));
         match rows.iter_mut().find(|r| r.0 == action) {
             Some(row) => row.1.push(text),
@@ -1235,7 +1300,7 @@ fn shortcuts(ui: &mut egui::Ui) {
 }
 
 /// A keyboard with the keys Glimt uses highlighted; hover a key to see what it does.
-fn keymap(ui: &mut egui::Ui) {
+fn keymap(ui: &mut egui::Ui, delete_key: bool) {
     ui.label("Highlighted keys do something; bright ones also without Ctrl, Shift or Alt.");
     ui.label("Hover a key to see its actions.");
     ui.add_space(8.0);
@@ -1243,7 +1308,7 @@ fn keymap(ui: &mut egui::Ui) {
     let (rect, _) =
         ui.allocate_exact_size(egui::vec2(unit * 19.5, unit * 6.6), egui::Sense::hover());
     // Once for the map, not twice for each of its keys.
-    let all = all_shortcuts();
+    let all = shortcuts_in_effect(delete_key, true);
     let draw = |ui: &mut egui::Ui, label: &str, key: Option<Key>, at: egui::Rect| {
         let actions: Vec<String> = key
             .map(|k| {

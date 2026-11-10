@@ -393,3 +393,115 @@ remote identify
 remote name
 script WindowName
 remote info
+sharing_tag ApertureValue
+sharing_tag Artist
+sharing_tag BodySerialNumber
+sharing_tag BrightnessValue
+sharing_tag CameraFirmware
+sharing_tag CameraOwnerName
+sharing_tag ColorSpace
+sharing_tag ComponentsConfiguration
+sharing_tag Contrast
+sharing_tag Copyright
+sharing_tag CustomRendered
+sharing_tag Data after the image
+sharing_tag DateTime
+sharing_tag DateTimeDigitized
+sharing_tag DateTimeOriginal
+sharing_tag DigitalZoomRatio
+sharing_tag EXIF thumbnail
+sharing_tag Exif 0xffff
+sharing_tag ExifVersion
+sharing_tag ExposureBiasValue
+sharing_tag ExposureMode
+sharing_tag ExposureProgram
+sharing_tag ExposureTime
+sharing_tag Extra images (MPF)
+sharing_tag FNumber
+sharing_tag FileSource
+sharing_tag Flash
+sharing_tag FlashpixVersion
+sharing_tag FocalLength
+sharing_tag FocalLengthIn35mmFormat
+sharing_tag FocalPlaneResolutionUnit
+sharing_tag FocalPlaneXResolution
+sharing_tag FocalPlaneYResolution
+sharing_tag GPS 0xffff
+sharing_tag GPSAltitude
+sharing_tag GPSAltitudeRef
+sharing_tag GPSDateStamp
+sharing_tag GPSImgDirection
+sharing_tag GPSImgDirectionRef
+sharing_tag GPSLatitude
+sharing_tag GPSLatitudeRef
+sharing_tag GPSLongitude
+sharing_tag GPSLongitudeRef
+sharing_tag GPSMapDatum
+sharing_tag GPSProcessingMethod
+sharing_tag GPSSatellites
+sharing_tag GPSSpeed
+sharing_tag GPSSpeedRef
+sharing_tag GPSTimeStamp
+sharing_tag GPSVersionID
+sharing_tag GainControl
+sharing_tag HostComputer
+sharing_tag IPTC-NAA
+sharing_tag ISO
+sharing_tag Image 0xffff
+sharing_tag ImageDescription
+sharing_tag ImageEditingSoftware
+sharing_tag ImageEditor
+sharing_tag ImageTitle
+sharing_tag ImageUniqueID
+sharing_tag JFIF thumbnail
+sharing_tag JPEG APP12
+sharing_tag JPEG comment
+sharing_tag LensMake
+sharing_tag LensModel
+sharing_tag LensSerialNumber
+sharing_tag LensSpecification
+sharing_tag LightSource
+sharing_tag Make
+sharing_tag MakerNote
+sharing_tag MaxApertureValue
+sharing_tag MetadataEditingSoftware
+sharing_tag MeteringMode
+sharing_tag Model
+sharing_tag OffsetTime
+sharing_tag OffsetTimeDigitized
+sharing_tag OffsetTimeOriginal
+sharing_tag Orientation
+sharing_tag PNG chunk vpAg
+sharing_tag Photographer
+sharing_tag Photoshop resources
+sharing_tag PixelXDimension
+sharing_tag PixelYDimension
+sharing_tag ProcessingSoftware
+sharing_tag RAWDevelopingSoftware
+sharing_tag Raw profiles
+sharing_tag ResolutionUnit
+sharing_tag Saturation
+sharing_tag SceneCaptureType
+sharing_tag SceneType
+sharing_tag SensingMethod
+sharing_tag SensitivityType
+sharing_tag Sharpness
+sharing_tag ShutterSpeedValue
+sharing_tag Software
+sharing_tag SubSecTime
+sharing_tag SubSecTimeDigitized
+sharing_tag SubSecTimeOriginal
+sharing_tag SubjectDistance
+sharing_tag SubjectDistanceRange
+sharing_tag UserComment
+sharing_tag WebP chunk XYZW
+sharing_tag WhiteBalance
+sharing_tag XMLPacket
+sharing_tag XPAuthor
+sharing_tag XPComment
+sharing_tag XPKeywords
+sharing_tag XPSubject
+sharing_tag XPTitle
+sharing_tag XResolution
+sharing_tag YCbCrPositioning
+sharing_tag YResolution

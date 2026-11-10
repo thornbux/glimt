@@ -45,7 +45,8 @@ pub const COMMANDS: &[(&str, &str)] = &[
     ),
     (
         "open PATH",
-        "Show a file, folder or collection (starts Glimt if it is not running)",
+        "Show a file, folder or collection, or mount a network location such as \
+         smb://nas/photos (starts Glimt if it is not running)",
     ),
     (
         "title [TEXT…]",
@@ -97,16 +98,19 @@ pub const REMOTE: &str = "--remote";
 pub const REMOTE_ALL: &str = "--remote-all";
 
 /// The exit code of `glimt --remote` when a command cannot be sent: unknown, with the wrong
-/// arguments, or with a path that cannot go in the text sent.
+/// arguments, a `run` of an action that is not for scripts, more than `MAX_SELECT` files, or a
+/// path that cannot go in the text sent (not UTF-8, or with a line break in it).
 pub const NOT_SENT: i32 = 2;
 
-/// The exit code of `glimt --remote` when no Glimt takes the command, or none answers it.
+/// The exit code of `glimt --remote` and `--remote-all` when no Glimt takes the command, or
+/// none of those that took it answers in time. `exit_code` holds the rule that chooses between
+/// this and `NOT_DONE`.
 pub const NOT_TAKEN: i32 = 1;
 
 /// The exit code of `glimt --remote` when a window took the command but did not do it: a `run`
 /// refused while a dialog is open or a text field has the focus, or a command that window does
 /// not know (an older Glimt than the client). With `--remote-all` it is enough that one window
-/// did not do it.
+/// did not do it, or did not answer in time while another one answered.
 pub const NOT_DONE: i32 = 3;
 
 /// The start of the window's answer to a command it did not do, before the reason. Every other
@@ -138,8 +142,12 @@ pub(crate) const IDENTIFY_TIME: std::time::Duration = std::time::Duration::from_
 pub const FOCUSED_FILE: &str = "focused";
 
 /// The most files `select` and `info` take, because the window finds a select's files in its
-/// own thread.
+/// own thread. Glimt's client checks it, and the window too (`read_command`), for any other
+/// program that sends on the socket.
 pub const MAX_SELECT: usize = 100_000;
+
+/// What a client is told when its `select` or `info` names more files than `MAX_SELECT`.
+const TOO_MANY_FILES: &str = "more than 100000 files";
 
 /// The longest line of a command other than `select` and `info`, in bytes: room for a path or
 /// a title. Only those two may be as long as their files take.
@@ -169,6 +177,9 @@ static LISTENING_AS: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(No
 
 /// A window took a command but gave no answer in time.
 static TIMED_OUT: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// A window took a command and answered it in time, whether it did it or not.
+static ANSWERED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 /// A window answered that it did not do the command.
 static WAS_NOT_DONE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
@@ -464,9 +475,12 @@ impl crate::App {
             }
             other if other.starts_with("open ") => {
                 // The path is taken as it was sent, not trimmed, because a folder's name may end
-                // in a space.
+                // in a space. A network location is mounted, as on the command line.
                 if let Some(path) = command.trim_start().strip_prefix("open ") {
-                    self.visit(ctx, PathBuf::from(path));
+                    match crate::files::external::network_location(path) {
+                        Some(uri) => self.mount(ctx, uri.to_owned()),
+                        None => self.visit(ctx, PathBuf::from(path)),
+                    }
                     ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
                 }
                 None
@@ -934,6 +948,20 @@ fn was_not_done() -> bool {
     WAS_NOT_DONE.load(std::sync::atomic::Ordering::Relaxed)
 }
 
+/// Chooses the exit code of `--remote` and `--remote-all` from what the windows that took the
+/// command did: whether one `answered` in time, whether one `timed_out`, and whether one
+/// answered that it did `not_done` it. A window that did not answer while another one did has
+/// not done the command, as far as the client knows, so that is `NOT_DONE`, and a script that
+/// retries on `NOT_TAKEN` does not do it twice in the windows that did. Returns `None` when no
+/// window said no and none was silent, so the command was done or no Glimt took it.
+fn exit_code(answered: bool, timed_out: bool, not_done: bool) -> Option<i32> {
+    match (not_done || (answered && timed_out), timed_out) {
+        (true, _) => Some(NOT_DONE),
+        (false, true) => Some(NOT_TAKEN),
+        (false, false) => None,
+    }
+}
+
 /// The ID that this Glimt listens as, which is its --name or else its process ID.
 fn socket_id() -> String {
     given_name().unwrap_or_else(|| instance_id().to_owned())
@@ -1006,9 +1034,12 @@ fn send_and_print_answer(path: &std::path::Path, command: &str) -> bool {
     #[allow(clippy::disallowed_methods)] // a reply on Glimt's own private socket, with a time limit
     let read = s.read_to_end(&mut answer);
     let timed_out = read.is_err();
-    if let Err(e) = read {
-        eprintln!("glimt: no answer from {}: {e}", path.display());
-        TIMED_OUT.store(true, std::sync::atomic::Ordering::Relaxed);
+    match read {
+        Ok(_) => ANSWERED.store(true, std::sync::atomic::Ordering::Relaxed),
+        Err(e) => {
+            eprintln!("glimt: no answer from {}: {e}", path.display());
+            TIMED_OUT.store(true, std::sync::atomic::Ordering::Relaxed);
+        }
     }
     // An `info` that ends before its last record, because the window closed, is not done.
     let missing = info_records_missing(command, &answer);
@@ -1086,8 +1117,8 @@ pub fn send_all(command: &str) -> usize {
 /// `glimt --remote` and `--remote-all`. It sends `words` (the command and its arguments) to the
 /// Glimt used last, to the one of `name`, or to every one, and `paths` are `select`'s files,
 /// whole. Returns `None` once the command is done and its answer printed, or the path to open
-/// when `open` finds no Glimt running. It exits with 2 for a command that cannot be sent, with
-/// 1 when no Glimt takes it, and with 3 when a window did not do it.
+/// when `open` finds no Glimt running. It exits with `NOT_SENT` for a command that cannot be
+/// sent, and with what `exit_code` chooses from the windows' answers.
 pub fn client(
     words: &[String],
     paths: &[std::ffi::OsString],
@@ -1148,8 +1179,7 @@ pub fn client(
         path.filter(|_| now[0] == "open").map(str::to_owned)
     };
     if let Some(path) = open_path(&command) {
-        let path = std::path::absolute(&path).unwrap_or_else(|_| path.into());
-        command = format!("{} {}", words[0], path.display());
+        command = format!("{} {}", words[0], open_path_sent(&path));
     }
     // A line ends a command at the window, so a line break in a file name would be read as a
     // command of its own, such as quit.
@@ -1162,11 +1192,9 @@ pub fn client(
         (Some(name), false) => send_to(runtime_dir(), name, &command),
         (None, false) => send(&command),
     };
-    if timed_out() {
-        std::process::exit(NOT_TAKEN);
-    }
-    if was_not_done() {
-        std::process::exit(NOT_DONE);
+    let answered = ANSWERED.load(std::sync::atomic::Ordering::Relaxed);
+    if let Some(code) = exit_code(answered, timed_out(), was_not_done()) {
+        std::process::exit(code);
     }
     if sent {
         return None;
@@ -1181,6 +1209,17 @@ pub fn client(
             std::process::exit(NOT_TAKEN);
         }
     }
+}
+
+/// Returns `path` of `--remote open` as it is sent to a window, or given to a new Glimt: a
+/// network location as it is, to be mounted there, and a path in full, because the window has
+/// another working folder.
+fn open_path_sent(path: &str) -> String {
+    if let Some(uri) = crate::files::external::network_location(path) {
+        return uri.to_owned();
+    }
+    let full = std::path::absolute(path).unwrap_or_else(|_| path.into());
+    full.display().to_string()
 }
 
 /// Listens for commands in the background and passes each line to `tx`, with where to answer
@@ -1391,7 +1430,22 @@ fn read_command(reader: &mut impl BufRead) -> Option<Result<String, &'static str
     let ended = line.ends_with(b"\n");
     let takes_files = |line: &[u8]| line.starts_with(b"select ") || line.starts_with(b"info ");
     if !ended && takes_files(line.trim_ascii_start()) {
-        reader.read_until(b'\n', &mut line).ok()?;
+        // The rest is read in parts, and the files counted, so that a select of more files than
+        // `MAX_SELECT` is refused here, and not split into a list on the window thread.
+        let mut files = line.iter().filter(|&&b| b == 0).count();
+        loop {
+            let start = line.len();
+            std::io::Read::take(&mut *reader, MOST_LINE)
+                .read_until(b'\n', &mut line)
+                .ok()?;
+            files += line[start..].iter().filter(|&&b| b == 0).count();
+            if files > MAX_SELECT {
+                return Some(Err(TOO_MANY_FILES));
+            }
+            if line.len() == start || line.ends_with(b"\n") {
+                break;
+            }
+        }
     } else if !ended && line.len() as u64 >= MOST_LINE {
         return Some(Err("too long"));
     }
@@ -1545,8 +1599,12 @@ fn connected_in_time(
     rx.recv_timeout(limit).unwrap_or(true)
 }
 
-/// Marks that this Glimt got the focus, so `--remote` goes to it from now on.
+/// Marks that this Glimt got the focus, so `--remote` goes to it from now on, when it listens.
+/// A window that does not listen is never marked, as `--remote` could not reach it.
 pub fn mark_this_window_focused() {
+    if !listening() {
+        return;
+    }
     if let Some(dir) = runtime_dir() {
         mark_focused(&dir, &own_socket_id());
     }
@@ -1632,6 +1690,60 @@ pub fn close() {
 mod tests {
     use crate::support::test_support::app_on;
     use eframe::egui;
+
+    /// The exit code keeps each frozen meaning when windows disagree. Before, one window that
+    /// did not answer made the exit 1 ("none answered") though another had done the command,
+    /// so a script that retried did it twice there, and it hid a 3 of another window.
+    #[test]
+    fn the_exit_code_tells_what_the_windows_did() {
+        use super::{NOT_DONE, NOT_TAKEN, exit_code};
+        // (answered, timed out, not done)
+        assert_eq!(exit_code(true, false, false), None, "done");
+        assert_eq!(exit_code(false, false, false), None, "none took it");
+        assert_eq!(
+            exit_code(false, true, false),
+            Some(NOT_TAKEN),
+            "none answered"
+        );
+        assert_eq!(exit_code(true, false, true), Some(NOT_DONE), "one said no");
+        assert_eq!(
+            exit_code(true, true, false),
+            Some(NOT_DONE),
+            "one done, one silent"
+        );
+        assert_eq!(
+            exit_code(true, true, true),
+            Some(NOT_DONE),
+            "one said no, one silent"
+        );
+    }
+
+    /// A URI given to `--remote open` is sent as it is, to be mounted, as `glimt URI` mounts it.
+    /// Before, it was made a path in the working folder, `$PWD/smb:/nas`, which does not exist.
+    #[test]
+    fn an_open_uri_is_sent_as_it_is() {
+        assert_eq!(
+            super::open_path_sent("smb://nas/photos"),
+            "smb://nas/photos"
+        );
+        assert_eq!(super::open_path_sent("/a/b.jpg"), "/a/b.jpg");
+        let here = std::env::current_dir().unwrap().join("b.jpg");
+        assert_eq!(super::open_path_sent("b.jpg"), here.display().to_string());
+    }
+
+    /// A window given `open` with a URI mounts it, as at start, and does not look for a file
+    /// of that name.
+    #[test]
+    fn an_open_uri_is_mounted() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-open-uri-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let (mut app, ctx) = app_on(&dir);
+        // An address that starts with "-" is refused before gio runs, so no program starts.
+        app.remote_command(&ctx, "open -glimt-test://nas/photos")
+            .unwrap();
+        assert!(app.folder.is_mounting());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
 
     /// An empty or relative $XDG_RUNTIME_DIR is not used, so nothing goes into ./glimt.
     #[test]
@@ -2179,6 +2291,15 @@ mod tests {
         );
         assert_eq!(read("next".into()), [Ok("next".into())]);
         assert!(read(String::new()).is_empty());
+        // A select or info of more files than `MAX_SELECT` is refused when it is read, from
+        // any program on the socket. Before, only Glimt's own client counted them.
+        let files = |n: usize| "/x\0".repeat(n);
+        let most = format!("select {}", files(super::MAX_SELECT));
+        assert_eq!(read(format!("{most}\n")), [Ok(most)]);
+        for command in ["select", "info"] {
+            let more = format!("{command} {}\nnext\n", files(super::MAX_SELECT + 1));
+            assert_eq!(read(more), [Err(super::TOO_MANY_FILES)]);
+        }
     }
 
     /// A line too long, longer too than the socket's buffer, reaches the client over a real
