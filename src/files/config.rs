@@ -569,6 +569,14 @@ impl Config {
                 }
                 // When the setting is set again later, that later line is the one checked.
                 Some(true) if later => {}
+                Some(true) if now == "slideshow_one_image_at_a_time" => {
+                    for layout in unknown_layouts(value) {
+                        problems.push(format!(
+                            "line {n}: {layout} in {key} is not a layout Glimt knows; \
+                             it is kept and not used"
+                        ));
+                    }
+                }
                 Some(true) if now == "keys" => {
                     for item in alone.keys.unusable_items() {
                         problems.push(format!(
@@ -954,9 +962,9 @@ fn takes(key: &str, value: &str, values: &[&str]) -> bool {
         // Sort is read into its own type, which takes only its values. A theme may also be a
         // file of the user's own.
         "sort" | "theme" => true,
-        "slideshow_one_image_at_a_time" => (value.split(','))
-            .filter(|l| !l.is_empty())
-            .all(|l| values.contains(&l)),
+        // A list of layouts keeps the ones a later Glimt has, so that a save keeps them in the
+        // file. `parse_checked` tells them, and the slideshow does not use them.
+        "slideshow_one_image_at_a_time" => true,
         // An ICC file of the user's own is named by its path. An empty one is sRGB.
         "input_profile" => {
             values.contains(&value) || value.is_empty() || Path::new(value).is_absolute()
@@ -965,6 +973,12 @@ fn takes(key: &str, value: &str, values: &[&str]) -> bool {
         "language" => value.is_empty() || crate::support::lang::is_language(value),
         _ => values.contains(&value),
     }
+}
+
+/// Returns the entries of the list of layouts `value` that are not layouts of `LAYOUTS`.
+fn unknown_layouts(value: &str) -> impl Iterator<Item = &str> {
+    let layouts = crate::viewer::view::LAYOUTS;
+    (value.split(',')).filter(move |l| !l.is_empty() && !layouts.iter().any(|known| known.0 == *l))
 }
 
 /// Moves the retired app_name_first=true into the window title it stood for, when the user has
@@ -1157,12 +1171,22 @@ mod tests {
                 format!("line 2: rendering_intent=perceptive {not} perceptual is used"),
                 format!("line 3: print_paper=letter {not} A4 is used"),
                 format!("line 4: print_orientation=sideways {not} auto is used"),
-                format!("line 5: slideshow_one_image_at_a_time=1,3x3 {not} the default is used"),
+                "line 5: 3x3 in slideshow_one_image_at_a_time is not a layout Glimt knows; \
+                 it is kept and not used"
+                    .to_owned(),
                 format!("line 6: language=xx {not} the default is used"),
                 format!("line 7: input_profile=srbg {not} srgb is used"),
             ]
         );
-        assert_eq!(config, super::Config::default());
+        // A list of layouts keeps the one it does not know, so that a save keeps it in the
+        // file. Before, the whole list was emptied, and the user's next change of it saved
+        // only the layouts this Glimt knows.
+        assert_eq!(config.slideshow_one_image_at_a_time, "1,3x3");
+        let rest = super::Config {
+            slideshow_one_image_at_a_time: String::new(),
+            ..config
+        };
+        assert_eq!(rest, super::Config::default());
         // Every value of the table is taken, and so are a language's own code, a list of
         // layouts, an ICC file and a theme of the user's own.
         for (key, values) in super::choices() {
