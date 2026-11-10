@@ -20,8 +20,16 @@ static OTHER_NAMES: std::sync::Mutex<OtherNames> = std::sync::Mutex::new(OtherNa
 /// Everything being written for the user, counted by a `Working` held while it runs: the
 /// settings and marks (`write_later`), sidecars, file jobs, a turned image, a print. The one
 /// count closing waits for, so that no writer can be forgotten.
+#[cfg(not(test))]
 pub static WRITING: std::sync::LazyLock<std::sync::Arc<std::sync::atomic::AtomicUsize>> =
     std::sync::LazyLock::new(Default::default);
+
+/// In tests, each test's thread has a count of its own, because the tests run side by side in
+/// one process. A test that waited for its own writes waited for the other tests' writes too,
+/// and it timed out under load. A write stays counted for the thread that asked for it, also
+/// while the writer thread does it, because its `Working` holds that thread's count.
+#[cfg(test)]
+pub static WRITING: WritesOfThisThread = WritesOfThisThread;
 
 // The folders that `sync_folder` synced on this thread, so that a test can see that a
 // rename was made to last. A power cut cannot be simulated in a test.
@@ -48,6 +56,25 @@ thread_local! {
 pub(crate) struct OtherNames {
     count: usize,
     first: Option<String>,
+}
+
+/// The count behind `WRITING` in tests: the count of the thread that reads it.
+#[cfg(test)]
+pub struct WritesOfThisThread;
+
+#[cfg(test)]
+impl std::ops::Deref for WritesOfThisThread {
+    type Target = std::sync::Arc<std::sync::atomic::AtomicUsize>;
+
+    /// Returns this thread's count. Each count is leaked, so that it lives as long as the
+    /// `Working`s that hold it. That is one small allocation for each test.
+    fn deref(&self) -> &Self::Target {
+        thread_local! {
+            static COUNT: &'static std::sync::Arc<std::sync::atomic::AtomicUsize> =
+                Box::leak(Box::default());
+        }
+        COUNT.with(|count| *count)
+    }
 }
 
 impl OtherNames {
@@ -1144,8 +1171,7 @@ mod tests {
     #[test]
     fn counts_writes_until_done() {
         use std::sync::atomic::{AtomicBool, Ordering::Relaxed};
-        // Other tests write at the same time, so the count itself proves little after `flush`:
-        // the work done, and `flush` back long before its 5 s, which it is not while the
+        // The work is done, and `flush` is back long before its 5 s. It is not back while the
         // writer that panics is still counted.
         let done = std::sync::Arc::new(AtomicBool::new(false));
         let d = done.clone();
@@ -1159,6 +1185,26 @@ mod tests {
         super::flush();
         assert!(done.load(Relaxed));
         assert!(t.elapsed() < std::time::Duration::from_secs(4));
+    }
+
+    /// A write that another test's thread asked for is not counted on this test's thread.
+    /// Before, the tests shared one count, and a test that waited for its own writes to end
+    /// (`flush`, a close) also waited for the writes of the tests beside it, and timed out.
+    #[test]
+    fn a_write_of_another_test_is_not_counted_here() {
+        use std::sync::atomic::Ordering::Relaxed;
+        let (counted, wait) = std::sync::mpsc::channel();
+        let (release, released) = std::sync::mpsc::channel::<()>();
+        let other = std::thread::spawn(move || {
+            let writing = crate::support::threads::Working::new(&super::WRITING);
+            counted.send(super::WRITING.load(Relaxed)).unwrap();
+            let _ = released.recv();
+            drop(writing);
+        });
+        assert_eq!(wait.recv().unwrap(), 1);
+        assert_eq!(super::WRITING.load(Relaxed), 0);
+        release.send(()).unwrap();
+        other.join().unwrap();
     }
 
     /// A file deleted while the step before the rename runs (a sidecar written under its lock)
