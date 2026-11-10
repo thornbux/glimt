@@ -5,6 +5,28 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.80.0] - 2026-11-10
+
+### Added
+
+- Preferences → Memory and CPU sets the most memory an added format's program may take, 4096 MB
+  by default (the setting `added_format_memory_mb`), for Java with a large heap. A program that
+  runs out of it is told so, with the limit, and finds it in `GLIMT_FORMAT_MEMORY_MB`; the
+  Bio-Formats example keeps Java's heap under it.
+
+### Changed
+
+- Copy Image to Clipboard moves from the Select menu to Edit, beside Crop and Orientation. It
+  copies the shown image, while Copy Path and Copy Files in the Select menu copy the selection.
+- The Help Manual's differences from Geeqie name each key that Geeqie 3.2 changed, such as
+  Ctrl+C, Ctrl+M, Ctrl+R and Ctrl+T, and what "/" does. Glimt keeps its keys.
+- Before 1.0, a few names that misled their reader are renamed: the settings `low_memory`,
+  `fade` and `icons` are now `one_malloc_arena`, `slideshow_fade` and `icon_grid`, and the
+  actions `CopyFiles`, `ExifRotate`, `Escape`, `Up` and `Home` are now `CopyFilesToClipboard`,
+  `AutoRotate`, `LeaveFullScreen`, `ParentFolder` and `HomeFolder`. The old names keep working
+  for good, in the settings file, in `keys=` and with `--remote run`, and Glimt writes the new
+  ones. The option `--fade` keeps its name.
+
 ### Fixed
 
 - `--remote-all` exits with 3, not 1, when one window does not answer within 10 seconds while
@@ -97,27 +119,6 @@ and versions follow [Semantic Versioning](https://semver.org/).
   the file dialog for a colour profile and a tool's check of the file types it takes. Open
   Recent, the Sort Manager's folders, the keyword tree and the window's state are read before
   the window opens, the window's state once instead of twice.
-### Added
-
-- Preferences → Memory and CPU sets the most memory an added format's program may take, 4096 MB
-  by default (the setting `added_format_memory_mb`), for Java with a large heap. A program that
-  runs out of it is told so, with the limit, and finds it in `GLIMT_FORMAT_MEMORY_MB`; the
-  Bio-Formats example keeps Java's heap under it.
-
-### Changed
-
-- Copy Image to Clipboard moves from the Select menu to Edit, beside Crop and Orientation. It
-  copies the shown image, while Copy Path and Copy Files in the Select menu copy the selection.
-- The Help Manual's differences from Geeqie name each key that Geeqie 3.2 changed, such as
-  Ctrl+C, Ctrl+M, Ctrl+R and Ctrl+T, and what "/" does. Glimt keeps its keys.
-- Before 1.0, a few names that misled their reader are renamed: the settings `low_memory`,
-  `fade` and `icons` are now `one_malloc_arena`, `slideshow_fade` and `icon_grid`, and the
-  actions `CopyFiles`, `ExifRotate`, `Escape`, `Up` and `Home` are now `CopyFilesToClipboard`,
-  `AutoRotate`, `LeaveFullScreen`, `ParentFolder` and `HomeFolder`. The old names keep working
-  for good, in the settings file, in `keys=` and with `--remote run`, and Glimt writes the new
-  ones. The option `--fade` keeps its name.
-
-### Fixed
 
 - Zoomed in, Alt+arrow changes the pane and Shift+arrow extends the selection again. Before,
   both moved the image, as only an arrow pressed alone should.
@@ -3632,7 +3633,8 @@ The first release. Glimt is not 1.0 yet: it is in daily use, but expect rough ed
 - Remote control from the command line: `glimt --remote` and `--remote-all`.
 - Remembers the folder, window size and position.
 
-[Unreleased]: https://github.com/thornbux/glimt/compare/v0.79.0...HEAD
+[Unreleased]: https://github.com/thornbux/glimt/compare/v0.80.0...HEAD
+[0.80.0]: https://github.com/thornbux/glimt/compare/v0.79.0...v0.80.0
 [0.79.0]: https://github.com/thornbux/glimt/compare/v0.78.0...v0.79.0
 [0.78.0]: https://github.com/thornbux/glimt/compare/v0.77.0...v0.78.0
 [0.77.0]: https://github.com/thornbux/glimt/compare/v0.76.0...v0.77.0
