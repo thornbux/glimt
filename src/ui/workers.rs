@@ -69,6 +69,15 @@ impl crate::App {
         self.receive_picked(ctx);
     }
 
+    /// Takes the answers that need no frame: the sizes summed and freed, and the EXIF index.
+    /// `logic` calls this, also while the window is minimized and runs no `ui`, so their busy
+    /// pointers go then too. Before, they stayed until the window was shown again. The image for
+    /// the clipboard waits for a frame, as egui takes the clipboard only during one.
+    pub(crate) fn receive_answers_without_a_frame(&mut self, ctx: &egui::Context) {
+        self.receive_sizes();
+        self.receive_exif_index(ctx);
+    }
+
     /// The desktop's look and screen profile, once read.
     fn receive_desktop(&mut self, ctx: &egui::Context) {
         let (look, screen) = self.desktop_settings.receive();
@@ -240,4 +249,27 @@ pub(crate) fn spawn_thumbnailers(
         });
     }
     (thumb_jobs, thumbs_done)
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::support::test_support::{app_on, contract_folder};
+
+    /// A minimized window runs `logic` but no `ui`, and takes there the answers that need no
+    /// frame, such as the bytes a delete freed, so their busy pointer goes. Before, only `ui`
+    /// took them, and the pointer stayed until the window was shown again.
+    #[test]
+    fn answers_that_need_no_frame_are_taken_without_one() {
+        let dir = contract_folder("answers-without-a-frame");
+        let (mut app, ctx) = app_on(&dir);
+        app.status_bar.freed_sender().send(1).unwrap();
+        assert!(app.working_besides_image());
+        app.receive_answers_without_a_frame(&ctx);
+        assert!(!app.working_besides_image());
+        let main = include_str!("../main.rs");
+        let logic = &main[main.find("fn logic(").unwrap()..];
+        let logic = &logic[..logic.find("\n    }\n").unwrap()];
+        assert!(logic.contains("self.receive_answers_without_a_frame(ctx);"));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
 }
