@@ -140,9 +140,11 @@ impl KeywordChange {
         }
     }
 
-    /// Takes the removed keywords out of `keywords` and adds the added ones at its end.
+    /// Takes the removed keywords out of `keywords` and adds the added ones at its end. A removed
+    /// keyword is taken out only as it is spelled, because `between` chose it by its spelling,
+    /// and "Rose" stays when "rose" goes.
     pub fn apply(&self, keywords: &mut Vec<String>) {
-        keywords.retain(|k| !self.removed.iter().any(|r| same_keyword(r, k)));
+        keywords.retain(|k| !self.removed.contains(k));
         add_to(keywords, &self.added);
     }
 }
@@ -2076,6 +2078,24 @@ mod tests {
         assert_eq!(edited("Smith, John, x"), saved);
         assert_eq!(edited("x"), ["x"]);
         assert_eq!(edited("Smith, Jon, x"), ["x", "Smith", "Jon"]);
+    }
+
+    /// Taking out one of two keywords that differ only in letter case keeps the other. Before,
+    /// `apply` took out every keyword the same but for letter case, so both went.
+    #[test]
+    fn taking_out_one_spelling_keeps_the_other() {
+        let k = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        let saved = k(&["Rose", "rose"]);
+        let mut keywords = saved.clone();
+        KeywordChange::between(&saved, &k(&["Rose"])).apply(&mut keywords);
+        assert_eq!(keywords, ["Rose"]);
+        let mut keywords = k(&["rose"]);
+        KeywordChange::between(&keywords.clone(), &k(&["Rose"])).apply(&mut keywords);
+        assert_eq!(
+            keywords,
+            ["Rose"],
+            "a change of letter case is still written"
+        );
     }
 
     /// An edit of the keywords field changes only the keywords it added or took out. A keyword
