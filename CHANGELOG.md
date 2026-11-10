@@ -5,6 +5,18 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- A write that fails while Glimt waits to close, such as keywords typed for a photo on a
+  read-only folder and then Ctrl+Q or a logout, keeps the window open with the failure shown,
+  and prints it in the terminal. Close again to close. Before, the window closed as the failure
+  came, and the keywords were lost without a word. Failed moves, copies and deletes are printed
+  in the terminal too.
+- A failed write stays on screen when another notice comes at the same moment. Before, a
+  Lightroom import's "imported" could hide "Could not save the keyword tree".
+- A window closed twice while files are written still waits, when it closes, for the last
+  folder and window size and for the marks to be saved. Only a third close ends at once.
+
 ## [0.80.0] - 2026-11-10
 
 ### Added
