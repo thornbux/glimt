@@ -21,7 +21,7 @@ if [ "$(id -u)" = 0 ]; then
     apt-get update -qq >/dev/null
     apt-get install -y -qq xvfb xdotool x11-utils xclip imagemagick libimage-exiftool-perl ffmpeg \
         poppler-utils libglib2.0-bin colord-data python3 procps libgl1-mesa-dri libegl1 libgl1 \
-        libxkbcommon-x11-0 libxcursor1 libxrandr2 libxi6 libx11-xcb1 sqlite3 shared-mime-info python3-nibabel python3-h5py python3-openslide python3-mrcfile python3-astropy python3-pydicom python3-gdcm libgdcm-tools default-jre-headless unzip dosfstools rclone fuse3 gvfs gvfs-fuse gvfs-backends openssh-server dbus >/dev/null || { echo "FAIL installing the tools"; exit 1; }
+        libxkbcommon-x11-0 libxcursor1 libxrandr2 libxi6 libx11-xcb1 sqlite3 shared-mime-info python3-nibabel python3-h5py python3-openslide python3-mrcfile python3-astropy python3-pydicom python3-gdcm libgdcm-tools default-jre-headless unzip dosfstools rclone fuse3 gvfs gvfs-fuse gvfs-backends openssh-server dbus python3-fusepy >/dev/null || { echo "FAIL installing the tools"; exit 1; }
     # Bio-Formats for its format is no Debian package: its release, checked against the hash
     # it had when added.
     curl -sfL -o /tmp/bftools.zip \
@@ -78,6 +78,122 @@ if [ "$(id -u)" = 0 ]; then
         su tester -c 'mkdir -p ~/.ssh && ssh-keygen -q -t ed25519 -N "" -f ~/.ssh/id_ed25519 \
             && cp ~/.ssh/id_ed25519.pub ~/.ssh/authorized_keys \
             && ssh-keyscan -H localhost >~/.ssh/known_hosts 2>/dev/null'
+    fi
+    # The checks of a failing environment (faults=yes): a small tmpfs at /mnt/full, which they
+    # fill, and at /mnt/lossy a FUSE pass-through of /opt/lossy whose unlink of a file named
+    # lost-* removes it but answers EIO, and then answers stat of that name from a cache for 30
+    # seconds, as a share whose reply was lost does (NFS, SMB, sshfs). Both need --privileged,
+    # which run.sh gives the parts with these checks; without it those checks fail.
+    if grep -q '^faults=[y]es' "${SCRIPT:-/t/tests.sh}"; then
+        mkdir -p /mnt/full /mnt/lossy /opt/lossy && chown tester: /opt/lossy
+        mount -t tmpfs -o size=16m,uid=$(id -u tester),gid=$(id -g tester) full /mnt/full
+        cat >/opt/lossyfs.py <<'PY'
+import errno, os, sys, time
+from fusepy import FUSE, FuseOSError, Operations, fuse_get_context
+
+STAT = ("st_mode", "st_nlink", "st_uid", "st_gid", "st_size", "st_atime", "st_mtime", "st_ctime")
+STATFS = ("f_bavail", "f_bfree", "f_blocks", "f_bsize", "f_favail", "f_ffree", "f_files",
+          "f_flag", "f_frsize", "f_namemax")
+
+class Lossy(Operations):
+    def __init__(self, root):
+        self.root, self.ghosts = root, {}
+
+    def __call__(self, op, *args):
+        try:
+            return super().__call__(op, *args)
+        except OSError as e:
+            raise FuseOSError(e.errno or errno.EIO)
+
+    def r(self, path):
+        return self.root + path
+
+    def owned(self, path):
+        uid, gid, _ = fuse_get_context()
+        os.lchown(self.r(path), uid, gid)
+
+    def getattr(self, path, fh=None):
+        ghost = self.ghosts.get(path)
+        if ghost and ghost[1] > time.time():
+            return ghost[0]
+        st = os.lstat(self.r(path))
+        return {k: getattr(st, k) for k in STAT}
+
+    def unlink(self, path):
+        if os.path.basename(path).startswith("lost-"):
+            st = self.getattr(path)
+            os.unlink(self.r(path))
+            self.ghosts[path] = (st, time.time() + 30)
+            raise FuseOSError(errno.EIO)
+        os.unlink(self.r(path))
+
+    def link(self, target, source):
+        os.link(self.r(source), self.r(target))
+
+    def symlink(self, target, source):
+        os.symlink(source, self.r(target))
+        self.owned(target)
+
+    def rename(self, old, new):
+        os.rename(self.r(old), self.r(new))
+
+    def create(self, path, mode, fi=None):
+        fd = os.open(self.r(path), os.O_WRONLY | os.O_CREAT | os.O_EXCL, mode)
+        self.owned(path)
+        return fd
+
+    def mkdir(self, path, mode):
+        os.mkdir(self.r(path), mode)
+        self.owned(path)
+
+    def open(self, path, flags):
+        return os.open(self.r(path), flags)
+
+    def read(self, path, size, offset, fh):
+        return os.pread(fh, size, offset)
+
+    def write(self, path, data, offset, fh):
+        return os.pwrite(fh, data, offset)
+
+    def truncate(self, path, length, fh=None):
+        os.truncate(self.r(path), length)
+
+    def flush(self, path, fh):
+        return 0
+
+    def fsync(self, path, datasync, fh):
+        os.fsync(fh)
+
+    def release(self, path, fh):
+        os.close(fh)
+
+    def readdir(self, path, fh):
+        return [".", ".."] + os.listdir(self.r(path))
+
+    def readlink(self, path):
+        return os.readlink(self.r(path))
+
+    def rmdir(self, path):
+        os.rmdir(self.r(path))
+
+    def chmod(self, path, mode):
+        os.chmod(self.r(path), mode)
+
+    def chown(self, path, uid, gid):
+        os.lchown(self.r(path), uid, gid)
+
+    def utimens(self, path, times=None):
+        os.utime(self.r(path), times, follow_symlinks=False)
+
+    def statfs(self, path):
+        st = os.statvfs(self.r(path))
+        return {k: getattr(st, k) for k in STATFS}
+
+FUSE(Lossy(sys.argv[1]), sys.argv[2], foreground=True, allow_other=True,
+     default_permissions=True)
+PY
+        python3 /opt/lossyfs.py /opt/lossy /mnt/lossy >/tmp/lossyfs.log 2>&1 &
+        for try in $(seq 50); do grep -q ' /mnt/lossy fuse' /proc/mounts && break; sleep 0.1; done
     fi
     # -noreset: an X server starts over when its last client closes, and refuses every client
     # that comes in that moment. Each check starts and quits Glimt, so a window now and then got
@@ -294,6 +410,21 @@ differ() { if [ "$2" != "$3" ]; then pass "$1"; else fail "$1: both '$2'"; fi; }
 matching() {
     convert /t/out/$1.png -crop $2 +repage -fx "$3" -format '%[fx:int(mean*w*h)]' info: |
         tail -1
+}
+# The pixels of a notice in the screenshot NAME: Glimt writes every notice in egui's light red
+# (255,128,128) at the foot of the image area. The pictures of a check that looks for a notice
+# have no such colour.
+notice_pixels() { matching $1 1040x300+240+500 'r>0.85 && g>0.38 && g<0.62 && b>0.38 && b<0.62'; }
+# until_notice NAME [SECONDS]: shots NAME until one shows a notice, up to SECONDS (10); false
+# when none came.
+until_notice() {
+    local i
+    for i in $(seq $(( ${2:-10} * 2 ))); do
+        shot $1
+        [ "$(notice_pixels $1)" -gt 20 ] && return 0
+        sleep 0.5
+    done
+    return 1
 }
 # The red value, 0-255, at X,Y of a screenshot.
 red() { convert /t/out/$1.png -format "%[fx:int(255*p{$2,$3}.r)]" info:; }
@@ -4572,6 +4703,348 @@ for v in new old; do
         expect "next moved only the window named right" "$left|$right" "$d/a.png |$d/b.png "
         expect "the name taken away: no longer reached" "$unnamed $by_id $by_name" "0 1 1"
     else note "old: titles '$titles', identify $identified, name $renamed, '$left|$right'"; fi
+done
+
+section "a full disk during a Move, a Copy, a turned save and a sidecar write: every file kept, told"
+# The root part mounts a tmpfs of 16 MB at /mnt/full for the line below. Each step fills it with a
+# hidden file of zeros, all but the room it leaves free.
+faults=yes
+full=/mnt/full
+# leave_free BYTES: the tmpfs full but for BYTES.
+leave_free() {
+    rm -f $full/.fill
+    head -c 20M /dev/zero >$full/.fill 2>/dev/null
+    truncate -s -$1 $full/.fill
+}
+# Pictures without the light red of a notice, which a gradient of blues with noise lacks.
+blue_photo() { convert -size $1 gradient:navy-blue -attenuate 0.5 +noise Gaussian -quality 95 $2; }
+if ! grep -q " $full tmpfs " /proc/mounts; then
+    fail "no tmpfs at $full: run.sh's containers need --privileged to mount it"
+else
+    for v in new old; do
+        as_version $v
+        mkdir -p $XDG_STATE_HOME/glimt
+        # A Move and a Copy to the full disk: the photo, its sidecar and its stars stay.
+        for op in move copy; do
+            rm -f $full/.fill
+            d=/tmp/full-$op-$v to=$full/$op-$v
+            rm -rf $d $to; mkdir -p $d $to
+            blue_photo 800x600 $d/a.jpg
+            echo "sidecar of a" >$d/a.jpg.xmp
+            star_line=$(printf '0\t4\t%s/a.jpg' $d)
+            echo "$star_line" >$XDG_STATE_HOME/glimt/marks
+            sums="$(cat $d/a.jpg $d/a.jpg.xmp | md5sum)"
+            leave_free $(( $(stat -c %s $d/a.jpg) / 2 ))
+            config
+            start $d/a.jpg
+            answer $to
+            if [ $op = move ]; then key ctrl+m; else key ctrl+c; fi
+            until_notice full-$op-$v; told=$?
+            quit
+            got="$([ "$(cat $d/a.jpg $d/a.jpg.xmp | md5sum)" = "$sums" ] && echo kept)"
+            got="$got,$(ls -A $to | tr '\n' ' '),$(grep -cxF "$star_line" $XDG_STATE_HOME/glimt/marks)"
+            got="$got,$([ $told = 0 ] && echo told)"
+            if [ $v = new ]; then
+                expect "$op to a full disk: photo and sidecar kept, nothing left there, the stars kept, told" \
+                    "$got" "kept,,1,told"
+            else note "old, $op: $got"; fi
+            rm -rf $d $to
+        done
+        # A turned PNG saved whole, and a JPEG's orientation written into a new copy: neither fits.
+        for f in a.png b.jpg; do
+            rm -f $full/.fill
+            d=$full/turn-$v
+            rm -rf $d; mkdir -p $d
+            blue_photo 600x400 $d/$f
+            convert -size 64x64 xc:blue $d/z.png       # the next image, which saves the turn
+            sum=$(md5sum <$d/$f)
+            leave_free $(( $(stat -c %s $d/$f) / 2 ))
+            config save_orientation=true
+            start $d/$f
+            key bracketright; key space
+            until_notice full-turn-$f-$v; told=$?
+            quit
+            got="$([ "$(md5sum <$d/$f)" = "$sum" ] && echo kept),$(ls -A $d | tr '\n' ' '),$([ $told = 0 ] && echo told)"
+            if [ $v = new ]; then
+                expect "$f turned and saved on a full disk: kept as it was, no part left, told" \
+                    "$got" "kept,$f z.png ,told"
+            else note "old, $f turned: $got"; fi
+            rm -rf $d
+        done
+        # A keyword set with the keyword tree: the sidecar written new does not fit.
+        rm -f $full/.fill
+        d=$full/sidecar-$v
+        rm -rf $d; mkdir -p $d
+        convert -size 300x200 xc:blue $d/a.jpg
+        cat >$d/a.jpg.xmp <<XMP
+<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+ <rdf:Description rdf:about="" xmlns:dc="http://purl.org/dc/elements/1.1/">
+  <dc:subject><rdf:Bag><rdf:li>Old</rdf:li></rdf:Bag></dc:subject>
+ </rdf:Description></rdf:RDF></x:xmpmeta>
+XMP
+        sum=$(md5sum <$d/a.jpg.xmp)
+        printf 'Animals\n' >$XDG_CONFIG_HOME/glimt/keywords
+        leave_free 0
+        config info_panel=true
+        start $d/a.jpg
+        for x in $(seq 1100 4 1240); do xdotool mousemove $x 500; done
+        sleep 1
+        menu Animals
+        until_notice full-sidecar-$v; told=$?
+        quit
+        got="$([ "$(md5sum <$d/a.jpg.xmp)" = "$sum" ] && echo kept),$(ls -A $d | tr '\n' ' '),$([ $told = 0 ] && echo told)"
+        if [ $v = new ]; then
+            expect "a keyword's sidecar written on a full disk: the sidecar kept, no part left, told" \
+                "$got" "kept,a.jpg a.jpg.xmp ,told"
+        else note "old, the sidecar: $got"; fi
+        rm -rf $d
+    done
+    rm -f $full/.fill
+fi
+
+section "a share that removes a file but answers its unlink with an error: a Move and a Rename keep the photo"
+# OPS-1. The root part mounts /mnt/lossy for the line below: its unlink of lost-* removes the file
+# and answers EIO, and its stat still finds the name for 30 seconds, as a share whose reply was
+# lost does while its cache holds the name. It has no RENAME_NOREPLACE, so a Rename there is a
+# hard link and an unlink; a Move from it to the local disk is a copy and an unlink. Neither may
+# then take back the name that is the only copy left.
+faults=yes
+lossy=/mnt/lossy
+if ! grep -q " $lossy fuse" /proc/mounts; then
+    fail "no FUSE file system at $lossy: run.sh's containers need --privileged for /dev/fuse"
+    tail -5 /tmp/lossyfs.log 2>/dev/null | sed 's/^/     /'
+else
+    for v in new old; do
+        as_version $v
+        back=/opt/lossy/$v to=/tmp/lossy-to-$v
+        rm -rf $back $to; mkdir -p $back $to
+        convert -size 300x200 xc:blue $back/lost-a.jpg
+        convert -size 300x200 xc:lime $back/lost-b.jpg
+        a=$(md5sum <$back/lost-a.jpg) b=$(md5sum <$back/lost-b.jpg)
+        # copies SUM: how many files hold the photo, on the share's disk or the local one.
+        copies() { find $back $to -type f -exec md5sum {} + | grep -c "${1%% *}"; }
+        config
+        start $lossy/$v/lost-a.jpg
+        answer $to
+        key ctrl+m
+        until_notice lossy-move-$v; told_move=$?
+        quit
+        start $lossy/$v/lost-b.jpg
+        key ctrl+r; sleep 1; key ctrl+a
+        xdotool type --delay 30 kept-b.jpg; key Return
+        until_notice lossy-rename-$v; told_rename=$?
+        quit
+        move="$(copies "$a") $([ $told_move = 0 ] && echo told)"
+        rename="$(copies "$b") $([ $told_rename = 0 ] && echo told)"
+        files="$(ls -A $back | tr '\n' ' ')| $(ls -A $to | tr '\n' ' ')"
+        if [ $v = new ]; then
+            expect "a Move from the share: the photo still on a disk, the failure told" "$move" "1 told"
+            expect "a Rename on the share: the photo still on its disk, the failure told" "$rename" "1 told"
+        else note "old: Move $move, Rename $rename (copies left, told); files $files"; fi
+        [ $v = new ] && note "new: files $files"
+    done
+fi
+
+section "a JPEG still being written, turned with Save Orientation on: the photo whole at its name"
+# SAVE-1. A copier (a file manager, gphoto2) still appends to a.jpg when the user turns it and
+# goes on. A save that renames its copy over the name while the copier writes on into the old
+# file leaves the photo cut off at its name.
+for v in new old; do
+    as_version $v
+    d=/tmp/growing-$v whole=/tmp/growing-whole-$v.jpg
+    rm -rf $d; mkdir -p $d
+    convert -size 2400x1600 gradient:navy-teal -attenuate 0.6 +noise Gaussian -quality 95 $whole
+    convert -size 300x200 xc:blue $d/b.jpg
+    # Half at once, then 512 bytes every 5 ms: about 15 seconds for the rest of 3 MB.
+    python3 -c "
+import sys, time
+data = open(sys.argv[1], 'rb').read()
+with open(sys.argv[2], 'wb') as f:
+    half = len(data) // 2
+    f.write(data[:half]); f.flush()
+    for i in range(half, len(data), 512):
+        time.sleep(0.005); f.write(data[i:i + 512]); f.flush()
+" $whole $d/a.jpg &
+    writer=$!
+    until_file $d/a.jpg
+    config save_orientation=true
+    start $d/a.jpg
+    key bracketright; key space      # turned, then the next image, which saves the turn
+    writing=$(kill -0 $writer 2>/dev/null && echo writing)
+    until_notice growing-$v 4; told=$?
+    wait $writer
+    sleep 1
+    quit
+    got="$writing $(identify -format '%#' $d/a.jpg 2>/dev/null) $(stat -c %s $d/a.jpg)"
+    want="writing $(identify -format '%#' $whole) $(stat -c %s $whole)"
+    if [ $v = new ]; then
+        expect "the photo whole at its name, its pixels as the copier wrote them" "$got" "$want"
+        note "new: the turn $([ $told = 0 ] && echo told || echo not told)"
+    else note "old: $([ "$got" = "$want" ] && echo whole || echo "cut off: $got, whole: $want")"; fi
+    rm -rf $d $whole
+done
+
+section "Glimt killed (kill -9) during a Move and a Rename Many: every photo under a name, the stars follow"
+# EDGES-3: a Move tells the marks where the files went only in its last report.
+for v in new old; do
+    as_version $v
+    mkdir -p $XDG_STATE_HOME/glimt
+    # 200 photos of 10 MB, each with a sidecar and three stars, moved from the tmpfs /dev/shm to
+    # the disk under /tmp, so each is copied and then unlinked; killed after the tenth.
+    d=/dev/shm/killed-$v to=/tmp/killed-to-$v
+    rm -rf $d $to; mkdir -p $d $to
+    head -c 10000000 /dev/urandom >$d/001.jpg
+    for i in $(seq -w 2 200); do ln $d/001.jpg $d/$i.jpg; done
+    for i in $(seq -w 1 200); do echo "sidecar $i" >$d/$i.jpg.xmp; done
+    for i in $(seq -w 1 200); do printf '0\t3\t%s/%s.jpg\n' $d $i; done >$XDG_STATE_HOME/glimt/marks
+    config
+    start $d
+    sleep 2
+    key ctrl+a
+    answer $to
+    key ctrl+m
+    for i in $(seq 400); do [ "$(ls $to | grep -c 'jpg$')" -ge 10 ] && break; sleep 0.05; done
+    kill -9 $GPID; wait $GPID 2>/dev/null
+    moved=$(ls $to | grep -c 'jpg$')
+    start $to; sleep 2; quit         # a new start, which may put things right
+    got=$(python3 - $d $to $XDG_STATE_HOME/glimt/marks <<'PY'
+import os, sys
+d, to, marks = sys.argv[1:]
+stars = {}
+for line in open(marks):
+    fields = line.rstrip("\n").split("\t")
+    if len(fields) == 3:
+        stars[fields[2]] = fields[1]
+named = beside = starred = 0
+for i in range(1, 201):
+    name = "%03d.jpg" % i
+    places = [p for p in (d, to) if os.path.isfile(f"{p}/{name}")]
+    named += bool(places)
+    beside += any(os.path.isfile(f"{p}/{name}.xmp") for p in places)
+    starred += any(stars.get(f"{p}/{name}") == "3" for p in places)
+print(named, beside, starred)
+PY
+)
+    hidden=$(ls -A $to | grep -c '^\.')
+    rm -rf $d $to
+    if [ $v = new ]; then
+        expect "killed during a Move: every photo under a name, its sidecar beside it, its stars on it" \
+            "$got" "200 200 200"
+        note "new: $moved moved when killed, $hidden hidden parts left"
+    else note "old: named, sidecar beside, starred: $got ($moved moved when killed, $hidden hidden left)"; fi
+    # Rename Many of 10,000 photos, sorted descending to 00001…: each takes the name of another,
+    # so all go through hidden names. Each photo ends with its own number, and has i % 5 + 1
+    # stars. Killed once 50 are under hidden names.
+    d=/tmp/killed-rename-$v
+    rm -rf $d $XDG_STATE_HOME/glimt/renames; mkdir -p $d
+    convert -size 32x32 xc:blue /tmp/killed-base.jpg
+    python3 - $d $XDG_STATE_HOME/glimt/marks <<'PY'
+import sys
+d, marks = sys.argv[1:]
+base = open("/tmp/killed-base.jpg", "rb").read()
+with open(marks, "w") as m:
+    for i in range(1, 10001):
+        open(f"{d}/{i:05d}.jpg", "wb").write(base + b"%d" % i)
+        m.write(f"0\t{i % 5 + 1}\t{d}/{i:05d}.jpg\n")
+PY
+    config sort_ascending=false
+    start $d
+    sleep 2
+    key ctrl+a; key ctrl+r; sleep 1; key ctrl+a
+    xdotool type --delay 30 '#####'; sleep 0.4
+    xdotool key Return
+    python3 -c "
+import os, signal, sys, time
+d, pid = sys.argv[1], int(sys.argv[2])
+end = time.time() + 60
+while time.time() < end:
+    if sum(n.startswith('.glimt-rename') for n in os.listdir(d)) >= 50:
+        break
+os.kill(pid, signal.SIGKILL)" $d $GPID
+    wait $GPID 2>/dev/null
+    cut=$(ls -A $d | grep -c '^\.glimt-rename')
+    start $d
+    sleep 3
+    menu "Finish the renaming"
+    until_ok "! ls -A $d | grep -q '^\.' && [ -z \"\$(ls -A $XDG_STATE_HOME/glimt/renames)\" ]" 60
+    sleep 1
+    quit
+    # Named: files NNNNN.jpg; renamed: NNNNN.jpg holds photo 10001 - NNNNN; starred: its stars on it.
+    got=$(python3 - $d $XDG_STATE_HOME/glimt/marks <<'PY'
+import os, sys
+d, marks = sys.argv[1:]
+base = len(open("/tmp/killed-base.jpg", "rb").read())
+held = {}
+for name in os.listdir(d):
+    held[f"{d}/{name}"] = int(open(f"{d}/{name}", "rb").read()[base:] or 0)
+named = sum(1 for p in held if p.endswith(".jpg") and not os.path.basename(p).startswith("."))
+renamed = sum(1 for p, i in held.items() if os.path.basename(p) == f"{10001 - i:05d}.jpg")
+hidden = sum(1 for p in held if os.path.basename(p).startswith("."))
+starred = 0
+for line in open(marks):
+    fields = line.rstrip("\n").split("\t")
+    if len(fields) == 3 and fields[2] in held:
+        starred += fields[1] == str(held[fields[2]] % 5 + 1)
+print(named, renamed, hidden, starred)
+PY
+)
+    plans=$(ls -A $XDG_STATE_HOME/glimt/renames 2>/dev/null | wc -l)
+    rm -rf $d
+    if [ $v = new ]; then
+        expect "killed during Rename Many, with photos under hidden names" "$([ $cut -gt 0 ] && echo yes)" yes
+        expect "after the new start: each photo under its new name, none hidden, its stars on it, no plan" \
+            "$got $plans" "10000 10000 0 10000 0"
+    else note "old: named, renamed, hidden, starred, plans: $got $plans ($cut hidden when killed)"; fi
+done
+
+section "a keyword save that fails, then Ctrl+Q at once: the failure shown, the window stays open"
+# EDGES-1. Closing waits for the sidecar write, and the write then fails: in a read-only folder,
+# and on a read-only sidecar. Every sidecar lock is held from outside for a moment, as by another
+# window, so the write is still waiting when Ctrl+Q comes.
+for v in new old; do
+    as_version $v
+    for kind in folder sidecar; do
+        d=/tmp/close-failed-$v-$kind
+        rm -rf $d; mkdir -p $d
+        convert -size 300x200 xc:blue $d/a.jpg
+        if [ $kind = sidecar ]; then
+            printf '<x:xmpmeta xmlns:x="adobe:ns:meta/"/>\n' >$d/a.jpg.xmp
+            chmod 444 $d/a.jpg.xmp
+        else chmod 555 $d; fi
+        before=$(ls -A $d | tr '\n' ' ')$(cat $d/a.jpg.xmp 2>/dev/null)
+        printf 'Animals\n' >$XDG_CONFIG_HOME/glimt/keywords
+        config info_panel=true
+        rm -f /tmp/locks-held
+        python3 -c "
+import fcntl, os, time
+d = os.environ['XDG_RUNTIME_DIR'] + '/glimt/sidecar-locks'
+os.makedirs(d, mode=0o700, exist_ok=True)
+held = [open(f'{d}/{i}', 'w') for i in range(64)]
+for f in held:
+    fcntl.flock(f, fcntl.LOCK_EX)
+open('/tmp/locks-held', 'w').close()
+time.sleep(12)" &
+        locker=$!
+        until_file /tmp/locks-held
+        start $d/a.jpg
+        for x in $(seq 1100 4 1240); do xdotool mousemove $x 500; done
+        sleep 1
+        menu Animals; key ctrl+q
+        waits=$(kill -0 $GPID 2>/dev/null && echo waits)
+        wait $locker
+        sleep 3
+        open=$(kill -0 $GPID 2>/dev/null && echo open || echo closed)
+        until_notice close-failed-$v-$kind 3; told=$?
+        quit
+        chmod 755 $d
+        after=$(ls -A $d | tr '\n' ' ')$(cat $d/a.jpg.xmp 2>/dev/null)
+        got="$waits $open $([ $told = 0 ] && echo told) $([ "$before" = "$after" ] && echo kept)"
+        if [ $v = new ]; then
+            expect "a read-only $kind, Ctrl+Q while the keyword waits: open, the failure shown, nothing changed" \
+                "$got" "waits open told kept"
+        else note "old, read-only $kind: $got"; fi
+        rm -rf $d
+    done
 done
 
 section "timings: the large folder and EXIF dates, with nothing else running"
