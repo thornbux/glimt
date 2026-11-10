@@ -365,9 +365,14 @@ impl FileOperations {
         Some((self.jobs.first()?, self.jobs.len()))
     }
 
-    /// Every job stops after the file at hand.
+    /// Every job stops after the file at hand, except a sidecar write of one file. That is an
+    /// edit the user made, such as the info panel's save, which may wait behind a long job.
+    /// Stop acts between files, so it has nothing to cut short there, and the edit would only
+    /// be lost while the panel shows it as saved.
     pub(crate) fn stop_jobs(&self) {
-        (self.jobs.iter()).for_each(|job| job.stop_requested.store(true, Ordering::Relaxed));
+        (self.jobs.iter())
+            .filter(|job| !(job.writes_sidecars && job.total == 1))
+            .for_each(|job| job.stop_requested.store(true, Ordering::Relaxed));
     }
 
     /// A turned image saved in the background, or a tool's file, with how it went, and the busy
@@ -1773,6 +1778,7 @@ impl crate::App {
     /// the file gone and says so. Only a rename puts another photo under a name, as Rename Many
     /// does when it swaps names. A write asked for while one runs therefore waits until it is
     /// over, and is then sent to the names its files have (`send_waiting_sidecar_writes`).
+    /// Stop leaves a write of one file, which is an edit the user made (`stop_jobs`).
     pub(crate) fn write_sidecars(
         &mut self,
         ctx: &egui::Context,
@@ -4989,6 +4995,42 @@ mod tests {
             has_oslo(&b) && !has_oslo(&a),
             "the keyword is on the other photo"
         );
+        std::fs::remove_dir_all(d).unwrap();
+    }
+
+    /// Stop, or a second close, leaves a sidecar write of one file, such as the info panel's
+    /// save waiting behind a long job. Before, the save was dropped without a word, while the
+    /// panel showed the edit as saved.
+    #[test]
+    fn stop_leaves_a_sidecar_write_of_one_file() {
+        let d = contract_folder("stop-one-sidecar");
+        let a = d.join("a.png");
+        // The fixture's sidecar only says whose it is, which is not XMP to write into.
+        std::fs::remove_file(crate::metadata::xmp::sidecar(&a)).unwrap();
+        let (mut app, ctx) = app_on(&d);
+        let (go, released) = std::sync::mpsc::channel::<()>();
+        let long = vec![d.join("sub"), d.join("b.png")];
+        app.write_sidecars(
+            &ctx,
+            "Other",
+            long,
+            move |_| released.recv().is_err(),
+            |_, _| None,
+        );
+        let oslo = |p: &std::path::Path| crate::metadata::xmp::add_tags(p, &["Oslo".into()]);
+        app.write_sidecars(
+            &ctx,
+            "Keywords",
+            vec![a.clone()],
+            move |p| oslo(p).is_ok(),
+            |_, _| None,
+        );
+        app.file_operations.stop_jobs();
+        drop(go);
+        assert!(run_background_until(&mut app, &ctx, |app| !app
+            .file_operations
+            .is_writing_sidecars()));
+        assert_eq!(crate::metadata::xmp::read(&a).keywords, ["Oslo"]);
         std::fs::remove_dir_all(d).unwrap();
     }
 
