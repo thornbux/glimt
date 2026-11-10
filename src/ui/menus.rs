@@ -523,7 +523,8 @@ impl crate::App {
                 let all = self.folder.saved_collections().listed(ui.ctx());
                 for (name, file) in all.into_iter().flatten() {
                     if icon_button(ui, theme::icon::STACK, &name).clicked() {
-                        self.add_to_collection(ui.ctx(), &file);
+                        let added_to = crate::model::collections::CollectionAddedTo::Saved(file);
+                        self.add_to_collection(ui.ctx(), added_to);
                     }
                 }
                 menu_item(ui, chosen, Action::NewCollection);

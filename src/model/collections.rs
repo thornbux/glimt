@@ -52,6 +52,12 @@ impl SavedCollections {
     }
 }
 
+/// The collection that images are added to: one saved already, or a new one by its name.
+pub(crate) enum CollectionAddedTo {
+    Saved(PathBuf),
+    New(String),
+}
+
 impl crate::App {
     /// The collection shown is a plain list (.txt, .m3u), which Glimt reads but never writes.
     pub(crate) fn collection_is_list(&self) -> bool {
@@ -164,18 +170,26 @@ impl crate::App {
         }
     }
 
-    /// Add the selected files, or the shown image, to the collection in `file`. It is written
+    /// Add the selected files, or the shown image, to the collection `added_to`. It is written
     /// in the background, because Select All in a large folder adds hundreds of thousands of
-    /// files, and a home folder on a share may be slow to write. A file whose name has a line
-    /// break is left out with a notice, because the collection keeps a name on a line.
-    pub(crate) fn add_to_collection(&mut self, ctx: &egui::Context, file: &Path) {
+    /// files, and a home folder on a share may be slow to write. A new collection's name is
+    /// looked up there too, and why there can be none of that name is told. A file whose name
+    /// has a line break is left out with a notice, because the collection keeps a name on a
+    /// line.
+    pub(crate) fn add_to_collection(&mut self, ctx: &egui::Context, added_to: CollectionAddedTo) {
         let Some(targets) = self.targets() else {
             return;
         };
         let mut paths: Vec<PathBuf> = targets.iter().map(|&i| self.path(i)).collect();
         let left_out = crate::files::config::keep_those_that_fit_on_a_line(&mut paths);
-        let file = file.to_path_buf();
         self.run_in_background(ctx, Vec::new(), move || {
+            let file = match added_to {
+                CollectionAddedTo::Saved(file) => file,
+                CollectionAddedTo::New(name) => match new_file(&name) {
+                    Ok(file) => file,
+                    Err(why) => return Some(why),
+                },
+            };
             let name = file.file_stem().unwrap_or_default().to_string_lossy();
             let told = match append(&file, &paths) {
                 Ok(n) => tf!("{n} added to the collection \"{name}\"", n, name),
@@ -221,7 +235,7 @@ impl crate::App {
                     }
                     for (name, file) in all.into_iter().flatten() {
                         if icon_button(ui, theme::icon::STACK, &name).clicked() {
-                            self.add_to_collection(ui.ctx(), &file);
+                            self.add_to_collection(ui.ctx(), CollectionAddedTo::Saved(file));
                         }
                     }
                 },
@@ -790,7 +804,7 @@ mod tests {
             |a| !a.folder.is_listing()
         ));
         let file = dir.join("trip.gqv");
-        app.add_to_collection(&ctx, &file);
+        app.add_to_collection(&ctx, super::CollectionAddedTo::Saved(file.clone()));
         let told = |app: &crate::App| app.notice.text().is_some_and(|n| n.contains("trip"));
         assert!(crate::support::test_support::run_background_until(
             &mut app, &ctx, told
@@ -811,7 +825,7 @@ mod tests {
             .set_files(["a\nb.png", "c.png"].map(Into::into).to_vec());
         app.list.select([0, 1].into());
         let file = dir.join("trip.gqv");
-        app.add_to_collection(&ctx, &file);
+        app.add_to_collection(&ctx, super::CollectionAddedTo::Saved(file.clone()));
         let told = |app: &crate::App| app.notice.text().is_some_and(|n| n.contains("trip"));
         assert!(crate::support::test_support::run_background_until(
             &mut app, &ctx, told

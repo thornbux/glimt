@@ -737,10 +737,8 @@ impl crate::App {
             if !self.select_for_action(ctx, found.into_iter().collect()) {
                 return;
             }
-            return match collections::new_file(text) {
-                Ok(file) => self.add_to_collection(ctx, &file),
-                Err(e) => self.notice.give(e),
-            };
+            let added_to = collections::CollectionAddedTo::New(text.to_owned());
+            return self.add_to_collection(ctx, added_to);
         }
         if let Prompt::RenameCollection = prompt {
             return self.rename_collection(ctx, text);
@@ -1619,6 +1617,14 @@ mod tests {
         assert!(crate::support::test_support::run_background_until(
             &mut app, &ctx, written
         ));
+        // A name taken already is told too, though it is looked up in the background.
+        app.run(&ctx, crate::ui::actions::Action::NewCollection);
+        app.act_on_prompt_answer(&ctx, super::Prompt::NewCollection, &name);
+        assert!(crate::support::test_support::run_background_until(
+            &mut app, &ctx, written
+        ));
+        let taken = crate::tf!("There is a collection called \"{name}\" already", name);
+        assert_eq!(app.notice.text(), Some(taken.as_str()));
         std::fs::remove_file(&file).unwrap();
         std::fs::remove_dir_all(&dir).unwrap();
     }
