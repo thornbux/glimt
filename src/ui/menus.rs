@@ -92,7 +92,7 @@ impl OpenWith {
 impl crate::App {
     // ---- Settings and the menus that change them ----
 
-    /// The chosen theme, read from its file again, with the desktop's look where it sets none;
+    /// The chosen theme, from its file as last read, with the desktop's look where it sets none;
     /// High Contrast while the desktop asks for it, unless that is turned off.
     pub(crate) fn apply_theme(&self, ctx: &egui::Context) {
         let look = self.desktop_settings.look();
@@ -100,14 +100,15 @@ impl crate::App {
             true => theme::HIGH_CONTRAST,
             false => &self.config.theme,
         };
-        theme::apply(ctx, &theme::load(name), look.dark, look.accent);
+        let chosen = self.desktop_settings.theme(name);
+        theme::apply(ctx, &chosen, look.dark, look.accent);
         let desktop = look.text_scale.filter(|_| self.config.follow_text_scale);
         ctx.set_zoom_factor(self.config.ui_scale as f32 / 100.0 * desktop.unwrap_or(1.0));
     }
 
     /// View → Theme: the themes to choose from, then where to make and find more.
     pub(crate) fn theme_menu(&mut self, ui: &mut egui::Ui) {
-        for name in theme::names() {
+        for name in self.desktop_settings.theme_names(ui.ctx()) {
             let icon = match name.as_str() {
                 "Dark" => theme::icon::MOON,
                 "Light" => theme::icon::SUN,
@@ -117,7 +118,8 @@ impl crate::App {
                 theme::HIGH_CONTRAST_LIGHT => theme::icon::HALF_TILT,
                 _ => theme::icon::BRUSH,
             };
-            // Chosen again too, so a theme file just edited shows.
+            // Chosen again too, so a theme file just edited shows, as the open menu reads the
+            // files again every second.
             let shown = theme::shown_name(&name);
             #[allow(clippy::disallowed_methods)] // It has an icon before the text, noted below.
             let radio = ui.radio(self.config.theme == name, with_icon(ui, icon, shown));

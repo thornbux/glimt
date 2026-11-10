@@ -181,7 +181,27 @@ pub struct DesktopLook {
     pub text_scale: Option<f32>,
 }
 
-/// What the desktop says: its dark style and accent, and its screen profile.
+/// The themes to choose from, and the user's own theme files, as `read_theme_files` read them.
+#[derive(PartialEq)]
+pub(crate) struct ThemeFiles {
+    /// The names of the themes: the built-in ones first, then the user's own.
+    names: Vec<String>,
+    /// The user's own themes by their names, also one that hides a built-in theme's file.
+    own: Vec<(String, Theme)>,
+}
+
+impl Default for ThemeFiles {
+    /// The built-in themes only, as before the user's own are read.
+    fn default() -> Self {
+        ThemeFiles {
+            names: BUILT_IN.iter().map(|b| b.0.to_owned()).collect(),
+            own: Vec::new(),
+        }
+    }
+}
+
+/// What the desktop says: its dark style and accent, and its screen profile. It also holds the
+/// user's own theme files, read in the background, because they are in the home folder.
 pub(crate) struct DesktopSettings {
     /// The desktop's dark style and accent colour, once read from the portal.
     look: DesktopLook,
@@ -189,6 +209,10 @@ pub(crate) struct DesktopSettings {
     /// The desktop's screen profile file, once read from colord.
     screen_profile: Option<String>,
     screen_profile_answer: Receiving<Option<String>>,
+    /// The themes as last read, the read that runs, and when the last one started.
+    theme_files: ThemeFiles,
+    theme_files_answer: Receiving<ThemeFiles>,
+    theme_files_read_at: Option<std::time::Instant>,
 }
 
 impl DesktopSettings {
@@ -201,13 +225,53 @@ impl DesktopSettings {
             let _ = tx.send(read_desktop_look());
             repaint.request_repaint();
         });
-        DesktopSettings {
+        let mut settings = DesktopSettings {
             look: Default::default(),
             look_answer: Receiving::of(rx),
             screen_profile: None,
             screen_profile_answer: profile
                 .then(|| crate::images::colour::read_desktop_screen(ctx))
                 .map_or_else(Receiving::none, Receiving::of),
+            theme_files: ThemeFiles::default(),
+            theme_files_answer: Receiving::none(),
+            theme_files_read_at: None,
+        };
+        settings.read_theme_files_again(ctx);
+        settings
+    }
+
+    /// Returns the names of the themes to choose from, as last read. They are read again in
+    /// the background when they were read more than a second ago, so a menu kept open shows a
+    /// theme file made or edited meanwhile.
+    pub(crate) fn theme_names(&mut self, ctx: &egui::Context) -> Vec<String> {
+        let is_old = (self.theme_files_read_at).is_none_or(|at| at.elapsed().as_secs() >= 1);
+        if is_old {
+            self.read_theme_files_again(ctx);
+        }
+        self.theme_files.names.clone()
+    }
+
+    /// Reads the theme files again in the background, unless a read runs already.
+    pub(crate) fn read_theme_files_again(&mut self, ctx: &egui::Context) {
+        if self.theme_files_answer.is_some() {
+            return;
+        }
+        self.theme_files_read_at = Some(std::time::Instant::now());
+        let (tx, rx) = mpsc::channel();
+        let ctx = ctx.clone();
+        std::thread::spawn(move || {
+            let _ = tx.send(read_theme_files());
+            ctx.request_repaint();
+        });
+        self.theme_files_answer = Receiving::of(rx);
+    }
+
+    /// Returns the theme of that name: the user's file if there is one, else the built-in one,
+    /// else "Desktop". The user's files are as last read.
+    pub(crate) fn theme(&self, name: &str) -> Theme {
+        match self.theme_files.own.iter().find(|own| own.0 == name) {
+            Some((_, theme)) => theme.clone(),
+            None => built_in_theme(name),
         }
     }
 
@@ -230,8 +294,8 @@ impl DesktopSettings {
         }
     }
 
-    /// Takes what the desktop answered. Returns whether its look came, and whether a screen
-    /// profile came.
+    /// Takes what the desktop answered, and the theme files read. Returns whether its look
+    /// came or a theme file changed, and whether a screen profile came.
     pub(crate) fn receive(&mut self) -> (bool, bool) {
         let look = match self.look_answer.take() {
             Took::Answer(look) => Some(look),
@@ -245,7 +309,12 @@ impl DesktopSettings {
             self.screen_profile = path;
             screen = self.screen_profile.is_some();
         }
-        (look.is_some(), screen)
+        let mut themes_changed = false;
+        if let Took::Answer(files) = self.theme_files_answer.take() {
+            themes_changed = files != self.theme_files;
+            self.theme_files = files;
+        }
+        (look.is_some() || themes_changed, screen)
     }
 }
 
@@ -311,31 +380,40 @@ pub fn shown_name(name: &str) -> &str {
     (BUILT_IN.iter().find(|b| b.0 == name)).map_or(name, |b| crate::support::lang::tr(b.0))
 }
 
-pub fn names() -> Vec<String> {
-    let mut own: Vec<String> = (own_themes_dir().and_then(|d| std::fs::read_dir(d).ok()))
+/// Returns the themes to choose from and the user's own theme files, read from the user's
+/// themes folder. It waits for the disk, so it is called in a thread of its own.
+fn read_theme_files() -> ThemeFiles {
+    let files: Vec<std::path::PathBuf> = (own_themes_dir().and_then(|d| std::fs::read_dir(d).ok()))
         .into_iter()
         .flatten()
         .flatten()
         .map(|e| e.path())
         .filter(|p| p.extension().is_some_and(|x| x == "theme"))
-        .filter_map(|p| Some(p.file_stem()?.to_string_lossy().into_owned()))
-        .filter(|n| !BUILT_IN.iter().any(|b| b.0 == n))
         .collect();
-    own.sort_by_key(|n| n.to_lowercase());
-    BUILT_IN.iter().map(|b| b.0.to_owned()).chain(own).collect()
+    let mut own: Vec<(String, Theme)> = (files.iter())
+        .filter_map(|p| {
+            let name = p.file_stem()?.to_string_lossy().into_owned();
+            let text = crate::images::decode::read_text(p).ok()?;
+            Some((name, Theme::parse(&text)))
+        })
+        .collect();
+    own.sort_by_key(|(n, _)| n.to_lowercase());
+    let names_built_in = BUILT_IN.iter().map(|b| b.0.to_owned());
+    let own_names = (own.iter())
+        .map(|(n, _)| n.clone())
+        .filter(|n| !BUILT_IN.iter().any(|b| b.0 == n));
+    ThemeFiles {
+        names: names_built_in.chain(own_names).collect(),
+        own,
+    }
 }
 
-/// The theme of that name: the user's file if there is one, else the built-in one, else
-/// "Desktop". Read each time, so a changed file shows when it is chosen again.
-pub fn load(name: &str) -> Theme {
-    let file = own_themes_dir().map(|d| d.join(format!("{name}.theme")));
-    match file.and_then(|f| crate::images::decode::read_text(f).ok()) {
-        Some(text) => Theme::parse(&text),
-        None => BUILT_IN
-            .iter()
-            .find(|b| b.0 == name)
-            .map_or_else(Theme::default, |b| Theme::parse(b.1)),
-    }
+/// Returns the built-in theme of that name, or "Desktop" when there is none.
+pub fn built_in_theme(name: &str) -> Theme {
+    BUILT_IN
+        .iter()
+        .find(|b| b.0 == name)
+        .map_or_else(Theme::default, |b| Theme::parse(b.1))
 }
 
 /// Show `theme`, with the desktop's light or dark style and accent where it sets none.
@@ -515,6 +593,39 @@ mod tests {
         }
         assert_eq!(super::name_now_unless_own("Mine", |_| false), "Mine");
         assert!(!super::is_built_in("Mine"));
+    }
+
+    /// The user's own theme files are read in the background, and a theme is taken from what
+    /// was read: the user's file of that name, else the built-in theme, else Desktop's. A
+    /// theme file of the user's is listed after the built-in themes.
+    #[test]
+    fn a_theme_is_taken_from_the_files_read() {
+        let dir = super::own_themes_dir().unwrap();
+        std::fs::create_dir_all(&dir).unwrap();
+        let name = format!("glimt-test-theme-{}", std::process::id());
+        let file = dir.join(format!("{name}.theme"));
+        std::fs::write(&file, "dark=false\nradius=3\n").unwrap();
+        let ctx = eframe::egui::Context::default();
+        let mut settings = super::DesktopSettings::new(&ctx, false);
+        let took = std::time::Instant::now();
+        while !settings.theme_names(&ctx).contains(&name) && took.elapsed().as_secs() < 5 {
+            settings.receive();
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        std::fs::remove_file(&file).unwrap();
+        let names = settings.theme_names(&ctx);
+        let built_in_count = super::BUILT_IN.len();
+        assert_eq!(
+            names[..built_in_count],
+            super::BUILT_IN.map(|b| b.0.to_owned())
+        );
+        assert!(names[built_in_count..].contains(&name), "{names:?}");
+        assert_eq!(
+            settings.theme(&name),
+            super::Theme::parse("dark=false\nradius=3")
+        );
+        assert_eq!(settings.theme("Nord"), super::built_in_theme("Nord"));
+        assert_eq!(settings.theme("none such"), super::Theme::default());
     }
 
     /// Every character of the UI text (and the comments, which cost nothing) is in Inter or

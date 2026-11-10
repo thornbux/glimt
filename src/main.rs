@@ -206,7 +206,10 @@ impl App {
         crate::images::decode::set_animation_limit(config.animation_mb);
         set_cpu_use(config.cpu_use);
         crate::ui::theme::fonts(ctx);
-        crate::ui::theme::apply(ctx, &crate::ui::theme::load(&config.theme), None, None);
+        // The user's own theme files are read in the background (`DesktopSettings`), and the
+        // chosen one is applied when it comes.
+        let built_in = crate::ui::theme::built_in_theme(&config.theme);
+        crate::ui::theme::apply(ctx, &built_in, None, None);
         // The size comes from Preferences and the desktop, so egui's own Ctrl+0 would undo it.
         ctx.options_mut(|o| o.zoom_with_keyboard = false);
         ctx.set_zoom_factor(config.ui_scale as f32 / 100.0);

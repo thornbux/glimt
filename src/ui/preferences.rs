@@ -321,12 +321,13 @@ impl crate::App {
     fn look_settings(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) -> bool {
         let mut changed = false;
         section(ui, theme::icon::PALETTE, tr(LOOK[0]));
+        let names = self.desktop_settings.theme_names(ctx);
         ui.horizontal(|ui| {
             let mut chosen = false;
             egui::ComboBox::from_id_salt("theme")
                 .selected_text(theme::shown_name(&self.config.theme))
                 .show_ui(ui, |ui| {
-                    for name in theme::names() {
+                    for name in names {
                         let c = &mut self.config.theme;
                         let shown = theme::shown_name(&name);
                         chosen |= crate::ui::menus::choice(ui, c, name.clone(), shown).clicked();

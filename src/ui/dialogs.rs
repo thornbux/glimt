@@ -488,8 +488,9 @@ impl crate::App {
         self.dialogs.saved_theme = Receiving::of(rx);
     }
 
-    /// Takes the answer of Save as Theme. The theme saved is the one in use from then on.
-    pub(crate) fn receive_saved_theme(&mut self) {
+    /// Takes the answer of Save as Theme. The theme saved is the one in use from then on, and
+    /// the theme files are read again for it.
+    pub(crate) fn receive_saved_theme(&mut self, ctx: &egui::Context) {
         // The busy pointer stays until the answer is handled.
         let ((text, saved), _pointer) = match self.dialogs.saved_theme.take() {
             Took::Answer(answer) => answer,
@@ -500,6 +501,7 @@ impl crate::App {
             Ok(file) => {
                 self.config.theme = text;
                 self.config.save();
+                self.desktop_settings.read_theme_files_again(ctx);
                 tf!(
                     "Saved as {file}: edit it, then choose it again",
                     file = file.display()
