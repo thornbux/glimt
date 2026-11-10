@@ -11,6 +11,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
   a subfolder, not only in the folder opened. The watcher still looks once a second, which works
   on network shares too: at the open folders every second, and at up to 1,000 subfolders a
   second, so a tree of 10,000 subfolders is looked through in ten seconds.
+- Cleaning the thumbnail cache removes a thumbnail only when its file is surely gone. Before, an
+  error from a share that answered badly for a moment counted as gone, and the thumbnail went.
 
 ## [0.78.0] - 2026-11-10
 
