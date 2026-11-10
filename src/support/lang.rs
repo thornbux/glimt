@@ -83,7 +83,8 @@ struct Translation {
 
 /// Which of a noun's forms goes with `n`, by the language's rule (its `.po`'s Plural-Forms):
 /// one and many in most; 0 also one in French and Brazilian Portuguese; 21 one in Icelandic;
-/// one, few and many in Polish and Czech.
+/// one, few and many in Polish and Czech. `plural_form_follows_each_po_header` checks it
+/// against each header.
 fn plural_form(code: &str, n: usize) -> usize {
     match code {
         "fr" | "pt_BR" => (n > 1) as usize,
@@ -598,6 +599,61 @@ msgstr[1] "bilder"
             forms("cs", &[0, 1, 2, 4, 5, 22, 101]),
             [2, 0, 1, 1, 2, 2, 2]
         );
+    }
+
+    /// `plural_form` picks for each language what its `.po`'s Plural-Forms header says. The rule
+    /// is written in both places, and a new language with three forms (Russian) and no rule in
+    /// `plural_form` fell to "one and many" and never showed its third form. A header that is
+    /// not in this table fails too, until its rule is written in `plural_form` and here.
+    #[test]
+    fn plural_form_follows_each_po_header() {
+        const NUMBERS: [usize; 13] = [0, 1, 2, 4, 5, 11, 12, 21, 22, 25, 101, 111, 112];
+        // Each header of the .po files, with the form its rule gives for each of NUMBERS.
+        const RULES: &[(&str, [usize; 13])] = &[
+            (
+                "nplurals=2; plural=(n != 1);",
+                [1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+            ),
+            (
+                "nplurals=2; plural=(n > 1);",
+                [0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+            ),
+            (
+                "nplurals=2; plural=(n%10!=1 || n%100==11);",
+                [1, 0, 1, 1, 1, 1, 1, 0, 1, 1, 0, 1, 1],
+            ),
+            (
+                "nplurals=3; plural=(n==1 ? 0 : n%10>=2 && n%10<=4 && (n%100<12 || n%100>14) \
+                 ? 1 : 2);",
+                [2, 0, 1, 1, 2, 2, 2, 2, 1, 2, 2, 2, 2],
+            ),
+            (
+                "nplurals=3; plural=(n==1 ? 0 : (n>=2 && n<=4) ? 1 : 2);",
+                [2, 0, 1, 1, 2, 2, 2, 2, 2, 2, 2, 2, 2],
+            ),
+        ];
+        let follows = |code: &str, po: &str| -> Result<(), String> {
+            let header = (po.lines())
+                .find_map(|l| l.strip_prefix("\"Plural-Forms: ")?.strip_suffix("\\n\""))
+                .unwrap_or("none");
+            let Some((_, forms)) = RULES.iter().find(|r| r.0 == header) else {
+                return Err(format!(
+                    "{code}: no rule here or in plural_form for {header}"
+                ));
+            };
+            let picked = NUMBERS.map(|n| super::plural_form(code, n));
+            match picked == *forms {
+                true => Ok(()),
+                false => Err(format!("{code}: plural_form gives {picked:?} for {header}")),
+            }
+        };
+        for (code, _, _, po) in super::LANGUAGES {
+            assert_eq!(follows(code, po), Ok(()));
+        }
+        // A three-form language without its rule in plural_form.
+        let header = format!("\"Plural-Forms: {}\\n\"", RULES[3].0);
+        assert!(follows("ru", &header).is_err());
+        assert!(follows("ru", "\"Plural-Forms: nplurals=4; plural=(n%4);\\n\"").is_err());
     }
 
     /// The template for a new language, po/glimt.pot, has every text of no_nb.po, in its order,

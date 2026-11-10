@@ -187,7 +187,9 @@ same commit**:
 written by `python3 tools/pot.py` (see *Before every commit*).
 `lang::tests::the_template_has_every_text` fails while it lacks a text of no_nb.po. A new
 language is added with its `.po` file, a line in `lang::LANGUAGES` and, unless its plural
-rule is "one and many", its rule in `plural_form`.
+rule is "one and many", its rule in `plural_form` and in the table of
+`plural_form_follows_each_po_header`, which fails while a `.po`'s Plural-Forms header is not
+there or `plural_form` picks other forms than it says.
 
 The translations are written by the agent that adds the text, in all fourteen languages, and
 no native reader has read any of them yet. The tests check only that each text is there and
