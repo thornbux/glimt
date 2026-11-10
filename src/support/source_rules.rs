@@ -3182,8 +3182,9 @@ fn finds_a_lint_turned_off_widely() {
 }
 
 /// Returns the lines of the statements of `text` outside the tests that drop the result of one
-/// of file_io's writers, with `let _ =`, `_ =`, `.ok();`, `drop(…)`, or `let _name =` where
-/// `_name` is not used again.
+/// of file_io's writers, with `let _ =` (or `let _: T =`), `_ =`, `.ok();`,
+/// `.unwrap_or_default();`, `.unwrap_or(());`, `drop(…)`, `let _name =` where `_name` is not
+/// used again, or `if let Ok(…) =` with no `else`.
 fn dropped_writes_in(text: &str) -> Vec<usize> {
     const WRITERS: [&str; 14] = [
         // collections::edit and edit_open_collection, which write through replace_name.
@@ -3207,6 +3208,10 @@ fn dropped_writes_in(text: &str) -> Vec<usize> {
     let end = tests_start(&lines);
     let mut found = Vec::new();
     let (mut first_line, mut statement) = (0, String::new());
+    // How deep the braces go, the depths of the blocks of an `if let Ok(…) =` around a writer
+    // with their first lines, and the line of such a block just closed, which an `else` must
+    // follow.
+    let (mut depth, mut if_ok_blocks, mut needs_else) = (0usize, Vec::new(), None);
     for (i, line) in lines[..end].iter().enumerate() {
         for c in line.chars().chain([' ']) {
             if !matches!(c, ';' | '{' | '}') {
@@ -3217,16 +3222,40 @@ fn dropped_writes_in(text: &str) -> Vec<usize> {
                 continue;
             }
             let words = statement.trim();
+            if let Some(line) = needs_else.take()
+                && !words.starts_with("else")
+            {
+                found.push(line);
+            }
+            let is_writer = |writer: &&str| words.contains(writer);
+            match c {
+                '{' => {
+                    depth += 1;
+                    if words.starts_with("if let Ok(") && WRITERS.iter().any(is_writer) {
+                        if_ok_blocks.push((depth, first_line));
+                    }
+                }
+                '}' => {
+                    if if_ok_blocks.last().is_some_and(|(at, _)| *at == depth) {
+                        needs_else = if_ok_blocks.pop().map(|(_, line)| line);
+                    }
+                    depth = depth.saturating_sub(1);
+                }
+                _ => {}
+            }
             let starts_with_keyword = KEYWORDS.contains(&words.split(' ').next().unwrap_or(""));
             let dropped = words.starts_with("let _ =")
+                || words.starts_with("let _:")
                 || words.starts_with("_ =")
+                || (c == ';'
+                    && (words.ends_with(".unwrap_or_default()")
+                        || words.ends_with(".unwrap_or(())")))
                 || is_unused_binding(words, text)
                 || (c == ';'
                     && words.ends_with(".ok()")
                     && !words.contains('=')
                     && !starts_with_keyword);
-            let writes = |writer: &&str| words.contains(writer);
-            if (dropped && WRITERS.iter().any(writes))
+            if (dropped && WRITERS.iter().any(is_writer))
                 || WRITERS.iter().any(|w| is_dropped(words, w))
             {
                 found.push(first_line);
@@ -3306,8 +3335,16 @@ fn finds_a_dropped_write() {
         let _ = tx.send(1);\n    drop(file_io::put_file(a, b, true));\n    \
         let _copied = put_file(a, b, true);\n    let _kept = put_file(a, b, true);\n    \
         say(_kept);\n    let _held = file_lock(p);\n    match x {\n        \
-        A => drop(sync_folder(p)),\n        B => drop(thumbnail(p)),\n    }\n}\n";
-    assert_eq!(dropped_writes_in(text), [2, 3, 4, 6, 14, 15, 20]);
+        A => drop(sync_folder(p)),\n        B => drop(thumbnail(p)),\n    }\n    \
+        if let Ok(_) = replace_name(p, b) {\n        noted();\n    }\n    \
+        put_file(a, b, true).unwrap_or_default();\n    \
+        let _: std::io::Result<()> = create_file(p, b);\n    \
+        if let Ok(()) = replace_file(p, b) {\n        noted();\n    } else {\n        \
+        say();\n    }\n    let n = text.len().unwrap_or_default();\n}\n";
+    assert_eq!(
+        dropped_writes_in(text),
+        [2, 3, 4, 6, 14, 15, 20, 23, 26, 27]
+    );
 }
 
 /// A background thread's answer is held in a `threads::Receiving`, never in a bare
