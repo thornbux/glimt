@@ -42,6 +42,10 @@ pub(crate) fn app_on(dir: &std::path::Path) -> (crate::App, eframe::egui::Contex
         problems: Vec::new(),
         #[cfg(feature = "marks")]
         marks: crate::metadata::marks::read_marks(),
+        window_state: None,
+        recent: Vec::new(),
+        sort_folders: Vec::new(),
+        keyword_tree: Vec::new(),
     };
     let mut app = crate::App::with_config(&ctx, read, Some(dir.into()), start);
     drop(held);

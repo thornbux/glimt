@@ -4228,18 +4228,6 @@ fn the_rules_name_what_exists() {
 fn the_window_thread_never_waits_for_the_disk() {
     const WAITS_ON_PURPOSE: &[(&str, &str, &str, &str)] = &[
         (
-            "main.rs",
-            "with_config",
-            "read_text(",
-            "Glimt's own window state, read once at start, before the window opens",
-        ),
-        (
-            "ui/dialogs.rs",
-            "dialog_start",
-            ".is_dir()",
-            "Glimt's own ICC folder under $HOME, once when the file dialog opens",
-        ),
-        (
             "files/file_ops.rs",
             "rename_files_of",
             "file_system_type_or_test",
@@ -4262,18 +4250,6 @@ fn the_window_thread_never_waits_for_the_disk() {
             "written_anew",
             "fingerprint(",
             "only files just written with a moved file's name; its shortcut comment",
-        ),
-        (
-            "model/folder.rs",
-            "new",
-            "read_limited(",
-            "Glimt's own Open Recent and sorted folders, read once at start",
-        ),
-        (
-            "ui/info_panel.rs",
-            "new",
-            "read_limited(",
-            "Glimt's own keyword tree, read once at start",
         ),
     ];
     let found = disk_calls_in_window_thread(&rust_sources(), &app_parts());
