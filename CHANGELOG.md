@@ -19,7 +19,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 ### Changed
 
 - Saving a file that has other names (hard links), such as a turned image, a copy saved over
-  it or its sidecar, tells once that the other names keep the old version. The save gives the
+  it or its sidecar, tells that the other names keep the old version, once the save went
+  through. A job over many such files tells it once, with their count. The save gives the
   name a new file, so the other names are not changed with it. Before, they were left behind
   without a word.
 ### Changed

@@ -12,10 +12,10 @@ use std::path::{Path, PathBuf};
 /// A file Glimt could not save, or a note about a save, for the window to tell: from any thread.
 static SAVE_ERROR: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
 
-/// The files whose other names (hard links) the window was told of. A turned image asks
-/// `check_writable` twice, before encoding and before the rename, and is told once.
-static OTHER_NAMES_TOLD: std::sync::Mutex<std::collections::BTreeSet<PathBuf>> =
-    std::sync::Mutex::new(std::collections::BTreeSet::new());
+/// The saves that replaced a file with other names (hard links) since the window last told of
+/// them, from any thread.
+#[cfg(not(test))]
+static OTHER_NAMES: std::sync::Mutex<OtherNames> = std::sync::Mutex::new(OtherNames::new());
 
 /// Everything being written for the user, counted by a `Working` held while it runs: the
 /// settings and marks (`write_later`), sidecars, file jobs, a turned image, a print. The one
@@ -36,10 +36,58 @@ thread_local! {
     // every test, so a test that reads it could take another test's error.
     pub(crate) static SAVES_FAILED: std::cell::RefCell<Vec<String>> =
         const { std::cell::RefCell::new(Vec::new()) };
-    // The notes of other names (hard links) given on this thread. They do not go to the
-    // window's own slot in tests, where another test's window would take them as its notice.
-    pub(crate) static OTHER_NAMES_NOTED: std::cell::RefCell<Vec<String>> =
-        const { std::cell::RefCell::new(Vec::new()) };
+    // The saves over a file with other names (hard links) on this thread. They do not go to
+    // the window's own count in tests, where another test's window would take them as its
+    // notice.
+    pub(crate) static OTHER_NAMES_NOTED: std::cell::RefCell<OtherNames> =
+        const { std::cell::RefCell::new(OtherNames::new()) };
+}
+
+/// The saves that replaced a file with other names (hard links): how many, and the name of the
+/// first. A replace gives the name a new file, so the other names keep the old version.
+pub(crate) struct OtherNames {
+    count: usize,
+    first: Option<String>,
+}
+
+impl OtherNames {
+    /// Returns a count of none.
+    const fn new() -> Self {
+        Self {
+            count: 0,
+            first: None,
+        }
+    }
+
+    /// Counts a save that replaced the file at `path`.
+    fn add(&mut self, path: &Path) {
+        self.count += 1;
+        let name = || {
+            path.file_name()
+                .unwrap_or_default()
+                .to_string_lossy()
+                .into_owned()
+        };
+        self.first.get_or_insert_with(name);
+    }
+
+    /// Returns the note for the window, naming the file, or how many there were, and counts
+    /// anew. Returns `None` when no such save was counted.
+    pub(crate) fn take_note(&mut self) -> Option<String> {
+        let note = match (self.count, self.first.take()) {
+            (1, Some(name)) => crate::tf!(
+                "{name} has other names (hard links), which keep the old version",
+                name
+            ),
+            (0, _) | (_, None) => return None,
+            (n, _) => crate::tf!(
+                "Other names (hard links) keep the old version: {files}",
+                files = crate::support::format::count(n, "file")
+            ),
+        };
+        self.count = 0;
+        Some(note)
+    }
 }
 
 /// A write queued for a `start_ordered_worker` thread.
@@ -429,9 +477,22 @@ pub fn read_or_none(path: &Path) -> std::io::Result<Option<Vec<u8>>> {
     }
 }
 
-/// The last file Glimt could not save, once.
+/// The last file Glimt could not save, once. Otherwise the note of the saves over files with
+/// other names (hard links), once no file is being written any more. A job over many files then
+/// gives one note with their count, rather than a new one for each file every frame.
 pub fn take_save_error() -> Option<String> {
-    lock_even_if_poisoned(&SAVE_ERROR).take()
+    let error = lock_even_if_poisoned(&SAVE_ERROR).take();
+    let is_writing = WRITING.load(std::sync::atomic::Ordering::Relaxed) > 0;
+    error.or_else(|| (!is_writing).then(other_names_note).flatten())
+}
+
+/// Returns the note of the saves over files with other names (hard links), and counts anew.
+/// Returns `None` in tests, which read their own thread's count.
+fn other_names_note() -> Option<String> {
+    #[cfg(not(test))]
+    return lock_even_if_poisoned(&OTHER_NAMES).take_note();
+    #[cfg(test)]
+    None
 }
 
 /// `work` in the one thread that writes Glimt's own files, in the order given.
@@ -538,12 +599,14 @@ pub fn replace_name_with(
     write: impl FnOnce(&mut std::fs::File) -> std::io::Result<()>,
     before: impl FnOnce() -> std::io::Result<()>,
 ) -> std::io::Result<()> {
-    check_writable(path)?;
+    let has_other_names = check_writable(path)?;
     #[allow(clippy::disallowed_methods)] // replaces on purpose, the name and never a link's target
     let give_name = |tmp: &Path| {
         before().and_then(|_| std::fs::rename(tmp, path).map_err(|e| explain_rename_error(e, path)))
     };
-    write_beside(&tmp_path(path), path, write, give_name)
+    write_beside(&tmp_path(path), path, write, give_name)?;
+    tell_other_names(path, has_other_names);
+    Ok(())
 }
 
 /// Writes `bytes` to `path` beside it and renames it, through a link to the file it points to.
@@ -569,9 +632,7 @@ fn replace(
     // shortcut: `there` is looked at just before the rename, not in the same step; a file that
     // goes in those microseconds comes back. renameat2 with RENAME_EXCHANGE if that is ever seen.
     there()?;
-    if existing {
-        check_writable(path)?;
-    }
+    let has_other_names = existing && check_writable(path)?;
     #[allow(clippy::disallowed_methods)] // replaces on purpose: the one writer of a file again
     write_beside(&tmp_path(path), path, write, |tmp| {
         // `before` may take a while (a sidecar written under its lock), so the file is looked
@@ -580,7 +641,9 @@ fn replace(
             .and_then(|_| before())
             .and_then(|_| there())
             .and_then(|_| std::fs::rename(tmp, path).map_err(|e| explain_rename_error(e, path)))
-    })
+    })?;
+    tell_other_names(path, has_other_names);
+    Ok(())
 }
 
 /// Refuses to replace the file at `path` when this user may not write it: a photo made
@@ -590,21 +653,20 @@ fn replace(
 /// refused also for root, who may write any file, as its owner marked it so. A link at the name
 /// passes, because the link itself is replaced, and so does a name that is not there yet.
 /// Glimt's own files (`replace_file`) are not asked, as before. A turn saved asks it first too,
-/// before the slow work of encoding the image.
-pub(crate) fn check_writable(path: &Path) -> std::io::Result<()> {
+/// before the slow work of encoding the image. Returns whether the file has other names (hard
+/// links), which the replace will not change.
+pub(crate) fn check_writable(path: &Path) -> std::io::Result<bool> {
     use std::os::unix::ffi::OsStrExt;
+    use std::os::unix::fs::MetadataExt;
     let Some(meta) = std::fs::symlink_metadata(path).ok().filter(|m| m.is_file()) else {
-        return Ok(());
+        return Ok(false);
     };
     let name = std::ffi::CString::new(path.as_os_str().as_bytes())?;
     #[allow(unsafe_code)]
     // SAFETY: `name` is a C string that lives through the call, and access only reads it.
     let allowed = unsafe { libc::access(name.as_ptr(), libc::W_OK) } == 0;
     match allowed && !meta.permissions().readonly() {
-        true => {
-            tell_other_names(path, &meta);
-            Ok(())
-        }
+        true => Ok(meta.nlink() > 1),
         false => Err(std::io::Error::new(
             std::io::ErrorKind::PermissionDenied,
             crate::support::lang::tr("the file is read-only"),
@@ -612,22 +674,18 @@ pub(crate) fn check_writable(path: &Path) -> std::io::Result<()> {
     }
 }
 
-/// Tells the window, once for each file, that the file at `path` has other names (hard links).
-/// A replace gives the name a new file, so the other names keep the old version. The write is
-/// not refused, as the user asked for it. A failed save told meanwhile is not covered over.
-fn tell_other_names(path: &Path, meta: &std::fs::Metadata) {
-    use std::os::unix::fs::MetadataExt;
-    if meta.nlink() > 1 && lock_even_if_poisoned(&OTHER_NAMES_TOLD).insert(path.to_owned()) {
-        let name = path.file_name().unwrap_or_default().to_string_lossy();
-        let note = crate::tf!(
-            "{name} has other names (hard links), which keep the old version",
-            name
-        );
-        #[cfg(test)]
-        OTHER_NAMES_NOTED.with_borrow_mut(|noted| noted.push(note));
-        #[cfg(not(test))]
-        lock_even_if_poisoned(&SAVE_ERROR).get_or_insert(note);
+/// Counts a save that replaced the file at `path`, for the window's note, when the file had
+/// other names (hard links). It is called after the save went through, so a save that failed
+/// gives no note. The write is not refused, as the user asked for it. After the replace the name
+/// has one link, so the same file is counted again only after a new hard link to it.
+fn tell_other_names(path: &Path, has_other_names: bool) {
+    if !has_other_names {
+        return;
     }
+    #[cfg(test)]
+    OTHER_NAMES_NOTED.with_borrow_mut(|noted| noted.add(path));
+    #[cfg(not(test))]
+    lock_even_if_poisoned(&OTHER_NAMES).add(path);
 }
 
 /// A file written whole at `tmp` beside `path` (`create_temp_beside`), on disk, and then given its
@@ -752,6 +810,29 @@ pub fn save_failed(error: String) {
 
 #[cfg(test)]
 mod tests {
+    /// Saves over many files with other names (hard links), as a keywords job over a tree
+    /// copied with `cp -al`, give one note with their count. Before, each file gave a note of
+    /// its own, and the notice changed on every frame for the whole job.
+    #[test]
+    fn saves_over_hard_links_give_one_note_with_their_count() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-links-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let noted = || super::OTHER_NAMES_NOTED.with_borrow_mut(|n| n.take_note());
+        noted();
+        for name in ["a.xmp", "b.xmp", "c.xmp"] {
+            std::fs::write(dir.join(name), "old").unwrap();
+            std::fs::hard_link(dir.join(name), dir.join(format!("{name}.link"))).unwrap();
+            super::replace_name(&dir.join(name), "new").unwrap();
+        }
+        let told = noted().unwrap_or_default();
+        assert!(told.contains('3') && !told.contains("a.xmp"), "{told}");
+        assert_eq!(noted(), None);
+        // A name replaced once has one link, so it is not counted again.
+        super::replace_name(&dir.join("a.xmp"), "newer").unwrap();
+        assert_eq!(noted(), None);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
     /// A rename the file system cannot do is told in plain words with the system's own after
     /// them, and keeps its kind. Another error, such as a permission denied, stays as it was.
     #[test]

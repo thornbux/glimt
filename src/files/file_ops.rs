@@ -3815,8 +3815,12 @@ mod tests {
         let file = vec![dir.join("a.png")];
         for _ in 0..500 {
             assert!(app.run_in_background(&ctx, file.clone(), || None));
-            // A spin, not a sleep, so the check falls into the moment between the two.
-            while app.working() {}
+            // A spin, not a sleep, so the check falls into the moment between the two. It
+            // gives up after five seconds, so work that never ends fails the test, not hangs it.
+            let start = std::time::Instant::now();
+            while app.working() {
+                assert!(start.elapsed().as_secs() < 5, "the work never ended");
+            }
             assert!(app.are_free_to_change(&file), "{:?}", app.notice.text());
         }
         std::fs::remove_dir_all(dir).unwrap();

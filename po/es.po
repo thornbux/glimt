@@ -2699,6 +2699,9 @@ msgstr "el archivo es de solo lectura"
 msgid "{name} has other names (hard links), which keep the old version"
 msgstr "{name} tiene otros nombres (enlaces duros), que conservan la versión anterior"
 
+msgid "Other names (hard links) keep the old version: {files}"
+msgstr "Otros nombres (enlaces duros) conservan la versión anterior: {files}"
+
 #: src/files/external.rs
 msgid "HEIC and AVIF need ffprobe (ffmpeg): {e}"
 msgstr "HEIC y AVIF necesitan ffprobe (ffmpeg): {e}"
