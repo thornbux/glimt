@@ -1657,10 +1657,17 @@ impl crate::App {
 /// which on a share that stopped answering is for ever.
 fn look_up(paths: &[PathBuf]) -> Found {
     let mut folders: Vec<PathBuf> = Vec::new();
+    let mut first_there = None;
     for p in paths.iter().filter(|_| paths.len() > 1) {
+        // A path that is not there is left out. Taken for a file, it stood for its parent
+        // folder, whose images the user never asked for.
+        let Ok(found) = std::fs::metadata(p) else {
+            continue;
+        };
+        first_there.get_or_insert(p);
         // Each folder by its real path, as one folder opened alone, so the list names a file as
         // it does then: marks and stars are kept by that name. A file stands for its folder.
-        let dir = match p.is_dir() {
+        let dir = match found.is_dir() {
             true => listing::real_dir(p),
             false => {
                 let real = listing::real_path(p);
@@ -1674,8 +1681,9 @@ fn look_up(paths: &[PathBuf]) -> Found {
     if folders.len() > 1 {
         return Found::Folders(folders);
     }
-    // One folder (several of its files, from a file manager) opens at the first file.
-    let path = paths.first().cloned().unwrap_or_default();
+    // One folder (several of its files, from a file manager) opens at the first file that is
+    // there.
+    let path = first_there.or(paths.first()).cloned().unwrap_or_default();
     if collections::is_collection(&path) {
         // The path is absolute from here on, because it is kept in Open Recent and as the last
         // folder. A relative name was another file, or none, for a window started elsewhere.
@@ -1849,6 +1857,27 @@ mod tests {
         app.poll_background(&ctx);
         app.receive_listing(&ctx, std::time::Duration::from_millis(500));
         assert_eq!(app.folder.whole_listings(), listings_before);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A path that is not there, among several, is left out. Before, it was taken for a file
+    /// and stood for its parent folder, which was shown with the others.
+    #[test]
+    fn a_missing_path_among_several_is_left_out() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-typo-{}", std::process::id()));
+        let (x, y) = (dir.join("x"), dir.join("y"));
+        for d in [&x, &y] {
+            std::fs::create_dir_all(d).unwrap();
+        }
+        let typo = dir.join("typo");
+        let real = |p: &std::path::Path| crate::model::listing::real_dir(p);
+        let found = super::look_up(&[x.clone(), typo.clone(), y.clone()]);
+        assert!(matches!(found, super::Found::Folders(f) if f == [real(&x), real(&y)]));
+        // With one left, it opens alone.
+        let found = super::look_up(&[typo.clone(), x.clone()]);
+        assert!(
+            matches!(found, super::Found::Folder { dir, is_there: true, .. } if dir == real(&x))
+        );
         std::fs::remove_dir_all(dir).unwrap();
     }
 
