@@ -324,7 +324,6 @@ impl crate::App {
         ui.separator();
         menu_item(ui, chosen, Action::CopyPath);
         menu_item(ui, chosen, Action::CopyPathUnquoted);
-        menu_item(ui, chosen, Action::CopyImage);
         menu_item(ui, chosen, Action::CopyFiles);
     }
 
@@ -389,6 +388,8 @@ impl crate::App {
             },
         );
         menu_item(ui, chosen, Action::Crop);
+        // On the shown image, so not in the Select menu beside the copies of the selection.
+        menu_item(ui, chosen, Action::CopyImage);
         menu_item(ui, chosen, Action::FocusKeywords);
         ui.separator();
         self.tools_menu(ui);

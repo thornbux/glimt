@@ -425,7 +425,7 @@ pub fn frame_png(img: image::DynamicImage, how: &CopyAs) -> Result<Vec<u8>, Stri
     )
 }
 
-/// The image as `how` shows it, in sRGB, for Select → Copy Image. That copied the image
+/// The image as `how` shows it, in sRGB, for Edit → Copy Image. That copied the image
 /// unturned, and only its first page.
 pub fn shown_image(path: &Path, how: &CopyAs) -> Result<image::DynamicImage, String> {
     let (img, icc) = pixels(path, how)?;

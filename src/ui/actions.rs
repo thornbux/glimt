@@ -1398,7 +1398,7 @@ impl crate::App {
         }
     }
 
-    /// Select → Copy Image: the shown image's pixels to the clipboard, decoded in the background.
+    /// Edit → Copy Image: the shown image's pixels to the clipboard, decoded in the background.
     pub(crate) fn copy_image(&mut self, ctx: &egui::Context) {
         let (path, how) = (self.path(self.list.shown()), self.shown_copy());
         let (tx, ctx) = (self.notice_sender.clone(), ctx.clone());
@@ -1992,6 +1992,8 @@ mod tests {
     /// The file list's right-click menu acts on the row right-clicked, which it selects. Every
     /// action it offers acts on the selection, and its Open With submenu asks about no other
     /// file. Copy Image there once copied the shown image instead of the file right-clicked.
+    /// The Select menu offers no action on the shown image either. Copy Image there copied the
+    /// shown image, while Copy Path and Copy Files beside it copied the selected file.
     #[test]
     fn the_file_menu_acts_on_the_selection() {
         let src = include_str!("menus.rs");
@@ -1999,21 +2001,34 @@ mod tests {
             let start = src.find(&format!("fn {name}(")).unwrap();
             &src[start..start + src[start..].find("\n    }\n").unwrap()]
         };
+        let actions_in = |menu: &str| -> Vec<Action> {
+            (menu.split("Action::").skip(1))
+                .map(|rest| {
+                    let name = rest
+                        .split(|c: char| !c.is_ascii_alphanumeric())
+                        .next()
+                        .unwrap();
+                    *ALL.iter().find(|a| format!("{a:?}") == name).unwrap()
+                })
+                .collect()
+        };
         let menu = body("file_menu");
-        let named: Vec<&str> = (menu.split("Action::").skip(1))
-            .map(|rest| {
-                rest.split(|c: char| !c.is_ascii_alphanumeric())
-                    .next()
-                    .unwrap()
-            })
-            .collect();
+        let named = actions_in(menu);
         assert!(
             named.len() >= 8,
             "file_menu names its actions as Action::Name"
         );
-        for name in named {
-            let action = ALL.iter().find(|a| format!("{a:?}") == name).unwrap();
-            assert_eq!(action.target(), Target::Selection, "{name} in file_menu");
+        for action in named {
+            assert_eq!(
+                action.target(),
+                Target::Selection,
+                "{action:?} in file_menu"
+            );
+        }
+        let select = actions_in(body("menu_select"));
+        assert!(select.contains(&Action::CopyFiles));
+        for action in select {
+            assert_ne!(action.target(), Target::Shown, "{action:?} in menu_select");
         }
         assert!(menu.contains("self.open_with_menu(ui)"));
         let open_with = body("open_with_menu");
