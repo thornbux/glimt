@@ -710,17 +710,16 @@ impl crate::App {
     fn name_window(&mut self, ctx: &egui::Context, name: &str) {
         // The name typed is told in the user's language. The other reasons come from the
         // system, rarely, and are the English ones that `--remote name` prints too.
-        if !name.is_empty() && !crate::features::remote::can_be_window_name(name) {
+        // Whether it fits the socket's path is looked up with the rest in the background.
+        if !name.is_empty() && !crate::features::remote::valid_name(name) {
             let why = tr(
                 "Could not name this window: a name holds up to 64 letters, digits, \
                  - and _, and not only digits",
             );
             return self.notice.give(why.to_owned());
         }
-        if let Err(why) = self.set_window_name(ctx, name) {
-            self.notice
-                .give(tf!("Could not name this window: {why}", why));
-        }
+        let asked_by = crate::features::remote::NameAskedBy::Dialog;
+        self.set_window_name(ctx, name, asked_by);
     }
 
     /// The text dialog was answered with `text`, trimmed.

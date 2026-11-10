@@ -270,7 +270,7 @@ impl App {
             save_as_choices: Default::default(),
             find_duplicates: None,
             check_images: None,
-            remote: crate::features::remote::Listener::new(ctx, listens_without_name),
+            remote: crate::features::remote::Listener::new(ctx, &busy, listens_without_name),
             config,
         };
         app.open_at_start(ctx, path, &start.more_paths, opens_last_folder);
@@ -385,8 +385,9 @@ impl eframe::App for App {
     /// The last folder is written once on exit, not on every folder change.
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
         // The listener closes to new clients first, because a client coming after the answers
-        // would get none.
-        crate::features::remote::close();
+        // would get none. Its socket is removed in a thread of its own, as every look at the
+        // disk is.
+        std::thread::spawn(crate::features::remote::close);
         self.answer_waiting_selects();
         crate::features::remote::stop(|| self.answer_waiting_selects());
         let ctx = self.ctx.clone();
@@ -504,6 +505,8 @@ fn main() -> eframe::Result {
     if let Some(path) = std::env::var_os(crate::images::svg::DRAW_SVG) {
         std::process::exit(crate::images::svg::draw_for_parent(&path));
     }
+    // This Glimt's name is found before any thread starts, so the window never reads it.
+    crate::features::remote::find_instance_id();
     // There is one malloc arena for all threads. With one arena per thread, freed image
     // buffers stayed in each decode thread's arena, and a folder of screenshots used 91 MB of
     // own memory instead of 29 MB. Decoding is at most a few percent slower.

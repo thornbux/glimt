@@ -23,6 +23,7 @@ impl crate::App {
             self.notice.give(error);
         }
         self.receive_desktop(ctx);
+        self.receive_window_name(ctx);
         self.folder.receive_sort_folders();
         self.info_panel.receive_keyword_tree();
         self.decoding
@@ -126,8 +127,9 @@ impl crate::App {
     fn receive_focus(&mut self, ctx: &egui::Context) {
         let focus = ctx.input(|i| i.viewport().focused.unwrap_or(false));
         let gained = self.window.set_focused(focus);
+        // The file that says so is Glimt's own, written in the writer's thread.
         if gained {
-            remote::mark_this_window_focused();
+            crate::files::file_io::write_later(remote::mark_this_window_focused);
         }
         // Back from another window, which may have marked files meanwhile.
         #[cfg(feature = "marks")]
