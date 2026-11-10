@@ -5,6 +5,27 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.79.0] - 2026-11-10
+
+### Changed
+
+- A folder that takes more than three seconds to open, as on a share that stopped answering,
+  shows a notice that it is still opening and that opening another folder stops the wait.
+  Before, only the busy pointer showed it.
+- With Include Subfolders on, Auto Refresh now sees an image added to, removed from or renamed in
+  a subfolder, not only in the folder opened. The watcher still looks once a second, which works
+  on network shares too: at the open folders every second, and at up to 1,000 subfolders a
+  second, so a tree of 10,000 subfolders is looked through in ten seconds. After a listing,
+  a change waits four times as long as the listing took before the folder is read again, so a
+  sync client writing into a large tree has it read at most a fifth of the time; a small folder
+  is read again at once.
+- Rename, Rename Many, New Folder and Rename Folder refuse a new name that starts with a dot, which
+  the list hides, unless hidden files are shown. Before, Rename Many with `.#` gave `.1.jpg`,
+  `.2.jpg` …, and the files vanished from the list. Collections refused such names already, by
+  the same rule now.
+- Copy for Sharing knows the namespace that digiKam 4 wrote its keyword list in, so Place alone
+  keeps that list. Before, any ticked box left it out, as a tag Glimt did not know.
+
 ### Fixed
 
 - Find Duplicates offers "Check all but the first of each group" only when comparing by
@@ -96,24 +117,6 @@ and versions follow [Semantic Versioning](https://semver.org/).
   unless that tag is kept too.
 - Preferences in Norwegian names the Delete key as the menus do, in "Use no trash at all".
 
-### Changed
-
-- A folder that takes more than three seconds to open, as on a share that stopped answering,
-  shows a notice that it is still opening and that opening another folder stops the wait.
-  Before, only the busy pointer showed it.
-- With Include Subfolders on, Auto Refresh now sees an image added to, removed from or renamed in
-  a subfolder, not only in the folder opened. The watcher still looks once a second, which works
-  on network shares too: at the open folders every second, and at up to 1,000 subfolders a
-  second, so a tree of 10,000 subfolders is looked through in ten seconds. After a listing,
-  a change waits four times as long as the listing took before the folder is read again, so a
-  sync client writing into a large tree has it read at most a fifth of the time; a small folder
-  is read again at once.
-- Rename, Rename Many, New Folder and Rename Folder refuse a new name that starts with a dot, which
-  the list hides, unless hidden files are shown. Before, Rename Many with `.#` gave `.1.jpg`,
-  `.2.jpg` …, and the files vanished from the list. Collections refused such names already, by
-  the same rule now.
-- Copy for Sharing knows the namespace that digiKam 4 wrote its keyword list in, so Place alone
-  keeps that list. Before, any ticked box left it out, as a tag Glimt did not know.
 ## [0.78.0] - 2026-11-10
 
 ### Added
@@ -3490,7 +3493,8 @@ The first release. Glimt is not 1.0 yet: it is in daily use, but expect rough ed
 - Remote control from the command line: `glimt --remote` and `--remote-all`.
 - Remembers the folder, window size and position.
 
-[Unreleased]: https://github.com/thornbux/glimt/compare/v0.78.0...HEAD
+[Unreleased]: https://github.com/thornbux/glimt/compare/v0.79.0...HEAD
+[0.79.0]: https://github.com/thornbux/glimt/compare/v0.78.0...v0.79.0
 [0.78.0]: https://github.com/thornbux/glimt/compare/v0.77.0...v0.78.0
 [0.77.0]: https://github.com/thornbux/glimt/compare/v0.76.0...v0.77.0
 [0.76.0]: https://github.com/thornbux/glimt/compare/v0.75.0...v0.76.0
