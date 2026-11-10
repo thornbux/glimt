@@ -1843,32 +1843,51 @@ fn images_are_turned_after_they_shrink() {
 /// fixed three times for the user's own keys.
 #[test]
 fn copies_of_settings_have_one_writer() {
-    const WRITERS: &[(&str, &[(&str, &str)])] = &[
-        ("USER_KEYS.write()", &[("ui/actions.rs", "use_user_keys")]),
+    const WRITERS: &[(&str, &[(&str, &str)])] =
+        &[("USER_KEYS.write()", &[("ui/actions.rs", "use_user_keys")])];
+    // The atomic copies, each written by `store`, `swap`, a `fetch_` or a `compare_exchange`.
+    const ATOMICS: &[(&str, &[(&str, &str)])] = &[
         (
-            "MAX_ANIMATION_BYTES.store(",
+            "MAX_ANIMATION_BYTES.",
             &[("images/decode.rs", "set_animation_limit")],
         ),
         (
-            "VIEW_FILTER.store(",
+            "VIEW_FILTER.",
             &[
                 ("images/colour.rs", "set_up_colour"),
                 ("ui/menus.rs", "set_view_filter"),
             ],
         ),
         (
-            "COLOR_MANAGEMENT.store(",
+            "COLOR_MANAGEMENT.",
             &[
                 ("images/colour.rs", "set_up_colour"),
                 ("ui/menus.rs", "set_color_management"),
             ],
         ),
     ];
-    let wrong = outside_their_homes(WRITERS);
+    let writes: Vec<(String, &[(&str, &str)])> = (ATOMICS.iter())
+        .flat_map(|(copy, home)| {
+            ["store(", "swap(", "fetch_", "compare_exchange"].map(|w| (format!("{copy}{w}"), *home))
+        })
+        .collect();
+    let mut homes: Vec<(&str, &[(&str, &str)])> = WRITERS.to_vec();
+    homes.extend(writes.iter().map(|(write, home)| (write.as_str(), *home)));
+    let wrong = outside_their_homes(&homes);
     assert!(
         wrong.is_empty(),
         "a copy of a setting written by hand:\n{}",
         wrong.join("\n")
+    );
+    // A copy written by another method than `store` is found too.
+    let planted = "fn a() {\n    VIEW_FILTER.swap(1, Relaxed);\n    \
+        COLOR_MANAGEMENT.fetch_xor(true, Relaxed);\n    VIEW_FILTER.load(Relaxed);\n}\n";
+    assert_eq!(
+        outside_homes_in("ui/file_list.rs", planted, &homes),
+        [
+            "ui/file_list.rs:2 (VIEW_FILTER.swap()",
+            "ui/file_list.rs:3 (COLOR_MANAGEMENT.fetch_)"
+        ]
     );
 }
 
