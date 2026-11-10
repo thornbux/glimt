@@ -37,7 +37,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
   a socket that has not taken the connection after half a second counts as taken.
 - A third SIGTERM or SIGHUP ends Glimt at once also while it waits at its end for a write to a
   share that stopped answering, as the man page says, with exit status 143. Before, only
-  SIGKILL ended it there.
+  SIGKILL ended it there. It ends without running exit handlers, which could hang while the
+  window draws.
 - Go → Back and Forward change their history when the place has been looked up, not when they
   are asked for. Back pressed twice before a slow share answers goes back one step, and a
   folder clicked meanwhile no longer leaves Forward holding the place the user is on.
@@ -54,12 +55,6 @@ and versions follow [Semantic Versioning](https://semver.org/).
   not go or was not reached after Stop, leaves Lightroom's `r.xmp` where it is, as it belongs to
   neither. Before, it went with the first when that one went first. The Undo of such a move
   does the same when one of them cannot go back.
-
-### Changed
-
-- A folder that takes more than three seconds to open, as on a share that stopped answering,
-  shows a notice that it is still opening and that opening another folder stops the wait.
-  Before, only the busy pointer showed it.
 - Marks and stars set one after another while the last one is still being saved go to the
   marks file in one write, not one write each. With 500,000 files marked, a write takes about
   0.4 s, so 500 mark keys took over three minutes to save, longer than a close waits for them.
@@ -72,14 +67,6 @@ and versions follow [Semantic Versioning](https://semver.org/).
   dropped them, as a crop or copy still does.
 - The manual says that a turned PNG with a palette, or of 1, 2 or 4-bit grey, keeps every pixel
   but is saved in full colour or 8-bit grey, so its file grows. It said a PNG lost nothing.
-- With Include Subfolders on, Auto Refresh now sees an image added to, removed from or renamed in
-  a subfolder, not only in the folder opened. The watcher still looks once a second, which works
-  on network shares too: at the open folders every second, and at up to 1,000 subfolders a
-  second, so a tree of 10,000 subfolders is looked through in ten seconds.
-- Rename, Rename Many, New Folder and Rename Folder refuse a new name that starts with a dot, which
-  the list hides, unless hidden files are shown. Before, Rename Many with `.#` gave `.1.jpg`,
-  `.2.jpg` …, and the files vanished from the list. Collections refused such names already, by
-  the same rule now.
 - Cleaning the thumbnail cache removes a thumbnail only when its file is surely gone. Before, an
   error from a share that answered badly for a moment counted as gone, and the thumbnail went.
 - An edit of a collection that waits for a share that stopped answering no longer holds the
@@ -100,8 +87,23 @@ and versions follow [Semantic Versioning](https://semver.org/).
   beside a RAW file. Immich reads their ratings, comments and keyword tree.
 - Copy for Sharing keeps only a property's own value: a tag written inside a property that the
   copy keeps, such as a GPS position inside a gain map's value or a keyword list, is left out
-  unless that tag is kept too.
+  unless that tag is kept too. A name inside it is known by its namespace, also when it is
+  bound inside the property, and a property that is not balanced XML is left out whole.
 - Preferences in Norwegian names the Delete key as the menus do, in "Use no trash at all".
+
+### Changed
+
+- A folder that takes more than three seconds to open, as on a share that stopped answering,
+  shows a notice that it is still opening and that opening another folder stops the wait.
+  Before, only the busy pointer showed it.
+- With Include Subfolders on, Auto Refresh now sees an image added to, removed from or renamed in
+  a subfolder, not only in the folder opened. The watcher still looks once a second, which works
+  on network shares too: at the open folders every second, and at up to 1,000 subfolders a
+  second, so a tree of 10,000 subfolders is looked through in ten seconds.
+- Rename, Rename Many, New Folder and Rename Folder refuse a new name that starts with a dot, which
+  the list hides, unless hidden files are shown. Before, Rename Many with `.#` gave `.1.jpg`,
+  `.2.jpg` …, and the files vanished from the list. Collections refused such names already, by
+  the same rule now.
 
 ## [0.78.0] - 2026-11-10
 
