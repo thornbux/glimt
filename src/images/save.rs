@@ -53,8 +53,8 @@ const DROPPED_FROM_COPIES: [&str; 13] = [
 /// are ImageMagick's copies of the EXIF and XMP, with the old orientation, which exiv2 (Geeqie,
 /// digiKam) reads, so the turned file would be turned again there. The last is Photoshop's
 /// resources, which may hold a thumbnail of the whole frame. A turned image gets them back
-/// without their thumbnail (`png_with_photoshop_resources`), as they hold its IPTC caption,
-/// copyright and keywords.
+/// without their thumbnail and their copies of the EXIF and XMP
+/// (`png_with_photoshop_resources`), as they hold its IPTC caption, copyright and keywords.
 const DROPPED_PNG_TEXT: [&[u8]; 4] = [
     b"Raw profile type exif",
     b"Raw profile type APP1",
@@ -71,8 +71,10 @@ const ALWAYS_SHARED_XMP: [&str; 2] = ["tiff:Orientation", "exif:ColorSpace"];
 /// puts six of them, "Exif\0\0", before the block.
 pub(crate) const MAX_JPEG_EXIF: usize = 65_527;
 
-/// The IDs of the Photoshop resources that hold a thumbnail: Photoshop 4's and 5's and later.
-const PHOTOSHOP_THUMBNAILS: [u16; 2] = [0x0409, 0x040C];
+/// The IDs of the Photoshop resources that a turned PNG drops: the thumbnails of Photoshop 4 and
+/// of 5 and later, which show the frame unturned, and the copies of the EXIF and the XMP, which
+/// hold the old orientation.
+const DROPPED_PHOTOSHOP_RESOURCES: [u16; 4] = [0x0409, 0x040C, 0x0422, 0x0424];
 
 /// How a copy of an image is made (Edit → Crop, File → Save As). It is made as the view shows
 /// it (turned by `turns` and `mirrored`, by EXIF with `rotate`, and the page `page` of a TIFF),
@@ -1094,10 +1096,11 @@ fn png_with_chunk_after_header(png: &[u8], chunk: &[u8]) -> Result<Vec<u8>, Stri
 }
 
 /// Puts the Photoshop resources ("Raw profile type 8bim") of the PNG at `old` into the turned
-/// PNG `new`, without their thumbnail. They hold the IPTC caption, copyright and keywords that
-/// ImageMagick writes there. `png_with_chunks` drops them from every file written with new
-/// pixels, because the thumbnail shows the whole frame, so a crop or copy keeps none of them.
-/// Resources that cannot be read stay dropped, as before.
+/// PNG `new`, without their thumbnail and old orientation (`DROPPED_PHOTOSHOP_RESOURCES`). They
+/// hold the IPTC caption, copyright and keywords that ImageMagick writes there. `png_with_chunks`
+/// drops them from every file written with new pixels, because the thumbnail shows the whole
+/// frame, so a crop or copy keeps none of them. Resources that cannot be read stay dropped, as
+/// before.
 /// shortcut: only the text before the pixels is read, as `exif::png_exif` reads it; read the
 /// text after IDAT too if a program is found that writes the resources there.
 fn png_with_photoshop_resources(new: &[u8], old: &Path) -> Result<Vec<u8>, String> {
@@ -1112,7 +1115,7 @@ fn png_with_photoshop_resources(new: &[u8], old: &Path) -> Result<Vec<u8>, Strin
             let text = exif::png_texts(reader.info(), &keys).next()?;
             exif::raw_profile_bytes(&text)
         })
-        .and_then(|bytes| without_photoshop_thumbnail(&bytes));
+        .and_then(|bytes| without_dropped_photoshop_resources(&bytes));
     let Some(resources) = resources.filter(|r| !r.is_empty()) else {
         return Ok(new.to_vec());
     };
@@ -1125,11 +1128,11 @@ fn png_with_photoshop_resources(new: &[u8], old: &Path) -> Result<Vec<u8>, Strin
     png_with_chunk_after_header(new, &chunk)
 }
 
-/// Returns Photoshop's image resources `bytes` without those that hold a thumbnail
-/// (`PHOTOSHOP_THUMBNAILS`). Each resource is a signature, an ID, a name of even length and its
-/// data, padded to even. Returns `None` when a resource runs past the end, so that resources
-/// that cannot be read are never kept with a thumbnail inside.
-fn without_photoshop_thumbnail(bytes: &[u8]) -> Option<Vec<u8>> {
+/// Returns Photoshop's image resources `bytes` without the thumbnails and the copies of the EXIF
+/// and XMP (`DROPPED_PHOTOSHOP_RESOURCES`). Each resource is a signature, an ID, a name of even
+/// length and its data, padded to even. Returns `None` when a resource runs past the end, so
+/// that resources that cannot be read are never kept with a thumbnail inside.
+fn without_dropped_photoshop_resources(bytes: &[u8]) -> Option<Vec<u8>> {
     let (mut kept, mut at) = (Vec::new(), 0);
     while at < bytes.len() {
         let id = u16::from_be_bytes(bytes.get(at + 4..at + 6)?.try_into().ok()?);
@@ -1142,7 +1145,7 @@ fn without_photoshop_thumbnail(bytes: &[u8]) -> Option<Vec<u8>> {
         }
         // The last resource may leave out its padding byte.
         let next = (end + (size as usize) % 2).min(bytes.len());
-        if !PHOTOSHOP_THUMBNAILS.contains(&id) {
+        if !DROPPED_PHOTOSHOP_RESOURCES.contains(&id) {
             kept.extend_from_slice(&bytes[at..next]);
         }
         at = next;
@@ -1678,7 +1681,8 @@ mod tests {
 
     /// A PNG turned in place keeps its Photoshop resources, where ImageMagick keeps the IPTC
     /// caption and copyright, without the thumbnail among them. Before, a turn dropped them all,
-    /// as a crop does (`a_crop_keeps_no_picture_of_the_whole_frame`).
+    /// as a crop does (`a_crop_keeps_no_picture_of_the_whole_frame`). The resources' copies of
+    /// the EXIF and XMP go too, because they hold the old orientation.
     #[test]
     fn a_turned_png_keeps_its_photoshop_resources_without_the_thumbnail() {
         let dir = std::env::temp_dir().join(format!("glimt-turn-8bim-{}", std::process::id()));
@@ -1687,6 +1691,8 @@ mod tests {
         let resources = [
             photoshop_resource(0x0404, b"COPYRIGHT"),
             photoshop_resource(0x040C, b"WHOLEFRAME"),
+            photoshop_resource(0x0422, b"EXIF ORIENTATION 6"),
+            photoshop_resource(0x0424, b"XMP ORIENTATION 6"),
         ]
         .concat();
         let key = "Raw profile type 8bim";
@@ -1711,7 +1717,7 @@ mod tests {
         ]
         .concat();
         for broken in crate::support::test_support::broken(&resources) {
-            super::without_photoshop_thumbnail(&broken);
+            super::without_dropped_photoshop_resources(&broken);
         }
     }
 
