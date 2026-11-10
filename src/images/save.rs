@@ -264,9 +264,12 @@ impl<'a> ForwardSearch<'a> {
 
 /// Saves the view's rotation in a PNG or WebP, which have no orientation field to set. The
 /// pixels are turned, and the file is written again with its ICC profile, EXIF block and XMP
-/// (keywords, comment, and alt text other programs wrote into it). PNG and lossless WebP lose
-/// nothing. A lossy WebP is encoded again by ffmpeg at `webp_quality`, and gets its ICC profile,
-/// EXIF block and XMP back afterwards. The new file replaces the old in one rename.
+/// (keywords, comment, and alt text other programs wrote into it). PNG and lossless WebP keep
+/// every pixel. A lossy WebP is encoded again by ffmpeg at `webp_quality`, and gets its ICC
+/// profile, EXIF block and XMP back afterwards. The new file replaces the old in one rename.
+/// shortcut: a PNG with a palette or of 1, 2 or 4-bit grey is written in 8-bit RGB(A) or grey,
+/// as the image crate writes neither, so its file grows; write it with the png crate if that
+/// is reported.
 pub fn save_rotated(
     path: &Path,
     rotate: bool,
@@ -1624,6 +1627,30 @@ mod tests {
         for broken in crate::support::test_support::broken(&old) {
             super::png_with_chunks(&tall, &broken, true);
         }
+    }
+
+    /// A PNG with a palette and transparency keeps every pixel when it is turned, as the manual
+    /// says, though it is written in full colour.
+    #[test]
+    fn a_turned_palette_png_keeps_its_pixels() {
+        let dir = std::env::temp_dir().join(format!("glimt-turn-palette-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("a.png");
+        let mut enc = png::Encoder::new(std::fs::File::create(&file).unwrap(), 3, 1);
+        enc.set_color(png::ColorType::Indexed);
+        enc.set_depth(png::BitDepth::Two);
+        enc.set_palette(vec![255, 0, 0, 0, 255, 0, 0, 0, 255]);
+        enc.set_trns(vec![255, 128]);
+        let mut writer = enc.write_header().unwrap();
+        // The indices 0, 1 and 2, two bits each.
+        writer.write_image_data(&[0b0001_1000]).unwrap();
+        writer.finish().unwrap();
+        let before = image::open(&file).unwrap().into_rgba8();
+        super::save_rotated(&file, false, 1, false, 90).unwrap();
+        let after = image::open(&file).unwrap().into_rgba8();
+        assert_eq!(after, image::imageops::rotate90(&before));
+        assert_eq!(before.get_pixel(1, 0).0, [0, 255, 0, 128]);
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     /// A Photoshop image resource of the kind `id` holding `data`, with an empty name.

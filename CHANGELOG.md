@@ -14,6 +14,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 - A turned PNG keeps its Photoshop resources ("Raw profile type 8bim"), where ImageMagick keeps
   the IPTC caption, copyright and keywords, without the thumbnail among them. Before, a turn
   dropped them, as a crop or copy still does.
+- The manual says that a turned PNG with a palette, or of 1, 2 or 4-bit grey, keeps every pixel
+  but is saved in full colour or 8-bit grey, so its file grows. It said a PNG lost nothing.
 
 ## [0.78.0] - 2026-11-10
 
