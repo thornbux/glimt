@@ -78,7 +78,7 @@ pub const COMMANDS: &[(&str, &str)] = &[
     ),
     (
         "info [FILE…]",
-        "Print what Glimt knows about the image shown, or about these files: a key, a tab and a value to a line, and a blank line after each file",
+        "Print what Glimt knows about the image shown, or about these files: a key, a tab and a value to a line, with a backslash, tab, line break and a keyword's ; written as \\\\, \\t, \\n or \\r and \\;, and a blank line after each file",
     ),
     #[cfg(feature = "test-hooks")]
     (
@@ -149,8 +149,10 @@ const MOST_LINE: u64 = 64 * 1024;
 /// queue until one is done, or until its time limit tells it "no answer".
 const MOST_CLIENTS: usize = 16;
 
-/// How long a command and its answer may take. A client that sends nothing, or a window that
-/// does not answer, holds up the others no longer than this.
+/// How long a client waits for each part of an answer, and the window for a client's command.
+/// A client that sends nothing, or a window that does not answer, holds up the others no longer
+/// than this. `info` sends each file's record as soon as it is read, so its whole answer may take
+/// as long as its files take, while no one file takes longer than this.
 const WAIT: std::time::Duration = std::time::Duration::from_secs(10);
 
 /// The name from `--name`, set before the window opens, or later by `--remote name` and Window
@@ -525,20 +527,25 @@ impl crate::App {
             }
             None => return drop(reply.send(not_done_answer("no image is shown"))),
         };
+        if paths.is_empty() {
+            return drop(reply.send(not_done_answer("no file is named")));
+        }
         #[cfg(feature = "marks")]
         let marks: Vec<_> = paths.iter().map(|p| Some(self.marks.get(p))).collect();
         #[cfg(not(feature = "marks"))]
         let marks = vec![None; paths.len()];
-        // shortcut: one thread reads the files one after the other, so some thousands of files
-        // on a slow share outlast the client's time limit (`WAIT`); read them in parts
-        // (`threads::in_parts`) if scripts ask about that many at once.
+        // Each record is sent as soon as it is read, so the client's time limit (`WAIT`) holds
+        // for each file and not for all of them. The thread stops when the client is gone.
         std::thread::spawn(move || {
-            // A blank line ends each record, so the answers of several windows (--remote-all)
-            // stay apart too.
-            let answer: String = (paths.iter().zip(marks))
-                .map(|(path, marks)| info_record(path, marks) + "\n")
-                .collect();
-            let _ = reply.send(answer.into_bytes());
+            for (path, marks) in paths.iter().zip(marks) {
+                // A blank line ends each record, so the answers of several windows
+                // (--remote-all) stay apart too.
+                let mut record = info_record(path, marks);
+                record.push(b'\n');
+                if reply.send(record).is_err() {
+                    return;
+                }
+            }
         });
     }
 
@@ -611,35 +618,46 @@ fn is_info(command: &str) -> bool {
 /// `marks`, or `None` when marks are not built in. Its form is frozen, as scripts read it:
 /// one `key<TAB>value` line for each of `INFO_KEYS` and then each EXIF row of
 /// `exif::LABELS`, always all of them in this order, and an empty value where the file has
-/// none. A tab or line break in a value is written as a space. A path that is not a regular
-/// file has every value but its path empty.
-fn info_record(path: &Path, marks: Option<(u8, u8)>) -> String {
+/// none. Each value is `escaped`, so it stays on its line and a script can undo it. The path
+/// is the file's bytes, also when they are not UTF-8, as `current` gives them. A path that is
+/// not a regular file has every value but its path empty.
+fn info_record(path: &Path, marks: Option<(u8, u8)>) -> Vec<u8> {
+    use std::os::unix::ffi::OsStrExt;
     let file = std::fs::metadata(path).ok().filter(|m| m.is_file());
     let (values, exif_rows) = match file {
         Some(file) => info_values(path, &file, marks),
         None => Default::default(),
     };
     let exif_value = |label: &str| exif_rows.iter().find(|r| r.0 == label).map(|r| r.1.clone());
-    let exif_lines = (crate::metadata::exif::LABELS.iter())
-        .map(|label| (info_exif_key(label), exif_value(label).unwrap_or_default()));
-    let path = path.to_string_lossy().into_owned();
-    (INFO_KEYS.iter().map(|k| k.to_string()))
+    let exif_lines = (crate::metadata::exif::LABELS.iter()).map(|label| {
+        let value = exif_value(label).unwrap_or_default();
+        (info_exif_key(label), escaped(value.as_bytes(), b""))
+    });
+    let path = escaped(path.as_os_str().as_bytes(), b"");
+    let lines = (INFO_KEYS.iter().map(|k| k.to_string()))
         .zip([path].into_iter().chain(values))
-        .chain(exif_lines)
-        .map(|(key, value)| format!("{key}\t{}\n", one_line(&value)))
-        .collect()
+        .chain(exif_lines);
+    let mut record = Vec::new();
+    for (key, value) in lines {
+        record.extend_from_slice(key.as_bytes());
+        record.push(b'\t');
+        record.extend_from_slice(&value);
+        record.push(b'\n');
+    }
+    record
 }
 
 /// The values of `INFO_KEYS` after the path, for the regular file at `path` with the metadata
 /// `file` and the (mark bits, stars) `marks`, and the EXIF rows the info panel shows. The
 /// width and height are as stored, before the orientation turns the image. The format is the
-/// one the file's first bytes tell, or else its extension in lower case. Keywords are joined
-/// by "; ", and a ";" inside a keyword is written as ",".
+/// one the file's first bytes tell, or else its extension in lower case. Each value is
+/// `escaped`. Keywords are joined by "; ", and a ";" inside a keyword is written as "\;", so a
+/// script splits them at a "; " that has no backslash before it.
 fn info_values(
     path: &Path,
     file: &std::fs::Metadata,
     marks: Option<(u8, u8)>,
-) -> ([String; 12], Vec<(&'static str, String)>) {
+) -> ([Vec<u8>; 12], Vec<(&'static str, String)>) {
     use crate::metadata::{exif, xmp};
     use crate::support::threads::catch_panic;
     let since_1970 = |t: std::time::SystemTime| t.duration_since(std::time::UNIX_EPOCH).ok();
@@ -657,21 +675,24 @@ fn info_values(
     let mark_numbers: Vec<String> = (mark_numbers.into_iter().flatten())
         .map(|n| n.to_string())
         .collect();
-    let keywords: Vec<String> = meta.keywords.iter().map(|k| k.replace(';', ",")).collect();
+    let keywords: Vec<Vec<u8>> = (meta.keywords.iter())
+        .map(|k| escaped(k.as_bytes(), b";"))
+        .collect();
+    let value = |text: String| escaped(text.as_bytes(), b"");
     let text = |value: Option<String>| value.unwrap_or_default();
     let values = [
-        file.len().to_string(),
-        text(modified),
-        text(size.map(|s| s.0.to_string())),
-        text(size.map(|s| s.1.to_string())),
-        text(format),
-        text(orientation.map(|o| o.to_string())),
-        text(marks.map(|m| m.1.to_string())),
-        mark_numbers.join(","),
-        keywords.join("; "),
-        meta.comment,
-        alt_text.text,
-        alt_text.extended_description,
+        value(file.len().to_string()),
+        value(text(modified)),
+        value(text(size.map(|s| s.0.to_string()))),
+        value(text(size.map(|s| s.1.to_string()))),
+        value(text(format)),
+        value(text(orientation.map(|o| o.to_string()))),
+        value(text(marks.map(|m| m.1.to_string()))),
+        value(mark_numbers.join(",")),
+        keywords.join(&b"; "[..]),
+        value(meta.comment),
+        value(alt_text.text),
+        value(alt_text.extended_description),
     ];
     (values, exif_rows)
 }
@@ -682,10 +703,38 @@ fn info_exif_key(label: &str) -> String {
     format!("exif.{}", label.to_lowercase().replace(' ', "_"))
 }
 
-/// Returns `value` with each tab and line break turned into a space, so it stays one value on
-/// one line.
-fn one_line(value: &str) -> String {
-    value.replace(['\t', '\n', '\r'], " ")
+/// Returns `value` as `--remote info` writes it, so it stays one value on one line and a
+/// script can undo it: a backslash as `\\`, a tab as `\t`, a line feed as `\n`, a carriage
+/// return as `\r`, and each byte of `also` with a backslash before it. Every other byte stays
+/// as it is.
+fn escaped(value: &[u8], also: &[u8]) -> Vec<u8> {
+    let mut out = Vec::with_capacity(value.len());
+    for &byte in value {
+        match byte {
+            b'\\' => out.extend_from_slice(b"\\\\"),
+            b'\t' => out.extend_from_slice(b"\\t"),
+            b'\n' => out.extend_from_slice(b"\\n"),
+            b'\r' => out.extend_from_slice(b"\\r"),
+            _ if also.contains(&byte) => out.extend_from_slice(&[b'\\', byte]),
+            _ => out.push(byte),
+        }
+    }
+    out
+}
+
+/// Returns how many records of `--remote info` the window had still to send when its answer
+/// `answer` to `command` ended, as when the window closed meanwhile. A blank line ends each
+/// record, and no value holds a line break. It is 0 for any other command.
+fn info_records_missing(command: &str, answer: &[u8]) -> usize {
+    if !is_info(command) {
+        return 0;
+    }
+    let asked = match command.strip_prefix("info ") {
+        Some(paths) => paths.split('\0').filter(|p| !p.is_empty()).count(),
+        None => 1,
+    };
+    let records = answer.windows(2).filter(|pair| pair == b"\n\n").count();
+    asked.saturating_sub(records)
 }
 
 /// Glimt's runtime folder, which only the user can reach. It holds the sockets and the sidecar
@@ -917,16 +966,24 @@ fn send_and_print_answer(path: &std::path::Path, command: &str) -> bool {
     let mut answer = Vec::new();
     #[allow(clippy::disallowed_methods)] // a reply on Glimt's own private socket, with a time limit
     let read = s.read_to_end(&mut answer);
+    let timed_out = read.is_err();
     if let Err(e) = read {
         eprintln!("glimt: no answer from {}: {e}", path.display());
         TIMED_OUT.store(true, std::sync::atomic::Ordering::Relaxed);
     }
-    match not_done_reason(&answer) {
-        Some(why) => {
-            eprintln!("glimt: not done: {why}");
-            WAS_NOT_DONE.store(true, std::sync::atomic::Ordering::Relaxed);
+    // An `info` that ends before its last record, because the window closed, is not done.
+    let missing = info_records_missing(command, &answer);
+    let why = match not_done_reason(&answer) {
+        Some(why) => Some(why),
+        None => {
+            let _ = std::io::stdout().write_all(&answer);
+            let closed = format!("the window closed before it told about {missing} of the files");
+            (missing > 0 && !timed_out).then_some(closed)
         }
-        None => drop(std::io::stdout().write_all(&answer)),
+    };
+    if let Some(why) = why {
+        eprintln!("glimt: not done: {why}");
+        WAS_NOT_DONE.store(true, std::sync::atomic::Ordering::Relaxed);
     }
     true
 }
@@ -1242,14 +1299,23 @@ fn serve(
         // The client is counted until its answer is written, because `stop` waits for that at
         // closing.
         let answering = UnfinishedAnswer::new();
+        let comes_in_parts = is_info(&line);
         if tx.send((line, Some(reply))).is_err() {
             return;
         }
         ctx.request_repaint();
         match answer.recv() {
             Ok(bytes) => {
-                if let Some(out) = out.as_mut() {
-                    let _ = out.write_all(&bytes);
+                // `info` sends each file's record as it is read, until it has sent them all.
+                // Each part is written at once, so the client's time limit holds for each part.
+                let rest = answer.iter().take_while(|_| comes_in_parts);
+                for bytes in std::iter::once(bytes).chain(rest) {
+                    if out
+                        .as_mut()
+                        .is_none_or(|out| out.write_all(&bytes).is_err())
+                    {
+                        break;
+                    }
                 }
             }
             // When the window dropped the answer (too many waiting, or closing), closing the
@@ -2326,9 +2392,9 @@ mod tests {
     }
 
     /// `info`'s record of a file with EXIF, keywords, a comment, alt text, marks and stars, in
-    /// its frozen form: every key in its order, a ";" in a keyword as ",", and a line break or
-    /// tab in a value as a space. The values that change with each run (the path, the size and
-    /// the time) are read from the file.
+    /// its frozen form: every key in its order, a ";" in a keyword as "\;", and a backslash,
+    /// line break or tab in a value as "\\", "\n" or "\t". The values that change with each
+    /// run (the path, the size and the time) are read from the file.
     #[test]
     fn info_prints_a_known_file_in_its_frozen_form() {
         use crate::metadata::xmp;
@@ -2350,7 +2416,7 @@ mod tests {
         let comment = "line one\nline\ttwo".to_owned();
         xmp::write_changed(&file, Some(keywords), Some(comment)).unwrap();
         let alt_text = xmp::AltText {
-            text: "A red square".into(),
+            text: "A red \\ square".into(),
             extended_description: String::new(),
         };
         xmp::write_alt_text(&file, &alt_text).unwrap();
@@ -2362,17 +2428,18 @@ mod tests {
         let modified = crate::support::format::utc_time(modified.unwrap().as_secs() as i64);
         let expected = format!(
             "path\t{}\nsize\t{}\nmodified\t{modified}\nwidth\t8\nheight\t4\nformat\tpng\n\
-             orientation\t6\nstars\t3\nmarks\t1,4\nkeywords\tbeach; a,b\n\
-             comment\tline one line two\nalt_text\tA red square\nextended_description\t\n\
+             orientation\t6\nstars\t3\nmarks\t1,4\nkeywords\tbeach; a\\;b\n\
+             comment\tline one\\nline\\ttwo\nalt_text\tA red \\\\ square\nextended_description\t\n\
              exif.camera\tCanon\nexif.lens\t\nexif.taken\t2020:01:02 03:04:05\n\
              exif.exposure\t\nexif.aperture\t\nexif.iso\t\nexif.focal_length\t\n\
              exif.exposure_bias\t\nexif.flash\t\nexif.gps\t\n",
             file.display(),
             meta.len()
         );
-        assert_eq!(super::info_record(&file, Some((0b1001, 3))), expected);
+        let record = super::info_record(&file, Some((0b1001, 3)));
+        assert_eq!(String::from_utf8(record).unwrap(), expected);
         // Without marks built in, the stars and marks are empty, and the keys stay.
-        let without_marks = super::info_record(&file, None);
+        let without_marks = String::from_utf8(super::info_record(&file, None)).unwrap();
         assert!(
             without_marks.contains("\nstars\t\nmarks\t\n"),
             "{without_marks}"
@@ -2393,7 +2460,8 @@ mod tests {
             .write_to(&mut cursor, image::ImageFormat::Png)
             .unwrap();
         std::fs::write(&file, &png).unwrap();
-        let lines = info_lines(&super::info_record(&file, Some((0, 0))));
+        let record = super::info_record(&file, Some((0, 0)));
+        let lines = info_lines(&String::from_utf8(record).unwrap());
         let keys: Vec<String> = (super::INFO_KEYS.iter().map(|k| k.to_string()))
             .chain(crate::metadata::exif::LABELS.map(super::info_exif_key))
             .collect();
@@ -2409,7 +2477,8 @@ mod tests {
             ("stars", "0"),
         ];
         assert_eq!(filled, expected);
-        let missing = info_lines(&super::info_record(&dir.join("no.png"), Some((1, 2))));
+        let record = super::info_record(&dir.join("no.png"), Some((1, 2)));
+        let missing = info_lines(&String::from_utf8(record).unwrap());
         assert_eq!(
             missing.iter().map(|l| l.0.clone()).collect::<Vec<_>>(),
             keys
@@ -2419,6 +2488,53 @@ mod tests {
             "{missing:?}"
         );
         std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A value's backslash, tab and line breaks are written so that a script can undo them, a
+    /// ";" too in a keyword, and a path that is not UTF-8 keeps its bytes, as `current` gives
+    /// them.
+    #[test]
+    fn info_escapes_what_a_script_can_undo() {
+        use std::os::unix::ffi::OsStrExt;
+        assert_eq!(
+            super::escaped(b"a\\b\tc\nd\re;f", b""),
+            b"a\\\\b\\tc\\nd\\re;f"
+        );
+        assert_eq!(super::escaped(b"a;b\\", b";"), b"a\\;b\\\\");
+        let path = std::path::Path::new(std::ffi::OsStr::from_bytes(b"/no/\xff\tx\\.png"));
+        let record = super::info_record(path, None);
+        assert!(record.starts_with(b"path\t/no/\xff\\tx\\\\.png\nsize\t\n"));
+    }
+
+    /// `info`'s records go to the client as the window sends them, each at once, so the
+    /// client's time limit holds for each file. The client counts the records it got, and an
+    /// answer cut short, as by a window that closed, is not done.
+    #[test]
+    fn info_is_sent_a_record_at_a_time() {
+        use std::io::{Read, Write};
+        let (mut client, window) = std::os::unix::net::UnixStream::pair().unwrap();
+        let (tx, rx) = std::sync::mpsc::channel();
+        let ctx = eframe::egui::Context::default();
+        std::thread::spawn(move || super::serve(window, &tx, &ctx));
+        writeln!(client, "info /a.png\0/b.png").unwrap();
+        client.shutdown(std::net::Shutdown::Write).unwrap();
+        let (command, reply) = rx.recv().unwrap();
+        let reply = reply.unwrap();
+        reply.send(b"path\t/a.png\n\n".to_vec()).unwrap();
+        let mut first = [0; 13];
+        client.read_exact(&mut first).unwrap();
+        assert_eq!(super::info_records_missing(&command, &first), 1);
+        reply.send(b"path\t/b.png\n\n".to_vec()).unwrap();
+        drop(reply);
+        let mut rest = Vec::new();
+        client.read_to_end(&mut rest).unwrap();
+        assert_eq!(rest, b"path\t/b.png\n\n");
+        assert_eq!(
+            super::info_records_missing(&command, &[&first[..], &rest].concat()),
+            0
+        );
+        assert_eq!(super::info_records_missing("info", b""), 1);
+        assert_eq!(super::info_records_missing("next", b""), 0);
     }
 
     /// `info` through the listener: about the image shown, about files named (listed or not)

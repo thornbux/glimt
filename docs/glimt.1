@@ -153,7 +153,9 @@ Send
 .I COMMAND
 to the Glimt window used last, on this computer, and wait for its answer. Exits with 0 when
 the command was done, with 2 for a command Glimt does not know, with 1 when no Glimt runs or
-none answers within 10 seconds, and with 3 when the window did not do it: a
+none answers within 10 seconds (for each file of
+.BR info ),
+and with 3 when the window did not do it: a
 .B run
 refused while a dialog asks the user or a text field has the focus, by a kiosk, or with no
 image to act on, or a command that window does not know, as an older Glimt; the reason is printed on standard error. A Glimt older than
@@ -343,7 +345,7 @@ which are empty without marks built in,
 with a
 .B ;
 inside a keyword written as
-.BR , ),
+.BR \e; ),
 .BR comment ,
 .BR alt_text ,
 .BR extended_description ,
@@ -359,9 +361,22 @@ and the info panel's EXIF fields, in English:
 .B exif.flash
 and
 .BR exif.gps .
-A tab or line break in a value is printed as a space. A path that is no file has every value
-but its path empty. The form stays the same in 1.x, but a later Glimt may add keys, so a
-script reads a value by its key. Without a file named and no image shown, it exits with 3.
+In a value, a backslash is printed as
+.BR \e\e ,
+a tab as
+.BR \et ,
+a line feed as
+.B \en
+and a carriage return as
+.BR \er ,
+so each value stays on its line and a script can undo it. The path is printed with its own
+bytes, as
+.B current
+prints it, also when they are not UTF-8. A path that is no file has every value but its path
+empty. Each file is printed as soon as it is read, and the 10 seconds that the client waits
+hold for each file, not for all of them. When the window closes before every file is printed,
+it exits with 3. The form stays the same in 1.x, but a later Glimt may add keys, so a script
+reads a value by its key. Without a file named and no image shown, it exits with 3.
 .PP
 .BR current ,
 .B selection
@@ -495,7 +510,10 @@ Where the files above are kept.
 .SH SIGNALS
 SIGTERM and SIGHUP close the window as Ctrl+Q does: Glimt waits while files are copied, moved
 or saved, then writes its state and ends. A second signal stops the files after the one at
-hand, and a third ends Glimt at once. SIGKILL always ends it at once.
+hand, and a third ends Glimt at once. SIGKILL always ends it at once. A signal ignored when
+Glimt starts stays ignored, so
+.B nohup glimt
+outlives its terminal.
 .SH EXAMPLES
 .TP
 .B glimt ~/Pictures
