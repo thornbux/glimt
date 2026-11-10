@@ -2221,43 +2221,53 @@ mod tests {
     }
 
     /// The names in keys= of the settings file are frozen since 1.0: an action or a key name
-    /// changed would take every user's own keys away. src/keys-1.0.txt holds the names of 1.0;
-    /// new ones are added there, never one taken out or changed. Every action is in it, also
-    /// one without a key of its own, because a user can give it one. Before, only the actions
-    /// with a key were pinned, so one without a key could be renamed unseen.
+    /// changed would take every user's own keys away. src/keys-1.0.txt holds the names of 1.0,
+    /// each line with its kind (`action` or `key`); new ones are added there, never one taken
+    /// out or changed. Every action is in it, also one without a key of its own, because a user
+    /// can give it one, and so is every default key. The kinds are checked each on its own:
+    /// before, an action that has a key's name (Up, Home, Delete, Escape) could be renamed
+    /// unseen, as the key's name still matched its line.
     #[test]
     fn names_of_1_0_are_kept() {
         let actions = variants(true);
-        let mut now: std::collections::HashSet<String> = (super::SHORTCUTS.iter())
-            .map(|(_, _, k)| k.name().to_owned())
+        let keys: std::collections::HashSet<&str> = (super::SHORTCUTS.iter())
+            .map(|(_, _, k)| k.name())
             .collect();
-        now.extend(actions.iter().cloned());
-        let frozen: Vec<&str> = (include_str!("../keys-1.0.txt").lines())
-            .filter(|l| !l.starts_with('#') && !l.is_empty())
-            .collect();
+        let (mut frozen_actions, mut frozen_keys) = (Vec::new(), Vec::new());
+        for line in include_str!("../keys-1.0.txt").lines() {
+            match line.split_once(' ') {
+                _ if line.starts_with('#') || line.is_empty() => {}
+                Some(("action", name)) => frozen_actions.push(name),
+                Some(("key", name)) => frozen_keys.push(name),
+                _ => panic!("src/keys-1.0.txt: {line:?} is neither `action NAME` nor `key NAME`"),
+            }
+        }
         let unpinned: Vec<&String> = (actions.iter())
-            .filter(|a| !frozen.contains(&a.as_str()))
+            .filter(|a| !frozen_actions.contains(&a.as_str()))
             .collect();
         assert!(
             unpinned.is_empty(),
-            "add these at the end of src/keys-1.0.txt: {unpinned:?}"
+            "add these at the end of src/keys-1.0.txt as `action NAME`: {unpinned:?}"
         );
-        let mut sorted: Vec<&String> = now.iter().collect();
-        sorted.sort();
+        let mut unpinned_keys: Vec<&&str> =
+            keys.iter().filter(|k| !frozen_keys.contains(k)).collect();
+        unpinned_keys.sort();
         assert!(
-            !frozen.is_empty(),
-            "the names now:\n{}",
-            sorted
-                .iter()
-                .map(|s| s.as_str())
-                .collect::<Vec<_>>()
-                .join("\n")
+            unpinned_keys.is_empty(),
+            "add these at the end of src/keys-1.0.txt as `key NAME`: {unpinned_keys:?}"
         );
         // An old name passes when RENAMED_ACTIONS maps it to an action's name now.
-        for name in frozen {
+        for name in frozen_actions {
             assert!(
-                now.contains(super::action_name_now(name)),
-                "{name} is gone: it is in users' keys= since 1.0"
+                actions.iter().any(|a| a == super::action_name_now(name)),
+                "the action {name} is gone: it is in users' keys= since 1.0"
+            );
+        }
+        // A key of the marks build is pinned in every build, as keys= reads it by egui's name.
+        for name in frozen_keys {
+            assert!(
+                eframe::egui::Key::from_name(name).is_some(),
+                "the key {name} is gone: it is in users' keys= since 1.0"
             );
         }
     }

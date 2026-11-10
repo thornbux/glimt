@@ -1,193 +1,206 @@
-# The names in keys= of the settings file as of 1.0: the actions and the keys. Never taken
-# out or changed; new ones are added below (see AGENTS.md and the test in actions.rs). A
-# renamed action keeps its line, RENAMED_ACTIONS in actions.rs maps it to the new name, and
-# the new name is added below.
-A
-AboveEachOther
-Animate
-Backspace
-C
-CloseBracket
-CloseWindow
-Compare
-Copy
-CopyImage
-D
-Delete
-DeletePermanently
-Down
-E
-End
-Enter
-Equals
-Escape
-ExifPanel
-ExifRotate
-ExifWindow
-F
-F1
-F11
-F5
-Faster
-FindDuplicates
-First
-FitHeight
-FitWidth
-Flip
-FocusSearch
-FolderTree
-FullScreen
-G
-H
-Help
-HideTools
-Histogram
-HistogramLog
-Home
-I
-Icons
-InvertSelection
-J
-K
-Keywords
-L
-Last
-Left
-M
-Minus
-Mirror
-Move
-MoveEarlier
-MoveFirst
-MoveLast
-MoveLater
-N
-NewCollection
-NewFolder
-NewWindow
-Next
-NextLayout
-NextPage
-O
-OneImage
-OpenBracket
-OpenCollection
-Overlay
-P
-PageDown
-PageUp
-PanView
-PaneDown
-PaneLeft
-PaneRight
-PaneUp
-Pause
-Play
-Plus
-Preferences
-Prev
-PrevPage
-Print
-Q
-Quit
-R
-RandomOrder
-Refresh
-RemoveFromCollection
-Rename
-Right
-Rotate180
-RotateCcw
-RotateCw
-S
-SelectAll
-SelectNone
-Slash
-Slideshow
-Slower
-SortManager
-Space
-T
-Thumbnails
-U
-Up
-V
-ViewFilter
-W
-X
-Y
-Z
-Zoom1To1
-ZoomFit
-ZoomIn
-ZoomOut
+# The names in keys= of the settings file as of 1.0, each with its kind: `action` for an
+# action, `key` for the name of a default key. Never taken out or changed; new ones are added
+# below (see AGENTS.md and the test in actions.rs). A renamed action keeps its line,
+# RENAMED_ACTIONS in actions.rs maps it to the new name, and the new name is added below. A
+# name that is both an action and a key (Delete, Escape, Home, Up) has a line of each kind.
+key A
+action AboveEachOther
+action Animate
+key Backspace
+key C
+key CloseBracket
+action CloseWindow
+action Compare
+action Copy
+action CopyImage
+key D
+action Delete
+key Delete
+action DeletePermanently
+key Down
+key E
+key End
+key Enter
+key Equals
+action Escape
+key Escape
+action ExifPanel
+action ExifRotate
+action ExifWindow
+key F
+key F1
+key F11
+key F5
+action Faster
+action FindDuplicates
+action First
+action FitHeight
+action FitWidth
+action Flip
+action FocusSearch
+action FolderTree
+action FullScreen
+key G
+key H
+action Help
+action HideTools
+action Histogram
+action HistogramLog
+action Home
+key Home
+key I
+action Icons
+action InvertSelection
+key J
+key K
+action Keywords
+key L
+action Last
+key Left
+key M
+key Minus
+action Mirror
+action Move
+action MoveEarlier
+action MoveFirst
+action MoveLast
+action MoveLater
+key N
+action NewCollection
+action NewFolder
+action NewWindow
+action Next
+action NextLayout
+action NextPage
+key O
+action OneImage
+key OpenBracket
+action OpenCollection
+action Overlay
+key P
+key PageDown
+key PageUp
+action PanView
+action PaneDown
+action PaneLeft
+action PaneRight
+action PaneUp
+action Pause
+action Play
+key Plus
+action Preferences
+action Prev
+action PrevPage
+action Print
+key Q
+action Quit
+key R
+action RandomOrder
+action Refresh
+action RemoveFromCollection
+action Rename
+key Right
+action Rotate180
+action RotateCcw
+action RotateCw
+key S
+action SelectAll
+action SelectNone
+key Slash
+action Slideshow
+action Slower
+action SortManager
+key Space
+key T
+action Thumbnails
+key U
+action Up
+key Up
+key V
+action ViewFilter
+key W
+key X
+key Y
+key Z
+action Zoom1To1
+action ZoomFit
+action ZoomIn
+action ZoomOut
 # Added in 0.40.0
-Undo
-Crop
-SaveAs
+action Undo
+action Crop
+action SaveAs
 # Added in 0.65.0
-ThumbnailGrid
+action ThumbnailGrid
 # Added in 0.69.0: the actions not pinned before, those without a default key among them
-OpenFile
-OpenFolder
-OpenFolders
-OpenRecursive
-OpenWith
-SetWallpaper
-Back
-Forward
-CopyPath
-CopyPathUnquoted
-CopyFiles
-SaveOrientation
-FitFill
-Subfolders
-HiddenFiles
-ImportLightroom
-RenameCollection
-TrashCollection
-CheckImages
-BackUp
-Mark1
-Mark2
-Mark3
-Mark4
-Mark5
-Mark6
-SelectMark1
-SelectMark2
-SelectMark3
-SelectMark4
-SelectMark5
-SelectMark6
-Rate0
-Rate1
-Rate2
-Rate3
-Rate4
-Rate5
-Toolbar
-PathBar
-GridNames
-WindowTitle
-Projector
-ProjectorPointer
-SaveFrame
-ExportFrames
-Shortcuts
-KeyboardMap
-About
-HideFileList
-FullScreenInfo
-PlayVideo
-SlideshowFaster
-SlideshowSlower
-FocusKeywords
-CopyTo
-MoveTo
-NextFilter
-InfoPanel
-Previous
-CopyForSharing
-PreviousPage
-WindowName
+action OpenFile
+action OpenFolder
+action OpenFolders
+action OpenRecursive
+action OpenWith
+action SetWallpaper
+action Back
+action Forward
+action CopyPath
+action CopyPathUnquoted
+action CopyFiles
+action SaveOrientation
+action FitFill
+action Subfolders
+action HiddenFiles
+action ImportLightroom
+action RenameCollection
+action TrashCollection
+action CheckImages
+action BackUp
+action Mark1
+action Mark2
+action Mark3
+action Mark4
+action Mark5
+action Mark6
+action SelectMark1
+action SelectMark2
+action SelectMark3
+action SelectMark4
+action SelectMark5
+action SelectMark6
+action Rate0
+action Rate1
+action Rate2
+action Rate3
+action Rate4
+action Rate5
+action Toolbar
+action PathBar
+action GridNames
+action WindowTitle
+action Projector
+action ProjectorPointer
+action SaveFrame
+action ExportFrames
+action Shortcuts
+action KeyboardMap
+action About
+action HideFileList
+action FullScreenInfo
+action PlayVideo
+action SlideshowFaster
+action SlideshowSlower
+action FocusKeywords
+action CopyTo
+action MoveTo
+action NextFilter
+action InfoPanel
+action Previous
+action CopyForSharing
+action PreviousPage
+action WindowName
+# Added in 0.80.0: the default keys of the marks build, not pinned before
+key 0
+key 1
+key 2
+key 3
+key 4
+key 5
+key 6

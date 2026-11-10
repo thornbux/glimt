@@ -113,9 +113,10 @@ The tests that hold this:
 - `keeps_what_it_does_not_understand`: the marks file keeps mark bits and lines it does not
   understand, when a line has two fields and a path, so a later Glimt can add to it.
 - The `keys=` format is pinned by `src/keys-1.0.txt` and its test: every action (also one
-  without a default key) and every default key. So never rename an `Action` variant or change
-  a key's name, except through the tables of old names below. A new action goes at the end of
-  that file, and the test fails until it is there.
+  without a default key) and every default key, each line with its kind (`action Up`,
+  `key Up`), which the test checks each on its own. So never rename an `Action` variant or
+  change a key's name, except through the tables of old names below. A new action goes at the
+  end of that file as `action Name`, and the test fails until it is there.
 
 Every `--remote` command gets an answer. A query is answered with what it asks for. Any other
 command is answered with nothing when it was done, and with `not done: <reason>` when it was
@@ -353,8 +354,8 @@ method.
 
 ## How to add things
 
-- **An action:** add a variant to `Action`, its name at the end of `src/keys-1.0.txt`, its
-  menu label in `Action::label`, and a key in `SHORTCUTS` if Geeqie has one. Put Shift and
+- **An action:** add a variant to `Action`, `action Name` at the end of `src/keys-1.0.txt`,
+  its menu label in `Action::label`, and a key in `SHORTCUTS` if Geeqie has one. Put Shift and
   Ctrl+Shift combinations before the plain key, because egui ignores an extra Shift when it
   matches a key. Handle the action in `App::run`, and add it to a menu with `menu_item` or
   `menu_toggle`.
