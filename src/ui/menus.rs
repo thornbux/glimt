@@ -324,7 +324,6 @@ impl crate::App {
         ui.separator();
         menu_item(ui, chosen, Action::CopyPath);
         menu_item(ui, chosen, Action::CopyPathUnquoted);
-        menu_item(ui, chosen, Action::CopyImage);
         menu_item(ui, chosen, Action::CopyFiles);
     }
 
@@ -389,6 +388,8 @@ impl crate::App {
             },
         );
         menu_item(ui, chosen, Action::Crop);
+        // On the shown image, so not in the Select menu beside the copies of the selection.
+        menu_item(ui, chosen, Action::CopyImage);
         menu_item(ui, chosen, Action::FocusKeywords);
         ui.separator();
         self.tools_menu(ui);
@@ -923,6 +924,21 @@ pub(crate) fn button_enabled(ui: &mut egui::Ui, on: bool, text: &str) -> egui::R
 #[allow(clippy::disallowed_methods)] // The one place a small button is drawn.
 pub(crate) fn small_button(ui: &mut egui::Ui, text: &str) -> egui::Response {
     noted(&ui.small_button(text), text)
+}
+
+/// Draws the caret that opens or closes `name` in a tree, such as the folder tree. A screen
+/// reader is told the name and whether it is open, not the icon's glyph.
+#[allow(clippy::disallowed_methods)] // The one place a caret is drawn; it has no text to note.
+pub(crate) fn caret(ui: &mut egui::Ui, open: bool, name: &str) -> egui::Response {
+    let icon = match open {
+        true => theme::icon::CARET_DOWN,
+        false => theme::icon::CARET_RIGHT,
+    };
+    let toggle = ui.add(egui::Button::new(icon).frame(false));
+    toggle.widget_info(|| {
+        egui::WidgetInfo::selected(egui::Role::DisclosureTriangle, true, open, name)
+    });
+    toggle
 }
 
 /// Draws a row of `text` that shows whether it is selected (`on`), noted as `button` does.

@@ -3177,14 +3177,16 @@ for v in new old; do
     config
     start $d/a.png; sleep 2
     key bracketright; sleep 1        # turned a quarter clockwise, not saved
-    menu Select "Copy Image to Clipboard"; sleep 3
+    if [ $v = new ]; then menu Edit "Copy Image to Clipboard"
+    else menu Select "Copy Image to Clipboard"; fi   # 0.79 had it in the Select menu
+    sleep 3
     size=$(xclip -o -selection clipboard -t image/png 2>/dev/null | identify -format '%wx%h' - 2>/dev/null)
     quit
     if [ $v = new ]; then expect "the turned image, 48x64" "$size" 48x64
     else note "old: $size"; fi
 done
 
-section "the clipboard: Copy Path, Copy Image and Copy Files from the Select menu, read back with xclip"
+section "the clipboard: Copy Path and Copy Files from the Select menu, Copy Image from Edit, read back with xclip"
 d=/tmp/clipboard
 mkdir -p $d
 convert -size 64x48 xc:red $d/a.png
@@ -3192,7 +3194,7 @@ config
 start $d/a.png; sleep 2
 menu Select "Copy Path to Clipboard"; sleep 1
 path=$(xclip -o -selection clipboard 2>/dev/null)
-menu Select "Copy Image to Clipboard"; sleep 3
+menu Edit "Copy Image to Clipboard"; sleep 3
 size=$(xclip -o -selection clipboard -t image/png 2>/dev/null | identify -format '%wx%h' - 2>/dev/null)
 menu Select "Copy Files to Clipboard"; sleep 1
 files=$(xclip -o -selection clipboard -t text/uri-list 2>/dev/null | tr -d '\r' | grep -c "file://$d/a.png")

@@ -43,60 +43,50 @@ pub(crate) struct MetadataEdit {
     pub(crate) saved_alt_text: xmp::AltText,
 }
 
-/// A level of the keyword tree: its children by name.
+/// A keyword of the keyword tree, by its whole path, and the keywords below it by name. The
+/// root has an empty path.
 #[derive(Default)]
-pub(crate) struct KeywordNode(std::collections::BTreeMap<String, KeywordNode>);
+pub(crate) struct KeywordNode {
+    path: String,
+    children: std::collections::BTreeMap<String, KeywordNode>,
+}
 
 impl KeywordNode {
-    fn insert(&mut self, path: &str) {
-        let mut node = self;
-        for level in path.split('|') {
-            node = node.0.entry(level.to_owned()).or_default();
-        }
-    }
-
-    /// The boxes of this level's keywords under `prefix`, ticked by `have` (the image's keywords
-    /// and keyword tree paths); a box clicked
-    /// gives (its path, on) in `tick`, and Remove in its menu gives the path in `drop`.
-    fn show(
-        &self,
-        ui: &mut egui::Ui,
-        prefix: &str,
-        have: (&[String], &[String]),
-        tick: &mut Option<(String, bool)>,
-        drop: &mut Option<String>,
-    ) {
-        for (name, child) in &self.0 {
-            let path = if prefix.is_empty() {
-                name.clone()
-            } else {
-                format!("{prefix}|{name}")
-            };
-            let mut box_of = |ui: &mut egui::Ui| {
-                let mut on = xmp::has_tag(have.0, have.1, &path);
-                let response = crate::ui::menus::checkbox(ui, &mut on, name);
-                if response.changed() {
-                    *tick = Some((path.clone(), on));
-                }
-                response.context_menu(|ui| {
-                    if crate::ui::menus::button(ui, tr("Remove from the tree")).clicked() {
-                        *drop = Some(path.clone());
-                    }
+    /// Builds the tree of the keyword tree's `paths`, with a keyword for each level of a path
+    /// also when the tree has no line of its own for it.
+    fn of(paths: &[String]) -> Self {
+        let mut root = KeywordNode::default();
+        for path in paths {
+            let mut node = &mut root;
+            for level in path.split('|') {
+                let whole = match node.path.is_empty() {
+                    true => level.to_owned(),
+                    false => format!("{}|{level}", node.path),
+                };
+                node = (node.children.entry(level.to_owned())).or_insert_with(|| KeywordNode {
+                    path: whole,
+                    children: Default::default(),
                 });
-            };
-            if child.0.is_empty() {
-                box_of(ui);
-            } else {
-                let id = ui.make_persistent_id(("keyword", &path));
-                egui::collapsing_header::CollapsingState::load_with_default_open(
-                    ui.ctx(),
-                    id,
-                    false,
-                )
-                .show_header(ui, box_of)
-                .body(|ui| child.show(ui, &path, have, tick, drop));
             }
         }
+        root
+    }
+
+    /// The rows of the tree as it is shown: each keyword with its depth and name, and the
+    /// keywords below one only when it is in `open`.
+    fn rows<'a>(&'a self, open: &HashSet<String>) -> Vec<(usize, &'a str, &'a KeywordNode)> {
+        let mut rows = Vec::new();
+        let mut stack: Vec<_> = (self.children.iter().rev())
+            .map(|(name, node)| (0, name.as_str(), node))
+            .collect();
+        while let Some((depth, name, node)) = stack.pop() {
+            rows.push((depth, name, node));
+            if open.contains(&node.path) {
+                let below = node.children.iter().rev();
+                stack.extend(below.map(|(name, child)| (depth + 1, name.as_str(), child)));
+            }
+        }
+        rows
     }
 }
 
@@ -124,6 +114,13 @@ pub(crate) struct InfoPanel {
     keywords_take_focus: bool,
     /// The keyword tree (Geeqie's), as paths "Places|Norway|Oslo", sorted; in the info panel.
     keyword_tree: Vec<String>,
+    /// The keyword tree's levels, built when the tree changes and not in every frame, because
+    /// a Lightroom import can give it thousands of keywords.
+    keyword_nodes: KeywordNode,
+    /// The last name of each path in the keyword tree, in lower case, built with the levels.
+    keyword_names: HashSet<String>,
+    /// The paths of the keywords opened in the tree, which show the keywords below them.
+    open_keywords: HashSet<String>,
     /// A path being typed to add to the keyword tree.
     new_keyword: String,
 }
@@ -132,7 +129,7 @@ impl InfoPanel {
     /// The EXIF reader started, and the keyword tree read from its file.
     pub(crate) fn new(ctx: &egui::Context) -> Self {
         let (exif_requests, exif_answers) = spawn_exif_reader(ctx);
-        InfoPanel {
+        let mut panel = InfoPanel {
             exif_requests,
             exif_answers,
             exif_asked: None,
@@ -142,11 +139,26 @@ impl InfoPanel {
             is_exif_window_open: false,
             metadata_edit: None,
             keywords_take_focus: false,
-            keyword_tree: (keyword_tree_path()
-                .and_then(|p| crate::images::decode::read_limited(p).ok()))
-            .map_or_else(Vec::new, |file| xmp::keyword_tree_of(&file)),
+            keyword_tree: Vec::new(),
+            keyword_nodes: KeywordNode::default(),
+            keyword_names: HashSet::new(),
+            open_keywords: HashSet::new(),
             new_keyword: String::new(),
-        }
+        };
+        let tree = (keyword_tree_path().and_then(|p| crate::images::decode::read_limited(p).ok()))
+            .map_or_else(Vec::new, |file| xmp::keyword_tree_of(&file));
+        panel.set_keyword_tree(tree);
+        panel
+    }
+
+    /// Makes `tree` the keyword tree, and builds its levels and names once for the frames that
+    /// draw it.
+    pub(crate) fn set_keyword_tree(&mut self, tree: Vec<String>) {
+        self.keyword_nodes = KeywordNode::of(&tree);
+        self.keyword_names = (tree.iter())
+            .map(|p| p.rsplit('|').next().unwrap_or(p).to_lowercase())
+            .collect();
+        self.keyword_tree = tree;
     }
 
     /// The info panel's row `label` of `path`, when that is the file read.
@@ -360,12 +372,47 @@ impl crate::App {
         }
         ui.separator();
         ui.weak(tr("Keyword tree"));
-        let mut root = KeywordNode::default();
-        for p in &self.info_panel.keyword_tree {
-            root.insert(p);
+        let (mut tick, mut drop, mut toggled) = (None, None, None);
+        let panel = &self.info_panel;
+        // shortcut: the open rows are listed again in each frame, without a String for each; keep
+        // them until the tree or an opened keyword changes if trees of millions are opened.
+        let rows = panel.keyword_nodes.rows(&panel.open_keywords);
+        // Only the rows on screen are laid out, in a box as high as the panel shows.
+        let row_h = ui.spacing().interact_size.y;
+        egui::ScrollArea::vertical()
+            .id_salt("keyword tree")
+            .max_height(ui.clip_rect().height().max(8.0 * row_h))
+            .show_rows(ui, row_h, rows.len(), |ui, range| {
+                for &(depth, name, node) in &rows[range] {
+                    ui.horizontal(|ui| {
+                        ui.add_space(depth as f32 * ui.spacing().indent);
+                        if node.children.is_empty() {
+                            ui.add_space(ui.spacing().icon_width);
+                        } else {
+                            let open = panel.open_keywords.contains(&node.path);
+                            if crate::ui::menus::caret(ui, open, name).clicked() {
+                                toggled = Some(node.path.clone());
+                            }
+                        }
+                        let mut on = xmp::has_tag(&have, &paths, &node.path);
+                        let response = crate::ui::menus::checkbox(ui, &mut on, name);
+                        if response.changed() {
+                            tick = Some((node.path.clone(), on));
+                        }
+                        response.context_menu(|ui| {
+                            let remove = tr("Remove from the tree");
+                            if crate::ui::menus::button(ui, remove).clicked() {
+                                drop = Some(node.path.clone());
+                            }
+                        });
+                    });
+                }
+            });
+        if let Some(path) = toggled
+            && !self.info_panel.open_keywords.remove(&path)
+        {
+            self.info_panel.open_keywords.insert(path);
         }
-        let (mut tick, mut drop) = (None, None);
-        root.show(ui, "", (&have, &paths), &mut tick, &mut drop);
         // The button first, from the right, so the field takes exactly what is left: a field
         // too wide makes the panel grow a little on every frame.
         let row = egui::vec2(ui.available_width(), ui.spacing().interact_size.y);
@@ -382,9 +429,7 @@ impl crate::App {
             }
         });
         // The image's own keywords that the tree does not have yet, at its top.
-        let names: HashSet<String> = (self.info_panel.keyword_tree.iter())
-            .map(|p| p.rsplit('|').next().unwrap_or(p).to_lowercase())
-            .collect();
+        let names = &self.info_panel.keyword_names;
         let missing: Vec<String> = (have.iter())
             .filter(|k| !names.contains(&k.to_lowercase()))
             .cloned()
@@ -410,14 +455,14 @@ impl crate::App {
         // Locked settings (--lock-settings, a kiosk): the tree changes for this session only,
         // as the other settings do, and the file is not written.
         let Some(p) = keyword_tree_path().filter(|_| !config::locked()) else {
-            self.info_panel.keyword_tree =
-                xmp::keyword_tree_changed(&self.info_panel.keyword_tree, add, remove);
+            let tree = xmp::keyword_tree_changed(&self.info_panel.keyword_tree, add, remove);
+            self.info_panel.set_keyword_tree(tree);
             return;
         };
         // A file that cannot be read is not written over, because its keywords would be lost.
         let change = |old: &[u8]| xmp::keyword_tree_file_changed(old, add, remove);
         match crate::files::file_io::edit_shared(&p, change) {
-            Ok(tree) => self.info_panel.keyword_tree = tree,
+            Ok(tree) => self.info_panel.set_keyword_tree(tree),
             Err(e) => self
                 .notice
                 .give(tf!("Could not save the keyword tree: {e}", e)),
@@ -734,6 +779,31 @@ mod tests {
             |_: &crate::App| crate::metadata::xmp::read(&dir.join("a.png")).keywords == ["beach"];
         assert!(run_background_until(&mut app, &ctx, written));
         assert!(shown(&app));
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// A keyword tree of thousands of keywords, as a Lightroom import makes, is laid out only
+    /// where it is seen. It was laid out whole in every frame, a checkbox for each keyword,
+    /// which made each frame slow while the info panel was open.
+    #[test]
+    fn a_large_keyword_tree_is_laid_out_only_where_it_is_seen() {
+        use eframe::egui;
+        let dir = std::env::temp_dir().join(format!("glimt-test-kw-tree-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        image::RgbImage::new(4, 4).save(dir.join("a.png")).unwrap();
+        let (mut app, ctx) = app_on(&dir);
+        read_panel(&mut app, &ctx);
+        let tree: Vec<String> = (0..10_000).map(|i| format!("Keyword {i:05}")).collect();
+        app.info_panel.set_keyword_tree(tree);
+        let mut height = 0.0;
+        let _ = ctx.run_ui(Default::default(), |ui| {
+            egui::ScrollArea::vertical().show(ui, |ui| {
+                app.keyword_tree(ui);
+                height = ui.min_rect().height();
+            });
+        });
+        let row = ctx.global_style().spacing.interact_size.y;
+        assert!(height > 0.0 && height < 2_000.0 * row, "{height}");
         std::fs::remove_dir_all(&dir).unwrap();
     }
 

@@ -346,7 +346,7 @@ impl App {
         self.confirm_open_dialog(ctx);
         self.duplicates_window(ctx);
         self.check_window(ctx);
-        crate::ui::help::window(ctx, &mut self.help);
+        crate::ui::help::window(ctx, &mut self.help, self.config.delete_key);
         self.focus_ring(ctx);
         if !bare {
             self.status_bar(ctx, ui);

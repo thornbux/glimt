@@ -58,7 +58,8 @@ for Linux in Rust/egui, inspired by Geeqie. Read this before changing anything.
 
 - Shortcuts and behaviour follow **Geeqie's defaults** (see its keyboard reference). Every
   deliberate deviation goes in the `DIFFERENCES` table in `src/ui/help.rs`, which the Help Manual
-  (F1) shows. Remove a row when Glimt starts behaving like Geeqie.
+  (F1) shows. Remove a row when Glimt starts behaving like Geeqie. The keys are Geeqie's up to
+  3.1: where Geeqie 3.2 changed a default key, Glimt keeps its own, and `DIFFERENCES` says so.
 - New user-visible features are described in `src/ui/help.rs` (manual, shortcuts, keyboard map)
   and, where relevant, on the website (the `glimt-web` repository, glimt.pario.no). `README.md`
   keeps only what the website does not have: building from source, the optional features'

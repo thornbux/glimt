@@ -491,7 +491,7 @@ pub fn is_video(_: &Path) -> bool {
 pub fn gio_mount(uri: &str, login: Option<&Login>) -> Mounted {
     use std::io::{Read, Write};
     // An option is not a place, and -u or -e would unmount or eject. It is not given to gio at
-    // all, rather than after a --, because `gio info` reads that as a file of its own as well.
+    // all, because `gio mount` takes no -- before its places. `gio info` does, and gets one.
     if uri.starts_with('-') {
         return Err(Some(crate::tf!(
             "Could not mount {uri}: not an address",

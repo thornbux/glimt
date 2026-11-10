@@ -197,11 +197,18 @@ impl crate::App {
     /// Edit → Preferences: every setting, saved when one changes; Esc closes it.
     pub(crate) fn preferences_window(&mut self, ctx: &egui::Context) {
         let mut open = self.preferences.open;
-        // Esc closes Preferences (shortcuts are off while it is open), unless a dialog on top
-        // of it is the one Esc is meant for; a search in its field is cleared first.
+        // Esc closes Preferences (shortcuts are off while it is open), and a search in its
+        // field is cleared first. It does not close Preferences when a dialog on top of it, a
+        // popup (a combo box, the colour picker) or another text field takes the Esc, which
+        // there only closes the popup or leaves the field.
+        let search_id = egui::Id::unique("preferences search");
+        let search_had_focus =
+            ctx.memory(|m| m.has_focus(search_id) || m.had_focus_last_frame(search_id));
         if open
             && !self.modal_open()
             && self.preferences.key_being_chosen_for.is_none()
+            && !egui::Popup::is_any_open(ctx)
+            && (search_had_focus || !self.focus_held(ctx))
             && ctx.input(|i| i.key_pressed(egui::Key::Escape))
         {
             open = !self.preferences.query.trim().is_empty();
@@ -218,6 +225,7 @@ impl crate::App {
                 ui.spacing_mut().scroll = egui::style::ScrollStyle::solid();
                 // Above the settings, so it stays when they scroll.
                 let search = egui::TextEdit::singleline(&mut self.preferences.query)
+                    .id(search_id)
                     .hint_text(tr("Search the settings"))
                     .desired_width(f32::INFINITY);
                 let search = ui.add(search);
@@ -1297,6 +1305,56 @@ mod tests {
         for action in crate::ui::actions::ALL.iter().filter(|a| a.is_in_build()) {
             assert!(listed.contains(action), "{action:?}");
         }
+    }
+
+    /// Esc in another field of Preferences, such as the custom window title, only leaves the
+    /// field, and Esc in an open combo box only closes it. Both once closed Preferences too.
+    #[test]
+    fn escape_in_a_field_or_popup_keeps_preferences_open() {
+        use eframe::egui::{self, Event, Key, RawInput};
+        let dir = std::env::temp_dir().join(format!("glimt-test-esc-pref-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let (mut app, ctx) = app_on(&dir);
+        app.preferences.show();
+        let field = egui::Id::unique("a field of Preferences");
+        let frame = |app: &mut crate::App, events: Vec<Event>, focus: bool, popup: bool| {
+            let input = RawInput {
+                events,
+                ..Default::default()
+            };
+            let _ = ctx.run_ui(input, |ui| {
+                app.preferences_window(ui.ctx());
+                if focus {
+                    ui.memory_mut(|m| m.request_focus(field));
+                }
+                if popup {
+                    egui::Popup::open_id(ui.ctx(), egui::Id::unique("a combo box"));
+                }
+                app.note_focus(ui.ctx());
+            });
+        };
+        let esc = || {
+            vec![Event::Key {
+                key: Key::Escape,
+                physical_key: None,
+                pressed: true,
+                repeat: false,
+                modifiers: Default::default(),
+            }]
+        };
+        frame(&mut app, Vec::new(), true, false);
+        frame(&mut app, esc(), false, false);
+        assert!(
+            app.preferences.open,
+            "Esc that left a field closed Preferences"
+        );
+        frame(&mut app, Vec::new(), false, true);
+        frame(&mut app, esc(), false, false);
+        assert!(
+            app.preferences.open,
+            "Esc that closed a popup closed Preferences"
+        );
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     /// A search for an action that is not built in, such as Play Video without video, does
