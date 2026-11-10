@@ -217,11 +217,13 @@ pub(crate) fn rename_never_over(from: &Path, to: &Path) -> std::io::Result<()> {
     }
 }
 
-/// Unlinks `from`, which is now also at `to`. A move is all or nothing, so a file that was not
-/// unlinked (a shared folder with the sticky bit, someone else's file, a read-only disk) has its
-/// new name taken away again. A failure that may have been done keeps both names, because a
-/// share may have done the unlink and lost its answer (EIO, a timeout) while its cache still
-/// says the old name is there. Taking the new name away then would remove the only copy left.
+/// Unlinks `from`, which is now also at `to`. A move is all or nothing, so a file that surely
+/// was not unlinked (`unlink_was_refused`: a shared folder with the sticky bit, someone else's
+/// file, a read-only disk) has its new name taken away again. Every other failure keeps both
+/// names, also an error that Glimt does not know, because a share or a FUSE file system may
+/// have done the unlink and lost its answer while its cache still says the old name is there.
+/// Taking the new name away then would remove the only copy left. So here an unknown error
+/// counts as done, the other way round from `may_have_been_done`, whose callers only undo.
 /// The error then says that the file may be under both names or only the new one, and that both
 /// are to be checked before either is removed. A file gone after all (deleted or moved in
 /// another window, or a share that said no but did it) is done, as the new name may be the only
@@ -240,7 +242,7 @@ fn unlink_linked(from: &Path, to: &Path) -> std::io::Result<()> {
     if std::fs::symlink_metadata(from).is_err_and(|e| e.kind() == std::io::ErrorKind::NotFound) {
         return Ok(());
     }
-    if !may_have_been_done(&e) {
+    if unlink_was_refused(&e) {
         #[allow(clippy::disallowed_methods)] // the new name, taken back
         let _ = std::fs::remove_file(to);
         return Err(e);
@@ -255,12 +257,26 @@ fn unlink_linked(from: &Path, to: &Path) -> std::io::Result<()> {
     Err(std::io::Error::new(e.kind(), MayBeUnderBothNames(text)))
 }
 
+/// Returns whether the unlink that gave the error `e` surely removed nothing, as the kernel
+/// answers so before it looks any further: no right to it, a read-only disk, a busy name or a
+/// folder, or a path it cannot follow. A name is taken back only after such an answer.
+fn unlink_was_refused(e: &std::io::Error) -> bool {
+    use libc::{EACCES, EBUSY, EINVAL, EISDIR, ELOOP, ENAMETOOLONG, ENOTDIR, EPERM, EROFS};
+    matches!(
+        e.raw_os_error(),
+        Some(EPERM | EACCES | EROFS | EBUSY | EISDIR | ENAMETOOLONG | EINVAL | ENOTDIR | ELOOP)
+    )
+}
+
 /// Returns whether the failed rename, link or unlink that gave the error `e` may have been done
-/// all the same. A share or a FUSE file system whose answer was lost on the way (EIO, a timeout,
-/// a lost connection, an interrupted call) may have done the step. Then no other name may be
-/// removed on the belief that this one is as it was. Every other error is the file system's
-/// answer that it did nothing: a name too long, a full disk, a file that is gone, no right to
-/// it. So is an error of Glimt's own without an error number, except `unlink_linked`'s.
+/// all the same. It is for the callers whose answer to a refusal only undoes the steps before
+/// it and removes no name, Rename Many and the trash by hand. `unlink_linked`, which removes a
+/// name, asks `unlink_was_refused` instead. A share or a FUSE file system whose answer was lost
+/// on the way (EIO, a timeout, a lost connection, an interrupted call) may have done the step.
+/// Then no other name may be removed on the belief that this one is as it was. Every other
+/// error is the file system's answer that it did nothing: a name too long, a full disk, a file
+/// that is gone, no right to it. So is an error of Glimt's own without an error number, except
+/// `unlink_linked`'s.
 pub(crate) fn may_have_been_done(e: &std::io::Error) -> bool {
     use libc::{
         EAGAIN, ECOMM, ECONNABORTED, ECONNREFUSED, ECONNRESET, EHOSTDOWN, EHOSTUNREACH, EINTR, EIO,
@@ -1424,6 +1440,8 @@ mod tests {
             (libc::EPERM, false),
             (libc::ENAMETOOLONG, false),
             (libc::EINVAL, false),
+            // An error that Glimt does not know may hide an unlink done, so both names stay.
+            (libc::EBADE, true),
         ];
         for (errno, keeps_both) in answers {
             let _ = std::fs::remove_dir_all(&dir);
