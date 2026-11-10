@@ -5,6 +5,30 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- Copy Image to Clipboard moves from the Select menu to Edit, beside Crop and Orientation. It
+  copies the shown image, while Copy Path and Copy Files in the Select menu copy the selection.
+- The Help Manual's differences from Geeqie name each key that Geeqie 3.2 changed, such as
+  Ctrl+C, Ctrl+M, Ctrl+R and Ctrl+T, and what "/" does. Glimt keeps its keys.
+
+### Fixed
+
+- Zoomed in, Alt+arrow changes the pane and Shift+arrow extends the selection again. Before,
+  both moved the image, as only an arrow pressed alone should.
+- The screen saver stays off while the projector is full screen, also when the main window is
+  not, as during a slideshow on a projector.
+- The keyword tree in the info panel lays out only the keywords on screen, and is built only
+  when it changes, so a tree of thousands of keywords from a Lightroom import no longer slows
+  every frame. A keyword's children open with the caret before it.
+- Check Images stopped before the end says how far it got, not "None broken.".
+- Esc in a text field or an open list of Preferences only leaves the field or closes the list.
+  Before, it closed Preferences as well.
+- The Help Manual names Refresh under View and New Window under Window, and the keyboard map
+  and shortcut list leave the Delete key out while Enable Delete key is off.
+- The Help Manual says that a change on a network share shows by itself within seconds, and
+  that a caching mount such as rclone or s3fs can hold it back until its cache expires.
+
 ## [0.79.0] - 2026-11-10
 
 ### Changed
