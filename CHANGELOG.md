@@ -14,6 +14,23 @@ and versions follow [Semantic Versioning](https://semver.org/).
 - A file whose name has a line break is refused, with a notice, when it is added to a
   collection or given a mark or stars. Glimt's files keep a name on a line, so such a file
   seemed added or marked and was left out at the next save without a word (#92).
+- Delete to the trash works without `gio` (a `.deb` installed without its recommended packages,
+  a tar.gz or AppImage on a small system): Glimt moves the files into the trash itself, as the
+  trash spec says. A file on another disk, such as a USB stick, goes into `.Trash-UID` at the
+  top of that disk; a file on a network share is refused, as gio refuses it.
+- A file moved into the trash by Glimt itself has its `.trashinfo` on disk before it moves, so
+  a power cut cannot leave it in the trash without one.
+- Undo of a delete waits for the marks as long as their writing takes, and shows in the status
+  bar with Stop meanwhile. Before, it waited 5 seconds and could bring the files back without
+  their marks and stars. A stopped Undo puts nothing back and can be done again.
+- A move on one disk and a folder rename are on disk before the marks and collections follow
+  them, so a USB stick pulled out right after cannot leave a file and its marks under
+  different names.
+- Undo of a move keeps the files that could not go back (a name taken, a share that did not
+  answer) to be undone again, as Undo of a delete does.
+- Stop during a copy or move acts inside a large file, such as a video copied to a slow stick,
+  and leaves no part of it behind.
+
 ### Changed
 
 - Marks and stars set one after another while the last one is still being saved go to the
