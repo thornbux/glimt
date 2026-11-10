@@ -9,7 +9,7 @@ use crate::files::file_ops::{NOT_ON_FAT, OperationReport, fat_file_system_type};
 use crate::model::listing::pattern_name;
 use crate::support::format::count;
 use crate::support::lang::tr;
-use crate::support::threads::{Receiving, Took};
+use crate::support::threads::{Receiving, Took, Working, answer_channel};
 use crate::{files::external, files::journal, images::save, model::collections, tf, ui::theme};
 use eframe::egui;
 use std::ffi::OsString;
@@ -105,6 +105,9 @@ impl Asked {
     }
 }
 
+/// Save as Theme's answer: the theme's name, and its file or why it was not saved.
+type SavedTheme = (String, Result<PathBuf, String>);
+
 /// The small dialogs: a name asked for, a delete or a folder's trashing confirmed, and the file
 /// chooser.
 #[derive(Default)]
@@ -135,6 +138,8 @@ pub(crate) struct Dialogs {
     /// Answer from an open file dialog (zenity or kdialog).
     file_dialog: Option<Pick>,
     picked_path: Receiving<Option<PathBuf>>,
+    /// Save as Theme's answer while its file is written.
+    saved_theme: Receiving<(SavedTheme, Working)>,
     /// The files a dialog asks about, by their names in the list, where the list was
     /// (`ask_about_targets`), and how many selected files the search hid and the question
     /// leaves out. The dialog names them, and its answer acts on them, wherever a refresh put
@@ -332,7 +337,11 @@ impl crate::App {
             Pick::SaveAs(..) => tr("Save As"),
         };
         let notices = self.notice_sender.clone();
+        let make_start_first = matches!(purpose, Pick::Collection);
         std::thread::spawn(move || {
+            if make_start_first {
+                drop(std::fs::create_dir_all(&start));
+            }
             #[allow(clippy::disallowed_methods)] // waits for the user, in its own thread
             let zenity = || {
                 let mut cmd = command("zenity");
@@ -407,9 +416,9 @@ impl crate::App {
                 &format!("-frame-{}.png", k + 1),
             )),
             Pick::SaveAs(_, _, start) => start.clone(),
-            // Made first: the file dialog cannot start in a folder that is not there.
+            // Made first in the dialog's thread (`pick`): the file dialog cannot start in a
+            // folder that is not there.
             Pick::Collection => (collections::collections_dir())
-                .inspect(|d| drop(std::fs::create_dir_all(d)))
                 .unwrap_or_default()
                 .join(""),
             // Where colord and the user keep them.
@@ -421,6 +430,64 @@ impl crate::App {
             }
             _ => self.folder.dir().join(""),
         }
+    }
+
+    /// Saves the look shown as the theme `text` in the user's themes folder, in a thread of its
+    /// own, as a home on a share that stopped answering would hold the window. Its answer is
+    /// taken by `receive_saved_theme`.
+    fn save_theme(&mut self, ctx: &egui::Context, text: &str) {
+        // Never in the place of a built-in theme, which a file of its name would hide for good.
+        let file = match theme::own_themes_dir() {
+            _ if theme::is_built_in(text) => {
+                Err(tf!("{text} is a built-in theme: choose another name", text))
+            }
+            Some(dir) => Ok(dir.join(format!("{text}.theme"))),
+            None => Err(tr("no home folder").to_owned()),
+        };
+        let file = match file {
+            Ok(file) => file,
+            Err(e) => return self.notice.give(tf!("Could not save the theme: {e}", e)),
+        };
+        let (bytes, text) = (theme::Theme::file_from(ctx), text.to_owned());
+        let (tx, rx) = answer_channel(&self.busy);
+        let (ctx, pointer) = (ctx.clone(), Working::new(&self.busy));
+        std::thread::spawn(move || {
+            drop(std::fs::create_dir_all(file.parent().unwrap_or(&file)));
+            // Whole or not at all: a full disk left half a theme, whose name was then taken. And
+            // never over a theme there, hand-edited perhaps.
+            let made = crate::files::file_io::create_file(&file, bytes);
+            let saved = made.map(|_| file).map_err(|e| match e.kind() {
+                std::io::ErrorKind::AlreadyExists => {
+                    tf!("{text} exists already: choose another name", text)
+                }
+                _ => e.to_string(),
+            });
+            let _ = tx.send((text, saved));
+            drop(pointer);
+            ctx.request_repaint();
+        });
+        self.dialogs.saved_theme = Receiving::of(rx);
+    }
+
+    /// Takes the answer of Save as Theme. The theme saved is the one in use from then on.
+    pub(crate) fn receive_saved_theme(&mut self) {
+        // The busy pointer stays until the answer is handled.
+        let ((text, saved), _pointer) = match self.dialogs.saved_theme.take() {
+            Took::Answer(answer) => answer,
+            Took::Gone => return self.tell_background_stopped(tr("Save as Theme…")),
+            Took::Nothing => return,
+        };
+        self.notice.give(match saved {
+            Ok(file) => {
+                self.config.theme = text;
+                self.config.save();
+                tf!(
+                    "Saved as {file}: edit it, then choose it again",
+                    file = file.display()
+                )
+            }
+            Err(e) => tf!("Could not save the theme: {e}", e),
+        });
     }
 
     /// The file dialog's answer, for what it was opened for.
@@ -643,35 +710,7 @@ impl crate::App {
             return self.notice.give(why);
         }
         if let Prompt::SaveTheme = prompt {
-            let file = theme::own_themes_dir().map(|d| d.join(format!("{text}.theme")));
-            let saved = file.ok_or(tr("no home folder").to_owned()).and_then(|f| {
-                // Never over a theme there, hand-edited perhaps, nor in the place of a built-in
-                // one, which a file of its name would hide for good.
-                if theme::is_built_in(text) {
-                    return Err(tf!("{text} is a built-in theme: choose another name", text));
-                }
-                let _ = std::fs::create_dir_all(f.parent().unwrap_or(&f));
-                // Whole or not at all: a full disk left half a theme, whose name was then taken.
-                let made = crate::files::file_io::create_file(&f, theme::Theme::file_from(ctx));
-                made.map(|_| f).map_err(|e| match e.kind() {
-                    std::io::ErrorKind::AlreadyExists => {
-                        tf!("{text} exists already: choose another name", text)
-                    }
-                    _ => e.to_string(),
-                })
-            });
-            self.notice.give(match saved {
-                Ok(f) => {
-                    self.config.theme = text.to_owned();
-                    self.config.save();
-                    tf!(
-                        "Saved as {file}: edit it, then choose it again",
-                        file = f.display()
-                    )
-                }
-                Err(e) => tf!("Could not save the theme: {e}", e),
-            });
-            return;
+            return self.save_theme(ctx, text);
         }
         if let Prompt::RenameFolder = prompt {
             return self.rename_folder(ctx, text);

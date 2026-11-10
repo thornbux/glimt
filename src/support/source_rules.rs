@@ -526,6 +526,81 @@ const RETIRED_IN_FILE: &[(&str, &str)] = &[
     ("viewer/view.rs", "wheel"),            // wheel_notches
 ];
 
+/// The calls that look at or change the disk: the standard library's, and Glimt's own functions
+/// that do, the writers of file_io among them. Each is found anywhere in a line, also as a
+/// method (`path.read_dir()`).
+const DISK_CALLS: &[&str] = &[
+    "fs::metadata(",
+    ".metadata()",
+    "symlink_metadata(",
+    "canonicalize(",
+    "read_dir(",
+    "read_to_string(",
+    "fs::read(",
+    "File::open(",
+    "File::create(",
+    "OpenOptions",
+    ".exists()",
+    "try_exists(",
+    ".is_file()",
+    ".is_dir()",
+    ".is_symlink()",
+    "read_link(",
+    "fs::write(",
+    "fs::rename(",
+    "fs::copy(",
+    "remove_file(",
+    "remove_dir",
+    "create_dir",
+    "set_permissions(",
+    "hard_link(",
+    "real_dir(",
+    "real_path(",
+    "by_real_path(",
+    "collections::load(",
+    "edit_open_collection(",
+    "read_limited(",
+    "read_text(",
+    "read_head(",
+    "open_regular(",
+    "image_reader(",
+    "fingerprint(",
+    "same_file(",
+    "file_system_type_or_test",
+    "rename_never_over(",
+    "put_file(",
+    "replace_name(",
+    "replace_name_with(",
+    "replace_file(",
+    "replace_existing(",
+    "write_beside(",
+    "write_beside_without_folder_sync(",
+    "create_file(",
+    "create_temp_beside(",
+    "edit_shared(",
+    "remove_shared(",
+    "file_lock(",
+    "sync_folder(",
+    "sync_folder_of(",
+    "trash::trash(",
+    "collections::edit(",
+    "write_atomic(",
+];
+
+/// Glimt's own small functions that wrap a call of `DISK_CALLS`, by a name that is common
+/// enough to be a method too. Each is found only as a call of a function of that name
+/// (`calls_function`).
+const DISK_HELPERS: &[&str] = &["modified(", "saved_collections(", "open_own_folder("];
+
+/// The calls that hand work to another thread, whose text `DISK_CALLS` are not looked for in.
+const HANDED_TO_A_THREAD: &[&str] = &[
+    "spawn(",
+    "write_later(",
+    "write_later_in_user_folders(",
+    "run_in_background(",
+    "write_sidecars(",
+];
+
 /// Where a top-level item stands in a file's order, as AGENTS.md gives it under "Within a
 /// file"; the variants are in that order.
 #[derive(Clone, Copy, PartialEq, PartialOrd)]
@@ -3545,14 +3620,15 @@ fn the_window_thread_never_waits_for_the_disk() {
             "Glimt's own keyword tree, read once at start",
         ),
     ];
-    let mut found: Vec<(String, String, &str, usize)> = Vec::new();
+    let mut found: Vec<(String, String, String, usize)> = Vec::new();
     let app_parts = app_parts();
-    for (file, text) in rust_sources() {
+    let sources = rust_sources();
+    for (file, text) in &sources {
         let parts: Vec<&str> = (app_parts.iter())
-            .filter(|(f, _)| *f == file)
+            .filter(|(f, _)| f == file)
             .map(|(_, part)| part.as_str())
             .collect();
-        for (function, call, line) in disk_calls_in_window_thread(&text, &parts) {
+        for (function, call, line) in disk_calls_in_window_thread(text, &parts) {
             found.push((file.clone(), function, call, line));
         }
     }
@@ -3569,7 +3645,10 @@ fn the_window_thread_never_waits_for_the_disk() {
         wrong.join("\n")
     );
     let unused: Vec<_> = (WAITS_ON_PURPOSE.iter())
-        .filter(|w| !(found.iter()).any(|f| (f.0.as_str(), f.1.as_str(), f.2) == (w.0, w.1, w.2)))
+        .filter(|w| {
+            let is_w = |f: &(String, String, String, usize)| f.0 == w.0 && f.1 == w.1 && f.2 == w.2;
+            !found.iter().any(is_w)
+        })
         .collect();
     assert!(
         unused.is_empty(),
@@ -3580,48 +3659,14 @@ fn the_window_thread_never_waits_for_the_disk() {
 /// Returns the calls in `text` that look at the disk in the window's thread, as the methods of
 /// `App` and of its `parts` in `text` outside the work they hand to other threads, each as
 /// (function, call, line).
-fn disk_calls_in_window_thread(text: &str, parts: &[&str]) -> Vec<(String, &'static str, usize)> {
-    // The standard library's look at the disk, and Glimt's own functions that do.
-    const DISK_CALLS: &[&str] = &[
-        "fs::metadata(",
-        ".metadata()",
-        "symlink_metadata(",
-        "canonicalize(",
-        "read_dir(",
-        "read_to_string(",
-        "fs::read(",
-        "File::open(",
-        ".exists()",
-        "try_exists(",
-        ".is_file()",
-        ".is_dir()",
-        "read_link(",
-        "real_dir(",
-        "real_path(",
-        "by_real_path(",
-        "collections::load(",
-        "edit_open_collection(",
-        "read_limited(",
-        "read_text(",
-        "read_head(",
-        "open_regular(",
-        "fingerprint(",
-        "same_file(",
-        "file_system_type_or_test",
-    ];
-    const ELSEWHERE: &[&str] = &[
-        "spawn(",
-        "write_later(",
-        "write_later_in_user_folders(",
-        "run_in_background(",
-        "write_sidecars(",
-    ];
+fn disk_calls_in_window_thread(text: &str, parts: &[&str]) -> Vec<(String, String, usize)> {
     let lines = code_lines(text);
+    let end = tests_start(&lines);
     let mut found = Vec::new();
     let (mut in_app, mut function) = (false, String::new());
     // How deep the parentheses of a call that hands work to another thread still go.
     let mut handed_over = 0usize;
-    for (i, line) in lines[..tests_start(&lines)].iter().enumerate() {
+    for (i, line) in lines[..end].iter().enumerate() {
         let item = without_qualifiers(line);
         let is_part = |part: &&str| {
             item.starts_with("impl")
@@ -3648,37 +3693,60 @@ fn disk_calls_in_window_thread(text: &str, parts: &[&str]) -> Vec<(String, &'sta
         if let Some(name) = function_name(line) {
             function = name.to_owned();
         }
-        let mut code = line.as_str();
-        if handed_over == 0 {
-            match ELSEWHERE.iter().filter_map(|c| line.find(c)).min() {
-                // What stands before the call is still the window's.
-                Some(at) => {
-                    let before = &line[..at];
-                    let call = DISK_CALLS.iter().find(|c| before.contains(*c));
-                    found.extend(call.map(|c| (function.clone(), *c, i + 1)));
-                    code = &line[at..];
-                }
-                None => {
-                    let call = DISK_CALLS.iter().find(|c| line.contains(*c));
-                    found.extend(call.map(|c| (function.clone(), *c, i + 1)));
-                    continue;
-                }
-            }
+        let call = disk_call_in_line(line, &mut handed_over);
+        found.extend(call.map(|c| (function.clone(), c, i + 1)));
+    }
+    found
+}
+
+/// Returns the first call of `DISK_CALLS` or `DISK_HELPERS` that `line` makes outside the work
+/// it hands to another thread, and counts in `handed_over` how deep the parentheses of such a
+/// hand-over still go after it.
+fn disk_call_in_line(line: &str, handed_over: &mut usize) -> Option<String> {
+    let mut code = line;
+    let mut found = None;
+    if *handed_over == 0 {
+        let at = HANDED_TO_A_THREAD.iter().filter_map(|c| line.find(c)).min();
+        // What stands before the hand-over is still the window's.
+        let before = &line[..at.unwrap_or(line.len())];
+        found = (DISK_CALLS.iter().find(|c| before.contains(*c)))
+            .map(|c| (*c).to_owned())
+            .or_else(|| {
+                DISK_HELPERS
+                    .iter()
+                    .find(|c| calls_function(before, c))
+                    .map(|c| (*c).to_owned())
+            });
+        match at {
+            Some(at) => code = &line[at..],
+            None => return found,
         }
-        for c in code.chars() {
-            match c {
-                '(' => handed_over += 1,
-                ')' => handed_over = handed_over.saturating_sub(1),
-                _ => {}
-            }
+    }
+    for c in code.chars() {
+        match c {
+            '(' => *handed_over += 1,
+            ')' => *handed_over = handed_over.saturating_sub(1),
+            _ => {}
         }
     }
     found
 }
 
-/// The check above finds a look at the disk in `App`'s methods, also through Glimt's own
-/// functions, before a thread is started on the same line, and after the thread's call ends.
-/// It passes the work handed to a thread, a free function, a comment and a string.
+/// Returns whether `code` calls the function `call` (`name(`): no other name, method's dot or
+/// `fn ` stands right before it, so the helper `modified(` is not found in `meta.modified()`,
+/// `last_modified(` or a method of that name.
+fn calls_function(code: &str, call: &str) -> bool {
+    code.match_indices(call).any(|(at, _)| {
+        let before = &code[..at];
+        !before.ends_with(|c: char| c.is_alphanumeric() || c == '_' || c == '.')
+            && !before.ends_with("fn ")
+    })
+}
+
+/// The check above finds a look at the disk or a change on it in `App`'s methods, also through
+/// Glimt's own functions and helpers, before a thread is started on the same line, and after
+/// the thread's call ends. It passes the work handed to a thread, a free function, a method of
+/// the same name as a helper, a comment and a string.
 #[test]
 fn finds_a_disk_call_in_the_window_thread() {
     let text = "impl crate::App {\n    fn a(&self) {\n        std::fs::metadata(p);\n    }\n    \
@@ -3688,10 +3756,13 @@ fn finds_a_disk_call_in_the_window_thread() {
         let s = \".is_file()\";\n        let x = q.is_dir(); std::thread::spawn(f);\n    \
         }\n}\nfn free() {\n    std::fs::read_dir(p);\n}\nimpl Part {\n    fn d(&self) {\n        \
         fingerprint(p);\n    }\n}\nimpl Default for Part {\n    fn default() -> Self {\n        \
-        p.metadata();\n    }\n}\nimpl Other {\n    fn e(&self) {\n        p.is_dir();\n    }\n}\n";
+        p.metadata();\n    }\n}\nimpl Other {\n    fn e(&self) {\n        p.is_dir();\n    }\n}\n\
+        impl crate::App {\n    fn f(&mut self) {\n        let _ = file_io::rename_never_over(a, b);\n        \
+        trash::trash(&paths);\n        modified(p);\n        m.modified();\n        \
+        remove_file(p);\n        fn modified(&self) {}\n        p.is_symlink();\n    }\n}\n";
     let found = disk_calls_in_window_thread(text, &["Part"]);
     let found: Vec<(&str, &str, usize)> = (found.iter())
-        .map(|(f, c, l)| (f.as_str(), *c, *l))
+        .map(|(f, c, l)| (f.as_str(), c.as_str(), *l))
         .collect();
     assert_eq!(
         found,
@@ -3701,6 +3772,11 @@ fn finds_a_disk_call_in_the_window_thread() {
             ("c", ".is_dir()", 15),
             ("d", "fingerprint(", 23),
             ("default", ".metadata()", 28),
+            ("f", "rename_never_over(", 38),
+            ("f", "trash::trash(", 39),
+            ("f", "modified(", 40),
+            ("f", "remove_file(", 42),
+            ("modified", ".is_symlink()", 44),
         ]
     );
 }

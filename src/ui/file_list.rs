@@ -1206,18 +1206,25 @@ impl crate::App {
                 .notice
                 .give(tr("Could not save the sort manager's folders: no home folder").into());
         };
+        let shown = self.folder.sort_folders().to_vec();
+        self.folder
+            .set_sort_folders(config::sort_folders_changed(shown, add, remove));
         // The change is made on the file as it is now, so another window's folders stay. A file
-        // that cannot be read is not written over.
-        let change = |old: &[u8]| {
-            let dirs = config::sort_folders_changed(sort_folders_from(old), add, remove);
-            (config::sort_folders_text(&dirs), dirs)
-        };
-        match crate::files::file_io::edit_shared(&path, change) {
-            Ok(dirs) => self.folder.set_sort_folders(dirs),
-            Err(e) => self
-                .notice
-                .give(tf!("Could not save the sort manager's folders: {e}", e)),
-        }
+        // that cannot be read is not written over. It is written in the writer's thread, as a
+        // home on a share that stopped answering would hold the window.
+        let (add, remove) = (add.map(Path::to_path_buf), remove.map(Path::to_path_buf));
+        crate::files::file_io::write_later(move || {
+            let change = |old: &[u8]| {
+                let changed = (add.as_deref(), remove.as_deref());
+                let dirs =
+                    config::sort_folders_changed(sort_folders_from(old), changed.0, changed.1);
+                (config::sort_folders_text(&dirs), ())
+            };
+            if let Err(e) = crate::files::file_io::edit_shared(&path, change) {
+                let told = tf!("Could not save the sort manager's folders: {e}", e);
+                crate::files::file_io::save_failed(told);
+            }
+        });
     }
 
     /// The file types the list shows, from the Types menu.

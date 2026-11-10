@@ -751,6 +751,14 @@ pub(crate) fn run_telling(name: &str, mut cmd: std::process::Command) -> Result<
     wait_telling(child, name)
 }
 
+/// Opens Glimt's own folder `dir` in the file manager, and makes it first when it is not there
+/// yet. It waits for the disk, so it is called in a thread of its own: a home on a share that
+/// stopped answering then holds only that thread, not the window.
+pub fn open_own_folder(dir: &Path) {
+    drop(std::fs::create_dir_all(dir));
+    open_url(&dir.to_string_lossy());
+}
+
 /// Open `url` in the default browser, in the background.
 pub fn open_url(url: &str) {
     let url = url.to_owned();

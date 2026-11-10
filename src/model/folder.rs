@@ -123,6 +123,8 @@ pub(crate) struct Folder {
     login: Option<Login>,
     /// The sort manager's folders, kept in `$XDG_CONFIG_HOME/glimt/sort-folders`.
     sort_folders: Vec<PathBuf>,
+    /// The saved collections that the File menu lists.
+    saved_collections: crate::model::collections::SavedCollections,
 }
 
 impl Folder {
@@ -179,7 +181,13 @@ impl Folder {
             sort_folders: (sort_folders_path()
                 .and_then(|p| crate::images::decode::read_limited(p).ok()))
             .map_or_else(Vec::new, |t| sort_folders_from(&t)),
+            saved_collections: Default::default(),
         }
+    }
+
+    /// The saved collections that the File menu lists, read in the background.
+    pub(crate) fn saved_collections(&mut self) -> &mut crate::model::collections::SavedCollections {
+        &mut self.saved_collections
     }
 
     /// The folder open, or "/" for a collection or several folders, whose names are relative
@@ -1208,20 +1216,23 @@ impl crate::App {
             (None, folders) if !folders.is_empty() => folders.clone(),
             (None, _) => vec![self.folder.dir.clone()],
         };
-        let read = (watched.into_iter())
-            .map(|path| {
-                let time = modified(&path);
-                (path, time)
-            })
-            .collect();
-        self.watch_folders_read(ctx, read);
+        // Their times are taken in the watcher's thread, as a share that stopped answering
+        // would hold the window.
+        let read = watched.into_iter().map(|path| (path, None)).collect();
+        self.watch_folders_read(ctx, read, true);
     }
 
     /// Watches the folders `read` in a thread of its own in place of the watcher before, from
-    /// the times they had when they were read. Every second the open folders (or the
-    /// collection's file) are looked at, and of a tree's subfolders the next
-    /// `SUBFOLDERS_A_SECOND`. One change sends one message, which reads the folder again.
-    fn watch_folders_read(&mut self, ctx: &egui::Context, mut read: FoldersRead) {
+    /// the times they had when they were read, or from their times now when `times_unknown`.
+    /// Every second the open folders (or the collection's file) are looked at, and of a tree's
+    /// subfolders the next `SUBFOLDERS_A_SECOND`. One change sends one message, which reads the
+    /// folder again.
+    fn watch_folders_read(
+        &mut self,
+        ctx: &egui::Context,
+        mut read: FoldersRead,
+        times_unknown: bool,
+    ) {
         let generation = self
             .folder
             .watcher_generation
@@ -1236,6 +1247,10 @@ impl crate::App {
             ctx.clone(),
         );
         std::thread::spawn(move || {
+            if times_unknown {
+                read.iter_mut()
+                    .for_each(|(path, time)| *time = modified(path));
+            }
             // The open folders come first, and the tree's subfolders after them. A tree of many
             // folders is put in this order here rather than in the window's thread.
             let is_open = |p: &Path| open_paths.iter().any(|o| o == p);
@@ -1302,7 +1317,7 @@ impl crate::App {
         self.folder.subdirs = dirs;
         // A collection's listing reads no folder, and its file stays watched.
         if !read.is_empty() {
-            self.watch_folders_read(ctx, read);
+            self.watch_folders_read(ctx, read, false);
         }
         let listed_from = Instant::now();
         self.take_listed_files(ctx, files, true);

@@ -5,6 +5,7 @@
 use crate::files::config::fits_on_a_line;
 use crate::model::listing::real_dir;
 use crate::support::lang::tr;
+use crate::support::threads::{Receiving, Took};
 use crate::ui::actions::Action;
 use crate::ui::menus::{icon_button, menu_item, scroll_menu, submenu, with_icon};
 use crate::{tf, ui::theme};
@@ -17,6 +18,39 @@ use std::path::{Path, PathBuf};
 /// Plain lists of images, as a script or a music player writes them: one path on each line,
 /// relative to the list or absolute, `#` for comments. Opened as a collection, never written.
 const LIST_EXTS: &[&str] = &["txt", "m3u", "m3u8"];
+
+/// The saved collections as the File menu lists them, read in the background while it is open,
+/// because the window's thread does not wait for the disk.
+#[derive(Default)]
+pub(crate) struct SavedCollections {
+    /// The collections as last read, or `None` before the first read has answered.
+    listed: Option<Vec<(String, PathBuf)>>,
+    answer: Receiving<Vec<(String, PathBuf)>>,
+    read_at: Option<std::time::Instant>,
+}
+
+impl SavedCollections {
+    /// Returns the saved collections as last read, or `None` before the first read has
+    /// answered. They are read again in the background when they were read more than a second
+    /// ago, so a menu kept open shows a collection made meanwhile.
+    pub(crate) fn listed(&mut self, ctx: &egui::Context) -> Option<Vec<(String, PathBuf)>> {
+        if let Took::Answer(listed) = self.answer.take() {
+            self.listed = Some(listed);
+        }
+        let is_old = (self.read_at).is_none_or(|at| at.elapsed().as_secs() >= 1);
+        if self.answer.is_none() && is_old {
+            self.read_at = Some(std::time::Instant::now());
+            let (tx, rx) = std::sync::mpsc::channel();
+            let ctx = ctx.clone();
+            std::thread::spawn(move || {
+                let _ = tx.send(saved_collections());
+                ctx.request_repaint();
+            });
+            self.answer = Receiving::of(rx);
+        }
+        self.listed.clone()
+    }
+}
 
 impl crate::App {
     /// The collection shown is a plain list (.txt, .m3u), which Glimt reads but never writes.
@@ -165,11 +199,11 @@ impl crate::App {
             ui,
             with_icon(ui, theme::icon::STACK, tr("Collections")),
             |ui| {
-                let all = saved_collections();
-                if all.is_empty() {
+                let all = self.folder.saved_collections().listed(ui.ctx());
+                if all.as_ref().is_some_and(Vec::is_empty) {
                     ui.label(tr("No collections yet"));
                 }
-                for (name, file) in all {
+                for (name, file) in all.into_iter().flatten() {
                     if icon_button(ui, theme::icon::STACK, &name).clicked() {
                         open = Some(file);
                     }
@@ -181,11 +215,11 @@ impl crate::App {
                 ui,
                 with_icon(ui, theme::icon::STACK_PLUS, tr("Add to Collection")),
                 |ui| {
-                    let all = saved_collections();
-                    if all.is_empty() {
+                    let all = self.folder.saved_collections().listed(ui.ctx());
+                    if all.as_ref().is_some_and(Vec::is_empty) {
                         ui.label(tr("No collections yet"));
                     }
-                    for (name, file) in all {
+                    for (name, file) in all.into_iter().flatten() {
                         if icon_button(ui, theme::icon::STACK, &name).clicked() {
                             self.add_to_collection(ui.ctx(), &file);
                         }

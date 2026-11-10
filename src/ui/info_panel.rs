@@ -405,23 +405,24 @@ impl crate::App {
 
     /// Add `add` to the keyword tree in `$XDG_CONFIG_HOME/glimt/keywords`, or take `remove` and
     /// the paths below it out: this change alone, on the file as it is now, so what another
-    /// window changed meanwhile stays.
+    /// window changed meanwhile stays. The window's tree changes at once, and the file in the
+    /// writer's thread, as a home on a share that stopped answering would hold the window.
     pub(crate) fn change_keyword_tree(&mut self, add: Vec<String>, remove: Option<String>) {
+        self.info_panel.keyword_tree =
+            xmp::keyword_tree_changed(&self.info_panel.keyword_tree, add.clone(), remove.clone());
         // Locked settings (--lock-settings, a kiosk): the tree changes for this session only,
         // as the other settings do, and the file is not written.
         let Some(p) = keyword_tree_path().filter(|_| !config::locked()) else {
-            self.info_panel.keyword_tree =
-                xmp::keyword_tree_changed(&self.info_panel.keyword_tree, add, remove);
             return;
         };
-        // A file that cannot be read is not written over, because its keywords would be lost.
-        let change = |old: &[u8]| xmp::keyword_tree_file_changed(old, add, remove);
-        match crate::files::file_io::edit_shared(&p, change) {
-            Ok(tree) => self.info_panel.keyword_tree = tree,
-            Err(e) => self
-                .notice
-                .give(tf!("Could not save the keyword tree: {e}", e)),
-        }
+        crate::files::file_io::write_later(move || {
+            // A file that cannot be read is not written over, because its keywords would be
+            // lost.
+            let change = |old: &[u8]| xmp::keyword_tree_file_changed(old, add, remove);
+            if let Err(e) = crate::files::file_io::edit_shared(&p, change) {
+                crate::files::file_io::save_failed(tf!("Could not save the keyword tree: {e}", e));
+            }
+        });
     }
 
     /// Set the keyword `tag` (a tree path) on the selected images, or the shown one, or take it

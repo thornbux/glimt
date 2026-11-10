@@ -381,12 +381,14 @@ impl eframe::App for App {
             state += &self.window.state_text();
         }
         // When there is nothing to keep, the old folder and window go too, so a later start
-        // does not use them.
-        match state_path() {
-            #[allow(clippy::disallowed_methods)] // Glimt's own state file
-            Some(p) if state.is_empty() => drop(std::fs::remove_file(p)),
-            Some(p) => write_atomic(&p, &state),
-            None => {}
+        // does not use them. It is written in the writer's thread, which `flush` below waits
+        // for, so a home on a share that stopped answering does not hold the window.
+        if let Some(p) = state_path() {
+            crate::files::file_io::write_later(move || match state.is_empty() {
+                #[allow(clippy::disallowed_methods)] // Glimt's own state file
+                true => drop(std::fs::remove_file(p)),
+                false => write_atomic(&p, &state),
+            });
         }
         self.inhibit(false);
         // This waits a few seconds at most for the state above, the settings, and the keywords

@@ -68,6 +68,7 @@ impl crate::App {
             self.open_folders(ctx, all);
         }
         self.receive_picked(ctx);
+        self.receive_saved_theme();
     }
 
     /// Takes the answers that need no frame: the sizes summed and freed, and the EXIF index.

@@ -2,7 +2,7 @@
 //! every menu is drawn with.
 
 use crate::files::config::xdg_dir;
-use crate::files::external::{apps_for, command, open_url};
+use crate::files::external::{apps_for, command, open_own_folder, open_url};
 use crate::files::file_ops::OperationReport;
 use crate::images::colour::{
     COLOR_MANAGEMENT, FILTERS, VIEW_FILTER, set_colour, set_input, set_intent, set_screen,
@@ -13,7 +13,7 @@ use crate::support::test_hooks::noted;
 use crate::support::threads::lock_even_if_poisoned;
 use crate::support::threads::{Receiving, Took};
 use crate::ui::actions::{Action, shortcut_text};
-use crate::{features::tools, files::config, files::external, model::collections, tf, ui::theme};
+use crate::{features::tools, files::config, files::external, tf, ui::theme};
 use eframe::egui;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -142,8 +142,7 @@ impl crate::App {
         if button(ui, tr("Open Themes Folder")).clicked()
             && let Some(dir) = theme::own_themes_dir()
         {
-            let _ = std::fs::create_dir_all(&dir);
-            open_url(&dir.to_string_lossy());
+            std::thread::spawn(move || open_own_folder(&dir));
         }
         if button(ui, tr("Get More Themes…")).clicked() {
             open_url("https://github.com/thornbux/glimt/tree/main/themes");
@@ -520,7 +519,8 @@ impl crate::App {
             ui,
             with_icon(ui, theme::icon::STACK_PLUS, tr("Add to Collection")),
             |ui| {
-                for (name, file) in collections::saved_collections() {
+                let all = self.folder.saved_collections().listed(ui.ctx());
+                for (name, file) in all.into_iter().flatten() {
                     if icon_button(ui, theme::icon::STACK, &name).clicked() {
                         self.add_to_collection(ui.ctx(), &file);
                     }
@@ -541,8 +541,8 @@ impl crate::App {
     pub(crate) fn tools_menu(&mut self, ui: &mut egui::Ui) {
         scroll_menu(ui, with_icon(ui, theme::icon::TOOL, tr("Tools")), |ui| {
             ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Extend);
-            let dir = xdg_dir("XDG_DATA_HOME", ".local/share", "glimt")
-                .map(|d| tools::folder_to_open(&d, "tools"));
+            // The folder to open is looked for only when it is opened, in its thread.
+            let glimt_home = xdg_dir("XDG_DATA_HOME", ".local/share", "glimt");
             if self.tools.is_empty() {
                 ui.weak(tr("No tools"));
             }
@@ -576,10 +576,9 @@ impl crate::App {
                     "Desktop files there, as Geeqie's, show in this menu after a restart",
                 ))
                 .clicked()
-                && let Some(dir) = dir
+                && let Some(home) = glimt_home
             {
-                let _ = std::fs::create_dir_all(&dir);
-                open_url(&dir.to_string_lossy());
+                std::thread::spawn(move || open_own_folder(&tools::folder_to_open(&home, "tools")));
             }
             let Some(k) = chosen.filter(|_| !self.list.files().is_empty()) else {
                 return;
