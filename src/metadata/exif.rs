@@ -1331,30 +1331,35 @@ fn png_exif(path: &Path) -> Option<Option<Vec<u8>>> {
     if let Some(exif) = &info.exif_metadata {
         return Some(Some(exif.to_vec()));
     }
-    let key = |k: &String| KEYS.contains(&k.as_bytes());
+    Some(png_texts(info, &KEYS).find_map(|text| raw_profile(&text)))
+}
+
+/// Returns the texts of the PNG's text chunks named one of `keys`, plain, compressed (zTXt) or
+/// international (iTXt), as the png crate read them before the pixels.
+pub(crate) fn png_texts<'a>(
+    info: &'a png::Info,
+    keys: &'a [&[u8]],
+) -> impl Iterator<Item = String> + 'a {
+    let key = |k: &String| keys.contains(&k.as_bytes());
     // Compressed text is unpacked with the png crate's limit of 2 MiB, as a block is 64 KB.
     let plain = (info.uncompressed_latin1_text.iter())
-        .filter(|t| key(&t.keyword))
+        .filter(move |t| key(&t.keyword))
         .map(|t| Some(t.text.clone()));
     let zipped = (info.compressed_latin1_text.iter())
-        .filter(|t| key(&t.keyword))
+        .filter(move |t| key(&t.keyword))
         .map(|t| {
             let mut t = t.clone();
             t.decompress_text().ok()?;
             t.get_text().ok()
         });
     let international = (info.utf8_text.iter())
-        .filter(|t| key(&t.keyword))
+        .filter(move |t| key(&t.keyword))
         .map(|t| {
             let mut t = t.clone();
             t.decompress_text().ok()?;
             t.get_text().ok()
         });
-    Some(
-        (plain.chain(zipped).chain(international))
-            .flatten()
-            .find_map(|text| raw_profile(&text)),
-    )
+    (plain.chain(zipped).chain(international)).flatten()
 }
 
 /// Reads the EXIF block of an ImageMagick raw profile: a line with its type, a line with its
@@ -1363,6 +1368,15 @@ fn png_exif(path: &Path) -> Option<Option<Vec<u8>>> {
 /// and as an eXIf chunk holds it. Returns `None` for a profile that is cut short, not hex, or
 /// without a TIFF header.
 fn raw_profile(text: &str) -> Option<Vec<u8>> {
+    let bytes = raw_profile_bytes(text)?;
+    let at = (bytes.windows(4)).position(|w| w == b"II*\0" || w == b"MM\0*")?;
+    Some(bytes[at..].to_vec())
+}
+
+/// Reads the bytes of an ImageMagick raw profile of any type: a line with its type, a line with
+/// its length in bytes, then the bytes in hex over several lines. Returns `None` for a profile
+/// that is cut short or not hex.
+pub(crate) fn raw_profile_bytes(text: &str) -> Option<Vec<u8>> {
     let mut words = text.split_ascii_whitespace();
     let _kind = words.next()?;
     let len: usize = words.next()?.parse().ok()?;
@@ -1371,11 +1385,9 @@ fn raw_profile(text: &str) -> Option<Vec<u8>> {
         return None;
     }
     let digit = |b: u8| (b as char).to_digit(16);
-    let bytes = (hex[..len * 2].chunks(2))
+    (hex[..len * 2].chunks(2))
         .map(|pair| Some((digit(pair[0])? * 16 + digit(pair[1])?) as u8))
-        .collect::<Option<Vec<u8>>>()?;
-    let at = (bytes.windows(4)).position(|w| w == b"II*\0" || w == b"MM\0*")?;
-    Some(bytes[at..].to_vec())
+        .collect()
 }
 
 /// The size in bytes of one value of the TIFF type `kind`.

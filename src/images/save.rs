@@ -52,8 +52,9 @@ const DROPPED_FROM_COPIES: [&str; 13] = [
 /// The keys of a PNG's text chunks that a file written with new pixels drops. The first three
 /// are ImageMagick's copies of the EXIF and XMP, with the old orientation, which exiv2 (Geeqie,
 /// digiKam) reads, so the turned file would be turned again there. The last is Photoshop's
-/// resources, which may hold a thumbnail of the whole frame. Its IPTC keywords are kept in
-/// ImageMagick's "Raw profile type iptc" beside it.
+/// resources, which may hold a thumbnail of the whole frame. A turned image gets them back
+/// without their thumbnail (`png_with_photoshop_resources`), as they hold its IPTC caption,
+/// copyright and keywords.
 const DROPPED_PNG_TEXT: [&[u8]; 4] = [
     b"Raw profile type exif",
     b"Raw profile type APP1",
@@ -69,6 +70,9 @@ const ALWAYS_SHARED_XMP: [&str; 2] = ["tiff:Orientation", "exif:ColorSpace"];
 /// The largest EXIF block a JPEG holds. Its APP1 segment holds 65,533 bytes, and the encoder
 /// puts six of them, "Exif\0\0", before the block.
 pub(crate) const MAX_JPEG_EXIF: usize = 65_527;
+
+/// The IDs of the Photoshop resources that hold a thumbnail: Photoshop 4's and 5's and later.
+const PHOTOSHOP_THUMBNAILS: [u16; 2] = [0x0409, 0x040C];
 
 /// How a copy of an image is made (Edit → Crop, File → Save As). It is made as the view shows
 /// it (turned by `turns` and `mirrored`, by EXIF with `rotate`, and the page `page` of a TIFF),
@@ -157,8 +161,9 @@ pub(crate) enum Derived {
     Oriented(u8),
     /// The image's own pixels written anew as the view showed them: a PNG or WebP turned. The
     /// orientation is 1, and what showed or measured the old pixels is dropped (`DROPPED_XMP`,
-    /// `DROPPED_PNG_TEXT`, and in EXIF the thumbnail, with the pixel sizes set anew). Other
-    /// programs' edits of the image stay, as they do on a JPEG's turn.
+    /// `DROPPED_PNG_TEXT`, and in EXIF the thumbnail, with the pixel sizes set anew). A PNG's
+    /// Photoshop resources are kept without their thumbnail. Other programs' edits of the image
+    /// stay, as they do on a JPEG's turn.
     Turned,
     /// A new file made from the image: a crop or a copy (Save As). It drops what `Turned` drops,
     /// and other programs' edits of the image it came from (`DROPPED_FROM_COPIES`).
@@ -259,9 +264,12 @@ impl<'a> ForwardSearch<'a> {
 
 /// Saves the view's rotation in a PNG or WebP, which have no orientation field to set. The
 /// pixels are turned, and the file is written again with its ICC profile, EXIF block and XMP
-/// (keywords, comment, and alt text other programs wrote into it). PNG and lossless WebP lose
-/// nothing. A lossy WebP is encoded again by ffmpeg at `webp_quality`, and gets its ICC profile,
-/// EXIF block and XMP back afterwards. The new file replaces the old in one rename.
+/// (keywords, comment, and alt text other programs wrote into it). PNG and lossless WebP keep
+/// every pixel. A lossy WebP is encoded again by ffmpeg at `webp_quality`, and gets its ICC
+/// profile, EXIF block and XMP back afterwards. The new file replaces the old in one rename.
+/// shortcut: a PNG with a palette or of 1, 2 or 4-bit grey is written in 8-bit RGB(A) or grey,
+/// as the image crate writes neither, so its file grows; write it with the png crate if that
+/// is reported.
 pub fn save_rotated(
     path: &Path,
     rotate: bool,
@@ -289,7 +297,10 @@ pub fn save_rotated(
     let img = turned(img, turns, mirrored);
     let size = (img.width(), img.height());
     let (exif, xmp, quarter) = derived_metadata(path, rotate, turns, size, Derived::Turned)?;
-    let out = encode(path, img, icc, exif, xmp, encoding, quarter, webp_quality)?;
+    let mut out = encode(path, img, icc, exif, xmp, encoding, quarter, webp_quality)?;
+    if png {
+        out = png_with_photoshop_resources(&out, path)?;
+    }
     replace_with_sidecar(path, named, out, Derived::Turned)
 }
 
@@ -1046,22 +1057,85 @@ fn jpeg_with_xmp(jpeg: &[u8], xmp: &[u8]) -> Result<Vec<u8>, String> {
 /// `png` with `xmp` in an iTXt chunk named as Adobe's XMP spec says, right after the header
 /// (IHDR), where readers that stop at the pixels find it too.
 fn png_with_xmp(png: &[u8], xmp: &[u8]) -> Result<Vec<u8>, String> {
+    let mut chunk = b"iTXt".to_vec();
+    // Keyword, no compression, no language, no translated keyword, then the text.
+    chunk.extend(b"XML:com.adobe.xmp\0\0\0\0\0");
+    chunk.extend(xmp);
+    png_with_chunk_after_header(png, &chunk)
+}
+
+/// Returns `png` with the chunk `chunk` (its name and data) right after the header (IHDR), with
+/// its length and CRC.
+fn png_with_chunk_after_header(png: &[u8], chunk: &[u8]) -> Result<Vec<u8>, String> {
     // The 8-byte signature comes first, then IHDR, with its length 13, its name, 13 bytes and a
     // CRC.
     let end = 33;
     if png.get(12..16) != Some(&b"IHDR"[..]) || png.len() < end {
         return Err("not a PNG file".into());
     }
-    let mut chunk = b"iTXt".to_vec();
-    // Keyword, no compression, no language, no translated keyword, then the text.
-    chunk.extend(b"XML:com.adobe.xmp\0\0\0\0\0");
-    chunk.extend(xmp);
     let mut out = png[..end].to_vec();
     out.extend(((chunk.len() - 4) as u32).to_be_bytes());
-    out.extend(&chunk);
-    out.extend(crc32(&chunk).to_be_bytes());
+    out.extend(chunk);
+    out.extend(crc32(chunk).to_be_bytes());
     out.extend(&png[end..]);
     Ok(out)
+}
+
+/// Puts the Photoshop resources ("Raw profile type 8bim") of the PNG at `old` into the turned
+/// PNG `new`, without their thumbnail. They hold the IPTC caption, copyright and keywords that
+/// ImageMagick writes there. `png_with_chunks` drops them from every file written with new
+/// pixels, because the thumbnail shows the whole frame, so a crop or copy keeps none of them.
+/// Resources that cannot be read stay dropped, as before.
+/// shortcut: only the text before the pixels is read, as `exif::png_exif` reads it; read the
+/// text after IDAT too if a program is found that writes the resources there.
+fn png_with_photoshop_resources(new: &[u8], old: &Path) -> Result<Vec<u8>, String> {
+    let resources = (crate::images::decode::open_regular(old).ok())
+        .and_then(|file| {
+            png::Decoder::new(std::io::BufReader::new(file))
+                .read_info()
+                .ok()
+        })
+        .and_then(|reader| {
+            let keys: [&[u8]; 1] = [b"Raw profile type 8bim"];
+            let text = exif::png_texts(reader.info(), &keys).next()?;
+            exif::raw_profile_bytes(&text)
+        })
+        .and_then(|bytes| without_photoshop_thumbnail(&bytes));
+    let Some(resources) = resources.filter(|r| !r.is_empty()) else {
+        return Ok(new.to_vec());
+    };
+    // Written as ImageMagick writes a raw profile: its type, its length and 36 bytes a line.
+    let hex: Vec<String> = (resources.chunks(36))
+        .map(|line| line.iter().map(|b| format!("{b:02x}")).collect())
+        .collect();
+    let text = format!("\n8bim\n{:8}\n{}\n", resources.len(), hex.join("\n"));
+    let chunk = [&b"tEXtRaw profile type 8bim\0"[..], text.as_bytes()].concat();
+    png_with_chunk_after_header(new, &chunk)
+}
+
+/// Returns Photoshop's image resources `bytes` without those that hold a thumbnail
+/// (`PHOTOSHOP_THUMBNAILS`). Each resource is a signature, an ID, a name of even length and its
+/// data, padded to even. Returns `None` when a resource runs past the end, so that resources
+/// that cannot be read are never kept with a thumbnail inside.
+fn without_photoshop_thumbnail(bytes: &[u8]) -> Option<Vec<u8>> {
+    let (mut kept, mut at) = (Vec::new(), 0);
+    while at < bytes.len() {
+        let id = u16::from_be_bytes(bytes.get(at + 4..at + 6)?.try_into().ok()?);
+        let name_len = *bytes.get(at + 6)? as usize;
+        let size_at = at + 6 + (1 + name_len).next_multiple_of(2);
+        let size = u32::from_be_bytes(bytes.get(size_at..size_at + 4)?.try_into().ok()?);
+        let end = (size_at + 4).checked_add(size as usize)?;
+        if end > bytes.len() {
+            return None;
+        }
+        // The last resource may leave out its padding byte.
+        let next = (end + (size as usize) % 2).min(bytes.len());
+        if !PHOTOSHOP_THUMBNAILS.contains(&id) {
+            kept.extend_from_slice(&bytes[at..next]);
+        }
+        at = next;
+    }
+    Some(kept)
 }
 
 /// The PNG `new` with the chunks of `old` that still hold for its pixels put after its header.
@@ -1325,6 +1399,25 @@ mod tests {
         std::fs::remove_dir_all(dir).unwrap();
     }
 
+    /// A turned PNG keeps its extended attributes, where KDE's Dolphin keeps its tags. Before,
+    /// the new file had none, so a turn in Glimt lost them without a word.
+    #[test]
+    fn a_turned_image_keeps_its_extended_attributes() {
+        use crate::support::test_support::{attribute, set_attribute};
+        let dir = std::env::temp_dir().join(format!("glimt-turn-xattr-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("a.png");
+        std::fs::write(&file, black_png(4, 2)).unwrap();
+        if set_attribute(&file, "user.test", b"kept") {
+            super::save_rotated(&file, false, 1, false, 90).unwrap();
+            assert_eq!(image::image_dimensions(&file).unwrap(), (2, 4));
+            assert_eq!(attribute(&file, "user.test").as_deref(), Some(&b"kept"[..]));
+        } else {
+            eprintln!("no extended attributes on this file system: not tested");
+        }
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
     /// A PNG turned keeps its text and DPI, and nothing tied to how the old pixels were stored.
     #[test]
     fn keeps_png_chunks() {
@@ -1533,6 +1626,80 @@ mod tests {
         old.splice(33..33, png_chunk(b"pHYs", &[0, 0, 0, 204, 0, 0, 0, 98, 1]));
         for broken in crate::support::test_support::broken(&old) {
             super::png_with_chunks(&tall, &broken, true);
+        }
+    }
+
+    /// A PNG with a palette and transparency keeps every pixel when it is turned, as the manual
+    /// says, though it is written in full colour.
+    #[test]
+    fn a_turned_palette_png_keeps_its_pixels() {
+        let dir = std::env::temp_dir().join(format!("glimt-turn-palette-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("a.png");
+        let mut enc = png::Encoder::new(std::fs::File::create(&file).unwrap(), 3, 1);
+        enc.set_color(png::ColorType::Indexed);
+        enc.set_depth(png::BitDepth::Two);
+        enc.set_palette(vec![255, 0, 0, 0, 255, 0, 0, 0, 255]);
+        enc.set_trns(vec![255, 128]);
+        let mut writer = enc.write_header().unwrap();
+        // The indices 0, 1 and 2, two bits each.
+        writer.write_image_data(&[0b0001_1000]).unwrap();
+        writer.finish().unwrap();
+        let before = image::open(&file).unwrap().into_rgba8();
+        super::save_rotated(&file, false, 1, false, 90).unwrap();
+        let after = image::open(&file).unwrap().into_rgba8();
+        assert_eq!(after, image::imageops::rotate90(&before));
+        assert_eq!(before.get_pixel(1, 0).0, [0, 255, 0, 128]);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A Photoshop image resource of the kind `id` holding `data`, with an empty name.
+    fn photoshop_resource(id: u16, data: &[u8]) -> Vec<u8> {
+        let mut resource = [&b"8BIM"[..], &id.to_be_bytes(), &[0, 0]].concat();
+        resource.extend((data.len() as u32).to_be_bytes());
+        resource.extend(data);
+        if data.len() % 2 == 1 {
+            resource.push(0);
+        }
+        resource
+    }
+
+    /// A PNG turned in place keeps its Photoshop resources, where ImageMagick keeps the IPTC
+    /// caption and copyright, without the thumbnail among them. Before, a turn dropped them all,
+    /// as a crop does (`a_crop_keeps_no_picture_of_the_whole_frame`).
+    #[test]
+    fn a_turned_png_keeps_its_photoshop_resources_without_the_thumbnail() {
+        let dir = std::env::temp_dir().join(format!("glimt-turn-8bim-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("a.png");
+        let resources = [
+            photoshop_resource(0x0404, b"COPYRIGHT"),
+            photoshop_resource(0x040C, b"WHOLEFRAME"),
+        ]
+        .concat();
+        let key = "Raw profile type 8bim";
+        crate::support::test_support::png_with_raw_profile(&file, "zTXt", key, &resources);
+        super::save_rotated(&file, false, 1, false, 90).unwrap();
+        let png = png::Decoder::new(std::io::BufReader::new(std::fs::File::open(&file).unwrap()));
+        let reader = png.read_info().unwrap();
+        let keys: [&[u8]; 1] = [key.as_bytes()];
+        let texts: Vec<String> = crate::metadata::exif::png_texts(reader.info(), &keys).collect();
+        assert_eq!(texts.len(), 1, "{texts:?}");
+        let kept = crate::metadata::exif::raw_profile_bytes(&texts[0]).unwrap();
+        assert_eq!(kept, photoshop_resource(0x0404, b"COPYRIGHT"));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// Photoshop resources broken in thousands of ways are read without a panic or a loop.
+    #[test]
+    fn survives_broken_photoshop_resources() {
+        let resources = [
+            photoshop_resource(0x0404, b"COPYRIGHT"),
+            photoshop_resource(0x0409, b"WHOLEFRAME"),
+        ]
+        .concat();
+        for broken in crate::support::test_support::broken(&resources) {
+            super::without_photoshop_thumbnail(&broken);
         }
     }
 

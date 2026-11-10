@@ -181,7 +181,9 @@ const MANUAL: &[(&str, &str)] = &[
          Edit → Orientation → Save Orientation to File stores the rotation in a JPEG as its EXIF \
          orientation, without touching the pixels; a setting does it on every change of image. PNG \
          and WebP are turned and saved again with their EXIF data: PNG and lossless WebP without \
-         loss, a lossy WebP as lossy again (through ffmpeg, at the quality set in Preferences).\n\n\
+         losing a pixel, a lossy WebP as lossy again (through ffmpeg, at the quality set in \
+         Preferences). A PNG with a palette, or of 1, 2 or 4-bit grey, is saved in full colour or \
+         8-bit grey, so its file grows.\n\n\
          Edit → Crop… (Shift+C): drag over the image to choose the part to keep, then Enter (or \
          Save Copy) saves it as a new file beside the image, NAME-cropped, as the view shows it \
          (turned, mirrored); Esc cancels. The image itself is never changed. JPEG is saved at the \

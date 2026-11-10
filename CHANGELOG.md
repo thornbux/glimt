@@ -19,6 +19,15 @@ and versions follow [Semantic Versioning](https://semver.org/).
 - Marks and stars set one after another while the last one is still being saved go to the
   marks file in one write, not one write each. With 500,000 files marked, a write takes about
   0.4 s, so 500 mark keys took over three minutes to save, longer than a close waits for them.
+- A turned PNG or WebP, a sidecar, a file saved over by name and a file moved to another disk
+  keep their extended attributes, as `mv` does: the user's own (`user.*`, where KDE's Dolphin
+  and Gwenview keep tags, ratings and comments) and the file's ACL. Before, they were lost. The
+  owner is not kept, as only root may give a file to another user.
+- A turned PNG keeps its Photoshop resources ("Raw profile type 8bim"), where ImageMagick keeps
+  the IPTC caption, copyright and keywords, without the thumbnail among them. Before, a turn
+  dropped them, as a crop or copy still does.
+- The manual says that a turned PNG with a palette, or of 1, 2 or 4-bit grey, keeps every pixel
+  but is saved in full colour or 8-bit grey, so its file grows. It said a PNG lost nothing.
 
 ## [0.78.0] - 2026-11-10
 

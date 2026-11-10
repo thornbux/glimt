@@ -2,7 +2,8 @@
 //! `run_background_until` runs its background work until a condition holds, and `contract_folder`
 //! makes the folder the file operations' contract works on. `broken` gives damaged forms of a good
 //! input for the parsers' `survives_broken_*` tests. `png_with_raw_profile` writes a PNG with its
-//! EXIF only in a text chunk.
+//! EXIF only in a text chunk. `set_attribute` and `attribute` set and read a file's extended
+//! attribute.
 
 /// The EXIF block of a photo of a Canon taken on 2020:01:02 at 03:04:05, stored turned a
 /// quarter (orientation 6), big-endian.
@@ -154,6 +155,46 @@ pub(crate) fn png_with_raw_profile(path: &std::path::Path, chunk: &str, key: &st
         .unwrap()
         .write_image_data(&pixels)
         .unwrap();
+}
+
+/// Sets the extended attribute `name` of the file at `path` to `value`. Returns false where the
+/// file system has no such attributes, so a test can say that it could not run.
+pub(crate) fn set_attribute(path: &std::path::Path, name: &str, value: &[u8]) -> bool {
+    use std::os::unix::ffi::OsStrExt;
+    let path = std::ffi::CString::new(path.as_os_str().as_bytes()).unwrap();
+    let name = std::ffi::CString::new(name).unwrap();
+    #[allow(unsafe_code)]
+    // SAFETY: both C strings and `value`, of the length given, live through the call.
+    let set = unsafe {
+        libc::setxattr(
+            path.as_ptr(),
+            name.as_ptr(),
+            value.as_ptr().cast(),
+            value.len(),
+            0,
+        )
+    };
+    set == 0
+}
+
+/// Returns the extended attribute `name` of the file at `path`, or `None` when it has none.
+pub(crate) fn attribute(path: &std::path::Path, name: &str) -> Option<Vec<u8>> {
+    use std::os::unix::ffi::OsStrExt;
+    let path = std::ffi::CString::new(path.as_os_str().as_bytes()).unwrap();
+    let name = std::ffi::CString::new(name).unwrap();
+    let mut value = vec![0u8; 65_536];
+    #[allow(unsafe_code)]
+    // SAFETY: both C strings and `value`, of the length given, live through the call.
+    let size = unsafe {
+        libc::getxattr(
+            path.as_ptr(),
+            name.as_ptr(),
+            value.as_mut_ptr().cast(),
+            value.len(),
+        )
+    };
+    value.truncate(usize::try_from(size).ok()?);
+    Some(value)
 }
 
 #[cfg(test)]
