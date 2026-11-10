@@ -524,8 +524,8 @@ impl crate::App {
         self.write_sidecars(
             ctx,
             activity,
-            paths,
-            move |path| xmp::tag_file(path, &written, on).is_ok(),
+            paths.into_iter().map(|p| (p, ())).collect(),
+            move |path, _| xmp::tag_file(path, &written, on).is_ok(),
             move |failed, job| match () {
                 _ if failed > 0 => Some(tf!(
                     "The keyword could not be saved for {count}",
@@ -597,8 +597,8 @@ impl crate::App {
             self.write_sidecars(
                 ctx,
                 tr("Saving the alt text"),
-                vec![path],
-                move |p| match xmp::write_alt_text(p, &alt_text) {
+                vec![(path, ())],
+                move |p, _| match xmp::write_alt_text(p, &alt_text) {
                     Ok(()) => true,
                     Err(e) => {
                         let _ = tx.send(tf!("Could not save the alt text: {e}", e));
@@ -642,8 +642,8 @@ impl crate::App {
         self.write_sidecars(
             ctx,
             tr("Saving keywords"),
-            vec![path],
-            move |p| match xmp::write_changed(p, keywords.clone(), comment.clone()) {
+            vec![(path, ())],
+            move |p, _| match xmp::write_changed(p, keywords.clone(), comment.clone()) {
                 Ok(_) => true,
                 Err(e) => {
                     let _ = tx.send(tf!("Could not save the keywords: {e}", e));
@@ -699,8 +699,8 @@ impl crate::App {
         self.write_sidecars(
             ctx,
             tr("Adding keywords"),
-            paths,
-            move |path| xmp::add_keywords(path, &keywords).is_ok(),
+            paths.into_iter().map(|p| (p, ())).collect(),
+            move |path, _| xmp::add_keywords(path, &keywords).is_ok(),
             move |failed, job| match () {
                 _ if failed > 0 => Some(tf!(
                     "Keywords could not be saved for {count}",
@@ -947,12 +947,12 @@ mod tests {
         // A long sidecar job of another file holds the one sidecar thread, so the save of the
         // edit cannot land before the panel reads the image again, however fast the computer.
         let (release, released) = std::sync::mpsc::channel::<()>();
-        let other = vec![dir.join("c.png")];
+        let other = vec![(dir.join("c.png"), ())];
         app.write_sidecars(
             &ctx,
             "Other",
             other,
-            move |_| released.recv().is_err(),
+            move |_, _| released.recv().is_err(),
             |_, _| None,
         );
         app.info_panel.metadata_edit.as_mut().unwrap().alt_text = "Red".into();
@@ -1051,8 +1051,14 @@ mod tests {
         // until `other` is dropped, so the panel's own save waits behind it however fast the
         // computer is. A job that is only counted let the save end before the panel looked.
         let (other, hold) = std::sync::mpsc::channel::<()>();
-        let b = vec![dir.join("b.png")];
-        app.write_sidecars(&ctx, "Other", b, move |_| hold.recv().is_err(), |_, _| None);
+        let b = vec![(dir.join("b.png"), ())];
+        app.write_sidecars(
+            &ctx,
+            "Other",
+            b,
+            move |_, _| hold.recv().is_err(),
+            |_, _| None,
+        );
         app.info_panel.metadata_edit.as_mut().unwrap().keywords = "sea".into();
         app.files_changed(&ctx, std::slice::from_ref(&file));
         app.request_and_take_exif(&ctx);

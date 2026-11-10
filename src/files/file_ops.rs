@@ -61,12 +61,16 @@ pub(crate) struct RenameOutcome {
 /// What words the end of a sidecar job, from how many files failed (`write_sidecars`).
 type SidecarReport = Box<dyn FnOnce(usize, &Job) -> Option<String> + Send>;
 
+/// Writes the sidecar of the file at a place in a sidecar write's list, given by that place and
+/// the file's name now (`write_sidecars`).
+type SidecarWrite = Box<dyn Fn(usize, &Path) -> bool + Send>;
+
 /// A sidecar write asked for while a rename runs (`write_sidecars`). It is sent once the rename
 /// is over, to the names its files have then.
 struct WaitingSidecarWrite {
     activity: &'static str,
     paths: Vec<PathBuf>,
-    write: Box<dyn Fn(&Path) -> bool + Send>,
+    write: SidecarWrite,
     report: SidecarReport,
     /// Closing waits for the write while it waits, as for one that was sent.
     _writing: Working,
@@ -1785,15 +1789,23 @@ impl crate::App {
     /// does when it swaps names. A write asked for while one runs therefore waits until it is
     /// over, and is then sent to the names its files have (`send_waiting_sidecar_writes`).
     /// Stop leaves a write of one file, which is an edit the user made (`stop_jobs`).
-    pub(crate) fn write_sidecars(
+    ///
+    /// Each file in `files` comes with what is written to it, and `write` is given both. So
+    /// `write` never looks up its data by the path it is given: after a rename, that path may
+    /// be another photo's old name, and the data found under it would be that photo's. Before,
+    /// Lightroom's import did, and put each photo's keywords and stars on the other photo of a
+    /// swap.
+    pub(crate) fn write_sidecars<T: Send + 'static>(
         &mut self,
         ctx: &egui::Context,
         activity: &'static str,
-        paths: Vec<PathBuf>,
-        write: impl Fn(&Path) -> bool + Send + 'static,
+        files: Vec<(PathBuf, T)>,
+        write: impl Fn(&Path, &T) -> bool + Send + 'static,
         report: impl FnOnce(usize, &Job) -> Option<String> + Send + 'static,
     ) {
         use crate::files::file_io::QueuedWrite;
+        let (paths, data): (Vec<PathBuf>, Vec<T>) = files.into_iter().unzip();
+        let write = move |k: usize, path: &Path| data.get(k).is_some_and(|d| write(path, d));
         if self.file_operations.renaming.is_some() {
             let waiting = WaitingSidecarWrite {
                 activity,
@@ -1821,11 +1833,11 @@ impl crate::App {
             // pointer.
             let text = crate::support::threads::catch_panic(|| {
                 let mut failed = 0;
-                for path in &paths {
+                for (k, path) in paths.iter().enumerate() {
                     if job.is_stopped() {
                         break;
                     }
-                    failed += !write(path) as usize;
+                    failed += !write(k, path) as usize;
                     job.count_done(1);
                 }
                 report(failed, &job)
@@ -1866,11 +1878,14 @@ impl crate::App {
             return;
         };
         let moved = moves_by_source(renamed);
+        // Each file keeps its place in the write, by which the write finds what it writes.
         for waiting in waiting {
-            let paths = (waiting.paths.iter())
-                .map(|p| new_place(p, &moved).unwrap_or_else(|| p.clone()))
+            let files = (waiting.paths.iter().enumerate())
+                .map(|(k, p)| (new_place(p, &moved).unwrap_or_else(|| p.clone()), k))
                 .collect();
-            self.write_sidecars(ctx, waiting.activity, paths, waiting.write, waiting.report);
+            let write = waiting.write;
+            let write = move |path: &Path, &k: &usize| write(k, path);
+            self.write_sidecars(ctx, waiting.activity, files, write, waiting.report);
         }
     }
 
@@ -3398,8 +3413,8 @@ mod tests {
                     app.write_sidecars(
                         ctx,
                         "Saving keywords",
-                        vec![d.join("a.png")],
-                        |p| crate::metadata::xmp::add_tags(p, &["Tag".into()]).is_ok(),
+                        vec![(d.join("a.png"), ())],
+                        |p, _| crate::metadata::xmp::add_tags(p, &["Tag".into()]).is_ok(),
                         |_, _| None,
                     );
                 },
@@ -4996,9 +5011,11 @@ mod tests {
     }
 
     /// A sidecar write asked for while Rename Many swaps two names waits until the rename is
-    /// over, and then lands on the photo it was asked for, under its new name. Before, it was
-    /// written to the old name, which by then held the other photo. A writer held by another
-    /// job makes the write come after the rename, however fast the computer is.
+    /// over, and then lands on the photo it was asked for, under its new name, with what was
+    /// asked for that photo. Before, it was written to the old name, which by then held the
+    /// other photo. Then Lightroom's import found its keywords by the new name, and wrote the
+    /// other photo's. A writer held by another job makes the write come after the rename,
+    /// however fast the computer is.
     #[test]
     fn a_sidecar_write_during_a_rename_follows_its_photo() {
         let d = contract_folder("write-during-rename");
@@ -5011,20 +5028,24 @@ mod tests {
         app.rename_in_background(&ctx, vec![a.clone(), b.clone()], vec![b.clone(), a.clone()]);
         assert!(app.file_operations.renaming.is_some());
         let (go, released) = std::sync::mpsc::channel::<()>();
-        let other = vec![d.join("sub")];
+        let other = vec![(d.join("sub"), ())];
         app.write_sidecars(
             &ctx,
             "Other",
             other,
-            move |_| released.recv().is_err(),
+            move |_, _| released.recv().is_err(),
             |_, _| None,
         );
-        let oslo = |p: &std::path::Path| crate::metadata::xmp::add_tags(p, &["Oslo".into()]);
+        // Each photo gets a keyword of its own, as Lightroom's import gives them.
+        let keywords = vec![
+            (a.clone(), "Oslo".to_string()),
+            (b.clone(), "Bergen".into()),
+        ];
         app.write_sidecars(
             &ctx,
             "Keywords",
-            vec![a.clone()],
-            move |p| oslo(p).is_ok(),
+            keywords,
+            |p, tag| crate::metadata::xmp::add_tags(p, std::slice::from_ref(tag)).is_ok(),
             |_, _| None,
         );
         assert!(run_background_until(&mut app, &ctx, |app| app
@@ -5037,10 +5058,11 @@ mod tests {
             .is_writing_sidecars()));
         let red = |p: &std::path::Path| image::open(p).unwrap().to_rgb8().get_pixel(0, 0)[0] == 255;
         assert!(red(&b), "the names were not swapped");
-        let has_oslo = |p: &std::path::Path| crate::metadata::xmp::read(p).keywords == ["Oslo"];
-        assert!(
-            has_oslo(&b) && !has_oslo(&a),
-            "the keyword is on the other photo"
+        let keywords = |p: &std::path::Path| crate::metadata::xmp::read(p).keywords;
+        assert_eq!(
+            [keywords(&b), keywords(&a)],
+            [["Oslo"], ["Bergen"]],
+            "a keyword is on the other photo"
         );
         std::fs::remove_dir_all(d).unwrap();
     }
@@ -5056,20 +5078,20 @@ mod tests {
         std::fs::remove_file(crate::metadata::xmp::sidecar(&a)).unwrap();
         let (mut app, ctx) = app_on(&d);
         let (go, released) = std::sync::mpsc::channel::<()>();
-        let long = vec![d.join("sub"), d.join("b.png")];
+        let long = vec![(d.join("sub"), ()), (d.join("b.png"), ())];
         app.write_sidecars(
             &ctx,
             "Other",
             long,
-            move |_| released.recv().is_err(),
+            move |_, _| released.recv().is_err(),
             |_, _| None,
         );
         let oslo = |p: &std::path::Path| crate::metadata::xmp::add_tags(p, &["Oslo".into()]);
         app.write_sidecars(
             &ctx,
             "Keywords",
-            vec![a.clone()],
-            move |p| oslo(p).is_ok(),
+            vec![(a.clone(), ())],
+            move |p, _| oslo(p).is_ok(),
             |_, _| None,
         );
         app.file_operations.stop_jobs();
@@ -5350,8 +5372,8 @@ mod tests {
         app.write_sidecars(
             &ctx,
             "Saving keywords",
-            vec![dir.join("a.png")],
-            |_| true,
+            vec![(dir.join("a.png"), ())],
+            |_, _| true,
             |_, _| None,
         );
         assert!(app.search.reads_exif_again("a.png"));

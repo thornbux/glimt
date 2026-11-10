@@ -106,9 +106,9 @@ and versions follow [Semantic Versioning](https://semver.org/).
   and shortcut list leave the Delete key out while Enable Delete key is off.
 - The Help Manual says that a change on a network share shows by itself within seconds, and
   that a caching mount such as rclone or s3fs can hold it back until its cache expires.
-- A keyword, comment, alt text or star written while Rename Many runs is saved to its photo
-  under the photo's new name. Before, when the new names swapped with old ones, it landed on the
-  photo that took the old name. An edit in the info panel not saved yet follows its file through
+- A keyword, comment, alt text or star written while Rename Many runs, also by Import Lightroom
+  Catalog, is saved to its photo under the photo's new name. Before, when the new names swapped
+  with old ones, it landed on the photo that took the old name. An edit in the info panel not saved yet follows its file through
   a move or rename too.
 - Stop in the status bar, or closing the window a second time, no longer drops the info panel's
   save of keywords, comment or alt text that waits behind a long job, such as a Lightroom
