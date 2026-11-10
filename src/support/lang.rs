@@ -28,8 +28,9 @@ macro_rules! tf {
     }};
 }
 
-/// The language setting's value for English, which Preferences writes. Any value that is not
-/// a code of `LANGUAGES` shows English, but this one is the one users' files hold.
+/// The language setting's value for English, which Preferences writes. A value that names no
+/// language Glimt has (`is_language`), such as one of a later Glimt, shows English too, and the
+/// settings keep it. An empty value shows the system's language.
 pub const ENGLISH: &str = "en";
 
 /// The translations built in: code (the setting), name in its own language, the language codes

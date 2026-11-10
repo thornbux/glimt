@@ -307,13 +307,16 @@ impl crate::App {
     // ---- Remote control ----
 
     /// Receives `glimt --remote` commands and queries. While the place that an `open` named is
-    /// looked up, every command but `quit` waits, and a `select` waits too while the folder is
-    /// read or a dialog asks about the selection.
+    /// looked up or mounted, every command but `quit` waits, and a `select` waits too while the
+    /// folder is read or a dialog asks about the selection.
     pub(crate) fn receive_remote(&mut self, ctx: &egui::Context) {
         // `open` only starts a look-up, and the window shows the old list until its answer is
         // taken. It is taken here first, because a hidden window runs no `ui`, which takes it
         // too.
         self.receive_looked_up(ctx, std::time::Duration::ZERO);
+        // An `open` of a network location mounts it first, and its answer is taken here for
+        // the same reason.
+        self.receive_mount(ctx);
         // A hidden window runs no `ui`, which takes the listing, so a waiting select takes it
         // here. Otherwise the select would wait until the window is shown again.
         if !self.remote.waiting_commands.is_empty() {
@@ -332,7 +335,7 @@ impl crate::App {
             // does, so that a script can leave a share that stopped answering. The commands that
             // waited for the old place were sent for a place that will not open, so they are
             // not done.
-            if is_open(&command) && self.folder.is_looking_up() {
+            if is_open(&command) && self.folder.is_opening() {
                 self.cancel_waiting_commands("the place is no longer being opened");
             }
             // A command behind a waiting one that may open another folder waits its turn,
@@ -360,11 +363,11 @@ impl crate::App {
     /// (with a reply, `is_query`) also waits while the folder is read, because its files are
     /// not all listed yet. It waits as well while a dialog asks about the selection (Delete,
     /// Rename), which is answered for the files it asked about, not for a selection that a
-    /// script put in their place. An `open` does not wait for the look-up: it replaces it
-    /// (`receive_remote`).
+    /// script put in their place. An `open` does not wait for the look-up or the mount: it
+    /// replaces them (`receive_remote`).
     fn must_wait(&self, command: &str, is_query: bool) -> bool {
         let select = is_query && command.starts_with("select ");
-        (self.folder.is_looking_up() && !is_open(command))
+        (self.folder.is_opening() && !is_open(command))
             || (select && (self.folder.is_listing() || self.asking_about_selection()))
     }
 
@@ -1854,6 +1857,11 @@ mod tests {
         app.remote_command(&ctx, "open -glimt-test://nas/photos")
             .unwrap();
         assert!(app.folder.is_mounting());
+        // The commands sent after it wait for the mount, as for a look-up. Before, they acted
+        // at once on the list of the folder from before.
+        assert!(app.must_wait("select /a.jpg", true));
+        assert!(app.must_wait("next", false));
+        assert!(!app.must_wait("open /a.jpg", false));
         std::fs::remove_dir_all(dir).unwrap();
     }
 
