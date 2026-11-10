@@ -50,7 +50,7 @@ pub const SHORTCUTS: &[(Action, egui::Modifiers, egui::Key)] = {
     use Action::*;
     use egui::Key;
     &[
-        (ExifRotate, ALT, Key::X),
+        (AutoRotate, ALT, Key::X),
         // Before the plain arrows, Home and End, which would also match with Shift.
         (SaveAs, CTRL_SHIFT, Key::S),
         (MoveEarlier, CTRL_SHIFT, Key::ArrowUp),
@@ -172,8 +172,8 @@ pub const SHORTCUTS: &[(Action, egui::Modifiers, egui::Key)] = {
         (SlideshowFaster, CTRL, Key::Equals),
         (SlideshowSlower, CTRL, Key::Minus),
         (PlayVideo, NONE, Key::Enter),
-        (Escape, NONE, Key::Escape),
-        (Escape, NONE, Key::Q),
+        (LeaveFullScreen, NONE, Key::Escape),
+        (LeaveFullScreen, NONE, Key::Q),
         (NewWindow, CTRL, Key::N),
         (Print, CTRL, Key::P),
         // Before C (new collection), which would also match with Shift.
@@ -192,12 +192,13 @@ pub const ALL: &[Action] = &[
     Action::About,
     Action::AboveEachOther,
     Action::Animate,
+    Action::AutoRotate,
     Action::Back,
     Action::BackUp,
     Action::CheckImages,
     Action::CloseWindow,
     Action::Compare,
-    Action::CopyFiles,
+    Action::CopyFilesToClipboard,
     Action::CopyForSharing,
     Action::CopyImage,
     Action::CopyPath,
@@ -206,8 +207,6 @@ pub const ALL: &[Action] = &[
     Action::Crop,
     Action::Delete,
     Action::DeletePermanently,
-    Action::Escape,
-    Action::ExifRotate,
     Action::ExifWindow,
     Action::ExportFrames,
     Action::FindDuplicates,
@@ -228,13 +227,14 @@ pub const ALL: &[Action] = &[
     Action::HideFileList,
     Action::Histogram,
     Action::HistogramLog,
-    Action::Home,
+    Action::HomeFolder,
     Action::Icons,
     Action::ImportLightroom,
     Action::InfoPanel,
     Action::InvertSelection,
     Action::KeyboardMap,
     Action::Last,
+    Action::LeaveFullScreen,
     #[cfg(feature = "marks")]
     Action::Mark1,
     #[cfg(feature = "marks")]
@@ -272,6 +272,7 @@ pub const ALL: &[Action] = &[
     Action::PaneLeft,
     Action::PaneRight,
     Action::PaneUp,
+    Action::ParentFolder,
     Action::PathBar,
     Action::Pause,
     Action::PlayVideo,
@@ -331,7 +332,6 @@ pub const ALL: &[Action] = &[
     Action::Toolbar,
     Action::TrashCollection,
     Action::Undo,
-    Action::Up,
     Action::WindowName,
     Action::WindowTitle,
     Action::Zoom1To1,
@@ -390,16 +390,15 @@ pub(crate) const SCRIPT_ACTIONS: &[Action] = &[
     Action::About,
     Action::AboveEachOther,
     Action::Animate,
+    Action::AutoRotate,
     Action::Back,
     Action::CheckImages,
     Action::CloseWindow,
     Action::Compare,
-    Action::CopyFiles,
+    Action::CopyFilesToClipboard,
     Action::CopyImage,
     Action::CopyPath,
     Action::CopyPathUnquoted,
-    Action::Escape,
-    Action::ExifRotate,
     Action::ExifWindow,
     Action::First,
     Action::FitFill,
@@ -416,11 +415,12 @@ pub(crate) const SCRIPT_ACTIONS: &[Action] = &[
     Action::HideFileList,
     Action::Histogram,
     Action::HistogramLog,
-    Action::Home,
+    Action::HomeFolder,
     Action::Icons,
     Action::InvertSelection,
     Action::KeyboardMap,
     Action::Last,
+    Action::LeaveFullScreen,
     Action::NewWindow,
     Action::Next,
     Action::NextFilter,
@@ -437,6 +437,7 @@ pub(crate) const SCRIPT_ACTIONS: &[Action] = &[
     Action::PaneLeft,
     Action::PaneRight,
     Action::PaneUp,
+    Action::ParentFolder,
     Action::PathBar,
     Action::Pause,
     Action::Preferences,
@@ -457,7 +458,6 @@ pub(crate) const SCRIPT_ACTIONS: &[Action] = &[
     Action::ThumbnailGrid,
     Action::Thumbnails,
     Action::Toolbar,
-    Action::Up,
     Action::WindowName,
     Action::WindowTitle,
     Action::Zoom1To1,
@@ -481,7 +481,7 @@ pub(crate) const SCRIPT_ACTIONS: &[Action] = &[
 /// The actions renamed in 0.74.0 and later, as (old name, new name). The keys= setting and
 /// `glimt --remote run` take the old names too, forever, so users' settings and scripts keep
 /// working, and only the new names are written and listed.
-pub(crate) const RENAMED_ACTIONS: [(&str, &str); 12] = [
+pub(crate) const RENAMED_ACTIONS: [(&str, &str); 17] = [
     ("HideTools", "HideFileList"),
     ("Overlay", "FullScreenInfo"),
     ("Play", "PlayVideo"),
@@ -495,6 +495,14 @@ pub(crate) const RENAMED_ACTIONS: [(&str, &str); 12] = [
     ("Prev", "Previous"),
     // 0.76.0: the same abbreviation as Prev, beside NextPage and the label Previous Page.
     ("PrevPage", "PreviousPage"),
+    // 0.80.0: a script could not tell that CopyFiles copies to the clipboard, not to a folder.
+    ("CopyFiles", "CopyFilesToClipboard"),
+    // 0.80.0: a view toggle, while the Rotate actions turn the files.
+    ("ExifRotate", "AutoRotate"),
+    // 0.80.0: these three were named after their keys, not after what they do.
+    ("Escape", "LeaveFullScreen"),
+    ("Up", "ParentFolder"),
+    ("Home", "HomeFolder"),
 ];
 
 /// Everything the user can do from a menu or a shortcut. The variants' names are stored in the
@@ -524,17 +532,17 @@ pub enum Action {
     Last,
     Back,
     Forward,
-    Home,
-    Up,
+    HomeFolder,
+    ParentFolder,
     SelectAll,
     SelectNone,
     InvertSelection,
     CopyPath,
     CopyPathUnquoted,
     CopyImage,
-    CopyFiles,
+    CopyFilesToClipboard,
     Preferences,
-    ExifRotate,
+    AutoRotate,
     NextFilter,
     RotateCw,
     RotateCcw,
@@ -638,7 +646,7 @@ pub enum Action {
     RandomOrder,
     SlideshowFaster,
     SlideshowSlower,
-    Escape,
+    LeaveFullScreen,
     NewWindow,
     WindowTitle,
     /// Give this window a new --name, which `--remote` reaches it by (`remote::rename`).
@@ -736,17 +744,17 @@ impl Action {
             Last => "Last Image",
             Back => "Back",
             Forward => "Forward",
-            Home => "Home",
-            Up => "Up",
+            HomeFolder => "Home",
+            ParentFolder => "Up",
             SelectAll => "Select All",
             SelectNone => "Select None",
             InvertSelection => "Invert Selection",
             CopyPath => "Copy Path to Clipboard",
             CopyPathUnquoted => "Copy Path (Unquoted)",
             CopyImage => "Copy Image to Clipboard",
-            CopyFiles => "Copy Files to Clipboard",
+            CopyFilesToClipboard => "Copy Files to Clipboard",
             Preferences => "Preferences…",
-            ExifRotate => "Auto Rotate Using EXIF",
+            AutoRotate => "Auto Rotate Using EXIF",
             NextFilter => "Next Filter",
             RotateCw => "Rotate Clockwise",
             RotateCcw => "Rotate Counterclockwise",
@@ -849,7 +857,7 @@ impl Action {
             RandomOrder => "Random Order",
             SlideshowFaster => "Faster",
             SlideshowSlower => "Slower",
-            Escape => "Stop Slideshow, Leave Full Screen",
+            LeaveFullScreen => "Stop Slideshow, Leave Full Screen",
             NewWindow => "New Window",
             WindowTitle => "Set Window Title…",
             WindowName => "Set Window Name…",
@@ -870,77 +878,77 @@ impl Action {
     pub fn icon(self) -> &'static str {
         use Action::*;
         match self {
-            OpenFile => "\u{e230}",                         // file
-            OpenFolder => "\u{e256}",                       // folder-open
-            OpenFolders | Subfolders => "\u{e260}",         // folders
-            OpenRecursive | FolderTree => "\u{e67c}",       // tree-structure
-            NewFolder => "\u{e258}",                        // folder-plus
-            Rename | RenameCollection => "\u{e3b4}",        // pencil-simple
-            WindowTitle | WindowName => "\u{e3b4}",         // pencil-simple
-            CopyTo => "\u{e1ca}",                           // copy
-            MoveTo | Forward | PaneRight => "\u{e06c}",     // arrow-right
-            OpenWith => "\u{e5de}",                         // arrow-square-out
-            SetWallpaper => "\u{e32e}",                     // monitor
-            PlayVideo => "\u{e792}",                        // film-strip
-            Delete | TrashCollection => "\u{e4a6}",         // trash
-            DeletePermanently => "\u{e4f8}",                // x-circle
-            Undo => "\u{e08a}",                             // arrow-u-up-left
-            CloseWindow => "\u{e4fa}",                      // x-square
-            Quit => "\u{e3da}",                             // power
-            First => "\u{e5a4}",                            // skip-back
-            Previous => "\u{e138}",                         // caret-left
-            Next => "\u{e13a}",                             // caret-right
-            Last => "\u{e5a6}",                             // skip-forward
-            Back | PaneLeft => "\u{e058}",                  // arrow-left
-            Home => "\u{e2c2}",                             // house
-            Up | PaneUp | MoveEarlier => "\u{e08e}",        // arrow-up
-            SelectAll => "\u{e746}",                        // selection-all
-            SelectNone => "\u{e69e}",                       // selection-slash
-            InvertSelection => "\u{e744}",                  // selection-inverse
-            CopyPath => "\u{e198}",                         // clipboard-text
-            CopyPathUnquoted => "\u{e196}",                 // clipboard
-            CopyImage => "\u{e2cc}",                        // image-square
-            CopyFiles => "\u{e710}",                        // files
-            Preferences => "\u{e270}",                      // gear
-            ExifRotate | Rotate180 | Refresh => "\u{e094}", // arrows-clockwise
-            NextFilter | NextLayout => "\u{e83c}",          // swap
-            RotateCw => "\u{e036}",                         // arrow-clockwise
-            RotateCcw => "\u{e038}",                        // arrow-counter-clockwise
-            Mirror => "\u{ed6a}",                           // flip-horizontal
-            Flip => "\u{ed6c}",                             // flip-vertical
-            SaveOrientation => "\u{e248}",                  // floppy-disk
-            Crop => "\u{e1d4}",                             // crop
-            SaveAs => "\u{e20a}",                           // download
-            ZoomIn => "\u{e310}",                           // magnifying-glass-plus
-            ZoomOut => "\u{e30e}",                          // magnifying-glass-minus
-            Zoom1To1 => "\u{e626}",                         // frame-corners
-            ZoomFit => "\u{e1d0}",                          // corners-out
-            FitWidth => "\u{eb06}",                         // arrows-horizontal
-            FitHeight => "\u{eb04}",                        // arrows-vertical
-            FitFill => "\u{e0a2}",                          // arrows-out
-            FullScreen => "\u{e0a6}",                       // arrows-out-simple
-            HideFileList => "\u{ec24}",                     // sidebar-simple
-            FullScreenInfo | GridNames => "\u{e1a8}",       // subtitles
-            Histogram => "\u{e150}",                        // chart-bar
-            HistogramLog => "\u{ebe4}",                     // function
-            Compare => "\u{e546}",                          // columns
-            OneImage => "\u{e45e}",                         // square
-            AboveEachOther => "\u{e5a2}",                   // rows
-            PaneDown | MoveLater => "\u{e03e}",             // arrow-down
-            Animate => "\u{e3d2}",                          // play-circle
-            HiddenFiles => "\u{e224}",                      // eye-slash
-            NewCollection => "\u{edf6}",                    // stack-plus
-            OpenCollection => "\u{e466}",                   // stack
-            ImportLightroom => "\u{e20c}",                  // download-simple
-            RemoveFromCollection => "\u{e32c}",             // minus-circle
-            MoveFirst => "\u{e066}",                        // arrow-line-up
-            MoveLast => "\u{e05c}",                         // arrow-line-down
-            FindDuplicates => "\u{e2d2}",                   // intersect
-            CheckImages => "\u{e184}",                      // check-circle
-            BackUp => "\u{e00c}",                           // archive
-            FocusSearch => "\u{e30c}",                      // magnifying-glass
-            NextPage => "\u{e12a}",                         // caret-double-right
-            PreviousPage => "\u{e128}",                     // caret-double-left
+            OpenFile => "\u{e230}",                            // file
+            OpenFolder => "\u{e256}",                          // folder-open
+            OpenFolders | Subfolders => "\u{e260}",            // folders
+            OpenRecursive | FolderTree => "\u{e67c}",          // tree-structure
+            NewFolder => "\u{e258}",                           // folder-plus
+            Rename | RenameCollection => "\u{e3b4}",           // pencil-simple
+            WindowTitle | WindowName => "\u{e3b4}",            // pencil-simple
+            CopyTo => "\u{e1ca}",                              // copy
+            MoveTo | Forward | PaneRight => "\u{e06c}",        // arrow-right
+            OpenWith => "\u{e5de}",                            // arrow-square-out
+            SetWallpaper => "\u{e32e}",                        // monitor
+            PlayVideo => "\u{e792}",                           // film-strip
+            Delete | TrashCollection => "\u{e4a6}",            // trash
+            DeletePermanently => "\u{e4f8}",                   // x-circle
+            Undo => "\u{e08a}",                                // arrow-u-up-left
+            CloseWindow => "\u{e4fa}",                         // x-square
+            Quit => "\u{e3da}",                                // power
+            First => "\u{e5a4}",                               // skip-back
+            Previous => "\u{e138}",                            // caret-left
+            Next => "\u{e13a}",                                // caret-right
+            Last => "\u{e5a6}",                                // skip-forward
+            Back | PaneLeft => "\u{e058}",                     // arrow-left
+            HomeFolder => "\u{e2c2}",                          // house
+            ParentFolder | PaneUp | MoveEarlier => "\u{e08e}", // arrow-up
+            SelectAll => "\u{e746}",                           // selection-all
+            SelectNone => "\u{e69e}",                          // selection-slash
+            InvertSelection => "\u{e744}",                     // selection-inverse
+            CopyPath => "\u{e198}",                            // clipboard-text
+            CopyPathUnquoted => "\u{e196}",                    // clipboard
+            CopyImage => "\u{e2cc}",                           // image-square
+            CopyFilesToClipboard => "\u{e710}",                // files
+            Preferences => "\u{e270}",                         // gear
+            AutoRotate | Rotate180 | Refresh => "\u{e094}",    // arrows-clockwise
+            NextFilter | NextLayout => "\u{e83c}",             // swap
+            RotateCw => "\u{e036}",                            // arrow-clockwise
+            RotateCcw => "\u{e038}",                           // arrow-counter-clockwise
+            Mirror => "\u{ed6a}",                              // flip-horizontal
+            Flip => "\u{ed6c}",                                // flip-vertical
+            SaveOrientation => "\u{e248}",                     // floppy-disk
+            Crop => "\u{e1d4}",                                // crop
+            SaveAs => "\u{e20a}",                              // download
+            ZoomIn => "\u{e310}",                              // magnifying-glass-plus
+            ZoomOut => "\u{e30e}",                             // magnifying-glass-minus
+            Zoom1To1 => "\u{e626}",                            // frame-corners
+            ZoomFit => "\u{e1d0}",                             // corners-out
+            FitWidth => "\u{eb06}",                            // arrows-horizontal
+            FitHeight => "\u{eb04}",                           // arrows-vertical
+            FitFill => "\u{e0a2}",                             // arrows-out
+            FullScreen => "\u{e0a6}",                          // arrows-out-simple
+            HideFileList => "\u{ec24}",                        // sidebar-simple
+            FullScreenInfo | GridNames => "\u{e1a8}",          // subtitles
+            Histogram => "\u{e150}",                           // chart-bar
+            HistogramLog => "\u{ebe4}",                        // function
+            Compare => "\u{e546}",                             // columns
+            OneImage => "\u{e45e}",                            // square
+            AboveEachOther => "\u{e5a2}",                      // rows
+            PaneDown | MoveLater => "\u{e03e}",                // arrow-down
+            Animate => "\u{e3d2}",                             // play-circle
+            HiddenFiles => "\u{e224}",                         // eye-slash
+            NewCollection => "\u{edf6}",                       // stack-plus
+            OpenCollection => "\u{e466}",                      // stack
+            ImportLightroom => "\u{e20c}",                     // download-simple
+            RemoveFromCollection => "\u{e32c}",                // minus-circle
+            MoveFirst => "\u{e066}",                           // arrow-line-up
+            MoveLast => "\u{e05c}",                            // arrow-line-down
+            FindDuplicates => "\u{e2d2}",                      // intersect
+            CheckImages => "\u{e184}",                         // check-circle
+            BackUp => "\u{e00c}",                              // archive
+            FocusSearch => "\u{e30c}",                         // magnifying-glass
+            NextPage => "\u{e12a}",                            // caret-double-right
+            PreviousPage => "\u{e128}",                        // caret-double-left
             #[cfg(feature = "marks")]
             Mark1 => "\u{e36a}", // number-circle-one
             #[cfg(feature = "marks")]
@@ -977,30 +985,30 @@ impl Action {
             Rate4 => "\u{e46a}", // star
             #[cfg(feature = "marks")]
             Rate5 => "\u{e46a}", // star
-            Icons => "\u{ec8c}",                            // grid-nine
-            Toolbar => "\u{eca0}",                          // toolbox
-            PathBar => "\u{e89c}",                          // signpost
-            Thumbnails => "\u{e836}",                       // images
-            ThumbnailGrid => "\u{e464}",                    // squares-four
-            InfoPanel | About => "\u{e2ce}",                // info
-            ExifWindow | SaveFrame => "\u{e10e}",           // camera
-            FocusKeywords => "\u{e478}",                    // tag
-            SortManager => "\u{e444}",                      // sort-ascending
-            PanView => "\u{e7b4}",                          // calendar-dots
-            Slideshow => "\u{e3d0}",                        // play
-            Pause => "\u{e39e}",                            // pause
-            RandomOrder => "\u{e422}",                      // shuffle
-            SlideshowFaster => "\u{e6a6}",                  // fast-forward
-            SlideshowSlower => "\u{e6a8}",                  // rewind
-            Escape => "\u{e4f6}",                           // x
-            NewWindow => "\u{e0f6}",                        // browsers
-            Projector => "\u{e658}",                        // projector-screen
-            ProjectorPointer => "\u{e1dc}",                 // cursor
-            Print => "\u{e3dc}",                            // printer
-            ExportFrames | CopyForSharing => "\u{eaf0}",    // export
-            Help => "\u{e0e6}",                             // book-open
-            Shortcuts => "\u{e2d8}",                        // keyboard
-            KeyboardMap => "\u{e31a}",                      // map-trifold
+            Icons => "\u{ec8c}",                               // grid-nine
+            Toolbar => "\u{eca0}",                             // toolbox
+            PathBar => "\u{e89c}",                             // signpost
+            Thumbnails => "\u{e836}",                          // images
+            ThumbnailGrid => "\u{e464}",                       // squares-four
+            InfoPanel | About => "\u{e2ce}",                   // info
+            ExifWindow | SaveFrame => "\u{e10e}",              // camera
+            FocusKeywords => "\u{e478}",                       // tag
+            SortManager => "\u{e444}",                         // sort-ascending
+            PanView => "\u{e7b4}",                             // calendar-dots
+            Slideshow => "\u{e3d0}",                           // play
+            Pause => "\u{e39e}",                               // pause
+            RandomOrder => "\u{e422}",                         // shuffle
+            SlideshowFaster => "\u{e6a6}",                     // fast-forward
+            SlideshowSlower => "\u{e6a8}",                     // rewind
+            LeaveFullScreen => "\u{e4f6}",                     // x
+            NewWindow => "\u{e0f6}",                           // browsers
+            Projector => "\u{e658}",                           // projector-screen
+            ProjectorPointer => "\u{e1dc}",                    // cursor
+            Print => "\u{e3dc}",                               // printer
+            ExportFrames | CopyForSharing => "\u{eaf0}",       // export
+            Help => "\u{e0e6}",                                // book-open
+            Shortcuts => "\u{e2d8}",                           // keyboard
+            KeyboardMap => "\u{e31a}",                         // map-trifold
         }
     }
 
@@ -1010,28 +1018,29 @@ impl Action {
         use Action::*;
         match self {
             Rename | CopyTo | MoveTo | Delete | DeletePermanently | CopyPath | CopyPathUnquoted
-            | CopyFiles | NewCollection | RemoveFromCollection | MoveEarlier | MoveLater
-            | MoveFirst | MoveLast | Print | CopyForSharing | OpenWith => Target::Selection,
+            | CopyFilesToClipboard | NewCollection | RemoveFromCollection | MoveEarlier
+            | MoveLater | MoveFirst | MoveLast | Print | CopyForSharing | OpenWith => {
+                Target::Selection
+            }
             #[cfg(feature = "marks")]
             Mark1 | Mark2 | Mark3 | Mark4 | Mark5 | Mark6 | Rate0 | Rate1 | Rate2 | Rate3
             | Rate4 | Rate5 => Target::Selection,
             SetWallpaper | PlayVideo | CopyImage | RotateCw | RotateCcw | Rotate180 | Mirror
             | Flip | SaveOrientation | Crop | SaveAs | SaveFrame | ExportFrames => Target::Shown,
             OpenFile | OpenFolder | OpenFolders | OpenRecursive | NewFolder | Undo
-            | CloseWindow | Quit | First | Previous | Next | Last | Back | Forward | Home | Up
-            | SelectAll | SelectNone | InvertSelection | Preferences | ExifRotate | NextFilter
-            | ZoomIn | ZoomOut | Zoom1To1 | ZoomFit | FitWidth | FitHeight | FitFill
-            | FullScreen | HideFileList | FullScreenInfo | Histogram | HistogramLog | Compare
-            | OneImage | AboveEachOther | NextLayout | PaneLeft | PaneRight | PaneUp | PaneDown
-            | Animate | Subfolders | HiddenFiles | OpenCollection | ImportLightroom
-            | RenameCollection | TrashCollection | FindDuplicates | CheckImages | BackUp
-            | FocusSearch | NextPage | PreviousPage | Icons | Toolbar | PathBar | Thumbnails
-            | ThumbnailGrid | GridNames | InfoPanel | ExifWindow | FocusKeywords | SortManager
-            | PanView | FolderTree | Refresh | Slideshow | Pause | RandomOrder
-            | SlideshowFaster | SlideshowSlower | Escape | NewWindow | WindowTitle | WindowName
-            | Projector | ProjectorPointer | Help | Shortcuts | KeyboardMap | About => {
-                Target::NoFile
-            }
+            | CloseWindow | Quit | First | Previous | Next | Last | Back | Forward | HomeFolder
+            | ParentFolder | SelectAll | SelectNone | InvertSelection | Preferences
+            | AutoRotate | NextFilter | ZoomIn | ZoomOut | Zoom1To1 | ZoomFit | FitWidth
+            | FitHeight | FitFill | FullScreen | HideFileList | FullScreenInfo | Histogram
+            | HistogramLog | Compare | OneImage | AboveEachOther | NextLayout | PaneLeft
+            | PaneRight | PaneUp | PaneDown | Animate | Subfolders | HiddenFiles
+            | OpenCollection | ImportLightroom | RenameCollection | TrashCollection
+            | FindDuplicates | CheckImages | BackUp | FocusSearch | NextPage | PreviousPage
+            | Icons | Toolbar | PathBar | Thumbnails | ThumbnailGrid | GridNames | InfoPanel
+            | ExifWindow | FocusKeywords | SortManager | PanView | FolderTree | Refresh
+            | Slideshow | Pause | RandomOrder | SlideshowFaster | SlideshowSlower
+            | LeaveFullScreen | NewWindow | WindowTitle | WindowName | Projector
+            | ProjectorPointer | Help | Shortcuts | KeyboardMap | About => Target::NoFile,
             #[cfg(feature = "marks")]
             SelectMark1 | SelectMark2 | SelectMark3 | SelectMark4 | SelectMark5 | SelectMark6 => {
                 Target::NoFile
@@ -1274,12 +1283,12 @@ impl crate::App {
                 self.move_along(ctx, action)
             }
             Action::Back | Action::Forward => self.back_or_forward(ctx, action),
-            Action::Home => {
+            Action::HomeFolder => {
                 if let Some(home) = std::env::var_os("HOME") {
                     self.visit(ctx, home.into());
                 }
             }
-            Action::Up => {
+            Action::ParentFolder => {
                 if let Some(parent) = self.folder.dir().parent() {
                     self.visit(ctx, parent.to_path_buf());
                 }
@@ -1302,7 +1311,7 @@ impl crate::App {
             // Decoded at full size in the background; egui hands it to the clipboard.
             Action::CopyImage => self.copy_image(ctx),
             // As a list of files, which a file manager pastes as a copy.
-            Action::CopyFiles => self.copy_files(),
+            Action::CopyFilesToClipboard => self.copy_files(),
             Action::Preferences if config::locked() => {
                 self.notice
                     .give(tr("The settings are locked (--lock-settings)").into());
@@ -1432,7 +1441,7 @@ impl crate::App {
                 self.config.projector_pointer = !self.config.projector_pointer;
                 self.config.save();
             }
-            Action::ExifRotate => self.set_exif_rotate(!self.config.exif_rotate),
+            Action::AutoRotate => self.set_exif_rotate(!self.config.exif_rotate),
             Action::NextFilter => {
                 self.set_view_filter((self.config.view_filter + 1) % FILTERS.len())
             }
@@ -1466,7 +1475,7 @@ impl crate::App {
             Action::RandomOrder => self.set_random_order(ctx, !self.config.slideshow_random),
             Action::SlideshowFaster | Action::SlideshowSlower => self.change_delay(ctx, action),
             // As in Geeqie, Escape never quits; it stops the slideshow and leaves full screen.
-            Action::Escape => self.escape(ctx, fullscreen),
+            Action::LeaveFullScreen => self.escape(ctx, fullscreen),
         }
     }
 
@@ -1941,8 +1950,8 @@ mod tests {
             // These open the home folder and the temporary folder, with their subfolders once
             // Include Subfolders is on, so the test would decode every file of the other tests
             // there, and hold the decodes' budget while a slow SVG of theirs was drawn.
-            Action::Home,
-            Action::Up,
+            Action::HomeFolder,
+            Action::ParentFolder,
         ];
         let dir = std::env::temp_dir().join(format!("glimt-test-empty-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
@@ -2124,7 +2133,7 @@ mod tests {
             );
         }
         let select = actions_in(body("menu_select"));
-        assert!(select.contains(&Action::CopyFiles));
+        assert!(select.contains(&Action::CopyFilesToClipboard));
         for action in select {
             assert_ne!(action.target(), Target::Shown, "{action:?} in menu_select");
         }
@@ -2398,6 +2407,26 @@ mod tests {
         assert_eq!(Action::for_script("Prev"), Some(Action::Previous));
     }
 
+    /// The actions renamed in 0.80.0 run the same action by their old names, in keys= and by
+    /// `--remote run`, so the users' keys and scripts of 0.79 keep working.
+    #[test]
+    fn actions_renamed_in_0_80_keep_their_keys_and_scripts() {
+        use super::Keys;
+        for (old, new) in [
+            ("CopyFiles", Action::CopyFilesToClipboard),
+            ("ExifRotate", Action::AutoRotate),
+            ("Escape", Action::LeaveFullScreen),
+            ("Up", Action::ParentFolder),
+            ("Home", Action::HomeFolder),
+        ] {
+            assert_eq!(Action::for_script(old), Some(new), "{old}");
+            let by_old: Keys = format!("{old}=Ctrl+F12").parse().unwrap();
+            let by_new: Keys = format!("{new:?}=Ctrl+F12").parse().unwrap();
+            assert_eq!(by_old.to_string(), by_new.to_string(), "{old}");
+            assert!(by_old.unusable_items().is_empty(), "{old}");
+        }
+    }
+
     /// No old name in `RENAMED_ACTIONS` is an action's name now. An action given an old name
     /// later would otherwise be read in keys= and by `--remote run` as the one it was renamed
     /// to, so its keys would run that other action.
@@ -2466,7 +2495,7 @@ mod tests {
         }
         // What no build can use is told, and a mark's key, which a build with marks uses, is
         // not.
-        let keys: Keys = "Bogus=X;Next=ctrl+N;Mark1=Ctrl+M;Up=Alt+Up"
+        let keys: Keys = "Bogus=X;Next=ctrl+N;Mark1=Ctrl+M;ParentFolder=Alt+Up"
             .parse()
             .unwrap();
         assert_eq!(keys.unusable_items(), ["Bogus=X", "Next=ctrl+N"]);
@@ -2655,7 +2684,7 @@ mod tests {
         );
         assert_eq!(
             esc(false),
-            Some(Action::Escape),
+            Some(Action::LeaveFullScreen),
             "Esc with nothing focused did nothing"
         );
         std::fs::remove_dir_all(dir).unwrap();

@@ -118,8 +118,8 @@ The tests that hold this:
 - `keeps_what_it_does_not_understand`: the marks file keeps mark bits and lines it does not
   understand, when a line has two fields and a path, so a later Glimt can add to it.
 - The `keys=` format is pinned by `src/keys-1.0.txt` and its test: every action (also one
-  without a default key) and every default key, each line with its kind (`action Up`,
-  `key Up`), which the test checks each on its own. So never rename an `Action` variant or
+  without a default key) and every default key, each line with its kind (`action Delete`,
+  `key Delete`), which the test checks each on its own. So never rename an `Action` variant or
   change a key's name, except through the tables of old names below. A new action goes at the
   end of that file as `action Name`, and the test fails until it is there.
 

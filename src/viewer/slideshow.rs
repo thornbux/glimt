@@ -342,7 +342,7 @@ impl crate::App {
     pub(crate) fn fade_ms(&self) -> u64 {
         match self.config.cpu_use {
             0 => 0,
-            _ => FADES[self.config.fade].2,
+            _ => FADES[self.config.slideshow_fade].2,
         }
     }
 

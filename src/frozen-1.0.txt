@@ -505,3 +505,14 @@ sharing_tag XPTitle
 sharing_tag XResolution
 sharing_tag YCbCrPositioning
 sharing_tag YResolution
+setting one_malloc_arena
+setting slideshow_fade
+value slideshow_fade off
+value slideshow_fade short
+value slideshow_fade long
+setting icon_grid
+script CopyFilesToClipboard
+script AutoRotate
+script LeaveFullScreen
+script ParentFolder
+script HomeFolder

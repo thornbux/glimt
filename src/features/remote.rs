@@ -874,8 +874,9 @@ fn socket_path_fits(path: &Path) -> bool {
 
 /// Returns whether `command` may read the folder again or open another, so that behind a waiting
 /// select it waits its turn, and the select is answered for the list it was sent to: another
-/// script's open, subfolders, a slideshow with its subfolders, and run, whose Up, Home, Back or
-/// Refresh read a folder. Other queries and commands are done at once, as without it.
+/// script's open, subfolders, a slideshow with its subfolders, and run, whose ParentFolder,
+/// HomeFolder, Back or Refresh read a folder. Other queries and commands are done at once, as
+/// without it.
 fn may_relist(command: &str) -> bool {
     ["open ", "subfolders", "slideshow", "run "]
         .iter()
@@ -2033,7 +2034,7 @@ mod tests {
             "open /a",
             "subfolders on",
             "slideshow",
-            "run Up",
+            "run ParentFolder",
             "run Refresh",
         ] {
             assert!(super::may_relist(command), "{command}");
@@ -2613,7 +2614,7 @@ mod tests {
 
     /// The commands after `open` wait until the place it named is looked up, also in a window
     /// that runs no `ui`, so they act on that place and not on the list from before it:
-    /// `current` names the file opened, and `run Up` goes up from its folder.
+    /// `current` names the file opened, and `run ParentFolder` goes up from its folder.
     #[test]
     fn commands_after_an_open_act_on_the_place_it_opens() {
         let dir = std::env::temp_dir().join(format!("glimt-test-open-then-{}", std::process::id()));
@@ -2630,7 +2631,7 @@ mod tests {
         let (reply, current) = std::sync::mpsc::channel();
         tx.send((format!("open {}", b.display()), None)).unwrap();
         tx.send(("current".to_owned(), Some(reply))).unwrap();
-        tx.send(("run Up".to_owned(), None)).unwrap();
+        tx.send(("run ParentFolder".to_owned(), None)).unwrap();
         let mut answer = None;
         assert!(receive_remote_until(&mut app, &ctx, |_| {
             answer = current.try_recv().ok();

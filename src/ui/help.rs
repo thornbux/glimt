@@ -702,7 +702,9 @@ pub(crate) const MANUAL: &[(&str, &str)] = &[
          as glimt --remote run ZoomIn or run ThumbnailGrid; glimt --action-list lists the \
          actions it takes with their labels. They are those that change no file, sidecar, mark \
          or collection, not even through a window you then click in, and run does nothing while \
-         a dialog asks you or you type in a text field.\n\n\
+         a dialog asks you or you type in a text field. An action that was renamed is \
+         still taken by its old name, here and in your own keys, such as Up for ParentFolder or \
+         ExifRotate for AutoRotate; the list shows only the new names.\n\n\
          They reach only the Glimt windows of the same user on this computer, through a private \
          socket, never over the network; for another computer, run the command there (ssh). \
          Several can be told apart by name: start them with glimt --name left and glimt --name \

@@ -96,7 +96,7 @@ pub(crate) const CPU_LEVELS: [(&str, &str); 3] = [
     ),
 ];
 
-/// Slideshow → Fade, as (the name for the config and --fade, the menu label, milliseconds).
+/// Slideshow → Fade, as (the name for slideshow_fade and --fade, the menu label, milliseconds).
 pub(crate) const FADES: [(&str, &str, u64); 3] = [
     ("off", "Off", 0),
     ("short", "Short", 400),
@@ -139,7 +139,7 @@ pub const MAX_RECENT: usize = 10;
 /// (fit_mode=width), and they are read by name or by the number used before (fit_mode=1). A
 /// list grows only at its end, so the numbers keep their meaning.
 const NAMED: [(&str, &[&str]); 7] = [
-    ("fade", &["off", "short", "long"]),
+    ("slideshow_fade", &["off", "short", "long"]),
     ("fit_mode", &["whole", "width", "height", "fill"]),
     ("histogram", &["off", "rgb", "brightness"]),
     ("thumb_size", &["small", "medium", "large"]),
@@ -154,7 +154,7 @@ const NAMED: [(&str, &[&str]); 7] = [
 /// The settings renamed in 0.74.0 and later, as (old key, new key). A settings file is read by
 /// the old keys too, forever, so the users' files keep working, and only the new keys are
 /// written. When a file holds both keys of a setting, the value of the new key is the one used.
-const RENAMED_SETTINGS: [(&str, &str); 11] = [
+const RENAMED_SETTINGS: [(&str, &str); 14] = [
     ("trash", "delete_to_trash"),
     ("delay", "slideshow_delay"),
     ("random", "slideshow_random"),
@@ -168,6 +168,12 @@ const RENAMED_SETTINGS: [(&str, &str); 11] = [
     ("osd_template", "full_screen_info_template"),
     // 0.76.0: "turns" was a word of its own. The menu says One Image at a Time.
     ("layout_turns", "slideshow_one_image_at_a_time"),
+    // 0.80.0: low_memory=true is the default Medium level, and it means one malloc arena.
+    ("low_memory", "one_malloc_arena"),
+    // 0.80.0: the one slideshow setting without slideshow_ (the option --fade keeps its name).
+    ("fade", "slideshow_fade"),
+    // 0.80.0: beside toolbar_icons and thumbnails, icons did not say which it was.
+    ("icons", "icon_grid"),
 ];
 
 /// The window state's keys renamed in 0.74.0, as (old key, new key). They are read as the
@@ -288,7 +294,7 @@ config! {
     slideshow_repeat: bool = true,
     /// The slideshow fades from one image to the next. It is off, short or long, as an index
     /// into FADES.
-    fade: usize = 1,
+    slideshow_fade: usize = 1,
     /// How many images are shown at once (View → Layout): "1", "2x1", "1x2" or "2x2" (columns ×
     /// rows).
     layout: String = String::from("1"),
@@ -364,7 +370,7 @@ config! {
     toolbar: bool = true,
     /// One malloc arena for all threads. It uses much less memory, and decoding is up to about
     /// 8 % slower. It is read only at startup, because glibc must be set before threads start.
-    low_memory: bool = true,
+    one_malloc_arena: bool = true,
     /// How many images are decoded at once, at most the number of cores. It is read at startup.
     decode_threads: usize = 4,
     /// CPU use: saving, balanced or full, as an index into CPU_LEVELS.
@@ -419,7 +425,7 @@ config! {
     /// and pan view. Without it the cells are shorter, so more rows fit.
     grid_names: bool = true,
     /// The file list as a grid of thumbnails (Ctrl+I) instead of rows.
-    icons: bool = false,
+    icon_grid: bool = false,
     /// Colour behind the image (sRGB).
     background: Rgb = Rgb([0, 0, 0]),
     /// A checkerboard behind transparent images, where the background shows otherwise.
@@ -492,7 +498,7 @@ impl Config {
         c.preload = c.preload.min(20);
         c.decode_threads = c.decode_threads.clamp(1, 8);
         c.cpu_use = c.cpu_use.min(CPU_LEVELS.len() - 1);
-        c.fade = c.fade.min(FADES.len() - 1);
+        c.slideshow_fade = c.slideshow_fade.min(FADES.len() - 1);
         c.fit_mode = c.fit_mode.min(3);
         if !print::PER_PAGE.iter().any(|p| p.0 == c.print_per_page) {
             c.print_per_page = 1;
@@ -1280,7 +1286,12 @@ mod tests {
             .find(|l| l.name == "Medium")
             .unwrap();
         assert_eq!(
-            (d.preload, d.decode_threads, d.animation_mb, d.low_memory),
+            (
+                d.preload,
+                d.decode_threads,
+                d.animation_mb,
+                d.one_malloc_arena
+            ),
             (
                 medium.preload,
                 medium.decode_threads,
@@ -1314,7 +1325,10 @@ mod tests {
         assert!(Config::default().save_thumbnails);
         assert!(!Config::default().info_panel && Config::parse("info_panel=true").info_panel);
         assert!(Config::default().toolbar && !Config::parse("toolbar=false").toolbar);
-        assert!(Config::default().low_memory && !Config::parse("low_memory=false").low_memory);
+        assert!(
+            Config::default().one_malloc_arena
+                && !Config::parse("one_malloc_arena=false").one_malloc_arena
+        );
         assert!(Config::default().path_bar && !Config::parse("path_bar=false").path_bar);
         assert_eq!(Config::default().background.0, [0, 0, 0]);
         assert!(Config::default().remember_window && Config::default().inhibit_screensaver);
@@ -1414,12 +1428,15 @@ mod tests {
         assert!(text.contains('\u{fffd}'));
         std::fs::remove_dir_all(&dir).unwrap();
         // The choices are read by name, or by the number used before 1.0, and written by name.
-        let c = Config::parse("fit_mode=width\nfade=2\nview_filter=Inverted\ncpu_use=9");
-        assert_eq!((c.fit_mode, c.fade, c.view_filter, c.cpu_use), (1, 2, 2, 2));
+        let c = Config::parse("fit_mode=width\nslideshow_fade=2\nview_filter=Inverted\ncpu_use=9");
+        assert_eq!(
+            (c.fit_mode, c.slideshow_fade, c.view_filter, c.cpu_use),
+            (1, 2, 2, 2)
+        );
         let text = c.to_text();
         for line in [
             "fit_mode=width\n",
-            "fade=long\n",
+            "slideshow_fade=long\n",
             "view_filter=inverted\n",
             "cpu_use=full\n",
         ] {
@@ -1428,7 +1445,7 @@ mod tests {
         // A built-in theme is read by its old name too, and written by its new one.
         let theme = Config::parse("theme=Contrast").to_text();
         assert!(theme.contains("\ntheme=High Contrast Light\n"), "{theme}");
-        let (_, problems) = Config::parse_checked("fade=9\nfit_mode=wide");
+        let (_, problems) = Config::parse_checked("slideshow_fade=9\nfit_mode=wide");
         assert!(problems[0].contains("long is used") && problems[1].contains("not a value"));
         for (k, (name, _, _)) in super::FADES.iter().enumerate() {
             assert_eq!(super::NAMED[0].1[k], *name);
@@ -1575,9 +1592,11 @@ mod tests {
         let defaults = Config::default().to_text();
         for (old, new) in super::RENAMED_SETTINGS {
             let value = super::value_in(&defaults, new);
-            // Another value than the default: another of its choices, a bool turned, a number
-            // one larger, or a text with a letter more.
-            let choice = (super::choices().into_iter())
+            // Another value than the default: another of its choices (in `choices()` or in
+            // `NAMED`, as slideshow_fade's), a bool turned, a number one larger, or a text with
+            // a letter more.
+            let named = super::NAMED.map(|(key, values)| (key, values.to_vec()));
+            let choice = (super::choices().into_iter().chain(named))
                 .find(|c| c.0 == new)
                 .and_then(|c| c.1.into_iter().find(|v| *v != value));
             let other = match (choice, value.as_str()) {
@@ -1627,6 +1646,22 @@ mod tests {
         );
         let written = super::WindowState::parse("window_pos=10,20\n").to_text();
         assert!(written.contains("window_position=10,20\n") && !written.contains("window_pos="));
+    }
+
+    /// The settings renamed in 0.80.0 give the same settings under their old keys as under
+    /// their new ones, and not the defaults, so a settings file of 0.79 keeps its choices.
+    #[test]
+    fn settings_renamed_in_0_80_keep_their_values() {
+        use super::Config;
+        for (old, new, value) in [
+            ("low_memory", "one_malloc_arena", "false"),
+            ("fade", "slideshow_fade", "long"),
+            ("icons", "icon_grid", "true"),
+        ] {
+            let by_old = Config::parse(&format!("{old}={value}\n"));
+            assert_eq!(by_old, Config::parse(&format!("{new}={value}\n")), "{old}");
+            assert_ne!(by_old, Config::default(), "{old} is not read");
+        }
     }
 
     /// The man page's FILES names each file and folder that Glimt owns, as src/frozen-1.0.txt

@@ -309,8 +309,8 @@ impl crate::App {
         ui.separator();
         menu_item(ui, chosen, Action::Back);
         menu_item(ui, chosen, Action::Forward);
-        menu_item(ui, chosen, Action::Home);
-        menu_item(ui, chosen, Action::Up);
+        menu_item(ui, chosen, Action::HomeFolder);
+        menu_item(ui, chosen, Action::ParentFolder);
         ui.separator();
         menu_item(ui, chosen, Action::FocusSearch);
     }
@@ -323,7 +323,7 @@ impl crate::App {
         ui.separator();
         menu_item(ui, chosen, Action::CopyPath);
         menu_item(ui, chosen, Action::CopyPathUnquoted);
-        menu_item(ui, chosen, Action::CopyFiles);
+        menu_item(ui, chosen, Action::CopyFilesToClipboard);
     }
 
     /// The Edit menu.
@@ -440,7 +440,7 @@ impl crate::App {
         menu_toggle(ui, chosen, c.show_subfolders, Action::Subfolders);
         menu_toggle(ui, chosen, c.show_hidden, Action::HiddenFiles);
         menu_toggle(ui, chosen, c.thumbnails, Action::Thumbnails);
-        menu_toggle(ui, chosen, c.icons, Action::Icons);
+        menu_toggle(ui, chosen, c.icon_grid, Action::Icons);
         // Ticked only while the grid shows: from an image opened from it, the item goes back to
         // the grid, as G and Esc do.
         let grid = self.panel.is_area_grid_shown();
@@ -510,7 +510,7 @@ impl crate::App {
             Action::CopyForSharing,
             Action::MoveTo,
             Action::CopyPath,
-            Action::CopyFiles,
+            Action::CopyFilesToClipboard,
         ] {
             menu_item(ui, chosen, action);
         }
@@ -744,7 +744,12 @@ impl crate::App {
             ui.style_mut().override_font_id = Some(egui::FontId::proportional(size));
             ui.horizontal(|ui| {
                 // The icons the menus show for the same actions.
-                for action in [Action::Back, Action::Forward, Action::Up, Action::Home] {
+                for action in [
+                    Action::Back,
+                    Action::Forward,
+                    Action::ParentFolder,
+                    Action::HomeFolder,
+                ] {
                     tool_button(ui, chosen, action.icon(), action, false);
                 }
                 tool_button(ui, chosen, Action::Refresh.icon(), Action::Refresh, false);
@@ -795,7 +800,7 @@ impl crate::App {
             Action::PathBar => &mut c.path_bar,
             Action::Toolbar => &mut c.toolbar,
             Action::FullScreenInfo => &mut c.full_screen_info,
-            Action::Icons => &mut c.icons,
+            Action::Icons => &mut c.icon_grid,
             Action::FolderTree => &mut c.folder_tree,
             Action::HistogramLog => &mut c.histogram_log,
             Action::Animate => {

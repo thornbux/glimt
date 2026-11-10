@@ -1959,7 +1959,7 @@ fn settings_change_through_their_setters() {
         "thumb_size",
         "grid_names",
         "thumbnails",
-        "icons",
+        "icon_grid",
         "show_subfolders",
         "info_panel",
     ] {
@@ -2972,7 +2972,7 @@ fn the_list_is_drawn_in_the_form_its_caller_asks() {
         if let Some(name) = function_name(line) {
             function = name.to_owned();
         }
-        let setting = [".thumbnails", ".icons"].iter().any(|s| {
+        let setting = [".thumbnails", ".icon_grid"].iter().any(|s| {
             (line.match_indices(s)).any(|(at, _)| {
                 let after = line[at + s.len()..].chars().next();
                 !after.is_some_and(|c| c.is_alphanumeric() || c == '_')

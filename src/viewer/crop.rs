@@ -286,7 +286,7 @@ mod tests {
             part: None,
         };
         app.viewing.start_crop(crop);
-        app.run(&ctx, crate::ui::actions::Action::Escape);
+        app.run(&ctx, crate::ui::actions::Action::LeaveFullScreen);
         assert!(app.panel.is_area_grid_shown() && !app.viewing.is_cropping());
         std::fs::remove_dir_all(dir).unwrap();
     }
