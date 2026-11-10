@@ -1126,7 +1126,7 @@ impl crate::App {
     /// Every dialog and window reads its Enter or Esc here, never from the input as a whole
     /// (`source_rules::keys_answer_through_one_place`).
     pub(crate) fn answers(&self, ctx: &egui::Context, key: egui::Key) -> bool {
-        if self.focus_held(ctx) {
+        if self.focus_held(ctx, |_| true) {
             return false;
         }
         ctx.input_mut(|i| {
@@ -1145,10 +1145,15 @@ impl crate::App {
     /// the focus the last frame ended with counts too. It counts only for those keys, and only
     /// when egui says it held the focus then: a widget gone from the window keeps the focus
     /// until egui notices at the end of a frame, and the next key would be lost to it. The
-    /// image area's focus does not count, because it holds the focus for a screen reader.
-    /// `answers` and the shortcuts in `read_keys` both ask here, so a key is never the
-    /// widget's for one of them and free for the other.
-    pub(crate) fn focus_held(&self, ctx: &egui::Context) -> bool {
+    /// image area's focus does not count, because it holds the focus for a screen reader, and
+    /// neither does a widget for which `counts` is false. `answers` and the shortcuts in
+    /// `read_keys` both ask here, so a key is never the widget's for one of them and free for
+    /// the other.
+    pub(crate) fn focus_held(
+        &self,
+        ctx: &egui::Context,
+        counts: impl Fn(egui::Id) -> bool,
+    ) -> bool {
         let left = |e: &egui::Event| {
             matches!(
                 e,
@@ -1168,7 +1173,7 @@ impl crate::App {
         [before, now]
             .into_iter()
             .flatten()
-            .any(|f| Some(f) != self.image_area_id)
+            .any(|f| Some(f) != self.image_area_id && counts(f))
     }
 
     /// Notes the widget with the keyboard focus as the frame ends, for `answers` in the next.
