@@ -703,8 +703,9 @@ struct Call {
 /// The crate's functions, and how a call in one of them names another. A call is followed by
 /// what it says: `self.name(` and `self.field.name(` to the method of that type, `Type::name(`
 /// and `module::name(` to that function, `name(` to the free function of that name, and
-/// `value.name(` to a method of that name of a type that the calling function names. A name
-/// that the function binds itself (a `let`, a parameter, a closure's argument) is its own.
+/// `value.name(` to the method of that name of the type written for `value`, or to every method
+/// of that name when no type is written for it (`method_callees`). A name that the function
+/// binds itself (a `let`, a parameter, a closure's argument) is its own.
 struct CallGraph {
     functions: Vec<Function>,
     /// Each file's `code_lines`.
@@ -759,7 +760,13 @@ impl CallGraph {
                 text: (*c).to_owned(),
                 line: i + 1,
             }));
-            for (callee, text) in self.callees(f, &text, &signature, code) {
+            // A line that goes on with a method (`.collection()`) gets its receiver from the
+            // lines before it (`self` and `.folder`), so that its type can be found.
+            let code = match code.trim_start().starts_with('.') {
+                true => format!("{}{}", receiver_before(lines, i), code.trim_start()),
+                false => code.to_owned(),
+            };
+            for (callee, text) in self.callees(f, &text, &signature, &code) {
                 let line = i + 1;
                 let callee = Some(callee);
                 calls.push(Call { callee, text, line });
@@ -793,7 +800,9 @@ impl CallGraph {
                 continue;
             }
             let callees = match path.rsplit_once("::") {
-                _ if before.ends_with('.') && is_call => self.method_callees(f, text, before, name),
+                _ if before.ends_with('.') && is_call => {
+                    self.method_callees(f, text, signature, before, name)
+                }
                 _ if before.ends_with('.') => Vec::new(),
                 Some((qualifier, _)) => self.qualified_callees(f, qualifier, name),
                 None if binds_locally(text, signature, name) => Vec::new(),
@@ -810,29 +819,60 @@ impl CallGraph {
     }
 
     /// Returns the methods `name` that `before` followed by `name(` calls in `f`, whose code is
-    /// `text`.
-    fn method_callees(&self, f: &Function, text: &str, before: &str, name: &str) -> Vec<usize> {
+    /// `text` and whose lines up to its body are `signature`. The receiver's type is found from
+    /// `self`, or from the type that `f` writes for a parameter or a `let`, and then through the
+    /// types of the fields (`self.a.b`, `other.a`). When it cannot be found, as for a loop's
+    /// variable, a closure's argument or what a call returns, every method of that name is
+    /// followed, because a rule that guesses must find too much rather than too little.
+    fn method_callees(
+        &self,
+        f: &Function,
+        text: &str,
+        signature: &str,
+        before: &str,
+        name: &str,
+    ) -> Vec<usize> {
         let receiver = &before[..before.len() - 1];
+        // A receiver that ends in a call or an index (`self.folder.current().x(`) starts after
+        // it here, so its first word is empty and its type is not found.
         let receiver_start =
             (receiver.rfind(|c: char| !(is_word_char(c) || c == '.'))).map_or(0, |at| at + 1);
         let methods = self.methods.get(name).map_or(&[][..], Vec::as_slice);
-        let mut fields = receiver[receiver_start..].split('.');
-        if fields.next() == Some("self") {
-            // The type of `self.a.b` is found through the types of the fields.
-            let mut owner = f.owner.clone();
-            for field in fields {
-                owner = owner.and_then(|o| self.fields.get(&(o, field.to_owned())).cloned());
-            }
-            return (methods.iter().copied())
-                .filter(|&m| owner.is_some() && self.functions[m].owner == owner)
-                .collect();
+        let mut words = receiver[receiver_start..].split('.');
+        let mut owner = match words.next() {
+            Some("self") => f.owner.clone(),
+            Some(word) => match written_type(text, signature, word) {
+                Some(written) if written == "Self" => f.owner.clone(),
+                written => written,
+            },
+            None => None,
+        };
+        for field in words {
+            owner = owner.and_then(|o| self.fields.get(&(o, field.to_owned())).cloned());
         }
-        (methods.iter().copied())
-            .filter(|&m| {
-                let owner = self.functions[m].owner.as_deref().unwrap_or("");
-                f.owner.as_deref() == Some(owner) || mentions_word(text, owner)
-            })
-            .collect()
+        // Only a function that takes `self` can be called on a value (`Config::parse(text)` is
+        // not what `text.parse()` calls).
+        let methods = (methods.iter().copied()).filter(|&m| self.takes_self(m));
+        match owner {
+            Some(owner) => methods
+                .filter(|&m| self.functions[m].owner.as_deref() == Some(owner.as_str()))
+                .collect(),
+            None => methods.collect(),
+        }
+    }
+
+    /// Returns whether function `g` takes `self` (`self`, `&self`, `&mut self`, `mut self`).
+    fn takes_self(&self, g: usize) -> bool {
+        let g = &self.functions[g];
+        let lines = &self.lines[&g.file][g.lines.clone()];
+        let opens = lines.iter().position(|l| l.ends_with('{')).unwrap_or(0);
+        let signature = lines[..=opens].join(" ");
+        let parameters = signature
+            .split_once('(')
+            .map_or("", |(_, p)| p.trim_start());
+        let parameters = parameters.trim_start_matches('&');
+        let parameters = parameters.strip_prefix("mut ").unwrap_or(parameters);
+        parameters.starts_with("self") && !parameters[4..].starts_with(is_word_char)
     }
 
     /// Returns the functions that `qualifier::name` names in `f`: a method or associated
@@ -4348,23 +4388,29 @@ fn disk_calls_in_window_thread(
     parts: &[(String, String)],
 ) -> Vec<(String, String, String, usize, String)> {
     let graph = CallGraph::new(sources);
-    let calls: Vec<Vec<Call>> = (graph.functions.iter())
-        .map(|f| graph.calls_of(f))
-        .collect();
-    let ways = ways_to_the_disk(&calls);
     let is_window = |f: &Function| {
         f.owner.as_deref().is_some_and(|owner| {
             owner == "App" || (parts.iter()).any(|(file, part)| *file == f.file && part == owner)
         })
     };
+    // A call of a function of the window's thread leads to the disk only through that
+    // function's own calls, which are found where it makes them. So it is left out, also from
+    // the ways through other functions to the disk.
+    let calls: Vec<Vec<Call>> = (graph.functions.iter())
+        .map(|f| {
+            let mut calls = graph.calls_of(f);
+            calls.retain(|c| (c.callee).is_none_or(|g| !is_window(&graph.functions[g])));
+            calls
+        })
+        .collect();
+    let ways = ways_to_the_disk(&calls);
     let mut found = Vec::new();
     for (f, calls_of_f) in graph.functions.iter().zip(&calls) {
         if !is_window(f) {
             continue;
         }
         for call in calls_of_f {
-            let waits =
-                (call.callee).is_none_or(|g| ways[g].is_some() && !is_window(&graph.functions[g]));
+            let waits = (call.callee).is_none_or(|g| ways[g].is_some());
             if !waits {
                 continue;
             }
@@ -4533,13 +4579,58 @@ fn binds_locally(text: &str, signature: &str, name: &str) -> bool {
     bound(signature, &is_parameter) || bound(text, &is_local)
 }
 
-/// Returns whether `text` has `word` as a whole word.
-fn mentions_word(text: &str, word: &str) -> bool {
-    !word.is_empty()
-        && text.match_indices(word).any(|(at, _)| {
-            !text[..at].ends_with(is_word_char)
-                && !text[at + word.len()..].starts_with(is_word_char)
+/// Returns the receiver that the lines of `lines` before line `at` end in, when line `at` goes
+/// on with a method: the names and fields at the end of the line before (`self`, `.folder`),
+/// and of the lines before that while they go on with a field too. Returns what ends in a call
+/// or an index as nothing, as its type is not found.
+fn receiver_before(lines: &[String], at: usize) -> String {
+    let mut receiver = String::new();
+    for line in lines[..at].iter().rev() {
+        let line = line.trim();
+        let start = (line.rfind(|c: char| !(is_word_char(c) || c == '.'))).map_or(0, |i| i + 1);
+        receiver.insert_str(0, &line[start..]);
+        if start > 0 || !line.starts_with('.') {
+            break;
+        }
+    }
+    receiver
+}
+
+/// Returns the type that a function writes for its own `word`: a parameter in its
+/// `signature` (`ui: &mut egui::Ui`) or a `let` in its `text` (`let tool: Tool`). The type is
+/// given without its references, path and generics, and an `Arc`, `Rc` or `Box` gives the type
+/// it holds, whose methods it passes on. Returns `None` when no type is written for `word`.
+fn written_type(text: &str, signature: &str, word: &str) -> Option<String> {
+    if word.is_empty() || !word.chars().all(is_word_char) {
+        return None;
+    }
+    let pattern = format!("{word}: ");
+    let after_parameter = (signature.match_indices(&pattern))
+        .filter(|(at, _)| !signature[..*at].ends_with(is_word_char))
+        .map(|(at, _)| &signature[at + pattern.len()..]);
+    let after_let = (text.match_indices(&pattern))
+        .filter(|(at, _)| {
+            let before = &text[..*at];
+            before.ends_with("let ") || before.ends_with("let mut ")
         })
+        .map(|(at, _)| &text[at + pattern.len()..]);
+    after_parameter.chain(after_let).find_map(|mut written| {
+        loop {
+            written = written.trim_start_matches(['&', ' ']);
+            written = written.strip_prefix("mut ").unwrap_or(written);
+            let end =
+                (written.find(|c: char| !(is_word_char(c) || c == ':'))).unwrap_or(written.len());
+            let name = written[..end].rsplit("::").next().unwrap_or("");
+            match written[end..].strip_prefix('<') {
+                Some(held) if ["Arc", "Rc", "Box"].contains(&name) => written = held,
+                _ => {
+                    break name
+                        .starts_with(char::is_uppercase)
+                        .then(|| name.to_owned());
+                }
+            }
+        }
+    })
 }
 
 /// Returns the part of `line` that runs in the thread the line runs in: all of it, the part
@@ -4568,8 +4659,11 @@ fn code_of_this_thread<'l>(line: &'l str, handed_over: &mut usize) -> &'l str {
 /// a function given as a value. It finds them before a thread is started on the same line, and
 /// after the thread's call ends. It passes the work handed to a thread, also inside a function
 /// followed; a function of the window's thread, whose own calls are found instead; a local or a
-/// parameter of the same name as a function; a method of a type that the caller does not name;
-/// a free function; a comment and a string.
+/// parameter of the same name as a function; a method of another type than the one written for
+/// its receiver (a parameter's, a `let`'s, held in an `Arc`, also on the lines before); a
+/// function without `self` called as a method; a free function; a comment and a string. A
+/// method called on a value whose type is not written (a loop's variable, a closure's argument,
+/// what a call returns) is followed to every method of that name.
 #[test]
 fn finds_a_disk_call_in_the_window_thread() {
     let a = "impl crate::App {\n    fn a(&self) {\n        std::fs::metadata(p);\n    }\n    \
@@ -4579,8 +4673,14 @@ fn finds_a_disk_call_in_the_window_thread() {
         let s = \".is_file()\";\n        let x = q.is_dir(); std::thread::spawn(f);\n    \
         }\n    fn f(&mut self, look: L) {\n        self.part.d();\n        b::deep(&p);\n        \
         Other::look(p);\n        let helper = |p| p;\n        helper(p);\n        look(p);\n        \
-        q.map(in_thread);\n        refuse(&p, look_deeper);\n    }\n    fn g(&self) {\n        \
-        ui.label(p);\n        modified(p);\n    }\n}\nfn helper(p: &Path) -> bool {\n    \
+        q.map(in_thread);\n        refuse(&p, look_deeper);\n    }\n    \
+        fn g(&self, ui: &mut egui::Ui) {\n        ui.label(p);\n        modified(p);\n    }\n    \
+        fn h(&self) {\n        self.part.get().label();\n        \
+        for x in items {\n            x.label();\n        }\n        \
+        items.map(|t| t.label());\n    }\n    \
+        fn i(&self, other: &Other, part: Arc<Part>) {\n        other.label();\n        \
+        part.label();\n        let tool: Thing = make();\n        tool.label();\n        part\n            .label();\n        \
+        text.look(p);\n    }\n}\nfn helper(p: &Path) -> bool {\n    \
         look_deeper(p)\n}\nfn look_deeper(p: &Path) -> bool {\n    p.is_dir()\n}\nfn in_thread() {\n    \
         std::thread::spawn(move || p.exists());\n}\nfn refuse(p: &Path, look: L) -> bool {\n    \
         look(p)\n}\nfn modified(p: &Path) {\n    p.metadata();\n}\nfn look(p: &Path) {\n    \
@@ -4614,8 +4714,12 @@ fn finds_a_disk_call_in_the_window_thread() {
             ("a.rs", "f", "look(", 20),
             ("a.rs", "f", "look_deeper", 25),
             ("a.rs", "g", "modified(", 29),
-            ("a.rs", "d", ".metadata()", 55),
-            ("a.rs", "default", ".is_symlink()", 60),
+            ("a.rs", "h", "label(", 32),
+            ("a.rs", "h", "label(", 34),
+            ("a.rs", "h", "label(", 36),
+            ("a.rs", "i", "label(", 39),
+            ("a.rs", "d", ".metadata()", 71),
+            ("a.rs", "default", ".is_symlink()", 76),
         ]
     );
 }

@@ -615,25 +615,10 @@ impl crate::App {
                 return;
             };
             let tool = tools[k].clone();
-            let (files, left): (Vec<PathBuf>, Vec<PathBuf>) =
-                (targets.iter().map(|&i| self.path(i))).partition(|p| tool.accepts(p));
-            let name = &tool.name;
-            if files.is_empty() {
-                self.notice
-                    .give(tf!("{name} takes none of these files", name));
-                return;
-            }
-            if !left.is_empty() {
-                let files = count(left.len(), "file");
-                self.notice.give(tf!(
-                    "{name} leaves out {files} of a type it does not take",
-                    name,
-                    files
-                ));
-            }
+            let targets: Vec<PathBuf> = targets.iter().map(|&i| self.path(i)).collect();
             // A turned image still being saved would be written over the tool's edit. The
             // files are held while the tool runs, so a delete, move or rename of them waits.
-            let Some(held_back) = self.hold_back_while_writing(files.clone()) else {
+            let Some(held_back) = self.hold_back_while_writing(targets.clone()) else {
                 return;
             };
             let (dir, running) = (self.folder.dir().to_path_buf(), self.tools_running.clone());
@@ -642,6 +627,23 @@ impl crate::App {
             // A tool may be an editor that stays open for hours: not waited for at closing,
             // and no busy pointer meanwhile, as for Open With.
             std::thread::spawn(move || {
+                // The types a tool takes are looked up in the system's files of file types, the
+                // first time, so the files are sorted here and not in the window's thread.
+                let (files, left): (Vec<PathBuf>, Vec<PathBuf>) =
+                    targets.into_iter().partition(|p| tool.accepts(p));
+                let name = &tool.name;
+                if files.is_empty() {
+                    let _ = tx.send(tf!("{name} takes none of these files", name));
+                    return;
+                }
+                if !left.is_empty() {
+                    let files = count(left.len(), "file");
+                    let _ = tx.send(tf!(
+                        "{name} leaves out {files} of a type it does not take",
+                        name,
+                        files
+                    ));
+                }
                 let result = tool.run(&files, &dir, &running);
                 drop(held_back);
                 let _ = report_tx.send(OperationReport {
