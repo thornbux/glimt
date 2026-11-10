@@ -544,9 +544,20 @@ struct Opening {
     paths: Vec<PathBuf>,
     /// Whether it opens as a new step of Go → Back and Forward (`visit`).
     is_step: bool,
-    /// The notice for a path that is not there, which is then not opened and leaves Open
-    /// Recent. With `None`, the folder of a path that is not there opens, as before.
-    if_gone: Option<fn(&Path) -> String>,
+    /// What happens when the path is not there.
+    if_gone: IfGone,
+}
+
+/// What happens when the one path asked to be opened is not there.
+#[derive(Clone, Copy)]
+enum IfGone {
+    /// Its folder opens, as for a file named on the command line.
+    OpenItsFolder,
+    /// The notice made from the path says so. The path is not opened, and it leaves Open
+    /// Recent.
+    Tell(fn(&Path) -> String),
+    /// The current folder opens instead, as for the last folder shown, which may be gone since.
+    OpenCurrentFolder,
 }
 
 /// What the paths asked to be opened are on disk, as `look_up` found them in the background.
@@ -577,7 +588,20 @@ impl crate::App {
         let opening = Opening {
             paths: vec![path],
             is_step: false,
-            if_gone: None,
+            if_gone: IfGone::OpenItsFolder,
+        };
+        self.look_up(ctx, opening);
+    }
+
+    /// Opens the folder or collection shown last, at start, once it is looked up in the
+    /// background. When it is gone, the current folder opens instead. It is looked up as any
+    /// other path, because a share that stopped answering would otherwise hold the start for
+    /// ever, before the window opens.
+    pub(crate) fn open_last_folder(&mut self, ctx: &egui::Context, path: PathBuf) {
+        let opening = Opening {
+            paths: vec![path],
+            is_step: false,
+            if_gone: IfGone::OpenCurrentFolder,
         };
         self.look_up(ctx, opening);
     }
@@ -609,19 +633,22 @@ impl crate::App {
             Took::Gone => return self.tell_background_stopped(tr("Reading the folder")),
             Took::Nothing => return,
         };
-        if let (
-            Found::Folder {
-                is_there: false, ..
-            },
-            Some(gone),
-            Some(path),
-        ) = (&found, opening.if_gone, opening.paths.first())
+        if let Found::Folder {
+            is_there: false, ..
+        } = &found
+            && let Some(path) = opening.paths.first()
         {
-            // The path is gone since it was named (deleted, or a stick taken out), so it
-            // leaves Open Recent too.
-            self.notice.give(gone(path));
-            self.folder.recent.retain(|p| p != path);
-            return;
+            match opening.if_gone {
+                IfGone::OpenItsFolder => {}
+                // The path is gone since it was named (deleted, or a stick taken out), so it
+                // leaves Open Recent too.
+                IfGone::Tell(gone) => {
+                    self.notice.give(gone(path));
+                    self.folder.recent.retain(|p| p != path);
+                    return;
+                }
+                IfGone::OpenCurrentFolder => return self.open(ctx, ".".into()),
+            }
         }
         if opening.is_step {
             self.folder.back.push(self.back_step());
@@ -826,7 +853,7 @@ impl crate::App {
         let opening = Opening {
             paths,
             is_step: false,
-            if_gone: None,
+            if_gone: IfGone::OpenItsFolder,
         };
         self.look_up(ctx, opening);
     }
@@ -863,7 +890,7 @@ impl crate::App {
         let opening = Opening {
             paths: vec![path],
             is_step: true,
-            if_gone: None,
+            if_gone: IfGone::OpenItsFolder,
         };
         self.look_up(ctx, opening);
     }
@@ -880,7 +907,7 @@ impl crate::App {
         let opening = Opening {
             paths: vec![path],
             is_step: true,
-            if_gone: Some(gone),
+            if_gone: IfGone::Tell(gone),
         };
         self.look_up(ctx, opening);
     }
@@ -1515,6 +1542,26 @@ pub(crate) fn total_size(paths: &[PathBuf]) -> u64 {
 #[cfg(test)]
 mod tests {
     use crate::support::test_support::{app_on, contract_folder, run_background_until};
+
+    /// The folder shown last is looked up in the background at start, as any path, and when it
+    /// is gone the current folder opens instead. Before, the window's thread looked at it before
+    /// the window opened, which a share that stopped answering held for ever.
+    #[test]
+    fn a_last_folder_that_is_gone_opens_the_current_one() {
+        let dir = contract_folder("last-folder");
+        let (mut app, ctx) = app_on(&dir);
+        let wait = std::time::Duration::from_secs(5);
+        app.open_last_folder(&ctx, dir.join("gone"));
+        // The first answer says it is gone and asks for the current folder.
+        app.receive_looked_up(&ctx, wait);
+        app.receive_looked_up(&ctx, wait);
+        let here = std::env::current_dir().unwrap().canonicalize().unwrap();
+        assert_eq!(app.folder.dir(), here);
+        app.open_last_folder(&ctx, dir.join("sub"));
+        app.receive_looked_up(&ctx, wait);
+        assert_eq!(app.folder.dir(), dir.join("sub").canonicalize().unwrap());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
 
     /// A collection open in this window follows a move that another window wrote into the
     /// collection's file, because the window watches that file as it watches a folder. Before,

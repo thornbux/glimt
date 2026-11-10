@@ -8,12 +8,12 @@ use crate::metadata::marks;
 use crate::model::listing::{Types, is_listed};
 use crate::support::format::count;
 use crate::support::lang::tr;
-use crate::support::threads::{Receiving, Took, Working};
+use crate::support::threads::{Receiving, Took, Working, answer_channel};
 use crate::{metadata::xmp, model::collections, tf};
 use eframe::egui;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, mpsc};
+use std::sync::Arc;
 
 /// The tables `QUERY` reads, in lower case as SQLite matches names.
 const TABLES: &str = "'aglibraryrootfolder', 'adobe_images', 'aglibraryfile', 'aglibraryfolder', \
@@ -219,7 +219,7 @@ pub(crate) struct Import {
     root_folders_now: Vec<String>,
     plan: Option<Plan>,
     /// The plan while its thread makes it, with the folders it is made for.
-    planning: Receiving<(Vec<String>, Plan)>,
+    planning: Receiving<((Vec<String>, Plan), Working)>,
 }
 
 impl Import {
@@ -257,7 +257,7 @@ pub(crate) struct Plan {
 impl crate::App {
     /// Read a Lightroom catalog in the background; the import dialog opens when it is read.
     pub(crate) fn read_lightroom(&mut self, ctx: &egui::Context, file: PathBuf) {
-        let (tx, rx) = mpsc::channel();
+        let (tx, rx) = answer_channel(&self.busy);
         let ctx = ctx.clone();
         let pointer = Working::new(&self.busy);
         std::thread::spawn(move || {
@@ -395,7 +395,7 @@ impl crate::App {
     /// at each image of the catalog on disk, which takes long on a share. The dialog takes it
     /// when it comes.
     fn start_planning(&mut self, ctx: &egui::Context, lr: &mut Import) {
-        let (tx, rx) = mpsc::channel();
+        let (tx, rx) = answer_channel(&self.busy);
         let (catalog, now) = (lr.catalog.clone(), lr.root_folders_now.clone());
         let (ctx, pointer) = (ctx.clone(), Working::new(&self.busy));
         std::thread::spawn(move || {
@@ -412,7 +412,7 @@ impl crate::App {
     /// them while it was made, and Next makes a new one.
     fn take_plan_of(&mut self, lr: &mut Import) {
         match lr.planning.take() {
-            Took::Answer((folders, mut plan)) if folders == lr.root_folders_now => {
+            Took::Answer(((folders, mut plan), _pointer)) if folders == lr.root_folders_now => {
                 plan.differing_stars = self.differing_stars(&plan.stars);
                 lr.plan = Some(plan);
             }

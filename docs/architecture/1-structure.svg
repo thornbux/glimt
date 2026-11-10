@@ -126,7 +126,7 @@
     <rect x="20" y="730" width="770" height="74" rx="6" fill="#eeeeee" stroke="#666666" stroke-width="1.5"/>
     <text x="34" y="753" font-size="15" font-weight="700" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" fill="#444444">support/</text>
     <text x="118" y="753" font-size="13" fill="#57606a">what the rest is built on, used by every folder above</text>
-    <text x="34" y="775" font-size="12">threads.rs: Receiving&lt;T&gt;, Took, Working · format.rs: human_size, count · lang.rs: tr, tf!</text>
+    <text x="34" y="775" font-size="12">threads.rs: Receiving&lt;T&gt;, Took, Working, AnswerSender · format.rs: human_size, count · lang.rs: tr, tf!</text>
     <text x="34" y="793" font-size="12">source_rules.rs: tests of the source itself · test_support.rs: app_on, broken · test_hooks.rs</text>
 
     <!-- Right panel: App's parts -->

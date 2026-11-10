@@ -1,6 +1,6 @@
 //! Threads: how many for each kind of work (the CPU use level), work split over them
 //! (`in_parts`), a background thread's answer (`Receiving`), and work counted while it runs
-//! (`Working`).
+//! (`Working`) and until the window has handled its answer (`AnswerSender`).
 
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, mpsc};
@@ -27,8 +27,14 @@ pub(crate) enum Took<T> {
 /// `take`, `next`, `latest` and `wait`, each of which tells once when the thread is gone
 /// (`Took::Gone`) and forgets the receiver then, so no receiver polled by hand can leave the
 /// window waiting for a thread that broke.
-#[derive(Default)]
 pub(crate) struct Receiving<T>(Option<mpsc::Receiver<T>>);
+
+// By hand, as a derive would ask the answer itself for a default, which a `Working` has not.
+impl<T> Default for Receiving<T> {
+    fn default() -> Self {
+        Receiving(None)
+    }
+}
 
 impl<T> Receiving<T> {
     pub(crate) fn none() -> Self {
@@ -121,6 +127,34 @@ impl Drop for Working {
     }
 }
 
+/// The sending half of a channel whose answers the window must handle before the work they end
+/// is done: a folder's real path that a Copy waits for, a turn saved, a file operation's report.
+/// Each answer carries a busy pointer of its own, made before the thread lets go of its own
+/// pointer, and the window drops it after it has handled the answer. So the window never sees
+/// no work running while an answer still waits in the channel. Before, a close in that moment
+/// dropped a Copy that waited for its folder, and a test that waited for no work missed it.
+pub(crate) struct AnswerSender<T> {
+    tx: mpsc::Sender<(T, Working)>,
+    busy: Arc<AtomicUsize>,
+}
+
+impl<T> Clone for AnswerSender<T> {
+    fn clone(&self) -> Self {
+        AnswerSender {
+            tx: self.tx.clone(),
+            busy: self.busy.clone(),
+        }
+    }
+}
+
+impl<T> AnswerSender<T> {
+    /// Sends `answer` with a busy pointer of its own. Returns an error only when the window no
+    /// longer waits for it, as `mpsc::Sender::send` does, and the pointer then goes at once.
+    pub(crate) fn send(&self, answer: T) -> Result<(), mpsc::SendError<(T, Working)>> {
+        self.tx.send((answer, Working::new(&self.busy)))
+    }
+}
+
 /// The way a background thread tells the user something: the text becomes the notice over the
 /// image. Sending also asks for a frame, because egui draws only when asked, and a notice sent
 /// without one waited in the channel until the mouse moved.
@@ -151,6 +185,16 @@ impl NoticeSender {
 pub(crate) struct Timespec {
     sec: i64,
     nsec: i64,
+}
+
+/// Returns a channel whose answers carry a busy pointer counted in `busy` (`AnswerSender`), and
+/// the half the window reads. The window drops the pointer after it has handled the answer.
+pub(crate) fn answer_channel<T>(
+    busy: &Arc<AtomicUsize>,
+) -> (AnswerSender<T>, mpsc::Receiver<(T, Working)>) {
+    let (tx, rx) = mpsc::channel();
+    let busy = busy.clone();
+    (AnswerSender { tx, busy }, rx)
 }
 
 pub(crate) fn set_cpu_use(level: usize) {

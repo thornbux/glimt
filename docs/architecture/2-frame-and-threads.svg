@@ -74,7 +74,8 @@
     <!-- Busy note -->
     <text x="650" y="196" font-size="12" fill="#57606a">While work runs, Working::new(&amp;self.busy) counts it, and the busy</text>
     <text x="650" y="212" font-size="12" fill="#57606a">pointer shows (App::working). The count drops when the thread ends,</text>
-    <text x="650" y="228" font-size="12" fill="#57606a">also when it panics.</text>
+    <text x="650" y="228" font-size="12" fill="#57606a">also when it panics. An answer sent through an AnswerSender keeps a</text>
+    <text x="650" y="244" font-size="12" fill="#57606a">pointer of its own until the window has handled it.</text>
 
     <!-- Background threads column -->
     <text x="650" y="266" font-size="13" font-weight="700">Background threads (std::thread::spawn)</text>

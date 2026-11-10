@@ -4,6 +4,7 @@
 //! never taken for an item, an import or a function. Only `retired_names_stay_gone` also reads
 //! the comments, for the names of code in backticks there (`comment_lines`).
 
+use std::collections::HashSet;
 use std::path::Path;
 
 /// The names that 0.74.0's naming review retired, because a reader new to the code could not tell
@@ -523,6 +524,40 @@ const RETIRED_IN_FILE: &[(&str, &str)] = &[
     ("viewer/view.rs", "survive"),          // catch_panic_as_error
     ("viewer/view.rs", "transparent"),      // has_transparency
     ("viewer/view.rs", "wheel"),            // wheel_notches
+];
+
+/// The parts of `App`: each struct that one of its fields holds, by its file. Their fields stay
+/// private (`parts_keep_their_fields`), and their methods run in the window's thread as App's
+/// own do (`the_window_thread_never_waits_for_the_disk`).
+const APP_PARTS: &[(&str, &str)] = &[
+    ("features/check.rs", "ImageCheck"),
+    ("features/duplicates.rs", "FindDuplicates"),
+    ("features/print.rs", "PrintDialog"),
+    ("features/remote.rs", "Listener"),
+    ("files/file_ops.rs", "FileOperations"),
+    ("metadata/lightroom.rs", "Import"),
+    ("metadata/marks.rs", "Marks"),
+    ("model/folder.rs", "Folder"),
+    ("model/list.rs", "List"),
+    ("model/search.rs", "Search"),
+    ("ui/dialogs.rs", "Dialogs"),
+    ("ui/file_list.rs", "Panel"),
+    ("ui/file_list.rs", "StatusBar"),
+    ("ui/file_list.rs", "Thumbs"),
+    ("ui/file_list.rs", "Tree"),
+    ("ui/info_panel.rs", "InfoPanel"),
+    ("ui/menus.rs", "OpenWith"),
+    ("ui/preferences.rs", "Preferences"),
+    ("ui/theme.rs", "DesktopSettings"),
+    ("ui/window.rs", "Window"),
+    ("viewer/pan.rs", "PanView"),
+    ("viewer/save_as.rs", "SaveAsChoices"),
+    ("viewer/save_as.rs", "SaveAs"),
+    ("viewer/slideshow.rs", "Slideshow"),
+    ("viewer/view.rs", "Decoding"),
+    ("viewer/view.rs", "Notice"),
+    ("viewer/view.rs", "Viewing"),
+    ("viewer/view.rs", "Zoom"),
 ];
 
 /// Where a top-level item stands in a file's order, as AGENTS.md gives it under "Within a
@@ -1067,42 +1102,12 @@ fn app_stays_small() {
 
 /// A part of App keeps its fields to itself: only its module changes them, and other modules
 /// call methods whose names say what happens (`self.slideshow.toggle_pause()`), so the
-/// compiler, not a convention, keeps a part's rules in one place. A public field in one of these
-/// structs fails this.
+/// compiler, not a convention, keeps a part's rules in one place. A public field in one of the
+/// structs of `APP_PARTS` fails this.
 #[test]
 fn parts_keep_their_fields() {
-    const PARTS: &[(&str, &str)] = &[
-        ("features/check.rs", "ImageCheck"),
-        ("features/duplicates.rs", "FindDuplicates"),
-        ("features/print.rs", "PrintDialog"),
-        ("features/remote.rs", "Listener"),
-        ("files/file_ops.rs", "FileOperations"),
-        ("metadata/lightroom.rs", "Import"),
-        ("metadata/marks.rs", "Marks"),
-        ("model/folder.rs", "Folder"),
-        ("model/list.rs", "List"),
-        ("model/search.rs", "Search"),
-        ("ui/dialogs.rs", "Dialogs"),
-        ("ui/file_list.rs", "Panel"),
-        ("ui/file_list.rs", "StatusBar"),
-        ("ui/file_list.rs", "Thumbs"),
-        ("ui/file_list.rs", "Tree"),
-        ("ui/info_panel.rs", "InfoPanel"),
-        ("ui/menus.rs", "OpenWith"),
-        ("ui/preferences.rs", "Preferences"),
-        ("ui/theme.rs", "DesktopSettings"),
-        ("ui/window.rs", "Window"),
-        ("viewer/pan.rs", "PanView"),
-        ("viewer/save_as.rs", "SaveAsChoices"),
-        ("viewer/save_as.rs", "SaveAs"),
-        ("viewer/slideshow.rs", "Slideshow"),
-        ("viewer/view.rs", "Decoding"),
-        ("viewer/view.rs", "Notice"),
-        ("viewer/view.rs", "Viewing"),
-        ("viewer/view.rs", "Zoom"),
-    ];
     let mut wrong = Vec::new();
-    for (file, part) in PARTS {
+    for (file, part) in APP_PARTS {
         let lines = code_lines(&source(file));
         let heads = [
             format!("pub(crate) struct {part} {{"),
@@ -2940,6 +2945,268 @@ fn finds_a_bare_receiver() {
     assert_eq!(bare_receivers_in(text), [2, 3, 4, 8]);
 }
 
+/// A thread that shows the busy pointer sends the window what it must still handle through an
+/// `AnswerSender`, whose answers keep a busy pointer of their own until the window has handled
+/// them. Before, such a thread let its pointer go right after it sent its answer. In that
+/// moment the window saw no work running: a close dropped a Copy that still waited for its
+/// folder's real path, and a test that waited for the work went on before it. A notice
+/// (`NoticeSender`) is only shown, and the sidecar writer's thread holds the pointer itself, so
+/// those are sent as they are. The threads listed here send parts of a list as they go, which
+/// the window shows as they come, and nothing waits for the last part. A line here that no
+/// longer matches fails too.
+#[test]
+fn answers_keep_the_busy_pointer() {
+    const SEND_AS_THEY_GO: &[(&str, &str, &str)] = &[
+        (
+            "viewer/pan.rs",
+            "pan_days",
+            "the days read so far, drawn as they come",
+        ),
+        (
+            "features/check.rs",
+            "start_check",
+            "each broken file, listed as it is found",
+        ),
+    ];
+    let sources = rust_sources();
+    let keeping = senders_that_keep_the_pointer(&sources);
+    let mut found = Vec::new();
+    // threads.rs holds the `AnswerSender` itself.
+    for (file, text) in sources.iter().filter(|(f, _)| f != "support/threads.rs") {
+        for (function, line) in answers_without_pointer(text, &keeping) {
+            found.push((file.clone(), function, line));
+        }
+    }
+    let is_listed = |file: &str, function: &str| {
+        (SEND_AS_THEY_GO.iter()).any(|s| (s.0, s.1) == (file, function))
+    };
+    let wrong: Vec<String> = (found.iter())
+        .filter(|(file, function, _)| !is_listed(file, function))
+        .map(|(file, function, line)| format!("{file}:{line} {function}"))
+        .collect();
+    assert!(
+        wrong.is_empty(),
+        "a thread sends the window an answer, and its busy pointer goes before the window has \
+         handled it (send it through an AnswerSender):\n{}",
+        wrong.join("\n")
+    );
+    let unused: Vec<_> = (SEND_AS_THEY_GO.iter())
+        .filter(|s| !(found.iter()).any(|f| (f.0.as_str(), f.1.as_str()) == (s.0, s.1)))
+        .collect();
+    assert!(
+        unused.is_empty(),
+        "named here but no longer there: {unused:?}"
+    );
+}
+
+/// Returns the names, in `sources` outside the tests, of the fields, arguments and functions
+/// that hold or give a sender whose message keeps the busy pointer, or needs none: an
+/// `AnswerSender`, a `NoticeSender`, and the sidecar writer's `Sender<QueuedWrite>`.
+fn senders_that_keep_the_pointer(sources: &[(String, String)]) -> HashSet<String> {
+    const TYPES: [&str; 3] = ["AnswerSender<", "NoticeSender", "Sender<QueuedWrite>"];
+    let mut names = HashSet::new();
+    for (_, text) in sources {
+        let lines = code_lines(text);
+        let lines = &lines[..tests_start(&lines)];
+        for (i, line) in lines.iter().enumerate() {
+            // A function whose signature, up to its body, gives one back.
+            if let Some(name) = function_name(line) {
+                let signature: String = (lines[i..].iter())
+                    .take_while(|l| !l.ends_with('{') && !l.ends_with(';'))
+                    .chain(
+                        lines[i..]
+                            .iter()
+                            .find(|l| l.ends_with('{') || l.ends_with(';')),
+                    )
+                    .map(String::as_str)
+                    .collect();
+                let gives = signature.split_once("->").map_or("", |(_, r)| r);
+                if TYPES.iter().any(|t| without_paths(gives).contains(t)) {
+                    names.insert(name.to_owned());
+                }
+                continue;
+            }
+            // A field or an argument of that type.
+            for (at, _) in line.match_indices(": ") {
+                if TYPES
+                    .iter()
+                    .any(|t| without_paths(&line[at + 2..]).starts_with(t))
+                {
+                    let before = &line[..at];
+                    let name = before
+                        .rsplit(|c: char| !c.is_alphanumeric() && c != '_')
+                        .next()
+                        .unwrap_or("");
+                    names.insert(name.to_owned());
+                }
+            }
+        }
+    }
+    names
+}
+
+/// Returns `text` without the paths before its names, as `NoticeSender` for
+/// `crate::support::threads::NoticeSender`.
+fn without_paths(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    for (k, part) in text.split("::").enumerate() {
+        if k > 0 {
+            let name_starts = out.trim_end_matches(|c: char| c.is_alphanumeric() || c == '_');
+            out.truncate(name_starts.len());
+        }
+        out.push_str(part);
+    }
+    out
+}
+
+/// Returns the sends in `text` outside the tests, in a function that makes the busy pointer,
+/// whose sender is not one of `keeping`, each as (function, line). A sender is found by the
+/// `let` in the function that binds it, also in a tuple, or else by its own name.
+fn answers_without_pointer(text: &str, keeping: &HashSet<String>) -> Vec<(String, usize)> {
+    let lines = code_lines(text);
+    let end = tests_start(&lines);
+    let mut found = Vec::new();
+    let mut function = String::new();
+    let mut has_pointer = false;
+    // The names bound in the function, each with the expression it is bound to.
+    let mut bound: Vec<(String, String)> = Vec::new();
+    let mut sends: Vec<(String, usize)> = Vec::new();
+    let mut statement: Option<String> = None;
+    let words = |text: &str| -> Vec<String> {
+        (text.split(|c: char| !c.is_alphanumeric() && c != '_'))
+            .filter(|w| !w.is_empty())
+            .map(str::to_owned)
+            .collect()
+    };
+    for (i, line) in lines[..end]
+        .iter()
+        .map(String::as_str)
+        .chain(["fn end"])
+        .enumerate()
+    {
+        if let Some(name) = function_name(line) {
+            if has_pointer {
+                for (sender, at) in sends.drain(..) {
+                    let binding = bound.iter().rev().find(|(n, _)| *n == sender);
+                    let expression = binding.map_or(sender.clone(), |(_, e)| e.clone());
+                    if !words(&expression).iter().any(|w| keeping.contains(w)) {
+                        found.push((function.clone(), at));
+                    }
+                }
+            }
+            (function, has_pointer) = (name.to_owned(), false);
+            (bound, sends, statement) = (Vec::new(), Vec::new(), None);
+            continue;
+        }
+        has_pointer |= ["Working::new(&self.busy)", "Working::new(&app.busy)"]
+            .iter()
+            .any(|p| line.contains(p));
+        for (at, _) in line.match_indices(".send(") {
+            let before = line[..at].trim_end_matches("()");
+            let sender = before
+                .rsplit(|c: char| !c.is_alphanumeric() && c != '_')
+                .next()
+                .unwrap_or("");
+            sends.push((sender.to_owned(), i + 1));
+        }
+        if statement.is_none() && line.trim_start().starts_with("let ") {
+            statement = Some(String::new());
+        }
+        if let Some(text) = &mut statement {
+            text.push_str(line.trim());
+            text.push(' ');
+            let depth = |open: char, close: char| {
+                text.matches(open).count() as isize - text.matches(close).count() as isize
+            };
+            if text.trim_end().ends_with(';') && depth('(', ')') == 0 && depth('{', '}') == 0 {
+                bound.extend(let_bindings(text));
+                statement = None;
+            }
+        }
+    }
+    found
+}
+
+/// Returns the names that the `let` statement `text` binds, each with the expression bound to
+/// it. In `let (a, b) = (x, y);` each name gets its own part, and otherwise each gets the whole
+/// expression.
+fn let_bindings(text: &str) -> Vec<(String, String)> {
+    let Some((names, expression)) = text.trim().trim_start_matches("let ").split_once(" = ") else {
+        return Vec::new();
+    };
+    let expression = expression.trim().trim_end_matches(';').trim();
+    let top_level_parts = |inner: &str| -> Vec<String> {
+        let (mut parts, mut depth, mut part) = (Vec::new(), 0, String::new());
+        for c in inner.chars() {
+            match c {
+                '(' | '[' | '{' | '<' => depth += 1,
+                ')' | ']' | '}' | '>' => depth -= 1,
+                ',' if depth == 0 => {
+                    parts.push(std::mem::take(&mut part));
+                    continue;
+                }
+                _ => {}
+            }
+            part.push(c);
+        }
+        parts.push(part);
+        parts
+            .into_iter()
+            .map(|p| p.trim().to_owned())
+            .filter(|p| !p.is_empty())
+            .collect()
+    };
+    let names: Vec<String> =
+        top_level_parts(names.trim().trim_start_matches('(').trim_end_matches(')'))
+            .iter()
+            .map(|n| {
+                n.trim_start_matches("mut ")
+                    .split(':')
+                    .next()
+                    .unwrap_or("")
+                    .trim()
+                    .to_owned()
+            })
+            .collect();
+    let parts = match expression
+        .strip_prefix('(')
+        .and_then(|e| e.strip_suffix(')'))
+    {
+        Some(inner) => top_level_parts(inner),
+        None => Vec::new(),
+    };
+    if names.len() > 1 && parts.len() == names.len() {
+        names.into_iter().zip(parts).collect()
+    } else {
+        (names.into_iter())
+            .map(|n| (n, expression.to_owned()))
+            .collect()
+    }
+}
+
+/// The check above finds an answer sent on a plain channel by a thread with the busy pointer,
+/// also through a tuple's binding. It passes an `AnswerSender` and a notice, however they are
+/// bound, and a function without the busy pointer.
+#[test]
+fn finds_an_answer_sent_without_its_pointer() {
+    let text = "struct S {\n    report_tx: AnswerSender<u8>,\n}\n\
+        fn a(&self) {\n    let (tx, rx) = mpsc::channel();\n    \
+        let pointer = Working::new(&self.busy);\n    spawn(move || drop(tx.send(1)));\n}\n\
+        fn b(&self) {\n    let (tx, ctx) = (self.notice_sender.clone(), c.clone());\n    \
+        let (found, ctx) = (mpsc::channel().0, c.clone());\n    \
+        let pointer = Working::new(&self.busy);\n    tx.send(s);\n    found.send(s);\n}\n\
+        fn c(&self) {\n    let report_tx = self.report_tx.clone();\n    \
+        let (t, r) = answer_channel(&self.busy);\n    \
+        let p = Working::new(&self.busy);\n    report_tx.send(r);\n    t.send(1);\n}\n\
+        fn d() {\n    let (tx, rx) = mpsc::channel();\n    tx.send(1);\n}\n\
+        fn answer_channel<T>(\n    busy: &Arc<AtomicUsize>,\n) -> (AnswerSender<T>, R) {\n}\n\
+        struct T {\n    notice_sender: crate::support::threads::NoticeSender,\n}\n";
+    let keeping = senders_that_keep_the_pointer(&[("x.rs".into(), text.into())]);
+    let found = answers_without_pointer(text, &keeping);
+    let found: Vec<(&str, usize)> = found.iter().map(|(f, l)| (f.as_str(), *l)).collect();
+    assert_eq!(found, [("a", 7), ("b", 14)]);
+}
+
 /// Each name in backticks in AGENTS.md and docs/RELEASING.md that looks like code (a path with
 /// `::`, or a word with `_`) is a word in the source, the tools, the workflows or Cargo.toml.
 /// So a function, test or constant renamed or removed takes its name out of the rules too.
@@ -3000,20 +3267,15 @@ fn the_rules_name_what_exists() {
 /// stopped answering (a NAS asleep, Wi-Fi gone) such a call waits for ever, and the window hangs
 /// and cannot be closed. The window's thread is the code of `App`'s methods: the
 /// `impl crate::App` blocks of every module, and main.rs's `impl App` and
-/// `impl eframe::App for App`, because an `App` is never sent to another thread. Inside them,
-/// the text of a call that hands work to another thread (`spawn`, `write_later`,
-/// `run_in_background`) is left out, because that work runs there. A function of Glimt's own
+/// `impl eframe::App for App`, because an `App` is never sent to another thread. The methods
+/// of App's parts (`APP_PARTS`) run there too, as App calls them. Inside them, the text of a
+/// call that hands work to another thread (`spawn`, `write_later`, `run_in_background`,
+/// `write_sidecars`) is left out, because that work runs there. A function of Glimt's own
 /// that looks at the disk is found by its name too. A call that must stay is listed here with
 /// its function and the reason, and a line here that no longer matches a call fails too.
 #[test]
 fn the_window_thread_never_waits_for_the_disk() {
     const WAITS_ON_PURPOSE: &[(&str, &str, &str, &str)] = &[
-        (
-            "main.rs",
-            "with_config",
-            ".is_dir()",
-            "the last folder, looked at once at start, before the window opens",
-        ),
         (
             "main.rs",
             "with_config",
@@ -3033,21 +3295,43 @@ fn the_window_thread_never_waits_for_the_disk() {
             "the few folders typed, while the Lightroom dialog is open; its shortcut comment",
         ),
         (
-            "metadata/lightroom.rs",
-            "import_lightroom",
-            ".is_file()",
-            "in the closure that write_sidecars runs in its job thread",
-        ),
-        (
             "files/file_ops.rs",
             "written_anew",
             "canonicalize(",
             "only files just written with a moved file's name; its shortcut comment",
         ),
+        (
+            "files/file_ops.rs",
+            "written_anew",
+            "fingerprint(",
+            "only files just written with a moved file's name; its shortcut comment",
+        ),
+        (
+            "metadata/marks.rs",
+            "load",
+            "read_limited(",
+            "Glimt's own marks file, read once at start, before the window opens",
+        ),
+        (
+            "model/folder.rs",
+            "new",
+            "read_limited(",
+            "Glimt's own Open Recent and sorted folders, read once at start",
+        ),
+        (
+            "ui/info_panel.rs",
+            "new",
+            "read_limited(",
+            "Glimt's own keyword tree, read once at start",
+        ),
     ];
     let mut found: Vec<(String, String, &str, usize)> = Vec::new();
     for (file, text) in rust_sources() {
-        for (function, call, line) in disk_calls_in_window_thread(&text) {
+        let parts: Vec<&str> = (APP_PARTS.iter())
+            .filter(|(f, _)| *f == file)
+            .map(|(_, part)| *part)
+            .collect();
+        for (function, call, line) in disk_calls_in_window_thread(&text, &parts) {
             found.push((file.clone(), function, call, line));
         }
     }
@@ -3072,9 +3356,10 @@ fn the_window_thread_never_waits_for_the_disk() {
     );
 }
 
-/// Returns the calls in `text` that look at the disk in the window's thread, as `App`'s
-/// methods outside the work they hand to other threads, each as (function, call, line).
-fn disk_calls_in_window_thread(text: &str) -> Vec<(String, &'static str, usize)> {
+/// Returns the calls in `text` that look at the disk in the window's thread, as the methods of
+/// `App` and of its `parts` in `text` outside the work they hand to other threads, each as
+/// (function, call, line).
+fn disk_calls_in_window_thread(text: &str, parts: &[&str]) -> Vec<(String, &'static str, usize)> {
     // The standard library's look at the disk, and Glimt's own functions that do.
     const DISK_CALLS: &[&str] = &[
         "fs::metadata(",
@@ -3099,8 +3384,15 @@ fn disk_calls_in_window_thread(text: &str) -> Vec<(String, &'static str, usize)>
         "read_text(",
         "read_head(",
         "open_regular(",
+        "fingerprint(",
+        "same_file(",
     ];
-    const ELSEWHERE: &[&str] = &["spawn(", "write_later(", "run_in_background("];
+    const ELSEWHERE: &[&str] = &[
+        "spawn(",
+        "write_later(",
+        "run_in_background(",
+        "write_sidecars(",
+    ];
     let lines = code_lines(text);
     let mut found = Vec::new();
     let (mut in_app, mut function) = (false, String::new());
@@ -3108,12 +3400,18 @@ fn disk_calls_in_window_thread(text: &str) -> Vec<(String, &'static str, usize)>
     let mut handed_over = 0usize;
     for (i, line) in lines[..tests_start(&lines)].iter().enumerate() {
         let item = without_qualifiers(line);
+        let is_part = |part: &&str| {
+            item.starts_with("impl")
+                && (item.ends_with(&format!(" {part} {{"))
+                    || item.ends_with(&format!(">{part} {{")))
+        };
         if [
             "impl crate::App {",
             "impl App {",
             "impl eframe::App for App {",
         ]
         .contains(&item)
+            || parts.iter().any(is_part)
         {
             in_app = true;
             continue;
@@ -3165,8 +3463,10 @@ fn finds_a_disk_call_in_the_window_thread() {
         });\n        let d = real_dir(&p);\n    }\n    fn c(&self) {\n        \
         write_later(move || drop(p.canonicalize()));\n        // p.is_dir()\n        \
         let s = \".is_file()\";\n        let x = q.is_dir(); std::thread::spawn(f);\n    \
-        }\n}\nfn free() {\n    std::fs::read_dir(p);\n}\n";
-    let found = disk_calls_in_window_thread(text);
+        }\n}\nfn free() {\n    std::fs::read_dir(p);\n}\nimpl Part {\n    fn d(&self) {\n        \
+        fingerprint(p);\n    }\n}\nimpl Default for Part {\n    fn default() -> Self {\n        \
+        p.metadata();\n    }\n}\nimpl Other {\n    fn e(&self) {\n        p.is_dir();\n    }\n}\n";
+    let found = disk_calls_in_window_thread(text, &["Part"]);
     let found: Vec<(&str, &str, usize)> = (found.iter())
         .map(|(f, c, l)| (f.as_str(), *c, *l))
         .collect();
@@ -3175,7 +3475,9 @@ fn finds_a_disk_call_in_the_window_thread() {
         [
             ("a", "fs::metadata(", 3),
             ("b", "real_dir(", 9),
-            ("c", ".is_dir()", 15)
+            ("c", ".is_dir()", 15),
+            ("d", "fingerprint(", 23),
+            ("default", ".metadata()", 28),
         ]
     );
 }

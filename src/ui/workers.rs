@@ -42,7 +42,7 @@ impl crate::App {
             self.start_slideshow(ctx);
         }
         self.receive_focus(ctx);
-        if let Some(img) = self.file_operations.take_image() {
+        if let Some((img, _pointer)) = self.file_operations.take_image() {
             ctx.copy_image(img);
         }
         self.receive_dropped(ctx);
@@ -93,7 +93,7 @@ impl crate::App {
         } else if self.window.close_requests() > 0 {
             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
         }
-        while let Some((path, result)) = self.file_operations.take_saved() {
+        while let Some((path, result, _pointer)) = self.file_operations.take_saved() {
             match result {
                 Ok(()) => {
                     self.window.forget_turn_tried_at_close();
@@ -138,18 +138,20 @@ impl crate::App {
         match self.lightroom_catalog_answer.take() {
             Took::Nothing => {}
             Took::Gone => self.tell_background_stopped(tr("Reading the Lightroom catalog")),
-            Took::Answer(Ok(catalog)) => {
+            Took::Answer((Ok(catalog), _pointer)) => {
                 self.lightroom = Some(lightroom::Import::new(catalog));
             }
-            Took::Answer(Err(e)) => self.notice.give(e),
+            Took::Answer((Err(e), _pointer)) => self.notice.give(e),
         }
     }
 
     /// Rename Many done, and the renames a crash cut short, found at start.
     pub(crate) fn receive_renames(&mut self, ctx: &egui::Context) {
         match self.file_operations.take_rename_outcome() {
-            Took::Answer((Some(job), result)) => self.finish_rename_many(ctx, job, result),
-            Took::Answer((None, _)) | Took::Nothing => {}
+            Took::Answer((Some(job), result, _pointer)) => {
+                self.finish_rename_many(ctx, job, result)
+            }
+            Took::Answer((None, ..)) | Took::Nothing => {}
             Took::Gone => self.tell_background_stopped(tr("Rename Many")),
         }
         if !self.file_operations.receive_cut_short() {

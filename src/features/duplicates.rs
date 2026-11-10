@@ -56,18 +56,22 @@ struct Picture {
     signature: Vec<u8>,
 }
 
+/// The groups that a search found, and the size of each file in them.
+type FoundGroups = (Vec<Vec<PathBuf>>, HashMap<PathBuf, u64>);
+
 /// The Find Duplicates window: what to compare by, the search running and its results.
 pub(crate) struct FindDuplicates {
     by: duplicates::By,
     progress: Arc<duplicates::Progress>,
-    groups_rx: Receiving<Vec<Vec<PathBuf>>>,
+    groups_rx: Receiving<FoundGroups>,
     groups: Vec<Vec<PathBuf>>,
     /// (group, file) of each row: the file `usize::MAX` for the group's heading.
     rows: Vec<(usize, usize)>,
     checked: HashSet<PathBuf>,
     /// Images searched, for the line above the results.
     searched: usize,
-    /// File sizes, read once when a row is first shown, not on every frame.
+    /// The size of each file in the groups, looked at with the search in its thread, because
+    /// the window's thread does not wait for the disk.
     sizes: HashMap<PathBuf, u64>,
 }
 
@@ -129,8 +133,7 @@ impl FindDuplicates {
                         if crate::ui::menus::link(ui, &name).clicked() {
                             *show = Some(path.clone());
                         }
-                        let size = *(self.sizes.entry(path.clone()))
-                            .or_insert_with(|| path.metadata().map_or(0, |m| m.len()));
+                        let size = self.sizes.get(path).copied().unwrap_or(0);
                         ui.weak(format!(
                             "{}  {}",
                             human_size(size),
@@ -192,7 +195,7 @@ impl crate::App {
                 find_duplicates.searched = 0;
                 self.tell_background_stopped(tr("Find Duplicates"));
             }
-            Took::Answer(groups) => {
+            Took::Answer((groups, sizes)) => {
                 // Stopped: no result, not "0 groups" as if every image had been compared.
                 if find_duplicates
                     .progress
@@ -202,7 +205,7 @@ impl crate::App {
                     find_duplicates.searched = 0;
                 }
                 find_duplicates.groups = groups;
-                find_duplicates.sizes.clear();
+                find_duplicates.sizes = sizes;
                 find_duplicates.checked.clear();
                 find_duplicates.remove(&HashSet::new());
             }
@@ -298,7 +301,11 @@ impl crate::App {
         find_duplicates.groups_rx = Receiving::of(tx.1);
         let sender = tx.0;
         std::thread::spawn(move || {
-            let _ = sender.send(find(paths, by, rotate, save, &progress));
+            let groups = find(paths, by, rotate, save, &progress);
+            let sizes = (groups.iter().flatten())
+                .map(|p| (p.clone(), p.metadata().map_or(0, |m| m.len())))
+                .collect();
+            let _ = sender.send((groups, sizes));
             ctx.request_repaint();
         });
     }
@@ -827,6 +834,31 @@ mod tests {
                 .load(Ordering::Relaxed)
         );
         assert!(!find_duplicates.groups_rx.is_some() && find_duplicates.searched == 0);
+    }
+
+    /// The size beside each file found comes with the groups from the search's thread. Before,
+    /// the window's thread looked at each file as its row was drawn, which a share that stopped
+    /// answering held for ever.
+    #[test]
+    fn the_sizes_come_with_the_groups() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-dup-sizes-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let (a, b) = (dir.join("a.png"), dir.join("b.png"));
+        image::RgbImage::new(3, 3).save(&a).unwrap();
+        std::fs::copy(&a, &b).unwrap();
+        let (mut app, ctx) = crate::support::test_support::app_on(&dir);
+        let mut find_duplicates = FindDuplicates::new();
+        app.start_find(&ctx, &mut find_duplicates);
+        let took = find_duplicates
+            .groups_rx
+            .wait(std::time::Duration::from_secs(5));
+        let Took::Answer((groups, sizes)) = took else {
+            panic!("no groups");
+        };
+        assert_eq!(groups.len(), 1);
+        let size = std::fs::metadata(&a).unwrap().len();
+        assert_eq!((sizes[&a], sizes[&b]), (size, size));
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     use super::*;
