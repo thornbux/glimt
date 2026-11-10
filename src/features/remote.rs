@@ -248,8 +248,8 @@ impl crate::App {
     // ---- Remote control ----
 
     /// Receives `glimt --remote` commands and queries. While the place that an `open` named is
-    /// looked up, every command waits, and a `select` waits too while the folder is read or a
-    /// dialog asks about the selection.
+    /// looked up, every command but `quit` waits, and a `select` waits too while the folder is
+    /// read or a dialog asks about the selection.
     pub(crate) fn receive_remote(&mut self, ctx: &egui::Context) {
         // `open` only starts a look-up, and the window shows the old list until its answer is
         // taken. It is taken here first, because a hidden window runs no `ui`, which takes it
@@ -273,9 +273,12 @@ impl crate::App {
             // because it would otherwise act on the list from before that folder.
             let behind_an_open =
                 (self.remote.waiting_commands.iter()).any(|(waiting, _)| may_relist(waiting));
-            let wait = self.must_wait(&command, reply.is_some())
-                || (!self.remote.waiting_commands.is_empty()
-                    && (may_relist(&command) || behind_an_open));
+            // A quit is done at once, ahead of the queue, because it does not read the list, and
+            // a look-up on a share that stopped answering would otherwise hold it for ever.
+            let wait = command.trim() != "quit"
+                && (self.must_wait(&command, reply.is_some())
+                    || (!self.remote.waiting_commands.is_empty()
+                        && (may_relist(&command) || behind_an_open)));
             if !wait {
                 self.handle_remote(ctx, &command, reply);
             } else if self.remote.waiting_commands.len() < 64 {
@@ -291,10 +294,14 @@ impl crate::App {
     /// (with a reply, `is_query`) also waits while the folder is read, because its files are
     /// not all listed yet. It waits as well while a dialog asks about the selection (Delete,
     /// Rename), which is answered for the files it asked about, not for a selection that a
-    /// script put in their place.
+    /// script put in their place. An `open` with nothing queued does not wait for the look-up:
+    /// it replaces it, as a click in the folder tree does, so that a script can leave a share
+    /// that stopped answering.
     fn must_wait(&self, command: &str, is_query: bool) -> bool {
         let select = is_query && command.starts_with("select ");
-        self.folder.is_looking_up()
+        let replaces_look_up =
+            command.trim_start().starts_with("open ") && self.remote.waiting_commands.is_empty();
+        (self.folder.is_looking_up() && !replaces_look_up)
             || (select && (self.folder.is_listing() || self.asking_about_selection()))
     }
 
@@ -1673,8 +1680,9 @@ mod tests {
         let other = std::os::unix::net::UnixListener::bind(dir.join("glimt-right.sock")).unwrap();
         other.set_nonblocking(true).unwrap();
         assert!(!super::send_to(Some(dir.clone()), "left", "next"));
-        let accepted = other.accept();
-        assert!(accepted.is_err(), "the window named right was connected to");
+        // Every connection waiting on the other window is counted, also one closed at once.
+        let connections = std::iter::from_fn(|| other.accept().ok()).count();
+        assert_eq!(connections, 0, "the window named right was connected to");
         std::fs::remove_dir_all(dir).unwrap();
     }
 
@@ -2395,6 +2403,43 @@ mod tests {
         let shown = receive_remote_until(&mut app, &ctx, |app| app.slideshow.is_running());
         assert!(shown && app.folder.dir() == other);
         assert!(app.slideshow.is_shuffled());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A `quit` closes the window at once, while a look-up never answers (a share that stopped
+    /// answering) and a command waits for it.
+    #[test]
+    fn quit_does_not_wait_for_a_look_up() {
+        use eframe::egui::{RawInput, ViewportCommand, ViewportId};
+        let dir = std::env::temp_dir().join(format!("glimt-test-quit-now-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let (mut app, ctx) = app_on(&dir);
+        let (tx, rx) = std::sync::mpsc::channel();
+        app.remote.rx = rx;
+        let _held = app.folder.hold_look_up();
+        tx.send(("next".to_owned(), None)).unwrap();
+        tx.send(("quit".to_owned(), None)).unwrap();
+        let out = ctx.run_logic(&RawInput::default(), |ctx| app.receive_remote(ctx));
+        let commands = out.viewport_commands.get(&ViewportId::ROOT);
+        assert!(commands.is_some_and(|c| c.contains(&ViewportCommand::Close)));
+        assert_eq!(app.remote.waiting_commands.len(), 1, "next still waits");
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// An `open` with nothing queued replaces a look-up that never answers, so a script can
+    /// leave a share that stopped answering.
+    #[test]
+    fn an_open_replaces_a_look_up_that_never_answers() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-open-over-{}", std::process::id()));
+        let other = dir.join("other");
+        std::fs::create_dir_all(&other).unwrap();
+        let (mut app, ctx) = app_on(&dir);
+        let (tx, rx) = std::sync::mpsc::channel();
+        app.remote.rx = rx;
+        let _held = app.folder.hold_look_up();
+        tx.send((format!("open {}", other.display()), None))
+            .unwrap();
+        assert!(receive_remote_until(&mut app, &ctx, |app| app.folder.dir() == other));
         std::fs::remove_dir_all(dir).unwrap();
     }
 

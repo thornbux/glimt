@@ -327,7 +327,8 @@ const MANUAL: &[(&str, &str)] = &[
          deleting in Glimt take the sidecar along, and beside a RAW file also the photo.xmp (or \
          photo.XMP) that Lightroom, Camera Raw and Capture One write for it, which Glimt does not \
          read or change. A DNG, like a JPEG, keeps that metadata inside, and has none. When two \
-         RAW files share that name, photo.xmp stays where it is.\n\n\
+         RAW files share that name, photo.xmp stays where it is, unless both are moved \
+         together.\n\n\
          The keyword tree below them, as Geeqie's, holds keywords in levels (type \
          Places|Norway|Oslo and Add): a box is ticked when the image has that keyword, and a click \
          sets it on the selected images, or the shown one, or takes it off. The path goes into the \
@@ -677,8 +678,9 @@ const MANUAL: &[(&str, &str)] = &[
          of them changes a file. info, or info FILE …, prints what Glimt knows about the image \
          shown or the files named: a line for each key, such as size, modified, width, stars, \
          keywords, comment or exif.camera, with a tab before its value, and a blank line after \
-         each file. The keys stay the same, so a script can read them. A backslash, tab or line \
-         break in a value is written as \\\\, \\t or \\n, and a ; inside a keyword as \\;. run ACTION does an action by its name in your own keys, such \
+         each file. The keys stay the same, so a script can read them. A backslash, tab, line \
+         feed or carriage return in a value is written as \\\\, \\t, \\n or \\r, and a ; inside a \
+         keyword as \\;. run ACTION does an action by its name in your own keys, such \
          as glimt --remote run ZoomIn or run ThumbnailGrid; glimt --action-list lists the \
          actions it takes with their labels. They are those that change no file, sidecar, mark \
          or collection, not even through a window you then click in, and run does nothing while \

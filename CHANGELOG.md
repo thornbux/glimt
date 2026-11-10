@@ -42,7 +42,7 @@ and versions follow [Semantic Versioning](https://semver.org/).
   Lightroom's edits and keywords. IMG_1.XMP, as Capture One and Photo Mechanic name it, goes
   too. An IMG_1.JPG or IMG_1.DNG beside the RAW file leaves it alone, as Lightroom keeps their
   metadata inside them, and two RAW files of one name (IMG_1.CR2 and IMG_1.NEF) leave it where
-  it is. The manual no longer says that Lightroom reads Glimt's own IMG_1.CR2.xmp.
+  it is, unless both are moved together, in any order, and it goes along. The manual no longer says that Lightroom reads Glimt's own IMG_1.CR2.xmp.
 ### Fixed
 
 - A network share that stops answering (a NAS gone to sleep, Wi-Fi lost) no longer hangs the
@@ -51,7 +51,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
   Copy and Move to a folder now look at the disk in the background, and the window stays
   responsive while the share is silent. A `glimt --remote` command sent after `open` waits
   until the place to open has been looked up, so it acts on that place, also in a minimized
-  window.
+  window. `--remote quit` does not wait, and a further `--remote open` replaces the look-up,
+  as a click in the folder tree does, so a script can leave a share that stopped answering.
 - Window → Set Window Name… and `glimt --remote name NAME` give a running window a new
   `--name`, which `--remote` reaches it by from then on; without a name, its process ID does.
   With remote control off in Preferences, a window listens while it has a name, as with

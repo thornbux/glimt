@@ -358,6 +358,14 @@ impl Folder {
     pub(crate) fn drop_listing(&mut self) {
         self.listing_rx = Receiving::none();
     }
+
+    /// Starts a look-up that never answers, as on a share that stopped answering, until the
+    /// value returned is dropped.
+    pub(crate) fn hold_look_up(&mut self) -> impl Sized + use<> {
+        let (tx, rx) = mpsc::channel();
+        self.looking_up = Receiving::of(rx);
+        tx
+    }
 }
 
 /// What a listing thread reads with, and where it sends the list and then the sizes.
