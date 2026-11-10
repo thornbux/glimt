@@ -473,6 +473,12 @@ on each line.
 The last folder and the window size and position (default
 .IR ~/.local/state/glimt/state ).
 .TP
+.I $XDG_STATE_HOME/glimt/recent
+File \(-> Open Recent's folders and collections, newest first, one on each line.
+.TP
+.I $XDG_STATE_HOME/glimt/sharing
+What File \(-> Copy for Sharing left out the last time, one word on each line.
+.TP
 .I $XDG_STATE_HOME/glimt/marks
 Marks and stars, in builds with the marks feature.
 .TP
@@ -503,15 +509,34 @@ is still read.
 Collections, as Geeqie .gqv files (default
 .IR ~/.local/share/glimt/collections ).
 .TP
+.IR $XDG_DATA_DIRS/glimt/tools " and " $XDG_DATA_DIRS/glimt/formats
+Tools and added formats for every user, read after the user's own (default
+.I /usr/local/share
+and
+.IR /usr/share ).
+A file of the same name in the user's folder hides the system's.
+.TP
 .I $XDG_CACHE_HOME/thumbnails
 Thumbnails, shared with other programs as the freedesktop specification says.
 .TP
 .I $XDG_RUNTIME_DIR/glimt
-The sockets for remote control.
+The sockets for remote control,
+.IR glimt\-NAME.sock ,
+and
+.IR focused ,
+the name of the window that had the focus last.
 .SH ENVIRONMENT
 .TP
 .BR XDG_CONFIG_HOME ", " XDG_STATE_HOME ", " XDG_DATA_HOME ", " XDG_CACHE_HOME ", " XDG_RUNTIME_DIR
 Where the files above are kept.
+.TP
+.B XDG_DATA_DIRS
+The system's folders that tools and added formats are read from after the user's own.
+.TP
+.BR LANGUAGE ", " LC_ALL ", " LC_MESSAGES ", " LANG
+The language of the interface while the language setting is empty, as gettext reads them:
+the first of LC_ALL, LC_MESSAGES and LANG that is set, or the list in LANGUAGE when that
+locale is not C.
 .SH SIGNALS
 SIGTERM and SIGHUP close the window as Ctrl+Q does: Glimt waits while files are copied, moved
 or saved, then writes its state and ends. A second signal stops the files after the one at

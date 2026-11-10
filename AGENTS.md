@@ -44,8 +44,8 @@ for Linux in Rust/egui, inspired by Geeqie. Read this before changing anything.
   decoding or caches.
 - **The limits a release is held to.** The release tests fail when, in a folder of 500,000
   files, the first image takes more than 1.5 times the last release's time or RssAnon is more
-  than 1.5 times the last release's; when a frame takes more than 10 ms of the window thread's
-  processor time with all 500,000 files selected; or when sorting 3,000 JPEGs by EXIF date takes
+  than 1.5 times the last release's; when the median frame takes more than 10 ms of the window
+  thread's processor time with all 500,000 files selected; or when sorting 3,000 JPEGs by EXIF date takes
   more than 1.5 times the last release's time (each with a small slack, `within` in `tests.sh`).
   The maintainer sets these numbers, and an agent does not change them. The other timings and
   memory figures in the release tests (`note` lines) are only printed, to compare: they stop
@@ -624,12 +624,13 @@ python3 tools/pot.py              # po/glimt.pot, after a text is added or chang
 - Use `--profile quick` (Cargo.toml) for clippy and tests. It is optimised like the release, so
   the tests' timings hold, but it builds in many parts and incrementally, so a small change
   builds in a fraction of the time. A debug build as well would double the space in `target/`.
-- CI also runs `cargo check` with the oldest Rust that `rust-version` in Cargo.toml names, and
-  so does `tools/check.sh`, so use no standard library function newer than that. CI runs `cargo fmt --check`, and builds with
-  `--locked`, so a Cargo.toml changed without its Cargo.lock fails.
+- CI also runs `cargo check` in both builds with the oldest Rust that `rust-version` in
+  Cargo.toml names, and so does `tools/check.sh`, so use no standard library function newer
+  than that. CI runs `cargo fmt --check`, and builds with `--locked`, so a Cargo.toml changed
+  without its Cargo.lock fails.
 - `tools/check.sh` runs the five cargo checks above in Docker (`rust:1` with mold and sccache),
-  and a `cargo check` with the Rust of `rust-version`, as CI does. Use it on a computer without
-  cargo, or for several worktrees at once. CI runs the same checks on every push to any branch.
+  and a `cargo check` in both builds with the Rust of `rust-version`, as CI does. Use it on a
+  computer without cargo, or for several worktrees at once. CI runs the same checks on every push to any branch.
   Read its exit status directly, not through a pipe such as `| tail`, which hides a failed
   check.
 - Each checkout keeps a build folder of a few GB in the Docker volume `glimt-target`. The first

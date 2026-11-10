@@ -1456,6 +1456,21 @@ mod tests {
         assert!(written.contains("window_position=10,20\n") && !written.contains("window_pos="));
     }
 
+    /// The man page's FILES names each file and folder that Glimt owns, as src/frozen-1.0.txt
+    /// pins them, so a new one cannot ship without its line. The page lacked `recent` and
+    /// `sharing` before.
+    #[test]
+    fn man_page_names_every_file_glimt_owns() {
+        let page = include_str!("../../docs/glimt.1").replace("\\-", "-");
+        let files = page.split(".SH FILES").nth(1).unwrap();
+        let files = files.split(".SH ").next().unwrap();
+        let missing: Vec<&str> = (include_str!("../frozen-1.0.txt").lines())
+            .filter_map(|l| l.strip_prefix("file "))
+            .filter(|path| !files.contains(path.rsplit('/').next().unwrap()))
+            .collect();
+        assert!(missing.is_empty(), "docs/glimt.1's FILES lacks {missing:?}");
+    }
+
     /// No old name in a table of old names is a setting, a window state key or a --remote
     /// command now. One given an old name later would otherwise be read as the name it was
     /// renamed to, and never under its own.
