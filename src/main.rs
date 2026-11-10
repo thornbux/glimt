@@ -174,6 +174,15 @@ struct ReadAtStart {
     desktop_file_problem: Option<String>,
     #[cfg(feature = "marks")]
     marks: crate::metadata::marks::Marks,
+    /// The window state file's text, read once for both Remember Window and Remember Last
+    /// Folder, or `None` when neither is on or it cannot be read.
+    window_state: Option<String>,
+    /// File → Open Recent's places (`folder::read_recent`).
+    recent: Vec<PathBuf>,
+    /// The Sort Manager's folders.
+    sort_folders: Vec<PathBuf>,
+    /// The keyword tree of the Info panel.
+    keyword_tree: Vec<String>,
 }
 
 impl App {
@@ -214,13 +223,9 @@ impl App {
         // The folder shown last is looked at only in the background (`open_last_folder`),
         // because a share that stopped answering would hold the start before the window opens.
         // It is read also when a path is given, because it is kept until another place opens.
-        let remembered = config
-            .remember_dir
-            .then(|| {
-                let state = crate::images::decode::read_text(state_path()?).ok()?;
-                parse_last_dir(&state)
-            })
-            .flatten();
+        let remembered = (read.window_state.as_deref())
+            .filter(|_| config.remember_dir)
+            .and_then(parse_last_dir);
         let opens_last_folder = path.is_none() && remembered.is_some();
         let path = (path.or_else(|| remembered.clone())).unwrap_or_else(|| ".".into());
         crate::images::decode::set_animation_limit(config.animation_mb);
@@ -250,7 +255,7 @@ impl App {
         let mut app = App {
             ctx: ctx.clone(),
             desktop_settings: crate::ui::theme::DesktopSettings::new(ctx, config.desktop_profile),
-            folder: crate::model::folder::Folder::new(&config, remembered),
+            folder: crate::model::folder::Folder::new(remembered, read.recent, read.sort_folders),
             list: List::default(),
             file_operations: crate::files::file_ops::FileOperations::new(&busy),
             busy: busy.clone(),
@@ -261,7 +266,7 @@ impl App {
             status_bar: crate::ui::file_list::StatusBar::new(&busy),
             broken_files: HashSet::new(),
             #[cfg(feature = "marks")]
-            marks: read.marks,
+            marks: read.marks.repainting(ctx),
             decoding,
             viewing: crate::viewer::view::Viewing::default(),
             zoom: crate::viewer::view::Zoom::default(),
@@ -271,7 +276,7 @@ impl App {
             is_focus_from_keys: false,
             slideshow: crate::viewer::slideshow::Slideshow::new(start.slideshow),
             window: crate::ui::window::Window::new(start.kiosk),
-            info_panel: crate::ui::info_panel::InfoPanel::new(ctx),
+            info_panel: crate::ui::info_panel::InfoPanel::new(ctx, read.keyword_tree),
             notice: crate::viewer::view::Notice::new(
                 (read.colour_error.or_else(|| config_notice(&read.problems)))
                     .or(read.desktop_file_problem),
@@ -522,22 +527,30 @@ fn config_notice(problems: &[String]) -> Option<String> {
 }
 
 /// Returns what the window starts from of Glimt's own files, with the settings `config` and
-/// their `problems` read already: the colour profiles are read and set up, the marks file is
-/// read, and the desktop files of added formats and tools are checked. It waits for the disk,
-/// so `main` calls it before the window opens.
+/// their `problems` read already: the colour profiles are read and set up, the marks file, the
+/// window state, Open Recent, the Sort Manager's folders and the keyword tree are read, and the
+/// desktop files of added formats and tools are checked. It waits for the disk, so `main` calls
+/// it before the window opens.
 fn read_at_start(config: Config, problems: Vec<String>) -> ReadAtStart {
     let colour_error = crate::images::colour::set_up_colour(&config);
     let desktop_file_problems = crate::features::tools::desktop_file_problems();
     for problem in &desktop_file_problems {
         eprintln!("glimt: {problem}");
     }
+    let window_state = (config.remember_window || config.remember_dir)
+        .then(|| crate::images::decode::read_text(state_path()?).ok())
+        .flatten();
     ReadAtStart {
+        recent: crate::model::folder::read_recent(&config),
+        sort_folders: crate::model::folder::read_sort_folders(),
+        keyword_tree: crate::ui::info_panel::read_keyword_tree(),
         config,
         problems,
         colour_error,
         desktop_file_problem: desktop_file_problems.into_iter().next(),
         #[cfg(feature = "marks")]
         marks: crate::metadata::marks::read_marks(),
+        window_state,
     }
 }
 
@@ -632,10 +645,11 @@ fn main() -> eframe::Result {
     if start.lock_settings || start.kiosk || Path::new(crate::files::config::LOCK_FILE).exists() {
         crate::files::config::lock();
     }
-    if config.remember_window
-        && let Some(state) = state_path().and_then(|p| crate::images::decode::read_text(p).ok())
+    let read = read_at_start(config, problems);
+    if read.config.remember_window
+        && let Some(state) = &read.window_state
     {
-        let win = WindowState::parse(&state);
+        let win = WindowState::parse(state);
         if let Some(size) = win.size {
             viewport = viewport.with_inner_size(size);
         }
@@ -654,7 +668,6 @@ fn main() -> eframe::Result {
         viewport,
         ..Default::default()
     };
-    let read = read_at_start(config, problems);
     eframe::run_native(
         "glimt",
         options,

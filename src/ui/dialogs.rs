@@ -21,6 +21,10 @@ use std::sync::mpsc;
 /// something else at that moment must not delete files for good unseen.
 const ENTER_IGNORED_FOR: f64 = 0.5;
 
+/// The system's folder of colour profiles, where the file dialog for a profile starts when the
+/// user has none of their own.
+const SYSTEM_PROFILES: &str = "/usr/share/color/icc";
+
 /// What a file dialog (zenity or kdialog) was opened for.
 pub(crate) enum Pick {
     Open,
@@ -357,10 +361,15 @@ impl crate::App {
         };
         let notices = self.notice_sender.clone();
         let make_start_first = matches!(purpose, Pick::Collection);
+        let is_profile = matches!(purpose, Pick::ScreenProfile | Pick::InputProfile);
         std::thread::spawn(move || {
             if make_start_first {
                 drop(std::fs::create_dir_all(&start));
             }
+            let start = match is_profile && !start.is_dir() {
+                true => Path::new(SYSTEM_PROFILES).join(""),
+                false => start,
+            };
             #[allow(clippy::disallowed_methods)] // waits for the user, in its own thread
             let zenity = || {
                 let mut cmd = command("zenity");
@@ -440,11 +449,11 @@ impl crate::App {
             Pick::Collection => (collections::collections_dir())
                 .unwrap_or_default()
                 .join(""),
-            // Where colord and the user keep them.
+            // Where colord and the user keep them. The dialog's thread starts in the system's
+            // folder when the user's is not there (`pick`).
             Pick::ScreenProfile | Pick::InputProfile => {
                 (xdg_dir("XDG_DATA_HOME", ".local/share", "icc"))
-                    .filter(|d| d.is_dir())
-                    .unwrap_or_else(|| "/usr/share/color/icc".into())
+                    .unwrap_or_else(|| SYSTEM_PROFILES.into())
                     .join("")
             }
             _ => self.folder.dir().join(""),

@@ -135,22 +135,14 @@ pub(crate) struct Folder {
 }
 
 impl Folder {
-    /// A `Folder` with nothing open yet. The recent list and the sort manager's folders are read
-    /// from their files. `remembered` is the last folder kept from the window before, if any.
-    pub(crate) fn new(config: &Config, remembered: Option<PathBuf>) -> Self {
-        // When no list is kept, one from before goes too, also when the setting was changed in
-        // the file.
-        let recent = match config::recent_path() {
-            Some(file) if !config.keep_recent => {
-                crate::files::file_io::write_later(move || {
-                    crate::files::file_io::remove_shared(&file)
-                });
-                Vec::new()
-            }
-            Some(file) => crate::images::decode::read_limited(file)
-                .map_or_else(|_| Vec::new(), |t| config::parse_recent(&t)),
-            None => Vec::new(),
-        };
+    /// A `Folder` with nothing open yet, with the `recent` list and the Sort Manager's
+    /// `sort_folders` as `main` read them (`read_recent`, `read_sort_folders`). `remembered` is
+    /// the last folder kept from the window before, if any.
+    pub(crate) fn new(
+        remembered: Option<PathBuf>,
+        recent: Vec<PathBuf>,
+        sort_folders: Vec<PathBuf>,
+    ) -> Self {
         let (changed_tx, changed_rx) = mpsc::channel();
         Folder {
             dir: PathBuf::new(),
@@ -186,9 +178,7 @@ impl Folder {
             forward: Vec::new(),
             mounting_rx: Receiving::none(),
             login: None,
-            sort_folders: (sort_folders_path()
-                .and_then(|p| crate::images::decode::read_limited(p).ok()))
-            .map_or_else(Vec::new, |t| sort_folders_from(&t)),
+            sort_folders,
             saved_collections: Default::default(),
             sort_folders_written: Receiving::none(),
         }
@@ -1835,6 +1825,27 @@ pub(crate) fn total_size(paths: &[PathBuf]) -> u64 {
         .map(|m| m.len())
         .sum()
 }
+/// Returns File → Open Recent's places as the recent file has them. When no list is kept, one
+/// from before goes too, also when the setting was changed in the file. It waits for the disk,
+/// so `main` calls it before the window opens.
+pub(crate) fn read_recent(config: &Config) -> Vec<PathBuf> {
+    match config::recent_path() {
+        Some(file) if !config.keep_recent => {
+            crate::files::file_io::write_later(move || crate::files::file_io::remove_shared(&file));
+            Vec::new()
+        }
+        Some(file) => crate::images::decode::read_limited(file)
+            .map_or_else(|_| Vec::new(), |t| config::parse_recent(&t)),
+        None => Vec::new(),
+    }
+}
+
+/// Returns the Sort Manager's folders as their file has them. It waits for the disk, so `main`
+/// calls it before the window opens.
+pub(crate) fn read_sort_folders() -> Vec<PathBuf> {
+    (sort_folders_path().and_then(|p| crate::images::decode::read_limited(p).ok()))
+        .map_or_else(Vec::new, |t| sort_folders_from(&t))
+}
 
 #[cfg(test)]
 mod tests {
@@ -1947,11 +1958,11 @@ mod tests {
         for d in [&x, &y] {
             std::fs::create_dir_all(d).unwrap();
         }
-        let config = crate::files::config::Config::default();
         let kept = Some(std::path::PathBuf::from("/kept"));
-        let not_opened = super::Folder::new(&config, kept.clone());
+        let not_opened = super::Folder::new(kept.clone(), Vec::new(), Vec::new());
         assert_eq!(not_opened.place_to_remember(), kept.as_deref());
-        assert_eq!(super::Folder::new(&config, None).place_to_remember(), None);
+        let nothing_kept = super::Folder::new(None, Vec::new(), Vec::new());
+        assert_eq!(nothing_kept.place_to_remember(), None);
         let (mut app, ctx) = app_on(&x);
         let x = crate::model::listing::real_dir(&x);
         assert_eq!(app.folder.place_to_remember(), Some(x.as_path()));

@@ -93,7 +93,10 @@ and versions follow [Semantic Versioning](https://semver.org/).
   could hold it. The theme menu and Preferences read the theme files in the background, and a
   colour profile chosen is read there. Save As no longer reads a WebP file in every frame of its
   dialog. New Collection, Set Window Name, Rename Many, Print to a file, opening a file, Import
-  Lightroom Catalog and Edit → Tools look up what they need in the background too.
+  Lightroom Catalog and Edit → Tools look up what they need in the background too, and so do
+  the file dialog for a colour profile and a tool's check of the file types it takes. Open
+  Recent, the Sort Manager's folders, the keyword tree and the window's state are read before
+  the window opens, the window's state once instead of twice.
 ### Added
 
 - Preferences → Memory and CPU sets the most memory an added format's program may take, 4096 MB

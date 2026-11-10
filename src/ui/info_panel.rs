@@ -130,8 +130,8 @@ pub(crate) struct InfoPanel {
 }
 
 impl InfoPanel {
-    /// The EXIF reader started, and the keyword tree read from its file.
-    pub(crate) fn new(ctx: &egui::Context) -> Self {
+    /// The EXIF reader started, with the keyword tree as `main` read it (`read_keyword_tree`).
+    pub(crate) fn new(ctx: &egui::Context, keyword_tree: Vec<String>) -> Self {
         let (exif_requests, exif_answers) = spawn_exif_reader(ctx);
         let mut panel = InfoPanel {
             exif_requests,
@@ -150,9 +150,7 @@ impl InfoPanel {
             new_keyword: String::new(),
             keyword_tree_written: Receiving::none(),
         };
-        let tree = (keyword_tree_path().and_then(|p| crate::images::decode::read_limited(p).ok()))
-            .map_or_else(Vec::new, |file| xmp::keyword_tree_of(&file));
-        panel.set_keyword_tree(tree);
+        panel.set_keyword_tree(keyword_tree);
         panel
     }
 
@@ -803,6 +801,12 @@ pub(crate) fn spawn_exif_reader(
         }
     });
     (exif_requests, exif_answers)
+}
+/// Returns the keyword tree as its file has it. It waits for the disk, so `main` calls it before
+/// the window opens.
+pub(crate) fn read_keyword_tree() -> Vec<String> {
+    (keyword_tree_path().and_then(|p| crate::images::decode::read_limited(p).ok()))
+        .map_or_else(Vec::new, |file| xmp::keyword_tree_of(&file))
 }
 
 #[cfg(test)]

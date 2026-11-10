@@ -679,8 +679,8 @@ where
 }
 
 /// Sets up the colour settings in effect at start. Returns the screen profile's or input profile's
-/// error, if either could not be read. With the desktop's profile asked for, images wait a moment
-/// for it.
+/// error, if either could not be read. The wait for the desktop's profile starts later, where
+/// colord is asked (`start_screen_wait`).
 pub(crate) fn set_up_colour(config: &Config) -> Option<String> {
     COLOR_MANAGEMENT.store(config.color_management, Ordering::Relaxed);
     VIEW_FILTER.store(config.view_filter, Ordering::Relaxed);
@@ -689,11 +689,18 @@ pub(crate) fn set_up_colour(config: &Config) -> Option<String> {
         .err();
     set_colour(|c| c.use_image_profile = config.use_image_profile);
     set_intent(&config.rendering_intent);
-    if config.desktop_profile && config.color_management {
+    error
+}
+
+/// Makes the images for the screen wait a moment for the desktop's screen profile, when colour
+/// management is on. It is called just before colord is asked, in the window, and not when the
+/// settings are set up in `main`: the window takes 100 to 300 ms to open in between, and the
+/// wait ran out before the question was asked.
+pub(crate) fn start_screen_wait() {
+    if COLOR_MANAGEMENT.load(Ordering::Relaxed) {
         let deadline = Instant::now() + std::time::Duration::from_millis(SCREEN_WAIT_MS);
         *lock_even_if_poisoned(&SCREEN_WAIT.0) = Some(deadline);
     }
-    error
 }
 
 #[cfg(test)]
@@ -1096,9 +1103,29 @@ mod tests {
         assert!(READ.load(Ordering::Relaxed));
     }
 
+    /// The wait for the desktop's screen profile starts where colord is asked, not when the
+    /// settings are set up before the window opens, which it outlasted.
+    #[test]
+    fn the_screen_wait_starts_where_colord_is_asked() {
+        let _held = lock_even_if_poisoned(&super::COLOUR_TEST);
+        *lock_even_if_poisoned(&super::SCREEN_WAIT.0) = None;
+        let config = crate::files::config::Config {
+            color_management: true,
+            desktop_profile: true,
+            ..Default::default()
+        };
+        super::set_up_colour(&config);
+        assert!(lock_even_if_poisoned(&super::SCREEN_WAIT.0).is_none());
+        super::start_screen_wait();
+        let deadline = lock_even_if_poisoned(&super::SCREEN_WAIT.0).take();
+        assert!(deadline.is_some_and(|d| d > std::time::Instant::now()));
+    }
+
     /// Images for the screen wait for colord at start until the deadline, and not at all after.
     #[test]
     fn waits_for_the_screen_profile_until_the_deadline() {
+        // The test above sets the deadline too.
+        let _held = lock_even_if_poisoned(&super::COLOUR_TEST);
         let start = std::time::Instant::now();
         *lock_even_if_poisoned(&super::SCREEN_WAIT.0) =
             Some(start + std::time::Duration::from_millis(40));
