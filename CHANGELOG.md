@@ -59,6 +59,17 @@ and versions follow [Semantic Versioning](https://semver.org/).
 - A change of the settings whose save failed, as on a full disk, is written by the next save
   that works. Before, that save put the file's old value back, and the change was lost at the
   next start.
+- Taking out one of two keywords that differ only in letter case, such as "rose" beside
+  "Rose", keeps the other. Before, both went from the sidecar.
+- Turning a PNG keeps its XMP (keywords, title, description) and its EXIF when they come after
+  the pixels, where ExifTool adds XMP. Before, the turned PNG that replaced the file had lost
+  them. A copy (Save As, Crop) keeps them too.
+- An empty `<dc:subject/>` or `<dc:description/>` in a sidecar is read as empty. Before, the
+  keywords and comment were read from the lists after it, such as the keyword tree, and a
+  keyword edit wrote them into the sidecar.
+- Copy for Sharing leaves out the EXIF of a crafted PNG or WebP whose tags all name one large
+  value, and copies a tag named twice once. Before, such a file could make Glimt fill the
+  computer's memory.
 
 ## [0.79.0] - 2026-11-10
 

@@ -96,7 +96,11 @@ out of use is still read, and ignored.
   `Theme::parse`);
 - the files and folders Glimt owns (`file` lines, from `config_path` and the other functions
   that name them, `LOCK_FILE`, `RENAMED_FOLDERS`, `remote::socket_name` and `FOCUSED_FILE`);
-- the words of the groups in the sharing file (`sharing` lines, `Group::key`).
+- the words of the groups in the sharing file (`sharing` lines, `Group::key`), and the names
+  of the single tags and parts it holds (`sharing_tag` lines, from
+  `shared_copy::names_of_single_tags`): each EXIF tag's name, one of each form a tag or part
+  without a name of its own gets ("Image 0x…", "JPEG APP…", "PNG chunk …"), and the parts'
+  names.
 
 The tests that hold this:
 

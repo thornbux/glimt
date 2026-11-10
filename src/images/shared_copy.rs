@@ -1269,6 +1269,42 @@ pub(crate) fn tags_of(path: &Path) -> Result<Option<Vec<String>>, String> {
     })
 }
 
+/// Returns the names of the single tags and parts that the file of the last choice can hold:
+/// those of the EXIF tags (`exif::every_shared_tag_name`), those of the parts, and one name of
+/// each form that a part without a name of its own gets, from a JPEG, a PNG and a WebP walked.
+/// src/frozen-1.0.txt pins them, because a name changed would turn a tag that the user left out
+/// into one kept, and no one would see it.
+#[cfg(test)]
+pub(crate) fn names_of_single_tags() -> Vec<String> {
+    use crate::metadata::exif::{EXIF_THUMBNAIL, every_shared_tag_name};
+    let mut names = every_shared_tag_name();
+    let parts = [
+        JFIF_THUMBNAIL,
+        MPF,
+        AFTER_IMAGE,
+        PHOTOSHOP_RESOURCES,
+        RAW_PROFILES,
+        JPEG_COMMENT,
+        EXIF_THUMBNAIL,
+    ];
+    names.extend(parts.map(str::to_owned));
+    let header = png_chunk(b"IHDR", &[0, 0, 0, 1, 0, 0, 0, 1, 8, 2, 0, 0, 0]);
+    let png = [
+        &b"\x89PNG\r\n\x1a\n"[..],
+        &header,
+        &png_chunk(b"vpAg", b""),
+        &png_chunk(b"IEND", b""),
+    ];
+    let jpeg = [&b"\xff\xd8"[..], &jpeg_segment(0xec, b"x"), b"\xff\xd9"].concat();
+    let webp = b"RIFF\x0c\0\0\0WEBPXYZW\0\0\0\0".to_vec();
+    for data in [jpeg, png.concat(), webp] {
+        if let Ok(Some(walked)) = walk(&data) {
+            names.extend(walked.parts.iter().filter_map(|p| p.tag.clone()));
+        }
+    }
+    names
+}
+
 /// Makes the copy for sharing of `path` that keeps the tags `kept`, besides what every copy
 /// keeps. Returns `None` for a file that is not a JPEG, PNG or WebP, and an error for one that
 /// cannot be read or is damaged.
@@ -1827,6 +1863,19 @@ fn iim_element(name: &str, form: char, texts: Vec<String>) -> String {
         }
         _ => format!("<{name}>{}</{name}>", escape(first)),
     }
+}
+
+/// Reads the EXIF block (eXIf) and the XMP packet of the PNG `data`, wherever they stand. Returns
+/// `(None, None)` for a PNG that cannot be walked. The decoder reads only the chunks before the
+/// pixels, but ExifTool adds XMP after them. A turn reads these too, because the PNG it writes
+/// drops the old chunks of both (`save::png_with_chunks`), and before, it lost what lay there.
+pub(crate) fn png_exif_and_xmp(data: &[u8]) -> (Option<Vec<u8>>, Option<Vec<u8>>) {
+    walk_png(data).map_or((None, None), |walked| {
+        (
+            walked.exif.map(<[u8]>::to_vec),
+            walked.xmp.map(<[u8]>::to_vec),
+        )
+    })
 }
 
 /// Walks a PNG: each chunk up to its end (IEND). What follows IEND is left out. Returns `None`
@@ -3305,6 +3354,72 @@ mod tests {
         assert!(!has(&copy, b"TH-UMB") && has(&copy, b"JFIF\0\x01\x01\0\0\x01\0\x01\0\0"));
         let pixels = |b: &[u8]| image::load_from_memory(b).unwrap().to_rgba8();
         assert!(pixels(&original) == pixels(&copy) && pixels(&original) == pixels(&kept));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// Remove All keeps what decides how the copy looks, in a JPEG, a PNG and a WebP: the colour
+    /// profile, the EXIF orientation and the XMP orientation. The dialog says they are always
+    /// kept, and before, no test held a file with a profile or an orientation in the XMP.
+    #[test]
+    fn remove_all_keeps_the_profile_and_the_orientation() {
+        use image::{ImageDecoder, ImageEncoder};
+        let dir = folder("always-kept");
+        let profile = b"ICC-PROFILE-OF-THE-TEST".to_vec();
+        let xmp = "<x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><rdf:RDF \
+            xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\"><rdf:Description \
+            rdf:about=\"\" xmlns:tiff=\"http://ns.adobe.com/tiff/1.0/\">\
+            <tiff:Orientation>6</tiff:Orientation></rdf:Description></rdf:RDF></x:xmpmeta>";
+        let mut jpeg = Vec::new();
+        let mut encoder = image::codecs::jpeg::JpegEncoder::new_with_quality(&mut jpeg, 90);
+        encoder.set_icc_profile(profile.clone()).unwrap();
+        encoder.set_exif_metadata(exif_block()).unwrap();
+        picture().write_with_encoder(encoder).unwrap();
+        let xmp_segment = [&b"http://ns.adobe.com/xap/1.0/\0"[..], xmp.as_bytes()].concat();
+        let jpeg = [
+            &jpeg[..2],
+            &super::jpeg_segment(0xe1, &xmp_segment),
+            &jpeg[2..],
+        ]
+        .concat();
+        let mut png = Vec::new();
+        let mut encoder = image::codecs::png::PngEncoder::new(&mut png);
+        encoder.set_icc_profile(profile.clone()).unwrap();
+        encoder.set_exif_metadata(exif_block()).unwrap();
+        picture().write_with_encoder(encoder).unwrap();
+        let text = [&b"XML:com.adobe.xmp\0\0\0\0\0"[..], xmp.as_bytes()].concat();
+        let png = [&png[..33], &super::png_chunk(b"iTXt", &text), &png[33..]].concat();
+        let mut webp = Vec::new();
+        let mut encoder = image::codecs::webp::WebPEncoder::new_lossless(&mut webp);
+        encoder.set_icc_profile(profile.clone()).unwrap();
+        encoder.set_exif_metadata(exif_block()).unwrap();
+        picture().write_with_encoder(encoder).unwrap();
+        let webp =
+            crate::images::save::webp_with_chunk(&webp, b"XMP ", xmp.as_bytes(), 16, 16).unwrap();
+        for (name, original) in [("a.jpg", jpeg), ("a.png", png), ("a.webp", webp)] {
+            let path = dir.join(name);
+            std::fs::write(&path, &original).unwrap();
+            let found = super::tags_of(&path).unwrap().unwrap();
+            let mut left_out = super::LeftOut::default();
+            left_out.remove_all();
+            let copy = super::copy(&path, &left_out.kept(&found)).unwrap().unwrap();
+            let has = |text: &[u8]| copy.windows(text.len()).any(|w| w == text);
+            assert!(!has(b"Canon"), "{name}: the make is in the copy");
+            assert!(
+                has(b"\x01\x12\0\x03\0\0\0\x01\0\x06"),
+                "{name}: no EXIF orientation"
+            );
+            assert!(
+                has(b"<tiff:Orientation>6</tiff:Orientation>"),
+                "{name}: no XMP one"
+            );
+            let reader = image::ImageReader::new(std::io::Cursor::new(&copy));
+            let mut decoder = (reader.with_guessed_format().unwrap().into_decoder()).unwrap();
+            assert_eq!(
+                decoder.icc_profile().unwrap(),
+                Some(profile.clone()),
+                "{name}"
+            );
+        }
         std::fs::remove_dir_all(dir).unwrap();
     }
 
