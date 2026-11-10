@@ -895,10 +895,15 @@ fn read_exif_block(path: &Path) -> Option<Vec<u8>> {
 /// the tags the user keeps into a block made new (`shared_block`). Returns `None` when there is
 /// no block.
 pub fn derived(path: &Path, how: crate::images::save::Derived) -> Option<Vec<u8>> {
-    let raw = read_exif_block(path)?;
+    derived_of(&read_exif_block(path)?, how)
+}
+
+/// Makes the EXIF block `raw` what a file made as `how` keeps of it, as `derived` does.
+/// Returns `None` for a block without a TIFF header.
+pub fn derived_of(raw: &[u8], how: crate::images::save::Derived) -> Option<Vec<u8>> {
     match how {
-        crate::images::save::Derived::Copy => derived_block(&raw),
-        _ => Some(ifds(&raw)?.0.data.to_vec()),
+        crate::images::save::Derived::Copy => derived_block(raw),
+        _ => Some(ifds(raw)?.0.data.to_vec()),
     }
 }
 
@@ -1323,7 +1328,8 @@ pub fn stored_orientation(dec: &mut impl image::ImageDecoder, exif: Option<&[u8]
 /// `Some(None)` for a PNG without one, and `None` when the png crate cannot read the file.
 fn png_exif(path: &Path) -> Option<Option<Vec<u8>>> {
     // shortcut: only the text before the pixels is read, where exiv2 and ImageMagick put it;
-    // read the chunks after IDAT too if a program is found that writes EXIF there.
+    // read the chunks after IDAT too if a program is found that writes EXIF there. A turn or
+    // copy reads an eXIf after them (`shared_copy::png_exif_and_xmp`), as it drops that chunk.
     const KEYS: [&[u8]; 2] = [b"Raw profile type exif", b"Raw profile type APP1"];
     let file = std::io::BufReader::new(crate::images::decode::open_regular(path).ok()?);
     let reader = png::Decoder::new(file).read_info().ok()?;

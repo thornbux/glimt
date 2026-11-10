@@ -737,6 +737,17 @@ fn derived_metadata(
             (d.xmp_metadata().ok().flatten(), stored)
         })
         .unwrap_or_default();
+    // A PNG's XMP and eXIf after the pixels, which the decoder does not read, are read here,
+    // because the PNG written drops them (`png_with_chunks`). Their orientation was not shown,
+    // so `stored` is read without it.
+    if has_ext(path, &["png"])
+        && (xmp.is_none() || exif.is_none())
+        && let Ok(bytes) = crate::images::decode::read_limited(path)
+    {
+        let (after_exif, after_xmp) = crate::images::shared_copy::png_exif_and_xmp(&bytes);
+        exif = exif.or_else(|| exif::derived_of(&after_exif?, how));
+        xmp = xmp.or(after_xmp);
+    }
     if let Some(exif) = &mut exif {
         exif::set_upright(exif, size)?;
     }
@@ -1789,6 +1800,45 @@ mod tests {
         std::fs::write(&file, b"RIFF\x04\0\0\0WEBP").unwrap();
         assert_eq!(super::webp_lossless(&file), None);
         std::fs::remove_file(file).unwrap();
+    }
+
+    /// A PNG turned keeps its XMP and EXIF when they come after the pixels, where ExifTool adds
+    /// XMP. Before, the decoder read neither, and the turned PNG dropped both chunks, so the
+    /// keywords were lost from the user's own file.
+    #[test]
+    fn a_turned_png_keeps_the_metadata_after_its_pixels() {
+        use image::ImageDecoder;
+        let dir = std::env::temp_dir().join(format!("glimt-turn-after-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("a.png");
+        image::RgbImage::new(4, 2).save(&file).unwrap();
+        // IFD0 with Make "Canon".
+        let exif = b"MM\0*\0\0\0\x08\0\x01\x01\x0f\0\x02\0\0\0\x06\0\0\0\x1a\0\0\0\0Canon\0";
+        let xmp = b"<x:xmpmeta>Oslo</x:xmpmeta>";
+        let chunk = |body: Vec<u8>| {
+            let mut out = ((body.len() - 4) as u32).to_be_bytes().to_vec();
+            out.extend(&body);
+            out.extend(super::crc32(&body).to_be_bytes());
+            out
+        };
+        let mut bytes = std::fs::read(&file).unwrap();
+        let iend = bytes.len() - 12;
+        let after = [
+            chunk([&b"iTXtXML:com.adobe.xmp\0\0\0\0\0"[..], xmp].concat()),
+            chunk([&b"eXIf"[..], exif].concat()),
+        ];
+        bytes.splice(iend..iend, after.concat());
+        std::fs::write(&file, &bytes).unwrap();
+        super::save_rotated(&file, false, 1, false, 90).unwrap();
+        let mut dec = image::ImageReader::open(&file)
+            .unwrap()
+            .into_decoder()
+            .unwrap();
+        assert_eq!(dec.dimensions(), (2, 4));
+        assert_eq!(dec.xmp_metadata().unwrap().as_deref(), Some(&xmp[..]));
+        let rows = crate::metadata::exif::read(&file);
+        assert!(rows.contains(&("Camera", "Canon".to_string())), "{rows:?}");
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     /// A PNG turned upright by its EXIF orientation and then a quarter turn keeps its EXIF,
