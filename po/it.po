@@ -1981,6 +1981,10 @@ msgstr "Non è uno schema: {e}"
 msgid "{text} exists already: choose another name"
 msgstr "{text} esiste già: scegli un altro nome"
 
+#: src/model/listing.rs
+msgid "{text} starts with a dot and would be hidden: choose another name"
+msgstr "{text} inizia con un punto e sarebbe nascosto: scegli un altro nome"
+
 #: src/features/print.rs
 msgid "Saved as {file}: edit it, then choose it again"
 msgstr "Salvato come {file}: modificalo, poi sceglilo di nuovo"

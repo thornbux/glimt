@@ -638,9 +638,9 @@ impl crate::App {
         if let Prompt::RenameCollection = prompt {
             return self.rename_collection(ctx, text);
         }
-        if text.is_empty() || text.contains('/') || text == "." || text == ".." {
-            self.notice.give(tf!("Not a valid name: \"{text}\"", text));
-            return;
+        let hidden_shown = matches!(prompt, Prompt::SaveTheme) || self.shown_types().hidden;
+        if let Some(why) = crate::model::listing::refused_name(text, hidden_shown) {
+            return self.notice.give(why);
         }
         if let Prompt::SaveTheme = prompt {
             let file = theme::own_themes_dir().map(|d| d.join(format!("{text}.theme")));
@@ -1188,6 +1188,36 @@ mod tests {
         };
         let _ = ctx.run_ui(input, |ui| app.confirm_open_dialog(ui.ctx()));
         assert!(app.dialogs.files_to_open.is_empty());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// Rename and Rename Many refuse a new name that starts with a dot, which the list hides,
+    /// so the files would vanish from it. Before, `.#` renamed them to `.1.png` and `.2.png`,
+    /// gone from the list. With hidden files shown, such a name is taken.
+    #[test]
+    fn a_new_name_that_would_be_hidden_is_refused() {
+        use super::Prompt;
+        use crate::ui::actions::Action;
+        let dir = std::env::temp_dir().join(format!("glimt-test-dot-name-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        for name in ["a.png", "b.png"] {
+            image::RgbImage::new(2, 2).save(dir.join(name)).unwrap();
+        }
+        let (mut app, ctx) = app_on(&dir);
+        let told = |name: &str| {
+            format!("{name} starts with a dot and would be hidden: choose another name")
+        };
+        app.run(&ctx, Action::Rename);
+        app.act_on_prompt_answer(&ctx, Prompt::Rename, ".a.png");
+        assert_eq!(app.notice.text(), Some(told(".a.png").as_str()));
+        app.notice.clear();
+        app.run(&ctx, Action::SelectAll);
+        app.run(&ctx, Action::Rename);
+        app.act_on_prompt_answer(&ctx, Prompt::RenameMany, ".#");
+        assert_eq!(app.notice.text(), Some(told(".#").as_str()));
+        assert!(dir.join("a.png").exists() && dir.join("b.png").exists());
+        assert!(include_str!("../../po/no_nb.po").contains(&told("{text}")));
+        assert!(crate::model::listing::refused_name(".a.png", true).is_none());
         std::fs::remove_dir_all(dir).unwrap();
     }
 

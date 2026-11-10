@@ -193,6 +193,22 @@ pub fn is_hidden(path: &Path) -> bool {
         .is_some_and(|n| n.as_encoded_bytes().starts_with(b"."))
 }
 
+/// Returns why `name` cannot be the new name of a file, a folder or a collection, or `None` when
+/// it can. It is refused when it is empty, `.`, `..` or has a `/`, and when it starts with a dot
+/// unless `hidden_shown`, because the list hides such a name and the file would vanish from it.
+/// A theme, which is not in the list, is named with `hidden_shown`.
+pub fn refused_name(name: &str, hidden_shown: bool) -> Option<String> {
+    if name.is_empty() || name.contains('/') || name == "." || name == ".." {
+        return Some(crate::tf!("Not a valid name: \"{text}\"", text = name));
+    }
+    (name.starts_with('.') && !hidden_shown).then(|| {
+        crate::tf!(
+            "{text} starts with a dot and would be hidden: choose another name",
+            text = name
+        )
+    })
+}
+
 fn is_listed_type(path: &Path, types: Types) -> bool {
     (types.images
         && (built_in_image(path) || crate::images::added_formats::for_path(path).is_some()))

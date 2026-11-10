@@ -1981,6 +1981,10 @@ msgstr "No es un patrón: {e}"
 msgid "{text} exists already: choose another name"
 msgstr "{text} ya existe: elija otro nombre"
 
+#: src/model/listing.rs
+msgid "{text} starts with a dot and would be hidden: choose another name"
+msgstr "{text} empieza por un punto y quedaría oculto: elija otro nombre"
+
 #: src/features/print.rs
 msgid "Saved as {file}: edit it, then choose it again"
 msgstr "Guardado como {file}: edítelo y vuelva a elegirlo"

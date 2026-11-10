@@ -288,7 +288,7 @@ pub(crate) fn follow_in_saved_collections(pairs: &[(PathBuf, PathBuf)], open: Op
 /// `name` trimmed, if it can be the name of a collection's file.
 fn valid_collection_name(name: &str) -> Result<&str, String> {
     let name = name.trim();
-    match name.is_empty() || name.contains('/') || name.starts_with('.') {
+    match crate::model::listing::refused_name(name, false).is_some() {
         true => Err(tf!("Not a valid collection name: \"{name}\"", name)),
         false => Ok(name),
     }

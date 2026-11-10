@@ -2148,6 +2148,10 @@ msgstr "Ikkje eit mønster: {e}"
 msgid "{text} exists already: choose another name"
 msgstr "{text} finst allereie: vel eit anna namn"
 
+#: src/model/listing.rs
+msgid "{text} starts with a dot and would be hidden: choose another name"
+msgstr "{text} byrjar med punktum og ville bli gøymd: vel eit anna namn"
+
 #: src/features/print.rs
 msgid "Saved as {file}: edit it, then choose it again"
 msgstr "Lagra som {file}: rediger ho, og vel ho igjen"

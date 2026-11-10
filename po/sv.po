@@ -1981,6 +1981,10 @@ msgstr "Inte ett mönster: {e}"
 msgid "{text} exists already: choose another name"
 msgstr "{text} finns redan: välj ett annat namn"
 
+#: src/model/listing.rs
+msgid "{text} starts with a dot and would be hidden: choose another name"
+msgstr "{text} börjar med punkt och skulle döljas: välj ett annat namn"
+
 #: src/features/print.rs
 msgid "Saved as {file}: edit it, then choose it again"
 msgstr "Sparad som {file}: redigera den och välj den sedan igen"

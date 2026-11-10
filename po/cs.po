@@ -2159,6 +2159,10 @@ msgstr "Neplatný vzor: {e}"
 msgid "{text} exists already: choose another name"
 msgstr "{text} už existuje: zvolte jiný název"
 
+#: src/model/listing.rs
+msgid "{text} starts with a dot and would be hidden: choose another name"
+msgstr "{text} začíná tečkou a byl by skrytý: zvolte jiný název"
+
 #: src/features/print.rs
 msgid "Saved as {file}: edit it, then choose it again"
 msgstr "Uloženo jako {file}: upravte ho a pak ho znovu vyberte"
