@@ -5,6 +5,12 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- Marks and stars set one after another while the last one is still being saved go to the
+  marks file in one write, not one write each. With 500,000 files marked, a write takes about
+  0.4 s, so 500 mark keys took over three minutes to save, longer than a close waits for them.
+
 ## [0.78.0] - 2026-11-10
 
 ### Added
