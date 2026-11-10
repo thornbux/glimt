@@ -1916,7 +1916,14 @@ impl crate::App {
                 } else {
                     String::new()
                 };
-                ui.label(format!("( {w} x {h} ) {bytes}{position}{page}"));
+                ui.label(tf!(
+                    "( {w} x {h} ) {bytes}{position}{page}",
+                    w,
+                    h,
+                    bytes,
+                    position,
+                    page
+                ));
             }
             None => {
                 ui.label(format!("{bytes}{position}"));

@@ -3,15 +3,15 @@
 
 use crate::support::format::{count, human_size, thousands};
 use crate::support::lang::tr;
-use crate::support::threads::{Receiving, Took, in_parts};
+use crate::support::threads::{Receiving, Took, Working, answer_channel, in_parts};
 use crate::{features::duplicates, tf};
 use eframe::egui;
 use std::collections::{HashMap, HashSet};
 use std::hash::Hasher;
 use std::io::Read;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::sync::{Arc, mpsc};
 
 pub const ALL: [(By, &str); 7] = [
     (By::Checksum, "Checksum (identical files)"),
@@ -63,7 +63,7 @@ type FoundGroups = (Vec<Vec<PathBuf>>, HashMap<PathBuf, u64>);
 pub(crate) struct FindDuplicates {
     by: duplicates::By,
     progress: Arc<duplicates::Progress>,
-    groups_rx: Receiving<FoundGroups>,
+    groups_rx: Receiving<(FoundGroups, Working)>,
     groups: Vec<Vec<PathBuf>>,
     /// (group, file) of each row: the file `usize::MAX` for the group's heading.
     rows: Vec<(usize, usize)>,
@@ -233,7 +233,7 @@ impl crate::App {
                 find_duplicates.searched = 0;
                 self.tell_background_stopped(tr("Find Duplicates"));
             }
-            Took::Answer((groups, sizes)) => {
+            Took::Answer(((groups, sizes), _pointer)) => {
                 // Stopped: no result, not "0 groups" as if every image had been compared.
                 if find_duplicates
                     .progress
@@ -325,23 +325,25 @@ impl crate::App {
         }
     }
 
-    /// Find: the images of the list compared by `find_duplicates.by` in the background.
+    /// Find: the images of the list compared by `find_duplicates.by` in the background, with
+    /// the busy pointer until the window has the groups.
     fn start_find(&mut self, ctx: &egui::Context, find_duplicates: &mut FindDuplicates) {
         let paths: Vec<PathBuf> = (0..self.list.files().len()).map(|i| self.path(i)).collect();
-        let (tx, ctx) = (mpsc::channel(), ctx.clone());
+        let (sender, rx) = answer_channel(&self.busy);
+        let (ctx, pointer) = (ctx.clone(), Working::new(&self.busy));
         let (by, progress) = (find_duplicates.by, Arc::new(Progress::default()));
         let (rotate, save) = (self.config.exif_rotate, self.config.save_thumbnails);
         find_duplicates.searched = paths.len();
         find_duplicates.found_by = by;
         find_duplicates.progress = progress.clone();
-        find_duplicates.groups_rx = Receiving::of(tx.1);
-        let sender = tx.0;
+        find_duplicates.groups_rx = Receiving::of(rx);
         std::thread::spawn(move || {
             let groups = find(paths, by, rotate, save, &progress);
             let sizes = (groups.iter().flatten())
                 .map(|p| (p.clone(), p.metadata().map_or(0, |m| m.len())))
                 .collect();
             let _ = sender.send((groups, sizes));
+            drop(pointer);
             ctx.request_repaint();
         });
     }
@@ -902,7 +904,8 @@ mod tests {
 
     /// The size beside each file found comes with the groups from the search's thread. Before,
     /// the window's thread looked at each file as its row was drawn, which a share that stopped
-    /// answering held for ever.
+    /// answering held for ever. The busy pointer shows from the start of the search until the
+    /// window has taken the groups; before, the search ran without it.
     #[test]
     fn the_sizes_come_with_the_groups() {
         let dir = std::env::temp_dir().join(format!("glimt-test-dup-sizes-{}", std::process::id()));
@@ -913,12 +916,19 @@ mod tests {
         let (mut app, ctx) = crate::support::test_support::app_on(&dir);
         let mut find_duplicates = FindDuplicates::new();
         app.start_find(&ctx, &mut find_duplicates);
+        assert!(app.busy.load(Ordering::Relaxed) > 0);
         let took = find_duplicates
             .groups_rx
             .wait(std::time::Duration::from_secs(5));
-        let Took::Answer((groups, sizes)) = took else {
+        let Took::Answer(((groups, sizes), pointer)) = took else {
             panic!("no groups");
         };
+        drop(pointer);
+        let start = std::time::Instant::now();
+        while app.busy.load(Ordering::Relaxed) > 0 && start.elapsed().as_secs() < 5 {
+            std::thread::yield_now();
+        }
+        assert_eq!(app.busy.load(Ordering::Relaxed), 0);
         assert_eq!(groups.len(), 1);
         let size = std::fs::metadata(&a).unwrap().len();
         assert_eq!((sizes[&a], sizes[&b]), (size, size));

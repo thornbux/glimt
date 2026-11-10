@@ -3031,3 +3031,7 @@ msgstr "{name} se stále otevírá… Otevřete jinou složku, abyste přestali 
 #: src/files/file_ops.rs
 msgid "Rename Many stopped, so the metadata edited for {count} was not saved"
 msgstr "Hromadné přejmenování se zastavilo, takže upravená metadata nebyla uložena: {count}"
+
+#: src/ui/file_list.rs
+msgid "( {w} x {h} ) {bytes}{position}{page}"
+msgstr "( {w} x {h} ) {bytes}{position}{page}"

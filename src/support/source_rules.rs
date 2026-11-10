@@ -3781,9 +3781,10 @@ fn without_paths(text: &str) -> String {
     out
 }
 
-/// Returns the sends in `text` outside the tests, in a function that makes the busy pointer,
-/// whose sender is not one of `keeping`, each as (function, line). A sender is found by the
-/// `let` in the function that binds it, also in a tuple, or else by its own name.
+/// Returns the sends in `text` outside the tests, in a function that makes the busy pointer or
+/// is given one (an argument of type `Working`), whose sender is not one of `keeping`, each as
+/// (function, line). A sender is found by the `let` in the function that binds it, also in a
+/// tuple, or else by its own name.
 fn answers_without_pointer(text: &str, keeping: &HashSet<String>) -> Vec<(String, usize)> {
     let lines = code_lines(text);
     let end = tests_start(&lines);
@@ -3816,7 +3817,16 @@ fn answers_without_pointer(text: &str, keeping: &HashSet<String>) -> Vec<(String
                     }
                 }
             }
-            (function, has_pointer) = (name.to_owned(), false);
+            // A pointer that the caller made and passed in counts as one made here.
+            let rest = &lines[i.min(end)..end];
+            let signature: String = (rest.iter())
+                .take_while(|l| !l.ends_with(['{', ';']))
+                .chain(rest.iter().find(|l| l.ends_with(['{', ';'])))
+                .map(String::as_str)
+                .collect();
+            let arguments = without_paths(signature.split("->").next().unwrap_or(""));
+            has_pointer = words(&arguments).iter().any(|w| w == "Working");
+            function = name.to_owned();
             (bound, sends, statement) = (Vec::new(), Vec::new(), None);
             continue;
         }
@@ -3907,8 +3917,9 @@ fn let_bindings(text: &str) -> Vec<(String, String)> {
 }
 
 /// The check above finds an answer sent on a plain channel by a thread with the busy pointer,
-/// also through a tuple's binding. It passes an `AnswerSender` and a notice, however they are
-/// bound, and a function without the busy pointer.
+/// also through a tuple's binding, and in a helper that its caller passed the pointer to. It
+/// passes an `AnswerSender` and a notice, however they are bound, and a function without the
+/// busy pointer.
 #[test]
 fn finds_an_answer_sent_without_its_pointer() {
     let text = "struct S {\n    report_tx: AnswerSender<u8>,\n}\n\
@@ -3922,11 +3933,14 @@ fn finds_an_answer_sent_without_its_pointer() {
         let p = Working::new(&self.busy);\n    report_tx.send(r);\n    t.send(1);\n}\n\
         fn d() {\n    let (tx, rx) = mpsc::channel();\n    tx.send(1);\n}\n\
         fn answer_channel<T>(\n    busy: &Arc<AtomicUsize>,\n) -> (AnswerSender<T>, R) {\n}\n\
-        struct T {\n    notice_sender: crate::support::threads::NoticeSender,\n}\n";
+        struct T {\n    notice_sender: crate::support::threads::NoticeSender,\n}\n\
+        fn e(&self) {\n    let p = Working::new(&self.busy);\n    spawn_reader(p, tx);\n}\n\
+        fn spawn_reader(\n    p: crate::support::threads::Working,\n    \
+        tx: mpsc::Sender<u8>,\n) {\n    spawn(move || drop((tx.send(1), p)));\n}\n";
     let keeping = senders_that_keep_the_pointer(&[("x.rs".into(), text.into())]);
     let found = answers_without_pointer(text, &keeping);
     let found: Vec<(&str, usize)> = found.iter().map(|(f, l)| (f.as_str(), *l)).collect();
-    assert_eq!(found, [("a", 7), ("b", 14)]);
+    assert_eq!(found, [("a", 7), ("b", 14), ("spawn_reader", 42)]);
 }
 
 /// Each name in backticks in AGENTS.md and docs/RELEASING.md that looks like code (a path with

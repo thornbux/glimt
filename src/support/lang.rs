@@ -10,17 +10,22 @@ use std::collections::HashMap;
 use std::sync::RwLock;
 
 /// `tf!("Could not save {name}: {e}", name, e = err)`: the text in the language in use, its
-/// `{name}`s filled in. A name alone is a variable of that name.
+/// `{name}`s filled in. A name alone is a variable of that name. A text whose `{name}`s are not
+/// the names passed does not compile, as the user would see the "{name}" left in it.
 #[macro_export]
 macro_rules! tf {
     (@value $name:ident = $value:expr) => { $value };
     (@value $name:ident) => { $name };
-    ($text:literal $(, $name:ident $(= $value:expr)?)* $(,)?) => {
+    ($text:literal $(, $name:ident $(= $value:expr)?)* $(,)?) => {{
+        const _: () = assert!(
+            $crate::support::lang::names_every_placeholder($text, &[$(stringify!($name)),*]),
+            "tf! passes each placeholder of its text, and nothing else"
+        );
         $crate::support::lang::fill_placeholders(
             $crate::support::lang::tr($text),
             &[$((stringify!($name), &$crate::tf!(@value $name $(= $value)?) as &dyn ::std::fmt::Display)),*],
         )
-    };
+    }};
 }
 
 /// The language setting's value for English, which Preferences writes. Any value that is not
@@ -78,7 +83,8 @@ struct Translation {
 
 /// Which of a noun's forms goes with `n`, by the language's rule (its `.po`'s Plural-Forms):
 /// one and many in most; 0 also one in French and Brazilian Portuguese; 21 one in Icelandic;
-/// one, few and many in Polish and Czech.
+/// one, few and many in Polish and Czech. `plural_form_follows_each_po_header` checks it
+/// against each header.
 fn plural_form(code: &str, n: usize) -> usize {
     match code {
         "fr" | "pt_BR" => (n > 1) as usize,
@@ -237,6 +243,47 @@ pub fn fill_placeholders(template: &str, values: &[(&str, &dyn std::fmt::Display
     }
     out.push_str(rest);
     out
+}
+
+/// Returns whether the `{name}`s of `text` are exactly `names`: each placeholder is among the
+/// names, and each name fills a placeholder. `tf!` asks this when it is compiled.
+pub const fn names_every_placeholder(text: &str, names: &[&str]) -> bool {
+    let text = text.as_bytes();
+    let (mut used, mut i) = (0u128, 0);
+    while i < text.len() {
+        if text[i] != b'{' {
+            i += 1;
+            continue;
+        }
+        let mut close = i + 1;
+        while close < text.len() && text[close] != b'}' {
+            close += 1;
+        }
+        if close == text.len() {
+            break;
+        }
+        let mut k = 0;
+        let mut is_passed = false;
+        while k < names.len() {
+            let name = names[k].as_bytes();
+            let mut is_same = name.len() == close - i - 1;
+            let mut j = 0;
+            while is_same && j < name.len() {
+                is_same = name[j] == text[i + 1 + j];
+                j += 1;
+            }
+            if is_same {
+                used |= 1 << k;
+                is_passed = true;
+            }
+            k += 1;
+        }
+        if !is_passed {
+            return false;
+        }
+        i = close + 1;
+    }
+    used.count_ones() as usize == names.len()
 }
 
 /// The `.po` file's entries: msgid and msgstr, and msgid_plural with msgstr[0], [1] …; the
@@ -519,6 +566,19 @@ msgstr[1] "bilder"
         }
     }
 
+    /// A text of `tf!` names exactly the values passed. A `{name}` left out was shown to the
+    /// user as it is, as fill_placeholders leaves a name it is not given.
+    #[test]
+    fn every_placeholder_is_passed() {
+        use super::names_every_placeholder as names_all;
+        assert!(names_all("Could not save {name}: {e}", &["name", "e"]));
+        assert!(names_all("{e}, {e} and {name}", &["name", "e"]));
+        assert!(names_all("No value", &[]));
+        assert!(!names_all("Could not save {name}: {e}", &["name"]));
+        assert!(!names_all("Saved {name}", &["name", "e"]));
+        assert!(!names_all("Saved {name", &["name"]));
+    }
+
     /// Each language's form for a number: Polish's few and many, Icelandic's 21, French's 0.
     #[test]
     fn picks_the_plural_form() {
@@ -539,6 +599,61 @@ msgstr[1] "bilder"
             forms("cs", &[0, 1, 2, 4, 5, 22, 101]),
             [2, 0, 1, 1, 2, 2, 2]
         );
+    }
+
+    /// `plural_form` picks for each language what its `.po`'s Plural-Forms header says. The rule
+    /// is written in both places, and a new language with three forms (Russian) and no rule in
+    /// `plural_form` fell to "one and many" and never showed its third form. A header that is
+    /// not in this table fails too, until its rule is written in `plural_form` and here.
+    #[test]
+    fn plural_form_follows_each_po_header() {
+        const NUMBERS: [usize; 13] = [0, 1, 2, 4, 5, 11, 12, 21, 22, 25, 101, 111, 112];
+        // Each header of the .po files, with the form its rule gives for each of NUMBERS.
+        const RULES: &[(&str, [usize; 13])] = &[
+            (
+                "nplurals=2; plural=(n != 1);",
+                [1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+            ),
+            (
+                "nplurals=2; plural=(n > 1);",
+                [0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+            ),
+            (
+                "nplurals=2; plural=(n%10!=1 || n%100==11);",
+                [1, 0, 1, 1, 1, 1, 1, 0, 1, 1, 0, 1, 1],
+            ),
+            (
+                "nplurals=3; plural=(n==1 ? 0 : n%10>=2 && n%10<=4 && (n%100<12 || n%100>14) \
+                 ? 1 : 2);",
+                [2, 0, 1, 1, 2, 2, 2, 2, 1, 2, 2, 2, 2],
+            ),
+            (
+                "nplurals=3; plural=(n==1 ? 0 : (n>=2 && n<=4) ? 1 : 2);",
+                [2, 0, 1, 1, 2, 2, 2, 2, 2, 2, 2, 2, 2],
+            ),
+        ];
+        let follows = |code: &str, po: &str| -> Result<(), String> {
+            let header = (po.lines())
+                .find_map(|l| l.strip_prefix("\"Plural-Forms: ")?.strip_suffix("\\n\""))
+                .unwrap_or("none");
+            let Some((_, forms)) = RULES.iter().find(|r| r.0 == header) else {
+                return Err(format!(
+                    "{code}: no rule here or in plural_form for {header}"
+                ));
+            };
+            let picked = NUMBERS.map(|n| super::plural_form(code, n));
+            match picked == *forms {
+                true => Ok(()),
+                false => Err(format!("{code}: plural_form gives {picked:?} for {header}")),
+            }
+        };
+        for (code, _, _, po) in super::LANGUAGES {
+            assert_eq!(follows(code, po), Ok(()));
+        }
+        // A three-form language without its rule in plural_form.
+        let header = format!("\"Plural-Forms: {}\\n\"", RULES[3].0);
+        assert!(follows("ru", &header).is_err());
+        assert!(follows("ru", "\"Plural-Forms: nplurals=4; plural=(n%4);\\n\"").is_err());
     }
 
     /// The template for a new language, po/glimt.pot, has every text of no_nb.po, in its order,
@@ -586,13 +701,18 @@ msgstr[1] "bilder"
     }
 
     /// Every text the window shows goes through tr, tf! or plural: a literal handed straight to
-    /// a widget, or one that starts with a capital and has two words, is translated where it
-    /// stands, or is a text of no_nb.po in a table (a const or static) translated where it is
-    /// shown, or stays English for a reason below. Each literal in tr, tf! or plural is a text
-    /// of no_nb.po, so the translation test above finds it in every language.
+    /// a widget, also through format!, or one that starts with a capital and has two words, is
+    /// translated where it stands, or is a text of no_nb.po in a table (a const or static)
+    /// translated where it is shown, or stays English for a reason below. Each literal in tr or
+    /// tf! is a text of no_nb.po, and each noun of count or plural a noun of it, so the
+    /// translation test above finds it in every language. Before, a noun of count was not
+    /// checked, a text in format! was not seen, and an exception excused every text that
+    /// started with it.
     #[test]
     fn every_text_shown_is_translated() {
+        use std::collections::HashSet;
         // (file, the literals or the item they are in ("" for the whole file), why English).
+        // A literal is matched whole, and an exception that excuses no text fails.
         const ENGLISH: &[(&str, &[&str], &str)] = &[
             ("ui/help.rs", &[""], "the Help Manual stays English"),
             (
@@ -627,7 +747,16 @@ msgstr[1] "bilder"
             ),
             (
                 "images/svg.rs",
-                &["SVG "],
+                &[
+                    "SVG too large once unpacked",
+                    "SVG too large",
+                    "SVG needs too much memory to draw",
+                    "SVG could not be drawn",
+                    "SVG cut short",
+                    "SVG gzipped twice",
+                    "SVG whose entities would grow too large",
+                    "SVG size mismatch",
+                ],
                 "what is wrong in a file, as the system's errors",
             ),
             (
@@ -648,17 +777,16 @@ msgstr[1] "bilder"
             (
                 "images/shared_copy.rs",
                 &[
-                    "const GROUP_EXCEPTIONS",
                     "const KNOWN_NAMES",
                     "const UNKNOWN_BLOCKS",
                     "JFIF thumbnail",
-                    "Extra images",
-                    "Data after",
+                    "Extra images (MPF)",
+                    "Data after the image",
                     "Photoshop resources",
                     "Raw profiles",
                     "JPEG comment",
-                    "PNG chunk",
-                    "WebP chunk",
+                    "PNG chunk {}",
+                    "WebP chunk {}",
                 ],
                 "tags' names, shown as files name tags",
             ),
@@ -685,20 +813,24 @@ msgstr[1] "bilder"
             (
                 "images/thumbs.rs",
                 &[
-                    "No such file",
+                    "No such file or directory",
                     "Permission denied",
                     "Input/output error",
-                    "Transport endpoint",
+                    "Transport endpoint is not connected",
                     "Host is down",
                 ],
                 "read in programs' errors",
             ),
             (
                 "metadata/lightroom.rs",
-                &["SELECT ", "FROM "],
+                &["const QUERY", "fn non_table_check("],
                 "SQL for sqlite3",
             ),
-            ("features/print.rs", &["BT /F "], "PDF operators"),
+            (
+                "features/print.rs",
+                &["BT /F {size} Tf {tx:.2} {y:.2} Td ({}) Tj ET"],
+                "PDF operators",
+            ),
             (
                 "viewer/view.rs",
                 &["Glimt Projector"],
@@ -731,6 +863,7 @@ msgstr[1] "bilder"
             ".hint_text(",
             ".selected_text(",
             ".text(",
+            ".give(",
             "Window::new(",
             "Button::new(",
             "button(",
@@ -802,8 +935,11 @@ msgstr[1] "bilder"
         };
         let nb = super::parse(include_str!("../../po/no_nb.po"));
         let msgid = |t: &str| nb.texts.contains_key(t) || nb.plurals.contains_key(t);
-        let mut wrong = Vec::new();
-        for (file, text) in crate::support::source_rules::rust_sources() {
+        let nouns = |t: &str| nb.plurals.contains_key(t);
+        // The texts of one file that are shown in English, each with its place. An exception
+        // of ENGLISH that excuses one is put in `used`.
+        let check = |file: &str, text: &str, used: &mut HashSet<(String, String)>| {
+            let mut wrong = Vec::new();
             let code = text.split("\n#[cfg(test)]\nmod tests").next().unwrap();
             let mut tables = Vec::new();
             for (at, _) in code.match_indices('\n') {
@@ -814,38 +950,91 @@ msgstr[1] "bilder"
                     tables.push(item(code, at + 1));
                 }
             }
+            // Each exception is a whole file (""), an item, or one literal, matched whole.
             let mut english = Vec::new();
             for (_, marks, _) in ENGLISH.iter().filter(|e| e.0 == file) {
                 for mark in *marks {
-                    let is_item = mark.starts_with("const ") || mark.starts_with("pub");
+                    let is_item = ["const ", "pub", "fn "].iter().any(|s| mark.starts_with(s));
                     match code.find(mark).filter(|_| is_item) {
-                        Some(start) => english.push(Err(item(code, start))),
-                        None => english.push(Ok(*mark)),
+                        Some(start) => english.push((*mark, Err(item(code, start)))),
+                        None => english.push((*mark, Ok(*mark))),
                     }
                 }
             }
             for (at, text) in crate::support::source_rules::literals(code) {
                 let before = code[..at].trim_end();
                 let line = code[..at].matches('\n').count() + 1;
-                if called(before, &["tr(", "tf!(", "plural("]) {
+                // A noun of count or plural, wherever it stands among the arguments.
+                if called(enclosing(code, at), &["count(", "plural("]) {
+                    if !nouns(&text) {
+                        wrong.push(format!("{file}:{line}: not a noun of no_nb.po: {text:?}"));
+                    }
+                    continue;
+                }
+                if called(before, &["tr(", "tf!("]) {
                     if !msgid(&text) {
                         wrong.push(format!("{file}:{line}: not in no_nb.po: {text:?}"));
                     }
                     continue;
                 }
+                // A text made with format! is shown where the format! is.
+                let mut call = enclosing(code, at);
+                while call.ends_with("format!(") {
+                    call = enclosing(code, call.len() - "format!(".len());
+                }
                 let shown = (text.starts_with(char::is_uppercase) && words(&text) >= 2)
-                    || (called(enclosing(code, at), &shown_by) && words(&text) >= 1);
+                    || (called(call, &shown_by) && words(&text) >= 1);
                 let table = tables.iter().any(|r| r.contains(&at)) && msgid(&text);
                 let terminal = called(
                     before,
                     &["println!(", "eprintln!(", "print!(", "eprint!(", "panic!("],
                 );
-                let kept = english.iter().any(|e| match e {
-                    Ok(start) => text.starts_with(start),
+                if !shown || table || terminal {
+                    continue;
+                }
+                let kept = english.iter().find(|(mark, e)| match e {
+                    _ if mark.is_empty() => true,
+                    Ok(literal) => text == *literal,
                     Err(range) => range.contains(&at),
                 });
-                if shown && !table && !terminal && !kept {
-                    wrong.push(format!("{file}:{line}: not translated: {text:?}"));
+                match kept {
+                    Some((mark, _)) => _ = used.insert((file.to_owned(), mark.to_string())),
+                    None => wrong.push(format!("{file}:{line}: not translated: {text:?}")),
+                }
+            }
+            wrong
+        };
+        // What each spelling that slipped through before is found as.
+        let mut used = HashSet::new();
+        let samples = [
+            ("x.rs", "fn f() {\n    count(n, \"folderz\");\n}\n"),
+            (
+                "x.rs",
+                "fn f() {\n    ui.label(format!(\"{n} files copied\"));\n}\n",
+            ),
+            (
+                "x.rs",
+                "fn f() {\n    self.notice.give(\"Saved\".into());\n}\n",
+            ),
+            (
+                "images/svg.rs",
+                "fn f() {\n    ui.label(\"SVG files need svg\");\n}\n",
+            ),
+        ];
+        for (file, text) in samples {
+            assert_eq!(check(file, text, &mut used).len(), 1, "{text}");
+        }
+        let mut used = HashSet::new();
+        let mut wrong = Vec::new();
+        for (file, text) in crate::support::source_rules::rust_sources() {
+            wrong.extend(check(&file, &text, &mut used));
+        }
+        for (file, marks, _) in ENGLISH {
+            for mark in *marks {
+                if !used.contains(&(file.to_string(), mark.to_string())) {
+                    wrong.push(format!(
+                        "{file}: an exception that excuses nothing: {mark:?}"
+                    ));
                 }
             }
         }
