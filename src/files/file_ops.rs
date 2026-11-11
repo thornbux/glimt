@@ -354,11 +354,14 @@ impl FileOperations {
         let (real_folder_tx, real_folder_found) = answer_channel(busy);
         let moves_tx = report_tx.clone();
         std::thread::spawn(move || {
-            let _ = tx.send(
-                journal::journal_dir().map_or_else(Vec::new, |d| journal::cut_short_plans(&d)),
-            );
-            // The tests share one state folder, so a test's window would take the logs of
-            // another test.
+            // The tests share the user's state folder, so a test's window would put right or
+            // leave the user's own renames cut short, and take the logs of another test.
+            let found = if cfg!(test) {
+                Vec::new()
+            } else {
+                journal::journal_dir().map_or_else(Vec::new, |d| journal::cut_short_plans(&d))
+            };
+            let _ = tx.send(found);
             #[cfg(not(test))]
             send_moves_cut_short(&moves_tx);
             #[cfg(test)]
@@ -475,11 +478,13 @@ impl FileOperations {
         }
     }
 
-    /// Takes the renames found cut short at the start. Returns false when the search for them
-    /// stopped without an answer.
+    /// Takes the renames found cut short at the start, added to those already asked about.
+    /// Returns false when the search for them stopped without an answer.
     pub(crate) fn receive_cut_short(&mut self) -> bool {
         match self.cut_short_rx.take() {
-            Took::Answer(found) => self.cut_short = found,
+            // Added to, not replaced: the answer may come after a refused repair has asked
+            // about its plans again, and those plans would be lost from the list.
+            Took::Answer(found) => self.cut_short.extend(found),
             Took::Gone => return false,
             Took::Nothing => {}
         }
@@ -3432,6 +3437,27 @@ mod tests {
     use crate::support::test_support::{app_on, contract_folder, run_background_until};
     use crate::support::threads::{Told, lock_even_if_poisoned};
     use std::path::PathBuf;
+
+    /// The renames found cut short at the start are added to the plans that a refused repair
+    /// asked about again before they came. Before, they replaced them, and a test that put
+    /// right such a plan found nothing left to ask about when the look-up answered late.
+    #[test]
+    fn renames_found_at_start_keep_those_asked_about_again() {
+        let dir = std::env::temp_dir().join(format!(
+            "glimt-test-cut-short-found-late-{}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let (mut app, ctx) = app_on(&dir);
+        let moves = vec![(dir.join("a.txt"), dir.join("b.txt"))];
+        let plan = (dir.join("plan"), moves, Some(1));
+        app.file_operations
+            .ask_again_about_cut_short(vec![plan], String::new());
+        let found = |a: &crate::App| a.file_operations.cut_short_rx.is_none();
+        assert!(run_background_until(&mut app, &ctx, found));
+        assert_eq!(app.file_operations.cut_short().len(), 1);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
 
     /// `rename_files` with the sidecars' locks taken first, as `rename_undoable` takes them.
     fn rename_files(
