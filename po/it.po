@@ -3051,3 +3051,7 @@ msgstr "{file} non riceve alcun file: %f tra virgolette non è il file. Scrivi %
 #: src/cli.rs
 msgid "Added formats and tools:"
 msgstr "Formati aggiunti e strumenti:"
+
+#: src/metadata/lightroom.rs
+msgid "; the sidecars are still being written"
+msgstr "; i file sidecar sono ancora in scrittura"

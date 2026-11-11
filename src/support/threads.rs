@@ -15,6 +15,12 @@ pub(crate) static CPU_CHANGED: (Mutex<()>, std::sync::Condvar) =
 /// Glimt runs with one malloc arena (`one_malloc_arena`): set at startup.
 pub(crate) static HAS_ONE_MALLOC_ARENA: AtomicBool = AtomicBool::new(false);
 
+/// In a test, the files at which work panics where it calls `panic_in_a_test_at`, as a file
+/// that breaks a parser would. Each test names files of its own, so the tests that run beside
+/// it never meet them.
+#[cfg(test)]
+pub(crate) static BREAKING_FILES: Mutex<Vec<std::path::PathBuf>> = Mutex::new(Vec::new());
+
 /// What a background thread's receiver has: nothing yet, its answer, or the thread ended. For
 /// `take` and `wait`, `Gone` means the thread ended without its answer (it panicked); for `next`
 /// and `latest`, a stream that ended as it should gives `Gone` too. With `Gone` the receiver is
@@ -311,6 +317,52 @@ pub(crate) fn thread_cpu_us() -> u64 {
         clock_gettime(CLOCK_THREAD_CPUTIME_ID, &mut t)
     };
     t.sec as u64 * 1_000_000 + t.nsec as u64 / 1000
+}
+
+/// Returns `work` made ready for the thread that runs it: inside `catch_panic`, with what it
+/// returns told to the window through `notices`. A panic is told as a failed write, because
+/// the work may have stopped halfway, and the user must see that before a close. `held` (the
+/// busy pointer, the count of writing) is dropped only after the telling, so a close that
+/// waited for the work takes its failure first, and the window `ctx` is then asked for a frame,
+/// so the busy pointer goes at once. This is the one way work that writes is run in a thread
+/// (`source_rules::writing_threads_tell_what_they_did`). Before, a panic outside a catch ended
+/// such a thread with nothing told: no report, no Undo, and a close went ahead.
+pub(crate) fn told_work(
+    notices: NoticeSender,
+    ctx: &eframe::egui::Context,
+    held: impl Send + 'static,
+    work: impl FnOnce() -> Option<Told> + Send + 'static,
+) -> impl FnOnce() + Send + 'static {
+    let ctx = ctx.clone();
+    move || {
+        let broke = || {
+            Some(Told::FailedWrite(
+                crate::support::lang::tr(
+                    "A change could not be saved, because Glimt met an error while writing it",
+                )
+                .to_owned(),
+            ))
+        };
+        match catch_panic(work).unwrap_or_else(broke) {
+            Some(Told::Notice(text)) => drop(notices.send(text)),
+            Some(Told::FailedWrite(text)) => notices.send_failed_write(text),
+            None => {}
+        }
+        drop(held);
+        ctx.request_repaint();
+    }
+}
+
+/// Panics when `path` is one of `BREAKING_FILES`, for a test of what a file that breaks the
+/// work does to the files after it.
+#[cfg(test)]
+pub(crate) fn panic_in_a_test_at(path: &std::path::Path) {
+    if lock_even_if_poisoned(&BREAKING_FILES)
+        .iter()
+        .any(|p| p == path)
+    {
+        panic!("a file that breaks the work");
+    }
 }
 
 /// Runs `work` and returns its result, or `None` when it panics. A worker uses this around

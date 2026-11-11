@@ -3062,3 +3062,7 @@ msgstr "{file} não recebe nenhum arquivo: %f entre aspas não é o arquivo. Esc
 #: src/cli.rs
 msgid "Added formats and tools:"
 msgstr "Formatos adicionados e ferramentas:"
+
+#: src/metadata/lightroom.rs
+msgid "; the sidecars are still being written"
+msgstr "; os arquivos XMP ainda estão sendo gravados"

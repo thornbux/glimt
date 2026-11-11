@@ -3073,3 +3073,7 @@ msgstr "{file} nedostane žádné soubory: %f v uvozovkách není soubor. Zadejt
 #: src/cli.rs
 msgid "Added formats and tools:"
 msgstr "Přidané formáty a nástroje:"
+
+#: src/metadata/lightroom.rs
+msgid "; the sidecars are still being written"
+msgstr "; doprovodné soubory se stále zapisují"

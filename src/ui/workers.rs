@@ -183,8 +183,9 @@ impl crate::App {
                 self.finish_rename_many(ctx, job, result)
             }
             Took::Answer((None, ..)) | Took::Nothing => {}
+            // The thread broke, which `run_in_background` told as a failed write, because the
+            // names may be half done.
             Took::Gone => {
-                self.tell_background_stopped(tr("Rename Many"));
                 if let Some(dropped) = self.send_waiting_sidecar_writes(ctx, None) {
                     self.tell_failed_write(dropped);
                 }

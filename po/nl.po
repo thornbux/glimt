@@ -3051,3 +3051,7 @@ msgstr "{file} krijgt geen bestanden: %f tussen aanhalingstekens is niet het bes
 #: src/cli.rs
 msgid "Added formats and tools:"
 msgstr "Toegevoegde formaten en hulpmiddelen:"
+
+#: src/metadata/lightroom.rs
+msgid "; the sidecars are still being written"
+msgstr "; de sidecar-bestanden worden nog geschreven"

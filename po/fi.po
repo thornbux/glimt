@@ -3051,3 +3051,7 @@ msgstr "{file} ei saa tiedostoja: lainausmerkkien sisällä oleva %f ei ole tied
 #: src/cli.rs
 msgid "Added formats and tools:"
 msgstr "Lisätyt muodot ja työkalut:"
+
+#: src/metadata/lightroom.rs
+msgid "; the sidecars are still being written"
+msgstr "; sivutiedostoja kirjoitetaan yhä"

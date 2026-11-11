@@ -3062,3 +3062,7 @@ msgstr "{file} får ingen filer: %f inne i hermeteikn er ikkje fila. Skriv %f so
 #: src/cli.rs
 msgid "Added formats and tools:"
 msgstr "Tilføydde format og verktøy:"
+
+#: src/metadata/lightroom.rs
+msgid "; the sidecars are still being written"
+msgstr "; sidefilene blir framleis skrivne"

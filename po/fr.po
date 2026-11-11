@@ -3051,3 +3051,7 @@ msgstr "{file} ne reçoit aucun fichier : %f entre guillemets n'est pas le fichi
 #: src/cli.rs
 msgid "Added formats and tools:"
 msgstr "Formats ajoutés et outils :"
+
+#: src/metadata/lightroom.rs
+msgid "; the sidecars are still being written"
+msgstr " ; les fichiers annexes sont encore en cours d'écriture"

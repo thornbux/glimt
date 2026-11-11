@@ -3072,3 +3072,7 @@ msgstr ""
 #: src/cli.rs
 msgid "Added formats and tools:"
 msgstr ""
+
+#: src/metadata/lightroom.rs
+msgid "; the sidecars are still being written"
+msgstr ""

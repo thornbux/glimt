@@ -3062,3 +3062,7 @@ msgstr "{file} nie dostaje żadnych plików: %f w cudzysłowie nie jest plikiem.
 #: src/cli.rs
 msgid "Added formats and tools:"
 msgstr "Dodane formaty i narzędzia:"
+
+#: src/metadata/lightroom.rs
+msgid "; the sidecars are still being written"
+msgstr "; pliki poboczne są nadal zapisywane"

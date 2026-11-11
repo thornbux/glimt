@@ -3051,3 +3051,7 @@ msgstr "{file} bekommt keine Dateien: %f in Anführungszeichen ist nicht die Dat
 #: src/cli.rs
 msgid "Added formats and tools:"
 msgstr "Hinzugefügte Formate und Werkzeuge:"
+
+#: src/metadata/lightroom.rs
+msgid "; the sidecars are still being written"
+msgstr "; die Begleitdateien werden noch geschrieben"

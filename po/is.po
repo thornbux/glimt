@@ -3051,3 +3051,7 @@ msgstr "{file} fær engar skrár: %f innan gæsalappa er ekki skráin. Skrifaðu
 #: src/cli.rs
 msgid "Added formats and tools:"
 msgstr "Viðbætt snið og verkfæri:"
+
+#: src/metadata/lightroom.rs
+msgid "; the sidecars are still being written"
+msgstr "; enn er verið að skrifa hliðarskrárnar"

@@ -3062,3 +3062,7 @@ msgstr "{file} får ingen filer: %f inne i anførselstegn er ikke filen. Skriv %
 #: src/cli.rs
 msgid "Added formats and tools:"
 msgstr "Tilføyde formater og verktøy:"
+
+#: src/metadata/lightroom.rs
+msgid "; the sidecars are still being written"
+msgstr "; sidefilene skrives fortsatt"

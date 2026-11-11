@@ -3051,3 +3051,7 @@ msgstr "{file} no recibe ningún archivo: %f entre comillas no es el archivo. Es
 #: src/cli.rs
 msgid "Added formats and tools:"
 msgstr "Formatos añadidos y herramientas:"
+
+#: src/metadata/lightroom.rs
+msgid "; the sidecars are still being written"
+msgstr "; los archivos complementarios aún se están escribiendo"

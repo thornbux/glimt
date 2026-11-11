@@ -655,6 +655,16 @@ const HANDED_TO_A_THREAD: &[&str] = &[
     "write_sidecars(",
 ];
 
+/// What starts work that writes, which closing waits for: a job, work in the background, an
+/// operation that will leave an Undo, or the count of writing itself.
+const WRITING_WORK: &[&str] = &[
+    "start_job(",
+    "start_job_of(",
+    "run_in_background(",
+    "undo_on_the_way(",
+    "WRITING",
+];
+
 /// Where a top-level item stands in a file's order, as AGENTS.md gives it under "Within a
 /// file"; the variants are in that order.
 #[derive(Clone, Copy, PartialEq, PartialOrd)]
@@ -2190,8 +2200,10 @@ fn notices_are_given_through_their_setter() {
 /// A failure must also reach the window as a failed write, not as a plain notice, which a
 /// close does not wait for. Work in `run_in_background` answers with a `Told`, so it says which
 /// its answer is, and a function that hands work to a writer thread holds no `notice_sender`,
-/// so the writer tells a failure through `save_failed`. A crop, Save As, an Undo and Rename
-/// Collection sent their failures as plain notices, and a close that waited closed over them.
+/// so the writer tells a failure through `save_failed`. A function that starts a job or other
+/// writing work hands its `notice_sender` only to `threads::told_work`. A crop, Save As, an
+/// Undo and Rename Collection sent their failures as plain notices, and so did Print to File
+/// and Copy for Sharing, and a close that waited closed over them.
 #[test]
 fn a_close_takes_the_failed_writes_first() {
     const HOMES: &[(&str, &[(&str, &str)])] = &[
@@ -2229,8 +2241,9 @@ fn finds_a_notice_sender_beside_a_writer() {
 }
 
 /// Returns the functions in `text`, the source of `file`, that hand work to a writer thread
-/// (`write_later` or `write_later_in_user_folders`) and also hold a `notice_sender`, by which
-/// that work could send a failure as a plain notice.
+/// (`write_later` or `write_later_in_user_folders`) or start writing work (`WRITING_WORK`), and
+/// also hold a `notice_sender` that is not handed to `told_work`, by which that work could send
+/// a failure as a plain notice.
 fn notices_beside_writers(file: &str, text: &str) -> Vec<String> {
     let lines = code_lines(text);
     let end = tests_start(&lines);
@@ -2246,7 +2259,68 @@ fn notices_beside_writers(file: &str, text: &str) -> Vec<String> {
             (function, writes, notices) = (name.to_owned(), false, false);
         }
         writes |= mentions(line, "write_later(") || mentions(line, "write_later_in_user_folders(");
-        notices |= line.contains("notice_sender");
+        // A function that starts a job or work that counts as writing hands its sender only to
+        // `told_work`, so the work tells through a `Told`, which says whether it is a failure.
+        writes |= WRITING_WORK.iter().any(|w| line.contains(w));
+        notices |= line.contains("notice_sender") && !line.contains("told_work(");
+    }
+    wrong
+}
+
+/// A thread that writes, one that holds a job, the count of writing or an Undo on the way, runs
+/// its work through `threads::told_work`, which catches a panic and tells it as a failed write,
+/// and keeps the count of writing until it has told. Delete, Copy and Move, Rename Many, Copy for
+/// Sharing and Print ran in threads of their own, and a panic in one ended it with nothing told:
+/// no report, no Undo, and a close that waited for it went ahead. A writer's `Took::Gone` then
+/// needs nothing more, as the thread told its end itself.
+#[test]
+fn writing_threads_tell_what_they_did() {
+    let mut wrong = Vec::new();
+    for (file, text) in rust_sources() {
+        wrong.extend(untold_writing_threads(&file, &text));
+    }
+    assert!(
+        wrong.is_empty(),
+        "run a thread that writes through run_in_background or threads::told_work:\n{}",
+        wrong.join("\n")
+    );
+}
+
+/// The checks above find a thread that holds a job and tells nothing, and a function with a job
+/// that holds a `notice_sender`, and leave a thread that reads alone.
+#[test]
+fn finds_a_writing_thread_that_tells_nothing() {
+    // Through `app`, not `self`, so the file operations' contract does not take these for
+    // operations of its own.
+    let text = "impl A {\n    fn a(app: &App) {\n        let job = app.start_job(x);\n        \
+        std::thread::spawn(move || drop(job));\n    }\n    fn b(app: &App) {\n        \
+        let w = app.start_job_of(x);\n        \
+        std::thread::spawn(told_work(app.notice_sender.clone(), c, w, work));\n    }\n    \
+        fn c(app: &App) {\n        std::thread::spawn(move || read());\n    }\n    \
+        fn d(app: &App) {\n        let n = app.notice_sender.clone();\n        \
+        app.run_in_background(ctx, Vec::new(), move || drop(n.send(e)));\n    }\n}\n";
+    assert_eq!(untold_writing_threads("x.rs", text), ["x.rs: a"]);
+    assert_eq!(notices_beside_writers("x.rs", text), ["x.rs: d"]);
+}
+
+/// Returns the functions in `text`, the source of `file`, that start writing work
+/// (`WRITING_WORK`) and spawn a thread that does not run through `told_work`.
+fn untold_writing_threads(file: &str, text: &str) -> Vec<String> {
+    let lines = code_lines(text);
+    let end = tests_start(&lines);
+    let (mut function, mut writes, mut untold) = (String::new(), false, false);
+    let mut wrong = Vec::new();
+    // A last line that starts no function ends the last one, so it is checked too.
+    let last = "fn end".to_owned();
+    for line in lines[..end].iter().chain([&last]) {
+        if let Some(name) = function_name(line) {
+            if writes && untold {
+                wrong.push(format!("{file}: {function}"));
+            }
+            (function, writes, untold) = (name.to_owned(), false, false);
+        }
+        writes |= WRITING_WORK.iter().any(|w| line.contains(w));
+        untold |= line.contains("thread::spawn(") && !line.contains("told_work(");
     }
     wrong
 }
