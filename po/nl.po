@@ -3909,5 +3909,6 @@ msgid "another window has them open"
 msgstr "een ander venster heeft ze open"
 
 #: src/ui/dialogs.rs
+#, fuzzy
 msgid "The file dialog did not answer with full paths, so nothing was opened"
 msgstr "De bestandsdialoog antwoordde niet met volledige paden, dus er is niets geopend"

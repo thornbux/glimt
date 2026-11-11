@@ -3909,5 +3909,6 @@ msgid "another window has them open"
 msgstr "ein anderes Fenster hat sie geöffnet"
 
 #: src/ui/dialogs.rs
+#, fuzzy
 msgid "The file dialog did not answer with full paths, so nothing was opened"
 msgstr "Der Dateidialog hat nicht mit vollständigen Pfaden geantwortet, daher wurde nichts geöffnet"
