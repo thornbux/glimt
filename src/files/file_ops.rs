@@ -6694,8 +6694,9 @@ mod tests {
                 true => app.dialogs.ask_trash_folder(&sub),
                 false => app.dialogs.ask_rename_folder(&sub),
             }
-            // The question takes the folder's device and inode in the background.
-            std::thread::sleep(std::time::Duration::from_millis(200));
+            // The question takes the folder's device and inode in the background, before the
+            // folder is replaced.
+            app.dialogs.wait_until_folder_taken();
             std::fs::rename(&sub, dir.join("old")).unwrap();
             std::fs::create_dir(&sub).unwrap();
             match trash {

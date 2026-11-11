@@ -258,6 +258,20 @@ impl PickedFiles {
         };
         (self.paths, fingerprints)
     }
+
+    /// In a test, waits until the fingerprints are taken, so that a change made after it is one
+    /// made while the question was open.
+    #[cfg(test)]
+    pub(crate) fn wait_until_taken(&mut self) {
+        use crate::support::threads::Took;
+        let (tx, rx) = std::sync::mpsc::channel();
+        for _ in &self.paths {
+            if let Took::Answer(fingerprint) = self.fingerprints.wait_next(FINGERPRINT_WAIT * 25) {
+                let _ = tx.send(fingerprint);
+            }
+        }
+        self.fingerprints = crate::support::threads::Receiving::of(rx);
+    }
 }
 
 /// The fingerprints of files picked before a wait, as `PickedFiles::wait_for_fingerprints`

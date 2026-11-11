@@ -327,6 +327,14 @@ impl Dialogs {
         self.picked_folder.take()
     }
 
+    /// In a test, waits until the folder asked about has its device and inode taken.
+    #[cfg(test)]
+    pub(crate) fn wait_until_folder_taken(&mut self) {
+        if let Some(picked) = &mut self.picked_folder {
+            picked.wait_until_taken();
+        }
+    }
+
     /// The folder an answer acts on, without a dialog, for a test of the answer alone.
     #[cfg(test)]
     pub(crate) fn act_on_folder(&mut self, dir: PathBuf) {
