@@ -188,7 +188,8 @@ names is looked up and its folder read, what the command started in the backgrou
 and the files it changed, such as the settings, are written. Without it, the answer comes when
 the command is taken, and a write that fails later shows only in the window. Exits with 3, with
 the reason on standard error, when such a write failed meanwhile, also one of other work in that
-window, or when the window closed before its writes were done. A command that closes the window,
+window, or when the window closed before its writes were done or before it told the outcome, as
+when it crashed. A command that closes the window,
 as
 .B quit
 or

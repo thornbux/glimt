@@ -938,11 +938,20 @@ fn not_done_reason(answer: &[u8]) -> Option<String> {
     Some(String::from_utf8_lossy(why).trim_end().to_owned())
 }
 
-/// Returns why a command sent with `--wait` was not done, from a window's `answer` that is no
-/// `NOT_DONE_ANSWER`. Returns `None` for `OUTCOME_DONE`. Any other answer, empty above all, is
-/// that of a window older than `--wait`, which did nothing.
-fn waited_outcome_reason(answer: &[u8]) -> Option<String> {
-    (answer != OUTCOME_DONE.as_bytes()).then(|| "this Glimt does not know --wait".to_owned())
+/// Returns why a command sent with `--wait` was not done, from the answer `answer`, which is no
+/// `NOT_DONE_ANSWER`, of the window at the socket `path`. Returns `None` for `OUTCOME_DONE`. An
+/// empty answer from a window that has gone, which crashed or was killed while its work ran,
+/// tells that it closed before the outcome. Any other answer, also an empty one from a window
+/// that still runs, is that of a window older than `--wait`, which did nothing.
+fn waited_outcome_reason(answer: &[u8], path: &Path) -> Option<String> {
+    if answer == OUTCOME_DONE.as_bytes() {
+        return None;
+    }
+    let has_gone = || !is_answered(UnixStream::connect(path));
+    Some(match answer.is_empty() && has_gone() {
+        true => "the window closed before it told whether its work was done".to_owned(),
+        false => "this Glimt does not know --wait".to_owned(),
+    })
 }
 
 /// Whether `command` is a query, which answers with what it asks for. None of them changes a
@@ -1388,7 +1397,7 @@ fn print_answer(path: &std::path::Path, mut s: UnixStream, command: &str) {
     let missing = info_records_missing(command, &answer);
     let why = match not_done_reason(&answer) {
         Some(why) => Some(why),
-        None if waits && !timed_out => waited_outcome_reason(&answer),
+        None if waits && !timed_out => waited_outcome_reason(&answer, path),
         None => {
             let _ = std::io::stdout().write_all(&answer);
             let closed = format!("the window closed before it told about {missing} of the files");
@@ -2969,11 +2978,19 @@ mod tests {
     /// nothing, which without `--wait` counts as done.
     #[test]
     fn an_answer_without_the_outcome_is_not_done() {
-        assert_eq!(
-            super::waited_outcome_reason(super::OUTCOME_DONE.as_bytes()),
-            None
-        );
-        assert!(super::waited_outcome_reason(b"").is_some());
+        let dir = std::env::temp_dir().join(format!("glimt-test-outcome-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let (running, gone) = (dir.join("glimt-old.sock"), dir.join("glimt-gone.sock"));
+        let _old_window = std::os::unix::net::UnixListener::bind(&running).unwrap();
+        let reason = |answer: &[u8], path| super::waited_outcome_reason(answer, path);
+        assert_eq!(reason(super::OUTCOME_DONE.as_bytes(), &running), None);
+        let old = reason(b"", &running).unwrap();
+        assert!(old.contains("does not know --wait"), "{old}");
+        // A window that crashed while its work ran is told apart from an old one. Before, it
+        // was said not to know --wait.
+        let crashed = reason(b"", &gone).unwrap();
+        assert!(crashed.contains("closed before"), "{crashed}");
+        std::fs::remove_dir_all(dir).unwrap();
         assert!(super::closes_the_window("quit") && super::closes_the_window("run CloseWindow"));
         assert!(!super::closes_the_window("run Next"));
     }
