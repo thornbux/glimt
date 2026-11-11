@@ -138,7 +138,13 @@ The tests that hold this:
 Every `--remote` command gets an answer. A query is answered with what it asks for. Any other
 command is answered with nothing when it was done, and with `not done: <reason>` when it was
 not: a `run` refused while a dialog is open or a field has the focus, an action that
-`App::why_refused` refuses (a kiosk's, say), or a command or choice the window does not know.
+`App::why_refused` refuses, or a command or choice the window does not know.
+
+In a kiosk, `--remote` stays the operator's control. A kiosk refuses only the actions it does
+not allow (`KIOSK_ACTIONS`): turning full screen on or off, and a `run` of any other action.
+It does `next`, `previous`, `first`, `last`, `slideshow`, `random`, `open`, `subfolders`,
+`title`, `name`, `identify`, `quit` and the queries. `a_kiosk_takes_the_operators_commands`
+pins this, and a new command is decided there.
 The client then exits with `NOT_DONE` (3). A window from a version before these answers closes
 the connection without one, which the client takes as done. "Done" means that the command was
 taken; with `--wait` the client sends it after the word `wait`, and the window answers only when

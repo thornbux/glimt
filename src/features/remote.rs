@@ -2388,6 +2388,72 @@ mod tests {
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
+    /// In a kiosk, `--remote` stays the operator's control. This pins which commands a kiosk
+    /// does and which it refuses, so that neither changes by accident. The commands that move
+    /// through the list, the slideshow and the random order are actions that a kiosk allows.
+    /// Open, subfolders, random on or off, title, identify and quit are done without asking
+    /// `why_refused`. Name and the queries (current, selection, select, info) are answered
+    /// before `remote_command`, so a kiosk does not refuse them either. Turning full screen
+    /// on or off, and a `run` of an action that a kiosk does not allow, are refused. Each
+    /// command of `COMMANDS` is decided here, so a new one must be too.
+    #[test]
+    fn a_kiosk_takes_the_operators_commands() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-kiosk-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let (mut app, ctx) = app_on(&dir);
+        app.list.set_files(vec!["a.png".into(), "b.png".into()]);
+        app.window = crate::ui::window::Window::new(true);
+        let open = format!("open {}", dir.display());
+        // (command, done in a kiosk). The test's window is not in full screen.
+        let through_remote_command = [
+            ("next", true),
+            ("previous", true),
+            ("first", true),
+            ("last", true),
+            ("slideshow", true),
+            ("slideshow off", true),
+            ("random", true),
+            ("random on", true),
+            ("random off", true),
+            ("fullscreen", false),
+            ("fullscreen on", false),
+            ("fullscreen off", true),
+            ("subfolders on", true),
+            ("subfolders off", true),
+            (open.as_str(), true),
+            ("title Gallery", true),
+            ("title", true),
+            ("identify", true),
+            ("run Next", true),
+            ("run Toolbar", false),
+            ("run FullScreen", false),
+            ("quit", true),
+        ];
+        for (command, done) in through_remote_command {
+            let result = app.remote_command(&ctx, command);
+            assert_eq!(result.is_ok(), done, "{command}: {result:?}");
+            if let Err(why) = result {
+                assert!(why.contains("kiosk"), "{command}: {why}");
+            }
+        }
+        let answered_before = ["name x", "current", "selection", "select a.png", "info"];
+        for command in answered_before {
+            let named = super::name_asked(command).is_some();
+            assert!(named || super::is_query(command), "{command}");
+        }
+        for (usage, _) in super::COMMANDS {
+            let word = usage.split(' ').next().unwrap();
+            let decided = (through_remote_command.iter().map(|c| c.0))
+                .chain(answered_before)
+                .any(|c| c.split(' ').next() == Some(word));
+            assert!(
+                decided || word == "where",
+                "{word}: not decided for a kiosk here"
+            );
+        }
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
     /// A `run` that the window refuses is told as not done, with the window's reason. A kiosk
     /// refuses what is not for browsing, and an action on a file has none to act on in an
     /// empty list. Before, both were answered as done, so the script exited 0.
