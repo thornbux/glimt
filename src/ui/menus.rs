@@ -615,11 +615,12 @@ impl crate::App {
                 return;
             };
             let tool = tools[k].clone();
+            let listed: Vec<_> = targets.iter().map(|&i| self.listed_file(i)).collect();
             let targets: Vec<PathBuf> = targets.iter().map(|&i| self.path(i)).collect();
             // A turned image still being saved would be written over the tool's edit. The
             // files are held while the tool runs, so a delete, move or rename of them waits.
             // The thread lets go of the files the tool does not take once it has sorted them.
-            let Some(held_back) = self.hold_back_while_writing(targets.clone()) else {
+            let Some(held_back) = self.hold_back_while_writing(targets) else {
                 return;
             };
             let (dir, running) = (self.folder.dir().to_path_buf(), self.tools_running.clone());
@@ -628,6 +629,12 @@ impl crate::App {
             // A tool may be an editor that stays open for hours: not waited for at closing,
             // and no busy pointer meanwhile, as for Open With.
             std::thread::spawn(move || {
+                // A file whose name another file has taken since the list was read is not given
+                // to the tool, which may change it.
+                let (targets, refused) = crate::files::file_io::still_listed(listed);
+                if let Some(first) = refused.into_iter().next() {
+                    tx.send_failed_write(first);
+                }
                 // The types a tool takes are looked up in the system's files of file types, the
                 // first time, so the files are sorted here and not in the window's thread.
                 let (files, left): (Vec<PathBuf>, Vec<PathBuf>) =

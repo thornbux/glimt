@@ -231,7 +231,7 @@ impl crate::App {
             ctx.request_repaint();
         });
         self.dialogs.show_sharing(SharingDialog {
-            picked: PickedFiles::new(paths),
+            picked: PickedFiles::listed(targets.iter().map(|&i| self.listed_file(i)).collect()),
             left_out: LeftOut::default(),
             found: None,
             reading: Receiving::of(rx),

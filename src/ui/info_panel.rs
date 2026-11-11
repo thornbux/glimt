@@ -3,6 +3,7 @@
 
 use crate::files::config::keyword_tree_path;
 use crate::files::external::open_url;
+use crate::files::file_io::{Identity, ListedFile, is_another_file};
 use crate::images::colour::colour_source;
 #[cfg(feature = "marks")]
 use crate::metadata::marks;
@@ -20,6 +21,8 @@ use std::sync::mpsc;
 /// A file's EXIF from the reader thread.
 pub(crate) struct ExifRead {
     path: PathBuf,
+    /// The identity of the file at the path, taken before it was read.
+    identity: Identity,
     /// The info panel's rows, and every field for the EXIF window.
     rows: Vec<(&'static str, String)>,
     all: Vec<(&'static str, String, String)>,
@@ -33,6 +36,9 @@ pub(crate) struct ExifRead {
 /// the info panel, and as last read or saved, to tell whether they changed.
 pub(crate) struct MetadataEdit {
     pub(crate) path: PathBuf,
+    /// The identity of the file it was read from, when the list knows the file by one. Its
+    /// save is refused when another file has taken the name since.
+    pub(crate) identity: Identity,
     keywords: String,
     comment: String,
     pub(crate) saved: xmp::KeywordsAndComment,
@@ -96,8 +102,9 @@ pub(crate) struct InfoPanel {
     /// To the EXIF reader thread, and its answers.
     exif_requests: mpsc::Sender<PathBuf>,
     exif_answers: mpsc::Receiver<ExifRead>,
-    /// The file the info panel asked for last, and the panel's rows as read for a file.
-    exif_asked: Option<PathBuf>,
+    /// The file the info panel asked for last, with the identity the list knew it by then, and
+    /// the panel's rows as read for a file.
+    exif_asked: Option<(PathBuf, Identity)>,
     exif: Option<(PathBuf, Vec<(&'static str, String)>)>,
     /// Every EXIF field of the shown image, for the EXIF window (Ctrl+E).
     exif_all: Vec<(&'static str, String, String)>,
@@ -206,17 +213,21 @@ impl crate::App {
     pub(crate) fn request_and_take_exif(&mut self, ctx: &egui::Context) {
         self.reread_when_written();
         let path = self.path(self.list.shown());
+        // A file whose name another file has taken since is another image, read anew.
+        let identity = self.list.identity(self.list.shown());
+        let is_another = |file: &Path, of: Identity| file != path || is_another_file(of, identity);
         // The edit of the image before is saved as soon as another image is shown, before this
         // one's read is asked for. Saved only at the next answer, it could still wait when the
         // user came back, and the panel then read the file as it was before the edit.
-        if (self.info_panel.metadata_edit.as_ref()).is_some_and(|edit| edit.path != path) {
+        if (self.info_panel.metadata_edit.as_ref()).is_some_and(|e| is_another(&e.path, e.identity))
+        {
             self.save_metadata_edit(ctx);
         }
+        let asked_again =
+            (self.info_panel.exif_asked.as_ref()).is_none_or(|(file, of)| is_another(file, *of));
         // An image shown again while its own save still waits behind a long job (a Lightroom
         // import) is read once the save is written, or the panel would show it without the save.
-        if self.info_panel.exif_asked.as_ref() != Some(&path)
-            && self.info_panel.reread_after_write.is_none()
-        {
+        if asked_again && self.info_panel.reread_after_write.is_none() {
             let writes = self.file_operations.jobs_writing_sidecar_of(&path);
             if !writes.is_empty() {
                 // The wait ends by forgetting the panel, so the image before keeps its edit.
@@ -224,15 +235,14 @@ impl crate::App {
                 self.info_panel.reread_after_write = Some((path.clone(), writes));
             }
         }
-        if self.info_panel.exif_asked.as_ref() != Some(&path)
-            && self.info_panel.reread_after_write.is_none()
-        {
+        if asked_again && self.info_panel.reread_after_write.is_none() {
             let _ = self.info_panel.exif_requests.send(path.clone());
-            self.info_panel.exif_asked = Some(path);
+            self.info_panel.exif_asked = Some((path, identity));
         }
         let done: Vec<ExifRead> = self.info_panel.exif_answers.try_iter().collect();
         for ExifRead {
             path,
+            identity: read_identity,
             rows,
             all,
             meta,
@@ -240,16 +250,18 @@ impl crate::App {
             alt_text,
         } in done
         {
-            // Kept while being edited: the reader may answer for the image again.
-            if self
-                .info_panel
-                .metadata_edit
-                .as_ref()
-                .is_none_or(|m| m.path != path)
+            // A file the list knows by no identity (on a FAT card, say) is not told apart by the
+            // one read, which such a file system may make up anew at each look.
+            let read_identity = read_identity.filter(|_| identity.is_some());
+            // Kept while being edited: the reader may answer for the image again. An answer of
+            // another file under the name replaces it.
+            if (self.info_panel.metadata_edit.as_ref())
+                .is_none_or(|m| m.path != path || is_another_file(m.identity, read_identity))
             {
                 self.save_metadata_edit(ctx);
                 self.info_panel.metadata_edit = Some(MetadataEdit {
                     path: path.clone(),
+                    identity: read_identity,
                     keywords: meta.keywords_text(),
                     comment: meta.comment.clone(),
                     saved: meta,
@@ -513,16 +525,16 @@ impl crate::App {
             xmp::set_tag(&mut edit.saved.keywords, &mut edit.paths, &tag, on);
             edit.keywords = edit.saved.keywords_text();
         }
-        let paths: Vec<PathBuf> = targets.iter().map(|&i| self.path(i)).collect();
+        let files: Vec<_> = targets.iter().map(|&i| (self.listed_file(i), ())).collect();
         let activity = match on {
             true => tr("Setting keywords"),
             false => tr("Taking keywords off"),
         };
-        let (n, written) = (paths.len(), tag.clone());
+        let (n, written) = (files.len(), tag.clone());
         self.write_sidecars(
             ctx,
             activity,
-            paths.into_iter().map(|p| (p, ())).collect(),
+            files,
             move |path, _| xmp::tag_file(path, &written, on).is_ok(),
             move |failed, job| match () {
                 _ if failed > 0 => Some(tf!(
@@ -590,12 +602,13 @@ impl crate::App {
             (edit.alt_text, edit.extended_description) =
                 (alt_text.text.clone(), alt_text.extended_description.clone());
             edit.saved_alt_text = alt_text.clone();
-            let (path, tx) = (edit.path.clone(), self.notice_sender.clone());
+            let file = ListedFile::new(edit.path.clone(), edit.identity);
+            let tx = self.notice_sender.clone();
             // A sidecar job like the keywords': Move, Rename and Delete wait for it.
             self.write_sidecars(
                 ctx,
                 tr("Saving the alt text"),
-                vec![(path, ())],
+                vec![(file, ())],
                 move |p, _| match xmp::write_alt_text(p, &alt_text) {
                     Ok(()) => true,
                     Err(e) => {
@@ -634,13 +647,14 @@ impl crate::App {
         }
         edit.keywords = edit.saved.keywords_text();
         edit.comment = edit.saved.comment.clone();
-        let (path, tx) = (edit.path.clone(), self.notice_sender.clone());
+        let file = ListedFile::new(edit.path.clone(), edit.identity);
+        let tx = self.notice_sender.clone();
         // A sidecar job, so that a Move, Rename or Delete of the file waits until it has
         // landed, instead of leaving the new keywords behind under the old name.
         self.write_sidecars(
             ctx,
             tr("Saving keywords"),
-            vec![(path, ())],
+            vec![(file, ())],
             move |p, _| match xmp::write_changed(p, keywords.clone(), comment.clone()) {
                 Ok(_) => true,
                 Err(e) => {
@@ -691,13 +705,13 @@ impl crate::App {
             xmp::add_to(&mut edit.saved.keywords, &keywords);
             edit.keywords = edit.saved.keywords_text();
         }
-        let paths: Vec<PathBuf> = targets.iter().map(|&i| self.path(i)).collect();
-        let n = paths.len();
+        let files: Vec<_> = targets.iter().map(|&i| (self.listed_file(i), ())).collect();
+        let n = files.len();
         // Through the sidecar writer, with keywords ticked and stars: in the order asked.
         self.write_sidecars(
             ctx,
             tr("Adding keywords"),
-            paths.into_iter().map(|p| (p, ())).collect(),
+            files,
             move |path, _| xmp::add_keywords(path, &keywords).is_ok(),
             move |failed, job| match () {
                 _ if failed > 0 => Some(tf!(
@@ -768,6 +782,7 @@ pub(crate) fn spawn_exif_reader(
     std::thread::spawn(move || {
         while let Ok(mut path) = paths_rx.recv() {
             path = paths_rx.try_iter().last().unwrap_or(path);
+            let identity = crate::files::file_io::identity_of(&path);
             let size = std::fs::metadata(&path).map_or(0, |m| m.len());
             let mut rows = vec![("File size", human_size(size))];
             let (mut all, mut meta, mut paths, mut alt_text) = Default::default();
@@ -788,6 +803,7 @@ pub(crate) fn spawn_exif_reader(
             }
             let read = ExifRead {
                 path,
+                identity,
                 rows,
                 all,
                 meta,
@@ -909,6 +925,47 @@ mod tests {
         panic!("the panel never read the file");
     }
 
+    /// Another window's Rename Many that swaps two names leaves the same names in the folder.
+    /// Once the folder is read again, the panel reads the shown name again, as it holds the
+    /// other photo now. It kept the keywords it had read of the photo before, and an edit of
+    /// them was saved onto the other photo.
+    #[test]
+    fn the_panel_reads_again_a_name_that_another_file_has_taken() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-kw-swap-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        for (name, keyword) in [("a.png", "first"), ("b.png", "second")] {
+            image::RgbImage::new(4, 4).save(dir.join(name)).unwrap();
+            crate::metadata::xmp::add_keywords(&dir.join(name), &[keyword.into()]).unwrap();
+        }
+        let (mut app, ctx) = app_on(&dir);
+        let before = app.list.identity(0);
+        assert!(before.is_some(), "the listing gave no identity");
+        read_panel(&mut app, &ctx);
+        let keywords = |a: &crate::App| {
+            let edit = a.info_panel.metadata_edit.as_ref();
+            edit.map(|e| e.saved.keywords.clone())
+        };
+        assert_eq!(keywords(&app), Some(vec!["first".to_owned()]));
+        let side = crate::metadata::xmp::sidecar;
+        let (a, b, c) = (dir.join("a.png"), dir.join("b.png"), dir.join("c.png"));
+        for (from, to) in [(&a, &c), (&b, &a), (&c, &b)] {
+            std::fs::rename(from, to).unwrap();
+            std::fs::rename(side(from), side(to)).unwrap();
+        }
+        app.start_listing(&ctx);
+        assert!(run_background_until(&mut app, &ctx, |a| a.list.identity(0) != before));
+        let read_again = (0..500).any(|_| {
+            app.request_and_take_exif(&ctx);
+            std::thread::sleep(std::time::Duration::from_millis(10));
+            keywords(&app) == Some(vec!["second".to_owned()])
+        });
+        assert!(
+            read_again,
+            "the panel shows the keywords of the photo before"
+        );
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
     /// An edit typed in the panel while Rename Many swaps two names is saved to its photo under
     /// the new name. Before, it was saved under the old name, which then held the other photo.
     #[test]
@@ -925,7 +982,7 @@ mod tests {
         assert_eq!(app.info_panel.metadata_edit.as_ref().unwrap().path, a);
         app.rename_in_background(
             &ctx,
-            vec![a.clone(), b.clone()],
+            crate::support::test_support::unlisted(vec![a.clone(), b.clone()]),
             vec![b.clone(), a.clone()],
             crate::files::file_io::PickedFiles::new(vec![a.clone(), b.clone()]),
         );
@@ -960,7 +1017,7 @@ mod tests {
         app.write_sidecars(
             &ctx,
             "Other",
-            other,
+            crate::support::test_support::unlisted_with(other),
             move |_, _| released.recv().is_err(),
             |_, _| None,
         );
@@ -1064,7 +1121,7 @@ mod tests {
         app.write_sidecars(
             &ctx,
             "Other",
-            b,
+            crate::support::test_support::unlisted_with(b),
             move |_, _| hold.recv().is_err(),
             |_, _| None,
         );
@@ -1150,11 +1207,11 @@ mod tests {
             app.info_panel.reread_after_write.is_some(),
             "a.png is read before its save"
         );
-        assert_ne!(app.info_panel.exif_asked.as_ref(), Some(&a));
+        assert_ne!(app.info_panel.exif_asked.as_ref().map(|a| &a.0), Some(&a));
         drop(writing);
         app.request_and_take_exif(&ctx);
         assert!(app.info_panel.reread_after_write.is_none());
-        assert_eq!(app.info_panel.exif_asked.as_ref(), Some(&a));
+        assert_eq!(app.info_panel.exif_asked.as_ref().map(|a| &a.0), Some(&a));
         std::fs::remove_dir_all(&dir).unwrap();
     }
 }

@@ -1,7 +1,9 @@
 //! The model of what is open: the file list with everything that holds a place in it
 //! (`List`), and the decoded images (`LoadedImage`).
 
+use crate::files::file_io::{FileFingerprint, Identity};
 use crate::images::decode::HistogramCounts;
+use crate::model::listing::ListedName;
 use crate::ui::file_list::RubberBand;
 use eframe::egui;
 use std::collections::{HashMap, HashSet};
@@ -26,9 +28,18 @@ pub(crate) struct LoadedImage {
     pub(crate) pages: usize,
     /// The box it was decoded into (`decode_box`): decoded again only for a larger one.
     pub(crate) decoded_for: [u32; 2],
+    /// The fingerprint of the file it was decoded from, taken before the file was read. It
+    /// tells whether the file under its name is still that one, and a turn saved into the file
+    /// is refused when it is not.
+    pub(crate) read: Option<FileFingerprint>,
 }
 
 impl LoadedImage {
+    /// The identity of the file it was decoded from, as its folder entry gives it.
+    pub(crate) fn identity(&self) -> Identity {
+        std::num::NonZeroU64::new(self.read?.0?.1)
+    }
+
     /// Whether any pixel of the (first) frame is less than opaque.
     pub(crate) fn has_transparency(&self) -> bool {
         self.histogram[4][..255].iter().any(|&n| n > 0)
@@ -70,6 +81,10 @@ pub(crate) struct List {
     /// The images in `dir`, file name only (the full path is built on demand by `path`): saves
     /// memory in large folders, where the path would otherwise be repeated for every file.
     files: Vec<OsString>,
+    /// The identity of each file of `files`, at the same place, as the listing read it. It is
+    /// what tells that another file has taken a name since: what was read of the old file is
+    /// then dropped, and a write of the name is refused.
+    identities: Vec<Identity>,
     shown: usize,
     /// Selected files (Ctrl/Shift+click in the file list) that Delete acts on. They are always
     /// files the list shows, so while searching they are matches only. No action then acts on
@@ -123,6 +138,39 @@ impl List {
     /// The images in `dir`, by file name only.
     pub(crate) fn files(&self) -> &[OsString] {
         &self.files
+    }
+
+    /// Returns the identity of the file at place `i` as it was listed, or `None` when it is not
+    /// known.
+    pub(crate) fn identity(&self, i: usize) -> Identity {
+        self.identities.get(i).copied().flatten()
+    }
+
+    /// Returns the files with their identities, in the list's order, to put in another order.
+    pub(crate) fn listed_names(&self) -> Vec<ListedName> {
+        (self.files.iter().cloned())
+            .zip(self.identities.iter().copied())
+            .collect()
+    }
+
+    /// Returns whether `files` are the files of the list, in its order and with the identities
+    /// it knows them by. A name that another file has taken counts as another file.
+    pub(crate) fn is_listed_as(&self, files: &[ListedName]) -> bool {
+        files.len() == self.files.len()
+            && (files.iter().zip(&self.files).zip(&self.identities)).all(
+                |(((name, identity), own), own_identity)| name == own && identity == own_identity,
+            )
+    }
+
+    /// Forgets the identities of the files named `names`, because Glimt wrote them anew (a
+    /// turn saved, a tool's change), which may have given them other inodes. The listing that
+    /// follows gives them their new ones. It is one pass over the list.
+    pub(crate) fn forget_identities(&mut self, names: &HashSet<&std::ffi::OsStr>) {
+        for (name, identity) in self.files.iter().zip(&mut self.identities) {
+            if names.contains(name.as_os_str()) {
+                *identity = None;
+            }
+        }
     }
 
     /// The place of the shown image in the list.
@@ -224,9 +272,11 @@ impl List {
     /// A new list of `files`. Nothing of the list before is in it but its version, which goes
     /// up, so what was worked out from the old places can tell that it is old, and whether its
     /// entries are still unchecked.
-    pub(crate) fn replacing(old: &List, files: Vec<OsString>) -> List {
+    pub(crate) fn replacing(old: &List, files: Vec<ListedName>) -> List {
+        let (files, identities) = files.into_iter().unzip();
         List {
             files,
+            identities,
             version: old.version + 1,
             has_unchecked_entries: old.has_unchecked_entries,
             ..Default::default()
@@ -249,7 +299,7 @@ impl List {
     }
 
     /// Gives the file at place `i` the name `name`, because it was renamed or moved within the
-    /// list.
+    /// list. It keeps its identity, as a rename keeps the inode.
     pub(crate) fn rename(&mut self, i: usize, name: OsString) {
         if let Some(file) = self.files.get_mut(i) {
             *file = name;
@@ -266,6 +316,7 @@ impl List {
     /// another image.
     pub(crate) fn forget_files(&mut self) {
         self.files.clear();
+        self.identities.clear();
     }
 
     /// Takes the files at the sorted places `removed` out of the list in one pass. The decoded
@@ -274,6 +325,11 @@ impl List {
     pub(crate) fn remove(&mut self, removed: &[usize]) {
         let mut idx = 0;
         self.files.retain(|_| {
+            idx += 1;
+            removed.binary_search(&(idx - 1)).is_err()
+        });
+        let mut idx = 0;
+        self.identities.retain(|_| {
             idx += 1;
             removed.binary_search(&(idx - 1)).is_err()
         });
@@ -557,6 +613,7 @@ impl List {
 impl List {
     /// Makes `files` the list.
     pub(crate) fn set_files(&mut self, files: Vec<OsString>) {
+        self.identities = vec![None; files.len()];
         self.files = files;
     }
 }
@@ -582,6 +639,7 @@ mod tests {
     fn every_field_is_carried_or_reset_on_a_new_list() {
         const FATE: &[(&str, &str)] = &[
             ("files", "the new list"),
+            ("identities", "the new list's, with its files"),
             ("shown", "carried by name: the file shown"),
             (
                 "selected",

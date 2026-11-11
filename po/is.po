@@ -3060,6 +3060,10 @@ msgstr "; enn er verið að skrifa hliðarskrárnar"
 msgid "Could not remove {name}: {e}"
 msgstr "Gat ekki fjarlægt {name}: {e}"
 
+#: src/files/file_io.rs
+msgid "another file has taken its name: the folder is read again"
+msgstr "önnur skrá hefur tekið nafnið: mappan er lesin aftur"
+
 #: src/files/file_ops.rs
 msgid "Rename failed ({count}): {first}"
 msgstr "Endurnefning mistókst ({count}): {first}"

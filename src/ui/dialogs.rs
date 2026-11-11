@@ -842,8 +842,8 @@ impl crate::App {
             // there; `renamed` puts the list right.
             Prompt::Rename => {
                 if let Some(picked) = picked {
-                    let from = vec![self.path(self.list.shown())];
-                    self.rename_in_background(ctx, from, vec![target], picked);
+                    let file = self.listed_file(self.list.shown());
+                    self.rename_in_background(ctx, vec![file], vec![target], picked);
                 }
             }
         }

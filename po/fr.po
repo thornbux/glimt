@@ -3060,6 +3060,10 @@ msgstr " ; les fichiers annexes sont encore en cours d'écriture"
 msgid "Could not remove {name}: {e}"
 msgstr "Impossible de supprimer {name} : {e}"
 
+#: src/files/file_io.rs
+msgid "another file has taken its name: the folder is read again"
+msgstr "un autre fichier a pris son nom : le dossier est relu"
+
 #: src/files/file_ops.rs
 msgid "Rename failed ({count}): {first}"
 msgstr "Échec du renommage ({count}) : {first}"

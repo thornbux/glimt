@@ -39,6 +39,14 @@ impl crate::App {
         self.receive_real_folders(ctx);
         self.receive_exif_index(ctx);
         self.receive_operation_report(ctx);
+        // A write found a name that another file has taken since the folder was read, and left
+        // that file alone. The folder is read again, and the marks, which showed the change
+        // before it was written.
+        if crate::files::file_io::take_list_is_old() {
+            #[cfg(feature = "marks")]
+            self.marks.read_again();
+            self.start_listing(ctx);
+        }
         self.sum_selection_size(ctx);
         self.sum_match_size(ctx);
         self.receive_file_work(ctx);

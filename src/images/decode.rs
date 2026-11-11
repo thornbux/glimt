@@ -54,6 +54,9 @@ pub struct Decoded {
     pub request_number: u64,
     /// `None` = skipped because the user has already moved past it.
     pub result: Option<Result<DecodedImage, String>>,
+    /// The fingerprint of the file, taken before it was read, so the window can tell whether
+    /// the file under its name is still the one decoded.
+    pub read: Option<crate::files::file_io::FileFingerprint>,
 }
 
 /// The frames, the original size after EXIF rotation, the histogram and the number of pages.
@@ -1972,6 +1975,7 @@ mod tests {
             hidden: false,
         };
         let (_, images) = crate::model::listing::list_folder(&dir, types);
+        let images: Vec<_> = images.into_iter().map(|f| f.0).collect();
         assert_eq!(images, ["a.gel", "b.lsm"].map(std::ffi::OsString::from));
         for name in images {
             let (frames, orig, _) = super::decode(&dir.join(name), [100, 100], true, 0).unwrap();
@@ -2026,6 +2030,7 @@ mod tests {
             hidden: false,
         };
         let (_, images) = crate::model::listing::list_folder(&dir, types);
+        let images: Vec<_> = images.into_iter().map(|f| f.0).collect();
         assert_eq!(
             images,
             ["c.bmp", "d.ico", "e.qoi", "f.ppm"].map(std::ffi::OsString::from)
@@ -2056,11 +2061,13 @@ mod tests {
             hidden: false,
         };
         let (dirs, images) = crate::model::listing::list_folder(&dir, all);
+        let images: Vec<_> = images.into_iter().map(|f| f.0).collect();
         assert_eq!(images, vec![std::ffi::OsString::from("a.png")]);
         assert_eq!(dirs, vec![dir.join("sub")]);
         // Hidden files and folders, when shown.
         all.hidden = true;
         let (dirs, images) = crate::model::listing::list_folder(&dir, all);
+        let images: Vec<_> = images.into_iter().map(|f| f.0).collect();
         assert_eq!(images, [".b.png", "a.png"].map(std::ffi::OsString::from));
         assert_eq!(dirs, vec![dir.join(".hidden"), dir.join("sub")]);
         std::fs::remove_file(dir.join(".b.png")).unwrap();
@@ -2101,6 +2108,7 @@ mod tests {
         };
         let (own, files, _) =
             crate::model::listing::list_tree(&dir, types, &Default::default(), |_| {}, |_| {});
+        let files: Vec<std::ffi::OsString> = files.into_iter().map(|f| f.0).collect();
         assert_eq!(
             (own, files),
             (

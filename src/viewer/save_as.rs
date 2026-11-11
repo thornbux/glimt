@@ -104,7 +104,7 @@ impl crate::App {
         });
         let copy_as = self.shown_copy();
         self.save_as = Some(SaveAs {
-            picked: PickedFiles::new(vec![path.clone()]),
+            picked: PickedFiles::listed(vec![self.listed_file(shown)]),
             path,
             copy_as,
             original_size,

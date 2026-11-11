@@ -653,6 +653,7 @@ const HANDED_TO_A_THREAD: &[&str] = &[
     "write_later_in_user_folders(",
     "run_in_background(",
     "write_sidecars(",
+    "write_in_sidecar_thread(",
 ];
 
 /// What starts work that writes, which closing waits for: a job, work in the background, an
@@ -3697,7 +3698,7 @@ fn finds_a_name_removed_after_a_cached_look() {
 
 /// A delete, a move to the trash, a move, a rename or a replace of a user's file looks first
 /// whether the file is still the one the user picked or Glimt read. The function that makes the
-/// call checks it itself (`still_the_one_picked`, `still_the_file`, `same_fingerprint`,
+/// call checks it itself (`still_the_one_picked`, `is_still_the_file`, `same_fingerprint`,
 /// `replace_existing`, or `same_file_by_opening` for a second name of one file), and files
 /// picked before a wait (a question, a prompt, the file chooser) come as `file_io::PickedFiles`
 /// for it. Before, a delete, a trash or a rename confirmed in a dialog acted on whatever had the
@@ -3724,7 +3725,7 @@ fn destructive_acts_check_the_file_is_still_the_one_picked() {
     assert!(
         wrong.is_empty(),
         "a delete, trash, move, rename or replace that does not check the file is still the one \
-         picked (file_io::PickedFiles, still_the_file):\n{}",
+         picked (file_io::PickedFiles, is_still_the_file):\n{}",
         wrong.join("\n")
     );
 }
@@ -3787,7 +3788,7 @@ fn destructive_acts_in(text: &str) -> Vec<(String, bool)> {
     ];
     const CHECKS: [&str; 7] = [
         "still_the_one_picked(",
-        "still_the_file(",
+        "is_still_the_file(",
         "same_fingerprint(",
         "replace_existing(",
         "same_file_by_opening(",
@@ -3833,7 +3834,7 @@ fn finds_a_destructive_act_without_its_check() {
     let text = "fn a() {\n    std::fs::remove_file(x)\n}\n\
         fn b() {\n    picked.still_the_one_picked(x)?;\n    trash::trash(&[x])\n}\n\
         fn c() {\n    crate::files::trash::trash(&[x])\n}\n\
-        fn d() {\n    still_the_file(x, f)\n}\n\
+        fn d() {\n    is_still_the_file(x, f)\n}\n\
         fn e() {\n    #[allow(clippy::disallowed_methods)] // Glimt's own: a socket\n    \
         std::fs::remove_file(x)\n}\n\
         fn f() {\n    put_file(x, y, true)\n}\n\

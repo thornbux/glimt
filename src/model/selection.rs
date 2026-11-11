@@ -51,6 +51,11 @@ impl crate::App {
         self.folder.dir().join(&self.list.files()[i])
     }
 
+    /// Image `i` as a file a write can check is still the one listed (`ListedFile::check`).
+    pub(crate) fn listed_file(&self, i: usize) -> crate::files::file_io::ListedFile {
+        crate::files::file_io::ListedFile::new(self.path(i), self.list.identity(i))
+    }
+
     /// Is `path` image number `i` in the list? (Without building the path.)
     pub(crate) fn is_file(&self, i: usize, path: &Path) -> bool {
         // Names are relative to the folder; in a slideshow with subfolders they have folders too.

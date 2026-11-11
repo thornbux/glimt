@@ -666,7 +666,10 @@ pub(crate) fn save_copy_with_sidecar(
                 new,
                 |f| f.write_all(out),
                 || {
-                    crate::files::file_io::still_the_file(new, asked_about)?;
+                    crate::files::file_io::is_still_the_file(
+                        new,
+                        crate::files::file_io::KnownAs::fingerprint(asked_about),
+                    )?;
                     lock = Some(crate::metadata::xmp::lock_sidecar(new));
                     remove_side()
                 },
@@ -808,6 +811,16 @@ pub(crate) fn file_id(path: &Path) -> Option<FileId> {
 pub(crate) fn file_id_from_metadata(path: &Path, meta: &std::fs::Metadata) -> FileId {
     use std::os::unix::fs::MetadataExt;
     file_id_from_inode(path, (meta.dev(), meta.ino()))
+}
+
+/// Returns the identity of the file that the folder entry `entry` names: the inode the entry
+/// gives with the name, so no file is looked at. Returns `None` for inode 0. A listing of
+/// 500,000 files cannot look at each file, so the inode is read here as well as in
+/// `file_id_from_metadata`, and in no other place.
+#[allow(clippy::disallowed_methods)] // a folder entry's inode, which costs no look at the file
+pub(crate) fn identity_of_entry(entry: &std::fs::DirEntry) -> crate::files::file_io::Identity {
+    use std::os::unix::fs::DirEntryExt;
+    std::num::NonZeroU64::new(entry.ino())
 }
 
 /// Returns the id of `path` from its device and inode, `id`. The pair is the same however the

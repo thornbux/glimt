@@ -3071,6 +3071,10 @@ msgstr "; os arquivos XMP ainda estão sendo gravados"
 msgid "Could not remove {name}: {e}"
 msgstr "Não foi possível remover {name}: {e}"
 
+#: src/files/file_io.rs
+msgid "another file has taken its name: the folder is read again"
+msgstr "outro arquivo tomou o seu nome: a pasta é lida de novo"
+
 #: src/files/file_ops.rs
 msgid "Rename failed ({count}): {first}"
 msgstr "Falha ao renomear ({count}): {first}"

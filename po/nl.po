@@ -3060,6 +3060,10 @@ msgstr "; de sidecar-bestanden worden nog geschreven"
 msgid "Could not remove {name}: {e}"
 msgstr "Kon {name} niet verwijderen: {e}"
 
+#: src/files/file_io.rs
+msgid "another file has taken its name: the folder is read again"
+msgstr "een ander bestand heeft de naam overgenomen: de map wordt opnieuw gelezen"
+
 #: src/files/file_ops.rs
 msgid "Rename failed ({count}): {first}"
 msgstr "Hernoemen mislukt ({count}): {first}"

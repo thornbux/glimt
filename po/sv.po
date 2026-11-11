@@ -3060,6 +3060,10 @@ msgstr "; sidofilerna skrivs fortfarande"
 msgid "Could not remove {name}: {e}"
 msgstr "Kunde inte ta bort {name}: {e}"
 
+#: src/files/file_io.rs
+msgid "another file has taken its name: the folder is read again"
+msgstr "en annan fil har tagit namnet: mappen läses in igen"
+
 #: src/files/file_ops.rs
 msgid "Rename failed ({count}): {first}"
 msgstr "Namnbyte misslyckades ({count}): {first}"
