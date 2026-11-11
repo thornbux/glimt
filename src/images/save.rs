@@ -1130,7 +1130,7 @@ fn turned(img: image::DynamicImage, turns: u8, mirrored: bool) -> image::Dynamic
 /// encoder that owns its file flushes it on drop, where a full disk would go unnoticed and a
 /// cut-off file would replace the photo. The pixels and the profile are made to fit `encoding`
 /// first (`writable_pixels`), so every derived file is written from pixels its format holds.
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments)] // what a derived file is made of, each told apart
 fn encode(
     path: &Path,
     img: image::DynamicImage,

@@ -230,7 +230,7 @@ impl crate::App {
 
 /// The thumbnail workers, one for each core of which CPU use lets `thumb_threads(workers)`
 /// take jobs: so scrolling the list never delays the shown image.
-#[allow(clippy::type_complexity)]
+#[allow(clippy::type_complexity)] // the two channels' types, each used once, read best whole
 pub(crate) fn spawn_thumbnailers(
     ctx: &egui::Context,
     workers: usize,

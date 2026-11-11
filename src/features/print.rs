@@ -481,7 +481,7 @@ impl crate::App {
             let first = pages.peek().map(|(img, _)| [img.width(), img.height()]);
             let (layout, sides) = print::layout_and_sides(&job.layout, job.two_sided, first);
             // The printer chosen in the desktop's print dialog, for the message.
-            #[cfg_attr(not(feature = "portals"), allow(unused_mut))]
+            #[cfg_attr(not(feature = "portals"), allow(unused_mut))] // set by the portal only
             let mut chosen: Option<String> = None;
             let done = match &to {
                 #[cfg(feature = "portals")]

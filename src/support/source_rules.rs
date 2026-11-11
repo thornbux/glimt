@@ -4241,6 +4241,54 @@ fn finds_a_lint_turned_off_widely() {
     assert_eq!(lints_turned_off_widely(text), [1, 3, 6, 10]);
 }
 
+/// Every `#[allow(…)]` outside the tests says why it is there, in a comment on its own line, on
+/// the next, or in a plain comment just before it. A reader then knows what the exception is
+/// for, and when it may go.
+#[test]
+fn every_allow_gives_its_reason() {
+    let mut wrong = Vec::new();
+    for (file, text) in rust_sources() {
+        let lines = allows_without_reason(&text);
+        wrong.extend(lines.iter().map(|line| format!("{file}:{line}")));
+    }
+    assert!(
+        wrong.is_empty(),
+        "an #[allow(…)] without its reason (say why in a comment on its line):\n{}",
+        wrong.join("\n")
+    );
+}
+
+/// Returns the lines of `text` outside the tests with an attribute that allows a lint and no
+/// comment that gives its reason: one on that line or the next, or a plain comment (not a doc
+/// comment) on the line before.
+fn allows_without_reason(text: &str) -> Vec<usize> {
+    let (code, comments) = (code_lines(text), comment_lines(text));
+    let comment = |j: usize| comments.get(j).map_or("", |c| c.trim());
+    let is_plain = |c: &str| !c.is_empty() && !c.starts_with("///") && !c.starts_with("//!");
+    (0..tests_start(&code))
+        .filter(|&i| {
+            let line = code[i].trim_start();
+            line.starts_with('#')
+                && line.contains("allow(")
+                && comment(i).is_empty()
+                && comment(i + 1).is_empty()
+                && !(i > 0 && is_plain(comment(i - 1)))
+        })
+        .map(|i| i + 1)
+        .collect()
+}
+
+/// The check above finds an allow with no reason, also behind `cfg_attr` and under a doc
+/// comment, and passes one with its reason on its line, on the next or in a comment before.
+#[test]
+fn finds_an_allow_without_its_reason() {
+    let text = "#[allow(dead_code)]\nfn a() {}\n/// Does b.\n\
+        #[cfg_attr(test, allow(unused))]\nfn b() {}\n#[allow(unused)] // a reason\nfn c() {}\n\
+        #[allow(unused)]\n// a reason\nfn d() {}\n// a reason\n#[allow(unused)]\nfn e() {}\n\
+        #[cfg(test)]\nmod tests {\n    #[allow(unused)]\n    fn f() {}\n}\n";
+    assert_eq!(allows_without_reason(text), [1, 4]);
+}
+
 /// Returns the lines of the statements of `text` outside the tests that drop the result of one
 /// of file_io's writers, with `let _ =` (or `let _: T =`), `_ =`, `.ok();`,
 /// `.unwrap_or_default();`, `.unwrap_or(());`, `drop(…)`, `let _name =` where `_name` is not
