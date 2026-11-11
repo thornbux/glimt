@@ -276,6 +276,8 @@ impl ListedFile {
 #[derive(Clone, Copy)]
 pub(crate) struct KnownAs<'a> {
     fingerprint: Option<FileFingerprint>,
+    /// Whether the fingerprint is compared without the device (`size_and_time`).
+    without_device: bool,
     listed: Identity,
     list_is_old: Option<&'a ListIsOld>,
 }
@@ -285,6 +287,19 @@ impl<'a> KnownAs<'a> {
     pub(crate) fn fingerprint(fingerprint: FileFingerprint) -> KnownAs<'a> {
         KnownAs {
             fingerprint: Some(fingerprint),
+            without_device: false,
+            listed: None,
+            list_is_old: None,
+        }
+    }
+
+    /// A file known by the size and time of the fingerprint it had when it was picked, without
+    /// its device: a Rename Many's plan, read again after a reboot, when a share, a FUSE mount
+    /// or a card reader may have come back with another device number.
+    pub(crate) fn size_and_time((_, size, time): FileFingerprint) -> KnownAs<'a> {
+        KnownAs {
+            fingerprint: Some((None, size, time)),
+            without_device: true,
             listed: None,
             list_is_old: None,
         }
@@ -295,6 +310,7 @@ impl<'a> KnownAs<'a> {
     pub(crate) fn listed(identity: Identity, list_is_old: &'a ListIsOld) -> KnownAs<'a> {
         KnownAs {
             fingerprint: None,
+            without_device: false,
             listed: identity,
             list_is_old: Some(list_is_old),
         }
@@ -457,6 +473,7 @@ impl PickedFingerprints {
             ),
             false => KnownAs {
                 fingerprint: Some(picked),
+                without_device: false,
                 listed: self.listed.get(path).copied().flatten(),
                 list_is_old: Some(&self.list_is_old),
             },
@@ -1373,13 +1390,13 @@ pub(crate) fn fingerprint_before_reading(path: &Path) -> std::io::Result<FileFin
 /// Looks whether the file at `path` is still the file `known`: the one rule by which Glimt
 /// tells, right before a change, that no other file has taken the name since the list showed
 /// it, the user picked it or Glimt read it. Another inode than the one its folder listed is
-/// refused, and an unknown one passes. With a fingerprint, the device, size and time must also
-/// be the same (`same_fingerprint`), and a file that is gone is refused; without one, a file
-/// that is gone is left to the operation to tell. Another file found has the window whose list
-/// it is read its folder again (`ListIsOld`). It waits for the disk, so it is called in the
-/// thread that makes the change. Returns the error to tell. A look that failed returns its own
-/// error, never NotFound, so a caller that leaves a gone file to its operation does not take
-/// a share that dropped for a moment for a file that is gone.
+/// refused, and an unknown one passes. With a fingerprint, the device (unless `size_and_time`),
+/// size and time must also be the same (`same_fingerprint`), and a file that is gone is
+/// refused; without one, a file that is gone is left to the operation to tell. Another file
+/// found has the window whose list it is read its folder again (`ListIsOld`). It waits for the
+/// disk, so it is called in the thread that makes the change. Returns the error to tell. A look
+/// that failed returns its own error, never NotFound, so a caller that leaves a gone file to its
+/// operation does not take a share that dropped for a moment for a file that is gone.
 pub(crate) fn is_still_the_file(path: &Path, known: KnownAs) -> std::io::Result<()> {
     // With nothing known, nothing could be refused, and a look would only wait for the disk:
     // a round trip for each file on a share whose identities were forgotten.
@@ -1394,8 +1411,12 @@ pub(crate) fn is_still_the_file(path: &Path, known: KnownAs) -> std::io::Result<
         let Some(before) = known.fingerprint else {
             return Ok(());
         };
+        let without_device = |(id, size, time): FileFingerprint| match known.without_device {
+            true => (None, size, time),
+            false => (id, size, time),
+        };
         match fingerprint_or_error(path) {
-            Ok(now) if same_fingerprint(before, now) => return Ok(()),
+            Ok(now) if same_fingerprint(before, without_device(now)) => return Ok(()),
             Ok(_) => changed_meanwhile(),
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Err(gone_meanwhile()),
             Err(e) => return Err(e),

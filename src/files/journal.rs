@@ -378,17 +378,19 @@ fn parse_known(text: &str, steps: usize) -> Vec<Option<FileFingerprint>> {
 }
 
 /// Returns the first name of `steps` (from, the step's file) that holds another file than the
-/// step's own, with the error to tell. A name that is not there is left to the step itself
-/// (`repair_step`), and so is a swap's hidden name. A name whose look failed is refused, as it
-/// may be another file all the same. Each name is looked at before any step is taken, as no
-/// earlier step of the repair fills a name of the user's that a later step takes a file from.
+/// step's own, with the error to tell. A file is told by its size and time, not by its device,
+/// which a share, a FUSE mount or a card reader gets anew after the reboot the plan is kept
+/// for. A name that is not there is left to the step itself (`repair_step`), and so is a swap's
+/// hidden name. A name whose look failed is refused, as it may be another file all the same.
+/// Each name is looked at before any step is taken, as no earlier step of the repair fills a
+/// name of the user's that a later step takes a file from.
 fn another_file_at<'a>(
     mut steps: impl Iterator<Item = (&'a Path, Option<FileFingerprint>)>,
 ) -> Option<(&'a Path, std::io::Error)> {
     use crate::files::file_io::{KnownAs, is_still_the_file};
     steps.find_map(|(from, known)| {
         let hidden = (from.file_name()?.as_bytes()).starts_with(HIDDEN_NAME.as_bytes());
-        let error = is_still_the_file(from, KnownAs::fingerprint(known.filter(|_| !hidden)?));
+        let error = is_still_the_file(from, KnownAs::size_and_time(known.filter(|_| !hidden)?));
         error
             .err()
             .filter(|e| e.kind() != std::io::ErrorKind::NotFound)
@@ -1243,6 +1245,37 @@ mod tests {
         assert_eq!(repaired, Some((0, 1)));
         assert_eq!(std::fs::read_to_string(p("b.jpg")).unwrap(), "a");
         assert_eq!(super::cut_short_plans(&plans).len(), 1);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A photo whose device number changed since the plan was made, as a share's, a FUSE
+    /// mount's or a card reader's does at a reboot, still goes back. Before, every start refused
+    /// the repair, for good.
+    #[test]
+    fn a_photo_on_a_device_numbered_anew_still_goes_back() {
+        let dir =
+            std::env::temp_dir().join(format!("glimt-test-plan-device-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let (plans, p) = (dir.join("plans"), |n: &str| dir.join(n));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(p("a.jpg"), "a").unwrap();
+        let moves = vec![(p("a.jpg"), p("b.jpg"))];
+        let mut plan = super::start_journal(&plans, &moves).unwrap();
+        super::rename_step(&moves[0].0, &moves[0].1).unwrap();
+        plan.count_step_done();
+        plan.keep_on_disk();
+        let (plan, moves, done) = super::cut_short_plans(&plans).remove(0);
+        // The list names the photo by another device, as after a reboot.
+        let list = super::known_path(&plan);
+        let text = std::fs::read_to_string(&list).unwrap();
+        let (device, rest) = text.split_once(' ').unwrap();
+        let other = device.parse::<u64>().unwrap() + 1;
+        std::fs::write(&list, format!("{other} {rest}")).unwrap();
+        assert_eq!(
+            super::repair_cut_short(&plan, &moves, done, true),
+            Some((1, 0))
+        );
+        assert_eq!(std::fs::read_to_string(p("a.jpg")).unwrap(), "a");
         std::fs::remove_dir_all(dir).unwrap();
     }
 
