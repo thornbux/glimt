@@ -542,18 +542,19 @@ pub fn edit(file: &Path, new: bool, change: impl FnOnce(&mut Vec<PathBuf>)) -> s
             .unzip();
     let before = all.clone();
     change(&mut all);
-    // A name that a line cannot hold is refused here, whatever the change: an add, an entry
-    // that follows a move, or a new order.
-    if let Some(left_out) = crate::files::config::keep_those_that_fit_on_a_line(&mut all) {
-        crate::files::file_io::save_failed(left_out);
-    }
     // Nothing changed (an unrelated folder renamed): the file stays as it is.
     if all == before {
         return Ok(());
     }
-    let all: Vec<PathBuf> = (all.into_iter())
+    let mut all: Vec<PathBuf> = (all.into_iter())
         .map(|p| spelled.get(&p).map_or(p, |&w| w.clone()))
         .collect();
+    // A name that a line cannot hold is refused here, whatever the change: an add, an entry
+    // that follows a move, or a new order. The entry is checked as it is written, so an entry
+    // through a link to a folder whose name holds a line break is kept.
+    if let Some(left_out) = crate::files::config::keep_those_that_fit_on_a_line(&mut all) {
+        crate::files::file_io::save_failed(left_out);
+    }
     // Written whole or not at all; a new one never lands over a collection another window made
     // meanwhile. What else the file held (Geeqie's #geometry line) goes back in.
     let out = to_text(&all, &non_entry_lines(&text));
@@ -1255,6 +1256,30 @@ mod tests {
         std::fs::remove_file(&saved).unwrap();
         assert_eq!(now, [kept]);
         assert!(told.iter().any(|e| e.contains("line break")), "{told:?}");
+    }
+
+    /// An entry written through a link to a folder whose name holds a line break is kept when
+    /// another entry is taken out, as the entry is written as it was spelled. Before, it was
+    /// refused for the line break in its real path, and taken out of the file with a notice.
+    #[test]
+    fn an_entry_through_a_link_to_a_name_with_a_line_break_is_kept() {
+        let dir =
+            std::env::temp_dir().join(format!("glimt-test-link-line-break-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("new\nline")).unwrap();
+        std::os::unix::fs::symlink(dir.join("new\nline"), dir.join("link")).unwrap();
+        let (kept, taken_out) = (dir.join("link/a.png"), dir.join("b.png"));
+        let saved = dir.join("c.gqv");
+        std::fs::write(
+            &saved,
+            super::to_text(&[kept.clone(), taken_out.clone()], &[]),
+        )
+        .unwrap();
+        crate::files::file_io::take_saves_failed();
+        super::edit(&saved, false, |all| all.retain(|p| *p != taken_out)).unwrap();
+        let now = super::load(&saved).unwrap();
+        std::fs::remove_dir_all(&dir).unwrap();
+        assert_eq!(now, [kept]);
     }
 
     /// Collection files broken in thousands of ways: read without a panic.
