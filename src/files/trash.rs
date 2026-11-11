@@ -418,7 +418,8 @@ fn trash_by_hand_anywhere(paths: &[&Path], home: &Path) -> Vec<(PathBuf, std::io
 
 /// Returns the trash that the files of `folder` go to by hand (`trash_by_hand_anywhere`): the
 /// home trash `home` for a folder on its file system, and otherwise the user's trash at the top
-/// of the folder's own. Returns an error for a folder on a network share.
+/// of the folder's own. Returns an error for a folder on a network share, and in a Flatpak for
+/// one on a mount of a folder alone.
 fn trash_place(folder: &Path, home: &Path) -> std::io::Result<TrashPlace> {
     use std::io::ErrorKind::{CrossesDevices, Unsupported};
     use std::os::unix::fs::MetadataExt;
@@ -436,6 +437,14 @@ fn trash_place(folder: &Path, home: &Path) -> std::io::Result<TrashPlace> {
     };
     let kind = crate::files::file_io::file_system_type(&top);
     if kind.is_some_and(|kind| crate::files::file_io::is_remote(&kind)) {
+        return Err(Unsupported.into());
+    }
+    // A Flatpak with --filesystem=host may show a folder of the host's file system (/srv) by a
+    // bind mount of that folder alone. The walk up then stops at /srv, while the host's gio and
+    // file managers look at the file system's own top, so a file put in /srv/.Trash-UID would be
+    // listed by none of them. Such a file is refused, and the window asks to delete it for good.
+    // On the host, the walk up finds the top that gio finds.
+    if crate::files::external::in_flatpak() && !crate::files::file_io::is_mounted_whole(&top) {
         return Err(Unsupported.into());
     }
     let folder_from_top = real_folder.strip_prefix(&top).unwrap_or(Path::new(""));
