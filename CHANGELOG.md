@@ -14,6 +14,16 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- A Move or Copy onto a disk with room for a photo but not for its sidecar puts the photo back,
+  with what had followed, and says so. Before, the photo was left at the target without its
+  keywords and the sidecar at the source, where a later file of that name would pick it up. The
+  Undo of a Move does the same.
+- Rename and Rename Many rename nothing when their plan cannot be saved (a full disk), and say
+  so (#90). Before, Rename Many went on without it, and as the marks file in the same folder
+  could not be saved either, most photos of names that swap showed another photo's stars.
+- Stars and marks that follow files moved or renamed are kept when the marks file cannot be
+  written, and saved with the next write. Before, the window took back the file as it was, so
+  the files showed the stars of the names they took.
 - Delete for good keeps a photo's sidecar, with its keywords and stars, when the photo could not
   be looked at after the delete, as on a share that dropped for a moment. Before, the sidecar
   was deleted while the photo might still be there. A name counts as gone only when the system
