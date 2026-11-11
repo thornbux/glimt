@@ -1734,9 +1734,9 @@ fn serve(
 
 /// Reads the next command, one line, from `reader`. A `select` or `info` may be as long as its
 /// files take, and any other command at most `MOST_LINE` bytes, so a client that sends without
-/// a line break holds no more memory than that. Returns the reason for a line too long, which
-/// the client is told, and `None` at the end, for a line that is not UTF-8, and when the client
-/// sends nothing within its time limit.
+/// a line break holds no more memory than that. Returns the reason for a line too long or not
+/// UTF-8, which the client is told, and `None` at the end and when the client sends nothing
+/// within its time limit.
 fn read_command(reader: &mut impl BufRead) -> Option<Result<String, &'static str>> {
     let mut line = Vec::new();
     std::io::Read::take(&mut *reader, MOST_LINE)
@@ -1769,7 +1769,8 @@ fn read_command(reader: &mut impl BufRead) -> Option<Result<String, &'static str
     }
     let line = line.strip_suffix(b"\n").unwrap_or(&line);
     let line = line.strip_suffix(b"\r").unwrap_or(line);
-    String::from_utf8(line.to_vec()).ok().map(Ok)
+    // Told, as an end without an answer would read as done.
+    Some(String::from_utf8(line.to_vec()).map_err(|_| "not UTF-8"))
 }
 
 /// Whether `dir` is there and not the user's own folder.
@@ -2909,6 +2910,14 @@ mod tests {
             let more = format!("{command} {}\nnext\n", files(super::MAX_SELECT + 1));
             assert_eq!(read(more), [Err(super::TOO_MANY_FILES)]);
         }
+    }
+
+    /// A line that is not UTF-8 is refused, and the client told so. Before, the window closed
+    /// the connection without an answer, which the client read as done.
+    #[test]
+    fn a_command_line_that_is_not_utf8_is_refused() {
+        let mut reader = std::io::Cursor::new(b"open /tmp/\xff\nnext\n".to_vec());
+        assert_eq!(super::read_command(&mut reader), Some(Err("not UTF-8")));
     }
 
     /// A line too long, longer too than the socket's buffer, reaches the client over a real
