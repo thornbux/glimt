@@ -3063,6 +3063,14 @@ msgstr "{file} não recebe nenhum arquivo: %f entre aspas não é o arquivo. Esc
 msgid "Added formats and tools:"
 msgstr "Formatos adicionados e ferramentas:"
 
+#: src/metadata/lightroom.rs
+msgid "; the sidecars are still being written"
+msgstr "; os arquivos XMP ainda estão sendo gravados"
+
+#: src/files/file_io.rs
+msgid "Could not remove {name}: {e}"
+msgstr "Não foi possível remover {name}: {e}"
+
 #: src/files/file_ops.rs
 msgid "Rename failed ({count}): {first}"
 msgstr "Falha ao renomear ({count}): {first}"

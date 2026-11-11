@@ -122,8 +122,9 @@ pub(crate) fn back_up_to(dir: &Path) -> Result<String, String> {
     // The backup folder's name in `dir` is on disk too.
     let copied = copied.and_then(|n| crate::files::file_io::sync_folder_of(&to).map(|_| n));
     // Not the plan of a Rename Many running now: restored later, it would rename files again.
-    #[allow(clippy::disallowed_methods)] // the backup's own copy, just made
-    let _ = std::fs::remove_dir_all(to.join("state/renames"));
+    // So a copy of it that could not be removed makes the backup not whole.
+    let removed = crate::files::file_io::remove_own(&to.join("state/renames"));
+    let copied = copied.and_then(|n| removed.map(|()| n));
     match copied {
         Ok(n) => Ok(crate::tf!(
             "Glimt's data backed up to {folder}: {files}",

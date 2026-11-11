@@ -431,8 +431,7 @@ impl eframe::App for App {
         // for, so a home on a share that stopped answering does not hold the window.
         if let Some(p) = state_path() {
             crate::files::file_io::write_later(move || match state.is_empty() {
-                #[allow(clippy::disallowed_methods)] // Glimt's own state file
-                true => drop(std::fs::remove_file(p)),
+                true => crate::files::file_io::remove_own_or_tell(&p),
                 false => write_atomic(&p, &state),
             });
         }

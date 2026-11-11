@@ -9,7 +9,7 @@ use crate::files::file_ops::OperationReport;
 use crate::images::shared_copy::{Group, LeftOut, copy, tags_of};
 use crate::support::format::count;
 use crate::support::lang::tr;
-use crate::support::threads::{Receiving, Took, Working, answer_channel};
+use crate::support::threads::{Receiving, Told, Took, Working, answer_channel};
 use crate::tf;
 use crate::ui::actions::Action;
 use crate::ui::dialogs::Pick;
@@ -299,12 +299,8 @@ impl crate::App {
         // the list.
         let listed = folder == self.folder.dir()
             || (self.folder.recursive() && folder.starts_with(self.folder.dir()));
-        let (tx, report_tx) = (
-            self.notice_sender.clone(),
-            self.file_operations.report_sender(),
-        );
-        let (ctx, pointer) = (ctx.clone(), Working::new(&self.busy));
-        std::thread::spawn(move || {
+        let report_tx = self.file_operations.report_sender();
+        self.run_in_background(ctx, Vec::new(), move || {
             let mut outcome = SharingOutcome::default();
             let (paths, picked) = picked.wait_for_fingerprints();
             for path in &paths {
@@ -319,7 +315,6 @@ impl crate::App {
                 job.count_done(1);
             }
             let stopped = job.is_stopped().then(|| job.stopped_text());
-            let _ = tx.send(outcome.text(&folder, stopped));
             if listed && outcome.copied > 0 {
                 let _ = report_tx.send(OperationReport {
                     read_folder_again: true,
@@ -327,8 +322,13 @@ impl crate::App {
                 });
             }
             drop(job);
-            drop(pointer);
-            ctx.request_repaint();
+            // A copy not made is a failed write, which keeps a close that waited for it open,
+            // so the user does not take the copies for made.
+            let text = outcome.text(&folder, stopped);
+            Some(match outcome.errors.is_empty() {
+                true => Told::Notice(text),
+                false => Told::FailedWrite(text),
+            })
         });
     }
 }
@@ -380,5 +380,24 @@ mod tests {
         let text = outcome.text(std::path::Path::new("/out"), None);
         assert!(text.starts_with("2 files copied to /out"), "{text}");
         assert!(text.contains("1 file not copied") && text.contains("3 files not copied"));
+    }
+
+    /// Copies that could not be made are told as a failed write, which keeps a close that
+    /// waited for them open. Before, they were a plain notice, and the window closed over it.
+    #[test]
+    fn copies_not_made_are_a_failed_write() {
+        let dir =
+            std::env::temp_dir().join(format!("glimt-test-sharing-fails-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let png = dir.join("a.png");
+        image::RgbImage::new(4, 4).save(&png).unwrap();
+        let (mut app, ctx) = crate::support::test_support::app_on(&dir);
+        let folder = dir.join("no such folder");
+        let kept = Default::default();
+        let picked = crate::files::file_io::PickedFiles::new(vec![png]);
+        app.copy_for_sharing_into_real_folder(&ctx, picked, folder, kept);
+        let told = app.notices.recv_timeout(std::time::Duration::from_secs(5));
+        assert!(matches!(told, Ok(super::Told::FailedWrite(_))), "{told:?}");
+        std::fs::remove_dir_all(dir).unwrap();
     }
 }

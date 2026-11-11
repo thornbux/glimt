@@ -3052,6 +3052,14 @@ msgstr "{file} ne reçoit aucun fichier : %f entre guillemets n'est pas le fichi
 msgid "Added formats and tools:"
 msgstr "Formats ajoutés et outils :"
 
+#: src/metadata/lightroom.rs
+msgid "; the sidecars are still being written"
+msgstr " ; les fichiers annexes sont encore en cours d'écriture"
+
+#: src/files/file_io.rs
+msgid "Could not remove {name}: {e}"
+msgstr "Impossible de supprimer {name} : {e}"
+
 #: src/files/file_ops.rs
 msgid "Rename failed ({count}): {first}"
 msgstr "Échec du renommage ({count}) : {first}"

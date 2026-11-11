@@ -2670,6 +2670,43 @@ mod tests {
         std::fs::remove_dir_all(dir).unwrap();
     }
 
+    /// A write in a thread of its own (`threads::told_work`) that breaks while a `--wait`
+    /// command waits makes that command not done: the failure is in the window before the work
+    /// stops counting as writing.
+    #[test]
+    fn wait_sees_a_failure_told_by_a_writing_thread() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-wait-told-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let (mut app, ctx) = app_on(&dir);
+        app.list
+            .set_files(["a.png", "b.png"].map(Into::into).to_vec());
+        // The work runs when the command comes, so the command waits for it.
+        assert!(app.run_in_background(&ctx, Vec::new(), || {
+            std::thread::sleep(std::time::Duration::from_millis(200));
+            panic!("a broken file")
+        }));
+        let (reply, answer) = std::sync::mpsc::channel();
+        app.remote
+            .tx
+            .send(("wait next".to_owned(), Some(reply)))
+            .unwrap();
+        let start = std::time::Instant::now();
+        let got = loop {
+            app.receive_remote(&ctx);
+            if let Ok(got) = answer.try_recv() {
+                break got;
+            }
+            assert!(start.elapsed() < std::time::Duration::from_secs(20));
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        };
+        let why = super::not_done_reason(&got);
+        assert!(
+            why.is_some_and(|w| w.contains("could not be saved")),
+            "{got:?}"
+        );
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
     /// The client reads `OUTCOME_DONE` as done, and any other answer to a command sent with
     /// `--wait` as that of a window older than `--wait`. A window of 0.75 or older answers
     /// nothing, which without `--wait` counts as done.

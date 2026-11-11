@@ -547,7 +547,8 @@ whole module. The tests may unwrap (main.rs allows it for them).
   `NoticeSender::send_failed_write`, never as a plain notice, and the window thread through
   `App::tell_failed_write`. Work in `run_in_background` answers with a `Told`, which says
   whether it is a notice or a failed write, and a function that hands work to a writer thread
-  holds no `notice_sender`. Both keep the window open when a close
+  holds no `notice_sender`, and one that starts a job hands it only to `threads::told_work`.
+  Both keep the window open when a close
   waited for the writing. A Close is sent only by `App::ask_to_close`, and `guard_close` takes
   the failed writes before it lets one through
   (`source_rules::a_close_takes_the_failed_writes_first`).
@@ -559,7 +560,11 @@ whole module. The tests may unwrap (main.rs allows it for them).
 - **A panic in a background thread is caught in one place**, `threads::catch_panic`, around
   each file a worker reads or writes, so a broken file costs only that file
   (`source_rules::panics_are_caught_in_one_place`). When it returns `None` for a write, that is
-  a failed write like any other, told to the user.
+  a failed write like any other, told to the user. A thread that writes (one that holds a job,
+  the count of writing or an Undo on the way) runs through `run_in_background` or
+  `threads::told_work`, which tells a panic that escaped the files' own catches as a failed
+  write, and counts as writing until it has told
+  (`source_rules::writing_threads_tell_what_they_did`).
 - **Every `unsafe` block has `#[allow(unsafe_code)]`** on that one statement or function, and a
   `// SAFETY:` comment that says why the call is sound. New `unsafe` needs a reason that no safe
   API covers, in the standard library or in a crate already in `Cargo.toml`. A function of the

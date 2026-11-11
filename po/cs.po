@@ -3074,6 +3074,14 @@ msgstr "{file} nedostane žádné soubory: %f v uvozovkách není soubor. Zadejt
 msgid "Added formats and tools:"
 msgstr "Přidané formáty a nástroje:"
 
+#: src/metadata/lightroom.rs
+msgid "; the sidecars are still being written"
+msgstr "; doprovodné soubory se stále zapisují"
+
+#: src/files/file_io.rs
+msgid "Could not remove {name}: {e}"
+msgstr "{name} nelze odstranit: {e}"
+
 #: src/files/file_ops.rs
 msgid "Rename failed ({count}): {first}"
 msgstr "Přejmenování selhalo ({count}): {first}"

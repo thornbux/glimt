@@ -5,8 +5,8 @@
 
 use crate::files::external;
 use crate::files::file_io::{
-    FileFingerprint, PickedFiles, PickedFingerprints, fingerprint, is_surely_gone, put_file,
-    put_file_until_stopped, rename_never_over, same_fingerprint,
+    FileFingerprint, PickedFiles, PickedFingerprints, fingerprint, is_surely_gone, is_surely_there,
+    put_file, put_file_until_stopped, rename_never_over, same_fingerprint,
 };
 use crate::files::trash::{TrashMove, restore, trash_dirs};
 use crate::images::decode::catch_panic_as_error;
@@ -16,7 +16,8 @@ use crate::model::listing::pattern_name;
 use crate::support::format::{count, thousands};
 use crate::support::lang::tr;
 use crate::support::threads::{
-    AnswerSender, Receiving, Told, Took, Working, answer_channel, lock_even_if_poisoned,
+    AnswerSender, Receiving, Told, Took, Working, answer_channel, catch_panic,
+    lock_even_if_poisoned, told_work,
 };
 use crate::ui::actions::Action;
 use crate::ui::dialogs::Pick;
@@ -727,17 +728,16 @@ impl crate::App {
             .deleting
             .extend(targets.iter().map(|&i| self.list.files()[i].clone()));
         self.remove_indices(ctx, &targets);
-        let (tx, freed_tx) = (self.notice_sender.clone(), self.status_bar.freed_sender());
-        let (ctx, report_tx) = (ctx.clone(), self.file_operations.report_sender());
+        let freed_tx = self.status_bar.freed_sender();
+        let (repaint, report_tx) = (ctx.clone(), self.file_operations.report_sender());
         let collection = self.folder.collection().map(Path::to_path_buf);
-        let pointer = Working::new(&self.busy);
         let undo_on_the_way = trash.then(|| self.file_operations.undo_on_the_way());
-        std::thread::spawn(move || {
+        self.run_in_background(ctx, Vec::new(), move || {
             let since = std::time::SystemTime::now();
             let (_, picked) = picked.wait_for_fingerprints();
             // Read the size before deleting, so the status bar can subtract it.
             let _ = freed_tx.send(total_size(&paths));
-            ctx.request_repaint();
+            repaint.request_repaint();
             let mut errors = Vec::new();
             // Of the files gone, the sidecars that went with them.
             let (mut gone, mut sides) = (Vec::new(), Vec::new());
@@ -750,29 +750,48 @@ impl crate::App {
                 if job.is_stopped() {
                     break;
                 }
-                let (went, side, left_alone) = delete_chunk(chunk, &picked, trash, &mut errors);
+                // A file that breaks the work costs its chunk, not the report of the chunks
+                // before it, which the Undo and the marks need. What of the chunk went is
+                // still reported.
+                let (went, side, left_alone) =
+                    catch_panic(|| delete_chunk(chunk, &picked, trash, &mut errors))
+                        .unwrap_or_else(|| {
+                            errors.push(format!("{}: {}", chunk[0].display(), broke_here()));
+                            let went: Vec<PathBuf> = chunk
+                                .iter()
+                                .filter(|p| is_surely_gone(p))
+                                .cloned()
+                                .collect();
+                            let side = xmp::sidecars_of(&went);
+                            (went, side, Vec::new())
+                        });
                 gone.extend(went);
                 sides.extend(side);
                 changed.extend(left_alone);
                 job.count_done(chunk.len());
             }
-            if let Some(first) = errors.first() {
-                tx.send_failed_write(tf!(
+            let mut told = match errors.first() {
+                Some(first) => Some(Told::FailedWrite(tf!(
                     "Delete failed ({count}): {first}",
                     count = count(errors.len(), "error"),
                     first
-                ));
-            } else if let Some(text) = job.report(|| match trash {
-                true => tf!(
-                    "{count} moved to the trash",
-                    count = count(paths.len(), "file")
-                ),
-                false => tf!("{count} deleted", count = count(paths.len(), "file")),
-            }) {
-                let _ = tx.send(text);
-            }
-            let removed = forget_in_collection(collection.as_deref(), &gone).unwrap_or_else(|e| {
-                tx.send_failed_write(e);
+                ))),
+                None => job
+                    .report(|| match trash {
+                        true => tf!(
+                            "{count} moved to the trash",
+                            count = count(paths.len(), "file")
+                        ),
+                        false => tf!("{count} deleted", count = count(paths.len(), "file")),
+                    })
+                    .map(Told::Notice),
+            };
+            let forgotten = catch_panic(|| forget_in_collection(collection.as_deref(), &gone));
+            let removed = (forgotten.unwrap_or_else(|| Err(broke_here()))).unwrap_or_else(|e| {
+                told = Some(Told::FailedWrite(match told.take() {
+                    Some(Told::FailedWrite(text)) => format!("{text}\n{e}"),
+                    _ => e,
+                }));
                 Vec::new()
             });
             let (sides_gone, sidecars_left): (Vec<PathBuf>, Vec<PathBuf>) =
@@ -806,8 +825,8 @@ impl crate::App {
                 undo,
                 ..Default::default()
             });
-            drop((undo_on_the_way, job, pointer));
-            ctx.request_repaint();
+            drop((undo_on_the_way, job));
+            told
         });
     }
 
@@ -1179,11 +1198,7 @@ impl crate::App {
         if !is_copy && self.folder.collection().is_none() {
             self.moving_out(ctx, &paths, &dest);
         }
-        let (tx, freed_tx, ctx) = (
-            self.notice_sender.clone(),
-            self.status_bar.freed_sender(),
-            ctx.clone(),
-        );
+        let freed_tx = self.status_bar.freed_sender();
         let report_tx = self.file_operations.report_tx.clone();
         let same_dir = paths.first().and_then(|p| p.parent()) == Some(self.folder.dir());
         // When the files go into the folder, or into one below it in the list with subfolders,
@@ -1191,7 +1206,6 @@ impl crate::App {
         // through a link only when its real path is inside the folder's.
         let listed = dest == self.folder.dir()
             || (self.folder.recursive() && dest.starts_with(self.folder.dir()));
-        let pointer = Working::new(&self.busy);
         let undo_on_the_way = (!is_copy).then(|| self.file_operations.undo_on_the_way());
         // The tests share one state folder, and a test's Move would leave its log there when
         // the test does not take the report. They test the log on folders of their own.
@@ -1199,7 +1213,7 @@ impl crate::App {
         let move_log_dir = (!is_copy).then(journal::move_log_dir).flatten();
         #[cfg(test)]
         let move_log_dir: Option<PathBuf> = None;
-        std::thread::spawn(move || {
+        self.run_in_background(ctx, Vec::new(), move || {
             let (paths, picked) = picked.wait_for_fingerprints();
             if !is_copy && same_dir {
                 let _ = freed_tx.send(total_size(&paths));
@@ -1225,24 +1239,26 @@ impl crate::App {
                 let texts: Vec<String> = [text, log_warning].into_iter().flatten().collect();
                 (!texts.is_empty()).then(|| texts.join("\n"))
             };
-            if let Some(first) = errors.first() {
-                let verb = tr(if is_copy { "Copy" } else { "Move" });
-                let failed = tf!(
-                    "{verb} failed ({count}): {first}",
-                    verb,
-                    count = count(errors.len(), "error"),
-                    first
-                );
-                tx.send_failed_write(with_warning(Some(failed)).unwrap_or_default());
-            } else if let Some(text) = with_warning(job.report(|| {
-                let (files, folder) = (count(paths.len(), "file"), dest.display());
-                match is_copy {
-                    true => tf!("{files} copied to {folder}", files, folder),
-                    false => tf!("{files} moved to {folder}", files, folder),
+            let told = match errors.first() {
+                Some(first) => {
+                    let verb = tr(if is_copy { "Copy" } else { "Move" });
+                    let failed = tf!(
+                        "{verb} failed ({count}): {first}",
+                        verb,
+                        count = count(errors.len(), "error"),
+                        first
+                    );
+                    with_warning(Some(failed)).map(Told::FailedWrite)
                 }
-            })) {
-                let _ = tx.send(text);
-            }
+                None => with_warning(job.report(|| {
+                    let (files, folder) = (count(paths.len(), "file"), dest.display());
+                    match is_copy {
+                        true => tf!("{files} copied to {folder}", files, folder),
+                        false => tf!("{files} moved to {folder}", files, folder),
+                    }
+                }))
+                .map(Told::Notice),
+            };
             // A move takes the files out of `deleting`. The folder is read again for files that
             // joined it, or that failed to go, were refused or were not reached after Stop. A
             // copy to another folder does not change the list.
@@ -1260,10 +1276,8 @@ impl crate::App {
                 move_log,
                 ..Default::default()
             });
-            drop(undo_on_the_way);
-            drop(job);
-            drop(pointer);
-            ctx.request_repaint();
+            drop((undo_on_the_way, job));
+            told
         });
     }
 
@@ -1356,14 +1370,17 @@ impl crate::App {
             undoing,
         };
         let (tx, rx) = answer_channel(&self.busy);
-        let ctx = ctx.clone();
-        let pointer = Working::new(&self.busy);
         let undo_on_the_way = self.file_operations.undo_on_the_way();
-        std::thread::spawn(move || {
+        // Its failures are told when the window takes the answer (`finish_rename_many`), and a
+        // panic by `run_in_background`.
+        self.run_in_background(ctx, Vec::new(), move || {
+            #[cfg(test)]
+            from.iter()
+                .for_each(|p| crate::support::threads::panic_in_a_test_at(p));
             let (_, picked) = picked.wait_for_fingerprints();
             let _ = tx.send(rename_undoable((from, to), (&picked, undoing), &steps));
-            drop((undo_on_the_way, steps, pointer));
-            ctx.request_repaint();
+            drop((undo_on_the_way, steps));
+            None
         });
         self.file_operations.renaming = Some(job);
         self.file_operations.renaming_rx = Receiving::of(rx);
@@ -1483,16 +1500,9 @@ impl crate::App {
         }
         let jpeg = crate::model::listing::is_jpeg(&path);
         let (rotate, quality) = (self.config.exif_rotate, self.config.webp_quality);
-        let (saved, notices) = (
-            self.file_operations.saved_tx.clone(),
-            self.notice_sender.clone(),
-        );
-        let ctx = ctx.clone();
+        let saved = self.file_operations.saved_tx.clone();
         self.file_operations.saving.insert(path.clone());
-        let pointer = Working::new(&self.busy);
-        let writing = Working::new(&crate::files::file_io::WRITING);
-        std::thread::spawn(move || {
-            let _writing = writing;
+        self.run_in_background(ctx, Vec::new(), move || {
             // When another program removed or renamed the file meanwhile, there is nothing to
             // save the turn into, and the user is told that it was not saved. It is looked at
             // here, not in the window's thread, because it waits for the disk.
@@ -1501,13 +1511,11 @@ impl crate::App {
                 true => exif::write_orientation(&path, turns, mirrored, rotate),
                 false => save_rotated(&path, rotate, turns, mirrored, quality),
             });
-            if jpeg && result.is_ok() && !rotate {
-                let _ =
-                    notices.send(tr("Saved; it shows when Auto Rotate Using EXIF is on").into());
-            }
+            let told = (jpeg && result.is_ok() && !rotate).then(|| {
+                Told::Notice(tr("Saved; it shows when Auto Rotate Using EXIF is on").into())
+            });
             let _ = saved.send((path, result));
-            drop(pointer);
-            ctx.request_repaint();
+            told
         });
     }
 
@@ -1915,20 +1923,13 @@ impl crate::App {
         let Some(held_back) = self.hold_back_while_writing(held_back_files) else {
             return false;
         };
-        let (tx, ctx) = (self.notice_sender.clone(), ctx.clone());
         let pointer = Working::new(&self.busy);
         let writing = Working::new(&crate::files::file_io::WRITING);
-        std::thread::spawn(move || {
-            match work() {
-                Some(Told::Notice(text)) => drop(tx.send(text)),
-                Some(Told::FailedWrite(text)) => tx.send_failed_write(text),
-                None => {}
-            }
-            // The busy pointer goes last. A window that sees no work running starts the next
-            // operation on these files, and the files still held back would refuse it.
-            drop((writing, held_back, pointer));
-            ctx.request_repaint();
-        });
+        // The busy pointer goes after the files held back. A window that sees no work running
+        // starts the next operation on these files, and the files still held back would refuse
+        // it. A panic in `work` is told as a failed write (`told_work`).
+        let held = (writing, held_back, pointer);
+        std::thread::spawn(told_work(self.notice_sender.clone(), ctx, held, work));
         true
     }
 
@@ -1983,35 +1984,28 @@ impl crate::App {
             .iter()
             .filter_map(|p| p.strip_prefix(self.folder.dir()).ok());
         (self.search).read_exif_again(names.map(|n| n.as_os_str().to_owned()));
-        let (tx, ctx) = (self.notice_sender.clone(), ctx.clone());
-        let pointer = Working::new(&self.busy);
-        let work: QueuedWrite = Box::new(move || {
-            // A file that makes the writing panic ends this job, not the count or the busy
-            // pointer.
-            let told = crate::support::threads::catch_panic(|| {
-                let mut failed = 0;
-                for (k, path) in paths.iter().enumerate() {
-                    if job.is_stopped() {
-                        break;
-                    }
-                    failed += !write(k, path) as usize;
-                    job.count_done(1);
+        // The job goes after its failure is told, so that a close that waited for it takes the
+        // failure first.
+        let held = (job.clone(), Working::new(&self.busy));
+        let writes = told_work(self.notice_sender.clone(), ctx, held, move || {
+            let mut failed = 0;
+            for (k, path) in paths.iter().enumerate() {
+                if job.is_stopped() {
+                    break;
                 }
-                (report(failed, &job), failed > 0)
-            })
-            .unwrap_or_else(|| {
-                let broke = tr("Writing the sidecars stopped at a file that broke it");
-                (Some(broke.into()), true)
-            });
-            match told {
-                (Some(text), true) => tx.send_failed_write(text),
-                (Some(text), false) => drop(tx.send(text)),
-                (None, _) => {}
+                // A file that makes the writing panic counts as one that failed, and the files
+                // after it are still written.
+                let written = catch_panic(|| write(k, path));
+                failed += !written.unwrap_or(false) as usize;
+                job.count_done(1);
             }
-            drop(job);
-            drop(pointer);
-            ctx.request_repaint();
+            let told = report(failed, &job);
+            told.map(|text| match failed > 0 {
+                true => Told::FailedWrite(text),
+                false => Told::Notice(text),
+            })
         });
+        let work: QueuedWrite = Box::new(writes);
         // When the send fails, the work is dropped, and the busy pointer goes with it.
         let _ = sidecar_writer().send(work);
     }
@@ -2265,6 +2259,12 @@ fn put_back(all: &mut Vec<PathBuf>, removed: &[(usize, PathBuf)]) {
     all.extend(left);
 }
 
+/// Returns the text that tells of a file that broke the work on it (a panic caught), whose
+/// change may be half done.
+fn broke_here() -> String {
+    tr("A change could not be saved, because Glimt met an error while writing it").to_owned()
+}
+
 /// Takes the files or folders `gone` for good out of the `collection` shown. This happens only
 /// once they are gone, in the thread that knows, so the file keeps its order and never lacks a
 /// file that is still there. It is the one place for Delete and Move Folder to Trash. A plain
@@ -2333,6 +2333,10 @@ fn delete_chunk(
     trash: bool,
     errors: &mut Vec<String>,
 ) -> (Vec<PathBuf>, Vec<PathBuf>, Vec<PathBuf>) {
+    #[cfg(test)]
+    chunk
+        .iter()
+        .for_each(|p| crate::support::threads::panic_in_a_test_at(p));
     // A chunk's sidecars are held until they are gone too. Otherwise a keyword written
     // meanwhile would make a sidecar under the name of a photo that is no longer there. They are
     // held only for the chunk, so a sidecar write in another window waits for one chunk rather
@@ -2752,45 +2756,58 @@ fn put_files(
     let mut followed_later = Vec::new();
     for path in paths.iter().take_while(|_| !job.is_stopped()) {
         let target = target_of(path);
-        let another_to_come = is_another_of_its_stem_to_come(path, &mut stems_to_come);
-        let mut failed = |at: &Path, e: std::io::Error| {
-            errors.push(format!("{display}: {e}", display = at.display()));
+        let put_one = || {
+            #[cfg(test)]
+            crate::support::threads::panic_in_a_test_at(path);
+            let another_to_come = is_another_of_its_stem_to_come(path, &mut stems_to_come);
+            let mut failed = |at: &Path, e: std::io::Error| {
+                errors.push(format!("{display}: {e}", display = at.display()));
+            };
+            // The file is moved first and then its sidecar, and a failed sidecar is told by
+            // its own name, because the photo went and its keywords did not. A move holds the
+            // sidecar as a write does, so a write that waited lands on no old name. A copy
+            // does not hold it, because the photo stays. A move to another disk holds it
+            // while the photo is copied, which only makes writes under the same lock wait.
+            let _lock = (!is_copy).then(|| xmp::lock_sidecar(path));
+            // Another window or program may have given the name to another photo meanwhile.
+            if let Err(e) = picked.still_the_one_picked(path) {
+                failed(path, e);
+                moving.remove(path);
+            } else if let Some(at) = name_in_the_way(&target, &HashSet::new(), &mut names) {
+                failed(&at, std::io::ErrorKind::AlreadyExists.into());
+                moving.remove(path);
+            } else if let Err(e) = {
+                // The file is written down before it goes, so that a kill leaves none gone
+                // without its line.
+                if let Some(log) = move_log.as_deref_mut() {
+                    log.note(path, &target);
+                }
+                put_file_until_stopped(path, &target, is_copy, &|| job.is_stopped())
+            } {
+                // A file stopped halfway is not there, and the stop itself is told.
+                if !(e.kind() == std::io::ErrorKind::Interrupted && job.is_stopped()) {
+                    failed(&target, e);
+                }
+                moving.remove(path);
+            } else {
+                if another_to_come {
+                    followed_later.push((path, target.clone()));
+                } else if let Err((side, e)) =
+                    xmp::follow(path, &target, is_copy, &moving, &mut sidecar_names)
+                {
+                    failed(&side, e);
+                }
+                put.push((path.clone(), target.clone()));
+            }
         };
-        // The file is moved first and then its sidecar, and a failed sidecar is told by
-        // its own name, because the photo went and its keywords did not. A move holds the
-        // sidecar as a write does, so a write that waited lands on no old name. A copy
-        // does not hold it, because the photo stays. A move to another disk holds it
-        // while the photo is copied, which only makes writes under the same lock wait.
-        let _lock = (!is_copy).then(|| xmp::lock_sidecar(path));
-        // Another window or program may have given the name to another photo meanwhile.
-        if let Err(e) = picked.still_the_one_picked(path) {
-            failed(path, e);
-            moving.remove(path);
-        } else if let Some(at) = name_in_the_way(&target, &HashSet::new(), &mut names) {
-            failed(&at, std::io::ErrorKind::AlreadyExists.into());
-            moving.remove(path);
-        } else if let Err(e) = {
-            // The file is written down before it goes, so that a kill leaves none gone
-            // without its line.
-            if let Some(log) = move_log.as_deref_mut() {
-                log.note(path, &target);
+        // A file that breaks the work costs only that file. One that went before the panic is
+        // still reported, so that its marks follow it and Undo brings it back.
+        if catch_panic(put_one).is_none() {
+            errors.push(format!("{}: {}", path.display(), broke_here()));
+            match !is_copy && is_surely_gone(path) && is_surely_there(&target) {
+                true => put.push((path.clone(), target)),
+                false => drop(moving.remove(path)),
             }
-            put_file_until_stopped(path, &target, is_copy, &|| job.is_stopped())
-        } {
-            // A file stopped halfway is not there, and the stop itself is told.
-            if !(e.kind() == std::io::ErrorKind::Interrupted && job.is_stopped()) {
-                failed(&target, e);
-            }
-            moving.remove(path);
-        } else {
-            if another_to_come {
-                followed_later.push((path, target.clone()));
-            } else if let Err((side, e)) =
-                xmp::follow(path, &target, is_copy, &moving, &mut sidecar_names)
-            {
-                failed(&side, e);
-            }
-            put.push((path.clone(), target));
         }
         job.count_done(1);
     }
@@ -3004,7 +3021,7 @@ pub(crate) fn new_place(path: &Path, moved: &HashMap<&Path, &Path>) -> Option<Pa
 #[cfg(test)]
 mod tests {
     use crate::support::test_support::{app_on, contract_folder, run_background_until};
-    use crate::support::threads::lock_even_if_poisoned;
+    use crate::support::threads::{Told, lock_even_if_poisoned};
 
     /// A copy looks up its folder's real path in the background and starts its job when the
     /// answer comes. Before, the window's thread waited for the disk there, which a share that
@@ -6480,11 +6497,132 @@ mod tests {
         std::fs::remove_dir_all(dir).unwrap();
     }
 
+    /// Returns a folder of its own for a test named `name`, with the 4×4 PNGs `files` in it.
+    fn folder_with(name: &str, files: &[&str]) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!("glimt-test-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("sub")).unwrap();
+        for file in files {
+            image::RgbImage::new(4, 4).save(dir.join(file)).unwrap();
+        }
+        dir
+    }
+
+    /// Returns what the background work told the window within five seconds.
+    fn told_to(app: &crate::App) -> Option<Told> {
+        app.notices
+            .recv_timeout(std::time::Duration::from_secs(5))
+            .ok()
+    }
+
+    /// Work in the background that panics is told as a failed write, so a close that waited
+    /// for it stays open. Before, the thread ended with nothing told.
+    #[test]
+    fn a_panic_in_background_work_is_told_as_a_failed_write() {
+        let dir = folder_with("panic-told", &[]);
+        let (mut app, ctx) = app_on(&dir);
+        assert!(app.run_in_background(&ctx, Vec::new(), || panic!("a broken file")));
+        assert!(matches!(told_to(&app), Some(Told::FailedWrite(_))));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A file that breaks a delete is told as a failed write, and the report still comes, so
+    /// the list and the marks follow what was done. Before, the thread ended with nothing told
+    /// and no report.
+    #[test]
+    fn a_file_that_breaks_a_delete_is_told_and_reported() {
+        let dir = folder_with("delete-breaks", &["a.png", "b.png"]);
+        let a = dir.join("a.png");
+        lock_even_if_poisoned(&crate::support::threads::BREAKING_FILES).push(a.clone());
+        let (mut app, ctx) = app_on(&dir);
+        app.delete_targets(&ctx, false, vec![0, 1]);
+        assert!(matches!(told_to(&app), Some(Told::FailedWrite(_))));
+        assert!(run_background_until(&mut app, &ctx, |app| app
+            .file_operations
+            .deleting
+            .is_empty()));
+        assert!(a.exists());
+        lock_even_if_poisoned(&crate::support::threads::BREAKING_FILES).retain(|p| *p != a);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A file that breaks a move costs only that file: the files after it are moved, told as a
+    /// failed write, and the report leaves the Undo of those moved. Before, the thread ended at
+    /// that file with nothing told, and the files moved before it had no Undo and their marks
+    /// stayed under their old names.
+    #[test]
+    fn a_file_that_breaks_a_move_costs_only_that_file() {
+        let dir = folder_with("move-breaks", &["a.png", "b.png"]);
+        let (a, b, sub) = (dir.join("a.png"), dir.join("b.png"), dir.join("sub"));
+        lock_even_if_poisoned(&crate::support::threads::BREAKING_FILES).push(a.clone());
+        let (mut app, ctx) = app_on(&dir);
+        let paths = vec![a.clone(), b.clone()];
+        app.transfer_into_real_folder(
+            &ctx,
+            crate::files::file_io::PickedFiles::new(paths),
+            (sub.clone(), None),
+            false,
+        );
+        assert!(matches!(told_to(&app), Some(Told::FailedWrite(_))));
+        assert!(a.exists() && sub.join("b.png").exists() && !b.exists());
+        assert!(run_background_until(&mut app, &ctx, |app| app
+            .file_operations
+            .undo
+            .is_some()));
+        lock_even_if_poisoned(&crate::support::threads::BREAKING_FILES).retain(|p| *p != a);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A sidecar whose writing panics counts as one that failed, and the files after it are
+    /// still written. Before, the whole job stopped at that file.
+    #[test]
+    fn a_sidecar_that_breaks_the_writer_costs_only_that_file() {
+        let dir = folder_with("sidecar-breaks", &["a.png", "b.png"]);
+        let (a, b) = (dir.join("a.png"), dir.join("b.png"));
+        let (mut app, ctx) = app_on(&dir);
+        let written = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let noted = written.clone();
+        let files = vec![(a.clone(), ()), (b.clone(), ())];
+        let write = move |path: &std::path::Path, _: &()| {
+            assert!(!path.ends_with("a.png"), "a broken sidecar");
+            lock_even_if_poisoned(&noted).push(path.to_path_buf());
+            true
+        };
+        let report =
+            |failed: usize, _: &super::Job| (failed > 0).then(|| format!("{failed} failed"));
+        app.write_sidecars(&ctx, "Writing", files, write, report);
+        assert_eq!(told_to(&app), Some(Told::FailedWrite("1 failed".into())));
+        assert_eq!(*lock_even_if_poisoned(&written), [b]);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A Rename Many whose thread breaks is told as a failed write, as the names may be half
+    /// done, and Rename Many is not refused afterwards. Before, it was a plain notice, which a
+    /// close that waited for the renames closed over.
+    #[test]
+    fn a_rename_many_that_breaks_is_told_as_a_failed_write() {
+        let dir = folder_with("rename-breaks", &["a.png"]);
+        let a = dir.join("a.png");
+        lock_even_if_poisoned(&crate::support::threads::BREAKING_FILES).push(a.clone());
+        let (mut app, ctx) = app_on(&dir);
+        let picked = crate::files::file_io::PickedFiles::new(vec![a.clone()]);
+        app.rename_in_background(&ctx, vec![a.clone()], vec![dir.join("c.png")], picked);
+        assert!(matches!(told_to(&app), Some(Told::FailedWrite(_))));
+        assert!(run_background_until(&mut app, &ctx, |app| app
+            .file_operations
+            .renaming
+            .is_none()));
+        assert!(a.exists());
+        lock_even_if_poisoned(&crate::support::threads::BREAKING_FILES).retain(|p| *p != a);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
     /// Makes `a.png` and a larger `b.png` in a new folder named after `name`, and the files
     /// picked, `a.png` with the fingerprint it has now. Then it swaps the two names, as another
     /// window or program may while a question about `a.png` is open.
     fn picked_then_swapped(name: &str) -> (std::path::PathBuf, crate::files::file_io::PickedFiles) {
-        let dir = std::env::temp_dir().join(format!("glimt-test-{name}-{}", std::process::id()));
+        let dir =
+            std::env::temp_dir().join(format!("glimt-test-picked-{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         let (a, b) = (dir.join("a.png"), dir.join("b.png"));

@@ -3073,6 +3073,14 @@ msgstr ""
 msgid "Added formats and tools:"
 msgstr ""
 
+#: src/metadata/lightroom.rs
+msgid "; the sidecars are still being written"
+msgstr ""
+
+#: src/files/file_io.rs
+msgid "Could not remove {name}: {e}"
+msgstr ""
+
 #: src/files/file_ops.rs
 msgid "Rename failed ({count}): {first}"
 msgstr ""

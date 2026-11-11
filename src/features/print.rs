@@ -7,7 +7,7 @@ use crate::files::config::Config;
 use crate::images::decode::catch_panic_as_error;
 use crate::support::format::count;
 use crate::support::lang::tr;
-use crate::support::threads::{Receiving, Took, Working};
+use crate::support::threads::{Receiving, Told, Took};
 use crate::ui::dialogs::Pick;
 use crate::{features::print, images::decode, tf};
 use eframe::egui;
@@ -330,8 +330,12 @@ impl crate::App {
                 Took::Nothing => break,
             }
         }
-        if let Took::Answer(made) = dialog.captions_rx.take() {
-            dialog.captions = Some(made);
+        match dialog.captions_rx.take() {
+            Took::Answer(made) => dialog.captions = Some(made),
+            // The names stand in for captions that could not be made. Before, a thread gone was
+            // asked again at every frame.
+            Took::Gone => dialog.captions = Some((self.config.print_template.clone(), Vec::new())),
+            Took::Nothing => {}
         }
     }
 
@@ -432,19 +436,14 @@ impl crate::App {
 
     /// Print `job` in the background.
     pub(crate) fn print(&mut self, ctx: &egui::Context, job: PrintJob, to: PrintTo) {
-        let (tx, ctx) = (self.notice_sender.clone(), ctx.clone());
-        let pointer = Working::new(&self.busy);
-        // A PDF half made would be lost, its temporary file left beside the one chosen.
-        let writing = Working::new(&crate::files::file_io::WRITING);
-        std::thread::spawn(move || {
-            let _writing = writing;
+        // It counts as writing, as a PDF half made would be lost, its temporary file left beside
+        // the one chosen.
+        self.run_in_background(ctx, Vec::new(), move || {
             // Looked up here, as an added format's folder is read for it, and a home folder on
             // a share that stopped answering would hold the window.
             if to.is_an_image() {
                 let text = tr("Not saved over an image: choose a name ending in .pdf");
-                let _ = tx.send(text.into());
-                drop(pointer);
-                return;
+                return Some(Told::Notice(text.into()));
             }
             let max = print::max_pixels(&job.layout);
             let failed = std::cell::Cell::new(0);
@@ -470,10 +469,8 @@ impl crate::App {
             // the printer, and the file chosen is not replaced by an empty PDF.
             let mut pages = pages.peekable();
             if pages.peek().is_none() {
-                let _ = tx.send(tr("No image could be read: nothing printed").into());
-                drop(pointer);
-                ctx.request_repaint();
-                return;
+                let text = tr("No image could be read: nothing printed");
+                return Some(Told::Notice(text.into()));
             }
             // The PDF is written as it is made, so only one page is in memory, not the whole
             // PDF.
@@ -497,12 +494,7 @@ impl crate::App {
                             chosen = Some(printer);
                             Ok(())
                         }
-                        Ok(None) => {
-                            let _ = tx.send(tr("Printing cancelled").into());
-                            drop(pointer);
-                            ctx.request_repaint();
-                            return;
-                        }
+                        Ok(None) => return Some(Told::Notice(tr("Printing cancelled").into())),
                         Err(e) => Err(e),
                     }
                 }
@@ -542,13 +534,15 @@ impl crate::App {
                     tf!("{what} saved in {file}", what, file = file.display())
                 }
             });
-            let _ = tx.send(match (done, failed.get()) {
-                (Ok(msg), 0) => msg,
-                (Ok(msg), f) => tf!("{msg}; {f} could not be read", msg, f),
-                (Err(e), _) => tf!("Printing failed: {e}", e),
-            });
-            drop(pointer);
-            ctx.request_repaint();
+            // A PDF file not written is a failed write, which keeps a close that waited for it
+            // open, so the user does not take the PDF for saved. A printer's failure leaves no
+            // file behind.
+            Some(match (done, failed.get(), &to) {
+                (Ok(msg), 0, _) => Told::Notice(msg),
+                (Ok(msg), f, _) => Told::Notice(tf!("{msg}; {f} could not be read", msg, f)),
+                (Err(e), _, PrintTo::File(..)) => Told::FailedWrite(tf!("Printing failed: {e}", e)),
+                (Err(e), _, PrintTo::Printer(_)) => Told::Notice(tf!("Printing failed: {e}", e)),
+            })
         });
     }
 }
@@ -656,7 +650,8 @@ pub fn max_pixels(layout: &Layout) -> u32 {
 /// The text under the image at `path`, `k`th of `n`, from `template`. It has the full screen
 /// info's fields, read from the file here as the print job runs, in one line. `size` is the
 /// decoded size, upright, where it is known. The file's header says how the image is stored
-/// (and for a RAW, its thumbnail).
+/// (and for a RAW, its thumbnail). A file that breaks a reader gets no caption, and the print
+/// and the other captions go on.
 pub fn caption(
     template: &str,
     path: &Path,
@@ -664,6 +659,20 @@ pub fn caption(
     n: usize,
     size: Option<[usize; 2]>,
 ) -> String {
+    crate::support::threads::catch_panic(|| caption_of_file(template, path, k, n, size))
+        .unwrap_or_default()
+}
+
+/// `caption`, outside the catch of a panic.
+fn caption_of_file(
+    template: &str,
+    path: &Path,
+    k: usize,
+    n: usize,
+    size: Option<[usize; 2]>,
+) -> String {
+    #[cfg(test)]
+    crate::support::threads::panic_in_a_test_at(path);
     let name = path.file_name().unwrap_or_default().to_string_lossy();
     let (exif, meta) = (std::cell::OnceCell::new(), std::cell::OnceCell::new());
     let text = crate::support::format::fill_template(template, |field| match field {
@@ -1570,6 +1579,47 @@ mod tests {
         assert!(told.is_ok());
         assert_eq!(std::fs::read(&jpg).unwrap(), before);
         std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A PDF file that could not be written is told as a failed write, which keeps a close that
+    /// waited for it open. Before, it was a plain notice, and the window closed over it.
+    #[test]
+    fn a_pdf_not_written_is_a_failed_write() {
+        let dir =
+            std::env::temp_dir().join(format!("glimt-test-print-fails-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let png = dir.join("a.png");
+        image::RgbImage::new(4, 4).save(&png).unwrap();
+        let (mut app, ctx) = crate::support::test_support::app_on(&dir);
+        let job = super::PrintJob {
+            paths: vec![png],
+            layout: super::Layout::new(super::PAPERS[0].1, 1),
+            caption: None,
+            two_sided: false,
+            rotate: false,
+            copies: 1,
+        };
+        let pdf = dir.join("no such folder").join("a.pdf");
+        app.print(&ctx, job, super::PrintTo::File(pdf, None));
+        let told = app.notices.recv_timeout(std::time::Duration::from_secs(5));
+        assert!(matches!(told, Ok(super::Told::FailedWrite(_))), "{told:?}");
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A file that breaks a reader gets no caption, and the print goes on. Before, the panic
+    /// ended the print job with its PDF unwritten and nothing told, and the dialog's preview
+    /// asked for the captions again at every frame.
+    #[test]
+    fn a_file_that_breaks_its_caption_gets_none() {
+        let path = std::env::temp_dir().join(format!(
+            "glimt-test-caption-breaks-{}.png",
+            std::process::id()
+        ));
+        let breaking = &crate::support::threads::BREAKING_FILES;
+        crate::support::threads::lock_even_if_poisoned(breaking).push(path.clone());
+        let caption = super::caption("%name%", &path, 0, 1, None);
+        crate::support::threads::lock_even_if_poisoned(breaking).retain(|p| *p != path);
+        assert_eq!(caption, "");
     }
 
     /// A name ending in ".pdf" is written even when an added format for PDFs lists it, while

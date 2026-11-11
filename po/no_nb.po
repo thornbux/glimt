@@ -3063,6 +3063,14 @@ msgstr "{file} får ingen filer: %f inne i anførselstegn er ikke filen. Skriv %
 msgid "Added formats and tools:"
 msgstr "Tilføyde formater og verktøy:"
 
+#: src/metadata/lightroom.rs
+msgid "; the sidecars are still being written"
+msgstr "; sidefilene skrives fortsatt"
+
+#: src/files/file_io.rs
+msgid "Could not remove {name}: {e}"
+msgstr "Kunne ikke fjerne {name}: {e}"
+
 #: src/files/file_ops.rs
 msgid "Rename failed ({count}): {first}"
 msgstr "Navneendring mislyktes ({count}): {first}"

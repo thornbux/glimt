@@ -3052,6 +3052,14 @@ msgstr "{file} krijgt geen bestanden: %f tussen aanhalingstekens is niet het bes
 msgid "Added formats and tools:"
 msgstr "Toegevoegde formaten en hulpmiddelen:"
 
+#: src/metadata/lightroom.rs
+msgid "; the sidecars are still being written"
+msgstr "; de sidecar-bestanden worden nog geschreven"
+
+#: src/files/file_io.rs
+msgid "Could not remove {name}: {e}"
+msgstr "Kon {name} niet verwijderen: {e}"
+
 #: src/files/file_ops.rs
 msgid "Rename failed ({count}): {first}"
 msgstr "Hernoemen mislukt ({count}): {first}"

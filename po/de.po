@@ -3052,6 +3052,14 @@ msgstr "{file} bekommt keine Dateien: %f in Anführungszeichen ist nicht die Dat
 msgid "Added formats and tools:"
 msgstr "Hinzugefügte Formate und Werkzeuge:"
 
+#: src/metadata/lightroom.rs
+msgid "; the sidecars are still being written"
+msgstr "; die Begleitdateien werden noch geschrieben"
+
+#: src/files/file_io.rs
+msgid "Could not remove {name}: {e}"
+msgstr "Konnte {name} nicht entfernen: {e}"
+
 #: src/files/file_ops.rs
 msgid "Rename failed ({count}): {first}"
 msgstr "Umbenennen fehlgeschlagen ({count}): {first}"
