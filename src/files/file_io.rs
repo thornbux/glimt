@@ -1009,6 +1009,7 @@ pub fn edit_shared<T>(
     change: impl FnOnce(&[u8]) -> (Vec<u8>, T),
 ) -> std::io::Result<T> {
     // The folder first: without it there is no lock file, and the first write had no lock.
+    // Not told: without the folder the write below fails, and that failure is returned.
     let _ = std::fs::create_dir_all(path.parent().unwrap_or(Path::new(".")));
     #[allow(clippy::disallowed_methods)] // the one place, with collections::edit and rename
     let _held = file_lock(path);
@@ -1655,7 +1656,8 @@ pub fn instance_tag() -> &'static str {
 pub fn create_temp_beside(tmp: &Path, path: &Path) -> std::io::Result<std::fs::File> {
     use std::os::unix::fs::OpenOptionsExt;
     // Made new, never opened: a link left or planted at `tmp` would be followed and the file
-    // it points to emptied.
+    // it points to emptied. Not told: a name still at `tmp` makes `create_new` below fail, and
+    // that failure is returned.
     let _ = std::fs::remove_file(tmp);
     let new = || {
         std::fs::OpenOptions::new()
@@ -1735,6 +1737,7 @@ fn copy_extended_attributes(from: &Path, to: &std::fs::File, keeps_acl: bool) {
 
 /// `replace_file`, with a failure on stderr: for files Glimt keeps for itself.
 pub fn write_atomic(path: &Path, bytes: impl AsRef<[u8]>) {
+    // Not told: without the folder `replace_file` below fails, and that failure is told.
     let _ = std::fs::create_dir_all(path.parent().unwrap_or(Path::new(".")));
     if let Err(e) = replace_file(path, bytes) {
         save_failed(crate::tf!(

@@ -144,7 +144,8 @@ impl crate::App {
         if button(ui, tr("Open Themes Folder")).clicked()
             && let Some(dir) = theme::own_themes_dir()
         {
-            std::thread::spawn(move || open_own_folder(&dir));
+            let notices = self.notice_sender.clone();
+            std::thread::spawn(move || open_own_folder(&dir, &notices));
         }
         if button(ui, tr("Get More Themes…")).clicked() {
             open_url("https://github.com/thornbux/glimt/tree/main/themes");
@@ -606,7 +607,10 @@ impl crate::App {
                 .clicked()
                 && let Some(home) = glimt_home
             {
-                std::thread::spawn(move || open_own_folder(&tools::folder_to_open(&home, "tools")));
+                let notices = self.notice_sender.clone();
+                std::thread::spawn(move || {
+                    open_own_folder(&tools::folder_to_open(&home, "tools"), &notices)
+                });
             }
             let Some(k) = chosen.filter(|_| !self.list.files().is_empty()) else {
                 return;

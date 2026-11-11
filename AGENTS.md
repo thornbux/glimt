@@ -552,8 +552,11 @@ whole module. The tests may unwrap (main.rs allows it for them).
 
 - **A failure is told, never swallowed.** A failed write of the user's data or of Glimt's own
   files goes to `file_io::save_failed`, which prints it and shows it once in the window. The
-  result of a writer of file_io is never dropped with `let _ =`, `_ =` or `.ok();`
-  (`source_rules::write_results_are_not_dropped`): handle it, or pass it on with `?`.
+  result of a writer of file_io is never dropped with `let _ =`, `_ =`, `.ok();` or `drop(…)`
+  (`source_rules::write_results_are_not_dropped`): handle it, or pass it on with `?`. Nor is
+  the result of a raw change on the disk (`create_dir_all`, `remove_file`, …) or of an image
+  encoded, unless a comment on it starting with "Not told:" says why its failure needs no
+  telling, such as a write just after it that tells the same failure.
   A background thread tells a failed write through `save_failed` or
   `NoticeSender::send_failed_write`, never as a plain notice, and the window thread through
   `App::tell_failed_write`. Work in `run_in_background` answers with a `Told`, which says

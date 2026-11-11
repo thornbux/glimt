@@ -550,7 +550,7 @@ impl crate::App {
         self.run_in_background(ctx, Vec::new(), move || {
             let dir = collections::collections_dir();
             if let Some(dir) = &dir {
-                let _ = std::fs::create_dir_all(dir);
+                let _ = std::fs::create_dir_all(dir); // Not told: told below as not saved
             }
             let failed: Vec<&str> = (all.iter())
                 .filter(|(name, paths)| {

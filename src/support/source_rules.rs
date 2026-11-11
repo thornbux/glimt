@@ -4301,8 +4301,24 @@ fn finds_an_allow_without_its_reason() {
 /// Returns the lines of the statements of `text` outside the tests that drop the result of one
 /// of file_io's writers, with `let _ =` (or `let _: T =`), `_ =`, `.ok();`,
 /// `.unwrap_or_default();`, `.unwrap_or(());`, `drop(…)`, `let _name =` where `_name` is not
-/// used again, or `if let Ok(…) =` with no `else`.
+/// used again, or `if let Ok(…) =` with no `else`. A raw change on the disk of the standard
+/// library's, or an image encoded (`RAW_WRITES`), dropped so is found too, unless a comment in
+/// the statement or in the comment lines just above it says why its failure is not told, with
+/// "Not told:". An encoder's failure dropped left a printed page blank without a word.
 fn dropped_writes_in(text: &str) -> Vec<usize> {
+    const RAW_WRITES: [&str; 11] = [
+        "remove_file(",
+        "remove_dir(",
+        "remove_dir_all(",
+        "create_dir(",
+        "create_dir_all(",
+        "set_permissions(",
+        "hard_link(",
+        "fs::symlink(",
+        "encode_image(",
+        "write_image(",
+        "write_to(",
+    ];
     const WRITERS: [&str; 15] = [
         // collections::edit and edit_open_collection, which write through replace_name.
         "edit(",
@@ -4325,6 +4341,7 @@ fn dropped_writes_in(text: &str) -> Vec<usize> {
     ];
     const KEYWORDS: [&str; 7] = ["if", "while", "match", "return", "let", "else", "for"];
     let lines = code_lines(text);
+    let comments = comment_lines(text);
     let end = tests_start(&lines);
     let mut found = Vec::new();
     let (mut first_line, mut statement) = (0, String::new());
@@ -4375,8 +4392,20 @@ fn dropped_writes_in(text: &str) -> Vec<usize> {
                     && words.ends_with(".ok()")
                     && !words.contains('=')
                     && !starts_with_keyword);
+            // The statement's lines, and the lines of comment alone just above it.
+            let says_why = || {
+                let above = (0..first_line.saturating_sub(1))
+                    .rev()
+                    .take_while(|&j| lines[j].trim().is_empty() && !comments[j].trim().is_empty())
+                    .last()
+                    .unwrap_or(first_line.saturating_sub(1));
+                (above..=i).any(|j| comments.get(j).is_some_and(|c| c.contains("Not told:")))
+            };
+            let drops_a_raw_write = (dropped && RAW_WRITES.iter().any(is_writer))
+                || RAW_WRITES.iter().any(|w| is_dropped(words, w));
             if (dropped && WRITERS.iter().any(is_writer))
                 || WRITERS.iter().any(|w| is_dropped(words, w))
+                || (drops_a_raw_write && !says_why())
             {
                 found.push(first_line);
             }
@@ -4468,6 +4497,15 @@ fn finds_a_dropped_write() {
     // A removal of Glimt's own file, whose failure must be told too.
     let removals = "fn a() {\n    let _ = remove_own(plan);\n    remove_own_or_tell(plan);\n}\n";
     assert_eq!(dropped_writes_in(removals), [2]);
+    // A raw change on the disk, dropped in each form, unless a comment says why it is not told.
+    let raw = "fn a() {\n    let _ = std::fs::remove_file(p);\n    \
+        drop(std::fs::create_dir_all(d));\n    std::fs::set_permissions(p, m).ok();\n    \
+        // Not told: the write into it that follows tells.\n    \
+        drop(std::fs::create_dir_all(d));\n    \
+        let _ = std::fs::remove_dir_all(d); // Not told: a folder of its own\n    \
+        std::fs::remove_file(p)?;\n    \
+        let _ = JpegEncoder::new(&mut jpeg).encode_image(&flat);\n}\n";
+    assert_eq!(dropped_writes_in(raw), [2, 3, 4, 9]);
 }
 
 /// A background thread's answer is held in a `threads::Receiving`, never in a bare

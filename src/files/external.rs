@@ -753,9 +753,15 @@ pub(crate) fn run_telling(name: &str, mut cmd: std::process::Command) -> Result<
 
 /// Opens Glimt's own folder `dir` in the file manager, and makes it first when it is not there
 /// yet. It waits for the disk, so it is called in a thread of its own: a home on a share that
-/// stopped answering then holds only that thread, not the window.
-pub fn open_own_folder(dir: &Path) {
-    drop(std::fs::create_dir_all(dir));
+/// stopped answering then holds only that thread, not the window. A folder that cannot be
+/// made is told through `notices`, and nothing is opened.
+pub fn open_own_folder(dir: &Path, notices: &crate::support::threads::NoticeSender) {
+    if let Err(e) = std::fs::create_dir_all(dir) {
+        let folder = format!("{}: {e}", dir.display());
+        // A window that is gone has nothing to show it in.
+        let _ = notices.send(crate::tf!("Could not make {folder}", folder));
+        return;
+    }
     open_url(&dir.to_string_lossy());
 }
 

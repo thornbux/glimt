@@ -778,7 +778,7 @@ pub fn pdf(
         let mut on_page: Vec<([u32; 2], Option<String>)> = Vec::new();
         for (img, caption) in images.by_ref().take(cols * rows) {
             on_page.push(([img.width(), img.height()], caption));
-            pdf.object(contents + on_page.len(), &image_object(img))?;
+            pdf.object(contents + on_page.len(), &image_object(img)?)?;
         }
         if on_page.is_empty() {
             break;
@@ -845,7 +845,9 @@ pub fn pdf(
 }
 
 /// An image as a PDF XObject, a JPEG, with transparent parts on white, as they show on paper.
-fn image_object(img: image::DynamicImage) -> Vec<u8> {
+/// Returns the encoder's error when the JPEG could not be made, so that a page is never printed
+/// blank without a word.
+fn image_object(img: image::DynamicImage) -> std::io::Result<Vec<u8>> {
     let rgba = img.into_rgba8();
     let flat = image::RgbImage::from_fn(rgba.width(), rgba.height(), |x, y| {
         let q = rgba.get_pixel(x, y);
@@ -853,7 +855,8 @@ fn image_object(img: image::DynamicImage) -> Vec<u8> {
         image::Rgb([0, 1, 2].map(|c| ((q[c] as u32 * a + 255 * (255 - a)) / 255) as u8))
     });
     let mut jpeg = Vec::new();
-    let _ = image::codecs::jpeg::JpegEncoder::new_with_quality(&mut jpeg, 90).encode_image(&flat);
+    (image::codecs::jpeg::JpegEncoder::new_with_quality(&mut jpeg, 90).encode_image(&flat))
+        .map_err(std::io::Error::other)?;
     let mut stream = format!(
         "<< /Type /XObject /Subtype /Image /Width {} /Height {} /ColorSpace /DeviceRGB \
          /BitsPerComponent 8 /Filter /DCTDecode /Length {} >>\nstream\n",
@@ -864,7 +867,7 @@ fn image_object(img: image::DynamicImage) -> Vec<u8> {
     .into_bytes();
     stream.extend(jpeg);
     stream.extend(b"\nendstream");
-    stream
+    Ok(stream)
 }
 
 /// `text` as a PDF string in WinAnsi (Latin-1 for the letters most names have). Other letters
@@ -1196,6 +1199,16 @@ fn print_texts(ui: &mut egui::Ui, c: &mut Config) {
 
 #[cfg(test)]
 mod tests {
+    /// A page's image that cannot be made a JPEG (wider than JPEG allows) is an error, not an
+    /// empty image. Before, the encoder's error was dropped and the page printed blank.
+    #[test]
+    fn an_image_that_cannot_be_encoded_is_an_error() {
+        let too_wide = image::DynamicImage::new_rgb8(70_000, 1);
+        assert!(super::image_object(too_wide).is_err());
+        let small = image::DynamicImage::new_rgb8(2, 2);
+        assert!(super::image_object(small).is_ok());
+    }
+
     /// A margin wider than a third of small paper is held there, and images are decoded for
     /// the room that leaves, not for less.
     #[test]
