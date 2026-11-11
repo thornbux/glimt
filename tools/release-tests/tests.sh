@@ -5195,8 +5195,12 @@ STUB
             marks=$(sort $XDG_STATE_HOME/glimt/marks)
             config confirm_trash=false
             start $d
-            # The disk full but for one block: the first .trashinfo fits, the next does not.
-            [ $fault = full ] && leave_free 4096 $disk
+            # The disk full but for four blocks, one for each .trashinfo. Glimt trashes the three
+            # photos first and then their sidecars, so all three photos fit and only a.jpg's
+            # sidecar does. A photo whose sidecar cannot follow is taken back out of the trash,
+            # so a.jpg goes with its sidecar and the others stay. With one block, no photo went
+            # with its sidecar, and nothing was left partway.
+            [ $fault = full ] && leave_free 16384 $disk
             key ctrl+a; key ctrl+d
             until_notice trash-$fault-$v 20; told=$?
             sleep 2
