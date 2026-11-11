@@ -1589,7 +1589,7 @@ pub(crate) fn fingerprint(path: &Path) -> Option<FileFingerprint> {
 
 /// Returns the fingerprint of the file or link at `path`, or the error of the look: NotFound
 /// when nothing is there.
-fn fingerprint_or_error(path: &Path) -> std::io::Result<FileFingerprint> {
+pub(crate) fn fingerprint_or_error(path: &Path) -> std::io::Result<FileFingerprint> {
     use std::os::unix::fs::MetadataExt;
     #[cfg(test)]
     if LOOK_FAILS.with_borrow_mut(|fails| match fails {

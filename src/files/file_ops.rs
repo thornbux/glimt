@@ -3043,12 +3043,12 @@ fn put_files(
     // Each folder is read once for the whole job (`xmp::AdobeNames`).
     let target_of = |path: &PathBuf| dest.join(path.file_name().unwrap_or_default());
     let mut names = xmp::AdobeNames::arriving(paths.iter().map(target_of));
-    let mut sidecar_names = xmp::AdobeNames::default();
+    let mut sidecar_names = xmp::AdobeNames::leaving(paths);
     // The RAW files that leave with this move: those that went and those yet to come. One
     // that could not go is taken out, so that its stem's sidecar stays beside it.
     let mut moving: HashSet<&PathBuf> = paths.iter().filter(|_| !is_copy).collect();
     let mut stems_to_come = raw_files_by_stem(moving.iter().copied());
-    let mut followed_later = Vec::new();
+    let none_leaving = HashSet::new();
     for path in paths.iter().take_while(|_| !job.is_stopped()) {
         let target = target_of(path);
         let put_one = || {
@@ -3084,12 +3084,16 @@ fn put_files(
                     failed(&target, e);
                 }
                 moving.remove(path);
-            } else if another_to_come {
-                followed_later.push((path, target.clone(), fingerprint(&target)));
-                put.push((path.clone(), target.clone()));
-            } else if let Err((back, told)) =
-                follow_or_go_back((path, &target, None), is_copy, &moving, &mut sidecar_names)
-            {
+            } else if let Err((back, told)) = {
+                // A RAW file with another of its name stem still to come takes only its own
+                // sidecar, at once, so that a kill never leaves the two apart. Adobe's sidecar
+                // of the stem goes with the last of them, as only then is it known which went.
+                let leaving = match another_to_come {
+                    true => &none_leaving,
+                    false => &moving,
+                };
+                follow_or_go_back((path, &target), is_copy, leaving, &mut sidecar_names)
+            } {
                 // The file and its sidecars go together or not at all, so a later file of the
                 // old name never picks up a sidecar left behind.
                 errors.extend(told);
@@ -3112,11 +3116,6 @@ fn put_files(
         }
         job.count_done(1);
     }
-    let went: HashSet<&PathBuf> = put.iter().map(|(from, _)| from).collect();
-    let (later, taken_back) =
-        follow_once_the_stem_is_known(followed_later, &went, &mut sidecar_names);
-    errors.extend(later);
-    put.retain(|(from, _)| !taken_back.contains(from));
     // A move on one disk is a rename, which is on disk only with its folder. The marks
     // and collections follow the new names once the report arrives, so after a stick
     // pulled out the file and its marks must not be under different names.
@@ -3143,8 +3142,8 @@ fn raw_files_by_stem<'a>(
 }
 
 /// Counts `path` as reached in `to_come`, from `raw_files_by_stem`. Returns whether another RAW
-/// file of its name stem is still to come, so that its sidecars follow only once the move knows
-/// which of them went (`follow_once_the_stem_is_known`).
+/// file of its name stem is still to come. The file then takes only its own sidecar, and the
+/// last of them takes the stem's, once the move knows which of them went.
 fn is_another_of_its_stem_to_come(
     path: &Path,
     to_come: &mut HashMap<(PathBuf, String), usize>,
@@ -3157,34 +3156,6 @@ fn is_another_of_its_stem_to_come(
         })
 }
 
-/// Moves the sidecars of the files `moved`, each `(from, to)`, that waited until the move knew
-/// which files went. Only those in `went` count as leaving, so a RAW file that could not go, or
-/// was not reached after Stop, keeps its stem's sidecar beside it. A file whose sidecar cannot
-/// follow goes back to it, as in `put_files`, and then counts as staying, so that the stem's
-/// sidecar stays beside it too. Returns the errors to tell, and the files that went back.
-fn follow_once_the_stem_is_known(
-    moved: Vec<(&PathBuf, PathBuf, Option<FileFingerprint>)>,
-    went: &HashSet<&PathBuf>,
-    sidecar_names: &mut xmp::AdobeNames,
-) -> (Vec<String>, HashSet<PathBuf>) {
-    let (mut errors, mut taken_back) = (Vec::new(), HashSet::new());
-    let mut went = went.clone();
-    for (from, to, at_put) in moved {
-        let _lock = xmp::lock_sidecar(from);
-        // Only the file put there goes back, not another that a program put at its name while
-        // the other files of the job went.
-        let put = (from.as_path(), to.as_path(), at_put);
-        if let Err((back, told)) = follow_or_go_back(put, false, &went, sidecar_names) {
-            errors.extend(told);
-            if back {
-                went.remove(from);
-                taken_back.insert(from.clone());
-            }
-        }
-    }
-    (errors, taken_back)
-}
-
 /// Moves the files of an Undo of a move back to where they came from, each with its sidecar.
 /// A file whose place another file has taken since the move is left where it is, and so is one
 /// that cannot go back. Returns the pairs moved back, `(now, before)`, the files left to be
@@ -3193,16 +3164,14 @@ fn follow_once_the_stem_is_known(
 fn move_back(pairs: Vec<Moved>) -> MovedBack {
     let (mut errors, mut back, mut left) = (Vec::new(), Vec::new(), Vec::new());
     let mut names = xmp::AdobeNames::arriving(pairs.iter().map(|(from, _, _)| from.clone()));
-    let mut sidecar_names = xmp::AdobeNames::default();
     let moving_back: Vec<PathBuf> = pairs.iter().map(|(_, now, _)| now.clone()).collect();
+    let mut sidecar_names = xmp::AdobeNames::leaving(&moving_back);
     // The files that go back with this Undo: those that went and those yet to come. One that
     // stays is taken out, so that its stem's sidecar stays beside it.
     let mut moving: HashSet<&PathBuf> = moving_back.iter().collect();
     let mut stems_to_come = raw_files_by_stem(moving_back.iter());
-    let mut followed_later = Vec::new();
-    let mut at_move_of = HashMap::new();
+    let none_leaving = HashSet::new();
     for (from, to, at_move) in pairs {
-        at_move_of.insert(to.clone(), at_move);
         let another_to_come = is_another_of_its_stem_to_come(&to, &mut stems_to_come);
         let _lock = xmp::lock_sidecar(&to);
         // Another program may have put another file at `to` since the move.
@@ -3216,13 +3185,14 @@ fn move_back(pairs: Vec<Moved>) -> MovedBack {
             Some(at) => Err((at, std::io::ErrorKind::AlreadyExists.into())),
             None => put_file(&to, &from, false).map_err(|e| (from.clone(), e)),
         };
+        // As in `put_files`, Adobe's sidecar of a stem goes with the last of its RAW files.
+        let leaving = match another_to_come {
+            true => &none_leaving,
+            false => &moving,
+        };
         match result {
-            Ok(()) if another_to_come => {
-                followed_later.push((to.clone(), from.clone(), fingerprint(&from)));
-                back.push((to, from));
-            }
             Ok(()) => {
-                match follow_or_go_back((&to, &from, None), false, &moving, &mut sidecar_names) {
+                match follow_or_go_back((&to, &from), false, leaving, &mut sidecar_names) {
                     Ok(()) => back.push((to, from)),
                     // The file went back to its sidecars at `to`, and the Undo stays to be tried
                     // again. A look at it that failed is no answer that it is gone, so the Undo
@@ -3247,24 +3217,6 @@ fn move_back(pairs: Vec<Moved>) -> MovedBack {
             }
         }
     }
-    let went: HashSet<&PathBuf> = back.iter().map(|(now, _)| now).collect();
-    let later = followed_later
-        .iter()
-        .map(|(now, before, at_put)| (now, before.clone(), *at_put));
-    let (later, taken_back) =
-        follow_once_the_stem_is_known(later.collect(), &went, &mut sidecar_names);
-    errors.extend(later);
-    // A file that went back to its sidecars stays to be undone again.
-    let (stayed, went_back): (Vec<_>, Vec<_>) =
-        (back.into_iter()).partition(|(now, _)| taken_back.contains(now));
-    back = went_back;
-    // A failed look keeps the Undo with the fingerprint of the move, as above.
-    for (now, before) in stayed {
-        let at_now = fingerprint(&now).or_else(|| at_move_of.get(&now).copied());
-        if let Some(at_now) = at_now {
-            left.push((before, now, at_now));
-        }
-    }
     // The names moved back are on disk with their folders before the marks and collections
     // follow them, once for each folder.
     let folders: HashSet<&Path> = back
@@ -3284,27 +3236,25 @@ fn move_back(pairs: Vec<Moved>) -> MovedBack {
 /// it is there, each of them also after one that failed. When the file cannot go back, those
 /// sidecars stay with it at `to`. So the file always ends with every sidecar that could reach
 /// it. Returns, when a sidecar could not follow, whether the file is back at `from`, with the
-/// errors to tell, each saying where the file and that sidecar are. `at_put` is the file's
-/// fingerprint at `to` when it was put there, for a file whose sidecars follow later: it goes
-/// back only while it is still that file. `None` is for a file put there just now.
+/// errors to tell, each saying where the file and that sidecar are.
 fn follow_or_go_back(
-    (from, to, at_put): (&Path, &Path, Option<FileFingerprint>),
+    (from, to): (&Path, &Path),
     is_copy: bool,
     moving: &HashSet<&PathBuf>,
     names: &mut xmp::AdobeNames,
 ) -> Result<(), (bool, Vec<String>)> {
+    use crate::files::file_io::{KnownAs, fingerprint_or_error, is_still_the_file, put_file_back};
+    // The file is looked at before its sidecars follow, which may take a while, so that only
+    // this file goes back, not one that another program put at `to` meanwhile. A look that
+    // failed tells nothing, and the file stays.
+    let at_put = fingerprint_or_error(to);
     let Err(not) = xmp::follow(from, to, is_copy, moving, names) else {
         return Ok(());
     };
     let file = from.display();
-    let is_still_put =
-        at_put.is_none_or(|then| fingerprint(to).is_some_and(|now| same_fingerprint(then, now)));
-    let put_back = match is_still_put {
-        true => crate::files::file_io::put_file_back(from, to, is_copy),
-        false => Err(std::io::Error::other(tr(
-            "another file has taken its place",
-        ))),
-    };
+    let put_back = at_put
+        .and_then(|at_put| is_still_the_file(to, KnownAs::fingerprint(at_put)))
+        .and_then(|()| put_file_back(from, to, is_copy));
     let Err(error) = put_back else {
         let mut told = Vec::new();
         for (side, at, was_copy) in not.followed.into_iter().rev() {
@@ -4024,12 +3974,14 @@ mod tests {
         std::fs::remove_dir_all(dir).unwrap();
     }
 
-    /// Two RAW files of one name stem move together, and the first one's sidecar follows only
-    /// once the move knows that both went. When it then cannot follow, that file goes back to
-    /// it, as any other file does, also in the Undo of a Move. Before, the file stayed at the
-    /// target without its keywords, and the sidecar at the old name.
+    /// Two RAW files of one name stem move together. The first one's own sidecar follows it at
+    /// once, and when it cannot, that file goes back to it before the second file is moved, as
+    /// any other file does, also in the Undo of a Move. Adobe's sidecar of the stem then stays
+    /// beside the file that went back. Before, the first file's own sidecar waited until the
+    /// job's end, so a kill in between left it apart from its photo, and when it then could not
+    /// follow, the photo went back without the stem's sidecar, which had gone with the second.
     #[test]
-    fn a_raw_file_whose_sidecar_waited_goes_only_with_it() {
+    fn a_raw_file_goes_only_with_its_own_sidecar() {
         use crate::files::file_io::{RENAME_WAYS_MISSING, UNLINK_FAILS};
         let dir =
             std::env::temp_dir().join(format!("glimt-test-stem-split-{}", std::process::id()));
@@ -4039,6 +3991,7 @@ mod tests {
         std::fs::create_dir_all(&to).unwrap();
         std::fs::write(from.join("a.cr2"), "cr2").unwrap();
         std::fs::write(from.join("a.nef"), "nef").unwrap();
+        std::fs::write(from.join("a.xmp"), "stem").unwrap();
         // a.cr2's own sidecar is a socket, which can be neither moved (its old name cannot be
         // unlinked) nor copied.
         let _socket = std::os::unix::net::UnixListener::bind(from.join("a.cr2.xmp")).unwrap();
@@ -4053,8 +4006,10 @@ mod tests {
         assert_eq!(put, [(from.join("a.nef"), to.join("a.nef"))], "{errors:?}");
         assert!(errors[0].contains("stays where it was"), "{errors:?}");
         assert_eq!(std::fs::read_to_string(from.join("a.cr2")).unwrap(), "cr2");
+        assert_eq!(std::fs::read_to_string(from.join("a.xmp")).unwrap(), "stem");
         // The Undo of the Move, with the socket now beside the moved file.
         std::fs::rename(from.join("a.cr2"), to.join("a.cr2")).unwrap();
+        std::fs::rename(from.join("a.xmp"), to.join("a.xmp")).unwrap();
         std::fs::remove_file(from.join("a.cr2.xmp")).unwrap();
         let _socket = std::os::unix::net::UnixListener::bind(to.join("a.cr2.xmp")).unwrap();
         let moved = |n: &str| {
@@ -4069,6 +4024,7 @@ mod tests {
         assert_eq!(left.len(), 1, "{errors:?}");
         assert_eq!(left[0].1, to.join("a.cr2"));
         assert_eq!(std::fs::read_to_string(to.join("a.cr2")).unwrap(), "cr2");
+        assert_eq!(std::fs::read_to_string(to.join("a.xmp")).unwrap(), "stem");
         std::fs::remove_dir_all(dir).unwrap();
     }
 
@@ -4103,7 +4059,7 @@ mod tests {
             RENAME_WAYS_MISSING.set(1);
             UNLINK_FAILS.set(Some((to.join("a.xmp"), libc::EPERM)));
             let result = super::follow_or_go_back(
-                (&photo, &to.join("a.cr2"), None),
+                (&photo, &to.join("a.cr2")),
                 false,
                 &moving,
                 &mut Default::default(),
@@ -4153,7 +4109,7 @@ mod tests {
             let now = crate::files::file_io::fingerprint(&to.join(n)).unwrap();
             (from.join(n), to.join(n), now)
         };
-        // a.cr2 alone, and then with another RAW file of its stem, whose sidecars wait.
+        // a.cr2 alone, and then with another RAW file of its stem, which takes the stem's sidecar.
         for pairs in [vec![moved("a.cr2")], vec![moved("a.cr2"), moved("a.nef")]] {
             RENAME_WAYS_MISSING.set(1);
             UNLINK_FAILS.set(Some((to.join("a.cr2.xmp"), libc::EPERM)));

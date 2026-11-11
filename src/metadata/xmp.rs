@@ -239,6 +239,18 @@ impl AdobeNames {
         names
     }
 
+    /// Returns the names for an operation that takes the files `leaving` away (a move, its
+    /// Undo), with the folders of the RAW files among them read now, before the first one goes.
+    /// A folder read later would miss a RAW file that was away at that moment and then came
+    /// back, and the stem's sidecar would leave without it.
+    pub(crate) fn leaving<'a>(leaving: impl IntoIterator<Item = &'a PathBuf>) -> Self {
+        let mut names = Self::default();
+        for path in leaving.into_iter().filter(|p| is_adobe_raw(p)) {
+            names.of_stem(path);
+        }
+        names
+    }
+
     /// Returns the RAW files and Adobe sidecars in the folder of `path` that have its name stem.
     /// Returns `None` when there are none, also when the folder cannot be read.
     fn of_stem(&mut self, path: &Path) -> Option<&StemNames> {
