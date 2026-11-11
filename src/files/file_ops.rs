@@ -2427,6 +2427,9 @@ fn delete_chunk(
     // held only for the chunk, so a sidecar write in another window waits for one chunk rather
     // than the whole job.
     let _locks = xmp::lock_sidecars(chunk);
+    if !trash {
+        return delete_for_good(chunk, picked, errors);
+    }
     let since = std::time::SystemTime::now();
     // Only the files that are still the ones picked go, each looked at just before. Another
     // program or window may have given the name to another photo while the question was open.
@@ -2439,10 +2442,6 @@ fn delete_chunk(
                 left_alone.push(p.clone());
             }
         }
-    }
-    if !trash {
-        let (went, side) = delete_for_good(&kept, errors);
-        return (went, side, left_alone);
     }
     if !kept.is_empty()
         && let Err(e) = crate::files::trash::trash(&kept)
@@ -2480,7 +2479,9 @@ fn delete_chunk(
     (went, side, left_alone)
 }
 
-/// Deletes each of `kept` for good, with its sidecars. Each sidecar is first put aside under a
+/// Deletes each of `chunk` that is still the one `picked` for good, with its sidecars, as
+/// `delete_chunk` does with its sidecars held. A file that another program or window has given
+/// its name to since the question is left alone. Each sidecar is first put aside under a
 /// hidden name, and the photo is deleted only when all of them could be. A photo whose sidecar
 /// cannot be put aside stays, with its sidecars back, and so does one whose delete did not go
 /// through or could not be looked at after it. A sidecar put aside that then cannot be deleted
@@ -2488,14 +2489,23 @@ fn delete_chunk(
 /// first, the photo left a sidecar that could not go at the old name, where the next file of
 /// that name would show its keywords. Adobe's sidecar of two RAW files of one name stem goes
 /// only with the last of them that goes, so it never stays behind without one. Returns the
-/// files gone and the sidecars gone.
-fn delete_for_good(kept: &[PathBuf], errors: &mut Vec<String>) -> (Vec<PathBuf>, Vec<PathBuf>) {
+/// files gone, the sidecars gone and the files left alone.
+fn delete_for_good(
+    chunk: &[PathBuf],
+    picked: &PickedFingerprints,
+    errors: &mut Vec<String>,
+) -> (Vec<PathBuf>, Vec<PathBuf>, Vec<PathBuf>) {
     let mut names = xmp::AdobeNames::default();
     // The files gone so far and the one being deleted, which leave its stem's sidecar to it.
     let mut leaving: HashSet<&PathBuf> = HashSet::new();
-    let (mut went, mut sides) = (Vec::new(), Vec::new());
+    let (mut went, mut sides, mut left_alone) = (Vec::new(), Vec::new(), Vec::new());
     let mut failed = |at: &Path, e: std::io::Error| errors.push(format!("{}: {e}", at.display()));
-    for p in kept {
+    for p in chunk {
+        if let Err(e) = picked.still_the_one_picked(p) {
+            failed(p, e);
+            left_alone.push(p.clone());
+            continue;
+        }
         leaving.insert(p);
         let mut aside = Vec::new();
         let mut all_aside = Ok(());
@@ -2541,7 +2551,7 @@ fn delete_for_good(kept: &[PathBuf], errors: &mut Vec<String>) -> (Vec<PathBuf>,
             }
         }
     }
-    (went, sides)
+    (went, sides, left_alone)
 }
 
 /// Takes each file of `sidecars_of_file` whose sidecars did not all go to the trash back out of
@@ -3006,7 +3016,7 @@ fn put_files(
                 }
                 moving.remove(path);
             } else if another_to_come {
-                followed_later.push((path, target.clone()));
+                followed_later.push((path, target.clone(), fingerprint(&target)));
                 put.push((path.clone(), target.clone()));
             } else if let Err(not) =
                 xmp::follow(path, &target, is_copy, &moving, &mut sidecar_names)
@@ -3086,17 +3096,22 @@ fn is_another_of_its_stem_to_come(
 /// follow goes back to it, as in `put_files`, and then counts as staying, so that the stem's
 /// sidecar stays beside it too. Returns the errors to tell, and the files that went back.
 fn follow_once_the_stem_is_known(
-    moved: Vec<(&PathBuf, PathBuf)>,
+    moved: Vec<(&PathBuf, PathBuf, Option<FileFingerprint>)>,
     went: &HashSet<&PathBuf>,
     sidecar_names: &mut xmp::AdobeNames,
 ) -> (Vec<String>, HashSet<PathBuf>) {
     let (mut errors, mut taken_back) = (Vec::new(), HashSet::new());
     let mut went = went.clone();
-    for (from, to) in moved {
+    for (from, to, at_put) in moved {
         let _lock = xmp::lock_sidecar(from);
         if let Err(not) = xmp::follow(from, &to, false, &went, sidecar_names) {
-            let back =
-                not.taken_back && crate::files::file_io::put_file_back(from, &to, false).is_ok();
+            // Only the file put there goes back, not another that a program put at its name
+            // while the other files of the job went.
+            let is_still_ours = (at_put.zip(fingerprint(&to)))
+                .is_some_and(|(then, now)| same_fingerprint(then, now));
+            let back = not.taken_back
+                && is_still_ours
+                && crate::files::file_io::put_file_back(from, &to, false).is_ok();
             errors.push(sidecar_not_followed(&not, from, back));
             if back {
                 went.remove(from);
@@ -3138,7 +3153,7 @@ fn move_back(pairs: Vec<Moved>) -> MovedBack {
         };
         match result {
             Ok(()) if another_to_come => {
-                followed_later.push((to.clone(), from.clone()));
+                followed_later.push((to.clone(), from.clone(), fingerprint(&from)));
                 back.push((to, from));
             }
             Ok(()) => match xmp::follow(&to, &from, false, &moving, &mut sidecar_names) {
@@ -3167,7 +3182,7 @@ fn move_back(pairs: Vec<Moved>) -> MovedBack {
     let went: HashSet<&PathBuf> = back.iter().map(|(now, _)| now).collect();
     let later = followed_later
         .iter()
-        .map(|(now, before)| (now, before.clone()));
+        .map(|(now, before, at_put)| (now, before.clone(), *at_put));
     let (later, taken_back) =
         follow_once_the_stem_is_known(later.collect(), &went, &mut sidecar_names);
     errors.extend(later);

@@ -3818,10 +3818,14 @@ fn finds_a_name_removed_after_a_cached_look() {
 /// picked before a wait (a question, a prompt, the file chooser) come as `file_io::PickedFiles`
 /// for it. Before, a delete, a trash or a rename confirmed in a dialog acted on whatever had the
 /// name when the dialog closed, which another window or a sync may have given to another photo.
-/// A sidecar is found at the act (`sidecars_moving_with`, `sidecars_of`), not picked before it.
+/// A sidecar is found at the act (`sidecars_moving_with`, `sidecars_of`), not picked before it,
+/// so an act on a sidecar (on a line that names one, `side`) needs no check of its own in a
+/// function that finds them. A finder there excuses no act on the photo itself.
 /// What is no user's file is out of the rule by what it is: Glimt's own files are removed through
-/// `file_io::remove_own`, or by a raw call whose `#[allow]` says "Glimt's own:"; a copy changes
-/// no file; and the calls of `file_io.rs` and `trash.rs` and the tests are the ways themselves.
+/// `file_io::remove_own`, or by a raw removal or rename whose `#[allow]` or comment says
+/// "Glimt's own:"; a copy changes no file. The ways themselves are out of it too: the files that
+/// define them (`file_io.rs`, `trash.rs`, `journal.rs`), a function that is one of the acts
+/// (`rename_files`), whose callers check, and the tests.
 #[test]
 fn destructive_acts_check_the_file_is_still_the_one_picked() {
     let sources = rust_sources();
@@ -3845,9 +3849,9 @@ fn destructive_acts_check_the_file_is_still_the_one_picked() {
     );
 }
 
-/// Returns the files of `sources` that define the ways a user's file is trashed, moved or
-/// replaced (`trash`, `put_file`, `put_file_until_stopped`, `replace_name_with`), whose own calls
-/// are those ways and not acts of an operation.
+/// Returns the files of `sources` that define the ways a user's file is trashed, moved,
+/// renamed or replaced (`trash`, `put_file`, `put_file_until_stopped`, `replace_name_with`,
+/// Rename Many's `rename_step`), whose own calls are those ways and not acts of an operation.
 fn ways_of_changing_files(sources: &[(String, String)]) -> Vec<String> {
     let defines = |text: &str| {
         let lines = code_lines(text);
@@ -3856,6 +3860,7 @@ fn ways_of_changing_files(sources: &[(String, String)]) -> Vec<String> {
             "put_file",
             "put_file_until_stopped",
             "replace_name_with",
+            "rename_step",
         ];
         (lines.iter()).any(|l| function_name(l).is_some_and(|name| names.contains(&name)))
     };
@@ -3893,31 +3898,37 @@ fn test_only_files(sources: &[(String, String)]) -> Vec<String> {
 // PickedFiles type that every such act takes holds the branches; following each branch would
 // need a parser, worth it if this class is found again.
 fn destructive_acts_in(text: &str) -> Vec<(String, bool)> {
-    const ACTS: [&str; 6] = [
+    const ACTS: [&str; 10] = [
         "remove_file(",
         "remove_dir_all(",
         "trash::trash(",
         "put_file_until_stopped(",
         "rename_files(",
+        "rename_files_planned_in(",
         "replace_name_with(",
+        "rename_never_over(",
+        "rename_step(",
+        "put_file_back(",
     ];
-    const CHECKS: [&str; 7] = [
+    const CHECKS: [&str; 5] = [
         "still_the_one_picked(",
         "is_still_the_file(",
         "same_fingerprint(",
         "replace_existing(",
         "same_file_by_opening(",
-        "sidecars_moving_with(",
-        "sidecars_of(",
     ];
+    const SIDECAR_FINDERS: [&str; 2] = ["sidecars_moving_with(", "sidecars_of("];
     let (lines, comments) = (code_lines(text), comment_lines(text));
     let end = tests_start(&lines);
-    // A raw removal whose `#[allow]`, on its line or the lines just above, says it is Glimt's own.
+    // A raw removal or rename whose `#[allow]` or comment, on its line or the lines just above,
+    // says it is Glimt's own.
     let is_own = |i: usize| (i.saturating_sub(3)..=i).any(|j| comments[j].contains("Glimt's own:"));
     let is_copy = |line: &str| line.contains(", true)");
     let mut found = Vec::new();
     let mut function = String::new();
-    let (mut acts, mut checks) = (false, false);
+    // Whether the function acts, acts on more than sidecars, checks, and finds sidecars.
+    let (mut acts, mut acts_on_files, mut checks, mut finds_sidecars) =
+        (false, false, false, false);
     for (i, line) in lines[..end]
         .iter()
         .map(String::as_str)
@@ -3925,25 +3936,31 @@ fn destructive_acts_in(text: &str) -> Vec<(String, bool)> {
         .enumerate()
     {
         if let Some(name) = function_name(line) {
-            if acts {
-                found.push((function, checks));
+            let is_a_way = ACTS.contains(&format!("{function}(").as_str());
+            if acts && !is_a_way {
+                found.push((function, checks || (finds_sidecars && !acts_on_files)));
             }
             function = name.to_owned();
-            (acts, checks) = (false, false);
+            (acts, acts_on_files, checks, finds_sidecars) = (false, false, false, false);
             continue;
         }
-        let raw = ["remove_file(", "remove_dir_all("]
+        let raw = ["remove_file(", "remove_dir_all(", "rename_never_over("]
             .iter()
             .any(|r| line.contains(r));
-        acts |= ACTS.iter().any(|act| line.contains(act)) && !(raw && is_own(i));
-        acts |= line.contains("put_file(") && !is_copy(line);
+        let act = (ACTS.iter().any(|act| line.contains(act)) && !(raw && is_own(i)))
+            || (line.contains("put_file(") && !is_copy(line));
+        acts |= act;
+        acts_on_files |= act && !line.contains("side");
         checks |= CHECKS.iter().any(|check| line.contains(check));
+        finds_sidecars |= SIDECAR_FINDERS.iter().any(|finder| line.contains(finder));
     }
     found
 }
 
-/// The check above finds a delete, a trash and a move with no look at the file. It passes one
-/// that looks first, a removal of Glimt's own file, a copy, and a function that only looks.
+/// The check above finds a delete, a trash, a move, a rename and a file put back with no look
+/// at the file, also beside a look for its sidecars. It passes one that looks first, a removal
+/// or rename of Glimt's own file, a copy, a function that only looks, an act on the sidecars
+/// it finds, and a function that is one of the acts itself.
 #[test]
 fn finds_a_destructive_act_without_its_check() {
     let text = "fn a() {\n    std::fs::remove_file(x)\n}\n\
@@ -3953,15 +3970,52 @@ fn finds_a_destructive_act_without_its_check() {
         fn e() {\n    #[allow(clippy::disallowed_methods)] // Glimt's own: a socket\n    \
         std::fs::remove_file(x)\n}\n\
         fn f() {\n    put_file(x, y, true)\n}\n\
-        fn g() {\n    put_file(x, y, false)\n}\n";
+        fn g() {\n    put_file(x, y, false)\n}\n\
+        fn h() {\n    let sides = xmp::sidecars_of(&[x]);\n    trash::trash(&[x])\n}\n\
+        fn i() {\n    for (side, to) in xmp::sidecars_moving_with(x, y) {\n        \
+        rename_never_over(&side, &to)?;\n    }\n}\n\
+        fn j() {\n    file_io::rename_never_over(x, y)\n}\n\
+        fn k() {\n    journal::rename_step(x, y)\n}\n\
+        fn l() {\n    file_io::put_file_back(x, y, false)\n}\n\
+        fn m() {\n    // Glimt's own: a plan made just now\n    rename_never_over(tmp, plan)\n}\n\
+        fn rename_files_planned_in() {\n    journal::rename_step(x, y)\n}\n";
     assert_eq!(
         destructive_acts_in(text),
         [
             ("a".into(), false),
             ("b".into(), true),
             ("c".into(), false),
-            ("g".into(), false)
+            ("g".into(), false),
+            ("h".into(), false),
+            ("i".into(), true),
+            ("j".into(), false),
+            ("k".into(), false),
+            ("l".into(), false),
         ]
+    );
+}
+
+/// A file is given as a path alone, with no identity from the list, only where no list knows
+/// it: a Lightroom catalog names its photos by path, and an Undo holds fingerprints of its own
+/// or puts back the marks of files it put back.
+/// Anywhere else, a `ListedFile` made so would let a sidecar write go to whatever file has the
+/// name by then, as if it were the file the user picked.
+#[test]
+fn a_path_alone_is_given_only_where_no_list_knows_the_file() {
+    const HOMES: &[(&str, &[(&str, &str)])] = &[(
+        "not_from_the_list(",
+        &[
+            ("metadata/lightroom.rs", "import_lightroom"),
+            ("files/file_ops.rs", "undo"),
+            ("metadata/marks.rs", "restore"),
+            ("support/test_support.rs", ""),
+        ],
+    )];
+    let wrong = outside_their_homes(HOMES);
+    assert!(
+        wrong.is_empty(),
+        "a ListedFile made from a path alone (take it from the list, App::listed_file):\n{}",
+        wrong.join("\n")
     );
 }
 
