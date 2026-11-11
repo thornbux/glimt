@@ -12,7 +12,7 @@ use crate::support::format::{count, human_size, thousands};
 use crate::support::lang::tr;
 use crate::support::threads::{Receiving, Took};
 use crate::ui::dialogs::entered;
-use crate::{files::config, images::decode, metadata::exif, metadata::xmp, tf};
+use crate::{files::config, metadata::exif, metadata::xmp, tf};
 use eframe::egui;
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
@@ -788,7 +788,7 @@ pub(crate) fn spawn_exif_reader(
             let (mut all, mut meta, mut paths, mut alt_text) = Default::default();
             // Not opened unless it is a file: a pipe would block this thread for good. A decoder
             // that panics on the file leaves the panel without EXIF for it, not for good.
-            if decode::is_regular_file(&path) {
+            if crate::files::file_io::is_surely_file(&path) {
                 let read = crate::support::threads::catch_panic(|| {
                     let mut rows = vec![("Colour profile", colour_source(&path))];
                     let (exif_rows, all) = exif::read_and_all(&path);

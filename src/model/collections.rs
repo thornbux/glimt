@@ -316,7 +316,7 @@ pub fn collections_dir() -> Option<PathBuf> {
 pub fn is_collection(path: &Path) -> bool {
     path.extension().is_some_and(|e| {
         e.eq_ignore_ascii_case("gqv") || LIST_EXTS.iter().any(|l| e.eq_ignore_ascii_case(l))
-    }) && path.is_file()
+    }) && crate::files::file_io::is_surely_file(path)
 }
 
 /// Whether `file` is a plain list, which Glimt shows but never writes: a change in the window

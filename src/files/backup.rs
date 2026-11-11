@@ -2,6 +2,7 @@
 //! stars, collections, tools and added formats, copied into a new folder.
 
 use crate::files::config::xdg_dir;
+use crate::files::file_io::{is_surely_dir, is_surely_gone};
 use crate::images::save::{FileId, file_id};
 use crate::support::format::{count, local_time};
 use crate::support::lang::tr;
@@ -9,7 +10,8 @@ use std::path::{Path, PathBuf};
 
 /// Glimt's own folders, to back up, with their names in a backup: its settings, keyword tree,
 /// sort folders and themes (config), marks and stars (state), and collections, tools and
-/// added formats (data). Thumbnails are not: they are made again.
+/// added formats (data). Thumbnails are not: they are made again. A folder that could not be
+/// looked at is kept, so that the backup fails and says so rather than leave it out.
 pub fn own_folders() -> Vec<(&'static str, PathBuf)> {
     [
         ("config", xdg_dir("XDG_CONFIG_HOME", ".config", "glimt")),
@@ -18,7 +20,7 @@ pub fn own_folders() -> Vec<(&'static str, PathBuf)> {
     ]
     .into_iter()
     .filter_map(|(name, dir)| Some((name, dir?)))
-    .filter(|(_, dir)| dir.is_dir())
+    .filter(|(_, dir)| !is_surely_gone(dir))
     .collect()
 }
 
@@ -48,7 +50,19 @@ fn copy_into(
     for entry in std::fs::read_dir(from)? {
         let entry = entry?;
         let (source, dest) = (entry.path(), to.join(entry.file_name()));
-        if source.is_dir() {
+        // Through a link. One that leads nowhere is left out, and a look that failed otherwise
+        // fails the backup, which would else miss the file or folder without a word.
+        let meta = match std::fs::metadata(&source) {
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(e) => {
+                return Err(std::io::Error::new(
+                    e.kind(),
+                    format!("{}: {e}", source.display()),
+                ));
+            }
+            Ok(meta) => meta,
+        };
+        if meta.is_dir() {
             let Some(id) = file_id(&source) else {
                 continue;
             };
@@ -67,7 +81,7 @@ fn copy_into(
             let copied = copy_into(&source, &dest, target, above);
             above.pop();
             files += copied?;
-        } else if source.is_file() {
+        } else if meta.is_file() {
             // Named, as the files after it are not copied.
             crate::files::file_io::put_file(&source, &dest, true)
                 .map_err(|e| std::io::Error::new(e.kind(), format!("{}: {e}", source.display())))?;
@@ -83,7 +97,7 @@ fn copy_into(
 /// what went wrong.
 pub(crate) fn back_up_to(dir: &Path) -> Result<String, String> {
     // A mistyped or unmounted folder is not made: the backup would land where no one looks.
-    if !dir.is_dir() {
+    if !is_surely_dir(dir) {
         return Err(crate::tf!(
             "{folder} is not a folder",
             folder = dir.display()
@@ -169,6 +183,23 @@ fn ids_above(path: &Path) -> Vec<FileId> {
 
 #[cfg(test)]
 mod tests {
+    /// A backup fails, and says what it could not look at, rather than leave a file or folder
+    /// out without a word. A link that loops stands for a share that did not answer, as both
+    /// fail with another error than NotFound. A link that leads nowhere is still left out.
+    #[test]
+    fn a_backup_fails_on_what_it_cannot_look_at() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-tree-look-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let from = dir.join("from");
+        std::fs::create_dir_all(&from).unwrap();
+        std::os::unix::fs::symlink("nowhere", from.join("dangling")).unwrap();
+        assert_eq!(super::copy_tree(&from, &dir.join("to")).unwrap(), 0);
+        std::os::unix::fs::symlink("loop", from.join("loop")).unwrap();
+        let error = super::copy_tree(&from, &dir.join("to2")).unwrap_err();
+        assert!(error.to_string().contains("loop"), "{error}");
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
     /// A backup copy: every file of the tree, at the same place below the new folder, a folder
     /// through a link too, but never a folder above it again.
     #[test]

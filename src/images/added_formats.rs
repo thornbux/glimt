@@ -78,7 +78,12 @@ impl AddedFormat {
         let args = self.arguments(&path);
         let program = PathBuf::from(&args[0]);
         let local = self.dir.join(&program);
-        let program = if local.is_file() { local } else { program };
+        // A program beside the desktop file that could not be looked at is run, and its failure
+        // told, rather than another of its name from the PATH.
+        let program = match crate::files::file_io::is_surely_gone(&local) {
+            true => program,
+            false => local,
+        };
         // The shell sets the memory limit and then becomes the program, which inherits it, as
         // does what the program starts. The limit, the program and the file are arguments,
         // never part of the script's text. In a Flatpak the shell runs on the host through

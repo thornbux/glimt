@@ -516,9 +516,12 @@ method.
     own files are removed with `file_io::remove_own`, or by a raw call whose `#[allow]` reason
     starts with "Glimt's own:"
     (`source_rules::destructive_acts_check_the_file_is_still_the_one_picked`);
-  - ask whether a name is there with `file_io::is_surely_gone` or `is_surely_there`, never
-    with `exists()` or `metadata(…).is_err()` or `.is_ok()`, which take a share that dropped
-    for a moment for a file that is gone. Only NotFound means gone
+  - ask whether a name is there with `file_io::is_surely_gone` or `is_surely_there`, and
+    whether it is a file or a folder with `is_surely_file` or `is_surely_dir`, never with
+    `exists()`, `Path::is_file`, `Path::is_dir`, or `metadata(…).is_err()`, `.is_ok()` or
+    `.is_ok_and(|m| m.is_dir())`, which take a share that dropped for a moment for a file that
+    is gone. Only NotFound means gone. A metadata or file type that has been read is named `m`,
+    `meta` or `kind`, so the check tells it from a path
     (`source_rules::gone_means_not_found`);
   - start one of Glimt's own programs with `external::command` or `stoppable_command` (inside
     a Flatpak's sandbox), and one of the user's with `host_command` or `stoppable_host_command`

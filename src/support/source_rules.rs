@@ -3865,22 +3865,27 @@ fn finds_the_files_built_only_for_tests() {
 }
 
 /// A name counts as gone only when the system said that it is not there (NotFound).
-/// `Path::exists`, and a look whose every error is taken as an answer (`metadata(…).is_err()`
-/// or `.is_ok()`), take a share that dropped for a moment for a name that is gone. That way a
-/// sidecar was trashed while its photo stayed, and a rename went over a file that it could not
-/// look at. So a name is looked at only through `file_io::is_surely_gone` and
-/// `is_surely_there`, whose names say which way a failed look counts.
+/// `Path::exists`, `Path::is_file` and `is_dir`, and a look whose every error is taken as an
+/// answer (`metadata(…).is_err()`, `.is_ok()` or `.is_ok_and(|m| m.is_dir())`), take a share
+/// that dropped for a moment for a name that is gone, or for one that is no file or folder.
+/// That way a sidecar was trashed while its photo stayed, a rename went over a file that it
+/// could not look at, and a backup left out the folders it could not look at. So a name is
+/// looked at only through `file_io::is_surely_gone`, `is_surely_there`, `is_surely_file` and
+/// `is_surely_dir`, whose names say which way a failed look counts.
 #[test]
 fn gone_means_not_found() {
-    let mut wrong = Vec::new();
-    for (file, text) in rust_sources() {
-        let found = looks_that_guess(&text);
+    let (mut wrong, sources) = (Vec::new(), rust_sources());
+    // The files built only for the tests, such as these rules, look at the repository's own.
+    let tests = test_only_files(&sources);
+    for (file, text) in sources.iter().filter(|(file, _)| !tests.contains(file)) {
+        let found = looks_that_guess(text);
         wrong.extend(found.into_iter().map(|line| format!("{file}:{line}")));
     }
     assert!(
         wrong.is_empty(),
-        "a name looked at with exists() or metadata(…).is_err() or .is_ok(), which take any \
-         failed look for an answer; use file_io::is_surely_gone or is_surely_there:\n{}",
+        "a name looked at with exists(), is_file(), is_dir() or metadata(…).is_err(), .is_ok() \
+         or .is_ok_and(…), which take any failed look for an answer; use file_io::is_surely_gone, \
+         is_surely_there, is_surely_file or is_surely_dir:\n{}",
         wrong.join("\n")
     );
 }
@@ -3894,12 +3899,47 @@ fn looks_that_guess(text: &str) -> Vec<usize> {
         let line = &lines[i];
         let next = lines.get(i + 1).map(|l| l.trim_start()).unwrap_or_default();
         let call = format!("{line}{}", if next.starts_with('.') { next } else { "" });
+        let asks_kind = [".is_file()", ".is_dir()"].iter().any(|c| call.contains(c));
         line.contains(".exists()")
-            || mentions(line, "Path::exists")
+            || ["Path::exists", "Path::is_file", "Path::is_dir"]
+                .iter()
+                .any(|f| mentions(line, f))
             || (line.contains("metadata(")
-                && [".is_err()", ".is_ok()"].iter().any(|c| call.contains(c)))
+                && ([".is_err()", ".is_ok()"].iter().any(|c| call.contains(c))
+                    || (call.contains(".is_ok_and(") && asks_kind)))
+            || asks_a_path_its_kind(line)
     };
     (0..end).filter(|&i| guesses(i)).map(|i| i + 1).collect()
+}
+
+/// Returns whether `line` asks a path whether it is a file or a folder (`Path::is_file` or
+/// `is_dir`), which answers no when the look fails. A metadata or a file type, which has been
+/// read already, is asked the same way, and is told apart by how it is named: a call of
+/// `metadata`, `symlink_metadata` or `file_type`, or a value named `m`, `meta` or `kind`.
+fn asks_a_path_its_kind(line: &str) -> bool {
+    let is_read_already = |before: &str| {
+        let before = before.trim_end_matches('?');
+        let Some(inside) = before.strip_suffix(')') else {
+            let name = &before[before.trim_end_matches(is_word_char).len()..];
+            return ["m", "meta", "kind"].contains(&name);
+        };
+        // The name of the call whose `)` ends `before`.
+        let mut depth = 1;
+        let open = inside.char_indices().rev().find(|&(_, c)| {
+            depth += match c {
+                ')' => 1,
+                '(' => -1,
+                _ => 0,
+            };
+            depth == 0
+        });
+        let called = &inside[..open.map_or(0, |(at, _)| at)];
+        let name = &called[called.trim_end_matches(is_word_char).len()..];
+        ["metadata", "symlink_metadata", "file_type"].contains(&name)
+    };
+    [".is_file()", ".is_dir()"]
+        .iter()
+        .any(|ask| (line.match_indices(ask)).any(|(at, _)| !is_read_already(&line[..at])))
 }
 
 /// The check above finds `exists`, also as a function value, and a look at the metadata whose
@@ -3912,6 +3952,19 @@ fn finds_a_look_that_guesses() {
         files.filter(Path::exists);\n    let fine = is_surely_gone(p);\n    \
         let m = std::fs::metadata(p)?;\n    p.try_exists()\n}\n";
     assert_eq!(looks_that_guess(text), [2, 3, 5, 6]);
+}
+
+/// The check above finds a path asked whether it is a file or a folder, also as a function value
+/// and as the metadata's look spelled out. It leaves a metadata or file type read already.
+#[test]
+fn finds_a_path_asked_its_kind() {
+    let text = "fn a() {\n    if dir.is_dir() {}\n    let f = d.join(name).is_file();\n    \
+        p.parent().is_some_and(Path::is_dir);\n    \
+        std::fs::metadata(p).is_ok_and(|m| m.is_file());\n    if m.is_dir() {}\n    \
+        let f = meta.is_file() || kind.is_dir();\n    let d = std::fs::metadata(p)?.is_dir();\n    \
+        e.file_type().is_ok_and(|t| t.is_file());\n    let f = lock.metadata()?.is_file();\n    \
+        let x = is_surely_dir(p);\n}\n";
+    assert_eq!(looks_that_guess(text), [2, 3, 4, 5, 9]);
 }
 
 /// A lock file is opened and waited for only through `file_io::open_and_lock`, which never

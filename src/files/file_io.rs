@@ -439,27 +439,45 @@ impl std::error::Error for MayBeUnderBothNames {}
 /// Any other failed look, such as a share that dropped for a moment, an error of the disk or no
 /// permission, says nothing, so the name counts as there. A step that removes, renames over or
 /// counts a file as deleted is then not taken on a look that failed. A link counts by its own
-/// name, not by its target. This and `is_surely_there` are the one way Glimt asks whether a name
-/// is there (`source_rules::gone_means_not_found`).
+/// name, not by its target. This, `is_surely_there`, `is_surely_file` and `is_surely_dir` are the
+/// one way Glimt asks whether a name is there (`source_rules::gone_means_not_found`).
 pub(crate) fn is_surely_gone(path: &Path) -> bool {
-    look(path).is_err_and(|e| e.kind() == std::io::ErrorKind::NotFound)
+    look(path, false).is_err_and(|e| e.kind() == std::io::ErrorKind::NotFound)
 }
 
 /// Returns whether something is surely at `path`: the look at its name answered. A failed look
 /// counts as not there, so this is for a step that needs the name to be there before it is
 /// taken, such as a sidecar written only beside its photo.
 pub(crate) fn is_surely_there(path: &Path) -> bool {
-    look(path).is_ok()
+    look(path, false).is_ok()
 }
 
-/// Looks at the name `path`, without following a link. In tests, a name in `LOOKS_FAIL` fails
-/// with EIO, as a share that dropped for a moment does.
-fn look(path: &Path) -> std::io::Result<std::fs::Metadata> {
+/// Returns whether `path` is surely a regular file, also through a link: the look answered that
+/// it is one. A failed look counts as no file, so this is for a step that needs a file, such as
+/// one read or run. A pipe would block a reader for good, and a device such as /dev/zero would
+/// fill memory. A step that would take the name's place uses `is_surely_gone` instead.
+pub(crate) fn is_surely_file(path: &Path) -> bool {
+    look(path, true).is_ok_and(|meta| meta.is_file())
+}
+
+/// Returns whether `path` is surely a folder, also through a link: the look answered that it is
+/// one. A failed look counts as no folder, so this is for a step that needs a folder, such as
+/// one opened or read. A step that would leave a folder out uses `is_surely_gone` instead.
+pub(crate) fn is_surely_dir(path: &Path) -> bool {
+    look(path, true).is_ok_and(|meta| meta.is_dir())
+}
+
+/// Looks at the name `path`, through a link when `follow`. In tests, a name in `LOOKS_FAIL`
+/// fails with EIO, as a share that dropped for a moment does.
+fn look(path: &Path, follow: bool) -> std::io::Result<std::fs::Metadata> {
     #[cfg(test)]
     if lock_even_if_poisoned(&LOOKS_FAIL).iter().any(|p| p == path) {
         return Err(std::io::Error::from_raw_os_error(libc::EIO));
     }
-    std::fs::symlink_metadata(path)
+    match follow {
+        true => std::fs::metadata(path),
+        false => std::fs::symlink_metadata(path),
+    }
 }
 
 /// Rename `from` to `to`, never over a file or folder there, also one another window put there

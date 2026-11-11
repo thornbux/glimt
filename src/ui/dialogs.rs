@@ -408,7 +408,7 @@ impl crate::App {
             if make_start_first {
                 drop(std::fs::create_dir_all(&start));
             }
-            let start = match is_profile && !start.is_dir() {
+            let start = match is_profile && !crate::files::file_io::is_surely_dir(&start) {
                 true => Path::new(SYSTEM_PROFILES).join(""),
                 false => start,
             };

@@ -1728,13 +1728,13 @@ fn look_up(paths: &[PathBuf]) -> Found {
     for p in paths.iter().filter(|_| paths.len() > 1) {
         // A path that is not there is left out. Taken for a file, it stood for its parent
         // folder, whose images the user never asked for.
-        let Ok(found) = std::fs::metadata(p) else {
+        let Ok(meta) = std::fs::metadata(p) else {
             continue;
         };
         first_there.get_or_insert(p);
         // Each folder by its real path, as one folder opened alone, so the list names a file as
         // it does then: marks and stars are kept by that name. A file stands for its folder.
-        let dir = match found.is_dir() {
+        let dir = match meta.is_dir() {
             true => listing::real_dir(p),
             false => {
                 let real = listing::real_path(p);

@@ -186,7 +186,7 @@ impl Catalog {
         };
         paths.retain(|_, path| is_listed(path, every_type));
         let named = paths.len();
-        paths.retain(|_, path| path.is_file());
+        paths.retain(|_, path| crate::files::file_io::is_surely_file(path));
         let collections = self.collections(&paths);
         let there: HashSet<String> = collections::saved_collections()
             .into_iter()
@@ -526,8 +526,8 @@ impl crate::App {
             tr("Importing"),
             sidecars,
             move |path, (n, tags)| {
-                // Not for photos gone since: no sidecar beside nothing.
-                if !path.is_file() {
+                // Not for photos gone since. One that could not be looked at is tried and told.
+                if crate::files::file_io::is_surely_gone(path) {
                     return true;
                 }
                 #[cfg(feature = "marks")]
@@ -738,7 +738,7 @@ fn import_dialog_for(catalog: Catalog) -> Import {
 fn folders_there(typed: &[String]) -> Vec<bool> {
     typed
         .iter()
-        .map(|t| typed_root_folder(t).is_dir())
+        .map(|t| crate::files::file_io::is_surely_dir(&typed_root_folder(t)))
         .collect()
 }
 
@@ -747,7 +747,7 @@ fn folders_there(typed: &[String]) -> Vec<bool> {
 pub fn roots_now(catalog: &Catalog) -> Vec<String> {
     (catalog.roots.iter())
         .map(|(_, r)| {
-            if Path::new(r).is_dir() {
+            if crate::files::file_io::is_surely_dir(Path::new(r)) {
                 r.clone()
             } else {
                 String::new()

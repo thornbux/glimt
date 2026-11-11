@@ -357,8 +357,11 @@ pub fn own_themes_dir() -> Option<std::path::PathBuf> {
 /// and `name` itself for every other. A theme file of the user's own by an old name keeps its
 /// name, because `load` took the user's file before the rename too, and it stays the user's.
 pub fn theme_name_now(name: &str) -> &str {
-    let has_own_file =
-        |name: &str| own_themes_dir().is_some_and(|d| d.join(format!("{name}.theme")).is_file());
+    let has_own_file = |name: &str| {
+        own_themes_dir().is_some_and(|d| {
+            crate::files::file_io::is_surely_file(&d.join(format!("{name}.theme")))
+        })
+    };
     name_now_unless_own(name, has_own_file)
 }
 

@@ -209,7 +209,7 @@ pub fn moves_cut_short(dir: &Path) -> Vec<(MoveLog, Moves)> {
     entries
         .filter_map(|e| {
             // A pipe or a link planted in the state folder is no log.
-            e.file_type().ok().filter(|t| t.is_file())?;
+            e.file_type().ok().filter(|kind| kind.is_file())?;
             let file = crate::images::decode::open_regular(e.path())
                 .ok()
                 .filter(take_lock_if_free)
@@ -343,7 +343,7 @@ pub fn cut_short_plans(dir: &Path) -> Vec<CutShort> {
         .filter_map(|e| {
             // A pipe or a link planted in the state folder is no plan, and opening a pipe would
             // hold the start for good. It reads no more than a decode would.
-            e.file_type().ok().filter(|t| t.is_file())?;
+            e.file_type().ok().filter(|kind| kind.is_file())?;
             // A plan another window was finishing is skipped. That window deletes the plan
             // before it lets go of the lock, so a file opened just before then is no longer linked.
             let file = crate::images::decode::open_regular(e.path())

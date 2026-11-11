@@ -111,7 +111,9 @@ impl Tool {
                 return Err("no command".into());
             };
             let local = self.dir.join(&program);
-            let program = if local.is_file() {
+            // A program beside the desktop file that could not be looked at is run, and its
+            // failure told, rather than another of its name from the PATH.
+            let program = if !crate::files::file_io::is_surely_gone(&local) {
                 local.into()
             } else {
                 program
@@ -227,8 +229,10 @@ fn desktop_files_in(
 pub fn folder_to_open(glimt_home: &Path, kind: &str) -> PathBuf {
     let new = glimt_home.join(kind);
     let old_name = RENAMED_FOLDERS.iter().find(|r| r.1 == kind).map(|r| r.0);
+    use crate::files::file_io::is_surely_gone;
+    // An old folder that could not be looked at may hold the user's tools, so it is opened.
     match old_name.map(|old| glimt_home.join(old)) {
-        Some(old) if old.is_dir() && crate::files::file_io::is_surely_gone(&new) => old,
+        Some(old) if !is_surely_gone(&old) && is_surely_gone(&new) => old,
         _ => new,
     }
 }

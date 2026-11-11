@@ -385,10 +385,10 @@ pub fn real_path(path: &Path) -> PathBuf {
 /// a pipe or a link to /dev/zero named a.jpg would block or fill memory when read.
 pub fn kind(entry: &std::fs::DirEntry) -> (bool, bool) {
     match entry.file_type() {
-        Ok(t) if t.is_symlink() => {
+        Ok(kind) if kind.is_symlink() => {
             std::fs::metadata(entry.path()).map_or((false, false), |m| (m.is_file(), m.is_dir()))
         }
-        Ok(t) => (t.is_file(), t.is_dir()),
+        Ok(kind) => (kind.is_file(), kind.is_dir()),
         Err(_) => (false, false),
     }
 }

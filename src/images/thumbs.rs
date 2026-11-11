@@ -2,6 +2,7 @@
 //! cache (`~/.cache/thumbnails/normal`, or `large` for big thumbnails). Existing thumbnails are
 //! always read; new ones are written there only when "Save thumbnails" is on.
 
+use crate::files::file_io::{is_surely_dir, is_surely_file};
 use crate::support::threads::lock_even_if_poisoned;
 use std::path::{Path, PathBuf};
 use std::time::UNIX_EPOCH;
@@ -34,7 +35,7 @@ fn thumbnail_in(
     save: bool,
     large: bool,
 ) -> Result<image::RgbaImage, String> {
-    if !crate::images::decode::is_regular_file(path) {
+    if !is_surely_file(path) {
         return Err("not a regular file".into());
     }
     // The cached thumbnail and the image decoded take from the decodes' shared budget as one job.
@@ -223,7 +224,7 @@ fn remove_orphaned_thumbnails_in(cache: &Path) -> (usize, usize) {
             // error for a moment is no reason to delete the thumbnail.
             #[allow(clippy::disallowed_methods)] // Glimt's own: a thumbnail whose image is gone
             if path.try_exists().is_ok_and(|exists| !exists)
-                && path.parent().is_some_and(Path::is_dir)
+                && path.parent().is_some_and(is_surely_dir)
                 && std::fs::remove_file(entry.path()).is_ok()
             {
                 removed += 1;

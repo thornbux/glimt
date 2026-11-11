@@ -1515,7 +1515,8 @@ impl crate::App {
             // here, not in the window's thread, because it waits for the disk.
             let is_decoded = |now| decoded.is_none_or(|read| same_fingerprint(read, now));
             let result = catch_panic_as_error(|| match jpeg {
-                _ if !path.is_file() => Err(tf!("{name} is gone", name = path.display())),
+                // A look that failed is no answer, and the fingerprint below then tells it.
+                _ if is_surely_gone(&path) => Err(tf!("{name} is gone", name = path.display())),
                 _ if !fingerprint(&path).is_some_and(is_decoded) => {
                     Err(crate::files::file_io::changed_meanwhile().to_string())
                 }
