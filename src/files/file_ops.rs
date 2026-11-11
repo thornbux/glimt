@@ -471,9 +471,9 @@ impl FileOperations {
     }
 
     /// Leaves out of `files` those still being deleted, so a refresh does not bring them back.
-    pub(crate) fn leave_out_deleting(&self, files: &mut Vec<OsString>) {
+    pub(crate) fn leave_out_deleting(&self, files: &mut Vec<crate::model::listing::ListedName>) {
         if !self.deleting.is_empty() {
-            files.retain(|f| !self.deleting.contains(f));
+            files.retain(|f| !self.deleting.contains(&f.0));
         }
     }
 
@@ -1523,6 +1523,12 @@ impl crate::App {
             }
         }
         self.forget_names(paths);
+        // Glimt wrote them, so a new inode is no other file. Until they are listed again, they
+        // are not told apart by identity.
+        let names: HashSet<&std::ffi::OsStr> = (paths.iter())
+            .filter_map(|p| Some(p.strip_prefix(self.folder.dir()).ok()?.as_os_str()))
+            .collect();
+        self.list.forget_identities(&names);
         // Their names stay in the list, so the Pan view's days are made again for their dates.
         if let Some(pan) = &mut self.pan_view {
             pan.make_days_again();
@@ -5896,7 +5902,11 @@ mod tests {
         // When another program renamed the file and the folder is read again, the new name is
         // read too.
         std::fs::rename(dir.join("a.png"), dir.join("c.png")).unwrap();
-        app.replace_files(&ctx, vec!["b.png".into(), "c.png".into()], None);
+        app.replace_files(
+            &ctx,
+            vec![("b.png".into(), None), ("c.png".into(), None)],
+            None,
+        );
         assert!(app.search.reads_exif_again("c.png"));
         // A file written over by another image is read again, and its stars are gone.
         let b = dir.join("b.png");

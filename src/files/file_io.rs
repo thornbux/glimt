@@ -149,6 +149,13 @@ impl OtherNames {
 /// (`save::file_id_from_metadata`), and then only the size and time tell the file.
 pub(crate) type FileFingerprint = (Option<(u64, u64)>, u64, (i64, i64));
 
+/// A file's identity as its folder listed it: the inode of its folder entry, which comes with its
+/// name, so no file is looked at for it. It is `None` where it is not known: a name the list got
+/// otherwise than from a listing, a file Glimt itself wrote anew since, or a file system that
+/// does not keep a file's inode (`has_lasting_inodes`). An unknown identity is never taken for
+/// another file's (`is_another_file`).
+pub(crate) type Identity = Option<std::num::NonZeroU64>;
+
 /// A write queued for a `start_ordered_worker` thread.
 pub type QueuedWrite = Box<dyn FnOnce() + Send>;
 
@@ -944,6 +951,86 @@ pub(crate) fn fingerprint_before_reading(path: &Path) -> std::io::Result<FileFin
 /// name, or it was written since.
 pub(crate) fn changed_meanwhile() -> std::io::Error {
     std::io::Error::other(crate::support::lang::tr("the file was changed meanwhile"))
+}
+
+/// Returns whether identities `a` and `b` are known, and are of two files.
+pub(crate) fn is_another_file(a: Identity, b: Identity) -> bool {
+    matches!((a, b), (Some(a), Some(b)) if a != b)
+}
+
+/// Returns the identity of the file or link at `path`, as its folder entry gives it: the inode
+/// of the name itself, not of a link's target. Returns `None` when nothing is there. It waits
+/// for the disk.
+pub(crate) fn identity_of(path: &Path) -> Identity {
+    identity_from_metadata(path, &std::fs::symlink_metadata(path).ok()?)
+}
+
+/// Returns the identity of the file at `path` from its metadata `meta`, which the caller looked
+/// up without following a link. Returns `None` for inode 0.
+pub(crate) fn identity_from_metadata(path: &Path, meta: &std::fs::Metadata) -> Identity {
+    let id = crate::images::save::file_id_from_metadata(path, meta).ok()?;
+    std::num::NonZeroU64::new(id.1)
+}
+
+/// Forgets the identities in `files`, names relative to `dir`, of the files on a file system
+/// that does not keep a file's inode for as long as the file is there. The mount table is read
+/// once, and each folder of the names is looked up once in it.
+pub(crate) fn forget_passing_identities(
+    dir: &Path,
+    files: &mut [crate::model::listing::ListedName],
+) {
+    use crate::images::decode::read_limited;
+    let mounts = read_limited("/proc/self/mountinfo").unwrap_or_default();
+    let mut lasting: std::collections::HashMap<&Path, bool> = Default::default();
+    let mut last: Option<(&Path, bool)> = None;
+    let keeps: Vec<bool> = (files.iter())
+        .map(|(name, _)| {
+            let folder = Path::new(name).parent().unwrap_or(Path::new(""));
+            // The names of one folder come one after the other, so most are not looked up.
+            if let Some((before, keeps)) = last
+                && before.as_os_str() == folder.as_os_str()
+            {
+                return keeps;
+            }
+            let keeps = *lasting.entry(folder).or_insert_with(|| {
+                let kind = file_system_type_in(&mounts, &dir.join(folder), |_| None);
+                kind.is_some_and(|kind| has_lasting_inodes(&kind))
+            });
+            last = Some((folder, keeps));
+            keeps
+        })
+        .collect();
+    for ((_, identity), keeps) in files.iter_mut().zip(keeps) {
+        if !keeps {
+            *identity = None;
+        }
+    }
+}
+
+/// Returns whether a file system of type `kind` (from `file_system_type`) keeps a file's inode
+/// for as long as the file is there, and gives its folder entries the inode the file has. FAT
+/// and exFAT make up an inode each time a file is read into memory, and FUSE and SMB mounts may
+/// too, so a file there would be taken for another one. Any type not known to keep it counts
+/// as one that does not, and its files are not told apart by identity.
+fn has_lasting_inodes(kind: &str) -> bool {
+    matches!(
+        kind,
+        "ext2"
+            | "ext3"
+            | "ext4"
+            | "xfs"
+            | "btrfs"
+            | "tmpfs"
+            | "f2fs"
+            | "zfs"
+            | "bcachefs"
+            | "jfs"
+            | "reiserfs"
+            | "nilfs2"
+            | "overlay"
+            | "nfs"
+            | "nfs4"
+    )
 }
 
 /// Returns the fingerprint of the file or link at `path`, or `None` when nothing is there.
