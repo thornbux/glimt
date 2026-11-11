@@ -181,14 +181,21 @@ impl Marks {
     /// Files copied (`is_copy`) or moved and renamed `(from, to)`: the new ones get the marks. A
     /// folder renamed goes through `follow_folder`, so a report of files never stats them on the UI
     /// thread to find a folder among them.
-    pub fn follow_files(&mut self, pairs: Vec<(PathBuf, PathBuf)>, is_copy: bool) {
+    /// When `is_from_a_record`, the moves were read from a record, not made just now, and the
+    /// writer gives the marks only to a name where a file is (`follow_only_to_files_there`).
+    pub fn follow_files(
+        &mut self,
+        pairs: Vec<(PathBuf, PathBuf)>,
+        is_copy: bool,
+        is_from_a_record: bool,
+    ) {
         // From the file as it is: stars set in another window since this one last read it were
         // left behind on the old names, as this window did not know them.
         self.refresh();
         // Every pair goes to the file, also one whose marks this window does not know, for
         // the reason `forget` gives.
         if !pairs.is_empty() {
-            self.edit(Edit::Follow(pairs, is_copy));
+            self.edit(Edit::Follow(pairs, is_copy, is_from_a_record));
         }
     }
 
@@ -236,8 +243,10 @@ thread_local! {
 enum Edit {
     /// A change of the files picked, each checked to be the one listed before it is made.
     Change(Vec<ListedFile>, Change),
-    /// Files moved or copied (the flag) from each first path to the second.
-    Follow(Vec<(PathBuf, PathBuf)>, bool),
+    /// Files moved or copied (the first flag) from each first path to the second. The second
+    /// flag says whether the moves were read from a record, rather than made by the job that
+    /// sent them, so that each new name is looked at before the marks go there.
+    Follow(Vec<(PathBuf, PathBuf)>, bool, bool),
     /// A folder renamed from the first path to the second, with every file in it.
     FollowFolder(PathBuf, PathBuf),
     /// Files or folders deleted, with every file in the folders. The marks that the file held
@@ -334,7 +343,7 @@ fn refuse_names_with_line_breaks(edit: Edit, map: &HashMap<PathBuf, (u8, u8)>) -
             let edits = (!paths.is_empty()).then_some(Edit::Change(paths, change));
             (edits.into_iter().collect(), left_out)
         }
-        Edit::Follow(pairs, is_copy) => {
+        Edit::Follow(pairs, is_copy, is_from_a_record) => {
             let (kept, refused): (Vec<_>, Vec<_>) =
                 (pairs.into_iter()).partition(|(_, to)| fits_on_a_line(to));
             let left_out = (refused.iter())
@@ -345,7 +354,7 @@ fn refuse_names_with_line_breaks(edit: Edit, map: &HashMap<PathBuf, (u8, u8)>) -
                 .map(|(from, _)| from)
                 .collect();
             let edits = [
-                (!kept.is_empty()).then_some(Edit::Follow(kept, is_copy)),
+                (!kept.is_empty()).then_some(Edit::Follow(kept, is_copy, is_from_a_record)),
                 (!gone.is_empty()).then_some(Edit::Forget(gone, None)),
             ];
             (edits.into_iter().flatten().collect(), left_out)
@@ -417,7 +426,7 @@ fn apply_edit(map: &mut HashMap<PathBuf, (u8, u8)>, edit: &Edit, taken: &[&Liste
                 .collect();
             apply(map, &paths, *change)
         }
-        Edit::Follow(pairs, is_copy) => follow_pairs(map, pairs, *is_copy),
+        Edit::Follow(pairs, is_copy, _) => follow_pairs(map, pairs, *is_copy),
         Edit::FollowFolder(from, to) => {
             let pairs = [(from.clone(), to.clone())];
             let moved = crate::files::file_ops::moves_by_source(&pairs);
@@ -537,7 +546,12 @@ fn take_queued_edits() -> Vec<Edit> {
 /// written before (`UNWRITTEN_EDITS`).
 fn write(file: &Path, changes: Vec<Edit>) {
     let unwritten = lock_even_if_poisoned(&UNWRITTEN_EDITS).remove(file);
-    let mut changes: Vec<Edit> = unwritten.into_iter().flatten().chain(changes).collect();
+    // A move not written before is written now from a record: its file may have moved on.
+    let unwritten = unwritten.into_iter().flatten().map(|edit| match edit {
+        Edit::Follow(pairs, is_copy, _) => Edit::Follow(pairs, is_copy, true),
+        edit => edit,
+    });
+    let mut changes: Vec<Edit> = unwritten.chain(changes).collect();
     let some_left_out = follow_only_to_files_there(&mut changes);
     let stamp_before = file_stamp(file);
     // These changes on the file as another window may have left it; one that cannot be read
@@ -598,16 +612,19 @@ fn write(file: &Path, changes: Vec<Edit>) {
     }
 }
 
-/// Leaves out of the moves in `changes` each file whose new name holds nothing now, so that its
-/// marks stay where they are and never go to an empty name, where a later file of that name
-/// would get them. A new name that a later edit names is kept, as the file was there and went
-/// on from it. A name that cannot be looked at is left out too, and told. It waits for the
-/// disk, so it runs in the writer's thread. Returns whether a file was left out.
+/// Leaves out of the moves in `changes` that were read from a record each file whose new name
+/// holds nothing now, so that its marks stay where they are and never go to an empty name,
+/// where a later file of that name would get them. A move that its own job just made is not
+/// looked at, because its file was at the new name, and a Move of 500,000 files on a share
+/// would otherwise wait for 500,000 looks here. A new name that a later edit names is kept,
+/// as the file was there and went on from it. A name that cannot be looked at is left out
+/// too, and told. It waits for the disk, so it runs in the writer's thread. Returns whether a
+/// file was left out.
 fn follow_only_to_files_there(changes: &mut [Edit]) -> bool {
     let mut named_later: std::collections::HashSet<PathBuf> = Default::default();
     let mut some_left_out = false;
     for edit in changes.iter_mut().rev() {
-        if let Edit::Follow(pairs, _) = edit {
+        if let Edit::Follow(pairs, _, true) = edit {
             pairs.retain(|(_, to)| {
                 let is_there = match to.ancestors().any(|a| named_later.contains(a)) {
                     true => true,
@@ -622,7 +639,7 @@ fn follow_only_to_files_there(changes: &mut [Edit]) -> bool {
         }
         let names: Vec<&Path> = match edit {
             Edit::Change(files, _) => files.iter().map(ListedFile::path).collect(),
-            Edit::Follow(pairs, _) => pairs.iter().map(|(from, _)| from.as_path()).collect(),
+            Edit::Follow(pairs, ..) => pairs.iter().map(|(from, _)| from.as_path()).collect(),
             Edit::FollowFolder(from, _) => vec![from.as_path()],
             Edit::Forget(paths, _) => paths.iter().map(PathBuf::as_path).collect(),
         };
@@ -862,7 +879,7 @@ mod tests {
             &crate::support::test_support::unlisted(&[odd.join("c.png")]),
             2,
         );
-        marks.follow_files(vec![(a.clone(), odd.join("a.png"))], false);
+        marks.follow_files(vec![(a.clone(), odd.join("a.png"))], false, false);
         marks.follow_folder(dir.join("sub"), odd.clone());
         let lost = [
             &odd.join("c.png"),
@@ -890,13 +907,11 @@ mod tests {
         let file = dir.join("marks");
         super::TEST_FILE.with(|f| *f.borrow_mut() = Some(file.clone()));
         let (a, b, c) = (dir.join("a.png"), dir.join("b.png"), dir.join("c.png"));
-        // The photo moved to c.png, where its marks follow it.
-        std::fs::write(&c, "c").unwrap();
         // This window read the marks before the other one wrote these.
         let mut marks = super::Marks::default();
         let text = format!("0\t3\t{}\n0\t2\t{}\n", a.display(), b.display());
         std::fs::write(&file, text).unwrap();
-        marks.follow_files(vec![(a.clone(), c.clone())], false);
+        marks.follow_files(vec![(a.clone(), c.clone())], false, false);
         // The file read before the move lacks it, so it is read again once the move is written.
         super::write(&file, super::SENT.with(|sent| sent.take()));
         settled(&mut marks);
@@ -997,13 +1012,11 @@ mod tests {
         let (a, b, c) = (dir.join("a.png"), dir.join("b.png"), dir.join("c.png"));
         let text = format!("0\t3\t{}\n0\t2\t{}\n", a.display(), b.display());
         std::fs::write(&file, text).unwrap();
-        // The photo moved to c.png, where its marks follow it.
-        std::fs::write(&c, "c").unwrap();
         // The window takes the file as known, as when its refresh is skipped.
         super::known_stamps().insert(file.clone(), super::file_stamp(&file));
         let mut marks = super::Marks::default();
         super::SENT.with(|sent| sent.borrow_mut().clear());
-        marks.follow_files(vec![(a.clone(), c.clone())], false);
+        marks.follow_files(vec![(a.clone(), c.clone())], false, false);
         marks.forget(std::slice::from_ref(&b), None);
         let sent: Vec<super::Edit> = super::SENT.with(|sent| sent.take());
         super::write(&file, sent);
@@ -1217,7 +1230,7 @@ mod tests {
         std::fs::write(&a, "a").unwrap();
         std::fs::write(&b, "b").unwrap();
         let swap = vec![(a.clone(), b.clone()), (b.clone(), a.clone())];
-        super::write(&file, vec![super::Edit::Follow(swap, false)]);
+        super::write(&file, vec![super::Edit::Follow(swap, false, false)]);
         // The file as it was before, readable again.
         std::fs::remove_dir(&file).unwrap();
         let text = format!("0\t1\t{}\n0\t2\t{}\n", a.display(), b.display());
@@ -1306,7 +1319,7 @@ mod tests {
         };
         let before = stamp();
         let pairs = vec![("/b.jpg".into(), "/c.jpg".into())];
-        super::write(&file, vec![super::Edit::Follow(pairs, false)]);
+        super::write(&file, vec![super::Edit::Follow(pairs, false, true)]);
         super::write(
             &file,
             vec![super::Edit::Forget(vec!["/d.jpg".into()], None)],
@@ -1338,6 +1351,7 @@ mod tests {
             line(2, "b.jpg"),
             line(3, "c.jpg"),
             line(4, "d.jpg"),
+            line(5, "e.jpg"),
         ];
         std::fs::write(&file, text.concat()).unwrap();
         let moves = vec![
@@ -1347,9 +1361,12 @@ mod tests {
             (p("d.jpg"), p("unanswered.jpg")),
         ];
         let on = vec![(p("middle.jpg"), p("last.jpg"))];
+        // A move that its own job just made is not looked at: its file was there.
+        let made = vec![(p("e.jpg"), p("made.jpg"))];
         let edits = vec![
-            super::Edit::Follow(moves, false),
-            super::Edit::Follow(on, false),
+            super::Edit::Follow(moves, false, true),
+            super::Edit::Follow(on, false, false),
+            super::Edit::Follow(made, false, false),
         ];
         super::write(&file, edits);
         let written = super::parse(&std::fs::read(&file).unwrap());
@@ -1358,6 +1375,7 @@ mod tests {
         assert_eq!(written.get(&p("gone.jpg")), None);
         assert_eq!(written.get(&p("last.jpg")), Some(&(0, 3)));
         assert_eq!(written.get(&p("d.jpg")), Some(&(0, 4)));
+        assert_eq!(written.get(&p("made.jpg")), Some(&(0, 5)));
         crate::support::threads::lock_even_if_poisoned(&crate::files::file_io::LOOKS_FAIL)
             .retain(|n| *n != p("unanswered.jpg"));
         std::fs::remove_dir_all(dir).unwrap();
@@ -1477,12 +1495,12 @@ mod tests {
             4,
         );
         m.toggle(&crate::support::test_support::unlisted(&[p("/a.jpg")]), 1);
-        m.follow_files(vec![(p("/a.jpg"), p("/to/a.jpg"))], false);
+        m.follow_files(vec![(p("/a.jpg"), p("/to/a.jpg"))], false, false);
         assert_eq!(
             (m.get(&p("/a.jpg")), m.get(&p("/to/a.jpg"))),
             ((0, 0), (1, 4))
         );
-        m.follow_files(vec![(p("/b.jpg"), p("/b copy.jpg"))], true);
+        m.follow_files(vec![(p("/b.jpg"), p("/b copy.jpg"))], true, false);
         assert_eq!(
             (m.get(&p("/b.jpg")), m.get(&p("/b copy.jpg"))),
             ((0, 4), (0, 4))
@@ -1500,7 +1518,7 @@ mod tests {
         m.forget(&[p("/trip/2024")], None);
         assert_eq!(m.get(&p("/trip/2024/a.jpg")), (0, 0));
         // An old entry where an unmarked file lands is cleared.
-        m.follow_files(vec![(p("/c.jpg"), p("/b copy.jpg"))], false);
+        m.follow_files(vec![(p("/c.jpg"), p("/b copy.jpg"))], false, false);
         assert_eq!(m.get(&p("/b copy.jpg")), (0, 0));
         // Rename Many swapping names, and shifting them: each keeps its own.
         m.rate(&crate::support::test_support::unlisted(&[p("/x.jpg")]), 1);
@@ -1508,10 +1526,12 @@ mod tests {
         m.follow_files(
             vec![(p("/x.jpg"), p("/y.jpg")), (p("/y.jpg"), p("/x.jpg"))],
             false,
+            false,
         );
         assert_eq!((m.get(&p("/x.jpg")).1, m.get(&p("/y.jpg")).1), (2, 1));
         m.follow_files(
             vec![(p("/x.jpg"), p("/z.jpg")), (p("/y.jpg"), p("/x.jpg"))],
+            false,
             false,
         );
         assert_eq!((m.get(&p("/x.jpg")).1, m.get(&p("/z.jpg")).1), (1, 2));

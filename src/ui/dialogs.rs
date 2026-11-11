@@ -1316,6 +1316,7 @@ fn put_cut_short_right(
     let _ = report_tx.send(OperationReport {
         read_folder_again: true,
         moved,
+        is_moved_from_a_record: true,
         cut_short_left: (!left_plans.is_empty())
             .then(|| (left_plans, format!("{header}\n{names_left}"))),
         ..Default::default()
@@ -1346,6 +1347,7 @@ fn leave_names_as_they_are(
     let _ = report_tx.send(OperationReport {
         read_folder_again: true,
         moved: left.iter().flatten().cloned().collect(),
+        is_moved_from_a_record: true,
         ..Default::default()
     });
     // Another window had every plan, so nothing was left as it is here.
