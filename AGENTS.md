@@ -52,12 +52,14 @@ for Linux in Rust/egui, inspired by Geeqie. Read this before changing anything.
 - **Little memory.** Decode to screen size; full resolution only when zoomed. Preloading has a
   fixed budget (N images on each side). Measure RssAnon before and after changes that touch
   decoding or caches.
-- **The limits a release is held to.** The release tests fail when, in a folder of 500,000
-  files, the first image takes more than 1.5 times the last release's time or RssAnon is more
-  than 1.5 times the last release's; when the median frame takes more than 10 ms of the window
-  thread's processor time with all 500,000 files selected; or when sorting 3,000 JPEGs by EXIF date takes
-  more than 1.5 times the last release's time (each with a small slack, `within` in `tests.sh`).
-  The maintainer sets these numbers, and an agent does not change them. The other timings and
+- **The limits a release is held to.** The rule is 1.5 times the last release: the release
+  tests fail when, in a folder of 500,000 files, the first image takes more than 1.5 times the
+  last release's time or RssAnon is more than 1.5 times the last release's, or when sorting
+  3,000 JPEGs by EXIF date takes more than 1.5 times the last release's time. Each is the best
+  of two runs of each version, with a slack of 100 ms or 20 MB (`within` in `tests.sh`;
+  docs/RELEASING.md says how). They also fail when the median frame takes more than 10 ms of
+  the window thread's processor time with all 500,000 files selected. The maintainer sets these
+  numbers, and an agent does not change them. The other timings and
   memory figures in the release tests (`note` lines) are only printed, to compare: they stop
   nothing.
 - **Simplest thing that works.** No dependency, abstraction, config option or file before it is
@@ -136,7 +138,13 @@ The tests that hold this:
 Every `--remote` command gets an answer. A query is answered with what it asks for. Any other
 command is answered with nothing when it was done, and with `not done: <reason>` when it was
 not: a `run` refused while a dialog is open or a field has the focus, an action that
-`App::why_refused` refuses (a kiosk's, say), or a command or choice the window does not know.
+`App::why_refused` refuses, or a command or choice the window does not know.
+
+In a kiosk, `--remote` stays the operator's control. A kiosk refuses only the actions it does
+not allow (`KIOSK_ACTIONS`): turning full screen on or off, and a `run` of any other action.
+It does `next`, `previous`, `first`, `last`, `slideshow`, `random`, `open`, `subfolders`,
+`title`, `name`, `identify`, `quit` and the queries. `a_kiosk_takes_the_operators_commands`
+pins this, and a new command is decided there.
 The client then exits with `NOT_DONE` (3). A window from a version before these answers closes
 the connection without one, which the client takes as done. "Done" means that the command was
 taken; with `--wait` the client sends it after the word `wait`, and the window answers only when
@@ -206,12 +214,16 @@ rule is "one and many", its rule in `plural_form` and in the table of
 `plural_form_follows_each_po_header`, which fails while a `.po`'s Plural-Forms header is not
 there or `plural_form` picks other forms than it says.
 
-The translations are written by the agent that adds the text, in all fourteen languages, and
-no native reader has read any of them yet. The tests check only that each text is there and
-keeps its placeholders, not that it reads well. The maintainer decides who reads which
-language, and how a text that a native reader has checked is told apart from one that is not;
-until then an agent does not invent a way to mark them. An agent changes another text's
-translation only when it is wrong, and says so in the commit message.
+The translations are written by the agent that adds the text, in all fourteen languages. Only
+Norwegian bokmål (`po/no_nb.po`) is read by a native reader, the maintainer. So a new or
+changed text is written in all fourteen languages as before, but its entry is marked
+`#, fuzzy` (on the line before its `msgid`) in every language except `no_nb.po`, until a native
+reader has read it. Glimt shows a fuzzy translation like any other (`lang::parse`), and
+`lang::tests::only_norwegian_bokmal_is_read_by_a_native_reader` fails on an entry of another
+language without the mark, and on one of `no_nb.po` with it. The tests check only that each text
+is there and keeps its placeholders, not that it reads well. The maintainer decides who reads
+which other language. An agent changes another text's translation only when it is wrong, and
+says so in the commit message.
 
 ## Code layout
 

@@ -1505,24 +1505,13 @@ pub fn listen(
     };
     // Only the user may connect, even where $XDG_RUNTIME_DIR is not private as it should be.
     {
-        use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
+        use std::os::unix::fs::DirBuilderExt;
         let dir = path.parent().unwrap_or(&path);
         let _ = std::fs::DirBuilder::new()
             .recursive(true)
             .mode(0o700)
             .create(dir);
-        #[allow(clippy::disallowed_methods)] // the runtime folder of the sockets
-        let private = std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700));
-        if let Err(e) = private {
-            return Err(format!(
-                "No remote control: its folder there cannot be made private: {e}"
-            ));
-        }
-        // A folder made by another user meanwhile, between the look in `dir` and here, is not
-        // used.
-        if is_another_users_dir(dir) {
-            return Err("No remote control: its folder there is not this user's own".into());
-        }
+        make_own_folder_private(dir)?;
     }
     let (id, bound) = bind_or_share(socket_id(), given_name(), socket);
     let listener = match bound {
@@ -1734,9 +1723,9 @@ fn serve(
 
 /// Reads the next command, one line, from `reader`. A `select` or `info` may be as long as its
 /// files take, and any other command at most `MOST_LINE` bytes, so a client that sends without
-/// a line break holds no more memory than that. Returns the reason for a line too long, which
-/// the client is told, and `None` at the end, for a line that is not UTF-8, and when the client
-/// sends nothing within its time limit.
+/// a line break holds no more memory than that. Returns the reason for a line too long or not
+/// UTF-8, which the client is told, and `None` at the end and when the client sends nothing
+/// within its time limit.
 fn read_command(reader: &mut impl BufRead) -> Option<Result<String, &'static str>> {
     let mut line = Vec::new();
     std::io::Read::take(&mut *reader, MOST_LINE)
@@ -1769,7 +1758,38 @@ fn read_command(reader: &mut impl BufRead) -> Option<Result<String, &'static str
     }
     let line = line.strip_suffix(b"\n").unwrap_or(&line);
     let line = line.strip_suffix(b"\r").unwrap_or(line);
-    String::from_utf8(line.to_vec()).ok().map(Ok)
+    // Told, as an end without an answer would read as done.
+    Some(String::from_utf8(line.to_vec()).map_err(|_| "not UTF-8"))
+}
+
+/// Makes the folder `dir` of the sockets private to the user, when it is the user's own. The
+/// folder is opened without following a link, and checked and changed through what was opened,
+/// so another user who swaps the name for a link meanwhile (where $XDG_RUNTIME_DIR is a shared
+/// folder such as /tmp) changes nothing of the user's. Returns the reason when it is not done.
+fn make_own_folder_private(dir: &Path) -> Result<(), String> {
+    use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+    let not_own = || "No remote control: its folder there is not this user's own".to_owned();
+    let cannot = |e: std::io::Error| {
+        format!("No remote control: its folder there cannot be made private: {e}")
+    };
+    #[allow(clippy::disallowed_methods)] // the runtime folder of the sockets, never through a link
+    let opened = std::fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_NOFOLLOW | libc::O_DIRECTORY)
+        .open(dir);
+    let folder = match opened {
+        Ok(folder) => folder,
+        Err(_) if is_another_users_dir(dir) => return Err(not_own()),
+        Err(e) => return Err(cannot(e)),
+    };
+    let uid = std::fs::metadata("/proc/self").map(|m| m.uid());
+    let owner = folder.metadata().map_err(cannot)?.uid();
+    if uid.is_ok_and(|uid| uid != owner) {
+        return Err(not_own());
+    }
+    folder
+        .set_permissions(std::fs::Permissions::from_mode(0o700))
+        .map_err(cannot)
 }
 
 /// Whether `dir` is there and not the user's own folder.
@@ -2416,6 +2436,72 @@ mod tests {
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
+    /// In a kiosk, `--remote` stays the operator's control. This pins which commands a kiosk
+    /// does and which it refuses, so that neither changes by accident. The commands that move
+    /// through the list, the slideshow and the random order are actions that a kiosk allows.
+    /// Open, subfolders, random on or off, title, identify and quit are done without asking
+    /// `why_refused`. Name and the queries (current, selection, select, info) are answered
+    /// before `remote_command`, so a kiosk does not refuse them either. Turning full screen
+    /// on or off, and a `run` of an action that a kiosk does not allow, are refused. Each
+    /// command of `COMMANDS` is decided here, so a new one must be too.
+    #[test]
+    fn a_kiosk_takes_the_operators_commands() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-kiosk-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let (mut app, ctx) = app_on(&dir);
+        app.list.set_files(vec!["a.png".into(), "b.png".into()]);
+        app.window = crate::ui::window::Window::new(true);
+        let open = format!("open {}", dir.display());
+        // (command, done in a kiosk). The test's window is not in full screen.
+        let through_remote_command = [
+            ("next", true),
+            ("previous", true),
+            ("first", true),
+            ("last", true),
+            ("slideshow", true),
+            ("slideshow off", true),
+            ("random", true),
+            ("random on", true),
+            ("random off", true),
+            ("fullscreen", false),
+            ("fullscreen on", false),
+            ("fullscreen off", true),
+            ("subfolders on", true),
+            ("subfolders off", true),
+            (open.as_str(), true),
+            ("title Gallery", true),
+            ("title", true),
+            ("identify", true),
+            ("run Next", true),
+            ("run Toolbar", false),
+            ("run FullScreen", false),
+            ("quit", true),
+        ];
+        for (command, done) in through_remote_command {
+            let result = app.remote_command(&ctx, command);
+            assert_eq!(result.is_ok(), done, "{command}: {result:?}");
+            if let Err(why) = result {
+                assert!(why.contains("kiosk"), "{command}: {why}");
+            }
+        }
+        let answered_before = ["name x", "current", "selection", "select a.png", "info"];
+        for command in answered_before {
+            let named = super::name_asked(command).is_some();
+            assert!(named || super::is_query(command), "{command}");
+        }
+        for (usage, _) in super::COMMANDS {
+            let word = usage.split(' ').next().unwrap();
+            let decided = (through_remote_command.iter().map(|c| c.0))
+                .chain(answered_before)
+                .any(|c| c.split(' ').next() == Some(word));
+            assert!(
+                decided || word == "where",
+                "{word}: not decided for a kiosk here"
+            );
+        }
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
     /// A `run` that the window refuses is told as not done, with the window's reason. A kiosk
     /// refuses what is not for browsing, and an action on a file has none to act on in an
     /// empty list. Before, both were answered as done, so the script exited 0.
@@ -2937,6 +3023,36 @@ mod tests {
             let more = format!("{command} {}\nnext\n", files(super::MAX_SELECT + 1));
             assert_eq!(read(more), [Err(super::TOO_MANY_FILES)]);
         }
+    }
+
+    /// A line that is not UTF-8 is refused, and the client told so. Before, the window closed
+    /// the connection without an answer, which the client read as done.
+    #[test]
+    fn a_command_line_that_is_not_utf8_is_refused() {
+        let mut reader = std::io::Cursor::new(b"open /tmp/\xff\nnext\n".to_vec());
+        assert_eq!(super::read_command(&mut reader), Some(Err("not UTF-8")));
+    }
+
+    /// The folder of the sockets is made private only through what was opened, never through
+    /// a link. Before, its mode was set through the name first, which follows a link that
+    /// another user swapped in, and the folder was checked only after that.
+    #[test]
+    fn a_link_at_the_socket_folder_changes_nothing() {
+        use std::os::unix::fs::PermissionsExt;
+        let base =
+            std::env::temp_dir().join(format!("glimt-test-socket-folder-{}", std::process::id()));
+        let target = base.join("target");
+        std::fs::create_dir_all(&target).unwrap();
+        std::fs::set_permissions(&target, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let link = base.join("glimt");
+        std::os::unix::fs::symlink(&target, &link).unwrap();
+        assert!(super::make_own_folder_private(&link).is_err());
+        let mode = std::fs::metadata(&target).unwrap().permissions().mode();
+        assert_eq!(mode & 0o777, 0o755);
+        assert!(super::make_own_folder_private(&target).is_ok());
+        let mode = std::fs::metadata(&target).unwrap().permissions().mode();
+        assert_eq!(mode & 0o777, 0o700);
+        std::fs::remove_dir_all(base).unwrap();
     }
 
     /// A line too long, longer too than the socket's buffer, reaches the client over a real

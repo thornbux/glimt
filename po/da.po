@@ -9,3125 +9,3911 @@ msgstr ""
 "Plural-Forms: nplurals=2; plural=(n != 1);\n"
 
 #: src/ui/accessibility.rs
+#, fuzzy
 msgid "No images"
 msgstr "Ingen billeder"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "About Glimt"
 msgstr "Om Glimt"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Auto Rotate Using EXIF"
 msgstr "Roter automatisk efter EXIF"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Back"
 msgstr "Tilbage"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Back Up Glimt's Data…"
 msgstr "Sikkerhedskopiér Glimts data …"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Check Images…"
 msgstr "Kontrollér billeder …"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Close Window"
 msgstr "Luk vindue"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Compare Side by Side"
 msgstr "Sammenlign side om side"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Copy Files to Clipboard"
 msgstr "Kopiér filer til udklipsholderen"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Copy Image to Clipboard"
 msgstr "Kopiér billede til udklipsholderen"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Copy Path (Unquoted)"
 msgstr "Kopiér sti (uden anførselstegn)"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Copy Path to Clipboard"
 msgstr "Kopiér sti til udklipsholderen"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Copy…"
 msgstr "Kopiér …"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Delete Permanently…"
 msgstr "Slet permanent …"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Delete…"
 msgstr "Slet …"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "EXIF Window"
 msgstr "EXIF-vindue"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Export Frames…"
 msgstr "Eksportér rammer …"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Faster"
 msgstr "Hurtigere"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Fill the View"
 msgstr "Udfyld visningen"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Find Duplicates…"
 msgstr "Find dubletter …"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "First Image"
 msgstr "Første billede"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Fit the Height"
 msgstr "Tilpas til højden"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Fit the Width"
 msgstr "Tilpas til bredden"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Flip"
 msgstr "Vend lodret"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Forward"
 msgstr "Frem"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Full Screen"
 msgstr "Fuld skærm"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Help Manual"
 msgstr "Hjælp"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Hide File List"
 msgstr "Skjul fillisten"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Histogram: Off, RGB, Brightness"
 msgstr "Histogram: fra, RGB, lysstyrke"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Home"
 msgstr "Hjem"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Import Lightroom Catalog…"
 msgstr "Importér Lightroom-katalog …"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Include Subfolders"
 msgstr "Medtag undermapper"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Invert Selection"
 msgstr "Invertér markering"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Keyboard Map"
 msgstr "Tastaturkort"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Keyboard Shortcuts"
 msgstr "Tastaturgenveje"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Keywords and Comment"
 msgstr "Nøgleord og kommentar"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Last Image"
 msgstr "Sidste billede"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Logarithmic Histogram"
 msgstr "Logaritmisk histogram"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Mark 1"
 msgstr "Mærke 1"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Mark 2"
 msgstr "Mærke 2"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Mark 3"
 msgstr "Mærke 3"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Mark 4"
 msgstr "Mærke 4"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Mark 5"
 msgstr "Mærke 5"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Mark 6"
 msgstr "Mærke 6"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Mirror"
 msgstr "Spejl"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Move Collection to Trash"
 msgstr "Flyt samlingen til papirkurven"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Move Earlier in Collection"
 msgstr "Flyt tidligere i samlingen"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Move Later in Collection"
 msgstr "Flyt senere i samlingen"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Move to End of Collection"
 msgstr "Flyt til slutningen af samlingen"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Move to Start of Collection"
 msgstr "Flyt til starten af samlingen"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Move…"
 msgstr "Flyt …"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "New Collection…"
 msgstr "Ny samling …"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "New Folder…"
 msgstr "Ny mappe …"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "New Window"
 msgstr "Nyt vindue"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Next Filter"
 msgstr "Næste filter"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Next Image"
 msgstr "Næste billede"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Next Layout"
 msgstr "Næste layout"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Next Page"
 msgstr "Næste side"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "No Stars"
 msgstr "Ingen stjerner"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "One Image"
 msgstr "Ét billede"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Open Collection…"
 msgstr "Åbn samling …"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Open File…"
 msgstr "Åbn fil …"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Open Folder Recursive…"
 msgstr "Åbn mappe rekursivt …"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Open Folder…"
 msgstr "Åbn mappe …"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Open Several Folders…"
 msgstr "Åbn flere mapper …"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Open With Default App"
 msgstr "Åbn med standardprogram"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Pan View"
 msgstr "Panoramavisning"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Pane Above"
 msgstr "Ruden ovenover"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Pane Below"
 msgstr "Ruden nedenunder"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Pane to the Left"
 msgstr "Ruden til venstre"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Pane to the Right"
 msgstr "Ruden til højre"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Pause Slideshow"
 msgstr "Sæt diasshowet på pause"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Play Animations"
 msgstr "Afspil animationer"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Play Video"
 msgstr "Afspil video"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Preferences…"
 msgstr "Indstillinger …"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Previous Image"
 msgstr "Forrige billede"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Previous Page"
 msgstr "Forrige side"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Print…"
 msgstr "Udskriv …"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Projector"
 msgstr "Projektor"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Quit"
 msgstr "Afslut"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Random Order"
 msgstr "Tilfældig rækkefølge"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Refresh"
 msgstr "Opdatér"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Remove from Collection"
 msgstr "Fjern fra samlingen"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Rename Collection…"
 msgstr "Omdøb samlingen …"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Rename…"
 msgstr "Omdøb …"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Rotate 180°"
 msgstr "Roter 180°"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Rotate Clockwise"
 msgstr "Roter med uret"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Rotate Counterclockwise"
 msgstr "Roter mod uret"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Save Orientation to File"
 msgstr "Gem retningen i filen"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Save This Frame…"
 msgstr "Gem denne ramme …"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Search File Names"
 msgstr "Søg i filnavne"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Select All"
 msgstr "Vælg alle"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Select Mark 1"
 msgstr "Vælg mærke 1"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Select Mark 2"
 msgstr "Vælg mærke 2"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Select Mark 3"
 msgstr "Vælg mærke 3"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Select Mark 4"
 msgstr "Vælg mærke 4"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Select Mark 5"
 msgstr "Vælg mærke 5"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Select Mark 6"
 msgstr "Vælg mærke 6"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Select None"
 msgstr "Vælg ingen"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Show Info Panel"
 msgstr "Vis infopanelet"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Show Folder Path"
 msgstr "Vis mappestien"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Show Folder Tree"
 msgstr "Vis mappetræet"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Show Hidden Files"
 msgstr "Vis skjulte filer"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Show Image Info in Full Screen"
 msgstr "Vis billedinfo i fuld skærm"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Show Sort Manager"
 msgstr "Vis sorteringshåndteringen"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Show the Pointer on the Projector"
 msgstr "Vis markøren på projektoren"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Show Thumbnails"
 msgstr "Vis miniaturer"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Thumbnails in Image Area"
 msgstr "Miniaturer i billedområdet"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Show Toolbar"
 msgstr "Vis værktøjslinjen"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Slower"
 msgstr "Langsommere"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Start/Stop Slideshow"
 msgstr "Start/stop diasshow"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Stop Slideshow, Leave Full Screen"
 msgstr "Stop diasshowet, forlad fuld skærm"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Two Above Each Other"
 msgstr "To over hinanden"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Up"
 msgstr "Op"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "View Images as Icons"
 msgstr "Vis billeder som ikoner"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Zoom 1:1"
 msgstr "Zoom 1:1"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Zoom In"
 msgstr "Zoom ind"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Zoom Out"
 msgstr "Zoom ud"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Zoom to Fit"
 msgstr "Tilpas til vinduet"
 
 #: src/model/collections.rs
+#, fuzzy
 msgid "Not a valid collection name: \"{name}\""
 msgstr "Ikke et gyldigt samlingsnavn: »{name}«"
 
 #: src/model/collections.rs
+#, fuzzy
 msgid "There is a collection called \"{name}\" already"
 msgstr "Der findes allerede en samling med navnet »{name}«"
 
 #: src/features/duplicates.rs
+#, fuzzy
 msgid "Among the {count} in the list, compare by"
 msgstr "Blandt de {count} i listen, sammenlign efter"
 
 #: src/features/duplicates.rs
+#, fuzzy
 msgid "Check all but the first of each group"
 msgstr "Markér alle undtagen den første i hver gruppe"
 
 #: src/features/duplicates.rs
+#, fuzzy
 msgid "Checksum (identical files)"
 msgstr "Kontrolsum (identiske filer)"
 
 #: src/features/duplicates.rs
+#, fuzzy
 msgid "Comparing… {done} of {total}"
 msgstr "Sammenligner … {done} af {total}"
 
 #: src/features/duplicates.rs
+#, fuzzy
 msgid "Find"
 msgstr "Find"
 
 #: src/features/duplicates.rs
+#, fuzzy
 msgid "Find Duplicates"
 msgstr "Find dubletter"
 
 #: src/features/duplicates.rs
+#, fuzzy
 msgid "Group {n} ({files})"
 msgstr "Gruppe {n} ({files})"
 
 #: src/features/duplicates.rs
+#, fuzzy
 msgid "Include Subfolders in the View menu searches the folders below too."
 msgstr "Medtag undermapper i Vis-menuen søger også i mapperne nedenunder."
 
 #: src/features/duplicates.rs
+#, fuzzy
 msgid "Move {n} checked to trash…"
 msgstr "Flyt {n} markerede til papirkurven …"
 
 #: src/features/duplicates.rs
+#, fuzzy
 msgid "These groups were found by {by}, so the checked files may be different images, not copies."
 msgstr "Disse grupper blev fundet efter »{by}«, så de markerede filer kan være forskellige billeder, ikke kopier."
 
 #: src/features/duplicates.rs
+#, fuzzy
 msgid "Move to Trash Anyway"
 msgstr "Flyt til papirkurven alligevel"
 
 #: src/files/config.rs
+#, fuzzy
 msgid "{files} left out: a name with a line break cannot be kept"
 msgstr "{files} udeladt: et navn med linjeskift kan ikke gemmes"
 
 #: src/features/duplicates.rs
+#, fuzzy
 msgid "Cancel"
 msgstr "Annuller"
 
 #: src/features/duplicates.rs
+#, fuzzy
 msgid "Name"
 msgstr "Navn"
 
 #: src/features/duplicates.rs
+#, fuzzy
 msgid "Similarity (90%)"
 msgstr "Lighed (90 %)"
 
 #: src/features/duplicates.rs
+#, fuzzy
 msgid "Similarity (high, 95%)"
 msgstr "Lighed (høj, 95 %)"
 
 #: src/features/duplicates.rs
+#, fuzzy
 msgid "Similarity (low, 85%)"
 msgstr "Lighed (lav, 85 %)"
 
 #: src/features/duplicates.rs
+#, fuzzy
 msgid "Size"
 msgstr "Størrelse"
 
 #: src/features/duplicates.rs
+#, fuzzy
 msgid "Stop"
 msgstr "Stop"
 
 #: src/features/duplicates.rs
+#, fuzzy
 msgid "The checked files are no longer all in the list"
 msgstr "De markerede filer er ikke længere alle i listen"
 
 #: src/features/duplicates.rs
+#, fuzzy
 msgid "Uncheck all"
 msgstr "Fjern alle markeringer"
 
 #: src/features/duplicates.rs
+#, fuzzy
 msgid "{groups}, {files}, among {images}"
 msgstr "{groups}, {files}, blandt {images}"
 
 #: src/files/file_ops.rs
+#, fuzzy
 msgid "Backing up"
 msgstr "Sikkerhedskopierer"
 
 #: src/files/file_ops.rs
+#, fuzzy
 msgid "Copy"
 msgstr "Kopiér"
 
 #: src/files/file_ops.rs
+#, fuzzy
 msgid "Copying"
 msgstr "Kopierer"
 
 #: src/files/file_ops.rs
+#, fuzzy
 msgid "Could not make {folder}"
 msgstr "Kunne ikke oprette {folder}"
 
 #: src/files/file_ops.rs
+#, fuzzy
 msgid "Could not rename {f} to {t}: {e}; nothing renamed"
 msgstr "Kunne ikke omdøbe {f} til {t}: {e}; intet blev omdøbt"
 
 #: src/files/file_ops.rs
+#, fuzzy
 msgid "Could not save the frames: {e}"
 msgstr "Kunne ikke gemme rammerne: {e}"
 
 #: src/files/file_ops.rs
+#, fuzzy
 msgid "Delete failed ({count}): {first}"
 msgstr "Sletning mislykkedes ({count}): {first}"
 
 #: src/files/file_ops.rs
+#, fuzzy
 msgid "Deleting"
 msgstr "Sletter"
 
 #: src/files/file_ops.rs
+#, fuzzy
 msgid "Renaming"
 msgstr "Omdøber"
 
 #: src/files/file_ops.rs
+#, fuzzy
 msgid "Exporting"
 msgstr "Eksporterer"
 
 #: src/files/file_ops.rs
+#, fuzzy
 msgid "gio trash (from glib): {e}"
 msgstr "gio trash (fra glib): {e}"
 
 #: src/files/file_ops.rs
+#, fuzzy
 msgid "Move"
 msgstr "Flyt"
 
 #: src/files/file_ops.rs
+#, fuzzy
 msgid "Moving"
 msgstr "Flytter"
 
 #: src/files/file_ops.rs
+#, fuzzy
 msgid "Saved {file}"
 msgstr "Gemte {file}"
 
 #: src/files/file_ops.rs
+#, fuzzy
 msgid "Saved; it shows when Auto Rotate Using EXIF is on"
 msgstr "Gemt; det ses, når Roter automatisk efter EXIF er slået til"
 
 #: src/files/file_ops.rs
+#, fuzzy
 msgid "Still saving a rotation: try again in a moment"
 msgstr "Gemmer stadig en rotation: prøv igen om et øjeblik"
 
 #: src/files/file_ops.rs
+#, fuzzy
 msgid "The files asked about are no longer in the list: nothing was done"
 msgstr "Filerne, der blev spurgt om, er ikke længere i listen: intet blev gjort"
 
 #: src/files/file_ops.rs
+#, fuzzy
 msgid "The pattern gives several files the same name; add # for a number"
 msgstr "Mønsteret giver flere filer samme navn; tilføj # for et nummer"
 
 #: src/files/file_ops.rs
+#, fuzzy
 msgid "Writing the sidecars stopped at a file that broke it"
 msgstr "Skrivningen af sidefilerne stoppede ved en fil, der fik den til at fejle"
 
 #: src/files/file_ops.rs
+#, fuzzy
 msgid "{count} deleted"
 msgstr "{count} slettet"
 
 #: src/files/file_ops.rs
+#, fuzzy
 msgid "{count} moved to the trash"
 msgstr "{count} flyttet til papirkurven"
 
 #: src/files/file_ops.rs
+#, fuzzy
 msgid "{frames} saved in {folder}"
 msgstr "{frames} gemt i {folder}"
 
 #: src/files/file_ops.rs
+#, fuzzy
 msgid "{name} exists already; nothing renamed"
 msgstr "{name} findes allerede; intet blev omdøbt"
 
 #: src/files/file_ops.rs
+#, fuzzy
 msgid "{verb} failed ({count}): {first}"
 msgstr "{verb} mislykkedes ({count}): {first}"
 
 #: src/metadata/lightroom.rs
+#, fuzzy
 msgid "Cancel (Esc)"
 msgstr "Annullér (Esc)"
 
 #: src/metadata/lightroom.rs
+#, fuzzy
 msgid "Import"
 msgstr "Importér"
 
 #: src/metadata/lightroom.rs
+#, fuzzy
 msgid "Import from Lightroom"
 msgstr "Importér fra Lightroom"
 
 #: src/metadata/lightroom.rs
+#, fuzzy
 msgid "Importing"
 msgstr "Importerer"
 
 #: src/metadata/lightroom.rs
+#, fuzzy
 msgid "Keep Glimt's stars"
 msgstr "Behold Glimts stjerner"
 
 #: src/metadata/lightroom.rs
+#, fuzzy
 msgid "Lightroom has the catalog open: close Lightroom first"
 msgstr "Lightroom har kataloget åbent: luk Lightroom først"
 
 #: src/metadata/lightroom.rs
+#, fuzzy
 msgid "Lightroom's stars or keywords not written to the sidecars of {count}"
 msgstr "Lightrooms stjerner eller nøgleord blev ikke skrevet til sidefilerne for {count}"
 
 #: src/metadata/lightroom.rs
+#, fuzzy
 msgid "Next"
 msgstr "Næste"
 
 #: src/metadata/lightroom.rs
+#, fuzzy
 msgid "Not a Lightroom Classic catalog Glimt can read: {why}"
 msgstr "Ikke et Lightroom Classic-katalog, som Glimt kan læse: {why}"
 
 #: src/metadata/lightroom.rs
+#, fuzzy
 msgid "Reading a Lightroom catalog needs the sqlite3 program"
 msgstr "Læsning af et Lightroom-katalog kræver programmet sqlite3"
 
 #: src/metadata/lightroom.rs
+#, fuzzy
 msgid "Take Lightroom's stars"
 msgstr "Tag Lightrooms stjerner"
 
 #: src/metadata/lightroom.rs
+#, fuzzy
 msgid "the keywords of {count}"
 msgstr "nøgleordene for {count}"
 
 #: src/metadata/lightroom.rs
+#, fuzzy
 msgid "the stars of {count}"
 msgstr "stjernerne for {count}"
 
 #: src/metadata/lightroom.rs
+#, fuzzy
 msgid "There already, so they get only the images they lack: {names}."
 msgstr "Findes allerede, så de får kun de billeder, de mangler: {names}."
 
 #: src/metadata/lightroom.rs
+#, fuzzy
 msgid "Not found and left out: {count}. Import again once their drive is mounted."
 msgstr "Ikke fundet og udeladt: {count}. Importér igen, når deres drev er monteret."
 
 #: src/metadata/lightroom.rs
+#, fuzzy
 msgid "Where the catalog's folders are now (empty: left out):"
 msgstr "Hvor katalogets mapper er nu (tom: udelades):"
 
 #: src/metadata/lightroom.rs
+#, fuzzy
 msgid "{collections}, {keywords} and the stars of {images}."
 msgstr "{collections}, {keywords} og stjernerne for {images}."
 
 #: src/metadata/lightroom.rs
+#, fuzzy
 msgid "{count} have"
 msgstr "{count} har"
 
 #: src/metadata/lightroom.rs
+#, fuzzy
 msgid "{needs}, which is not installed"
 msgstr "{needs}, som ikke er installeret"
 
 #: src/metadata/lightroom.rs
+#, fuzzy
 msgid "{n} other stars in Glimt:"
 msgstr "{n} andre stjerner i Glimt:"
 
 #: src/main.rs
+#, fuzzy
 msgid ", and {n} more"
 msgstr ", og {n} mere"
 
 #: src/main.rs
+#, fuzzy
 msgid "; and {n} more (glimt --check-config)"
 msgstr "; og {n} mere (glimt --check-config)"
 
 #: src/main.rs
+#, fuzzy
 msgid "A file dialog is open already"
 msgstr "En fildialog er allerede åben"
 
 #: src/main.rs
+#, fuzzy
 msgid "A plain list is not renamed or trashed by Glimt"
 msgstr "En almindelig liste omdøbes eller kasseres ikke af Glimt"
 
 #: src/main.rs
+#, fuzzy
 msgid "Add"
 msgstr "Tilføj"
 
 #: src/main.rs
+#, fuzzy
 msgid "Add the keywords to the {n} selected"
 msgstr "Tilføj nøgleordene til de {n} valgte"
 
 #: src/main.rs
+#, fuzzy
 msgid "Add This Folder"
 msgstr "Tilføj denne mappe"
 
 #: src/main.rs
+#, fuzzy
 msgid "Add this image's keywords to the tree"
 msgstr "Tilføj billedets nøgleord til træet"
 
 #: src/main.rs
+#, fuzzy
 msgid "Add to Collection"
 msgstr "Tilføj til samling"
 
 #: src/main.rs
+#, fuzzy
 msgid "Adding keywords"
 msgstr "Tilføjer nøgleord"
 
 #: src/main.rs
+#, fuzzy
 msgid "Add…"
 msgstr "Tilføj …"
 
 #: src/main.rs
+#, fuzzy
 msgid "All Images Change Together"
 msgstr "Alle billeder skifter sammen"
 
 #: src/main.rs
+#, fuzzy
 msgid "Alt text"
 msgstr "Alternativ tekst"
 
 #: src/main.rs
+#, fuzzy
 msgid "Ascending"
 msgstr "Stigende"
 
 #: src/main.rs
+#, fuzzy
 msgid "Case"
 msgstr "Store/små bogstaver"
 
 #: src/main.rs
+#, fuzzy
 msgid "Check"
 msgstr "Kontrollér"
 
 #: src/main.rs
+#, fuzzy
 msgid "Check Images"
 msgstr "Kontrollér billeder"
 
 #: src/main.rs
+#, fuzzy
 msgid "Collections"
 msgstr "Samlinger"
 
 #: src/main.rs
+#, fuzzy
 msgid "Colour Management"
 msgstr "Farvestyring"
 
 #: src/main.rs
+#, fuzzy
 msgid "Comment"
 msgstr "Kommentar"
 
 #: src/main.rs
+#, fuzzy
 msgid "Connect (Enter)"
 msgstr "Forbind (Enter)"
 
 #: src/main.rs
+#, fuzzy
 msgid "Connecting to {uri}…"
 msgstr "Forbinder til {uri} …"
 
 #: src/main.rs
+#, fuzzy
 msgid "Could not copy the image: {e}"
 msgstr "Kunne ikke kopiere billedet: {e}"
 
 #: src/main.rs
+#, fuzzy
 msgid "Could not copy to the clipboard: {e}"
 msgstr "Kunne ikke kopiere til udklipsholderen: {e}"
 
 #: src/main.rs
+#, fuzzy
 msgid "Could not open a new window: {e}"
 msgstr "Kunne ikke åbne et nyt vindue: {e}"
 
 #: src/main.rs
+#, fuzzy
 msgid "Could not read the keyword tree: {e}"
 msgstr "Kunne ikke læse nøgleordstræet: {e}"
 
 #: src/main.rs
+#, fuzzy
 msgid "Could not save the keyword tree: {e}"
 msgstr "Kunne ikke gemme nøgleordstræet: {e}"
 
 #: src/main.rs
+#, fuzzy
 msgid "Could not read the sort manager's folders: {e}"
 msgstr "Kunne ikke læse sorteringshåndteringens mapper: {e}"
 
 #: src/main.rs
+#, fuzzy
 msgid "Could not save the alt text: {e}"
 msgstr "Kunne ikke gemme den alternative tekst: {e}"
 
 #: src/main.rs
+#, fuzzy
 msgid "Could not save the collection: {e}"
 msgstr "Kunne ikke gemme samlingen: {e}"
 
 #: src/main.rs
+#, fuzzy
 msgid "Could not save the keywords: {e}"
 msgstr "Kunne ikke gemme nøgleordene: {e}"
 
 #: src/main.rs
+#, fuzzy
 msgid "Could not save the orientation: {e}"
 msgstr "Kunne ikke gemme retningen: {e}"
 
 #: src/main.rs
+#, fuzzy
 msgid "Could not save the sort manager's folders: no home folder"
 msgstr "Kunne ikke gemme sorteringshåndteringens mapper: ingen hjemmemappe"
 
 #: src/main.rs
+#, fuzzy
 msgid "Could not save the sort manager's folders: {e}"
 msgstr "Kunne ikke gemme sorteringshåndteringens mapper: {e}"
 
 #: src/main.rs
+#, fuzzy
 msgid "Could not save the theme: {e}"
 msgstr "Kunne ikke gemme temaet: {e}"
 
 #: src/main.rs
+#, fuzzy
 msgid "Could not trash {name} (gio is needed): {e}"
 msgstr "Kunne ikke kassere {name} (gio er nødvendig): {e}"
 
 #: src/main.rs
+#, fuzzy
 msgid "Could not trash {name}: {err}"
 msgstr "Kunne ikke kassere {name}: {err}"
 
 #: src/main.rs
+#, fuzzy
 msgid "Delete (Enter)"
 msgstr "Slet (Enter)"
 
 #: src/main.rs
+#, fuzzy
 msgid "Desktop files there, as Geeqie's, show in this menu after a restart"
 msgstr "Desktop-filer der, som Geeqies, vises i denne menu efter en genstart"
 
 #: src/main.rs
+#, fuzzy
 msgid "Dimensions"
 msgstr "Dimensioner"
 
 #: src/main.rs
+#, fuzzy
 msgid "Domain:"
 msgstr "Domæne:"
 
 #: src/main.rs
+#, fuzzy
 msgid "Each file keeps its own keywords and gets these too"
 msgstr "Hver fil beholder sine egne nøgleord og får også disse"
 
 #: src/main.rs
+#, fuzzy
 msgid "Edit"
 msgstr "Redigér"
 
 #: src/main.rs
+#, fuzzy
 msgid "Extended description"
 msgstr "Udvidet beskrivelse"
 
 #: src/main.rs
+#, fuzzy
 msgid "File"
 msgstr "Fil"
 
 #: src/main.rs
+#, fuzzy
 msgid "Filter"
 msgstr "Filter"
 
 #: src/main.rs
+#, fuzzy
 msgid "Finish the renaming"
 msgstr "Afslut omdøbningen"
 
 #: src/main.rs
+#, fuzzy
 msgid "First: {name}"
 msgstr "Første: {name}"
 
 #: src/main.rs
+#, fuzzy
 msgid "Get More Themes…"
 msgstr "Hent flere temaer …"
 
 #: src/main.rs
+#, fuzzy
 msgid "Glimt ({n})"
 msgstr "Glimt ({n})"
 
 #: src/main.rs
+#, fuzzy
 msgid "Go"
 msgstr "Gå"
 
 #: src/main.rs
+#, fuzzy
 msgid "Help"
 msgstr "Hjælp"
 
 #: src/main.rs
+#, fuzzy
 msgid "Images"
 msgstr "Billeder"
 
 #: src/main.rs
+#, fuzzy
 msgid "Keyword tree"
 msgstr "Nøgleordstræ"
 
 #: src/main.rs
+#, fuzzy
 msgid "Keywords"
 msgstr "Nøgleord"
 
 #: src/main.rs
+#, fuzzy
 msgid "Keywords added to {count}"
 msgstr "Nøgleord tilføjet til {count}"
 
 #: src/main.rs
+#, fuzzy
 msgid "Keywords could not be saved for {count}"
 msgstr "Nøgleord kunne ikke gemmes for {count}"
 
 #: src/main.rs
+#, fuzzy
 msgid "Later"
 msgstr "Senere"
 
 #: src/main.rs
+#, fuzzy
 msgid "Layout"
 msgstr "Layout"
 
 #: src/main.rs
+#, fuzzy
 msgid "Log in to {uri}"
 msgstr "Log ind på {uri}"
 
 #: src/main.rs
+#, fuzzy
 msgid "Marks and Stars"
 msgstr "Mærker og stjerner"
 
 #: src/main.rs
+#, fuzzy
 msgid "Move Folder to Trash…"
 msgstr "Flyt mappen til papirkurven …"
 
 #: src/main.rs
+#, fuzzy
 msgid "Move in Collection"
 msgstr "Flyt i samlingen"
 
 #: src/main.rs
+#, fuzzy
 msgid "Move the folder \"{name}\" and all in it to the trash?"
 msgstr "Flyt mappen »{name}« og alt i den til papirkurven?"
 
 #: src/main.rs
+#, fuzzy
 msgid "Move to Trash (Enter)"
 msgstr "Flyt til papirkurven (Enter)"
 
 #: src/main.rs
+#, fuzzy
 msgid "Move {what} to the trash?"
 msgstr "Flyt {what} til papirkurven?"
 
 #: src/main.rs
+#, fuzzy
 msgid "Name of a new collection with {count}:"
 msgstr "Navn på en ny samling med {count}:"
 
 #: src/main.rs
+#, fuzzy
 msgid "New Folder makes a folder in the folder shown: open one"
 msgstr "Ny mappe opretter en mappe i den viste mappe: åbn en"
 
 #: src/main.rs
+#, fuzzy
 msgid "New names for {count} (* = old name, # = number, ### = 001):"
 msgstr "Nye navne til {count} (* = gammelt navn, # = nummer, ### = 001):"
 
 #: src/main.rs
+#, fuzzy
 msgid "No applications found"
 msgstr "Ingen programmer fundet"
 
 #: src/main.rs
+#, fuzzy
 msgid "No collections yet"
 msgstr "Ingen samlinger endnu"
 
 #: src/main.rs
+#, fuzzy
 msgid "No EXIF data"
 msgstr "Ingen EXIF-data"
 
 #: src/main.rs
+#, fuzzy
 msgid "No file dialog (install zenity or kdialog): {e}"
 msgstr "Ingen fildialog (installér zenity eller kdialog): {e}"
 
 #: src/main.rs
+#, fuzzy
 msgid "No images for a collection here"
 msgstr "Ingen billeder til en samling her"
 
 #: src/main.rs
+#, fuzzy
 msgid "No images in folder"
 msgstr "Ingen billeder i mappen"
 
 #: src/main.rs
+#, fuzzy
 msgid "No tools"
 msgstr "Ingen værktøjer"
 
 #: src/main.rs
+#, fuzzy
 msgid "No such folder: {folder}"
 msgstr "Ingen sådan mappe: {folder}"
 
 #: src/main.rs
+#, fuzzy
 msgid "Not a valid name: \"{text}\""
 msgstr "Ikke et gyldigt navn: »{text}«"
 
 #: src/main.rs
+#, fuzzy
 msgid "OK (Enter)"
 msgstr "OK (Enter)"
 
 #: src/main.rs
+#, fuzzy
 msgid "One Image at a Time"
 msgstr "Ét billede ad gangen"
 
 #: src/main.rs
+#, fuzzy
 msgid "Only the images of a collection can be moved"
 msgstr "Kun billederne i en samling kan flyttes"
 
 #: src/main.rs
+#, fuzzy
 msgid "Open the Tools Folder"
 msgstr "Åbn værktøjsmappen"
 
 #: src/main.rs
+#, fuzzy
 msgid "Open Themes Folder"
 msgstr "Åbn temamappen"
 
 #: src/main.rs
+#, fuzzy
 msgid "Open With"
 msgstr "Åbn med"
 
 #: src/main.rs
+#, fuzzy
 msgid "Orientation"
 msgstr "Retning"
 
 #: src/main.rs
+#, fuzzy
 msgid "Password:"
 msgstr "Adgangskode:"
 
 #: src/main.rs
+#, fuzzy
 msgid "Permanently delete {what}?"
 msgstr "Slet {what} permanent?"
 
 #: src/main.rs
+#, fuzzy
 msgid "Places|Norway|Oslo"
 msgstr "Steder|Norge|Oslo"
 
 #: src/main.rs
+#, fuzzy
 msgid "Tools"
 msgstr "Værktøjer"
 
 #: src/main.rs
+#, fuzzy
 msgid "Put the old names back"
 msgstr "Sæt de gamle navne tilbage"
 
 #: src/main.rs
+#, fuzzy
 msgid "Random order is on: R turns it off to move images"
 msgstr "Tilfældig rækkefølge er slået til: R slår den fra for at flytte billeder"
 
 #: src/main.rs
+#, fuzzy
 msgid "Reading folder…"
 msgstr "Læser mappen …"
 
 #: src/main.rs
+#, fuzzy
 msgid "Remove"
 msgstr "Fjern"
 
 #: src/main.rs
+#, fuzzy
 msgid "Remove from the tree"
 msgstr "Fjern fra træet"
 
 #: src/main.rs
+#, fuzzy
 msgid "Rename Folder…"
 msgstr "Omdøb mappen …"
 
 #: src/main.rs
+#, fuzzy
 msgid "Rename Many is still renaming"
 msgstr "Omdøb flere omdøber stadig"
 
 #: src/main.rs
+#, fuzzy
 msgid "Rename Many was cut short"
 msgstr "Omdøb flere blev afbrudt"
 
 #: src/main.rs
+#, fuzzy
 msgid "Save as Theme…"
 msgstr "Gem som tema …"
 
 #: src/main.rs
+#, fuzzy
 msgid "Select"
 msgstr "Vælg"
 
 #: src/main.rs
+#, fuzzy
 msgid "Select Them"
 msgstr "Vælg dem"
 
 #: src/main.rs
+#, fuzzy
 msgid "Separated by commas"
 msgstr "Adskilt af kommaer"
 
 #: src/main.rs
+#, fuzzy
 msgid "{tag} set on {count}"
 msgstr "{tag} sat på {count}"
 
 #: src/main.rs
+#, fuzzy
 msgid "Setting keywords"
 msgstr "Sætter nøgleord"
 
 #: src/main.rs
+#, fuzzy
 msgid "Show File Names"
 msgstr "Vis filnavne"
 
 #: src/main.rs
+#, fuzzy
 msgid "Show on OpenStreetMap"
 msgstr "Vis på OpenStreetMap"
 
 #: src/main.rs
+#, fuzzy
 msgid "Show Together with These Images"
 msgstr "Vis sammen med disse billeder"
 
 #: src/main.rs
+#, fuzzy
 msgid "Slideshow in this layout:"
 msgstr "Diasshow i dette layout:"
 
 #: src/main.rs
+#, fuzzy
 msgid "Sort Manager"
 msgstr "Sorteringshåndtering"
 
 #: src/main.rs
+#, fuzzy
 msgid "Start Slideshow"
 msgstr "Start diasshow"
 
 #: src/main.rs
+#, fuzzy
 msgid "Still saving the last rotation of this file"
 msgstr "Gemmer stadig den seneste rotation af denne fil"
 
 #: src/main.rs
+#, fuzzy
 msgid "Stop Slideshow"
 msgstr "Stop diasshow"
 
 #: src/files/file_ops.rs
+#, fuzzy
 msgid "Stopped: {done} of {total}"
 msgstr "Stoppet: {done} af {total}"
 
 #: src/main.rs
+#, fuzzy
 msgid "{tag} taken off {count}"
 msgstr "{tag} taget af {count}"
 
 #: src/main.rs
+#, fuzzy
 msgid "Taking keywords off"
 msgstr "Fjerner nøgleord"
 
 #: src/main.rs
+#, fuzzy
 msgid "Tell upper and lower case apart"
 msgstr "Skeln mellem store og små bogstaver"
 
+#, fuzzy
 msgid "Search file names (3+ letters), re: pattern, or exif: camera, date …"
 msgstr "Søg i filnavne (3+ bogstaver), re: mønster eller exif: kamera, dato …"
 
+#, fuzzy
 msgid "Filter file names by pattern, or exif: camera, date …"
 msgstr "Filtrér filnavne efter mønster eller exif: kamera, dato …"
 
 #: src/main.rs
+#, fuzzy
 msgid "Regular expression instead of fuzzy search"
 msgstr "Regulært udtryk i stedet for uskarp søgning"
 
 #: src/main.rs
+#, fuzzy
 msgid "The collection {file} is gone (renamed or removed in another window): not saved"
 msgstr "Samlingen {file} er væk (omdøbt eller fjernet i et andet vindue): ikke gemt"
 
 #: src/main.rs
+#, fuzzy
 msgid "The keyword could not be saved for {count}"
 msgstr "Nøgleordet kunne ikke gemmes for {count}"
 
 #: src/main.rs
+#, fuzzy
 msgid "The pane these details are of: the one under the pointer"
 msgstr "Ruden, disse detaljer gælder: den under markøren"
 
 #: src/main.rs
+#, fuzzy
 msgid "The settings are locked (--lock-settings)"
 msgstr "Indstillingerne er låst (--lock-settings)"
 
 #: src/main.rs
+#, fuzzy
 msgid "The stars could not be written to the XMP sidecar of {count}"
 msgstr "Stjernerne kunne ikke skrives til XMP-sidefilen for {count}"
 
 #: src/main.rs
+#, fuzzy
 msgid "Theme"
 msgstr "Tema"
 
 #: src/main.rs
+#, fuzzy
 msgid "This cannot be undone."
 msgstr "Dette kan ikke fortrydes."
 
 #: src/main.rs
+#, fuzzy
 msgid "User:"
 msgstr "Bruger:"
 
 #: src/main.rs
+#, fuzzy
 msgid "Video: Enter or click to play"
 msgstr "Video: Enter eller klik for at afspille"
 
 #: src/main.rs
+#, fuzzy
 msgid "Videos"
 msgstr "Videoer"
 
 #: src/main.rs
+#, fuzzy
 msgid "View"
 msgstr "Vis"
 
 #: src/main.rs
+#, fuzzy
 msgid "What the picture shows, for someone who cannot see it"
 msgstr "Hvad billedet viser, for en der ikke kan se det"
 
 #: src/main.rs
+#, fuzzy
 msgid "Window"
 msgstr "Vindue"
 
 #: src/main.rs
+#, fuzzy
 msgid "Writing stars"
 msgstr "Skriver stjerner"
 
 #: src/main.rs
+#, fuzzy
 msgid "Zoom"
 msgstr "Zoom"
 
 #: src/main.rs
+#, fuzzy
 msgid "{doing} {done} of {total}…{more}"
 msgstr "{doing} {done} af {total} …{more}"
 
 #: src/main.rs
+#, fuzzy
 msgid "{n} added to the collection \"{name}\""
 msgstr "{n} tilføjet til samlingen »{name}«"
 
 #: src/main.rs
+#, fuzzy
 msgid "{n} broken:"
 msgstr "{n} ødelagte:"
 
 #: src/main.rs
+#, fuzzy
 msgid "{text} is a built-in theme: choose another name"
 msgstr "{text} er et indbygget tema: vælg et andet navn"
 
 #: src/main.rs LAYOUTS
+#, fuzzy
 msgid "Four (2 × 2)"
 msgstr "Fire (2 × 2)"
 
 #: src/main.rs LAYOUTS
+#, fuzzy
 msgid "Two Side by Side"
 msgstr "To side om side"
 
 #: src/viewer/pan.rs
+#, fuzzy
 msgid "April"
 msgstr "april"
 
 #: src/viewer/pan.rs
+#, fuzzy
 msgid "August"
 msgstr "august"
 
 #: src/viewer/pan.rs
+#, fuzzy
 msgid "Calendar"
 msgstr "Kalender"
 
 #: src/viewer/pan.rs
+#, fuzzy
 msgid "December"
 msgstr "december"
 
 #: src/viewer/pan.rs
+#, fuzzy
 msgid "EXIF date"
 msgstr "EXIF-dato"
 
 #: src/viewer/pan.rs
+#, fuzzy
 msgid "February"
 msgstr "februar"
 
 #: src/viewer/pan.rs
+#, fuzzy
 msgid "January"
 msgstr "januar"
 
 #: src/viewer/pan.rs
+#, fuzzy
 msgid "July"
 msgstr "juli"
 
 #: src/viewer/pan.rs
+#, fuzzy
 msgid "June"
 msgstr "juni"
 
 #: src/viewer/pan.rs
+#, fuzzy
 msgid "March"
 msgstr "marts"
 
 #: src/viewer/pan.rs
+#, fuzzy
 msgid "May"
 msgstr "maj"
 
 #: src/viewer/pan.rs
+#, fuzzy
 msgid "No date"
 msgstr "Ingen dato"
 
 #: src/viewer/pan.rs
+#, fuzzy
 msgid "November"
 msgstr "november"
 
 #: src/viewer/pan.rs
+#, fuzzy
 msgid "October"
 msgstr "oktober"
 
 #: src/viewer/pan.rs
+#, fuzzy
 msgid "September"
 msgstr "september"
 
 #: src/viewer/pan.rs
+#, fuzzy
 msgid "Timeline"
 msgstr "Tidslinje"
 
 #: src/viewer/pan.rs
+#, fuzzy
 msgid "{images} on {days}"
 msgstr "{images} på {days}"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Also write stars to XMP sidecars (photo.jpg.xmp), for darktable and digiKam"
 msgstr "Skriv også stjerner til XMP-sidefiler (photo.jpg.xmp), til darktable og digiKam"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Auto rotate images using EXIF (Alt+X)"
 msgstr "Roter billeder automatisk efter EXIF (Alt+X)"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Automatic (system language)"
 msgstr "Automatisk (systemets sprog)"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Background behind the image"
 msgstr "Baggrund bag billedet"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Black"
 msgstr "Sort"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Brightness"
 msgstr "Lysstyrke"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Change"
 msgstr "Skift"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Choose…"
 msgstr "Vælg …"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Colour management"
 msgstr "Farvestyring"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Confirm move file to Trash"
 msgstr "Bekræft flytning af fil til papirkurven"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Confirm permanent file delete"
 msgstr "Bekræft permanent sletning af fil"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "CPU use:"
 msgstr "Processorforbrug:"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Custom"
 msgstr "Brugerdefineret"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Decoding threads and one malloc arena take effect after a restart."
 msgstr "Afkodningstråde og én malloc-arena træder i kraft efter en genstart."
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Default"
 msgstr "Standard"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "default application"
 msgstr "standardprogram"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Details"
 msgstr "Detaljer"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Enable Delete key"
 msgstr "Aktivér Delete-tasten"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Enlarge small images to fit the window"
 msgstr "Forstør små billeder, så de udfylder vinduet"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Fade to the next image:"
 msgstr "Ton over til næste billede:"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "From colord, which GNOME and KDE set"
 msgstr "Fra colord, som GNOME og KDE indstiller"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Fuzzy, best matches first (like fzf)"
 msgstr "Uskarp, bedste match først (som fzf)"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "High Contrast when the desktop asks for high contrast"
 msgstr "Høj kontrast, når skrivebordet beder om høj kontrast"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Histogram (K):"
 msgstr "Histogram (K):"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Image info template:"
 msgstr "Skabelon for billedinfo:"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "images decoded at once"
 msgstr "billeder afkodet samtidig"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "images on each side"
 msgstr "billeder på hver side"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Images without a profile:"
 msgstr "Billeder uden profil:"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "In ~/.cache/thumbnails; kept for disks that are not plugged in"
 msgstr "I ~/.cache/thumbnails; beholdes for diske, der ikke er tilsluttet"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Include the images in subfolders"
 msgstr "Medtag billederne i undermapper"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Include the images in subfolders in the file list"
 msgstr "Medtag billederne i undermapper i fillisten"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Keep the screen saver off in full screen"
 msgstr "Hold pauseskærmen slukket i fuld skærm"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Keep zoom and position when changing image"
 msgstr "Behold zoom og position ved skift af billede"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Keyboard shortcuts"
 msgstr "Tastaturgenveje"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Language"
 msgstr "Sprog"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Large"
 msgstr "Stor"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Larger still when the desktop's text is (GNOME's Large Text)"
 msgstr "Endnu større, når skrivebordets tekst er det (GNOMEs store tekst)"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Listen for glimt --remote commands (after restart)"
 msgstr "Lyt efter glimt --remote-kommandoer (efter genstart)"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Logarithmic (J)"
 msgstr "Logaritmisk (J)"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "MB at most for an animation's frames"
 msgstr "MB højst til en animations rammer"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "MB at most for an added format's program"
 msgstr "MB højst til et tilføjet formats program"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "A program that reads an added format, such as Java for microscope files, gets at most this much memory. Raise it when such a program runs out of memory."
 msgstr "Et program, der læser et tilføjet format, som Java til mikroskopfiler, får højst så meget hukommelse. Hæv det, når sådan et program løber tør for hukommelse."
 
 #: src/images/added_formats.rs
+#, fuzzy
 msgid "{name} ran out of memory under its limit of {mb} MB (Preferences → Memory and CPU): {error}"
 msgstr "{name} løb tør for hukommelse under grænsen på {mb} MB (Indstillinger → Hukommelse og processor): {error}"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Medium"
 msgstr "Mellem"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Memory use:"
 msgstr "Hukommelsesforbrug:"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Mouse wheel zooms (off: next/previous image, Ctrl+wheel zooms)"
 msgstr "Musehjulet zoomer (fra: næste/forrige billede, Ctrl+hjul zoomer)"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "None"
 msgstr "Ingen"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Not with CPU use Power saving"
 msgstr "Ikke med processorforbrug Strømbesparelse"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Off"
 msgstr "Fra"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "One malloc arena: much less memory, decoding up to ~8 % slower"
 msgstr "Én malloc-arena: meget mindre hukommelse, afkodning op til ~8 % langsommere"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Play animated GIF and WebP (A)"
 msgstr "Afspil animerede GIF og WebP (A)"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Player (Enter):"
 msgstr "Afspiller (Enter):"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Preferences"
 msgstr "Indstillinger"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Preload next and previous images:"
 msgstr "Forudindlæs næste og forrige billeder:"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Press a key (Esc cancels)"
 msgstr "Tryk på en tast (Esc annullerer)"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Profile file…"
 msgstr "Profilfil …"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "quality when a lossy WebP is saved again"
 msgstr "kvalitet, når en WebP med tab gemmes igen"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Random order"
 msgstr "Tilfældig rækkefølge"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Refresh the folder when files change"
 msgstr "Opdatér mappen, når filer ændres"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Regular expression, in list order (like Geeqie's file filter)"
 msgstr "Regulært udtryk, i listens rækkefølge (som Geeqies filfilter)"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Remember the window size and position"
 msgstr "Husk vinduets størrelse og position"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Remove thumbnails of deleted files"
 msgstr "Fjern miniaturer af slettede filer"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Removed {removed} of {seen} thumbnails"
 msgstr "Fjernede {removed} af {seen} miniaturer"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Rendering intent:"
 msgstr "Gengivelseshensigt:"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Repeat: start again after the last image"
 msgstr "Gentag: start forfra efter det sidste billede"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Reset"
 msgstr "Nulstil"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Save new thumbnails to ~/.cache/thumbnails (shared with other programs)"
 msgstr "Gem nye miniaturer i ~/.cache/thumbnails (deles med andre programmer)"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Save rotation to the file when changing image (JPEG; PNG and WebP are saved again)"
 msgstr "Gem rotationen i filen ved skift af billede (JPEG; PNG og WebP gemmes igen)"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Screen profile:"
 msgstr "Skærmprofil:"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Search field above the file list:"
 msgstr "Søgefelt over fillisten:"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "seconds per image"
 msgstr "sekunder pr. billede"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Show file size and date in the file list"
 msgstr "Vis filstørrelse og dato i fillisten"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Show folders as a tree (Ctrl+T)"
 msgstr "Vis mapper som et træ (Ctrl+T)"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Show image info in full screen (I)"
 msgstr "Vis billedinfo i fuld skærm (I)"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Show marks and stars in the file list"
 msgstr "Vis mærker og stjerner i fillisten"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Show the info panel (Ctrl+K; reads a little from each image shown)"
 msgstr "Vis infopanelet (Ctrl+K; læser lidt fra hvert viste billede)"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Show the file list as icons (Ctrl+I)"
 msgstr "Vis fillisten som ikoner (Ctrl+I)"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Show the file name search"
 msgstr "Vis søgningen i filnavne"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Show the folder path"
 msgstr "Vis mappestien"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Show the toolbar"
 msgstr "Vis værktøjslinjen"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Show thumbnails in the file list (T)"
 msgstr "Vis miniaturer i fillisten (T)"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Show videos in the file list"
 msgstr "Vis videoer i fillisten"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "size of the menus, lists and text"
 msgstr "størrelse på menuer, lister og tekst"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Small"
 msgstr "Lille"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Start in the last used folder"
 msgstr "Start i den senest brugte mappe"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Thumbnail size:"
 msgstr "Miniaturestørrelse:"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Toolbar icons:"
 msgstr "Ikoner i værktøjslinjen:"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Up to ≈ {mb} MB, each image at most {w}×{h}"
 msgstr "Op til ≈ {mb} MB, hvert billede højst {w}×{h}"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Use no trash at all (Delete deletes permanently)"
 msgstr "Brug slet ingen papirkurv (Delete sletter permanent)"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Use the desktop's screen profile"
 msgstr "Brug skrivebordets skærmprofil"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Use the image's own profile"
 msgstr "Brug billedets egen profil"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "{keys} was the key of {others} too: now of {label} only"
 msgstr "{keys} var også tasten til {others}: nu kun til {label}"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "Copies:"
 msgstr "Kopier:"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "Images per page:"
 msgstr "Billeder pr. side:"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "No image could be read: nothing printed"
 msgstr "Intet billede kunne læses: intet udskrevet"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "Not saved over an image: choose a name ending in .pdf"
 msgstr "Ikke gemt oven i et billede: vælg et navn, der ender på .pdf"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "No printers found"
 msgstr "Ingen printere fundet"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "Paper:"
 msgstr "Papir:"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "PDF file"
 msgstr "PDF-fil"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "Print (Enter)"
 msgstr "Udskriv (Enter)"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "Print {count}"
 msgstr "Udskriv {count}"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "Printer:"
 msgstr "Printer:"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "Printing failed: {e}"
 msgstr "Udskrivning mislykkedes: {e}"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "Save PDF… (Enter)"
 msgstr "Gem PDF … (Enter)"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "{images} on {pages}"
 msgstr "{images} på {pages}"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "{msg}; {f} could not be read"
 msgstr "{msg}; {f} kunne ikke læses"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "{what} saved in {file}"
 msgstr "{what} gemt i {file}"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "{what} sent to {printer}"
 msgstr "{what} sendt til {printer}"
 
+#, fuzzy
 msgid "collection"
 msgid_plural "collections"
 msgstr[0] "samling"
 msgstr[1] "samlinger"
 
+#, fuzzy
 msgid "day"
 msgid_plural "days"
 msgstr[0] "dag"
 msgstr[1] "dage"
 
+#, fuzzy
 msgid "error"
 msgid_plural "errors"
 msgstr[0] "fejl"
 msgstr[1] "fejl"
 
+#, fuzzy
 msgid "file"
 msgid_plural "files"
 msgstr[0] "fil"
 msgstr[1] "filer"
 
+#, fuzzy
 msgid "frame"
 msgid_plural "frames"
 msgstr[0] "ramme"
 msgstr[1] "rammer"
 
+#, fuzzy
 msgid "group"
 msgid_plural "groups"
 msgstr[0] "gruppe"
 msgstr[1] "grupper"
 
+#, fuzzy
 msgid "image"
 msgid_plural "images"
 msgstr[0] "billede"
 msgstr[1] "billeder"
 
+#, fuzzy
 msgid "keyword"
 msgid_plural "keywords"
 msgstr[0] "nøgleord"
 msgstr[1] "nøgleord"
 
+#, fuzzy
 msgid "page"
 msgid_plural "pages"
 msgstr[0] "side"
 msgstr[1] "sider"
 
+#, fuzzy
 msgid "star"
 msgid_plural "stars"
 msgstr[0] "stjerne"
 msgstr[1] "stjerner"
 
+#, fuzzy
 msgid "step"
 msgid_plural "steps"
 msgstr[0] "trin"
 msgstr[1] "trin"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "Orientation:"
 msgstr "Retning:"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "Automatic"
 msgstr "Automatisk"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "Portrait"
 msgstr "Stående"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "Landscape"
 msgstr "Liggende"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "Margin (mm):"
 msgstr "Margen (mm):"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "Image size (%):"
 msgstr "Billedstørrelse (%):"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "Fill each box, cutting the image to it"
 msgstr "Udfyld hver boks, og beskær billedet til den"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "Text under each image:"
 msgstr "Tekst under hvert billede:"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "As the full screen info: %name%, %path%, %position%, %dimensions%, %File size%, %Taken%, %Camera%, %keywords%, %comment% …"
 msgstr "Som billedinfoen i fuld skærm: %name%, %path%, %position%, %dimensions%, %File size%, %Taken%, %Camera%, %keywords%, %comment% …"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "%page% is the page's number, %pages% how many there are"
 msgstr "%page% er sidens nummer, %pages% hvor mange der er"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "Top of each page:"
 msgstr "Øverst på hver side:"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "Bottom of each page:"
 msgstr "Nederst på hver side:"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "Both sides of the paper"
 msgstr "Begge sider af papiret"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "Print the image"
 msgstr "Udskriv billedet"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "{files} copied to {folder}"
 msgstr "{files} kopieret til {folder}"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "{files} moved to {folder}"
 msgstr "{files} flyttet til {folder}"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "Could not move the folder to the trash: {e}"
 msgstr "Kunne ikke flytte mappen til papirkurven: {e}"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "calculating…"
 msgstr "beregner …"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "Open Folder"
 msgstr "Åbn mappe"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "Open File"
 msgstr "Åbn fil"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "Open Folders (Ctrl+click for several)"
 msgstr "Åbn mapper (Ctrl+klik for flere)"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "Open Folder with Its Subfolders"
 msgstr "Åbn mappe med dens undermapper"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "Open Collection"
 msgstr "Åbn samling"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "Copy to Folder"
 msgstr "Kopiér til mappe"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "Move to Folder"
 msgstr "Flyt til mappe"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "Save as PDF"
 msgstr "Gem som PDF"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "Add to the Sort Manager"
 msgstr "Tilføj til sorteringshåndteringen"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "Screen Profile"
 msgstr "Skærmprofil"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "Profile of Images Without One"
 msgstr "Profil for billeder uden en"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "Import Lightroom Catalog"
 msgstr "Importér Lightroom-katalog"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "Back Up Glimt's Data To"
 msgstr "Sikkerhedskopiér Glimts data til"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "Save This Frame as PNG"
 msgstr "Gem denne ramme som PNG"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "Export Every Frame To"
 msgstr "Eksportér hver ramme til"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "Collection {name} moved to the trash"
 msgstr "Samlingen {name} flyttet til papirkurven"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "Not a pattern: {e}"
 msgstr "Ikke et mønster: {e}"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "{text} exists already: choose another name"
 msgstr "{text} findes allerede: vælg et andet navn"
 
 #: src/model/listing.rs
+#, fuzzy
 msgid "{text} starts with a dot and would be hidden: choose another name"
 msgstr "{text} begynder med punktum og ville blive skjult: vælg et andet navn"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "Saved as {file}: edit it, then choose it again"
 msgstr "Gemt som {file}: redigér den, og vælg den så igen"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "{files} given their old names back"
 msgstr "{files} fik deres gamle navne tilbage"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "{files} renamed"
 msgstr "{files} omdøbt"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "; {files} could not be, asked about again"
 msgstr "; {files} kunne ikke, spørges igen"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "{found} of {images} ({size})"
 msgstr "{found} af {images} ({size})"
 
 #: src/features/print.rs
+#, fuzzy
 msgid ", {m} selected ({size})"
 msgstr ", {m} valgt ({size})"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "{n} bytes"
 msgstr "{n} byte"
 
 #: src/features/print.rs
+#, fuzzy
 msgid " page {n}/{pages}"
 msgstr " side {n}/{pages}"
 
 #: src/features/print.rs
+#, fuzzy
 msgid " frame {n}/{frames}"
 msgstr " ramme {n}/{frames}"
 
 #: src/files/file_ops.rs
+#, fuzzy
 msgid "Could not rename {f} to {t}: {e}; not all names could be put back, Glimt offers to put them right at the next start"
 msgstr "Kunne ikke omdøbe {f} til {t}: {e}; ikke alle navne kunne sættes tilbage, Glimt tilbyder at rette dem ved næste start"
 
 #: src/viewer/pan.rs
+#, fuzzy
 msgid "Mon"
 msgstr "man"
 
 #: src/viewer/pan.rs
+#, fuzzy
 msgid "Tue"
 msgstr "tir"
 
 #: src/viewer/pan.rs
+#, fuzzy
 msgid "Wed"
 msgstr "ons"
 
 #: src/viewer/pan.rs
+#, fuzzy
 msgid "Thu"
 msgstr "tor"
 
 #: src/viewer/pan.rs
+#, fuzzy
 msgid "Fri"
 msgstr "fre"
 
 #: src/viewer/pan.rs
+#, fuzzy
 msgid "Sat"
 msgstr "lør"
 
 #: src/viewer/pan.rs
+#, fuzzy
 msgid "Sun"
 msgstr "søn"
 
 #: src/files/file_ops.rs
+#, fuzzy
 msgid "Still writing keywords: try again in a moment"
 msgstr "Skriver stadig nøgleord: prøv igen om et øjeblik"
 
 #: src/files/file_ops.rs
+#, fuzzy
 msgid "Still working on these files: try again in a moment"
 msgstr "Arbejder stadig med disse filer: prøv igen om et øjeblik"
 
 #: src/main.rs
+#, fuzzy
 msgid "{what} stopped unexpectedly"
 msgstr "{what} stoppede uventet"
 
 #: src/main.rs
+#, fuzzy
 msgid "Connecting"
 msgstr "Forbinder"
 
 #: src/main.rs
+#, fuzzy
 msgid "Reading the Lightroom catalog"
 msgstr "Læser Lightroom-kataloget"
 
 #: src/main.rs
+#, fuzzy
 msgid "Looking for renames cut short"
 msgstr "Leder efter afbrudte omdøbninger"
 
 #: src/main.rs
+#, fuzzy
 msgid "The EXIF index"
 msgstr "EXIF-indekset"
 
 #: src/main.rs
+#, fuzzy
 msgid "The Pan view's days"
 msgstr "Panoramavisningens dage"
 
 #: src/main.rs
+#, fuzzy
 msgid "Rename Many"
 msgstr "Omdøb flere"
 
 #: src/files/external.rs
+#, fuzzy
 msgid "No answer from the server in a minute"
 msgstr "Intet svar fra serveren i et minut"
 
 #: src/metadata/lightroom.rs
+#, fuzzy
 msgid "The catalog is too large to read"
 msgstr "Kataloget er for stort til at blive læst"
 
 #: src/files/file_ops.rs
+#, fuzzy
 msgid "stopped"
 msgstr "stoppet"
 
 #: src/main.rs
+#, fuzzy
 msgid "Saving keywords"
 msgstr "Gemmer nøgleord"
 
 #: src/main.rs
+#, fuzzy
 msgid "Saving the alt text"
 msgstr "Gemmer den alternative tekst"
 
 #: src/main.rs
+#, fuzzy
 msgid "Reading the folder"
 msgstr "Læser mappen"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "No answer from the print server in two minutes"
 msgstr "Intet svar fra printserveren i to minutter"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Look"
 msgstr "Udseende"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Keyboard"
 msgstr "Tastatur"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Image"
 msgstr "Billede"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Slideshow"
 msgstr "Diasshow"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "File list"
 msgstr "Filliste"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Memory and CPU"
 msgstr "Hukommelse og processor"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Video"
 msgstr "Video"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Start and system"
 msgstr "Start og system"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Previews need ffmpeg"
 msgstr "Forhåndsvisninger kræver ffmpeg"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "S starts and stops, R random order, Ctrl+= faster, Ctrl+- slower"
 msgstr "S starter og stopper, R tilfældig rækkefølge, Ctrl+= hurtigere, Ctrl+- langsommere"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Undo"
 msgstr "Fortryd"
 
 #: src/files/file_ops.rs
+#, fuzzy
 msgid "Nothing to undo"
 msgstr "Intet at fortryde"
 
 #: src/files/file_ops.rs
+#, fuzzy
 msgid "another file has taken its place"
 msgstr "en anden fil har taget dens plads"
 
 #: src/files/file_ops.rs
+#, fuzzy
 msgid "Undo failed ({count}): {first}"
 msgstr "Fortryd mislykkedes ({count}): {first}"
 
 #: src/files/file_ops.rs
+#, fuzzy
 msgid "Undo failed: {e}"
 msgstr "Fortryd mislykkedes: {e}"
 
 #: src/files/file_ops.rs
+#, fuzzy
 msgid "{count} back from the trash"
 msgstr "{count} tilbage fra papirkurven"
 
 #: src/files/file_ops.rs
+#, fuzzy
 msgid "{files} moved back"
 msgstr "{files} flyttet tilbage"
 
 #: src/files/file_ops.rs
+#, fuzzy
 msgid "{name} exists already"
 msgstr "{name} findes allerede"
 
 #: src/files/trash.rs
+#, fuzzy
 msgid "{name} is not in the trash"
 msgstr "{name} er ikke i papirkurven"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Set as Wallpaper"
 msgstr "Brug som baggrundsbillede"
 
 #: src/main.rs
+#, fuzzy
 msgid "Could not set the wallpaper: {e}"
 msgstr "Kunne ikke sætte baggrundsbilledet: {e}"
 
 #: src/main.rs
+#, fuzzy
 msgid "Clear Recent"
 msgstr "Ryd listen"
 
 #: src/main.rs
+#, fuzzy
 msgid "Nothing opened yet"
 msgstr "Intet åbnet endnu"
 
 #: src/main.rs
+#, fuzzy
 msgid "Open Recent"
 msgstr "Åbn seneste"
 
 #: src/main.rs
+#, fuzzy
 msgid "{name} is gone"
 msgstr "{name} findes ikke længere"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Keep a list of recent folders (File → Open Recent)"
 msgstr "Hold en liste over seneste mapper (Fil → Åbn seneste)"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Checkerboard behind transparent images"
 msgstr "Skakbræt bag gennemsigtige billeder"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Crop…"
 msgstr "Beskær …"
 
 #: src/viewer/crop.rs
+#, fuzzy
 msgid "A video is not cropped"
 msgstr "En video beskæres ikke"
 
 #: src/viewer/crop.rs
+#, fuzzy
 msgid "Drag over the image to choose the part to keep"
 msgstr "Træk hen over billedet for at vælge den del, der skal beholdes"
 
 #: src/viewer/crop.rs
+#, fuzzy
 msgid "Save Copy (Enter)"
 msgstr "Gem kopi (Enter)"
 
 #: src/viewer/crop.rs
+#, fuzzy
 msgid "Could not crop the image: {e}"
 msgstr "Kunne ikke beskære billedet: {e}"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "quality of a cropped JPEG (Edit → Crop)"
 msgstr "kvalitet for en beskåret JPEG (Redigér → Beskær)"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Save As…"
 msgstr "Gem som …"
 
 #: src/viewer/save_as.rs
+#, fuzzy
 msgid "A video is not saved as an image"
 msgstr "En video gemmes ikke som billede"
 
 #: src/viewer/save_as.rs
+#, fuzzy
 msgid "Format:"
 msgstr "Format:"
 
 #: src/viewer/save_as.rs
+#, fuzzy
 msgid "As the original ({format})"
 msgstr "Som originalen ({format})"
 
 #: src/viewer/save_as.rs
+#, fuzzy
 msgid "WebP, lossless"
 msgstr "WebP, tabsfri"
 
 #: src/viewer/save_as.rs
+#, fuzzy
 msgid "WebP, lossy"
 msgstr "WebP, med tab"
 
 #: src/viewer/save_as.rs
+#, fuzzy
 msgid "Size:"
 msgstr "Størrelse:"
 
 #: src/viewer/save_as.rs
+#, fuzzy
 msgid "Original ({w} × {h})"
 msgstr "Original ({w} × {h})"
 
 #: src/viewer/save_as.rs
+#, fuzzy
 msgid "Longest side"
 msgstr "Længste side"
 
 #: src/viewer/save_as.rs
+#, fuzzy
 msgid "Percent"
 msgstr "Procent"
 
 #: src/viewer/save_as.rs
+#, fuzzy
 msgid "Saved {w} × {h}; never enlarged"
 msgstr "Gemmes {w} × {h}; forstørres aldrig"
 
 #: src/viewer/save_as.rs
+#, fuzzy
 msgid "Quality:"
 msgstr "Kvalitet:"
 
 #: src/viewer/save_as.rs
+#, fuzzy
 msgid "Remove EXIF and GPS (camera, date, place), XMP and the sidecar"
 msgstr "Fjern EXIF og GPS (kamera, dato, sted), XMP og sidefilen"
 
 #: src/viewer/save_as.rs
+#, fuzzy
 msgid "Save…"
 msgstr "Gem …"
 
 #: src/viewer/save_as.rs
+#, fuzzy
 msgid "Could not save the image: {e}"
 msgstr "Kunne ikke gemme billedet: {e}"
 
 #: src/main.rs
+#, fuzzy
 msgid "Save As"
 msgstr "Gem som"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Custom window title (empty: \"image name - Glimt\"):"
 msgstr "Egen vinduestitel (tom: »billednavn - Glimt«):"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Fields: %name%, %path%, %folder%, %app% and %id%. A | starts a part, left out when its fields are empty."
 msgstr "Felter: %name%, %path%, %folder%, %app% og %id%. En | starter en del, som udelades, når dens felter er tomme."
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Set Window Title…"
 msgstr "Angiv vinduestitel …"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Show File Names Under Thumbnails"
 msgstr "Vis filnavne under miniaturer"
 
 #: src/main.rs
+#, fuzzy
 msgid "Title of this window (%name%, %path%, %folder%, %app%, %id%; empty: as in Preferences):"
 msgstr "Titel på dette vindue (%name%, %path%, %folder%, %app%, %id%; tom: som i Indstillinger):"
 
 #: src/metadata/xmp.rs
+#, fuzzy
 msgid "{name} is a link: not written through"
 msgstr "{name} er et link: skrives ikke igennem"
 
 #: src/metadata/lightroom.rs
+#, fuzzy
 msgid "Reading a Lightroom catalog needs sqlite3 3.37 or newer"
 msgstr "Læsning af et Lightroom-katalog kræver sqlite3 3.37 eller nyere"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Copies of the pictures in your home folder: those of an encrypted volume or a stick stay readable there"
 msgstr "Kopier af billederne i din hjemmemappe: dem fra et krypteret drev eller en USB-nøgle kan stadig læses der"
 
 #: src/main.rs
+#, fuzzy
 msgid "Stop {name}"
 msgstr "Stop {name}"
 
 #: src/files/file_ops.rs
+#, fuzzy
 msgid "The rotation was not saved: other work is still changing the file"
 msgstr "Rotationen blev ikke gemt: andet arbejde ændrer stadig filen"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Hide the pointer in full screen when the mouse is still"
 msgstr "Skjul markøren i fuld skærm, når musen står stille"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Search the settings"
 msgstr "Søg i indstillingerne"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "No setting has these words"
 msgstr "Ingen indstilling har disse ord"
 
+#, fuzzy
 msgid "{program} runs outside the Flatpak, which needs: {how}"
 msgstr "{program} kører uden for Flatpak, hvilket kræver: {how}"
 
+#, fuzzy
 msgid "System print dialog"
 msgstr "Systemets udskriftsdialog"
 
+#, fuzzy
 msgid "Printing cancelled"
 msgstr "Udskrivning annulleret"
 
+#, fuzzy
 msgid "Choose Application…"
 msgstr "Vælg program …"
 
 #: src/ui/accessibility.rs
+#, fuzzy
 msgid "{done} of {total}"
 msgstr "{done} af {total}"
 
 #: src/ui/accessibility.rs
+#, fuzzy
 msgid "not among the matches"
 msgstr "ikke blandt resultaterne"
 
 #: src/ui/info_panel.rs
+#, fuzzy
 msgid "EXIF: {name}"
 msgstr "EXIF: {name}"
 
 #: src/metadata/exif.rs
+#, fuzzy
 msgid "Camera"
 msgstr "Kamera"
 
 #: src/metadata/exif.rs
+#, fuzzy
 msgid "Lens"
 msgstr "Objektiv"
 
 #: src/metadata/exif.rs
+#, fuzzy
 msgid "Taken"
 msgstr "Taget"
 
 #: src/metadata/exif.rs
+#, fuzzy
 msgid "Exposure"
 msgstr "Eksponering"
 
 #: src/metadata/exif.rs
+#, fuzzy
 msgid "Aperture"
 msgstr "Blænde"
 
 #: src/metadata/exif.rs
+#, fuzzy
 msgid "Focal length"
 msgstr "Brændvidde"
 
 #: src/metadata/exif.rs
+#, fuzzy
 msgid "Exposure bias"
 msgstr "Eksponeringskompensation"
 
 #: src/metadata/exif.rs
+#, fuzzy
 msgid "Flash"
 msgstr "Blitz"
 
 #: src/metadata/exif.rs
+#, fuzzy
 msgid "Fired"
 msgstr "Udløst"
 
 #: src/metadata/exif.rs
+#, fuzzy
 msgid "No"
 msgstr "Nej"
 
 #: src/ui/info_panel.rs
+#, fuzzy
 msgid "File size"
 msgstr "Filstørrelse"
 
 #: src/ui/info_panel.rs
+#, fuzzy
 msgid "Colour profile"
 msgstr "Farveprofil"
 
 #: src/images/colour.rs
+#, fuzzy
 msgid "{name}, in the file"
 msgstr "{name}, i filen"
 
 #: src/images/colour.rs
+#, fuzzy
 msgid "Adobe RGB, from its EXIF"
 msgstr "Adobe RGB, fra EXIF"
 
 #: src/images/colour.rs
+#, fuzzy
 msgid "unnamed"
 msgstr "uden navn"
 
 #: src/images/colour.rs
+#, fuzzy
 msgid "{own}; {input} used instead"
 msgstr "{own}; {input} bruges i stedet"
 
 #: src/images/colour.rs
+#, fuzzy
 msgid "none: taken as {input}"
 msgstr "ingen: tolkes som {input}"
 
 #: src/model/listing.rs
+#, fuzzy
 msgid "Sort by name"
 msgstr "Sortér efter navn"
 
 #: src/model/listing.rs
+#, fuzzy
 msgid "Sort by number"
 msgstr "Sortér efter nummer"
 
 #: src/model/listing.rs
+#, fuzzy
 msgid "Sort by date"
 msgstr "Sortér efter dato"
 
 #: src/model/listing.rs
+#, fuzzy
 msgid "Sort by file creation date"
 msgstr "Sortér efter filens oprettelsesdato"
 
 #: src/model/listing.rs
+#, fuzzy
 msgid "Sort by EXIF date original"
 msgstr "Sortér efter EXIF-dato for optagelse"
 
 #: src/model/listing.rs
+#, fuzzy
 msgid "Sort by EXIF date digitized"
 msgstr "Sortér efter EXIF-dato for digitalisering"
 
 #: src/model/listing.rs
+#, fuzzy
 msgid "Sort by size"
 msgstr "Sortér efter størrelse"
 
 #: src/model/listing.rs
+#, fuzzy
 msgid "Sort by extension"
 msgstr "Sortér efter filendelse"
 
 #: src/ui/file_list.rs
+#, fuzzy
 msgid "All types"
 msgstr "Alle typer"
 
 #: src/ui/file_list.rs
+#, fuzzy
 msgid "No types"
 msgstr "Ingen typer"
 
 #: src/ui/theme.rs
+#, fuzzy
 msgid "Desktop"
 msgstr "Skrivebord"
 
 #: src/ui/theme.rs
+#, fuzzy
 msgid "Light"
 msgstr "Lyst"
 
 #: src/ui/theme.rs
+#, fuzzy
 msgid "Dark"
 msgstr "Mørkt"
 
 #: src/ui/theme.rs
+#, fuzzy
 msgid "High Contrast"
 msgstr "Høj kontrast"
 
 #: src/ui/theme.rs
+#, fuzzy
 msgid "High Contrast Light"
 msgstr "Høj kontrast, lyst"
 
 #: src/images/colour.rs
+#, fuzzy
 msgid "Greyscale"
 msgstr "Gråtoner"
 
 #: src/images/colour.rs
+#, fuzzy
 msgid "Inverted"
 msgstr "Inverteret"
 
 #: src/images/colour.rs
+#, fuzzy
 msgid "More Contrast"
 msgstr "Mere kontrast"
 
 #: src/images/colour.rs
+#, fuzzy
 msgid "Perceptual"
 msgstr "Perceptuel"
 
 #: src/images/colour.rs
+#, fuzzy
 msgid "Relative colorimetric"
 msgstr "Relativ kolorimetrisk"
 
 #: src/images/colour.rs
+#, fuzzy
 msgid "Saturation"
 msgstr "Mætning"
 
 #: src/images/colour.rs
+#, fuzzy
 msgid "Absolute colorimetric"
 msgstr "Absolut kolorimetrisk"
 
 #: src/files/config.rs
+#, fuzzy
 msgid "Power saving"
 msgstr "Strømbesparelse"
 
 #: src/files/config.rs
+#, fuzzy
 msgid "Balanced"
 msgstr "Afbalanceret"
 
 #: src/files/config.rs
+#, fuzzy
 msgid "Full"
 msgstr "Fuld"
 
 #: src/files/config.rs
+#, fuzzy
 msgid "Fewer cores at once: thumbnails one at a time, searches and Find Duplicates on two cores. Slower in large folders, kinder to a laptop battery."
 msgstr "Færre kerner ad gangen: én miniature ad gangen, søgninger og Find dubletter på to kerner. Langsommere i store mapper, skånsomt for en bærbars batteri."
 
 #: src/files/config.rs
+#, fuzzy
 msgid "Two thumbnails at once; searches and Find Duplicates on every core."
 msgstr "To miniaturer ad gangen; søgninger og Find dubletter på alle kerner."
 
 #: src/files/config.rs
+#, fuzzy
 msgid "Every core: thumbnails and searches as fast as the machine allows."
 msgstr "Alle kerner: miniaturer og søgninger så hurtigt, som maskinen tillader."
 
 #: src/files/config.rs
+#, fuzzy
 msgid "Low"
 msgstr "Lav"
 
 #: src/files/config.rs
+#, fuzzy
 msgid "High"
 msgstr "Høj"
 
 #: src/files/config.rs
+#, fuzzy
 msgid "Least memory: one image decoded at a time, one preloaded on each side. Slow storage (SMB, NFS, USB) makes browsing wait for each file."
 msgstr "Mindst hukommelse: ét billede afkodet ad gangen, ét forudindlæst på hver side. Langsom lagring (SMB, NFS, USB) får bladringen til at vente på hver fil."
 
 #: src/files/config.rs
+#, fuzzy
 msgid "The default: four images decoded at once, two preloaded on each side."
 msgstr "Standard: fire billeder afkodet samtidig, to forudindlæst på hver side."
 
 #: src/files/config.rs
+#, fuzzy
 msgid "Fastest browsing: eight images decoded at once, five preloaded on each side; hides the wait of slow storage (SMB, NFS) best."
 msgstr "Hurtigst bladring: otte billeder afkodet samtidig, fem forudindlæst på hver side; skjuler bedst ventetiden ved langsom lagring (SMB, NFS)."
 
 #: src/files/config.rs
+#, fuzzy
 msgid "Short"
 msgstr "Kort"
 
 #: src/files/config.rs
+#, fuzzy
 msgid "Long"
 msgstr "Lang"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "{name}, from the desktop"
 msgstr "{name}, fra skrivebordet"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "none, sRGB"
 msgstr "ingen, sRGB"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Fields: %name%, %path%, %position%, %dimensions%, %marks%, %keywords%, %comment%, and each label of the info panel, such as %Camera% or %ISO%. A | starts a part, left out when its fields are empty."
 msgstr "Felter: %name%, %path%, %position%, %dimensions%, %marks%, %keywords%, %comment% og hver etiket i infopanelet med sit engelske navn, som %Camera% eller %ISO%. En | starter en del, som udelades, når dens felter er tomme."
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "A command line, such as mpv --fs; a path with spaces goes in \"quotes\""
 msgstr "En kommandolinje, såsom mpv --fs; en sti med mellemrum skrives i \"anførselstegn\""
 
 #: src/ui/dialogs.rs
+#, fuzzy
 msgid "New folder name:"
 msgstr "Navn på ny mappe:"
 
 #: src/ui/dialogs.rs
+#, fuzzy
 msgid "Name of the new theme:"
 msgstr "Navn på det nye tema:"
 
 #: src/ui/dialogs.rs
+#, fuzzy
 msgid "New name of the collection:"
 msgstr "Nyt navn på samlingen:"
 
 #: src/ui/dialogs.rs
+#, fuzzy
 msgid "New file name:"
 msgstr "Nyt filnavn:"
 
 #: src/ui/dialogs.rs
+#, fuzzy
 msgid "A crash or a power cut stopped it in {folder}. Some files may have their new names, some their old ones, and some hidden temporary names ({steps} to put right)."
 msgstr "Et nedbrud eller strømsvigt stoppede det i {folder}. Nogle filer kan have deres nye navne, nogle de gamle og nogle skjulte midlertidige navne ({steps} at rette op)."
 
 #: src/ui/dialogs.rs
+#, fuzzy
 msgid "no home folder"
 msgstr "ingen hjemmemappe"
 
 #: src/ui/window.rs
+#, fuzzy
 msgid "Glimt closes when the file operations are done; close again to stop them"
 msgstr "Glimt lukker, når filhandlingerne er færdige; luk igen for at stoppe dem"
 
 #: src/ui/window.rs
+#, fuzzy
 msgid "Stopping after the files at hand; close once more to end at once"
 msgstr "Stopper efter de filer, der er i gang; luk én gang til for at afslutte straks"
 
 #: src/features/check.rs
+#, fuzzy
 msgid "Opens each of the {count} in the list, as the viewer would, and lists those that cannot be: broken files, files cut off in copying, and files that are no image. They are marked in the list too."
 msgstr "Åbner hvert af de {count} på listen, som fremviseren ville, og viser dem, der ikke kan åbnes: ødelagte filer, filer afkortet under kopiering og filer, der ikke er billeder. De markeres også på listen."
 
 #: src/features/check.rs
+#, fuzzy
 msgid "None broken."
 msgstr "Ingen ødelagte."
 
 #: src/main.rs
+#, fuzzy
 msgid "Settings file: {first}{more}"
 msgstr "Indstillingsfilen: {first}{more}"
 
 #: src/ui/accessibility.rs
+#, fuzzy
 msgid ", could not be shown: {e}"
 msgstr ", kunne ikke vises: {e}"
 
 #: src/ui/accessibility.rs
+#, fuzzy
 msgid ", keywords: {keywords}"
 msgstr ", nøgleord: {keywords}"
 
 #: src/files/config.rs
+#, fuzzy
 msgid "Could not save {name}: {e}"
 msgstr "Kunne ikke gemme {name}: {e}"
 
 #: src/files/backup.rs
+#, fuzzy
 msgid "{folder} is not a folder"
 msgstr "{folder} er ikke en mappe"
 
 #: src/files/backup.rs
+#, fuzzy
 msgid "Nothing to back up: Glimt has no settings, marks or collections here"
 msgstr "Intet at sikkerhedskopiere: Glimt har ingen indstillinger, mærker eller samlinger her"
 
 #: src/files/backup.rs
+#, fuzzy
 msgid "A backup cannot go inside {folder}, which it copies"
 msgstr "En sikkerhedskopi kan ikke ligge i {folder}, som den kopierer"
 
 #: src/files/backup.rs
+#, fuzzy
 msgid "Glimt's data backed up to {folder}: {files}"
 msgstr "Glimts data er sikkerhedskopieret til {folder}: {files}"
 
 #: src/files/backup.rs
+#, fuzzy
 msgid "The backup to {folder} is not whole: {e}"
 msgstr "Sikkerhedskopien til {folder} er ikke fuldstændig: {e}"
 
 #: src/files/file_io.rs
+#, fuzzy
 msgid "the file was moved, renamed or deleted meanwhile"
 msgstr "filen blev flyttet, omdøbt eller slettet i mellemtiden"
 
 #: src/files/file_io.rs
+#, fuzzy
 msgid "the file was changed meanwhile"
 msgstr "filen blev ændret i mellemtiden"
 
+#, fuzzy
 msgid "the file looks incomplete, as if it is still being copied"
 msgstr "filen ser ufuldstændig ud, som om den stadig bliver kopieret"
 
+#, fuzzy
 msgid "the file looks incomplete or damaged"
 msgstr "filen ser ufuldstændig eller beskadiget ud"
 
+#, fuzzy
 msgid "the file is read-only"
 msgstr "filen er skrivebeskyttet"
 
+#, fuzzy
 msgid "{name} has other names (hard links), which keep the old version"
 msgstr "{name} har andre navne (hårde links), som beholder den gamle version"
 
+#, fuzzy
 msgid "Other names (hard links) keep the old version: {files}"
 msgstr "Andre navne (hårde links) beholder den gamle version: {files}"
 
 #: src/files/external.rs
+#, fuzzy
 msgid "HEIC and AVIF need ffprobe (ffmpeg): {e}"
 msgstr "HEIC og AVIF kræver ffprobe (ffmpeg): {e}"
 
 #: src/files/external.rs
+#, fuzzy
 msgid "video, HEIC and AVIF need ffmpeg: {e}"
 msgstr "video, HEIC og AVIF kræver ffmpeg: {e}"
 
 #: src/files/external.rs
+#, fuzzy
 msgid "Could not mount {uri}: not an address"
 msgstr "Kunne ikke montere {uri}: ikke en adresse"
 
 #: src/files/external.rs
+#, fuzzy
 msgid "Could not run gio: {e}"
 msgstr "Kunne ikke køre gio: {e}"
 
 #: src/files/external.rs
+#, fuzzy
 msgid "Could not mount {uri}: wrong user name or password"
 msgstr "Kunne ikke montere {uri}: forkert brugernavn eller adgangskode"
 
 #: src/files/external.rs
+#, fuzzy
 msgid "Could not mount {uri}: {err}{hint}"
 msgstr "Kunne ikke montere {uri}: {err}{hint}"
 
 #: src/files/external.rs
+#, fuzzy
 msgid " (the name {host} is not found)"
 msgstr " (navnet {host} findes ikke)"
 
 #: src/files/external.rs
+#, fuzzy
 msgid " (the name {host} is not found; try {host}.local or its IP address)"
 msgstr " (navnet {host} findes ikke; prøv {host}.local eller dens IP-adresse)"
 
 #: src/files/file_ops.rs
+#, fuzzy
 msgid "No such frame"
 msgstr "Der findes ingen sådan billedramme"
 
 #: src/files/file_ops.rs
+#, fuzzy
 msgid "choose another name: the image itself is not changed"
 msgstr "vælg et andet navn: selve billedet ændres ikke"
 
 #: src/metadata/lightroom.rs
+#, fuzzy
 msgid "Imported from Lightroom: {done}"
 msgstr "Importeret fra Lightroom: {done}"
 
 #: src/metadata/lightroom.rs
+#, fuzzy
 msgid "; not saved: {names}"
 msgstr "; ikke gemt: {names}"
 
 #: src/metadata/lightroom.rs
+#, fuzzy
 msgid " (no data folder: $HOME is not set)"
 msgstr " (ingen datamappe: $HOME er ikke sat)"
 
 #: src/metadata/lightroom.rs
+#, fuzzy
 msgid "Collections are added to Glimt's, keywords to the keyword tree and stars to the marks. Smart collections are left out."
 msgstr "Samlinger føjes til Glimts, nøgleord til nøgleordstræet og stjerner til mærkerne. Smarte samlinger udelades."
 
 #: src/metadata/lightroom.rs
+#, fuzzy
 msgid "{names} and {n} more"
 msgstr "{names} og {n} mere"
 
 #: src/metadata/lightroom.rs
+#, fuzzy
 msgid "The keywords of each image, into its XMP sidecar ({count}); those it has stay"
 msgstr "Nøgleordene for hvert billede i dets XMP-sidefil ({count}); dem, der allerede er der, bliver"
 
 #: src/metadata/lightroom.rs
+#, fuzzy
 msgid "1 image has"
 msgstr "1 billede har"
 
 #: src/model/collections.rs
+#, fuzzy
 msgid "no data folder ($HOME is not set)"
 msgstr "ingen datamappe ($HOME er ikke sat)"
 
 #: src/model/collections.rs
+#, fuzzy
 msgid "Could not rename the collection: {e}"
 msgstr "Kunne ikke omdøbe samlingen: {e}"
 
 #: src/viewer/view.rs
+#, fuzzy
 msgid "Could not open {name}:\n{e}"
 msgstr "Kunne ikke åbne {name}:\n{e}"
 
 #: src/images/save.rs
+#, fuzzy
 msgid "only JPEG, PNG and WebP can store the rotation"
 msgstr "kun JPEG, PNG og WebP kan gemme rotationen"
 
 #: src/images/save.rs
+#, fuzzy
 msgid "animated images are not turned"
 msgstr "animerede billeder roteres ikke"
 
 #: src/images/save.rs
+#, fuzzy
 msgid "animated images are not saved as a copy"
 msgstr "animerede billeder gemmes ikke som kopi"
 
 #: src/images/save.rs
+#, fuzzy
 msgid "the part is outside the image"
 msgstr "udsnittet er uden for billedet"
 
 #: src/images/save.rs
+#, fuzzy
 msgid "a lossy WebP needs ffmpeg to be saved: {e}"
 msgstr "en WebP med tab kræver ffmpeg for at blive gemt: {e}"
 
 #: src/metadata/exif.rs
+#, fuzzy
 msgid "only JPEG files can store the orientation"
 msgstr "kun JPEG-filer kan gemme retningen"
 
 #: src/metadata/xmp.rs
+#, fuzzy
 msgid "the image was moved, renamed or deleted meanwhile"
 msgstr "billedet blev flyttet, omdøbt eller slettet i mellemtiden"
 
 #: src/ui/dialogs.rs
+#, fuzzy
 msgid "Move the collection \"{name}\" to the trash? Its images stay where they are."
 msgstr "Flyt samlingen »{name}« til papirkurven? Billederne bliver, hvor de er."
 
 #: src/files/file_io.rs
+#, fuzzy
 msgid "the file system here ({kind}) does not allow this rename, as on some shares, cloud folders and phones ({e})"
 msgstr "filsystemet her ({kind}) tillader ikke denne omdøbning, som på visse delte mapper, skymapper og telefoner ({e})"
 
 #: src/files/file_io.rs
+#, fuzzy
 msgid "{from} could not be removed after it was put at {to}, so the file may be under both names or only at {to}; check both before removing either ({e})"
 msgstr "{from} kunne ikke fjernes, efter at den blev lagt på {to}, så filen kan have begge navne eller kun ligge på {to}; tjek begge, før du fjerner nogen af dem ({e})"
 
 #: src/files/file_ops.rs
+#, fuzzy
 msgid "\"{name}\": a {kind} file system, as on a camera card, allows none of : ? * \" < > | \\ in a name. Nothing was renamed."
 msgstr "»{name}«: et {kind}-filsystem, som på hukommelseskortet i et kamera, tillader ingen af : ? * \" < > | \\ i et navn. Intet blev omdøbt."
 
 #: src/files/file_ops.rs
+#, fuzzy
 msgid "The trash refused {count} ({kind}). Nothing was deleted, because another folder is open now."
 msgstr "Papirkurven tog ikke imod {count} ({kind}). Intet blev slettet, fordi en anden mappe er åben nu."
 
 #: src/ui/dialogs.rs
+#, fuzzy
 msgid "The trash does not take files in this folder ({kind}), as on network and cloud folders."
 msgstr "Papirkurven tager ikke imod filer i denne mappe ({kind}), ligesom i netværks- og skymapper."
 
 #: src/files/file_ops.rs
+#, fuzzy
 msgid "\"{name}\": a {kind} file system, as on a camera card, allows none of : ? * \" < > | \\ in a name. Nothing was copied."
 msgstr "»{name}«: et {kind}-filsystem, som på hukommelseskortet i et kamera, tillader ingen af : ? * \" < > | \\ i et navn. Intet blev kopieret."
 
 #: src/files/file_ops.rs
+#, fuzzy
 msgid "\"{name}\": a {kind} file system, as on a camera card, allows none of : ? * \" < > | \\ in a name. Nothing was moved."
 msgstr "»{name}«: et {kind}-filsystem, som på hukommelseskortet i et kamera, tillader ingen af : ? * \" < > | \\ i et navn. Intet blev flyttet."
 
 #: src/ui/dialogs.rs
+#, fuzzy
 msgid "A {kind} file system, as on a camera card, allows none of : ? * \" < > | \\ in a name."
 msgstr "Et {kind}-filsystem, som på hukommelseskortet i et kamera, tillader ingen af : ? * \" < > | \\ i et navn."
 
 #: src/ui/menus.rs
+#, fuzzy
 msgid "Thumbnail Size"
 msgstr "Miniaturestørrelse"
 
 #: src/model/selection.rs
+#, fuzzy
 msgid "The search hides files this would act on: clear it first"
 msgstr "Søgningen skjuler filer, som dette ville gælde: ryd den først"
 
 #: src/ui/menus.rs
+#, fuzzy
 msgid "{name} takes none of these files"
 msgstr "{name} tager ingen af disse filer"
 
 #: src/ui/menus.rs
+#, fuzzy
 msgid "{name} leaves out {files} of a type it does not take"
 msgstr "{name} springer {files} over af en type, den ikke tager"
 
 #: src/model/selection.rs
+#, fuzzy
 msgid "Not included, as the search hides them: {files}"
 msgstr "Ikke medtaget, da søgningen skjuler dem: {files}"
 
 #: src/ui/file_list.rs
+#, fuzzy
 msgid ", {h} selected but hidden by the search"
 msgstr ", {h} valgt, men skjult af søgningen"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Copy for Sharing…"
 msgstr "Kopiér til deling …"
 
 #: src/images/shared_copy.rs
+#, fuzzy
 msgid "Place"
 msgstr "Sted"
 
 #: src/images/shared_copy.rs
+#, fuzzy
 msgid "Camera and lens"
 msgstr "Kamera og objektiv"
 
 #: src/images/shared_copy.rs
+#, fuzzy
 msgid "Date and time"
 msgstr "Dato og tid"
 
 #: src/images/shared_copy.rs
+#, fuzzy
 msgid "Photographer and copyright"
 msgstr "Fotograf og ophavsret"
 
 #: src/images/shared_copy.rs
+#, fuzzy
 msgid "Software"
 msgstr "Software"
 
 #: src/images/shared_copy.rs
+#, fuzzy
 msgid "Keywords, comment and alt text"
 msgstr "Nøgleord, kommentar og alt-tekst"
 
 #: src/images/shared_copy.rs
+#, fuzzy
 msgid "The preview inside the file"
 msgstr "Forhåndsvisningen inde i filen"
 
 #: src/images/shared_copy.rs
+#, fuzzy
 msgid "More tags"
 msgstr "Flere tags"
 
 #: src/features/copy_for_sharing.rs
+#, fuzzy
 msgid "Reading the tags… {done} of {total}"
 msgstr "Læser tags … {done} af {total}"
 
 #: src/features/copy_for_sharing.rs
+#, fuzzy
 msgid "Remove All"
 msgstr "Fjern alle"
 
 #: src/features/copy_for_sharing.rs
+#, fuzzy
 msgid "Ticked tags are left out of the copies."
 msgstr "Afkrydsede tags udelades af kopierne."
 
 #: src/features/copy_for_sharing.rs
+#, fuzzy
 msgid "A block that can hold tags of several groups, such as the extra images or the maker note, is left out when any tag of those groups is."
 msgstr "En blok, der kan rumme tags fra flere grupper, som de ekstra billeder eller producentens note, udelades, når et tag fra de grupper udelades."
 
 #: src/features/copy_for_sharing.rs
+#, fuzzy
 msgid "A tag that Glimt does not know is listed under More tags, and is left out when any group is ticked, unless it is unticked there."
 msgstr "Et tag, som Glimt ikke kender, vises under Flere tags og udelades, når en gruppe er afkrydset, medmindre krydset fjernes der."
 
 #: src/features/copy_for_sharing.rs
+#, fuzzy
 msgid "Always kept: the orientation, so the image is not shown on its side, the colour profile, so its colours do not change, and an HDR photo's gain map, so an HDR screen still brightens it. An iPhone's gain map also keeps two brightness values of the maker note."
 msgstr "Altid med: retningen, så billedet ikke vises på siden, farveprofilen, så farverne ikke ændres, og et HDR-billedes gain map, så en HDR-skærm stadig gør det lysere. For en iPhones kommer også to lysstyrkeværdier i producentens note med."
 
 #: src/features/copy_for_sharing.rs
+#, fuzzy
 msgid "Hide"
 msgstr "Skjul"
 
 #: src/features/copy_for_sharing.rs
+#, fuzzy
 msgid "Show"
 msgstr "Vis"
 
 #: src/features/copy_for_sharing.rs
+#, fuzzy
 msgid "; {files} not copied: only JPEG, PNG and WebP are"
 msgstr "; {files} ikke kopieret: kun JPEG, PNG og WebP kopieres"
 
 #: src/features/copy_for_sharing.rs
+#, fuzzy
 msgid "; {files} not copied: the folder has files of those names"
 msgstr "; {files} ikke kopieret: mappen har filer med de navne"
 
 #: src/features/copy_for_sharing.rs
+#, fuzzy
 msgid "Reading the tags"
 msgstr "Læser tags"
 
 #: src/ui/dialogs.rs
+#, fuzzy
 msgid "Open {files}, each in its default application?"
 msgstr "Åbn {files}, hver i sit standardprogram?"
 
 #: src/ui/dialogs.rs
+#, fuzzy
 msgid "Open (Enter)"
 msgstr "Åbn (Enter)"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Set Window Name…"
 msgstr "Angiv vinduesnavn …"
 
 #: src/ui/dialogs.rs
+#, fuzzy
 msgid "Name of this window, which glimt --name NAME --remote reaches it by (empty: its process ID):"
 msgstr "Navnet på dette vindue, som glimt --name NAME --remote når det med (tomt: dets proces-id):"
 
 #: src/ui/dialogs.rs
+#, fuzzy
 msgid "Could not name this window: {why}"
 msgstr "Vinduet kunne ikke få et navn: {why}"
 
 #: src/ui/dialogs.rs
+#, fuzzy
 msgid "Could not name this window: a name holds up to 64 letters, digits, - and _, and not only digits"
 msgstr "Vinduet kunne ikke få et navn: et navn har op til 64 bogstaver, cifre, - og _, og ikke kun cifre"
 
 #: src/files/file_io.rs
+#, fuzzy
 msgid "A change could not be saved, because Glimt met an error while writing it"
 msgstr "En ændring kunne ikke gemmes, fordi Glimt fik en fejl, mens den blev skrevet"
 
 #: src/files/file_io.rs
+#, fuzzy
 msgid "Glimt ended before every write was done: the last change of the settings, marks, a collection or a file may be lost"
 msgstr "Glimt sluttede, før alt var skrevet: den seneste ændring af indstillingerne, mærkerne, en samling eller en fil kan være tabt"
 
 #: src/model/folder.rs
+#, fuzzy
 msgid "Still opening {name}… Open another folder to stop waiting."
 msgstr "Åbner stadig {name}… Åbn en anden mappe for at holde op med at vente."
 
 #: src/files/file_ops.rs
+#, fuzzy
 msgid "Rename Many stopped, so the metadata edited for {count} was not saved"
 msgstr "Omdøb flere stoppede, så de metadata, der blev redigeret for {count}, blev ikke gemt"
 
 #: src/ui/file_list.rs
+#, fuzzy
 msgid "( {w} x {h} ) {bytes}{position}{page}"
 msgstr "( {w} x {h} ) {bytes}{position}{page}"
 
 #: src/features/tools.rs
+#, fuzzy
 msgid "{file} is not loaded: %f inside quotes is not the file. Give %f as a word of its own, as in {example}"
 msgstr "{file} er ikke indlæst: %f inde i anførselstegn er ikke filen. Skriv %f som et ord for sig, som i {example}"
 
 #: src/features/tools.rs
+#, fuzzy
 msgid "{file} gets no files: %f inside quotes is not the file. Give %f as a word of its own, as in {example}"
 msgstr "{file} får ingen filer: %f inde i anførselstegn er ikke filen. Skriv %f som et ord for sig, som i {example}"
 
 #: src/cli.rs
+#, fuzzy
 msgid "Added formats and tools:"
 msgstr "Tilføjede formater og værktøjer:"
 
 #: src/metadata/lightroom.rs
+#, fuzzy
 msgid "; the sidecars are still being written"
 msgstr "; sidefilerne skrives stadig"
 
 #: src/files/file_io.rs
+#, fuzzy
 msgid "Could not remove {name}: {e}"
 msgstr "Kunne ikke fjerne {name}: {e}"
 
 #: src/files/file_io.rs
+#, fuzzy
 msgid "another file has taken its name: the folder is read again"
 msgstr "en anden fil har taget navnet: mappen læses igen"
 
 #: src/files/file_ops.rs
+#, fuzzy
 msgid "Rename failed ({count}): {first}"
 msgstr "Omdøbning mislykkedes ({count}): {first}"
 
 #: src/files/file_ops.rs
+#, fuzzy
 msgid "{side}: {e}, so {file} stays where it was, with its sidecar"
 msgstr "{side}: {e}, så {file} bliver, hvor den var, med sin sidefil"
 
 #: src/files/file_ops.rs
+#, fuzzy
 msgid "Could not save the plan of the renames ({e}), so nothing was renamed"
 msgstr "Kunne ikke gemme planen for omdøbningen ({e}), så intet blev omdøbt"
 
 #: src/files/file_ops.rs
+#, fuzzy
 msgid "{side} could not go to the trash, so {file} stays where it was, with its sidecar"
 msgstr "{side} kunne ikke flyttes til papirkurven, så {file} bliver, hvor den var, med sin sidefil"
 
 #: src/files/trash.rs
+#, fuzzy
 msgid "{e}, so {file} stays in the trash, with its sidecar"
 msgstr "{e}, så {file} bliver i papirkurven, med sin sidefil"
 
 #: src/ui/dialogs.rs
+#, fuzzy
 msgid "The names could not all be put right. Save or copy the list of the files that are not under the names they were to get. Then the names can be left as they are, and those files renamed by hand."
 msgstr "Navnene kunne ikke alle sættes rigtigt. Gem eller kopiér listen over de filer, der ikke har de navne, de skulle have. Så kan navnene blive, som de er, og de filer omdøbes i hånden."
 
 #: src/ui/dialogs.rs
+#, fuzzy
 msgid "Save the list…"
 msgstr "Gem listen …"
 
 #: src/ui/dialogs.rs
+#, fuzzy
 msgid "Copy the list"
 msgstr "Kopiér listen"
 
 #: src/ui/dialogs.rs
+#, fuzzy
 msgid "Leave the names as they are"
 msgstr "Lad navnene være, som de er"
 
 #: src/ui/dialogs.rs
+#, fuzzy
 msgid "The list was copied to the clipboard. Paste it into a file before the names are left as they are."
 msgstr "Listen blev kopieret til udklipsholderen. Indsæt den i en fil, før navnene bliver ladt være, som de er."
 
 #: src/ui/dialogs.rs
+#, fuzzy
 msgid "The names were left as they are"
 msgstr "Navnene blev ladt være, som de er"
 
 #: src/ui/dialogs.rs
+#, fuzzy
 msgid "Another window has put these renames right already. Nothing was changed here."
 msgstr "Et andet vindue har allerede rettet disse omdøbninger. Intet blev ændret her."
 
 #: src/ui/dialogs.rs
+#, fuzzy
 msgid "Rename Many was cut short, and these files are not under the names it was to give them. Each line names a file as it is now, then the name it was to get."
 msgstr "Omdøb flere blev afbrudt, og disse filer har ikke de navne, de skulle have. Hver linje giver en fils navn nu og derefter det navn, den skulle have."
 
 #: src/files/file_ops.rs
+#, fuzzy
 msgid "{file} went back, but its sidecar {side} could not ({e}), so the sidecar is at {at}"
 msgstr "{file} blev flyttet tilbage, men sidefilen {side} kunne ikke ({e}), så sidefilen er i {at}"
 
 #: src/files/file_ops.rs
+#, fuzzy
 msgid "{side} could not follow {file} ({e}), and {file} could not go back ({error}), so the file is at {to} and this sidecar at {side}"
 msgstr "{side} kunne ikke følge {file} ({e}), og {file} kunne ikke flyttes tilbage ({error}), så filen er i {to} og denne sidefil i {side}"
 
 #: src/files/file_io.rs
+#, fuzzy
 msgid "Could not look at {name}: {e}. Its marks and collection entries followed it there all the same, as the file was there before."
 msgstr "Kunne ikke se på {name}: {e}. Dens mærker og samlingsposter fulgte den derhen alligevel, da filen var der før."
 
 #: src/ui/dialogs.rs
+#, fuzzy
 msgid "Could not leave the names as they are: {e}. Rename Many asks about them again at the next start."
 msgstr "Kunne ikke lade navnene være, som de er: {e}. Omdøb flere spørger om dem igen ved næste start."
 
 #: src/files/journal.rs
+#, fuzzy
 msgid "another window has them open"
 msgstr "et andet vindue har dem åbne"
 
+#: src/ui/dialogs.rs
+#, fuzzy
+msgid "The file dialog did not answer with full paths, so nothing was opened"
+msgstr "Fildialogen svarede ikke med fulde stier, så intet blev åbnet"
+
 #: src/files/file_io.rs
+#, fuzzy
 msgid "Could not lock {name}: {e}. A change that another Glimt window makes at the same moment may be lost."
 msgstr "Kunne ikke låse {name}: {e}. En ændring, som et andet Glimt-vindue foretager i samme øjeblik, kan gå tabt."

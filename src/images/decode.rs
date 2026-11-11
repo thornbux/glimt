@@ -21,6 +21,11 @@ pub static MAX_ANIMATION_BYTES: AtomicUsize = AtomicUsize::new(128 << 20);
 /// Frame and Export Frames (`each_frame`).
 const MAX_FRAMES: usize = 1000;
 
+/// The most bytes of whole canvases that the view's decode of one animation makes, over all its
+/// frames. Every frame is a whole canvas before it is shrunk, so a small GIF with a huge canvas
+/// and many tiny frames would else take minutes, though what is kept of each frame is small.
+const MAX_ANIMATION_CANVAS_BYTES: u64 = 4 * MAX_DECODE_BYTES;
+
 /// image's default limit (`Limits::max_alloc`). Pixels are measured against it only by
 /// `fits_decode_limit`; elsewhere it caps the bytes read from a file or a program.
 pub const MAX_DECODE_BYTES: u64 = 512 << 20;
@@ -570,7 +575,10 @@ fn too_large_animation((w, h): (u32, u32)) -> bool {
 pub fn animation(path: &Path, max: [u32; 2]) -> Option<(Frames, [usize; 2])> {
     let _job = start_decode_job();
     // One too large is shown by `decode` as a still image, instead of asking for gigabytes here.
-    let (frames, _) = animated_frames(path)?.ok()?;
+    let (frames, (w, h)) = animated_frames(path)?.ok()?;
+    let canvas = u64::from(w) * u64::from(h) * 4;
+    let most_frames = (MAX_ANIMATION_CANVAS_BYTES / canvas.max(1)).clamp(1, MAX_FRAMES as u64);
+    let most_frames = most_frames as usize;
     let (mut out, mut orig, mut bytes) = (Vec::new(), [0, 0], 0);
     for frame in frames {
         // A GIF cut short in a download keeps the frames that came, as browsers show them.
@@ -584,8 +592,8 @@ pub fn animation(path: &Path, max: [u32; 2]) -> Option<(Frames, [usize; 2])> {
         bytes += img.pixels.len() * 4;
         out.push((img, ms));
         // Tiny frames pass the memory budget in their thousands, and each becomes a texture
-        // when shown, so there are 1,000 at most.
-        if bytes > MAX_ANIMATION_BYTES.load(Ordering::Relaxed) || out.len() >= MAX_FRAMES {
+        // when shown, so there are 1,000 at most, and fewer of a large canvas.
+        if bytes > MAX_ANIMATION_BYTES.load(Ordering::Relaxed) || out.len() >= most_frames {
             break;
         }
     }
@@ -1845,6 +1853,32 @@ mod tests {
         let given = super::each_frame(&file, None, true, |_, _| Ok(())).unwrap();
         assert_eq!(given, super::MAX_FRAMES);
         std::fs::remove_file(file).unwrap();
+    }
+
+    /// A small GIF with a large canvas and many tiny frames is read no further than so many
+    /// canvases' bytes, though what is kept of each frame at a small size is tiny. Before, a GIF
+    /// of a few KB with an 8000 by 8000 canvas made 1,000 canvases of 256 MB in Check Images.
+    #[test]
+    fn a_large_canvas_of_many_tiny_frames_is_cut_short() {
+        let file =
+            std::env::temp_dir().join(format!("glimt-test-canvas-{}.gif", std::process::id()));
+        // A canvas of 2000 by 2000, two colours, and 1,000 frames of one pixel.
+        let mut gif = b"GIF89a".to_vec();
+        gif.extend(2000u16.to_le_bytes());
+        gif.extend(2000u16.to_le_bytes());
+        gif.extend([0x80, 0, 0, 0, 0, 0, 255, 255, 255]);
+        for _ in 0..1000 {
+            gif.extend([0x2c, 0, 0, 0, 0, 1, 0, 1, 0, 0, 2, 2, 0x44, 1, 0]);
+        }
+        gif.push(0x3b);
+        std::fs::write(&file, gif).unwrap();
+        let (frames, _) = super::animation(&file, [64, 64]).unwrap();
+        std::fs::remove_file(file).unwrap();
+        let canvas = 2000 * 2000 * 4;
+        assert_eq!(
+            frames.len() as u64,
+            super::MAX_ANIMATION_CANVAS_BYTES / canvas
+        );
     }
 
     /// A JPEG far larger than the window is decoded scaled, turned upright by its EXIF, with

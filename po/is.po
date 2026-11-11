@@ -9,3125 +9,3911 @@ msgstr ""
 "Plural-Forms: nplurals=2; plural=(n%10!=1 || n%100==11);\n"
 
 #: src/ui/accessibility.rs
+#, fuzzy
 msgid "No images"
 msgstr "Engar myndir"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "About Glimt"
 msgstr "Um Glimt"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Auto Rotate Using EXIF"
 msgstr "Snúa sjálfkrafa samkvæmt EXIF"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Back"
 msgstr "Til baka"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Back Up Glimt's Data…"
 msgstr "Taka afrit af gögnum Glimt…"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Check Images…"
 msgstr "Athuga myndir…"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Close Window"
 msgstr "Loka glugga"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Compare Side by Side"
 msgstr "Bera saman hlið við hlið"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Copy Files to Clipboard"
 msgstr "Afrita skrár á klemmuspjald"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Copy Image to Clipboard"
 msgstr "Afrita mynd á klemmuspjald"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Copy Path (Unquoted)"
 msgstr "Afrita slóð (án gæsalappa)"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Copy Path to Clipboard"
 msgstr "Afrita slóð á klemmuspjald"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Copy…"
 msgstr "Afrita…"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Delete Permanently…"
 msgstr "Eyða varanlega…"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Delete…"
 msgstr "Eyða…"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "EXIF Window"
 msgstr "EXIF-gluggi"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Export Frames…"
 msgstr "Flytja út ramma…"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Faster"
 msgstr "Hraðar"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Fill the View"
 msgstr "Fylla sýnina"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Find Duplicates…"
 msgstr "Finna tvítök…"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "First Image"
 msgstr "Fyrsta mynd"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Fit the Height"
 msgstr "Laga að hæð"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Fit the Width"
 msgstr "Laga að breidd"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Flip"
 msgstr "Snúa við lóðrétt"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Forward"
 msgstr "Áfram"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Full Screen"
 msgstr "Heilskjár"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Help Manual"
 msgstr "Handbók"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Hide File List"
 msgstr "Fela skráalista"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Histogram: Off, RGB, Brightness"
 msgstr "Stuðlarit: af, RGB, birtustig"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Home"
 msgstr "Heimamappa"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Import Lightroom Catalog…"
 msgstr "Flytja inn Lightroom-skrá…"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Include Subfolders"
 msgstr "Taka með undirmöppur"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Invert Selection"
 msgstr "Snúa vali við"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Keyboard Map"
 msgstr "Lyklaborðskort"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Keyboard Shortcuts"
 msgstr "Flýtilyklar"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Keywords and Comment"
 msgstr "Efnisorð og athugasemd"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Last Image"
 msgstr "Síðasta mynd"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Logarithmic Histogram"
 msgstr "Lógaritmískt stuðlarit"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Mark 1"
 msgstr "Merki 1"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Mark 2"
 msgstr "Merki 2"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Mark 3"
 msgstr "Merki 3"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Mark 4"
 msgstr "Merki 4"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Mark 5"
 msgstr "Merki 5"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Mark 6"
 msgstr "Merki 6"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Mirror"
 msgstr "Spegla"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Move Collection to Trash"
 msgstr "Færa safnið í ruslið"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Move Earlier in Collection"
 msgstr "Færa framar í safninu"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Move Later in Collection"
 msgstr "Færa aftar í safninu"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Move to End of Collection"
 msgstr "Færa aftast í safnið"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Move to Start of Collection"
 msgstr "Færa fremst í safnið"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Move…"
 msgstr "Færa…"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "New Collection…"
 msgstr "Nýtt safn…"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "New Folder…"
 msgstr "Ný mappa…"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "New Window"
 msgstr "Nýr gluggi"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Next Filter"
 msgstr "Næsta sía"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Next Image"
 msgstr "Næsta mynd"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Next Layout"
 msgstr "Næsta uppsetning"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Next Page"
 msgstr "Næsta síða"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "No Stars"
 msgstr "Engar stjörnur"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "One Image"
 msgstr "Ein mynd"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Open Collection…"
 msgstr "Opna safn…"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Open File…"
 msgstr "Opna skrá…"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Open Folder Recursive…"
 msgstr "Opna möppu með undirmöppum…"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Open Folder…"
 msgstr "Opna möppu…"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Open Several Folders…"
 msgstr "Opna nokkrar möppur…"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Open With Default App"
 msgstr "Opna með sjálfgefnu forriti"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Pan View"
 msgstr "Yfirlitssýn"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Pane Above"
 msgstr "Reitur fyrir ofan"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Pane Below"
 msgstr "Reitur fyrir neðan"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Pane to the Left"
 msgstr "Reitur til vinstri"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Pane to the Right"
 msgstr "Reitur til hægri"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Pause Slideshow"
 msgstr "Gera hlé á skyggnusýningu"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Play Animations"
 msgstr "Spila hreyfimyndir"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Play Video"
 msgstr "Spila myndskeið"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Preferences…"
 msgstr "Kjörstillingar…"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Previous Image"
 msgstr "Fyrri mynd"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Previous Page"
 msgstr "Fyrri síða"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Print…"
 msgstr "Prenta…"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Projector"
 msgstr "Skjávarpi"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Quit"
 msgstr "Hætta"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Random Order"
 msgstr "Slembiröð"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Refresh"
 msgstr "Endurnýja"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Remove from Collection"
 msgstr "Fjarlægja úr safninu"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Rename Collection…"
 msgstr "Endurnefna safnið…"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Rename…"
 msgstr "Endurnefna…"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Rotate 180°"
 msgstr "Snúa 180°"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Rotate Clockwise"
 msgstr "Snúa réttsælis"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Rotate Counterclockwise"
 msgstr "Snúa rangsælis"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Save Orientation to File"
 msgstr "Vista stefnu í skrána"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Save This Frame…"
 msgstr "Vista þennan ramma…"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Search File Names"
 msgstr "Leita í skráarheitum"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Select All"
 msgstr "Velja allt"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Select Mark 1"
 msgstr "Velja merki 1"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Select Mark 2"
 msgstr "Velja merki 2"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Select Mark 3"
 msgstr "Velja merki 3"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Select Mark 4"
 msgstr "Velja merki 4"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Select Mark 5"
 msgstr "Velja merki 5"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Select Mark 6"
 msgstr "Velja merki 6"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Select None"
 msgstr "Velja ekkert"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Show Info Panel"
 msgstr "Sýna upplýsingaspjald"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Show Folder Path"
 msgstr "Sýna slóð möppu"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Show Folder Tree"
 msgstr "Sýna möpputré"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Show Hidden Files"
 msgstr "Sýna faldar skrár"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Show Image Info in Full Screen"
 msgstr "Sýna upplýsingar um mynd á heilskjá"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Show Sort Manager"
 msgstr "Sýna flokkara"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Show the Pointer on the Projector"
 msgstr "Sýna bendil á skjávarpanum"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Show Thumbnails"
 msgstr "Sýna smámyndir"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Thumbnails in Image Area"
 msgstr "Smámyndir á myndsvæðinu"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Show Toolbar"
 msgstr "Sýna verkfærastiku"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Slower"
 msgstr "Hægar"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Start/Stop Slideshow"
 msgstr "Ræsa/stöðva skyggnusýningu"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Stop Slideshow, Leave Full Screen"
 msgstr "Stöðva skyggnusýningu, hætta í heilskjá"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Two Above Each Other"
 msgstr "Tvær hvor yfir annarri"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Up"
 msgstr "Upp"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "View Images as Icons"
 msgstr "Sýna myndir sem tákn"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Zoom 1:1"
 msgstr "Aðdráttur 1:1"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Zoom In"
 msgstr "Auka aðdrátt"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Zoom Out"
 msgstr "Minnka aðdrátt"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Zoom to Fit"
 msgstr "Laga að glugga"
 
 #: src/model/collections.rs
+#, fuzzy
 msgid "Not a valid collection name: \"{name}\""
 msgstr "Ekki gilt heiti á safni: „{name}“"
 
 #: src/model/collections.rs
+#, fuzzy
 msgid "There is a collection called \"{name}\" already"
 msgstr "Það er þegar til safn sem heitir „{name}“"
 
 #: src/features/duplicates.rs
+#, fuzzy
 msgid "Among the {count} in the list, compare by"
 msgstr "Meðal {count} í listanum, bera saman eftir"
 
 #: src/features/duplicates.rs
+#, fuzzy
 msgid "Check all but the first of each group"
 msgstr "Haka við allar nema þá fyrstu í hverjum hópi"
 
 #: src/features/duplicates.rs
+#, fuzzy
 msgid "Checksum (identical files)"
 msgstr "Gátsumma (eins skrár)"
 
 #: src/features/duplicates.rs
+#, fuzzy
 msgid "Comparing… {done} of {total}"
 msgstr "Ber saman… {done} af {total}"
 
 #: src/features/duplicates.rs
+#, fuzzy
 msgid "Find"
 msgstr "Finna"
 
 #: src/features/duplicates.rs
+#, fuzzy
 msgid "Find Duplicates"
 msgstr "Finna tvítök"
 
 #: src/features/duplicates.rs
+#, fuzzy
 msgid "Group {n} ({files})"
 msgstr "Hópur {n} ({files})"
 
 #: src/features/duplicates.rs
+#, fuzzy
 msgid "Include Subfolders in the View menu searches the folders below too."
 msgstr "Taka með undirmöppur í Skoða-valmyndinni leitar líka í möppunum fyrir neðan."
 
 #: src/features/duplicates.rs
+#, fuzzy
 msgid "Move {n} checked to trash…"
 msgstr "Færa {n} merktar í ruslið…"
 
 #: src/features/duplicates.rs
+#, fuzzy
 msgid "These groups were found by {by}, so the checked files may be different images, not copies."
 msgstr "Þessir hópar fundust eftir „{by}“, svo merktu skrárnar geta verið ólíkar myndir, ekki afrit."
 
 #: src/features/duplicates.rs
+#, fuzzy
 msgid "Move to Trash Anyway"
 msgstr "Færa samt í ruslið"
 
 #: src/files/config.rs
+#, fuzzy
 msgid "{files} left out: a name with a line break cannot be kept"
 msgstr "{files} sleppt: ekki er hægt að geyma nafn með línuskilum"
 
 #: src/features/duplicates.rs
+#, fuzzy
 msgid "Cancel"
 msgstr "Hætta við"
 
 #: src/features/duplicates.rs
+#, fuzzy
 msgid "Name"
 msgstr "Heiti"
 
 #: src/features/duplicates.rs
+#, fuzzy
 msgid "Similarity (90%)"
 msgstr "Líkindi (90%)"
 
 #: src/features/duplicates.rs
+#, fuzzy
 msgid "Similarity (high, 95%)"
 msgstr "Líkindi (mikil, 95%)"
 
 #: src/features/duplicates.rs
+#, fuzzy
 msgid "Similarity (low, 85%)"
 msgstr "Líkindi (lítil, 85%)"
 
 #: src/features/duplicates.rs
+#, fuzzy
 msgid "Size"
 msgstr "Stærð"
 
 #: src/features/duplicates.rs
+#, fuzzy
 msgid "Stop"
 msgstr "Stöðva"
 
 #: src/features/duplicates.rs
+#, fuzzy
 msgid "The checked files are no longer all in the list"
 msgstr "Merktu skrárnar eru ekki lengur allar í listanum"
 
 #: src/features/duplicates.rs
+#, fuzzy
 msgid "Uncheck all"
 msgstr "Taka hak af öllum"
 
 #: src/features/duplicates.rs
+#, fuzzy
 msgid "{groups}, {files}, among {images}"
 msgstr "{groups}, {files}, meðal {images}"
 
 #: src/files/file_ops.rs
+#, fuzzy
 msgid "Backing up"
 msgstr "Tekur afrit"
 
 #: src/files/file_ops.rs
+#, fuzzy
 msgid "Copy"
 msgstr "Afrita"
 
 #: src/files/file_ops.rs
+#, fuzzy
 msgid "Copying"
 msgstr "Afritar"
 
 #: src/files/file_ops.rs
+#, fuzzy
 msgid "Could not make {folder}"
 msgstr "Gat ekki búið til {folder}"
 
 #: src/files/file_ops.rs
+#, fuzzy
 msgid "Could not rename {f} to {t}: {e}; nothing renamed"
 msgstr "Gat ekki endurnefnt {f} sem {t}: {e}; ekkert endurnefnt"
 
 #: src/files/file_ops.rs
+#, fuzzy
 msgid "Could not save the frames: {e}"
 msgstr "Gat ekki vistað rammana: {e}"
 
 #: src/files/file_ops.rs
+#, fuzzy
 msgid "Delete failed ({count}): {first}"
 msgstr "Eyðing mistókst ({count}): {first}"
 
 #: src/files/file_ops.rs
+#, fuzzy
 msgid "Deleting"
 msgstr "Eyðir"
 
 #: src/files/file_ops.rs
+#, fuzzy
 msgid "Renaming"
 msgstr "Endurnefnir"
 
 #: src/files/file_ops.rs
+#, fuzzy
 msgid "Exporting"
 msgstr "Flytur út"
 
 #: src/files/file_ops.rs
+#, fuzzy
 msgid "gio trash (from glib): {e}"
 msgstr "gio trash (úr glib): {e}"
 
 #: src/files/file_ops.rs
+#, fuzzy
 msgid "Move"
 msgstr "Færa"
 
 #: src/files/file_ops.rs
+#, fuzzy
 msgid "Moving"
 msgstr "Færir"
 
 #: src/files/file_ops.rs
+#, fuzzy
 msgid "Saved {file}"
 msgstr "Vistaði {file}"
 
 #: src/files/file_ops.rs
+#, fuzzy
 msgid "Saved; it shows when Auto Rotate Using EXIF is on"
 msgstr "Vistað; sést þegar Snúa sjálfkrafa samkvæmt EXIF er virkt"
 
 #: src/files/file_ops.rs
+#, fuzzy
 msgid "Still saving a rotation: try again in a moment"
 msgstr "Enn er verið að vista snúning: reyndu aftur eftir smástund"
 
 #: src/files/file_ops.rs
+#, fuzzy
 msgid "The files asked about are no longer in the list: nothing was done"
 msgstr "Skrárnar sem spurt var um eru ekki lengur í listanum: ekkert var gert"
 
 #: src/files/file_ops.rs
+#, fuzzy
 msgid "The pattern gives several files the same name; add # for a number"
 msgstr "Mynstrið gefur nokkrum skrám sama heiti; bættu við # fyrir númer"
 
 #: src/files/file_ops.rs
+#, fuzzy
 msgid "Writing the sidecars stopped at a file that broke it"
 msgstr "Ritun hliðarskránna stöðvaðist við skrá sem lét hana mistakast"
 
 #: src/files/file_ops.rs
+#, fuzzy
 msgid "{count} deleted"
 msgstr "{count} eytt"
 
 #: src/files/file_ops.rs
+#, fuzzy
 msgid "{count} moved to the trash"
 msgstr "{count} fært í ruslið"
 
 #: src/files/file_ops.rs
+#, fuzzy
 msgid "{frames} saved in {folder}"
 msgstr "{frames} vistað í {folder}"
 
 #: src/files/file_ops.rs
+#, fuzzy
 msgid "{name} exists already; nothing renamed"
 msgstr "{name} er þegar til; ekkert endurnefnt"
 
 #: src/files/file_ops.rs
+#, fuzzy
 msgid "{verb} failed ({count}): {first}"
 msgstr "{verb} mistókst ({count}): {first}"
 
 #: src/metadata/lightroom.rs
+#, fuzzy
 msgid "Cancel (Esc)"
 msgstr "Hætta við (Esc)"
 
 #: src/metadata/lightroom.rs
+#, fuzzy
 msgid "Import"
 msgstr "Flytja inn"
 
 #: src/metadata/lightroom.rs
+#, fuzzy
 msgid "Import from Lightroom"
 msgstr "Flytja inn úr Lightroom"
 
 #: src/metadata/lightroom.rs
+#, fuzzy
 msgid "Importing"
 msgstr "Flytur inn"
 
 #: src/metadata/lightroom.rs
+#, fuzzy
 msgid "Keep Glimt's stars"
 msgstr "Halda stjörnum Glimt"
 
 #: src/metadata/lightroom.rs
+#, fuzzy
 msgid "Lightroom has the catalog open: close Lightroom first"
 msgstr "Lightroom er með skrána opna: lokaðu Lightroom fyrst"
 
 #: src/metadata/lightroom.rs
+#, fuzzy
 msgid "Lightroom's stars or keywords not written to the sidecars of {count}"
 msgstr "Stjörnur eða efnisorð Lightroom ekki skrifuð í hliðarskrár {count}"
 
 #: src/metadata/lightroom.rs
+#, fuzzy
 msgid "Next"
 msgstr "Næsta"
 
 #: src/metadata/lightroom.rs
+#, fuzzy
 msgid "Not a Lightroom Classic catalog Glimt can read: {why}"
 msgstr "Ekki Lightroom Classic-skrá sem Glimt getur lesið: {why}"
 
 #: src/metadata/lightroom.rs
+#, fuzzy
 msgid "Reading a Lightroom catalog needs the sqlite3 program"
 msgstr "Til að lesa Lightroom-skrá þarf forritið sqlite3"
 
 #: src/metadata/lightroom.rs
+#, fuzzy
 msgid "Take Lightroom's stars"
 msgstr "Taka stjörnur Lightroom"
 
 #: src/metadata/lightroom.rs
+#, fuzzy
 msgid "the keywords of {count}"
 msgstr "efnisorð {count}"
 
 #: src/metadata/lightroom.rs
+#, fuzzy
 msgid "the stars of {count}"
 msgstr "stjörnur {count}"
 
 #: src/metadata/lightroom.rs
+#, fuzzy
 msgid "There already, so they get only the images they lack: {names}."
 msgstr "Eru þegar til, svo þau fá aðeins myndirnar sem vantar: {names}."
 
 #: src/metadata/lightroom.rs
+#, fuzzy
 msgid "Not found and left out: {count}. Import again once their drive is mounted."
 msgstr "Fannst ekki og sleppt: {count}. Flyttu aftur inn þegar drif þeirra er tengt."
 
 #: src/metadata/lightroom.rs
+#, fuzzy
 msgid "Where the catalog's folders are now (empty: left out):"
 msgstr "Hvar möppur skrárinnar eru núna (autt: sleppt):"
 
 #: src/metadata/lightroom.rs
+#, fuzzy
 msgid "{collections}, {keywords} and the stars of {images}."
 msgstr "{collections}, {keywords} og stjörnur {images}."
 
 #: src/metadata/lightroom.rs
+#, fuzzy
 msgid "{count} have"
 msgstr "{count} hafa"
 
 #: src/metadata/lightroom.rs
+#, fuzzy
 msgid "{needs}, which is not installed"
 msgstr "{needs}, sem er ekki uppsett"
 
 #: src/metadata/lightroom.rs
+#, fuzzy
 msgid "{n} other stars in Glimt:"
 msgstr "{n} aðrar stjörnur í Glimt:"
 
 #: src/main.rs
+#, fuzzy
 msgid ", and {n} more"
 msgstr ", og {n} í viðbót"
 
 #: src/main.rs
+#, fuzzy
 msgid "; and {n} more (glimt --check-config)"
 msgstr "; og {n} í viðbót (glimt --check-config)"
 
 #: src/main.rs
+#, fuzzy
 msgid "A file dialog is open already"
 msgstr "Skráargluggi er þegar opinn"
 
 #: src/main.rs
+#, fuzzy
 msgid "A plain list is not renamed or trashed by Glimt"
 msgstr "Glimt endurnefnir ekki og hendir ekki venjulegum lista"
 
 #: src/main.rs
+#, fuzzy
 msgid "Add"
 msgstr "Bæta við"
 
 #: src/main.rs
+#, fuzzy
 msgid "Add the keywords to the {n} selected"
 msgstr "Bæta efnisorðunum við {n} valdar"
 
 #: src/main.rs
+#, fuzzy
 msgid "Add This Folder"
 msgstr "Bæta þessari möppu við"
 
 #: src/main.rs
+#, fuzzy
 msgid "Add this image's keywords to the tree"
 msgstr "Bæta efnisorðum þessarar myndar við tréð"
 
 #: src/main.rs
+#, fuzzy
 msgid "Add to Collection"
 msgstr "Bæta í safn"
 
 #: src/main.rs
+#, fuzzy
 msgid "Adding keywords"
 msgstr "Bætir við efnisorðum"
 
 #: src/main.rs
+#, fuzzy
 msgid "Add…"
 msgstr "Bæta við…"
 
 #: src/main.rs
+#, fuzzy
 msgid "All Images Change Together"
 msgstr "Allar myndir skipta saman"
 
 #: src/main.rs
+#, fuzzy
 msgid "Alt text"
 msgstr "Alt-texti"
 
 #: src/main.rs
+#, fuzzy
 msgid "Ascending"
 msgstr "Hækkandi"
 
 #: src/main.rs
+#, fuzzy
 msgid "Case"
 msgstr "Hástafir"
 
 #: src/main.rs
+#, fuzzy
 msgid "Check"
 msgstr "Athuga"
 
 #: src/main.rs
+#, fuzzy
 msgid "Check Images"
 msgstr "Athuga myndir"
 
 #: src/main.rs
+#, fuzzy
 msgid "Collections"
 msgstr "Söfn"
 
 #: src/main.rs
+#, fuzzy
 msgid "Colour Management"
 msgstr "Litastýring"
 
 #: src/main.rs
+#, fuzzy
 msgid "Comment"
 msgstr "Athugasemd"
 
 #: src/main.rs
+#, fuzzy
 msgid "Connect (Enter)"
 msgstr "Tengjast (Enter)"
 
 #: src/main.rs
+#, fuzzy
 msgid "Connecting to {uri}…"
 msgstr "Tengist {uri}…"
 
 #: src/main.rs
+#, fuzzy
 msgid "Could not copy the image: {e}"
 msgstr "Gat ekki afritað myndina: {e}"
 
 #: src/main.rs
+#, fuzzy
 msgid "Could not copy to the clipboard: {e}"
 msgstr "Gat ekki afritað á klemmuspjaldið: {e}"
 
 #: src/main.rs
+#, fuzzy
 msgid "Could not open a new window: {e}"
 msgstr "Gat ekki opnað nýjan glugga: {e}"
 
 #: src/main.rs
+#, fuzzy
 msgid "Could not read the keyword tree: {e}"
 msgstr "Gat ekki lesið efnisorðatréð: {e}"
 
 #: src/main.rs
+#, fuzzy
 msgid "Could not save the keyword tree: {e}"
 msgstr "Gat ekki vistað efnisorðatréð: {e}"
 
 #: src/main.rs
+#, fuzzy
 msgid "Could not read the sort manager's folders: {e}"
 msgstr "Gat ekki lesið möppur flokkarans: {e}"
 
 #: src/main.rs
+#, fuzzy
 msgid "Could not save the alt text: {e}"
 msgstr "Gat ekki vistað alt-textann: {e}"
 
 #: src/main.rs
+#, fuzzy
 msgid "Could not save the collection: {e}"
 msgstr "Gat ekki vistað safnið: {e}"
 
 #: src/main.rs
+#, fuzzy
 msgid "Could not save the keywords: {e}"
 msgstr "Gat ekki vistað efnisorðin: {e}"
 
 #: src/main.rs
+#, fuzzy
 msgid "Could not save the orientation: {e}"
 msgstr "Gat ekki vistað stefnuna: {e}"
 
 #: src/main.rs
+#, fuzzy
 msgid "Could not save the sort manager's folders: no home folder"
 msgstr "Gat ekki vistað möppur flokkarans: engin heimamappa"
 
 #: src/main.rs
+#, fuzzy
 msgid "Could not save the sort manager's folders: {e}"
 msgstr "Gat ekki vistað möppur flokkarans: {e}"
 
 #: src/main.rs
+#, fuzzy
 msgid "Could not save the theme: {e}"
 msgstr "Gat ekki vistað þemað: {e}"
 
 #: src/main.rs
+#, fuzzy
 msgid "Could not trash {name} (gio is needed): {e}"
 msgstr "Gat ekki fært {name} í ruslið (gio þarf): {e}"
 
 #: src/main.rs
+#, fuzzy
 msgid "Could not trash {name}: {err}"
 msgstr "Gat ekki fært {name} í ruslið: {err}"
 
 #: src/main.rs
+#, fuzzy
 msgid "Delete (Enter)"
 msgstr "Eyða (Enter)"
 
 #: src/main.rs
+#, fuzzy
 msgid "Desktop files there, as Geeqie's, show in this menu after a restart"
 msgstr "Desktop-skrár þar, eins og Geeqie notar, birtast í þessari valmynd eftir endurræsingu"
 
 #: src/main.rs
+#, fuzzy
 msgid "Dimensions"
 msgstr "Mál"
 
 #: src/main.rs
+#, fuzzy
 msgid "Domain:"
 msgstr "Lén:"
 
 #: src/main.rs
+#, fuzzy
 msgid "Each file keeps its own keywords and gets these too"
 msgstr "Hver skrá heldur sínum eigin efnisorðum og fær þessi líka"
 
 #: src/main.rs
+#, fuzzy
 msgid "Edit"
 msgstr "Breyta"
 
 #: src/main.rs
+#, fuzzy
 msgid "Extended description"
 msgstr "Ítarleg lýsing"
 
 #: src/main.rs
+#, fuzzy
 msgid "File"
 msgstr "Skrá"
 
 #: src/main.rs
+#, fuzzy
 msgid "Filter"
 msgstr "Sía"
 
 #: src/main.rs
+#, fuzzy
 msgid "Finish the renaming"
 msgstr "Ljúka endurnefningu"
 
 #: src/main.rs
+#, fuzzy
 msgid "First: {name}"
 msgstr "Fyrst: {name}"
 
 #: src/main.rs
+#, fuzzy
 msgid "Get More Themes…"
 msgstr "Sækja fleiri þemu…"
 
 #: src/main.rs
+#, fuzzy
 msgid "Glimt ({n})"
 msgstr "Glimt ({n})"
 
 #: src/main.rs
+#, fuzzy
 msgid "Go"
 msgstr "Fara"
 
 #: src/main.rs
+#, fuzzy
 msgid "Help"
 msgstr "Hjálp"
 
 #: src/main.rs
+#, fuzzy
 msgid "Images"
 msgstr "Myndir"
 
 #: src/main.rs
+#, fuzzy
 msgid "Keyword tree"
 msgstr "Efnisorðatré"
 
 #: src/main.rs
+#, fuzzy
 msgid "Keywords"
 msgstr "Efnisorð"
 
 #: src/main.rs
+#, fuzzy
 msgid "Keywords added to {count}"
 msgstr "Efnisorðum bætt við {count}"
 
 #: src/main.rs
+#, fuzzy
 msgid "Keywords could not be saved for {count}"
 msgstr "Ekki tókst að vista efnisorð fyrir {count}"
 
 #: src/main.rs
+#, fuzzy
 msgid "Later"
 msgstr "Seinna"
 
 #: src/main.rs
+#, fuzzy
 msgid "Layout"
 msgstr "Uppsetning"
 
 #: src/main.rs
+#, fuzzy
 msgid "Log in to {uri}"
 msgstr "Skrá inn á {uri}"
 
 #: src/main.rs
+#, fuzzy
 msgid "Marks and Stars"
 msgstr "Merki og stjörnur"
 
 #: src/main.rs
+#, fuzzy
 msgid "Move Folder to Trash…"
 msgstr "Færa möppu í ruslið…"
 
 #: src/main.rs
+#, fuzzy
 msgid "Move in Collection"
 msgstr "Færa í safninu"
 
 #: src/main.rs
+#, fuzzy
 msgid "Move the folder \"{name}\" and all in it to the trash?"
 msgstr "Færa möppuna „{name}“ og allt í henni í ruslið?"
 
 #: src/main.rs
+#, fuzzy
 msgid "Move to Trash (Enter)"
 msgstr "Færa í ruslið (Enter)"
 
 #: src/main.rs
+#, fuzzy
 msgid "Move {what} to the trash?"
 msgstr "Færa {what} í ruslið?"
 
 #: src/main.rs
+#, fuzzy
 msgid "Name of a new collection with {count}:"
 msgstr "Heiti á nýju safni með {count}:"
 
 #: src/main.rs
+#, fuzzy
 msgid "New Folder makes a folder in the folder shown: open one"
 msgstr "Ný mappa býr til möppu í möppunni sem er sýnd: opnaðu einhverja"
 
 #: src/main.rs
+#, fuzzy
 msgid "New names for {count} (* = old name, # = number, ### = 001):"
 msgstr "Ný heiti fyrir {count} (* = gamla heitið, # = númer, ### = 001):"
 
 #: src/main.rs
+#, fuzzy
 msgid "No applications found"
 msgstr "Engin forrit fundust"
 
 #: src/main.rs
+#, fuzzy
 msgid "No collections yet"
 msgstr "Engin söfn enn"
 
 #: src/main.rs
+#, fuzzy
 msgid "No EXIF data"
 msgstr "Engin EXIF-gögn"
 
 #: src/main.rs
+#, fuzzy
 msgid "No file dialog (install zenity or kdialog): {e}"
 msgstr "Enginn skráargluggi (settu upp zenity eða kdialog): {e}"
 
 #: src/main.rs
+#, fuzzy
 msgid "No images for a collection here"
 msgstr "Engar myndir fyrir safn hér"
 
 #: src/main.rs
+#, fuzzy
 msgid "No images in folder"
 msgstr "Engar myndir í möppunni"
 
 #: src/main.rs
+#, fuzzy
 msgid "No tools"
 msgstr "Engin verkfæri"
 
 #: src/main.rs
+#, fuzzy
 msgid "No such folder: {folder}"
 msgstr "Engin slík mappa: {folder}"
 
 #: src/main.rs
+#, fuzzy
 msgid "Not a valid name: \"{text}\""
 msgstr "Ekki gilt heiti: „{text}“"
 
 #: src/main.rs
+#, fuzzy
 msgid "OK (Enter)"
 msgstr "Í lagi (Enter)"
 
 #: src/main.rs
+#, fuzzy
 msgid "One Image at a Time"
 msgstr "Ein mynd í einu"
 
 #: src/main.rs
+#, fuzzy
 msgid "Only the images of a collection can be moved"
 msgstr "Aðeins er hægt að færa myndir safns"
 
 #: src/main.rs
+#, fuzzy
 msgid "Open the Tools Folder"
 msgstr "Opna verkfæramöppuna"
 
 #: src/main.rs
+#, fuzzy
 msgid "Open Themes Folder"
 msgstr "Opna þemamöppuna"
 
 #: src/main.rs
+#, fuzzy
 msgid "Open With"
 msgstr "Opna með"
 
 #: src/main.rs
+#, fuzzy
 msgid "Orientation"
 msgstr "Stefna"
 
 #: src/main.rs
+#, fuzzy
 msgid "Password:"
 msgstr "Lykilorð:"
 
 #: src/main.rs
+#, fuzzy
 msgid "Permanently delete {what}?"
 msgstr "Eyða {what} varanlega?"
 
 #: src/main.rs
+#, fuzzy
 msgid "Places|Norway|Oslo"
 msgstr "Staðir|Noregur|Osló"
 
 #: src/main.rs
+#, fuzzy
 msgid "Tools"
 msgstr "Verkfæri"
 
 #: src/main.rs
+#, fuzzy
 msgid "Put the old names back"
 msgstr "Setja gömlu heitin aftur"
 
 #: src/main.rs
+#, fuzzy
 msgid "Random order is on: R turns it off to move images"
 msgstr "Slembiröð er virk: R slekkur á henni til að færa myndir"
 
 #: src/main.rs
+#, fuzzy
 msgid "Reading folder…"
 msgstr "Les möppu…"
 
 #: src/main.rs
+#, fuzzy
 msgid "Remove"
 msgstr "Fjarlægja"
 
 #: src/main.rs
+#, fuzzy
 msgid "Remove from the tree"
 msgstr "Fjarlægja úr trénu"
 
 #: src/main.rs
+#, fuzzy
 msgid "Rename Folder…"
 msgstr "Endurnefna möppu…"
 
 #: src/main.rs
+#, fuzzy
 msgid "Rename Many is still renaming"
 msgstr "Endurnefna margar er enn að endurnefna"
 
 #: src/main.rs
+#, fuzzy
 msgid "Rename Many was cut short"
 msgstr "Endurnefna margar var rofið"
 
 #: src/main.rs
+#, fuzzy
 msgid "Save as Theme…"
 msgstr "Vista sem þema…"
 
 #: src/main.rs
+#, fuzzy
 msgid "Select"
 msgstr "Velja"
 
 #: src/main.rs
+#, fuzzy
 msgid "Select Them"
 msgstr "Velja þær"
 
 #: src/main.rs
+#, fuzzy
 msgid "Separated by commas"
 msgstr "Aðskilin með kommum"
 
 #: src/main.rs
+#, fuzzy
 msgid "{tag} set on {count}"
 msgstr "{tag} sett á {count}"
 
 #: src/main.rs
+#, fuzzy
 msgid "Setting keywords"
 msgstr "Setur efnisorð"
 
 #: src/main.rs
+#, fuzzy
 msgid "Show File Names"
 msgstr "Sýna skráarheiti"
 
 #: src/main.rs
+#, fuzzy
 msgid "Show on OpenStreetMap"
 msgstr "Sýna á OpenStreetMap"
 
 #: src/main.rs
+#, fuzzy
 msgid "Show Together with These Images"
 msgstr "Sýna með þessum myndum"
 
 #: src/main.rs
+#, fuzzy
 msgid "Slideshow in this layout:"
 msgstr "Skyggnusýning í þessari uppsetningu:"
 
 #: src/main.rs
+#, fuzzy
 msgid "Sort Manager"
 msgstr "Flokkari"
 
 #: src/main.rs
+#, fuzzy
 msgid "Start Slideshow"
 msgstr "Ræsa skyggnusýningu"
 
 #: src/main.rs
+#, fuzzy
 msgid "Still saving the last rotation of this file"
 msgstr "Enn er verið að vista síðasta snúning þessarar skrár"
 
 #: src/main.rs
+#, fuzzy
 msgid "Stop Slideshow"
 msgstr "Stöðva skyggnusýningu"
 
 #: src/files/file_ops.rs
+#, fuzzy
 msgid "Stopped: {done} of {total}"
 msgstr "Stöðvað: {done} af {total}"
 
 #: src/main.rs
+#, fuzzy
 msgid "{tag} taken off {count}"
 msgstr "{tag} tekið af {count}"
 
 #: src/main.rs
+#, fuzzy
 msgid "Taking keywords off"
 msgstr "Tekur efnisorð af"
 
 #: src/main.rs
+#, fuzzy
 msgid "Tell upper and lower case apart"
 msgstr "Gera greinarmun á há- og lágstöfum"
 
+#, fuzzy
 msgid "Search file names (3+ letters), re: pattern, or exif: camera, date …"
 msgstr "Leita í skráarheitum (3+ stafir), re: mynstur eða exif: myndavél, dagsetning …"
 
+#, fuzzy
 msgid "Filter file names by pattern, or exif: camera, date …"
 msgstr "Sía skráarheiti eftir mynstri eða exif: myndavél, dagsetning …"
 
 #: src/main.rs
+#, fuzzy
 msgid "Regular expression instead of fuzzy search"
 msgstr "Regluleg segð í stað óljósrar leitar"
 
 #: src/main.rs
+#, fuzzy
 msgid "The collection {file} is gone (renamed or removed in another window): not saved"
 msgstr "Safnið {file} er horfið (endurnefnt eða fjarlægt í öðrum glugga): ekki vistað"
 
 #: src/main.rs
+#, fuzzy
 msgid "The keyword could not be saved for {count}"
 msgstr "Ekki tókst að vista efnisorðið fyrir {count}"
 
 #: src/main.rs
+#, fuzzy
 msgid "The pane these details are of: the one under the pointer"
 msgstr "Reiturinn sem þessar upplýsingar eiga við: sá undir bendlinum"
 
 #: src/main.rs
+#, fuzzy
 msgid "The settings are locked (--lock-settings)"
 msgstr "Stillingunum er læst (--lock-settings)"
 
 #: src/main.rs
+#, fuzzy
 msgid "The stars could not be written to the XMP sidecar of {count}"
 msgstr "Ekki tókst að skrifa stjörnurnar í XMP-hliðarskrá {count}"
 
 #: src/main.rs
+#, fuzzy
 msgid "Theme"
 msgstr "Þema"
 
 #: src/main.rs
+#, fuzzy
 msgid "This cannot be undone."
 msgstr "Ekki er hægt að afturkalla þetta."
 
 #: src/main.rs
+#, fuzzy
 msgid "User:"
 msgstr "Notandi:"
 
 #: src/main.rs
+#, fuzzy
 msgid "Video: Enter or click to play"
 msgstr "Myndskeið: Enter eða smelltu til að spila"
 
 #: src/main.rs
+#, fuzzy
 msgid "Videos"
 msgstr "Myndskeið"
 
 #: src/main.rs
+#, fuzzy
 msgid "View"
 msgstr "Skoða"
 
 #: src/main.rs
+#, fuzzy
 msgid "What the picture shows, for someone who cannot see it"
 msgstr "Hvað myndin sýnir, fyrir þann sem sér hana ekki"
 
 #: src/main.rs
+#, fuzzy
 msgid "Window"
 msgstr "Gluggi"
 
 #: src/main.rs
+#, fuzzy
 msgid "Writing stars"
 msgstr "Skrifar stjörnur"
 
 #: src/main.rs
+#, fuzzy
 msgid "Zoom"
 msgstr "Aðdráttur"
 
 #: src/main.rs
+#, fuzzy
 msgid "{doing} {done} of {total}…{more}"
 msgstr "{doing} {done} af {total}…{more}"
 
 #: src/main.rs
+#, fuzzy
 msgid "{n} added to the collection \"{name}\""
 msgstr "{n} bætt í safnið „{name}“"
 
 #: src/main.rs
+#, fuzzy
 msgid "{n} broken:"
 msgstr "{n} skemmdar:"
 
 #: src/main.rs
+#, fuzzy
 msgid "{text} is a built-in theme: choose another name"
 msgstr "{text} er innbyggt þema: veldu annað heiti"
 
 #: src/main.rs LAYOUTS
+#, fuzzy
 msgid "Four (2 × 2)"
 msgstr "Fjórar (2 × 2)"
 
 #: src/main.rs LAYOUTS
+#, fuzzy
 msgid "Two Side by Side"
 msgstr "Tvær hlið við hlið"
 
 #: src/viewer/pan.rs
+#, fuzzy
 msgid "April"
 msgstr "apríl"
 
 #: src/viewer/pan.rs
+#, fuzzy
 msgid "August"
 msgstr "ágúst"
 
 #: src/viewer/pan.rs
+#, fuzzy
 msgid "Calendar"
 msgstr "Dagatal"
 
 #: src/viewer/pan.rs
+#, fuzzy
 msgid "December"
 msgstr "desember"
 
 #: src/viewer/pan.rs
+#, fuzzy
 msgid "EXIF date"
 msgstr "EXIF-dagsetning"
 
 #: src/viewer/pan.rs
+#, fuzzy
 msgid "February"
 msgstr "febrúar"
 
 #: src/viewer/pan.rs
+#, fuzzy
 msgid "January"
 msgstr "janúar"
 
 #: src/viewer/pan.rs
+#, fuzzy
 msgid "July"
 msgstr "júlí"
 
 #: src/viewer/pan.rs
+#, fuzzy
 msgid "June"
 msgstr "júní"
 
 #: src/viewer/pan.rs
+#, fuzzy
 msgid "March"
 msgstr "mars"
 
 #: src/viewer/pan.rs
+#, fuzzy
 msgid "May"
 msgstr "maí"
 
 #: src/viewer/pan.rs
+#, fuzzy
 msgid "No date"
 msgstr "Engin dagsetning"
 
 #: src/viewer/pan.rs
+#, fuzzy
 msgid "November"
 msgstr "nóvember"
 
 #: src/viewer/pan.rs
+#, fuzzy
 msgid "October"
 msgstr "október"
 
 #: src/viewer/pan.rs
+#, fuzzy
 msgid "September"
 msgstr "september"
 
 #: src/viewer/pan.rs
+#, fuzzy
 msgid "Timeline"
 msgstr "Tímalína"
 
 #: src/viewer/pan.rs
+#, fuzzy
 msgid "{images} on {days}"
 msgstr "{images} á {days}"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Also write stars to XMP sidecars (photo.jpg.xmp), for darktable and digiKam"
 msgstr "Skrifa stjörnur líka í XMP-hliðarskrár (photo.jpg.xmp), fyrir darktable og digiKam"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Auto rotate images using EXIF (Alt+X)"
 msgstr "Snúa myndum sjálfkrafa samkvæmt EXIF (Alt+X)"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Automatic (system language)"
 msgstr "Sjálfvirkt (tungumál kerfisins)"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Background behind the image"
 msgstr "Bakgrunnur á bak við myndina"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Black"
 msgstr "Svartur"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Brightness"
 msgstr "Birtustig"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Change"
 msgstr "Breyta"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Choose…"
 msgstr "Velja…"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Colour management"
 msgstr "Litastýring"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Confirm move file to Trash"
 msgstr "Staðfesta færslu skráar í ruslið"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Confirm permanent file delete"
 msgstr "Staðfesta varanlega eyðingu skráar"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "CPU use:"
 msgstr "Örgjörvanotkun:"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Custom"
 msgstr "Sérsniðið"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Decoding threads and one malloc arena take effect after a restart."
 msgstr "Afkóðunarþræðir og ein malloc-arena taka gildi eftir endurræsingu."
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Default"
 msgstr "Sjálfgefið"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "default application"
 msgstr "sjálfgefið forrit"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Details"
 msgstr "Nánar"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Enable Delete key"
 msgstr "Virkja Delete-lykilinn"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Enlarge small images to fit the window"
 msgstr "Stækka litlar myndir til að fylla gluggann"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Fade to the next image:"
 msgstr "Hverfa yfir í næstu mynd:"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "From colord, which GNOME and KDE set"
 msgstr "Úr colord, sem GNOME og KDE stilla"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Fuzzy, best matches first (like fzf)"
 msgstr "Óljós, bestu samsvaranir fyrst (eins og fzf)"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "High Contrast when the desktop asks for high contrast"
 msgstr "Mikil birtuskil þegar skjáborðið biður um mikil birtuskil"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Histogram (K):"
 msgstr "Stuðlarit (K):"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Image info template:"
 msgstr "Sniðmát fyrir myndupplýsingar:"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "images decoded at once"
 msgstr "myndir afkóðaðar í einu"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "images on each side"
 msgstr "myndir hvoru megin"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Images without a profile:"
 msgstr "Myndir án litasniðs:"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "In ~/.cache/thumbnails; kept for disks that are not plugged in"
 msgstr "Í ~/.cache/thumbnails; geymdar fyrir diska sem eru ekki tengdir"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Include the images in subfolders"
 msgstr "Taka með myndirnar í undirmöppum"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Include the images in subfolders in the file list"
 msgstr "Taka með myndirnar í undirmöppum í skráalistanum"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Keep the screen saver off in full screen"
 msgstr "Halda skjávaranum af á heilskjá"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Keep zoom and position when changing image"
 msgstr "Halda aðdrætti og staðsetningu þegar skipt er um mynd"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Keyboard shortcuts"
 msgstr "Flýtilyklar"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Language"
 msgstr "Tungumál"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Large"
 msgstr "Stór"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Larger still when the desktop's text is (GNOME's Large Text)"
 msgstr "Enn stærri þegar texti skjáborðsins er það (Stór texti í GNOME)"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Listen for glimt --remote commands (after restart)"
 msgstr "Hlusta eftir glimt --remote-skipunum (eftir endurræsingu)"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Logarithmic (J)"
 msgstr "Lógaritmískt (J)"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "MB at most for an animation's frames"
 msgstr "MB í mesta lagi fyrir ramma hreyfimyndar"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "MB at most for an added format's program"
 msgstr "MB í mesta lagi fyrir forrit viðbætts sniðs"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "A program that reads an added format, such as Java for microscope files, gets at most this much memory. Raise it when such a program runs out of memory."
 msgstr "Forrit sem les viðbætt snið, til dæmis Java fyrir smásjárskrár, fær í mesta lagi svona mikið minni. Hækkaðu það þegar slíkt forrit verður uppiskroppa með minni."
 
 #: src/images/added_formats.rs
+#, fuzzy
 msgid "{name} ran out of memory under its limit of {mb} MB (Preferences → Memory and CPU): {error}"
 msgstr "{name} varð uppiskroppa með minni við mörkin {mb} MB (Kjörstillingar → Minni og örgjörvi): {error}"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Medium"
 msgstr "Miðlungs"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Memory use:"
 msgstr "Minnisnotkun:"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Mouse wheel zooms (off: next/previous image, Ctrl+wheel zooms)"
 msgstr "Músarhjólið stýrir aðdrætti (af: næsta/fyrri mynd, Ctrl+hjól stýrir aðdrætti)"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "None"
 msgstr "Ekkert"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Not with CPU use Power saving"
 msgstr "Ekki með örgjörvanotkun Orkusparnaður"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Off"
 msgstr "Af"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "One malloc arena: much less memory, decoding up to ~8 % slower"
 msgstr "Ein malloc-arena: miklu minna minni, afkóðun allt að ~8% hægari"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Play animated GIF and WebP (A)"
 msgstr "Spila hreyfðar GIF og WebP (A)"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Player (Enter):"
 msgstr "Spilari (Enter):"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Preferences"
 msgstr "Kjörstillingar"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Preload next and previous images:"
 msgstr "Forhlaða næstu og fyrri myndum:"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Press a key (Esc cancels)"
 msgstr "Ýttu á lykil (Esc hættir við)"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Profile file…"
 msgstr "Litasniðsskrá…"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "quality when a lossy WebP is saved again"
 msgstr "gæði þegar WebP með tapi er vistað aftur"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Random order"
 msgstr "Slembiröð"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Refresh the folder when files change"
 msgstr "Endurnýja möppuna þegar skrár breytast"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Regular expression, in list order (like Geeqie's file filter)"
 msgstr "Reglulegur segð, í röð listans (eins og skráasía Geeqie)"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Remember the window size and position"
 msgstr "Muna stærð og staðsetningu gluggans"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Remove thumbnails of deleted files"
 msgstr "Fjarlægja smámyndir eyddra skráa"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Removed {removed} of {seen} thumbnails"
 msgstr "Fjarlægði {removed} af {seen} smámyndum"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Rendering intent:"
 msgstr "Birtingaráætlun:"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Repeat: start again after the last image"
 msgstr "Endurtaka: byrja aftur eftir síðustu mynd"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Reset"
 msgstr "Endurstilla"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Save new thumbnails to ~/.cache/thumbnails (shared with other programs)"
 msgstr "Vista nýjar smámyndir í ~/.cache/thumbnails (deilt með öðrum forritum)"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Save rotation to the file when changing image (JPEG; PNG and WebP are saved again)"
 msgstr "Vista snúning í skrána þegar skipt er um mynd (JPEG; PNG og WebP eru vistaðar aftur)"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Screen profile:"
 msgstr "Skjálitasnið:"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Search field above the file list:"
 msgstr "Leitarreitur fyrir ofan skráalistann:"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "seconds per image"
 msgstr "sekúndur á mynd"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Show file size and date in the file list"
 msgstr "Sýna skráarstærð og dagsetningu í skráalistanum"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Show folders as a tree (Ctrl+T)"
 msgstr "Sýna möppur sem tré (Ctrl+T)"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Show image info in full screen (I)"
 msgstr "Sýna myndupplýsingar á heilskjá (I)"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Show marks and stars in the file list"
 msgstr "Sýna merki og stjörnur í skráalistanum"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Show the info panel (Ctrl+K; reads a little from each image shown)"
 msgstr "Sýna upplýsingaspjaldið (Ctrl+K; les svolítið úr hverri sýndri mynd)"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Show the file list as icons (Ctrl+I)"
 msgstr "Sýna skráalistann sem tákn (Ctrl+I)"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Show the file name search"
 msgstr "Sýna leit í skráarheitum"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Show the folder path"
 msgstr "Sýna slóð möppunnar"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Show the toolbar"
 msgstr "Sýna verkfærastikuna"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Show thumbnails in the file list (T)"
 msgstr "Sýna smámyndir í skráalistanum (T)"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Show videos in the file list"
 msgstr "Sýna myndskeið í skráalistanum"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "size of the menus, lists and text"
 msgstr "stærð valmynda, lista og texta"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Small"
 msgstr "Lítil"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Start in the last used folder"
 msgstr "Ræsa í síðast notuðu möppunni"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Thumbnail size:"
 msgstr "Stærð smámynda:"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Toolbar icons:"
 msgstr "Tákn verkfærastiku:"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Up to ≈ {mb} MB, each image at most {w}×{h}"
 msgstr "Allt að ≈ {mb} MB, hver mynd í mesta lagi {w}×{h}"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Use no trash at all (Delete deletes permanently)"
 msgstr "Nota ekkert rusl (Delete eyðir varanlega)"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Use the desktop's screen profile"
 msgstr "Nota skjálitasnið skjáborðsins"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Use the image's own profile"
 msgstr "Nota eigið litasnið myndarinnar"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "{keys} was the key of {others} too: now of {label} only"
 msgstr "{keys} var líka lykill {others}: nú aðeins {label}"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "Copies:"
 msgstr "Eintök:"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "Images per page:"
 msgstr "Myndir á síðu:"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "No image could be read: nothing printed"
 msgstr "Engin mynd var lesanleg: ekkert prentað"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "Not saved over an image: choose a name ending in .pdf"
 msgstr "Ekki vistað yfir mynd: veldu nafn sem endar á .pdf"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "No printers found"
 msgstr "Engir prentarar fundust"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "Paper:"
 msgstr "Pappír:"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "PDF file"
 msgstr "PDF-skrá"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "Print (Enter)"
 msgstr "Prenta (Enter)"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "Print {count}"
 msgstr "Prenta {count}"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "Printer:"
 msgstr "Prentari:"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "Printing failed: {e}"
 msgstr "Prentun mistókst: {e}"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "Save PDF… (Enter)"
 msgstr "Vista PDF… (Enter)"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "{images} on {pages}"
 msgstr "{images} á {pages}"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "{msg}; {f} could not be read"
 msgstr "{msg}; ekki var hægt að lesa {f}"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "{what} saved in {file}"
 msgstr "{what} vistað í {file}"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "{what} sent to {printer}"
 msgstr "{what} sent á {printer}"
 
+#, fuzzy
 msgid "collection"
 msgid_plural "collections"
 msgstr[0] "safn"
 msgstr[1] "söfn"
 
+#, fuzzy
 msgid "day"
 msgid_plural "days"
 msgstr[0] "dagur"
 msgstr[1] "dagar"
 
+#, fuzzy
 msgid "error"
 msgid_plural "errors"
 msgstr[0] "villa"
 msgstr[1] "villur"
 
+#, fuzzy
 msgid "file"
 msgid_plural "files"
 msgstr[0] "skrá"
 msgstr[1] "skrár"
 
+#, fuzzy
 msgid "frame"
 msgid_plural "frames"
 msgstr[0] "rammi"
 msgstr[1] "rammar"
 
+#, fuzzy
 msgid "group"
 msgid_plural "groups"
 msgstr[0] "hópur"
 msgstr[1] "hópar"
 
+#, fuzzy
 msgid "image"
 msgid_plural "images"
 msgstr[0] "mynd"
 msgstr[1] "myndir"
 
+#, fuzzy
 msgid "keyword"
 msgid_plural "keywords"
 msgstr[0] "efnisorð"
 msgstr[1] "efnisorð"
 
+#, fuzzy
 msgid "page"
 msgid_plural "pages"
 msgstr[0] "síða"
 msgstr[1] "síður"
 
+#, fuzzy
 msgid "star"
 msgid_plural "stars"
 msgstr[0] "stjarna"
 msgstr[1] "stjörnur"
 
+#, fuzzy
 msgid "step"
 msgid_plural "steps"
 msgstr[0] "skref"
 msgstr[1] "skref"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "Orientation:"
 msgstr "Stefna:"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "Automatic"
 msgstr "Sjálfvirk"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "Portrait"
 msgstr "Langsnið"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "Landscape"
 msgstr "Þversnið"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "Margin (mm):"
 msgstr "Spássía (mm):"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "Image size (%):"
 msgstr "Myndastærð (%):"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "Fill each box, cutting the image to it"
 msgstr "Fylla hvern reit og skera myndina að honum"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "Text under each image:"
 msgstr "Texti undir hverri mynd:"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "As the full screen info: %name%, %path%, %position%, %dimensions%, %File size%, %Taken%, %Camera%, %keywords%, %comment% …"
 msgstr "Eins og upplýsingarnar á heilskjá: %name%, %path%, %position%, %dimensions%, %File size%, %Taken%, %Camera%, %keywords%, %comment% …"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "%page% is the page's number, %pages% how many there are"
 msgstr "%page% er númer síðunnar, %pages% hversu margar þær eru"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "Top of each page:"
 msgstr "Efst á hverri síðu:"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "Bottom of each page:"
 msgstr "Neðst á hverri síðu:"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "Both sides of the paper"
 msgstr "Báðar hliðar pappírsins"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "Print the image"
 msgstr "Prenta myndina"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "{files} copied to {folder}"
 msgstr "{files} afritað í {folder}"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "{files} moved to {folder}"
 msgstr "{files} fært í {folder}"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "Could not move the folder to the trash: {e}"
 msgstr "Gat ekki fært möppuna í ruslið: {e}"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "calculating…"
 msgstr "reiknar…"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "Open Folder"
 msgstr "Opna möppu"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "Open File"
 msgstr "Opna skrá"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "Open Folders (Ctrl+click for several)"
 msgstr "Opna möppur (Ctrl+smella fyrir fleiri)"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "Open Folder with Its Subfolders"
 msgstr "Opna möppu með undirmöppum hennar"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "Open Collection"
 msgstr "Opna safn"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "Copy to Folder"
 msgstr "Afrita í möppu"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "Move to Folder"
 msgstr "Færa í möppu"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "Save as PDF"
 msgstr "Vista sem PDF"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "Add to the Sort Manager"
 msgstr "Bæta í flokkarann"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "Screen Profile"
 msgstr "Skjálitasnið"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "Profile of Images Without One"
 msgstr "Litasnið mynda sem hafa ekkert"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "Import Lightroom Catalog"
 msgstr "Flytja inn Lightroom-skrá"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "Back Up Glimt's Data To"
 msgstr "Taka afrit af gögnum Glimt í"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "Save This Frame as PNG"
 msgstr "Vista þennan ramma sem PNG"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "Export Every Frame To"
 msgstr "Flytja hvern ramma út í"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "Collection {name} moved to the trash"
 msgstr "Safnið {name} fært í ruslið"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "Not a pattern: {e}"
 msgstr "Ekki mynstur: {e}"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "{text} exists already: choose another name"
 msgstr "{text} er þegar til: veldu annað heiti"
 
 #: src/model/listing.rs
+#, fuzzy
 msgid "{text} starts with a dot and would be hidden: choose another name"
 msgstr "{text} byrjar á punkti og yrði falið: veldu annað heiti"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "Saved as {file}: edit it, then choose it again"
 msgstr "Vistað sem {file}: breyttu því og veldu það svo aftur"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "{files} given their old names back"
 msgstr "{files} fengu gömlu heitin sín aftur"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "{files} renamed"
 msgstr "{files} endurnefnt"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "; {files} could not be, asked about again"
 msgstr "; {files} tókst ekki, spurt aftur"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "{found} of {images} ({size})"
 msgstr "{found} af {images} ({size})"
 
 #: src/features/print.rs
+#, fuzzy
 msgid ", {m} selected ({size})"
 msgstr ", {m} valdar ({size})"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "{n} bytes"
 msgstr "{n} bæti"
 
 #: src/features/print.rs
+#, fuzzy
 msgid " page {n}/{pages}"
 msgstr " síða {n}/{pages}"
 
 #: src/features/print.rs
+#, fuzzy
 msgid " frame {n}/{frames}"
 msgstr " rammi {n}/{frames}"
 
 #: src/files/file_ops.rs
+#, fuzzy
 msgid "Could not rename {f} to {t}: {e}; not all names could be put back, Glimt offers to put them right at the next start"
 msgstr "Gat ekki endurnefnt {f} sem {t}: {e}; ekki var hægt að setja öll heiti aftur, Glimt býðst til að laga þau við næstu ræsingu"
 
 #: src/viewer/pan.rs
+#, fuzzy
 msgid "Mon"
 msgstr "mán"
 
 #: src/viewer/pan.rs
+#, fuzzy
 msgid "Tue"
 msgstr "þri"
 
 #: src/viewer/pan.rs
+#, fuzzy
 msgid "Wed"
 msgstr "mið"
 
 #: src/viewer/pan.rs
+#, fuzzy
 msgid "Thu"
 msgstr "fim"
 
 #: src/viewer/pan.rs
+#, fuzzy
 msgid "Fri"
 msgstr "fös"
 
 #: src/viewer/pan.rs
+#, fuzzy
 msgid "Sat"
 msgstr "lau"
 
 #: src/viewer/pan.rs
+#, fuzzy
 msgid "Sun"
 msgstr "sun"
 
 #: src/files/file_ops.rs
+#, fuzzy
 msgid "Still writing keywords: try again in a moment"
 msgstr "Enn er verið að skrifa efnisorð: reyndu aftur eftir smástund"
 
 #: src/files/file_ops.rs
+#, fuzzy
 msgid "Still working on these files: try again in a moment"
 msgstr "Enn er verið að vinna með þessar skrár: reyndu aftur eftir smástund"
 
 #: src/main.rs
+#, fuzzy
 msgid "{what} stopped unexpectedly"
 msgstr "{what} stöðvaðist óvænt"
 
 #: src/main.rs
+#, fuzzy
 msgid "Connecting"
 msgstr "Tengist"
 
 #: src/main.rs
+#, fuzzy
 msgid "Reading the Lightroom catalog"
 msgstr "Les Lightroom-skrána"
 
 #: src/main.rs
+#, fuzzy
 msgid "Looking for renames cut short"
 msgstr "Leitar að rofnum endurnefningum"
 
 #: src/main.rs
+#, fuzzy
 msgid "The EXIF index"
 msgstr "EXIF-skráin"
 
 #: src/main.rs
+#, fuzzy
 msgid "The Pan view's days"
 msgstr "Dagar yfirlitssýnarinnar"
 
 #: src/main.rs
+#, fuzzy
 msgid "Rename Many"
 msgstr "Endurnefna margar"
 
 #: src/files/external.rs
+#, fuzzy
 msgid "No answer from the server in a minute"
 msgstr "Ekkert svar frá þjóninum í mínútu"
 
 #: src/metadata/lightroom.rs
+#, fuzzy
 msgid "The catalog is too large to read"
 msgstr "Skráin er of stór til að lesa"
 
 #: src/files/file_ops.rs
+#, fuzzy
 msgid "stopped"
 msgstr "stöðvað"
 
 #: src/main.rs
+#, fuzzy
 msgid "Saving keywords"
 msgstr "Vistar efnisorð"
 
 #: src/main.rs
+#, fuzzy
 msgid "Saving the alt text"
 msgstr "Vistar alt-textann"
 
 #: src/main.rs
+#, fuzzy
 msgid "Reading the folder"
 msgstr "Les möppuna"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "No answer from the print server in two minutes"
 msgstr "Ekkert svar frá prentþjóninum í tvær mínútur"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Look"
 msgstr "Útlit"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Keyboard"
 msgstr "Lyklaborð"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Image"
 msgstr "Mynd"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Slideshow"
 msgstr "Skyggnusýning"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "File list"
 msgstr "Skráalisti"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Memory and CPU"
 msgstr "Minni og örgjörvi"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Video"
 msgstr "Myndskeið"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Start and system"
 msgstr "Ræsing og kerfi"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Previews need ffmpeg"
 msgstr "Forskoðanir þurfa ffmpeg"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "S starts and stops, R random order, Ctrl+= faster, Ctrl+- slower"
 msgstr "S ræsir og stöðvar, R slembiröð, Ctrl+= hraðar, Ctrl+- hægar"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Undo"
 msgstr "Afturkalla"
 
 #: src/files/file_ops.rs
+#, fuzzy
 msgid "Nothing to undo"
 msgstr "Ekkert að afturkalla"
 
 #: src/files/file_ops.rs
+#, fuzzy
 msgid "another file has taken its place"
 msgstr "önnur skrá hefur tekið sæti hennar"
 
 #: src/files/file_ops.rs
+#, fuzzy
 msgid "Undo failed ({count}): {first}"
 msgstr "Afturköllun mistókst ({count}): {first}"
 
 #: src/files/file_ops.rs
+#, fuzzy
 msgid "Undo failed: {e}"
 msgstr "Afturköllun mistókst: {e}"
 
 #: src/files/file_ops.rs
+#, fuzzy
 msgid "{count} back from the trash"
 msgstr "{count} aftur úr ruslinu"
 
 #: src/files/file_ops.rs
+#, fuzzy
 msgid "{files} moved back"
 msgstr "{files} fært til baka"
 
 #: src/files/file_ops.rs
+#, fuzzy
 msgid "{name} exists already"
 msgstr "{name} er þegar til"
 
 #: src/files/trash.rs
+#, fuzzy
 msgid "{name} is not in the trash"
 msgstr "{name} er ekki í ruslinu"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Set as Wallpaper"
 msgstr "Nota sem bakgrunnsmynd"
 
 #: src/main.rs
+#, fuzzy
 msgid "Could not set the wallpaper: {e}"
 msgstr "Gat ekki stillt bakgrunnsmyndina: {e}"
 
 #: src/main.rs
+#, fuzzy
 msgid "Clear Recent"
 msgstr "Hreinsa listann"
 
 #: src/main.rs
+#, fuzzy
 msgid "Nothing opened yet"
 msgstr "Ekkert opnað enn"
 
 #: src/main.rs
+#, fuzzy
 msgid "Open Recent"
 msgstr "Opna nýlegt"
 
 #: src/main.rs
+#, fuzzy
 msgid "{name} is gone"
 msgstr "{name} er horfið"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Keep a list of recent folders (File → Open Recent)"
 msgstr "Halda lista yfir nýlegar möppur (Skrá → Opna nýlegt)"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Checkerboard behind transparent images"
 msgstr "Taflborð á bak við gegnsæjar myndir"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Crop…"
 msgstr "Skera…"
 
 #: src/viewer/crop.rs
+#, fuzzy
 msgid "A video is not cropped"
 msgstr "Myndskeið er ekki skorið"
 
 #: src/viewer/crop.rs
+#, fuzzy
 msgid "Drag over the image to choose the part to keep"
 msgstr "Dragðu yfir myndina til að velja hlutann sem á að halda"
 
 #: src/viewer/crop.rs
+#, fuzzy
 msgid "Save Copy (Enter)"
 msgstr "Vista afrit (Enter)"
 
 #: src/viewer/crop.rs
+#, fuzzy
 msgid "Could not crop the image: {e}"
 msgstr "Gat ekki skorið myndina: {e}"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "quality of a cropped JPEG (Edit → Crop)"
 msgstr "gæði skorinnar JPEG-myndar (Breyta → Skera)"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Save As…"
 msgstr "Vista sem…"
 
 #: src/viewer/save_as.rs
+#, fuzzy
 msgid "A video is not saved as an image"
 msgstr "Myndskeið er ekki vistað sem mynd"
 
 #: src/viewer/save_as.rs
+#, fuzzy
 msgid "Format:"
 msgstr "Snið:"
 
 #: src/viewer/save_as.rs
+#, fuzzy
 msgid "As the original ({format})"
 msgstr "Eins og frumritið ({format})"
 
 #: src/viewer/save_as.rs
+#, fuzzy
 msgid "WebP, lossless"
 msgstr "WebP, taplaust"
 
 #: src/viewer/save_as.rs
+#, fuzzy
 msgid "WebP, lossy"
 msgstr "WebP, með tapi"
 
 #: src/viewer/save_as.rs
+#, fuzzy
 msgid "Size:"
 msgstr "Stærð:"
 
 #: src/viewer/save_as.rs
+#, fuzzy
 msgid "Original ({w} × {h})"
 msgstr "Upprunaleg ({w} × {h})"
 
 #: src/viewer/save_as.rs
+#, fuzzy
 msgid "Longest side"
 msgstr "Lengsta hlið"
 
 #: src/viewer/save_as.rs
+#, fuzzy
 msgid "Percent"
 msgstr "Prósent"
 
 #: src/viewer/save_as.rs
+#, fuzzy
 msgid "Saved {w} × {h}; never enlarged"
 msgstr "Vistuð {w} × {h}; aldrei stækkuð"
 
 #: src/viewer/save_as.rs
+#, fuzzy
 msgid "Quality:"
 msgstr "Gæði:"
 
 #: src/viewer/save_as.rs
+#, fuzzy
 msgid "Remove EXIF and GPS (camera, date, place), XMP and the sidecar"
 msgstr "Fjarlægja EXIF og GPS (myndavél, dagsetningu, stað), XMP og hliðarskrána"
 
 #: src/viewer/save_as.rs
+#, fuzzy
 msgid "Save…"
 msgstr "Vista…"
 
 #: src/viewer/save_as.rs
+#, fuzzy
 msgid "Could not save the image: {e}"
 msgstr "Gat ekki vistað myndina: {e}"
 
 #: src/main.rs
+#, fuzzy
 msgid "Save As"
 msgstr "Vista sem"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Custom window title (empty: \"image name - Glimt\"):"
 msgstr "Eigin gluggatitill (tómt: „heiti myndar - Glimt“):"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Fields: %name%, %path%, %folder%, %app% and %id%. A | starts a part, left out when its fields are empty."
 msgstr "Reitir: %name%, %path%, %folder%, %app% og %id%. | byrjar hluta, sem er sleppt þegar reitir hans eru tómir."
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Set Window Title…"
 msgstr "Setja gluggatitil…"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Show File Names Under Thumbnails"
 msgstr "Sýna skráarheiti undir smámyndum"
 
 #: src/main.rs
+#, fuzzy
 msgid "Title of this window (%name%, %path%, %folder%, %app%, %id%; empty: as in Preferences):"
 msgstr "Titill þessa glugga (%name%, %path%, %folder%, %app%, %id%; tómt: eins og í kjörstillingum):"
 
 #: src/metadata/xmp.rs
+#, fuzzy
 msgid "{name} is a link: not written through"
 msgstr "{name} er tengill: ekki skrifað í gegnum hann"
 
 #: src/metadata/lightroom.rs
+#, fuzzy
 msgid "Reading a Lightroom catalog needs sqlite3 3.37 or newer"
 msgstr "Til að lesa Lightroom-skrá þarf sqlite3 3.37 eða nýrra"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Copies of the pictures in your home folder: those of an encrypted volume or a stick stay readable there"
 msgstr "Afrit af myndunum í heimamöppunni þinni: þau af dulkóðuðu drifi eða minnislykli eru þar áfram læsileg"
 
 #: src/main.rs
+#, fuzzy
 msgid "Stop {name}"
 msgstr "Stöðva {name}"
 
 #: src/files/file_ops.rs
+#, fuzzy
 msgid "The rotation was not saved: other work is still changing the file"
 msgstr "Snúningurinn var ekki vistaður: önnur vinna er enn að breyta skránni"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Hide the pointer in full screen when the mouse is still"
 msgstr "Fela bendilinn á öllum skjánum þegar músin er kyrr"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Search the settings"
 msgstr "Leita í stillingum"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "No setting has these words"
 msgstr "Engin stilling inniheldur þessi orð"
 
+#, fuzzy
 msgid "{program} runs outside the Flatpak, which needs: {how}"
 msgstr "{program} keyrir utan Flatpak, sem krefst: {how}"
 
+#, fuzzy
 msgid "System print dialog"
 msgstr "Prentgluggi kerfisins"
 
+#, fuzzy
 msgid "Printing cancelled"
 msgstr "Hætt við prentun"
 
+#, fuzzy
 msgid "Choose Application…"
 msgstr "Velja forrit…"
 
 #: src/ui/accessibility.rs
+#, fuzzy
 msgid "{done} of {total}"
 msgstr "{done} af {total}"
 
 #: src/ui/accessibility.rs
+#, fuzzy
 msgid "not among the matches"
 msgstr "ekki meðal niðurstaðna"
 
 #: src/ui/info_panel.rs
+#, fuzzy
 msgid "EXIF: {name}"
 msgstr "EXIF: {name}"
 
 #: src/metadata/exif.rs
+#, fuzzy
 msgid "Camera"
 msgstr "Myndavél"
 
 #: src/metadata/exif.rs
+#, fuzzy
 msgid "Lens"
 msgstr "Linsa"
 
 #: src/metadata/exif.rs
+#, fuzzy
 msgid "Taken"
 msgstr "Tekin"
 
 #: src/metadata/exif.rs
+#, fuzzy
 msgid "Exposure"
 msgstr "Lýsing"
 
 #: src/metadata/exif.rs
+#, fuzzy
 msgid "Aperture"
 msgstr "Ljósop"
 
 #: src/metadata/exif.rs
+#, fuzzy
 msgid "Focal length"
 msgstr "Brennivídd"
 
 #: src/metadata/exif.rs
+#, fuzzy
 msgid "Exposure bias"
 msgstr "Lýsingarleiðrétting"
 
 #: src/metadata/exif.rs
+#, fuzzy
 msgid "Flash"
 msgstr "Flass"
 
 #: src/metadata/exif.rs
+#, fuzzy
 msgid "Fired"
 msgstr "Kviknaði"
 
 #: src/metadata/exif.rs
+#, fuzzy
 msgid "No"
 msgstr "Nei"
 
 #: src/ui/info_panel.rs
+#, fuzzy
 msgid "File size"
 msgstr "Skráarstærð"
 
 #: src/ui/info_panel.rs
+#, fuzzy
 msgid "Colour profile"
 msgstr "Litasnið"
 
 #: src/images/colour.rs
+#, fuzzy
 msgid "{name}, in the file"
 msgstr "{name}, í skránni"
 
 #: src/images/colour.rs
+#, fuzzy
 msgid "Adobe RGB, from its EXIF"
 msgstr "Adobe RGB, úr EXIF"
 
 #: src/images/colour.rs
+#, fuzzy
 msgid "unnamed"
 msgstr "nafnlaust"
 
 #: src/images/colour.rs
+#, fuzzy
 msgid "{own}; {input} used instead"
 msgstr "{own}; {input} notað í staðinn"
 
 #: src/images/colour.rs
+#, fuzzy
 msgid "none: taken as {input}"
 msgstr "ekkert: túlkað sem {input}"
 
 #: src/model/listing.rs
+#, fuzzy
 msgid "Sort by name"
 msgstr "Raða eftir heiti"
 
 #: src/model/listing.rs
+#, fuzzy
 msgid "Sort by number"
 msgstr "Raða eftir númeri"
 
 #: src/model/listing.rs
+#, fuzzy
 msgid "Sort by date"
 msgstr "Raða eftir dagsetningu"
 
 #: src/model/listing.rs
+#, fuzzy
 msgid "Sort by file creation date"
 msgstr "Raða eftir stofndegi skrárinnar"
 
 #: src/model/listing.rs
+#, fuzzy
 msgid "Sort by EXIF date original"
 msgstr "Raða eftir EXIF-tökudegi"
 
 #: src/model/listing.rs
+#, fuzzy
 msgid "Sort by EXIF date digitized"
 msgstr "Raða eftir EXIF-stafvæðingardegi"
 
 #: src/model/listing.rs
+#, fuzzy
 msgid "Sort by size"
 msgstr "Raða eftir stærð"
 
 #: src/model/listing.rs
+#, fuzzy
 msgid "Sort by extension"
 msgstr "Raða eftir skráarendingu"
 
 #: src/ui/file_list.rs
+#, fuzzy
 msgid "All types"
 msgstr "Allar tegundir"
 
 #: src/ui/file_list.rs
+#, fuzzy
 msgid "No types"
 msgstr "Engar tegundir"
 
 #: src/ui/theme.rs
+#, fuzzy
 msgid "Desktop"
 msgstr "Skjáborð"
 
 #: src/ui/theme.rs
+#, fuzzy
 msgid "Light"
 msgstr "Ljóst"
 
 #: src/ui/theme.rs
+#, fuzzy
 msgid "Dark"
 msgstr "Dökkt"
 
 #: src/ui/theme.rs
+#, fuzzy
 msgid "High Contrast"
 msgstr "Mikil birtuskil"
 
 #: src/ui/theme.rs
+#, fuzzy
 msgid "High Contrast Light"
 msgstr "Mikil birtuskil, ljóst"
 
 #: src/images/colour.rs
+#, fuzzy
 msgid "Greyscale"
 msgstr "Grátóna"
 
 #: src/images/colour.rs
+#, fuzzy
 msgid "Inverted"
 msgstr "Umsnúið"
 
 #: src/images/colour.rs
+#, fuzzy
 msgid "More Contrast"
 msgstr "Meiri birtuskil"
 
 #: src/images/colour.rs
+#, fuzzy
 msgid "Perceptual"
 msgstr "Skynjunarleg"
 
 #: src/images/colour.rs
+#, fuzzy
 msgid "Relative colorimetric"
 msgstr "Hlutfallsleg litmæling"
 
 #: src/images/colour.rs
+#, fuzzy
 msgid "Saturation"
 msgstr "Litmettun"
 
 #: src/images/colour.rs
+#, fuzzy
 msgid "Absolute colorimetric"
 msgstr "Algild litmæling"
 
 #: src/files/config.rs
+#, fuzzy
 msgid "Power saving"
 msgstr "Orkusparnaður"
 
 #: src/files/config.rs
+#, fuzzy
 msgid "Balanced"
 msgstr "Jafnvægi"
 
 #: src/files/config.rs
+#, fuzzy
 msgid "Full"
 msgstr "Fullt"
 
 #: src/files/config.rs
+#, fuzzy
 msgid "Fewer cores at once: thumbnails one at a time, searches and Find Duplicates on two cores. Slower in large folders, kinder to a laptop battery."
 msgstr "Færri kjarnar í einu: ein smámynd í einu, leitir og Finna tvítök á tveimur kjörnum. Hægara í stórum möppum, fer betur með rafhlöðu fartölvu."
 
 #: src/files/config.rs
+#, fuzzy
 msgid "Two thumbnails at once; searches and Find Duplicates on every core."
 msgstr "Tvær smámyndir í einu; leitir og Finna tvítök á öllum kjörnum."
 
 #: src/files/config.rs
+#, fuzzy
 msgid "Every core: thumbnails and searches as fast as the machine allows."
 msgstr "Allir kjarnar: smámyndir og leitir eins hratt og tölvan leyfir."
 
 #: src/files/config.rs
+#, fuzzy
 msgid "Low"
 msgstr "Lítil"
 
 #: src/files/config.rs
+#, fuzzy
 msgid "High"
 msgstr "Mikil"
 
 #: src/files/config.rs
+#, fuzzy
 msgid "Least memory: one image decoded at a time, one preloaded on each side. Slow storage (SMB, NFS, USB) makes browsing wait for each file."
 msgstr "Minnst minni: ein mynd afkóðuð í einu, einni forhlaðið hvoru megin. Hæg geymsla (SMB, NFS, USB) lætur flettingu bíða eftir hverri skrá."
 
 #: src/files/config.rs
+#, fuzzy
 msgid "The default: four images decoded at once, two preloaded on each side."
 msgstr "Sjálfgefið: fjórar myndir afkóðaðar í einu, tveimur forhlaðið hvoru megin."
 
 #: src/files/config.rs
+#, fuzzy
 msgid "Fastest browsing: eight images decoded at once, five preloaded on each side; hides the wait of slow storage (SMB, NFS) best."
 msgstr "Hraðasta fletting: átta myndir afkóðaðar í einu, fimm forhlaðið hvoru megin; felur best biðina eftir hægri geymslu (SMB, NFS)."
 
 #: src/files/config.rs
+#, fuzzy
 msgid "Short"
 msgstr "Stutt"
 
 #: src/files/config.rs
+#, fuzzy
 msgid "Long"
 msgstr "Langt"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "{name}, from the desktop"
 msgstr "{name}, frá skjáborðinu"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "none, sRGB"
 msgstr "ekkert, sRGB"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Fields: %name%, %path%, %position%, %dimensions%, %marks%, %keywords%, %comment%, and each label of the info panel, such as %Camera% or %ISO%. A | starts a part, left out when its fields are empty."
 msgstr "Reitir: %name%, %path%, %position%, %dimensions%, %marks%, %keywords%, %comment% og hvert heiti í upplýsingaspjaldinu á ensku, til dæmis %Camera% eða %ISO%. | byrjar hluta, sem er sleppt þegar reitir hans eru tómir."
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "A command line, such as mpv --fs; a path with spaces goes in \"quotes\""
 msgstr "Skipanalína, til dæmis mpv --fs; slóð með bilum fer innan \"gæsalappa\""
 
 #: src/ui/dialogs.rs
+#, fuzzy
 msgid "New folder name:"
 msgstr "Heiti nýrrar möppu:"
 
 #: src/ui/dialogs.rs
+#, fuzzy
 msgid "Name of the new theme:"
 msgstr "Heiti nýja þemans:"
 
 #: src/ui/dialogs.rs
+#, fuzzy
 msgid "New name of the collection:"
 msgstr "Nýtt heiti safnsins:"
 
 #: src/ui/dialogs.rs
+#, fuzzy
 msgid "New file name:"
 msgstr "Nýtt skráarheiti:"
 
 #: src/ui/dialogs.rs
+#, fuzzy
 msgid "A crash or a power cut stopped it in {folder}. Some files may have their new names, some their old ones, and some hidden temporary names ({steps} to put right)."
 msgstr "Hrun eða rafmagnsleysi stöðvaði það í {folder}. Sumar skrár kunna að hafa fengið nýju heitin, sumar hafa gömlu heitin og sumar falin bráðabirgðaheiti ({steps} til að laga)."
 
 #: src/ui/dialogs.rs
+#, fuzzy
 msgid "no home folder"
 msgstr "engin heimamappa"
 
 #: src/ui/window.rs
+#, fuzzy
 msgid "Glimt closes when the file operations are done; close again to stop them"
 msgstr "Glimt lokast þegar skráaaðgerðum er lokið; lokaðu aftur til að stöðva þær"
 
 #: src/ui/window.rs
+#, fuzzy
 msgid "Stopping after the files at hand; close once more to end at once"
 msgstr "Stöðvast eftir skrárnar sem eru í vinnslu; lokaðu einu sinni enn til að hætta strax"
 
 #: src/features/check.rs
+#, fuzzy
 msgid "Opens each of the {count} in the list, as the viewer would, and lists those that cannot be: broken files, files cut off in copying, and files that are no image. They are marked in the list too."
 msgstr "Opnar hverja af {count} í listanum, eins og skoðarinn myndi gera, og listar þær sem ekki er hægt að opna: skemmdar skrár, skrár sem styttust við afritun og skrár sem eru ekki myndir. Þær eru líka merktar í listanum."
 
 #: src/features/check.rs
+#, fuzzy
 msgid "None broken."
 msgstr "Engar skemmdar."
 
 #: src/main.rs
+#, fuzzy
 msgid "Settings file: {first}{more}"
 msgstr "Stillingaskrá: {first}{more}"
 
 #: src/ui/accessibility.rs
+#, fuzzy
 msgid ", could not be shown: {e}"
 msgstr ", ekki hægt að sýna: {e}"
 
 #: src/ui/accessibility.rs
+#, fuzzy
 msgid ", keywords: {keywords}"
 msgstr ", efnisorð: {keywords}"
 
 #: src/files/config.rs
+#, fuzzy
 msgid "Could not save {name}: {e}"
 msgstr "Gat ekki vistað {name}: {e}"
 
 #: src/files/backup.rs
+#, fuzzy
 msgid "{folder} is not a folder"
 msgstr "{folder} er ekki mappa"
 
 #: src/files/backup.rs
+#, fuzzy
 msgid "Nothing to back up: Glimt has no settings, marks or collections here"
 msgstr "Ekkert til að afrita: Glimt hefur hér engar stillingar, merkingar eða söfn"
 
 #: src/files/backup.rs
+#, fuzzy
 msgid "A backup cannot go inside {folder}, which it copies"
 msgstr "Afrit getur ekki farið inn í {folder}, sem það afritar"
 
 #: src/files/backup.rs
+#, fuzzy
 msgid "Glimt's data backed up to {folder}: {files}"
 msgstr "Afrit af gögnum Glimt tekið í {folder}: {files}"
 
 #: src/files/backup.rs
+#, fuzzy
 msgid "The backup to {folder} is not whole: {e}"
 msgstr "Afritið í {folder} er ekki heilt: {e}"
 
 #: src/files/file_io.rs
+#, fuzzy
 msgid "the file was moved, renamed or deleted meanwhile"
 msgstr "skráin var færð, endurnefnd eða henni eytt á meðan"
 
 #: src/files/file_io.rs
+#, fuzzy
 msgid "the file was changed meanwhile"
 msgstr "skránni var breytt á meðan"
 
+#, fuzzy
 msgid "the file looks incomplete, as if it is still being copied"
 msgstr "skráin virðist ófullgerð, eins og enn sé verið að afrita hana"
 
+#, fuzzy
 msgid "the file looks incomplete or damaged"
 msgstr "skráin virðist ófullgerð eða skemmd"
 
+#, fuzzy
 msgid "the file is read-only"
 msgstr "skráin er skrifvarin"
 
+#, fuzzy
 msgid "{name} has other names (hard links), which keep the old version"
 msgstr "{name} hefur önnur nöfn (harða tengla), sem halda gömlu útgáfunni"
 
+#, fuzzy
 msgid "Other names (hard links) keep the old version: {files}"
 msgstr "Önnur nöfn (harðir tenglar) halda gömlu útgáfunni: {files}"
 
 #: src/files/external.rs
+#, fuzzy
 msgid "HEIC and AVIF need ffprobe (ffmpeg): {e}"
 msgstr "HEIC og AVIF þurfa ffprobe (ffmpeg): {e}"
 
 #: src/files/external.rs
+#, fuzzy
 msgid "video, HEIC and AVIF need ffmpeg: {e}"
 msgstr "myndskeið, HEIC og AVIF þurfa ffmpeg: {e}"
 
 #: src/files/external.rs
+#, fuzzy
 msgid "Could not mount {uri}: not an address"
 msgstr "Gat ekki tengt {uri}: ekki vistfang"
 
 #: src/files/external.rs
+#, fuzzy
 msgid "Could not run gio: {e}"
 msgstr "Gat ekki keyrt gio: {e}"
 
 #: src/files/external.rs
+#, fuzzy
 msgid "Could not mount {uri}: wrong user name or password"
 msgstr "Gat ekki tengt {uri}: rangt notandanafn eða lykilorð"
 
 #: src/files/external.rs
+#, fuzzy
 msgid "Could not mount {uri}: {err}{hint}"
 msgstr "Gat ekki tengt {uri}: {err}{hint}"
 
 #: src/files/external.rs
+#, fuzzy
 msgid " (the name {host} is not found)"
 msgstr " (heitið {host} finnst ekki)"
 
 #: src/files/external.rs
+#, fuzzy
 msgid " (the name {host} is not found; try {host}.local or its IP address)"
 msgstr " (heitið {host} finnst ekki; prófaðu {host}.local eða IP-vistfang þess)"
 
 #: src/files/file_ops.rs
+#, fuzzy
 msgid "No such frame"
 msgstr "Enginn slíkur rammi"
 
 #: src/files/file_ops.rs
+#, fuzzy
 msgid "choose another name: the image itself is not changed"
 msgstr "veldu annað heiti: myndinni sjálfri er ekki breytt"
 
 #: src/metadata/lightroom.rs
+#, fuzzy
 msgid "Imported from Lightroom: {done}"
 msgstr "Flutt inn úr Lightroom: {done}"
 
 #: src/metadata/lightroom.rs
+#, fuzzy
 msgid "; not saved: {names}"
 msgstr "; ekki vistað: {names}"
 
 #: src/metadata/lightroom.rs
+#, fuzzy
 msgid " (no data folder: $HOME is not set)"
 msgstr " (engin gagnamappa: $HOME er ekki stillt)"
 
 #: src/metadata/lightroom.rs
+#, fuzzy
 msgid "Collections are added to Glimt's, keywords to the keyword tree and stars to the marks. Smart collections are left out."
 msgstr "Söfnum er bætt við söfn Glimt, efnisorðum við efnisorðatréð og stjörnum við merkingarnar. Snjallsöfnum er sleppt."
 
 #: src/metadata/lightroom.rs
+#, fuzzy
 msgid "{names} and {n} more"
 msgstr "{names} og {n} í viðbót"
 
 #: src/metadata/lightroom.rs
+#, fuzzy
 msgid "The keywords of each image, into its XMP sidecar ({count}); those it has stay"
 msgstr "Efnisorð hverrar myndar, í XMP-hliðarskrá hennar ({count}); þau sem fyrir eru haldast"
 
 #: src/metadata/lightroom.rs
+#, fuzzy
 msgid "1 image has"
 msgstr "1 mynd hefur"
 
 #: src/model/collections.rs
+#, fuzzy
 msgid "no data folder ($HOME is not set)"
 msgstr "engin gagnamappa ($HOME er ekki stillt)"
 
 #: src/model/collections.rs
+#, fuzzy
 msgid "Could not rename the collection: {e}"
 msgstr "Gat ekki endurnefnt safnið: {e}"
 
 #: src/viewer/view.rs
+#, fuzzy
 msgid "Could not open {name}:\n{e}"
 msgstr "Gat ekki opnað {name}:\n{e}"
 
 #: src/images/save.rs
+#, fuzzy
 msgid "only JPEG, PNG and WebP can store the rotation"
 msgstr "aðeins JPEG, PNG og WebP geta geymt snúninginn"
 
 #: src/images/save.rs
+#, fuzzy
 msgid "animated images are not turned"
 msgstr "hreyfimyndum er ekki snúið"
 
 #: src/images/save.rs
+#, fuzzy
 msgid "animated images are not saved as a copy"
 msgstr "hreyfimyndir eru ekki vistaðar sem afrit"
 
 #: src/images/save.rs
+#, fuzzy
 msgid "the part is outside the image"
 msgstr "hlutinn er utan myndarinnar"
 
 #: src/images/save.rs
+#, fuzzy
 msgid "a lossy WebP needs ffmpeg to be saved: {e}"
 msgstr "WebP með tapi þarf ffmpeg til að vistast: {e}"
 
 #: src/metadata/exif.rs
+#, fuzzy
 msgid "only JPEG files can store the orientation"
 msgstr "aðeins JPEG-skrár geta geymt stefnuna"
 
 #: src/metadata/xmp.rs
+#, fuzzy
 msgid "the image was moved, renamed or deleted meanwhile"
 msgstr "myndin var færð, endurnefnd eða henni eytt á meðan"
 
 #: src/ui/dialogs.rs
+#, fuzzy
 msgid "Move the collection \"{name}\" to the trash? Its images stay where they are."
 msgstr "Færa safnið „{name}“ í ruslið? Myndirnar í því verða áfram þar sem þær eru."
 
 #: src/files/file_io.rs
+#, fuzzy
 msgid "the file system here ({kind}) does not allow this rename, as on some shares, cloud folders and phones ({e})"
 msgstr "skráakerfið hér ({kind}) leyfir ekki þessa nafnbreytingu, eins og á sumum sameiginlegum möppum, skýjamöppum og símum ({e})"
 
 #: src/files/file_io.rs
+#, fuzzy
 msgid "{from} could not be removed after it was put at {to}, so the file may be under both names or only at {to}; check both before removing either ({e})"
 msgstr "ekki tókst að fjarlægja {from} eftir að það var sett á {to}, svo skráin getur borið bæði nöfnin eða aðeins verið á {to}; athugaðu hvort tveggja áður en þú fjarlægir annað hvort ({e})"
 
 #: src/files/file_ops.rs
+#, fuzzy
 msgid "\"{name}\": a {kind} file system, as on a camera card, allows none of : ? * \" < > | \\ in a name. Nothing was renamed."
 msgstr "„{name}“: {kind}-skráakerfi, eins og á minniskorti myndavélar, leyfir ekkert af : ? * \" < > | \\ í heiti. Engu var gefið nýtt heiti."
 
 #: src/files/file_ops.rs
+#, fuzzy
 msgid "The trash refused {count} ({kind}). Nothing was deleted, because another folder is open now."
 msgstr "Ruslið tók ekki við þessum skrám ({kind}): {count}. Engu var eytt, því önnur mappa er opin núna."
 
 #: src/ui/dialogs.rs
+#, fuzzy
 msgid "The trash does not take files in this folder ({kind}), as on network and cloud folders."
 msgstr "Ruslið tekur ekki við skrám í þessari möppu ({kind}), eins og í net- og skýjamöppum."
 
 #: src/files/file_ops.rs
+#, fuzzy
 msgid "\"{name}\": a {kind} file system, as on a camera card, allows none of : ? * \" < > | \\ in a name. Nothing was copied."
 msgstr "„{name}“: {kind}-skráakerfi, eins og á minniskorti myndavélar, leyfir ekkert af : ? * \" < > | \\ í heiti. Ekkert var afritað."
 
 #: src/files/file_ops.rs
+#, fuzzy
 msgid "\"{name}\": a {kind} file system, as on a camera card, allows none of : ? * \" < > | \\ in a name. Nothing was moved."
 msgstr "„{name}“: {kind}-skráakerfi, eins og á minniskorti myndavélar, leyfir ekkert af : ? * \" < > | \\ í heiti. Ekkert var fært."
 
 #: src/ui/dialogs.rs
+#, fuzzy
 msgid "A {kind} file system, as on a camera card, allows none of : ? * \" < > | \\ in a name."
 msgstr "{kind}-skráakerfi, eins og á minniskorti myndavélar, leyfir ekkert af : ? * \" < > | \\ í heiti."
 
 #: src/ui/menus.rs
+#, fuzzy
 msgid "Thumbnail Size"
 msgstr "Stærð smámynda"
 
 #: src/model/selection.rs
+#, fuzzy
 msgid "The search hides files this would act on: clear it first"
 msgstr "Leitin felur skrár sem þetta myndi ná til: hreinsaðu hana fyrst"
 
 #: src/ui/menus.rs
+#, fuzzy
 msgid "{name} takes none of these files"
 msgstr "{name} tekur enga af þessum skrám"
 
 #: src/ui/menus.rs
+#, fuzzy
 msgid "{name} leaves out {files} of a type it does not take"
 msgstr "{name} sleppir {files} af tegund sem það tekur ekki"
 
 #: src/model/selection.rs
+#, fuzzy
 msgid "Not included, as the search hides them: {files}"
 msgstr "Ekki með, því leitin felur þær: {files}"
 
 #: src/ui/file_list.rs
+#, fuzzy
 msgid ", {h} selected but hidden by the search"
 msgstr ", {h} valdar en faldar af leitinni"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Copy for Sharing…"
 msgstr "Afrita til deilingar…"
 
 #: src/images/shared_copy.rs
+#, fuzzy
 msgid "Place"
 msgstr "Staður"
 
 #: src/images/shared_copy.rs
+#, fuzzy
 msgid "Camera and lens"
 msgstr "Myndavél og linsa"
 
 #: src/images/shared_copy.rs
+#, fuzzy
 msgid "Date and time"
 msgstr "Dagsetning og tími"
 
 #: src/images/shared_copy.rs
+#, fuzzy
 msgid "Photographer and copyright"
 msgstr "Ljósmyndari og höfundarréttur"
 
 #: src/images/shared_copy.rs
+#, fuzzy
 msgid "Software"
 msgstr "Hugbúnaður"
 
 #: src/images/shared_copy.rs
+#, fuzzy
 msgid "Keywords, comment and alt text"
 msgstr "Efnisorð, athugasemd og alt-texti"
 
 #: src/images/shared_copy.rs
+#, fuzzy
 msgid "The preview inside the file"
 msgstr "Forskoðunin inni í skránni"
 
 #: src/images/shared_copy.rs
+#, fuzzy
 msgid "More tags"
 msgstr "Fleiri merki"
 
 #: src/features/copy_for_sharing.rs
+#, fuzzy
 msgid "Reading the tags… {done} of {total}"
 msgstr "Les merkin… {done} af {total}"
 
 #: src/features/copy_for_sharing.rs
+#, fuzzy
 msgid "Remove All"
 msgstr "Fjarlægja allt"
 
 #: src/features/copy_for_sharing.rs
+#, fuzzy
 msgid "Ticked tags are left out of the copies."
 msgstr "Merki sem hakað er við eru skilin eftir úr afritunum."
 
 #: src/features/copy_for_sharing.rs
+#, fuzzy
 msgid "A block that can hold tags of several groups, such as the extra images or the maker note, is left out when any tag of those groups is."
 msgstr "Blokk sem getur geymt merki úr fleiri hópum, svo sem aukamyndirnar eða athugasemd framleiðanda, er skilin eftir þegar eitthvert merki þeirra hópa er skilið eftir."
 
 #: src/features/copy_for_sharing.rs
+#, fuzzy
 msgid "A tag that Glimt does not know is listed under More tags, and is left out when any group is ticked, unless it is unticked there."
 msgstr "Merki sem Glimt þekkir ekki er sýnt undir Fleiri merki og er skilið eftir þegar hakað er við einhvern hóp, nema hakið sé tekið af því þar."
 
 #: src/features/copy_for_sharing.rs
+#, fuzzy
 msgid "Always kept: the orientation, so the image is not shown on its side, the colour profile, so its colours do not change, and an HDR photo's gain map, so an HDR screen still brightens it. An iPhone's gain map also keeps two brightness values of the maker note."
 msgstr "Alltaf haldið: stefnunni, svo myndin birtist ekki á hlið, litasniðinu, svo litirnir breytist ekki, og birtukorti HDR-myndar, svo HDR-skjár lýsi hana enn upp. Með korti úr iPhone er einnig haldið tveimur birtugildum úr athugasemd framleiðanda."
 
 #: src/features/copy_for_sharing.rs
+#, fuzzy
 msgid "Hide"
 msgstr "Fela"
 
 #: src/features/copy_for_sharing.rs
+#, fuzzy
 msgid "Show"
 msgstr "Sýna"
 
 #: src/features/copy_for_sharing.rs
+#, fuzzy
 msgid "; {files} not copied: only JPEG, PNG and WebP are"
 msgstr "; {files} ekki afritað: aðeins JPEG, PNG og WebP eru afrituð"
 
 #: src/features/copy_for_sharing.rs
+#, fuzzy
 msgid "; {files} not copied: the folder has files of those names"
 msgstr "; {files} ekki afritað: mappan hefur skrár með þeim nöfnum"
 
 #: src/features/copy_for_sharing.rs
+#, fuzzy
 msgid "Reading the tags"
 msgstr "Lestur merkjanna"
 
 #: src/ui/dialogs.rs
+#, fuzzy
 msgid "Open {files}, each in its default application?"
 msgstr "Opna {files}, hverja í sjálfgefnu forriti sínu?"
 
 #: src/ui/dialogs.rs
+#, fuzzy
 msgid "Open (Enter)"
 msgstr "Opna (Enter)"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Set Window Name…"
 msgstr "Setja heiti glugga…"
 
 #: src/ui/dialogs.rs
+#, fuzzy
 msgid "Name of this window, which glimt --name NAME --remote reaches it by (empty: its process ID):"
 msgstr "Heiti þessa glugga, sem glimt --name NAME --remote nær honum með (tómt: auðkenni ferlis hans):"
 
 #: src/ui/dialogs.rs
+#, fuzzy
 msgid "Could not name this window: {why}"
 msgstr "Ekki tókst að gefa glugganum heiti: {why}"
 
 #: src/ui/dialogs.rs
+#, fuzzy
 msgid "Could not name this window: a name holds up to 64 letters, digits, - and _, and not only digits"
 msgstr "Ekki tókst að gefa glugganum heiti: heiti hefur allt að 64 stafi, tölustafi, - og _, og ekki eingöngu tölustafi"
 
 #: src/files/file_io.rs
+#, fuzzy
 msgid "A change could not be saved, because Glimt met an error while writing it"
 msgstr "Ekki tókst að vista breytingu, því Glimt lenti í villu við að skrifa hana"
 
 #: src/files/file_io.rs
+#, fuzzy
 msgid "Glimt ended before every write was done: the last change of the settings, marks, a collection or a file may be lost"
 msgstr "Glimt lokaðist áður en allt var skrifað: síðasta breyting á stillingum, merkjum, safni eða skrá gæti hafa tapast"
 
 #: src/model/folder.rs
+#, fuzzy
 msgid "Still opening {name}… Open another folder to stop waiting."
 msgstr "Enn að opna {name}… Opnaðu aðra möppu til að hætta að bíða."
 
 #: src/files/file_ops.rs
+#, fuzzy
 msgid "Rename Many stopped, so the metadata edited for {count} was not saved"
 msgstr "Endurnefna margar stöðvaðist, svo breytt lýsigögn fyrir {count} voru ekki vistuð"
 
 #: src/ui/file_list.rs
+#, fuzzy
 msgid "( {w} x {h} ) {bytes}{position}{page}"
 msgstr "( {w} x {h} ) {bytes}{position}{page}"
 
 #: src/features/tools.rs
+#, fuzzy
 msgid "{file} is not loaded: %f inside quotes is not the file. Give %f as a word of its own, as in {example}"
 msgstr "{file} var ekki hlaðið: %f innan gæsalappa er ekki skráin. Skrifaðu %f sem sérstakt orð, eins og í {example}"
 
 #: src/features/tools.rs
+#, fuzzy
 msgid "{file} gets no files: %f inside quotes is not the file. Give %f as a word of its own, as in {example}"
 msgstr "{file} fær engar skrár: %f innan gæsalappa er ekki skráin. Skrifaðu %f sem sérstakt orð, eins og í {example}"
 
 #: src/cli.rs
+#, fuzzy
 msgid "Added formats and tools:"
 msgstr "Viðbætt snið og verkfæri:"
 
 #: src/metadata/lightroom.rs
+#, fuzzy
 msgid "; the sidecars are still being written"
 msgstr "; enn er verið að skrifa hliðarskrárnar"
 
 #: src/files/file_io.rs
+#, fuzzy
 msgid "Could not remove {name}: {e}"
 msgstr "Gat ekki fjarlægt {name}: {e}"
 
 #: src/files/file_io.rs
+#, fuzzy
 msgid "another file has taken its name: the folder is read again"
 msgstr "önnur skrá hefur tekið nafnið: mappan er lesin aftur"
 
 #: src/files/file_ops.rs
+#, fuzzy
 msgid "Rename failed ({count}): {first}"
 msgstr "Endurnefning mistókst ({count}): {first}"
 
 #: src/files/file_ops.rs
+#, fuzzy
 msgid "{side}: {e}, so {file} stays where it was, with its sidecar"
 msgstr "{side}: {e}, svo {file} er kyrr þar sem hún var, með hliðarskránni sinni"
 
 #: src/files/file_ops.rs
+#, fuzzy
 msgid "Could not save the plan of the renames ({e}), so nothing was renamed"
 msgstr "Gat ekki vistað áætlun endurnefningarinnar ({e}), svo ekkert var endurnefnt"
 
 #: src/files/file_ops.rs
+#, fuzzy
 msgid "{side} could not go to the trash, so {file} stays where it was, with its sidecar"
 msgstr "{side} komst ekki í ruslið, svo {file} er kyrr þar sem hún var, með hliðarskránni sinni"
 
 #: src/files/trash.rs
+#, fuzzy
 msgid "{e}, so {file} stays in the trash, with its sidecar"
 msgstr "{e}, svo {file} er kyrr í ruslinu, með hliðarskránni sinni"
 
 #: src/ui/dialogs.rs
+#, fuzzy
 msgid "The names could not all be put right. Save or copy the list of the files that are not under the names they were to get. Then the names can be left as they are, and those files renamed by hand."
 msgstr "Ekki tókst að laga öll heitin. Vistaðu eða afritaðu listann yfir skrárnar sem bera ekki heitin sem þær áttu að fá. Þá má láta heitin vera eins og þau eru og endurnefna þær skrár handvirkt."
 
 #: src/ui/dialogs.rs
+#, fuzzy
 msgid "Save the list…"
 msgstr "Vista listann…"
 
 #: src/ui/dialogs.rs
+#, fuzzy
 msgid "Copy the list"
 msgstr "Afrita listann"
 
 #: src/ui/dialogs.rs
+#, fuzzy
 msgid "Leave the names as they are"
 msgstr "Láta heitin vera eins og þau eru"
 
 #: src/ui/dialogs.rs
+#, fuzzy
 msgid "The list was copied to the clipboard. Paste it into a file before the names are left as they are."
 msgstr "Listinn var afritaður á klippispjaldið. Límdu hann inn í skrá áður en heitin eru látin vera eins og þau eru."
 
 #: src/ui/dialogs.rs
+#, fuzzy
 msgid "The names were left as they are"
 msgstr "Heitin voru látin vera eins og þau eru"
 
 #: src/ui/dialogs.rs
+#, fuzzy
 msgid "Another window has put these renames right already. Nothing was changed here."
 msgstr "Annar gluggi hefur þegar lagað þessar nafnabreytingar. Engu var breytt hér."
 
 #: src/ui/dialogs.rs
+#, fuzzy
 msgid "Rename Many was cut short, and these files are not under the names it was to give them. Each line names a file as it is now, then the name it was to get."
 msgstr "Endurnefna margar var rofið, og þessar skrár bera ekki heitin sem þær áttu að fá. Hver lína gefur núverandi heiti skrár og svo heitið sem hún átti að fá."
 
 #: src/files/file_ops.rs
+#, fuzzy
 msgid "{file} went back, but its sidecar {side} could not ({e}), so the sidecar is at {at}"
 msgstr "{file} var færð til baka, en hliðarskráin {side} ekki ({e}), svo hliðarskráin er í {at}"
 
 #: src/files/file_ops.rs
+#, fuzzy
 msgid "{side} could not follow {file} ({e}), and {file} could not go back ({error}), so the file is at {to} and this sidecar at {side}"
 msgstr "{side} gat ekki fylgt {file} ({e}), og {file} gat ekki farið til baka ({error}), svo skráin er í {to} og þessi hliðarskrá í {side}"
 
 #: src/files/file_io.rs
+#, fuzzy
 msgid "Could not look at {name}: {e}. Its marks and collection entries followed it there all the same, as the file was there before."
 msgstr "Gat ekki skoðað {name}: {e}. Merkingar og færslur í söfnum fylgdu skránni þangað samt, þar sem hún var þar áður."
 
 #: src/ui/dialogs.rs
+#, fuzzy
 msgid "Could not leave the names as they are: {e}. Rename Many asks about them again at the next start."
 msgstr "Gat ekki látið heitin vera eins og þau eru: {e}. Endurnefna margar spyr um þau aftur við næstu ræsingu."
 
 #: src/files/journal.rs
+#, fuzzy
 msgid "another window has them open"
 msgstr "annar gluggi er með þau opin"
 
+#: src/ui/dialogs.rs
+#, fuzzy
+msgid "The file dialog did not answer with full paths, so nothing was opened"
+msgstr "Skráarglugginn svaraði ekki með fullum slóðum, svo ekkert var opnað"
+
 #: src/files/file_io.rs
+#, fuzzy
 msgid "Could not lock {name}: {e}. A change that another Glimt window makes at the same moment may be lost."
 msgstr "Gat ekki læst {name}: {e}. Breyting sem annar Glimt-gluggi gerir á sama augnabliki getur glatast."

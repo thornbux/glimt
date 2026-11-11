@@ -797,10 +797,12 @@ const BLOCKS: &[(&str, &[Group])] = &[
 ];
 
 /// The starts of the names of tags whose contents are not known: a JPEG's other APPn
-/// segments, a PNG's and a WebP's other chunks, and the EXIF tags without a name. Each counts
-/// as a block that holds every group (`BLOCKS`).
-const UNKNOWN_BLOCKS: [&str; 5] = [
+/// segments and the other markers that a decoder does not need, a PNG's and a WebP's other
+/// chunks, and the EXIF tags without a name. Each counts as a block that holds every group
+/// (`BLOCKS`).
+const UNKNOWN_BLOCKS: [&str; 6] = [
     "JPEG APP",
+    "JPEG marker 0x",
     "PNG chunk ",
     "WebP chunk ",
     "Image 0x",
@@ -1297,7 +1299,8 @@ pub(crate) fn names_of_single_tags() -> Vec<String> {
         &png_chunk(b"vpAg", b""),
         &png_chunk(b"IEND", b""),
     ];
-    let jpeg = [&b"\xff\xd8"[..], &jpeg_segment(0xec, b"x"), b"\xff\xd9"].concat();
+    let markers = [jpeg_segment(0xec, b"x"), jpeg_segment(0xf0, b"x")].concat();
+    let jpeg = [&b"\xff\xd8"[..], &markers, b"\xff\xd9"].concat();
     let webp = b"RIFF\x0c\0\0\0WEBPXYZW\0\0\0\0".to_vec();
     for data in [jpeg, png.concat(), webp] {
         if let Ok(Some(walked)) = walk(&data) {
@@ -1675,10 +1678,23 @@ fn add_jpeg_segment<'a>(walked: &mut Walked<'a>, data: &'a [u8], at: usize, end:
         0xed if body.starts_with(PHOTOSHOP_NAME) => {
             return add_photoshop(walked, &body[PHOTOSHOP_NAME.len()..], at);
         }
-        0xee if body.starts_with(b"Adobe") => None,
+        // Adobe's colour transform decides how the image looks. Every copy keeps its 12
+        // bytes and no more, as what follows them would be carried with no tag to leave out.
+        0xee if body.starts_with(b"Adobe") => {
+            let header = &body[..body.len().min(12)];
+            return walked.parts.push(Part {
+                bytes: Cow::Owned(jpeg_segment(0xee, header)),
+                from: at,
+                tag: None,
+            });
+        }
         0xfe => Some(JPEG_COMMENT.to_owned()),
         0xe0..=0xef => Some(format!("JPEG APP{}", marker - 0xe0)),
-        _ => None,
+        // What a decoder needs: the frame (SOFn), the Huffman, arithmetic and quantisation
+        // tables (DHT, DAC, DQT) and the restart interval (DRI).
+        0xc0..=0xc7 | 0xc9..=0xcf | 0xdb | 0xdd => None,
+        // Any other marker (JPG0 to JPG13, the reserved ones) can hold any text.
+        _ => Some(format!("JPEG marker 0x{marker:02x}")),
     };
     walked.add(data, at, end, tag.as_deref());
 }
@@ -2584,6 +2600,7 @@ mod tests {
             "IPTC-NAA",
             super::RAW_PROFILES,
             "JPEG APP12",
+            "JPEG marker 0xf0",
             "PNG chunk vpAg",
             "WebP chunk XYZW",
             "Image 0x8649",
@@ -3511,6 +3528,36 @@ mod tests {
             let pixels = |b: &[u8]| image::load_from_memory(b).unwrap().to_rgba8();
             assert!(pixels(&original) == pixels(&copy), "{name}");
         }
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A JPEG marker that a decoder does not need (JPG0 here) is listed as a block that can
+    /// hold any group, and goes with Remove All. An Adobe segment (APP14) keeps only its 12
+    /// bytes in every copy, as text after them has no tag to be left out by.
+    #[test]
+    fn jpeg_markers_a_decoder_does_not_need_are_tags() {
+        let dir = folder("markers");
+        let mut jpeg = Vec::new();
+        let encoder = image::codecs::jpeg::JpegEncoder::new_with_quality(&mut jpeg, 90);
+        picture().write_with_encoder(encoder).unwrap();
+        let jpg0 = super::jpeg_segment(0xf0, b"lat 59.91 lon 10.75");
+        // Version 100, no flags, and the colour transform YCbCr (1), as the encoder wrote it.
+        let adobe = super::jpeg_segment(0xee, b"Adobe\0\x64\0\0\0\0\x01AFTER-ADOBE");
+        let original = [&jpeg[..2], &jpg0, &adobe, &jpeg[2..]].concat();
+        let path = dir.join("a.jpg");
+        std::fs::write(&path, &original).unwrap();
+        let found = super::tags_of(&path).unwrap().unwrap();
+        assert!(found.iter().any(|t| t == "JPEG marker 0xf0"), "{found:?}");
+        let has = |b: &[u8], text: &[u8]| b.windows(text.len()).any(|w| w == text);
+        let mut left_out = super::LeftOut::default();
+        let kept = super::copy(&path, &left_out.kept(&found)).unwrap().unwrap();
+        assert!(has(&kept, b"lat 59.91") && !has(&kept, b"AFTER-ADOBE"));
+        left_out.remove_all();
+        let copy = super::copy(&path, &left_out.kept(&found)).unwrap().unwrap();
+        assert!(!has(&copy, b"lat 59.91") && !has(&copy, b"AFTER-ADOBE"));
+        assert!(has(&copy, b"\xff\xee\0\x0eAdobe\0\x64\0\0\0\0\x01"));
+        let pixels = |b: &[u8]| image::load_from_memory(b).unwrap().to_rgba8();
+        assert!(pixels(&original) == pixels(&copy) && pixels(&original) == pixels(&kept));
         std::fs::remove_dir_all(dir).unwrap();
     }
 

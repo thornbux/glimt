@@ -9,3136 +9,3922 @@ msgstr ""
 "Plural-Forms: nplurals=2; plural=(n > 1);\n"
 
 #: src/ui/accessibility.rs
+#, fuzzy
 msgid "No images"
 msgstr "Nenhuma imagem"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "About Glimt"
 msgstr "Sobre o Glimt"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Auto Rotate Using EXIF"
 msgstr "Girar automaticamente pelo EXIF"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Back"
 msgstr "Voltar"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Back Up Glimt's Data…"
 msgstr "Fazer backup dos dados do Glimt…"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Check Images…"
 msgstr "Verificar imagens…"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Close Window"
 msgstr "Fechar janela"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Compare Side by Side"
 msgstr "Comparar lado a lado"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Copy Files to Clipboard"
 msgstr "Copiar arquivos para a área de transferência"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Copy Image to Clipboard"
 msgstr "Copiar imagem para a área de transferência"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Copy Path (Unquoted)"
 msgstr "Copiar caminho (sem aspas)"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Copy Path to Clipboard"
 msgstr "Copiar caminho para a área de transferência"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Copy…"
 msgstr "Copiar…"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Delete Permanently…"
 msgstr "Excluir permanentemente…"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Delete…"
 msgstr "Excluir…"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "EXIF Window"
 msgstr "Janela EXIF"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Export Frames…"
 msgstr "Exportar quadros…"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Faster"
 msgstr "Mais rápido"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Fill the View"
 msgstr "Preencher a visualização"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Find Duplicates…"
 msgstr "Localizar duplicatas…"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "First Image"
 msgstr "Primeira imagem"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Fit the Height"
 msgstr "Ajustar à altura"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Fit the Width"
 msgstr "Ajustar à largura"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Flip"
 msgstr "Inverter verticalmente"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Forward"
 msgstr "Avançar"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Full Screen"
 msgstr "Tela cheia"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Help Manual"
 msgstr "Manual de ajuda"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Hide File List"
 msgstr "Ocultar lista de arquivos"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Histogram: Off, RGB, Brightness"
 msgstr "Histograma: desligado, RGB, brilho"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Home"
 msgstr "Pasta pessoal"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Import Lightroom Catalog…"
 msgstr "Importar catálogo do Lightroom…"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Include Subfolders"
 msgstr "Incluir subpastas"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Invert Selection"
 msgstr "Inverter seleção"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Keyboard Map"
 msgstr "Mapa do teclado"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Keyboard Shortcuts"
 msgstr "Atalhos de teclado"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Keywords and Comment"
 msgstr "Palavras-chave e comentário"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Last Image"
 msgstr "Última imagem"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Logarithmic Histogram"
 msgstr "Histograma logarítmico"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Mark 1"
 msgstr "Marca 1"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Mark 2"
 msgstr "Marca 2"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Mark 3"
 msgstr "Marca 3"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Mark 4"
 msgstr "Marca 4"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Mark 5"
 msgstr "Marca 5"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Mark 6"
 msgstr "Marca 6"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Mirror"
 msgstr "Espelhar"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Move Collection to Trash"
 msgstr "Mover coleção para a lixeira"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Move Earlier in Collection"
 msgstr "Mover para antes na coleção"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Move Later in Collection"
 msgstr "Mover para depois na coleção"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Move to End of Collection"
 msgstr "Mover para o fim da coleção"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Move to Start of Collection"
 msgstr "Mover para o início da coleção"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Move…"
 msgstr "Mover…"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "New Collection…"
 msgstr "Nova coleção…"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "New Folder…"
 msgstr "Nova pasta…"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "New Window"
 msgstr "Nova janela"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Next Filter"
 msgstr "Próximo filtro"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Next Image"
 msgstr "Próxima imagem"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Next Layout"
 msgstr "Próximo layout"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Next Page"
 msgstr "Próxima página"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "No Stars"
 msgstr "Sem estrelas"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "One Image"
 msgstr "Uma imagem"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Open Collection…"
 msgstr "Abrir coleção…"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Open File…"
 msgstr "Abrir arquivo…"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Open Folder Recursive…"
 msgstr "Abrir pasta recursivamente…"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Open Folder…"
 msgstr "Abrir pasta…"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Open Several Folders…"
 msgstr "Abrir várias pastas…"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Open With Default App"
 msgstr "Abrir com o aplicativo padrão"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Pan View"
 msgstr "Visão panorâmica"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Pane Above"
 msgstr "Painel acima"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Pane Below"
 msgstr "Painel abaixo"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Pane to the Left"
 msgstr "Painel à esquerda"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Pane to the Right"
 msgstr "Painel à direita"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Pause Slideshow"
 msgstr "Pausar apresentação de slides"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Play Animations"
 msgstr "Reproduzir animações"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Play Video"
 msgstr "Reproduzir vídeo"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Preferences…"
 msgstr "Preferências…"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Previous Image"
 msgstr "Imagem anterior"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Previous Page"
 msgstr "Página anterior"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Print…"
 msgstr "Imprimir…"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Projector"
 msgstr "Projetor"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Quit"
 msgstr "Sair"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Random Order"
 msgstr "Ordem aleatória"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Refresh"
 msgstr "Atualizar"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Remove from Collection"
 msgstr "Remover da coleção"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Rename Collection…"
 msgstr "Renomear coleção…"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Rename…"
 msgstr "Renomear…"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Rotate 180°"
 msgstr "Girar 180°"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Rotate Clockwise"
 msgstr "Girar no sentido horário"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Rotate Counterclockwise"
 msgstr "Girar no sentido anti-horário"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Save Orientation to File"
 msgstr "Salvar orientação no arquivo"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Crop…"
 msgstr "Recortar…"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Save As…"
 msgstr "Salvar como…"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Save This Frame…"
 msgstr "Salvar este quadro…"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Search File Names"
 msgstr "Pesquisar nomes de arquivos"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Select All"
 msgstr "Selecionar tudo"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Select Mark 1"
 msgstr "Selecionar marca 1"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Select Mark 2"
 msgstr "Selecionar marca 2"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Select Mark 3"
 msgstr "Selecionar marca 3"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Select Mark 4"
 msgstr "Selecionar marca 4"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Select Mark 5"
 msgstr "Selecionar marca 5"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Select Mark 6"
 msgstr "Selecionar marca 6"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Select None"
 msgstr "Selecionar nenhum"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Set as Wallpaper"
 msgstr "Definir como papel de parede"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Show Info Panel"
 msgstr "Mostrar painel de informações"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Show Folder Path"
 msgstr "Mostrar caminho da pasta"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Show Folder Tree"
 msgstr "Mostrar árvore de pastas"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Show Hidden Files"
 msgstr "Mostrar arquivos ocultos"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Show Image Info in Full Screen"
 msgstr "Mostrar informações da imagem em tela cheia"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Show Sort Manager"
 msgstr "Mostrar gerenciador de ordenação"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Show the Pointer on the Projector"
 msgstr "Mostrar o ponteiro no projetor"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Show Thumbnails"
 msgstr "Mostrar miniaturas"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Thumbnails in Image Area"
 msgstr "Miniaturas na área da imagem"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Show Toolbar"
 msgstr "Mostrar barra de ferramentas"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Slower"
 msgstr "Mais lento"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Start/Stop Slideshow"
 msgstr "Iniciar/parar apresentação de slides"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Stop Slideshow, Leave Full Screen"
 msgstr "Parar apresentação, sair da tela cheia"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Two Above Each Other"
 msgstr "Duas, uma sobre a outra"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Undo"
 msgstr "Desfazer"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Up"
 msgstr "Pasta acima"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "View Images as Icons"
 msgstr "Ver imagens como ícones"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Zoom 1:1"
 msgstr "Zoom 1:1"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Zoom In"
 msgstr "Ampliar"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Zoom Out"
 msgstr "Reduzir"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Zoom to Fit"
 msgstr "Ajustar à janela"
 
 #: src/model/collections.rs
+#, fuzzy
 msgid "Not a valid collection name: \"{name}\""
 msgstr "Nome de coleção inválido: “{name}”"
 
 #: src/model/collections.rs
+#, fuzzy
 msgid "There is a collection called \"{name}\" already"
 msgstr "Já existe uma coleção chamada “{name}”"
 
 #: src/viewer/crop.rs
+#, fuzzy
 msgid "A video is not cropped"
 msgstr "Um vídeo não é recortado"
 
 #: src/viewer/crop.rs
+#, fuzzy
 msgid "Drag over the image to choose the part to keep"
 msgstr "Arraste sobre a imagem para escolher a parte a manter"
 
 #: src/viewer/crop.rs
+#, fuzzy
 msgid "Save Copy (Enter)"
 msgstr "Salvar cópia (Enter)"
 
 #: src/viewer/crop.rs
+#, fuzzy
 msgid "Could not crop the image: {e}"
 msgstr "Não foi possível recortar a imagem: {e}"
 
 #: src/viewer/save_as.rs
+#, fuzzy
 msgid "A video is not saved as an image"
 msgstr "Um vídeo não é salvo como imagem"
 
 #: src/viewer/save_as.rs
+#, fuzzy
 msgid "Format:"
 msgstr "Formato:"
 
 #: src/viewer/save_as.rs
+#, fuzzy
 msgid "As the original ({format})"
 msgstr "Como o original ({format})"
 
 #: src/viewer/save_as.rs
+#, fuzzy
 msgid "WebP, lossless"
 msgstr "WebP, sem perdas"
 
 #: src/viewer/save_as.rs
+#, fuzzy
 msgid "WebP, lossy"
 msgstr "WebP, com perdas"
 
 #: src/viewer/save_as.rs
+#, fuzzy
 msgid "Size:"
 msgstr "Tamanho:"
 
 #: src/viewer/save_as.rs
+#, fuzzy
 msgid "Original ({w} × {h})"
 msgstr "Original ({w} × {h})"
 
 #: src/viewer/save_as.rs
+#, fuzzy
 msgid "Longest side"
 msgstr "Lado maior"
 
 #: src/viewer/save_as.rs
+#, fuzzy
 msgid "Percent"
 msgstr "Porcentagem"
 
 #: src/viewer/save_as.rs
+#, fuzzy
 msgid "Saved {w} × {h}; never enlarged"
 msgstr "Salva em {w} × {h}; nunca ampliada"
 
 #: src/viewer/save_as.rs
+#, fuzzy
 msgid "Quality:"
 msgstr "Qualidade:"
 
 #: src/viewer/save_as.rs
+#, fuzzy
 msgid "Remove EXIF and GPS (camera, date, place), XMP and the sidecar"
 msgstr "Remover EXIF e GPS (câmera, data, local), XMP e o arquivo XMP associado"
 
 #: src/viewer/save_as.rs
+#, fuzzy
 msgid "Save…"
 msgstr "Salvar…"
 
 #: src/viewer/save_as.rs
+#, fuzzy
 msgid "Could not save the image: {e}"
 msgstr "Não foi possível salvar a imagem: {e}"
 
 #: src/features/duplicates.rs
+#, fuzzy
 msgid "Among the {count} in the list, compare by"
 msgstr "Entre as {count} da lista, comparar por"
 
 #: src/features/duplicates.rs
+#, fuzzy
 msgid "Check all but the first of each group"
 msgstr "Marcar todos menos o primeiro de cada grupo"
 
 #: src/features/duplicates.rs
+#, fuzzy
 msgid "Checksum (identical files)"
 msgstr "Soma de verificação (arquivos idênticos)"
 
 #: src/features/duplicates.rs
+#, fuzzy
 msgid "Comparing… {done} of {total}"
 msgstr "Comparando… {done} de {total}"
 
 #: src/features/duplicates.rs
+#, fuzzy
 msgid "Find"
 msgstr "Localizar"
 
 #: src/features/duplicates.rs
+#, fuzzy
 msgid "Find Duplicates"
 msgstr "Localizar duplicatas"
 
 #: src/features/duplicates.rs
+#, fuzzy
 msgid "Group {n} ({files})"
 msgstr "Grupo {n} ({files})"
 
 #: src/features/duplicates.rs
+#, fuzzy
 msgid "Include Subfolders in the View menu searches the folders below too."
 msgstr "Incluir subpastas, no menu Ver, também pesquisa as pastas abaixo."
 
 #: src/features/duplicates.rs
+#, fuzzy
 msgid "Move {n} checked to trash…"
 msgstr "Mover {n} marcados para a lixeira…"
 
 #: src/features/duplicates.rs
+#, fuzzy
 msgid "These groups were found by {by}, so the checked files may be different images, not copies."
 msgstr "Estes grupos foram encontrados por “{by}”, então os arquivos marcados podem ser imagens diferentes, não cópias."
 
 #: src/features/duplicates.rs
+#, fuzzy
 msgid "Move to Trash Anyway"
 msgstr "Mover para a lixeira mesmo assim"
 
 #: src/files/config.rs
+#, fuzzy
 msgid "{files} left out: a name with a line break cannot be kept"
 msgstr "{files} deixados de fora: um nome com quebra de linha não pode ser guardado"
 
 #: src/features/duplicates.rs
+#, fuzzy
 msgid "Cancel"
 msgstr "Cancelar"
 
 #: src/features/duplicates.rs
+#, fuzzy
 msgid "Name"
 msgstr "Nome"
 
 #: src/features/duplicates.rs
+#, fuzzy
 msgid "Similarity (90%)"
 msgstr "Semelhança (90%)"
 
 #: src/features/duplicates.rs
+#, fuzzy
 msgid "Similarity (high, 95%)"
 msgstr "Semelhança (alta, 95%)"
 
 #: src/features/duplicates.rs
+#, fuzzy
 msgid "Similarity (low, 85%)"
 msgstr "Semelhança (baixa, 85%)"
 
 #: src/features/duplicates.rs
+#, fuzzy
 msgid "Size"
 msgstr "Tamanho"
 
 #: src/features/duplicates.rs
+#, fuzzy
 msgid "Stop"
 msgstr "Parar"
 
 #: src/features/duplicates.rs
+#, fuzzy
 msgid "The checked files are no longer all in the list"
 msgstr "Os arquivos marcados não estão mais todos na lista"
 
 #: src/features/duplicates.rs
+#, fuzzy
 msgid "Uncheck all"
 msgstr "Desmarcar tudo"
 
 #: src/features/duplicates.rs
+#, fuzzy
 msgid "{groups}, {files}, among {images}"
 msgstr "{groups}, {files}, entre {images}"
 
 #: src/files/file_ops.rs
+#, fuzzy
 msgid "Backing up"
 msgstr "Fazendo backup"
 
 #: src/files/file_ops.rs
+#, fuzzy
 msgid "Copy"
 msgstr "Copiar"
 
 #: src/files/file_ops.rs
+#, fuzzy
 msgid "Copying"
 msgstr "Copiando"
 
 #: src/files/file_ops.rs
+#, fuzzy
 msgid "Could not make {folder}"
 msgstr "Não foi possível criar {folder}"
 
 #: src/files/file_ops.rs
+#, fuzzy
 msgid "Could not rename {f} to {t}: {e}; nothing renamed"
 msgstr "Não foi possível renomear {f} para {t}: {e}; nada foi renomeado"
 
 #: src/files/file_ops.rs
+#, fuzzy
 msgid "Could not save the frames: {e}"
 msgstr "Não foi possível salvar os quadros: {e}"
 
 #: src/files/file_ops.rs
+#, fuzzy
 msgid "Delete failed ({count}): {first}"
 msgstr "Falha ao excluir ({count}): {first}"
 
 #: src/files/file_ops.rs
+#, fuzzy
 msgid "Deleting"
 msgstr "Excluindo"
 
 #: src/files/file_ops.rs
+#, fuzzy
 msgid "Renaming"
 msgstr "Renomeando"
 
 #: src/files/file_ops.rs
+#, fuzzy
 msgid "Exporting"
 msgstr "Exportando"
 
 #: src/files/file_ops.rs
+#, fuzzy
 msgid "Nothing to undo"
 msgstr "Nada para desfazer"
 
 #: src/files/file_ops.rs
+#, fuzzy
 msgid "another file has taken its place"
 msgstr "outro arquivo tomou o seu lugar"
 
 #: src/files/file_ops.rs
+#, fuzzy
 msgid "Undo failed ({count}): {first}"
 msgstr "Falha ao desfazer ({count}): {first}"
 
 #: src/files/file_ops.rs
+#, fuzzy
 msgid "Undo failed: {e}"
 msgstr "Falha ao desfazer: {e}"
 
 #: src/files/file_ops.rs
+#, fuzzy
 msgid "gio trash (from glib): {e}"
 msgstr "gio trash (do glib): {e}"
 
 #: src/files/file_ops.rs
+#, fuzzy
 msgid "Move"
 msgstr "Mover"
 
 #: src/files/file_ops.rs
+#, fuzzy
 msgid "Moving"
 msgstr "Movendo"
 
 #: src/files/file_ops.rs
+#, fuzzy
 msgid "Saved {file}"
 msgstr "{file} salvo"
 
 #: src/files/file_ops.rs
+#, fuzzy
 msgid "Saved; it shows when Auto Rotate Using EXIF is on"
 msgstr "Salvo; aparece quando “Girar automaticamente pelo EXIF” está ativado"
 
 #: src/files/file_ops.rs
+#, fuzzy
 msgid "Still saving a rotation: try again in a moment"
 msgstr "Ainda salvando uma rotação: tente novamente em instantes"
 
 #: src/files/file_ops.rs
+#, fuzzy
 msgid "The files asked about are no longer in the list: nothing was done"
 msgstr "Os arquivos em questão não estão mais na lista: nada foi feito"
 
 #: src/files/file_ops.rs
+#, fuzzy
 msgid "The pattern gives several files the same name; add # for a number"
 msgstr "O padrão dá o mesmo nome a vários arquivos; adicione # para um número"
 
 #: src/files/file_ops.rs
+#, fuzzy
 msgid "Writing the sidecars stopped at a file that broke it"
 msgstr "A gravação dos arquivos XMP parou em um arquivo que a interrompeu"
 
 #: src/files/file_ops.rs
+#, fuzzy
 msgid "{count} back from the trash"
 msgstr "{count} de volta da lixeira"
 
 #: src/files/file_ops.rs
+#, fuzzy
 msgid "{count} deleted"
 msgstr "{count} excluído(s)"
 
 #: src/files/file_ops.rs
+#, fuzzy
 msgid "{count} moved to the trash"
 msgstr "{count} na lixeira"
 
 #: src/files/file_ops.rs
+#, fuzzy
 msgid "{files} moved back"
 msgstr "{files} de volta ao lugar"
 
 #: src/files/file_ops.rs
+#, fuzzy
 msgid "{frames} saved in {folder}"
 msgstr "{frames} salvo(s) em {folder}"
 
 #: src/files/file_ops.rs
+#, fuzzy
 msgid "{name} exists already"
 msgstr "{name} já existe"
 
 #: src/files/file_ops.rs
+#, fuzzy
 msgid "{name} exists already; nothing renamed"
 msgstr "{name} já existe; nada foi renomeado"
 
 #: src/files/trash.rs
+#, fuzzy
 msgid "{name} is not in the trash"
 msgstr "{name} não está na lixeira"
 
 #: src/files/file_ops.rs
+#, fuzzy
 msgid "{verb} failed ({count}): {first}"
 msgstr "{verb}: falha ({count}): {first}"
 
 #: src/metadata/lightroom.rs
+#, fuzzy
 msgid "Cancel (Esc)"
 msgstr "Cancelar (Esc)"
 
 #: src/metadata/lightroom.rs
+#, fuzzy
 msgid "Import"
 msgstr "Importar"
 
 #: src/metadata/lightroom.rs
+#, fuzzy
 msgid "Import from Lightroom"
 msgstr "Importar do Lightroom"
 
 #: src/metadata/lightroom.rs
+#, fuzzy
 msgid "Importing"
 msgstr "Importando"
 
 #: src/metadata/lightroom.rs
+#, fuzzy
 msgid "Keep Glimt's stars"
 msgstr "Manter as estrelas do Glimt"
 
 #: src/metadata/lightroom.rs
+#, fuzzy
 msgid "Lightroom has the catalog open: close Lightroom first"
 msgstr "O Lightroom está com o catálogo aberto: feche o Lightroom primeiro"
 
 #: src/metadata/lightroom.rs
+#, fuzzy
 msgid "Lightroom's stars or keywords not written to the sidecars of {count}"
 msgstr "Estrelas ou palavras-chave do Lightroom não gravadas nos arquivos XMP de {count}"
 
 #: src/metadata/lightroom.rs
+#, fuzzy
 msgid "Next"
 msgstr "Próximo"
 
 #: src/metadata/lightroom.rs
+#, fuzzy
 msgid "Not a Lightroom Classic catalog Glimt can read: {why}"
 msgstr "Não é um catálogo do Lightroom Classic que o Glimt consiga ler: {why}"
 
 #: src/metadata/lightroom.rs
+#, fuzzy
 msgid "Reading a Lightroom catalog needs the sqlite3 program"
 msgstr "Ler um catálogo do Lightroom requer o programa sqlite3"
 
 #: src/metadata/lightroom.rs
+#, fuzzy
 msgid "Take Lightroom's stars"
 msgstr "Usar as estrelas do Lightroom"
 
 #: src/metadata/lightroom.rs
+#, fuzzy
 msgid "the keywords of {count}"
 msgstr "as palavras-chave de {count}"
 
 #: src/metadata/lightroom.rs
+#, fuzzy
 msgid "the stars of {count}"
 msgstr "as estrelas de {count}"
 
 #: src/metadata/lightroom.rs
+#, fuzzy
 msgid "There already, so they get only the images they lack: {names}."
 msgstr "Já existem, então recebem só as imagens que lhes faltam: {names}."
 
 #: src/metadata/lightroom.rs
+#, fuzzy
 msgid "Not found and left out: {count}. Import again once their drive is mounted."
 msgstr "Não encontradas e deixadas de fora: {count}. Importe de novo quando a unidade delas estiver montada."
 
 #: src/metadata/lightroom.rs
+#, fuzzy
 msgid "Where the catalog's folders are now (empty: left out):"
 msgstr "Onde as pastas do catálogo estão agora (vazio: deixada de fora):"
 
 #: src/metadata/lightroom.rs
+#, fuzzy
 msgid "{collections}, {keywords} and the stars of {images}."
 msgstr "{collections}, {keywords} e as estrelas de {images}."
 
 #: src/metadata/lightroom.rs
+#, fuzzy
 msgid "{count} have"
 msgstr "{count} têm"
 
 #: src/metadata/lightroom.rs
+#, fuzzy
 msgid "{needs}, which is not installed"
 msgstr "{needs}, que não está instalado"
 
 #: src/metadata/lightroom.rs
+#, fuzzy
 msgid "{n} other stars in Glimt:"
 msgstr "{n} outras estrelas no Glimt:"
 
 #: src/main.rs
+#, fuzzy
 msgid ", and {n} more"
 msgstr ", e mais {n}"
 
 #: src/main.rs
+#, fuzzy
 msgid "; and {n} more (glimt --check-config)"
 msgstr "; e mais {n} (glimt --check-config)"
 
 #: src/main.rs
+#, fuzzy
 msgid "A file dialog is open already"
 msgstr "Uma janela de arquivos já está aberta"
 
 #: src/main.rs
+#, fuzzy
 msgid "A plain list is not renamed or trashed by Glimt"
 msgstr "Uma lista simples não é renomeada nem enviada à lixeira pelo Glimt"
 
 #: src/main.rs
+#, fuzzy
 msgid "Add"
 msgstr "Adicionar"
 
 #: src/main.rs
+#, fuzzy
 msgid "Add the keywords to the {n} selected"
 msgstr "Adicionar as palavras-chave às {n} selecionadas"
 
 #: src/main.rs
+#, fuzzy
 msgid "Add This Folder"
 msgstr "Adicionar esta pasta"
 
 #: src/main.rs
+#, fuzzy
 msgid "Add this image's keywords to the tree"
 msgstr "Adicionar as palavras-chave desta imagem à árvore"
 
 #: src/main.rs
+#, fuzzy
 msgid "Add to Collection"
 msgstr "Adicionar à coleção"
 
 #: src/main.rs
+#, fuzzy
 msgid "Adding keywords"
 msgstr "Adicionando palavras-chave"
 
 #: src/main.rs
+#, fuzzy
 msgid "Add…"
 msgstr "Adicionar…"
 
 #: src/main.rs
+#, fuzzy
 msgid "All Images Change Together"
 msgstr "Todas as imagens mudam juntas"
 
 #: src/main.rs
+#, fuzzy
 msgid "Alt text"
 msgstr "Texto alternativo"
 
 #: src/main.rs
+#, fuzzy
 msgid "Ascending"
 msgstr "Crescente"
 
 #: src/main.rs
+#, fuzzy
 msgid "Case"
 msgstr "Maiúsculas"
 
 #: src/main.rs
+#, fuzzy
 msgid "Check"
 msgstr "Verificar"
 
 #: src/main.rs
+#, fuzzy
 msgid "Check Images"
 msgstr "Verificar imagens"
 
 #: src/main.rs
+#, fuzzy
 msgid "Clear Recent"
 msgstr "Limpar recentes"
 
 #: src/main.rs
+#, fuzzy
 msgid "Collections"
 msgstr "Coleções"
 
 #: src/main.rs
+#, fuzzy
 msgid "Colour Management"
 msgstr "Gerenciamento de cores"
 
 #: src/main.rs
+#, fuzzy
 msgid "Comment"
 msgstr "Comentário"
 
 #: src/main.rs
+#, fuzzy
 msgid "Connect (Enter)"
 msgstr "Conectar (Enter)"
 
 #: src/main.rs
+#, fuzzy
 msgid "Connecting to {uri}…"
 msgstr "Conectando a {uri}…"
 
 #: src/main.rs
+#, fuzzy
 msgid "Could not copy the image: {e}"
 msgstr "Não foi possível copiar a imagem: {e}"
 
 #: src/main.rs
+#, fuzzy
 msgid "Could not copy to the clipboard: {e}"
 msgstr "Não foi possível copiar para a área de transferência: {e}"
 
 #: src/main.rs
+#, fuzzy
 msgid "Could not open a new window: {e}"
 msgstr "Não foi possível abrir uma nova janela: {e}"
 
 #: src/main.rs
+#, fuzzy
 msgid "Could not read the keyword tree: {e}"
 msgstr "Não foi possível ler a árvore de palavras-chave: {e}"
 
 #: src/main.rs
+#, fuzzy
 msgid "Could not save the keyword tree: {e}"
 msgstr "Não foi possível salvar a árvore de palavras-chave: {e}"
 
 #: src/main.rs
+#, fuzzy
 msgid "Could not read the sort manager's folders: {e}"
 msgstr "Não foi possível ler as pastas do gerenciador de ordenação: {e}"
 
 #: src/main.rs
+#, fuzzy
 msgid "Could not save the alt text: {e}"
 msgstr "Não foi possível salvar o texto alternativo: {e}"
 
 #: src/main.rs
+#, fuzzy
 msgid "Could not save the collection: {e}"
 msgstr "Não foi possível salvar a coleção: {e}"
 
 #: src/main.rs
+#, fuzzy
 msgid "Could not save the keywords: {e}"
 msgstr "Não foi possível salvar as palavras-chave: {e}"
 
 #: src/main.rs
+#, fuzzy
 msgid "Could not save the orientation: {e}"
 msgstr "Não foi possível salvar a orientação: {e}"
 
 #: src/main.rs
+#, fuzzy
 msgid "Could not save the sort manager's folders: no home folder"
 msgstr "Não foi possível salvar as pastas do gerenciador de ordenação: sem pasta pessoal"
 
 #: src/main.rs
+#, fuzzy
 msgid "Could not save the sort manager's folders: {e}"
 msgstr "Não foi possível salvar as pastas do gerenciador de ordenação: {e}"
 
 #: src/main.rs
+#, fuzzy
 msgid "Could not save the theme: {e}"
 msgstr "Não foi possível salvar o tema: {e}"
 
 #: src/main.rs
+#, fuzzy
 msgid "Could not set the wallpaper: {e}"
 msgstr "Não foi possível definir o papel de parede: {e}"
 
 #: src/main.rs
+#, fuzzy
 msgid "Could not trash {name} (gio is needed): {e}"
 msgstr "Não foi possível enviar {name} para a lixeira (o gio é necessário): {e}"
 
 #: src/main.rs
+#, fuzzy
 msgid "Could not trash {name}: {err}"
 msgstr "Não foi possível enviar {name} para a lixeira: {err}"
 
 #: src/main.rs
+#, fuzzy
 msgid "Delete (Enter)"
 msgstr "Excluir (Enter)"
 
 #: src/main.rs
+#, fuzzy
 msgid "Desktop files there, as Geeqie's, show in this menu after a restart"
 msgstr "Arquivos .desktop ali, como os do Geeqie, aparecem neste menu após reiniciar"
 
 #: src/main.rs
+#, fuzzy
 msgid "Dimensions"
 msgstr "Dimensões"
 
 #: src/main.rs
+#, fuzzy
 msgid "Domain:"
 msgstr "Domínio:"
 
 #: src/main.rs
+#, fuzzy
 msgid "Each file keeps its own keywords and gets these too"
 msgstr "Cada arquivo mantém suas próprias palavras-chave e recebe também estas"
 
 #: src/main.rs
+#, fuzzy
 msgid "Edit"
 msgstr "Editar"
 
 #: src/main.rs
+#, fuzzy
 msgid "Extended description"
 msgstr "Descrição estendida"
 
 #: src/main.rs
+#, fuzzy
 msgid "File"
 msgstr "Arquivo"
 
 #: src/main.rs
+#, fuzzy
 msgid "Filter"
 msgstr "Filtro"
 
 #: src/main.rs
+#, fuzzy
 msgid "Finish the renaming"
 msgstr "Concluir a renomeação"
 
 #: src/main.rs
+#, fuzzy
 msgid "First: {name}"
 msgstr "Primeiro: {name}"
 
 #: src/main.rs
+#, fuzzy
 msgid "Get More Themes…"
 msgstr "Obter mais temas…"
 
 #: src/main.rs
+#, fuzzy
 msgid "Glimt ({n})"
 msgstr "Glimt ({n})"
 
 #: src/main.rs
+#, fuzzy
 msgid "Go"
 msgstr "Ir"
 
 #: src/main.rs
+#, fuzzy
 msgid "Help"
 msgstr "Ajuda"
 
 #: src/main.rs
+#, fuzzy
 msgid "Images"
 msgstr "Imagens"
 
 #: src/main.rs
+#, fuzzy
 msgid "Keyword tree"
 msgstr "Árvore de palavras-chave"
 
 #: src/main.rs
+#, fuzzy
 msgid "Keywords"
 msgstr "Palavras-chave"
 
 #: src/main.rs
+#, fuzzy
 msgid "Keywords added to {count}"
 msgstr "Palavras-chave adicionadas a {count}"
 
 #: src/main.rs
+#, fuzzy
 msgid "Keywords could not be saved for {count}"
 msgstr "Não foi possível salvar as palavras-chave de {count}"
 
 #: src/main.rs
+#, fuzzy
 msgid "Later"
 msgstr "Mais tarde"
 
 #: src/main.rs
+#, fuzzy
 msgid "Layout"
 msgstr "Layout"
 
 #: src/main.rs
+#, fuzzy
 msgid "Log in to {uri}"
 msgstr "Entrar em {uri}"
 
 #: src/main.rs
+#, fuzzy
 msgid "Marks and Stars"
 msgstr "Marcas e estrelas"
 
 #: src/main.rs
+#, fuzzy
 msgid "Move Folder to Trash…"
 msgstr "Mover pasta para a lixeira…"
 
 #: src/main.rs
+#, fuzzy
 msgid "Move in Collection"
 msgstr "Mover na coleção"
 
 #: src/main.rs
+#, fuzzy
 msgid "Move the folder \"{name}\" and all in it to the trash?"
 msgstr "Mover a pasta “{name}” e todo o seu conteúdo para a lixeira?"
 
 #: src/main.rs
+#, fuzzy
 msgid "Move to Trash (Enter)"
 msgstr "Mover para a lixeira (Enter)"
 
 #: src/main.rs
+#, fuzzy
 msgid "Move {what} to the trash?"
 msgstr "Mover {what} para a lixeira?"
 
 #: src/main.rs
+#, fuzzy
 msgid "Name of a new collection with {count}:"
 msgstr "Nome de uma nova coleção com {count}:"
 
 #: src/main.rs
+#, fuzzy
 msgid "New Folder makes a folder in the folder shown: open one"
 msgstr "“Nova pasta” cria uma pasta na pasta exibida: abra uma"
 
 #: src/main.rs
+#, fuzzy
 msgid "New names for {count} (* = old name, # = number, ### = 001):"
 msgstr "Novos nomes para {count} (* = nome antigo, # = número, ### = 001):"
 
 #: src/main.rs
+#, fuzzy
 msgid "No applications found"
 msgstr "Nenhum aplicativo encontrado"
 
 #: src/main.rs
+#, fuzzy
 msgid "No collections yet"
 msgstr "Nenhuma coleção ainda"
 
 #: src/main.rs
+#, fuzzy
 msgid "No EXIF data"
 msgstr "Sem dados EXIF"
 
 #: src/main.rs
+#, fuzzy
 msgid "No file dialog (install zenity or kdialog): {e}"
 msgstr "Sem janela de arquivos (instale o zenity ou o kdialog): {e}"
 
 #: src/main.rs
+#, fuzzy
 msgid "No images for a collection here"
 msgstr "Nenhuma imagem para uma coleção aqui"
 
 #: src/main.rs
+#, fuzzy
 msgid "No images in folder"
 msgstr "Nenhuma imagem na pasta"
 
 #: src/main.rs
+#, fuzzy
 msgid "No tools"
 msgstr "Nenhuma ferramenta"
 
 #: src/main.rs
+#, fuzzy
 msgid "No such folder: {folder}"
 msgstr "Pasta inexistente: {folder}"
 
 #: src/main.rs
+#, fuzzy
 msgid "Not a valid name: \"{text}\""
 msgstr "Nome inválido: “{text}”"
 
 #: src/main.rs
+#, fuzzy
 msgid "Nothing opened yet"
 msgstr "Nada aberto ainda"
 
 #: src/main.rs
+#, fuzzy
 msgid "OK (Enter)"
 msgstr "OK (Enter)"
 
 #: src/main.rs
+#, fuzzy
 msgid "One Image at a Time"
 msgstr "Uma imagem por vez"
 
 #: src/main.rs
+#, fuzzy
 msgid "Only the images of a collection can be moved"
 msgstr "Somente as imagens de uma coleção podem ser movidas"
 
 #: src/main.rs
+#, fuzzy
 msgid "Open Recent"
 msgstr "Abrir recente"
 
 #: src/main.rs
+#, fuzzy
 msgid "Open the Tools Folder"
 msgstr "Abrir a pasta de ferramentas"
 
 #: src/main.rs
+#, fuzzy
 msgid "Open Themes Folder"
 msgstr "Abrir pasta de temas"
 
 #: src/main.rs
+#, fuzzy
 msgid "Open With"
 msgstr "Abrir com"
 
 #: src/main.rs
+#, fuzzy
 msgid "Orientation"
 msgstr "Orientação"
 
 #: src/main.rs
+#, fuzzy
 msgid "Password:"
 msgstr "Senha:"
 
 #: src/main.rs
+#, fuzzy
 msgid "Permanently delete {what}?"
 msgstr "Excluir permanentemente {what}?"
 
 #: src/main.rs
+#, fuzzy
 msgid "Places|Norway|Oslo"
 msgstr "Lugares|Brasil|Rio de Janeiro"
 
 #: src/main.rs
+#, fuzzy
 msgid "Tools"
 msgstr "Ferramentas"
 
 #: src/main.rs
+#, fuzzy
 msgid "Put the old names back"
 msgstr "Restaurar os nomes antigos"
 
 #: src/main.rs
+#, fuzzy
 msgid "Random order is on: R turns it off to move images"
 msgstr "A ordem aleatória está ativada: R a desativa para mover imagens"
 
 #: src/main.rs
+#, fuzzy
 msgid "Reading folder…"
 msgstr "Lendo a pasta…"
 
 #: src/main.rs
+#, fuzzy
 msgid "Remove"
 msgstr "Remover"
 
 #: src/main.rs
+#, fuzzy
 msgid "Remove from the tree"
 msgstr "Remover da árvore"
 
 #: src/main.rs
+#, fuzzy
 msgid "Rename Folder…"
 msgstr "Renomear pasta…"
 
 #: src/main.rs
+#, fuzzy
 msgid "Rename Many is still renaming"
 msgstr "“Renomear vários” ainda está renomeando"
 
 #: src/main.rs
+#, fuzzy
 msgid "Rename Many was cut short"
 msgstr "“Renomear vários” foi interrompido"
 
 #: src/main.rs
+#, fuzzy
 msgid "Save as Theme…"
 msgstr "Salvar como tema…"
 
 #: src/main.rs
+#, fuzzy
 msgid "Select"
 msgstr "Selecionar"
 
 #: src/main.rs
+#, fuzzy
 msgid "Select Them"
 msgstr "Selecioná-los"
 
 #: src/main.rs
+#, fuzzy
 msgid "Separated by commas"
 msgstr "Separadas por vírgulas"
 
 #: src/main.rs
+#, fuzzy
 msgid "{tag} set on {count}"
 msgstr "{tag}: aplicado a {count}"
 
 #: src/main.rs
+#, fuzzy
 msgid "Setting keywords"
 msgstr "Definindo palavras-chave"
 
 #: src/main.rs
+#, fuzzy
 msgid "Show File Names"
 msgstr "Mostrar nomes de arquivos"
 
 #: src/main.rs
+#, fuzzy
 msgid "Show on OpenStreetMap"
 msgstr "Mostrar no OpenStreetMap"
 
 #: src/main.rs
+#, fuzzy
 msgid "Show Together with These Images"
 msgstr "Mostrar junto com estas imagens"
 
 #: src/main.rs
+#, fuzzy
 msgid "Slideshow in this layout:"
 msgstr "Apresentação de slides neste layout:"
 
 #: src/main.rs
+#, fuzzy
 msgid "Sort Manager"
 msgstr "Gerenciador de ordenação"
 
 #: src/main.rs
+#, fuzzy
 msgid "Start Slideshow"
 msgstr "Iniciar apresentação de slides"
 
 #: src/main.rs
+#, fuzzy
 msgid "Still saving the last rotation of this file"
 msgstr "Ainda salvando a última rotação deste arquivo"
 
 #: src/main.rs
+#, fuzzy
 msgid "Stop Slideshow"
 msgstr "Parar apresentação de slides"
 
 #: src/files/file_ops.rs
+#, fuzzy
 msgid "Stopped: {done} of {total}"
 msgstr "Parado: {done} de {total}"
 
 #: src/main.rs
+#, fuzzy
 msgid "{tag} taken off {count}"
 msgstr "{tag}: removido de {count}"
 
 #: src/main.rs
+#, fuzzy
 msgid "Taking keywords off"
 msgstr "Removendo palavras-chave"
 
 #: src/main.rs
+#, fuzzy
 msgid "Tell upper and lower case apart"
 msgstr "Diferenciar maiúsculas de minúsculas"
 
+#, fuzzy
 msgid "Search file names (3+ letters), re: pattern, or exif: camera, date …"
 msgstr "Pesquisar nomes de arquivos (3+ letras), re: padrão ou exif: câmera, data …"
 
+#, fuzzy
 msgid "Filter file names by pattern, or exif: camera, date …"
 msgstr "Filtrar nomes de arquivos por padrão, ou exif: câmera, data …"
 
 #: src/main.rs
+#, fuzzy
 msgid "Regular expression instead of fuzzy search"
 msgstr "Expressão regular em vez de pesquisa aproximada"
 
 #: src/main.rs
+#, fuzzy
 msgid "The collection {file} is gone (renamed or removed in another window): not saved"
 msgstr "A coleção {file} sumiu (renomeada ou removida em outra janela): não foi salva"
 
 #: src/main.rs
+#, fuzzy
 msgid "The keyword could not be saved for {count}"
 msgstr "Não foi possível salvar a palavra-chave de {count}"
 
 #: src/main.rs
+#, fuzzy
 msgid "The pane these details are of: the one under the pointer"
 msgstr "O painel a que estes detalhes se referem: o que está sob o ponteiro"
 
 #: src/main.rs
+#, fuzzy
 msgid "The settings are locked (--lock-settings)"
 msgstr "As configurações estão bloqueadas (--lock-settings)"
 
 #: src/main.rs
+#, fuzzy
 msgid "The stars could not be written to the XMP sidecar of {count}"
 msgstr "Não foi possível gravar as estrelas no arquivo XMP de {count}"
 
 #: src/main.rs
+#, fuzzy
 msgid "Theme"
 msgstr "Tema"
 
 #: src/main.rs
+#, fuzzy
 msgid "This cannot be undone."
 msgstr "Isto não pode ser desfeito."
 
 #: src/main.rs
+#, fuzzy
 msgid "User:"
 msgstr "Usuário:"
 
 #: src/main.rs
+#, fuzzy
 msgid "Video: Enter or click to play"
 msgstr "Vídeo: Enter ou clique para reproduzir"
 
 #: src/main.rs
+#, fuzzy
 msgid "Videos"
 msgstr "Vídeos"
 
 #: src/main.rs
+#, fuzzy
 msgid "View"
 msgstr "Ver"
 
 #: src/main.rs
+#, fuzzy
 msgid "What the picture shows, for someone who cannot see it"
 msgstr "O que a imagem mostra, para quem não pode vê-la"
 
 #: src/main.rs
+#, fuzzy
 msgid "Window"
 msgstr "Janela"
 
 #: src/main.rs
+#, fuzzy
 msgid "Writing stars"
 msgstr "Gravando estrelas"
 
 #: src/main.rs
+#, fuzzy
 msgid "Zoom"
 msgstr "Zoom"
 
 #: src/main.rs
+#, fuzzy
 msgid "{doing} {done} of {total}…{more}"
 msgstr "{doing} {done} de {total}…{more}"
 
 #: src/main.rs
+#, fuzzy
 msgid "{name} is gone"
 msgstr "{name} sumiu"
 
 #: src/main.rs
+#, fuzzy
 msgid "{n} added to the collection \"{name}\""
 msgstr "{n} adicionado(s) à coleção “{name}”"
 
 #: src/main.rs
+#, fuzzy
 msgid "{n} broken:"
 msgstr "{n} com defeito:"
 
 #: src/main.rs
+#, fuzzy
 msgid "{text} is a built-in theme: choose another name"
 msgstr "{text} é um tema embutido: escolha outro nome"
 
 #: src/main.rs LAYOUTS
+#, fuzzy
 msgid "Four (2 × 2)"
 msgstr "Quatro (2 × 2)"
 
 #: src/main.rs LAYOUTS
+#, fuzzy
 msgid "Two Side by Side"
 msgstr "Duas lado a lado"
 
 #: src/viewer/pan.rs
+#, fuzzy
 msgid "April"
 msgstr "Abril"
 
 #: src/viewer/pan.rs
+#, fuzzy
 msgid "August"
 msgstr "Agosto"
 
 #: src/viewer/pan.rs
+#, fuzzy
 msgid "Calendar"
 msgstr "Calendário"
 
 #: src/viewer/pan.rs
+#, fuzzy
 msgid "December"
 msgstr "Dezembro"
 
 #: src/viewer/pan.rs
+#, fuzzy
 msgid "EXIF date"
 msgstr "Data EXIF"
 
 #: src/viewer/pan.rs
+#, fuzzy
 msgid "February"
 msgstr "Fevereiro"
 
 #: src/viewer/pan.rs
+#, fuzzy
 msgid "January"
 msgstr "Janeiro"
 
 #: src/viewer/pan.rs
+#, fuzzy
 msgid "July"
 msgstr "Julho"
 
 #: src/viewer/pan.rs
+#, fuzzy
 msgid "June"
 msgstr "Junho"
 
 #: src/viewer/pan.rs
+#, fuzzy
 msgid "March"
 msgstr "Março"
 
 #: src/viewer/pan.rs
+#, fuzzy
 msgid "May"
 msgstr "Maio"
 
 #: src/viewer/pan.rs
+#, fuzzy
 msgid "No date"
 msgstr "Sem data"
 
 #: src/viewer/pan.rs
+#, fuzzy
 msgid "November"
 msgstr "Novembro"
 
 #: src/viewer/pan.rs
+#, fuzzy
 msgid "October"
 msgstr "Outubro"
 
 #: src/viewer/pan.rs
+#, fuzzy
 msgid "September"
 msgstr "Setembro"
 
 #: src/viewer/pan.rs
+#, fuzzy
 msgid "Timeline"
 msgstr "Linha do tempo"
 
 #: src/viewer/pan.rs
+#, fuzzy
 msgid "{images} on {days}"
 msgstr "{images} em {days}"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Also write stars to XMP sidecars (photo.jpg.xmp), for darktable and digiKam"
 msgstr "Gravar também as estrelas em arquivos XMP (foto.jpg.xmp), para o darktable e o digiKam"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Auto rotate images using EXIF (Alt+X)"
 msgstr "Girar imagens automaticamente pelo EXIF (Alt+X)"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Automatic (system language)"
 msgstr "Automático (idioma do sistema)"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Background behind the image"
 msgstr "Fundo atrás da imagem"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Checkerboard behind transparent images"
 msgstr "Quadriculado atrás de imagens transparentes"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Black"
 msgstr "Preto"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Brightness"
 msgstr "Brilho"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Change"
 msgstr "Alterar"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Choose…"
 msgstr "Escolher…"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Colour management"
 msgstr "Gerenciamento de cores"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Confirm move file to Trash"
 msgstr "Confirmar envio de arquivos para a lixeira"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Confirm permanent file delete"
 msgstr "Confirmar exclusão permanente de arquivos"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "CPU use:"
 msgstr "Uso da CPU:"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Custom"
 msgstr "Personalizado"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Decoding threads and one malloc arena take effect after a restart."
 msgstr "As threads de decodificação e a arena única do malloc passam a valer após reiniciar."
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Default"
 msgstr "Padrão"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Keep a list of recent folders (File → Open Recent)"
 msgstr "Manter uma lista de pastas recentes (Arquivo → Abrir recente)"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "default application"
 msgstr "aplicativo padrão"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Details"
 msgstr "Detalhes"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Enable Delete key"
 msgstr "Ativar a tecla Delete"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Enlarge small images to fit the window"
 msgstr "Ampliar imagens pequenas para caber na janela"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Fade to the next image:"
 msgstr "Transição suave para a próxima imagem:"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "From colord, which GNOME and KDE set"
 msgstr "Do colord, que o GNOME e o KDE configuram"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Fuzzy, best matches first (like fzf)"
 msgstr "Aproximada, melhores resultados primeiro (como o fzf)"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "High Contrast when the desktop asks for high contrast"
 msgstr "Alto contraste quando a área de trabalho pede alto contraste"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Histogram (K):"
 msgstr "Histograma (K):"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Image info template:"
 msgstr "Modelo de informações da imagem:"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "images decoded at once"
 msgstr "imagens decodificadas ao mesmo tempo"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "images on each side"
 msgstr "imagens de cada lado"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Images without a profile:"
 msgstr "Imagens sem perfil:"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "In ~/.cache/thumbnails; kept for disks that are not plugged in"
 msgstr "Em ~/.cache/thumbnails; mantidas para discos que não estão conectados"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Include the images in subfolders"
 msgstr "Incluir as imagens das subpastas"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Include the images in subfolders in the file list"
 msgstr "Incluir as imagens das subpastas na lista de arquivos"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Keep the screen saver off in full screen"
 msgstr "Manter o protetor de tela desligado em tela cheia"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Keep zoom and position when changing image"
 msgstr "Manter zoom e posição ao trocar de imagem"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Keyboard shortcuts"
 msgstr "Atalhos de teclado"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Language"
 msgstr "Idioma"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Large"
 msgstr "Grande"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Larger still when the desktop's text is (GNOME's Large Text)"
 msgstr "Maior ainda quando o texto da área de trabalho é maior (Texto grande do GNOME)"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Listen for glimt --remote commands (after restart)"
 msgstr "Escutar comandos glimt --remote (após reiniciar)"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Logarithmic (J)"
 msgstr "Logarítmico (J)"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "MB at most for an animation's frames"
 msgstr "MB no máximo para os quadros de uma animação"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "MB at most for an added format's program"
 msgstr "MB no máximo para o programa de um formato adicionado"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "A program that reads an added format, such as Java for microscope files, gets at most this much memory. Raise it when such a program runs out of memory."
 msgstr "Um programa que lê um formato adicionado, como o Java para arquivos de microscópio, recebe no máximo esta memória. Aumente-a quando um programa assim ficar sem memória."
 
 #: src/images/added_formats.rs
+#, fuzzy
 msgid "{name} ran out of memory under its limit of {mb} MB (Preferences → Memory and CPU): {error}"
 msgstr "{name} ficou sem memória no limite de {mb} MB (Preferências → Memória e CPU): {error}"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Medium"
 msgstr "Médio"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Memory use:"
 msgstr "Uso de memória:"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Mouse wheel zooms (off: next/previous image, Ctrl+wheel zooms)"
 msgstr "A roda do mouse aplica zoom (desligado: imagem seguinte/anterior, Ctrl+roda aplica zoom)"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "None"
 msgstr "Nenhum"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Not with CPU use Power saving"
 msgstr "Não com o uso da CPU em Economia de energia"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Off"
 msgstr "Desligado"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "One malloc arena: much less memory, decoding up to ~8 % slower"
 msgstr "Uma arena do malloc: muito menos memória, decodificação até ~8% mais lenta"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Play animated GIF and WebP (A)"
 msgstr "Reproduzir GIF e WebP animados (A)"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Player (Enter):"
 msgstr "Reprodutor (Enter):"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Preferences"
 msgstr "Preferências"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Preload next and previous images:"
 msgstr "Pré-carregar as imagens seguinte e anterior:"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Press a key (Esc cancels)"
 msgstr "Pressione uma tecla (Esc cancela)"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Profile file…"
 msgstr "Arquivo de perfil…"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "quality when a lossy WebP is saved again"
 msgstr "qualidade quando um WebP com perdas é salvo novamente"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "quality of a cropped JPEG (Edit → Crop)"
 msgstr "qualidade de um JPEG recortado (Editar → Recortar)"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Random order"
 msgstr "Ordem aleatória"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Refresh the folder when files change"
 msgstr "Atualizar a pasta quando os arquivos mudarem"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Regular expression, in list order (like Geeqie's file filter)"
 msgstr "Expressão regular, na ordem da lista (como o filtro de arquivos do Geeqie)"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Remember the window size and position"
 msgstr "Lembrar o tamanho e a posição da janela"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Remove thumbnails of deleted files"
 msgstr "Remover miniaturas de arquivos excluídos"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Removed {removed} of {seen} thumbnails"
 msgstr "{removed} de {seen} miniaturas removidas"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Rendering intent:"
 msgstr "Intenção de renderização:"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Repeat: start again after the last image"
 msgstr "Repetir: recomeçar após a última imagem"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Reset"
 msgstr "Redefinir"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Save new thumbnails to ~/.cache/thumbnails (shared with other programs)"
 msgstr "Salvar novas miniaturas em ~/.cache/thumbnails (compartilhadas com outros programas)"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Save rotation to the file when changing image (JPEG; PNG and WebP are saved again)"
 msgstr "Salvar a rotação no arquivo ao trocar de imagem (JPEG; PNG e WebP são salvos novamente)"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Screen profile:"
 msgstr "Perfil da tela:"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Search field above the file list:"
 msgstr "Campo de pesquisa acima da lista de arquivos:"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "seconds per image"
 msgstr "segundos por imagem"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Show file size and date in the file list"
 msgstr "Mostrar tamanho e data dos arquivos na lista de arquivos"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Show folders as a tree (Ctrl+T)"
 msgstr "Mostrar pastas como árvore (Ctrl+T)"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Show image info in full screen (I)"
 msgstr "Mostrar informações da imagem em tela cheia (I)"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Show marks and stars in the file list"
 msgstr "Mostrar marcas e estrelas na lista de arquivos"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Show the info panel (Ctrl+K; reads a little from each image shown)"
 msgstr "Mostrar o painel de informações (Ctrl+K; lê um pouco de cada imagem exibida)"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Show the file list as icons (Ctrl+I)"
 msgstr "Mostrar a lista de arquivos como ícones (Ctrl+I)"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Show the file name search"
 msgstr "Mostrar a pesquisa por nome de arquivo"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Show the folder path"
 msgstr "Mostrar o caminho da pasta"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Show the toolbar"
 msgstr "Mostrar a barra de ferramentas"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Show thumbnails in the file list (T)"
 msgstr "Mostrar miniaturas na lista de arquivos (T)"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Show videos in the file list"
 msgstr "Mostrar vídeos na lista de arquivos"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "size of the menus, lists and text"
 msgstr "tamanho dos menus, listas e textos"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Small"
 msgstr "Pequeno"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Start in the last used folder"
 msgstr "Iniciar na última pasta usada"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Thumbnail size:"
 msgstr "Tamanho das miniaturas:"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Toolbar icons:"
 msgstr "Ícones da barra de ferramentas:"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Up to ≈ {mb} MB, each image at most {w}×{h}"
 msgstr "Até ≈ {mb} MB, cada imagem no máximo {w}×{h}"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Use no trash at all (Delete deletes permanently)"
 msgstr "Não usar lixeira (Delete exclui permanentemente)"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Use the desktop's screen profile"
 msgstr "Usar o perfil de tela da área de trabalho"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Use the image's own profile"
 msgstr "Usar o perfil da própria imagem"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "{keys} was the key of {others} too: now of {label} only"
 msgstr "{keys} era também a tecla de {others}: agora é só de {label}"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "Copies:"
 msgstr "Cópias:"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "Images per page:"
 msgstr "Imagens por página:"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "No image could be read: nothing printed"
 msgstr "Nenhuma imagem pôde ser lida: nada foi impresso"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "Not saved over an image: choose a name ending in .pdf"
 msgstr "Não salvo sobre uma imagem: escolha um nome terminado em .pdf"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "No printers found"
 msgstr "Nenhuma impressora encontrada"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "Paper:"
 msgstr "Papel:"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "PDF file"
 msgstr "Arquivo PDF"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "Print (Enter)"
 msgstr "Imprimir (Enter)"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "Print {count}"
 msgstr "Imprimir {count}"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "Printer:"
 msgstr "Impressora:"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "Printing failed: {e}"
 msgstr "Falha ao imprimir: {e}"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "Save PDF… (Enter)"
 msgstr "Salvar PDF… (Enter)"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "{images} on {pages}"
 msgstr "{images} em {pages}"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "{msg}; {f} could not be read"
 msgstr "{msg}; não foi possível ler {f}"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "{what} saved in {file}"
 msgstr "Salvo em {file}: {what}"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "{what} sent to {printer}"
 msgstr "Enviado para {printer}: {what}"
 
 #. count(): one and many
+#, fuzzy
 msgid "collection"
 msgid_plural "collections"
 msgstr[0] "coleção"
 msgstr[1] "coleções"
 
 #. count(): one and many
+#, fuzzy
 msgid "day"
 msgid_plural "days"
 msgstr[0] "dia"
 msgstr[1] "dias"
 
 #. count(): one and many
+#, fuzzy
 msgid "error"
 msgid_plural "errors"
 msgstr[0] "erro"
 msgstr[1] "erros"
 
 #. count(): one and many
+#, fuzzy
 msgid "file"
 msgid_plural "files"
 msgstr[0] "arquivo"
 msgstr[1] "arquivos"
 
 #. count(): one and many
+#, fuzzy
 msgid "frame"
 msgid_plural "frames"
 msgstr[0] "quadro"
 msgstr[1] "quadros"
 
 #. count(): one and many
+#, fuzzy
 msgid "group"
 msgid_plural "groups"
 msgstr[0] "grupo"
 msgstr[1] "grupos"
 
 #. count(): one and many
+#, fuzzy
 msgid "image"
 msgid_plural "images"
 msgstr[0] "imagem"
 msgstr[1] "imagens"
 
 #. count(): one and many
+#, fuzzy
 msgid "keyword"
 msgid_plural "keywords"
 msgstr[0] "palavra-chave"
 msgstr[1] "palavras-chave"
 
 #. count(): one and many
+#, fuzzy
 msgid "page"
 msgid_plural "pages"
 msgstr[0] "página"
 msgstr[1] "páginas"
 
 #. count(): one and many
+#, fuzzy
 msgid "star"
 msgid_plural "stars"
 msgstr[0] "estrela"
 msgstr[1] "estrelas"
 
 #. count(): one and many
+#, fuzzy
 msgid "step"
 msgid_plural "steps"
 msgstr[0] "etapa"
 msgstr[1] "etapas"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "Orientation:"
 msgstr "Orientação:"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "Automatic"
 msgstr "Automática"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "Portrait"
 msgstr "Retrato"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "Landscape"
 msgstr "Paisagem"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "Margin (mm):"
 msgstr "Margem (mm):"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "Image size (%):"
 msgstr "Tamanho da imagem (%):"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "Fill each box, cutting the image to it"
 msgstr "Preencher cada caixa, cortando a imagem para caber"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "Text under each image:"
 msgstr "Texto abaixo de cada imagem:"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "As the full screen info: %name%, %path%, %position%, %dimensions%, %File size%, %Taken%, %Camera%, %keywords%, %comment% …"
 msgstr "Como as informações em tela cheia: %name%, %path%, %position%, %dimensions%, %File size%, %Taken%, %Camera%, %keywords%, %comment% …"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "%page% is the page's number, %pages% how many there are"
 msgstr "%page% é o número da página, %pages% quantas são"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "Top of each page:"
 msgstr "Topo de cada página:"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "Bottom of each page:"
 msgstr "Rodapé de cada página:"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "Both sides of the paper"
 msgstr "Frente e verso"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "Print the image"
 msgstr "Imprimir a imagem"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "{files} copied to {folder}"
 msgstr "Copiado para {folder}: {files}"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "{files} moved to {folder}"
 msgstr "Movido para {folder}: {files}"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "Could not move the folder to the trash: {e}"
 msgstr "Não foi possível mover a pasta para a lixeira: {e}"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "calculating…"
 msgstr "calculando…"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "Open Folder"
 msgstr "Abrir pasta"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "Open File"
 msgstr "Abrir arquivo"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "Open Folders (Ctrl+click for several)"
 msgstr "Abrir pastas (Ctrl+clique para várias)"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "Open Folder with Its Subfolders"
 msgstr "Abrir pasta com suas subpastas"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "Open Collection"
 msgstr "Abrir coleção"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "Copy to Folder"
 msgstr "Copiar para a pasta"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "Move to Folder"
 msgstr "Mover para a pasta"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "Save as PDF"
 msgstr "Salvar como PDF"
 
 #: src/main.rs
+#, fuzzy
 msgid "Save As"
 msgstr "Salvar como"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "Add to the Sort Manager"
 msgstr "Adicionar ao gerenciador de ordenação"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "Screen Profile"
 msgstr "Perfil da tela"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "Profile of Images Without One"
 msgstr "Perfil das imagens sem perfil"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "Import Lightroom Catalog"
 msgstr "Importar catálogo do Lightroom"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "Back Up Glimt's Data To"
 msgstr "Fazer backup dos dados do Glimt em"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "Save This Frame as PNG"
 msgstr "Salvar este quadro como PNG"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "Export Every Frame To"
 msgstr "Exportar todos os quadros para"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "Collection {name} moved to the trash"
 msgstr "Coleção {name} movida para a lixeira"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "Not a pattern: {e}"
 msgstr "Não é um padrão: {e}"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "{text} exists already: choose another name"
 msgstr "{text} já existe: escolha outro nome"
 
 #: src/model/listing.rs
+#, fuzzy
 msgid "{text} starts with a dot and would be hidden: choose another name"
 msgstr "{text} começa com um ponto e ficaria oculto: escolha outro nome"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "Saved as {file}: edit it, then choose it again"
 msgstr "Salvo como {file}: edite-o e depois escolha-o novamente"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "{files} given their old names back"
 msgstr "{files} com o nome antigo de volta"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "{files} renamed"
 msgstr "{files} renomeado(s)"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "; {files} could not be, asked about again"
 msgstr "; {files} não, nova pergunta"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "{found} of {images} ({size})"
 msgstr "{found} de {images} ({size})"
 
 #: src/features/print.rs
+#, fuzzy
 msgid ", {m} selected ({size})"
 msgstr ", {m} selecionado(s) ({size})"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "{n} bytes"
 msgstr "{n} bytes"
 
 #: src/features/print.rs
+#, fuzzy
 msgid " page {n}/{pages}"
 msgstr " página {n}/{pages}"
 
 #: src/features/print.rs
+#, fuzzy
 msgid " frame {n}/{frames}"
 msgstr " quadro {n}/{frames}"
 
 #: src/files/file_ops.rs
+#, fuzzy
 msgid "Could not rename {f} to {t}: {e}; not all names could be put back, Glimt offers to put them right at the next start"
 msgstr "Não foi possível renomear {f} para {t}: {e}; nem todos os nomes puderam ser restaurados, e o Glimt oferece corrigi-los na próxima inicialização"
 
 #: src/viewer/pan.rs
+#, fuzzy
 msgid "Mon"
 msgstr "Seg"
 
 #: src/viewer/pan.rs
+#, fuzzy
 msgid "Tue"
 msgstr "Ter"
 
 #: src/viewer/pan.rs
+#, fuzzy
 msgid "Wed"
 msgstr "Qua"
 
 #: src/viewer/pan.rs
+#, fuzzy
 msgid "Thu"
 msgstr "Qui"
 
 #: src/viewer/pan.rs
+#, fuzzy
 msgid "Fri"
 msgstr "Sex"
 
 #: src/viewer/pan.rs
+#, fuzzy
 msgid "Sat"
 msgstr "Sáb"
 
 #: src/viewer/pan.rs
+#, fuzzy
 msgid "Sun"
 msgstr "Dom"
 
 #: src/files/file_ops.rs
+#, fuzzy
 msgid "Still writing keywords: try again in a moment"
 msgstr "Ainda gravando palavras-chave: tente novamente em instantes"
 
 #: src/files/file_ops.rs
+#, fuzzy
 msgid "Still working on these files: try again in a moment"
 msgstr "Ainda trabalhando nestes arquivos: tente novamente em instantes"
 
 #: src/main.rs
+#, fuzzy
 msgid "{what} stopped unexpectedly"
 msgstr "{what} parou inesperadamente"
 
 #: src/main.rs
+#, fuzzy
 msgid "Connecting"
 msgstr "Conexão"
 
 #: src/main.rs
+#, fuzzy
 msgid "Reading the Lightroom catalog"
 msgstr "Leitura do catálogo do Lightroom"
 
 #: src/main.rs
+#, fuzzy
 msgid "Looking for renames cut short"
 msgstr "Busca por renomeações interrompidas"
 
 #: src/main.rs
+#, fuzzy
 msgid "The EXIF index"
 msgstr "O índice EXIF"
 
 #: src/main.rs
+#, fuzzy
 msgid "The Pan view's days"
 msgstr "Os dias da visão panorâmica"
 
 #: src/main.rs
+#, fuzzy
 msgid "Rename Many"
 msgstr "Renomear vários"
 
 #: src/files/external.rs
+#, fuzzy
 msgid "No answer from the server in a minute"
 msgstr "Sem resposta do servidor em um minuto"
 
 #: src/metadata/lightroom.rs
+#, fuzzy
 msgid "The catalog is too large to read"
 msgstr "O catálogo é grande demais para ser lido"
 
 #: src/files/file_ops.rs
+#, fuzzy
 msgid "stopped"
 msgstr "parado"
 
 #: src/main.rs
+#, fuzzy
 msgid "Saving keywords"
 msgstr "Salvando palavras-chave"
 
 #: src/main.rs
+#, fuzzy
 msgid "Saving the alt text"
 msgstr "Salvando o texto alternativo"
 
 #: src/main.rs
+#, fuzzy
 msgid "Reading the folder"
 msgstr "Lendo a pasta"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "No answer from the print server in two minutes"
 msgstr "Sem resposta do servidor de impressão em dois minutos"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Look"
 msgstr "Aparência"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Keyboard"
 msgstr "Teclado"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Image"
 msgstr "Imagem"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Slideshow"
 msgstr "Apresentação de slides"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "File list"
 msgstr "Lista de arquivos"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Memory and CPU"
 msgstr "Memória e CPU"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Video"
 msgstr "Vídeo"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Start and system"
 msgstr "Início e sistema"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Previews need ffmpeg"
 msgstr "As prévias requerem o ffmpeg"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "S starts and stops, R random order, Ctrl+= faster, Ctrl+- slower"
 msgstr "S inicia e para, R ordem aleatória, Ctrl+= mais rápido, Ctrl+- mais lento"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Custom window title (empty: \"image name - Glimt\"):"
 msgstr "Título personalizado da janela (vazio: “nome da imagem - Glimt”):"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Fields: %name%, %path%, %folder%, %app% and %id%. A | starts a part, left out when its fields are empty."
 msgstr "Campos: %name%, %path%, %folder%, %app% e %id%. Uma | inicia uma parte, omitida quando seus campos estão vazios."
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Set Window Title…"
 msgstr "Definir título da janela…"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Show File Names Under Thumbnails"
 msgstr "Mostrar nomes de arquivos sob as miniaturas"
 
 #: src/main.rs
+#, fuzzy
 msgid "Title of this window (%name%, %path%, %folder%, %app%, %id%; empty: as in Preferences):"
 msgstr "Título desta janela (%name%, %path%, %folder%, %app%, %id%; vazio: como nas Preferências):"
 
 #: src/metadata/xmp.rs
+#, fuzzy
 msgid "{name} is a link: not written through"
 msgstr "{name} é um link: não é gravado através dele"
 
 #: src/metadata/lightroom.rs
+#, fuzzy
 msgid "Reading a Lightroom catalog needs sqlite3 3.37 or newer"
 msgstr "Ler um catálogo do Lightroom requer o sqlite3 3.37 ou mais recente"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Copies of the pictures in your home folder: those of an encrypted volume or a stick stay readable there"
 msgstr "Cópias das imagens na sua pasta pessoal: as de um volume criptografado ou de um pendrive continuam legíveis ali"
 
 #: src/main.rs
+#, fuzzy
 msgid "Stop {name}"
 msgstr "Parar {name}"
 
 #: src/files/file_ops.rs
+#, fuzzy
 msgid "The rotation was not saved: other work is still changing the file"
 msgstr "A rotação não foi salva: outro trabalho ainda está alterando o arquivo"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Hide the pointer in full screen when the mouse is still"
 msgstr "Ocultar o ponteiro em tela cheia quando o mouse está parado"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Search the settings"
 msgstr "Pesquisar nas configurações"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "No setting has these words"
 msgstr "Nenhuma configuração tem estas palavras"
 
+#, fuzzy
 msgid "{program} runs outside the Flatpak, which needs: {how}"
 msgstr "{program} roda fora do Flatpak, o que requer: {how}"
 
+#, fuzzy
 msgid "System print dialog"
 msgstr "Diálogo de impressão do sistema"
 
+#, fuzzy
 msgid "Printing cancelled"
 msgstr "Impressão cancelada"
 
+#, fuzzy
 msgid "Choose Application…"
 msgstr "Escolher aplicativo…"
 
 #: src/ui/accessibility.rs
+#, fuzzy
 msgid "{done} of {total}"
 msgstr "{done} de {total}"
 
 #: src/ui/accessibility.rs
+#, fuzzy
 msgid "not among the matches"
 msgstr "não está entre os resultados"
 
 #: src/ui/info_panel.rs
+#, fuzzy
 msgid "EXIF: {name}"
 msgstr "EXIF: {name}"
 
 #: src/metadata/exif.rs
+#, fuzzy
 msgid "Camera"
 msgstr "Câmera"
 
 #: src/metadata/exif.rs
+#, fuzzy
 msgid "Lens"
 msgstr "Lente"
 
 #: src/metadata/exif.rs
+#, fuzzy
 msgid "Taken"
 msgstr "Capturada em"
 
 #: src/metadata/exif.rs
+#, fuzzy
 msgid "Exposure"
 msgstr "Exposição"
 
 #: src/metadata/exif.rs
+#, fuzzy
 msgid "Aperture"
 msgstr "Abertura"
 
 #: src/metadata/exif.rs
+#, fuzzy
 msgid "Focal length"
 msgstr "Distância focal"
 
 #: src/metadata/exif.rs
+#, fuzzy
 msgid "Exposure bias"
 msgstr "Compensação de exposição"
 
 #: src/metadata/exif.rs
+#, fuzzy
 msgid "Flash"
 msgstr "Flash"
 
 #: src/metadata/exif.rs
+#, fuzzy
 msgid "Fired"
 msgstr "Disparado"
 
 #: src/metadata/exif.rs
+#, fuzzy
 msgid "No"
 msgstr "Não"
 
 #: src/ui/info_panel.rs
+#, fuzzy
 msgid "File size"
 msgstr "Tamanho do arquivo"
 
 #: src/ui/info_panel.rs
+#, fuzzy
 msgid "Colour profile"
 msgstr "Perfil de cores"
 
 #: src/images/colour.rs
+#, fuzzy
 msgid "{name}, in the file"
 msgstr "{name}, no arquivo"
 
 #: src/images/colour.rs
+#, fuzzy
 msgid "Adobe RGB, from its EXIF"
 msgstr "Adobe RGB, pelo seu EXIF"
 
 #: src/images/colour.rs
+#, fuzzy
 msgid "unnamed"
 msgstr "sem nome"
 
 #: src/images/colour.rs
+#, fuzzy
 msgid "{own}; {input} used instead"
 msgstr "{own}; {input} usado em seu lugar"
 
 #: src/images/colour.rs
+#, fuzzy
 msgid "none: taken as {input}"
 msgstr "nenhum: tratado como {input}"
 
 #: src/model/listing.rs
+#, fuzzy
 msgid "Sort by name"
 msgstr "Ordenar por nome"
 
 #: src/model/listing.rs
+#, fuzzy
 msgid "Sort by number"
 msgstr "Ordenar por número"
 
 #: src/model/listing.rs
+#, fuzzy
 msgid "Sort by date"
 msgstr "Ordenar por data"
 
 #: src/model/listing.rs
+#, fuzzy
 msgid "Sort by file creation date"
 msgstr "Ordenar por data de criação do arquivo"
 
 #: src/model/listing.rs
+#, fuzzy
 msgid "Sort by EXIF date original"
 msgstr "Ordenar por data EXIF original"
 
 #: src/model/listing.rs
+#, fuzzy
 msgid "Sort by EXIF date digitized"
 msgstr "Ordenar por data EXIF de digitalização"
 
 #: src/model/listing.rs
+#, fuzzy
 msgid "Sort by size"
 msgstr "Ordenar por tamanho"
 
 #: src/model/listing.rs
+#, fuzzy
 msgid "Sort by extension"
 msgstr "Ordenar por extensão"
 
 #: src/ui/file_list.rs
+#, fuzzy
 msgid "All types"
 msgstr "Todos os tipos"
 
 #: src/ui/file_list.rs
+#, fuzzy
 msgid "No types"
 msgstr "Nenhum tipo"
 
 #: src/ui/theme.rs
+#, fuzzy
 msgid "Desktop"
 msgstr "Área de trabalho"
 
 #: src/ui/theme.rs
+#, fuzzy
 msgid "Light"
 msgstr "Claro"
 
 #: src/ui/theme.rs
+#, fuzzy
 msgid "Dark"
 msgstr "Escuro"
 
 #: src/ui/theme.rs
+#, fuzzy
 msgid "High Contrast"
 msgstr "Alto contraste"
 
 #: src/ui/theme.rs
+#, fuzzy
 msgid "High Contrast Light"
 msgstr "Alto contraste claro"
 
 #: src/images/colour.rs
+#, fuzzy
 msgid "Greyscale"
 msgstr "Tons de cinza"
 
 #: src/images/colour.rs
+#, fuzzy
 msgid "Inverted"
 msgstr "Invertido"
 
 #: src/images/colour.rs
+#, fuzzy
 msgid "More Contrast"
 msgstr "Mais contraste"
 
 #: src/images/colour.rs
+#, fuzzy
 msgid "Perceptual"
 msgstr "Perceptual"
 
 #: src/images/colour.rs
+#, fuzzy
 msgid "Relative colorimetric"
 msgstr "Colorimétrica relativa"
 
 #: src/images/colour.rs
+#, fuzzy
 msgid "Saturation"
 msgstr "Saturação"
 
 #: src/images/colour.rs
+#, fuzzy
 msgid "Absolute colorimetric"
 msgstr "Colorimétrica absoluta"
 
 #: src/files/config.rs
+#, fuzzy
 msgid "Power saving"
 msgstr "Economia de energia"
 
 #: src/files/config.rs
+#, fuzzy
 msgid "Balanced"
 msgstr "Equilibrado"
 
 #: src/files/config.rs
+#, fuzzy
 msgid "Full"
 msgstr "Máximo"
 
 #: src/files/config.rs
+#, fuzzy
 msgid "Fewer cores at once: thumbnails one at a time, searches and Find Duplicates on two cores. Slower in large folders, kinder to a laptop battery."
 msgstr "Menos núcleos ao mesmo tempo: miniaturas uma por vez, pesquisas e Localizar duplicatas em dois núcleos. Mais lento em pastas grandes, mais gentil com a bateria do notebook."
 
 #: src/files/config.rs
+#, fuzzy
 msgid "Two thumbnails at once; searches and Find Duplicates on every core."
 msgstr "Duas miniaturas ao mesmo tempo; pesquisas e Localizar duplicatas em todos os núcleos."
 
 #: src/files/config.rs
+#, fuzzy
 msgid "Every core: thumbnails and searches as fast as the machine allows."
 msgstr "Todos os núcleos: miniaturas e pesquisas tão rápidas quanto a máquina permite."
 
 #: src/files/config.rs
+#, fuzzy
 msgid "Low"
 msgstr "Baixo"
 
 #: src/files/config.rs
+#, fuzzy
 msgid "High"
 msgstr "Alto"
 
 #: src/files/config.rs
+#, fuzzy
 msgid "Least memory: one image decoded at a time, one preloaded on each side. Slow storage (SMB, NFS, USB) makes browsing wait for each file."
 msgstr "Menos memória: uma imagem decodificada por vez, uma pré-carregada de cada lado. Armazenamento lento (SMB, NFS, USB) faz a navegação esperar por cada arquivo."
 
 #: src/files/config.rs
+#, fuzzy
 msgid "The default: four images decoded at once, two preloaded on each side."
 msgstr "O padrão: quatro imagens decodificadas ao mesmo tempo, duas pré-carregadas de cada lado."
 
 #: src/files/config.rs
+#, fuzzy
 msgid "Fastest browsing: eight images decoded at once, five preloaded on each side; hides the wait of slow storage (SMB, NFS) best."
 msgstr "Navegação mais rápida: oito imagens decodificadas ao mesmo tempo, cinco pré-carregadas de cada lado; é o que melhor esconde a espera de um armazenamento lento (SMB, NFS)."
 
 #: src/files/config.rs
+#, fuzzy
 msgid "Short"
 msgstr "Curto"
 
 #: src/files/config.rs
+#, fuzzy
 msgid "Long"
 msgstr "Longo"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "{name}, from the desktop"
 msgstr "{name}, da área de trabalho"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "none, sRGB"
 msgstr "nenhum, sRGB"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Fields: %name%, %path%, %position%, %dimensions%, %marks%, %keywords%, %comment%, and each label of the info panel, such as %Camera% or %ISO%. A | starts a part, left out when its fields are empty."
 msgstr "Campos: %name%, %path%, %position%, %dimensions%, %marks%, %keywords%, %comment% e cada rótulo do painel de informações, como %Camera% ou %ISO%. Uma | inicia uma parte, omitida quando seus campos estão vazios."
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "A command line, such as mpv --fs; a path with spaces goes in \"quotes\""
 msgstr "Uma linha de comando, como mpv --fs; um caminho com espaços vai entre \"aspas\""
 
 #: src/ui/dialogs.rs
+#, fuzzy
 msgid "New folder name:"
 msgstr "Nome da nova pasta:"
 
 #: src/ui/dialogs.rs
+#, fuzzy
 msgid "Name of the new theme:"
 msgstr "Nome do novo tema:"
 
 #: src/ui/dialogs.rs
+#, fuzzy
 msgid "New name of the collection:"
 msgstr "Novo nome da coleção:"
 
 #: src/ui/dialogs.rs
+#, fuzzy
 msgid "New file name:"
 msgstr "Novo nome do arquivo:"
 
 #: src/ui/dialogs.rs
+#, fuzzy
 msgid "A crash or a power cut stopped it in {folder}. Some files may have their new names, some their old ones, and some hidden temporary names ({steps} to put right)."
 msgstr "Uma falha ou queda de energia o interrompeu em {folder}. Alguns arquivos podem ter os nomes novos, outros os antigos e outros nomes temporários ocultos ({steps} para corrigir)."
 
 #: src/ui/dialogs.rs
+#, fuzzy
 msgid "no home folder"
 msgstr "sem pasta pessoal"
 
 #: src/ui/window.rs
+#, fuzzy
 msgid "Glimt closes when the file operations are done; close again to stop them"
 msgstr "O Glimt fecha quando as operações de arquivo terminarem; feche de novo para interrompê-las"
 
 #: src/ui/window.rs
+#, fuzzy
 msgid "Stopping after the files at hand; close once more to end at once"
 msgstr "Parando após os arquivos em andamento; feche mais uma vez para encerrar imediatamente"
 
 #: src/features/check.rs
+#, fuzzy
 msgid "Opens each of the {count} in the list, as the viewer would, and lists those that cannot be: broken files, files cut off in copying, and files that are no image. They are marked in the list too."
 msgstr "Abre cada uma das {count} da lista, como o visualizador faria, e lista as que não abrem: arquivos com defeito, arquivos cortados na cópia e arquivos que não são imagens. Elas também são marcadas na lista."
 
 #: src/features/check.rs
+#, fuzzy
 msgid "None broken."
 msgstr "Nenhuma com defeito."
 
 #: src/main.rs
+#, fuzzy
 msgid "Settings file: {first}{more}"
 msgstr "Arquivo de configurações: {first}{more}"
 
 #: src/ui/accessibility.rs
+#, fuzzy
 msgid ", could not be shown: {e}"
 msgstr ", não pôde ser exibido: {e}"
 
 #: src/ui/accessibility.rs
+#, fuzzy
 msgid ", keywords: {keywords}"
 msgstr ", palavras-chave: {keywords}"
 
 #: src/files/config.rs
+#, fuzzy
 msgid "Could not save {name}: {e}"
 msgstr "Não foi possível salvar {name}: {e}"
 
 #: src/files/backup.rs
+#, fuzzy
 msgid "{folder} is not a folder"
 msgstr "{folder} não é uma pasta"
 
 #: src/files/backup.rs
+#, fuzzy
 msgid "Nothing to back up: Glimt has no settings, marks or collections here"
 msgstr "Nada para fazer backup: o Glimt não tem configurações, marcas ou coleções aqui"
 
 #: src/files/backup.rs
+#, fuzzy
 msgid "A backup cannot go inside {folder}, which it copies"
 msgstr "Um backup não pode ficar dentro de {folder}, que ele copia"
 
 #: src/files/backup.rs
+#, fuzzy
 msgid "Glimt's data backed up to {folder}: {files}"
 msgstr "Backup dos dados do Glimt feito em {folder}: {files}"
 
 #: src/files/backup.rs
+#, fuzzy
 msgid "The backup to {folder} is not whole: {e}"
 msgstr "O backup em {folder} não está completo: {e}"
 
 #: src/files/file_io.rs
+#, fuzzy
 msgid "the file was moved, renamed or deleted meanwhile"
 msgstr "o arquivo foi movido, renomeado ou excluído nesse meio-tempo"
 
 #: src/files/file_io.rs
+#, fuzzy
 msgid "the file was changed meanwhile"
 msgstr "o arquivo foi modificado nesse meio-tempo"
 
+#, fuzzy
 msgid "the file looks incomplete, as if it is still being copied"
 msgstr "o arquivo parece incompleto, como se ainda estivesse sendo copiado"
 
+#, fuzzy
 msgid "the file looks incomplete or damaged"
 msgstr "o arquivo parece incompleto ou danificado"
 
+#, fuzzy
 msgid "the file is read-only"
 msgstr "o arquivo é somente leitura"
 
+#, fuzzy
 msgid "{name} has other names (hard links), which keep the old version"
 msgstr "{name} tem outros nomes (links físicos), que mantêm a versão anterior"
 
+#, fuzzy
 msgid "Other names (hard links) keep the old version: {files}"
 msgstr "Outros nomes (links físicos) mantêm a versão anterior: {files}"
 
 #: src/files/external.rs
+#, fuzzy
 msgid "HEIC and AVIF need ffprobe (ffmpeg): {e}"
 msgstr "HEIC e AVIF requerem o ffprobe (ffmpeg): {e}"
 
 #: src/files/external.rs
+#, fuzzy
 msgid "video, HEIC and AVIF need ffmpeg: {e}"
 msgstr "vídeo, HEIC e AVIF requerem o ffmpeg: {e}"
 
 #: src/files/external.rs
+#, fuzzy
 msgid "Could not mount {uri}: not an address"
 msgstr "Não foi possível montar {uri}: não é um endereço"
 
 #: src/files/external.rs
+#, fuzzy
 msgid "Could not run gio: {e}"
 msgstr "Não foi possível executar o gio: {e}"
 
 #: src/files/external.rs
+#, fuzzy
 msgid "Could not mount {uri}: wrong user name or password"
 msgstr "Não foi possível montar {uri}: nome de usuário ou senha incorretos"
 
 #: src/files/external.rs
+#, fuzzy
 msgid "Could not mount {uri}: {err}{hint}"
 msgstr "Não foi possível montar {uri}: {err}{hint}"
 
 #: src/files/external.rs
+#, fuzzy
 msgid " (the name {host} is not found)"
 msgstr " (o nome {host} não foi encontrado)"
 
 #: src/files/external.rs
+#, fuzzy
 msgid " (the name {host} is not found; try {host}.local or its IP address)"
 msgstr " (o nome {host} não foi encontrado; tente {host}.local ou o seu endereço IP)"
 
 #: src/files/file_ops.rs
+#, fuzzy
 msgid "No such frame"
 msgstr "Quadro inexistente"
 
 #: src/files/file_ops.rs
+#, fuzzy
 msgid "choose another name: the image itself is not changed"
 msgstr "escolha outro nome: a própria imagem não é alterada"
 
 #: src/metadata/lightroom.rs
+#, fuzzy
 msgid "Imported from Lightroom: {done}"
 msgstr "Importado do Lightroom: {done}"
 
 #: src/metadata/lightroom.rs
+#, fuzzy
 msgid "; not saved: {names}"
 msgstr "; não salvo: {names}"
 
 #: src/metadata/lightroom.rs
+#, fuzzy
 msgid " (no data folder: $HOME is not set)"
 msgstr " (sem pasta de dados: $HOME não está definido)"
 
 #: src/metadata/lightroom.rs
+#, fuzzy
 msgid "Collections are added to Glimt's, keywords to the keyword tree and stars to the marks. Smart collections are left out."
 msgstr "As coleções são adicionadas às do Glimt, as palavras-chave à árvore de palavras-chave e as estrelas às marcas. Coleções inteligentes ficam de fora."
 
 #: src/metadata/lightroom.rs
+#, fuzzy
 msgid "{names} and {n} more"
 msgstr "{names} e mais {n}"
 
 #: src/metadata/lightroom.rs
+#, fuzzy
 msgid "The keywords of each image, into its XMP sidecar ({count}); those it has stay"
 msgstr "As palavras-chave de cada imagem, no seu arquivo XMP ({count}); as que ele já tem permanecem"
 
 #: src/metadata/lightroom.rs
+#, fuzzy
 msgid "1 image has"
 msgstr "1 imagem tem"
 
 #: src/model/collections.rs
+#, fuzzy
 msgid "no data folder ($HOME is not set)"
 msgstr "sem pasta de dados ($HOME não está definido)"
 
 #: src/model/collections.rs
+#, fuzzy
 msgid "Could not rename the collection: {e}"
 msgstr "Não foi possível renomear a coleção: {e}"
 
 #: src/viewer/view.rs
+#, fuzzy
 msgid "Could not open {name}:\n{e}"
 msgstr "Não foi possível abrir {name}:\n{e}"
 
 #: src/images/save.rs
+#, fuzzy
 msgid "only JPEG, PNG and WebP can store the rotation"
 msgstr "somente JPEG, PNG e WebP podem guardar a rotação"
 
 #: src/images/save.rs
+#, fuzzy
 msgid "animated images are not turned"
 msgstr "imagens animadas não são giradas"
 
 #: src/images/save.rs
+#, fuzzy
 msgid "animated images are not saved as a copy"
 msgstr "imagens animadas não são salvas como cópia"
 
 #: src/images/save.rs
+#, fuzzy
 msgid "the part is outside the image"
 msgstr "a parte está fora da imagem"
 
 #: src/images/save.rs
+#, fuzzy
 msgid "a lossy WebP needs ffmpeg to be saved: {e}"
 msgstr "um WebP com perdas requer o ffmpeg para ser salvo: {e}"
 
 #: src/metadata/exif.rs
+#, fuzzy
 msgid "only JPEG files can store the orientation"
 msgstr "somente arquivos JPEG podem guardar a orientação"
 
 #: src/metadata/xmp.rs
+#, fuzzy
 msgid "the image was moved, renamed or deleted meanwhile"
 msgstr "a imagem foi movida, renomeada ou excluída nesse meio-tempo"
 
 #: src/ui/dialogs.rs
+#, fuzzy
 msgid "Move the collection \"{name}\" to the trash? Its images stay where they are."
 msgstr "Mover a coleção “{name}” para a lixeira? Suas imagens permanecem onde estão."
 
 #: src/files/file_io.rs
+#, fuzzy
 msgid "the file system here ({kind}) does not allow this rename, as on some shares, cloud folders and phones ({e})"
 msgstr "o sistema de arquivos daqui ({kind}) não permite esta renomeação, como em alguns compartilhamentos, pastas na nuvem e celulares ({e})"
 
 #: src/files/file_io.rs
+#, fuzzy
 msgid "{from} could not be removed after it was put at {to}, so the file may be under both names or only at {to}; check both before removing either ({e})"
 msgstr "não foi possível remover {from} depois de colocá-lo em {to}, então o arquivo pode ter os dois nomes ou estar só em {to}; verifique os dois antes de remover qualquer um ({e})"
 
 #: src/files/file_ops.rs
+#, fuzzy
 msgid "\"{name}\": a {kind} file system, as on a camera card, allows none of : ? * \" < > | \\ in a name. Nothing was renamed."
 msgstr "“{name}”: um sistema de arquivos {kind}, como o de um cartão de câmera, não permite nenhum de : ? * \" < > | \\ em um nome. Nada foi renomeado."
 
 #: src/files/file_ops.rs
+#, fuzzy
 msgid "The trash refused {count} ({kind}). Nothing was deleted, because another folder is open now."
 msgstr "A lixeira recusou {count} ({kind}). Nada foi excluído, porque outra pasta está aberta agora."
 
 #: src/ui/dialogs.rs
+#, fuzzy
 msgid "The trash does not take files in this folder ({kind}), as on network and cloud folders."
 msgstr "A lixeira não aceita arquivos nesta pasta ({kind}), como em pastas de rede e na nuvem."
 
 #: src/files/file_ops.rs
+#, fuzzy
 msgid "\"{name}\": a {kind} file system, as on a camera card, allows none of : ? * \" < > | \\ in a name. Nothing was copied."
 msgstr "“{name}”: um sistema de arquivos {kind}, como o de um cartão de câmera, não permite nenhum de : ? * \" < > | \\ em um nome. Nada foi copiado."
 
 #: src/files/file_ops.rs
+#, fuzzy
 msgid "\"{name}\": a {kind} file system, as on a camera card, allows none of : ? * \" < > | \\ in a name. Nothing was moved."
 msgstr "“{name}”: um sistema de arquivos {kind}, como o de um cartão de câmera, não permite nenhum de : ? * \" < > | \\ em um nome. Nada foi movido."
 
 #: src/ui/dialogs.rs
+#, fuzzy
 msgid "A {kind} file system, as on a camera card, allows none of : ? * \" < > | \\ in a name."
 msgstr "Um sistema de arquivos {kind}, como o de um cartão de câmera, não permite nenhum de : ? * \" < > | \\ em um nome."
 
 #: src/ui/menus.rs
+#, fuzzy
 msgid "Thumbnail Size"
 msgstr "Tamanho das miniaturas"
 
 #: src/model/selection.rs
+#, fuzzy
 msgid "The search hides files this would act on: clear it first"
 msgstr "A busca oculta arquivos aos quais isto se aplicaria: limpe-a primeiro"
 
 #: src/ui/menus.rs
+#, fuzzy
 msgid "{name} takes none of these files"
 msgstr "{name} não aceita nenhum destes arquivos"
 
 #: src/ui/menus.rs
+#, fuzzy
 msgid "{name} leaves out {files} of a type it does not take"
 msgstr "{name} deixa de fora {files} de um tipo que não aceita"
 
 #: src/model/selection.rs
+#, fuzzy
 msgid "Not included, as the search hides them: {files}"
 msgstr "Não incluídos, pois a busca os oculta: {files}"
 
 #: src/ui/file_list.rs
+#, fuzzy
 msgid ", {h} selected but hidden by the search"
 msgstr ", {h} selecionado(s), mas oculto(s) pela busca"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Copy for Sharing…"
 msgstr "Copiar para compartilhar…"
 
 #: src/images/shared_copy.rs
+#, fuzzy
 msgid "Place"
 msgstr "Local"
 
 #: src/images/shared_copy.rs
+#, fuzzy
 msgid "Camera and lens"
 msgstr "Câmera e lente"
 
 #: src/images/shared_copy.rs
+#, fuzzy
 msgid "Date and time"
 msgstr "Data e hora"
 
 #: src/images/shared_copy.rs
+#, fuzzy
 msgid "Photographer and copyright"
 msgstr "Fotógrafo e direitos autorais"
 
 #: src/images/shared_copy.rs
+#, fuzzy
 msgid "Software"
 msgstr "Software"
 
 #: src/images/shared_copy.rs
+#, fuzzy
 msgid "Keywords, comment and alt text"
 msgstr "Palavras-chave, comentário e texto alternativo"
 
 #: src/images/shared_copy.rs
+#, fuzzy
 msgid "The preview inside the file"
 msgstr "A prévia dentro do arquivo"
 
 #: src/images/shared_copy.rs
+#, fuzzy
 msgid "More tags"
 msgstr "Mais tags"
 
 #: src/features/copy_for_sharing.rs
+#, fuzzy
 msgid "Reading the tags… {done} of {total}"
 msgstr "Lendo as tags… {done} de {total}"
 
 #: src/features/copy_for_sharing.rs
+#, fuzzy
 msgid "Remove All"
 msgstr "Remover tudo"
 
 #: src/features/copy_for_sharing.rs
+#, fuzzy
 msgid "Ticked tags are left out of the copies."
 msgstr "As tags marcadas ficam de fora das cópias."
 
 #: src/features/copy_for_sharing.rs
+#, fuzzy
 msgid "A block that can hold tags of several groups, such as the extra images or the maker note, is left out when any tag of those groups is."
 msgstr "Um bloco que pode conter tags de vários grupos, como as imagens extras ou a nota do fabricante, fica de fora quando qualquer tag desses grupos fica."
 
 #: src/features/copy_for_sharing.rs
+#, fuzzy
 msgid "A tag that Glimt does not know is listed under More tags, and is left out when any group is ticked, unless it is unticked there."
 msgstr "Uma tag que o Glimt não conhece aparece em Mais tags e fica de fora quando qualquer grupo está marcado, a menos que seja desmarcada ali."
 
 #: src/features/copy_for_sharing.rs
+#, fuzzy
 msgid "Always kept: the orientation, so the image is not shown on its side, the colour profile, so its colours do not change, and an HDR photo's gain map, so an HDR screen still brightens it. An iPhone's gain map also keeps two brightness values of the maker note."
 msgstr "Sempre mantidos: a orientação, para que a imagem não apareça de lado, o perfil de cor, para que suas cores não mudem, e o mapa de ganho de uma foto HDR, para que uma tela HDR continue a clareá-la. No de um iPhone, dois valores de brilho da nota do fabricante também são mantidos."
 
 #: src/features/copy_for_sharing.rs
+#, fuzzy
 msgid "Hide"
 msgstr "Ocultar"
 
 #: src/features/copy_for_sharing.rs
+#, fuzzy
 msgid "Show"
 msgstr "Mostrar"
 
 #: src/features/copy_for_sharing.rs
+#, fuzzy
 msgid "; {files} not copied: only JPEG, PNG and WebP are"
 msgstr "; {files} não copiados: só JPEG, PNG e WebP são copiados"
 
 #: src/features/copy_for_sharing.rs
+#, fuzzy
 msgid "; {files} not copied: the folder has files of those names"
 msgstr "; {files} não copiados: a pasta já tem arquivos com esses nomes"
 
 #: src/features/copy_for_sharing.rs
+#, fuzzy
 msgid "Reading the tags"
 msgstr "Lendo as tags"
 
 #: src/ui/dialogs.rs
+#, fuzzy
 msgid "Open {files}, each in its default application?"
 msgstr "Abrir {files}, cada um em seu aplicativo padrão?"
 
 #: src/ui/dialogs.rs
+#, fuzzy
 msgid "Open (Enter)"
 msgstr "Abrir (Enter)"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Set Window Name…"
 msgstr "Definir nome da janela…"
 
 #: src/ui/dialogs.rs
+#, fuzzy
 msgid "Name of this window, which glimt --name NAME --remote reaches it by (empty: its process ID):"
 msgstr "Nome desta janela, pelo qual glimt --name NAME --remote a alcança (vazio: seu ID de processo):"
 
 #: src/ui/dialogs.rs
+#, fuzzy
 msgid "Could not name this window: {why}"
 msgstr "Não foi possível dar nome a esta janela: {why}"
 
 #: src/ui/dialogs.rs
+#, fuzzy
 msgid "Could not name this window: a name holds up to 64 letters, digits, - and _, and not only digits"
 msgstr "Não foi possível dar nome a esta janela: um nome tem até 64 letras, algarismos, - e _, e não só algarismos"
 
 #: src/files/file_io.rs
+#, fuzzy
 msgid "A change could not be saved, because Glimt met an error while writing it"
 msgstr "Não foi possível salvar uma alteração, porque o Glimt encontrou um erro ao gravá-la"
 
 #: src/files/file_io.rs
+#, fuzzy
 msgid "Glimt ended before every write was done: the last change of the settings, marks, a collection or a file may be lost"
 msgstr "O Glimt encerrou antes de gravar tudo: a última alteração das configurações, marcas, de uma coleção ou de um arquivo pode ter sido perdida"
 
 #: src/model/folder.rs
+#, fuzzy
 msgid "Still opening {name}… Open another folder to stop waiting."
 msgstr "Ainda abrindo {name}… Abra outra pasta para parar de esperar."
 
 #: src/files/file_ops.rs
+#, fuzzy
 msgid "Rename Many stopped, so the metadata edited for {count} was not saved"
 msgstr "Renomear vários parou, então os metadados editados de {count} não foram salvos"
 
 #: src/ui/file_list.rs
+#, fuzzy
 msgid "( {w} x {h} ) {bytes}{position}{page}"
 msgstr "( {w} x {h} ) {bytes}{position}{page}"
 
 #: src/features/tools.rs
+#, fuzzy
 msgid "{file} is not loaded: %f inside quotes is not the file. Give %f as a word of its own, as in {example}"
 msgstr "{file} não foi carregado: %f entre aspas não é o arquivo. Escreva %f como uma palavra à parte, como em {example}"
 
 #: src/features/tools.rs
+#, fuzzy
 msgid "{file} gets no files: %f inside quotes is not the file. Give %f as a word of its own, as in {example}"
 msgstr "{file} não recebe nenhum arquivo: %f entre aspas não é o arquivo. Escreva %f como uma palavra à parte, como em {example}"
 
 #: src/cli.rs
+#, fuzzy
 msgid "Added formats and tools:"
 msgstr "Formatos adicionados e ferramentas:"
 
 #: src/metadata/lightroom.rs
+#, fuzzy
 msgid "; the sidecars are still being written"
 msgstr "; os arquivos XMP ainda estão sendo gravados"
 
 #: src/files/file_io.rs
+#, fuzzy
 msgid "Could not remove {name}: {e}"
 msgstr "Não foi possível remover {name}: {e}"
 
 #: src/files/file_io.rs
+#, fuzzy
 msgid "another file has taken its name: the folder is read again"
 msgstr "outro arquivo tomou o seu nome: a pasta é lida de novo"
 
 #: src/files/file_ops.rs
+#, fuzzy
 msgid "Rename failed ({count}): {first}"
 msgstr "Falha ao renomear ({count}): {first}"
 
 #: src/files/file_ops.rs
+#, fuzzy
 msgid "{side}: {e}, so {file} stays where it was, with its sidecar"
 msgstr "{side}: {e}, então {file} fica onde estava, com seu arquivo XMP associado"
 
 #: src/files/file_ops.rs
+#, fuzzy
 msgid "Could not save the plan of the renames ({e}), so nothing was renamed"
 msgstr "Não foi possível salvar o plano da renomeação ({e}), então nada foi renomeado"
 
 #: src/files/file_ops.rs
+#, fuzzy
 msgid "{side} could not go to the trash, so {file} stays where it was, with its sidecar"
 msgstr "{side} não pôde ir para a lixeira, então {file} fica onde estava, com seu arquivo XMP associado"
 
 #: src/files/trash.rs
+#, fuzzy
 msgid "{e}, so {file} stays in the trash, with its sidecar"
 msgstr "{e}, então {file} fica na lixeira, com seu arquivo XMP associado"
 
 #: src/ui/dialogs.rs
+#, fuzzy
 msgid "The names could not all be put right. Save or copy the list of the files that are not under the names they were to get. Then the names can be left as they are, and those files renamed by hand."
 msgstr "Não foi possível acertar todos os nomes. Salve ou copie a lista dos arquivos que não têm os nomes que deveriam receber. Depois os nomes podem ficar como estão, e esses arquivos podem ser renomeados à mão."
 
 #: src/ui/dialogs.rs
+#, fuzzy
 msgid "Save the list…"
 msgstr "Salvar a lista…"
 
 #: src/ui/dialogs.rs
+#, fuzzy
 msgid "Copy the list"
 msgstr "Copiar a lista"
 
 #: src/ui/dialogs.rs
+#, fuzzy
 msgid "Leave the names as they are"
 msgstr "Deixar os nomes como estão"
 
 #: src/ui/dialogs.rs
+#, fuzzy
 msgid "The list was copied to the clipboard. Paste it into a file before the names are left as they are."
 msgstr "A lista foi copiada para a área de transferência. Cole-a em um arquivo antes de deixar os nomes como estão."
 
 #: src/ui/dialogs.rs
+#, fuzzy
 msgid "The names were left as they are"
 msgstr "Os nomes foram deixados como estão"
 
 #: src/ui/dialogs.rs
+#, fuzzy
 msgid "Another window has put these renames right already. Nothing was changed here."
 msgstr "Outra janela já corrigiu essas renomeações. Nada foi alterado aqui."
 
 #: src/ui/dialogs.rs
+#, fuzzy
 msgid "Rename Many was cut short, and these files are not under the names it was to give them. Each line names a file as it is now, then the name it was to get."
 msgstr "“Renomear vários” foi interrompido, e estes arquivos não têm os nomes que deveriam receber. Cada linha dá o nome atual de um arquivo e depois o nome que ele deveria receber."
 
 #: src/files/file_ops.rs
+#, fuzzy
 msgid "{file} went back, but its sidecar {side} could not ({e}), so the sidecar is at {at}"
 msgstr "{file} voltou, mas seu arquivo XMP associado {side} não ({e}), então o arquivo XMP associado está em {at}"
 
 #: src/files/file_ops.rs
+#, fuzzy
 msgid "{side} could not follow {file} ({e}), and {file} could not go back ({error}), so the file is at {to} and this sidecar at {side}"
 msgstr "{side} não pôde acompanhar {file} ({e}), e {file} não pôde voltar ({error}), então o arquivo está em {to} e este arquivo XMP associado em {side}"
 
 #: src/files/file_io.rs
+#, fuzzy
 msgid "Could not look at {name}: {e}. Its marks and collection entries followed it there all the same, as the file was there before."
 msgstr "Não foi possível verificar {name}: {e}. Suas marcas e entradas de coleções o seguiram até lá mesmo assim, pois o arquivo estava lá antes."
 
 #: src/ui/dialogs.rs
+#, fuzzy
 msgid "Could not leave the names as they are: {e}. Rename Many asks about them again at the next start."
 msgstr "Não foi possível deixar os nomes como estão: {e}. “Renomear vários” perguntará sobre eles de novo na próxima inicialização."
 
 #: src/files/journal.rs
+#, fuzzy
 msgid "another window has them open"
 msgstr "outra janela está com eles abertos"
 
+#: src/ui/dialogs.rs
+#, fuzzy
+msgid "The file dialog did not answer with full paths, so nothing was opened"
+msgstr "A janela de arquivos não respondeu com caminhos completos, então nada foi aberto"
+
 #: src/files/file_io.rs
+#, fuzzy
 msgid "Could not lock {name}: {e}. A change that another Glimt window makes at the same moment may be lost."
 msgstr "Não foi possível bloquear {name}: {e}. Uma alteração feita no mesmo momento por outra janela do Glimt pode ser perdida."
