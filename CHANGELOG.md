@@ -11,9 +11,9 @@ the first line below fixes.
 ### Fixed
 
 - The renames cut short that a new window looks for at the start are added to those already
-  asked about, instead of taking their place. A put-right refused before that look-up answered
-  could lose its question, which a test found on a slow build machine. The tests no longer
-  look at the user's own renames cut short.
+  asked about, instead of taking their place. Only the tests could meet the race this closes,
+  on a slow build machine; it stopped the build of 0.81.0, and the tests no longer find each
+  other's plans in the test home they share.
 - The release workflow tries the system packages of the AppImage's smoke test again after a
   pause, so a short failure of the package mirror's name no longer stops a release.
 

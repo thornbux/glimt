@@ -354,8 +354,8 @@ impl FileOperations {
         let (real_folder_tx, real_folder_found) = answer_channel(busy);
         let moves_tx = report_tx.clone();
         std::thread::spawn(move || {
-            // The tests share the user's state folder, so a test's window would put right or
-            // leave the user's own renames cut short, and take the logs of another test.
+            // The tests share one test home, so a test's window would otherwise find the plans
+            // and Move logs that another test left there, and act on them.
             let found = if cfg!(test) {
                 Vec::new()
             } else {
