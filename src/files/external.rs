@@ -48,6 +48,7 @@ impl Watchdog {
             fed: std::time::Instant::now().into(),
         });
         let watchdog_state = state.clone();
+        // No busy pointer: a program's watchdog, whose caller waits for the program.
         std::thread::spawn(move || {
             let step = limit.min(std::time::Duration::from_millis(100));
             loop {
@@ -385,6 +386,7 @@ pub fn output_of(
     let watchdog = Watchdog::new(child.id(), limit);
     let errors = child.stderr.take().map(|e| {
         let (tx, rx) = std::sync::mpsc::channel();
+        // No busy pointer: a reader of a program's errors, which the caller's thread waits for.
         std::thread::spawn(move || tx.send(last_text(e, 64 << 10)));
         rx
     });
@@ -727,6 +729,7 @@ fn failure_text(name: &str, errors: &str, status: std::process::ExitStatus) -> S
 pub(crate) fn wait_telling(mut child: std::process::Child, name: &str) -> Result<(), String> {
     let errors = child.stderr.take().map(|e| {
         let (tx, rx) = std::sync::mpsc::channel();
+        // No busy pointer: a reader of a program's errors, which the caller's thread waits for.
         std::thread::spawn(move || tx.send(last_text(e, 64 << 10)));
         rx
     });
@@ -768,6 +771,7 @@ pub fn open_own_folder(dir: &Path, notices: &crate::support::threads::NoticeSend
 /// Open `url` in the default browser, in the background.
 pub fn open_url(url: &str) {
     let url = url.to_owned();
+    // No busy pointer: the browser may stay open for hours, and nothing waits for it.
     std::thread::spawn(move || {
         #[allow(clippy::disallowed_methods)]
         // The browser may stay open, so it is waited for in its own thread.

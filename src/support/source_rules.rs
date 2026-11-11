@@ -4776,6 +4776,87 @@ fn answers_keep_the_busy_pointer() {
     );
 }
 
+/// A thread started outside the tests shows the busy pointer while it runs (a `Working`, or an
+/// `AnswerSender` for its answer), or says why it shows none, in a comment just above it that
+/// starts with "No busy pointer:", or names the state that shows it ("Its busy pointer:").
+/// `--remote … --wait` and the tests count on the busy count: work the user started and waits for,
+/// without a pointer, let `--wait` answer before it was done. A look-up nobody waits for, a program
+/// that may stay open for hours, a listener and a worker that last as long as the window say so
+/// instead. A scoped thread (`s.spawn`) ends before its scope does, so the pointer of the thread
+/// that runs the scope holds for it.
+#[test]
+fn threads_show_the_busy_pointer_or_say_why_not() {
+    let mut wrong = Vec::new();
+    for (file, text) in rust_sources() {
+        let lines = threads_without_pointer(&text);
+        wrong.extend(lines.iter().map(|line| format!("{file}:{line}")));
+    }
+    assert!(
+        wrong.is_empty(),
+        "a thread without the busy pointer (hold a Working, answer through an AnswerSender, or \
+         say why not in a comment above it: \"No busy pointer:\" or \"Its busy pointer:\"):\n{}",
+        wrong.join("\n")
+    );
+}
+
+/// Returns the lines of `text` outside the tests that start a thread (`thread::spawn(`) in a
+/// function that has made or been given no busy pointer up to that line (no `Working`,
+/// `AnswerSender` or `answer_channel`), unless the comment lines just above the statement
+/// say "No busy pointer:" or "Its busy pointer:".
+fn threads_without_pointer(text: &str) -> Vec<usize> {
+    let (code, comments) = (code_lines(text), comment_lines(text));
+    let mut found = Vec::new();
+    let mut has_pointer = false;
+    for (i, line) in code[..tests_start(&code)].iter().enumerate() {
+        if function_name(line).is_some() {
+            has_pointer = false;
+        }
+        has_pointer |= ["Working", "AnswerSender", "answer_channel("]
+            .iter()
+            .any(|p| line.contains(p));
+        if !line.contains("thread::spawn(") || has_pointer {
+            continue;
+        }
+        // Up to the statement's first line, then up the comments and attributes above it.
+        let mut first = i;
+        while first > 0
+            && !code[first - 1].trim().is_empty()
+            && !code[first - 1].ends_with([';', '{', '}', ','])
+        {
+            first -= 1;
+        }
+        while first > 0
+            && (code[first - 1].trim().is_empty() && !comments[first - 1].trim().is_empty()
+                || code[first - 1].trim_start().starts_with("#["))
+        {
+            first -= 1;
+        }
+        let says_why = (first..=i).any(|j| comments[j].contains("busy pointer:"));
+        if !says_why {
+            found.push(i + 1);
+        }
+    }
+    found
+}
+
+/// The check above finds a thread started without a pointer, also when another function made
+/// one, and passes one with a `Working` made before it or given to its function, one that
+/// answers through an `AnswerSender`, one whose comment above says why it needs none (also
+/// behind an attribute), and a scoped thread.
+#[test]
+fn finds_a_thread_without_the_busy_pointer() {
+    let text = "fn a(&self) {\n    let p = Working::new(&self.busy);\n    \
+        std::thread::spawn(move || drop(p));\n}\nfn b() {\n    std::thread::spawn(f);\n}\n\
+        fn c(p: Working) {\n    std::thread::spawn(move || drop(p));\n}\n\
+        fn d(&self) {\n    let (tx, rx) = answer_channel(&self.busy);\n    \
+        std::thread::spawn(f);\n}\nfn e() {\n    // No busy pointer: a listener.\n    \
+        std::thread::spawn(f);\n    // A reaper.\n    std::thread::spawn(g);\n}\n\
+        fn f() {\n    // No busy pointer: a reaper, which\n    // reaps.\n    \
+        #[allow(clippy::disallowed_methods)] // a reason\n    \
+        std::thread::spawn(move || child.wait());\n    std::thread::scope(|s| s.spawn(g));\n}\n";
+    assert_eq!(threads_without_pointer(text), [6, 19]);
+}
+
 /// Returns the names, in `sources` outside the tests, of the fields, arguments and functions
 /// that hold or give a sender whose message keeps the busy pointer, or needs none: an
 /// `AnswerSender`, a `NoticeSender`, and the sidecar writer's `Sender<QueuedWrite>`.

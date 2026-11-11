@@ -779,6 +779,8 @@ pub(crate) fn spawn_exif_reader(
     let (exif_requests, paths_rx) = mpsc::channel::<PathBuf>();
     let (exif_tx, exif_answers) = mpsc::channel();
     let ctx = ctx.clone();
+    // No busy pointer: the EXIF reader, which lasts as long as the window. The panel
+    // shows each answer when it comes.
     std::thread::spawn(move || {
         while let Ok(mut path) = paths_rx.recv() {
             path = paths_rx.try_iter().last().unwrap_or(path);

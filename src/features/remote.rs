@@ -800,6 +800,8 @@ impl crate::App {
         let marks = vec![None; paths.len()];
         // Each record is sent as soon as it is read, so the client's time limit (`WAIT`) holds
         // for each file and not for all of them. The thread stops when the client is gone.
+        // No busy pointer: the client reads each record as it comes, and waits for
+        // the end itself.
         std::thread::spawn(move || {
             for (path, marks) in paths.iter().zip(marks) {
                 // A blank line ends each record, so the answers of several windows
@@ -1542,6 +1544,8 @@ pub fn listen(
         std::sync::atomic::Ordering::Relaxed,
     );
     mark_this_window_focused();
+    // No busy pointer: the listener, which lasts as long as the window. A command
+    // counts as work once the window takes it.
     std::thread::spawn(move || {
         serve_clients(listener, MOST_CLIENTS, move |stream| {
             serve(stream, &tx, &ctx, WAIT)
@@ -1640,6 +1644,8 @@ fn serve_clients(
         // just before the socket went is waited for at closing too.
         let client = UnfinishedAnswer::new();
         let (serve, free) = (serve.clone(), free.clone());
+        // No busy pointer: a client's connection. Its command counts as work once the
+        // window takes it.
         std::thread::spawn(move || {
             serve(stream);
             drop(client);
@@ -1899,6 +1905,7 @@ fn connected_in_time(
     limit: std::time::Duration,
 ) -> bool {
     let (tx, rx) = mpsc::channel();
+    // No busy pointer: its caller waits for it, at most `limit`.
     std::thread::spawn(move || {
         let _ = tx.send(connect());
     });

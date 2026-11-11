@@ -1466,6 +1466,7 @@ pub fn lossy_webp(img: &image::DynamicImage, quality: u8) -> Result<Vec<u8>, Str
     // The image is written in a thread of its own while its output is read, so neither pipe
     // fills and stops it.
     let mut stdin = child.stdin.take();
+    // No busy pointer: it feeds a program, which the caller's thread waits for.
     let feed = std::thread::spawn(move || drop(stdin.as_mut().map(|i| i.write_all(&png))));
     let max = crate::images::decode::MAX_DECODE_BYTES;
     let (webp, err, ok) = crate::files::external::output_of(

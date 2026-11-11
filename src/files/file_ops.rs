@@ -2221,6 +2221,8 @@ impl crate::App {
     /// background.
     pub(crate) fn set_wallpaper(&mut self) {
         let (path, tx) = (self.path(self.list.shown()), self.notice_sender.clone());
+        // No busy pointer: the desktop may ask the user first, which may take long. A
+        // failure is told.
         std::thread::spawn(move || {
             if let Err(e) = external::set_wallpaper(&path) {
                 let _ = tx.send(tf!("Could not set the wallpaper: {e}", e));

@@ -1965,6 +1965,8 @@ pub(crate) fn spawn_decoders(
             done_tx.clone(),
             ctx.clone(),
         );
+        // No busy pointer: a decode worker, which lasts as long as the window. The
+        // shown image's decode shows the pointer through `working`.
         std::thread::spawn(move || {
             loop {
                 let Ok(DecodeJob {

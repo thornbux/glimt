@@ -221,6 +221,7 @@ impl DesktopSettings {
     pub(crate) fn new(ctx: &egui::Context, profile: bool) -> Self {
         let (tx, rx) = mpsc::channel();
         let repaint = ctx.clone();
+        // No busy pointer: the desktop's look, a look-up nobody waits for, shown when it comes.
         std::thread::spawn(move || {
             let _ = tx.send(read_desktop_look());
             repaint.request_repaint();
@@ -262,6 +263,7 @@ impl DesktopSettings {
         self.theme_files_read_at = Some(std::time::Instant::now());
         let (tx, rx) = mpsc::channel();
         let ctx = ctx.clone();
+        // No busy pointer: the theme files' names, a look-up nobody waits for, shown when it comes.
         std::thread::spawn(move || {
             let _ = tx.send(read_theme_files());
             ctx.request_repaint();

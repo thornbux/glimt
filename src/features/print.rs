@@ -371,10 +371,12 @@ impl crate::App {
         let (shown_tx, shown_rx) = mpsc::channel();
         let (rotate, ctx2) = (self.config.exif_rotate, ctx.clone());
         let ctx = ctx.clone();
+        // No busy pointer: the list of printers, a look-up nobody waits for, shown when it comes.
         std::thread::spawn(move || {
             let _ = tx.send(printers());
             ctx.request_repaint();
         });
+        // No busy pointer: the preview's images, a look-up nobody waits for, shown when it comes.
         std::thread::spawn(move || {
             for (k, path) in first.iter().enumerate() {
                 // The preview is in the colours of the print, so a photo with its own profile
@@ -424,6 +426,7 @@ impl crate::App {
             dialog.paths.iter().take(MAX_PREVIEWS).cloned().collect(),
             dialog.paths.len(),
         );
+        // No busy pointer: the preview's captions, a look-up nobody waits for, shown when it comes.
         std::thread::spawn(move || {
             let texts = (first.iter().enumerate())
                 .map(|(k, p)| caption(&template, p, k, n, sizes[k]))

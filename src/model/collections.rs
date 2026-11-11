@@ -42,6 +42,8 @@ impl SavedCollections {
             self.read_at = Some(std::time::Instant::now());
             let (tx, rx) = std::sync::mpsc::channel();
             let ctx = ctx.clone();
+            // No busy pointer: the menu's collections, a look-up nobody waits for, shown when it
+            // comes.
             std::thread::spawn(move || {
                 let _ = tx.send(saved_collections());
                 ctx.request_repaint();

@@ -355,6 +355,8 @@ impl crate::App {
             .map(Path::to_path_buf);
         let (tx, rx) = mpsc::channel();
         let ctx = self.ctx.clone();
+        // No busy pointer: the file system for Rename Many's preview, a look-up nobody waits for,
+        // shown when it comes.
         std::thread::spawn(move || {
             let _ = tx.send(folder.and_then(|f| fat_file_system_type(&f)));
             ctx.request_repaint();

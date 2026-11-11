@@ -33,7 +33,10 @@ for Linux in Rust/egui, inspired by Geeqie. Read this before changing anything.
   count, or a `threads::Working` held for the work) when the user started the work and waits
   for it. A look-up that nobody waits for, such as the folder's size in the status bar or the
   list of printers, shows no busy pointer, so the pointer is not busy while the user can go
-  on. The UI thread does not even look at a
+  on. Every thread says which: it holds a `Working` or answers through an `AnswerSender`, or a
+  comment just above it says "No busy pointer:" and why, or "Its busy pointer:" and the state
+  that shows it (`source_rules::threads_show_the_busy_pointer_or_say_why_not`), because
+  `--remote … --wait` answers when the busy count is down. The UI thread does not even look at a
   user's file or folder (a stat, a real path, a read), because on a share that stopped
   answering that waits for ever and the window hangs.
   Glimt's own files are no exception, because a home folder can be on such a share too: they

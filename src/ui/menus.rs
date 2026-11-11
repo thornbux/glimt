@@ -66,6 +66,8 @@ impl OpenWith {
         if stale {
             let (tx, rx) = mpsc::channel();
             let ctx = ctx.clone();
+            // No busy pointer: Open With's applications, a look-up nobody waits for, shown when it
+            // comes.
             std::thread::spawn(move || {
                 let _ = tx.send(ask());
                 ctx.request_repaint();
@@ -145,6 +147,7 @@ impl crate::App {
             && let Some(dir) = theme::own_themes_dir()
         {
             let notices = self.notice_sender.clone();
+            // No busy pointer: the file manager may stay open for hours, and nothing waits for it.
             std::thread::spawn(move || open_own_folder(&dir, &notices));
         }
         if button(ui, tr("Get More Themes…")).clicked() {
@@ -595,6 +598,8 @@ impl crate::App {
                     running.retain(|r| r.1 != pid);
                     // Not when it ended meanwhile: its number may be another's by now.
                     if running.len() < was {
+                        // No busy pointer: a tool's Stop. The tool's own thread tells when the tool
+                        // ends.
                         std::thread::spawn(move || external::stop_process_group(pid));
                     }
                 }
@@ -608,6 +613,8 @@ impl crate::App {
                 && let Some(home) = glimt_home
             {
                 let notices = self.notice_sender.clone();
+                // No busy pointer: the file manager may stay open for hours, and nothing waits for
+                // it.
                 std::thread::spawn(move || {
                     open_own_folder(&tools::folder_to_open(&home, "tools"), &notices)
                 });
@@ -630,8 +637,8 @@ impl crate::App {
             let (dir, running) = (self.folder.dir().to_path_buf(), self.tools_running.clone());
             let report_tx = self.file_operations.report_sender();
             let (tx, ctx) = (self.notice_sender.clone(), ui.ctx().clone());
-            // A tool may be an editor that stays open for hours: not waited for at closing,
-            // and no busy pointer meanwhile, as for Open With.
+            // No busy pointer: a tool may be an editor that stays open for hours, so it is not
+            // waited for at closing either, as for Open With.
             std::thread::spawn(move || {
                 // A file whose name another file has taken since the list was read is not given
                 // to the tool, which may change it.
@@ -709,6 +716,8 @@ impl crate::App {
                     // Each selected file (or the shown one), the chooser asking for each.
                     let files: Vec<PathBuf> = targets.iter().map(|&i| self.path(i)).collect();
                     let tx = self.notice_sender.clone();
+                    // No busy pointer: the application chosen may stay open for hours, and nothing
+                    // waits for it.
                     std::thread::spawn(move || {
                         // Cancel ends them all, not only the one asked about.
                         for path in files {
@@ -737,6 +746,8 @@ impl crate::App {
                 let files: Vec<PathBuf> = targets.iter().map(|&i| self.path(i)).collect();
                 let tx = self.notice_sender.clone();
                 // The chosen application may stay open, so it is waited for in a thread of its own.
+                // No busy pointer: the application chosen may stay open for hours, and nothing
+                // waits for it.
                 std::thread::spawn(move || {
                     let mut gio = external::host_command("gio");
                     gio.arg("launch").arg(&desktop).args(&files);
@@ -769,6 +780,7 @@ impl crate::App {
         let words: Vec<String> = (tools::command_words(command_line).into_iter())
             .map(|word| word.text)
             .collect();
+        // No busy pointer: each program may stay open for hours, and nothing waits for it.
         std::thread::spawn(move || {
             for path in files {
                 if let Err(told) = open_one_in(&words, &path) {

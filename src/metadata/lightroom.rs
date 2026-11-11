@@ -244,6 +244,8 @@ impl Import {
         }
         let (tx, rx) = std::sync::mpsc::channel();
         let (typed, ctx) = (self.root_folders_now.clone(), ctx.clone());
+        // No busy pointer: whether each typed folder is there, a look-up nobody waits for, shown
+        // when it comes.
         std::thread::spawn(move || {
             let there = folders_there(&typed);
             let _ = tx.send((typed, there));

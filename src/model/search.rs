@@ -265,6 +265,8 @@ impl crate::App {
         let names: Vec<OsString> = m.iter().map(|&i| self.list.files()[i].clone()).collect();
         let (tx, rx) = mpsc::channel();
         let (dir, ctx) = (self.folder.dir().to_path_buf(), ctx.clone());
+        // No busy pointer: the matches' size in the status bar, a look-up nobody waits for, shown
+        // when it comes.
         std::thread::spawn(move || {
             let sizes = names
                 .iter()

@@ -427,6 +427,7 @@ impl crate::App {
         // The first that is there, on the host in a Flatpak: asked of the shell, through
         // flatpak-spawn there, so in a thread, not each time full screen starts on the UI thread.
         let inhibitor = self.window.inhibitor.clone();
+        // No busy pointer: it holds the screen saver off while full screen lasts.
         std::thread::spawn(move || {
             #[cfg(feature = "portals")]
             let portal = (crate::files::external::in_flatpak())
@@ -453,6 +454,7 @@ impl crate::App {
                     let _ = child.kill();
                     #[allow(clippy::disallowed_methods)]
                     // killed just now, reaped in its own thread
+                    // No busy pointer: it only reaps the inhibitor, killed just now.
                     std::thread::spawn(move || child.wait());
                 })
             };
@@ -609,6 +611,8 @@ pub(crate) fn close_on_termination_signals(ctx: &egui::Context) {
     }
     SIGNAL_WAKER.store(waker.into_raw_fd(), Ordering::Relaxed);
     let ctx = ctx.clone();
+    // No busy pointer: it waits for the termination signals as long as the window
+    // lasts.
     std::thread::spawn(move || {
         wake_at_signals(
             waiting,

@@ -255,6 +255,8 @@ pub(crate) fn spawn_thumbnailers(
             save.clone(),
             ctx.clone(),
         );
+        // No busy pointer: a thumbnail worker, which lasts as long as the window. Each
+        // thumbnail is shown when it comes.
         std::thread::spawn(move || {
             loop {
                 let mut idle = lock_even_if_poisoned(&CPU_CHANGED.0);

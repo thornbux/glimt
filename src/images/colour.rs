@@ -537,6 +537,8 @@ pub fn colour_source(path: &Path) -> String {
 pub fn read_desktop_screen(ctx: &egui::Context) -> mpsc::Receiver<Option<String>> {
     let (tx, rx) = mpsc::channel();
     let ctx = ctx.clone();
+    // No busy pointer: the screen's profile, read as the window opens. The first
+    // images wait for it a short while on their own (`SCREEN_WAIT`).
     std::thread::spawn(move || {
         let path = desktop_screen_profile();
         let (lock, ready) = &SCREEN_WAIT;
