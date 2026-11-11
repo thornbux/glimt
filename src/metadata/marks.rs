@@ -545,13 +545,11 @@ fn take_queued_edits() -> Vec<Edit> {
 /// `changes` applied to the marks file as it is now, after the edits of it that could not be
 /// written before (`UNWRITTEN_EDITS`).
 fn write(file: &Path, changes: Vec<Edit>) {
+    // Each move not written before keeps its own kind. A job's move is not looked at now either,
+    // so that after a failed write of a Move of 500,000 files each later write does not look at
+    // every name again. A file that moved on since is followed by the later edit that says so.
     let unwritten = lock_even_if_poisoned(&UNWRITTEN_EDITS).remove(file);
-    // A move not written before is written now from a record: its file may have moved on.
-    let unwritten = unwritten.into_iter().flatten().map(|edit| match edit {
-        Edit::Follow(pairs, is_copy, _) => Edit::Follow(pairs, is_copy, true),
-        edit => edit,
-    });
-    let mut changes: Vec<Edit> = unwritten.chain(changes).collect();
+    let mut changes: Vec<Edit> = unwritten.into_iter().flatten().chain(changes).collect();
     let some_left_out = follow_only_to_files_there(&mut changes);
     let stamp_before = file_stamp(file);
     // These changes on the file as another window may have left it; one that cannot be read
@@ -1408,6 +1406,25 @@ mod tests {
         assert_eq!(written.get(&p("a.jpg")), Some(&(0, 2)));
         assert_eq!(written.get(&p("b.jpg")), Some(&(0, 1)));
         let _ = crate::files::file_io::take_saves_failed();
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A job's move whose write failed is made at the next write as a job's move still, with
+    /// no look at its new name. Before, it was made as one read from a record, so after a
+    /// failed write of a Move of 500,000 files each later write looked at every name again.
+    /// A new name with nothing there shows which kind it was made as.
+    #[test]
+    fn a_jobs_move_not_written_stays_a_jobs_move() {
+        let dir =
+            std::env::temp_dir().join(format!("glimt-test-marks-unwritten-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let (file, p) = (dir.join("marks"), |n: &str| dir.join(n));
+        std::fs::write(&file, format!("0\t3\t{}\n", p("a.jpg").display())).unwrap();
+        let moved = vec![(p("a.jpg"), p("b.jpg"))];
+        super::keep_unwritten(&file, vec![super::Edit::Follow(moved, false, false)]);
+        super::write(&file, Vec::new());
+        let written = super::parse(&std::fs::read(&file).unwrap());
+        assert_eq!(written.get(&p("b.jpg")), Some(&(0, 3)));
         std::fs::remove_dir_all(dir).unwrap();
     }
 
