@@ -3089,3 +3089,7 @@ msgstr "{side}: {e}, proto {file} zůstává, kde byl, se svým doprovodným sou
 #: src/files/file_ops.rs
 msgid "Could not save the plan of the renames ({e}), so nothing was renamed"
 msgstr "Plán přejmenování nelze uložit ({e}), proto nebylo nic přejmenováno"
+
+#: src/files/file_ops.rs
+msgid "{side} could not go to the trash, so {file} stays where it was, with its sidecar"
+msgstr "{side} nešlo přesunout do koše, proto {file} zůstává, kde byl, se svým doprovodným souborem"

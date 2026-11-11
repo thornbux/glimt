@@ -3092,3 +3092,7 @@ msgstr ""
 #: src/files/file_ops.rs
 msgid "Could not save the plan of the renames ({e}), so nothing was renamed"
 msgstr ""
+
+#: src/files/file_ops.rs
+msgid "{side} could not go to the trash, so {file} stays where it was, with its sidecar"
+msgstr ""

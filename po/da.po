@@ -3067,3 +3067,7 @@ msgstr "{side}: {e}, så {file} bliver, hvor den var, med sin sidefil"
 #: src/files/file_ops.rs
 msgid "Could not save the plan of the renames ({e}), so nothing was renamed"
 msgstr "Kunne ikke gemme planen for omdøbningen ({e}), så intet blev omdøbt"
+
+#: src/files/file_ops.rs
+msgid "{side} could not go to the trash, so {file} stays where it was, with its sidecar"
+msgstr "{side} kunne ikke flyttes til papirkurven, så {file} bliver, hvor den var, med sin sidefil"

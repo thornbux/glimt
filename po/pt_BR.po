@@ -3078,3 +3078,7 @@ msgstr "{side}: {e}, então {file} fica onde estava, com seu arquivo XMP associa
 #: src/files/file_ops.rs
 msgid "Could not save the plan of the renames ({e}), so nothing was renamed"
 msgstr "Não foi possível salvar o plano da renomeação ({e}), então nada foi renomeado"
+
+#: src/files/file_ops.rs
+msgid "{side} could not go to the trash, so {file} stays where it was, with its sidecar"
+msgstr "{side} não pôde ir para a lixeira, então {file} fica onde estava, com seu arquivo XMP associado"

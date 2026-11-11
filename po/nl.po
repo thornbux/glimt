@@ -3067,3 +3067,7 @@ msgstr "{side}: {e}, dus {file} blijft waar het was, met zijn sidecar-bestand"
 #: src/files/file_ops.rs
 msgid "Could not save the plan of the renames ({e}), so nothing was renamed"
 msgstr "Kon het plan van het hernoemen niet opslaan ({e}), dus er is niets hernoemd"
+
+#: src/files/file_ops.rs
+msgid "{side} could not go to the trash, so {file} stays where it was, with its sidecar"
+msgstr "{side} kon niet naar de prullenbak, dus {file} blijft waar het was, met zijn sidecar-bestand"

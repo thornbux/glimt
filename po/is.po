@@ -3067,3 +3067,7 @@ msgstr "{side}: {e}, svo {file} er kyrr þar sem hún var, með hliðarskránni 
 #: src/files/file_ops.rs
 msgid "Could not save the plan of the renames ({e}), so nothing was renamed"
 msgstr "Gat ekki vistað áætlun endurnefningarinnar ({e}), svo ekkert var endurnefnt"
+
+#: src/files/file_ops.rs
+msgid "{side} could not go to the trash, so {file} stays where it was, with its sidecar"
+msgstr "{side} komst ekki í ruslið, svo {file} er kyrr þar sem hún var, með hliðarskránni sinni"

@@ -3071,3 +3071,7 @@ msgstr "{side}: {e}, joten {file} jää paikalleen sivutiedostonsa kanssa"
 #: src/files/file_ops.rs
 msgid "Could not save the plan of the renames ({e}), so nothing was renamed"
 msgstr "Uudelleennimeämisen suunnitelmaa ei voitu tallentaa ({e}), joten mitään ei nimetty uudelleen"
+
+#: src/files/file_ops.rs
+msgid "{side} could not go to the trash, so {file} stays where it was, with its sidecar"
+msgstr "{side} ei voinut siirtyä roskakoriin, joten {file} jää paikalleen sivutiedostonsa kanssa"

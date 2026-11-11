@@ -2382,6 +2382,7 @@ fn delete_chunk(
     // held only for the chunk, so a sidecar write in another window waits for one chunk rather
     // than the whole job.
     let _locks = xmp::lock_sidecars(chunk);
+    let since = std::time::SystemTime::now();
     // Only the files that are still the ones picked go, each looked at just before. Another
     // program or window may have given the name to another photo while the question was open.
     let (mut kept, mut left_alone) = (Vec::with_capacity(chunk.len()), Vec::new());
@@ -2411,12 +2412,27 @@ fn delete_chunk(
     // keywords. A look that failed (a share that dropped for a moment) keeps the sidecar, as the
     // photo may still be there.
     let is_gone = |p: &&PathBuf| is_surely_gone(p);
-    let went: Vec<PathBuf> = kept.iter().filter(is_gone).cloned().collect();
-    let side = xmp::sidecars_of(&went);
+    let mut went: Vec<PathBuf> = kept.iter().filter(is_gone).cloned().collect();
+    // Each file's sidecars are named before they go, so that a file whose sidecar stays out of
+    // the trash can be taken back with those that went.
+    let mut names = xmp::AdobeNames::default();
+    let sidecars_of_file: Vec<(PathBuf, Vec<PathBuf>)> = (went.iter())
+        .map(|p| {
+            let sides = xmp::sidecars_moving_with(p, p, &HashSet::new(), &mut names);
+            (p.clone(), sides.into_iter().map(|(side, _)| side).collect())
+        })
+        .collect();
+    let side: Vec<PathBuf> = (sidecars_of_file.iter().flat_map(|(_, sides)| sides))
+        .collect::<std::collections::BTreeSet<_>>()
+        .into_iter()
+        .cloned()
+        .collect();
     // A sidecar that stays is told, as the photo's own errors are, because the next file of that
     // name would show its keywords.
     if trash && !side.is_empty() {
         if let Err(e) = crate::files::trash::trash(&side) {
+            let back = take_back_from_the_trash(sidecars_of_file, since, errors);
+            went.retain(|p| !back.contains(p));
             errors.push(e);
         }
     } else {
@@ -2428,6 +2444,53 @@ fn delete_chunk(
         }
     }
     (went, side, left_alone)
+}
+
+/// Takes each file of `sidecars_of_file` whose sidecars did not all go to the trash back out of
+/// it, with those of its sidecars that went, so that the photo and its keywords stay together.
+/// Otherwise the sidecar would wait at the old name for the next file of that name. The move to
+/// the trash began at `since`. Returns the files taken back, each told in `errors`. A file that
+/// cannot come back stays in the trash, and its Undo puts it back beside the sidecar left.
+fn take_back_from_the_trash(
+    sidecars_of_file: Vec<(PathBuf, Vec<PathBuf>)>,
+    since: std::time::SystemTime,
+    errors: &mut Vec<String>,
+) -> HashSet<PathBuf> {
+    let mut trash_move = TrashMove {
+        files: Vec::new(),
+        sidecars: Vec::new(),
+        sidecars_left: Vec::new(),
+        since,
+        marks: Default::default(),
+        collection: None,
+    };
+    let mut first_left = Vec::new();
+    for (file, sides) in sidecars_of_file {
+        // A sidecar that could not be looked at counts as left, as it may still be there.
+        let (gone, left): (Vec<PathBuf>, Vec<PathBuf>) =
+            sides.into_iter().partition(|s| is_surely_gone(s));
+        let Some(side) = left.first() else {
+            continue;
+        };
+        first_left.push((file.clone(), side.clone()));
+        trash_move.files.push(file);
+        trash_move.sidecars.extend(gone);
+        trash_move.sidecars_left.extend(left);
+    }
+    if trash_move.files.is_empty() {
+        return HashSet::new();
+    }
+    let (back, error) = restore(&trash_move, trash_dirs);
+    let back: HashSet<PathBuf> = back.into_iter().collect();
+    for (file, side) in first_left.iter().filter(|(file, _)| back.contains(file)) {
+        errors.push(tf!(
+            "{side} could not go to the trash, so {file} stays where it was, with its sidecar",
+            side = side.display(),
+            file = file.display()
+        ));
+    }
+    errors.extend(error);
+    back
 }
 
 /// Returns the type of the file system that `dir` is on, as `file_io::file_system_type` does. A
@@ -3660,6 +3723,36 @@ mod tests {
             "own"
         );
         assert_eq!(std::fs::read_dir(&from).unwrap().count(), 0);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A Move to Trash whose sidecar cannot go to the trash takes the photo back out of it, and
+    /// says so. Before, the photo stayed in the trash and the sidecar at its old name, where the
+    /// next file of that name would pick up its keywords.
+    #[test]
+    fn a_file_goes_to_the_trash_only_with_its_sidecars() {
+        use crate::files::file_io::{RENAME_WAYS_MISSING, UNLINK_FAILS};
+        let dir =
+            std::env::temp_dir().join(format!("glimt-test-trash-split-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let (photo, side) = (dir.join("a.jpg"), dir.join("a.jpg.xmp"));
+        std::fs::write(&photo, "photo").unwrap();
+        std::fs::write(&side, "own").unwrap();
+        let picked = crate::files::file_io::PickedFiles::new(vec![photo.clone()]);
+        let (_, picked) = picked.wait_for_fingerprints();
+        // The sidecar's old name cannot be unlinked, so it cannot be moved into the trash.
+        RENAME_WAYS_MISSING.set(1);
+        UNLINK_FAILS.set(Some((side.clone(), libc::EPERM)));
+        let mut errors = Vec::new();
+        let (went, _, _) =
+            super::delete_chunk(std::slice::from_ref(&photo), &picked, true, &mut errors);
+        UNLINK_FAILS.set(None);
+        RENAME_WAYS_MISSING.set(0);
+        assert!(went.is_empty(), "{errors:?}");
+        assert!(errors[0].contains("stays where it was"), "{errors:?}");
+        assert_eq!(std::fs::read_to_string(&photo).unwrap(), "photo");
+        assert_eq!(std::fs::read_to_string(&side).unwrap(), "own");
         std::fs::remove_dir_all(dir).unwrap();
     }
 

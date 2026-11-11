@@ -3067,3 +3067,7 @@ msgstr "{side}: {e}, así que {file} se queda donde estaba, con su archivo compl
 #: src/files/file_ops.rs
 msgid "Could not save the plan of the renames ({e}), so nothing was renamed"
 msgstr "No se pudo guardar el plan del cambio de nombres ({e}), así que no se renombró nada"
+
+#: src/files/file_ops.rs
+msgid "{side} could not go to the trash, so {file} stays where it was, with its sidecar"
+msgstr "{side} no pudo ir a la papelera, así que {file} se queda donde estaba, con su archivo complementario"
