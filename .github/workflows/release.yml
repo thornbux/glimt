@@ -141,10 +141,19 @@ jobs:
         # first window closed. A failure here stops the release job, which publishes.
         timeout-minutes: 10
         run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq xvfb fuse3 libgl1-mesa-dri libegl1 libgl1 libegl-mesa0 \
-              libglx-mesa0 \
-              libxkbcommon-x11-0 libxcursor1 libxrandr2 libxi6 libx11-xcb1
+          # Tried again after a pause: twice the runner could not resolve the Ubuntu mirror
+          # for a moment, and that stopped the release.
+          install_packages() {
+              sudo apt-get -o Acquire::Retries=5 update -qq &&
+                  sudo apt-get -o Acquire::Retries=5 install -y -qq xvfb fuse3 libgl1-mesa-dri \
+                      libegl1 libgl1 libegl-mesa0 libglx-mesa0 \
+                      libxkbcommon-x11-0 libxcursor1 libxrandr2 libxi6 libx11-xcb1
+          }
+          for try in 1 2 3 4; do
+              install_packages && break
+              [ "$try" = 4 ] && exit 1
+              sleep 30
+          done
           tools/package-smoke.sh --second-window "./glimt-$VERSION-x86_64.AppImage"
       - name: .deb
         run: cargo deb --no-build --target "$TARGET" -o "glimt_${VERSION}_amd64.deb"
