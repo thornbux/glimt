@@ -729,7 +729,7 @@ pub fn write_xmp(path: &Path, stars: u8) -> Result<(), String> {
 /// `xmp` with its rating set to `stars`, as an attribute of its first rdf:Description. Returns
 /// `None` if it has no rdf:Description to put it in.
 fn set_rating(xmp: &str, stars: u8) -> Option<String> {
-    use crate::metadata::xmp::{first_description, without_property};
+    use crate::metadata::xmp::{first_description, first_description_start, without_property};
     const XMP: &str = "http://ns.adobe.com/xap/1.0/";
     // The rating is written with the prefix that the sidecar binds to XMP's namespace, such as
     // an old packet's xap, so it is the same property as the rating there.
@@ -744,7 +744,7 @@ fn set_rating(xmp: &str, stars: u8) -> Option<String> {
         true => String::new(),
         false => format!(" xmlns:xmp=\"{XMP}\""),
     };
-    let at = xmp.find("<rdf:Description")? + "<rdf:Description".len();
+    let at = first_description_start(xmp)? + "<rdf:Description".len();
     Some(format!(
         "{}{ns} {rating}=\"{stars}\"{}",
         &xmp[..at],
@@ -1593,6 +1593,22 @@ mod tests {
             1
         );
         assert_eq!(super::set_rating("nothing", 1), None);
+        // A Description in a comment is not the one the rating goes into, and a CDATA section
+        // with a quote does not hide the rating after it. Before, the rating went into the
+        // comment, and the one after the CDATA section stayed beside it.
+        let title = "<dc:title><rdf:Alt><rdf:li><![CDATA[It's]]></rdf:li></rdf:Alt></dc:title>";
+        let commented = format!(
+            "<!-- <rdf:Description xmp:Rating='1'> --><rdf:Description rdf:about=\"\">\
+             {title}<xmp:Rating>3</xmp:Rating></rdf:Description>"
+        );
+        assert_eq!(
+            super::set_rating(&commented, 4).unwrap(),
+            format!(
+                "<!-- <rdf:Description xmp:Rating='1'> --><rdf:Description \
+                 xmlns:xmp=\"http://ns.adobe.com/xap/1.0/\" xmp:Rating=\"4\" rdf:about=\"\">\
+                 {title}</rdf:Description>"
+            )
+        );
         super::TEST_FILE.with(|f| *f.borrow_mut() = None);
     }
 

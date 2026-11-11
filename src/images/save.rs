@@ -983,12 +983,12 @@ fn derive_sidecar(
 /// the white space before it, so a sidecar written again and again does not gather empty lines.
 /// Every XMP editor that replaces a property takes the old one out here, as a search for one
 /// spelling misses the others (`xmp:Rating='3'`) and leaves the property twice. A property with
-/// a comment inside it is left as it is, as its end may be read inside the comment.
+/// a comment or a CDATA section inside it goes whole too, as the walk reads its end past them.
+/// Before, one with a comment was left, and the editor then wrote the property a second time.
 pub(crate) fn xmp_without_property(xmp: &[u8], name: &[u8]) -> Vec<u8> {
     let (mut out, mut copied) = (Vec::with_capacity(xmp.len()), 0);
     for found in crate::metadata::xmp::top_level_properties(xmp) {
-        let whole = &xmp[found.whole.clone()];
-        if xmp[found.name] != *name || whole.windows(4).any(|w| w == b"<!--") {
+        if xmp[found.name] != *name {
             continue;
         }
         let start = found.whole.start;
@@ -2896,8 +2896,16 @@ mod tests {
             without_thumbnails(&format!("{kept}<xmp:Thumbnails>t</xmp:Thumbnails><b/>")),
             format!("{kept}<b/>")
         );
-        let commented = "><xmp:Thumbnails>t<!-- --></xmp:Thumbnails>";
-        assert_eq!(without_thumbnails(commented), commented);
+        // A property with a comment or CDATA section inside it goes whole, also when that
+        // holds what looks like its end tag.
+        for inside in [
+            "<!-- -->",
+            "<!-- </xmp:Thumbnails> -->",
+            "<![CDATA[</xmp:Thumbnails>]]>",
+        ] {
+            let commented = format!("><xmp:Thumbnails>t{inside}</xmp:Thumbnails><b/>");
+            assert_eq!(without_thumbnails(&commented), "><b/>");
+        }
         assert_eq!(
             without_thumbnails(
                 " xmp:Thumbnails='1' b=\"2\" xmp:Thumbnails = \"3\"><xmp:Thumbnails/>"

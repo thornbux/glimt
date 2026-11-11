@@ -81,6 +81,17 @@ const KNOWN_NAMESPACES: [(&str, &str); 31] = [
 /// It holds them across a gio call, which waits for ever on a share that stopped answering.
 const MOST_LOCKS_IN_A_CHUNK: usize = 4;
 
+/// The start of an rdf:Description's start tag, as `next_description` finds it.
+const DESCRIPTION: &[u8] = b"<rdf:Description";
+
+/// The kinds of XML markup that are no element, each as how it starts and how it ends: a
+/// comment, a CDATA section and a processing instruction. A quote, a '<' or a tag inside one is
+/// no part of the packet's structure, so every walk over a packet passes over them whole
+/// (`not_element_length`). A CDATA section with a quote in it once stopped the walk, and the
+/// editors then wrote a second dc:subject.
+const NOT_ELEMENTS: [(&[u8], &[u8]); 3] =
+    [(b"<!--", b"-->"), (b"<![CDATA[", b"]]>"), (b"<?", b"?>")];
+
 /// The 64 locks within this Glimt, by `sidecar_lock_number`.
 #[cfg(not(test))]
 static SIDECAR_LOCKS: [std::sync::Mutex<()>; 64] = [const { std::sync::Mutex::new(()) }; 64];
@@ -322,41 +333,6 @@ pub(crate) struct TopLevelProperty {
     /// and end tags, which is nothing for an empty element.
     pub(crate) value: std::ops::Range<usize>,
     pub(crate) is_attribute: bool,
-}
-
-/// A forward search for a text in a packet, for places asked in rising order. A search goes on
-/// from where the last one ended, so all of them together read the packet once, however many
-/// places are asked (`top_level_properties`).
-struct ForwardSearch<'a> {
-    hay: &'a [u8],
-    what: &'a [u8],
-    /// What the last search found, if one was made. A search that found nothing holds for every
-    /// later place too.
-    found: Option<Option<usize>>,
-}
-
-impl<'a> ForwardSearch<'a> {
-    fn new(hay: &'a [u8], what: &'a [u8]) -> Self {
-        ForwardSearch {
-            hay,
-            what,
-            found: None,
-        }
-    }
-
-    /// Returns the first place of the text at or after `from`, or `None` when there is none.
-    /// `from` is never smaller than in the call before.
-    fn at(&mut self, from: usize) -> Option<usize> {
-        if let Some(found) = self.found
-            && found.is_none_or(|f| f >= from)
-        {
-            return found;
-        }
-        let rest = self.hay.get(from..).unwrap_or_default();
-        let found = find_bytes(rest, self.what).map(|i| from + i);
-        self.found = Some(found);
-        found
-    }
 }
 
 fn parse_alt_text(xmp: &str) -> AltText {
@@ -1181,28 +1157,65 @@ fn language_alternative(xmp: &str, tag: &str, text: &str, say_empty: bool) -> St
 /// The rdf:li items of element `tag`, each as the language its start tag names (xml:lang, or
 /// empty for none) and its text.
 fn items_with_languages(xmp: &str, tag: &str) -> Vec<(String, String)> {
+    const ITEM: &[u8] = b"<rdf:li";
     let Some((start, end)) = element_span(xmp, tag) else {
         return Vec::new();
     };
-    let (mut rest, mut out) = (&xmp[start..end], Vec::new());
-    while let Some(i) = rest.find("<rdf:li") {
-        rest = &rest[i..];
-        let Some(gt) = rest.find('>') else { break };
-        let body = &rest[gt + 1..];
-        if rest[..gt].ends_with('/') {
-            rest = body;
+    let (bytes, mut from, mut out) = (&xmp.as_bytes()[..end], start, Vec::new());
+    while let Some(found) = bytes[from..].iter().position(|&c| c == b'<') {
+        let at = from + found;
+        if let Some(length) = not_element_length(&bytes[at..]) {
+            let Some(length) = length else { break };
+            from = at + length;
             continue;
         }
-        let Some(close) = body.find("</rdf:li>") else {
+        let Some(gt) = start_tag_end(bytes, at) else {
             break;
         };
-        let language = (attributes(&rest["<rdf:li".len()..gt]).into_iter())
+        let is_item = bytes[at..].starts_with(ITEM)
+            && bytes.get(at + ITEM.len()).is_some_and(|&c| ends_a_name(c));
+        if !is_item || bytes[gt - 1] == b'/' {
+            from = gt + 1;
+            continue;
+        }
+        let Some(item_end) = element_end(bytes, gt + 1, b"rdf:li") else {
+            break;
+        };
+        let language = (attributes(&xmp[at + ITEM.len()..gt]).into_iter())
             .find(|(name, _)| *name == "xml:lang")
             .map_or_else(String::new, |(_, value)| unescape(value));
-        out.push((language, unescape(&body[..close])));
-        rest = &body[close..];
+        out.push((
+            language,
+            text_of(&xmp[gt + 1..item_end - b"</rdf:li>".len()]),
+        ));
+        from = item_end;
     }
     out
+}
+
+/// Returns the text of `content`, what is between an element's start and end tags, as XML reads
+/// it. Its entities are read, a CDATA section gives its text as it is written, and comments and
+/// processing instructions are left out (`not_element_length`).
+fn text_of(content: &str) -> String {
+    let (mut out, mut from) = (String::new(), 0);
+    while let Some(found) = content[from..].find('<') {
+        let at = from + found;
+        out += &unescape(&content[from..at]);
+        let rest = &content[at..];
+        match not_element_length(rest.as_bytes()) {
+            Some(Some(length)) => {
+                if let Some(text) = rest[..length].strip_prefix("<![CDATA[") {
+                    out += &text[..text.len() - b"]]>".len()];
+                }
+                from = at + length;
+            }
+            _ => {
+                out.push('<');
+                from = at + 1;
+            }
+        }
+    }
+    out + &unescape(&content[from..])
 }
 
 /// `set_keywords_and_comment` for a change of keywords only. A comment the sidecar has stays as
@@ -1449,36 +1462,17 @@ pub(crate) fn properties(xmp: &str) -> Properties {
 /// the photo, such as the Descriptions of other documents in xmpMM:Pantry, so the readers and
 /// editors never see it. It is the one reading of where a property is, for them and for Copy
 /// for Sharing. A Description is read up to what does not read as a property, and the walk
-/// stops there, because what follows cannot be told apart from the inside of a property. A
-/// Description in a comment is passed over. Each search goes on from where the last one ended,
-/// so a hostile packet takes linear time.
+/// stops there, because what follows cannot be told apart from the inside of a property.
+/// Comments, CDATA sections and processing instructions are passed over whole, also inside a
+/// property (`not_element_length`). Each step goes on from where the last one ended, so a
+/// hostile packet takes linear time.
 pub(crate) fn top_level_properties(xmp: &[u8]) -> Vec<TopLevelProperty> {
-    const DESCRIPTION: &[u8] = b"<rdf:Description";
-    let mut descriptions = ForwardSearch::new(xmp, DESCRIPTION);
-    let [mut comments, mut comment_ends] = [
-        ForwardSearch::new(xmp, b"<!--"),
-        ForwardSearch::new(xmp, b"-->"),
-    ];
     let (mut out, mut from) = (Vec::new(), 0);
-    while let Some(start) = descriptions.at(from) {
-        if let Some(open) = comments.at(from)
-            && open < start
-        {
-            match comment_ends.at(open + 4) {
-                Some(end) => from = end + 3,
-                None => break,
-            }
-            continue;
-        }
-        let after_name = start + DESCRIPTION.len();
-        if !xmp.get(after_name).is_some_and(|&c| ends_a_name(c)) {
-            from = after_name;
-            continue;
-        }
+    while let Some(start) = next_description(xmp, from) {
         let Some(gt) = start_tag_end(xmp, start) else {
             break;
         };
-        attribute_properties(xmp, after_name..gt, &mut out);
+        attribute_properties(xmp, start + DESCRIPTION.len()..gt, &mut out);
         if xmp[gt - 1] == b'/' {
             from = gt + 1;
             continue;
@@ -1489,6 +1483,39 @@ pub(crate) fn top_level_properties(xmp: &[u8]) -> Vec<TopLevelProperty> {
         }
     }
     out
+}
+
+/// Returns where the first rdf:Description of `xmp` at `from` or after it starts, at its '<'.
+/// Comments, CDATA sections and processing instructions are passed over whole
+/// (`not_element_length`), so a Description inside one is not found. Returns `None` when there
+/// is none, or when such markup before it does not end.
+fn next_description(xmp: &[u8], mut from: usize) -> Option<usize> {
+    while let Some(found) = xmp[from..].iter().position(|&c| c == b'<') {
+        let at = from + found;
+        if let Some(length) = not_element_length(&xmp[at..]) {
+            from = at + length?;
+            continue;
+        }
+        let after_name = at + DESCRIPTION.len();
+        if xmp[at..].starts_with(DESCRIPTION)
+            && xmp.get(after_name).is_some_and(|&c| ends_a_name(c))
+        {
+            return Some(at);
+        }
+        from = at + 1;
+    }
+    None
+}
+
+/// Returns the length of the comment, CDATA section or processing instruction that `rest`
+/// starts with (`NOT_ELEMENTS`), from its '<' to past its end. Returns `None` when `rest`
+/// starts with none of them, and `Some(None)` when it starts one that does not end.
+fn not_element_length(rest: &[u8]) -> Option<Option<usize>> {
+    let (starts, ends) = NOT_ELEMENTS
+        .iter()
+        .find(|(starts, _)| rest.starts_with(starts))?;
+    let end = find_bytes(&rest[starts.len()..], ends);
+    Some(end.map(|end| starts.len() + end + ends.len()))
 }
 
 /// Adds the properties written as attributes in `head`, the place of a Description's start tag
@@ -1550,8 +1577,8 @@ fn element_properties(
             .take_while(|c| c.is_ascii_whitespace())
             .count();
         let rest = &xmp[from..];
-        if let Some(comment) = rest.strip_prefix(b"<!--") {
-            from += 4 + find_bytes(comment, b"-->")? + 3;
+        if let Some(length) = not_element_length(rest) {
+            from += length?;
             continue;
         }
         if rest.starts_with(END) {
@@ -1626,8 +1653,15 @@ fn namespace_declarations(xmp: &str) -> Vec<(&str, &str)> {
 /// declaration written `xmlns:dc = "…"` is not declared twice. Returns `None` when `xmp` has no
 /// Description or its start tag does not end.
 pub(crate) fn first_description(xmp: &str) -> Option<(usize, Vec<(&str, &str)>)> {
-    let end = start_tag_end(xmp.as_bytes(), xmp.find("<rdf:Description")?)?;
+    let end = start_tag_end(xmp.as_bytes(), first_description_start(xmp)?)?;
     Some((end, namespace_declarations(&xmp[..end])))
+}
+
+/// Returns where the first rdf:Description of `xmp` starts, at its '<', past the comments,
+/// CDATA sections and processing instructions (`next_description`), so that a writer never puts
+/// a property into a Description that is commented out. Returns `None` when there is none.
+pub(crate) fn first_description_start(xmp: &str) -> Option<usize> {
+    next_description(xmp.as_bytes(), 0)
 }
 
 /// Returns the name of the property written `name` in a packet that binds its prefixes as
@@ -1772,18 +1806,16 @@ pub(crate) fn with_own_value_only(
         let start = from + found;
         out += &element[from..start];
         let rest = &element[start..];
-        // A comment goes, and a CDATA section is text, which may hold a quote or a '<'.
-        if let Some(end_mark) = [("<!--", "-->"), ("<![CDATA[", "]]>")]
-            .into_iter()
-            .find_map(|(begins, ends)| rest.starts_with(begins).then_some(ends))
-        {
-            let Some(end) = rest.find(end_mark) else {
+        // A comment goes. A CDATA section is text, which may hold a quote or a '<', and it
+        // stays, as a processing instruction does.
+        if let Some(length) = not_element_length(rest.as_bytes()) {
+            let Some(length) = length else {
                 return String::new();
             };
-            if end_mark == "]]>" {
-                out += &rest[..end + end_mark.len()];
+            if !rest.starts_with("<!--") {
+                out += &rest[..length];
             }
-            from = start + end + end_mark.len();
+            from = start + length;
             continue;
         }
         let Some(gt) = start_tag_end(element.as_bytes(), start) else {
@@ -1799,7 +1831,7 @@ pub(crate) fn with_own_value_only(
             from = gt + 1;
             continue;
         }
-        if rest.starts_with("<!") || rest.starts_with("<?") {
+        if rest.starts_with("<!") {
             out += &element[start..=gt];
             from = gt + 1;
             continue;
@@ -1890,15 +1922,16 @@ fn name_inside(
 }
 
 /// Returns where the element `name` whose start tag ends before `from` in `xmp` ends, past its
-/// end tag, counting the elements of the same name inside it and passing over comments.
-/// Returns `None` when it does not end.
+/// end tag, counting the elements of the same name inside it. Comments, CDATA sections and
+/// processing instructions are passed over whole (`not_element_length`). Returns `None` when
+/// it does not end.
 fn element_end(xmp: &[u8], mut from: usize, name: &[u8]) -> Option<usize> {
     let mut depth = 1;
     while let Some(found) = xmp[from..].iter().position(|&c| c == b'<') {
         let at = from + found;
         let rest = &xmp[at..];
-        if let Some(comment) = rest.strip_prefix(b"<!--") {
-            from = at + 4 + find_bytes(comment, b"-->")? + 3;
+        if let Some(length) = not_element_length(rest) {
+            from = at + length?;
             continue;
         }
         let closed = rest.strip_prefix(b"</").and_then(|r| r.strip_prefix(name));
@@ -2083,6 +2116,112 @@ mod tests {
             .filter(|(name, ..)| name == "dc:subject")
             .count();
         assert_eq!(subjects, 1);
+    }
+
+    /// Sidecars as Lightroom, darktable and digiKam write them, with a CDATA section that holds
+    /// a quote and a '<', a processing instruction with a quote and a Description in a comment.
+    /// Each is read whole, and an edit of the keywords, the rating or the orientation leaves one
+    /// of each property. Before, the walk read the CDATA section's quote as the start of an
+    /// attribute's value and stopped there, so the panel showed no comment and no keywords, and
+    /// a keyword edit wrote a second dc:subject.
+    #[test]
+    fn markup_that_is_no_element_is_passed_over() {
+        use super::{KeywordsAndComment, parse, set_keywords_and_comment, without_property};
+        let lightroom = "<?xpacket begin=\"\u{feff}\" id=\"W5M0MpCehiHzreSzNTczkc9d\"?>\n\
+            <x:xmpmeta xmlns:x=\"adobe:ns:meta/\" x:xmptk=\"Adobe XMP Core 7.0-c000 1.000000\">\n \
+            <rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\">\n  \
+            <rdf:Description rdf:about=\"\"\n    \
+            xmlns:xmp=\"http://ns.adobe.com/xap/1.0/\"\n    \
+            xmlns:tiff=\"http://ns.adobe.com/tiff/1.0/\"\n    \
+            xmlns:dc=\"http://purl.org/dc/elements/1.1/\"\n    \
+            xmlns:crs=\"http://ns.adobe.com/camera-raw-settings/1.0/\"\n    \
+            xmlns:lr=\"http://ns.adobe.com/lightroom/1.0/\"\n    \
+            xmp:Rating=\"3\" tiff:Orientation=\"6\" crs:Version=\"15.0\" crs:Exposure2012=\"+0.50\">\n   \
+            <dc:description>\n    <rdf:Alt>\n     <rdf:li xml:lang=\"x-default\">\
+            <![CDATA[It's <b>bold</b>]]></rdf:li>\n    </rdf:Alt>\n   </dc:description>\n   \
+            <dc:subject>\n    <rdf:Bag>\n     <rdf:li>Oslo</rdf:li>\n    </rdf:Bag>\n   \
+            </dc:subject>\n   <lr:hierarchicalSubject>\n    <rdf:Bag>\n     \
+            <rdf:li>Places|Oslo</rdf:li>\n    </rdf:Bag>\n   </lr:hierarchicalSubject>\n  \
+            </rdf:Description>\n </rdf:RDF>\n</x:xmpmeta>\n<?xpacket end=\"w\"?>";
+        let darktable = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n\
+            <x:xmpmeta xmlns:x=\"adobe:ns:meta/\" x:xmptk=\"XMP Core 4.4.0-Exiv2\">\n \
+            <rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\">\n  \
+            <!-- <rdf:Description rdf:about='old' xmp:Rating='1'> -->\n  \
+            <rdf:Description rdf:about=\"\"\n    \
+            xmlns:xmp=\"http://ns.adobe.com/xap/1.0/\"\n    \
+            xmlns:dc=\"http://purl.org/dc/elements/1.1/\"\n    \
+            xmlns:darktable=\"http://darktable.sf.net/\"\n    \
+            xmp:Rating=\"2\" darktable:xmp_version=\"5\" darktable:history_end=\"1\">\n   \
+            <?darktable note='it's mine'?>\n   \
+            <darktable:history>\n    <rdf:Seq>\n     <rdf:li darktable:operation=\"exposure\" \
+            darktable:enabled=\"1\" darktable:params=\"0000\"/>\n    </rdf:Seq>\n   \
+            </darktable:history>\n   <dc:description>\n    <rdf:Alt>\n     \
+            <rdf:li xml:lang=\"x-default\"><![CDATA[Bob's \"boat\" <b>]]></rdf:li>\n    \
+            </rdf:Alt>\n   </dc:description>\n   <dc:subject>\n    <rdf:Seq>\n     \
+            <rdf:li>Oslo</rdf:li>\n    </rdf:Seq>\n   </dc:subject>\n  </rdf:Description>\n \
+            </rdf:RDF>\n</x:xmpmeta>\n";
+        let digikam = "<?xpacket begin=\"\u{feff}\" id=\"W5M0MpCehiHzreSzNTczkc9d\"?>\n\
+            <x:xmpmeta xmlns:x=\"adobe:ns:meta/\" x:xmptk=\"XMP Core 4.4.0-Exiv2\">\n \
+            <rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\">\n  \
+            <rdf:Description rdf:about=\"\"\n    \
+            xmlns:xmp=\"http://ns.adobe.com/xap/1.0/\"\n    \
+            xmlns:tiff=\"http://ns.adobe.com/tiff/1.0/\"\n    \
+            xmlns:dc=\"http://purl.org/dc/elements/1.1/\"\n    \
+            xmlns:digiKam=\"http://www.digikam.org/ns/1.0/\"\n    \
+            xmp:Rating=\"4\">\n   <dc:title>\n    <rdf:Alt>\n     <rdf:li xml:lang=\"x-default\">\
+            <![CDATA[Where's </dc:title> <dc:subject>]]></rdf:li>\n    </rdf:Alt>\n   \
+            </dc:title>\n   <dc:description>\n    <rdf:Alt>\n     \
+            <rdf:li xml:lang=\"x-default\">It's<!-- a ' --> <![CDATA[<b>]]>bold</rdf:li>\n    \
+            </rdf:Alt>\n   </dc:description>\n   <tiff:Orientation>6</tiff:Orientation>\n   \
+            <digiKam:TagsList>\n    <rdf:Seq>\n     \
+            <rdf:li>Places/Oslo</rdf:li>\n    </rdf:Seq>\n   </digiKam:TagsList>\n   \
+            <dc:subject>\n    <rdf:Bag>\n     <rdf:li>Oslo</rdf:li>\n    </rdf:Bag>\n   \
+            </dc:subject>\n  </rdf:Description>\n </rdf:RDF>\n</x:xmpmeta>\n\
+            <?xpacket end=\"w\"?>";
+        let comments = [
+            (lightroom, "It's <b>bold</b>"),
+            (darktable, "Bob's \"boat\" <b>"),
+            (digikam, "It's <b>bold"),
+        ];
+        let count = |xmp: &str, name: &str| {
+            (super::properties(xmp).list.into_iter())
+                .filter(|(found, ..)| found == name)
+                .count()
+        };
+        for (packet, comment) in comments {
+            let read = parse(packet);
+            assert_eq!(read.keywords, ["Oslo"], "{packet}");
+            assert_eq!(read.comment, comment, "{packet}");
+            let meta = KeywordsAndComment {
+                keywords: vec!["Oslo".into(), "Beach".into()],
+                comment: comment.into(),
+            };
+            let edited = super::set_keywords(packet, &meta, false).unwrap();
+            assert_eq!(parse(&edited), meta, "{edited}");
+            for name in ["dc:subject", "dc:description", "xmp:Rating"] {
+                assert_eq!(count(&edited, name), 1, "{name} in {edited}");
+            }
+            assert_eq!(
+                count(&without_property(packet, "xmp:Rating"), "xmp:Rating"),
+                0
+            );
+            let both = set_keywords_and_comment(packet, &meta, false).unwrap();
+            assert_eq!(count(&both, "dc:subject"), 1, "{both}");
+        }
+        // The Description in darktable's comment is not the one the writers put a property in.
+        let added = set_keywords_and_comment(darktable, &KeywordsAndComment::default(), true);
+        let added = added.unwrap();
+        assert!(added.contains("<!-- <rdf:Description rdf:about='old' xmp:Rating='1'> -->"));
+        assert_eq!(count(&added, "dc:subject"), 1, "{added}");
+        // The orientation after digiKam's CDATA section is found and turned.
+        let mut turned = digikam.as_bytes().to_vec();
+        crate::metadata::exif::set_xmp_orientation(&mut turned, 1);
+        let turned = String::from_utf8(turned).unwrap();
+        assert!(
+            turned.contains("<tiff:Orientation>1</tiff:Orientation>"),
+            "{turned}"
+        );
+        assert!(turned.contains("<![CDATA[Where's </dc:title> <dc:subject>]]>"));
     }
 
     /// A keyword tree file damaged in any way is read without a panic.
