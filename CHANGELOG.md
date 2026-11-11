@@ -19,8 +19,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
   the name. Such a window also reads a folder opened with `--remote open`, and takes a file
   job's report, while it is not shown, so its busy pointer goes and a `--wait` is answered.
 - A window whose remote control socket, left by a Glimt gone, cannot be removed says why, at
-  start and at a rename. Before, it said that a Glimt of that name was running when none was,
-  and a rename shared the name under the window's process ID or was refused.
+  start and at a rename, and shares the name under its process ID. Before, it said that a Glimt
+  of that name was running when none was.
 - The PDF that the print portal prints is made readable by its user alone. Before, other users
   of the computer could read it in the moment before its name was removed.
 - A print whose page image could not be made fails and says so. Before, that page printed
@@ -57,10 +57,13 @@ and versions follow [Semantic Versioning](https://semver.org/).
   question came back at every start with no way out.
 - A keyword, stars or a rename that waits while another window's Rename Many swaps its photo's
   name is refused, and no longer goes on the other photo.
-- Marks and stars never follow a moved or renamed file to a name where nothing is, where a
-  later file of that name would get them. Leaving the names of a Rename Many cut short, after
-  a repair that stopped half way, gives the marks and collection entries only to the files at
-  their new names.
+- Marks and stars of a move read from a record (a Rename Many cut short, or a Move's log found
+  at the start) never follow a file to a name where nothing is, where a later file of that name
+  would get them. Leaving the names of a Rename Many cut short, after a repair that stopped half
+  way, gives the marks and collection entries only to the files at their new names. A name that
+  a share does not answer for keeps the move, and says so, so that a swap never gives one
+  photo's marks to the other. A Leave whose plan another window has open, or that cannot be
+  opened, says so and is asked about again.
 - Stars on many files of a network share no longer make Glimt look at each file first, which
   held the settings and a close for minutes on a large folder.
 - A folder in Open Recent that a share did not answer for at once is no longer forgotten as
