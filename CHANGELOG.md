@@ -5,6 +5,22 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- Delete for good keeps a photo's sidecar, with its keywords and stars, when the photo could not
+  be looked at after the delete, as on a share that dropped for a moment. Before, the sidecar
+  was deleted while the photo might still be there. A name counts as gone only when the system
+  says that it is not there, also for a move, a rename and the trash.
+- A move, rename or copy on rclone, s3fs or MTP never renames over a name that it could not
+  look at, nor over a link that points nowhere. Before, a failed look let the rename go over
+  the file there.
+- A link or pipe put in Glimt's runtime folder no longer empties the file it points to, nor
+  holds the remote control or a sidecar write for good. The lock files there are opened as the
+  collections' are: never through a link, never emptied, and only a regular file.
+- A photo turned, or changed by a tool, after a move of many thousands of files no longer holds
+  the window while Glimt looks up the real path of every moved file. `--remote selection` with
+  500,000 files selected answers in some 10 ms rather than 50 ms.
+
 ## [0.80.1] - 2026-11-11
 
 ### Fixed
