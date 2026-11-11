@@ -3912,3 +3912,8 @@ msgstr "ein anderes Fenster hat sie geöffnet"
 #, fuzzy
 msgid "The file dialog did not answer with full paths, so nothing was opened"
 msgstr "Der Dateidialog hat nicht mit vollständigen Pfaden geantwortet, daher wurde nichts geöffnet"
+
+#: src/files/file_io.rs
+#, fuzzy
+msgid "Could not lock {name}: {e}. A change that another Glimt window makes at the same moment may be lost."
+msgstr "Konnte {name} nicht sperren: {e}. Eine Änderung, die ein anderes Glimt-Fenster im selben Moment vornimmt, kann verloren gehen."

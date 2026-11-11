@@ -1276,7 +1276,32 @@ pub fn wait_for_queued_writes() {
 /// without the lock, when the lock file cannot be made or is not a regular file.
 pub fn file_lock(path: &Path) -> Option<std::fs::File> {
     let name = path.file_name()?.to_string_lossy();
-    open_and_lock(&path.with_file_name(format!(".{name}.lock"))).ok()
+    lock_or_tell(&path.with_file_name(format!(".{name}.lock")))
+}
+
+/// `open_and_lock` for an edit that goes on without the lock when it cannot be had, as on a
+/// share without file locks (NFS without lockd). The user is told so, once for each Glimt,
+/// because a change that another window makes at the same moment may then be lost. Returns
+/// `None` when the lock cannot be had.
+pub fn lock_or_tell(path: &Path) -> Option<std::fs::File> {
+    let e = match open_and_lock(path) {
+        Ok(lock) => return Some(lock),
+        Err(e) => e,
+    };
+    // Every test is told, as each one takes its own errors.
+    #[cfg(not(test))]
+    {
+        static TOLD: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+        if TOLD.swap(true, std::sync::atomic::Ordering::Relaxed) {
+            return None;
+        }
+    }
+    save_failed(crate::tf!(
+        "Could not lock {name}: {e}. A change that another Glimt window makes at the same moment may be lost.",
+        name = path.display(),
+        e
+    ));
+    None
 }
 
 /// Opens the lock file `path`, making it when it is not there, and waits for its lock, which
@@ -2686,6 +2711,28 @@ mod tests {
         symlink(&victim, &tmp).unwrap();
         drop(super::create_temp_beside(&tmp, &photo).unwrap());
         assert_eq!(std::fs::read_to_string(&victim).unwrap(), "keep");
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A shared file whose lock cannot be had (NFS without lockd) is still edited, and the user
+    /// is told that the edit runs unlocked. Before, the edit went on without a word, and a
+    /// change that another window made at the same moment could be lost unseen.
+    #[test]
+    fn an_edit_without_its_lock_is_told() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-no-lock-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let file = dir.join("marks");
+        // A folder where the lock file goes cannot be opened as one, as a share without locks.
+        std::fs::create_dir_all(dir.join(".marks.lock")).unwrap();
+        super::take_saves_failed();
+        let edited = super::edit_shared(&file, |_| (b"new".to_vec(), ()));
+        assert!(edited.is_ok());
+        assert_eq!(std::fs::read(&file).unwrap(), b"new");
+        let told = super::take_saves_failed();
+        assert!(
+            told.iter().any(|e| e.starts_with("Could not lock")),
+            "{told:?}"
+        );
         std::fs::remove_dir_all(dir).unwrap();
     }
 

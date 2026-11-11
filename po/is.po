@@ -3912,3 +3912,8 @@ msgstr "annar gluggi er með þau opin"
 #, fuzzy
 msgid "The file dialog did not answer with full paths, so nothing was opened"
 msgstr "Skráarglugginn svaraði ekki með fullum slóðum, svo ekkert var opnað"
+
+#: src/files/file_io.rs
+#, fuzzy
+msgid "Could not lock {name}: {e}. A change that another Glimt window makes at the same moment may be lost."
+msgstr "Gat ekki læst {name}: {e}. Breyting sem annar Glimt-gluggi gerir á sama augnabliki getur glatast."

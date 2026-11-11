@@ -1966,8 +1966,8 @@ fn bind_where_removed(
     {
         return Err(Some(e));
     }
-    // Another window can take the name between the remove and this bind, as a rename links its
-    // socket there without this lock. Its socket then answers, so it counts as taken.
+    // Another window can take the name between the remove and this bind, as a starting window
+    // binds its socket there without this lock. Its socket then answers, so it counts as taken.
     UnixListener::bind(path).map_err(|e| (e.kind() != std::io::ErrorKind::AddrInUse).then_some(e))
 }
 
@@ -2035,14 +2035,16 @@ fn move_socket(dir: &Path, old: &str, ids: &[String]) -> Result<String, String> 
 }
 
 /// Links this Glimt's socket at `from` to `to` as well, never over a socket that a running
-/// Glimt answers on. One left by a Glimt gone is replaced, under the lock that `bind_socket`
-/// takes too.
+/// Glimt answers on. One left by a Glimt gone is replaced. All of it is done under the lock
+/// that `bind_socket` takes too, also the first link. Made without it, the link could land
+/// between a starting window's look at a left socket and its remove, and that window removed
+/// the new link and took the name.
 fn link_socket(from: &std::path::Path, to: &std::path::Path) -> std::io::Result<()> {
+    let _lock = crate::files::file_io::open_and_lock(&to.with_extension("lock"))?;
     #[allow(clippy::disallowed_methods)] // a link to Glimt's own socket, never over a file
     let first = std::fs::hard_link(from, to);
     match first {
         Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
-            let _lock = crate::files::file_io::open_and_lock(&to.with_extension("lock"))?;
             if answers(to) {
                 return Err(e);
             }
@@ -2325,6 +2327,32 @@ mod tests {
         });
         assert!(replaced);
         assert!(std::os::unix::net::UnixStream::connect(&c).is_ok());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A rename's first link to the new name waits for the lock that a starting window holds
+    /// while it looks at a socket left there and removes it. Before, the link was made at once,
+    /// and the starting window removed it and took the name, so the renamed window had none.
+    #[test]
+    fn a_new_names_first_link_waits_for_the_lock() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-link-lock-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let (a, b) = (dir.join("a.sock"), dir.join("b.sock"));
+        let _listener = std::os::unix::net::UnixListener::bind(&a).unwrap();
+        let starting_windows_lock =
+            crate::files::file_io::open_and_lock(&b.with_extension("lock")).unwrap();
+        let (a_too, b_too) = (a.clone(), b.clone());
+        let linking = std::thread::spawn(move || super::link_socket(&a_too, &b_too));
+        std::thread::sleep(std::time::Duration::from_millis(300));
+        let linked_while_held = b.exists();
+        drop(starting_windows_lock);
+        linking.join().unwrap().unwrap();
+        assert!(
+            !linked_while_held,
+            "linked while a starting window starting_windows_lock the lock"
+        );
+        assert!(std::os::unix::net::UnixStream::connect(&b).is_ok());
         std::fs::remove_dir_all(dir).unwrap();
     }
 
