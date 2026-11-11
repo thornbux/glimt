@@ -1810,8 +1810,23 @@ fn bind_socket(path: &std::path::Path) -> Result<UnixListener, Option<std::io::E
         return Err(None);
     }
     #[allow(clippy::disallowed_methods)] // Glimt's own: a socket left by a Glimt gone
-    // Not told: a socket that stays makes the bind below fail, and that failure is returned.
-    let _ = std::fs::remove_file(path);
+    let removed = std::fs::remove_file(path);
+    bind_where_removed(path, removed)
+}
+
+/// Binds the socket at `path` after the socket left there was removed, as `removed` says.
+/// Returns the remove's own error when the left socket stays, because the bind would then fail
+/// as if a running Glimt had the name. Returns `Err(None)` when another window took the name
+/// after the remove.
+fn bind_where_removed(
+    path: &std::path::Path,
+    removed: std::io::Result<()>,
+) -> Result<UnixListener, Option<std::io::Error>> {
+    if let Err(e) = removed
+        && e.kind() != std::io::ErrorKind::NotFound
+    {
+        return Err(Some(e));
+    }
     // Another window can take the name between the remove and this bind, as a rename links its
     // socket there without this lock. Its socket then answers, so it counts as taken.
     UnixListener::bind(path).map_err(|e| (e.kind() != std::io::ErrorKind::AddrInUse).then_some(e))
@@ -1887,8 +1902,13 @@ fn link_socket(from: &std::path::Path, to: &std::path::Path) -> std::io::Result<
                 return Err(e);
             }
             #[allow(clippy::disallowed_methods)] // Glimt's own: a socket left by a Glimt gone
-            // Not told: the link just below then fails, and its error is returned.
-            let _ = std::fs::remove_file(to);
+            let removed = std::fs::remove_file(to);
+            // A left socket that stays would make the link fail as if a Glimt had the name.
+            if let Err(e) = removed
+                && e.kind() != std::io::ErrorKind::NotFound
+            {
+                return Err(e);
+            }
             #[allow(clippy::disallowed_methods)] // a link to Glimt's own socket, never over a file
             std::fs::hard_link(from, to)
         }
@@ -1995,7 +2015,7 @@ pub fn close() {
     {
         #[allow(clippy::disallowed_methods)] // Glimt's own: its socket
         // Not told: the window is closing, and the next Glimt of this name replaces a socket
-        // that nobody answers on (`bind_socket`).
+        // that nobody answers on, or tells why it cannot (`bind_socket`).
         let _ = std::fs::remove_file(path);
     }
 }
@@ -3047,14 +3067,32 @@ mod tests {
     /// A socket that another window takes after a left one was removed and before this window
     /// binds its own, as by a rename to this name, counts as taken. The window then shares the
     /// name under its own ID. Before, it had no remote control. A folder stands in for the
-    /// other window's socket, as it cannot be removed either.
+    /// other window's socket.
     #[test]
     fn a_socket_taken_while_a_left_one_is_replaced_counts_as_taken() {
         let path = std::env::temp_dir().join(format!("glimt-taken-{}.sock", std::process::id()));
         std::fs::create_dir_all(&path).unwrap();
-        assert!(super::bind_socket(&path).is_err_and(|e| e.is_none()));
-        std::fs::remove_file(path.with_extension("lock")).unwrap();
+        assert!(super::bind_where_removed(&path, Ok(())).is_err_and(|e| e.is_none()));
         std::fs::remove_dir(path).unwrap();
+    }
+
+    /// A left socket that cannot be removed is told with the remove's own error, both when the
+    /// window starts and when it is renamed. Before, the window was told that a Glimt of that
+    /// name runs already when none did, and a rename went on to the next name. A folder stands
+    /// in for such a socket, as no user, root neither, can remove it as a file.
+    #[test]
+    fn a_left_socket_that_stays_is_told_with_its_own_error() {
+        let dir =
+            std::env::temp_dir().join(format!("glimt-test-left-stays-{}", std::process::id()));
+        let socket = |id: &str| dir.join(super::socket_name(id));
+        std::fs::create_dir_all(socket("left")).unwrap();
+        assert!(super::bind_socket(&socket("left")).is_err_and(|e| e.is_some()));
+        let _own = std::os::unix::net::UnixListener::bind(socket("old")).unwrap();
+        let ids = ["left".to_owned(), "left.42".to_owned()];
+        let moved = super::move_socket(&dir, "old", &ids);
+        assert!(moved.is_err_and(|why| !why.contains("runs already")));
+        assert!(std::os::unix::net::UnixStream::connect(socket("old")).is_ok());
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     /// `--remote selection` answers each selected file's path as `App::path` makes it, also for
