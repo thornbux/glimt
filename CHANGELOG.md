@@ -92,6 +92,16 @@ and versions follow [Semantic Versioning](https://semver.org/).
   replace. A file put at the name while the copy or the PDF was made, or at a name that was free
   when it was picked, is left as it is, and the save says why. Save As and Copy for Sharing no
   longer copy another photo that took the name of the one picked while their dialog was open.
+- Rename Collection leaves alone a file that another program put at the collection's name while
+  its dialog was open, and says so. Before, that file was renamed.
+- A RAW photo moved back to its sidecar, because Adobe's sidecar of its name stem could not
+  follow, goes back only while it is still the photo that was moved. Before, a file another
+  program put at the new name meanwhile was moved instead.
+- Remote control is not started in a runtime folder that cannot be made private to the user,
+  and the reason is printed. Before, it listened there.
+- A move to another disk whose source could not be removed, and whose copy then could not be
+  taken back, says that the file may be under both names. Before, it said only that the source
+  could not be removed.
 
 ## [0.80.1] - 2026-11-11
 
