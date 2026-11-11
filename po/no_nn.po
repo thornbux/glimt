@@ -3928,3 +3928,13 @@ msgstr "eit anna vindauge har dei opne"
 #, fuzzy
 msgid "The file dialog did not answer with full paths, so nothing was opened"
 msgstr "Fildialogen svarte ikkje med fullstendige stiar, så ingenting vart opna"
+
+#: src/files/file_io.rs
+#, fuzzy
+msgid "Could not lock {name}: {e}. A change that another Glimt window makes at the same moment may be lost."
+msgstr "Kunne ikkje låse {name}: {e}. Ei endring som eit anna Glimt-vindauge gjer i same augneblinken, kan gå tapt."
+
+#: src/metadata/xmp.rs
+#, fuzzy
+msgid "{sidecar} could not be moved ({e}), so it was copied to {copy} and is still at its old name too"
+msgstr "{sidecar} kunne ikkje flyttast ({e}), så ho vart kopiert til {copy} og ligg framleis under det gamle namnet òg"

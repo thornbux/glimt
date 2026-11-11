@@ -7,6 +7,7 @@
 
 use crate::files::config::fits_on_a_line;
 use crate::files::file_io::ListedFile;
+use crate::images::save::FileId;
 use crate::support::format::without_control_characters;
 use crate::support::threads::lock_even_if_poisoned;
 use std::path::{Path, PathBuf};
@@ -276,6 +277,82 @@ pub struct NotFollowed {
     /// Each sidecar that followed, `(from, to, was_copy)`. The caller takes these back only
     /// once the file itself is back, so that they never part from it.
     pub followed: Vec<(PathBuf, PathBuf, bool)>,
+    /// Each sidecar among those that followed that was copied, as it could not be moved.
+    pub left_behind: Vec<LeftBehind>,
+}
+
+/// A sidecar that could not be moved with its file and was copied to its new name instead
+/// (`follow`), as a sidecar of someone else's in a shared folder cannot be moved. It also stays
+/// at its old name, where the next file of that name would read it as its own, so the user is
+/// told.
+#[derive(Debug)]
+pub struct LeftBehind {
+    pub sidecar: PathBuf,
+    pub copy: PathBuf,
+    /// Why it could not be moved.
+    pub error: std::io::Error,
+}
+
+impl LeftBehind {
+    /// Returns the text that tells the user where the sidecar is still, and why.
+    pub fn told(&self) -> String {
+        let (sidecar, copy, e) = (self.sidecar.display(), self.copy.display(), &self.error);
+        crate::tf!(
+            "{sidecar} could not be moved ({e}), so it was copied to {copy} and is still at its old name too",
+            sidecar,
+            e,
+            copy
+        )
+    }
+}
+
+/// A property at the top of an rdf:Description, an attribute of its start tag or an element
+/// just inside it (`top_level_properties`). Each range is a place in the packet.
+pub(crate) struct TopLevelProperty {
+    /// The name as written, such as "dc:subject".
+    pub(crate) name: std::ops::Range<usize>,
+    /// The whole property: an attribute from its name to its closing quote, an element from its
+    /// "<" to the end of its end tag or of its "/>".
+    pub(crate) whole: std::ops::Range<usize>,
+    /// The value: an attribute's text between its quotes, or what is between an element's start
+    /// and end tags, which is nothing for an empty element.
+    pub(crate) value: std::ops::Range<usize>,
+    pub(crate) is_attribute: bool,
+}
+
+/// A forward search for a text in a packet, for places asked in rising order. A search goes on
+/// from where the last one ended, so all of them together read the packet once, however many
+/// places are asked (`top_level_properties`).
+struct ForwardSearch<'a> {
+    hay: &'a [u8],
+    what: &'a [u8],
+    /// What the last search found, if one was made. A search that found nothing holds for every
+    /// later place too.
+    found: Option<Option<usize>>,
+}
+
+impl<'a> ForwardSearch<'a> {
+    fn new(hay: &'a [u8], what: &'a [u8]) -> Self {
+        ForwardSearch {
+            hay,
+            what,
+            found: None,
+        }
+    }
+
+    /// Returns the first place of the text at or after `from`, or `None` when there is none.
+    /// `from` is never smaller than in the call before.
+    fn at(&mut self, from: usize) -> Option<usize> {
+        if let Some(found) = self.found
+            && found.is_none_or(|f| f >= from)
+        {
+            return found;
+        }
+        let rest = self.hay.get(from..).unwrap_or_default();
+        let found = find_bytes(rest, self.what).map(|i| from + i);
+        self.found = Some(found);
+        found
+    }
 }
 
 fn parse_alt_text(xmp: &str) -> AltText {
@@ -293,10 +370,10 @@ pub fn read_all(path: &Path) -> (KeywordsAndComment, Vec<String>, AltText) {
     let side = own_sidecar_text(path);
     let inside = std::cell::OnceCell::new();
     let inside = || inside.get_or_init(|| embedded(path)).clone();
-    let has_meta = |x: &String| x.contains("<dc:subject") || x.contains("<dc:description");
-    let has_alt_text =
-        |x: &String| x.contains(&format!("<{ALT}")) || x.contains(&format!("<{EXTENDED}"));
-    let source = side.clone().filter(has_meta).or_else(inside);
+    let has_alt_text = |x: &String| has_element(x, ALT) || has_element(x, EXTENDED);
+    let source = (side.clone())
+        .filter(|x| has_keywords_or_comment(x))
+        .or_else(inside);
     let alt_text = side.filter(has_alt_text).or_else(inside);
     (
         source
@@ -412,10 +489,14 @@ fn tree_paths_in(xmp: &str) -> Vec<String> {
 /// The XMP the keywords and comment of `path` come from. It is the sidecar if that has them,
 /// and otherwise the image's own.
 fn source(path: &Path) -> Option<String> {
-    let has = |x: &String| x.contains("<dc:subject") || x.contains("<dc:description");
     own_sidecar_text(path)
-        .filter(has)
+        .filter(|x| has_keywords_or_comment(x))
         .or_else(|| embedded(path))
+}
+
+/// Whether `xmp` has keywords or a comment, as top-level elements (`has_element`).
+fn has_keywords_or_comment(xmp: &str) -> bool {
+    has_element(xmp, "dc:subject") || has_element(xmp, "dc:description")
 }
 
 /// Reads the sidecar of `path` as text for the panel and the search. Returns `None` when there
@@ -531,17 +612,13 @@ fn write_keywords(
     // The image's own lists are countered in the sidecar, as its dc:subject is.
     let lists_in_image: Vec<&str> = (SLASHED_TREE_LISTS.iter())
         .map(|(list, ..)| *list)
-        .filter(|list| {
-            inside
-                .as_deref()
-                .is_some_and(|x| x.contains(&format!("<{list}")))
-        })
+        .filter(|list| inside.as_deref().is_some_and(|x| has_element(x, list)))
         .collect();
     let only_if_there = *meta == KeywordsAndComment::default() && !own;
     update(path, only_if_there, |x| {
         // A sidecar without dc:subject takes the keywords that were read, so that a new one
         // does not hide the image's.
-        if edited == Edited::Comment && x.contains("<dc:subject") {
+        if edited == Edited::Comment && has_element(x, "dc:subject") {
             return set_comment(x, &meta.comment, own);
         }
         let x = with_paths(x.to_owned(), paths)?;
@@ -569,21 +646,23 @@ pub(crate) fn write_for<R>(file: &ListedFile, write: impl FnOnce() -> R) -> (R, 
 /// window's threads and by every other Glimt window. So keywords added in the background, stars
 /// saved and a comment edited in another window meanwhile each keep what the others wrote.
 ///
-/// It is one of 64 locks, chosen by the sidecar's path. Within this Glimt it is a mutex, and
-/// across windows a lock file in Glimt's runtime folder, not one beside the sidecar in the
-/// user's folder. The mutex is always taken, so two threads of this Glimt wait for each other
-/// also when the lock file cannot be made for one of them (a full runtime folder) and can for
-/// the other. There are 64 locks, so a sidecar on a share that stopped answering holds up only
-/// the sidecars of its own lock, not every write of the window. A move holds it too, so a write
-/// that waited finds the photo gone, not its old name free for a sidecar.
+/// It is one of 64 locks, chosen by the sidecar's folder and name (`sidecar_hash`). Within this
+/// Glimt it is a mutex, and across windows a lock file in Glimt's runtime folder, not one beside
+/// the sidecar in the user's folder. The mutex is always taken, so two threads of this Glimt
+/// wait for each other also when the lock file cannot be made for one of them (a full runtime
+/// folder) and can for the other. There are 64 locks, so a sidecar on a share that stopped
+/// answering holds up only the sidecars of its own lock, not every write of the window. A move
+/// holds it too, so a write that waited finds the photo gone, not its old name free for a
+/// sidecar.
 pub(crate) fn lock_sidecar(path: &Path) -> SidecarLock {
     lock_sidecar_in(lock_dir().as_deref(), path)
 }
 
 fn lock_sidecar_in(dir: Option<&Path>, path: &Path) -> SidecarLock {
     let side = sidecar(path);
-    let guard = lock_even_if_poisoned(lock_of(sidecar_lock_key(&side)));
-    (dir.and_then(|d| lock_file(d, &side)), guard)
+    let hash = sidecar_hash(&side, folder_id(&side).as_ref());
+    let guard = lock_even_if_poisoned(lock_of(sidecar_lock_key(hash)));
+    (dir.and_then(|d| lock_file(d, hash % 64)), guard)
 }
 
 /// `lock_sidecar` for many files at once, as Rename Many and a delete move a photo and then its
@@ -598,16 +677,22 @@ fn lock_sidecars_in<'a>(
     dir: Option<&Path>,
     paths: impl IntoIterator<Item = &'a PathBuf>,
 ) -> Vec<SidecarLock> {
-    let mut sides: Vec<(u64, PathBuf)> = (paths.into_iter())
-        .map(|p| sidecar(p))
-        .map(|s| (sidecar_lock_key(&s), s))
+    // Each folder is looked at once, so 500,000 photos of one folder cost one look.
+    let mut folders: std::collections::HashMap<PathBuf, Option<FileId>> = Default::default();
+    let mut hashes: Vec<u64> = (paths.into_iter())
+        .map(|p| {
+            let side = sidecar(p);
+            let folder = side.parent().unwrap_or(Path::new("")).to_path_buf();
+            let id = folders.entry(folder).or_insert_with(|| folder_id(&side));
+            sidecar_hash(&side, id.as_ref())
+        })
         .collect();
-    sides.sort_by_key(|s| s.0);
-    sides.dedup_by_key(|s| s.0);
-    (sides.iter())
-        .map(|(n, side)| {
-            let guard = lock_even_if_poisoned(lock_of(*n));
-            (dir.and_then(|d| lock_file(d, side)), guard)
+    hashes.sort_by_key(|&h| sidecar_lock_key(h));
+    hashes.dedup_by_key(|h| sidecar_lock_key(*h));
+    (hashes.iter())
+        .map(|&hash| {
+            let guard = lock_even_if_poisoned(lock_of(sidecar_lock_key(hash)));
+            (dir.and_then(|d| lock_file(d, hash % 64)), guard)
         })
         .collect()
 }
@@ -623,38 +708,64 @@ fn lock_dir() -> Option<PathBuf> {
     return crate::features::remote::runtime_dir().map(|d| d.join("sidecar-locks"));
 }
 
-fn lock_file(dir: &Path, side: &Path) -> Option<std::fs::File> {
+/// Takes the lock file `number` in `dir`, the number that `sidecar_lock_number` gives a sidecar.
+fn lock_file(dir: &Path, number: u64) -> Option<std::fs::File> {
     use std::os::unix::fs::DirBuilderExt;
     let _ = std::fs::DirBuilder::new()
         .recursive(true)
         .mode(0o700)
         .create(dir);
-    crate::files::file_io::open_and_lock(&dir.join(sidecar_lock_number(side).to_string())).ok()
+    crate::files::file_io::lock_or_tell(&dir.join(number.to_string()))
 }
 
-/// Which of the 64 lock files a sidecar has. It is FNV-1a of its path's bytes, the same in
-/// every Glimt, also one built with another Rust, whose own hasher may differ.
+/// Which of the 64 lock files a sidecar has (`sidecar_hash`), for the tests that pick sidecars
+/// of other locks.
+#[cfg(test)]
 pub(crate) fn sidecar_lock_number(side: &Path) -> u64 {
-    fnv(side) % 64
+    sidecar_hash(side, folder_id(side).as_ref()) % 64
 }
 
-/// Returns FNV-1a of the bytes of the path `side`.
-fn fnv(side: &Path) -> u64 {
+/// Returns who the folder of the sidecar `side` is (`save::file_id`), or `None` when it cannot
+/// be looked at.
+fn folder_id(side: &Path) -> Option<FileId> {
+    let folder = side.parent().filter(|f| !f.as_os_str().is_empty());
+    crate::images::save::file_id(folder.unwrap_or(Path::new(".")))
+}
+
+/// Returns FNV-1a of who the folder of the sidecar `side` is, `folder` (`folder_id`), and of
+/// the sidecar's name. So two windows that reach one folder by two paths (a link to it, a bind
+/// mount) take the same lock for its sidecars. It is the same in every Glimt, also one built
+/// with another Rust, whose own hasher may differ. A folder that could not be looked at is
+/// taken by the sidecar's path as written.
+fn sidecar_hash(side: &Path, folder: Option<&FileId>) -> u64 {
     use std::os::unix::ffi::OsStrExt;
-    (side.as_os_str().as_bytes().iter()).fold(0xcbf2_9ce4_8422_2325_u64, |h, &b| {
+    let name = side.file_name().unwrap_or_default().as_bytes();
+    let bytes = match folder {
+        Some(Ok((device, inode))) => {
+            [&device.to_le_bytes()[..], &inode.to_le_bytes(), name].concat()
+        }
+        Some(Err(real)) => [real.as_os_str().as_bytes(), b"/", name].concat(),
+        None => side.as_os_str().as_bytes().to_vec(),
+    };
+    fnv(&bytes)
+}
+
+/// Returns FNV-1a of `bytes`.
+fn fnv(bytes: &[u8]) -> u64 {
+    (bytes.iter()).fold(0xcbf2_9ce4_8422_2325_u64, |h, &b| {
         (h ^ b as u64).wrapping_mul(0x100_0000_01b3)
     })
 }
 
-/// Returns the number of the mutex that the sidecar `side` takes: `sidecar_lock_number`. In
-/// tests every sidecar has a mutex of its own, because the tests run side by side in one
-/// process. A test that held a lock on purpose for seconds held up another test's sidecar of
-/// the same number, and that test timed out.
-fn sidecar_lock_key(side: &Path) -> u64 {
+/// Returns the number of the mutex that the sidecar of the hash `hash` (`sidecar_hash`) takes,
+/// which is its lock file's number. In tests every sidecar has a mutex of its own, because the
+/// tests run side by side in one process. A test that held a lock on purpose for seconds held up
+/// another test's sidecar of the same number, and that test timed out.
+fn sidecar_lock_key(hash: u64) -> u64 {
     #[cfg(test)]
-    return fnv(side);
+    return hash;
     #[cfg(not(test))]
-    return sidecar_lock_number(side);
+    return hash % 64;
 }
 
 /// Returns the mutex of the lock number `key` (`sidecar_lock_key`).
@@ -890,9 +1001,11 @@ pub(crate) fn sidecars_of(paths: &[PathBuf]) -> Vec<PathBuf> {
 }
 
 /// Copies or moves the sidecars of `from` (`sidecars_moving_with`) with the file that went to
-/// `to`. Every sidecar is tried, also after one that could not follow. Returns, when one could
-/// not, those that failed and those that followed: the caller then moves the file back first and
-/// takes these back only once it is there, so that the file and its sidecars end in one place.
+/// `to`. Every sidecar is tried, also after one that could not follow. Returns the sidecars
+/// that could not be moved and were copied, which stay at their old names too, for the caller
+/// to tell. Returns, when one could not follow, those that failed and those that followed: the
+/// caller then moves the file back first and takes these back only once it is there, so that
+/// the file and its sidecars end in one place.
 /// `names` holds the folders that the operation has read already. `moving` are all the files
 /// that a move takes, so that two RAW files of one name stem moved together take Adobe's
 /// sidecar with the first of them, whatever their order. A copy passes none, because both
@@ -903,11 +1016,13 @@ pub fn follow(
     is_copy: bool,
     moving: &std::collections::HashSet<&PathBuf>,
     names: &mut AdobeNames,
-) -> Result<(), NotFollowed> {
+) -> Result<Vec<LeftBehind>, NotFollowed> {
     // Each sidecar is found here, at the move, not picked before it, so it is the photo's
-    // sidecar by what it is now. Each step returns whether the sidecar was copied, or `None`
-    // when nothing was put at its new name.
-    let follow_one = |side: &Path, to: &Path| -> std::io::Result<Option<bool>> {
+    // sidecar by what it is now. Each step returns whether the sidecar was copied, with the
+    // error of the move when it was copied as it could not be moved, or `None` when nothing was
+    // put at its new name.
+    type Followed = Option<(bool, Option<std::io::Error>)>;
+    let follow_one = |side: &Path, to: &Path| -> std::io::Result<Followed> {
         // A link is no sidecar to copy. Moved, it goes as itself on the same disk, or it stays.
         // One that cannot be looked at may be a link, so it is not copied, and its failure is
         // told as the sidecar's.
@@ -916,34 +1031,48 @@ pub fn follow(
                 true => Ok(None),
                 false => Ok(crate::files::file_io::rename_never_over(side, to)
                     .ok()
-                    .map(|()| false)),
+                    .map(|()| (false, None))),
             };
         }
         // The sidecar goes as the file went. It is on disk before the original goes, and never
         // over a sidecar there, which belongs to another file or is a copy kept on purpose. A
         // sidecar that cannot be moved (someone else's in a shared folder) is copied, so the
-        // keywords go with the photo. A move whose answer was lost may have been done, so it is
-        // not tried again as a copy, which would only find the sidecar at both names or at
-        // neither, and hide the lost answer. Its caller settles where the sidecar is.
+        // keywords go with the photo. It is left at its old name too, which the caller tells. A
+        // move whose answer was lost may have been done, so it is not tried again as a copy,
+        // which would only find the sidecar at both names or at neither, and hide the lost
+        // answer. Its caller settles where the sidecar is.
         match crate::files::file_io::put_file(side, to, is_copy) {
             Err(e) if !is_copy && crate::files::file_io::may_have_been_done(&e, side) => Err(e),
-            Err(_) if !is_copy => {
-                crate::files::file_io::put_file(side, to, true).map(|()| Some(true))
+            Err(error) if !is_copy => {
+                crate::files::file_io::put_file(side, to, true).map(|()| Some((true, Some(error))))
             }
-            done => done.map(|()| Some(is_copy)),
+            done => done.map(|()| Some((is_copy, None))),
         }
     };
-    let (mut followed, mut failed) = (Vec::new(), Vec::new());
+    let (mut followed, mut failed, mut left_behind) = (Vec::new(), Vec::new(), Vec::new());
     for (side, to) in sidecars_moving_with(from, to, moving, names) {
         match follow_one(&side, &to) {
-            Ok(Some(was_copy)) => followed.push((side, to, was_copy)),
+            Ok(Some((was_copy, not_moved))) => {
+                if let Some(error) = not_moved {
+                    left_behind.push(LeftBehind {
+                        sidecar: side.clone(),
+                        copy: to.clone(),
+                        error,
+                    });
+                }
+                followed.push((side, to, was_copy));
+            }
             Ok(None) => {}
             Err(error) => failed.push((side, to, error)),
         }
     }
     match failed.is_empty() {
-        true => Ok(()),
-        false => Err(NotFollowed { failed, followed }),
+        true => Ok(left_behind),
+        false => Err(NotFollowed {
+            failed,
+            followed,
+            left_behind,
+        }),
     }
 }
 
@@ -1067,21 +1196,19 @@ fn element(xmp: &str, tag: &str) -> Option<String> {
     Some(xmp[start..end].to_owned())
 }
 
-/// Returns where the first element `tag` of `xmp` starts and where it ends, as
-/// `save::xmp_without_property` ends it (`save::element_end_after_start_tag`). Returns `None`
-/// when there is none, or when its end tag is missing.
+/// Whether `xmp` has the top-level element `tag` (`top_level_properties`). A search for its
+/// name would also find one inside another property, such as another document's in
+/// xmpMM:Pantry.
+fn has_element(xmp: &str, tag: &str) -> bool {
+    element_span(xmp, tag).is_some()
+}
+
+/// Returns where the first top-level element `tag` of `xmp` starts and where it ends
+/// (`top_level_properties`). Returns `None` when there is none, or when its end tag is missing.
 fn element_span(xmp: &str, tag: &str) -> Option<(usize, usize)> {
-    let start = xmp.find(&format!("<{tag}"))?;
-    let gt = start + xmp[start..].find('>')?;
-    let close = format!("</{tag}>");
-    let find_close = |from: usize| xmp[from..].find(&close).map(|e| from + e);
-    let end = crate::images::save::element_end_after_start_tag(
-        xmp.as_bytes(),
-        gt,
-        close.as_bytes(),
-        find_close,
-    )?;
-    Some((start, end))
+    (top_level_properties(xmp.as_bytes()).into_iter())
+        .find(|found| !found.is_attribute && xmp[found.name.clone()] == *tag)
+        .map(|found| (found.whole.start, found.whole.end))
 }
 
 /// `xmp` with the keywords and comment of `meta`, in its first rdf:Description. The comment
@@ -1164,7 +1291,7 @@ fn with_slashed_tree_lists(xmp: String, lists_in_image: &[&str]) -> Option<Strin
     let paths = list_items(&xmp, "lr:hierarchicalSubject");
     let mut xmp = xmp;
     for (list, container, uri) in SLASHED_TREE_LISTS {
-        if !xmp.contains(&format!("<{list}")) && !lists_in_image.contains(&list) {
+        if !has_element(&xmp, list) && !lists_in_image.contains(&list) {
             continue;
         }
         let mut add = format!("\n   <{list}>\n    <rdf:{container}>\n");
@@ -1247,12 +1374,10 @@ pub(crate) fn without_property(xmp: &str, tag: &str) -> String {
     String::from_utf8(out).unwrap_or_else(|_| xmp.to_owned())
 }
 
-/// Reads the top-level properties of every rdf:Description of `xmp`, written as attributes or as
-/// elements, and every namespace it declares. An attribute is given as the element it stands
-/// for, so a packet written of them holds only elements. A Description is read up to what does
-/// not read as a property (a property cut off, or text between them), and the rest of it is not
-/// read. Each search goes on from where the last one ended, so a hostile packet takes linear
-/// time. A property is named by its namespace (`property_name`).
+/// Reads the top-level properties of every rdf:Description of `xmp` (`top_level_properties`),
+/// written as attributes or as elements, and every namespace it declares. An attribute is given
+/// as the element it stands for, so a packet written of them holds only elements. A property is
+/// named by its namespace (`property_name`).
 pub(crate) fn properties(xmp: &str) -> Properties {
     let mut out = Properties::default();
     let mut namespaces: Vec<(String, String)> = Vec::new();
@@ -1262,30 +1387,175 @@ pub(crate) fn properties(xmp: &str) -> Properties {
         }
     }
     let namespaces = Namespaces::new(namespaces);
-    let mut from = 0;
-    while let Some(found) = xmp[from..].find("<rdf:Description") {
-        let start = from + found;
+    for found in top_level_properties(xmp.as_bytes()) {
+        // The places are at ASCII characters, so each slice is whole UTF-8.
+        let name = &xmp[found.name.clone()];
+        if !name.contains(':') {
+            continue;
+        }
+        let element = match found.is_attribute {
+            true => format!("<{name}>{}</{name}>", &xmp[found.value]),
+            false => xmp[found.whole].to_owned(),
+        };
+        let name = property_name(name, &namespaces);
+        out.list.push((name, element, namespaces.clone()));
+    }
+    out
+}
+
+/// Returns the top-level properties of every rdf:Description of `xmp`, in the order they are
+/// written: the attributes of its start tag, but for the namespace declarations and the rdf:
+/// and xml: ones, and the elements just inside it. What is inside a property is no property of
+/// the photo, such as the Descriptions of other documents in xmpMM:Pantry, so the readers and
+/// editors never see it. It is the one reading of where a property is, for them and for Copy
+/// for Sharing. A Description is read up to what does not read as a property, and the walk
+/// stops there, because what follows cannot be told apart from the inside of a property. A
+/// Description in a comment is passed over. Each search goes on from where the last one ended,
+/// so a hostile packet takes linear time.
+pub(crate) fn top_level_properties(xmp: &[u8]) -> Vec<TopLevelProperty> {
+    const DESCRIPTION: &[u8] = b"<rdf:Description";
+    let mut descriptions = ForwardSearch::new(xmp, DESCRIPTION);
+    let [mut comments, mut comment_ends] = [
+        ForwardSearch::new(xmp, b"<!--"),
+        ForwardSearch::new(xmp, b"-->"),
+    ];
+    let (mut out, mut from) = (Vec::new(), 0);
+    while let Some(start) = descriptions.at(from) {
+        if let Some(open) = comments.at(from)
+            && open < start
+        {
+            match comment_ends.at(open + 4) {
+                Some(end) => from = end + 3,
+                None => break,
+            }
+            continue;
+        }
+        let after_name = start + DESCRIPTION.len();
+        if !xmp.get(after_name).is_some_and(|&c| ends_a_name(c)) {
+            from = after_name;
+            continue;
+        }
         let Some(gt) = start_tag_end(xmp, start) else {
             break;
         };
-        let head = &xmp[start + "<rdf:Description".len()..gt];
-        for (name, value) in attributes(head.trim_end_matches('/')) {
-            if name.contains(':')
-                && !name.starts_with("xmlns:")
-                && !name.starts_with("rdf:")
-                && !name.starts_with("xml:")
-            {
-                let element = format!("<{name}>{value}</{name}>");
-                let name = property_name(name, &namespaces);
-                out.list.push((name, element, namespaces.clone()));
-            }
+        attribute_properties(xmp, after_name..gt, &mut out);
+        if xmp[gt - 1] == b'/' {
+            from = gt + 1;
+            continue;
         }
-        from = gt + 1;
-        if !head.ends_with('/') {
-            from = child_properties(xmp, from, &namespaces, &mut out);
+        match element_properties(xmp, gt + 1, &mut out) {
+            Some(end) => from = end,
+            None => break,
         }
     }
     out
+}
+
+/// Adds the properties written as attributes in `head`, the place of a Description's start tag
+/// after its name, to `out`. It reads up to what does not read as an attribute.
+fn attribute_properties(xmp: &[u8], head: std::ops::Range<usize>, out: &mut Vec<TopLevelProperty>) {
+    let blanks_from = |i: usize| {
+        let i = i.min(head.end);
+        i + (xmp[i..head.end].iter())
+            .take_while(|c| c.is_ascii_whitespace())
+            .count()
+    };
+    let mut at = head.start;
+    loop {
+        let name_start = blanks_from(at);
+        let name_end = name_start
+            + (xmp[name_start..head.end].iter())
+                .take_while(|&&c| is_name_byte(c))
+                .count();
+        let equals = blanks_from(name_end);
+        if name_end == name_start || equals >= head.end || xmp[equals] != b'=' {
+            return;
+        }
+        let open = blanks_from(equals + 1);
+        let quote = xmp[open..head.end].first().copied();
+        let Some(quote) = quote.filter(|&q| q == b'"' || q == b'\'') else {
+            return;
+        };
+        let Some(close) = (xmp[open + 1..head.end].iter()).position(|&c| c == quote) else {
+            return;
+        };
+        let close = open + 1 + close;
+        let name = &xmp[name_start..name_end];
+        let is_property = name.contains(&b':')
+            && !(name.starts_with(b"xmlns:") || name.starts_with(b"rdf:"))
+            && !name.starts_with(b"xml:");
+        if is_property {
+            out.push(TopLevelProperty {
+                name: name_start..name_end,
+                whole: name_start..close + 1,
+                value: open + 1..close,
+                is_attribute: true,
+            });
+        }
+        at = close + 1;
+    }
+}
+
+/// Adds the elements in `xmp` from `from` on, the properties inside a Description, to `out`.
+/// Returns the place just after the Description's end tag, or `None` when something else
+/// stops the reading.
+fn element_properties(
+    xmp: &[u8],
+    mut from: usize,
+    out: &mut Vec<TopLevelProperty>,
+) -> Option<usize> {
+    const END: &[u8] = b"</rdf:Description>";
+    loop {
+        from += (xmp[from..].iter())
+            .take_while(|c| c.is_ascii_whitespace())
+            .count();
+        let rest = &xmp[from..];
+        if let Some(comment) = rest.strip_prefix(b"<!--") {
+            from += 4 + find_bytes(comment, b"-->")? + 3;
+            continue;
+        }
+        if rest.starts_with(END) {
+            return Some(from + END.len());
+        }
+        if rest.first() != Some(&b'<') {
+            return None;
+        }
+        let name_length = rest[1..].iter().take_while(|&&c| is_name_byte(c)).count();
+        let name = from + 1..from + 1 + name_length;
+        if name_length == 0 || !xmp.get(name.end).is_some_and(|&c| ends_a_name(c)) {
+            return None;
+        }
+        let gt = start_tag_end(xmp, from)?;
+        let (value, end) = match xmp[gt - 1] == b'/' {
+            true => (gt + 1..gt + 1, gt + 1),
+            false => {
+                let end = element_end(xmp, gt + 1, &xmp[name.clone()])?;
+                (gt + 1..end - name_length - 3, end)
+            }
+        };
+        out.push(TopLevelProperty {
+            name,
+            whole: from..end,
+            value,
+            is_attribute: false,
+        });
+        from = end;
+    }
+}
+
+/// Whether `c` may be in an XML name, such as "dc:subject". A byte of a letter beyond ASCII is.
+fn is_name_byte(c: u8) -> bool {
+    c.is_ascii_alphanumeric() || matches!(c, b'_' | b'-' | b'.' | b':') || c >= 0x80
+}
+
+/// Whether `c` ends the name of a start tag.
+fn ends_a_name(c: u8) -> bool {
+    c.is_ascii_whitespace() || c == b'>' || c == b'/'
+}
+
+/// Returns the first place of `what` in `hay`, or `None` when it is not there.
+fn find_bytes(hay: &[u8], what: &[u8]) -> Option<usize> {
+    hay.windows(what.len()).position(|w| w == what)
 }
 
 /// The namespaces that `xmp` declares, each as (prefix, URI), in the order they are written.
@@ -1316,57 +1586,8 @@ fn namespace_declarations(xmp: &str) -> Vec<(&str, &str)> {
 /// declaration written `xmlns:dc = "…"` is not declared twice. Returns `None` when `xmp` has no
 /// Description or its start tag does not end.
 pub(crate) fn first_description(xmp: &str) -> Option<(usize, Vec<(&str, &str)>)> {
-    let end = start_tag_end(xmp, xmp.find("<rdf:Description")?)?;
+    let end = start_tag_end(xmp.as_bytes(), xmp.find("<rdf:Description")?)?;
     Some((end, namespace_declarations(&xmp[..end])))
-}
-
-/// Reads the elements in `xmp` from `from` on, as properties of the rdf:Description they are
-/// in, into `read`, named by the packet's namespaces `namespaces` (`property_name`). It reads
-/// up to the end of that Description or what does not read as an element. Returns where it
-/// stopped.
-fn child_properties(
-    xmp: &str,
-    mut from: usize,
-    namespaces: &Namespaces,
-    read: &mut Properties,
-) -> usize {
-    loop {
-        let rest = &xmp[from..];
-        let text = rest.trim_start();
-        from += rest.len() - text.len();
-        if let Some(comment) = text.strip_prefix("<!--") {
-            match comment.find("-->") {
-                Some(end) => from += 4 + end + 3,
-                None => return xmp.len(),
-            }
-            continue;
-        }
-        if !text.starts_with('<') || text.starts_with("</") {
-            return from;
-        }
-        let name_end = text[1..].find(|c: char| c.is_whitespace() || c == '>' || c == '/');
-        let Some(name) = name_end.map(|e| &text[1..1 + e]).filter(|n| is_name(n)) else {
-            return xmp.len();
-        };
-        let Some(gt) = start_tag_end(xmp, from) else {
-            return xmp.len();
-        };
-        let end = if xmp[..gt].ends_with('/') {
-            gt + 1
-        } else {
-            let close = format!("</{name}>");
-            match xmp[gt..].find(&close) {
-                Some(e) => gt + e + close.len(),
-                None => return xmp.len(),
-            }
-        };
-        if name.contains(':') {
-            let name = property_name(name, namespaces);
-            read.list
-                .push((name, xmp[from..end].to_owned(), namespaces.clone()));
-        }
-        from = end;
-    }
 }
 
 /// Returns the name of the property written `name` in a packet that binds its prefixes as
@@ -1404,13 +1625,13 @@ fn name_in_namespace(prefix: &str, local: &str, uri: Option<&str>) -> String {
 
 /// Returns where the start tag that begins at `start` in `xmp` ends, at its '>', past any '>'
 /// in its quoted values, or `None` when it does not end.
-fn start_tag_end(xmp: &str, start: usize) -> Option<usize> {
+fn start_tag_end(xmp: &[u8], start: usize) -> Option<usize> {
     let mut quote = None;
-    for (i, c) in xmp[start..].char_indices() {
+    for (i, &c) in xmp[start..].iter().enumerate() {
         match (quote, c) {
-            (None, '"' | '\'') => quote = Some(c),
+            (None, b'"' | b'\'') => quote = Some(c),
             (Some(q), _) if c == q => quote = None,
-            (None, '>') => return Some(start + i),
+            (None, b'>') => return Some(start + i),
             _ => {}
         }
     }
@@ -1525,7 +1746,7 @@ pub(crate) fn with_own_value_only(
             from = start + end + end_mark.len();
             continue;
         }
-        let Some(gt) = start_tag_end(element, start) else {
+        let Some(gt) = start_tag_end(element.as_bytes(), start) else {
             return String::new();
         };
         let is_empty_element = element[..gt].ends_with('/');
@@ -1558,7 +1779,8 @@ pub(crate) fn with_own_value_only(
         if start > 0 && !is_kept(name, false) {
             from = match is_empty_element {
                 true => gt + 1,
-                false => element_end(element, gt + 1, name),
+                false => element_end(element.as_bytes(), gt + 1, name.as_bytes())
+                    .unwrap_or(element.len()),
             };
             continue;
         }
@@ -1628,33 +1850,34 @@ fn name_inside(
 }
 
 /// Returns where the element `name` whose start tag ends before `from` in `xmp` ends, past its
-/// end tag, counting the elements of the same name inside it. Returns the end of `xmp` when it
-/// does not end.
-fn element_end(xmp: &str, mut from: usize, name: &str) -> usize {
-    let (open, close) = (format!("<{name}"), format!("</{name}>"));
+/// end tag, counting the elements of the same name inside it and passing over comments.
+/// Returns `None` when it does not end.
+fn element_end(xmp: &[u8], mut from: usize, name: &[u8]) -> Option<usize> {
     let mut depth = 1;
-    while let Some(found) = xmp[from..].find('<') {
+    while let Some(found) = xmp[from..].iter().position(|&c| c == b'<') {
         let at = from + found;
         let rest = &xmp[at..];
-        if rest.starts_with(&close) {
+        if let Some(comment) = rest.strip_prefix(b"<!--") {
+            from = at + 4 + find_bytes(comment, b"-->")? + 3;
+            continue;
+        }
+        let closed = rest.strip_prefix(b"</").and_then(|r| r.strip_prefix(name));
+        if closed.is_some_and(|r| r.first() == Some(&b'>')) {
             depth -= 1;
-            from = at + close.len();
+            from = at + name.len() + 3;
             if depth == 0 {
-                return from;
+                return Some(from);
             }
             continue;
         }
-        let Some(gt) = start_tag_end(xmp, at) else {
-            break;
-        };
-        let after_name = rest.strip_prefix(&open).and_then(|r| r.chars().next());
-        let opens = after_name.is_some_and(|c| c.is_whitespace() || c == '>' || c == '/');
-        if opens && !xmp[..gt].ends_with('/') {
+        let gt = start_tag_end(xmp, at)?;
+        let after_name = rest[1..].strip_prefix(name).and_then(|r| r.first());
+        if after_name.is_some_and(|&c| ends_a_name(c)) && xmp[gt - 1] != b'/' {
             depth += 1;
         }
         from = gt + 1;
     }
-    xmp.len()
+    None
 }
 
 /// `text` as XML character data or an attribute's value. The characters that XML 1.0 does not
@@ -1782,6 +2005,46 @@ pub(crate) fn keyword_tree_changed(
 
 #[cfg(test)]
 mod tests {
+    /// The readers and editors see only the photo's own properties, the top-level ones of its
+    /// Descriptions. Before, the keywords of another document in xmpMM:Pantry were read as the
+    /// photo's, and an edit of the keywords, the rating or the orientation changed that
+    /// document's too.
+    #[test]
+    fn what_is_inside_a_property_is_left_alone() {
+        use super::{KeywordsAndComment, parse, set_keywords_and_comment, without_property};
+        let pantry = "<xmpMM:Pantry><rdf:Bag><rdf:li><rdf:Description xmp:Rating=\"2\" \
+             tiff:Orientation=\"6\"><dc:subject><rdf:Bag><rdf:li>theirs</rdf:li></rdf:Bag>\
+             </dc:subject><tiff:Orientation>8</tiff:Orientation></rdf:Description></rdf:li>\
+             </rdf:Bag></xmpMM:Pantry>";
+        let packet = format!(
+            "<x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><rdf:RDF><rdf:Description rdf:about=\"\" \
+             xmlns:dc=\"http://purl.org/dc/elements/1.1/\" \
+             xmlns:xmp=\"http://ns.adobe.com/xap/1.0/\" \
+             xmlns:xmpMM=\"http://ns.adobe.com/xap/1.0/mm/\" \
+             xmlns:tiff=\"http://ns.adobe.com/tiff/1.0/\" tiff:Orientation=\"3\">{pantry}\
+             <dc:subject><rdf:Bag><rdf:li>mine</rdf:li></rdf:Bag></dc:subject>\
+             </rdf:Description></rdf:RDF></x:xmpmeta>"
+        );
+        assert_eq!(parse(&packet).keywords, ["mine"]);
+        let meta = KeywordsAndComment {
+            keywords: vec!["new".into()],
+            comment: String::new(),
+        };
+        let edited = set_keywords_and_comment(&packet, &meta, false).unwrap();
+        assert!(edited.contains(pantry), "{edited}");
+        assert_eq!(parse(&edited).keywords, ["new"]);
+        assert!(without_property(&packet, "xmp:Rating").contains(pantry));
+        let mut turned = packet.clone().into_bytes();
+        crate::metadata::exif::set_xmp_orientation(&mut turned, 1);
+        let turned = String::from_utf8(turned).unwrap();
+        assert!(turned.contains(pantry), "{turned}");
+        assert!(turned.contains("tiff:Orientation=\"1\">"), "{turned}");
+        let subjects = (super::properties(&packet).list.into_iter())
+            .filter(|(name, ..)| name == "dc:subject")
+            .count();
+        assert_eq!(subjects, 1);
+    }
+
     /// A keyword tree file damaged in any way is read without a panic.
     #[test]
     fn survives_broken_keyword_tree() {
@@ -1860,18 +2123,53 @@ mod tests {
     }
 
     /// The lock file of a sidecar is the same in every Glimt, by FNV-1a, as known for these
-    /// paths.
+    /// sidecars: by their folder's device and inode and their name, and by the path as written
+    /// when the folder could not be looked at.
     #[test]
     fn lock_slots_stay() {
         use std::path::Path;
+        let in_folder = super::sidecar_hash(Path::new("/x/a.xmp"), Some(&Ok((1, 2))));
+        assert_eq!(in_folder, 0xb566_284c_907b_9f86);
         assert_eq!(
-            super::sidecar_lock_number(Path::new("")),
-            0xcbf2_9ce4_8422_2325 % 64
+            super::sidecar_hash(Path::new(""), None),
+            0xcbf2_9ce4_8422_2325
         );
         assert_eq!(
-            super::sidecar_lock_number(Path::new("a")),
-            0xaf63_dc4c_8601_ec8c % 64
+            super::sidecar_hash(Path::new("a"), None),
+            0xaf63_dc4c_8601_ec8c
         );
+    }
+
+    /// Two windows that name one folder differently, through a link to it, take the same lock
+    /// for a sidecar in it, and so wait for each other. Before, the lock went by the path as
+    /// written, and both read the old sidecar, so the last write dropped the other's change.
+    #[test]
+    fn one_folder_named_two_ways_has_one_sidecar_lock() {
+        let dir =
+            std::env::temp_dir().join(format!("glimt-test-lock-alias-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let (photos, link) = (dir.join("photos"), dir.join("link"));
+        std::fs::create_dir_all(&photos).unwrap();
+        std::os::unix::fs::symlink(&photos, &link).unwrap();
+        let (real, through_link) = (photos.join("a.jpg"), link.join("a.jpg"));
+        assert_eq!(
+            super::sidecar_lock_number(&super::sidecar(&real)),
+            super::sidecar_lock_number(&super::sidecar(&through_link))
+        );
+        let lock = super::lock_sidecar(&real);
+        let (tx, rx) = std::sync::mpsc::channel();
+        let waiter = std::thread::spawn(move || {
+            let all = super::lock_sidecars([&through_link]);
+            tx.send(()).unwrap();
+            drop(all);
+        });
+        let waited = rx
+            .recv_timeout(std::time::Duration::from_millis(200))
+            .is_err();
+        drop(lock);
+        waiter.join().unwrap();
+        assert!(waited, "the lock through the link did not wait");
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     /// Within one Glimt, a holder whose lock file could not be made waits for one whose could,
@@ -1905,11 +2203,11 @@ mod tests {
     fn sidecar_lock_waits() {
         let dir = std::env::temp_dir().join(format!("glimt-test-locks-{}", std::process::id()));
         let side = std::path::PathBuf::from("/photos/a.xmp");
-        let first = super::lock_file(&dir, &side).unwrap();
+        let first = super::lock_file(&dir, super::sidecar_lock_number(&side)).unwrap();
         let (dir2, side2) = (dir.clone(), side.clone());
         let started = std::time::Instant::now();
         let other = std::thread::spawn(move || {
-            drop(super::lock_file(&dir2, &side2).unwrap());
+            drop(super::lock_file(&dir2, super::sidecar_lock_number(&side2)).unwrap());
             started.elapsed()
         });
         std::thread::sleep(std::time::Duration::from_millis(300));
@@ -1930,7 +2228,7 @@ mod tests {
         std::fs::write(&target, "keep").unwrap();
         let lock = dir.join(super::sidecar_lock_number(&side).to_string());
         std::os::unix::fs::symlink(&target, lock).unwrap();
-        assert!(super::lock_file(&dir, &side).is_none());
+        assert!(super::lock_file(&dir, super::sidecar_lock_number(&side)).is_none());
         assert_eq!(std::fs::read_to_string(&target).unwrap(), "keep");
         std::fs::remove_dir_all(dir).unwrap();
     }
