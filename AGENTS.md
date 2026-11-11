@@ -143,10 +143,12 @@ taken; with `--wait` the client sends it after the word `wait`, and the window a
 its work has ended, `done` or `not done: <reason>` when a write failed meanwhile
 (`answer_awaited_outcomes`).
 
+How the window itself reads each `--remote` command is pinned too: `remote_command` matches
+the words a second time, apart from `COMMANDS`, and `the_window_takes_every_listed_command`
+sends it every command and choice that `COMMANDS` lists, and fails on one it does not know.
+
 No test pins the following, so they are kept by hand:
 
-- how the window itself reads each `--remote` command: `remote_command` matches the words a
-  second time, apart from `COMMANDS`;
 - what the commands print;
 - the formats inside the files Glimt owns: `key=value` read by name, the marks file's
   `bits\tstars\tpath`, the keyword tree's `A|B|C`, a path to a line;
