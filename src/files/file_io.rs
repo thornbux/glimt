@@ -370,6 +370,7 @@ impl PickedFiles {
     fn taken_in_background(paths: Vec<PathBuf>, are_folders: bool) -> PickedFiles {
         let (tx, rx) = std::sync::mpsc::channel();
         let taken = paths.clone();
+        // No busy pointer: as said above, nobody waits for the fingerprints.
         std::thread::spawn(move || {
             for path in taken {
                 // Once nobody waits for them, the rest are not taken.
@@ -1022,6 +1023,7 @@ pub fn edit_shared<T>(
     change: impl FnOnce(&[u8]) -> (Vec<u8>, T),
 ) -> std::io::Result<T> {
     // The folder first: without it there is no lock file, and the first write had no lock.
+    // Not told: without the folder the write below fails, and that failure is returned.
     let _ = std::fs::create_dir_all(path.parent().unwrap_or(Path::new(".")));
     #[allow(clippy::disallowed_methods)] // the one place, with collections::edit and rename
     let _held = file_lock(path);
@@ -1148,6 +1150,8 @@ fn queue_write(
 /// does not end it, or every later work sent would be lost.
 pub fn start_ordered_worker() -> std::sync::mpsc::Sender<QueuedWrite> {
     let (works, rx) = std::sync::mpsc::channel::<QueuedWrite>();
+    // No busy pointer: the writer, which lasts as long as Glimt. Each write it
+    // runs counts as writing (`WRITING`) from when it is sent.
     std::thread::spawn(move || {
         for work in rx {
             run_and_tell_a_panic(work);
@@ -1668,7 +1672,8 @@ pub fn instance_tag() -> &'static str {
 pub fn create_temp_beside(tmp: &Path, path: &Path) -> std::io::Result<std::fs::File> {
     use std::os::unix::fs::OpenOptionsExt;
     // Made new, never opened: a link left or planted at `tmp` would be followed and the file
-    // it points to emptied.
+    // it points to emptied. Not told: a name still at `tmp` makes `create_new` below fail, and
+    // that failure is returned.
     let _ = std::fs::remove_file(tmp);
     let new = || {
         std::fs::OpenOptions::new()
@@ -1748,6 +1753,7 @@ fn copy_extended_attributes(from: &Path, to: &std::fs::File, keeps_acl: bool) {
 
 /// `replace_file`, with a failure on stderr: for files Glimt keeps for itself.
 pub fn write_atomic(path: &Path, bytes: impl AsRef<[u8]>) {
+    // Not told: without the folder `replace_file` below fails, and that failure is told.
     let _ = std::fs::create_dir_all(path.parent().unwrap_or(Path::new(".")));
     if let Err(e) = replace_file(path, bytes) {
         save_failed(crate::tf!(
@@ -1788,6 +1794,22 @@ pub(crate) fn take_saves_failed() -> Vec<String> {
 
 #[cfg(test)]
 mod tests {
+    /// The system's list of mounts and udev's file of a disk, damaged in any way, are read
+    /// without a panic. A mount point's name is the user's, or comes with a stick.
+    #[test]
+    fn survives_broken_mountinfo() {
+        let seed = b"36 35 98:0 / /media/a\\040b rw,noatime master:1 - fuseblk /dev/sdb1 rw\n\
+            22 1 0:21 / / rw - ext4 /dev/root rw\n";
+        for bytes in crate::support::test_support::broken(seed) {
+            let path = std::path::Path::new("/media/a b/x.jpg");
+            super::file_system_type_in(&bytes, path, |_| Some("exfat".into()));
+        }
+        for bytes in crate::support::test_support::broken(b"S:disk/by-uuid/1\nE:ID_FS_TYPE=exfat\n")
+        {
+            super::file_system_type_in_udev(&String::from_utf8_lossy(&bytes));
+        }
+    }
+
     /// A save that fails in one test is not told in another test's window. Before, a window
     /// took a save error of a test beside it as its notice, in place of the notice its own
     /// test waited for (`every_undo_leaves_a_file_put_in_its_place`).

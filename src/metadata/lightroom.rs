@@ -155,7 +155,7 @@ impl Catalog {
 
     /// The images with stars, at `paths` (from `Catalog::paths`). One value for each file: a
     /// virtual copy is an image of its own on the same file, and the most stars of them count.
-    #[cfg_attr(not(feature = "marks"), allow(dead_code))]
+    #[cfg_attr(not(feature = "marks"), allow(dead_code))] // stars are kept only with marks
     pub fn stars(&self, paths: &HashMap<i64, PathBuf>) -> Vec<(PathBuf, u8)> {
         let mut best: HashMap<PathBuf, u8> = HashMap::new();
         for (id, i) in self.images.iter().filter(|(_, i)| i.2 > 0) {
@@ -244,6 +244,8 @@ impl Import {
         }
         let (tx, rx) = std::sync::mpsc::channel();
         let (typed, ctx) = (self.root_folders_now.clone(), ctx.clone());
+        // No busy pointer: whether each typed folder is there, a look-up nobody waits for, shown
+        // when it comes.
         std::thread::spawn(move || {
             let there = folders_there(&typed);
             let _ = tx.send((typed, there));
@@ -550,7 +552,7 @@ impl crate::App {
         self.run_in_background(ctx, Vec::new(), move || {
             let dir = collections::collections_dir();
             if let Some(dir) = &dir {
-                let _ = std::fs::create_dir_all(dir);
+                let _ = std::fs::create_dir_all(dir); // Not told: told below as not saved
             }
             let failed: Vec<&str> = (all.iter())
                 .filter(|(name, paths)| {

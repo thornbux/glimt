@@ -10,7 +10,7 @@ use crate::images::save;
 use crate::images::save::{CopyAs, Format};
 use crate::support::lang::tr;
 use crate::support::test_hooks::noted;
-use crate::support::threads::{Receiving, Took};
+use crate::support::threads::{Receiving, Took, Working, answer_channel};
 use crate::tf;
 use crate::ui::dialogs::Pick;
 use eframe::egui;
@@ -67,8 +67,9 @@ pub struct SaveAs {
     /// The format the image is saved in "as the original", or `None` until it is looked up.
     original_format: Option<Format>,
     /// The look-up of `original_format`, in the background, because a WebP file is read for it,
-    /// and the image may be on a share that stopped answering.
-    original_format_answer: Receiving<Format>,
+    /// and the image may be on a share that stopped answering. Save… waits for it, so it keeps
+    /// the busy pointer until the dialog has taken its answer.
+    original_format_answer: Receiving<(Format, Working)>,
 }
 
 impl crate::App {
@@ -96,9 +97,11 @@ impl crate::App {
             choice.quality = self.quality_in_preferences(format);
         }
         let path = self.path(shown);
-        let (tx, rx) = std::sync::mpsc::channel();
+        let (tx, rx) = answer_channel(&self.busy);
         let (looked_up, ctx) = (path.clone(), ctx.clone());
+        let pointer = Working::new(&self.busy);
         std::thread::spawn(move || {
+            let _pointer = pointer;
             let _ = tx.send(Format::of(&looked_up));
             ctx.request_repaint();
         });
@@ -147,7 +150,7 @@ impl crate::App {
         let Some(mut dialog) = self.save_as.take() else {
             return;
         };
-        if let Took::Answer(format) = dialog.original_format_answer.take() {
+        if let Took::Answer((format, _pointer)) = dialog.original_format_answer.take() {
             dialog.original_format = Some(format);
             if dialog.choice.format.is_none() {
                 dialog.choice.quality = self.quality_in_preferences(format);
@@ -356,6 +359,24 @@ mod tests {
         assert!(!to.exists());
         let told = app.notice.text().unwrap_or_default().to_owned();
         assert!(told.contains("changed"), "{told}");
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// The look-up of the image's format for Save As keeps the busy pointer until the dialog
+    /// has taken its answer, as Save… waits for it. Before, it had none, so `--remote … --wait`
+    /// could answer while it still ran.
+    #[test]
+    fn the_format_look_up_keeps_the_busy_pointer() {
+        use crate::support::test_support::{app_on, contract_folder, run_background_until};
+        let dir = contract_folder("save-as-pointer");
+        let (mut app, ctx) = app_on(&dir);
+        assert!(run_background_until(&mut app, &ctx, |app| !app.working()));
+        app.start_save_as(&ctx);
+        // The answer comes in a moment, and the dialog, not drawn here, never takes it.
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        app.poll_background(&ctx);
+        assert!(app.working());
+        drop(app);
         std::fs::remove_dir_all(dir).unwrap();
     }
 }

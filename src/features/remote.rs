@@ -800,6 +800,8 @@ impl crate::App {
         let marks = vec![None; paths.len()];
         // Each record is sent as soon as it is read, so the client's time limit (`WAIT`) holds
         // for each file and not for all of them. The thread stops when the client is gone.
+        // No busy pointer: the client reads each record as it comes, and waits for
+        // the end itself.
         std::thread::spawn(move || {
             for (path, marks) in paths.iter().zip(marks) {
                 // A blank line ends each record, so the answers of several windows
@@ -1542,6 +1544,8 @@ pub fn listen(
         std::sync::atomic::Ordering::Relaxed,
     );
     mark_this_window_focused();
+    // No busy pointer: the listener, which lasts as long as the window. A command
+    // counts as work once the window takes it.
     std::thread::spawn(move || {
         serve_clients(listener, MOST_CLIENTS, move |stream| {
             serve(stream, &tx, &ctx, WAIT)
@@ -1640,6 +1644,8 @@ fn serve_clients(
         // just before the socket went is waited for at closing too.
         let client = UnfinishedAnswer::new();
         let (serve, free) = (serve.clone(), free.clone());
+        // No busy pointer: a client's connection. Its command counts as work once the
+        // window takes it.
         std::thread::spawn(move || {
             serve(stream);
             drop(client);
@@ -1899,6 +1905,7 @@ fn connected_in_time(
     limit: std::time::Duration,
 ) -> bool {
     let (tx, rx) = mpsc::channel();
+    // No busy pointer: its caller waits for it, at most `limit`.
     std::thread::spawn(move || {
         let _ = tx.send(connect());
     });
@@ -2726,6 +2733,31 @@ mod tests {
     /// Before, every line could be as long as the longest select, some 400 MB, and ten clients
     /// sending without a line break held 4 GB. And a longer line ended without an answer, which
     /// the client read as done.
+    /// What a client sends on the socket, damaged in any way, is read as commands without a
+    /// panic, and each line read is taken by the window, done or not done, without one either.
+    /// Any program that can reach the socket may send it.
+    #[test]
+    fn survives_broken_commands() {
+        let seed = b"select /x/a.png\0/x/b.png\nnext\r\nrun Next\nslideshow on\n";
+        for bytes in crate::support::test_support::broken(seed) {
+            let mut reader = std::io::Cursor::new(bytes);
+            while let Some(Ok(_)) = super::read_command(&mut reader) {}
+        }
+        let dir =
+            std::env::temp_dir().join(format!("glimt-test-broken-commands-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let (mut app, ctx) = app_on(&dir);
+        // The window acts on each command it takes, so the weekly run's millions are spent on
+        // the socket's reader above, and the window takes the first 20,000 of each.
+        for seed in ["select a.png\0b.png", "run Next", "slideshow on"] {
+            for bytes in crate::support::test_support::broken(seed.as_bytes()).take(20_000) {
+                drop(app.remote_command(&ctx, &String::from_utf8_lossy(&bytes)));
+            }
+        }
+        drop(app);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
     #[test]
     fn a_command_line_is_cut_short_unless_it_is_a_select() {
         let long = "x".repeat(super::MOST_LINE as usize + 10);

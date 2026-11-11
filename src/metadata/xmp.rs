@@ -1744,6 +1744,15 @@ pub(crate) fn keyword_tree_changed(
 
 #[cfg(test)]
 mod tests {
+    /// A keyword tree file damaged in any way is read without a panic.
+    #[test]
+    fn survives_broken_keyword_tree() {
+        for bytes in crate::support::test_support::broken(b"Animals\nPlaces|Oslo\nPlaces|Bergen\n")
+        {
+            super::keyword_tree_of(&bytes);
+        }
+    }
+
     /// A keyword written while the photo is moved, which waited for the move, lands on no old
     /// name. No sidecar is left there without its photo, for a later file of that name.
     #[test]

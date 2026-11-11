@@ -48,6 +48,7 @@ impl Watchdog {
             fed: std::time::Instant::now().into(),
         });
         let watchdog_state = state.clone();
+        // No busy pointer: a program's watchdog, whose caller waits for the program.
         std::thread::spawn(move || {
             let step = limit.min(std::time::Duration::from_millis(100));
             loop {
@@ -385,6 +386,7 @@ pub fn output_of(
     let watchdog = Watchdog::new(child.id(), limit);
     let errors = child.stderr.take().map(|e| {
         let (tx, rx) = std::sync::mpsc::channel();
+        // No busy pointer: a reader of a program's errors, which the caller's thread waits for.
         std::thread::spawn(move || tx.send(last_text(e, 64 << 10)));
         rx
     });
@@ -727,6 +729,7 @@ fn failure_text(name: &str, errors: &str, status: std::process::ExitStatus) -> S
 pub(crate) fn wait_telling(mut child: std::process::Child, name: &str) -> Result<(), String> {
     let errors = child.stderr.take().map(|e| {
         let (tx, rx) = std::sync::mpsc::channel();
+        // No busy pointer: a reader of a program's errors, which the caller's thread waits for.
         std::thread::spawn(move || tx.send(last_text(e, 64 << 10)));
         rx
     });
@@ -753,15 +756,22 @@ pub(crate) fn run_telling(name: &str, mut cmd: std::process::Command) -> Result<
 
 /// Opens Glimt's own folder `dir` in the file manager, and makes it first when it is not there
 /// yet. It waits for the disk, so it is called in a thread of its own: a home on a share that
-/// stopped answering then holds only that thread, not the window.
-pub fn open_own_folder(dir: &Path) {
-    drop(std::fs::create_dir_all(dir));
+/// stopped answering then holds only that thread, not the window. A folder that cannot be
+/// made is told through `notices`, and nothing is opened.
+pub fn open_own_folder(dir: &Path, notices: &crate::support::threads::NoticeSender) {
+    if let Err(e) = std::fs::create_dir_all(dir) {
+        let folder = format!("{}: {e}", dir.display());
+        // A window that is gone has nothing to show it in.
+        let _ = notices.send(crate::tf!("Could not make {folder}", folder));
+        return;
+    }
     open_url(&dir.to_string_lossy());
 }
 
 /// Open `url` in the default browser, in the background.
 pub fn open_url(url: &str) {
     let url = url.to_owned();
+    // No busy pointer: the browser may stay open for hours, and nothing waits for it.
     std::thread::spawn(move || {
         #[allow(clippy::disallowed_methods)]
         // The browser may stay open, so it is waited for in its own thread.

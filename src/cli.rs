@@ -298,6 +298,7 @@ fn config_report(
 /// then uses the defaults, unless `given` says that the command line named it.
 fn config_check(path: &Path, given: bool) -> Result<String, Vec<String>> {
     let shown = path.display();
+    // Parsed by `parse_checked`, which config's survives_broken_files feeds broken input.
     let problems = match crate::images::decode::read_text(path) {
         Ok(text) => Config::parse_checked(&text).1,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound && !given => {

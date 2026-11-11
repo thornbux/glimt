@@ -1130,7 +1130,7 @@ fn turned(img: image::DynamicImage, turns: u8, mirrored: bool) -> image::Dynamic
 /// encoder that owns its file flushes it on drop, where a full disk would go unnoticed and a
 /// cut-off file would replace the photo. The pixels and the profile are made to fit `encoding`
 /// first (`writable_pixels`), so every derived file is written from pixels its format holds.
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments)] // what a derived file is made of, each told apart
 fn encode(
     path: &Path,
     img: image::DynamicImage,
@@ -1466,6 +1466,7 @@ pub fn lossy_webp(img: &image::DynamicImage, quality: u8) -> Result<Vec<u8>, Str
     // The image is written in a thread of its own while its output is read, so neither pipe
     // fills and stops it.
     let mut stdin = child.stdin.take();
+    // No busy pointer: it feeds a program, which the caller's thread waits for.
     let feed = std::thread::spawn(move || drop(stdin.as_mut().map(|i| i.write_all(&png))));
     let max = crate::images::decode::MAX_DECODE_BYTES;
     let (webp, err, ok) = crate::files::external::output_of(

@@ -1560,6 +1560,7 @@ impl crate::App {
         match started {
             // Reap the child when it exits, so it does not linger as a zombie.
             #[allow(clippy::disallowed_methods)] // the new window, reaped in a thread of its own
+            // No busy pointer: it only reaps the new window when that window closes.
             Ok(mut child) => drop(std::thread::spawn(move || child.wait())),
             Err(e) => self.notice.give(tf!("Could not open a new window: {e}", e)),
         }

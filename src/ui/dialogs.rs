@@ -355,6 +355,8 @@ impl crate::App {
             .map(Path::to_path_buf);
         let (tx, rx) = mpsc::channel();
         let ctx = self.ctx.clone();
+        // No busy pointer: the file system for Rename Many's preview, a look-up nobody waits for,
+        // shown when it comes.
         std::thread::spawn(move || {
             let _ = tx.send(folder.and_then(|f| fat_file_system_type(&f)));
             ctx.request_repaint();
@@ -406,6 +408,8 @@ impl crate::App {
         let is_profile = matches!(purpose, Pick::ScreenProfile | Pick::InputProfile);
         std::thread::spawn(move || {
             if make_start_first {
+                // Not told: the chooser starts in another folder then, and a collection saved
+                // into this one tells its own failure.
                 drop(std::fs::create_dir_all(&start));
             }
             let start = match is_profile && !crate::files::file_io::is_surely_dir(&start) {
@@ -495,6 +499,7 @@ impl crate::App {
         let (tx, rx) = answer_channel(&self.busy);
         let (ctx, pointer) = (ctx.clone(), Working::new(&self.busy));
         crate::files::file_io::write_later(move || {
+            // Not told: without the folder the theme's write below fails, and is told.
             drop(std::fs::create_dir_all(file.parent().unwrap_or(&file)));
             // Whole or not at all: a full disk left half a theme, whose name was then taken. And
             // never over a theme there, hand-edited perhaps.

@@ -371,10 +371,12 @@ impl crate::App {
         let (shown_tx, shown_rx) = mpsc::channel();
         let (rotate, ctx2) = (self.config.exif_rotate, ctx.clone());
         let ctx = ctx.clone();
+        // No busy pointer: the list of printers, a look-up nobody waits for, shown when it comes.
         std::thread::spawn(move || {
             let _ = tx.send(printers());
             ctx.request_repaint();
         });
+        // No busy pointer: the preview's images, a look-up nobody waits for, shown when it comes.
         std::thread::spawn(move || {
             for (k, path) in first.iter().enumerate() {
                 // The preview is in the colours of the print, so a photo with its own profile
@@ -424,6 +426,7 @@ impl crate::App {
             dialog.paths.iter().take(MAX_PREVIEWS).cloned().collect(),
             dialog.paths.len(),
         );
+        // No busy pointer: the preview's captions, a look-up nobody waits for, shown when it comes.
         std::thread::spawn(move || {
             let texts = (first.iter().enumerate())
                 .map(|(k, p)| caption(&template, p, k, n, sizes[k]))
@@ -481,7 +484,7 @@ impl crate::App {
             let first = pages.peek().map(|(img, _)| [img.width(), img.height()]);
             let (layout, sides) = print::layout_and_sides(&job.layout, job.two_sided, first);
             // The printer chosen in the desktop's print dialog, for the message.
-            #[cfg_attr(not(feature = "portals"), allow(unused_mut))]
+            #[cfg_attr(not(feature = "portals"), allow(unused_mut))] // set by the portal only
             let mut chosen: Option<String> = None;
             let done = match &to {
                 #[cfg(feature = "portals")]
@@ -778,7 +781,7 @@ pub fn pdf(
         let mut on_page: Vec<([u32; 2], Option<String>)> = Vec::new();
         for (img, caption) in images.by_ref().take(cols * rows) {
             on_page.push(([img.width(), img.height()], caption));
-            pdf.object(contents + on_page.len(), &image_object(img))?;
+            pdf.object(contents + on_page.len(), &image_object(img)?)?;
         }
         if on_page.is_empty() {
             break;
@@ -845,7 +848,9 @@ pub fn pdf(
 }
 
 /// An image as a PDF XObject, a JPEG, with transparent parts on white, as they show on paper.
-fn image_object(img: image::DynamicImage) -> Vec<u8> {
+/// Returns the encoder's error when the JPEG could not be made, so that a page is never printed
+/// blank without a word.
+fn image_object(img: image::DynamicImage) -> std::io::Result<Vec<u8>> {
     let rgba = img.into_rgba8();
     let flat = image::RgbImage::from_fn(rgba.width(), rgba.height(), |x, y| {
         let q = rgba.get_pixel(x, y);
@@ -853,7 +858,8 @@ fn image_object(img: image::DynamicImage) -> Vec<u8> {
         image::Rgb([0, 1, 2].map(|c| ((q[c] as u32 * a + 255 * (255 - a)) / 255) as u8))
     });
     let mut jpeg = Vec::new();
-    let _ = image::codecs::jpeg::JpegEncoder::new_with_quality(&mut jpeg, 90).encode_image(&flat);
+    (image::codecs::jpeg::JpegEncoder::new_with_quality(&mut jpeg, 90).encode_image(&flat))
+        .map_err(std::io::Error::other)?;
     let mut stream = format!(
         "<< /Type /XObject /Subtype /Image /Width {} /Height {} /ColorSpace /DeviceRGB \
          /BitsPerComponent 8 /Filter /DCTDecode /Length {} >>\nstream\n",
@@ -864,7 +870,7 @@ fn image_object(img: image::DynamicImage) -> Vec<u8> {
     .into_bytes();
     stream.extend(jpeg);
     stream.extend(b"\nendstream");
-    stream
+    Ok(stream)
 }
 
 /// `text` as a PDF string in WinAnsi (Latin-1 for the letters most names have). Other letters
@@ -892,9 +898,15 @@ pub fn printers() -> (Vec<String>, Option<String>) {
     let run = |arg: &str| {
         crate::files::external::short_output_of("lpstat", &[arg], 1 << 16).unwrap_or_default()
     };
-    let names = run("-e").lines().map(str::to_owned).collect();
-    // The line reads "system default destination: name".
-    let default = run("-d").rsplit_once(": ").map(|d| d.1.trim().to_owned());
+    printers_from(&run("-e"), &run("-d"))
+}
+
+/// Reads the printers from `lpstat -e`'s output `names`, one to a line, and the default one
+/// from `lpstat -d`'s `default`, which reads "system default destination: name". Returns the
+/// printers, and the default, or `None` when CUPS has none.
+fn printers_from(names: &str, default: &str) -> (Vec<String>, Option<String>) {
+    let names = names.lines().map(str::to_owned).collect();
+    let default = default.rsplit_once(": ").map(|d| d.1.trim().to_owned());
     (names, default)
 }
 
@@ -1196,6 +1208,45 @@ fn print_texts(ui: &mut egui::Ui, c: &mut Config) {
 
 #[cfg(test)]
 mod tests {
+    /// What `lpstat` prints, damaged in any way, is read without a panic. A printer's name
+    /// comes from the CUPS server, which may be another computer's.
+    #[test]
+    fn survives_broken_lpstat() {
+        let (names, default) = (
+            b"Office\nHome_Laser\n",
+            b"system default destination: Office\n",
+        );
+        let whole = super::printers_from(
+            &String::from_utf8_lossy(names),
+            &String::from_utf8_lossy(default),
+        );
+        assert_eq!(
+            whole,
+            (
+                vec!["Office".into(), "Home_Laser".into()],
+                Some("Office".into())
+            )
+        );
+        for (names, default) in crate::support::test_support::broken(names)
+            .zip(crate::support::test_support::broken(default))
+        {
+            super::printers_from(
+                &String::from_utf8_lossy(&names),
+                &String::from_utf8_lossy(&default),
+            );
+        }
+    }
+
+    /// A page's image that cannot be made a JPEG (wider than JPEG allows) is an error, not an
+    /// empty image. Before, the encoder's error was dropped and the page printed blank.
+    #[test]
+    fn an_image_that_cannot_be_encoded_is_an_error() {
+        let too_wide = image::DynamicImage::new_rgb8(70_000, 1);
+        assert!(super::image_object(too_wide).is_err());
+        let small = image::DynamicImage::new_rgb8(2, 2);
+        assert!(super::image_object(small).is_ok());
+    }
+
     /// A margin wider than a third of small paper is held there, and images are decoded for
     /// the room that leaves, not for less.
     #[test]

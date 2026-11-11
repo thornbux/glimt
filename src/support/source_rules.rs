@@ -612,8 +612,16 @@ const REFUSED_CALLS: &[&str] = &[
 /// makes through libc. Each is found anywhere in a line, also as a method (`path.read_dir()`).
 /// Glimt's own functions that make one of them, such as `read_limited` or the writers of
 /// file_io, are not listed: `the_window_thread_never_waits_for_the_disk` follows every call to
-/// the functions it reaches.
+/// the functions it reaches. Listed too are the other waits the window must not make: for a
+/// program (`run_limited`, `output_of`, `short_output_of`), and for a decode (the three ways
+/// into one, `from_decoder`, `scaled` and `from_memory`), which take as long without the disk.
 const DISK_CALLS: &[&str] = &[
+    "run_limited(",
+    "output_of(",
+    "short_output_of(",
+    "from_decoder(",
+    "scaled(",
+    "from_memory(",
     "fs::metadata(",
     ".metadata()",
     "symlink_metadata(",
@@ -646,9 +654,22 @@ const DISK_CALLS: &[&str] = &[
     "UnixStream::connect(",
 ];
 
+/// The calls that read text from outside Glimt's code: a file read whole, a program's output,
+/// and a line from the socket. `outside_text_is_read_by_parsers_fed_broken_input` holds each
+/// file that makes one to a `survives_broken_*` test of its parser.
+const OUTSIDE_TEXT_READS: &[&str] = &[
+    "read_text(",
+    "read_limited(",
+    "read_unlinked(",
+    "output_of(",
+    "short_output_of(",
+    "read_until(",
+];
+
 /// The calls that hand work to another thread, whose text `DISK_CALLS` are not looked for in.
 const HANDED_TO_A_THREAD: &[&str] = &[
     "spawn(",
+    "apps_for_type(",
     "write_later(",
     "write_later_in_user_folders(",
     "run_in_background(",
@@ -3247,6 +3268,96 @@ fn broken_inputs_are_fed_by_survives_broken_tests() {
     );
 }
 
+/// What Glimt reads from outside its own code is read by a parser that a `survives_broken_*`
+/// test feeds broken input: a file read whole, a program's output and a line from the socket
+/// (`OUTSIDE_TEXT_READS`). So each file that reads such text has a `survives_broken_*` test of
+/// its own, or the read says which test feeds its parser elsewhere, by that test's name in a
+/// comment on it or just above it. A `.trashinfo` on a stick and a command on the socket were
+/// read with no such test.
+#[test]
+fn outside_text_is_read_by_parsers_fed_broken_input() {
+    let sources = rust_sources();
+    let fuzzing_tests: HashSet<String> = (sources.iter())
+        .flat_map(|(_, text)| code_lines(text))
+        .filter_map(|line| function_name(&line).map(str::to_owned))
+        .filter(|name| name.starts_with("survives_broken_"))
+        .collect();
+    let mut wrong = Vec::new();
+    for (file, text) in &sources {
+        let lines = reads_without_fuzzing_test(text, &fuzzing_tests);
+        wrong.extend(lines.iter().map(|line| format!("{file}:{line}")));
+    }
+    assert!(
+        wrong.is_empty(),
+        "outside text read with no survives_broken_* test of its parser (add one, or name the \
+         test that feeds the parser in a comment on the read):\n{}",
+        wrong.join("\n")
+    );
+}
+
+/// Returns the lines of `text` outside the tests that read outside text (`OUTSIDE_TEXT_READS`)
+/// when `text` has no `survives_broken_*` test, unless a comment on the read's statement or
+/// just above it names one of `fuzzing_tests`.
+fn reads_without_fuzzing_test(text: &str, fuzzing_tests: &HashSet<String>) -> Vec<usize> {
+    let (code, comments) = (code_lines(text), comment_lines(text));
+    let end = tests_start(&code);
+    let has_its_own = (code[end..].iter())
+        .any(|l| function_name(l).is_some_and(|n| n.starts_with("survives_broken_")));
+    if has_its_own {
+        return Vec::new();
+    }
+    let names_a_test = |comment: &str| {
+        (comment.match_indices("survives_broken_")).any(|(at, _)| {
+            let name: String = (comment[at..].chars())
+                .take_while(|&c| c.is_alphanumeric() || c == '_')
+                .collect();
+            fuzzing_tests.contains(&name)
+        })
+    };
+    let mut found = Vec::new();
+    for i in 0..end {
+        if !OUTSIDE_TEXT_READS
+            .iter()
+            .any(|r| mentions_call(&code[i], r))
+        {
+            continue;
+        }
+        // Up to the statement's first line, then up the comment lines just above it.
+        let mut first = i;
+        while first > 0
+            && !code[first - 1].trim().is_empty()
+            && !code[first - 1].ends_with([';', '{', '}'])
+        {
+            first -= 1;
+        }
+        while first > 0
+            && code[first - 1].trim().is_empty()
+            && !comments[first - 1].trim().is_empty()
+        {
+            first -= 1;
+        }
+        if !(first..=i).any(|j| names_a_test(&comments[j])) {
+            found.push(i + 1);
+        }
+    }
+    found
+}
+
+/// The check above finds a read in a file without a `survives_broken_*` test, also one whose
+/// comment names a test that is not there. It passes a read whose comment, on its statement
+/// or above it, names a test there, and every read of a file with a test of its own.
+#[test]
+fn finds_outside_text_read_without_its_fuzzing_test() {
+    let tests = HashSet::from(["survives_broken_files".to_owned()]);
+    let text = "fn a() {\n    let t = read_text(p);\n    // Fed by survives_broken_gone.\n    \
+        let u = read_limited(p);\n    // Fed by survives_broken_files.\n    let v = x\n        \
+        .and_then(|p| read_text(p));\n    let w = short_output_of(\"lpstat\"); // survives_broken_files\n}\n";
+    assert_eq!(reads_without_fuzzing_test(text, &tests), [2, 4]);
+    let with_its_own =
+        format!("{text}#[cfg(test)]\nmod tests {{\n    fn survives_broken_a() {{}}\n}}\n");
+    assert!(reads_without_fuzzing_test(&with_its_own, &tests).is_empty());
+}
+
 /// A comment fits the 100 columns rustfmt keeps code to, which rustfmt does not wrap: a longer
 /// one is read sideways, or wrapped by an editor in the middle of a word. Also one at the end
 /// of a line of code.
@@ -4254,11 +4365,75 @@ fn finds_a_lint_turned_off_widely() {
     assert_eq!(lints_turned_off_widely(text), [1, 3, 6, 10]);
 }
 
+/// Every `#[allow(…)]` outside the tests says why it is there, in a comment on its own line, on
+/// the next, or in a plain comment just before it. A reader then knows what the exception is
+/// for, and when it may go.
+#[test]
+fn every_allow_gives_its_reason() {
+    let mut wrong = Vec::new();
+    for (file, text) in rust_sources() {
+        let lines = allows_without_reason(&text);
+        wrong.extend(lines.iter().map(|line| format!("{file}:{line}")));
+    }
+    assert!(
+        wrong.is_empty(),
+        "an #[allow(…)] without its reason (say why in a comment on its line):\n{}",
+        wrong.join("\n")
+    );
+}
+
+/// Returns the lines of `text` outside the tests with an attribute that allows a lint and no
+/// comment that gives its reason: one on that line or the next, or a plain comment (not a doc
+/// comment) on the line before.
+fn allows_without_reason(text: &str) -> Vec<usize> {
+    let (code, comments) = (code_lines(text), comment_lines(text));
+    let comment = |j: usize| comments.get(j).map_or("", |c| c.trim());
+    let is_plain = |c: &str| !c.is_empty() && !c.starts_with("///") && !c.starts_with("//!");
+    (0..tests_start(&code))
+        .filter(|&i| {
+            let line = code[i].trim_start();
+            line.starts_with('#')
+                && line.contains("allow(")
+                && comment(i).is_empty()
+                && comment(i + 1).is_empty()
+                && !(i > 0 && is_plain(comment(i - 1)))
+        })
+        .map(|i| i + 1)
+        .collect()
+}
+
+/// The check above finds an allow with no reason, also behind `cfg_attr` and under a doc
+/// comment, and passes one with its reason on its line, on the next or in a comment before.
+#[test]
+fn finds_an_allow_without_its_reason() {
+    let text = "#[allow(dead_code)]\nfn a() {}\n/// Does b.\n\
+        #[cfg_attr(test, allow(unused))]\nfn b() {}\n#[allow(unused)] // a reason\nfn c() {}\n\
+        #[allow(unused)]\n// a reason\nfn d() {}\n// a reason\n#[allow(unused)]\nfn e() {}\n\
+        #[cfg(test)]\nmod tests {\n    #[allow(unused)]\n    fn f() {}\n}\n";
+    assert_eq!(allows_without_reason(text), [1, 4]);
+}
+
 /// Returns the lines of the statements of `text` outside the tests that drop the result of one
 /// of file_io's writers, with `let _ =` (or `let _: T =`), `_ =`, `.ok();`,
 /// `.unwrap_or_default();`, `.unwrap_or(());`, `drop(…)`, `let _name =` where `_name` is not
-/// used again, or `if let Ok(…) =` with no `else`.
+/// used again, or `if let Ok(…) =` with no `else`. A raw change on the disk of the standard
+/// library's, or an image encoded (`RAW_WRITES`), dropped so is found too, unless a comment in
+/// the statement or in the comment lines just above it says why its failure is not told, with
+/// "Not told:". An encoder's failure dropped left a printed page blank without a word.
 fn dropped_writes_in(text: &str) -> Vec<usize> {
+    const RAW_WRITES: [&str; 11] = [
+        "remove_file(",
+        "remove_dir(",
+        "remove_dir_all(",
+        "create_dir(",
+        "create_dir_all(",
+        "set_permissions(",
+        "hard_link(",
+        "fs::symlink(",
+        "encode_image(",
+        "write_image(",
+        "write_to(",
+    ];
     const WRITERS: [&str; 15] = [
         // collections::edit and edit_open_collection, which write through replace_name.
         "edit(",
@@ -4281,6 +4456,7 @@ fn dropped_writes_in(text: &str) -> Vec<usize> {
     ];
     const KEYWORDS: [&str; 7] = ["if", "while", "match", "return", "let", "else", "for"];
     let lines = code_lines(text);
+    let comments = comment_lines(text);
     let end = tests_start(&lines);
     let mut found = Vec::new();
     let (mut first_line, mut statement) = (0, String::new());
@@ -4331,8 +4507,20 @@ fn dropped_writes_in(text: &str) -> Vec<usize> {
                     && words.ends_with(".ok()")
                     && !words.contains('=')
                     && !starts_with_keyword);
+            // The statement's lines, and the lines of comment alone just above it.
+            let says_why = || {
+                let above = (0..first_line.saturating_sub(1))
+                    .rev()
+                    .take_while(|&j| lines[j].trim().is_empty() && !comments[j].trim().is_empty())
+                    .last()
+                    .unwrap_or(first_line.saturating_sub(1));
+                (above..=i).any(|j| comments.get(j).is_some_and(|c| c.contains("Not told:")))
+            };
+            let drops_a_raw_write = (dropped && RAW_WRITES.iter().any(is_writer))
+                || RAW_WRITES.iter().any(|w| is_dropped(words, w));
             if (dropped && WRITERS.iter().any(is_writer))
                 || WRITERS.iter().any(|w| is_dropped(words, w))
+                || (drops_a_raw_write && !says_why())
             {
                 found.push(first_line);
             }
@@ -4424,6 +4612,15 @@ fn finds_a_dropped_write() {
     // A removal of Glimt's own file, whose failure must be told too.
     let removals = "fn a() {\n    let _ = remove_own(plan);\n    remove_own_or_tell(plan);\n}\n";
     assert_eq!(dropped_writes_in(removals), [2]);
+    // A raw change on the disk, dropped in each form, unless a comment says why it is not told.
+    let raw = "fn a() {\n    let _ = std::fs::remove_file(p);\n    \
+        drop(std::fs::create_dir_all(d));\n    std::fs::set_permissions(p, m).ok();\n    \
+        // Not told: the write into it that follows tells.\n    \
+        drop(std::fs::create_dir_all(d));\n    \
+        let _ = std::fs::remove_dir_all(d); // Not told: a folder of its own\n    \
+        std::fs::remove_file(p)?;\n    \
+        let _ = JpegEncoder::new(&mut jpeg).encode_image(&flat);\n}\n";
+    assert_eq!(dropped_writes_in(raw), [2, 3, 4, 9]);
 }
 
 /// A background thread's answer is held in a `threads::Receiving`, never in a bare
@@ -4590,6 +4787,87 @@ fn answers_keep_the_busy_pointer() {
         unused.is_empty(),
         "named here but no longer there: {unused:?}"
     );
+}
+
+/// A thread started outside the tests shows the busy pointer while it runs (a `Working`, or an
+/// `AnswerSender` for its answer), or says why it shows none, in a comment just above it that
+/// starts with "No busy pointer:", or names the state that shows it ("Its busy pointer:").
+/// `--remote … --wait` and the tests count on the busy count: work the user started and waits for,
+/// without a pointer, let `--wait` answer before it was done. A look-up nobody waits for, a program
+/// that may stay open for hours, a listener and a worker that last as long as the window say so
+/// instead. A scoped thread (`s.spawn`) ends before its scope does, so the pointer of the thread
+/// that runs the scope holds for it.
+#[test]
+fn threads_show_the_busy_pointer_or_say_why_not() {
+    let mut wrong = Vec::new();
+    for (file, text) in rust_sources() {
+        let lines = threads_without_pointer(&text);
+        wrong.extend(lines.iter().map(|line| format!("{file}:{line}")));
+    }
+    assert!(
+        wrong.is_empty(),
+        "a thread without the busy pointer (hold a Working, answer through an AnswerSender, or \
+         say why not in a comment above it: \"No busy pointer:\" or \"Its busy pointer:\"):\n{}",
+        wrong.join("\n")
+    );
+}
+
+/// Returns the lines of `text` outside the tests that start a thread (`thread::spawn(`) in a
+/// function that has made or been given no busy pointer up to that line (no `Working`,
+/// `AnswerSender` or `answer_channel`), unless the comment lines just above the statement
+/// say "No busy pointer:" or "Its busy pointer:".
+fn threads_without_pointer(text: &str) -> Vec<usize> {
+    let (code, comments) = (code_lines(text), comment_lines(text));
+    let mut found = Vec::new();
+    let mut has_pointer = false;
+    for (i, line) in code[..tests_start(&code)].iter().enumerate() {
+        if function_name(line).is_some() {
+            has_pointer = false;
+        }
+        has_pointer |= ["Working", "AnswerSender", "answer_channel("]
+            .iter()
+            .any(|p| line.contains(p));
+        if !line.contains("thread::spawn(") || has_pointer {
+            continue;
+        }
+        // Up to the statement's first line, then up the comments and attributes above it.
+        let mut first = i;
+        while first > 0
+            && !code[first - 1].trim().is_empty()
+            && !code[first - 1].ends_with([';', '{', '}', ','])
+        {
+            first -= 1;
+        }
+        while first > 0
+            && (code[first - 1].trim().is_empty() && !comments[first - 1].trim().is_empty()
+                || code[first - 1].trim_start().starts_with("#["))
+        {
+            first -= 1;
+        }
+        let says_why = (first..=i).any(|j| comments[j].contains("busy pointer:"));
+        if !says_why {
+            found.push(i + 1);
+        }
+    }
+    found
+}
+
+/// The check above finds a thread started without a pointer, also when another function made
+/// one, and passes one with a `Working` made before it or given to its function, one that
+/// answers through an `AnswerSender`, one whose comment above says why it needs none (also
+/// behind an attribute), and a scoped thread.
+#[test]
+fn finds_a_thread_without_the_busy_pointer() {
+    let text = "fn a(&self) {\n    let p = Working::new(&self.busy);\n    \
+        std::thread::spawn(move || drop(p));\n}\nfn b() {\n    std::thread::spawn(f);\n}\n\
+        fn c(p: Working) {\n    std::thread::spawn(move || drop(p));\n}\n\
+        fn d(&self) {\n    let (tx, rx) = answer_channel(&self.busy);\n    \
+        std::thread::spawn(f);\n}\nfn e() {\n    // No busy pointer: a listener.\n    \
+        std::thread::spawn(f);\n    // A reaper.\n    std::thread::spawn(g);\n}\n\
+        fn f() {\n    // No busy pointer: a reaper, which\n    // reaps.\n    \
+        #[allow(clippy::disallowed_methods)] // a reason\n    \
+        std::thread::spawn(move || child.wait());\n    std::thread::scope(|s| s.spawn(g));\n}\n";
+    assert_eq!(threads_without_pointer(text), [6, 19]);
 }
 
 /// Returns the names, in `sources` outside the tests, of the fields, arguments and functions

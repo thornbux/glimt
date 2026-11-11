@@ -242,6 +242,7 @@ fn draw_in_child_outside_budget(
     // The fonts are written from a thread of their own, so a child that stops reading them
     // cannot hold this one before the time limit starts.
     if let Some(mut input) = child.stdin.take() {
+        // No busy pointer: it feeds a program, which the caller's thread waits for.
         std::thread::spawn(move || input.write_all(fonts));
     }
     let (out, errors, _) = crate::files::external::output_of(&mut child, picture + 4096, limit);

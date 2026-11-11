@@ -39,6 +39,8 @@ impl InstalledTools {
     pub(crate) fn new(ctx: &eframe::egui::Context) -> Self {
         let (tx, rx) = std::sync::mpsc::channel();
         let ctx = ctx.clone();
+        // No busy pointer: the tools, read as the window opens, and shown in the menu
+        // when they come.
         std::thread::spawn(move || {
             let _ = tx.send(find());
             ctx.request_repaint();
@@ -141,6 +143,8 @@ impl Tool {
             // them open for hours, so the tool is waited for, not the end of its errors.
             let errors = child.stderr.take().map(|e| {
                 let (tx, rx) = std::sync::mpsc::channel();
+                // No busy pointer: a reader of a program's errors, which the caller's thread waits
+                // for.
                 std::thread::spawn(move || tx.send(crate::files::external::last_text(e, 64 << 10)));
                 rx
             });

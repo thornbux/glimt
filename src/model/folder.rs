@@ -804,6 +804,7 @@ impl crate::App {
         let (tx, rx) = mpsc::channel();
         self.folder.looking_up = Receiving::of(rx);
         let ctx = ctx.clone();
+        // Its busy pointer: `is_listing`, while `looking_up` waits for this answer.
         std::thread::spawn(move || {
             let found = look_up(&opening.paths);
             let _ = tx.send((opening, found));
@@ -1190,6 +1191,7 @@ impl crate::App {
             .give(tf!("Connecting to {uri}…", uri = login.uri));
         let (tx, rx) = mpsc::channel();
         let ctx = ctx.clone();
+        // Its busy pointer: `is_mounting`, while `mounting_rx` waits for this answer.
         std::thread::spawn(move || {
             let result = gio_mount(&login.uri, answer.then_some(&login));
             let _ = tx.send((result, login));
@@ -1267,6 +1269,7 @@ impl crate::App {
             ctx: ctx2,
             started: Instant::now(),
         };
+        // Its busy pointer: `is_listing`, while `listing_rx` waits for this answer.
         std::thread::spawn(move || {
             if !folders.is_empty() {
                 listing.folders(&folders);
@@ -1326,6 +1329,7 @@ impl crate::App {
             self.folder.changed_tx.clone(),
             ctx.clone(),
         );
+        // No busy pointer: it follows the folder's changes, and nobody waits for it.
         std::thread::spawn(move || {
             if times_unknown {
                 read.iter_mut()
@@ -1884,6 +1888,7 @@ pub(crate) fn read_recent(config: &Config) -> Vec<PathBuf> {
             crate::files::file_io::write_later(move || crate::files::file_io::remove_shared(&file));
             Vec::new()
         }
+        // Parsed by `parse_recent`, which config's survives_broken_files feeds broken input.
         Some(file) => crate::images::decode::read_limited(file)
             .map_or_else(|_| Vec::new(), |t| config::parse_recent(&t)),
         None => Vec::new(),
@@ -1893,6 +1898,7 @@ pub(crate) fn read_recent(config: &Config) -> Vec<PathBuf> {
 /// Returns the Sort Manager's folders as their file has them. It waits for the disk, so `main`
 /// calls it before the window opens.
 pub(crate) fn read_sort_folders() -> Vec<PathBuf> {
+    // Parsed by `sort_folders_from`, which config's survives_broken_files feeds broken input.
     (sort_folders_path().and_then(|p| crate::images::decode::read_limited(p).ok()))
         .map_or_else(Vec::new, |t| sort_folders_from(&t))
 }

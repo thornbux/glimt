@@ -1649,7 +1649,7 @@ impl crate::App {
 
     /// Enter. A video plays in the player (an image has nothing to play), and a slideshow waits
     /// meanwhile until P resumes it.
-    #[cfg_attr(not(feature = "video"), allow(unused_variables))]
+    #[cfg_attr(not(feature = "video"), allow(unused_variables))] // ctx plays a video only
     pub(crate) fn play_video(&mut self, ctx: &egui::Context) {
         #[cfg(feature = "video")]
         if is_video(&self.location()) {
@@ -1965,6 +1965,8 @@ pub(crate) fn spawn_decoders(
             done_tx.clone(),
             ctx.clone(),
         );
+        // No busy pointer: a decode worker, which lasts as long as the window. The
+        // shown image's decode shows the pointer through `working`.
         std::thread::spawn(move || {
             loop {
                 let Ok(DecodeJob {

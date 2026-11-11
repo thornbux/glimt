@@ -464,6 +464,8 @@ impl StatusBar {
             let (asked, questions) = mpsc::channel::<(OsString, PathBuf)>();
             let (found, answers) = mpsc::channel();
             let ctx = ctx.clone();
+            // No busy pointer: the list's sizes and dates, a look-up nobody waits for, shown when
+            // it comes.
             std::thread::spawn(move || answer_sizes_and_dates(&questions, &found, &ctx));
             self.sizes_and_dates_found = Receiving::of(answers);
             asked
@@ -1102,6 +1104,8 @@ impl crate::App {
         for dir in unread {
             self.tree.children.insert(dir.clone(), None);
             let (tx, ctx) = (self.tree.subfolders_sender.clone(), ui.ctx().clone());
+            // No busy pointer: a folder's subfolders in the tree, a look-up nobody waits for, shown
+            // when it comes.
             std::thread::spawn(move || {
                 let subdirs = list_folder(&dir, folders).0;
                 let _ = tx.send((dir, subdirs));

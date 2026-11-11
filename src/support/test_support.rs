@@ -77,6 +77,7 @@ pub(crate) fn unlisted_with<T>(
 pub(crate) fn contract_folder(name: &str) -> std::path::PathBuf {
     let dir =
         std::env::temp_dir().join(format!("glimt-test-contract-{name}-{}", std::process::id()));
+    // Not told: a folder left by an earlier run, when there is one.
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(dir.join("sub")).unwrap();
     for (file, colour) in [("a", [255, 0, 0]), ("b", [0, 0, 255])] {

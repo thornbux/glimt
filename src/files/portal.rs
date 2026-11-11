@@ -168,6 +168,7 @@ fn with_time_limit<T: Send + 'static>(
     stop: impl FnOnce(),
 ) -> Option<T> {
     let (tx, rx) = std::sync::mpsc::channel();
+    // No busy pointer: its caller waits for it, at most `limit`.
     std::thread::spawn(move || tx.send(wait()));
     let answer = rx.recv_timeout(limit).ok();
     if answer.is_none() {
@@ -281,6 +282,7 @@ pub fn inhibit_idle(reason: &str) -> Result<std::sync::mpsc::Sender<()>, String>
     .map_err(e)?;
     let handle: zbus::zvariant::OwnedObjectPath = reply.body().deserialize().map_err(e)?;
     let (tx, rx) = std::sync::mpsc::channel::<()>();
+    // No busy pointer: it holds the screen saver off while full screen lasts.
     std::thread::spawn(move || {
         // Until the sender is dropped; the connection, and with it the inhibition, lives here.
         let _ = rx.recv();

@@ -14,6 +14,12 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- A print whose page image could not be made fails and says so. Before, that page printed
+  blank without a word.
+- Open Themes Folder and Open the Tools Folder say so when the folder cannot be made. Before,
+  nothing happened.
+- `--wait` waits for Save As's look-up of the image's format, which Save… waits for too.
+- About decodes Glimt's logo in the background, as every image is decoded.
 - A Move or Copy onto a disk with room for a photo but not for its sidecar puts the photo back,
   with what had followed, and says so. Before, the photo was left at the target without its
   keywords and the sidecar at the source, where a later file of that name would pick it up. The

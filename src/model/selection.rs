@@ -313,6 +313,8 @@ impl crate::App {
             mpsc::channel(),
             ctx.clone(),
         );
+        // No busy pointer: the selection's size in the status bar, a look-up nobody waits for,
+        // shown when it comes.
         std::thread::spawn(move || {
             let paths: Vec<PathBuf> = names.iter().map(|n| dir.join(n)).collect();
             // The receiver is gone if the selection changed again; then the answer is dropped.

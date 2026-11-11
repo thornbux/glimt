@@ -33,14 +33,18 @@ for Linux in Rust/egui, inspired by Geeqie. Read this before changing anything.
   count, or a `threads::Working` held for the work) when the user started the work and waits
   for it. A look-up that nobody waits for, such as the folder's size in the status bar or the
   list of printers, shows no busy pointer, so the pointer is not busy while the user can go
-  on. The UI thread does not even look at a
+  on. Every thread says which: it holds a `Working` or answers through an `AnswerSender`, or a
+  comment just above it says "No busy pointer:" and why, or "Its busy pointer:" and the state
+  that shows it (`source_rules::threads_show_the_busy_pointer_or_say_why_not`), because
+  `--remote … --wait` answers when the busy count is down. The UI thread does not even look at a
   user's file or folder (a stat, a real path, a read), because on a share that stopped
   answering that waits for ever and the window hangs.
   Glimt's own files are no exception, because a home folder can be on such a share too: they
   are read before the window opens (`main`) or in a thread.
   `source_rules::the_window_thread_never_waits_for_the_disk` finds such a call in the functions
-  of `App` and of its parts, also through every function of the crate that reaches one,
-  however deep, and lists the few that stay with their reasons.
+  of `App` and of its parts, and a wait for a program or a decode too, also through every
+  function of the crate that reaches one, however deep, and lists the few that stay with their
+  reasons.
 - **As fast with 500,000 files in a folder as with 10.** No O(n) work per frame, no system call
   per file in the list (use `DirEntry::file_type`), draw lists with `show_rows`, compare file
   names as bytes. Test large folders with hard links to one image, for example
@@ -139,10 +143,12 @@ taken; with `--wait` the client sends it after the word `wait`, and the window a
 its work has ended, `done` or `not done: <reason>` when a write failed meanwhile
 (`answer_awaited_outcomes`).
 
+How the window itself reads each `--remote` command is pinned too: `remote_command` matches
+the words a second time, apart from `COMMANDS`, and `the_window_takes_every_listed_command`
+sends it every command and choice that `COMMANDS` lists, and fails on one it does not know.
+
 No test pins the following, so they are kept by hand:
 
-- how the window itself reads each `--remote` command: `remote_command` matches the words a
-  second time, apart from `COMMANDS`;
 - what the commands print;
 - the formats inside the files Glimt owns: `key=value` read by name, the marks file's
   `bits\tstars\tpath`, the keyword tree's `A|B|C`, a path to a line;
@@ -469,7 +475,10 @@ method.
   (`source_rules::tests_use_temporary_names_of_their_own`).
 - **A parser of file contents** also gets a `survives_broken_*` test that feeds it
   `crate::support::test_support::broken(sample)`: 2,000 damaged forms of a good input in every
-  run, and five million every Sunday (`.github/workflows/parsers.yml`, `GLIMT_FUZZ`).
+  run, and five million every Sunday (`.github/workflows/parsers.yml`, `GLIMT_FUZZ`). Each
+  file that reads outside text (a file read whole, a program's output, a line from the socket)
+  has such a test of its own, or names the test that feeds its parser elsewhere in a comment
+  on the read (`source_rules::outside_text_is_read_by_parsers_fed_broken_input`).
 - **Touching the disk or starting a program** goes through one function each, and
   `clippy.toml` (`disallowed-methods`) refuses the raw calls, so `cargo clippy` fails on a
   bypass:
@@ -552,8 +561,11 @@ whole module. The tests may unwrap (main.rs allows it for them).
 
 - **A failure is told, never swallowed.** A failed write of the user's data or of Glimt's own
   files goes to `file_io::save_failed`, which prints it and shows it once in the window. The
-  result of a writer of file_io is never dropped with `let _ =`, `_ =` or `.ok();`
-  (`source_rules::write_results_are_not_dropped`): handle it, or pass it on with `?`.
+  result of a writer of file_io is never dropped with `let _ =`, `_ =`, `.ok();` or `drop(…)`
+  (`source_rules::write_results_are_not_dropped`): handle it, or pass it on with `?`. Nor is
+  the result of a raw change on the disk (`create_dir_all`, `remove_file`, …) or of an image
+  encoded, unless a comment on it starting with "Not told:" says why its failure needs no
+  telling, such as a write just after it that tells the same failure.
   A background thread tells a failed write through `save_failed` or
   `NoticeSender::send_failed_write`, never as a plain notice, and the window thread through
   `App::tell_failed_write`. Work in `run_in_background` answers with a `Told`, which says

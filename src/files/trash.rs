@@ -627,7 +627,7 @@ fn is_usable_top_trash(dir: &Path, uid: Option<u32>, sticky: bool) -> bool {
 
 /// What the trash folder `dir` holds, its relative paths read from `top`.
 fn read_trash(dir: &Path, top: &Path) -> Vec<TrashEntry> {
-    use std::os::unix::ffi::{OsStrExt, OsStringExt};
+    use std::os::unix::ffi::OsStrExt;
     let entries = std::fs::read_dir(dir.join("info"))
         .into_iter()
         .flatten()
@@ -640,11 +640,10 @@ fn read_trash(dir: &Path, top: &Path) -> Vec<TrashEntry> {
             let name = info.file_name()?.as_bytes().strip_suffix(b".trashinfo")?;
             let name = std::ffi::OsStr::from_bytes(name);
             let text = crate::images::decode::read_text(&info).ok()?;
-            let value = |key: &str| text.lines().find_map(|l| l.strip_prefix(key));
-            let from = collections::percent_decoded(value("Path=")?.as_bytes());
+            let (from, date) = read_trash_info(&text, top)?;
             Some(TrashEntry {
-                from: top.join(OsString::from_vec(from)),
-                date: value("DeletionDate=").unwrap_or_default().to_owned(),
+                from,
+                date,
                 file: dir.join("files").join(name),
                 info,
             })
@@ -652,8 +651,33 @@ fn read_trash(dir: &Path, top: &Path) -> Vec<TrashEntry> {
         .collect()
 }
 
+/// Reads a `.trashinfo` file's `text`, its path read from `top`. Returns where the file was
+/// and when it was trashed, or `None` without a path. A trash on a stick or a shared disk is
+/// outside data, so the text may hold anything.
+fn read_trash_info(text: &str, top: &Path) -> Option<(PathBuf, String)> {
+    use std::os::unix::ffi::OsStringExt;
+    let value = |key: &str| text.lines().find_map(|l| l.strip_prefix(key));
+    let from = collections::percent_decoded(value("Path=")?.as_bytes());
+    let date = value("DeletionDate=").unwrap_or_default().to_owned();
+    Some((top.join(OsString::from_vec(from)), date))
+}
+
 #[cfg(test)]
 mod tests {
+    /// A `.trashinfo` file damaged in any way is read without a panic, and a whole one gives
+    /// its path, percent-decoded, and its date.
+    #[test]
+    fn survives_broken_trash_info() {
+        let top = std::path::Path::new("/media/stick");
+        let seed = b"[Trash Info]\nPath=photos/a%20b.jpg\nDeletionDate=2026-11-11T10:00:00\n";
+        let whole = super::read_trash_info(&String::from_utf8_lossy(seed), top);
+        let expected = (top.join("photos/a b.jpg"), "2026-11-11T10:00:00".to_owned());
+        assert_eq!(whole, Some(expected));
+        for bytes in crate::support::test_support::broken(seed) {
+            super::read_trash_info(&String::from_utf8_lossy(&bytes), top);
+        }
+    }
+
     /// Held by the tests that trash into /dev/shm's top trash, as each removes that trash's
     /// folders when it is done, which would take them away under another such test.
     static SHM_TRASH: std::sync::Mutex<()> = std::sync::Mutex::new(());

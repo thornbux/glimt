@@ -1526,6 +1526,14 @@ mod tests {
         {
             super::WindowState::parse(&String::from_utf8_lossy(&bytes));
         }
+        // --check-config reads the same file with its problems.
+        for bytes in crate::support::test_support::broken(seed.as_bytes()) {
+            super::Config::parse_checked(&String::from_utf8_lossy(&bytes));
+        }
+        for bytes in crate::support::test_support::broken(b"/home/a/Pictures\n/mnt/b c\n") {
+            super::parse_recent(&bytes);
+            super::sort_folders_from(&bytes);
+        }
     }
 
     /// The names that users' settings files and scripts hold are frozen in 1.x: the settings'

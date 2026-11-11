@@ -230,7 +230,7 @@ impl crate::App {
 
 /// The thumbnail workers, one for each core of which CPU use lets `thumb_threads(workers)`
 /// take jobs: so scrolling the list never delays the shown image.
-#[allow(clippy::type_complexity)]
+#[allow(clippy::type_complexity)] // the two channels' types, each used once, read best whole
 pub(crate) fn spawn_thumbnailers(
     ctx: &egui::Context,
     workers: usize,
@@ -255,6 +255,8 @@ pub(crate) fn spawn_thumbnailers(
             save.clone(),
             ctx.clone(),
         );
+        // No busy pointer: a thumbnail worker, which lasts as long as the window. Each
+        // thumbnail is shown when it comes.
         std::thread::spawn(move || {
             loop {
                 let mut idle = lock_even_if_poisoned(&CPU_CHANGED.0);
