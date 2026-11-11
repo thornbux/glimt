@@ -3138,3 +3138,7 @@ msgstr "Não foi possível deixar os nomes como estão: {e}. “Renomear vários
 #: src/files/journal.rs
 msgid "another window has them open"
 msgstr "outra janela está com eles abertos"
+
+#: src/files/file_io.rs
+msgid "Could not lock {name}: {e}. A change that another Glimt window makes at the same moment may be lost."
+msgstr "Não foi possível bloquear {name}: {e}. Uma alteração feita no mesmo momento por outra janela do Glimt pode ser perdida."

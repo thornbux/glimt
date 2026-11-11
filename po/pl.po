@@ -3138,3 +3138,7 @@ msgstr "Nie udało się zostawić nazw bez zmian: {e}. Zmiana wielu nazw zapyta 
 #: src/files/journal.rs
 msgid "another window has them open"
 msgstr "inne okno ma je otwarte"
+
+#: src/files/file_io.rs
+msgid "Could not lock {name}: {e}. A change that another Glimt window makes at the same moment may be lost."
+msgstr "Nie udało się zablokować {name}: {e}. Zmiana wprowadzona w tej samej chwili przez inne okno Glimta może zostać utracona."

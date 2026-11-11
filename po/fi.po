@@ -3131,3 +3131,7 @@ msgstr "Nimiä ei voitu jättää ennalleen: {e}. Monen uudelleennimeäminen kys
 #: src/files/journal.rs
 msgid "another window has them open"
 msgstr "toinen ikkuna pitää niitä auki"
+
+#: src/files/file_io.rs
+msgid "Could not lock {name}: {e}. A change that another Glimt window makes at the same moment may be lost."
+msgstr "Kohdetta {name} ei voitu lukita: {e}. Muutos, jonka toinen Glimt-ikkuna tekee samalla hetkellä, voi kadota."

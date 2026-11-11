@@ -3127,3 +3127,7 @@ msgstr "Impossible de laisser les noms tels quels : {e}. Renommer plusieurs pose
 #: src/files/journal.rs
 msgid "another window has them open"
 msgstr "une autre fenêtre les a ouverts"
+
+#: src/files/file_io.rs
+msgid "Could not lock {name}: {e}. A change that another Glimt window makes at the same moment may be lost."
+msgstr "Impossible de verrouiller {name} : {e}. Une modification faite au même moment par une autre fenêtre de Glimt peut être perdue."

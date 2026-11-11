@@ -3149,3 +3149,7 @@ msgstr "Jména nelze ponechat tak, jak jsou: {e}. Hromadné přejmenování se n
 #: src/files/journal.rs
 msgid "another window has them open"
 msgstr "jiné okno je má otevřené"
+
+#: src/files/file_io.rs
+msgid "Could not lock {name}: {e}. A change that another Glimt window makes at the same moment may be lost."
+msgstr "Nelze zamknout {name}: {e}. Změna, kterou ve stejnou chvíli provede jiné okno Glimtu, se může ztratit."

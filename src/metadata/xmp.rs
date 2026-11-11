@@ -617,7 +617,7 @@ fn lock_file(dir: &Path, side: &Path) -> Option<std::fs::File> {
         .recursive(true)
         .mode(0o700)
         .create(dir);
-    crate::files::file_io::open_and_lock(&dir.join(sidecar_lock_number(side).to_string())).ok()
+    crate::files::file_io::lock_or_tell(&dir.join(sidecar_lock_number(side).to_string()))
 }
 
 /// Which of the 64 lock files a sidecar has. It is FNV-1a of its path's bytes, the same in

@@ -3142,3 +3142,7 @@ msgstr "Kunne ikkje la namna vere som dei er: {e}. Endra mange namn spør om dei
 #: src/files/journal.rs
 msgid "another window has them open"
 msgstr "eit anna vindauge har dei opne"
+
+#: src/files/file_io.rs
+msgid "Could not lock {name}: {e}. A change that another Glimt window makes at the same moment may be lost."
+msgstr "Kunne ikkje låse {name}: {e}. Ei endring som eit anna Glimt-vindauge gjer i same augneblinken, kan gå tapt."

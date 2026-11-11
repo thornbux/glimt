@@ -3127,3 +3127,7 @@ msgstr "Kunde inte låta namnen vara som de är: {e}. Byt namn på flera frågar
 #: src/files/journal.rs
 msgid "another window has them open"
 msgstr "ett annat fönster har dem öppna"
+
+#: src/files/file_io.rs
+msgid "Could not lock {name}: {e}. A change that another Glimt window makes at the same moment may be lost."
+msgstr "Kunde inte låsa {name}: {e}. En ändring som ett annat Glimt-fönster gör i samma ögonblick kan gå förlorad."
