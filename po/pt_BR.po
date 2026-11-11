@@ -3928,3 +3928,8 @@ msgstr "A janela de arquivos não respondeu com caminhos completos, então nada 
 #, fuzzy
 msgid "Could not lock {name}: {e}. A change that another Glimt window makes at the same moment may be lost."
 msgstr "Não foi possível bloquear {name}: {e}. Uma alteração feita no mesmo momento por outra janela do Glimt pode ser perdida."
+
+#: src/metadata/xmp.rs
+#, fuzzy
+msgid "{sidecar} could not be moved ({e}), so it was copied to {copy} and is still at its old name too"
+msgstr "{sidecar} não pôde ser movido ({e}), então foi copiado para {copy} e continua também com o nome antigo"

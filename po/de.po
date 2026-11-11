@@ -3917,3 +3917,8 @@ msgstr "Der Dateidialog hat nicht mit vollständigen Pfaden geantwortet, daher w
 #, fuzzy
 msgid "Could not lock {name}: {e}. A change that another Glimt window makes at the same moment may be lost."
 msgstr "Konnte {name} nicht sperren: {e}. Eine Änderung, die ein anderes Glimt-Fenster im selben Moment vornimmt, kann verloren gehen."
+
+#: src/metadata/xmp.rs
+#, fuzzy
+msgid "{sidecar} could not be moved ({e}), so it was copied to {copy} and is still at its old name too"
+msgstr "{sidecar} konnte nicht verschoben werden ({e}), daher wurde sie nach {copy} kopiert und liegt weiterhin auch unter dem alten Namen"

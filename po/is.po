@@ -3917,3 +3917,8 @@ msgstr "Skráarglugginn svaraði ekki með fullum slóðum, svo ekkert var opna�
 #, fuzzy
 msgid "Could not lock {name}: {e}. A change that another Glimt window makes at the same moment may be lost."
 msgstr "Gat ekki læst {name}: {e}. Breyting sem annar Glimt-gluggi gerir á sama augnabliki getur glatast."
+
+#: src/metadata/xmp.rs
+#, fuzzy
+msgid "{sidecar} could not be moved ({e}), so it was copied to {copy} and is still at its old name too"
+msgstr "Ekki tókst að færa {sidecar} ({e}), svo hún var afrituð í {copy} og er enn líka undir gamla nafninu"

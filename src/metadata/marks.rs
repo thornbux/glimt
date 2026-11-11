@@ -1569,8 +1569,12 @@ mod tests {
             r#"<rdf:Description xmlns:xmp="http://ns.adobe.com/xap/1.0/" xmp:Rating="2" rdf:about="">"#
         );
         assert_eq!(
-            super::set_rating("<xmp:Rating>5</xmp:Rating><rdf:Description>", 0).unwrap(),
-            r#"<rdf:Description xmlns:xmp="http://ns.adobe.com/xap/1.0/" xmp:Rating="0">"#
+            super::set_rating(
+                "<rdf:Description>\n <xmp:Rating>5</xmp:Rating></rdf:Description>",
+                0
+            )
+            .unwrap(),
+            r#"<rdf:Description xmlns:xmp="http://ns.adobe.com/xap/1.0/" xmp:Rating="0"></rdf:Description>"#
         );
         // An old packet's xap prefix and a declaration with spaces around its equals sign are
         // read as the reader reads them, so the rating is neither written twice nor declared

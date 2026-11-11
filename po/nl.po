@@ -3917,3 +3917,8 @@ msgstr "De bestandsdialoog antwoordde niet met volledige paden, dus er is niets 
 #, fuzzy
 msgid "Could not lock {name}: {e}. A change that another Glimt window makes at the same moment may be lost."
 msgstr "Kon {name} niet vergrendelen: {e}. Een wijziging die een ander Glimt-venster op hetzelfde moment maakt, kan verloren gaan."
+
+#: src/metadata/xmp.rs
+#, fuzzy
+msgid "{sidecar} could not be moved ({e}), so it was copied to {copy} and is still at its old name too"
+msgstr "{sidecar} kon niet worden verplaatst ({e}), dus het is gekopieerd naar {copy} en staat ook nog onder de oude naam"

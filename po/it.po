@@ -3917,3 +3917,8 @@ msgstr "La finestra di selezione file non ha risposto con percorsi completi, qui
 #, fuzzy
 msgid "Could not lock {name}: {e}. A change that another Glimt window makes at the same moment may be lost."
 msgstr "Impossibile bloccare {name}: {e}. Una modifica fatta nello stesso momento da un'altra finestra di Glimt può andare persa."
+
+#: src/metadata/xmp.rs
+#, fuzzy
+msgid "{sidecar} could not be moved ({e}), so it was copied to {copy} and is still at its old name too"
+msgstr "{sidecar} non è stato spostato ({e}), quindi è stato copiato in {copy} ed è ancora anche con il suo vecchio nome"

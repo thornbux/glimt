@@ -3922,3 +3922,8 @@ msgstr "Tiedostoikkuna ei vastannut täysillä poluilla, joten mitään ei avatt
 #, fuzzy
 msgid "Could not lock {name}: {e}. A change that another Glimt window makes at the same moment may be lost."
 msgstr "Kohdetta {name} ei voitu lukita: {e}. Muutos, jonka toinen Glimt-ikkuna tekee samalla hetkellä, voi kadota."
+
+#: src/metadata/xmp.rs
+#, fuzzy
+msgid "{sidecar} could not be moved ({e}), so it was copied to {copy} and is still at its old name too"
+msgstr "Kohdetta {sidecar} ei voitu siirtää ({e}), joten se kopioitiin kohteeseen {copy}, ja se on yhä myös vanhalla nimellään"
