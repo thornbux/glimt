@@ -299,10 +299,9 @@ fn parse_move_known(text: &str) -> Vec<Option<FileFingerprint>> {
 /// there since, and a log that outlived its Move (its removal failed) is found again at the
 /// next start, so the marks and the sidecar of the file that went would else go to a later
 /// photo of that name. A file is told by its size and time, which a move to another disk keeps
-/// (`put_file`). A log without a list, of a Glimt before 0.82, is taken by its names. A pair
-/// left alone is told.
-/// shortcut: a move to a card whose file system keeps coarser times (FAT) changes the time, so
-/// its pair is left alone after a kill; compare the times to the second if that matters.
+/// (`put_file`) to the resolution of that disk's file system, so the times are compared as any
+/// file system keeps them (`KnownAs::size_and_time`). A log without a list, of a Glimt before
+/// 0.82, is taken by its names. A pair left alone is told.
 fn is_the_file_that_went(
     to: &Path,
     known: Option<&[Option<FileFingerprint>]>,
@@ -1116,6 +1115,47 @@ mod tests {
         drop(found);
         std::fs::remove_dir_all(logs.join(super::KNOWN_FOLDER)).unwrap();
         assert_eq!(super::moves_cut_short(&logs)[0].1.len(), 2);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A file that a killed Move put on a disk whose file system keeps coarser times (FAT,
+    /// exFAT, NTFS, SMB) is still the file that went, and its sidecar follows it. Before, the
+    /// time cut to the disk's resolution was taken for another file, so no marks or sidecar
+    /// followed. A file whose time is further off is still another file.
+    #[test]
+    fn a_killed_move_to_a_disk_of_coarser_times_follows_the_files() {
+        let dir =
+            std::env::temp_dir().join(format!("glimt-test-killed-coarse-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let (from, to, logs) = (dir.join("from"), dir.join("to"), dir.join("logs"));
+        std::fs::create_dir_all(&from).unwrap();
+        std::fs::create_dir_all(&to).unwrap();
+        let at = |seconds, nanoseconds| {
+            std::time::UNIX_EPOCH + std::time::Duration::new(seconds, nanoseconds)
+        };
+        let set_time = |path: &std::path::Path, time| {
+            let file = std::fs::File::options().write(true).open(path).unwrap();
+            file.set_modified(time).unwrap();
+        };
+        for n in ["a.jpg", "b.jpg", "a.jpg.xmp"] {
+            std::fs::write(from.join(n), "photo").unwrap();
+        }
+        let mut log = super::start_move_log(&logs).unwrap();
+        for n in ["a.jpg", "b.jpg"] {
+            set_time(&from.join(n), at(1_700_000_001, 234_567_891));
+            log.note(&from.join(n), &to.join(n));
+            std::fs::rename(from.join(n), to.join(n)).unwrap();
+        }
+        drop(log);
+        // FAT keeps a.jpg's time to 2 seconds, and b.jpg's name holds a later photo.
+        set_time(&to.join("a.jpg"), at(1_700_000_000, 0));
+        set_time(&to.join("b.jpg"), at(1_700_000_004, 0));
+        crate::files::file_io::take_saves_failed();
+        let found = super::moves_cut_short(&logs);
+        assert_eq!(found[0].1, vec![(from.join("a.jpg"), to.join("a.jpg"))]);
+        assert!(to.join("a.jpg.xmp").exists() && !from.join("a.jpg.xmp").exists());
+        assert_eq!(crate::files::file_io::take_saves_failed().len(), 1);
+        drop(found);
         std::fs::remove_dir_all(dir).unwrap();
     }
 
