@@ -3075,3 +3075,7 @@ msgstr "Uudelleennime채misen suunnitelmaa ei voitu tallentaa ({e}), joten mit채�
 #: src/files/file_ops.rs
 msgid "{side} could not go to the trash, so {file} stays where it was, with its sidecar"
 msgstr "{side} ei voinut siirty채 roskakoriin, joten {file} j채채 paikalleen sivutiedostonsa kanssa"
+
+#: src/files/trash.rs
+msgid "{e}, so {file} stays in the trash, with its sidecar"
+msgstr "{e}, joten {file} j채채 roskakoriin sivutiedostonsa kanssa"

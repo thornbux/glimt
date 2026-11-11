@@ -3086,3 +3086,7 @@ msgstr "Kunne ikkje lagra planen for omdøypinga ({e}), så ingenting fekk nytt 
 #: src/files/file_ops.rs
 msgid "{side} could not go to the trash, so {file} stays where it was, with its sidecar"
 msgstr "{side} kunne ikkje flyttast til papirkorga, så {file} blir der han var, med sidefila si"
+
+#: src/files/trash.rs
+msgid "{e}, so {file} stays in the trash, with its sidecar"
+msgstr "{e}, så {file} blir i papirkorga, med sidefila si"

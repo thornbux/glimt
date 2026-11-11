@@ -3071,3 +3071,7 @@ msgstr "Impossible d'enregistrer le plan des renommages ({e}), donc rien n'a ét
 #: src/files/file_ops.rs
 msgid "{side} could not go to the trash, so {file} stays where it was, with its sidecar"
 msgstr "{side} n'a pas pu aller à la corbeille, donc {file} reste où il était, avec son fichier annexe"
+
+#: src/files/trash.rs
+msgid "{e}, so {file} stays in the trash, with its sidecar"
+msgstr "{e}, donc {file} reste dans la corbeille, avec son fichier annexe"

@@ -3082,3 +3082,7 @@ msgstr "Não foi possível salvar o plano da renomeação ({e}), então nada foi
 #: src/files/file_ops.rs
 msgid "{side} could not go to the trash, so {file} stays where it was, with its sidecar"
 msgstr "{side} não pôde ir para a lixeira, então {file} fica onde estava, com seu arquivo XMP associado"
+
+#: src/files/trash.rs
+msgid "{e}, so {file} stays in the trash, with its sidecar"
+msgstr "{e}, então {file} fica na lixeira, com seu arquivo XMP associado"

@@ -3071,3 +3071,7 @@ msgstr "Impossibile salvare il piano delle rinomine ({e}), quindi non è stato r
 #: src/files/file_ops.rs
 msgid "{side} could not go to the trash, so {file} stays where it was, with its sidecar"
 msgstr "{side} non è potuto andare nel cestino, quindi {file} resta dov'era, con il suo file sidecar"
+
+#: src/files/trash.rs
+msgid "{e}, so {file} stays in the trash, with its sidecar"
+msgstr "{e}, quindi {file} resta nel cestino, con il suo file sidecar"

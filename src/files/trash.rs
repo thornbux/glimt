@@ -208,8 +208,10 @@ fn sidecars_by_file<'a>(
 
 /// Puts the files of `steps` back from the trash, each with its sidecars right after it, and
 /// tells the first failure in `error`. A file that cannot come back stays in the trash with its
-/// sidecars, and the next files still come back. Returns the files put back, without the
-/// sidecars.
+/// sidecars, and the next files still come back. So does a file one of whose sidecars cannot
+/// come back: it goes back into the trash with the sidecars that came, to be undone again,
+/// because the next file of its name would else pick up the sidecar left in the trash. Returns
+/// the files put back, without the sidecars.
 fn put_back(
     steps: Vec<(TrashEntry, bool, Vec<TrashEntry>)>,
     error: &mut Option<String>,
@@ -224,18 +226,33 @@ fn put_back(
             error.get_or_insert(e);
             continue;
         }
+        // The file first, and then each sidecar that came back with it.
+        let mut out = vec![t];
         for side in sides {
-            match rename(&side) {
-                Ok(()) => renamed.push(side),
-                Err(e) => {
-                    error.get_or_insert(e);
+            if let Err(e) = rename(&side) {
+                let file = out[0].from.display().to_string();
+                while let Some(last) = out.last()
+                    && rename_never_over(&last.from, &last.file).is_ok()
+                {
+                    out.pop();
                 }
+                error.get_or_insert(match out.is_empty() {
+                    true => tf!(
+                        "{e}, so {file} stays in the trash, with its sidecar",
+                        e,
+                        file
+                    ),
+                    false => e,
+                });
+                break;
             }
+            out.push(side);
         }
-        if is_file {
-            back.push(t.from.clone());
+        // A file that could not go back into the trash is out, as are the sidecars that came.
+        if is_file && let Some(file) = out.first() {
+            back.push(file.from.clone());
         }
-        renamed.push(t);
+        renamed.extend(out);
     }
     // The names put back are on disk before their .trashinfo files go, with one sync for each
     // folder. Otherwise a power cut could leave a file in the trash's files folder with no
@@ -1222,6 +1239,51 @@ mod tests {
         assert_eq!(back, [x.join("a.jpg")]);
         assert!(error.is_some());
         assert!(x.join("a.jpg.xmp").exists());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// Undo from the trash leaves a file in the trash when its sidecar cannot come back, and says
+    /// so. Before, the file came back without its sidecar, which waited in the trash.
+    #[test]
+    fn a_file_comes_back_from_the_trash_only_with_its_sidecar() {
+        use crate::files::file_io::{RENAME_WAYS_MISSING, UNLINK_FAILS};
+        let dir = std::env::temp_dir().join(format!("glimt-test-back-pair-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let (trash, x) = (dir.join("trash"), dir.join("x"));
+        for d in [trash.join("files"), trash.join("info"), x.clone()] {
+            std::fs::create_dir_all(d).unwrap();
+        }
+        let now = std::time::SystemTime::now();
+        let secs = now.duration_since(std::time::UNIX_EPOCH).unwrap().as_secs() as i64;
+        let date = crate::support::format::local_time(secs).replacen(' ', "T", 1);
+        for kept in ["a.jpg", "a.jpg.xmp"] {
+            crate::files::file_io::create_file(&trash.join("files").join(kept), kept).unwrap();
+            let text = format!(
+                "[Trash Info]\nPath={}\nDeletionDate={date}\n",
+                x.join(kept).display()
+            );
+            let info = trash.join("info").join(format!("{kept}.trashinfo"));
+            crate::files::file_io::create_file(&info, text).unwrap();
+        }
+        let trash_move = super::TrashMove {
+            files: vec![x.join("a.jpg")],
+            sidecars: vec![x.join("a.jpg.xmp")],
+            sidecars_left: Vec::new(),
+            since: now - std::time::Duration::from_secs(1),
+            marks: Default::default(),
+            collection: None,
+        };
+        let dirs = |_: &std::path::Path| vec![(trash.clone(), std::path::PathBuf::from("/"))];
+        // The sidecar's name in the trash cannot be unlinked, so it cannot come back.
+        RENAME_WAYS_MISSING.set(1);
+        UNLINK_FAILS.set(Some((trash.join("files/a.jpg.xmp"), libc::EPERM)));
+        let (back, error) = super::restore(&trash_move, dirs);
+        UNLINK_FAILS.set(None);
+        RENAME_WAYS_MISSING.set(0);
+        assert!(back.is_empty(), "{error:?}");
+        assert!(error.unwrap().contains("stays in the trash"));
+        assert_eq!(std::fs::read_dir(&x).unwrap().count(), 0);
+        assert!(trash.join("files/a.jpg").exists() && trash.join("info/a.jpg.trashinfo").exists());
         std::fs::remove_dir_all(dir).unwrap();
     }
 
