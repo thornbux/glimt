@@ -224,24 +224,26 @@ pub(crate) struct Import {
     /// Whether each folder typed for a root folder is there, as last looked at in the
     /// background, with the texts it was looked at for (`look_at_typed_folders`).
     typed_folders_there: (Vec<String>, Vec<bool>),
-    /// The look at the typed folders that runs in the background.
+    /// The look at the typed folders that runs in the background, and the texts it looks at.
     typed_folders_answer: Receiving<(Vec<String>, Vec<bool>)>,
+    typed_folders_asked: Vec<String>,
 }
 
 impl Import {
     /// Takes the answer of the look at the typed folders, and starts a new look in the
     /// background when a field changed since the last one. A share that stopped answering then
     /// holds only that thread, not the window. Before, the dialog looked at each folder in the
-    /// window's thread in every frame.
+    /// window's thread in every frame. A new look replaces one that still runs, whose answer is
+    /// then dropped. Before, a look that hung on such a share kept every later one from
+    /// starting, and no field showed its ✓ again.
     fn look_at_typed_folders(&mut self, ctx: &egui::Context) {
         if let Took::Answer(answer) = self.typed_folders_answer.take() {
             self.typed_folders_there = answer;
         }
-        if self.typed_folders_answer.is_some()
-            || self.typed_folders_there.0 == self.root_folders_now
-        {
+        if self.typed_folders_asked == self.root_folders_now {
             return;
         }
+        self.typed_folders_asked = self.root_folders_now.clone();
         let (tx, rx) = std::sync::mpsc::channel();
         let (typed, ctx) = (self.root_folders_now.clone(), ctx.clone());
         // No busy pointer: whether each typed folder is there, a look-up nobody waits for, shown
@@ -719,6 +721,7 @@ fn import_dialog_for(catalog: Catalog) -> Import {
     Import {
         catalog: Arc::new(catalog),
         typed_folders_there: (root_folders_now.clone(), there),
+        typed_folders_asked: root_folders_now.clone(),
         root_folders_now,
         plan: None,
         planning: Receiving::none(),
@@ -937,6 +940,31 @@ mod tests {
         }
         lr.root_folders_now = vec![dir.join("gone").display().to_string()];
         assert!(!lr.is_typed_folder_there(0));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A look at the typed folders that does not answer, as on a share that stopped answering,
+    /// keeps no later look from starting. Before, every field showed no ✓ for the rest of the
+    /// dialog.
+    #[test]
+    fn a_look_that_hangs_is_replaced_by_the_next() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-lrhang-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let rows = format!("r\x1f1\x1f{}/\x1f\x1f", dir.join("gone").display());
+        let mut lr = super::import_dialog_for(super::parse(rows.as_bytes()));
+        // A look at a folder on the share, which never answers.
+        let (_never_sent, hanging) = std::sync::mpsc::channel();
+        lr.typed_folders_answer = crate::support::threads::Receiving::of(hanging);
+        lr.root_folders_now = vec![dir.join("share").display().to_string()];
+        lr.typed_folders_asked = lr.root_folders_now.clone();
+        lr.root_folders_now = vec![dir.display().to_string()];
+        let ctx = eframe::egui::Context::default();
+        let took = std::time::Instant::now();
+        while !lr.is_typed_folder_there(0) {
+            assert!(took.elapsed().as_secs() < 5, "the field never got its ✓");
+            lr.look_at_typed_folders(&ctx);
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
         std::fs::remove_dir_all(dir).unwrap();
     }
 
