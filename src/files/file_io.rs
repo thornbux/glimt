@@ -81,6 +81,10 @@ thread_local! {
     // name stays, as a share does that lost its answer.
     pub(crate) static UNLINK_FAILS: std::cell::RefCell<Option<(PathBuf, i32)>> =
         const { std::cell::RefCell::new(None) };
+    // Makes `fingerprint` on this thread fail at this name once it has been looked at this many
+    // times, as a share does that stopped answering for a moment.
+    pub(crate) static LOOK_FAILS: std::cell::RefCell<Option<(PathBuf, usize)>> =
+        const { std::cell::RefCell::new(None) };
     // The errors that `save_failed` told for this thread's test. They do not go to the window's
     // own slot in tests, where another test's window would take them as its notice. Each list is
     // leaked, so that the writer thread can tell a test's errors to that test's list.
@@ -1505,6 +1509,17 @@ fn has_lasting_inodes(kind: &str) -> bool {
 /// Returns the fingerprint of the file or link at `path`, or `None` when nothing is there.
 pub(crate) fn fingerprint(path: &Path) -> Option<FileFingerprint> {
     use std::os::unix::fs::MetadataExt;
+    #[cfg(test)]
+    if LOOK_FAILS.with_borrow_mut(|fails| match fails {
+        Some((name, looks_left)) if name == path => {
+            let fails = *looks_left == 0;
+            *looks_left = looks_left.saturating_sub(1);
+            fails
+        }
+        _ => false,
+    }) {
+        return None;
+    }
     let m = std::fs::symlink_metadata(path).ok()?;
     let key = crate::images::save::file_id_from_metadata(path, &m).ok();
     Some((key, m.len(), (m.mtime(), m.mtime_nsec())))
