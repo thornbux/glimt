@@ -178,6 +178,15 @@ const MOST_LINE: u64 = 64 * 1024;
 /// queue until one is done, or until its time limit tells it "no answer".
 const MOST_CLIENTS: usize = 16;
 
+/// The most commands sent with `--wait` whose work is waited for at once. Such a command gives
+/// its client's place among `MOST_CLIENTS` to the next client and takes one of these instead,
+/// because it may wait for its work up to `OUTCOME_WAIT`, and sixteen of them kept every query
+/// out. One more is told at once that it is not done (`TOO_MANY_WAITING`).
+const MOST_WAITING: usize = 64;
+
+/// Why a command sent with `--wait` is not done when `MOST_WAITING` others wait already.
+const TOO_MANY_WAITING: &str = "too many commands wait for their work";
+
 /// How long a client waits for each part of an answer, and the window for a client's command.
 /// A client that sends nothing, or a window that does not answer, holds up the others no longer
 /// than this. `info` sends each file's record as soon as it is read, so its whole answer may take
@@ -223,6 +232,9 @@ static INSTANCE_ID: std::sync::OnceLock<String> = std::sync::OnceLock::new();
 /// the one before it, each in a thread of its own.
 static NAMING: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
+/// The places of the commands sent with `--wait` whose work is waited for.
+static WAITING_PLACES: WaitingPlaces = WaitingPlaces::new(MOST_WAITING);
+
 /// Clients connected, and queries sent to the window whose answers are not written yet.
 static UNFINISHED_ANSWERS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
 
@@ -262,6 +274,48 @@ impl UnfinishedAnswer {
 impl Drop for UnfinishedAnswer {
     fn drop(&mut self) {
         UNFINISHED_ANSWERS.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
+    }
+}
+
+/// A client's place among those served at once (`serve_clients`), given back when it is dropped.
+struct ClientPlace(mpsc::Sender<()>);
+
+impl Drop for ClientPlace {
+    fn drop(&mut self) {
+        let _ = self.0.send(());
+    }
+}
+
+/// The places of the commands sent with `--wait`, of which at most `most` are taken at once.
+struct WaitingPlaces {
+    taken: std::sync::atomic::AtomicUsize,
+    most: usize,
+}
+
+impl WaitingPlaces {
+    const fn new(most: usize) -> Self {
+        WaitingPlaces {
+            taken: std::sync::atomic::AtomicUsize::new(0),
+            most,
+        }
+    }
+
+    /// Takes a place. Returns `None` when all of them are taken.
+    fn take(&self) -> Option<WaitingPlace<'_>> {
+        // Taken first, and given back as it is dropped when it was one too many, so that two
+        // clients at once never both take the last place.
+        let place = WaitingPlace(self);
+        let taken_before = (self.taken).fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        (taken_before < self.most).then_some(place)
+    }
+}
+
+/// A place of `WaitingPlaces`, given back when it is dropped.
+struct WaitingPlace<'a>(&'a WaitingPlaces);
+
+impl Drop for WaitingPlace<'_> {
+    fn drop(&mut self) {
+        (self.0.taken).fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
     }
 }
 
@@ -1551,8 +1605,8 @@ pub fn listen(
     // No busy pointer: the listener, which lasts as long as the window. A command
     // counts as work once the window takes it.
     std::thread::spawn(move || {
-        serve_clients(listener, MOST_CLIENTS, move |stream| {
-            serve(stream, &tx, &ctx, WAIT)
+        serve_clients(listener, MOST_CLIENTS, move |stream, place| {
+            serve(stream, place, &tx, &ctx, WAIT, &WAITING_PLACES)
         });
     });
     Ok(())
@@ -1625,11 +1679,12 @@ fn stop_listening() {
 /// answer is waited for as long as it takes, and the client has the one time limit, so there is
 /// one outcome when it runs out: "no answer" and exit 1, never an empty answer taken for "all
 /// found". A client over `most` waits in the socket's queue, so clients that never end cannot
-/// take a thread each.
+/// take a thread each. `serve` is given the client's place, which it may give back before it
+/// ends, as a command sent with `--wait` does.
 fn serve_clients(
     listener: UnixListener,
     most: usize,
-    serve: impl Fn(UnixStream) + Clone + Send + 'static,
+    serve: impl Fn(UnixStream, ClientPlace) + Clone + Send + 'static,
 ) {
     // A free place is a message in this channel: taken before a client is accepted, and given
     // back when its thread is done.
@@ -1651,21 +1706,26 @@ fn serve_clients(
         // No busy pointer: a client's connection. Its command counts as work once the
         // window takes it.
         std::thread::spawn(move || {
-            serve(stream);
+            serve(stream, ClientPlace(free));
             drop(client);
-            let _ = free.send(());
         });
     }
 }
 
 /// One client's commands, each passed to the window, and its answer to a query sent back. The
 /// client has `wait` (`WAIT`) to send each command, and the window a second more to answer it.
+/// A command sent with `--wait` gives the client's `place` back and takes one of
+/// `waiting_places` instead, so that the commands that wait for their work keep no query out.
 fn serve(
     stream: UnixStream,
+    place: ClientPlace,
     tx: &mpsc::Sender<(String, Option<Reply>)>,
     ctx: &eframe::egui::Context,
     wait: std::time::Duration,
+    waiting_places: &WaitingPlaces,
 ) {
+    let mut place = Some(place);
+    let mut waiting_place = None;
     let _ = stream.set_read_timeout(Some(wait));
     let mut out = stream.try_clone().ok();
     // A client may send as much as `select` may, and no more, so a client that sends without
@@ -1686,6 +1746,17 @@ fn serve(
                 return;
             }
         };
+        // The waiting place is kept until the client ends, as it is a place among the clients.
+        if line.starts_with(WAIT_WORD) && waiting_place.is_none() {
+            waiting_place = waiting_places.take();
+            if waiting_place.is_none() {
+                if let Some(out) = out.as_mut() {
+                    let _ = out.write_all(&not_done_answer(TOO_MANY_WAITING));
+                }
+                continue;
+            }
+            drop(place.take());
+        }
         // Every command is answered, a query with what it asks and any other with whether it
         // was done, so a script knows when its `run` was refused.
         let (reply, answer) = mpsc::channel();
@@ -2535,8 +2606,7 @@ mod tests {
         drop(client);
         // The listener waits for each command's answer, so the window's part runs here.
         let window_ctx = ctx.clone();
-        let server =
-            std::thread::spawn(move || super::serve(window, &tx, &window_ctx, super::WAIT));
+        let server = std::thread::spawn(move || serve_alone(window, &tx, &window_ctx));
         for (_, new) in super::RENAMED_COMMANDS {
             for _ in 0..2 {
                 let (line, reply) = rx.recv().unwrap();
@@ -2550,8 +2620,7 @@ mod tests {
         writeln!(client, "prev").unwrap();
         drop(client);
         let window_ctx = ctx.clone();
-        let server =
-            std::thread::spawn(move || super::serve(window, &tx, &window_ctx, super::WAIT));
+        let server = std::thread::spawn(move || serve_alone(window, &tx, &window_ctx));
         app.remote = super::Listener {
             rx,
             tx: std::sync::mpsc::channel().0,
@@ -2682,9 +2751,7 @@ mod tests {
         // The listener writes the window's answer back to the client.
         let (mut client, window) = std::os::unix::net::UnixStream::pair().unwrap();
         let (tx, rx) = std::sync::mpsc::channel();
-        std::thread::spawn(move || {
-            super::serve(window, &tx, &eframe::egui::Context::default(), super::WAIT)
-        });
+        std::thread::spawn(move || serve_alone(window, &tx, &eframe::egui::Context::default()));
         writeln!(client, "nxet").unwrap();
         client.shutdown(std::net::Shutdown::Write).unwrap();
         let (line, reply) = rx.recv().unwrap();
@@ -2966,7 +3033,7 @@ mod tests {
         let (tx, _rx) = std::sync::mpsc::channel();
         let (mut client, window) = super::UnixStream::pair().unwrap();
         let ctx = eframe::egui::Context::default();
-        let server = std::thread::spawn(move || super::serve(window, &tx, &ctx, super::WAIT));
+        let server = std::thread::spawn(move || serve_alone(window, &tx, &ctx));
         let long = "x".repeat(4 * super::MOST_LINE as usize);
         client
             .write_all(format!("title {long}\n").as_bytes())
@@ -2987,7 +3054,7 @@ mod tests {
         let listener = std::os::unix::net::UnixListener::bind(&path).unwrap();
         let (started, starts) = std::sync::mpsc::channel();
         // Each client is served until it closes.
-        let serve = move |mut stream: std::os::unix::net::UnixStream| {
+        let serve = move |mut stream: std::os::unix::net::UnixStream, _place| {
             let _ = started.send(());
             let _ = std::io::copy(&mut stream, &mut std::io::sink());
         };
@@ -3016,8 +3083,10 @@ mod tests {
         let listener = std::os::unix::net::UnixListener::bind(&path).unwrap();
         let (tx, rx) = std::sync::mpsc::channel();
         let wait = std::time::Duration::from_millis(200);
-        let serve = move |stream| {
-            super::serve(stream, &tx, &eframe::egui::Context::default(), wait);
+        static WAITING_PLACES: super::WaitingPlaces = super::WaitingPlaces::new(1);
+        let serve = move |stream, place| {
+            let ctx = eframe::egui::Context::default();
+            super::serve(stream, place, &tx, &ctx, wait, &WAITING_PLACES);
         };
         std::thread::spawn(move || super::serve_clients(listener, 1, serve));
         let connect = || std::os::unix::net::UnixStream::connect(&path).unwrap();
@@ -3036,6 +3105,54 @@ mod tests {
         std::fs::remove_file(path).unwrap();
     }
 
+    /// A command sent with `--wait` gives its client's place to the next client while its work
+    /// is waited for, so a query is answered beside it, and one more than the places for such
+    /// commands is told at once that it is not done. Before, sixteen of them kept every other
+    /// client out for up to a minute, and a plain query said "no answer".
+    #[test]
+    fn commands_that_wait_for_their_work_keep_no_query_out() {
+        use std::io::{Read, Write};
+        let path = std::env::temp_dir().join(format!("glimt-waits-{}.sock", std::process::id()));
+        let _ = std::fs::remove_file(&path);
+        let listener = std::os::unix::net::UnixListener::bind(&path).unwrap();
+        let (tx, rx) = std::sync::mpsc::channel();
+        static WAITING_PLACES: super::WaitingPlaces = super::WaitingPlaces::new(1);
+        let serve = move |stream, place| {
+            let ctx = eframe::egui::Context::default();
+            super::serve(stream, place, &tx, &ctx, super::WAIT, &WAITING_PLACES);
+        };
+        std::thread::spawn(move || super::serve_clients(listener, 1, serve));
+        let connect = || std::os::unix::net::UnixStream::connect(&path).unwrap();
+        let five_seconds = std::time::Duration::from_secs(5);
+        let mut waits = connect();
+        writeln!(waits, "wait next").unwrap();
+        // The window holds the answer, as while the command's work runs.
+        let (_, waiting_reply) = rx.recv_timeout(five_seconds).unwrap();
+        let mut query = connect();
+        writeln!(query, "current").unwrap();
+        query.shutdown(std::net::Shutdown::Write).unwrap();
+        let query_taken = rx.recv_timeout(five_seconds);
+        assert!(
+            query_taken.is_ok(),
+            "a query was kept out by a command that waits"
+        );
+        let (_, query_reply) = query_taken.unwrap();
+        query_reply.unwrap().send(b"/a.jpg\0".to_vec()).unwrap();
+        let mut got = Vec::new();
+        query.read_to_end(&mut got).unwrap();
+        assert_eq!(got, b"/a.jpg\0");
+        let mut one_more = connect();
+        writeln!(one_more, "wait next").unwrap();
+        one_more.shutdown(std::net::Shutdown::Write).unwrap();
+        one_more.set_read_timeout(Some(five_seconds)).unwrap();
+        got.clear();
+        one_more.read_to_end(&mut got).unwrap();
+        let why = super::not_done_reason(&got);
+        assert_eq!(why.as_deref(), Some(super::TOO_MANY_WAITING));
+        drop(waiting_reply);
+        std::fs::remove_file(path).unwrap();
+    }
+
     /// A query whose answer the window drops (too many waiting) is not closed at once, because
     /// the client would read an empty answer, "all found". It is left to time out, "no answer".
     #[test]
@@ -3043,9 +3160,7 @@ mod tests {
         use std::io::{Read, Write};
         let (mut client, server) = std::os::unix::net::UnixStream::pair().unwrap();
         let (tx, rx) = std::sync::mpsc::channel();
-        std::thread::spawn(move || {
-            super::serve(server, &tx, &eframe::egui::Context::default(), super::WAIT)
-        });
+        std::thread::spawn(move || serve_alone(server, &tx, &eframe::egui::Context::default()));
         writeln!(client, "select /a.jpg\0").unwrap();
         let (_, reply) = rx.recv().unwrap();
         drop(reply);
@@ -3310,6 +3425,16 @@ mod tests {
         assert!(String::from_utf8_lossy(&closing.try_recv().unwrap()).contains("a.png"));
         assert!(String::from_utf8_lossy(&late.try_recv().unwrap()).contains("a.png"));
         std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// Serves the one client at `stream`, as the listener does, with a place of its own.
+    fn serve_alone(
+        stream: super::UnixStream,
+        tx: &std::sync::mpsc::Sender<(String, Option<super::Reply>)>,
+        ctx: &eframe::egui::Context,
+    ) {
+        let place = super::ClientPlace(std::sync::mpsc::channel().0);
+        super::serve(stream, place, tx, ctx, super::WAIT, &super::WAITING_PLACES);
     }
 
     /// Runs `receive_remote` alone, as a hidden window's `logic` does without `ui`, until
@@ -3582,7 +3707,7 @@ mod tests {
         let (mut client, window) = std::os::unix::net::UnixStream::pair().unwrap();
         let (tx, rx) = std::sync::mpsc::channel();
         let ctx = eframe::egui::Context::default();
-        std::thread::spawn(move || super::serve(window, &tx, &ctx, super::WAIT));
+        std::thread::spawn(move || serve_alone(window, &tx, &ctx));
         writeln!(client, "info /a.png\0/b.png").unwrap();
         client.shutdown(std::net::Shutdown::Write).unwrap();
         let (command, reply) = rx.recv().unwrap();
@@ -3632,7 +3757,7 @@ mod tests {
         let (mut client, window) = std::os::unix::net::UnixStream::pair().unwrap();
         let (tx, rx) = std::sync::mpsc::channel();
         let window_ctx = ctx.clone();
-        std::thread::spawn(move || super::serve(window, &tx, &window_ctx, super::WAIT));
+        std::thread::spawn(move || serve_alone(window, &tx, &window_ctx));
         let named = format!("{}\0{}", shown.display(), other.join("b.png").display());
         writeln!(client, "info").unwrap();
         writeln!(client, "info {named}").unwrap();

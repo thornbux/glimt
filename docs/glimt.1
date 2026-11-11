@@ -196,6 +196,8 @@ or
 is answered as it closes, after its last writes. It waits up to 60 seconds, and then exits with
 3 and
 .IR "no answer" .
+A window waits for at most 64 such commands at once; one more exits with 3 at once, and is not
+done.
 A query
 .RB ( current ", " selection ", " select ", " info )
 is answered as without it. A Glimt older than 0.81.0 does not do a command sent with
