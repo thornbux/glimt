@@ -142,9 +142,17 @@ impl crate::App {
         self.save_collection_order();
     }
 
-    /// Moves the collection's file `file` to the trash, in the background. The images stay. When
-    /// the window still shows that collection, it shows the shown image's folder after.
-    pub(crate) fn trash_collection(&mut self, ctx: &egui::Context, file: PathBuf) {
+    /// Moves the collection's file `picked` to the trash, in the background, while it is still
+    /// the file the question asked about. The images stay. When the window still shows that
+    /// collection, it shows the shown image's folder after.
+    pub(crate) fn trash_collection(
+        &mut self,
+        ctx: &egui::Context,
+        picked: crate::files::file_io::PickedFiles,
+    ) {
+        let Some(file) = picked.paths().first().cloned() else {
+            return;
+        };
         let shown = self.folder.collection() == Some(file.as_path());
         if !self.run_in_background(ctx, vec![file.clone()], move || {
             let name = file
@@ -152,19 +160,22 @@ impl crate::App {
                 .unwrap_or_default()
                 .to_string_lossy()
                 .into_owned();
-            Some(
-                match crate::files::trash::trash(std::slice::from_ref(&file)) {
-                    Ok(()) => crate::support::threads::Told::Notice(tf!(
-                        "Collection {name} moved to the trash",
-                        name
-                    )),
-                    Err(err) => crate::support::threads::Told::FailedWrite(tf!(
-                        "Could not trash {name}: {err}",
-                        name,
-                        err
-                    )),
-                },
-            )
+            let (_, picked) = picked.wait_for_fingerprints();
+            let trashed = picked
+                .still_the_one_picked(&file)
+                .map_err(|e| e.to_string())
+                .and_then(|()| crate::files::trash::trash(std::slice::from_ref(&file)));
+            Some(match trashed {
+                Ok(()) => crate::support::threads::Told::Notice(tf!(
+                    "Collection {name} moved to the trash",
+                    name
+                )),
+                Err(err) => crate::support::threads::Told::FailedWrite(tf!(
+                    "Could not trash {name}: {err}",
+                    name,
+                    err
+                )),
+            })
         }) || !shown
         {
             return;
@@ -702,6 +713,29 @@ pub(crate) fn dropped(n: usize, picked: &HashSet<usize>, to: usize) -> Vec<usize
 
 #[cfg(test)]
 mod tests {
+    /// Move Collection to Trash, answered after another file took the collection file's name,
+    /// leaves that file where it is.
+    #[test]
+    fn a_collection_trashed_after_its_question_leaves_another_file_alone() {
+        use crate::support::test_support::{app_on, run_background_until};
+        let dir = std::env::temp_dir().join(format!("glimt-test-trash-gqv-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let gqv = dir.join("trip.gqv");
+        std::fs::write(&gqv, "#GQview collection\n").unwrap();
+        let picked = (
+            gqv.clone(),
+            crate::files::file_io::fingerprint(&gqv).unwrap(),
+        );
+        let picked = crate::files::file_io::PickedFiles::recorded(vec![picked]);
+        std::fs::remove_file(&gqv).unwrap();
+        std::fs::write(&gqv, "#GQview collection\n\"/another\"\n").unwrap();
+        let (mut app, ctx) = app_on(&dir);
+        app.trash_collection(&ctx, picked);
+        assert!(run_background_until(&mut app, &ctx, |app| !app.working()));
+        assert!(std::fs::read_to_string(&gqv).unwrap().contains("another"));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
     /// A collection's row dragged from outside the selection is selected alone afterwards, as a
     /// click on it would leave it. The selected images that the search hid stayed selected with it,
     /// though the rest of the selection was let go. When only hidden selected images were selected,

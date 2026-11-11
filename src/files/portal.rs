@@ -236,7 +236,7 @@ pub fn print(
         .create_new(true)
         .open(&at)
         .map_err(|e| e.to_string())?;
-    #[allow(clippy::disallowed_methods)] // the PDF's name, made just now
+    #[allow(clippy::disallowed_methods)] // Glimt's own: the PDF's name, made just now
     let _ = std::fs::remove_file(&at);
     {
         let mut out = std::io::BufWriter::new(&mut file);

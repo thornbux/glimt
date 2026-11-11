@@ -508,7 +508,10 @@ method.
     chooser) are carried as `file_io::PickedFiles`, whose fingerprints are taken in the
     background while the user waits, and the act's thread checks each file with
     `still_the_one_picked` just before it acts. A name picked to save at carries the
-    fingerprint of the file there, and is written with `file_io::write_picked_name`;
+    fingerprint of the file there, and is written with `file_io::write_picked_name`. Glimt's
+    own files are removed with `file_io::remove_own`, or by a raw call whose `#[allow]` reason
+    starts with "Glimt's own:"
+    (`source_rules::destructive_acts_check_the_file_is_still_the_one_picked`);
   - ask whether a name is there with `file_io::is_surely_gone` or `is_surely_there`, never
     with `exists()` or `metadata(…).is_err()` or `.is_ok()`, which take a share that dropped
     for a moment for a file that is gone. Only NotFound means gone

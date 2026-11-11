@@ -156,8 +156,9 @@ pub(crate) struct Dialogs {
     picked_folder: Option<PickedFiles>,
     is_confirming_folder_trash: bool,
     /// The collection file whose move to the trash is being confirmed. It is kept from when
-    /// Move Collection to Trash asked, so the answer acts on that collection.
-    confirm_collection: Option<PathBuf>,
+    /// Move Collection to Trash asked, with its fingerprint, so the answer acts on that
+    /// collection and leaves alone another file put at its name meanwhile.
+    confirm_collection: Option<PickedFiles>,
     /// Answer from an open file dialog (zenity or kdialog).
     file_dialog: Option<Pick>,
     /// The path picked, and the fingerprints of the files a Move To or Copy To picked. The busy
@@ -305,7 +306,7 @@ impl Dialogs {
 
     /// Asks whether to move the collection `file` to the trash.
     pub(crate) fn ask_trash_collection(&mut self, file: &Path) {
-        self.confirm_collection = Some(file.to_path_buf());
+        self.confirm_collection = Some(PickedFiles::new(vec![file.to_path_buf()]));
     }
 
     /// Asks whether to move the folder `dir` to the trash.
@@ -1069,7 +1070,8 @@ impl crate::App {
 
     /// Asks before a collection's file goes to the trash, as before a folder. Its images stay.
     pub(crate) fn confirm_collection_dialog(&mut self, ctx: &egui::Context) {
-        let Some(file) = self.dialogs.confirm_collection.clone() else {
+        let picked = self.dialogs.confirm_collection.as_ref();
+        let Some(file) = picked.and_then(|p| p.paths().first()).cloned() else {
             return;
         };
         // A collection is shown by its name without ".gqv".
@@ -1090,11 +1092,12 @@ impl crate::App {
                 }
             });
         });
-        if trash || modal.should_close() {
-            self.dialogs.confirm_collection = None;
-        }
-        if trash {
-            self.trash_collection(ctx, file);
+        let picked = match trash || modal.should_close() {
+            true => self.dialogs.confirm_collection.take(),
+            false => None,
+        };
+        if let Some(picked) = picked.filter(|_| trash) {
+            self.trash_collection(ctx, picked);
         }
     }
 
