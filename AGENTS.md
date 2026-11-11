@@ -525,7 +525,8 @@ method.
     own files are removed with `file_io::remove_own`, or by a raw call whose `#[allow]` reason
     starts with "Glimt's own:"
     (`source_rules::destructive_acts_check_the_file_is_still_the_one_picked`);
-  - ask whether a name is there with `file_io::is_surely_gone` or `is_surely_there`, whether
+  - ask whether a name is there with `file_io::is_surely_gone` or `is_surely_there` (or
+    `is_something_at`, which gives back the error of a failed look, to tell it), whether
     it is a file or a folder with `is_surely_file` or `is_surely_dir`, and whether it is a link
     with `is_link`, never with `exists()`, `Path::is_file`, `Path::is_dir`, or
     `metadata(…).is_err()`, `.is_ok()`, `.is_ok_and(|m| m.is_dir())` or

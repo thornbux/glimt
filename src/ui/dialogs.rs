@@ -944,7 +944,14 @@ impl crate::App {
             if let Some(kept) = self.file_operations.names_left_kept() {
                 kept.store(true, std::sync::atomic::Ordering::Relaxed);
             }
-            self.notice.give(tr("The list was copied").into());
+            // Nothing confirms that the clipboard took the list, so the notice says to paste it.
+            self.notice.give(
+                tr(
+                    "The list was copied to the clipboard. Paste it into a file before the names \
+                    are left as they are.",
+                )
+                .into(),
+            );
         }
         if let Some(list) = list().filter(|_| save) {
             self.pick(ctx, false, Pick::SaveNamesLeft(list));
@@ -1309,6 +1316,7 @@ fn put_cut_short_right(
     let _ = report_tx.send(OperationReport {
         read_folder_again: true,
         moved,
+        is_moved_from_a_record: true,
         cut_short_left: (!left_plans.is_empty())
             .then(|| (left_plans, format!("{header}\n{names_left}"))),
         ..Default::default()
@@ -1333,15 +1341,22 @@ fn leave_names_as_they_are(
     plans: &[journal::CutShort],
     report_tx: &AnswerSender<OperationReport>,
 ) -> Option<Told> {
-    let moved = (plans.iter())
+    let left: Vec<_> = (plans.iter())
         .filter_map(|(plan, moves, done)| journal::leave_names(plan, moves, *done))
-        .flatten()
         .collect();
     let _ = report_tx.send(OperationReport {
         read_folder_again: true,
-        moved,
+        moved: left.iter().flatten().cloned().collect(),
+        is_moved_from_a_record: true,
         ..Default::default()
     });
+    // Another window had every plan, so nothing was left as it is here.
+    if left.is_empty() {
+        return Some(Told::Notice(
+            tr("Another window has put these renames right already. Nothing was changed here.")
+                .into(),
+        ));
+    }
     Some(Told::Notice(tr("The names were left as they are").into()))
 }
 
@@ -2124,6 +2139,25 @@ mod tests {
         );
         assert_eq!(std::fs::read_to_string(&file).unwrap(), "hand-edited");
         std::fs::remove_file(file).unwrap();
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// Leaving the names of a plan that another window has put right already says that
+    /// nothing was changed here. Before, it said that the names were left as they are.
+    #[test]
+    fn leaving_names_another_window_put_right_says_nothing_was_changed() {
+        let dir =
+            std::env::temp_dir().join(format!("glimt-test-leave-other-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let (app, _ctx) = crate::support::test_support::app_on(&dir);
+        // The plan is gone: another window took it.
+        let moves = vec![(dir.join("a.jpg"), dir.join("b.jpg"))];
+        let plans = [(dir.join("plan-gone"), moves, Some(1))];
+        let told = super::leave_names_as_they_are(&plans, &app.file_operations.report_sender());
+        let Some(super::Told::Notice(text)) = told else {
+            panic!("{told:?}")
+        };
+        assert!(text.contains("Nothing was changed here"), "{text}");
         std::fs::remove_dir_all(dir).unwrap();
     }
 }

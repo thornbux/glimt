@@ -133,6 +133,9 @@ pub(crate) struct OperationReport {
     pub(crate) any_failed: bool,
     pub(crate) moved: Vec<(PathBuf, PathBuf)>,
     pub(crate) is_copy: bool,
+    /// Whether `moved` was read from a record (a plan of Rename Many cut short), not made by
+    /// this report's own job. The marks then follow only to a name where a file is now.
+    pub(crate) is_moved_from_a_record: bool,
     /// Whether the folder is to be read again, because a tool edited files in it or a repair
     /// renamed them.
     pub(crate) read_folder_again: bool,
@@ -910,6 +913,7 @@ impl crate::App {
                 untrashable,
                 move_log,
                 cut_short_left,
+                is_moved_from_a_record,
             },
             _pointer,
         ) in self
@@ -940,7 +944,7 @@ impl crate::App {
             #[cfg(feature = "marks")]
             self.marks.forget(&overwritten, None);
             // The moves come before the deleted files, so the marks go along first.
-            self.follow_moves_reported(moved, is_copy, move_log);
+            self.follow_moves_reported(moved, is_copy, move_log, is_moved_from_a_record);
             self.written_anew(&changed);
             self.files_changed(ctx, &changed);
             self.files_changed(ctx, &overwritten);
@@ -1040,11 +1044,15 @@ impl crate::App {
 
     /// Brings along what Glimt keeps about the files a report says were `moved`, or copied
     /// (`is_copy`), as `follow_moved_paths` does. A Move's log goes once they have followed.
+    /// When `is_from_a_record`, the moves were read from a record and not made by the job, so
+    /// the marks follow only to a name where a file is now. A Move's log found at the start is
+    /// such a record too.
     fn follow_moves_reported(
         &mut self,
         moved: Vec<(PathBuf, PathBuf)>,
         is_copy: bool,
         move_log: Option<journal::MoveLog>,
+        is_from_a_record: bool,
     ) {
         match &move_log {
             Some(log) if log.is_found_at_start() => {
@@ -1054,9 +1062,14 @@ impl crate::App {
                 {
                     let not_followed = self.not_followed_before_a_kill(moved);
                     if !not_followed.is_empty() {
-                        self.marks.follow_files(not_followed, false);
+                        self.marks.follow_files(not_followed, false, true);
                     }
                 }
+            }
+            _ if is_from_a_record => {
+                self.follow_names_moved(&moved, is_copy);
+                #[cfg(feature = "marks")]
+                self.marks.follow_files(moved, is_copy, true);
             }
             _ => self.follow_moved_paths(moved, is_copy),
         }
@@ -1090,7 +1103,8 @@ impl crate::App {
         }
         self.follow_names_moved(&pairs, is_copy);
         #[cfg(feature = "marks")]
-        self.marks.follow_files(pairs, is_copy);
+        // The job that reports them has just moved the files, so their new names hold them.
+        self.marks.follow_files(pairs, is_copy, false);
     }
 
     /// Brings along all that `follow_moved_paths` does but the marks.

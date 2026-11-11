@@ -534,6 +534,17 @@ pub(crate) fn is_surely_there(path: &Path) -> bool {
     look(path, false).is_ok()
 }
 
+/// Returns whether something is at `path`, by the look at its own name. A failed look other
+/// than a name surely not there says nothing either way, and its error is returned.
+#[cfg(feature = "marks")]
+pub(crate) fn is_something_at(path: &Path) -> std::io::Result<bool> {
+    match look(path, false) {
+        Ok(_) => Ok(true),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(false),
+        Err(e) => Err(e),
+    }
+}
+
 /// Returns whether `path` is surely a regular file, also through a link: the look answered that
 /// it is one. A failed look counts as no file, so this is for a step that needs a file, such as
 /// one read or run. A pipe would block a reader for good, and a device such as /dev/zero would

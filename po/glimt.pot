@@ -3118,11 +3118,15 @@ msgid "Leave the names as they are"
 msgstr ""
 
 #: src/ui/dialogs.rs
-msgid "The list was copied"
+msgid "The list was copied to the clipboard. Paste it into a file before the names are left as they are."
 msgstr ""
 
 #: src/ui/dialogs.rs
 msgid "The names were left as they are"
+msgstr ""
+
+#: src/ui/dialogs.rs
+msgid "Another window has put these renames right already. Nothing was changed here."
 msgstr ""
 
 #: src/ui/dialogs.rs

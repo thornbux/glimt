@@ -57,6 +57,10 @@ and versions follow [Semantic Versioning](https://semver.org/).
   question came back at every start with no way out.
 - A keyword, stars or a rename that waits while another window's Rename Many swaps its photo's
   name is refused, and no longer goes on the other photo.
+- Marks and stars never follow a moved or renamed file to a name where nothing is, where a
+  later file of that name would get them. Leaving the names of a Rename Many cut short, after
+  a repair that stopped half way, gives the marks and collection entries only to the files at
+  their new names.
 - Stars on many files of a network share no longer make Glimt look at each file first, which
   held the settings and a close for minutes on a large folder.
 - A folder in Open Recent that a share did not answer for at once is no longer forgotten as

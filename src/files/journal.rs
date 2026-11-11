@@ -721,25 +721,8 @@ pub fn names_left(
     use crate::files::file_io::{KnownAs, is_still_the_file};
     let known = crate::images::decode::read_text(known_path(plan))
         .map_or_else(|_| Vec::new(), |text| parse_known(&text, moves.len()));
-    let done = done_by_names(moves, done.unwrap_or(0)).min(moves.len());
-    // Each file as (its first name, its name now, its last name, its fingerprint). A step that
-    // moves on a file an earlier step moved (a swap's second step) moves the same file.
-    let mut files: Vec<(&Path, &Path, &Path, Option<FileFingerprint>)> = Vec::new();
-    let mut file_at: HashMap<&Path, usize> = HashMap::new();
-    for (k, (a, b)) in moves.iter().enumerate() {
-        let (a, b) = (a.as_path(), b.as_path());
-        let n = file_at.remove(a).unwrap_or_else(|| {
-            files.push((a, a, a, known.get(k).copied().flatten()));
-            files.len() - 1
-        });
-        files[n].2 = b;
-        if k < done {
-            files[n].1 = b;
-        }
-        file_at.insert(b, n);
-    }
     let mut text = String::new();
-    for (first, now, last, known) in files {
+    for (first, now, last, known) in files_of(moves, done, &known) {
         let meant = if undo_them { first } else { last };
         if now == meant || is_surely_gone(now) {
             continue;
@@ -772,9 +755,42 @@ pub fn leave_names(
         .ok()
         .filter(take_lock_if_free)
         .filter(is_linked)?;
-    let done = done_by_names(moves, done.unwrap_or(0)).min(moves.len());
+    // Each file is followed to the name the count says it has now, and a pair is given only
+    // where a file is surely there. Taken from the count alone, a repair that stopped half way
+    // gave a photo that went back to its old name the marks of a name where nothing was.
+    let followed = (files_of(moves, done, &[]).into_iter())
+        .filter(|(first, now, ..)| first != now && crate::files::file_io::is_surely_there(now))
+        .map(|(first, now, ..)| (first.to_path_buf(), now.to_path_buf()))
+        .collect();
     remove_plan(plan, &one_name_per_folder(moves));
-    Some(pairs(&moves[..done]))
+    Some(followed)
+}
+
+/// Each file of the renames `moves` of which `done` were done, as (its first name, its name
+/// now, its last name, its fingerprint in `known`). A step that moves on a file an earlier step
+/// moved (a swap's second step) moves the same file. How many steps were done is taken from
+/// the names on disk where they show more than `done` (`done_by_names`).
+fn files_of<'a>(
+    moves: &'a [(PathBuf, PathBuf)],
+    done: Option<usize>,
+    known: &[Option<FileFingerprint>],
+) -> Vec<(&'a Path, &'a Path, &'a Path, Option<FileFingerprint>)> {
+    let done = done_by_names(moves, done.unwrap_or(0)).min(moves.len());
+    let mut files: Vec<(&Path, &Path, &Path, Option<FileFingerprint>)> = Vec::new();
+    let mut file_at: HashMap<&Path, usize> = HashMap::new();
+    for (k, (a, b)) in moves.iter().enumerate() {
+        let (a, b) = (a.as_path(), b.as_path());
+        let n = file_at.remove(a).unwrap_or_else(|| {
+            files.push((a, a, a, known.get(k).copied().flatten()));
+            files.len() - 1
+        });
+        files[n].2 = b;
+        if k < done {
+            files[n].1 = b;
+        }
+        file_at.insert(b, n);
+    }
+    files
 }
 
 /// How many steps were done. It is `done`, or more where the names on disk show it, because a
@@ -1535,6 +1551,39 @@ mod tests {
             ("a".into(), "b, edited".into(), "c".into())
         );
         assert!(!b.exists() && !d.exists());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// Leaving the names after a repair that stopped half way gives the marks and collections
+    /// only the files that are at their new names now. Before, the count gave IMG_2.jpg's
+    /// marks to Trip_2.jpg, where nothing was, after IMG_2.jpg had gone back to its old name.
+    #[test]
+    fn leaving_the_names_after_a_repair_half_done_follows_each_file() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-plan-half-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let (plans, p) = (dir.join("plans"), |n: &str| dir.join(n));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(p("IMG_1.jpg"), "1").unwrap();
+        std::fs::write(p("IMG_2.jpg"), "2").unwrap();
+        let moves = vec![
+            (p("IMG_1.jpg"), p("Trip_1.jpg")),
+            (p("IMG_2.jpg"), p("Trip_2.jpg")),
+        ];
+        let mut plan = super::start_journal(&plans, &moves).unwrap();
+        for (a, b) in &moves {
+            super::rename_step(a, b).unwrap();
+            plan.count_step_done();
+        }
+        plan.keep_on_disk();
+        // The card is imported again, so IMG_1.jpg's name is taken: only IMG_2.jpg goes back.
+        std::fs::write(p("IMG_1.jpg"), "new").unwrap();
+        let (plan, moves, done) = super::cut_short_plans(&plans).remove(0);
+        assert_eq!(
+            super::repair_cut_short(&plan, &moves, done, true),
+            Some((1, 1))
+        );
+        let followed = super::leave_names(&plan, &moves, done).unwrap();
+        assert_eq!(followed, vec![(p("IMG_1.jpg"), p("Trip_1.jpg"))]);
         std::fs::remove_dir_all(dir).unwrap();
     }
 
