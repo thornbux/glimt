@@ -1798,20 +1798,9 @@ fn wait_answered(mut answer: impl FnMut(), limit: std::time::Duration) {
 
 /// Whether a client waits to be accepted on the listening socket `fd` (-1 for none).
 fn has_waiting_client(fd: i32) -> bool {
-    #[repr(C)]
-    struct PollFd {
-        fd: i32,
-        events: i16,
-        revents: i16,
-    }
-    #[allow(unsafe_code)] // declarations only: each call is an unsafe block
-    unsafe extern "C" {
-        fn poll(fds: *mut PollFd, n: std::ffi::c_ulong, timeout: i32) -> i32;
-    }
-    const POLLIN: i16 = 1;
-    let mut p = PollFd {
+    let mut p = libc::pollfd {
         fd,
-        events: POLLIN,
+        events: libc::POLLIN,
         revents: 0,
     };
     if fd < 0 {
@@ -1819,8 +1808,8 @@ fn has_waiting_client(fd: i32) -> bool {
     }
     #[allow(unsafe_code)]
     // SAFETY: There is one pollfd and no wait, and a closed fd is only reported, not used.
-    let ready = unsafe { poll(&mut p, 1, 0) } == 1;
-    ready && p.revents & POLLIN != 0
+    let ready = unsafe { libc::poll(&mut p, 1, 0) } == 1;
+    ready && p.revents & libc::POLLIN != 0
 }
 
 /// Takes no new clients, by removing this Glimt's socket as it closes.

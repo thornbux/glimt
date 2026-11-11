@@ -8,7 +8,7 @@ use crate::support::threads::lock_even_if_poisoned;
 use crate::support::threads::{CPU_CHANGED, Told, Took, cores, thumb_threads};
 use crate::ui::file_list::LARGE_THUMBS;
 use crate::ui::file_list::OnScreenFiles;
-use crate::{features::remote, images::thumbs, malloc_trim, tf};
+use crate::{features::remote, images::thumbs, tf};
 use eframe::egui;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -271,7 +271,7 @@ pub(crate) fn spawn_thumbnailers(
                 #[allow(unsafe_code)]
                 // SAFETY: as for the image workers above.
                 unsafe {
-                    malloc_trim(0)
+                    libc::malloc_trim(0)
                 };
                 ctx.request_repaint();
             }

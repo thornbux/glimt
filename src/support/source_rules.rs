@@ -3733,6 +3733,46 @@ fn finds_a_lock_file_opened_by_hand() {
     assert_eq!(files_locked_by_hand(text), ["a"]);
 }
 
+/// The functions of the C library are called through the `libc` crate, never declared by hand
+/// in an `extern "C"` block. A declaration written by hand is a guess at the system's types,
+/// and `time_t`, `struct tm` and `struct timespec` differ on 32-bit systems. A function pointer
+/// that C calls (`extern "C" fn`, a signal handler) is not a declaration, and stays.
+#[test]
+fn foreign_functions_come_from_libc() {
+    let mut wrong = Vec::new();
+    for (file, text) in rust_sources() {
+        let found = foreign_declarations(&text);
+        wrong.extend(found.into_iter().map(|line| format!("{file}:{line}")));
+    }
+    assert!(
+        wrong.is_empty(),
+        "a C function declared by hand; call it through libc:\n{}",
+        wrong.join("\n")
+    );
+}
+
+/// Returns the lines (from 1) of `text` outside the tests that open an `extern` block.
+fn foreign_declarations(text: &str) -> Vec<usize> {
+    let lines = code_lines(text);
+    let end = tests_start(&lines);
+    let opens_block = |line: &String| {
+        let words: Vec<&str> = line.split_whitespace().collect();
+        words.windows(2).any(|w| w == ["extern", "{"])
+    };
+    (0..end)
+        .filter(|&i| opens_block(&lines[i]))
+        .map(|i| i + 1)
+        .collect()
+}
+
+/// The check above finds an `extern "C"` block, and leaves a function that C calls.
+#[test]
+fn finds_a_foreign_declaration() {
+    let text = "unsafe extern \"C\" {\n    fn kill(pid: i32, signal: i32) -> i32;\n}\n\
+        extern \"C\" fn on_signal(_signal: i32) {}\n";
+    assert_eq!(foreign_declarations(text), [1]);
+}
+
 /// Returns the functions of `text` outside the tests that rename a file, also by a move through
 /// `put_file`, each with whether it syncs the folder, itself or through `write_beside`.
 // shortcut: a function counts as synced when it syncs anywhere, so a branch that renames

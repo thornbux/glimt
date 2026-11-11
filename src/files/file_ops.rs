@@ -4540,7 +4540,10 @@ mod tests {
                 "act_on_prompt_answer",
                 "New Folder: an empty folder, nothing to follow; makes_a_new_folder_in_the_background",
             ),
-            ("trash_collection", "gio trash of the collection's own file"),
+            (
+                "trash_collection",
+                "trash::trash of the collection's own file",
+            ),
             ("back_up", "Glimt's own folders, no file of the user's"),
             (
                 "add_to_collection",

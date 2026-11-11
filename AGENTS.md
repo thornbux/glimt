@@ -553,7 +553,9 @@ whole module. The tests may unwrap (main.rs allows it for them).
   a failed write like any other, told to the user.
 - **Every `unsafe` block has `#[allow(unsafe_code)]`** on that one statement or function, and a
   `// SAFETY:` comment that says why the call is sound. New `unsafe` needs a reason that no safe
-  API covers, in the standard library or in a crate already in `Cargo.toml`.
+  API covers, in the standard library or in a crate already in `Cargo.toml`. A function of the
+  C library is called through `libc`, never declared by hand in an `extern "C"` block, whose
+  types are a guess (`source_rules::foreign_functions_come_from_libc`).
 
 ## Dependencies
 

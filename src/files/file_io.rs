@@ -535,18 +535,6 @@ fn unescape_mount(bytes: &[u8]) -> PathBuf {
 /// which falls back where it is not to be had.
 fn rename_noreplace(from: &Path, to: &Path) -> std::io::Result<()> {
     use std::os::unix::ffi::OsStrExt;
-    #[allow(unsafe_code)] // declarations only: each call is an unsafe block
-    unsafe extern "C" {
-        fn renameat2(
-            olddirfd: std::ffi::c_int,
-            oldpath: *const std::ffi::c_char,
-            newdirfd: std::ffi::c_int,
-            newpath: *const std::ffi::c_char,
-            flags: std::ffi::c_uint,
-        ) -> std::ffi::c_int;
-    }
-    const AT_FDCWD: std::ffi::c_int = -100;
-    const RENAME_NOREPLACE: std::ffi::c_uint = 1;
     let (from, to) = (
         std::ffi::CString::new(from.as_os_str().as_bytes())?,
         std::ffi::CString::new(to.as_os_str().as_bytes())?,
@@ -555,12 +543,12 @@ fn rename_noreplace(from: &Path, to: &Path) -> std::io::Result<()> {
     // SAFETY: two valid C strings for the call's duration; renameat2 reads them and touches
     // nothing else of ours.
     let r = unsafe {
-        renameat2(
-            AT_FDCWD,
+        libc::renameat2(
+            libc::AT_FDCWD,
             from.as_ptr(),
-            AT_FDCWD,
+            libc::AT_FDCWD,
             to.as_ptr(),
-            RENAME_NOREPLACE,
+            libc::RENAME_NOREPLACE,
         )
     };
     if r == 0 {
@@ -602,9 +590,9 @@ pub(crate) fn put_file_until_stopped(
         }
         // Written under a hidden name and given its own when whole: a copy cut short (a full
         // disk, Glimt closed, a stick pulled out) never looks like the file.
-        // shortcut: a third close (which waits for nothing) or a stick pulled out leaves the
-        // part under this hidden name, and nothing removes it later; a sweep of
-        // .glimt-tmp-* at the next start if those are ever seen in numbers.
+        // shortcut: a third close (which waits for nothing), a kill, a power cut or a stick
+        // pulled out leaves the part under this hidden name, and nothing removes it later; a
+        // sweep of .glimt-tmp-* at the next start if those are ever seen in numbers.
         let part = tmp_path(to);
         // Private while written: a private photo copied into a shared folder is not readable
         // there until it gets its own permissions below.
@@ -622,8 +610,9 @@ pub(crate) fn put_file_until_stopped(
                 // or sticky, which a copy owned by this user would carry for its owner.
                 let meta = std::fs::metadata(from)?;
                 let mode = std::fs::Permissions::from_mode(meta.mode() & 0o777);
-                #[allow(clippy::disallowed_methods)] // the copy's hidden part, made new
-                std::fs::set_permissions(&part, mode)?;
+                // Through the open file, so that a link put at the part's name meanwhile is
+                // not followed to a file of the user's.
+                out.set_permissions(mode)?;
                 #[allow(clippy::disallowed_methods)] // the copy's time, as mv keeps it
                 out.set_modified(meta.modified()?)?;
                 // A copy leaves the ACL, as cp does without -p, and a move keeps it, as mv does.

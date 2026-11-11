@@ -41,9 +41,6 @@ mod support;
 mod ui;
 mod viewer;
 
-/// glibc's M_ARENA_MAX.
-const M_ARENA_MAX: i32 = -8;
-
 /// Glimt's logo, 256 pixels square. It is the window's icon and appears on the About page.
 const LOGO: &[u8] = include_bytes!("../assets/glimt-256.png");
 
@@ -485,14 +482,6 @@ fn app_id() -> String {
     std::env::var("FLATPAK_ID").unwrap_or_else(|_| "glimt".into())
 }
 
-#[allow(unsafe_code)] // declarations only: each call is an unsafe block
-unsafe extern "C" {
-    /// Returns freed heap memory to the operating system (glibc).
-    fn malloc_trim(pad: usize) -> i32;
-    /// Sets a malloc parameter (glibc).
-    fn mallopt(param: i32, value: i32) -> i32;
-}
-
 /// The program that New Window starts. From an AppImage it is the AppImage, because the binary
 /// is in the AppImage's mount, which goes away when this window closes. Otherwise it is the
 /// binary. Every program started from an AppImage inherits its APPIMAGE variable, so the
@@ -572,7 +561,7 @@ fn main() -> eframe::Result {
         #[allow(unsafe_code)]
         // SAFETY: This is called before any other thread exists.
         unsafe {
-            mallopt(M_ARENA_MAX, 1)
+            libc::mallopt(libc::M_ARENA_MAX, 1)
         };
         HAS_ONE_MALLOC_ARENA.store(true, Ordering::Relaxed);
     }
