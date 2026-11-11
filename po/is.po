@@ -3055,3 +3055,7 @@ msgstr "Viðbætt snið og verkfæri:"
 #: src/metadata/lightroom.rs
 msgid "; the sidecars are still being written"
 msgstr "; enn er verið að skrifa hliðarskrárnar"
+
+#: src/files/file_io.rs
+msgid "Could not remove {name}: {e}"
+msgstr "Gat ekki fjarlægt {name}: {e}"

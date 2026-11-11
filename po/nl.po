@@ -3055,3 +3055,7 @@ msgstr "Toegevoegde formaten en hulpmiddelen:"
 #: src/metadata/lightroom.rs
 msgid "; the sidecars are still being written"
 msgstr "; de sidecar-bestanden worden nog geschreven"
+
+#: src/files/file_io.rs
+msgid "Could not remove {name}: {e}"
+msgstr "Kon {name} niet verwijderen: {e}"

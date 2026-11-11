@@ -661,15 +661,42 @@ pub fn edit_shared<T>(
 }
 
 /// A file the windows share removed under its lock, as `edit_shared` changes one: another
-/// window's change cannot land after it and bring back what was cleared.
+/// window's change cannot land after it and bring back what was cleared. A failure is told,
+/// because the list cleared would come back at the next start.
 pub fn remove_shared(path: &Path) {
     if std::fs::symlink_metadata(path).is_err() {
         return;
     }
     #[allow(clippy::disallowed_methods)] // as edit_shared
     let _held = file_lock(path);
-    #[allow(clippy::disallowed_methods)] // a shared file of Glimt's own
-    let _ = std::fs::remove_file(path);
+    remove_own_or_tell(path);
+}
+
+/// Removes `path`, a file or folder of Glimt's own: a Rename Many's plan, a Move's log, a state
+/// file, or the copy of one in a backup. A name that is gone already counts as removed. Its
+/// result is never dropped (`source_rules::write_results_are_not_dropped`), because a plan or a
+/// log left behind is acted on again at the next start.
+pub fn remove_own(path: &Path) -> std::io::Result<()> {
+    #[allow(clippy::disallowed_methods)] // the one way Glimt's own files are removed
+    let removed = match std::fs::symlink_metadata(path) {
+        Ok(meta) if meta.is_dir() => std::fs::remove_dir_all(path),
+        _ => std::fs::remove_file(path),
+    };
+    match removed {
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        removed => removed,
+    }
+}
+
+/// `remove_own`, with a failure told through `save_failed`.
+pub fn remove_own_or_tell(path: &Path) {
+    if let Err(e) = remove_own(path) {
+        save_failed(crate::tf!(
+            "Could not remove {name}: {e}",
+            name = path.display(),
+            e
+        ));
+    }
 }
 
 /// A file Glimt is about to write again, as it is: `None` when there is none yet, and an error

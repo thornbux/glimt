@@ -160,9 +160,10 @@ impl MoveLog {
     /// start makes them follow.
     pub fn remove_once_followed(self) {
         crate::files::file_io::write_later_in_user_folders(move || {
+            // A log left behind makes the marks follow again at every start, so a failure is
+            // told.
             crate::files::file_io::write_later(move || {
-                #[allow(clippy::disallowed_methods)] // the log, Glimt's own file
-                let _ = std::fs::remove_file(&self.path);
+                crate::files::file_io::remove_own_or_tell(&self.path)
             });
         });
     }
@@ -648,8 +649,9 @@ fn tell_when_not_synced(synced: Result<(), (&Path, std::io::Error)>) {
 /// at the next start, or swap a swap's marks back.
 fn remove_plan(plan: &Path, names: &[PathBuf]) {
     let renames_synced = sync_folders(names);
-    #[allow(clippy::disallowed_methods)] // the plan, Glimt's own file
-    let _ = std::fs::remove_file(plan);
+    // A plan left behind would be offered again at the next start, and putting its old names
+    // back would undo a finished rename, so a failure is told.
+    crate::files::file_io::remove_own_or_tell(plan);
     // The plan's folder is synced too, because a plan brought back by a power cut, after the
     // marks followed, would move them again. A disk that fails both is told once.
     let plan_name = [plan.to_path_buf()];
@@ -1384,5 +1386,24 @@ mod tests {
         for (f, n) in from.iter().zip(names) {
             assert_eq!(std::fs::read_to_string(dir.join(n)).unwrap(), *f, "{case}");
         }
+    }
+
+    /// A plan that could not be removed is told as a failed write, as the next start would
+    /// offer it again and could undo the finished rename. Before, the failure was dropped.
+    #[test]
+    fn a_plan_not_removed_is_told() {
+        let dir =
+            std::env::temp_dir().join(format!("glimt-test-plan-stays-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        // A plan below a file, which no file system removes.
+        std::fs::write(dir.join("file"), "").unwrap();
+        let _ = crate::files::file_io::take_saves_failed();
+        super::remove_plan(&dir.join("file").join("plan"), &[]);
+        let failed = crate::files::file_io::take_saves_failed();
+        assert!(
+            failed.iter().any(|e| e.contains("Could not remove")),
+            "{failed:?}"
+        );
+        std::fs::remove_dir_all(dir).unwrap();
     }
 }

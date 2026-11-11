@@ -3076,3 +3076,7 @@ msgstr ""
 #: src/metadata/lightroom.rs
 msgid "; the sidecars are still being written"
 msgstr ""
+
+#: src/files/file_io.rs
+msgid "Could not remove {name}: {e}"
+msgstr ""

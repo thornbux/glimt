@@ -3066,3 +3066,7 @@ msgstr "Tilføydde format og verktøy:"
 #: src/metadata/lightroom.rs
 msgid "; the sidecars are still being written"
 msgstr "; sidefilene blir framleis skrivne"
+
+#: src/files/file_io.rs
+msgid "Could not remove {name}: {e}"
+msgstr "Kunne ikkje fjerna {name}: {e}"

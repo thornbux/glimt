@@ -3077,3 +3077,7 @@ msgstr "Přidané formáty a nástroje:"
 #: src/metadata/lightroom.rs
 msgid "; the sidecars are still being written"
 msgstr "; doprovodné soubory se stále zapisují"
+
+#: src/files/file_io.rs
+msgid "Could not remove {name}: {e}"
+msgstr "{name} nelze odstranit: {e}"

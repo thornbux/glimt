@@ -3055,3 +3055,7 @@ msgstr "Lisätyt muodot ja työkalut:"
 #: src/metadata/lightroom.rs
 msgid "; the sidecars are still being written"
 msgstr "; sivutiedostoja kirjoitetaan yhä"
+
+#: src/files/file_io.rs
+msgid "Could not remove {name}: {e}"
+msgstr "Tiedostoa {name} ei voitu poistaa: {e}"

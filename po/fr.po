@@ -3055,3 +3055,7 @@ msgstr "Formats ajoutés et outils :"
 #: src/metadata/lightroom.rs
 msgid "; the sidecars are still being written"
 msgstr " ; les fichiers annexes sont encore en cours d'écriture"
+
+#: src/files/file_io.rs
+msgid "Could not remove {name}: {e}"
+msgstr "Impossible de supprimer {name} : {e}"

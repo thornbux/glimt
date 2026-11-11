@@ -3872,7 +3872,7 @@ fn finds_a_lint_turned_off_widely() {
 /// `.unwrap_or_default();`, `.unwrap_or(());`, `drop(…)`, `let _name =` where `_name` is not
 /// used again, or `if let Ok(…) =` with no `else`.
 fn dropped_writes_in(text: &str) -> Vec<usize> {
-    const WRITERS: [&str; 14] = [
+    const WRITERS: [&str; 15] = [
         // collections::edit and edit_open_collection, which write through replace_name.
         "edit(",
         "edit_open_collection(",
@@ -3888,6 +3888,9 @@ fn dropped_writes_in(text: &str) -> Vec<usize> {
         "replace_name_with(",
         "write_beside(",
         "create_file(",
+        // A removal of Glimt's own plan, log or state file, which the next start would act on
+        // again if it stayed.
+        "remove_own(",
     ];
     const KEYWORDS: [&str; 7] = ["if", "while", "match", "return", "let", "else", "for"];
     let lines = code_lines(text);
@@ -4031,6 +4034,9 @@ fn finds_a_dropped_write() {
         dropped_writes_in(text),
         [2, 3, 4, 6, 14, 15, 20, 23, 26, 27]
     );
+    // A removal of Glimt's own file, whose failure must be told too.
+    let removals = "fn a() {\n    let _ = remove_own(plan);\n    remove_own_or_tell(plan);\n}\n";
+    assert_eq!(dropped_writes_in(removals), [2]);
 }
 
 /// A background thread's answer is held in a `threads::Receiving`, never in a bare
