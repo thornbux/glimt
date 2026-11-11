@@ -35,6 +35,16 @@ and versions follow [Semantic Versioning](https://semver.org/).
 - "Put the old names back" after a Rename Many cut short, chosen later, renames nothing while
   another file has taken one of its photos' names since, and says so. Before, that file was
   renamed. A sidecar that was written meanwhile, by a keyword saved, goes back with its photo.
+- A Rename Many cut short on a share, a FUSE mount or a card is put right after the reboot,
+  which gives such a disk another number, and after Glimt itself turned a photo or saved a copy
+  over it meanwhile. When the repair is still refused, because another program changed a
+  photo, the question offers to save or copy the list of the files not under the names they
+  were to get, hidden names included, and then to leave the names as they are. Before, the
+  question came back at every start with no way out.
+- A keyword, stars or a rename that waits while another window's Rename Many swaps its photo's
+  name is refused, and no longer goes on the other photo.
+- Stars on many files of a network share no longer make Glimt look at each file first, which
+  held the settings and a close for minutes on a large folder.
 - A folder in Open Recent that a share did not answer for at once is no longer forgotten as
   gone, and a sidecar that could not be looked at is not written to, as it may be a link.
 - A Stop, or a second Ctrl+Q, during Export Frames or Rename Many is told as a stop, so the
