@@ -3093,12 +3093,16 @@ msgid "Leave the names as they are"
 msgstr "Lad navnene være, som de er"
 
 #: src/ui/dialogs.rs
-msgid "The list was copied"
-msgstr "Listen blev kopieret"
+msgid "The list was copied to the clipboard. Paste it into a file before the names are left as they are."
+msgstr "Listen blev kopieret til udklipsholderen. Indsæt den i en fil, før navnene bliver ladt være, som de er."
 
 #: src/ui/dialogs.rs
 msgid "The names were left as they are"
 msgstr "Navnene blev ladt være, som de er"
+
+#: src/ui/dialogs.rs
+msgid "Another window has put these renames right already. Nothing was changed here."
+msgstr "Et andet vindue har allerede rettet disse omdøbninger. Intet blev ændret her."
 
 #: src/ui/dialogs.rs
 msgid "Rename Many was cut short, and these files are not under the names it was to give them. Each line names a file as it is now, then the name it was to get."

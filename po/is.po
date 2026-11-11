@@ -3093,12 +3093,16 @@ msgid "Leave the names as they are"
 msgstr "Láta heitin vera eins og þau eru"
 
 #: src/ui/dialogs.rs
-msgid "The list was copied"
-msgstr "Listinn var afritaður"
+msgid "The list was copied to the clipboard. Paste it into a file before the names are left as they are."
+msgstr "Listinn var afritaður á klippispjaldið. Límdu hann inn í skrá áður en heitin eru látin vera eins og þau eru."
 
 #: src/ui/dialogs.rs
 msgid "The names were left as they are"
 msgstr "Heitin voru látin vera eins og þau eru"
+
+#: src/ui/dialogs.rs
+msgid "Another window has put these renames right already. Nothing was changed here."
+msgstr "Annar gluggi hefur þegar lagað þessar nafnabreytingar. Engu var breytt hér."
 
 #: src/ui/dialogs.rs
 msgid "Rename Many was cut short, and these files are not under the names it was to give them. Each line names a file as it is now, then the name it was to get."
