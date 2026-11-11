@@ -569,8 +569,10 @@ whole module. The tests may unwrap (main.rs allows it for them).
   A background thread tells a failed write through `save_failed` or
   `NoticeSender::send_failed_write`, never as a plain notice, and the window thread through
   `App::tell_failed_write`. Work in `run_in_background` answers with a `Told`, which says
-  whether it is a notice or a failed write, and a function that hands work to a writer thread
-  holds no `notice_sender`, and one that starts a job hands it only to `threads::told_work`.
+  whether it is a notice or a failed write, and the work of `write_sidecars` returns the text
+  of its failure, which `write_sidecars` tells. A function that hands work to a writer thread
+  or to `write_sidecars` holds no `notice_sender`, and one that starts a job hands it only to
+  `threads::told_work`.
   Both keep the window open when a close
   waited for the writing. A Close is sent only by `App::ask_to_close`, and `guard_close` takes
   the failed writes before it lets one through

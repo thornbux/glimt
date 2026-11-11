@@ -677,12 +677,14 @@ const HANDED_TO_A_THREAD: &[&str] = &[
     "write_in_sidecar_thread(",
 ];
 
-/// What starts work that writes, which closing waits for: a job, work in the background, an
-/// operation that will leave an Undo, or the count of writing itself.
+/// What starts work that writes, which closing waits for: a job, work in the background, a
+/// sidecar write of the user's keywords, alt text and stars, an operation that will leave an
+/// Undo, or the count of writing itself.
 const WRITING_WORK: &[&str] = &[
     "start_job(",
     "start_job_of(",
     "run_in_background(",
+    "write_sidecars(",
     "undo_on_the_way(",
     "WRITING",
 ];
@@ -2320,9 +2322,11 @@ fn finds_a_writing_thread_that_tells_nothing() {
         std::thread::spawn(told_work(app.notice_sender.clone(), c, w, work));\n    }\n    \
         fn c(app: &App) {\n        std::thread::spawn(move || read());\n    }\n    \
         fn d(app: &App) {\n        let n = app.notice_sender.clone();\n        \
-        app.run_in_background(ctx, Vec::new(), move || drop(n.send(e)));\n    }\n}\n";
+        app.run_in_background(ctx, Vec::new(), move || drop(n.send(e)));\n    }\n    \
+        fn e(app: &App) {\n        let tx = app.notice_sender.clone();\n        \
+        app.write_sidecars(ctx, a, f, move |p, _| drop(tx.send(e)), r);\n    }\n}\n";
     assert_eq!(untold_writing_threads("x.rs", text), ["x.rs: a"]);
-    assert_eq!(notices_beside_writers("x.rs", text), ["x.rs: d"]);
+    assert_eq!(notices_beside_writers("x.rs", text), ["x.rs: d", "x.rs: e"]);
 }
 
 /// Returns the functions in `text`, the source of `file`, that start writing work
@@ -2887,7 +2891,7 @@ fn sidecars_are_written_through_write_sidecars() {
         ("ui/info_panel.rs", "set_keyword_on_files"),
         ("ui/info_panel.rs", "add_keywords"),
         ("ui/actions.rs", "apply_mark"),
-        ("metadata/lightroom.rs", "import_lightroom"),
+        ("metadata/lightroom.rs", "write_imported"),
     ];
     const HOMES: &[(&str, &[(&str, &str)])] = &[
         ("write_changed(", IN_WRITE_SIDECARS),
@@ -2899,7 +2903,7 @@ fn sidecars_are_written_through_write_sidecars() {
         ("update_sidecar(", &[("metadata/marks.rs", "write_xmp")]),
         (
             "sidecar_writer(",
-            &[("files/file_ops.rs", "write_sidecars")],
+            &[("files/file_ops.rs", "write_in_sidecar_thread")],
         ),
     ];
     let wrong = outside_their_homes(HOMES);

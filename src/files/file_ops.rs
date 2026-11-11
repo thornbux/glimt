@@ -101,8 +101,8 @@ impl From<String> for RenameFailed {
 type SidecarReport = Box<dyn FnOnce(usize, &Job) -> Option<String> + Send>;
 
 /// Writes the sidecar of the file at a place in a sidecar write's list, given by that place and
-/// the file's name now (`write_sidecars`).
-type SidecarWrite = Box<dyn Fn(usize, &Path) -> bool + Send>;
+/// the file's name now (`write_sidecars`). Returns the text of its failure.
+type SidecarWrite = Box<dyn Fn(usize, &Path) -> Result<(), String> + Send>;
 
 /// A sidecar write asked for while a rename runs (`write_sidecars`). It is sent once the rename
 /// is over, to the names its files have then.
@@ -1974,7 +1974,9 @@ impl crate::App {
     /// Writes the sidecars of `paths` in the background. This window's keywords, stars and
     /// Lightroom import all go through one thread (`sidecar_writer`), so changes to one file
     /// land in the order they were made and never cross. The status bar counts them, and
-    /// `report` words the end from how many failed. The thread is its own rather than
+    /// `report` words the end from how many failed. A failure that `report` gives no words
+    /// is told by the text that `write` returned for it, the first of them, so `write` itself
+    /// tells nothing. The thread is its own rather than
     /// `file_io::write_later`'s, so settings saved meanwhile do not wait behind 3,000 sidecars.
     ///
     /// Every sidecar write of the user's metadata goes through here, and this is the one rule
@@ -2000,11 +2002,14 @@ impl crate::App {
         ctx: &egui::Context,
         activity: &'static str,
         files: Vec<(ListedFile, T)>,
-        write: impl Fn(&Path, &T) -> bool + Send + 'static,
+        write: impl Fn(&Path, &T) -> Result<(), String> + Send + 'static,
         report: impl FnOnce(usize, &Job) -> Option<String> + Send + 'static,
     ) {
         let (files, data): (Vec<ListedFile>, Vec<T>) = files.into_iter().unzip();
-        let write = move |k: usize, path: &Path| data.get(k).is_some_and(|d| write(path, d));
+        let write = move |k: usize, path: &Path| {
+            let d = data.get(k).ok_or_else(broke_here)?;
+            write(path, d)
+        };
         if self.file_operations.renaming.is_some() {
             let waiting = WaitingSidecarWrite {
                 activity,
@@ -2029,40 +2034,54 @@ impl crate::App {
         // The job goes after its failure is told, so that a close that waited for it takes the
         // failure first.
         let held = (job.clone(), Working::new(&self.busy));
-        // When the send fails, the work is dropped, and the busy pointer goes with it.
-        write_in_sidecar_thread(
-            sidecar_writer(),
-            told_work(self.notice_sender.clone(), ctx, held, move || {
-                let (mut failed, mut refused) = (0, None);
-                for (k, file) in files.iter().enumerate() {
-                    if job.is_stopped() {
-                        break;
-                    }
-                    // A file that another file has taken the name of since the list was read is
-                    // left alone. A file that makes the writing panic counts as one that failed,
-                    // and the files after it are still written.
-                    match file.check() {
-                        Ok(()) => {
-                            let written = catch_panic(|| write(k, file.path()));
-                            failed += !written.unwrap_or(false) as usize;
-                        }
-                        Err(e) => {
+        self.write_in_sidecar_thread(ctx, held, move || {
+            let (mut failed, mut refused, mut first_failure) = (0, None, None);
+            for (k, file) in files.iter().enumerate() {
+                if job.is_stopped() {
+                    break;
+                }
+                // A file that another file has taken the name of since the list was read is
+                // left alone. A file that makes the writing panic counts as one that failed,
+                // and the files after it are still written.
+                match file.check() {
+                    Ok(()) => {
+                        let written = catch_panic(|| write(k, file.path()));
+                        if let Err(e) = written.unwrap_or_else(|| Err(broke_here())) {
                             failed += 1;
-                            refused.get_or_insert(format!("{}: {e}", file.path().display()));
+                            first_failure.get_or_insert(e);
                         }
                     }
-                    job.count_done(1);
+                    Err(e) => {
+                        failed += 1;
+                        refused.get_or_insert(format!("{}: {e}", file.path().display()));
+                    }
                 }
-                if let Some(first) = refused {
-                    crate::files::file_io::save_failed(first);
-                }
-                let told = report(failed, &job);
-                told.map(|text| match failed > 0 {
-                    true => Told::FailedWrite(text),
-                    false => Told::Notice(text),
-                })
-            }),
-        );
+                job.count_done(1);
+            }
+            if let Some(first) = refused {
+                crate::files::file_io::save_failed(first);
+            }
+            let told = report(failed, &job).or(first_failure);
+            told.map(|text| match failed > 0 {
+                true => Told::FailedWrite(text),
+                false => Told::Notice(text),
+            })
+        });
+    }
+
+    /// Sends `work` to the thread of this window's sidecar writes (`sidecar_writer`), to be done
+    /// after the writes sent before it. The work runs through `told_work`, which tells what it
+    /// returns and a panic in it, and keeps what it `held` until it has told. So no work reaches
+    /// that thread that could end with nothing told. When the send fails, the work is dropped,
+    /// and what it held goes with it.
+    fn write_in_sidecar_thread(
+        &self,
+        ctx: &egui::Context,
+        held: impl Send + 'static,
+        work: impl FnOnce() -> Option<Told> + Send + 'static,
+    ) {
+        let work = told_work(self.notice_sender.clone(), ctx, held, work);
+        let _ = sidecar_writer().send(Box::new(work));
     }
 
     /// Sends the sidecar writes that waited for a rename to the names their files have now, in
@@ -3248,15 +3267,6 @@ fn sidecar_writer() -> &'static mpsc::Sender<crate::files::file_io::QueuedWrite>
     WRITER.get_or_init(crate::files::file_io::start_ordered_worker)
 }
 
-/// Sends `work` to `writer`, the thread of this window's sidecar writes (`sidecar_writer`), to
-/// be done after the writes sent before it. When the send fails, the work is dropped.
-fn write_in_sidecar_thread(
-    writer: &mpsc::Sender<crate::files::file_io::QueuedWrite>,
-    work: impl FnOnce() + Send + 'static,
-) {
-    let _ = writer.send(Box::new(work));
-}
-
 /// `(from, to)` pairs to look up by the old path.
 pub(crate) fn moves_by_source(pairs: &[(PathBuf, PathBuf)]) -> HashMap<&Path, &Path> {
     pairs
@@ -4347,7 +4357,7 @@ mod tests {
                         ctx,
                         "Saving keywords",
                         crate::support::test_support::unlisted_with(vec![(d.join("a.png"), ())]),
-                        |p, _| crate::metadata::xmp::add_tags(p, &["Tag".into()]).is_ok(),
+                        |p, _| crate::metadata::xmp::add_tags(p, &["Tag".into()]),
                         |_, _| None,
                     );
                 },
@@ -6376,7 +6386,7 @@ mod tests {
             &ctx,
             "Other",
             crate::support::test_support::unlisted_with(other),
-            move |_, _| released.recv().is_err(),
+            move |_, _| released.recv().map_or(Ok(()), |()| Err(String::new())),
             |_, _| None,
         );
         // Each photo gets a keyword of its own, as Lightroom's import gives them.
@@ -6388,7 +6398,7 @@ mod tests {
             &ctx,
             "Keywords",
             crate::support::test_support::unlisted_with(keywords),
-            |p, tag| crate::metadata::xmp::add_tags(p, std::slice::from_ref(tag)).is_ok(),
+            |p, tag| crate::metadata::xmp::add_tags(p, std::slice::from_ref(tag)),
             |_, _| None,
         );
         assert!(run_background_until(&mut app, &ctx, |app| app
@@ -6433,7 +6443,7 @@ mod tests {
             &ctx,
             "Keywords",
             crate::support::test_support::unlisted_with(asked),
-            move |p, _| oslo(p).is_ok(),
+            move |p, _| oslo(p),
             |_, _| None,
         );
         let job = app.file_operations.renaming.take().unwrap();
@@ -6474,7 +6484,7 @@ mod tests {
             &ctx,
             "Other",
             crate::support::test_support::unlisted_with(long),
-            move |_, _| released.recv().is_err(),
+            move |_, _| released.recv().map_or(Ok(()), |()| Err(String::new())),
             |_, _| None,
         );
         let oslo = |p: &std::path::Path| crate::metadata::xmp::add_tags(p, &["Oslo".into()]);
@@ -6482,7 +6492,7 @@ mod tests {
             &ctx,
             "Keywords",
             crate::support::test_support::unlisted_with(vec![(a.clone(), ())]),
-            move |p, _| oslo(p).is_ok(),
+            move |p, _| oslo(p),
             |_, _| None,
         );
         app.file_operations.stop_jobs();
@@ -6837,7 +6847,7 @@ mod tests {
             &ctx,
             "Saving keywords",
             crate::support::test_support::unlisted_with(vec![(dir.join("a.png"), ())]),
-            |_, _| true,
+            |_, _| Ok(()),
             |_, _| None,
         );
         assert!(app.search.reads_exif_again("a.png"));
@@ -7208,7 +7218,7 @@ mod tests {
         let write = move |path: &std::path::Path, _: &()| {
             assert!(!path.ends_with("a.png"), "a broken sidecar");
             lock_even_if_poisoned(&noted).push(path.to_path_buf());
-            true
+            Ok(())
         };
         let report =
             |failed: usize, _: &super::Job| (failed > 0).then(|| format!("{failed} failed"));
@@ -7221,6 +7231,29 @@ mod tests {
         );
         assert_eq!(told_to(&app), Some(Told::FailedWrite("1 failed".into())));
         assert_eq!(*lock_even_if_poisoned(&written), [b]);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A sidecar write that fails, in a job whose report has no words for it (the info
+    /// panel's), is told as a failed write by its own text. Before, each such write told its
+    /// failure itself through a notice sender of its own, which nothing held it to.
+    #[test]
+    fn a_sidecar_write_that_fails_is_told_by_its_own_text() {
+        let dir = folder_with("sidecar-fails", &["a.png"]);
+        let (mut app, ctx) = app_on(&dir);
+        app.write_sidecars(
+            &ctx,
+            "Writing",
+            crate::support::test_support::unlisted_with(vec![(dir.join("a.png"), ())]),
+            |_, _| Err("Could not save the keywords: full".into()),
+            |_, _| None,
+        );
+        assert_eq!(
+            told_to(&app),
+            Some(Told::FailedWrite(
+                "Could not save the keywords: full".into()
+            ))
+        );
         std::fs::remove_dir_all(dir).unwrap();
     }
 

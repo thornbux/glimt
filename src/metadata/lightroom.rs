@@ -527,17 +527,7 @@ impl crate::App {
             ctx,
             tr("Importing"),
             sidecars,
-            move |path, (n, tags)| {
-                // Not for photos gone since. One that could not be looked at is tried and told.
-                if crate::files::file_io::is_surely_gone(path) {
-                    return true;
-                }
-                #[cfg(feature = "marks")]
-                let stars = *n == 0 || marks::write_xmp(path, *n).is_ok();
-                #[cfg(not(feature = "marks"))]
-                let stars = *n == 0;
-                stars && (tags.is_empty() || xmp::add_tags(path, tags).is_ok())
-            },
+            write_imported,
             |failed, job| match () {
                 _ if failed > 0 => Some(tf!(
                     "Lightroom's stars or keywords not written to the sidecars of {count}",
@@ -756,6 +746,26 @@ pub fn roots_now(catalog: &Catalog) -> Vec<String> {
             }
         })
         .collect()
+}
+
+/// Writes the stars and keywords that a Lightroom import gives the photo at `path` to its
+/// sidecar. A photo gone since gets nothing, and one that could not be looked at is tried, so
+/// its failure is told. Returns the text of the failure.
+fn write_imported(path: &Path, (stars, keywords): &(u8, Vec<String>)) -> Result<(), String> {
+    if crate::files::file_io::is_surely_gone(path) {
+        return Ok(());
+    }
+    // Stars are written only with the marks feature (`xmp` in `import_lightroom`).
+    #[cfg(feature = "marks")]
+    if *stars != 0 {
+        marks::write_xmp(path, *stars)?;
+    }
+    #[cfg(not(feature = "marks"))]
+    let _ = stars;
+    if !keywords.is_empty() {
+        xmp::add_tags(path, keywords)?;
+    }
+    Ok(())
 }
 
 #[cfg(test)]
