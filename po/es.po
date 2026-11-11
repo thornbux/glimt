@@ -3922,3 +3922,8 @@ msgstr "No se pudo bloquear {name}: {e}. Un cambio que otra ventana de Glimt hag
 #, fuzzy
 msgid "{sidecar} could not be moved ({e}), so it was copied to {copy} and is still at its old name too"
 msgstr "{sidecar} no se pudo mover ({e}), así que se copió a {copy} y sigue también con su nombre anterior"
+
+#: src/files/file_ops.rs
+#, fuzzy
+msgid "{folder} did not answer within a minute, so nothing was done"
+msgstr "{folder} no respondió en un minuto, así que no se hizo nada"

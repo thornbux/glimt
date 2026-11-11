@@ -3922,3 +3922,8 @@ msgstr "Kunde inte låsa {name}: {e}. En ändring som ett annat Glimt-fönster g
 #, fuzzy
 msgid "{sidecar} could not be moved ({e}), so it was copied to {copy} and is still at its old name too"
 msgstr "{sidecar} kunde inte flyttas ({e}), så den kopierades till {copy} och ligger fortfarande kvar under det gamla namnet också"
+
+#: src/files/file_ops.rs
+#, fuzzy
+msgid "{folder} did not answer within a minute, so nothing was done"
+msgstr "{folder} svarade inte inom en minut, så ingenting gjordes"

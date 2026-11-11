@@ -3154,3 +3154,7 @@ msgstr "Kunne ikke låse {name}: {e}. En endring som et annet Glimt-vindu gjør 
 #: src/metadata/xmp.rs
 msgid "{sidecar} could not be moved ({e}), so it was copied to {copy} and is still at its old name too"
 msgstr "{sidecar} kunne ikke flyttes ({e}), så den ble kopiert til {copy} og ligger fortsatt under det gamle navnet også"
+
+#: src/files/file_ops.rs
+msgid "{folder} did not answer within a minute, so nothing was done"
+msgstr "{folder} svarte ikke innen ett minutt, så ingenting ble gjort"

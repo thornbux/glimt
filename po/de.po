@@ -3922,3 +3922,8 @@ msgstr "Konnte {name} nicht sperren: {e}. Eine Änderung, die ein anderes Glimt-
 #, fuzzy
 msgid "{sidecar} could not be moved ({e}), so it was copied to {copy} and is still at its old name too"
 msgstr "{sidecar} konnte nicht verschoben werden ({e}), daher wurde sie nach {copy} kopiert und liegt weiterhin auch unter dem alten Namen"
+
+#: src/files/file_ops.rs
+#, fuzzy
+msgid "{folder} did not answer within a minute, so nothing was done"
+msgstr "{folder} hat nicht innerhalb einer Minute geantwortet, daher wurde nichts getan"

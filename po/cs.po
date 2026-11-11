@@ -3944,3 +3944,8 @@ msgstr "Nelze zamknout {name}: {e}. Změna, kterou ve stejnou chvíli provede ji
 #, fuzzy
 msgid "{sidecar} could not be moved ({e}), so it was copied to {copy} and is still at its old name too"
 msgstr "{sidecar} nešlo přesunout ({e}), proto byl zkopírován do {copy} a je stále i pod starým názvem"
+
+#: src/files/file_ops.rs
+#, fuzzy
+msgid "{folder} did not answer within a minute, so nothing was done"
+msgstr "{folder} neodpověděl do minuty, takže se nic neprovedlo"

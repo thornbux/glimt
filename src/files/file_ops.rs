@@ -36,6 +36,14 @@ use std::time::Instant;
 /// The characters that FAT and exFAT refuse in a name, as on a camera card.
 pub(crate) const NOT_ON_FAT: [char; 8] = [':', '?', '*', '"', '<', '>', '|', '\\'];
 
+/// How long a look at a folder before its job is waited for (`wait_for_look_up_before_the_job`).
+/// A share that stopped answering waits for ever, and one that wakes from sleep answers within
+/// this. A test waits less for the look-up that it holds back.
+#[cfg(not(test))]
+const LOOK_UP_GIVEN_UP_AFTER: std::time::Duration = std::time::Duration::from_secs(60);
+#[cfg(test)]
+const LOOK_UP_GIVEN_UP_AFTER: std::time::Duration = std::time::Duration::from_secs(3);
+
 // The file systems that tests give their folders, as (folder, type), with `test_mount`. No test
 // can mount a FAT card. Each test names a folder of its own, so the tests can run side by side,
 // and a job's thread sees the same folders as the test that started it.
@@ -182,8 +190,9 @@ pub(crate) type Moved = (PathBuf, PathBuf, FileFingerprint);
 /// undone again, and the errors to tell.
 type MovedBack = (Vec<(PathBuf, PathBuf)>, Vec<Moved>, Vec<String>);
 
-/// What waits for a folder's real path, which `App::with_real_folder` looks up in the
-/// background. It runs in the window's thread once the path is known.
+/// What waits for a look at a folder before its job (its real path, its file system), which
+/// `App::wait_for_look_up_before_the_job` waits for in the background. It runs in the window's
+/// thread once the look has answered or been given up.
 pub(crate) type WithRealFolder = Box<dyn FnOnce(&mut crate::App, &egui::Context) + Send>;
 
 /// A file saved in the background (a turned image, or a tool's file), and how it went.
@@ -338,8 +347,9 @@ pub(crate) struct FileOperations {
     clipboard: Option<arboard::Clipboard>,
     /// An image decoded for the clipboard. egui takes it only during a frame.
     clip_rx: Receiving<(egui::ColorImage, Working)>,
-    /// What waits for a folder's real path, sent once it is looked up (`with_real_folder`). The
-    /// sender is kept, so the receiver lasts as long as the window.
+    /// What waits for a look at a folder, sent once the look has answered or been given up
+    /// (`wait_for_look_up_before_the_job`). The sender is kept, so the receiver lasts as long as
+    /// the window.
     real_folder_tx: AnswerSender<WithRealFolder>,
     real_folder_found: Receiving<(WithRealFolder, Working)>,
     /// How many of those wait. Each starts a file operation (a Copy, say), so a close waits for
@@ -855,8 +865,10 @@ impl crate::App {
             let mut changed: HashSet<PathBuf> = HashSet::new();
             // Each gio call (and each taking of the locks) handles many files, so thousands of
             // files do not become thousands of processes. The chunks are small enough that Stop
-            // and the count in the status bar keep up.
-            for chunk in paths.chunks(100) {
+            // and the count in the status bar keep up, and each holds only a few of the sidecar
+            // locks, which a gio call that hangs on a share would hold for good.
+            for chunk in xmp::chunks_by_sidecar_lock(&paths, 100) {
+                let chunk = &chunk[..];
                 if job.is_stopped() {
                     break;
                 }
@@ -1239,17 +1251,46 @@ impl crate::App {
     }
 
     /// Looks up the real path of `folder` and the type of its file system in the background, as
-    /// both wait for the disk, and then runs `then` with them in the window's thread. The busy
-    /// pointer shows meanwhile. A close
-    /// waits for it too, as for a file operation, because `then` starts one (a Copy, say). The
-    /// files `held_back_files` that its job will change are held back from now on, and let go
-    /// just before `then` starts the job that holds them in turn. Nothing is looked up, and a
-    /// notice says so, while other work changes them.
+    /// both wait for the disk, and then runs `then` with them in the window's thread, as
+    /// `wait_for_look_up_before_the_job` says.
     pub(crate) fn with_real_folder(
         &mut self,
         folder: PathBuf,
         held_back_files: Vec<PathBuf>,
         then: impl FnOnce(&mut crate::App, &egui::Context, PathBuf, Option<String>) + Send + 'static,
+    ) {
+        let (found_tx, found) = mpsc::channel();
+        let looked_at = folder.clone();
+        // No busy pointer: the look-up, whose answer `wait_for_look_up_before_the_job` holds
+        // the pointer for. One given up ends when the share answers, or never.
+        std::thread::spawn(move || {
+            let real = crate::model::listing::real_dir(&looked_at);
+            let file_system = file_system_type_or_test(&real);
+            drop(found_tx.send((real, file_system)));
+        });
+        self.wait_for_look_up_before_the_job(
+            folder,
+            held_back_files,
+            found,
+            move |app, ctx, found| then(app, ctx, found.0, found.1),
+        );
+    }
+
+    /// Waits in the background for `found`, the answer of a look at the folder `folder` that
+    /// waits for the disk, and then runs `then` with it in the window's thread. The busy pointer
+    /// shows meanwhile. A close waits for it too, as for a file operation, because `then` starts
+    /// one (a Copy, say). The files `held_back_files` that its job will change are held back
+    /// from now on, and let go just before `then` starts the job that holds them in turn.
+    /// Nothing is waited for, and a notice says so, while other work changes them. A look-up
+    /// that takes longer than `LOOK_UP_GIVEN_UP_AFTER` (a share that stopped answering) is given
+    /// up: the files are let go, `then` never runs, and a notice says so. Before, the files
+    /// stayed held until Glimt ended, and a delete or rename of them was refused.
+    pub(crate) fn wait_for_look_up_before_the_job<T: Send + 'static>(
+        &mut self,
+        folder: PathBuf,
+        held_back_files: Vec<PathBuf>,
+        found: mpsc::Receiver<T>,
+        then: impl FnOnce(&mut crate::App, &egui::Context, T) + Send + 'static,
     ) {
         // Before, the files were held only from the job's start, so a delete and a rename in
         // the moment before could hand a Move another file of the same name.
@@ -1260,15 +1301,20 @@ impl crate::App {
         let (pointer, ctx) = (Working::new(&self.busy), self.ctx.clone());
         let awaited = Working::new(&self.file_operations.real_folders_awaited);
         std::thread::spawn(move || {
-            let real = crate::model::listing::real_dir(&folder);
-            let file_system = file_system_type_or_test(&real);
+            let found = found.recv_timeout(LOOK_UP_GIVEN_UP_AFTER);
             // The close waits until `then` has run, and the job it starts holds the close
             // from then on.
             let _ = tx.send(Box::new(
                 move |app: &mut crate::App, ctx: &egui::Context| {
                     // The window's thread runs both, so no other work comes between them.
                     drop(held_back);
-                    then(app, ctx, real, file_system);
+                    match found {
+                        Ok(found) => then(app, ctx, found),
+                        Err(_) => app.notice.give(tf!(
+                            "{folder} did not answer within a minute, so nothing was done",
+                            folder = folder.display()
+                        )),
+                    }
                     drop(awaited);
                 },
             ));
@@ -1277,7 +1323,7 @@ impl crate::App {
         });
     }
 
-    /// Runs what waited for a folder's real path, once the path is known.
+    /// Runs what waited for a look at a folder, once the look has answered or been given up.
     pub(crate) fn receive_real_folders(&mut self, ctx: &egui::Context) {
         while let Took::Answer((then, _pointer)) = self.file_operations.real_folder_found.next() {
             then(self, ctx);
@@ -1479,13 +1525,48 @@ impl crate::App {
         picked: PickedFiles,
         undoing: bool,
     ) {
-        let from: Vec<PathBuf> = listed.iter().map(|f| f.path().to_path_buf()).collect();
         // A camera card refuses some characters. Saying so before the job starts names the
-        // reason, where a rename that fails halfway would only give the system's error.
-        if let Some(refused) = refused_on_fat(&to, file_system_type_or_test) {
-            self.notice.give(not_renamed(refused));
-            return;
-        }
+        // reason, where a rename that fails halfway would only give the system's error. Only a
+        // new name with such a character needs the look at its folder's file system. That look
+        // waits for the disk, so it is made in the background before the job starts.
+        let Some(folder) = (to.iter())
+            .find(|t| (t.file_name()).is_some_and(|n| n.to_string_lossy().contains(NOT_ON_FAT)))
+            .and_then(|t| t.parent())
+            .map(Path::to_path_buf)
+        else {
+            return self.start_renaming(ctx, (listed, to), picked, undoing);
+        };
+        let held_back_files = (listed.iter().map(|f| f.path().to_path_buf()))
+            .chain(to.iter().cloned())
+            .collect();
+        let (found_tx, found) = mpsc::channel();
+        let names = to.clone();
+        // No busy pointer: the look-up, whose answer `wait_for_look_up_before_the_job` holds
+        // the pointer for. One given up ends when the share answers, or never.
+        std::thread::spawn(move || {
+            drop(found_tx.send(refused_on_fat(&names, file_system_type_or_test)));
+        });
+        self.wait_for_look_up_before_the_job(
+            folder,
+            held_back_files,
+            found,
+            move |app, ctx, refused| match refused {
+                Some(refused) => app.notice.give(not_renamed(refused)),
+                None => app.start_renaming(ctx, (listed, to), picked, undoing),
+            },
+        );
+    }
+
+    /// Starts the job of `rename_files_of`, once no new name is one that its file system
+    /// refuses.
+    fn start_renaming(
+        &mut self,
+        ctx: &egui::Context,
+        (listed, to): (Vec<ListedFile>, Vec<PathBuf>),
+        picked: PickedFiles,
+        undoing: bool,
+    ) {
+        let from: Vec<PathBuf> = listed.iter().map(|f| f.path().to_path_buf()).collect();
         // It is a job like every other writer. Closing waits for it, the status bar counts it,
         // and its Stop puts back the names done so far.
         let held_back_files = from.iter().chain(&to).cloned().collect();
@@ -1772,17 +1853,17 @@ impl crate::App {
         if new == old {
             return;
         }
-        // A camera card refuses some characters, and its own error would not say which.
-        if let Some(refused) = refused_on_fat(std::slice::from_ref(&new), file_system_type_or_test)
-        {
-            self.notice.give(not_renamed(refused));
-            return;
-        }
         // This runs in the background, because a folder on a share that stopped answering
         // would hold the window until the rename returns. What follows it comes back through
         // `report_tx`.
         let report_tx = self.file_operations.report_tx.clone();
         self.run_in_background(ctx, vec![old.clone()], move || {
+            // A camera card refuses some characters, and its own error would not say which. The
+            // look at its file system waits for the disk, so it is made here, not in the window.
+            let new_name = std::slice::from_ref(&new);
+            if let Some(refused) = refused_on_fat(new_name, file_system_type_or_test) {
+                return Some(Told::Notice(not_renamed(refused)));
+            }
             // Another folder put at its path while the dialog was open keeps its name.
             let (_, picked) = picked.wait_for_fingerprints();
             if let Err(e) = picked.still_the_one_picked(&old) {
@@ -3824,14 +3905,53 @@ mod tests {
         super::test_mount(&d, Some("exfat"));
         app.dialogs.act_on_folder(d.join("sub"));
         app.rename_folder(&ctx, "12:30");
+        // The file system is looked at in the rename's thread, not in the window's.
+        let told = |a: &crate::App| !a.working() && a.notice.text().is_some();
+        assert!(run_background_until(&mut app, &ctx, told));
         super::test_mount(&d, None);
         let told = app.notice.text().unwrap_or_default().to_owned();
         assert!(
             told.contains("\"12:30\"") && told.contains("exfat"),
             "{told}"
         );
-        assert!(run_background_until(&mut app, &ctx, |a| !a.working()));
         assert!(d.join("sub").is_dir() && !d.join("12:30").exists());
+        std::fs::remove_dir_all(d).unwrap();
+    }
+
+    /// A rename on a FAT card to a name with a character the card refuses renames nothing, and
+    /// the notice says why before the job starts. The file system is looked at in the
+    /// background, so the window does not wait for a share that stopped answering. The same
+    /// name on another file system is renamed.
+    #[test]
+    fn a_rename_on_fat_with_a_refused_name_is_told_first() {
+        let d = std::env::temp_dir().join(format!("glimt-test-fat-ren-{}", std::process::id()));
+        std::fs::create_dir_all(&d).unwrap();
+        image::RgbImage::new(2, 2).save(d.join("a.png")).unwrap();
+        let (mut app, ctx) = app_on(&d);
+        assert!(run_background_until(&mut app, &ctx, |a| a
+            .list
+            .files()
+            .len()
+            == 1));
+        let rename = |app: &mut crate::App| {
+            let picked = crate::files::file_io::PickedFiles::new(vec![d.join("a.png")]);
+            let listed = vec![app.listed_file(0)];
+            app.rename_in_background(&ctx, listed, vec![d.join("12:30.png")], picked);
+            assert!(run_background_until(app, &ctx, |a| !a.working()));
+        };
+        super::test_mount(&d, Some("vfat"));
+        app.notice.clear();
+        rename(&mut app);
+        let told = app.notice.text().unwrap_or_default().to_owned();
+        assert!(
+            told.contains("\"12:30.png\"") && told.contains("vfat"),
+            "{told}"
+        );
+        assert!(d.join("a.png").exists() && !d.join("12:30.png").exists());
+        super::test_mount(&d, Some("ext4"));
+        rename(&mut app);
+        super::test_mount(&d, None);
+        assert!(!d.join("a.png").exists() && d.join("12:30.png").exists());
         std::fs::remove_dir_all(d).unwrap();
     }
 
@@ -5791,10 +5911,11 @@ mod tests {
             ("trash_folder", "trash folder"),
             ("undo_trash", "undo a trash folder"),
             ("transfer_into_real_folder", "move"),
-            // It holds the files of a Move, a Copy and a Copy for Sharing until their job starts.
-            ("with_real_folder", "move"),
-            // Through rename_in_background, and the Undo of a rename.
-            ("rename_files_of", "rename"),
+            // It holds the files of a Move, a Copy, a Copy for Sharing and a rename to a name
+            // with : ? * and the others until their job starts.
+            ("wait_for_look_up_before_the_job", "move"),
+            // Through rename_in_background and rename_files_of, and the Undo of a rename.
+            ("start_renaming", "rename"),
             ("undo", "undo a move"),
             ("save_as_to", "save as over b"),
             ("export_frames", "save frame over b"),
@@ -6044,6 +6165,38 @@ mod tests {
             super::forget_in_collection(Some(gqv.as_path()), std::slice::from_ref(&renamed))
                 .unwrap();
         assert_eq!(removed, [(0, renamed)]);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A look at a folder before its job that does not answer (a share that stopped answering)
+    /// is given up: the files it held are let go, its job never starts, and a notice says so.
+    /// Before, they stayed held until Glimt ended, and a delete or rename of them was refused.
+    #[test]
+    fn a_look_up_that_does_not_answer_lets_its_files_go() {
+        use std::sync::atomic::{AtomicBool, Ordering::SeqCst};
+        let dir = std::env::temp_dir().join(format!("glimt-test-lookhang-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let a = dir.join("a.png");
+        image::RgbImage::new(4, 4).save(&a).unwrap();
+        let (mut app, ctx) = crate::support::test_support::app_on(&dir);
+        // A look at a folder on the share, which never answers.
+        let (_never_sent, found) = std::sync::mpsc::channel::<()>();
+        let ran = std::sync::Arc::new(AtomicBool::new(false));
+        let then = ran.clone();
+        app.wait_for_look_up_before_the_job(
+            dir.clone(),
+            vec![a.clone()],
+            found,
+            move |_, _, ()| then.store(true, SeqCst),
+        );
+        assert!(app.is_changed_by_running_work(std::slice::from_ref(&a)));
+        let let_go = |app: &crate::App| !app.is_changed_by_running_work(std::slice::from_ref(&a));
+        assert!(
+            run_background_until(&mut app, &ctx, let_go),
+            "the file is held for good"
+        );
+        assert!(!ran.load(SeqCst) && app.notice.text().is_some_and(|t| t.contains("a minute")));
+        assert!(app.are_free_to_change(std::slice::from_ref(&a)));
         std::fs::remove_dir_all(dir).unwrap();
     }
 
@@ -7139,54 +7292,49 @@ mod tests {
             app.delete_targets(&ctx, false, vec![at], None);
         });
         assert!(!d.join("c.png.xmp").exists());
-        // With many files, they are held a chunk (100) at a time, so a file held up by a
-        // sidecar write holds up only its own chunk, and those before it go meanwhile. Here
-        // they are deleted for good: a chunk of 100 files under other sidecar lock numbers, and
-        // then two more, of which the second is held. The first of the two waits too, because it
-        // is in the same chunk. (There is not one gio call and one taking of the locks per file.)
-        let lock_number = |n: &str| {
-            crate::metadata::xmp::sidecar_lock_number(&crate::metadata::xmp::sidecar(&d.join(n)))
+        // With many files, they are held a chunk at a time, so a file held up by a sidecar
+        // write holds up only its own chunk, and those before it go meanwhile. Here they are
+        // deleted for good. A chunk takes only a few of the sidecar locks, so a chunk that waits
+        // holds up few sidecar writes elsewhere. (There is not one gio call and one taking of
+        // the locks per file.)
+        let lock_number = |p: &PathBuf| {
+            crate::metadata::xmp::sidecar_lock_number(&crate::metadata::xmp::sidecar(p))
         };
         let names: Vec<String> = (0..400).map(|k| format!("d{k:03}.png")).collect();
-        let y = &names[0];
-        let first: Vec<&String> = names
-            .iter()
-            .filter(|n| lock_number(n) != lock_number(y))
-            .take(100)
-            .collect();
-        assert_eq!(first.len(), 100);
-        let z = (names.iter())
-            .find(|n| lock_number(n) != lock_number(y) && !first.contains(n))
-            .unwrap();
-        for n in first.iter().copied().chain([y, z]) {
+        for n in &names {
             std::fs::write(d.join(n), "").unwrap();
         }
-        for n in [first[0], y] {
-            std::fs::write(crate::metadata::xmp::sidecar(&d.join(n)), n).unwrap();
+        let paths: Vec<PathBuf> = names.iter().map(|n| d.join(n)).collect();
+        let chunks = crate::metadata::xmp::chunks_by_sidecar_lock(&paths, 100);
+        let held_up = chunks.last().unwrap().clone();
+        let y = held_up[0].clone();
+        let locks: std::collections::HashSet<u64> = held_up.iter().map(lock_number).collect();
+        assert!(locks.len() <= 4, "{} locks held by one chunk", locks.len());
+        let x = paths.iter().find(|p| !held_up.contains(p)).unwrap().clone();
+        for p in [&x, &y] {
+            std::fs::write(crate::metadata::xmp::sidecar(p), "keywords").unwrap();
         }
         app.start_listing(&ctx);
         assert!(run_background_until(&mut app, &ctx, |app| !app
             .folder
             .is_listing()));
-        let at =
-            |app: &crate::App, n: &str| (app.list.files().iter()).position(|f| f == n).unwrap();
-        let mut all: Vec<usize> = first.iter().map(|n| at(&app, n)).collect();
-        all.extend([at(&app, z), at(&app, y)]);
-        let (x, y, z) = (d.join(first[0]), d.join(y), d.join(z));
+        let all: Vec<usize> = (app.list.files().iter().enumerate())
+            .filter(|(_, f)| names.iter().any(|n| f.as_os_str() == n.as_str()))
+            .map(|(k, _)| k)
+            .collect();
+        assert_eq!(all.len(), 400);
         let lock = crate::metadata::xmp::lock_sidecar(&y);
         app.delete_targets(&ctx, false, all, None);
+        let others_gone = |_: &crate::App| paths.iter().all(|p| held_up.contains(p) || !p.exists());
         assert!(
-            run_background_until(&mut app, &ctx, |_| first
-                .iter()
-                .all(|n| !d.join(n).exists())),
-            "the first chunk waits not for the second"
+            run_background_until(&mut app, &ctx, others_gone),
+            "the chunks before wait for the one held up"
         );
-        assert!(y.exists() && crate::metadata::xmp::sidecar(&y).exists());
-        assert!(z.exists(), "the second chunk is one");
+        assert!(held_up.iter().all(|p| p.exists()));
+        assert!(crate::metadata::xmp::sidecar(&y).exists());
         drop(lock);
         assert!(run_background_until(&mut app, &ctx, |app| idle(app)
-            && !y.exists()
-            && !z.exists()));
+            && paths.iter().all(|p| !p.exists())));
         assert!(
             !crate::metadata::xmp::sidecar(&x).exists()
                 && !crate::metadata::xmp::sidecar(&y).exists()
