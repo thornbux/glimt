@@ -23,6 +23,15 @@ and versions follow [Semantic Versioning](https://semver.org/).
   back. Before, the photo went one way and its keywords the other.
 - A sidecar that a Move killed halfway left at its photo's old name follows the photo at the
   next start, as its stars already did.
+- Delete for good keeps a photo whose sidecar cannot be deleted, with it, and says so. Before,
+  the photo went and the sidecar stayed at its name, where a later file of that name would
+  show its keywords.
+- "Put the old names back" after a Rename Many cut short, chosen later, renames nothing while
+  another file has taken one of the names since, and says so. Before, that file was renamed.
+- A folder in Open Recent that a share did not answer for at once is no longer forgotten as
+  gone, and a sidecar that could not be looked at is not written to, as it may be a link.
+- A Stop, or a second Ctrl+Q, during Export Frames or Rename Many is told as a stop, so the
+  window closes. Before, it was told as a failed write, and the window stayed open.
 - A backup fails, and names what it could not look at, rather than leave out a file or folder
   on a share that did not answer for a moment. A tool's own program that could not be looked
   at is run and its failure told, rather than another program of the same name.

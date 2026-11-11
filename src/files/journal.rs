@@ -6,7 +6,7 @@
 //! A Move keeps a log of the same kind (`MoveLog`), so that the marks and collections of the
 //! files that went before Glimt was killed follow them at the next start.
 
-use crate::files::file_io::{is_surely_gone, is_surely_there};
+use crate::files::file_io::{FileFingerprint, is_surely_gone, is_surely_there};
 use crate::images::save::{same_file, same_file_by_opening};
 use std::collections::HashMap;
 use std::ffi::OsStr;
@@ -17,6 +17,15 @@ use std::path::{Path, PathBuf};
 
 /// The first part of a plan that counts the renames done.
 const COUNTED: &[u8] = b"counted";
+
+/// The folder, in the plans' folder, of the files that each plan's steps move: one line for each
+/// step, with the file's fingerprint when the plan was made. It is a folder of its own, because a
+/// Glimt older than 0.81 reads every file beside the plans as a plan.
+const KNOWN_FOLDER: &str = "files";
+
+/// The start of the hidden name that a swap gives a file between its two steps
+/// (`file_ops::rename_files`). No other file takes such a name, and the plan's own steps fill it.
+pub const HIDDEN_NAME: &str = ".glimt-rename-";
 
 /// The renames in the order they are done, as (from, to).
 pub type Moves = Vec<(PathBuf, PathBuf)>;
@@ -296,6 +305,10 @@ pub fn start_journal(dir: &Path, moves: &[(PathBuf, PathBuf)]) -> std::io::Resul
         one_name_per_folder,
     };
     plan.file.try_lock().map_err(std::io::Error::from)?;
+    // The files the steps move are written down before the plan, so that a plan on disk always
+    // has them. Its folder is synced with the plans' folder below.
+    std::fs::create_dir_all(known_path(&plan.path).parent().unwrap_or(dir))?;
+    crate::files::file_io::create_file(&known_path(&plan.path), known_text(moves))?;
     let mut bytes = [COUNTED, b"\0"].concat();
     for (a, b) in moves {
         for p in [a, b] {
@@ -309,6 +322,74 @@ pub fn start_journal(dir: &Path, moves: &[(PathBuf, PathBuf)]) -> std::io::Resul
         .and_then(|_| crate::files::file_io::sync_folder_of(&plan.path))
         .and_then(|_| crate::files::file_io::sync_folder_of(dir))?;
     Ok(plan)
+}
+
+/// Returns where the files that the steps of the plan `plan` move are written down.
+fn known_path(plan: &Path) -> PathBuf {
+    let name = plan.file_name().unwrap_or_default();
+    plan.with_file_name(KNOWN_FOLDER).join(name)
+}
+
+/// Returns the text that names the file each of `moves` moves, by its fingerprint now: one line
+/// for each step, "-" where no file is there. A step that moves on a file that an earlier step
+/// moved (the second step of a swap) names that file.
+fn known_text(moves: &[(PathBuf, PathBuf)]) -> String {
+    let mut made: HashMap<&Path, Option<FileFingerprint>> = HashMap::new();
+    let mut text = String::new();
+    for (a, b) in moves {
+        let known = match made.get(a.as_path()) {
+            Some(known) => *known,
+            None => crate::files::file_io::fingerprint(a),
+        };
+        made.insert(b, known);
+        text += &match known {
+            Some((Some((dev, ino)), size, (s, ns))) => format!("{dev} {ino} {size} {s} {ns}\n"),
+            Some((None, size, (s, ns))) => format!("- - {size} {s} {ns}\n"),
+            None => "-\n".to_owned(),
+        };
+    }
+    text
+}
+
+/// Returns the fingerprint of the file each of a plan's `steps` moves, from `text`
+/// (`known_text`). Returns an empty list when the text does not have one line for each step:
+/// a plan of a Glimt before 0.81, or a damaged one, whose steps are then taken by their names.
+fn parse_known(text: &str, steps: usize) -> Vec<Option<FileFingerprint>> {
+    let line = |line: &str| -> Option<FileFingerprint> {
+        let parts: Vec<&str> = line.split(' ').collect();
+        let [dev, ino, size, s, ns] = parts[..] else {
+            return None;
+        };
+        let id = match (dev, ino) {
+            ("-", "-") => None,
+            _ => Some((dev.parse().ok()?, ino.parse().ok()?)),
+        };
+        Some((id, size.parse().ok()?, (s.parse().ok()?, ns.parse().ok()?)))
+    };
+    let known: Vec<Option<FileFingerprint>> = text.lines().map(line).collect();
+    match known.len() == steps {
+        true => known,
+        false => Vec::new(),
+    }
+}
+
+/// Returns the first name of `steps` (from, the step's file) that holds another file than the
+/// step's own, with the error to tell. A name that is not there, or that could not be looked
+/// at, is left to the step itself (`repair_step`), and so is a swap's hidden name. Each name is
+/// looked at before any step is taken, as no earlier step of the repair fills a name of the
+/// user's that a later step takes a file from.
+fn another_file_at<'a>(
+    mut steps: impl Iterator<Item = (&'a Path, Option<FileFingerprint>)>,
+) -> Option<(&'a Path, std::io::Error)> {
+    use crate::files::file_io::{KnownAs, is_still_the_file};
+    steps.find_map(|(from, known)| {
+        let hidden = (from.file_name()?.as_bytes()).starts_with(HIDDEN_NAME.as_bytes());
+        let error = is_still_the_file(from, KnownAs::fingerprint(known.filter(|_| !hidden)?));
+        error
+            .err()
+            .filter(|e| e.kind() != std::io::ErrorKind::NotFound)
+            .map(|e| (from, e))
+    })
 }
 
 /// Returns a name for a new plan or log. It is a name of its own, never one that is there, so a
@@ -504,6 +585,25 @@ pub fn repair_cut_short(
         .filter(take_lock_if_free)
         .filter(is_linked)?;
     let done = done.map(|d| done_by_names(moves, d));
+    // A step whose name another file has taken since the plan was made (while the question
+    // waited for "Later") is not taken. Nothing is renamed then, so that a file and its sidecar
+    // are not split, and the plan is asked about again.
+    let known = crate::images::decode::read_text(known_path(plan))
+        .map_or_else(|_| Vec::new(), |text| parse_known(&text, moves.len()));
+    let taken = match (undo_them, done) {
+        (_, _) if known.is_empty() => Vec::new(),
+        (true, done) => (0..done.unwrap_or(moves.len()).min(moves.len()))
+            .rev()
+            .map(|k| (moves[k].1.as_path(), known[k]))
+            .collect(),
+        (false, done) => (done.unwrap_or(0).min(moves.len())..moves.len())
+            .map(|k| (moves[k].0.as_path(), known[k]))
+            .collect(),
+    };
+    if let Some((name, e)) = another_file_at(taken.into_iter()) {
+        crate::files::file_io::save_failed(format!("{}: {e}", name.display()));
+        return Some((0, 1));
+    }
     let mut first = 0;
     // When the names are put back, the step cut short between its link and its unlink, the
     // first one not counted, has its new name taken away first, so the steps before it can be
@@ -645,6 +745,9 @@ fn remove_plan(plan: &Path, names: &[PathBuf]) {
     // A plan left behind would be offered again at the next start, and putting its old names
     // back would undo a finished rename, so a failure is told.
     crate::files::file_io::remove_own_or_tell(plan);
+    // shortcut: a crash between the two removals leaves the list of the plan's files behind,
+    // and nothing removes it; a sweep at the start if those are ever seen in numbers.
+    crate::files::file_io::remove_own_or_tell(&known_path(plan));
     // The plan's folder is synced too, because a plan brought back by a power cut, after the
     // marks followed, would move them again. A disk that fails both is told once.
     let plan_name = [plan.to_path_buf()];
@@ -912,7 +1015,11 @@ mod tests {
             9
         );
         drop(running);
-        assert!(std::fs::read_dir(&plans).unwrap().next().is_none());
+        // Only the folder of the plans' files is left, empty.
+        let left: Vec<_> = std::fs::read_dir(&plans).unwrap().collect();
+        assert_eq!(left.len(), 1);
+        let files = plans.join(super::KNOWN_FOLDER);
+        assert!(std::fs::read_dir(files).unwrap().next().is_none());
         // A plan finished while another window waits for its lock is not taken for one cut short.
         let finishing = super::start_journal(&plans, &moves).unwrap();
         let ends = std::thread::spawn(move || {
@@ -1026,6 +1133,64 @@ mod tests {
         }
     }
 
+    /// "Put the old names back", chosen after "Later", renames nothing while another file has
+    /// taken the name of a step's file since the plan was made, and the plan stays. Once that
+    /// file has gone, the old names come back. Before, the other file was given the old name.
+    #[test]
+    fn a_name_another_file_took_after_later_is_left() {
+        let dir =
+            std::env::temp_dir().join(format!("glimt-test-plan-known-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let (plans, p) = (dir.join("plans"), |n: &str| dir.join(n));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(p("a.jpg"), "a").unwrap();
+        std::fs::write(p("c.jpg"), "c").unwrap();
+        let moves = vec![(p("a.jpg"), p("b.jpg")), (p("c.jpg"), p("d.jpg"))];
+        let mut plan = super::start_journal(&plans, &moves).unwrap();
+        for (a, b) in &moves {
+            super::rename_step(a, b).unwrap();
+            plan.count_step_done();
+        }
+        plan.keep_on_disk();
+        // After "Later", the photo at d.jpg goes, and another file takes its name.
+        std::fs::remove_file(p("d.jpg")).unwrap();
+        std::fs::write(p("d.jpg"), "another").unwrap();
+        let (plan, moves, done) = super::cut_short_plans(&plans).remove(0);
+        assert_eq!(
+            super::repair_cut_short(&plan, &moves, done, true),
+            Some((0, 1))
+        );
+        let read = |n: &str| std::fs::read_to_string(p(n)).unwrap();
+        assert_eq!(
+            (read("b.jpg"), read("d.jpg")),
+            ("a".into(), "another".into())
+        );
+        assert!(!p("a.jpg").exists() && !p("c.jpg").exists());
+        assert_eq!(super::cut_short_plans(&plans).len(), 1);
+        std::fs::remove_file(p("d.jpg")).unwrap();
+        assert_eq!(
+            super::repair_cut_short(&plan, &moves, done, true),
+            Some((1, 0))
+        );
+        assert_eq!(read("a.jpg"), "a");
+        assert!(super::cut_short_plans(&plans).is_empty());
+        assert!(!super::known_path(&plan).exists());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// Damaged lists of a plan's files are read without a panic, and give a fingerprint for each
+    /// step or none at all.
+    #[test]
+    fn survives_broken_lists_of_a_plans_files() {
+        let seed = "1 2 3 4 5\n- - 3 4 5\n-\n";
+        assert_eq!(super::parse_known(seed, 3).len(), 3);
+        assert!(super::parse_known(seed, 3)[2].is_none());
+        for bytes in crate::support::test_support::broken(seed.as_bytes()) {
+            let known = super::parse_known(&String::from_utf8_lossy(&bytes), 3);
+            assert!(known.is_empty() || known.len() == 3);
+        }
+    }
+
     /// Damaged logs of a Move are read without a panic, and give no more pairs than names.
     #[test]
     fn survives_broken_move_logs() {
@@ -1060,7 +1225,7 @@ mod tests {
         let plan = super::start_journal(&plans, &moves).unwrap();
         assert_eq!(
             crate::files::file_io::FOLDERS_SYNCED.take(),
-            [plans.clone(), dir.clone()]
+            [plans.join("files"), plans.clone(), dir.clone()]
         );
         drop(plan);
         assert_eq!(

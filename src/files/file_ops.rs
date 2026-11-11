@@ -72,6 +72,9 @@ pub(crate) struct RenameOutcome {
     /// Whether each file is under a name the rename knows: its new one, or its old one again.
     /// It is false when a failed rename could not put every old name back.
     names_known: bool,
+    /// Whether a Stop, also that of a second close, ended the rename with every old name back.
+    /// That is told as a stop, not as a failed write that would keep the window open.
+    stopped: bool,
 }
 
 /// Why `rename_files` failed, and whether every file it renamed has its old name back.
@@ -79,6 +82,8 @@ pub(crate) struct RenameOutcome {
 pub(crate) struct RenameFailed {
     text: String,
     names_put_back: bool,
+    /// Whether a Stop ended it, with every old name back.
+    stopped: bool,
 }
 
 impl From<String> for RenameFailed {
@@ -87,6 +92,7 @@ impl From<String> for RenameFailed {
         RenameFailed {
             text,
             names_put_back: true,
+            stopped: false,
         }
     }
 }
@@ -1401,6 +1407,7 @@ impl crate::App {
             left_alone,
             undo,
             names_known,
+            stopped,
         } = answer;
         let failed = result.is_err();
         // The files left alone are told by name, as an Undo of a move tells them.
@@ -1418,6 +1425,12 @@ impl crate::App {
                 true => tf!("Undo failed ({count}): {first}", count, first),
                 false => tf!("Rename failed ({count}): {first}", count, first),
             })
+        } else if stopped {
+            // A Stop that put every name back is no failure, and a second close then closes.
+            if let Err(text) = &result {
+                self.notice.give(text.clone());
+            }
+            None
         } else {
             result.err()
         };
@@ -2137,12 +2150,16 @@ impl crate::App {
                     })
                     .expect("the names never run out"),
             };
+            // A Stop, also that of a second close, is told as a stop and not as a failed write,
+            // which would keep the window open after the user asked it to close.
+            let stopped = std::sync::atomic::AtomicBool::new(false);
             let saved = if made.is_err() {
                 Err(tf!("Could not make {folder}", folder = folder.display()))
             } else {
                 decode::catch_panic_as_error(|| {
                     decode::each_frame(&path, only, rotate, |k, img| {
                         if job.is_stopped() {
+                            stopped.store(true, Ordering::Relaxed);
                             return Err(job.stopped_text());
                         }
                         let file = match only {
@@ -2180,6 +2197,7 @@ impl crate::App {
                     frames = count(n, "frame"),
                     folder = folder.display()
                 )),
+                (Err(e), _) if stopped.load(Ordering::Relaxed) => Told::Notice(e),
                 (Err(e), _) => Told::FailedWrite(tf!("Could not save the frames: {e}", e)),
             })
         });
@@ -2401,18 +2419,14 @@ fn delete_chunk(
             }
         }
     }
-    if trash && !kept.is_empty() {
-        if let Err(e) = crate::files::trash::trash(&kept) {
-            errors.push(e);
-        }
-    } else if !trash {
-        for p in &kept {
-            #[allow(clippy::disallowed_methods)]
-            // Delete without the trash, the one place
-            if let Err(e) = std::fs::remove_file(p) {
-                errors.push(format!("{display}: {e}", display = p.display()));
-            }
-        }
+    if !trash {
+        let (went, side) = delete_for_good(&kept, errors);
+        return (went, side, left_alone);
+    }
+    if !kept.is_empty()
+        && let Err(e) = crate::files::trash::trash(&kept)
+    {
+        errors.push(e);
     }
     // Their sidecars go the same way, so that a new file with the same name does not get their
     // keywords. A look that failed (a share that dropped for a moment) keeps the sidecar, as the
@@ -2435,21 +2449,78 @@ fn delete_chunk(
         .collect();
     // A sidecar that stays is told, as the photo's own errors are, because the next file of that
     // name would show its keywords.
-    if trash && !side.is_empty() {
-        if let Err(e) = crate::files::trash::trash(&side) {
-            let back = take_back_from_the_trash(sidecars_of_file, since, errors);
-            went.retain(|p| !back.contains(p));
-            errors.push(e);
+    if !side.is_empty()
+        && let Err(e) = crate::files::trash::trash(&side)
+    {
+        let back = take_back_from_the_trash(sidecars_of_file, since, errors);
+        went.retain(|p| !back.contains(p));
+        errors.push(e);
+    }
+    (went, side, left_alone)
+}
+
+/// Deletes each of `kept` for good, with its sidecars. Each sidecar is first put aside under a
+/// hidden name, and the photo is deleted only when all of them could be. A photo whose sidecar
+/// cannot be put aside stays, with its sidecars back, and so does one whose delete did not go
+/// through or could not be looked at after it. A sidecar put aside that then cannot be deleted
+/// stays under its hidden name, which no later file takes. Each is told in `errors`. Deleted
+/// first, the photo left a sidecar that could not go at the old name, where the next file of
+/// that name would show its keywords. Adobe's sidecar of two RAW files of one name stem goes
+/// only with the last of them that goes, so it never stays behind without one. Returns the
+/// files gone and the sidecars gone.
+fn delete_for_good(kept: &[PathBuf], errors: &mut Vec<String>) -> (Vec<PathBuf>, Vec<PathBuf>) {
+    let mut names = xmp::AdobeNames::default();
+    // The files gone so far and the one being deleted, which leave its stem's sidecar to it.
+    let mut leaving: HashSet<&PathBuf> = HashSet::new();
+    let (mut went, mut sides) = (Vec::new(), Vec::new());
+    let mut failed = |at: &Path, e: std::io::Error| errors.push(format!("{}: {e}", at.display()));
+    for p in kept {
+        leaving.insert(p);
+        let mut aside = Vec::new();
+        let mut all_aside = Ok(());
+        for (side, _) in xmp::sidecars_moving_with(p, p, &leaving, &mut names) {
+            let hidden = crate::files::file_io::tmp_path(&side);
+            match rename_never_over(&side, &hidden) {
+                Ok(()) => aside.push((side, hidden)),
+                Err(e) => {
+                    all_aside = Err((side, e));
+                    break;
+                }
+            }
         }
-    } else {
-        for s in &side {
-            #[allow(clippy::disallowed_methods)] // the deleted file's sidecar
-            if let Err(e) = std::fs::remove_file(s) {
-                errors.push(format!("{display}: {e}", display = s.display()));
+        // The sidecars are aside on disk before the photo goes, so that a power cut never
+        // leaves a sidecar at the name of a photo that is gone.
+        if !aside.is_empty()
+            && all_aside.is_ok()
+            && let Err(e) = crate::files::file_io::sync_folder_of(p)
+        {
+            all_aside = Err((p.clone(), e));
+        }
+        let deleted = all_aside.map_err(|(at, e)| failed(&at, e)).is_ok() && {
+            #[allow(clippy::disallowed_methods)] // Delete without the trash, the one place
+            let removed = std::fs::remove_file(p);
+            removed.map_err(|e| failed(p, e)).is_ok()
+        };
+        // A look that failed (a share that dropped for a moment) counts the file as there.
+        if !(deleted && is_surely_gone(p)) {
+            for (side, hidden) in aside.into_iter().rev() {
+                if let Err(e) = rename_never_over(&hidden, &side) {
+                    failed(&side, e);
+                }
+            }
+            leaving.remove(p);
+            continue;
+        }
+        went.push(p.clone());
+        for (side, hidden) in aside {
+            #[allow(clippy::disallowed_methods)] // the sidecar of a file deleted for good
+            match std::fs::remove_file(&hidden) {
+                Ok(()) => sides.push(side),
+                Err(e) => failed(&side, e),
             }
         }
     }
-    (went, side, left_alone)
+    (went, sides)
 }
 
 /// Takes each file of `sidecars_of_file` whose sidecars did not all go to the trash back out of
@@ -2647,11 +2718,11 @@ fn rename_undoable(
         .map(|(_, pair)| pair)
         .collect();
     let (kept_from, kept_to) = pairs.iter().cloned().unzip();
-    let (result, names_known) = match pairs.is_empty() {
-        true => (Ok(()), true),
+    let (result, names_known, stopped) = match pairs.is_empty() {
+        true => (Ok(()), true, false),
         false => match rename_files(kept_from, kept_to, job) {
-            Ok(()) => (Ok(()), true),
-            Err(e) => (Err(e.text), e.names_put_back),
+            Ok(()) => (Ok(()), true, false),
+            Err(e) => (Err(e.text), e.names_put_back, e.stopped),
         },
     };
     // An Undo that failed put the names back, so what it still has to do is the rename it was
@@ -2669,6 +2740,7 @@ fn rename_undoable(
         left_alone,
         undo,
         names_known,
+        stopped,
     }
 }
 
@@ -2725,7 +2797,8 @@ fn rename_files_planned_in(
     let tmp = |f: &Path, k: usize| {
         // It has this Glimt's name, because Flatpak windows can share a process ID.
         f.with_file_name(format!(
-            ".glimt-rename-{}-{k}",
+            "{}{}-{k}",
+            journal::HIDDEN_NAME,
             crate::files::file_io::instance_tag()
         ))
     };
@@ -2783,7 +2856,11 @@ fn rename_files_planned_in(
             if stuck > 0 {
                 return Err(names_left_for_the_next_start(plan, (&f, &t), &e));
             }
-            return Err(tf!("Could not rename {f} to {t}: {e}; nothing renamed", f, t, e).into());
+            return Err(RenameFailed {
+                text: tf!("Could not rename {f} to {t}: {e}; nothing renamed", f, t, e),
+                names_put_back: true,
+                stopped,
+            });
         }
         // A file is counted when it lands under its name. That is the later half of a swap's
         // steps, and the sidecars do not count.
@@ -2819,6 +2896,7 @@ fn names_left_for_the_next_start(
             e
         ),
         names_put_back: false,
+        stopped: false,
     }
 }
 
@@ -3904,7 +3982,7 @@ mod tests {
         std::os::unix::fs::symlink(p("nowhere"), p("f.jpg.xmp")).unwrap();
         super::rename_files(vec![p("f.jpg")], vec![p("g.jpg")], &job).unwrap();
         assert!(std::fs::symlink_metadata(p("f.jpg.xmp")).is_err());
-        assert!(crate::metadata::xmp::is_link(&p("g.jpg.xmp")));
+        assert!(crate::files::file_io::is_link(&p("g.jpg.xmp")).unwrap());
         // A new name that is the file itself, as G.JPG is g.jpg on a camera card, is not taken,
         // because the card's folder lists only g.jpg. A hard link of that name stands in for
         // the card here, with the listing a card gives.
@@ -5129,6 +5207,86 @@ mod tests {
         std::fs::remove_dir_all(d).unwrap();
     }
 
+    /// Delete for good never leaves a sidecar at the name of a photo that went. One that cannot
+    /// be deleted (here a folder) waits under a hidden name, told, and a photo whose sidecar
+    /// cannot even be put aside stays, with it. Before, the photo went first, and its sidecar
+    /// stayed at the old name for the next file of that name. Of two RAW files of one name
+    /// stem, Adobe's sidecar stays beside the one that stays.
+    #[test]
+    fn a_delete_for_good_leaves_no_sidecar_at_the_old_name() {
+        use crate::files::file_io::{RENAME_WAYS_MISSING, UNLINK_FAILS};
+        let dir = std::env::temp_dir().join(format!("glimt-test-good-side-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let p = |n: &str| dir.join(n);
+        // A folder in a sidecar's place cannot be removed as a file.
+        std::fs::create_dir_all(p("a.png.xmp").join("inside")).unwrap();
+        for n in [
+            "a.png",
+            "b.png",
+            "b.png.xmp",
+            "c.cr2",
+            "c.nef",
+            "c.nef.xmp",
+            "c.xmp",
+        ] {
+            std::fs::write(p(n), n).unwrap();
+        }
+        let paths = [p("a.png"), p("b.png"), p("c.cr2"), p("c.nef")];
+        let picked = crate::files::file_io::PickedFiles::new(paths.to_vec());
+        let (_, picked) = picked.wait_for_fingerprints();
+        let mut errors = Vec::new();
+        // c.nef's sidecar cannot be renamed: its old name cannot be unlinked.
+        RENAME_WAYS_MISSING.set(1);
+        UNLINK_FAILS.set(Some((p("c.nef.xmp"), libc::EPERM)));
+        let (went, _, _) = super::delete_chunk(&paths, &picked, false, &mut errors);
+        UNLINK_FAILS.set(None);
+        RENAME_WAYS_MISSING.set(0);
+        assert_eq!(went, [p("a.png"), p("b.png"), p("c.cr2")], "{errors:?}");
+        assert_eq!(errors.len(), 2, "{errors:?}");
+        assert!(errors[0].contains("a.png.xmp"), "{errors:?}");
+        for n in ["c.nef", "c.nef.xmp", "c.xmp"] {
+            assert!(p(n).exists(), "{n}");
+        }
+        for n in ["a.png", "a.png.xmp", "b.png", "b.png.xmp", "c.cr2"] {
+            assert!(std::fs::symlink_metadata(p(n)).is_err(), "{n}");
+        }
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A Stop, also that of a second close, during Export Frames or Rename Many is told as a
+    /// stop. Before, each was told as a failed write, which kept the window open after the user
+    /// had asked it to close and stop, and cost one more Ctrl+Q.
+    #[test]
+    fn a_stop_is_no_failed_write() {
+        let d = contract_folder("stop-told");
+        let gif = d.join("g.gif");
+        let mut enc = image::codecs::gif::GifEncoder::new(std::fs::File::create(&gif).unwrap());
+        for c in 0..40u8 {
+            let pixel = image::Rgba([c, c, c, 255]);
+            let frame = image::Frame::new(image::RgbaImage::from_pixel(64, 64, pixel));
+            enc.encode_frame(frame).unwrap();
+        }
+        drop(enc);
+        let (mut app, ctx) = app_on(&d);
+        let how = app.shown_copy();
+        app.export_frames(&ctx, gif, None, (d.clone(), None), how);
+        app.file_operations.stop_jobs();
+        assert!(run_background_until(&mut app, &ctx, |app| !app.working()));
+        assert_eq!(app.window.failed_writes_told(), 0);
+        assert!(app.notice.text().unwrap_or_default().contains("Stopped"));
+        // Rename Many, stopped before its first step, puts every name back.
+        let a = app.list.files().iter().position(|f| f == "a.png").unwrap();
+        let listed = app.listed_file(a);
+        let picked = crate::files::file_io::PickedFiles::listed(vec![listed.clone()]);
+        app.rename_in_background(&ctx, vec![listed], vec![d.join("c.png")], picked);
+        app.file_operations.stop_jobs();
+        assert!(run_background_until(&mut app, &ctx, |app| !app.working()));
+        assert_eq!(app.window.failed_writes_told(), 0);
+        assert!(app.notice.text().unwrap_or_default().contains("stopped"));
+        assert!(d.join("a.png").exists() && !d.join("c.png").exists());
+        std::fs::remove_dir_all(d).unwrap();
+    }
+
     /// Every operation that starts a job or background work is in the contract above, or says
     /// here why it is not. So a new one cannot leave out what follows its files unseen.
     #[test]
@@ -6282,6 +6440,7 @@ mod tests {
             left_alone: Vec::new(),
             undo: Vec::new(),
             names_known: false,
+            stopped: false,
         };
         app.finish_rename_many(&ctx, job, outcome);
         assert!(run_background_until(&mut app, &ctx, |app| !app

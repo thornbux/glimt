@@ -3866,12 +3866,13 @@ fn finds_the_files_built_only_for_tests() {
 
 /// A name counts as gone only when the system said that it is not there (NotFound).
 /// `Path::exists`, `Path::is_file` and `is_dir`, and a look whose every error is taken as an
-/// answer (`metadata(…).is_err()`, `.is_ok()` or `.is_ok_and(|m| m.is_dir())`), take a share
+/// answer (`metadata(…).is_err()`, `.is_ok()`, `.is_ok_and(|m| m.is_dir())` or
+/// `.map_or((false, false), |m| (m.is_file(), m.is_dir()))`, also of `is_symlink`), take a share
 /// that dropped for a moment for a name that is gone, or for one that is no file or folder.
 /// That way a sidecar was trashed while its photo stayed, a rename went over a file that it
 /// could not look at, and a backup left out the folders it could not look at. So a name is
-/// looked at only through `file_io::is_surely_gone`, `is_surely_there`, `is_surely_file` and
-/// `is_surely_dir`, whose names say which way a failed look counts.
+/// looked at only through `file_io::is_surely_gone`, `is_surely_there`, `is_surely_file`,
+/// `is_surely_dir` and `is_link`, whose names or answers say which way a failed look counts.
 #[test]
 fn gone_means_not_found() {
     let (mut wrong, sources) = (Vec::new(), rust_sources());
@@ -3883,9 +3884,9 @@ fn gone_means_not_found() {
     }
     assert!(
         wrong.is_empty(),
-        "a name looked at with exists(), is_file(), is_dir() or metadata(…).is_err(), .is_ok() \
-         or .is_ok_and(…), which take any failed look for an answer; use file_io::is_surely_gone, \
-         is_surely_there, is_surely_file or is_surely_dir:\n{}",
+        "a name looked at with exists(), is_file(), is_dir() or metadata(…).is_err(), .is_ok(), \
+         .is_ok_and(…) or .map_or(…) of its kind, which take any failed look for an answer; use \
+         file_io::is_surely_gone, is_surely_there, is_surely_file, is_surely_dir or is_link:\n{}",
         wrong.join("\n")
     );
 }
@@ -3899,14 +3900,16 @@ fn looks_that_guess(text: &str) -> Vec<usize> {
         let line = &lines[i];
         let next = lines.get(i + 1).map(|l| l.trim_start()).unwrap_or_default();
         let call = format!("{line}{}", if next.starts_with('.') { next } else { "" });
-        let asks_kind = [".is_file()", ".is_dir()"].iter().any(|c| call.contains(c));
+        let asks_kind = [".is_file()", ".is_dir()", ".is_symlink()"]
+            .iter()
+            .any(|c| call.contains(c));
         line.contains(".exists()")
             || ["Path::exists", "Path::is_file", "Path::is_dir"]
                 .iter()
                 .any(|f| mentions(line, f))
             || (line.contains("metadata(")
                 && ([".is_err()", ".is_ok()"].iter().any(|c| call.contains(c))
-                    || (call.contains(".is_ok_and(") && asks_kind)))
+                    || ([".is_ok_and(", ".map_or("].iter().any(|c| call.contains(c)) && asks_kind)))
             || asks_a_path_its_kind(line)
     };
     (0..end).filter(|&i| guesses(i)).map(|i| i + 1).collect()
@@ -3952,6 +3955,16 @@ fn finds_a_look_that_guesses() {
         files.filter(Path::exists);\n    let fine = is_surely_gone(p);\n    \
         let m = std::fs::metadata(p)?;\n    p.try_exists()\n}\n";
     assert_eq!(looks_that_guess(text), [2, 3, 5, 6]);
+}
+
+/// The check above finds a look whose failure is taken for "no link" or "neither a file nor a
+/// folder", also when its default comes first (`map_or`). It leaves a size whose look failed.
+#[test]
+fn finds_a_failed_look_taken_for_its_kind() {
+    let text = "fn a() {\n    let l = std::fs::symlink_metadata(p).is_ok_and(|m| m.is_symlink());\n    \
+        let (t, d) = std::fs::metadata(p).map_or((false, false), |m| (true, m.is_dir()));\n    \
+        let size = std::fs::metadata(p).map_or(0, |m| m.len());\n    let l = is_link(p)?;\n}\n";
+    assert_eq!(looks_that_guess(text), [2, 3]);
 }
 
 /// The check above finds a path asked whether it is a file or a folder, also as a function value
