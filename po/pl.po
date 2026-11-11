@@ -3933,3 +3933,8 @@ msgstr "Nie udało się zablokować {name}: {e}. Zmiana wprowadzona w tej samej 
 #, fuzzy
 msgid "{sidecar} could not be moved ({e}), so it was copied to {copy} and is still at its old name too"
 msgstr "Nie można przenieść {sidecar} ({e}), więc skopiowano go do {copy}, a nadal jest też pod starą nazwą"
+
+#: src/files/file_ops.rs
+#, fuzzy
+msgid "{folder} did not answer within a minute, so nothing was done"
+msgstr "{folder} nie odpowiedział w ciągu minuty, więc nic nie zostało zrobione"

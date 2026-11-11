@@ -3922,3 +3922,8 @@ msgstr "Impossibile bloccare {name}: {e}. Una modifica fatta nello stesso moment
 #, fuzzy
 msgid "{sidecar} could not be moved ({e}), so it was copied to {copy} and is still at its old name too"
 msgstr "{sidecar} non è stato spostato ({e}), quindi è stato copiato in {copy} ed è ancora anche con il suo vecchio nome"
+
+#: src/files/file_ops.rs
+#, fuzzy
+msgid "{folder} did not answer within a minute, so nothing was done"
+msgstr "{folder} non ha risposto entro un minuto, quindi non è stato fatto nulla"

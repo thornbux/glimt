@@ -5,14 +5,16 @@ use crate::images::colour::srgb_to_display;
 use crate::images::decode::color_image;
 use crate::support::lang::tr;
 use crate::support::threads::lock_even_if_poisoned;
-use crate::support::threads::{CPU_CHANGED, Told, Took, cores, thumb_threads};
+use crate::support::threads::{
+    CPU_CHANGED, STUCK_AFTER, Told, Took, cores, spawn_worker_pool, thumb_threads,
+};
 use crate::ui::file_list::LARGE_THUMBS;
 use crate::ui::file_list::OnScreenFiles;
 use crate::{features::remote, images::thumbs, tf};
 use eframe::egui;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex, PoisonError, mpsc};
+use std::sync::{Arc, PoisonError, mpsc};
 
 impl crate::App {
     /// What the frame does with the background work and the rest of the desktop: it takes the
@@ -232,7 +234,8 @@ impl crate::App {
 }
 
 /// The thumbnail workers, one for each core of which CPU use lets `thumb_threads(workers)`
-/// take jobs: so scrolling the list never delays the shown image.
+/// take jobs: so scrolling the list never delays the shown image. They are a pool that replaces
+/// a worker stuck on a share that stopped answering (`spawn_worker_pool`).
 #[allow(clippy::type_complexity)] // the two channels' types, each used once, read best whole
 pub(crate) fn spawn_thumbnailers(
     ctx: &egui::Context,
@@ -245,52 +248,42 @@ pub(crate) fn spawn_thumbnailers(
     mpsc::Receiver<(PathBuf, u64, Option<Option<egui::ColorImage>>)>,
 ) {
     let (thumb_jobs, thumb_rx) = mpsc::channel::<(usize, PathBuf, u64)>();
-    let (thumbs_tx, thumbs_done) = mpsc::channel();
-    let thumb_rx = Arc::new(Mutex::new(thumb_rx));
+    let (tx, thumbs_done) = mpsc::channel();
+    let (on_screen, rotate, save, ctx) =
+        (on_screen.clone(), rotate.clone(), save.clone(), ctx.clone());
     // As many as there are cores; CPU use (thumb_threads) says how many take jobs, so it
     // changes without a restart.
-    for k in 0..cores() {
-        let (rx, tx, on_screen, rotate, save, ctx) = (
-            thumb_rx.clone(),
-            thumbs_tx.clone(),
-            on_screen.clone(),
-            rotate.clone(),
-            save.clone(),
-            ctx.clone(),
-        );
-        // No busy pointer: a thumbnail worker, which lasts as long as the window. Each
-        // thumbnail is shown when it comes.
-        std::thread::spawn(move || {
-            loop {
-                let mut idle = lock_even_if_poisoned(&CPU_CHANGED.0);
-                while k >= thumb_threads(workers) {
-                    idle = (CPU_CHANGED.1.wait(idle)).unwrap_or_else(PoisonError::into_inner);
-                }
-                drop(idle);
-                let Ok((idx, path, n)) = lock_even_if_poisoned(&rx).recv() else {
-                    return;
-                };
-                let wanted = (lock_even_if_poisoned(&on_screen).iter())
-                    .any(|v| v.binary_search(&idx).is_ok());
-                let result = wanted.then(|| {
-                    let (rotate, save) =
-                        (rotate.load(Ordering::Relaxed), save.load(Ordering::Relaxed));
-                    let large = LARGE_THUMBS.load(Ordering::Relaxed);
-                    thumbs::thumbnail(&path, rotate, save, large)
-                        .ok()
-                        // sRGB in the shared cache; to the screen only to be shown.
-                        .map(|img| color_image(srgb_to_display(img.into())))
-                });
-                let _ = tx.send((path, n, result));
-                #[allow(unsafe_code)]
-                // SAFETY: as for the image workers above.
-                unsafe {
-                    libc::malloc_trim(0)
-                };
-                ctx.request_repaint();
-            }
-        });
-    }
+    let wait_for_turn = move |place: usize| {
+        let mut idle = lock_even_if_poisoned(&CPU_CHANGED.0);
+        while place >= thumb_threads(workers) {
+            idle = (CPU_CHANGED.1.wait(idle)).unwrap_or_else(PoisonError::into_inner);
+        }
+    };
+    spawn_worker_pool(
+        cores(),
+        STUCK_AFTER,
+        thumb_rx,
+        wait_for_turn,
+        move |(idx, path, n): (usize, PathBuf, u64)| {
+            let wanted =
+                (lock_even_if_poisoned(&on_screen).iter()).any(|v| v.binary_search(&idx).is_ok());
+            let result = wanted.then(|| {
+                let (rotate, save) = (rotate.load(Ordering::Relaxed), save.load(Ordering::Relaxed));
+                let large = LARGE_THUMBS.load(Ordering::Relaxed);
+                thumbs::thumbnail(&path, rotate, save, large)
+                    .ok()
+                    // sRGB in the shared cache; to the screen only to be shown.
+                    .map(|img| color_image(srgb_to_display(img.into())))
+            });
+            let _ = tx.send((path, n, result));
+            #[allow(unsafe_code)]
+            // SAFETY: as for the image workers above.
+            unsafe {
+                libc::malloc_trim(0)
+            };
+            ctx.request_repaint();
+        },
+    );
     (thumb_jobs, thumbs_done)
 }
 

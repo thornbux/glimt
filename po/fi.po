@@ -3927,3 +3927,8 @@ msgstr "Kohdetta {name} ei voitu lukita: {e}. Muutos, jonka toinen Glimt-ikkuna 
 #, fuzzy
 msgid "{sidecar} could not be moved ({e}), so it was copied to {copy} and is still at its old name too"
 msgstr "Kohdetta {sidecar} ei voitu siirtää ({e}), joten se kopioitiin kohteeseen {copy}, ja se on yhä myös vanhalla nimellään"
+
+#: src/files/file_ops.rs
+#, fuzzy
+msgid "{folder} did not answer within a minute, so nothing was done"
+msgstr "{folder} ei vastannut minuutin kuluessa, joten mitään ei tehty"

@@ -3938,3 +3938,8 @@ msgstr "Kunne ikkje låse {name}: {e}. Ei endring som eit anna Glimt-vindauge gj
 #, fuzzy
 msgid "{sidecar} could not be moved ({e}), so it was copied to {copy} and is still at its old name too"
 msgstr "{sidecar} kunne ikkje flyttast ({e}), så ho vart kopiert til {copy} og ligg framleis under det gamle namnet òg"
+
+#: src/files/file_ops.rs
+#, fuzzy
+msgid "{folder} did not answer within a minute, so nothing was done"
+msgstr "{folder} svarte ikkje innan eitt minutt, så ingenting vart gjort"

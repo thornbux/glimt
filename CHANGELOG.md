@@ -74,6 +74,24 @@ and versions follow [Semantic Versioning](https://semver.org/).
 - A Move that cannot move a sidecar, such as someone else's in a shared folder, and copies it
   instead says that the sidecar is still at the old name, where a later file of that name would
   take it. Before, it said nothing.
+- A few images on a share that stopped answering no longer stop every other image and
+  thumbnail from being decoded. A decode or thumbnail worker, or the info panel's reader, that
+  waits more than ten seconds is given up, and another takes its place. The info panel and the
+  EXIF window show only the EXIF of the image shown. Before, a read that never answered left
+  the EXIF of the image before it, GPS link included, under every later name.
+- In Import Lightroom Catalog, a folder typed on a share that stopped answering no longer keeps
+  every later field from showing its check mark.
+- `--remote`: a client has ten seconds for its whole command, not for each read, and each record
+  of `info` is waited for as long as the first at most. Before, clients that sent a byte now and
+  then, or a file on a share that stopped answering, could hold all sixteen of the window's
+  client threads, and every other `--remote` got no answer.
+- A Move, Copy or Copy for Sharing to a folder on a share that stopped answering is given up
+  after a minute, with a notice, and its files are free again. Before, they stayed held until
+  Glimt ended, and a delete or rename of them was refused. A rename to a name with one of
+  : ? * " < > | \ looks at its folder's file system in the background, so such a share no
+  longer hangs the window.
+- A delete holds at most four of the 64 sidecar locks at a time, so a trash call that hangs on a
+  share holds up few sidecar writes in other windows. Before, it held about 51 of them.
 
 ## [0.81.1] - 2026-11-11
 

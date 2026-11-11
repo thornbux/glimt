@@ -77,6 +77,10 @@ const KNOWN_NAMESPACES: [(&str, &str); 31] = [
     ("Item", "http://ns.google.com/photos/1.0/container/item/"),
 ];
 
+/// The most of the 64 sidecar locks that a delete holds at once (`chunks_by_sidecar_lock`).
+/// It holds them across a gio call, which waits for ever on a share that stopped answering.
+const MOST_LOCKS_IN_A_CHUNK: usize = 4;
+
 /// The 64 locks within this Glimt, by `sidecar_lock_number`.
 #[cfg(not(test))]
 static SIDECAR_LOCKS: [std::sync::Mutex<()>; 64] = [const { std::sync::Mutex::new(()) }; 64];
@@ -665,16 +669,7 @@ fn lock_sidecars_in<'a>(
     dir: Option<&Path>,
     paths: impl IntoIterator<Item = &'a PathBuf>,
 ) -> Vec<SidecarLock> {
-    // Each folder is looked at once, so 500,000 photos of one folder cost one look.
-    let mut folders: std::collections::HashMap<PathBuf, Option<FileId>> = Default::default();
-    let mut hashes: Vec<u64> = (paths.into_iter())
-        .map(|p| {
-            let side = sidecar(p);
-            let folder = side.parent().unwrap_or(Path::new("")).to_path_buf();
-            let id = folders.entry(folder).or_insert_with(|| folder_id(&side));
-            sidecar_hash(&side, id.as_ref())
-        })
-        .collect();
+    let mut hashes = sidecar_hashes(paths);
     hashes.sort_by_key(|&h| sidecar_lock_key(h));
     hashes.dedup_by_key(|h| sidecar_lock_key(*h));
     (hashes.iter())
@@ -683,6 +678,51 @@ fn lock_sidecars_in<'a>(
             (dir.and_then(|d| lock_file(d, hash % 64)), guard)
         })
         .collect()
+}
+
+/// Returns `sidecar_hash` of the sidecar of each of `paths`, in their order. Each folder is
+/// looked at once, so 500,000 photos of one folder cost one look.
+fn sidecar_hashes<'a>(paths: impl IntoIterator<Item = &'a PathBuf>) -> Vec<u64> {
+    let mut folders: std::collections::HashMap<PathBuf, Option<FileId>> = Default::default();
+    (paths.into_iter())
+        .map(|p| {
+            let side = sidecar(p);
+            let folder = side.parent().unwrap_or(Path::new("")).to_path_buf();
+            let id = folders.entry(folder).or_insert_with(|| folder_id(&side));
+            sidecar_hash(&side, id.as_ref())
+        })
+        .collect()
+}
+
+/// Splits `paths` into the chunks whose sidecar locks a delete holds at once: at most
+/// `most_files` files, whose sidecars take at most `MOST_LOCKS_IN_A_CHUNK` of the 64 locks.
+/// The files are sorted by the number of their lock first, so a large delete still has chunks
+/// of `most_files`. Before, a chunk of 100 files held about 51 of the 64 locks across its gio
+/// call, and on a share that stopped answering most sidecar writes in every window waited for
+/// good.
+pub(crate) fn chunks_by_sidecar_lock(paths: &[PathBuf], most_files: usize) -> Vec<Vec<PathBuf>> {
+    let numbers = sidecar_hashes(paths).into_iter().map(|h| h % 64);
+    let mut numbered: Vec<(u64, &PathBuf)> = numbers.zip(paths).collect();
+    numbered.sort_by_key(|n| n.0);
+    let mut chunks: Vec<Vec<PathBuf>> = Vec::new();
+    let (mut locks_in_chunk, mut last_number) = (0, None);
+    for (number, path) in numbered {
+        let is_new_lock = last_number != Some(number);
+        let starts_a_chunk = chunks.last().is_none_or(|c| c.len() >= most_files)
+            || (is_new_lock && locks_in_chunk >= MOST_LOCKS_IN_A_CHUNK);
+        if starts_a_chunk {
+            chunks.push(Vec::new());
+            locks_in_chunk = 0;
+        }
+        if starts_a_chunk || is_new_lock {
+            locks_in_chunk += 1;
+        }
+        last_number = Some(number);
+        if let Some(chunk) = chunks.last_mut() {
+            chunk.push(path.clone());
+        }
+    }
+    chunks
 }
 
 /// The folder of the lock files, where there is a runtime folder. Tests take only the mutexes,
@@ -2179,6 +2219,32 @@ mod tests {
             assert!(waited, "{first:?} then {then:?}");
         }
         let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// A delete's chunks each take at most four of the 64 sidecar locks, as each holds them
+    /// across a gio call that a share that stopped answering keeps for good. Each file is in
+    /// one chunk, and a large delete still has chunks of about 100 files. Before, a chunk of 100
+    /// files took about 51 of the locks.
+    #[test]
+    fn a_chunk_takes_few_sidecar_locks() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-chunks-{}", std::process::id()));
+        let paths: Vec<PathBuf> = (0..2000).map(|k| dir.join(format!("{k}.jpg"))).collect();
+        let chunks = super::chunks_by_sidecar_lock(&paths, 100);
+        for chunk in &chunks {
+            let lock = |p: &PathBuf| super::sidecar_lock_number(&super::sidecar(p));
+            let numbers: std::collections::HashSet<u64> = chunk.iter().map(lock).collect();
+            assert!(
+                chunk.len() <= 100 && numbers.len() <= 4,
+                "{} locks",
+                numbers.len()
+            );
+        }
+        assert!(chunks.len() <= 2000 / 100 + 64, "{} chunks", chunks.len());
+        let mut all: Vec<&PathBuf> = chunks.iter().flatten().collect();
+        all.sort();
+        let mut want: Vec<&PathBuf> = paths.iter().collect();
+        want.sort();
+        assert_eq!(all, want);
     }
 
     /// The lock of a sidecar holds off another holder of it, as another window would be, until

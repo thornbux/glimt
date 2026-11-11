@@ -3922,3 +3922,8 @@ msgstr "Impossible de verrouiller {name} : {e}. Une modification faite au même 
 #, fuzzy
 msgid "{sidecar} could not be moved ({e}), so it was copied to {copy} and is still at its old name too"
 msgstr "{sidecar} n'a pas pu être déplacé ({e}), il a donc été copié dans {copy} et se trouve aussi toujours sous son ancien nom"
+
+#: src/files/file_ops.rs
+#, fuzzy
+msgid "{folder} did not answer within a minute, so nothing was done"
+msgstr "{folder} n'a pas répondu en une minute : rien n'a été fait"

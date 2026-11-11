@@ -3922,3 +3922,8 @@ msgstr "Kon {name} niet vergrendelen: {e}. Een wijziging die een ander Glimt-ven
 #, fuzzy
 msgid "{sidecar} could not be moved ({e}), so it was copied to {copy} and is still at its old name too"
 msgstr "{sidecar} kon niet worden verplaatst ({e}), dus het is gekopieerd naar {copy} en staat ook nog onder de oude naam"
+
+#: src/files/file_ops.rs
+#, fuzzy
+msgid "{folder} did not answer within a minute, so nothing was done"
+msgstr "{folder} antwoordde niet binnen een minuut, dus er is niets gedaan"

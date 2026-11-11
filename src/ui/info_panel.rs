@@ -10,13 +10,15 @@ use crate::metadata::marks;
 use crate::metadata::xmp::{KeywordChange, KeywordsAndComment};
 use crate::support::format::{count, human_size, thousands};
 use crate::support::lang::tr;
-use crate::support::threads::{Receiving, Took};
+use crate::support::threads::{
+    Receiving, STUCK_AFTER, Took, lock_even_if_poisoned, spawn_worker_pool,
+};
 use crate::ui::dialogs::entered;
 use crate::{files::config, metadata::exif, metadata::xmp, tf};
 use eframe::egui;
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
-use std::sync::mpsc;
+use std::sync::{Arc, Mutex, mpsc};
 
 /// A file's EXIF from the reader thread.
 pub(crate) struct ExifRead {
@@ -99,8 +101,10 @@ impl KeywordNode {
 
 /// The info panel and the EXIF window: what is read of the shown image, and what is being edited.
 pub(crate) struct InfoPanel {
-    /// To the EXIF reader thread, and its answers.
+    /// To the EXIF reader, and its answers. The reader skips a request when the newest one it
+    /// shares with the panel names another file, so fast browsing never queues up.
     exif_requests: mpsc::Sender<PathBuf>,
+    exif_newest_request: Arc<Mutex<PathBuf>>,
     exif_answers: mpsc::Receiver<ExifRead>,
     /// The file the info panel asked for last, with the identity the list knew it by then, and
     /// the panel's rows as read for a file.
@@ -139,9 +143,11 @@ pub(crate) struct InfoPanel {
 impl InfoPanel {
     /// The EXIF reader started, with the keyword tree as `main` read it (`read_keyword_tree`).
     pub(crate) fn new(ctx: &egui::Context, keyword_tree: Vec<String>) -> Self {
-        let (exif_requests, exif_answers) = spawn_exif_reader(ctx);
+        let exif_newest_request = Arc::default();
+        let (exif_requests, exif_answers) = spawn_exif_reader(ctx, &exif_newest_request);
         let mut panel = InfoPanel {
             exif_requests,
+            exif_newest_request,
             exif_answers,
             exif_asked: None,
             exif: None,
@@ -236,10 +242,20 @@ impl crate::App {
             }
         }
         if asked_again && self.info_panel.reread_after_write.is_none() {
+            *lock_even_if_poisoned(&self.info_panel.exif_newest_request) = path.clone();
             let _ = self.info_panel.exif_requests.send(path.clone());
             self.info_panel.exif_asked = Some((path, identity));
         }
-        let done: Vec<ExifRead> = self.info_panel.exif_answers.try_iter().collect();
+        // Only the answer for the file asked last is taken. A reader given up as stuck answers
+        // when its read returns at last, and that answer is of a file shown long before.
+        let asked = self
+            .info_panel
+            .exif_asked
+            .as_ref()
+            .map(|(file, _)| file.clone());
+        let done: Vec<ExifRead> = (self.info_panel.exif_answers.try_iter())
+            .filter(|read| asked.as_ref() == Some(&read.path))
+            .collect();
         for ExifRead {
             path,
             identity: read_identity,
@@ -293,9 +309,11 @@ impl crate::App {
                             ui.label(format!("{} × {}", s.original_size[0], s.original_size[1]));
                             ui.end_row();
                         }
-                        // The old rows stay until the new ones arrive, so the panel does not
-                        // flicker.
-                        for (label, value) in self.info_panel.exif.iter().flat_map(|e| &e.1) {
+                        // Only the rows of the image shown, never those of the one before under
+                        // its name, as a read that does not answer would leave them for good.
+                        let shown = self.path(self.list.shown());
+                        let rows = (self.info_panel.exif.iter()).filter(|e| e.0 == shown);
+                        for (label, value) in rows.flat_map(|e| &e.1) {
                             ui.weak(tr(label));
                             // The place opens on a map in the browser.
                             if *label == "GPS" {
@@ -737,20 +755,27 @@ impl crate::App {
             self.request_and_take_exif(ctx);
             let mut open = true;
             let title = tf!("EXIF: {name}", name = self.name(self.list.shown()));
+            // Only the fields of the image shown, as in the info panel.
+            let shown = self.path(self.list.shown());
+            let is_of_shown = (self.info_panel.exif.as_ref()).is_some_and(|e| e.0 == shown);
+            let all: &[_] = match is_of_shown {
+                true => &self.info_panel.exif_all,
+                false => &[],
+            };
             egui::Window::new(title)
                 .id(egui::Id::unique("exif window"))
                 .open(&mut open)
                 .default_size([560.0, 600.0])
                 .vscroll(true)
                 .show(ctx, |ui| {
-                    if self.info_panel.exif_all.is_empty() {
+                    if all.is_empty() {
                         ui.weak(tr("No EXIF data"));
                     }
                     egui::Grid::new("exif all")
                         .striped(true)
                         .num_columns(3)
                         .show(ui, |ui| {
-                            for (group, name, value) in &self.info_panel.exif_all {
+                            for (group, name, value) in all {
                                 ui.weak(tr(group));
                                 ui.label(name);
                                 ui.label(value);
@@ -763,19 +788,26 @@ impl crate::App {
     }
 }
 
-/// The EXIF reader: one thread that skips to the newest request, so fast browsing never
-/// queues up; it sends the panel's rows, every field, and the keywords and comment.
+/// The EXIF reader: a pool of one worker, which skips each request but the newest one
+/// (`newest_request`), so fast browsing never queues up. It sends the panel's rows, every field,
+/// and the keywords and comment. A read stuck on a share that stopped answering is given up, and
+/// another worker reads the files shown after it (`spawn_worker_pool`).
 pub(crate) fn spawn_exif_reader(
     ctx: &egui::Context,
+    newest_request: &Arc<Mutex<PathBuf>>,
 ) -> (mpsc::Sender<PathBuf>, mpsc::Receiver<ExifRead>) {
     let (exif_requests, paths_rx) = mpsc::channel::<PathBuf>();
     let (exif_tx, exif_answers) = mpsc::channel();
-    let ctx = ctx.clone();
-    // No busy pointer: the EXIF reader, which lasts as long as the window. The panel
-    // shows each answer when it comes.
-    std::thread::spawn(move || {
-        while let Ok(mut path) = paths_rx.recv() {
-            path = paths_rx.try_iter().last().unwrap_or(path);
+    let (ctx, newest_request) = (ctx.clone(), newest_request.clone());
+    spawn_worker_pool(
+        1,
+        STUCK_AFTER,
+        paths_rx,
+        |_| {},
+        move |path: PathBuf| {
+            if *lock_even_if_poisoned(&newest_request) != path {
+                return;
+            }
             let identity = crate::files::file_io::identity_of(&path);
             let size = std::fs::metadata(&path).map_or(0, |m| m.len());
             let mut rows = vec![("File size", human_size(size))];
@@ -804,14 +836,14 @@ pub(crate) fn spawn_exif_reader(
                 paths,
                 alt_text,
             };
-            if exif_tx.send(read).is_err() {
-                return;
-            }
+            // A window that is gone takes no answer, and its reader ends with the requests.
+            let _ = exif_tx.send(read);
             ctx.request_repaint();
-        }
-    });
+        },
+    );
     (exif_requests, exif_answers)
 }
+
 /// Returns the keyword tree as its file has it. It waits for the disk, so `main` calls it before
 /// the window opens.
 pub(crate) fn read_keyword_tree() -> Vec<String> {
@@ -905,6 +937,42 @@ mod tests {
         });
         let row = ctx.global_style().spacing.interact_size.y;
         assert!(height > 0.0 && height < 2_000.0 * row, "{height}");
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// An answer of the EXIF reader for another file than the one asked last is dropped. A
+    /// reader given up as stuck on a share that stopped answering sends its answer only when
+    /// its read returns, long after. Before, the panel took any answer, and showed that file's
+    /// rows under the name of the image shown.
+    #[test]
+    fn an_answer_for_another_file_is_dropped() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-exif-late-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        for name in ["a.png", "b.png"] {
+            image::RgbImage::new(4, 4).save(dir.join(name)).unwrap();
+        }
+        let (mut app, ctx) = app_on(&dir);
+        read_panel(&mut app, &ctx);
+        let a = dir.join("a.png");
+        assert_eq!(app.path(app.list.shown()), a);
+        // A stand-in for the reader, whose answers the test sends.
+        let (answers, rx) = std::sync::mpsc::channel();
+        app.info_panel.exif_answers = rx;
+        app.show_file(&ctx, 1);
+        app.request_and_take_exif(&ctx);
+        answers
+            .send(super::ExifRead {
+                path: a.clone(),
+                identity: None,
+                rows: vec![("Camera", "late".into())],
+                all: Vec::new(),
+                meta: Default::default(),
+                paths: Vec::new(),
+                alt_text: Default::default(),
+            })
+            .unwrap();
+        app.request_and_take_exif(&ctx);
+        assert_eq!(app.info_panel.exif_row(&a, "Camera"), None);
         std::fs::remove_dir_all(&dir).unwrap();
     }
 

@@ -3922,3 +3922,8 @@ msgstr "Gat ekki læst {name}: {e}. Breyting sem annar Glimt-gluggi gerir á sam
 #, fuzzy
 msgid "{sidecar} could not be moved ({e}), so it was copied to {copy} and is still at its old name too"
 msgstr "Ekki tókst að færa {sidecar} ({e}), svo hún var afrituð í {copy} og er enn líka undir gamla nafninu"
+
+#: src/files/file_ops.rs
+#, fuzzy
+msgid "{folder} did not answer within a minute, so nothing was done"
+msgstr "{folder} svaraði ekki innan mínútu, svo ekkert var gert"
