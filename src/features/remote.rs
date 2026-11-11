@@ -188,6 +188,11 @@ const WAIT: std::time::Duration = std::time::Duration::from_secs(10);
 /// that runs takes it at once, unless it hangs.
 const PROBE_WAIT: std::time::Duration = std::time::Duration::from_millis(500);
 
+/// How many times a look for a running Glimt on a socket waits `PROBE_WAIT`, each time with a
+/// new connection, before it counts the socket as answered. Under heavy load the thread that
+/// connects may not run within one `PROBE_WAIT`, which says nothing about the socket.
+const PROBE_TRIES: u32 = 2;
+
 /// The name from `--name`, set before the window opens, or later by `--remote name` and Window
 /// → Set Window Name….
 static GIVEN_NAME: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
@@ -1939,27 +1944,46 @@ fn link_socket(from: &std::path::Path, to: &std::path::Path) -> std::io::Result<
 /// Returns whether a running Glimt answers on the socket at `path`. The connection is tried in
 /// a thread of its own, because a connection to a Glimt that hangs with a full queue of clients
 /// waits until that Glimt takes it, and the window that asks must not wait with it. A connection
-/// that has not come after `PROBE_WAIT` counts as answered, as only a running Glimt holds one
-/// back that long.
-// shortcut: the thread waits as long as the hung Glimt does, one for each probe; give the
-// connection a deadline of its own if hung windows are probed often.
+/// that has not come after `PROBE_TRIES` waits of `PROBE_WAIT` counts as answered, as only a
+/// running Glimt holds one back that long. Only a refused connection counts as no Glimt
+/// (`is_answered`).
+// shortcut: each try's thread waits as long as the hung Glimt does; give the connection a
+// deadline of its own if hung windows are probed often.
 fn answers(path: &Path) -> bool {
     let path = path.to_path_buf();
-    connected_in_time(move || UnixStream::connect(path).is_ok(), PROBE_WAIT)
+    connected_in_time(move || is_answered(UnixStream::connect(&path)), PROBE_WAIT)
 }
 
-/// Runs `connect` in a thread of its own and returns what it returns. Returns true when it has
-/// not returned after `limit`, as `answers` says.
+/// Whether `connected`, a connection to a socket, says that a Glimt may answer on it. Only a
+/// refused connection, or a socket that is gone, says that none does. Any other error may come
+/// from a Glimt that runs, whose socket must not be taken from it.
+fn is_answered(connected: std::io::Result<UnixStream>) -> bool {
+    use std::io::ErrorKind::{ConnectionRefused, NotFound};
+    match connected {
+        Ok(_) => true,
+        Err(e) => !matches!(e.kind(), ConnectionRefused | NotFound),
+    }
+}
+
+/// Runs `connect` in a thread of its own and returns what it returns. When it has not returned
+/// after `limit`, it is run again in another thread, and the first answer of either counts.
+/// Returns true when none has come after `PROBE_TRIES` times `limit`, as `answers` says.
 fn connected_in_time(
-    connect: impl FnOnce() -> bool + Send + 'static,
+    connect: impl Fn() -> bool + Clone + Send + 'static,
     limit: std::time::Duration,
 ) -> bool {
     let (tx, rx) = mpsc::channel();
-    // No busy pointer: its caller waits for it, at most `limit`.
-    std::thread::spawn(move || {
-        let _ = tx.send(connect());
-    });
-    rx.recv_timeout(limit).unwrap_or(true)
+    for _ in 0..PROBE_TRIES {
+        let (tx, connect) = (tx.clone(), connect.clone());
+        // No busy pointer: its caller waits for it, at most `limit` each time.
+        std::thread::spawn(move || {
+            let _ = tx.send(connect());
+        });
+        if let Ok(answered) = rx.recv_timeout(limit) {
+            return answered;
+        }
+    }
+    true
 }
 
 /// Marks that this Glimt got the focus, so `--remote` goes to it from now on, when it listens.
@@ -2190,11 +2214,9 @@ mod tests {
     /// ten seconds stands in for one held back.
     #[test]
     fn a_connection_held_back_counts_as_answered_without_waiting() {
-        let (_never, held_back) = std::sync::mpsc::channel::<()>();
-        let slow = move || {
-            held_back
-                .recv_timeout(std::time::Duration::from_secs(10))
-                .is_ok()
+        let slow = || {
+            std::thread::sleep(std::time::Duration::from_secs(10));
+            false
         };
         let started = std::time::Instant::now();
         assert!(super::connected_in_time(
@@ -2206,6 +2228,30 @@ mod tests {
             || false,
             std::time::Duration::from_secs(5)
         ));
+    }
+
+    /// A look whose connection comes late, as when its thread does not run in time under heavy
+    /// load, is waited for once more, so a socket that refuses it counts as left by a Glimt
+    /// gone. Before, one wait decided, and a window took a name's second socket, or had no
+    /// remote control, beside a socket that nobody answered on. Only a refused connection or
+    /// a missing socket counts as no Glimt, never another error.
+    #[test]
+    fn a_look_at_a_socket_that_comes_late_is_waited_for_again() {
+        let late = || {
+            std::thread::sleep(std::time::Duration::from_millis(400));
+            false
+        };
+        let limit = std::time::Duration::from_millis(300);
+        assert!(!super::connected_in_time(late, limit));
+        let failed = |kind| Err(std::io::Error::from(kind));
+        assert!(!super::is_answered(failed(
+            std::io::ErrorKind::ConnectionRefused
+        )));
+        assert!(!super::is_answered(failed(std::io::ErrorKind::NotFound)));
+        assert!(super::is_answered(failed(
+            std::io::ErrorKind::PermissionDenied
+        )));
+        assert!(super::is_answered(failed(std::io::ErrorKind::WouldBlock)));
     }
 
     /// A new name whose socket's path would be too long for a client to connect to is not
