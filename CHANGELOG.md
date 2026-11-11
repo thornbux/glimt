@@ -14,6 +14,10 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- `glimt --remote name` to a window that is minimized or on another workspace is answered at
+  once. Before, it waited until its time ran out and said "no answer", although the window took
+  the name. Such a window also reads a folder opened with `--remote open`, and takes a file
+  job's report, while it is not shown, so its busy pointer goes and a `--wait` is answered.
 - A print whose page image could not be made fails and says so. Before, that page printed
   blank without a word.
 - Open Themes Folder and Open the Tools Folder say so when the folder cannot be made. Before,
