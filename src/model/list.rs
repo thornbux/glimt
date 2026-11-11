@@ -1,7 +1,7 @@
 //! The model of what is open: the file list with everything that holds a place in it
 //! (`List`), and the decoded images (`LoadedImage`).
 
-use crate::files::file_io::{FileFingerprint, Identity};
+use crate::files::file_io::{FileFingerprint, Identity, is_another_file};
 use crate::images::decode::HistogramCounts;
 use crate::model::listing::ListedName;
 use crate::ui::file_list::RubberBand;
@@ -151,6 +151,34 @@ impl List {
         (self.files.iter().cloned())
             .zip(self.identities.iter().copied())
             .collect()
+    }
+
+    /// Returns the names of `files`, a new listing, that another file has taken since this list
+    /// was made: a name of both whose identities are known and differ. The names at the same
+    /// places are compared in one pass, and only those after the first place that differs are
+    /// looked up, so a listing of 500,000 files in the same order costs no lookup.
+    pub(crate) fn names_another_file_took(&self, files: &[ListedName]) -> Vec<OsString> {
+        let same_places = (self.files.iter().zip(files))
+            .take_while(|(old, (new, _))| old == &new)
+            .count();
+        let mut taken: Vec<OsString> = (0..same_places)
+            .filter(|&i| is_another_file(self.identity(i), files[i].1))
+            .map(|i| files[i].0.clone())
+            .collect();
+        if same_places < files.len() {
+            let rest: HashMap<&OsString, Identity> = (same_places..self.files.len())
+                .map(|i| (&self.files[i], self.identity(i)))
+                .collect();
+            taken.extend(
+                (files[same_places..].iter())
+                    .filter(|(name, new)| {
+                        rest.get(name)
+                            .is_some_and(|old| is_another_file(*old, *new))
+                    })
+                    .map(|(name, _)| name.clone()),
+            );
+        }
+        taken
     }
 
     /// Returns whether `files` are the files of the list, in its order and with the identities

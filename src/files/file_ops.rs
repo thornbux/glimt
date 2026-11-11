@@ -27,7 +27,7 @@ use crate::{
 };
 use eframe::egui;
 use std::collections::{HashMap, HashSet};
-use std::ffi::OsString;
+use std::ffi::{OsStr, OsString};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, mpsc};
@@ -169,8 +169,9 @@ pub(crate) struct OperationReport {
     /// folder again.
     pub(crate) folder_made: Option<PathBuf>,
     /// The type of a network or cloud mount whose files the trash refused, and those files,
-    /// which are still there. The window asks whether to delete them for good instead.
-    pub(crate) untrashable: Option<(String, Vec<PathBuf>)>,
+    /// which are still there, each with the fingerprint it had when it was picked. The window
+    /// asks whether to delete them for good instead.
+    pub(crate) untrashable: Option<(String, Vec<PickedAs>)>,
     /// The log of a Move, removed once the marks and collections have followed `moved`. One
     /// found at the start comes with the files that went before Glimt was killed.
     pub(crate) move_log: Option<journal::MoveLog>,
@@ -196,6 +197,9 @@ pub(crate) type WithRealFolder = Box<dyn FnOnce(&mut crate::App, &egui::Context)
 
 /// A file saved in the background (a turned image, or a tool's file), and how it went.
 type SavedFile = (PathBuf, Result<(), String>);
+
+/// A file with the fingerprint it had when it was picked.
+type PickedAs = (PathBuf, FileFingerprint);
 
 /// What Edit → Undo puts back. It is the last files or folder moved to the trash, the last
 /// files moved, or the last files renamed, each `(from, to, fingerprint)`. The fingerprint
@@ -334,11 +338,11 @@ pub(crate) struct FileOperations {
     /// The renames found cut short at the start, by a crash or a power cut during Rename Many,
     /// so they can be put right. They are read in the background.
     cut_short_rx: Receiving<Vec<journal::CutShort>>,
-    /// The type of the mount and the files the trash refused there, to ask about once the
-    /// folder is read again, and the count of listings (`Folder::whole_listings`) when they came.
-    /// The files left the list when the delete started, and only a newer listing brings them
-    /// back.
-    untrashable: Option<(String, Vec<PathBuf>, u64)>,
+    /// The type of the mount and the files the trash refused there, with their fingerprints
+    /// when picked, to ask about once the folder is read again, and the count of listings
+    /// (`Folder::whole_listings`) when they came. The files left the list when the delete
+    /// started, and only a newer listing brings them back.
+    untrashable: Option<(String, Vec<PickedAs>, u64)>,
     /// Our own clipboard for file lists, kept so it can serve them (X11).
     clipboard: Option<arboard::Clipboard>,
     /// An image decoded for the clipboard. egui takes it only during a frame.
@@ -539,13 +543,13 @@ impl FileOperations {
 
     /// Keeps the files `files` that the trash refused on a mount of type `kind`, to ask about
     /// once the list counted `now` listings is read again. The question names the mount of
-    /// the first refusal, and a file refused twice is asked about once.
-    fn keep_untrashable(&mut self, kind: String, files: Vec<PathBuf>, now: u64) {
+    /// the first refusal, and a file refused twice is asked about once, as it was first picked.
+    fn keep_untrashable(&mut self, kind: String, files: Vec<PickedAs>, now: u64) {
         match &mut self.untrashable {
             Some((_, held, since)) => {
                 held.extend(files);
-                held.sort_unstable();
-                held.dedup();
+                held.sort_by(|a, b| a.0.cmp(&b.0));
+                held.dedup_by(|later, first| later.0 == first.0);
                 *since = now;
             }
             none => *none = Some((kind, files, now)),
@@ -602,6 +606,18 @@ impl FileOperations {
 impl crate::App {
     /// To the trash at once, permanently after confirmation.
     pub(crate) fn request_delete(&mut self, ctx: &egui::Context, trash: bool) {
+        self.request_delete_as_seen(ctx, trash, None);
+    }
+
+    /// `request_delete`, of files whose fingerprints `seen` a search took when it found them
+    /// (Find Duplicates), when it is given. The delete then leaves out a file that is no longer
+    /// as the search saw it, not only one changed while the question was open.
+    pub(crate) fn request_delete_as_seen(
+        &mut self,
+        ctx: &egui::Context,
+        trash: bool,
+        seen: Option<&HashMap<PathBuf, FileFingerprint>>,
+    ) {
         if self.list.files().is_empty() {
             return;
         }
@@ -610,11 +626,25 @@ impl crate::App {
         } else {
             self.config.confirm_delete
         } {
-            if let Some(asked) = self.ask_about_targets() {
+            if let Some(asked) = self.ask_about_targets_as_seen(seen) {
                 self.dialogs.confirm_delete(asked, trash);
             }
         } else if let Some(targets) = self.targets() {
-            self.delete_targets(ctx, trash, targets);
+            self.delete_targets(ctx, trash, targets, seen);
+        }
+    }
+
+    /// The files at `targets`, picked now, with the fingerprints `seen` when they are given
+    /// (`request_delete_as_seen`), and otherwise with fingerprints taken now.
+    fn picked_targets(
+        &self,
+        targets: &[usize],
+        seen: Option<&HashMap<PathBuf, FileFingerprint>>,
+    ) -> PickedFiles {
+        let files = targets.iter().map(|&i| self.listed_file(i)).collect();
+        match seen {
+            Some(seen) => PickedFiles::listed_as_seen(files, seen),
+            None => PickedFiles::listed(files),
         }
     }
 
@@ -637,9 +667,18 @@ impl crate::App {
     /// places in the list. Returns `None`, with a notice, when there are no targets, and the
     /// dialog must not open.
     pub(crate) fn ask_about_targets(&mut self) -> Option<Asked> {
+        self.ask_about_targets_as_seen(None)
+    }
+
+    /// `ask_about_targets`, with the fingerprints `seen` that a search took, when given
+    /// (`request_delete_as_seen`).
+    fn ask_about_targets_as_seen(
+        &mut self,
+        seen: Option<&HashMap<PathBuf, FileFingerprint>>,
+    ) -> Option<Asked> {
         let targets = self.targets()?;
         let names = targets.iter().map(|&i| self.list.files()[i].clone());
-        let picked = PickedFiles::listed(targets.iter().map(|&i| self.listed_file(i)).collect());
+        let picked = self.picked_targets(&targets, seen);
         let left_out = self.hidden_selection_notice();
         Some(Asked::new(
             self.opened_folder_hash(),
@@ -777,9 +816,16 @@ impl crate::App {
     }
 
     /// Deletes the files at `targets` at once, with no question between the pick and the
-    /// delete, as `delete_now` does.
-    pub(crate) fn delete_targets(&mut self, ctx: &egui::Context, trash: bool, targets: Vec<usize>) {
-        let picked = PickedFiles::listed(targets.iter().map(|&i| self.listed_file(i)).collect());
+    /// delete, as `delete_now` does. `seen` are the fingerprints a search took of them, when
+    /// given (`request_delete_as_seen`).
+    pub(crate) fn delete_targets(
+        &mut self,
+        ctx: &egui::Context,
+        trash: bool,
+        targets: Vec<usize>,
+        seen: Option<&HashMap<PathBuf, FileFingerprint>>,
+    ) {
+        let picked = self.picked_targets(&targets, seen);
         self.delete_now(ctx, trash, targets, picked);
     }
 
@@ -893,7 +939,7 @@ impl crate::App {
                 .collect();
             let _ = report_tx.send(OperationReport {
                 untrashable: refused
-                    .then(|| left_by_trash(&refused_paths, crate::files::file_io::file_system_type))
+                    .then(|| left_by_trash_as_picked(&refused_paths, &picked))
                     .flatten(),
                 requested: paths,
                 gone,
@@ -1029,16 +1075,29 @@ impl crate::App {
     /// mount of type `kind`. gio has no trash there, and a trash in the home folder would mean
     /// a download of each file. It asks only about files the list shows, by their names there.
     /// A notice tells of the others, which are left as they are: another folder was opened
-    /// before the question, or the file is in a subfolder the list does not show.
-    fn ask_delete_instead(&mut self, kind: String, files: &[PathBuf]) {
+    /// before the question, or the file is in a subfolder the list does not show. The delete
+    /// acts only on a file that still has the fingerprint it had when it was first picked, and
+    /// the identity the list knows it by now, as another program may have given its name to
+    /// another file since.
+    fn ask_delete_instead(&mut self, kind: String, files: &[PickedAs]) {
         // Only files the list shows are asked about: a subfolder's file strips the folder's
         // prefix too, but is not in the list with Include Subfolders off.
-        let dir = self.folder.dir();
-        let shown: HashSet<&OsString> = self.list.files().iter().collect();
-        let (names, paths): (Vec<OsString>, Vec<PathBuf>) = (files.iter())
-            .filter_map(|p| Some((p.strip_prefix(dir).ok()?.as_os_str().to_owned(), p.clone())))
-            .filter(|(name, _)| shown.contains(name))
-            .unzip();
+        let dir = self.folder.dir().to_path_buf();
+        let as_picked: HashMap<&OsStr, (&PathBuf, &FileFingerprint)> = (files.iter())
+            .filter_map(|(p, picked_as)| {
+                Some((p.strip_prefix(&dir).ok()?.as_os_str(), (p, picked_as)))
+            })
+            .collect();
+        let shown: Vec<usize> = (0..self.list.files().len())
+            .filter(|&i| as_picked.contains_key(self.list.files()[i].as_os_str()))
+            .collect();
+        let names: Vec<OsString> = shown
+            .iter()
+            .map(|&i| self.list.files()[i].clone())
+            .collect();
+        let seen: HashMap<PathBuf, FileFingerprint> = (as_picked.values())
+            .map(|(p, picked_as)| ((*p).clone(), **picked_as))
+            .collect();
         let left = files.len() - names.len();
         if left > 0 {
             self.notice.give(tf!(
@@ -1050,11 +1109,12 @@ impl crate::App {
         if names.is_empty() {
             return;
         }
+        let listed = shown.iter().map(|&i| self.listed_file(i)).collect();
         let asked = Asked::new(
             self.opened_folder_hash(),
             names,
             None,
-            PickedFiles::new(paths),
+            PickedFiles::listed_as_seen(listed, &seen),
         );
         self.dialogs.confirm_delete_instead(asked, kind);
     }
@@ -2552,6 +2612,21 @@ fn left_by_trash(
     Some((remote(left.first()?)?, left))
 }
 
+/// Returns the files of `refused` that the trash left on a network or cloud mount, with the
+/// mount's type (`left_by_trash`), each with the fingerprint it had when it was `picked`, so that
+/// the question to delete it for good acts on that file only. Returns `None` when there are none.
+fn left_by_trash_as_picked(
+    refused: &[PathBuf],
+    picked: &PickedFingerprints,
+) -> Option<(String, Vec<PickedAs>)> {
+    let (kind, left) = left_by_trash(refused, crate::files::file_io::file_system_type)?;
+    let as_picked = |p: PathBuf| {
+        let picked_as = picked.picked_as(&p)?;
+        Some((p, picked_as))
+    };
+    Some((kind, left.into_iter().filter_map(as_picked).collect()))
+}
+
 /// Deletes the files of `chunk` that are still the ones `picked`, to the trash when `trash` or
 /// for good, and then their sidecars, for `delete_now`'s thread. Each failure is added to
 /// `errors`. Returns the files gone, their sidecars, and the files left alone because they are
@@ -3024,7 +3099,7 @@ fn rename_files_planned_in(
             // The plan stays as it is, and the next start finds the step by the names, once the
             // share's cache has expired. Any other failure did nothing, and is undone at once.
             let may_be_done =
-                !stopped && done == k && crate::files::file_io::may_have_been_done(&e);
+                !stopped && done == k && crate::files::file_io::may_have_been_done(&e, a);
             // Otherwise the renames are undone so that no file is left under a hidden
             // temporary name, by the same steps the next start would take.
             let stuck = match may_be_done {
@@ -3124,12 +3199,12 @@ fn put_files(
     // Each folder is read once for the whole job (`xmp::AdobeNames`).
     let target_of = |path: &PathBuf| dest.join(path.file_name().unwrap_or_default());
     let mut names = xmp::AdobeNames::arriving(paths.iter().map(target_of));
-    let mut sidecar_names = xmp::AdobeNames::default();
+    let mut sidecar_names = xmp::AdobeNames::leaving(paths);
     // The RAW files that leave with this move: those that went and those yet to come. One
     // that could not go is taken out, so that its stem's sidecar stays beside it.
     let mut moving: HashSet<&PathBuf> = paths.iter().filter(|_| !is_copy).collect();
     let mut stems_to_come = raw_files_by_stem(moving.iter().copied());
-    let mut followed_later = Vec::new();
+    let none_leaving = HashSet::new();
     for path in paths.iter().take_while(|_| !job.is_stopped()) {
         let target = target_of(path);
         let put_one = || {
@@ -3165,12 +3240,16 @@ fn put_files(
                     failed(&target, e);
                 }
                 moving.remove(path);
-            } else if another_to_come {
-                followed_later.push((path, target.clone(), fingerprint(&target)));
-                put.push((path.clone(), target.clone()));
-            } else if let Err((back, told)) =
-                follow_or_go_back((path, &target, None), is_copy, &moving, &mut sidecar_names)
-            {
+            } else if let Err((back, told)) = {
+                // A RAW file with another of its name stem still to come takes only its own
+                // sidecar, at once, so that a kill never leaves the two apart. Adobe's sidecar
+                // of the stem goes with the last of them, as only then is it known which went.
+                let leaving = match another_to_come {
+                    true => &none_leaving,
+                    false => &moving,
+                };
+                follow_or_go_back((path, &target), is_copy, leaving, &mut sidecar_names)
+            } {
                 // The file and its sidecars go together or not at all, so a later file of the
                 // old name never picks up a sidecar left behind.
                 errors.extend(told);
@@ -3193,11 +3272,6 @@ fn put_files(
         }
         job.count_done(1);
     }
-    let went: HashSet<&PathBuf> = put.iter().map(|(from, _)| from).collect();
-    let (later, taken_back) =
-        follow_once_the_stem_is_known(followed_later, &went, &mut sidecar_names);
-    errors.extend(later);
-    put.retain(|(from, _)| !taken_back.contains(from));
     // A move on one disk is a rename, which is on disk only with its folder. The marks
     // and collections follow the new names once the report arrives, so after a stick
     // pulled out the file and its marks must not be under different names.
@@ -3224,8 +3298,8 @@ fn raw_files_by_stem<'a>(
 }
 
 /// Counts `path` as reached in `to_come`, from `raw_files_by_stem`. Returns whether another RAW
-/// file of its name stem is still to come, so that its sidecars follow only once the move knows
-/// which of them went (`follow_once_the_stem_is_known`).
+/// file of its name stem is still to come. The file then takes only its own sidecar, and the
+/// last of them takes the stem's, once the move knows which of them went.
 fn is_another_of_its_stem_to_come(
     path: &Path,
     to_come: &mut HashMap<(PathBuf, String), usize>,
@@ -3238,34 +3312,6 @@ fn is_another_of_its_stem_to_come(
         })
 }
 
-/// Moves the sidecars of the files `moved`, each `(from, to)`, that waited until the move knew
-/// which files went. Only those in `went` count as leaving, so a RAW file that could not go, or
-/// was not reached after Stop, keeps its stem's sidecar beside it. A file whose sidecar cannot
-/// follow goes back to it, as in `put_files`, and then counts as staying, so that the stem's
-/// sidecar stays beside it too. Returns the errors to tell, and the files that went back.
-fn follow_once_the_stem_is_known(
-    moved: Vec<(&PathBuf, PathBuf, Option<FileFingerprint>)>,
-    went: &HashSet<&PathBuf>,
-    sidecar_names: &mut xmp::AdobeNames,
-) -> (Vec<String>, HashSet<PathBuf>) {
-    let (mut errors, mut taken_back) = (Vec::new(), HashSet::new());
-    let mut went = went.clone();
-    for (from, to, at_put) in moved {
-        let _lock = xmp::lock_sidecar(from);
-        // Only the file put there goes back, not another that a program put at its name while
-        // the other files of the job went.
-        let put = (from.as_path(), to.as_path(), at_put);
-        if let Err((back, told)) = follow_or_go_back(put, false, &went, sidecar_names) {
-            errors.extend(told);
-            if back {
-                went.remove(from);
-                taken_back.insert(from.clone());
-            }
-        }
-    }
-    (errors, taken_back)
-}
-
 /// Moves the files of an Undo of a move back to where they came from, each with its sidecar.
 /// A file whose place another file has taken since the move is left where it is, and so is one
 /// that cannot go back. Returns the pairs moved back, `(now, before)`, the files left to be
@@ -3274,16 +3320,14 @@ fn follow_once_the_stem_is_known(
 fn move_back(pairs: Vec<Moved>) -> MovedBack {
     let (mut errors, mut back, mut left) = (Vec::new(), Vec::new(), Vec::new());
     let mut names = xmp::AdobeNames::arriving(pairs.iter().map(|(from, _, _)| from.clone()));
-    let mut sidecar_names = xmp::AdobeNames::default();
     let moving_back: Vec<PathBuf> = pairs.iter().map(|(_, now, _)| now.clone()).collect();
+    let mut sidecar_names = xmp::AdobeNames::leaving(&moving_back);
     // The files that go back with this Undo: those that went and those yet to come. One that
     // stays is taken out, so that its stem's sidecar stays beside it.
     let mut moving: HashSet<&PathBuf> = moving_back.iter().collect();
     let mut stems_to_come = raw_files_by_stem(moving_back.iter());
-    let mut followed_later = Vec::new();
-    let mut at_move_of = HashMap::new();
+    let none_leaving = HashSet::new();
     for (from, to, at_move) in pairs {
-        at_move_of.insert(to.clone(), at_move);
         let another_to_come = is_another_of_its_stem_to_come(&to, &mut stems_to_come);
         let _lock = xmp::lock_sidecar(&to);
         // Another program may have put another file at `to` since the move.
@@ -3297,13 +3341,14 @@ fn move_back(pairs: Vec<Moved>) -> MovedBack {
             Some(at) => Err((at, std::io::ErrorKind::AlreadyExists.into())),
             None => put_file(&to, &from, false).map_err(|e| (from.clone(), e)),
         };
+        // As in `put_files`, Adobe's sidecar of a stem goes with the last of its RAW files.
+        let leaving = match another_to_come {
+            true => &none_leaving,
+            false => &moving,
+        };
         match result {
-            Ok(()) if another_to_come => {
-                followed_later.push((to.clone(), from.clone(), fingerprint(&from)));
-                back.push((to, from));
-            }
             Ok(()) => {
-                match follow_or_go_back((&to, &from, None), false, &moving, &mut sidecar_names) {
+                match follow_or_go_back((&to, &from), false, leaving, &mut sidecar_names) {
                     Ok(()) => back.push((to, from)),
                     // The file went back to its sidecars at `to`, and the Undo stays to be tried
                     // again. A look at it that failed is no answer that it is gone, so the Undo
@@ -3328,24 +3373,6 @@ fn move_back(pairs: Vec<Moved>) -> MovedBack {
             }
         }
     }
-    let went: HashSet<&PathBuf> = back.iter().map(|(now, _)| now).collect();
-    let later = followed_later
-        .iter()
-        .map(|(now, before, at_put)| (now, before.clone(), *at_put));
-    let (later, taken_back) =
-        follow_once_the_stem_is_known(later.collect(), &went, &mut sidecar_names);
-    errors.extend(later);
-    // A file that went back to its sidecars stays to be undone again.
-    let (stayed, went_back): (Vec<_>, Vec<_>) =
-        (back.into_iter()).partition(|(now, _)| taken_back.contains(now));
-    back = went_back;
-    // A failed look keeps the Undo with the fingerprint of the move, as above.
-    for (now, before) in stayed {
-        let at_now = fingerprint(&now).or_else(|| at_move_of.get(&now).copied());
-        if let Some(at_now) = at_now {
-            left.push((before, now, at_now));
-        }
-    }
     // The names moved back are on disk with their folders before the marks and collections
     // follow them, once for each folder.
     let folders: HashSet<&Path> = back
@@ -3364,32 +3391,32 @@ fn move_back(pairs: Vec<Moved>) -> MovedBack {
 /// one cannot, the file goes back first, and the sidecars that followed are taken back only once
 /// it is there, each of them also after one that failed. When the file cannot go back, those
 /// sidecars stay with it at `to`. So the file always ends with every sidecar that could reach
-/// it. Returns, when a sidecar could not follow, whether the file is back at `from`, with the
-/// errors to tell, each saying where the file and that sidecar are. `at_put` is the file's
-/// fingerprint at `to` when it was put there, for a file whose sidecars follow later: it goes
-/// back only while it is still that file. `None` is for a file put there just now. A sidecar
-/// that was copied, as it could not be moved, is still at its old name, where the next file of
-/// that name would take it. It is told too, with the file at `to`, unless the file went back.
+/// it. A sidecar whose move may have been done (a share that lost its answer) may be at both
+/// names or at the new one, so it is put where the file ends (`sidecar_where_the_file_is`). A
+/// sidecar that was copied, as it could not be moved, is still at its old name, where the next
+/// file of that name would take it. It is told too, with the file at `to`, unless the file went
+/// back. Returns, when a sidecar could not follow, whether the file is back at `from`, with the
+/// errors to tell, each saying where the file and that sidecar are.
 fn follow_or_go_back(
-    (from, to, at_put): (&Path, &Path, Option<FileFingerprint>),
+    (from, to): (&Path, &Path),
     is_copy: bool,
     moving: &HashSet<&PathBuf>,
     names: &mut xmp::AdobeNames,
 ) -> Result<(), (bool, Vec<String>)> {
+    use crate::files::file_io::{KnownAs, fingerprint_or_error, is_still_the_file, put_file_back};
+    // The file is looked at before its sidecars follow, which may take a while, so that only
+    // this file goes back, not one that another program put at `to` meanwhile. A look that
+    // failed tells nothing, and the file stays.
+    let at_put = fingerprint_or_error(to);
     let not = match xmp::follow(from, to, is_copy, moving, names) {
         Ok(left_behind) if left_behind.is_empty() => return Ok(()),
         Ok(left_behind) => return Err((false, left_behind.iter().map(|l| l.told()).collect())),
         Err(not) => not,
     };
     let file = from.display();
-    let is_still_put =
-        at_put.is_none_or(|then| fingerprint(to).is_some_and(|now| same_fingerprint(then, now)));
-    let put_back = match is_still_put {
-        true => crate::files::file_io::put_file_back(from, to, is_copy),
-        false => Err(std::io::Error::other(tr(
-            "another file has taken its place",
-        ))),
-    };
+    let put_back = at_put
+        .and_then(|at_put| is_still_the_file(to, KnownAs::fingerprint(at_put)))
+        .and_then(|()| put_file_back(from, to, is_copy));
     let Err(error) = put_back else {
         let mut told = Vec::new();
         for (side, at, was_copy) in not.followed.into_iter().rev() {
@@ -3406,7 +3433,11 @@ fn follow_or_go_back(
         }
         // The window shows the first error, so a sidecar apart from its file comes first, and
         // then the file is not said to be with its sidecar.
-        let is_whole = told.is_empty();
+        // Each sidecar is put beside the file, also after one that could not be.
+        let beside: Vec<bool> = (not.failed.iter())
+            .map(|(side, at, e)| is_copy || sidecar_where_the_file_is((side, at), e, true))
+            .collect();
+        let is_whole = told.is_empty() && !beside.contains(&false);
         told.extend(not.failed.iter().map(|(_, at, e)| {
             let side = at.display();
             match is_whole {
@@ -3423,6 +3454,7 @@ fn follow_or_go_back(
     };
     let to = to.display();
     let told = (not.failed.iter())
+        .filter(|(side, at, e)| is_copy || !sidecar_where_the_file_is((side, at), e, false))
         .map(|(side, _, e)| {
             let side = side.display();
             tf!(
@@ -3437,6 +3469,26 @@ fn follow_or_go_back(
         .chain(not.left_behind.iter().map(|l| l.told()))
         .collect();
     Err((false, told))
+}
+
+/// Puts the sidecar whose move from `side` to `at` failed with `e` beside its file, at `side`
+/// when the file went back (`file_is_back`) and otherwise at `at`. A move that may have been done
+/// may have left it at both names, one file under two, or only at the new one, which
+/// `journal::finish_step` puts right. A move refused for sure left the sidecar at `side`, and it
+/// is not touched. Returns whether the sidecar is surely beside the file now.
+fn sidecar_where_the_file_is(
+    (side, at): (&Path, &Path),
+    e: &std::io::Error,
+    file_is_back: bool,
+) -> bool {
+    if !crate::files::file_io::may_have_been_done(e, side) {
+        return file_is_back;
+    }
+    let (away, beside) = match file_is_back {
+        true => (at, side),
+        false => (side, at),
+    };
+    journal::finish_step(away, beside)
 }
 
 /// Returns a file just moved or renamed from `from` to `to` with its fingerprint, for Undo. Returns
@@ -3588,7 +3640,7 @@ mod tests {
         // Random order puts the same names in a new list, which let them be deleted.
         app.shuffle_list(&ctx, true);
         let sub = (app.list.files().iter()).position(|f| std::path::Path::new(f).ends_with("sub"));
-        app.delete_targets(&ctx, false, vec![sub.unwrap()]);
+        app.delete_targets(&ctx, false, vec![sub.unwrap()], None);
         assert!(app.notice.text().is_some() && app.list.files().len() == 2);
         assert!(run_background_until(&mut app, &ctx, |a| !a
             .folder
@@ -3982,7 +4034,7 @@ mod tests {
             .renaming
             .is_none()));
         assert!(!c.exists(), "the other photo was renamed");
-        delete.delete_targets(&delete_ctx, false, vec![0]);
+        delete.delete_targets(&delete_ctx, false, vec![0], None);
         assert!(run_background_until(&mut delete, &delete_ctx, idle));
         assert!(a.exists() && b.exists(), "the other photo was deleted");
         drop(first);
@@ -4149,12 +4201,14 @@ mod tests {
         std::fs::remove_dir_all(dir).unwrap();
     }
 
-    /// Two RAW files of one name stem move together, and the first one's sidecar follows only
-    /// once the move knows that both went. When it then cannot follow, that file goes back to
-    /// it, as any other file does, also in the Undo of a Move. Before, the file stayed at the
-    /// target without its keywords, and the sidecar at the old name.
+    /// Two RAW files of one name stem move together. The first one's own sidecar follows it at
+    /// once, and when it cannot, that file goes back to it before the second file is moved, as
+    /// any other file does, also in the Undo of a Move. Adobe's sidecar of the stem then stays
+    /// beside the file that went back. Before, the first file's own sidecar waited until the
+    /// job's end, so a kill in between left it apart from its photo, and when it then could not
+    /// follow, the photo went back without the stem's sidecar, which had gone with the second.
     #[test]
-    fn a_raw_file_whose_sidecar_waited_goes_only_with_it() {
+    fn a_raw_file_goes_only_with_its_own_sidecar() {
         use crate::files::file_io::{RENAME_WAYS_MISSING, UNLINK_FAILS};
         let dir =
             std::env::temp_dir().join(format!("glimt-test-stem-split-{}", std::process::id()));
@@ -4164,6 +4218,7 @@ mod tests {
         std::fs::create_dir_all(&to).unwrap();
         std::fs::write(from.join("a.cr2"), "cr2").unwrap();
         std::fs::write(from.join("a.nef"), "nef").unwrap();
+        std::fs::write(from.join("a.xmp"), "stem").unwrap();
         // a.cr2's own sidecar is a socket, which can be neither moved (its old name cannot be
         // unlinked) nor copied.
         let _socket = std::os::unix::net::UnixListener::bind(from.join("a.cr2.xmp")).unwrap();
@@ -4178,8 +4233,10 @@ mod tests {
         assert_eq!(put, [(from.join("a.nef"), to.join("a.nef"))], "{errors:?}");
         assert!(errors[0].contains("stays where it was"), "{errors:?}");
         assert_eq!(std::fs::read_to_string(from.join("a.cr2")).unwrap(), "cr2");
+        assert_eq!(std::fs::read_to_string(from.join("a.xmp")).unwrap(), "stem");
         // The Undo of the Move, with the socket now beside the moved file.
         std::fs::rename(from.join("a.cr2"), to.join("a.cr2")).unwrap();
+        std::fs::rename(from.join("a.xmp"), to.join("a.xmp")).unwrap();
         std::fs::remove_file(from.join("a.cr2.xmp")).unwrap();
         let _socket = std::os::unix::net::UnixListener::bind(to.join("a.cr2.xmp")).unwrap();
         let moved = |n: &str| {
@@ -4194,6 +4251,7 @@ mod tests {
         assert_eq!(left.len(), 1, "{errors:?}");
         assert_eq!(left[0].1, to.join("a.cr2"));
         assert_eq!(std::fs::read_to_string(to.join("a.cr2")).unwrap(), "cr2");
+        assert_eq!(std::fs::read_to_string(to.join("a.xmp")).unwrap(), "stem");
         std::fs::remove_dir_all(dir).unwrap();
     }
 
@@ -4228,7 +4286,7 @@ mod tests {
             RENAME_WAYS_MISSING.set(1);
             UNLINK_FAILS.set(Some((to.join("a.xmp"), libc::EPERM)));
             let result = super::follow_or_go_back(
-                (&photo, &to.join("a.cr2"), None),
+                (&photo, &to.join("a.cr2")),
                 false,
                 &moving,
                 &mut Default::default(),
@@ -4258,6 +4316,56 @@ mod tests {
         std::fs::remove_dir_all(dir).unwrap();
     }
 
+    /// A sidecar whose move may have been done (its old name's unlink lost its answer, so it is
+    /// under both names) is not tried again as a copy, and ends beside its file alone: at its
+    /// old name when the file went back, else at the new one. Before, the copy found the new
+    /// name taken, the file went back "with its sidecar", and the sidecar stayed at the new name
+    /// too, for the next file of that name.
+    #[test]
+    fn a_sidecar_that_may_have_moved_ends_beside_its_file() {
+        use crate::files::file_io::{RENAME_WAYS_MISSING, UNLINK_FAILS};
+        let dir =
+            std::env::temp_dir().join(format!("glimt-test-side-maybe-{}", std::process::id()));
+        let (from, to) = (dir.join("from"), dir.join("to"));
+        for can_go_back in [true, false] {
+            let _ = std::fs::remove_dir_all(&dir);
+            std::fs::create_dir_all(&from).unwrap();
+            std::fs::create_dir_all(&to).unwrap();
+            std::fs::write(to.join("a.jpg"), "photo").unwrap();
+            std::fs::write(from.join("a.jpg.xmp"), "own").unwrap();
+            if !can_go_back {
+                std::fs::write(from.join("a.jpg"), "another").unwrap();
+            }
+            let photo = from.join("a.jpg");
+            let moving = std::collections::HashSet::from([&photo]);
+            RENAME_WAYS_MISSING.set(1);
+            UNLINK_FAILS.set(Some((from.join("a.jpg.xmp"), libc::EIO)));
+            let result = super::follow_or_go_back(
+                (&photo, &to.join("a.jpg")),
+                false,
+                &moving,
+                &mut Default::default(),
+            );
+            UNLINK_FAILS.set(None);
+            RENAME_WAYS_MISSING.set(0);
+            let Err((is_back, told)) = result else {
+                panic!("the sidecar followed")
+            };
+            assert_eq!(is_back, can_go_back, "{told:?}");
+            let (beside, away) = match can_go_back {
+                true => (from.join("a.jpg.xmp"), to.join("a.jpg.xmp")),
+                false => (to.join("a.jpg.xmp"), from.join("a.jpg.xmp")),
+            };
+            assert_eq!(std::fs::read_to_string(&beside).unwrap(), "own");
+            assert!(!away.exists(), "{told:?}");
+            match can_go_back {
+                true => assert!(told[0].contains("with its sidecar"), "{told:?}"),
+                false => assert!(told.is_empty(), "{told:?}"),
+            }
+        }
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
     /// A sidecar that cannot be moved (someone else's in a shared folder) is copied with its
     /// file, and the move tells that it is still at the old name, where the next file of that
     /// name would take it. Before, it was left there without a word.
@@ -4275,7 +4383,7 @@ mod tests {
         RENAME_WAYS_MISSING.set(1);
         UNLINK_FAILS.set(Some((from.join("a.jpg.xmp"), libc::EPERM)));
         let result = super::follow_or_go_back(
-            (&photo, &to.join("a.jpg"), None),
+            (&photo, &to.join("a.jpg")),
             false,
             &std::collections::HashSet::from([&photo]),
             &mut Default::default(),
@@ -4312,7 +4420,7 @@ mod tests {
             let now = crate::files::file_io::fingerprint(&to.join(n)).unwrap();
             (from.join(n), to.join(n), now)
         };
-        // a.cr2 alone, and then with another RAW file of its stem, whose sidecars wait.
+        // a.cr2 alone, and then with another RAW file of its stem, which takes the stem's sidecar.
         for pairs in [vec![moved("a.cr2")], vec![moved("a.cr2"), moved("a.nef")]] {
             RENAME_WAYS_MISSING.set(1);
             UNLINK_FAILS.set(Some((to.join("a.cr2.xmp"), libc::EPERM)));
@@ -4550,7 +4658,7 @@ mod tests {
             let _ = wait.recv();
             None
         }));
-        app.delete_targets(&ctx, false, vec![0]);
+        app.delete_targets(&ctx, false, vec![0], None);
         assert!(a.exists() && app.notice.text().is_some());
         assert_eq!(app.list.files().len(), 2);
         app.file_operations.undo = Some(super::Undo::Move(vec![(
@@ -4580,7 +4688,7 @@ mod tests {
         });
         assert!(free);
         app.file_operations.undo = None;
-        app.delete_targets(&ctx, false, vec![0]);
+        app.delete_targets(&ctx, false, vec![0], None);
         assert!(wait_for(&|| !a.exists()));
         // Thousands against thousands are answered at once, not path against path (10^8
         // comparisons froze the window for seconds).
@@ -4708,7 +4816,7 @@ mod tests {
             ),
             (
                 "delete",
-                |app, ctx, _| app.delete_targets(ctx, false, vec![0]),
+                |app, ctx, _| app.delete_targets(ctx, false, vec![0], None),
                 |app, d| {
                     !d.join("a.png").exists()
                         && !crate::metadata::xmp::sidecar(&d.join("a.png")).exists()
@@ -4808,7 +4916,7 @@ mod tests {
             ),
             (
                 "trash",
-                |app, ctx, _| app.delete_targets(ctx, true, vec![0]),
+                |app, ctx, _| app.delete_targets(ctx, true, vec![0], None),
                 |app, d| {
                     !d.join("a.png").exists()
                         && !crate::metadata::xmp::sidecar(&d.join("a.png")).exists()
@@ -4819,7 +4927,7 @@ mod tests {
             (
                 "undo a trash",
                 |app, ctx, _| {
-                    app.delete_targets(ctx, true, vec![0]);
+                    app.delete_targets(ctx, true, vec![0], None);
                     // This waits only when the operation started. When it was held back, it
                     // says so, and there is nothing to wait for.
                     if app.notice.text().is_none() {
@@ -5078,7 +5186,7 @@ mod tests {
         }
         fn delete(app: &mut crate::App, ctx: &Context, f: &str, trash: bool) {
             let at = (app.list.files().iter()).position(|n| *n == *f);
-            app.delete_targets(ctx, trash, at.into_iter().collect());
+            app.delete_targets(ctx, trash, at.into_iter().collect(), None);
         }
         fn undo(app: &mut crate::App, ctx: &Context) {
             run_background_until(app, ctx, |app| app.file_operations.undo.is_some());
@@ -5294,7 +5402,7 @@ mod tests {
                 "undo a trash",
                 &["r.cr2", "r.nef", "r.xmp"],
                 |app, ctx, _| {
-                    app.delete_targets(ctx, true, [0].into_iter().collect());
+                    app.delete_targets(ctx, true, [0].into_iter().collect(), None);
                     undo(app, ctx);
                 },
                 &["r.cr2", "r.nef", "r.xmp"],
@@ -5304,7 +5412,7 @@ mod tests {
                 "undo a trash of both",
                 &["r.cr2", "r.nef", "r.xmp"],
                 |app, ctx, _| {
-                    app.delete_targets(ctx, true, [0, 1].into_iter().collect());
+                    app.delete_targets(ctx, true, [0, 1].into_iter().collect(), None);
                     undo(app, ctx);
                 },
                 &["r.cr2", "r.nef", "r.xmp"],
@@ -6248,7 +6356,7 @@ mod tests {
             && app.file_operations.undo.is_some()));
         // The delete waits for a.png's sidecar lock, so it is still running at the Ctrl+Z.
         let lock = crate::metadata::xmp::lock_sidecar(&a);
-        app.delete_targets(&ctx, true, vec![0]);
+        app.delete_targets(&ctx, true, vec![0], None);
         app.undo(&ctx);
         assert!(
             sub.join("c.png").exists() && !c.exists(),
@@ -6639,13 +6747,14 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("glimt-test-busy-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         image::RgbImage::new(2, 2).save(dir.join("a.png")).unwrap();
+        let picked_as = crate::files::file_io::fingerprint(&dir.join("a.png")).unwrap();
         let (mut app, ctx) = app_on(&dir);
         app.file_operations.deleting.insert("a.png".into());
         app.remove_indices(&ctx, &[0]);
         let refused = super::OperationReport {
             requested: vec![dir.join("a.png")],
             any_failed: true,
-            untrashable: Some(("fuse.rclone".into(), vec![dir.join("a.png")])),
+            untrashable: Some(("fuse.rclone".into(), vec![(dir.join("a.png"), picked_as)])),
             ..Default::default()
         };
         app.file_operations.report_tx.send(refused).unwrap();
@@ -6717,7 +6826,9 @@ mod tests {
     /// the list does not show, are not, because their names could be other files' in this
     /// list, and a notice tells that nothing was deleted. The question waits until the folder
     /// is read again, because the delete took the files out of the list. A file refused twice
-    /// is asked about once.
+    /// is asked about once. The delete for good acts only on the file as it was first picked:
+    /// one that another program put at its name since is left alone. Before, its fingerprint
+    /// was taken at the second question, which took the other file for the one picked.
     #[test]
     fn asks_to_delete_for_good_what_the_trash_refused_on_a_network_mount() {
         use std::path::PathBuf;
@@ -6725,9 +6836,13 @@ mod tests {
             std::env::temp_dir().join(format!("glimt-test-untrashable-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         image::RgbImage::new(2, 2).save(dir.join("a.png")).unwrap();
+        let picked_as = crate::files::file_io::fingerprint(&dir.join("a.png")).unwrap();
         let (mut app, ctx) = app_on(&dir);
         let refused = |files: Vec<PathBuf>| super::OperationReport {
-            untrashable: Some(("fuse.rclone".into(), files)),
+            untrashable: Some((
+                "fuse.rclone".into(),
+                files.into_iter().map(|f| (f, picked_as)).collect(),
+            )),
             ..Default::default()
         };
         // A refusal comes with the delete failed, which has the folder read again. A file of
@@ -6755,6 +6870,8 @@ mod tests {
             any_failed: true,
             ..refused(vec![dir.join("a.png")])
         };
+        // Another program puts another photo at the name before the question.
+        std::fs::write(dir.join("a.png"), "another photo").unwrap();
         app.file_operations.report_tx.send(failed).unwrap();
         // The same file refused again, by a second Delete, is counted once.
         app.file_operations
@@ -6763,7 +6880,17 @@ mod tests {
             .unwrap();
         assert!(run_background_until(&mut app, &ctx, |app| app.modal_open()));
         assert_eq!(app.dialogs.asked_names(), ["a.png"]);
-        assert_eq!(app.asked_targets().map(|(found, _)| found), Some(vec![0]));
+        let (found, picked) = app.asked_targets().unwrap();
+        assert_eq!(found, vec![0]);
+        app.notice.clear();
+        app.delete_now(&ctx, false, found, picked);
+        let told = |app: &crate::App| (app.notice.text()).is_some_and(|n| n.contains("changed"));
+        assert!(
+            run_background_until(&mut app, &ctx, told),
+            "{:?}",
+            app.notice.text()
+        );
+        assert_eq!(std::fs::read(dir.join("a.png")).unwrap(), b"another photo");
         std::fs::remove_dir_all(dir).unwrap();
     }
 
@@ -7162,7 +7289,7 @@ mod tests {
             let at = (app.list.files().iter())
                 .position(|f| f == "c.png")
                 .unwrap();
-            app.delete_targets(&ctx, false, vec![at]);
+            app.delete_targets(&ctx, false, vec![at], None);
         });
         assert!(!d.join("c.png.xmp").exists());
         // With many files, they are held a chunk at a time, so a file held up by a sidecar
@@ -7197,7 +7324,7 @@ mod tests {
             .collect();
         assert_eq!(all.len(), 400);
         let lock = crate::metadata::xmp::lock_sidecar(&y);
-        app.delete_targets(&ctx, false, all);
+        app.delete_targets(&ctx, false, all, None);
         let others_gone = |_: &crate::App| paths.iter().all(|p| held_up.contains(p) || !p.exists());
         assert!(
             run_background_until(&mut app, &ctx, others_gone),
@@ -7283,7 +7410,7 @@ mod tests {
             .folder
             .is_listing()));
         app.notice.clear();
-        app.delete_targets(&ctx, false, vec![0]);
+        app.delete_targets(&ctx, false, vec![0], None);
         let told = |app: &crate::App| (app.notice.text()).is_some_and(|n| n.contains("a.png.xmp"));
         assert!(run_background_until(&mut app, &ctx, told));
         assert!(!a.exists());
@@ -7301,7 +7428,7 @@ mod tests {
         let side = crate::metadata::xmp::sidecar(&a);
         std::os::unix::fs::symlink(dir.join("nowhere"), &side).unwrap();
         let (mut app, ctx) = app_on(&dir);
-        app.delete_targets(&ctx, false, vec![0]);
+        app.delete_targets(&ctx, false, vec![0], None);
         let gone = |p: &std::path::Path| std::fs::symlink_metadata(p).is_err();
         assert!(run_background_until(&mut app, &ctx, |_| gone(&a) && gone(&side)));
         std::fs::remove_dir_all(dir).unwrap();
@@ -7358,7 +7485,7 @@ mod tests {
             .folder
             .is_listing()));
         lock_even_if_poisoned(&LOOKS_FAIL).push(a.clone());
-        app.delete_targets(&ctx, false, vec![0]);
+        app.delete_targets(&ctx, false, vec![0], None);
         let done = run_background_until(&mut app, &ctx, |app| !app.working());
         lock_even_if_poisoned(&LOOKS_FAIL).retain(|p| *p != a);
         assert!(done);
@@ -7555,7 +7682,7 @@ mod tests {
             .iter()
             .position(|f| std::path::Path::new(f).ends_with("b.png"))
             .unwrap();
-        app.delete_targets(&ctx, false, vec![b]);
+        app.delete_targets(&ctx, false, vec![b], None);
         assert!(run_background_until(&mut app, &ctx, |_| !entries(&gqv).contains("b.png")));
         std::fs::remove_dir_all(d).unwrap();
     }
@@ -7662,7 +7789,7 @@ mod tests {
         ) && at(app)
             .is_some()));
         let a = at(&app).unwrap();
-        app.delete_targets(&ctx, true, vec![a]);
+        app.delete_targets(&ctx, true, vec![a], None);
         assert!(run_background_until(&mut app, &ctx, |app| has(
             app,
             &["b.png"]
@@ -7775,7 +7902,7 @@ mod tests {
         let a = dir.join("a.png");
         lock_even_if_poisoned(&crate::support::threads::BREAKING_FILES).push(a.clone());
         let (mut app, ctx) = app_on(&dir);
-        app.delete_targets(&ctx, false, vec![0, 1]);
+        app.delete_targets(&ctx, false, vec![0, 1], None);
         assert!(matches!(told_to(&app), Some(Told::FailedWrite(_))));
         assert!(run_background_until(&mut app, &ctx, |app| app
             .file_operations

@@ -244,6 +244,18 @@ impl AdobeNames {
         names
     }
 
+    /// Returns the names for an operation that takes the files `leaving` away (a move, its
+    /// Undo), with the folders of the RAW files among them read now, before the first one goes.
+    /// A folder read later would miss a RAW file that was away at that moment and then came
+    /// back, and the stem's sidecar would leave without it.
+    pub(crate) fn leaving<'a>(leaving: impl IntoIterator<Item = &'a PathBuf>) -> Self {
+        let mut names = Self::default();
+        for path in leaving.into_iter().filter(|p| is_adobe_raw(p)) {
+            names.of_stem(path);
+        }
+        names
+    }
+
     /// Returns the RAW files and Adobe sidecars in the folder of `path` that have its name stem.
     /// Returns `None` when there are none, also when the folder cannot be read.
     fn of_stem(&mut self, path: &Path) -> Option<&StemNames> {
@@ -1065,8 +1077,12 @@ pub fn follow(
         // The sidecar goes as the file went. It is on disk before the original goes, and never
         // over a sidecar there, which belongs to another file or is a copy kept on purpose. A
         // sidecar that cannot be moved (someone else's in a shared folder) is copied, so the
-        // keywords go with the photo. It is left at its old name too, which the caller tells.
+        // keywords go with the photo. It is left at its old name too, which the caller tells. A
+        // move whose answer was lost may have been done, so it is not tried again as a copy,
+        // which would only find the sidecar at both names or at neither, and hide the lost
+        // answer. Its caller settles where the sidecar is.
         match crate::files::file_io::put_file(side, to, is_copy) {
+            Err(e) if !is_copy && crate::files::file_io::may_have_been_done(&e, side) => Err(e),
             Err(error) if !is_copy => {
                 crate::files::file_io::put_file(side, to, true).map(|()| Some((true, Some(error))))
             }

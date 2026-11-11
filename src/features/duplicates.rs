@@ -1,6 +1,7 @@
 //! Find Duplicates, as in Geeqie: groups of images that are the same file, have the same name,
 //! size or dimensions, or look alike. Runs over the images of the list in background threads.
 
+use crate::files::file_io::{FileFingerprint, fingerprint};
 use crate::support::format::{count, human_size, thousands};
 use crate::support::lang::tr;
 use crate::support::threads::{Receiving, Took, Working, answer_channel, in_parts};
@@ -56,8 +57,13 @@ struct Picture {
     signature: Vec<u8>,
 }
 
-/// The groups that a search found, and the size of each file in them.
-type FoundGroups = (Vec<Vec<PathBuf>>, HashMap<PathBuf, u64>);
+/// The groups that a search found, with the size of each file in them and the fingerprint it
+/// had when the search saw it (`Seen`).
+type FoundGroups = (Vec<Vec<PathBuf>>, HashMap<PathBuf, u64>, Seen);
+
+/// The fingerprint that each file of the groups had when the search saw it. Move to Trash leaves
+/// out a file that no longer has it, as it may no longer be what the search found.
+type Seen = HashMap<PathBuf, FileFingerprint>;
 
 /// The Find Duplicates window: what to compare by, the search running and its results.
 pub(crate) struct FindDuplicates {
@@ -73,6 +79,8 @@ pub(crate) struct FindDuplicates {
     /// The size of each file in the groups, looked at with the search in its thread, because
     /// the window's thread does not wait for the disk.
     sizes: HashMap<PathBuf, u64>,
+    /// The fingerprint of each file in the groups as the search saw it.
+    seen: Seen,
     /// What the groups shown were found by. Only Checksum finds copies; the other ways group
     /// images that may differ, so trashing their files asks first.
     found_by: duplicates::By,
@@ -175,6 +183,7 @@ impl FindDuplicates {
             groups_rx: Receiving::none(),
             groups: Vec::new(),
             sizes: HashMap::new(),
+            seen: HashMap::new(),
             rows: Vec::new(),
             checked: HashSet::new(),
             searched: 0,
@@ -233,7 +242,7 @@ impl crate::App {
                 find_duplicates.searched = 0;
                 self.tell_background_stopped(tr("Find Duplicates"));
             }
-            Took::Answer(((groups, sizes), _pointer)) => {
+            Took::Answer(((groups, sizes, seen), _pointer)) => {
                 // Stopped: no result, not "0 groups" as if every image had been compared.
                 if find_duplicates
                     .progress
@@ -244,6 +253,7 @@ impl crate::App {
                 }
                 find_duplicates.groups = groups;
                 find_duplicates.sizes = sizes;
+                find_duplicates.seen = seen;
                 find_duplicates.checked.clear();
                 find_duplicates.is_warning_before_trash = false;
                 find_duplicates.remove(&HashSet::new());
@@ -338,18 +348,19 @@ impl crate::App {
         find_duplicates.progress = progress.clone();
         find_duplicates.groups_rx = Receiving::of(rx);
         std::thread::spawn(move || {
-            let groups = find(paths, by, rotate, save, &progress);
+            let (groups, seen) = find(paths, by, rotate, save, &progress);
             let sizes = (groups.iter().flatten())
                 .map(|p| (p.clone(), p.metadata().map_or(0, |m| m.len())))
                 .collect();
-            let _ = sender.send((groups, sizes));
+            let _ = sender.send((groups, sizes, seen));
             drop(pointer);
             ctx.request_repaint();
         });
     }
 
     /// Move to Trash: the checked files of the list, through the usual delete with its
-    /// confirmation.
+    /// confirmation. A file that is no longer as the search saw it (`Seen`) is left out and told,
+    /// as one edited since may no longer be a copy.
     fn trash_checked(&mut self, ctx: &egui::Context, find_duplicates: &FindDuplicates) {
         let checked = (0..self.list.files().len())
             .filter(|&i| find_duplicates.checked.contains(&self.path(i)))
@@ -360,7 +371,7 @@ impl crate::App {
         // With none selected the delete takes the shown image: only when the list still has
         // every checked file, else it would be another one, or too few.
         if self.list.selected().len() == find_duplicates.checked.len() {
-            self.request_delete(ctx, true);
+            self.request_delete_as_seen(ctx, true, Some(&find_duplicates.seen));
         } else {
             self.notice
                 .give(tr("The checked files are no longer all in the list").into());
@@ -368,15 +379,19 @@ impl crate::App {
     }
 }
 
-/// Groups of two or more of `paths` that match `by`, largest groups first. `rotate` and `save`
-/// are passed on to the thumbnails used for similarity.
+/// Groups of two or more of `paths` that match `by`, largest groups first, with the fingerprint
+/// of each file in them as the search saw it. `rotate` and `save` are passed on to the
+/// thumbnails used for similarity.
 pub fn find(
     paths: Vec<PathBuf>,
     by: By,
     rotate: bool,
     save: bool,
     progress: &Progress,
-) -> Vec<Vec<PathBuf>> {
+) -> (Vec<Vec<PathBuf>>, Seen) {
+    // The files compared by their bytes are looked at before they are read, so that one changed
+    // after it was compared is not taken for a copy. The other ways look at the files found.
+    let mut read_as: Option<Seen> = None;
     // The same file reached twice, by a link to it, through a linked folder or through a bind
     // mount, would be its own "duplicate", and checked and trashed the only copy would go: each
     // file once. Hard links of one file are one file too, since trashing one frees nothing.
@@ -404,6 +419,12 @@ pub fn find(
             // Only files of the same size can be the same; most are never read.
             let sizes = on_all_cores(&paths, progress, size);
             let candidates: Vec<PathBuf> = groups(paths, sizes).into_iter().flatten().collect();
+            let looked = on_all_cores(&candidates, progress, fingerprint);
+            read_as = Some(
+                (candidates.iter().zip(looked))
+                    .filter_map(|(path, seen)| Some((path.clone(), seen?)))
+                    .collect(),
+            );
             let sums = on_all_cores(&candidates, progress, |path| checksum(path, progress));
             // The hash only finds them: the files of a group are compared byte by byte, as two
             // that differ could share a 64-bit hash, and these are offered for the trash.
@@ -431,13 +452,22 @@ pub fn find(
         }
     };
     if progress.is_cancelled.load(Ordering::Relaxed) {
-        return Vec::new();
+        return (Vec::new(), Seen::new());
     }
     for g in &mut groups {
         g.sort();
     }
     groups.sort_by(|a, b| b.len().cmp(&a.len()).then_with(|| a.cmp(b)));
-    groups
+    let seen = (groups.iter().flatten())
+        .filter_map(|path| {
+            let seen = match &mut read_as {
+                Some(read_as) => read_as.remove(path),
+                None => fingerprint(path),
+            };
+            Some((path.clone(), seen?))
+        })
+        .collect();
+    (groups, seen)
 }
 
 /// The name of the way `by` to compare, in English as `ALL` has it.
@@ -804,6 +834,47 @@ mod tests {
         std::fs::remove_dir_all(dir).unwrap();
     }
 
+    /// Move to Trash leaves out a checked file that was edited after the search found it, and
+    /// says so, as it may no longer be a copy. Before, the delete looked at the files only when
+    /// asked, so such a file went to the trash as a copy of the other.
+    #[test]
+    fn a_file_edited_after_the_search_is_not_trashed_as_a_copy() {
+        use crate::support::test_support::{app_on, run_background_until};
+        let dir =
+            std::env::temp_dir().join(format!("glimt-test-dup-edited-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let (a, b) = (dir.join("a.png"), dir.join("b.png"));
+        image::RgbImage::new(3, 3).save(&a).unwrap();
+        std::fs::copy(&a, &b).unwrap();
+        let (mut app, ctx) = app_on(&dir);
+        assert!(run_background_until(&mut app, &ctx, |a| !a
+            .folder
+            .is_listing()));
+        let mut find_duplicates = super::FindDuplicates::new();
+        app.start_find(&ctx, &mut find_duplicates);
+        let took = (find_duplicates.groups_rx).wait(std::time::Duration::from_secs(5));
+        let super::Took::Answer(((groups, _, seen), pointer)) = took else {
+            panic!("no groups");
+        };
+        drop(pointer);
+        assert_eq!(groups, [[a.clone(), b.clone()]]);
+        (find_duplicates.groups, find_duplicates.seen) = (groups, seen);
+        std::fs::write(&b, "edited").unwrap();
+        find_duplicates.checked = [b.clone()].into();
+        app.config.confirm_trash = false;
+        app.trash_checked(&ctx, &find_duplicates);
+        let told = |app: &crate::App| {
+            (app.notice.text()).is_some_and(|n| n.contains("b.png") && n.contains("changed"))
+        };
+        assert!(
+            run_background_until(&mut app, &ctx, told),
+            "{:?}",
+            app.notice.text()
+        );
+        assert_eq!(std::fs::read(&b).unwrap(), b"edited");
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
     /// Only groups of identical files offer to check all but the first, and trash at once.
     /// Groups by name, size, dimensions or likeness hold different images, and two clicks
     /// sent hundreds of them to the trash without a word when confirming was off.
@@ -868,7 +939,7 @@ mod tests {
         std::fs::hard_link(&files[0], &files[1]).unwrap();
         std::fs::write(&files[2], vec![7u8; 1000]).unwrap();
         let p = super::Progress::default();
-        let groups = super::find(files.clone(), super::By::Checksum, false, false, &p);
+        let (groups, _) = super::find(files.clone(), super::By::Checksum, false, false, &p);
         assert_eq!(groups, [vec![files[0].clone(), files[2].clone()]]);
         std::fs::remove_dir_all(dir).unwrap();
     }
@@ -920,7 +991,7 @@ mod tests {
         let took = find_duplicates
             .groups_rx
             .wait(std::time::Duration::from_secs(5));
-        let Took::Answer(((groups, sizes), pointer)) = took else {
+        let Took::Answer(((groups, sizes, _), pointer)) = took else {
             panic!("no groups");
         };
         drop(pointer);
@@ -1137,7 +1208,7 @@ mod tests {
         // Saved to the cache the first time and read from it the second.
         for _ in 0..2 {
             let start = std::time::Instant::now();
-            let groups = find(
+            let (groups, _) = find(
                 paths.clone(),
                 By::Similar(90),
                 true,
@@ -1196,16 +1267,19 @@ mod tests {
         let all = vec![a.clone(), b.clone(), c.clone(), d.clone()];
         let p = Progress::default();
         assert_eq!(
-            find(all.clone(), By::Checksum, false, false, &p),
+            find(all.clone(), By::Checksum, false, false, &p).0,
             [[a.clone(), b.clone()]]
         );
         assert_eq!(
-            find(all.clone(), By::Name, false, false, &p),
+            find(all.clone(), By::Name, false, false, &p).0,
             [[a.clone(), b.clone()]]
         );
-        assert_eq!(find(all.clone(), By::Dimensions, false, false, &p).len(), 1);
         assert_eq!(
-            find(all.clone(), By::Similar(95), false, false, &p),
+            find(all.clone(), By::Dimensions, false, false, &p).0.len(),
+            1
+        );
+        assert_eq!(
+            find(all.clone(), By::Similar(95), false, false, &p).0,
             [[a.clone(), c, b]]
         );
         assert_eq!(p.done.load(Ordering::Relaxed), 4);
@@ -1213,12 +1287,12 @@ mod tests {
         let link = dir.join("0link.png");
         std::os::unix::fs::symlink(&a, &link).unwrap();
         let linked = vec![a.clone(), link, d.clone()];
-        assert!(find(linked, By::Checksum, false, false, &p).is_empty());
+        assert!(find(linked, By::Checksum, false, false, &p).0.is_empty());
         // Nor is a reached through a linked folder.
         let folder = dir.join("linked");
         std::os::unix::fs::symlink(&dir, &folder).unwrap();
         let twice = vec![a.clone(), folder.join("a.png"), d.clone()];
-        assert!(find(twice, By::Checksum, false, false, &p).is_empty());
+        assert!(find(twice, By::Checksum, false, false, &p).0.is_empty());
         std::fs::remove_dir_all(&dir).unwrap();
     }
 }

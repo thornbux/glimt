@@ -7,6 +7,28 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- Rename Many and the trash without gio take a rename that a network or cloud mount answered
+  with "no such file" as one that may have been done, as NFS and SMB answer so to a rename sent
+  again after its answer was lost. Before, Rename Many could leave a file under a hidden name,
+  and the trash could drop a file's .trashinfo.
+- A Move of two RAW files of one name stem, and its Undo, move each file's own sidecar right
+  after the file. Before, it waited until the job's end, so a kill in between left the photo
+  and its sidecar apart, and a photo that then went back lost Lightroom's sidecar of the stem.
+- A sidecar whose move a share may have done without saying so ends beside its photo under one
+  name, also in the trash's Undo. Before, it could stay under both names while the message said
+  the photo was with its sidecar.
+- Leave the names as they are, after a repair of Rename Many that stopped half way, keeps the
+  marks of a photo that is back at its old name when its new name cannot be looked at.
+- Find Duplicates' Move to Trash leaves out a file that changed after the search, and says so.
+  Before, a file edited after a search by checksum went to the trash as a copy.
+- Delete for good, asked after the trash refused files on a network or cloud mount, deletes
+  only the files as they were first picked, not another file put at a name since.
+- A folder picked on FAT, exFAT or FUSE is told by its time too before it is deleted, moved or
+  renamed, as its inode may be given to another folder.
+- A name that another file has taken since the folder was read loses the old photo's `exif:`
+  entry, Pan view date and thumbnail.
+- Files picked before a question keep their paths once, not three or four times, and a list
+  with subfolders reads the mount table once, not once for each folder.
 - A shared file (settings, marks, keyword tree, recent list, collections, sidecars) whose lock
   cannot be had, as on NFS without lockd, is still edited, and the window says once that a
   change another window makes at the same moment may be lost. Before, it said nothing.

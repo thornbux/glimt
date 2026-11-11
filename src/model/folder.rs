@@ -1590,9 +1590,16 @@ impl crate::App {
         // So is the image that a slideshow of one pane at a time showed last, because it goes
         // on from there, while the panes it keeps stay as they are.
         let last_slide = self.list.files().get(self.list.last_slide()).cloned();
+        // A name that another file has taken since keeps nothing that was read of the file it
+        // held: its thumbnail, size and date, its part of the exif: index and its Pan view date.
+        let taken = self.list.names_another_file_took(&files);
         // A new List means every place held in the old one goes with it, whatever field holds
         // it. Only what is carried over by name above comes back.
         self.list = List::replacing(&self.list, files);
+        if !taken.is_empty() {
+            let dir = self.folder.dir().to_path_buf();
+            self.forget_names(&taken.iter().map(|name| dir.join(name)).collect::<Vec<_>>());
+        }
         // The shown file is set before anything refills the list, because with Compare on a
         // `refill_preload` at place 0 would drop the decode of the image shown.
         let shown = found.unwrap_or(0);
@@ -1906,6 +1913,39 @@ pub(crate) fn read_sort_folders() -> Vec<PathBuf> {
 #[cfg(test)]
 mod tests {
     use crate::support::test_support::{app_on, contract_folder, run_background_until};
+
+    /// A listing that finds another file under a name the list showed (another window's Rename
+    /// Many swapped two names) reads that name's EXIF text again, and forgets what else was read
+    /// of the file it held. Before, the name kept the old photo's `exif:` entry, so a search
+    /// found the other photo, until another folder was opened.
+    #[test]
+    fn a_name_another_file_took_is_read_again() {
+        let dir =
+            std::env::temp_dir().join(format!("glimt-test-names-swapped-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        for name in ["a.png", "b.png", "c.png"] {
+            std::fs::write(dir.join(name), name).unwrap();
+        }
+        let (mut app, ctx) = app_on(&dir);
+        assert!(run_background_until(&mut app, &ctx, |a| !a
+            .folder
+            .is_listing()));
+        let listing = |names: &[&str]| -> Vec<crate::model::listing::ListedName> {
+            let id = |n: &str| crate::files::file_io::identity_of(&dir.join(n));
+            names.iter().map(|n| (n.into(), id(n))).collect()
+        };
+        app.replace_files(&ctx, listing(&["a.png", "b.png", "c.png"]), None);
+        let index = [("a.png", "canon"), ("b.png", "nikon"), ("c.png", "pentax")];
+        (app.search).set_exif_index(index.map(|(n, t)| (n.into(), t.into())).into());
+        // Another window swaps a.png and c.png, and the listing comes in another order.
+        std::fs::rename(dir.join("a.png"), dir.join("t.png")).unwrap();
+        std::fs::rename(dir.join("c.png"), dir.join("a.png")).unwrap();
+        std::fs::rename(dir.join("t.png"), dir.join("c.png")).unwrap();
+        app.replace_files(&ctx, listing(&["a.png", "c.png", "b.png"]), None);
+        assert!(app.search.reads_exif_again("a.png") && app.search.reads_exif_again("c.png"));
+        assert!(!app.search.reads_exif_again("b.png"));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
 
     /// The folder shown last is looked up in the background at start, as any path, and when it
     /// is gone the current folder opens instead. Before, the window's thread looked at it before
