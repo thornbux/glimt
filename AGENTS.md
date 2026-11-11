@@ -134,7 +134,10 @@ command is answered with nothing when it was done, and with `not done: <reason>`
 not: a `run` refused while a dialog is open or a field has the focus, an action that
 `App::why_refused` refuses (a kiosk's, say), or a command or choice the window does not know.
 The client then exits with `NOT_DONE` (3). A window from a version before these answers closes
-the connection without one, which the client takes as done.
+the connection without one, which the client takes as done. "Done" means that the command was
+taken; with `--wait` the client sends it after the word `wait`, and the window answers only when
+its work has ended, `done` or `not done: <reason>` when a write failed meanwhile
+(`answer_awaited_outcomes`).
 
 No test pins the following, so they are kept by hand:
 

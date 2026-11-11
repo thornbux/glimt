@@ -1454,6 +1454,28 @@ for v in new old; do
     else note "old: $got"; fi
 done
 
+section "--wait --remote run: done once the setting is written, exit 3 when its folder is read-only"
+for v in new old; do
+    as_version $v
+    d=/tmp/remote-wait-$v
+    mkdir -p $d
+    convert -size 64x64 xc:red $d/a.png
+    config
+    start $d/a.png; sleep 1
+    timeout 90 $BIN --wait --remote run Toolbar >/dev/null 2>&1; written=$?
+    chmod 555 $XDG_CONFIG_HOME/glimt
+    timeout 90 $BIN --wait --remote run Toolbar >/dev/null 2>/tmp/remote-wait-$v.err; failed=$?
+    # Without --wait the command is done when it is taken, as in 1.x.
+    remote run Toolbar >/dev/null 2>&1; plain=$?
+    sleep 1
+    chmod 755 $XDG_CONFIG_HOME/glimt
+    quit
+    told=$(grep -c "not done: Could not save" /tmp/remote-wait-$v.err)
+    got="$written $failed $told $plain"
+    if [ $v = new ]; then expect "--wait: 0 written, 3 and the failure told when read-only, 0 without" "$got" "0 3 1 0"
+    else note "old: $got"; fi
+done
+
 section "--remote previous, and the words from before 0.74.0: prev and run Prev still taken"
 d=/tmp/remote-previous
 mkdir -p $d
