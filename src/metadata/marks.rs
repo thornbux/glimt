@@ -24,6 +24,13 @@ static WRITING: std::sync::LazyLock<std::sync::Arc<std::sync::atomic::AtomicUsiz
 /// the whole file, not one each.
 static QUEUED_EDITS: std::sync::Mutex<Vec<Edit>> = std::sync::Mutex::new(Vec::new());
 
+/// The edits of each marks file that follow what happened on disk (files moved, renamed or
+/// deleted) and could not be written. They are made again before the next edits, and over the
+/// file each time it is read, so the marks stay on the files whose names changed. A failed
+/// change of a mark or of stars is told instead and not kept, as the user can make it again.
+static UNWRITTEN_EDITS: std::sync::Mutex<std::collections::BTreeMap<PathBuf, Vec<Edit>>> =
+    std::sync::Mutex::new(std::collections::BTreeMap::new());
+
 /// Mark bits (bit 0 = mark 1) and stars, by path.
 type MarksByPath = HashMap<PathBuf, (u8, u8)>;
 
@@ -258,7 +265,15 @@ fn read_marks_file(file: &Path) -> HashMap<PathBuf, (u8, u8)> {
     let stamp = file_stamp(file);
     known_stamps().insert(file.to_path_buf(), stamp);
     let text = crate::images::decode::read_limited(file).unwrap_or_default();
-    parse(&text)
+    let mut map = parse(&text);
+    for edit in lock_even_if_poisoned(&UNWRITTEN_EDITS)
+        .get(file)
+        .into_iter()
+        .flatten()
+    {
+        apply_edit(&mut map, edit);
+    }
+    map
 }
 
 /// Returns the inode and time of `file`, which show that the file at the path changed since,
@@ -453,7 +468,7 @@ fn save(edit: Edit) {
         if let Some(file) =
             marks_file().filter(|f| adds || !crate::files::file_io::is_surely_gone(f))
         {
-            write(&file, &edits);
+            write(&file, edits);
         }
     });
 }
@@ -472,8 +487,12 @@ fn take_queued_edits() -> Vec<Edit> {
     std::mem::take(&mut *lock_even_if_poisoned(&QUEUED_EDITS))
 }
 
-/// `changes` applied to the marks file as it is now.
-fn write(file: &Path, changes: &[Edit]) {
+/// `changes` applied to the marks file as it is now, after the edits of it that could not be
+/// written before (`UNWRITTEN_EDITS`).
+fn write(file: &Path, changes: Vec<Edit>) {
+    let unwritten = lock_even_if_poisoned(&UNWRITTEN_EDITS).remove(file);
+    let changes: Vec<Edit> = unwritten.into_iter().flatten().chain(changes).collect();
+    let before = file_stamp(file);
     // These changes on the file as another window may have left it; one that cannot be read
     // is not written over with these changes alone, as every other mark would be lost.
     let edit = |bytes: &[u8]| {
@@ -483,7 +502,7 @@ fn write(file: &Path, changes: &[Edit]) {
         let ours = known_stamps().get(file) == Some(&stamp);
         let mut map = parse(bytes);
         let before = map.clone();
-        for change in changes {
+        for change in &changes {
             apply_edit_to_file(&mut map, change);
         }
         // An edit that changes no mark, as a move of files without marks, leaves the file as
@@ -512,7 +531,26 @@ fn write(file: &Path, changes: &[Edit]) {
             name = file.display(),
             e
         ));
+        // A file whose stamp changed was written after all (only its folder's sync failed), or
+        // by another window, and the edits are not made twice.
+        if file_stamp(file) == before {
+            keep_unwritten(file, changes);
+        }
     }
+}
+
+/// Keeps the edits among `changes` that follow what happened on disk, to make them again
+/// (`UNWRITTEN_EDITS`). A move whose marks were not saved would otherwise leave each file with
+/// the stars of the file that had its name before.
+fn keep_unwritten(file: &Path, changes: Vec<Edit>) {
+    let following = changes
+        .into_iter()
+        .filter(|edit| !matches!(edit, Edit::Change(..)));
+    let mut unwritten = lock_even_if_poisoned(&UNWRITTEN_EDITS);
+    unwritten
+        .entry(file.to_path_buf())
+        .or_default()
+        .extend(following);
 }
 
 /// In a test, the edits are kept for the test to write, so the tests side by side do not write
@@ -655,7 +693,7 @@ mod tests {
         marks.refresh();
         crate::files::file_io::flush();
         marks.rate(std::slice::from_ref(&a), 4);
-        super::write(&file, &super::SENT.with(|sent| sent.take()));
+        super::write(&file, super::SENT.with(|sent| sent.take()));
         marks.receive();
         assert_eq!(marks.get(&a), (0, 4), "the mark set meanwhile is lost");
         // The file is read again after the rating was written, and has both.
@@ -757,12 +795,12 @@ mod tests {
         std::fs::write(&file, text).unwrap();
         marks.follow_files(vec![(a.clone(), c.clone())], false);
         // The file read before the move lacks it, so it is read again once the move is written.
-        super::write(&file, &super::SENT.with(|sent| sent.take()));
+        super::write(&file, super::SENT.with(|sent| sent.take()));
         settled(&mut marks);
         assert_eq!((marks.get(&c), marks.get(&a)), ((0, 3), (0, 0)));
         let for_undo = crate::files::trash::ForgottenMarks::default();
         marks.forget(std::slice::from_ref(&b), Some(for_undo.clone()));
-        super::write(&file, &super::SENT.with(|sent| sent.take()));
+        super::write(&file, super::SENT.with(|sent| sent.take()));
         let was = lock_even_if_poisoned(&for_undo).clone();
         assert_eq!((marks.get(&b), was), ((0, 0), vec![(b.clone(), (0, 2))]));
         super::TEST_FILE.with(|f| *f.borrow_mut() = None);
@@ -784,7 +822,7 @@ mod tests {
         let mut marks = super::read_marks();
         std::fs::write(&file, format!("1\t0\t{}\n", a.display())).unwrap();
         marks.toggle(std::slice::from_ref(&a), 1);
-        super::write(&file, &super::SENT.with(|sent| sent.take()));
+        super::write(&file, super::SENT.with(|sent| sent.take()));
         assert_eq!(
             super::read_marks().get(&a),
             (0, 0),
@@ -792,7 +830,7 @@ mod tests {
         );
         // With one of the files without it, the mark is set on both.
         marks.toggle(&[a.clone(), b.clone()], 1);
-        super::write(&file, &super::SENT.with(|sent| sent.take()));
+        super::write(&file, super::SENT.with(|sent| sent.take()));
         let file_now = super::read_marks();
         assert_eq!((file_now.get(&a), file_now.get(&b)), ((1, 0), (1, 0)));
         settled(&mut marks);
@@ -854,7 +892,7 @@ mod tests {
         marks.follow_files(vec![(a.clone(), c.clone())], false);
         marks.forget(std::slice::from_ref(&b), None);
         let sent: Vec<super::Edit> = super::SENT.with(|sent| sent.take());
-        super::write(&file, &sent);
+        super::write(&file, sent);
         let now = super::parse(&std::fs::read(&file).unwrap());
         assert_eq!(now, std::collections::HashMap::from([(c.clone(), (0, 3))]));
         super::TEST_FILE.with(|f| *f.borrow_mut() = None);
@@ -888,7 +926,7 @@ mod tests {
         marks.forget(&[a.clone(), b.clone(), c.clone()], Some(for_undo.clone()));
         super::TEST_WRITES_QUEUED.with(|q| q.set(false));
         // The writer thread then writes the queued edits in order.
-        super::write(&file, &super::SENT.with(|sent| sent.take()));
+        super::write(&file, super::SENT.with(|sent| sent.take()));
         let mut was = lock_even_if_poisoned(&for_undo).clone();
         was.sort();
         assert_eq!(was, [(a, (0, 4)), (b, (0, 2))]);
@@ -909,7 +947,7 @@ mod tests {
         let stars =
             |p: &std::path::Path, n| super::Edit::Change(vec![p.into()], super::Change::Stars(n));
         marks.rate(std::slice::from_ref(&a), 4);
-        super::write(&file, &[stars(&a, 4)]);
+        super::write(&file, vec![stars(&a, 4)]);
         // The file's bytes gone but the file and its time kept: read again, it would have no
         // stars.
         let t = std::fs::metadata(&file).unwrap().modified().unwrap();
@@ -922,7 +960,7 @@ mod tests {
         refreshed(&mut marks);
         assert_eq!(marks.get(&a), (0, 4));
         // Another window's write just after, maybe in the same tick of the clock: read.
-        super::write(&file, &[stars(&a, 4)]);
+        super::write(&file, vec![stars(&a, 4)]);
         crate::files::file_io::edit_shared(&file, |old| {
             let mut text = old.to_vec();
             text.extend(format!("0\t2\t{}\n", b.display()).as_bytes());
@@ -948,9 +986,48 @@ mod tests {
         let mut marks = super::read_marks();
         marks.rate(std::slice::from_ref(&a), 3);
         let stars = super::Edit::Change(vec![a.clone()], super::Change::Stars(3));
-        super::write(&file, &[stars]);
+        super::write(&file, vec![stars]);
         refreshed(&mut marks);
         assert_eq!(marks.get(&a), (0, 0));
+        super::TEST_FILE.with(|f| *f.borrow_mut() = None);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// Names that two files swapped, whose marks could not be saved, keep their marks on the
+    /// right file: in the window, when the file is read again, and in the file at the next
+    /// write. Before, the window took back the marks file as it was, so each photo showed the
+    /// other's stars, and the next write left them so.
+    #[test]
+    fn marks_that_follow_files_are_written_later_when_they_could_not_be() {
+        let dir =
+            std::env::temp_dir().join(format!("glimt-test-marks-follow-{}", std::process::id()));
+        // A folder where the marks file would be: it cannot be written.
+        let file = dir.join("marks");
+        std::fs::create_dir_all(&file).unwrap();
+        super::TEST_FILE.with(|f| *f.borrow_mut() = Some(file.clone()));
+        let (a, b) = (dir.join("a.jpg"), dir.join("b.jpg"));
+        let swap = vec![(a.clone(), b.clone()), (b.clone(), a.clone())];
+        super::write(&file, vec![super::Edit::Follow(swap, false)]);
+        // The file as it was before, readable again.
+        std::fs::remove_dir(&file).unwrap();
+        let text = format!("0\t1\t{}\n0\t2\t{}\n", a.display(), b.display());
+        std::fs::write(&file, text).unwrap();
+        let mut marks = super::read_marks();
+        assert_eq!((marks.get(&a), marks.get(&b)), ((0, 2), (0, 1)));
+        let c = dir.join("c.jpg");
+        super::write(
+            &file,
+            vec![super::Edit::Change(
+                vec![c.clone()],
+                super::Change::Stars(5),
+            )],
+        );
+        refreshed(&mut marks);
+        let written = super::parse(&std::fs::read(&file).unwrap());
+        for map in [&marks.by_path, &written] {
+            assert_eq!((map.get(&a), map.get(&b)), (Some(&(0, 2)), Some(&(0, 1))));
+        }
+        assert_eq!(written.get(&c), Some(&(0, 5)));
         super::TEST_FILE.with(|f| *f.borrow_mut() = None);
         std::fs::remove_dir_all(dir).unwrap();
     }
@@ -976,7 +1053,7 @@ mod tests {
         assert_eq!(marks.get(&a), (193, 3));
         let mark = super::Edit::Change(vec![a.clone()], super::Change::Mark(1, true));
         let stars = super::Edit::Change(vec!["/c.jpg".into()], super::Change::Stars(2));
-        super::write(&file, &[mark, stars]);
+        super::write(&file, vec![mark, stars]);
         let text = std::fs::read_to_string(&file).unwrap();
         for line in [
             "193\t3\t/a.jpg\n",
@@ -1010,8 +1087,11 @@ mod tests {
         };
         let before = stamp();
         let pairs = vec![("/b.jpg".into(), "/c.jpg".into())];
-        super::write(&file, &[super::Edit::Follow(pairs, false)]);
-        super::write(&file, &[super::Edit::Forget(vec!["/d.jpg".into()], None)]);
+        super::write(&file, vec![super::Edit::Follow(pairs, false)]);
+        super::write(
+            &file,
+            vec![super::Edit::Forget(vec!["/d.jpg".into()], None)],
+        );
         assert_eq!(stamp(), before);
         assert_eq!(std::fs::read_to_string(&file).unwrap(), "1\t0\t/a.jpg\n");
         std::fs::remove_dir_all(dir).unwrap();
@@ -1268,7 +1348,7 @@ mod tests {
             .count();
         let edits = super::take_queued_edits();
         assert_eq!((writes_asked, edits.len()), (1, 100));
-        super::write(&file, &edits);
+        super::write(&file, edits);
         let now = super::parse(&std::fs::read(&file).unwrap());
         let expected: std::collections::HashMap<_, _> =
             paths.into_iter().map(|p| (p, (0, 3))).collect();
