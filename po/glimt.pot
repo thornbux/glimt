@@ -2203,7 +2203,7 @@ msgid "{files} renamed"
 msgstr ""
 
 #: src/features/print.rs
-msgid "; {files} could not be, asked again at the next start"
+msgid "; {files} could not be, asked about again"
 msgstr ""
 
 #: src/features/print.rs

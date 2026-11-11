@@ -2204,8 +2204,8 @@ msgid "{files} renamed"
 msgstr "Přejmenováno: {files}"
 
 #: src/features/print.rs
-msgid "; {files} could not be, asked again at the next start"
-msgstr "; nepodařilo se: {files}, dotaz se zopakuje při příštím spuštění"
+msgid "; {files} could not be, asked about again"
+msgstr "; nepodařilo se: {files}, dotaz se zopakuje"
 
 #: src/features/print.rs
 msgid "{found} of {images} ({size})"

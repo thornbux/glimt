@@ -2193,8 +2193,8 @@ msgid "{files} renamed"
 msgstr "{files} renomeado(s)"
 
 #: src/features/print.rs
-msgid "; {files} could not be, asked again at the next start"
-msgstr "; {files} não, nova pergunta na próxima inicialização"
+msgid "; {files} could not be, asked about again"
+msgstr "; {files} não, nova pergunta"
 
 #: src/features/print.rs
 msgid "{found} of {images} ({size})"

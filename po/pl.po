@@ -2037,8 +2037,8 @@ msgid "{files} renamed"
 msgstr "Zmieniono nazwy: {files}"
 
 #: src/features/print.rs
-msgid "; {files} could not be, asked again at the next start"
-msgstr "; nie udało się: {files}, pytanie wróci przy następnym uruchomieniu"
+msgid "; {files} could not be, asked about again"
+msgstr "; nie udało się: {files}, pytanie wraca"
 
 #: src/features/print.rs
 msgid "{found} of {images} ({size})"

@@ -1320,10 +1320,7 @@ fn put_cut_short_right(
     };
     if left > 0 {
         let files = count(left, "file");
-        message += &tf!(
-            "; {files} could not be, asked again at the next start",
-            files
-        );
+        message += &tf!("; {files} could not be, asked about again", files);
         return Some(Told::FailedWrite(message));
     }
     Some(Told::Notice(message))

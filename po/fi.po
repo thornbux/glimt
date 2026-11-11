@@ -2026,8 +2026,8 @@ msgid "{files} renamed"
 msgstr "{files} nimetty uudelleen"
 
 #: src/features/print.rs
-msgid "; {files} could not be, asked again at the next start"
-msgstr "; {files} ei voitu, kysytään uudelleen seuraavalla käynnistyskerralla"
+msgid "; {files} could not be, asked about again"
+msgstr "; {files} ei voitu, kysytään uudelleen"
 
 #: src/features/print.rs
 msgid "{found} of {images} ({size})"

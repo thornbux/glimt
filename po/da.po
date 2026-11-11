@@ -2026,8 +2026,8 @@ msgid "{files} renamed"
 msgstr "{files} omdøbt"
 
 #: src/features/print.rs
-msgid "; {files} could not be, asked again at the next start"
-msgstr "; {files} kunne ikke, spørges igen ved næste start"
+msgid "; {files} could not be, asked about again"
+msgstr "; {files} kunne ikke, spørges igen"
 
 #: src/features/print.rs
 msgid "{found} of {images} ({size})"
