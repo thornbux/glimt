@@ -29,6 +29,14 @@ and versions follow [Semantic Versioning](https://semver.org/).
   Before, it was taken out of the collection with a notice when another entry changed.
 - Check Images and the view read an animation with a large canvas no further than 2 GB of
   canvases. Before, a small crafted GIF of many tiny frames on a huge canvas took minutes.
+- Without gio, a file moved to the trash on another disk goes into the trash folder at that
+  disk's top that Glimt checked, and Undo reads that same folder, opened once without following
+  a link. Before, another user who can write at the disk's top, or who owns its `.Trash`, could
+  swap the folder for a link in the moment after the check, and get the file, or have Undo
+  bring back a file of theirs.
+- In the Flatpak, a file that the trash portal refused, in a folder that the sandbox shows by a
+  mount of that folder alone (such as /srv), is no longer put in a `.Trash-UID` there, where the
+  host's file managers never look. The window asks whether to delete it for good instead.
 - The HDF5 added format reads only what the file holds. Before, a downloaded file could show
   another file of the user's through external storage, a link to another file or a virtual
   dataset, and it was saved as a thumbnail.
