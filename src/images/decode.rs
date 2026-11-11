@@ -2036,6 +2036,45 @@ mod tests {
         std::fs::remove_dir_all(dir).unwrap();
     }
 
+    /// Every extension of `EXTS` is read by a decoder built in: a small image of each, in that
+    /// format, comes back at its size. A format listed whose `image` feature was left out of
+    /// Cargo.toml would be listed and never shown. The Netpbm forms that `image` writes only
+    /// as PPM (PBM, PGM, PAM) are written by hand.
+    #[test]
+    fn every_listed_extension_is_decoded() {
+        use crate::model::listing::{EXTS, TIFF_LIKE};
+        let dir = std::env::temp_dir().join(format!("glimt-test-exts-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let pam_head = b"P7\nWIDTH 6\nHEIGHT 4\nDEPTH 3\nMAXVAL 255\nTUPLTYPE RGB\nENDHDR\n";
+        let by_hand: [(&str, Vec<u8>); 3] = [
+            ("pbm", [&b"P1\n6 4\n"[..], &b"0 1 "[..].repeat(12)].concat()),
+            ("pgm", [&b"P5\n6 4\n255\n"[..], &[128; 24][..]].concat()),
+            ("pam", [&pam_head[..], &[200; 72][..]].concat()),
+        ];
+        for ext in EXTS {
+            let path = dir.join(format!("a.{ext}"));
+            let format = match TIFF_LIKE.contains(ext) {
+                true => Some(image::ImageFormat::Tiff),
+                false => image::ImageFormat::from_extension(ext),
+            };
+            let format = format.unwrap_or_else(|| panic!("{ext}: no format of image's"));
+            match by_hand.iter().find(|(e, _)| e == ext) {
+                Some((_, bytes)) => std::fs::write(&path, bytes).unwrap(),
+                None if format == image::ImageFormat::Hdr => {
+                    image::Rgb32FImage::new(6, 4).save(&path).unwrap()
+                }
+                // Each writer takes one of these two: the JPEG one only RGB.
+                None => (image::RgbaImage::new(6, 4).save_with_format(&path, format))
+                    .or_else(|_| image::RgbImage::new(6, 4).save_with_format(&path, format))
+                    .unwrap_or_else(|e| panic!("{ext}: {e}")),
+            }
+            let decoded = super::decode(&path, [100, 100], true, 0);
+            let (frames, size, _) = decoded.unwrap_or_else(|e| panic!("{ext}: {e}"));
+            assert_eq!((frames[0].0.size, size), ([6, 4], [6, 4]), "{ext}");
+        }
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
     #[test]
     fn lists_folder_and_decodes_to_screen_size() {
         let dir = std::env::temp_dir().join(format!("glimt-test-{}", std::process::id()));
