@@ -141,8 +141,14 @@ jobs:
         # first window closed. A failure here stops the release job, which publishes.
         timeout-minutes: 10
         run: |
-          # Tried again after a pause: twice the runner could not resolve the Ubuntu mirror
-          # for a moment, and that stopped the release.
+          # The runner's apt goes to Azure's Ubuntu mirror only, which for hours could not be
+          # resolved and stopped the release; the main archive is asked instead, and a short
+          # failure is tried again after a pause.
+          for list in /etc/apt/sources.list.d/*.sources /etc/apt/sources.list; do
+              [ -f "$list" ] || continue
+              sudo sed -i 's|mirror+file:/etc/apt/apt-mirrors.txt|http://archive.ubuntu.com/ubuntu/|g;
+                  s|http://azure.archive.ubuntu.com/ubuntu/|http://archive.ubuntu.com/ubuntu/|g' "$list"
+          done
           install_packages() {
               sudo apt-get -o Acquire::Retries=5 update -qq &&
                   sudo apt-get -o Acquire::Retries=5 install -y -qq xvfb fuse3 libgl1-mesa-dri \
