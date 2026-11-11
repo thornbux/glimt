@@ -74,6 +74,8 @@ pub(crate) struct Window {
     /// How many failed writes the window has told. `guard_close` compares it before and after
     /// it takes the answers, to know whether a failure came in with them.
     failed_writes_told: u64,
+    /// The failed write told last, which `--wait` gives as the reason a command was not done.
+    last_failed_write: String,
     /// The failed writes told since the last frame. `poll_background` shows them as the frame's
     /// last notice, so that no other notice of the frame hides them.
     failed_writes_to_show: Vec<String>,
@@ -101,6 +103,7 @@ impl Window {
             termination_signals_seen: 0,
             is_closing_for_signal: false,
             failed_writes_told: 0,
+            last_failed_write: String::new(),
             failed_writes_to_show: Vec::new(),
         }
     }
@@ -175,8 +178,19 @@ impl Window {
     /// is a first close again.
     pub(crate) fn keep_failed_write(&mut self, text: String) {
         self.failed_writes_told += 1;
+        self.last_failed_write.clone_from(&text);
         self.failed_writes_to_show.push(text);
         self.close_requests = 0;
+    }
+
+    /// Returns how many failed writes the window has told.
+    pub(crate) fn failed_writes_told(&self) -> u64 {
+        self.failed_writes_told
+    }
+
+    /// Returns the failed write told last, empty when none was.
+    pub(crate) fn last_failed_write(&self) -> &str {
+        &self.last_failed_write
     }
 
     /// Takes the failed writes kept since the last call, one line for each. Returns `None` when

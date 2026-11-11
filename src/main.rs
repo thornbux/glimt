@@ -416,7 +416,6 @@ impl eframe::App for App {
         // disk is.
         std::thread::spawn(crate::features::remote::close);
         self.answer_waiting_selects();
-        crate::features::remote::stop(|| self.answer_waiting_selects());
         let ctx = self.ctx.clone();
         self.take_last_reports_before_exit(&ctx);
         // shortcut: the path is stored as UTF-8, lossless for ordinary paths; store its bytes
@@ -447,6 +446,12 @@ impl eframe::App for App {
         if self.window.waits_at_exit() {
             crate::files::file_io::flush();
         }
+        // The clients are answered after the last writes, so that a command sent with --wait
+        // is told whether they failed. A query that comes meanwhile waits, within its time.
+        crate::features::remote::stop(|| {
+            self.answer_waiting_selects();
+            self.answer_awaited_outcomes(&ctx, true);
+        });
         let at = |share| frame_at(self.decoding.frame_times(), share);
         eprintln!(
             "frames: median {} ms, 90% within {} ms, slowest {} ms",
@@ -604,30 +609,15 @@ fn main() -> eframe::Result {
     let to_all = command.is_some_and(|a| a == remote[1]);
     if command.is_some_and(|a| a == remote[0]) || to_all {
         let paths = args_os.get(2..).unwrap_or_default();
-        match crate::features::remote::client(&args[1..], paths, start.name.as_deref(), to_all) {
+        match crate::features::remote::client(&args[1..], paths, &start, to_all) {
             Some(path) => {
                 arg = Some(path);
-                // `open` found no Glimt of that process ID, so a new one opens the path under
-                // its own process ID.
-                if start
-                    .name
-                    .as_deref()
-                    .is_some_and(crate::features::remote::is_process_id)
-                {
-                    start.name = None;
-                }
+                start.forget_remote_options();
             }
             None => return Ok(()),
         }
     }
-    if start
-        .name
-        .as_deref()
-        .is_some_and(crate::features::remote::is_process_id)
-    {
-        eprintln!("glimt: a --name of only digits is a process ID, which only --remote takes");
-        std::process::exit(2);
-    }
+    start.refuse_remote_options();
     let mut viewport = egui::ViewportBuilder::default()
         .with_title("Glimt")
         .with_app_id(app_id())

@@ -115,7 +115,7 @@ impl crate::App {
     /// `file_io::save_failed` told from any thread, the notices and failures that background
     /// threads sent, and the turns saved. This is the one place they are taken, and
     /// `guard_close` calls it, so each failure is seen before the window closes.
-    fn take_saves(&mut self, ctx: &egui::Context) {
+    pub(crate) fn take_saves(&mut self, ctx: &egui::Context) {
         // `save_failed` and `send_failed_write` printed theirs already.
         if let Some(error) = crate::files::file_io::take_save_error() {
             self.window.keep_failed_write(error);
