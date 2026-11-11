@@ -5,6 +5,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.81.0] - 2026-11-11
+
 ### Added
 
 - `glimt --wait --remote COMMAND` (and `--wait --remote-all`) waits until the work the command
@@ -18,7 +20,7 @@ and versions follow [Semantic Versioning](https://semver.org/).
   once. Before, it waited until its time ran out and said "no answer", although the window took
   the name. Such a window also reads a folder opened with `--remote open`, and takes a file
   job's report, while it is not shown, so its busy pointer goes and a `--wait` is answered.
-- A window whose remote control socket, left by a Glimt gone, cannot be removed says why, at
+- A window whose remote control socket, left by a Glimt gone, cannot be removed prints why, at
   start and at a rename, and shares the name under its process ID. Before, it said that a Glimt
   of that name was running when none was.
 - The PDF that the print portal prints is made readable by its user alone. Before, other users
@@ -3807,7 +3809,8 @@ The first release. Glimt is not 1.0 yet: it is in daily use, but expect rough ed
 - Remote control from the command line: `glimt --remote` and `--remote-all`.
 - Remembers the folder, window size and position.
 
-[Unreleased]: https://github.com/thornbux/glimt/compare/v0.80.1...HEAD
+[Unreleased]: https://github.com/thornbux/glimt/compare/v0.81.0...HEAD
+[0.81.0]: https://github.com/thornbux/glimt/compare/v0.80.1...v0.81.0
 [0.80.1]: https://github.com/thornbux/glimt/compare/v0.80.0...v0.80.1
 [0.80.0]: https://github.com/thornbux/glimt/compare/v0.79.0...v0.80.0
 [0.79.0]: https://github.com/thornbux/glimt/compare/v0.78.0...v0.79.0
