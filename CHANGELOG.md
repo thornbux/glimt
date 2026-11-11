@@ -32,6 +32,16 @@ and versions follow [Semantic Versioning](https://semver.org/).
 - The HDF5 added format reads only what the file holds. Before, a downloaded file could show
   another file of the user's through external storage, a link to another file or a virtual
   dataset, and it was saved as a thumbnail.
+- `glimt --wait --remote` commands that wait for their work no longer keep other clients out:
+  sixteen of them made even a plain query say "no answer". A window waits for up to 64 at once,
+  and one more is told at once that it was not done.
+- `--wait --remote-all`, and `--wait` to a name that several windows share, send the command to
+  every window before waiting for any, so each starts its work at once instead of after the
+  work of the one before.
+- A window that crashes while `--wait` waits for its work is told as closed, not as a Glimt
+  that does not know `--wait`.
+- A window that starts under heavy load no longer takes the socket left by a Glimt gone for a
+  running one, which gave it its name with its process ID, or no remote control at all.
 
 ## [0.81.1] - 2026-11-11
 

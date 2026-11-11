@@ -178,6 +178,15 @@ const MOST_LINE: u64 = 64 * 1024;
 /// queue until one is done, or until its time limit tells it "no answer".
 const MOST_CLIENTS: usize = 16;
 
+/// The most commands sent with `--wait` whose work is waited for at once. Such a command gives
+/// its client's place among `MOST_CLIENTS` to the next client and takes one of these instead,
+/// because it may wait for its work up to `OUTCOME_WAIT`, and sixteen of them kept every query
+/// out. One more is told at once that it is not done (`TOO_MANY_WAITING`).
+const MOST_WAITING: usize = 64;
+
+/// Why a command sent with `--wait` is not done when `MOST_WAITING` others wait already.
+const TOO_MANY_WAITING: &str = "too many commands wait for their work";
+
 /// How long a client waits for each part of an answer, and the window for a client's command.
 /// A client that sends nothing, or a window that does not answer, holds up the others no longer
 /// than this. `info` sends each file's record as soon as it is read, so its whole answer may take
@@ -187,6 +196,11 @@ const WAIT: std::time::Duration = std::time::Duration::from_secs(10);
 /// How long a look for a running Glimt on a socket waits for the connection (`answers`). A Glimt
 /// that runs takes it at once, unless it hangs.
 const PROBE_WAIT: std::time::Duration = std::time::Duration::from_millis(500);
+
+/// How many times a look for a running Glimt on a socket waits `PROBE_WAIT`, each time with a
+/// new connection, before it counts the socket as answered. Under heavy load the thread that
+/// connects may not run within one `PROBE_WAIT`, which says nothing about the socket.
+const PROBE_TRIES: u32 = 2;
 
 /// The name from `--name`, set before the window opens, or later by `--remote name` and Window
 /// → Set Window Name….
@@ -217,6 +231,9 @@ static INSTANCE_ID: std::sync::OnceLock<String> = std::sync::OnceLock::new();
 /// Held while the window's name is changed or its socket made, so that one change waits for
 /// the one before it, each in a thread of its own.
 static NAMING: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+/// The places of the commands sent with `--wait` whose work is waited for.
+static WAITING_PLACES: WaitingPlaces = WaitingPlaces::new(MOST_WAITING);
 
 /// Clients connected, and queries sent to the window whose answers are not written yet.
 static UNFINISHED_ANSWERS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
@@ -257,6 +274,48 @@ impl UnfinishedAnswer {
 impl Drop for UnfinishedAnswer {
     fn drop(&mut self) {
         UNFINISHED_ANSWERS.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
+    }
+}
+
+/// A client's place among those served at once (`serve_clients`), given back when it is dropped.
+struct ClientPlace(mpsc::Sender<()>);
+
+impl Drop for ClientPlace {
+    fn drop(&mut self) {
+        let _ = self.0.send(());
+    }
+}
+
+/// The places of the commands sent with `--wait`, of which at most `most` are taken at once.
+struct WaitingPlaces {
+    taken: std::sync::atomic::AtomicUsize,
+    most: usize,
+}
+
+impl WaitingPlaces {
+    const fn new(most: usize) -> Self {
+        WaitingPlaces {
+            taken: std::sync::atomic::AtomicUsize::new(0),
+            most,
+        }
+    }
+
+    /// Takes a place. Returns `None` when all of them are taken.
+    fn take(&self) -> Option<WaitingPlace<'_>> {
+        // Taken first, and given back as it is dropped when it was one too many, so that two
+        // clients at once never both take the last place.
+        let place = WaitingPlace(self);
+        let taken_before = (self.taken).fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        (taken_before < self.most).then_some(place)
+    }
+}
+
+/// A place of `WaitingPlaces`, given back when it is dropped.
+struct WaitingPlace<'a>(&'a WaitingPlaces);
+
+impl Drop for WaitingPlace<'_> {
+    fn drop(&mut self) {
+        (self.0.taken).fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
     }
 }
 
@@ -879,11 +938,20 @@ fn not_done_reason(answer: &[u8]) -> Option<String> {
     Some(String::from_utf8_lossy(why).trim_end().to_owned())
 }
 
-/// Returns why a command sent with `--wait` was not done, from a window's `answer` that is no
-/// `NOT_DONE_ANSWER`. Returns `None` for `OUTCOME_DONE`. Any other answer, empty above all, is
-/// that of a window older than `--wait`, which did nothing.
-fn waited_outcome_reason(answer: &[u8]) -> Option<String> {
-    (answer != OUTCOME_DONE.as_bytes()).then(|| "this Glimt does not know --wait".to_owned())
+/// Returns why a command sent with `--wait` was not done, from the answer `answer`, which is no
+/// `NOT_DONE_ANSWER`, of the window at the socket `path`. Returns `None` for `OUTCOME_DONE`. An
+/// empty answer from a window that has gone, which crashed or was killed while its work ran,
+/// tells that it closed before the outcome. Any other answer, also an empty one from a window
+/// that still runs, is that of a window older than `--wait`, which did nothing.
+fn waited_outcome_reason(answer: &[u8], path: &Path) -> Option<String> {
+    if answer == OUTCOME_DONE.as_bytes() {
+        return None;
+    }
+    let has_gone = || !is_answered(UnixStream::connect(path));
+    Some(match answer.is_empty() && has_gone() {
+        true => "the window closed before it told whether its work was done".to_owned(),
+        false => "this Glimt does not know --wait".to_owned(),
+    })
 }
 
 /// Whether `command` is a query, which answers with what it asks for. None of them changes a
@@ -1270,19 +1338,43 @@ pub fn socket_name(id: &str) -> String {
     format!("glimt-{id}.sock")
 }
 
-/// Send `command` to the socket at `path`, and print what it answers to standard output. A
-/// command that the window did not do has its reason printed on standard error instead. A
-/// window of 0.75 or older closes without an answer to a command, which reads as done.
+/// Send `command` to the socket at `path`, and print what it answers (`print_answer`).
 fn send_and_print_answer(path: &std::path::Path, command: &str) -> bool {
-    use std::io::Read;
-    let Ok(mut s) = UnixStream::connect(path) else {
-        return false;
-    };
-    if writeln!(s, "{command}").is_err() {
-        return false;
-    }
+    send_command(path, command).is_some_and(|stream| {
+        print_answer(path, stream, command);
+        true
+    })
+}
+
+/// Sends `command` to the socket at `path`. Returns the connection, which the answer comes on,
+/// or `None` when no Glimt takes the command there.
+fn send_command(path: &std::path::Path, command: &str) -> Option<UnixStream> {
+    let mut stream = UnixStream::connect(path).ok()?;
+    writeln!(stream, "{command}").ok()?;
     // Sending is done, so the window answers and then closes.
-    let _ = s.shutdown(std::net::Shutdown::Write);
+    let _ = stream.shutdown(std::net::Shutdown::Write);
+    Some(stream)
+}
+
+/// Sends `command` to each socket of `sockets`, and then prints what each answers, in the same
+/// order. So every window starts the command at once, and a command sent with `--wait` does
+/// not wait for one window's work before the next window gets it. Returns how many took it.
+fn send_to_each(sockets: impl IntoIterator<Item = PathBuf>, command: &str) -> usize {
+    let sent: Vec<_> = (sockets.into_iter())
+        .filter_map(|path| Some((send_command(&path, command)?, path)))
+        .collect();
+    let taken = sent.len();
+    for (stream, path) in sent {
+        print_answer(&path, stream, command);
+    }
+    taken
+}
+
+/// Prints what the window at `path` answers to `command` on `s` to standard output. A command
+/// that the window did not do has its reason printed on standard error instead. A window of
+/// 0.75 or older closes without an answer to a command, which reads as done.
+fn print_answer(path: &std::path::Path, mut s: UnixStream, command: &str) {
+    use std::io::Read;
     let waits = command.starts_with(WAIT_WORD);
     let limit = match waits {
         // The window's listener says "no answer" a second after `OUTCOME_WAIT`.
@@ -1305,7 +1397,7 @@ fn send_and_print_answer(path: &std::path::Path, command: &str) -> bool {
     let missing = info_records_missing(command, &answer);
     let why = match not_done_reason(&answer) {
         Some(why) => Some(why),
-        None if waits && !timed_out => waited_outcome_reason(&answer),
+        None if waits && !timed_out => waited_outcome_reason(&answer, path),
         None => {
             let _ = std::io::stdout().write_all(&answer);
             let closed = format!("the window closed before it told about {missing} of the files");
@@ -1316,7 +1408,6 @@ fn send_and_print_answer(path: &std::path::Path, command: &str) -> bool {
         eprintln!("glimt: not done: {why}");
         WAS_NOT_DONE.store(true, std::sync::atomic::Ordering::Relaxed);
     }
-    true
 }
 
 /// The sockets in `dir`, whether or not a Glimt answers on them. A command is sent to these,
@@ -1364,15 +1455,12 @@ pub fn send(command: &str) -> bool {
 /// connected to, so the windows of other names see no connection.
 pub fn send_to(dir: Option<PathBuf>, name: &str, command: &str) -> bool {
     let named = socket_files(dir).into_iter().filter(|p| is_named(p, name));
-    named.filter(|p| send_and_print_answer(p, command)).count() > 0
+    send_to_each(named, command) > 0
 }
 
 /// Send `command` to every running Glimt. Returns how many got it.
 pub fn send_all(command: &str) -> usize {
-    socket_files(runtime_dir())
-        .iter()
-        .filter(|p| send_and_print_answer(p, command))
-        .count()
+    send_to_each(socket_files(runtime_dir()), command)
 }
 
 /// `glimt --remote` and `--remote-all`. It sends `words` (the command and its arguments) to the
@@ -1535,8 +1623,8 @@ pub fn listen(
     // No busy pointer: the listener, which lasts as long as the window. A command
     // counts as work once the window takes it.
     std::thread::spawn(move || {
-        serve_clients(listener, MOST_CLIENTS, move |stream| {
-            serve(stream, &tx, &ctx, WAIT)
+        serve_clients(listener, MOST_CLIENTS, move |stream, place| {
+            serve(stream, place, &tx, &ctx, WAIT, &WAITING_PLACES)
         });
     });
     Ok(())
@@ -1609,11 +1697,12 @@ fn stop_listening() {
 /// answer is waited for as long as it takes, and the client has the one time limit, so there is
 /// one outcome when it runs out: "no answer" and exit 1, never an empty answer taken for "all
 /// found". A client over `most` waits in the socket's queue, so clients that never end cannot
-/// take a thread each.
+/// take a thread each. `serve` is given the client's place, which it may give back before it
+/// ends, as a command sent with `--wait` does.
 fn serve_clients(
     listener: UnixListener,
     most: usize,
-    serve: impl Fn(UnixStream) + Clone + Send + 'static,
+    serve: impl Fn(UnixStream, ClientPlace) + Clone + Send + 'static,
 ) {
     // A free place is a message in this channel: taken before a client is accepted, and given
     // back when its thread is done.
@@ -1635,21 +1724,26 @@ fn serve_clients(
         // No busy pointer: a client's connection. Its command counts as work once the
         // window takes it.
         std::thread::spawn(move || {
-            serve(stream);
+            serve(stream, ClientPlace(free));
             drop(client);
-            let _ = free.send(());
         });
     }
 }
 
 /// One client's commands, each passed to the window, and its answer to a query sent back. The
 /// client has `wait` (`WAIT`) to send each command, and the window a second more to answer it.
+/// A command sent with `--wait` gives the client's `place` back and takes one of
+/// `waiting_places` instead, so that the commands that wait for their work keep no query out.
 fn serve(
     stream: UnixStream,
+    place: ClientPlace,
     tx: &mpsc::Sender<(String, Option<Reply>)>,
     ctx: &eframe::egui::Context,
     wait: std::time::Duration,
+    waiting_places: &WaitingPlaces,
 ) {
+    let mut place = Some(place);
+    let mut waiting_place = None;
     let _ = stream.set_read_timeout(Some(wait));
     let mut out = stream.try_clone().ok();
     // A client may send as much as `select` may, and no more, so a client that sends without
@@ -1670,6 +1764,17 @@ fn serve(
                 return;
             }
         };
+        // The waiting place is kept until the client ends, as it is a place among the clients.
+        if line.starts_with(WAIT_WORD) && waiting_place.is_none() {
+            waiting_place = waiting_places.take();
+            if waiting_place.is_none() {
+                if let Some(out) = out.as_mut() {
+                    let _ = out.write_all(&not_done_answer(TOO_MANY_WAITING));
+                }
+                continue;
+            }
+            drop(place.take());
+        }
         // Every command is answered, a query with what it asks and any other with whether it
         // was done, so a script knows when its `run` was refused.
         let (reply, answer) = mpsc::channel();
@@ -1959,27 +2064,46 @@ fn link_socket(from: &std::path::Path, to: &std::path::Path) -> std::io::Result<
 /// Returns whether a running Glimt answers on the socket at `path`. The connection is tried in
 /// a thread of its own, because a connection to a Glimt that hangs with a full queue of clients
 /// waits until that Glimt takes it, and the window that asks must not wait with it. A connection
-/// that has not come after `PROBE_WAIT` counts as answered, as only a running Glimt holds one
-/// back that long.
-// shortcut: the thread waits as long as the hung Glimt does, one for each probe; give the
-// connection a deadline of its own if hung windows are probed often.
+/// that has not come after `PROBE_TRIES` waits of `PROBE_WAIT` counts as answered, as only a
+/// running Glimt holds one back that long. Only a refused connection counts as no Glimt
+/// (`is_answered`).
+// shortcut: each try's thread waits as long as the hung Glimt does; give the connection a
+// deadline of its own if hung windows are probed often.
 fn answers(path: &Path) -> bool {
     let path = path.to_path_buf();
-    connected_in_time(move || UnixStream::connect(path).is_ok(), PROBE_WAIT)
+    connected_in_time(move || is_answered(UnixStream::connect(&path)), PROBE_WAIT)
 }
 
-/// Runs `connect` in a thread of its own and returns what it returns. Returns true when it has
-/// not returned after `limit`, as `answers` says.
+/// Whether `connected`, a connection to a socket, says that a Glimt may answer on it. Only a
+/// refused connection, or a socket that is gone, says that none does. Any other error may come
+/// from a Glimt that runs, whose socket must not be taken from it.
+fn is_answered(connected: std::io::Result<UnixStream>) -> bool {
+    use std::io::ErrorKind::{ConnectionRefused, NotFound};
+    match connected {
+        Ok(_) => true,
+        Err(e) => !matches!(e.kind(), ConnectionRefused | NotFound),
+    }
+}
+
+/// Runs `connect` in a thread of its own and returns what it returns. When it has not returned
+/// after `limit`, it is run again in another thread, and the first answer of either counts.
+/// Returns true when none has come after `PROBE_TRIES` times `limit`, as `answers` says.
 fn connected_in_time(
-    connect: impl FnOnce() -> bool + Send + 'static,
+    connect: impl Fn() -> bool + Clone + Send + 'static,
     limit: std::time::Duration,
 ) -> bool {
     let (tx, rx) = mpsc::channel();
-    // No busy pointer: its caller waits for it, at most `limit`.
-    std::thread::spawn(move || {
-        let _ = tx.send(connect());
-    });
-    rx.recv_timeout(limit).unwrap_or(true)
+    for _ in 0..PROBE_TRIES {
+        let (tx, connect) = (tx.clone(), connect.clone());
+        // No busy pointer: its caller waits for it, at most `limit` each time.
+        std::thread::spawn(move || {
+            let _ = tx.send(connect());
+        });
+        if let Ok(answered) = rx.recv_timeout(limit) {
+            return answered;
+        }
+    }
+    true
 }
 
 /// Marks that this Glimt got the focus, so `--remote` goes to it from now on, when it listens.
@@ -2210,11 +2334,9 @@ mod tests {
     /// ten seconds stands in for one held back.
     #[test]
     fn a_connection_held_back_counts_as_answered_without_waiting() {
-        let (_never, held_back) = std::sync::mpsc::channel::<()>();
-        let slow = move || {
-            held_back
-                .recv_timeout(std::time::Duration::from_secs(10))
-                .is_ok()
+        let slow = || {
+            std::thread::sleep(std::time::Duration::from_secs(10));
+            false
         };
         let started = std::time::Instant::now();
         assert!(super::connected_in_time(
@@ -2226,6 +2348,30 @@ mod tests {
             || false,
             std::time::Duration::from_secs(5)
         ));
+    }
+
+    /// A look whose connection comes late, as when its thread does not run in time under heavy
+    /// load, is waited for once more, so a socket that refuses it counts as left by a Glimt
+    /// gone. Before, one wait decided, and a window took a name's second socket, or had no
+    /// remote control, beside a socket that nobody answered on. Only a refused connection or
+    /// a missing socket counts as no Glimt, never another error.
+    #[test]
+    fn a_look_at_a_socket_that_comes_late_is_waited_for_again() {
+        let late = || {
+            std::thread::sleep(std::time::Duration::from_millis(400));
+            false
+        };
+        let limit = std::time::Duration::from_millis(300);
+        assert!(!super::connected_in_time(late, limit));
+        let failed = |kind| Err(std::io::Error::from(kind));
+        assert!(!super::is_answered(failed(
+            std::io::ErrorKind::ConnectionRefused
+        )));
+        assert!(!super::is_answered(failed(std::io::ErrorKind::NotFound)));
+        assert!(super::is_answered(failed(
+            std::io::ErrorKind::PermissionDenied
+        )));
+        assert!(super::is_answered(failed(std::io::ErrorKind::WouldBlock)));
     }
 
     /// A new name whose socket's path would be too long for a client to connect to is not
@@ -2575,8 +2721,7 @@ mod tests {
         drop(client);
         // The listener waits for each command's answer, so the window's part runs here.
         let window_ctx = ctx.clone();
-        let server =
-            std::thread::spawn(move || super::serve(window, &tx, &window_ctx, super::WAIT));
+        let server = std::thread::spawn(move || serve_alone(window, &tx, &window_ctx));
         for (_, new) in super::RENAMED_COMMANDS {
             for _ in 0..2 {
                 let (line, reply) = rx.recv().unwrap();
@@ -2590,8 +2735,7 @@ mod tests {
         writeln!(client, "prev").unwrap();
         drop(client);
         let window_ctx = ctx.clone();
-        let server =
-            std::thread::spawn(move || super::serve(window, &tx, &window_ctx, super::WAIT));
+        let server = std::thread::spawn(move || serve_alone(window, &tx, &window_ctx));
         app.remote = super::Listener {
             rx,
             tx: std::sync::mpsc::channel().0,
@@ -2722,9 +2866,7 @@ mod tests {
         // The listener writes the window's answer back to the client.
         let (mut client, window) = std::os::unix::net::UnixStream::pair().unwrap();
         let (tx, rx) = std::sync::mpsc::channel();
-        std::thread::spawn(move || {
-            super::serve(window, &tx, &eframe::egui::Context::default(), super::WAIT)
-        });
+        std::thread::spawn(move || serve_alone(window, &tx, &eframe::egui::Context::default()));
         writeln!(client, "nxet").unwrap();
         client.shutdown(std::net::Shutdown::Write).unwrap();
         let (line, reply) = rx.recv().unwrap();
@@ -2922,11 +3064,19 @@ mod tests {
     /// nothing, which without `--wait` counts as done.
     #[test]
     fn an_answer_without_the_outcome_is_not_done() {
-        assert_eq!(
-            super::waited_outcome_reason(super::OUTCOME_DONE.as_bytes()),
-            None
-        );
-        assert!(super::waited_outcome_reason(b"").is_some());
+        let dir = std::env::temp_dir().join(format!("glimt-test-outcome-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let (running, gone) = (dir.join("glimt-old.sock"), dir.join("glimt-gone.sock"));
+        let _old_window = std::os::unix::net::UnixListener::bind(&running).unwrap();
+        let reason = |answer: &[u8], path| super::waited_outcome_reason(answer, path);
+        assert_eq!(reason(super::OUTCOME_DONE.as_bytes(), &running), None);
+        let old = reason(b"", &running).unwrap();
+        assert!(old.contains("does not know --wait"), "{old}");
+        // A window that crashed while its work ran is told apart from an old one. Before, it
+        // was said not to know --wait.
+        let crashed = reason(b"", &gone).unwrap();
+        assert!(crashed.contains("closed before"), "{crashed}");
+        std::fs::remove_dir_all(dir).unwrap();
         assert!(super::closes_the_window("quit") && super::closes_the_window("run CloseWindow"));
         assert!(!super::closes_the_window("run Next"));
     }
@@ -3036,7 +3186,7 @@ mod tests {
         let (tx, _rx) = std::sync::mpsc::channel();
         let (mut client, window) = super::UnixStream::pair().unwrap();
         let ctx = eframe::egui::Context::default();
-        let server = std::thread::spawn(move || super::serve(window, &tx, &ctx, super::WAIT));
+        let server = std::thread::spawn(move || serve_alone(window, &tx, &ctx));
         let long = "x".repeat(4 * super::MOST_LINE as usize);
         client
             .write_all(format!("title {long}\n").as_bytes())
@@ -3057,7 +3207,7 @@ mod tests {
         let listener = std::os::unix::net::UnixListener::bind(&path).unwrap();
         let (started, starts) = std::sync::mpsc::channel();
         // Each client is served until it closes.
-        let serve = move |mut stream: std::os::unix::net::UnixStream| {
+        let serve = move |mut stream: std::os::unix::net::UnixStream, _place| {
             let _ = started.send(());
             let _ = std::io::copy(&mut stream, &mut std::io::sink());
         };
@@ -3086,8 +3236,10 @@ mod tests {
         let listener = std::os::unix::net::UnixListener::bind(&path).unwrap();
         let (tx, rx) = std::sync::mpsc::channel();
         let wait = std::time::Duration::from_millis(200);
-        let serve = move |stream| {
-            super::serve(stream, &tx, &eframe::egui::Context::default(), wait);
+        static WAITING_PLACES: super::WaitingPlaces = super::WaitingPlaces::new(1);
+        let serve = move |stream, place| {
+            let ctx = eframe::egui::Context::default();
+            super::serve(stream, place, &tx, &ctx, wait, &WAITING_PLACES);
         };
         std::thread::spawn(move || super::serve_clients(listener, 1, serve));
         let connect = || std::os::unix::net::UnixStream::connect(&path).unwrap();
@@ -3106,6 +3258,54 @@ mod tests {
         std::fs::remove_file(path).unwrap();
     }
 
+    /// A command sent with `--wait` gives its client's place to the next client while its work
+    /// is waited for, so a query is answered beside it, and one more than the places for such
+    /// commands is told at once that it is not done. Before, sixteen of them kept every other
+    /// client out for up to a minute, and a plain query said "no answer".
+    #[test]
+    fn commands_that_wait_for_their_work_keep_no_query_out() {
+        use std::io::{Read, Write};
+        let path = std::env::temp_dir().join(format!("glimt-waits-{}.sock", std::process::id()));
+        let _ = std::fs::remove_file(&path);
+        let listener = std::os::unix::net::UnixListener::bind(&path).unwrap();
+        let (tx, rx) = std::sync::mpsc::channel();
+        static WAITING_PLACES: super::WaitingPlaces = super::WaitingPlaces::new(1);
+        let serve = move |stream, place| {
+            let ctx = eframe::egui::Context::default();
+            super::serve(stream, place, &tx, &ctx, super::WAIT, &WAITING_PLACES);
+        };
+        std::thread::spawn(move || super::serve_clients(listener, 1, serve));
+        let connect = || std::os::unix::net::UnixStream::connect(&path).unwrap();
+        let five_seconds = std::time::Duration::from_secs(5);
+        let mut waits = connect();
+        writeln!(waits, "wait next").unwrap();
+        // The window holds the answer, as while the command's work runs.
+        let (_, waiting_reply) = rx.recv_timeout(five_seconds).unwrap();
+        let mut query = connect();
+        writeln!(query, "current").unwrap();
+        query.shutdown(std::net::Shutdown::Write).unwrap();
+        let query_taken = rx.recv_timeout(five_seconds);
+        assert!(
+            query_taken.is_ok(),
+            "a query was kept out by a command that waits"
+        );
+        let (_, query_reply) = query_taken.unwrap();
+        query_reply.unwrap().send(b"/a.jpg\0".to_vec()).unwrap();
+        let mut got = Vec::new();
+        query.read_to_end(&mut got).unwrap();
+        assert_eq!(got, b"/a.jpg\0");
+        let mut one_more = connect();
+        writeln!(one_more, "wait next").unwrap();
+        one_more.shutdown(std::net::Shutdown::Write).unwrap();
+        one_more.set_read_timeout(Some(five_seconds)).unwrap();
+        got.clear();
+        one_more.read_to_end(&mut got).unwrap();
+        let why = super::not_done_reason(&got);
+        assert_eq!(why.as_deref(), Some(super::TOO_MANY_WAITING));
+        drop(waiting_reply);
+        std::fs::remove_file(path).unwrap();
+    }
+
     /// A query whose answer the window drops (too many waiting) is not closed at once, because
     /// the client would read an empty answer, "all found". It is left to time out, "no answer".
     #[test]
@@ -3113,9 +3313,7 @@ mod tests {
         use std::io::{Read, Write};
         let (mut client, server) = std::os::unix::net::UnixStream::pair().unwrap();
         let (tx, rx) = std::sync::mpsc::channel();
-        std::thread::spawn(move || {
-            super::serve(server, &tx, &eframe::egui::Context::default(), super::WAIT)
-        });
+        std::thread::spawn(move || serve_alone(server, &tx, &eframe::egui::Context::default()));
         writeln!(client, "select /a.jpg\0").unwrap();
         let (_, reply) = rx.recv().unwrap();
         drop(reply);
@@ -3125,6 +3323,49 @@ mod tests {
         let mut got = Vec::new();
         let read = client.read_to_end(&mut got);
         assert!(read.is_err() && got.is_empty(), "{read:?} {got:?}");
+    }
+
+    /// A command sent with `--wait` to two windows of one name, or with `--remote-all`, reaches
+    /// both before it waits for either one's work. Before, the second window got it only when
+    /// the first one's work had ended. Each window here answers once the other has the command
+    /// too, or after three seconds, and tells which it was.
+    #[test]
+    fn a_command_that_waits_reaches_every_window_before_it_waits() {
+        use std::io::{BufRead, Write};
+        let dir = std::env::temp_dir().join(format!("glimt-test-wait-all-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let window = |id: &str,
+                      has_it: std::sync::mpsc::Sender<()>,
+                      other_has_it: std::sync::mpsc::Receiver<()>| {
+            let socket = dir.join(super::socket_name(id));
+            let listener = std::os::unix::net::UnixListener::bind(socket).unwrap();
+            std::thread::spawn(move || {
+                let (stream, _) = listener.accept().unwrap();
+                let mut line = String::new();
+                std::io::BufReader::new(&stream)
+                    .read_line(&mut line)
+                    .unwrap();
+                let _ = has_it.send(());
+                let three_seconds = std::time::Duration::from_secs(3);
+                let other_had_it = other_has_it.recv_timeout(three_seconds).is_ok();
+                (&stream).write_all(super::OUTCOME_DONE.as_bytes()).unwrap();
+                (line, other_had_it)
+            })
+        };
+        let (left_has_it, left_had_it) = std::sync::mpsc::channel();
+        let (right_has_it, right_had_it) = std::sync::mpsc::channel();
+        let left = window("pair", left_has_it, right_had_it);
+        let right = window("pair.4242", right_has_it, left_had_it);
+        assert!(super::send_to(Some(dir.clone()), "pair", "wait next"));
+        for window in [left, right] {
+            let (line, other_had_it) = window.join().unwrap();
+            assert_eq!(line, "wait next\n");
+            assert!(
+                other_had_it,
+                "a window got the command only after the other's work"
+            );
+        }
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     /// A socket that does not answer is passed over but left in place. A Glimt between binding
@@ -3380,6 +3621,16 @@ mod tests {
         assert!(String::from_utf8_lossy(&closing.try_recv().unwrap()).contains("a.png"));
         assert!(String::from_utf8_lossy(&late.try_recv().unwrap()).contains("a.png"));
         std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// Serves the one client at `stream`, as the listener does, with a place of its own.
+    fn serve_alone(
+        stream: super::UnixStream,
+        tx: &std::sync::mpsc::Sender<(String, Option<super::Reply>)>,
+        ctx: &eframe::egui::Context,
+    ) {
+        let place = super::ClientPlace(std::sync::mpsc::channel().0);
+        super::serve(stream, place, tx, ctx, super::WAIT, &super::WAITING_PLACES);
     }
 
     /// Runs `receive_remote` alone, as a hidden window's `logic` does without `ui`, until
@@ -3652,7 +3903,7 @@ mod tests {
         let (mut client, window) = std::os::unix::net::UnixStream::pair().unwrap();
         let (tx, rx) = std::sync::mpsc::channel();
         let ctx = eframe::egui::Context::default();
-        std::thread::spawn(move || super::serve(window, &tx, &ctx, super::WAIT));
+        std::thread::spawn(move || serve_alone(window, &tx, &ctx));
         writeln!(client, "info /a.png\0/b.png").unwrap();
         client.shutdown(std::net::Shutdown::Write).unwrap();
         let (command, reply) = rx.recv().unwrap();
@@ -3702,7 +3953,7 @@ mod tests {
         let (mut client, window) = std::os::unix::net::UnixStream::pair().unwrap();
         let (tx, rx) = std::sync::mpsc::channel();
         let window_ctx = ctx.clone();
-        std::thread::spawn(move || super::serve(window, &tx, &window_ctx, super::WAIT));
+        std::thread::spawn(move || serve_alone(window, &tx, &window_ctx));
         let named = format!("{}\0{}", shown.display(), other.join("b.png").display());
         writeln!(client, "info").unwrap();
         writeln!(client, "info {named}").unwrap();
