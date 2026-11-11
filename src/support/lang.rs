@@ -287,35 +287,32 @@ pub const fn names_every_placeholder(text: &str, names: &[&str]) -> bool {
     used.count_ones() as usize == names.len()
 }
 
-/// The `.po` file's entries: msgid and msgstr, and msgid_plural with msgstr[0], [1] …; the
-/// header, untranslated ones and those marked fuzzy left out, as gettext does.
+/// Reads the `.po` file's entries: msgid and msgstr, and msgid_plural with msgstr[0], [1] …
+/// The header and the untranslated entries are left out. An entry marked fuzzy is read like any
+/// other, unlike in gettext. Here fuzzy means that no native reader has read the text yet
+/// (AGENTS.md, *Language*), and the text is still shown rather than English.
 fn parse(po: &str) -> Translation {
     let mut translation = Translation::default();
-    let (mut fuzzy, mut field, mut id, mut id_plural) = (false, "", String::new(), None);
+    let (mut field, mut id, mut id_plural) = ("", String::new(), None);
     let mut strs: Vec<Option<String>> = vec![None; FORMS];
     let mut entries = Vec::new();
     let mut form = 0;
-    let mut end = |fuzzy: &mut bool,
-                   id: &mut String,
-                   id_plural: &mut Option<String>,
-                   strs: &mut Vec<Option<String>>| {
-        if !*fuzzy && !id.is_empty() {
-            entries.push((std::mem::take(id), id_plural.take(), std::mem::take(strs)));
-        }
-        id.clear();
-        *id_plural = None;
-        *strs = vec![None; FORMS];
-        *fuzzy = false;
-    };
+    let mut end =
+        |id: &mut String, id_plural: &mut Option<String>, strs: &mut Vec<Option<String>>| {
+            if !id.is_empty() {
+                entries.push((std::mem::take(id), id_plural.take(), std::mem::take(strs)));
+            }
+            id.clear();
+            *id_plural = None;
+            *strs = vec![None; FORMS];
+        };
     for line in po.lines().map(str::trim) {
         // An entry ends where the next begins: at its comments, a blank line or its msgid.
         let begins = line.is_empty() || line.starts_with('#') || line.starts_with("msgid ");
         if begins && strs[0].is_some() {
-            end(&mut fuzzy, &mut id, &mut id_plural, &mut strs);
+            end(&mut id, &mut id_plural, &mut strs);
         }
-        if line.starts_with("#,") && line.contains("fuzzy") {
-            fuzzy = true;
-        } else if line.is_empty() || line.starts_with('#') {
+        if line.is_empty() || line.starts_with('#') {
             continue;
         } else if let Some(text) = line.strip_prefix("msgid_plural ") {
             field = "plural";
@@ -345,7 +342,7 @@ fn parse(po: &str) -> Translation {
             }
         }
     }
-    end(&mut fuzzy, &mut id, &mut id_plural, &mut strs);
+    end(&mut id, &mut id_plural, &mut strs);
     for (id, id_plural, strs) in entries {
         // The forms given, up to the first missing one: at least two, each with its text.
         let forms: Vec<String> = strs
@@ -433,8 +430,9 @@ mod tests {
         }
     }
 
-    /// Entries, plurals, continued strings and escapes read; the header, fuzzy and empty ones
-    /// left out.
+    /// Reads entries, plurals, continued strings and escapes, and leaves out the header and the
+    /// empty entries. An entry marked fuzzy is read, because the translations that no native
+    /// reader has read yet are fuzzy, and they must still show rather than English.
     #[test]
     fn reads_po_files() {
         let po = r#"# A comment
@@ -467,7 +465,8 @@ msgstr[1] "bilder"
 "#;
         let t = super::parse(po);
         assert_eq!(t.texts.get("Open File…").unwrap(), "Åpne fil…");
-        assert!(!t.texts.contains_key("Quit") && !t.texts.contains_key("Not translated"));
+        assert_eq!(t.texts.get("Quit").unwrap(), "Avslutt");
+        assert!(!t.texts.contains_key("Not translated"));
         assert!(!t.texts.contains_key(""));
         assert_eq!(
             t.texts.get("Could not save {name}: {e}").unwrap(),
@@ -672,6 +671,28 @@ msgstr[1] "bilder"
         let translated = (pot.lines().skip_while(|l| !l.is_empty()))
             .find(|l| l.starts_with("msgstr") && !l.ends_with(" \"\""));
         assert_eq!(translated, None, "po/glimt.pot has a translation");
+    }
+
+    /// Only Norwegian bokmål has been read by a native reader, the maintainer. So every entry of
+    /// the other languages is marked fuzzy, and no entry of no_nb.po is. A new text written in
+    /// another language without the mark would pass for one that a native reader has read. When
+    /// a native reader has read another language, the maintainer changes this test with it.
+    #[test]
+    fn only_norwegian_bokmal_is_read_by_a_native_reader() {
+        for (code, _, _, po) in super::LANGUAGES {
+            let lines: Vec<&str> = po.lines().collect();
+            let entries = (1..lines.len()).filter(|&i| lines[i].starts_with("msgid "));
+            let entries = entries.filter(|&i| lines[i] != "msgid \"\"");
+            let fuzzy = |i: usize| lines[i - 1] == "#, fuzzy";
+            let wrong: Vec<&str> = match *code == "no_nb" {
+                true => entries.filter(|&i| fuzzy(i)).map(|i| lines[i]).collect(),
+                false => entries.filter(|&i| !fuzzy(i)).map(|i| lines[i]).collect(),
+            };
+            assert!(
+                wrong.is_empty(),
+                "{code}: wrongly marked or unmarked: {wrong:?}"
+            );
+        }
     }
 
     /// Every translation has every text and noun of the Norwegian one, which each new text

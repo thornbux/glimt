@@ -35,6 +35,8 @@ nb = (ROOT / "po/no_nb.po").read_text(encoding="utf-8")
 entries = nb[nb.index("\n\n") + 1 :]
 out, in_msgstr = [], False
 for line in entries.split("\n"):
+    if line == "#, fuzzy":
+        continue  # a template's texts are all untranslated, so none is marked
     if line.startswith("msg"):
         in_msgstr = line.startswith("msgstr")
     elif line.startswith('"') and in_msgstr:
