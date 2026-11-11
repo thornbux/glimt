@@ -2414,18 +2414,14 @@ fn delete_chunk(
             }
         }
     }
-    if trash && !kept.is_empty() {
-        if let Err(e) = crate::files::trash::trash(&kept) {
-            errors.push(e);
-        }
-    } else if !trash {
-        for p in &kept {
-            #[allow(clippy::disallowed_methods)]
-            // Delete without the trash, the one place
-            if let Err(e) = std::fs::remove_file(p) {
-                errors.push(format!("{display}: {e}", display = p.display()));
-            }
-        }
+    if !trash {
+        let (went, side) = delete_for_good(&kept, errors);
+        return (went, side, left_alone);
+    }
+    if !kept.is_empty()
+        && let Err(e) = crate::files::trash::trash(&kept)
+    {
+        errors.push(e);
     }
     // Their sidecars go the same way, so that a new file with the same name does not get their
     // keywords. A look that failed (a share that dropped for a moment) keeps the sidecar, as the
@@ -2448,21 +2444,78 @@ fn delete_chunk(
         .collect();
     // A sidecar that stays is told, as the photo's own errors are, because the next file of that
     // name would show its keywords.
-    if trash && !side.is_empty() {
-        if let Err(e) = crate::files::trash::trash(&side) {
-            let back = take_back_from_the_trash(sidecars_of_file, since, errors);
-            went.retain(|p| !back.contains(p));
-            errors.push(e);
+    if !side.is_empty()
+        && let Err(e) = crate::files::trash::trash(&side)
+    {
+        let back = take_back_from_the_trash(sidecars_of_file, since, errors);
+        went.retain(|p| !back.contains(p));
+        errors.push(e);
+    }
+    (went, side, left_alone)
+}
+
+/// Deletes each of `kept` for good, with its sidecars. Each sidecar is first put aside under a
+/// hidden name, and the photo is deleted only when all of them could be. A photo whose sidecar
+/// cannot be put aside stays, with its sidecars back, and so does one whose delete did not go
+/// through or could not be looked at after it. A sidecar put aside that then cannot be deleted
+/// stays under its hidden name, which no later file takes. Each is told in `errors`. Deleted
+/// first, the photo left a sidecar that could not go at the old name, where the next file of
+/// that name would show its keywords. Adobe's sidecar of two RAW files of one name stem goes
+/// only with the last of them that goes, so it never stays behind without one. Returns the
+/// files gone and the sidecars gone.
+fn delete_for_good(kept: &[PathBuf], errors: &mut Vec<String>) -> (Vec<PathBuf>, Vec<PathBuf>) {
+    let mut names = xmp::AdobeNames::default();
+    // The files gone so far and the one being deleted, which leave its stem's sidecar to it.
+    let mut leaving: HashSet<&PathBuf> = HashSet::new();
+    let (mut went, mut sides) = (Vec::new(), Vec::new());
+    let mut failed = |at: &Path, e: std::io::Error| errors.push(format!("{}: {e}", at.display()));
+    for p in kept {
+        leaving.insert(p);
+        let mut aside = Vec::new();
+        let mut all_aside = Ok(());
+        for (side, _) in xmp::sidecars_moving_with(p, p, &leaving, &mut names) {
+            let hidden = crate::files::file_io::tmp_path(&side);
+            match rename_never_over(&side, &hidden) {
+                Ok(()) => aside.push((side, hidden)),
+                Err(e) => {
+                    all_aside = Err((side, e));
+                    break;
+                }
+            }
         }
-    } else {
-        for s in &side {
-            #[allow(clippy::disallowed_methods)] // the deleted file's sidecar
-            if let Err(e) = std::fs::remove_file(s) {
-                errors.push(format!("{display}: {e}", display = s.display()));
+        // The sidecars are aside on disk before the photo goes, so that a power cut never
+        // leaves a sidecar at the name of a photo that is gone.
+        if !aside.is_empty()
+            && all_aside.is_ok()
+            && let Err(e) = crate::files::file_io::sync_folder_of(p)
+        {
+            all_aside = Err((p.clone(), e));
+        }
+        let deleted = all_aside.map_err(|(at, e)| failed(&at, e)).is_ok() && {
+            #[allow(clippy::disallowed_methods)] // Delete without the trash, the one place
+            let removed = std::fs::remove_file(p);
+            removed.map_err(|e| failed(p, e)).is_ok()
+        };
+        // A look that failed (a share that dropped for a moment) counts the file as there.
+        if !(deleted && is_surely_gone(p)) {
+            for (side, hidden) in aside.into_iter().rev() {
+                if let Err(e) = rename_never_over(&hidden, &side) {
+                    failed(&side, e);
+                }
+            }
+            leaving.remove(p);
+            continue;
+        }
+        went.push(p.clone());
+        for (side, hidden) in aside {
+            #[allow(clippy::disallowed_methods)] // the sidecar of a file deleted for good
+            match std::fs::remove_file(&hidden) {
+                Ok(()) => sides.push(side),
+                Err(e) => failed(&side, e),
             }
         }
     }
-    (went, side, left_alone)
+    (went, sides)
 }
 
 /// Takes each file of `sidecars_of_file` whose sidecars did not all go to the trash back out of
@@ -5139,6 +5192,52 @@ mod tests {
         };
         assert!(run_background_until(&mut app, &ctx, saved));
         std::fs::remove_dir_all(d).unwrap();
+    }
+
+    /// Delete for good never leaves a sidecar at the name of a photo that went. One that cannot
+    /// be deleted (here a folder) waits under a hidden name, told, and a photo whose sidecar
+    /// cannot even be put aside stays, with it. Before, the photo went first, and its sidecar
+    /// stayed at the old name for the next file of that name. Of two RAW files of one name
+    /// stem, Adobe's sidecar stays beside the one that stays.
+    #[test]
+    fn a_delete_for_good_leaves_no_sidecar_at_the_old_name() {
+        use crate::files::file_io::{RENAME_WAYS_MISSING, UNLINK_FAILS};
+        let dir = std::env::temp_dir().join(format!("glimt-test-good-side-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let p = |n: &str| dir.join(n);
+        // A folder in a sidecar's place cannot be removed as a file.
+        std::fs::create_dir_all(p("a.png.xmp").join("inside")).unwrap();
+        for n in [
+            "a.png",
+            "b.png",
+            "b.png.xmp",
+            "c.cr2",
+            "c.nef",
+            "c.nef.xmp",
+            "c.xmp",
+        ] {
+            std::fs::write(p(n), n).unwrap();
+        }
+        let paths = [p("a.png"), p("b.png"), p("c.cr2"), p("c.nef")];
+        let picked = crate::files::file_io::PickedFiles::new(paths.to_vec());
+        let (_, picked) = picked.wait_for_fingerprints();
+        let mut errors = Vec::new();
+        // c.nef's sidecar cannot be renamed: its old name cannot be unlinked.
+        RENAME_WAYS_MISSING.set(1);
+        UNLINK_FAILS.set(Some((p("c.nef.xmp"), libc::EPERM)));
+        let (went, _, _) = super::delete_chunk(&paths, &picked, false, &mut errors);
+        UNLINK_FAILS.set(None);
+        RENAME_WAYS_MISSING.set(0);
+        assert_eq!(went, [p("a.png"), p("b.png"), p("c.cr2")], "{errors:?}");
+        assert_eq!(errors.len(), 2, "{errors:?}");
+        assert!(errors[0].contains("a.png.xmp"), "{errors:?}");
+        for n in ["c.nef", "c.nef.xmp", "c.xmp"] {
+            assert!(p(n).exists(), "{n}");
+        }
+        for n in ["a.png", "a.png.xmp", "b.png", "b.png.xmp", "c.cr2"] {
+            assert!(std::fs::symlink_metadata(p(n)).is_err(), "{n}");
+        }
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     /// A Stop, also that of a second close, during Export Frames or Rename Many is told as a
