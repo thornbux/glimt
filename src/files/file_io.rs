@@ -499,8 +499,17 @@ impl PickedFingerprints {
     /// fingerprint did not come in time.
     pub(crate) fn still_the_one_picked(&self, path: &Path) -> std::io::Result<()> {
         let picked = *self.taken.get(path).ok_or_else(changed_meanwhile)?;
-        // A folder is told by its inode alone, which it keeps while files come and go.
+        // A folder is told by its inode alone, which it keeps while files come and go, or else
+        // by its device and time (`folder_fingerprint`). One that is gone is left to the act.
         let known = match self.are_folders {
+            true if picked.2 != (0, 0) => {
+                return match fingerprint_or_error(path) {
+                    Ok(now) if folder_fingerprint(now, false) == picked => Ok(()),
+                    Ok(_) => Err(changed_meanwhile()),
+                    Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+                    Err(e) => Err(e),
+                };
+            }
             true => KnownAs::listed(
                 picked.0.and_then(|id| std::num::NonZeroU64::new(id.1)),
                 &self.list_is_old,
@@ -1638,9 +1647,7 @@ pub(crate) fn fingerprint_or_error(path: &Path) -> std::io::Result<FileFingerpri
 }
 
 /// Returns the fingerprint of the file at `path`, picked before a wait, or `None` when nothing is
-/// there. A folder (`is_folder`) has only its device and inode, as its size and time change with
-/// what is put into it. Where the file system gives every folder inode 0, a folder is not told
-/// apart from another at its path.
+/// there. A folder (`is_folder`) has what tells it apart (`folder_fingerprint`).
 fn picked_fingerprint(path: &Path, is_folder: bool) -> Option<FileFingerprint> {
     #[cfg(test)]
     loop {
@@ -1650,11 +1657,26 @@ fn picked_fingerprint(path: &Path, is_folder: bool) -> Option<FileFingerprint> {
         }
         std::thread::sleep(std::time::Duration::from_millis(10));
     }
-    let (id, size, time) = fingerprint(path)?;
+    let found = fingerprint(path)?;
     Some(match is_folder {
-        true => (id, 0, (0, 0)),
-        false => (id, size, time),
+        true => {
+            let kind = file_system_type(path);
+            folder_fingerprint(found, kind.is_some_and(|kind| has_lasting_inodes(&kind)))
+        }
+        false => found,
     })
+}
+
+/// Returns what tells apart the folder whose fingerprint is `found`, picked before a wait: its
+/// device and inode where its file system keeps a file's inode (`keeps_inodes`), and elsewhere
+/// its device and modification time, as FAT, exFAT and FUSE may give its inode to another folder
+/// later. Its size is left out, as it changes with what is put into it, and so is its time where
+/// the inode tells it. The time then refuses a folder that files came into or left since.
+fn folder_fingerprint((id, _, time): FileFingerprint, keeps_inodes: bool) -> FileFingerprint {
+    match keeps_inodes {
+        true => (id, 0, (0, 0)),
+        false => (id.map(|(device, _)| (device, 0)), 0, time),
+    }
 }
 
 /// Returns whether fingerprints `a` and `b` are of the same file, the one rule Glimt tells a file
@@ -2209,6 +2231,33 @@ mod tests {
             );
             assert_eq!(error.contains("check both"), keeps_both, "{error}");
         }
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A folder picked before a wait on a file system that may give its inode to another folder
+    /// (FAT, exFAT, FUSE) is told apart by its device and time, not by that inode. Before, a
+    /// folder made since under the picked one's name could pass with the freed inode.
+    #[test]
+    fn a_folder_without_a_lasting_inode_is_told_by_its_time() {
+        let dir =
+            std::env::temp_dir().join(format!("glimt-test-folder-time-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let found = super::fingerprint(&dir).unwrap();
+        assert_eq!(super::folder_fingerprint(found, true), (found.0, 0, (0, 0)));
+        let picked = super::folder_fingerprint(found, false);
+        assert_eq!(picked.0.map(|(_, inode)| inode), Some(0));
+        let fingerprints = super::PickedFingerprints {
+            taken: [(dir.clone(), picked)].into(),
+            listed: Default::default(),
+            list_is_old: Default::default(),
+            are_folders: true,
+        };
+        fingerprints.still_the_one_picked(&dir).unwrap();
+        // Another folder in its place, as a folder that files came into, has another time.
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        std::fs::write(dir.join("new.jpg"), "x").unwrap();
+        assert!(fingerprints.still_the_one_picked(&dir).is_err());
         std::fs::remove_dir_all(dir).unwrap();
     }
 
