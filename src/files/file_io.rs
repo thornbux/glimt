@@ -80,6 +80,10 @@ thread_local! {
     // How many names `look` looked at on this thread, so that a test can see that a check that
     // can tell nothing does not wait for the disk.
     pub(crate) static LOOKS_MADE: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+    // How many times this thread parsed a mount table (`mounts_in`), so that a test can see
+    // that a listing parses it once, not once for each folder.
+    pub(crate) static MOUNT_TABLES_PARSED: std::cell::Cell<usize> =
+        const { std::cell::Cell::new(0) };
     // Makes `unlink_linked` on this thread fail for this name with this error number while the
     // name stays, as a share does that lost its answer.
     pub(crate) static UNLINK_FAILS: std::cell::RefCell<Option<(PathBuf, i32)>> =
@@ -321,23 +325,29 @@ impl<'a> KnownAs<'a> {
     }
 }
 
+/// The identity that the list knew each picked file by, in the order of the files, and the
+/// flag of that list's window (`ListIsOld`).
+type Listed = (Vec<Identity>, ListIsOld);
+
 /// Files the user picked before a wait: a confirmation, a prompt or the file chooser. Their
 /// fingerprints are taken in a thread of their own while the user waits, as 500,000 files on a
 /// share would hold the window. The act runs in a thread too, and it leaves alone each file that
 /// is no longer the one picked (`PickedFingerprints::still_the_one_picked`), because another
 /// program or window may have given its name to another photo meanwhile. A delete, trash, move
 /// or rename of files picked earlier takes this type, never bare paths, so none can act by name
-/// alone.
+/// alone. The paths are kept once, and shared with the thread that takes their fingerprints, as
+/// 500,000 of them take tens of megabytes.
 pub(crate) struct PickedFiles {
-    paths: Vec<PathBuf>,
-    /// The inode that the folder listed for each file picked in the list, which a file
-    /// swapped before the question (and so before its fingerprint) is told by.
-    listed: std::collections::HashMap<PathBuf, Identity>,
+    paths: std::sync::Arc<Vec<PathBuf>>,
+    /// The inode that the folder listed for each file picked in the list, in the order of
+    /// `paths`, which a file swapped before the question (and so before its fingerprint) is
+    /// told by. It is empty for files not picked in the list.
+    listed: Vec<Identity>,
     /// The flag of the window whose list showed the files (`ListIsOld`).
     list_is_old: ListIsOld,
     fingerprints: crate::support::threads::Receiving<Option<FileFingerprint>>,
-    /// Whether the paths are folders, which are told apart by their device and inode alone. A
-    /// folder's size and time change with every file put into it.
+    /// Whether the paths are folders, which are told apart by what `folder_fingerprint` keeps.
+    /// A folder's size changes with every file put into it.
     are_folders: bool,
 }
 
@@ -345,22 +355,14 @@ impl PickedFiles {
     /// Starts taking the fingerprints of the files `paths`, picked now, none of them from the
     /// list.
     pub(crate) fn new(paths: Vec<PathBuf>) -> PickedFiles {
-        PickedFiles::taken_in_background(paths, false)
+        PickedFiles::taken_in_background(paths, Listed::default(), false)
     }
 
     /// Starts taking the fingerprints of the files `files`, picked now in the list, which keep
     /// the inodes the list knew them by, and the flag of that list's window.
     pub(crate) fn listed(files: Vec<ListedFile>) -> PickedFiles {
-        let listed = (files.iter())
-            .map(|f| (f.path.clone(), f.identity))
-            .collect();
-        let list_is_old = files.first().map(|f| f.list_is_old.clone());
-        let paths = files.into_iter().map(|f| f.path).collect();
-        PickedFiles {
-            listed,
-            list_is_old: list_is_old.unwrap_or_default(),
-            ..PickedFiles::taken_in_background(paths, false)
-        }
+        let (paths, listed) = paths_and_identities(files);
+        PickedFiles::taken_in_background(paths, listed, false)
     }
 
     /// The files `files`, picked now in the list, with the fingerprints `seen` that a search
@@ -370,66 +372,71 @@ impl PickedFiles {
         files: Vec<ListedFile>,
         seen: &std::collections::HashMap<PathBuf, FileFingerprint>,
     ) -> PickedFiles {
-        let (tx, rx) = std::sync::mpsc::channel();
-        for file in &files {
-            let _ = tx.send(seen.get(&file.path).copied());
-        }
-        let listed = (files.iter())
-            .map(|f| (f.path.clone(), f.identity))
-            .collect();
-        let list_is_old = files.first().map(|f| f.list_is_old.clone());
-        PickedFiles {
-            paths: files.into_iter().map(|f| f.path).collect(),
-            listed,
-            list_is_old: list_is_old.unwrap_or_default(),
-            fingerprints: crate::support::threads::Receiving::of(rx),
-            are_folders: false,
-        }
+        let (paths, listed) = paths_and_identities(files);
+        let seen = paths.iter().map(|path| seen.get(path).copied()).collect();
+        PickedFiles::with_fingerprints(paths, listed, seen)
     }
 
     /// Starts taking the device and inode of the folder `dir`, picked now.
     pub(crate) fn folder(dir: PathBuf) -> PickedFiles {
-        PickedFiles::taken_in_background(vec![dir], true)
+        PickedFiles::taken_in_background(vec![dir], Listed::default(), true)
     }
 
     /// The files of `recorded`, with the fingerprints Glimt noted after its own operation on
     /// them. An Undo gives them, so that it leaves alone a file another program put at the name.
     pub(crate) fn recorded(recorded: Vec<(PathBuf, FileFingerprint)>) -> PickedFiles {
+        let (paths, fingerprints): (Vec<PathBuf>, Vec<Option<FileFingerprint>>) = (recorded
+            .into_iter())
+        .map(|(path, f)| (path, Some(f)))
+        .unzip();
+        PickedFiles::with_fingerprints(paths, Listed::default(), fingerprints)
+    }
+
+    /// The files `paths`, with their identities `listed`, and the `fingerprints` known of them
+    /// already, in their order.
+    fn with_fingerprints(
+        paths: Vec<PathBuf>,
+        (listed, list_is_old): Listed,
+        fingerprints: Vec<Option<FileFingerprint>>,
+    ) -> PickedFiles {
         let (tx, rx) = std::sync::mpsc::channel();
-        let paths = (recorded.into_iter())
-            .map(|(path, fingerprint)| {
-                let _ = tx.send(Some(fingerprint));
-                path
-            })
-            .collect();
+        for fingerprint in fingerprints {
+            let _ = tx.send(fingerprint);
+        }
         PickedFiles {
-            paths,
-            listed: Default::default(),
-            list_is_old: ListIsOld::default(),
+            paths: std::sync::Arc::new(paths),
+            listed,
+            list_is_old,
             fingerprints: crate::support::threads::Receiving::of(rx),
             are_folders: false,
         }
     }
 
     /// Starts taking the fingerprints of `paths`, folders when `are_folders`, in their order, in
-    /// a thread of its own. It shows no busy pointer, as the user does not wait for it while a
-    /// dialog is open, and a file on a share that stopped answering would keep it on for good.
-    fn taken_in_background(paths: Vec<PathBuf>, are_folders: bool) -> PickedFiles {
+    /// a thread of its own, which shares the paths. `listed` are their identities in the list.
+    /// It shows no busy pointer, as the user does not wait for it while a dialog is open, and a
+    /// file on a share that stopped answering would keep it on for good.
+    fn taken_in_background(
+        paths: Vec<PathBuf>,
+        (listed, list_is_old): Listed,
+        are_folders: bool,
+    ) -> PickedFiles {
         let (tx, rx) = std::sync::mpsc::channel();
+        let paths = std::sync::Arc::new(paths);
         let taken = paths.clone();
         // No busy pointer: as said above, nobody waits for the fingerprints.
         std::thread::spawn(move || {
-            for path in taken {
+            for path in taken.iter() {
                 // Once nobody waits for them, the rest are not taken.
-                if tx.send(picked_fingerprint(&path, are_folders)).is_err() {
+                if tx.send(picked_fingerprint(path, are_folders)).is_err() {
                     break;
                 }
             }
         });
         PickedFiles {
             paths,
-            listed: Default::default(),
-            list_is_old: ListIsOld::default(),
+            listed,
+            list_is_old,
             fingerprints: crate::support::threads::Receiving::of(rx),
             are_folders,
         }
@@ -447,20 +454,24 @@ impl PickedFiles {
     pub(crate) fn wait_for_fingerprints(mut self) -> (Vec<PathBuf>, PickedFingerprints) {
         use crate::support::threads::Took;
         let mut taken = std::collections::HashMap::with_capacity(self.paths.len());
-        for path in &self.paths {
+        for (k, path) in self.paths.iter().enumerate() {
             match self.fingerprints.wait_next(FINGERPRINT_WAIT) {
-                Took::Answer(Some(fingerprint)) => drop(taken.insert(path.clone(), fingerprint)),
+                Took::Answer(Some(fingerprint)) => {
+                    let listed = self.listed.get(k).copied().flatten();
+                    taken.insert(path.clone(), (fingerprint, listed));
+                }
                 Took::Answer(None) => {}
                 Took::Nothing | Took::Gone => break,
             }
         }
         let fingerprints = PickedFingerprints {
             taken,
-            listed: self.listed,
             list_is_old: self.list_is_old,
             are_folders: self.are_folders,
         };
-        (self.paths, fingerprints)
+        // The thread that took them has let go of the paths once it sent the last one, or it
+        // is about to, and only then are they copied.
+        (std::sync::Arc::unwrap_or_clone(self.paths), fingerprints)
     }
 
     /// In a test, waits until the fingerprints are taken, so that a change made after it is one
@@ -469,7 +480,7 @@ impl PickedFiles {
     pub(crate) fn wait_until_taken(&mut self) {
         use crate::support::threads::Took;
         let (tx, rx) = std::sync::mpsc::channel();
-        for _ in &self.paths {
+        for _ in self.paths.iter() {
             if let Took::Answer(fingerprint) = self.fingerprints.wait_next(FINGERPRINT_WAIT * 25) {
                 let _ = tx.send(fingerprint);
             }
@@ -479,10 +490,9 @@ impl PickedFiles {
 }
 
 /// The fingerprints of files picked before a wait, as `PickedFiles::wait_for_fingerprints`
-/// took them.
+/// took them, each with the identity its list knew it by.
 pub(crate) struct PickedFingerprints {
-    taken: std::collections::HashMap<PathBuf, FileFingerprint>,
-    listed: std::collections::HashMap<PathBuf, Identity>,
+    taken: std::collections::HashMap<PathBuf, (FileFingerprint, Identity)>,
     list_is_old: ListIsOld,
     are_folders: bool,
 }
@@ -491,14 +501,14 @@ impl PickedFingerprints {
     /// Returns the fingerprint that the file at `path` had when it was picked. Returns `None`
     /// when it was not taken in time, or nothing was there.
     pub(crate) fn picked_as(&self, path: &Path) -> Option<FileFingerprint> {
-        self.taken.get(path).copied()
+        self.taken.get(path).map(|(picked, _)| *picked)
     }
 
     /// Looks whether the file at `path` is still the one picked there. Returns the error to tell
     /// when it is not: another file has its name, it was written since, it is gone, or its
     /// fingerprint did not come in time.
     pub(crate) fn still_the_one_picked(&self, path: &Path) -> std::io::Result<()> {
-        let picked = *self.taken.get(path).ok_or_else(changed_meanwhile)?;
+        let (picked, listed) = *self.taken.get(path).ok_or_else(changed_meanwhile)?;
         // A folder is told by its inode alone, which it keeps while files come and go, or else
         // by its device and time (`folder_fingerprint`). One that is gone is left to the act.
         let known = match self.are_folders {
@@ -517,7 +527,7 @@ impl PickedFingerprints {
             false => KnownAs {
                 fingerprint: Some(picked),
                 without_device: false,
-                listed: self.listed.get(path).copied().flatten(),
+                listed,
                 list_is_old: Some(&self.list_is_old),
             },
         };
@@ -893,9 +903,25 @@ fn file_system_type_in(
     path: &Path,
     device_type: impl Fn(&[u8]) -> Option<String>,
 ) -> Option<String> {
-    let mounts: Vec<Mount> = (mountinfo.split(|&b| b == b'\n'))
+    file_system_type_among(&mounts_in(mountinfo), path, device_type)
+}
+
+/// Returns the mounts of `mountinfo`, the bytes of /proc/self/mountinfo, each line that is whole.
+fn mounts_in(mountinfo: &[u8]) -> Vec<Mount<'_>> {
+    #[cfg(test)]
+    MOUNT_TABLES_PARSED.set(MOUNT_TABLES_PARSED.get() + 1);
+    (mountinfo.split(|&b| b == b'\n'))
         .filter_map(mount_line)
-        .collect();
+        .collect()
+}
+
+/// Returns the type of the mount among `mounts` that holds `path`, as `file_system_type_in`
+/// does, for a caller that looks up many paths in one table parsed once.
+fn file_system_type_among(
+    mounts: &[Mount],
+    path: &Path,
+    device_type: impl Fn(&[u8]) -> Option<String>,
+) -> Option<String> {
     let ids: std::collections::HashSet<&[u8]> = mounts.iter().map(|m| m.id).collect();
     // The top mounts are those whose parent is not in the table, or which are their own parent.
     let on = |m: &Mount, under: Option<&[u8]>| match under {
@@ -1561,13 +1587,14 @@ pub(crate) fn still_listed(files: Vec<ListedFile>) -> (Vec<PathBuf>, Vec<String>
 
 /// Forgets the identities in `files`, names relative to `dir`, of the files on a file system
 /// that does not keep a file's inode for as long as the file is there. The mount table is read
-/// once, and each folder of the names is looked up once in it.
+/// and parsed once, and each folder of the names is looked up once in it.
 pub(crate) fn forget_passing_identities(
     dir: &Path,
     files: &mut [crate::model::listing::ListedName],
 ) {
     use crate::images::decode::read_limited;
-    let mounts = read_limited("/proc/self/mountinfo").unwrap_or_default();
+    let mountinfo = read_limited("/proc/self/mountinfo").unwrap_or_default();
+    let mounts = mounts_in(&mountinfo);
     let mut lasting: std::collections::HashMap<&Path, bool> = Default::default();
     let mut last: Option<(&Path, bool)> = None;
     let keeps: Vec<bool> = (files.iter())
@@ -1580,7 +1607,7 @@ pub(crate) fn forget_passing_identities(
                 return keeps;
             }
             let keeps = *lasting.entry(folder).or_insert_with(|| {
-                let kind = file_system_type_in(&mounts, &dir.join(folder), |_| None);
+                let kind = file_system_type_among(&mounts, &dir.join(folder), |_| None);
                 kind.is_some_and(|kind| has_lasting_inodes(&kind))
             });
             last = Some((folder, keeps));
@@ -1644,6 +1671,18 @@ pub(crate) fn fingerprint_or_error(path: &Path) -> std::io::Result<FileFingerpri
     let m = look(path, false)?;
     let key = crate::images::save::file_id_from_metadata(path, &m).ok();
     Ok((key, m.len(), (m.mtime(), m.mtime_nsec())))
+}
+
+/// Returns the paths of `files`, picked in the list, and the identities the list knew them by
+/// (`Listed`), in their order, without a second copy of the paths.
+fn paths_and_identities(files: Vec<ListedFile>) -> (Vec<PathBuf>, Listed) {
+    let list_is_old = files
+        .first()
+        .map(|f| f.list_is_old.clone())
+        .unwrap_or_default();
+    let listed = files.iter().map(|f| f.identity).collect();
+    let paths = files.into_iter().map(|f| f.path).collect();
+    (paths, (listed, list_is_old))
 }
 
 /// Returns the fingerprint of the file at `path`, picked before a wait, or `None` when nothing is
@@ -2234,6 +2273,19 @@ mod tests {
         std::fs::remove_dir_all(dir).unwrap();
     }
 
+    /// A listing of files in several folders parses the mount table once, however many folders
+    /// it looks up there. Before, it parsed the whole table again for each folder, which a list
+    /// with subfolders of 10,000 folders did 10,000 times.
+    #[test]
+    fn a_listing_parses_the_mount_table_once() {
+        let names = ["a/1.jpg", "b/2.jpg", "c/3.jpg", "c/4.jpg"];
+        let mut files: Vec<crate::model::listing::ListedName> =
+            names.iter().map(|n| (n.into(), None)).collect();
+        super::MOUNT_TABLES_PARSED.set(0);
+        super::forget_passing_identities(std::path::Path::new("/tmp"), &mut files);
+        assert_eq!(super::MOUNT_TABLES_PARSED.get(), 1);
+    }
+
     /// A folder picked before a wait on a file system that may give its inode to another folder
     /// (FAT, exFAT, FUSE) is told apart by its device and time, not by that inode. Before, a
     /// folder made since under the picked one's name could pass with the freed inode.
@@ -2248,8 +2300,7 @@ mod tests {
         let picked = super::folder_fingerprint(found, false);
         assert_eq!(picked.0.map(|(_, inode)| inode), Some(0));
         let fingerprints = super::PickedFingerprints {
-            taken: [(dir.clone(), picked)].into(),
-            listed: Default::default(),
+            taken: [(dir.clone(), (picked, None))].into(),
             list_is_old: Default::default(),
             are_folders: true,
         };
