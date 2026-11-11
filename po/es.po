@@ -3127,3 +3127,7 @@ msgstr "No se pudieron dejar los nombres como están: {e}. Renombrar varios volv
 #: src/files/journal.rs
 msgid "another window has them open"
 msgstr "otra ventana los tiene abiertos"
+
+#: src/ui/dialogs.rs
+msgid "The file dialog did not answer with full paths, so nothing was opened"
+msgstr "El diálogo de archivos no respondió con rutas completas, así que no se abrió nada"

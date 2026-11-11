@@ -3127,3 +3127,7 @@ msgstr "Kunne ikke lade navnene være, som de er: {e}. Omdøb flere spørger om 
 #: src/files/journal.rs
 msgid "another window has them open"
 msgstr "et andet vindue har dem åbne"
+
+#: src/ui/dialogs.rs
+msgid "The file dialog did not answer with full paths, so nothing was opened"
+msgstr "Fildialogen svarede ikke med fulde stier, så intet blev åbnet"

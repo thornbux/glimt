@@ -3152,3 +3152,7 @@ msgstr ""
 #: src/files/journal.rs
 msgid "another window has them open"
 msgstr ""
+
+#: src/ui/dialogs.rs
+msgid "The file dialog did not answer with full paths, so nothing was opened"
+msgstr ""

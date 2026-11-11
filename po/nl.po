@@ -3127,3 +3127,7 @@ msgstr "Kon de namen niet laten zoals ze zijn: {e}. Meerdere hernoemen vraagt er
 #: src/files/journal.rs
 msgid "another window has them open"
 msgstr "een ander venster heeft ze open"
+
+#: src/ui/dialogs.rs
+msgid "The file dialog did not answer with full paths, so nothing was opened"
+msgstr "De bestandsdialoog antwoordde niet met volledige paden, dus er is niets geopend"

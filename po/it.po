@@ -3127,3 +3127,7 @@ msgstr "Impossibile lasciare i nomi come sono: {e}. Rinomina multipla lo chieder
 #: src/files/journal.rs
 msgid "another window has them open"
 msgstr "un'altra finestra li ha aperti"
+
+#: src/ui/dialogs.rs
+msgid "The file dialog did not answer with full paths, so nothing was opened"
+msgstr "La finestra di selezione file non ha risposto con percorsi completi, quindi non è stato aperto nulla"

@@ -139,7 +139,7 @@ pub(crate) const MANUAL: &[(&str, &str)] = &[
          be read, so not in the Flatpak: there the card's own error tells.\n\n\
          Several folders show as one list:\n\n\
          - glimt ~/Holiday ~/Family\n\
-         - File → Open Several Folders…\n\
+         - File → Open Several Folders… (one folder only where kdialog stands in for zenity)\n\
          - Show Together with These Images in a folder's right-click menu.\n\n\
          A slideshow then goes through all of them, and random order mixes them.\n\n\
          The toolbar's arrows (Go → Back and Forward) go to the folders shown before, Up to the \

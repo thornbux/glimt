@@ -3138,3 +3138,7 @@ msgstr "Nie udało się zostawić nazw bez zmian: {e}. Zmiana wielu nazw zapyta 
 #: src/files/journal.rs
 msgid "another window has them open"
 msgstr "inne okno ma je otwarte"
+
+#: src/ui/dialogs.rs
+msgid "The file dialog did not answer with full paths, so nothing was opened"
+msgstr "Okno wyboru plików nie odpowiedziało pełnymi ścieżkami, więc nic nie zostało otwarte"
