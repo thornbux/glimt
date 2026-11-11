@@ -202,7 +202,8 @@ pub fn start_move_log(dir: &Path) -> std::io::Result<MoveLog> {
 /// The logs in `dir` of Moves that Glimt was killed during, which are those no running window
 /// holds locked. Each comes with the files that went, `(from, to)`: those whose old name is
 /// surely not there any more and whose new one is. A file that had not gone yet is still at its
-/// old name. Each log is held locked until it is removed.
+/// old name. A sidecar that the kill left at a file's old name is moved to the file here
+/// (`sidecars_follow_the_files_that_went`). Each log is held locked until it is removed.
 pub fn moves_cut_short(dir: &Path) -> Vec<(MoveLog, Moves)> {
     let entries = std::fs::read_dir(dir).into_iter().flatten().flatten();
     entries
@@ -227,6 +228,7 @@ pub fn moves_cut_short(dir: &Path) -> Vec<(MoveLog, Moves)> {
             let went: Moves = (parse_move_log(&bytes).into_iter())
                 .filter(|(from, to)| is_surely_gone(from) && is_surely_there(to))
                 .collect();
+            sidecars_follow_the_files_that_went(&went);
             let log = MoveLog {
                 path: e.path(),
                 file,
@@ -236,6 +238,22 @@ pub fn moves_cut_short(dir: &Path) -> Vec<(MoveLog, Moves)> {
             Some((log, went))
         })
         .collect()
+}
+
+/// Moves each sidecar that a Move killed between a photo and its sidecars left at the photo's
+/// old name to the photo, for the files that `went`, as the Move would have. Otherwise the next
+/// file of that old name would pick up the keywords. A sidecar never goes over one at the new
+/// name (`xmp::follow`), and one that cannot follow is told as a failed write.
+fn sidecars_follow_the_files_that_went(went: &[(PathBuf, PathBuf)]) {
+    use crate::metadata::xmp;
+    let moving: std::collections::HashSet<&PathBuf> = went.iter().map(|(from, _)| from).collect();
+    let mut names = xmp::AdobeNames::default();
+    for (from, to) in went {
+        let _lock = xmp::lock_sidecar(from);
+        if let Err(not) = xmp::follow(from, to, false, &moving, &mut names) {
+            crate::files::file_io::save_failed(format!("{}: {}", not.at.display(), not.error));
+        }
+    }
 }
 
 /// Returns the pairs `(from, to)` that the log of a Move holds, `bytes`: each name ends in a
@@ -641,6 +659,39 @@ fn is_linked(file: &File) -> bool {
 
 #[cfg(test)]
 mod tests {
+    /// A Move killed after a photo went and before its sidecar did leaves the sidecar at the old
+    /// name. The next start moves it to the photo, but never over a sidecar at the new name.
+    /// Before, the sidecar stayed behind, and the photo had no keywords.
+    #[test]
+    fn a_sidecar_left_by_a_killed_move_follows_its_photo() {
+        let dir =
+            std::env::temp_dir().join(format!("glimt-test-killed-side-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let (from, to, logs) = (dir.join("from"), dir.join("to"), dir.join("logs"));
+        std::fs::create_dir_all(&from).unwrap();
+        std::fs::create_dir_all(&to).unwrap();
+        for n in ["a.jpg", "a.jpg.xmp", "b.jpg", "b.jpg.xmp"] {
+            std::fs::write(from.join(n), n).unwrap();
+        }
+        std::fs::write(to.join("b.jpg.xmp"), "another's").unwrap();
+        let mut log = super::start_move_log(&logs).unwrap();
+        // The kill came after each photo went and before its sidecar did.
+        for n in ["a.jpg", "b.jpg"] {
+            log.note(&from.join(n), &to.join(n));
+            std::fs::rename(from.join(n), to.join(n)).unwrap();
+        }
+        drop(log);
+        let found = super::moves_cut_short(&logs);
+        assert_eq!(found.len(), 1);
+        let read = |p: std::path::PathBuf| std::fs::read_to_string(p).unwrap();
+        assert_eq!(read(to.join("a.jpg.xmp")), "a.jpg.xmp");
+        assert!(!from.join("a.jpg.xmp").exists());
+        assert_eq!(read(to.join("b.jpg.xmp")), "another's");
+        assert_eq!(read(from.join("b.jpg.xmp")), "b.jpg.xmp");
+        drop(found);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
     /// A power cut lost the count of the last step done. The plan is undone by the names too, so
     /// no photo stays under a hidden name, and it is finished all the same.
     #[test]
