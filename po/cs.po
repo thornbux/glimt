@@ -3137,3 +3137,7 @@ msgstr "{file} se vrátil, ale jeho doprovodný soubor {side} ne ({e}), takže d
 #: src/files/file_ops.rs
 msgid "{side} could not follow {file} ({e}), and {file} could not go back ({error}), so the file is at {to} and this sidecar at {side}"
 msgstr "{side} nemohl následovat {file} ({e}) a {file} se nemohl vrátit ({error}), takže soubor je v {to} a tento doprovodný soubor v {side}"
+
+#: src/files/file_io.rs
+msgid "Could not look at {name}: {e}. Its marks and collection entries followed it there all the same, as the file was there before."
+msgstr "{name} nelze zkontrolovat: {e}. Jeho značky a položky v kolekcích jej tam přesto následovaly, protože soubor tam předtím byl."

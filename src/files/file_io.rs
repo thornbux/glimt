@@ -534,14 +534,24 @@ pub(crate) fn is_surely_there(path: &Path) -> bool {
     look(path, false).is_ok()
 }
 
-/// Returns whether something is at `path`, by the look at its own name. A failed look other
-/// than a name surely not there says nothing either way, and its error is returned.
-#[cfg(feature = "marks")]
-pub(crate) fn is_something_at(path: &Path) -> std::io::Result<bool> {
+/// Returns whether the marks and collection entries of a file that a record says was moved to
+/// `path` follow it there. Only a look that surely finds nothing at the name says no. A look
+/// that fails says yes, because whoever made the record saw the file there, and it is told.
+/// A pair left out on a failed look let the other pairs of a swap give the other photo's
+/// marks to its name.
+pub(crate) fn is_followed_to(path: &Path) -> bool {
     match look(path, false) {
-        Ok(_) => Ok(true),
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(false),
-        Err(e) => Err(e),
+        Ok(_) => true,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => false,
+        Err(e) => {
+            save_failed(crate::tf!(
+                "Could not look at {name}: {e}. Its marks and collection entries followed it \
+                 there all the same, as the file was there before.",
+                name = path.display(),
+                e
+            ));
+            true
+        }
     }
 }
 

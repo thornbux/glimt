@@ -3115,3 +3115,7 @@ msgstr "{file} flyttades tillbaka, men sidofilen {side} kunde inte ({e}), så si
 #: src/files/file_ops.rs
 msgid "{side} could not follow {file} ({e}), and {file} could not go back ({error}), so the file is at {to} and this sidecar at {side}"
 msgstr "{side} kunde inte följa {file} ({e}), och {file} kunde inte flyttas tillbaka ({error}), så filen ligger i {to} och denna sidofil i {side}"
+
+#: src/files/file_io.rs
+msgid "Could not look at {name}: {e}. Its marks and collection entries followed it there all the same, as the file was there before."
+msgstr "Kunde inte titta på {name}: {e}. Dess markeringar och samlingsposter följde den dit ändå, eftersom filen fanns där förut."

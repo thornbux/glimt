@@ -3126,3 +3126,7 @@ msgstr "{file} wrócił, ale jego plik poboczny {side} nie ({e}), więc plik pob
 #: src/files/file_ops.rs
 msgid "{side} could not follow {file} ({e}), and {file} could not go back ({error}), so the file is at {to} and this sidecar at {side}"
 msgstr "{side} nie mógł podążyć za {file} ({e}), a {file} nie mógł wrócić ({error}), więc plik jest w {to}, a ten plik poboczny w {side}"
+
+#: src/files/file_io.rs
+msgid "Could not look at {name}: {e}. Its marks and collection entries followed it there all the same, as the file was there before."
+msgstr "Nie udało się sprawdzić {name}: {e}. Jego oznaczenia i wpisy w kolekcjach i tak podążyły tam za nim, bo plik był tam wcześniej."

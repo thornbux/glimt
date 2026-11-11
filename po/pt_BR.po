@@ -3126,3 +3126,7 @@ msgstr "{file} voltou, mas seu arquivo XMP associado {side} não ({e}), então o
 #: src/files/file_ops.rs
 msgid "{side} could not follow {file} ({e}), and {file} could not go back ({error}), so the file is at {to} and this sidecar at {side}"
 msgstr "{side} não pôde acompanhar {file} ({e}), e {file} não pôde voltar ({error}), então o arquivo está em {to} e este arquivo XMP associado em {side}"
+
+#: src/files/file_io.rs
+msgid "Could not look at {name}: {e}. Its marks and collection entries followed it there all the same, as the file was there before."
+msgstr "Não foi possível verificar {name}: {e}. Suas marcas e entradas de coleções o seguiram até lá mesmo assim, pois o arquivo estava lá antes."

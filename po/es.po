@@ -3115,3 +3115,7 @@ msgstr "{file} volvió, pero su archivo complementario {side} no pudo ({e}), as�
 #: src/files/file_ops.rs
 msgid "{side} could not follow {file} ({e}), and {file} could not go back ({error}), so the file is at {to} and this sidecar at {side}"
 msgstr "{side} no pudo seguir a {file} ({e}), y {file} no pudo volver ({error}), así que el archivo está en {to} y este archivo complementario en {side}"
+
+#: src/files/file_io.rs
+msgid "Could not look at {name}: {e}. Its marks and collection entries followed it there all the same, as the file was there before."
+msgstr "No se pudo comprobar {name}: {e}. Sus marcas y entradas de colecciones lo siguieron allí de todos modos, ya que el archivo estaba allí antes."

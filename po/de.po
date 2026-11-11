@@ -3115,3 +3115,7 @@ msgstr "{file} wurde zurückgebracht, seine Begleitdatei {side} aber nicht ({e})
 #: src/files/file_ops.rs
 msgid "{side} could not follow {file} ({e}), and {file} could not go back ({error}), so the file is at {to} and this sidecar at {side}"
 msgstr "{side} konnte {file} nicht folgen ({e}), und {file} konnte nicht zurück ({error}), daher liegt die Datei in {to} und diese Begleitdatei in {side}"
+
+#: src/files/file_io.rs
+msgid "Could not look at {name}: {e}. Its marks and collection entries followed it there all the same, as the file was there before."
+msgstr "{name} konnte nicht geprüft werden: {e}. Markierungen und Sammlungseinträge sind der Datei trotzdem dorthin gefolgt, da sie vorher dort war."

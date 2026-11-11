@@ -3119,3 +3119,7 @@ msgstr "{file} palautettiin, mutta sen sivutiedosto {side} ei ({e}), joten sivut
 #: src/files/file_ops.rs
 msgid "{side} could not follow {file} ({e}), and {file} could not go back ({error}), so the file is at {to} and this sidecar at {side}"
 msgstr "{side} ei voinut seurata tiedostoa {file} ({e}), eikä {file} voinut palata ({error}), joten tiedosto on kohteessa {to} ja tämä sivutiedosto kohteessa {side}"
+
+#: src/files/file_io.rs
+msgid "Could not look at {name}: {e}. Its marks and collection entries followed it there all the same, as the file was there before."
+msgstr "Kohdetta {name} ei voitu tarkistaa: {e}. Sen merkinnät ja kokoelmamerkinnät seurasivat sitä sinne silti, koska tiedosto oli siellä aiemmin."

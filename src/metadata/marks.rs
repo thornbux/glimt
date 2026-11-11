@@ -617,22 +617,17 @@ fn write(file: &Path, changes: Vec<Edit>) {
 /// where a later file of that name would get them. A move that its own job just made is not
 /// looked at, because its file was at the new name, and a Move of 500,000 files on a share
 /// would otherwise wait for 500,000 looks here. A new name that a later edit names is kept,
-/// as the file was there and went on from it. A name that cannot be looked at is left out
-/// too, and told. It waits for the disk, so it runs in the writer's thread. Returns whether a
-/// file was left out.
+/// as the file was there and went on from it. A name that cannot be looked at is kept, and
+/// told (`is_followed_to`). It waits for the disk, so it runs in the writer's thread. Returns
+/// whether a file was left out.
 fn follow_only_to_files_there(changes: &mut [Edit]) -> bool {
     let mut named_later: std::collections::HashSet<PathBuf> = Default::default();
     let mut some_left_out = false;
     for edit in changes.iter_mut().rev() {
         if let Edit::Follow(pairs, _, true) = edit {
             pairs.retain(|(_, to)| {
-                let is_there = match to.ancestors().any(|a| named_later.contains(a)) {
-                    true => true,
-                    false => crate::files::file_io::is_something_at(to).unwrap_or_else(|e| {
-                        crate::files::file_io::save_failed(format!("{}: {e}", to.display()));
-                        false
-                    }),
-                };
+                let is_there = to.ancestors().any(|a| named_later.contains(a))
+                    || crate::files::file_io::is_followed_to(to);
                 some_left_out |= !is_there;
                 is_there
             });
@@ -1341,7 +1336,8 @@ mod tests {
         let p = |n: &str| dir.join(n);
         std::fs::write(p("there.jpg"), "a").unwrap();
         std::fs::write(p("last.jpg"), "c").unwrap();
-        // A name on a share that does not answer may hold nothing, so its marks stay too.
+        // A name on a share that does not answer was there when the record was made, so the
+        // marks follow the file there, and that is told.
         std::fs::write(p("unanswered.jpg"), "d").unwrap();
         crate::support::threads::lock_even_if_poisoned(&crate::files::file_io::LOOKS_FAIL)
             .push(p("unanswered.jpg"));
@@ -1374,10 +1370,42 @@ mod tests {
         assert_eq!(written.get(&p("b.jpg")), Some(&(0, 2)));
         assert_eq!(written.get(&p("gone.jpg")), None);
         assert_eq!(written.get(&p("last.jpg")), Some(&(0, 3)));
-        assert_eq!(written.get(&p("d.jpg")), Some(&(0, 4)));
+        assert_eq!(written.get(&p("d.jpg")), None);
+        assert_eq!(written.get(&p("unanswered.jpg")), Some(&(0, 4)));
         assert_eq!(written.get(&p("made.jpg")), Some(&(0, 5)));
         crate::support::threads::lock_even_if_poisoned(&crate::files::file_io::LOOKS_FAIL)
             .retain(|n| *n != p("unanswered.jpg"));
+        let told = crate::files::file_io::take_saves_failed();
+        assert!(
+            told.iter().any(|t| t.contains("unanswered.jpg")),
+            "{told:?}"
+        );
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A swap read from a record, of a with b, whose look at one new name fails, still swaps both
+    /// photos' marks. Before, the pair whose look failed was left out and the other was made,
+    /// so a got b's marks, and a's own were lost.
+    #[test]
+    fn a_swap_with_a_failed_look_keeps_both_photos_marks() {
+        use crate::files::file_io::LOOKS_FAIL;
+        use crate::support::threads::lock_even_if_poisoned;
+        let dir =
+            std::env::temp_dir().join(format!("glimt-test-marks-swap-eio-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let (file, p) = (dir.join("marks"), |n: &str| dir.join(n));
+        std::fs::write(p("a.jpg"), "b").unwrap();
+        std::fs::write(p("b.jpg"), "a").unwrap();
+        let line = |stars: u8, n: &str| format!("0\t{stars}\t{}\n", p(n).display());
+        std::fs::write(&file, line(1, "a.jpg") + &line(2, "b.jpg")).unwrap();
+        lock_even_if_poisoned(&LOOKS_FAIL).push(p("b.jpg"));
+        let swap = vec![(p("a.jpg"), p("b.jpg")), (p("b.jpg"), p("a.jpg"))];
+        super::write(&file, vec![super::Edit::Follow(swap, false, true)]);
+        lock_even_if_poisoned(&LOOKS_FAIL).retain(|n| *n != p("b.jpg"));
+        let written = super::parse(&std::fs::read(&file).unwrap());
+        assert_eq!(written.get(&p("a.jpg")), Some(&(0, 2)));
+        assert_eq!(written.get(&p("b.jpg")), Some(&(0, 1)));
+        let _ = crate::files::file_io::take_saves_failed();
         std::fs::remove_dir_all(dir).unwrap();
     }
 

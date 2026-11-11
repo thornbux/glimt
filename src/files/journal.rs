@@ -756,10 +756,11 @@ pub fn leave_names(
         .filter(take_lock_if_free)
         .filter(is_linked)?;
     // Each file is followed to the name the count says it has now, and a pair is given only
-    // where a file is surely there. Taken from the count alone, a repair that stopped half way
-    // gave a photo that went back to its old name the marks of a name where nothing was.
+    // where a file may be there (`is_followed_to`). Taken from the count alone, a repair that
+    // stopped half way gave a photo that went back to its old name the marks of a name where
+    // nothing was.
     let followed = (files_of(moves, done, &[]).into_iter())
-        .filter(|(first, now, ..)| first != now && crate::files::file_io::is_surely_there(now))
+        .filter(|(first, now, ..)| first != now && crate::files::file_io::is_followed_to(now))
         .map(|(first, now, ..)| (first.to_path_buf(), now.to_path_buf()))
         .collect();
     remove_plan(plan, &one_name_per_folder(moves));
@@ -1584,6 +1585,35 @@ mod tests {
         );
         let followed = super::leave_names(&plan, &moves, done).unwrap();
         assert_eq!(followed, vec![(p("IMG_1.jpg"), p("Trip_1.jpg"))]);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// Leaving the names gives the marks and collections a file whose name now cannot be looked
+    /// at, as the file was there, and tells it. Before, the failed look left the pair out
+    /// without a word, and the plan was removed, so the photo lost its marks for good.
+    #[test]
+    fn leaving_the_names_follows_a_file_that_cannot_be_looked_at() {
+        use crate::files::file_io::LOOKS_FAIL;
+        use crate::support::threads::lock_even_if_poisoned;
+        let dir =
+            std::env::temp_dir().join(format!("glimt-test-plan-leave-eio-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let (plans, p) = (dir.join("plans"), |n: &str| dir.join(n));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(p("a.jpg"), "a").unwrap();
+        let moves = vec![(p("a.jpg"), p("b.jpg"))];
+        let mut plan = super::start_journal(&plans, &moves).unwrap();
+        super::rename_step(&moves[0].0, &moves[0].1).unwrap();
+        plan.count_step_done();
+        plan.keep_on_disk();
+        let (plan, moves, done) = super::cut_short_plans(&plans).remove(0);
+        lock_even_if_poisoned(&LOOKS_FAIL).push(p("b.jpg"));
+        let _ = crate::files::file_io::take_saves_failed();
+        let followed = super::leave_names(&plan, &moves, done);
+        lock_even_if_poisoned(&LOOKS_FAIL).retain(|f| *f != p("b.jpg"));
+        assert_eq!(followed, Some(vec![(p("a.jpg"), p("b.jpg"))]));
+        let told = crate::files::file_io::take_saves_failed();
+        assert!(told.iter().any(|t| t.contains("b.jpg")), "{told:?}");
         std::fs::remove_dir_all(dir).unwrap();
     }
 

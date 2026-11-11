@@ -3115,3 +3115,7 @@ msgstr "{file} var færð til baka, en hliðarskráin {side} ekki ({e}), svo hli
 #: src/files/file_ops.rs
 msgid "{side} could not follow {file} ({e}), and {file} could not go back ({error}), so the file is at {to} and this sidecar at {side}"
 msgstr "{side} gat ekki fylgt {file} ({e}), og {file} gat ekki farið til baka ({error}), svo skráin er í {to} og þessi hliðarskrá í {side}"
+
+#: src/files/file_io.rs
+msgid "Could not look at {name}: {e}. Its marks and collection entries followed it there all the same, as the file was there before."
+msgstr "Gat ekki skoðað {name}: {e}. Merkingar og færslur í söfnum fylgdu skránni þangað samt, þar sem hún var þar áður."

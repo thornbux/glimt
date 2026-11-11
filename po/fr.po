@@ -3115,3 +3115,7 @@ msgstr "{file} est revenu, mais pas son fichier annexe {side} ({e}), donc le fic
 #: src/files/file_ops.rs
 msgid "{side} could not follow {file} ({e}), and {file} could not go back ({error}), so the file is at {to} and this sidecar at {side}"
 msgstr "{side} n'a pas pu suivre {file} ({e}), et {file} n'a pas pu revenir ({error}), donc le fichier est dans {to} et ce fichier annexe dans {side}"
+
+#: src/files/file_io.rs
+msgid "Could not look at {name}: {e}. Its marks and collection entries followed it there all the same, as the file was there before."
+msgstr "Impossible de vérifier {name} : {e}. Ses marques et ses entrées de collection l'ont suivi là quand même, car le fichier s'y trouvait avant."
