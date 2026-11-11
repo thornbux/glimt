@@ -5816,3 +5816,68 @@ fn finds_a_wait_for_a_program_in_the_window_thread() {
         .collect();
     assert_eq!(found, [("a", "send_to_printer("), ("b", "mount(")]);
 }
+
+/// An XMP property is found only as a top-level property of a Description
+/// (`xmp::top_level_properties`), never by a search of the packet for its name. Such a search
+/// also finds the property inside another one, such as the keywords, the rating or the
+/// orientation of another document in xmpMM:Pantry. The readers took those for the photo's own,
+/// and the editors took them out or changed them.
+#[test]
+fn xmp_properties_are_found_at_the_top_level() {
+    let mut wrong = Vec::new();
+    for (file, text) in rust_sources() {
+        // This file names such searches in its own tests.
+        if file != "support/source_rules.rs" {
+            wrong.extend(searches_for_xmp_properties(&file, &text));
+        }
+    }
+    assert!(
+        wrong.is_empty(),
+        "find an XMP property with xmp::top_level_properties, not by a search for its name:\n{}",
+        wrong.join("\n")
+    );
+}
+
+/// The check above finds a search for an element by its name, also one made with `format!`
+/// and one in bytes, and lets a search for a Description or a list item pass.
+#[test]
+fn finds_a_search_for_an_xmp_property() {
+    let text = "fn a(x: &str) {\n    x.contains(\"<dc:subject\");\n    \
+        x.find(&format!(\"<{tag}\"));\n    x.find(\"<rdf:Description\");\n    \
+        rest.find(\"<rdf:li\");\n    x.contains(b\"<xmp:Rating\");\n}\n";
+    assert_eq!(
+        searches_for_xmp_properties("a.rs", text),
+        ["a.rs:2", "a.rs:3", "a.rs:6"]
+    );
+}
+
+/// Returns the places outside the tests of `text`, the source of `file`, where a packet is
+/// searched for an XMP element by its name, as "file:line". A search for an element of the RDF
+/// namespace, such as a Description or a list item, is no search for a property.
+fn searches_for_xmp_properties(file: &str, text: &str) -> Vec<String> {
+    const SEARCHES: [&str; 3] = [".contains(", ".find(", ".rfind("];
+    let end = tests_start(&code_lines(text));
+    let is_property_name = |argument: &str| {
+        let argument = argument.trim_start_matches('&');
+        let argument = argument.strip_prefix('b').unwrap_or(argument);
+        let Some(name) = argument.strip_prefix("\"<") else {
+            return argument.starts_with("format!(\"<{");
+        };
+        let name: String = (name.chars())
+            .take_while(|&c| c.is_alphanumeric() || matches!(c, '_' | '-' | '.' | ':'))
+            .collect();
+        name.contains(':') && !name.starts_with("rdf:")
+    };
+    let mut wrong = Vec::new();
+    for (i, line) in text.lines().take(end).enumerate() {
+        if line.trim_start().starts_with("//") {
+            continue;
+        }
+        let arguments = (SEARCHES.iter())
+            .flat_map(|search| line.match_indices(search).map(|(at, _)| at + search.len()));
+        if arguments.map(|at| &line[at..]).any(is_property_name) {
+            wrong.push(format!("{file}:{}", i + 1));
+        }
+    }
+    wrong
+}

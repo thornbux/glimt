@@ -235,43 +235,6 @@ impl SharedMetadata {
     }
 }
 
-/// A forward search for a text in a packet, for places asked in rising order. A search goes on
-/// from where the last one ended, so all of them together read the packet once, however many
-/// places are asked (`xmp_without_property`).
-struct ForwardSearch<'a> {
-    hay: &'a [u8],
-    what: &'a [u8],
-    /// What the last search found, if one was made. A search that found nothing holds for every
-    /// later place too.
-    found: Option<Option<usize>>,
-}
-
-impl<'a> ForwardSearch<'a> {
-    fn new(hay: &'a [u8], what: &'a [u8]) -> Self {
-        ForwardSearch {
-            hay,
-            what,
-            found: None,
-        }
-    }
-
-    /// Returns the first place of the text at or after `from`, or `None` when there is none.
-    /// `from` is never smaller than in the call before.
-    fn at(&mut self, from: usize) -> Option<usize> {
-        if let Some(found) = self.found
-            && found.is_none_or(|f| f >= from)
-        {
-            return found;
-        }
-        let rest = self.hay.get(from..).unwrap_or_default();
-        let found = (rest.windows(self.what.len()))
-            .position(|w| w == self.what)
-            .map(|i| from + i);
-        self.found = Some(found);
-        found
-    }
-}
-
 /// Saves the view's rotation in a PNG or WebP, which have no orientation field to set. The
 /// pixels are turned, and the file is written again with its ICC profile, EXIF block and XMP
 /// (keywords, comment, and alt text other programs wrote into it). PNG and lossless WebP keep
@@ -1014,106 +977,31 @@ fn derive_sidecar(
 }
 
 /// Leaves the property `name` out of `xmp`, written as an attribute (` name="…"` or with single
-/// quotes) or as an element (`<name …>…</name>` or `<name …/>`), every time it is there. An
-/// element goes with the white space before it, so a sidecar written again and again does not
-/// gather empty lines. Every XMP editor that replaces a property takes the old one out here, as
-/// a search for one spelling misses the others (`xmp:Rating='3'`) and leaves the property
-/// twice. A property that is cut off is left as it is, and
-/// so is one in a comment or one whose element would reach into a comment. The packet is copied
-/// once, and each search goes on from where the last one ended (`ForwardSearch`), so a hostile
-/// packet takes linear time. Before, each property left out moved the rest of the packet, and each
-/// element without its end tag searched to the end again, both quadratic, and a
-/// `<!--<xmp:Thumbnails>-->` comment was cut to the next end tag, which left the packet broken.
+/// quotes) or as an element (`<name …>…</name>` or `<name …/>`), every time it is a top-level
+/// property of an rdf:Description (`xmp::top_level_properties`). One inside another property is
+/// left as it is, such as the rating of another document in xmpMM:Pantry. An element goes with
+/// the white space before it, so a sidecar written again and again does not gather empty lines.
+/// Every XMP editor that replaces a property takes the old one out here, as a search for one
+/// spelling misses the others (`xmp:Rating='3'`) and leaves the property twice. A property with
+/// a comment inside it is left as it is, as its end may be read inside the comment.
 pub(crate) fn xmp_without_property(xmp: &[u8], name: &[u8]) -> Vec<u8> {
-    let end_tag = [&b"</"[..], name, b">"].concat();
-    let [mut names, mut gts, mut ends] = [
-        ForwardSearch::new(xmp, name),
-        ForwardSearch::new(xmp, b">"),
-        ForwardSearch::new(xmp, &end_tag),
-    ];
-    let [mut opens, mut closes] = [
-        ForwardSearch::new(xmp, b"<!--"),
-        ForwardSearch::new(xmp, b"-->"),
-    ];
-    let [mut double, mut single] = [
-        ForwardSearch::new(xmp, b"\""),
-        ForwardSearch::new(xmp, b"'"),
-    ];
-    let (mut out, mut copied, mut from) = (Vec::with_capacity(xmp.len()), 0, 0);
-    while let Some(at) = names.at(from) {
-        // A comment that starts before the name is passed over whole.
-        if let Some(open) = opens.at(from)
-            && open < at
-        {
-            match closes.at(open + 4) {
-                Some(close) => from = close + 3,
-                None => break,
-            }
+    let (mut out, mut copied) = (Vec::with_capacity(xmp.len()), 0);
+    for found in crate::metadata::xmp::top_level_properties(xmp) {
+        let whole = &xmp[found.whole.clone()];
+        if xmp[found.name] != *name || whole.windows(4).any(|w| w == b"<!--") {
             continue;
         }
-        let end = at + name.len();
-        let before = at.checked_sub(1).map(|i| xmp[i]);
-        let after = xmp.get(end).copied();
-        let cut = match before {
-            // An element: up to its own "/>", or else to its end tag.
-            Some(b'<')
-                if after.is_some_and(|c| c == b'>' || c == b'/' || c.is_ascii_whitespace()) =>
-            {
-                (gts.at(end)).and_then(|gt| {
-                    element_end_after_start_tag(xmp, gt, &end_tag, |from| ends.at(from))
-                })
-            }
-            // An attribute: its name, "=" and the quoted value, with the blank before it.
-            Some(c) if c.is_ascii_whitespace() => {
-                let blanks = |i: usize| {
-                    i + xmp[i.min(xmp.len())..]
-                        .iter()
-                        .take_while(|c| c.is_ascii_whitespace())
-                        .count()
-                };
-                let i = blanks(end);
-                let eq = xmp.get(i) == Some(&b'=');
-                let i = blanks(i + 1);
-                match xmp.get(i).copied() {
-                    Some(b'"') if eq => double.at(i + 1).map(|j| j + 1),
-                    Some(b'\'') if eq => single.at(i + 1).map(|j| j + 1),
-                    _ => None,
-                }
-            }
-            _ => None,
+        let start = found.whole.start;
+        let start = match found.is_attribute {
+            true if start > copied && xmp[start - 1].is_ascii_whitespace() => start - 1,
+            true => start,
+            false => copied + xmp[copied..start].trim_ascii_end().len(),
         };
-        // A cut that would reach into a comment is not made.
-        match cut.filter(|&stop| opens.at(at).is_none_or(|open| open >= stop)) {
-            Some(stop) => {
-                let mut start = at - 1;
-                if xmp[start] == b'<' {
-                    start = copied + xmp[copied..start].trim_ascii_end().len();
-                }
-                out.extend_from_slice(&xmp[copied..start]);
-                (copied, from) = (stop, stop);
-            }
-            None => from = end,
-        }
+        out.extend_from_slice(&xmp[copied..start]);
+        copied = found.whole.end;
     }
     out.extend_from_slice(&xmp[copied..]);
     out
-}
-
-/// Returns where an element of XMP ends, given `gt`, the place of the ">" that ends its start
-/// tag. An empty element (`<name/>`) ends just after that ">", and any other just after its end
-/// tag, which `find_end_tag` finds from a place. Returns `None` when the end tag is missing. The
-/// readers of the XMP fields and `xmp_without_property` both end an element here, so a reader
-/// never reads past an empty element into the lists that follow it.
-pub(crate) fn element_end_after_start_tag(
-    xmp: &[u8],
-    gt: usize,
-    end_tag: &[u8],
-    find_end_tag: impl FnOnce(usize) -> Option<usize>,
-) -> Option<usize> {
-    match gt.checked_sub(1).map(|i| xmp[i]) {
-        Some(b'/') => Some(gt + 1),
-        _ => find_end_tag(gt).map(|e| e + end_tag.len()),
-    }
 }
 
 /// `img` turned as the view turns it, mirrored first and then turned clockwise `turns`
@@ -2992,32 +2880,39 @@ mod tests {
     /// comment's end went and the packet was broken.
     #[test]
     fn leaves_xmp_properties_out_in_one_pass() {
+        // Each text is the rest of a Description's start tag and what it holds.
         let without_thumbnails = |x: &str| {
-            String::from_utf8(super::xmp_without_property(x.as_bytes(), b"xmp:Thumbnails"))
+            let packet = format!("<rdf:Description{x}</rdf:Description>");
+            let out = super::xmp_without_property(packet.as_bytes(), b"xmp:Thumbnails");
+            let out = String::from_utf8(out).unwrap();
+            let inside = out.strip_prefix("<rdf:Description").unwrap();
+            inside
+                .strip_suffix("</rdf:Description>")
+                .unwrap()
+                .to_owned()
         };
-        let kept = "<!--<xmp:Thumbnails>--><a/>";
+        let kept = "><!--<xmp:Thumbnails>--><a/>";
         assert_eq!(
-            without_thumbnails(&format!("{kept}<xmp:Thumbnails>t</xmp:Thumbnails><b/>")).unwrap(),
+            without_thumbnails(&format!("{kept}<xmp:Thumbnails>t</xmp:Thumbnails><b/>")),
             format!("{kept}<b/>")
         );
-        assert_eq!(
-            without_thumbnails("<xmp:Thumbnails>t<!-- --></xmp:Thumbnails>").unwrap(),
-            "<xmp:Thumbnails>t<!-- --></xmp:Thumbnails>"
-        );
+        let commented = "><xmp:Thumbnails>t<!-- --></xmp:Thumbnails>";
+        assert_eq!(without_thumbnails(commented), commented);
         assert_eq!(
             without_thumbnails(
-                "<a xmp:Thumbnails='1' b=\"2\" xmp:Thumbnails = \"3\"/><xmp:Thumbnails/>"
-            )
-            .unwrap(),
-            "<a b=\"2\"/>"
+                " xmp:Thumbnails='1' b=\"2\" xmp:Thumbnails = \"3\"><xmp:Thumbnails/>"
+            ),
+            " b=\"2\">"
         );
         let started = std::time::Instant::now();
         let many = " xmp:Thumbnails=\"1\"".repeat(100_000);
-        assert_eq!(without_thumbnails(&many).unwrap(), "");
-        let open = "<xmp:Thumbnails>".repeat(100_000);
-        assert_eq!(without_thumbnails(&open).unwrap(), open);
-        let unclosed = "<xmp:Thumbnails".repeat(100_000);
-        assert_eq!(without_thumbnails(&unclosed).unwrap(), unclosed);
+        assert_eq!(without_thumbnails(&format!("{many}>")), ">");
+        let open = format!(">{}", "<xmp:Thumbnails>".repeat(100_000));
+        assert_eq!(without_thumbnails(&open), open);
+        let unclosed = format!(">{}", "<xmp:Thumbnails".repeat(100_000));
+        assert_eq!(without_thumbnails(&unclosed), unclosed);
+        let comments = format!(">{}", "<!-- -->".repeat(100_000));
+        assert_eq!(without_thumbnails(&comments), comments);
         assert!(started.elapsed() < std::time::Duration::from_secs(2));
     }
 

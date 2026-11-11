@@ -637,23 +637,21 @@ fn oriented(
     Ok((data, new as u8))
 }
 
-/// The XMP's `tiff:Orientation` set to `value` (1–8), as an attribute or an element; the length
-/// stays, as a value is one digit.
+/// Sets the XMP's `tiff:Orientation` to `value` (1–8), as an attribute or an element. The
+/// length stays, as a value is one digit. Only the photo's own orientation changes, a top-level
+/// property (`xmp::top_level_properties`), and not that of another document in xmpMM:Pantry.
 pub fn set_xmp_orientation(xmp: &mut [u8], value: u8) {
-    let key = b"tiff:Orientation";
-    let mut from = 0;
-    while let Some(at) = xmp[from..].windows(key.len()).position(|w| w == key) {
-        let rest = from + at + key.len();
-        let spot = match xmp.get(rest..rest + 2) {
-            Some([b'=', b'"' | b'\'']) => rest + 2,
-            Some([b'>', _]) => rest + 1,
-            _ => rest,
-        };
-        let digit = xmp.get(spot).is_some_and(u8::is_ascii_digit);
-        if digit && !xmp.get(spot + 1).is_some_and(u8::is_ascii_digit) {
-            xmp[spot] = b'0' + value.min(9);
+    for found in crate::metadata::xmp::top_level_properties(xmp) {
+        if xmp[found.name] != *b"tiff:Orientation" {
+            continue;
         }
-        from = rest;
+        let text = &xmp[found.value.clone()];
+        let blanks = text.iter().take_while(|c| c.is_ascii_whitespace()).count();
+        if let [digit] = text.trim_ascii()
+            && digit.is_ascii_digit()
+        {
+            xmp[found.value.start + blanks] = b'0' + value.min(9);
+        }
     }
 }
 
@@ -1804,22 +1802,23 @@ mod tests {
     /// survived.
     #[test]
     fn sets_xmp_upright() {
-        let mut xmp =
-            br#"<x tiff:Orientation="6" a="6"/><tiff:Orientation>8</tiff:Orientation>"#.to_vec();
+        let mut xmp = br#"<rdf:Description tiff:Orientation="6" a="6"><tiff:Orientation>8</tiff:Orientation></rdf:Description>"#.to_vec();
         super::set_xmp_orientation(&mut xmp, 1);
         assert_eq!(
             xmp,
-            br#"<x tiff:Orientation="1" a="6"/><tiff:Orientation>1</tiff:Orientation>"#
+            br#"<rdf:Description tiff:Orientation="1" a="6"><tiff:Orientation>1</tiff:Orientation></rdf:Description>"#
         );
-        let mut odd = b"tiff:Orientation='12' tiff:Orientation".to_vec();
+        let mut odd =
+            b"<rdf:Description tiff:Orientation='12' x:y='1'><tiff:Orientation/>".to_vec();
+        let before = odd.clone();
         super::set_xmp_orientation(&mut odd, 1);
-        assert_eq!(odd, b"tiff:Orientation='12' tiff:Orientation");
+        assert_eq!(odd, before);
     }
 
     #[test]
     fn survives_broken_xmp_orientation() {
         for mut xmp in crate::support::test_support::broken(
-            br#"<x tiff:Orientation="6"/><tiff:Orientation>8</tiff:Orientation>"#,
+            br#"<rdf:Description tiff:Orientation="6"><tiff:Orientation>8</tiff:Orientation></rdf:Description>"#,
         ) {
             super::set_xmp_orientation(&mut xmp, 1);
         }
@@ -2030,7 +2029,7 @@ mod tests {
         let rows = super::read(&file);
         assert!(rows.contains(&("Camera", "Canon".to_string())), "{rows:?}");
         // An XMP segment with its own orientation turns along.
-        let xmp = b"http://ns.adobe.com/xap/1.0/\0<x tiff:Orientation=\"1\"/>";
+        let xmp = b"http://ns.adobe.com/xap/1.0/\0<rdf:Description tiff:Orientation=\"1\"/>";
         let mut jpeg = vec![0xff, 0xd8, 0xff, 0xe1];
         jpeg.extend(((xmp.len() + 2) as u16).to_be_bytes());
         jpeg.extend(xmp);

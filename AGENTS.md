@@ -491,6 +491,10 @@ method.
   file that reads outside text (a file read whole, a program's output, a line from the socket)
   has such a test of its own, or names the test that feeds its parser elsewhere in a comment
   on the read (`source_rules::outside_text_is_read_by_parsers_fed_broken_input`).
+- **An XMP property** is read, taken out or changed only where `xmp::top_level_properties`
+  finds it, at the top of a Description, never by a search of the packet for its name, which
+  also finds another document's inside xmpMM:Pantry
+  (`source_rules::xmp_properties_are_found_at_the_top_level`).
 - **Touching the disk or starting a program** goes through one function each, and
   `clippy.toml` (`disallowed-methods`) refuses the raw calls, so `cargo clippy` fails on a
   bypass:
