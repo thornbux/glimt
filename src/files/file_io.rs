@@ -572,6 +572,21 @@ pub(crate) fn put_file(from: &Path, to: &Path, is_copy: bool) -> std::io::Result
     put_file_until_stopped(from, to, is_copy, &|| false)
 }
 
+/// Takes back a `put_file` of `from` to `to` whose sidecar could not follow, so that the file
+/// and its sidecar stay together. A move goes back to `from`, on disk with its folder, as the
+/// window then counts the file as never moved. A copy is removed, but only while `from` is
+/// surely there, so that the copy is never the only one left.
+pub(crate) fn put_file_back(from: &Path, to: &Path, was_copy: bool) -> std::io::Result<()> {
+    if !was_copy {
+        return put_file(to, from, false).and_then(|()| sync_folder_of(from));
+    }
+    if !is_surely_there(from) {
+        return Err(std::io::ErrorKind::NotFound.into());
+    }
+    #[allow(clippy::disallowed_methods)] // a copy just made, whose original is still there
+    std::fs::remove_file(to)
+}
+
 /// Copies or moves `from` to `to` as `put_file` does, and stops inside a large file when
 /// `is_stopped` says so. A copy, also that of a move to another disk, is made in parts of a few
 /// megabytes, and `is_stopped` is asked before each. A stopped copy leaves no part of the file

@@ -2705,8 +2705,8 @@ fn put_files(
             let mut failed = |at: &Path, e: std::io::Error| {
                 errors.push(format!("{display}: {e}", display = at.display()));
             };
-            // The file is moved first and then its sidecar, and a failed sidecar is told by
-            // its own name, because the photo went and its keywords did not. A move holds the
+            // The file is moved first and then its sidecar, and a sidecar that cannot follow
+            // takes the file back (`xmp::follow`, `put_file_back`). A move holds the
             // sidecar as a write does, so a write that waited lands on no old name. A copy
             // does not hold it, because the photo stays. A move to another disk holds it
             // while the photo is copied, which only makes writes under the same lock wait.
@@ -2736,14 +2736,22 @@ fn put_files(
                     failed(&target, e);
                 }
                 moving.remove(path);
-            } else {
-                if another_to_come {
-                    followed_later.push((path, target.clone()));
-                } else if let Err((side, e)) =
-                    xmp::follow(path, &target, is_copy, &moving, &mut sidecar_names)
-                {
-                    failed(&side, e);
+            } else if another_to_come {
+                followed_later.push((path, target.clone()));
+                put.push((path.clone(), target.clone()));
+            } else if let Err(not) =
+                xmp::follow(path, &target, is_copy, &moving, &mut sidecar_names)
+            {
+                // The file and its sidecars go together or not at all, so a later file of the
+                // old name never picks up a sidecar left behind.
+                let back = not.taken_back
+                    && crate::files::file_io::put_file_back(path, &target, is_copy).is_ok();
+                errors.push(sidecar_not_followed(&not, path, back));
+                match back {
+                    true => drop(moving.remove(path)),
+                    false => put.push((path.clone(), target.clone())),
                 }
+            } else {
                 put.push((path.clone(), target.clone()));
             }
         };
@@ -2812,8 +2820,10 @@ fn follow_once_the_stem_is_known(
     let mut errors = Vec::new();
     for (from, to) in moved {
         let _lock = xmp::lock_sidecar(from);
-        if let Err((side, e)) = xmp::follow(from, &to, false, went, sidecar_names) {
-            errors.push(format!("{}: {e}", side.display()));
+        // shortcut: the RAW files of the stem have gone already, so a sidecar that cannot
+        // follow them is only told; take the files back too if this is ever seen.
+        if let Err(not) = xmp::follow(from, &to, false, went, sidecar_names) {
+            errors.push(format!("{}: {}", not.at.display(), not.error));
         }
     }
     errors
@@ -2849,16 +2859,26 @@ fn move_back(pairs: Vec<Moved>) -> MovedBack {
             None => put_file(&to, &from, false).map_err(|e| (from.clone(), e)),
         };
         match result {
-            Ok(()) => {
-                if another_to_come {
-                    followed_later.push((to.clone(), from.clone()));
-                } else if let Err((side, e)) =
-                    xmp::follow(&to, &from, false, &moving, &mut sidecar_names)
-                {
-                    errors.push(format!("{}: {e}", side.display()));
-                }
+            Ok(()) if another_to_come => {
+                followed_later.push((to.clone(), from.clone()));
                 back.push((to, from));
             }
+            Ok(()) => match xmp::follow(&to, &from, false, &moving, &mut sidecar_names) {
+                Ok(()) => back.push((to, from)),
+                // The file goes back to its sidecars, and the Undo stays to be tried again.
+                Err(not) => {
+                    let stays = not.taken_back
+                        && crate::files::file_io::put_file_back(&to, &from, false).is_ok();
+                    errors.push(sidecar_not_followed(&not, &to, stays));
+                    match stays.then(|| fingerprint(&to)).flatten() {
+                        Some(now) => {
+                            moving.remove(&to);
+                            left.push((from, to, now));
+                        }
+                        None => back.push((to, from)),
+                    }
+                }
+            },
             Err((at, e)) => {
                 errors.push(format!("{}: {e}", at.display()));
                 moving.remove(&to);
@@ -2884,6 +2904,21 @@ fn move_back(pairs: Vec<Moved>) -> MovedBack {
         }
     }
     (back, left, errors)
+}
+
+/// Words the failure of a sidecar that could not follow `file`, `not`. When the file was put
+/// back with its sidecars (`is_back`), it says that the file stays where it was.
+fn sidecar_not_followed(not: &xmp::NotFollowed, file: &Path, is_back: bool) -> String {
+    let (side, e) = (not.at.display(), &not.error);
+    match is_back {
+        true => tf!(
+            "{side}: {e}, so {file} stays where it was, with its sidecar",
+            side,
+            e,
+            file = file.display()
+        ),
+        false => format!("{side}: {e}"),
+    }
 }
 
 /// Returns a file just moved or renamed from `from` to `to` with its fingerprint, for Undo. Returns
@@ -3376,6 +3411,65 @@ mod tests {
             .into_iter()
             .any(|(_, moves, _)| moves[0].0 == p("a.jpg"));
         assert!(!kept, "a plan was kept");
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A Move or Copy whose sidecar cannot follow puts the file back, with the sidecars that
+    /// had followed, and says so. Before, the photo was left at the target without its keywords
+    /// and the sidecar at the source, where a later file of that name would pick it up.
+    #[test]
+    fn a_file_goes_only_with_its_sidecars() {
+        use crate::files::file_io::{RENAME_WAYS_MISSING, UNLINK_FAILS};
+        let dir = std::env::temp_dir().join(format!("glimt-test-split-{}", std::process::id()));
+        let (from, to) = (dir.join("from"), dir.join("to"));
+        for is_copy in [true, false] {
+            let _ = std::fs::remove_dir_all(&dir);
+            std::fs::create_dir_all(&from).unwrap();
+            std::fs::create_dir_all(&to).unwrap();
+            std::fs::write(from.join("a.cr2"), "raw").unwrap();
+            std::fs::write(from.join("a.cr2.xmp"), "own").unwrap();
+            // Adobe's sidecar, which follows second, is a socket, which cannot be read to
+            // copy it. A move cannot take it either: its old name cannot be unlinked.
+            let _socket = std::os::unix::net::UnixListener::bind(from.join("a.xmp")).unwrap();
+            RENAME_WAYS_MISSING.set(1);
+            UNLINK_FAILS.set(Some((from.join("a.xmp"), libc::EPERM)));
+            let job = super::Job::new("Moving", 1, false, Vec::new());
+            let paths = [from.join("a.cr2")];
+            let (errors, put) = super::put_files(&paths, (None, &to), (is_copy, None), &job);
+            UNLINK_FAILS.set(None);
+            RENAME_WAYS_MISSING.set(0);
+            assert!(put.is_empty(), "{is_copy}");
+            assert_eq!(errors.len(), 1, "{is_copy}");
+            assert!(errors[0].contains("stays where it was"), "{}", errors[0]);
+            assert_eq!(std::fs::read_to_string(from.join("a.cr2")).unwrap(), "raw");
+            assert_eq!(
+                std::fs::read_to_string(from.join("a.cr2.xmp")).unwrap(),
+                "own"
+            );
+            assert_eq!(std::fs::read_dir(&to).unwrap().count(), 0, "{is_copy}");
+        }
+        // The Undo of a Move: the file stays with its sidecars, and the Undo is left to try
+        // again.
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&from).unwrap();
+        std::fs::create_dir_all(&to).unwrap();
+        std::fs::write(to.join("a.cr2"), "raw").unwrap();
+        std::fs::write(to.join("a.cr2.xmp"), "own").unwrap();
+        let _socket = std::os::unix::net::UnixListener::bind(to.join("a.xmp")).unwrap();
+        let now = crate::files::file_io::fingerprint(&to.join("a.cr2")).unwrap();
+        RENAME_WAYS_MISSING.set(1);
+        UNLINK_FAILS.set(Some((to.join("a.xmp"), libc::EPERM)));
+        let (back, left, errors) =
+            super::move_back(vec![(from.join("a.cr2"), to.join("a.cr2"), now)]);
+        UNLINK_FAILS.set(None);
+        RENAME_WAYS_MISSING.set(0);
+        assert!(back.is_empty() && left.len() == 1, "{errors:?}");
+        assert!(errors[0].contains("stays where it was"), "{}", errors[0]);
+        assert_eq!(
+            std::fs::read_to_string(to.join("a.cr2.xmp")).unwrap(),
+            "own"
+        );
+        assert_eq!(std::fs::read_dir(&from).unwrap().count(), 0);
         std::fs::remove_dir_all(dir).unwrap();
     }
 

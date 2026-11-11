@@ -3059,3 +3059,7 @@ msgstr "; de sidecar-bestanden worden nog geschreven"
 #: src/files/file_io.rs
 msgid "Could not remove {name}: {e}"
 msgstr "Kon {name} niet verwijderen: {e}"
+
+#: src/files/file_ops.rs
+msgid "{side}: {e}, so {file} stays where it was, with its sidecar"
+msgstr "{side}: {e}, dus {file} blijft waar het was, met zijn sidecar-bestand"

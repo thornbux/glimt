@@ -3059,3 +3059,7 @@ msgstr "; los archivos complementarios aún se están escribiendo"
 #: src/files/file_io.rs
 msgid "Could not remove {name}: {e}"
 msgstr "No se pudo eliminar {name}: {e}"
+
+#: src/files/file_ops.rs
+msgid "{side}: {e}, so {file} stays where it was, with its sidecar"
+msgstr "{side}: {e}, así que {file} se queda donde estaba, con su archivo complementario"

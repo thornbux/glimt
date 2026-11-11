@@ -3059,3 +3059,7 @@ msgstr "; die Begleitdateien werden noch geschrieben"
 #: src/files/file_io.rs
 msgid "Could not remove {name}: {e}"
 msgstr "Konnte {name} nicht entfernen: {e}"
+
+#: src/files/file_ops.rs
+msgid "{side}: {e}, so {file} stays where it was, with its sidecar"
+msgstr "{side}: {e}, daher bleibt {file}, wo es war, mit seiner Begleitdatei"

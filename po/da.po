@@ -3059,3 +3059,7 @@ msgstr "; sidefilerne skrives stadig"
 #: src/files/file_io.rs
 msgid "Could not remove {name}: {e}"
 msgstr "Kunne ikke fjerne {name}: {e}"
+
+#: src/files/file_ops.rs
+msgid "{side}: {e}, so {file} stays where it was, with its sidecar"
+msgstr "{side}: {e}, så {file} bliver, hvor den var, med sin sidefil"

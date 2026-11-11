@@ -3059,3 +3059,7 @@ msgstr "; sivutiedostoja kirjoitetaan yhä"
 #: src/files/file_io.rs
 msgid "Could not remove {name}: {e}"
 msgstr "Tiedostoa {name} ei voitu poistaa: {e}"
+
+#: src/files/file_ops.rs
+msgid "{side}: {e}, so {file} stays where it was, with its sidecar"
+msgstr "{side}: {e}, joten {file} jää paikalleen sivutiedostonsa kanssa"

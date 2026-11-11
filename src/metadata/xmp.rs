@@ -247,6 +247,17 @@ struct StemNames {
     sidecars: Vec<std::ffi::OsString>,
 }
 
+/// A sidecar that could not follow its file (`follow`).
+#[derive(Debug)]
+pub struct NotFollowed {
+    /// The sidecar's new name, where it could not be put.
+    pub at: PathBuf,
+    pub error: std::io::Error,
+    /// Whether every sidecar that had followed was taken back, so that the file can go back
+    /// to them. When one could not be taken back, the file stays with it.
+    pub taken_back: bool,
+}
+
 fn parse_alt_text(xmp: &str) -> AltText {
     AltText {
         text: language_text(xmp, ALT),
@@ -842,7 +853,9 @@ pub(crate) fn is_link(path: &Path) -> bool {
 }
 
 /// Copies or moves the sidecars of `from` (`sidecars_moving_with`) with the file that went to
-/// `to`. Returns the first sidecar that could not follow, by its new name, with the error.
+/// `to`, all or none. When one cannot follow, those that followed are taken back, so the file's
+/// keywords are never split between two places. Returns the first sidecar that could not follow,
+/// by its new name, with the error and whether every sidecar is back where it was.
 /// `names` holds the folders that the operation has read already. `moving` are all the files
 /// that a move takes, so that two RAW files of one name stem moved together take Adobe's
 /// sidecar with the first of them, whatever their order. A copy passes none, because both
@@ -853,25 +866,37 @@ pub fn follow(
     is_copy: bool,
     moving: &std::collections::HashSet<&PathBuf>,
     names: &mut AdobeNames,
-) -> Result<(), (PathBuf, std::io::Error)> {
-    let mut result = Ok(());
+) -> Result<(), NotFollowed> {
+    let mut followed = Vec::new();
     for (side, to) in sidecars_moving_with(from, to, moving, names) {
-        if let Err(e) = follow_one(&side, &to, is_copy)
-            && result.is_ok()
-        {
-            result = Err((to, e));
+        match follow_one(&side, &to, is_copy) {
+            Ok(Some(was_copy)) => followed.push((side, to, was_copy)),
+            Ok(None) => {}
+            Err(error) => {
+                let taken_back = (followed.into_iter().rev()).all(|(side, to, was_copy)| {
+                    crate::files::file_io::put_file_back(&side, &to, was_copy).is_ok()
+                });
+                return Err(NotFollowed {
+                    at: to,
+                    error,
+                    taken_back,
+                });
+            }
         }
     }
-    result
+    Ok(())
 }
 
-/// Copies or moves the sidecar `side` to `to`.
-fn follow_one(side: &Path, to: &Path, is_copy: bool) -> std::io::Result<()> {
+/// Copies or moves the sidecar `side` to `to`. Returns whether it was copied, or `None` when
+/// nothing was put at `to`.
+fn follow_one(side: &Path, to: &Path, is_copy: bool) -> std::io::Result<Option<bool>> {
     // A link is no sidecar to copy. Moved, it goes as itself on the same disk, or it stays.
     if is_link(side) {
         return match is_copy {
-            true => Ok(()),
-            false => crate::files::file_io::rename_never_over(side, to).or(Ok(())),
+            true => Ok(None),
+            false => Ok(crate::files::file_io::rename_never_over(side, to)
+                .ok()
+                .map(|()| false)),
         };
     }
     // The sidecar goes as the file went. It is on disk before the original goes, and never
@@ -879,8 +904,8 @@ fn follow_one(side: &Path, to: &Path, is_copy: bool) -> std::io::Result<()> {
     // sidecar that cannot be moved (someone else's in a shared folder) is copied, so the
     // keywords go with the photo.
     match crate::files::file_io::put_file(side, to, is_copy) {
-        Err(_) if !is_copy => crate::files::file_io::put_file(side, to, true),
-        done => done,
+        Err(_) if !is_copy => crate::files::file_io::put_file(side, to, true).map(|()| Some(true)),
+        done => done.map(|()| Some(is_copy)),
     }
 }
 

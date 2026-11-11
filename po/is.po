@@ -3059,3 +3059,7 @@ msgstr "; enn er verið að skrifa hliðarskrárnar"
 #: src/files/file_io.rs
 msgid "Could not remove {name}: {e}"
 msgstr "Gat ekki fjarlægt {name}: {e}"
+
+#: src/files/file_ops.rs
+msgid "{side}: {e}, so {file} stays where it was, with its sidecar"
+msgstr "{side}: {e}, svo {file} er kyrr þar sem hún var, með hliðarskránni sinni"
