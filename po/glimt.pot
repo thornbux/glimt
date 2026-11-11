@@ -3080,3 +3080,11 @@ msgstr ""
 #: src/files/file_io.rs
 msgid "Could not remove {name}: {e}"
 msgstr ""
+
+#: src/files/file_io.rs
+msgid "another file has taken its name: the folder is read again"
+msgstr ""
+
+#: src/files/file_ops.rs
+msgid "Rename failed ({count}): {first}"
+msgstr ""

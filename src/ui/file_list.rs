@@ -3,6 +3,7 @@
 
 use crate::files::config::{sort_folders_from, sort_folders_path};
 use crate::files::external::is_video;
+use crate::files::file_io::{Identity, is_another_file};
 use crate::model::folder::add_sent_sizes;
 use crate::model::listing::{SORTS, Types, list_folder};
 use crate::support::format::{count, local_time, middle_cut, size_text, thousands};
@@ -78,12 +79,15 @@ pub(crate) type OnScreenFiles = Arc<Mutex<[Vec<usize>; 2]>>;
 /// The thumbnails for the file list. It holds those made, those being made, and the workers
 /// that make them.
 pub(crate) struct Thumbs {
-    /// The file list's thumbnails by file name. `None` means it could not be made.
-    textures: HashMap<OsString, Option<egui::TextureHandle>>,
-    /// The thumbnails being made, by file name, with the number of the last request. An answer
-    /// to an earlier request, made before the file changed or a setting changed the look, is
-    /// dropped, also when it comes after the later one's: the workers run side by side.
-    pending: HashMap<OsString, u64>,
+    /// The file list's thumbnails by file name, each with the identity the list knew the file
+    /// by when it was asked for. `None` means it could not be made. A thumbnail whose name
+    /// another file has taken since is made again.
+    textures: HashMap<OsString, (Identity, Option<egui::TextureHandle>)>,
+    /// The thumbnails being made, by file name, with the number of the last request and the
+    /// identity it was asked for. An answer to an earlier request, made before the file changed
+    /// or a setting changed the look, is dropped, also when it comes after the later one's: the
+    /// workers run side by side.
+    pending: HashMap<OsString, (u64, Identity)>,
     /// The number of the last request made.
     last_request_number: u64,
     /// (image index, file, request number)
@@ -127,9 +131,20 @@ impl Thumbs {
         }
     }
 
-    /// The thumbnail of `name`, if one was made.
-    pub(crate) fn thumbnail_of(&self, name: &OsStr) -> Option<&egui::TextureHandle> {
-        self.textures.get(name)?.as_ref()
+    /// The thumbnail of `name`, if one was made of the file with the identity `identity`.
+    pub(crate) fn thumbnail_of(
+        &self,
+        name: &OsStr,
+        identity: Identity,
+    ) -> Option<&egui::TextureHandle> {
+        self.made_of(name, identity)?.as_ref()
+    }
+
+    /// The thumbnail of `name` made of the file with the identity `identity`, or `None` when
+    /// none was. A thumbnail made of another file of that name does not count.
+    fn made_of(&self, name: &OsStr, identity: Identity) -> Option<&Option<egui::TextureHandle>> {
+        let (made_of, texture) = self.textures.get(name)?;
+        (!is_another_file(*made_of, identity)).then_some(texture)
     }
 
     /// Forgets the thumbnail of `name`, made or being made, so it is made again. The answer of
@@ -145,25 +160,25 @@ impl Thumbs {
         self.pending.clear();
     }
 
-    /// Asks the workers for the thumbnail of file `i` at `path`, named `name` in the list,
-    /// unless it is being made already.
-    fn ask(&mut self, name: &OsStr, i: usize, path: PathBuf) {
-        if !self.pending.contains_key(name) {
+    /// Asks the workers for the thumbnail of file `i` at `path`, named `name` in the list with
+    /// the identity `identity`, unless it is being made already.
+    fn ask(&mut self, name: &OsStr, i: usize, path: PathBuf, identity: Identity) {
+        let asked = self.pending.get(name);
+        if asked.is_none_or(|&(_, asked)| is_another_file(asked, identity)) {
             self.last_request_number += 1;
-            self.pending
-                .insert(name.to_owned(), self.last_request_number);
+            (self.pending).insert(name.to_owned(), (self.last_request_number, identity));
             let _ = self.requests.send((i, path, self.last_request_number));
         }
     }
 
-    /// Returns whether the answer to request `n` for `name` is the one to show, and if so takes
-    /// the request as answered.
-    fn answered(&mut self, name: &OsStr, n: u64) -> bool {
-        let last = self.pending.get(name) == Some(&n);
-        if last {
+    /// Returns, when the answer to request `n` for `name` is the one to show, the identity it
+    /// was asked for, and takes the request as answered. Returns `None` otherwise.
+    fn answered(&mut self, name: &OsStr, n: u64) -> Option<Identity> {
+        let (asked, identity) = *self.pending.get(name)?;
+        (asked == n).then(|| {
             self.pending.remove(name);
-        }
-        last
+            identity
+        })
     }
 
     /// Whether the workers write new thumbnails to the shared cache.
@@ -656,9 +671,9 @@ impl crate::App {
                 continue;
             };
             // A thumbnail asked for before the file or the look changed is asked for again.
-            if !self.thumbs.answered(name, n) {
+            let Some(identity) = self.thumbs.answered(name, n) else {
                 continue;
-            }
+            };
             if let Some(img) = result {
                 let tex = img.map(|img| {
                     ctx.load_texture(
@@ -667,7 +682,9 @@ impl crate::App {
                         egui::TextureOptions::LINEAR,
                     )
                 });
-                self.thumbs.textures.insert(name.to_owned(), tex);
+                self.thumbs
+                    .textures
+                    .insert(name.to_owned(), (identity, tex));
             }
         }
     }
@@ -870,7 +887,8 @@ impl crate::App {
     /// Thumbnail `i` fitted into `frame`, or a request for it.
     pub(crate) fn paint_thumb(&mut self, ui: &egui::Ui, i: usize, frame: egui::Rect) {
         let name = &self.list.files()[i];
-        match self.thumbs.textures.get(name) {
+        let identity = self.list.identity(i);
+        match self.thumbs.made_of(name, identity) {
             Some(Some(tex)) => {
                 // Fit the box, but never enlarge a small image. One the cache cut down to its
                 // size (256 pixels) does fill a box larger on a scaled screen.
@@ -903,7 +921,7 @@ impl crate::App {
             Some(None) => {}
             None => {
                 let path = self.path(i);
-                self.thumbs.ask(name, i, path);
+                self.thumbs.ask(name, i, path, identity);
             }
         }
     }
@@ -2178,21 +2196,50 @@ mod tests {
         let ctx = eframe::egui::Context::default();
         let mut thumbs = super::Thumbs::new(&ctx, 0, &Default::default(), false);
         let name = std::ffi::OsStr::new("a.jpg");
-        thumbs.ask(name, 0, "a.jpg".into());
+        thumbs.ask(name, 0, "a.jpg".into(), None);
         let old = thumbs.last_request_number;
         thumbs.forget(name);
-        thumbs.ask(name, 0, "a.jpg".into());
+        thumbs.ask(name, 0, "a.jpg".into(), None);
         let new = thumbs.last_request_number;
-        assert!(thumbs.answered(name, new), "the new answer is dropped");
         assert!(
-            !thumbs.answered(name, old),
+            thumbs.answered(name, new).is_some(),
+            "the new answer is dropped"
+        );
+        assert!(
+            thumbs.answered(name, old).is_none(),
             "the old answer is shown after the new one"
         );
         // In the other order, the old answer neither shows nor ends the new request.
         thumbs.forget(name);
-        thumbs.ask(name, 0, "a.jpg".into());
-        assert!(!thumbs.answered(name, new));
-        assert!(thumbs.answered(name, thumbs.last_request_number));
+        thumbs.ask(name, 0, "a.jpg".into(), None);
+        assert!(thumbs.answered(name, new).is_none());
+        assert!(thumbs.answered(name, thumbs.last_request_number).is_some());
+    }
+
+    /// A thumbnail made of the file that a name held is not shown once another file has taken
+    /// the name, and the new file's is asked for, once. Another window's Rename Many that swapped
+    /// two names left each name with the other photo's thumbnail.
+    #[test]
+    fn a_thumbnail_of_a_file_whose_name_another_took_is_made_again() {
+        let ctx = eframe::egui::Context::default();
+        let mut thumbs = super::Thumbs::new(&ctx, 0, &Default::default(), false);
+        let name = std::ffi::OsStr::new("a.jpg");
+        let (first, second) = (std::num::NonZeroU64::new(1), std::num::NonZeroU64::new(2));
+        thumbs.ask(name, 0, "a.jpg".into(), first);
+        let identity = thumbs.answered(name, thumbs.last_request_number).unwrap();
+        let image = eframe::egui::ColorImage::new([1, 1], vec![eframe::egui::Color32::RED]);
+        let texture = ctx.load_texture("t", image, Default::default());
+        thumbs
+            .textures
+            .insert(name.into(), (identity, Some(texture)));
+        assert!(thumbs.thumbnail_of(name, first).is_some());
+        // An identity not known, as after Glimt's own write, takes it for the same file.
+        assert!(thumbs.thumbnail_of(name, None).is_some());
+        assert!(thumbs.thumbnail_of(name, second).is_none());
+        thumbs.ask(name, 0, "a.jpg".into(), second);
+        let asked = thumbs.last_request_number;
+        thumbs.ask(name, 0, "a.jpg".into(), second);
+        assert_eq!(thumbs.last_request_number, asked, "asked for twice");
     }
 
     /// A file's size and date are looked at in the background, for its row and the status bar,

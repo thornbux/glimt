@@ -3059,3 +3059,11 @@ msgstr "; i file sidecar sono ancora in scrittura"
 #: src/files/file_io.rs
 msgid "Could not remove {name}: {e}"
 msgstr "Impossibile rimuovere {name}: {e}"
+
+#: src/files/file_io.rs
+msgid "another file has taken its name: the folder is read again"
+msgstr "un altro file ha preso il suo nome: la cartella viene riletta"
+
+#: src/files/file_ops.rs
+msgid "Rename failed ({count}): {first}"
+msgstr "Rinomina non riuscita ({count}): {first}"

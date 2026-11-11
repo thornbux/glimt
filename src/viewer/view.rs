@@ -548,7 +548,11 @@ impl crate::App {
                 continue;
             };
             let decoded_for = (self.list.take_decode((idx, full))).map_or([0; 2], |j| j.2);
+            // A file that another one has taken the name of since the list was read is not
+            // shown under the name. The listing that follows finds it and asks for it again.
+            let identity = d.read.and_then(|f| std::num::NonZeroU64::new(f.0?.1));
             let wanted = self.is_file(idx, &d.path)
+                && !crate::files::file_io::is_another_file(identity, self.list.identity(idx))
                 && d.rotated == self.config.exif_rotate
                 && d.page == if idx == self.list.shown() { self.viewing.page } else { 0 }
                 && lock_even_if_poisoned(&self.decoding.kept_images).contains(&idx)
@@ -594,6 +598,7 @@ impl crate::App {
                             histogram: hist,
                             pages,
                             decoded_for,
+                            read: d.read,
                         },
                     );
                     // A full-resolution decode keeps fewer frames of a large animation, because
@@ -682,7 +687,7 @@ impl crate::App {
     /// its frame, and another photo stood under its play button.
     pub(crate) fn placeholder(&self) -> Option<(egui::TextureHandle, [usize; 2], bool)> {
         let name = self.list.files().get(self.list.shown())?;
-        if let Some(t) = self.thumbs.thumbnail_of(name) {
+        if let Some(t) = (self.thumbs).thumbnail_of(name, self.list.identity(self.list.shown())) {
             return Some((t.clone(), t.size(), true));
         }
         if is_video(Path::new(name)) {
@@ -1991,10 +1996,12 @@ pub(crate) fn spawn_decoders(
                         page,
                         request_number,
                         result: None,
+                        read: None,
                     });
                     continue;
                 }
                 let rotated = auto_rotate.load(Ordering::Relaxed);
+                let read = crate::files::file_io::fingerprint(&path);
                 // The histogram here too, so the UI thread never walks the pixels.
                 let result = Some(
                     catch_panic_as_error(|| decode(&path, max_box, rotated, page)).map(
@@ -2010,6 +2017,7 @@ pub(crate) fn spawn_decoders(
                     page,
                     request_number,
                     result,
+                    read,
                 });
                 #[allow(unsafe_code)]
                 // glibc does not return freed memory from the threads' malloc arenas on its own,

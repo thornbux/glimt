@@ -2,6 +2,7 @@
 //! of them, and sorting them (by name as numbers, date, size, EXIF date or shuffled).
 
 use crate::files::external::{is_heif, is_video};
+use crate::files::file_io::Identity;
 use crate::images::save::FileId;
 use crate::{images::raw, metadata::exif};
 use std::collections::HashSet;
@@ -71,9 +72,13 @@ pub type FoldersRead = Vec<(PathBuf, Option<std::time::SystemTime>)>;
 pub type WalkedFolder = (
     PathBuf,
     Vec<PathBuf>,
-    Vec<OsString>,
+    Vec<ListedName>,
     Option<std::time::SystemTime>,
 );
+
+/// An image's name in the list, with the identity its folder entry gave it when it was read.
+/// The list keeps both, so that a write can tell when another file has taken the name since.
+pub type ListedName = (OsString, Identity);
 
 /// The file types the list shows, as Geeqie's file classes in its file filter.
 #[derive(Clone, Copy)]
@@ -259,7 +264,7 @@ fn walk_by(
     types: Types,
     file_id: impl Fn(&Path) -> Option<FileId>,
     canonical: impl Fn(&Path) -> std::io::Result<PathBuf>,
-    list: impl Fn(&Path, Types) -> (Vec<PathBuf>, Vec<OsString>),
+    list: impl Fn(&Path, Types) -> (Vec<PathBuf>, Vec<ListedName>),
 ) -> impl Iterator<Item = WalkedFolder> {
     let (dir, mut todo) = (dir.to_path_buf(), vec![PathBuf::new()]);
     let mut seen: HashSet<FileId> = HashSet::new();
@@ -317,8 +322,8 @@ pub fn list_tree(
     types: Types,
     stop: &std::sync::atomic::AtomicBool,
     top: impl FnOnce(&[PathBuf]),
-    mut part: impl FnMut(&[OsString]),
-) -> (Vec<PathBuf>, Vec<OsString>, FoldersRead) {
+    mut part: impl FnMut(&[ListedName]),
+) -> (Vec<PathBuf>, Vec<ListedName>, FoldersRead) {
     use std::sync::atomic::Ordering::Relaxed;
     let (mut own, mut top, mut out) = (Vec::new(), Some(top), Vec::new());
     let mut read = Vec::new();
@@ -331,7 +336,7 @@ pub fn list_tree(
             own = dirs;
         }
         if !files.is_empty() {
-            out.extend(files.into_iter().map(|f| rel.join(f).into_os_string()));
+            out.extend((files.into_iter()).map(|(f, id)| (rel.join(f).into_os_string(), id)));
             part(&out);
         }
     }
@@ -388,15 +393,17 @@ pub fn kind(entry: &std::fs::DirEntry) -> (bool, bool) {
     }
 }
 
-/// One pass over the folder: (subfolders, image file names), both sorted by name. The file type
-/// comes from the directory entry, so there is no `stat` per file (only symlinks are resolved).
-pub fn list_folder(dir: &Path, types: Types) -> (Vec<PathBuf>, Vec<OsString>) {
+/// One pass over the folder: (subfolders, image file names with their identities), both sorted
+/// by name. The file type and the inode come from the directory entry, so there is no `stat`
+/// per file (only symlinks are resolved).
+pub fn list_folder(dir: &Path, types: Types) -> (Vec<PathBuf>, Vec<ListedName>) {
+    use crate::images::save::identity_of_entry;
     let (mut dirs, mut images) = (Vec::new(), Vec::new());
     for entry in std::fs::read_dir(dir).into_iter().flatten().flatten() {
         let path = entry.path();
         let (file, folder) = kind(&entry);
         if file && is_listed(&path, types) {
-            images.push(entry.file_name());
+            images.push((entry.file_name(), identity_of_entry(&entry)));
         } else if folder
             && (types.hidden || !entry.file_name().as_encoded_bytes().starts_with(b"."))
         {
@@ -413,8 +420,8 @@ pub fn list_folder(dir: &Path, types: Types) -> (Vec<PathBuf>, Vec<OsString>) {
 /// Sort file names in `dir`; `case`: case-sensitive names ("B" before "a"). Everything but name
 /// and number needs a stat (or EXIF) per file, so this runs in the listing thread; ties fall
 /// back to the name.
-pub fn sort_files(dir: &Path, files: &mut [OsString], by: Sort, ascending: bool, case: bool) {
-    let name = |f: &OsString| {
+pub fn sort_files(dir: &Path, files: &mut [ListedName], by: Sort, ascending: bool, case: bool) {
+    let name = |(f, _): &ListedName| {
         let s = f.to_string_lossy();
         if case {
             s.into_owned()
@@ -422,7 +429,7 @@ pub fn sort_files(dir: &Path, files: &mut [OsString], by: Sort, ascending: bool,
             s.to_lowercase()
         }
     };
-    let meta = |f: &OsString| std::fs::metadata(dir.join(f)).ok();
+    let meta = |f: &ListedName| std::fs::metadata(dir.join(&f.0)).ok();
     let secs = |t: std::io::Result<std::time::SystemTime>| {
         t.ok()
             .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
@@ -434,7 +441,7 @@ pub fn sort_files(dir: &Path, files: &mut [OsString], by: Sort, ascending: bool,
         Sort::Name => files.sort_by_cached_key(name),
         Sort::Number => {
             // Each name made once, not twice in each of millions of comparisons.
-            let mut keyed: Vec<(String, OsString)> = (files.iter_mut())
+            let mut keyed: Vec<(String, ListedName)> = (files.iter_mut())
                 .map(|f| (name(f), std::mem::take(f)))
                 .collect();
             // Equal numbers ("img010", "img10") in name order.
@@ -462,7 +469,7 @@ pub fn sort_files(dir: &Path, files: &mut [OsString], by: Sort, ascending: bool,
             let digitized = by == Sort::ExifDigitized;
             // Files without the date last.
             files.sort_by_cached_key(|f| {
-                let date = exif::date(&dir.join(f), digitized);
+                let date = exif::date(&dir.join(&f.0), digitized);
                 (date.is_none(), date, name(f))
             })
         }
@@ -476,10 +483,13 @@ pub fn sort_files(dir: &Path, files: &mut [OsString], by: Sort, ascending: bool,
 /// again after a sidecar was written keeps its EXIF date order instead of reading every file.
 /// shortcut: a file whose date changed under the same name keeps its place until Refresh (F5),
 /// the Sort menu or opening the folder again sorts it anew.
-pub fn kept_order(before: Vec<OsString>, listed: &[OsString]) -> Option<Vec<OsString>> {
-    let names: std::collections::HashSet<&OsString> = listed.iter().collect();
-    let mut kept = before;
-    kept.retain(|f| names.contains(f));
+pub fn kept_order(before: Vec<OsString>, listed: &[ListedName]) -> Option<Vec<ListedName>> {
+    let identities: std::collections::HashMap<&OsString, Identity> =
+        listed.iter().map(|(f, id)| (f, *id)).collect();
+    let kept: Vec<ListedName> = (before.into_iter())
+        .filter_map(|f| Some((identities.get(&f).copied()?, f)))
+        .map(|(id, f)| (f, id))
+        .collect();
     (kept.len() == listed.len()).then_some(kept)
 }
 
@@ -512,19 +522,19 @@ pub fn natural_cmp(a: &str, b: &str) -> std::cmp::Ordering {
 }
 
 /// The shuffled `old` order without files that are gone, followed by new files in random order.
-pub fn merge_shuffled(old: &[OsString], new: Vec<OsString>) -> Vec<OsString> {
+/// Each file has the identity `new` lists it with.
+pub fn merge_shuffled(old: &[OsString], new: Vec<ListedName>) -> Vec<ListedName> {
     let old_set: HashSet<&OsString> = old.iter().collect();
-    let new_set: HashSet<&OsString> = new.iter().collect();
-    let mut added: Vec<OsString> = new
+    let new_identities: std::collections::HashMap<&OsString, Identity> =
+        new.iter().map(|(f, id)| (f, *id)).collect();
+    let mut added: Vec<ListedName> = new
         .iter()
-        .filter(|f| !old_set.contains(f))
+        .filter(|f| !old_set.contains(&f.0))
         .cloned()
         .collect();
     shuffle(&mut added);
-    let mut out: Vec<OsString> = old
-        .iter()
-        .filter(|f| new_set.contains(f))
-        .cloned()
+    let mut out: Vec<ListedName> = (old.iter())
+        .filter_map(|f| Some((f.clone(), *new_identities.get(f)?)))
         .collect();
     out.extend(added);
     out
@@ -575,7 +585,7 @@ mod tests {
             types,
             &AtomicBool::new(false),
             |_| {},
-            |p| parts.push(p.to_vec()),
+            |p| parts.push(p.iter().map(|f| f.0.clone()).collect()),
         );
         assert_eq!(all.len(), 4);
         assert_eq!(parts.len(), 4);
@@ -619,6 +629,7 @@ mod tests {
         symlink(&tree, base.join("named")).unwrap();
         for top in [tree.clone(), base.join("named")] {
             let (_, files, _) = super::list_tree(&top, types, &stop, |_| {}, |_| {});
+            let files: Vec<_> = files.into_iter().map(|f| f.0).collect();
             // The hidden folder is not listed itself, so its image is seen only through the link,
             // and it is named by its real path in the tree.
             assert_eq!(files, [".inner/c.jpg", "a.jpg"], "{top:?}");
@@ -644,7 +655,8 @@ mod tests {
         };
         let stop = std::sync::atomic::AtomicBool::new(false);
         let (_, files, _) = super::list_tree(&dir, types, &stop, |_| {}, |_| {});
-        assert_eq!(files, ["real/x.jpg"]);
+        assert_eq!(files[0].0, "real/x.jpg");
+        assert_eq!(files.len(), 1);
         std::fs::remove_dir_all(dir).unwrap();
     }
 
@@ -670,7 +682,7 @@ mod tests {
         let real = |p: &std::path::Path| std::fs::canonicalize(p);
         let mut files: Vec<std::path::PathBuf> =
             super::walk_by(&dir, types, file_id, real, super::list_folder)
-                .flat_map(|(rel, _, files, _)| files.into_iter().map(move |f| rel.join(f)))
+                .flat_map(|(rel, _, files, _)| files.into_iter().map(move |f| rel.join(f.0)))
                 .collect();
         files.sort();
         assert_eq!(
@@ -711,7 +723,7 @@ mod tests {
             real,
             super::list_folder,
         )
-        .flat_map(|(rel, _, files, _)| files.into_iter().map(move |f| rel.join(f)))
+        .flat_map(|(rel, _, files, _)| files.into_iter().map(move |f| rel.join(f.0)))
         .collect();
         assert_eq!(files, [std::path::PathBuf::from("a.jpg")]);
         std::fs::remove_dir_all(dir).unwrap();
@@ -844,6 +856,7 @@ mod tests {
             hidden: false,
         };
         let (dirs, images) = super::list_folder(&dir, types);
+        let images: Vec<_> = images.into_iter().map(|f| f.0).collect();
         assert_eq!(images, ["a.jpg", "b.jpg"]);
         assert_eq!(dirs, [dir.join("2019.jpg")]);
         std::fs::remove_dir_all(dir).unwrap();
@@ -906,8 +919,7 @@ mod tests {
         // Numbers in brackets too, as a browser names downloads: a(2) before a(10) before a(100).
         assert_eq!(super::natural_cmp("a(2).jpg", "a(10).jpg"), Less);
         assert_eq!(super::natural_cmp("a(10).jpg", "a(100).jpg"), Less);
-        let mut v: Vec<std::ffi::OsString> =
-            ["b10", "B2", "a1", "b9"].iter().map(Into::into).collect();
+        let mut v = listed(&["b10", "B2", "a1", "b9"]);
         super::sort_files(
             std::path::Path::new("."),
             &mut v,
@@ -915,32 +927,41 @@ mod tests {
             false,
             false,
         );
-        assert_eq!(v, ["b10", "b9", "B2", "a1"]);
+        assert_eq!(v, listed(&["b10", "b9", "B2", "a1"]));
         // Equal numbers in name order.
-        let mut v: Vec<std::ffi::OsString> = ["a1", "a01"].iter().map(Into::into).collect();
+        let mut v = listed(&["a1", "a01"]);
         let dot = std::path::Path::new(".");
         super::sort_files(dot, &mut v, super::Sort::Number, true, false);
         let os = |v: &[&str]| v.iter().map(std::ffi::OsString::from).collect::<Vec<_>>();
-        let kept = super::kept_order(os(&["c", "a", "gone", "b"]), &os(&["a", "b", "c"]));
-        assert_eq!(kept, Some(os(&["c", "a", "b"])));
+        let kept = super::kept_order(os(&["c", "a", "gone", "b"]), &listed(&["a", "b", "c"]));
+        assert_eq!(kept, Some(listed(&["c", "a", "b"])));
         assert_eq!(
-            super::kept_order(os(&["c", "a"]), &os(&["a", "b", "c"])),
+            super::kept_order(os(&["c", "a"]), &listed(&["a", "b", "c"])),
             None
         );
-        assert_eq!(v, ["a01", "a1"]);
-        let mut v: Vec<std::ffi::OsString> = ["b.png", "c.JPG", "a.mp4", "d.jpg", "e"]
-            .iter()
-            .map(Into::into)
-            .collect();
+        assert_eq!(v, listed(&["a01", "a1"]));
+        let mut v = listed(&["b.png", "c.JPG", "a.mp4", "d.jpg", "e"]);
         super::sort_files(dot, &mut v, super::Sort::Extension, true, false);
-        assert_eq!(v, ["e", "c.JPG", "d.jpg", "a.mp4", "b.png"]);
+        assert_eq!(v, listed(&["e", "c.JPG", "d.jpg", "a.mp4", "b.png"]));
     }
 
+    /// The names `names`, each with an identity of its own, as a listing gives them.
+    fn listed(names: &[&str]) -> Vec<super::ListedName> {
+        let identity = |n: &str| std::num::NonZeroU64::new(n.bytes().map(u64::from).sum());
+        (names.iter()).map(|n| ((*n).into(), identity(n))).collect()
+    }
+
+    /// The order kept and a file read again keep the identity the new listing gives each name,
+    /// so a name that another file has taken since is told apart.
     #[test]
     fn merge_keeps_shuffled_order() {
         let names = |v: &[&str]| v.iter().map(std::ffi::OsString::from).collect::<Vec<_>>();
-        let merged = super::merge_shuffled(&names(&["c", "a", "b"]), names(&["a", "b", "d"]));
-        assert_eq!(merged, names(&["a", "b", "d"]));
+        let mut new = listed(&["a", "b", "d"]);
+        new[0].1 = std::num::NonZeroU64::new(1000);
+        let merged = super::merge_shuffled(&names(&["c", "a", "b"]), new.clone());
+        assert_eq!(merged, new);
+        let kept = super::kept_order(names(&["b", "d", "a"]), &new).unwrap();
+        assert_eq!(kept[2], new[0]);
     }
 
     #[test]

@@ -3070,3 +3070,11 @@ msgstr "; pliki poboczne są nadal zapisywane"
 #: src/files/file_io.rs
 msgid "Could not remove {name}: {e}"
 msgstr "Nie udało się usunąć {name}: {e}"
+
+#: src/files/file_io.rs
+msgid "another file has taken its name: the folder is read again"
+msgstr "jego nazwę przejął inny plik: folder zostanie wczytany ponownie"
+
+#: src/files/file_ops.rs
+msgid "Rename failed ({count}): {first}"
+msgstr "Zmiana nazwy nie powiodła się ({count}): {first}"

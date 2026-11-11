@@ -807,6 +807,16 @@ pub(crate) fn file_id_from_metadata(path: &Path, meta: &std::fs::Metadata) -> Fi
     file_id_from_inode(path, (meta.dev(), meta.ino()))
 }
 
+/// Returns the identity of the file that the folder entry `entry` names: the inode the entry
+/// gives with the name, so no file is looked at. Returns `None` for inode 0. A listing of
+/// 500,000 files cannot look at each file, so the inode is read here as well as in
+/// `file_id_from_metadata`, and in no other place.
+#[allow(clippy::disallowed_methods)] // a folder entry's inode, which costs no look at the file
+pub(crate) fn identity_of_entry(entry: &std::fs::DirEntry) -> crate::files::file_io::Identity {
+    use std::os::unix::fs::DirEntryExt;
+    std::num::NonZeroU64::new(entry.ino())
+}
+
 /// Returns the id of `path` from its device and inode, `id`. The pair is the same however the
 /// file is reached, through a link, a hard link or a bind mount, where its real path differs.
 /// But sshfs with `-o use_ino` and some other mounts give every file inode 0, so the pair

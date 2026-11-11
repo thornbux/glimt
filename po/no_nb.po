@@ -3070,3 +3070,11 @@ msgstr "; sidefilene skrives fortsatt"
 #: src/files/file_io.rs
 msgid "Could not remove {name}: {e}"
 msgstr "Kunne ikke fjerne {name}: {e}"
+
+#: src/files/file_io.rs
+msgid "another file has taken its name: the folder is read again"
+msgstr "en annen fil har tatt navnet: mappen leses på nytt"
+
+#: src/files/file_ops.rs
+msgid "Rename failed ({count}): {first}"
+msgstr "Endring av navn mislyktes ({count}): {first}"

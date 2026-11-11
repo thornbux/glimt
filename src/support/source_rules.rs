@@ -653,6 +653,7 @@ const HANDED_TO_A_THREAD: &[&str] = &[
     "write_later_in_user_folders(",
     "run_in_background(",
     "write_sidecars(",
+    "write_in_sidecar_thread(",
 ];
 
 /// What starts work that writes, which closing waits for: a job, work in the background, an

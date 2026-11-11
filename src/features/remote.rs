@@ -3398,7 +3398,10 @@ mod tests {
         app.list.set_files(vec!["a.png".into()]);
         let shown = app.path(0);
         #[cfg(feature = "marks")]
-        app.marks.rate(std::slice::from_ref(&shown), 2);
+        app.marks.rate(
+            &crate::support::test_support::unlisted(std::slice::from_ref(&shown)),
+            2,
+        );
         let (mut client, window) = std::os::unix::net::UnixStream::pair().unwrap();
         let (tx, rx) = std::sync::mpsc::channel();
         let window_ctx = ctx.clone();

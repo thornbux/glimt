@@ -3081,3 +3081,11 @@ msgstr "; doprovodné soubory se stále zapisují"
 #: src/files/file_io.rs
 msgid "Could not remove {name}: {e}"
 msgstr "{name} nelze odstranit: {e}"
+
+#: src/files/file_io.rs
+msgid "another file has taken its name: the folder is read again"
+msgstr "jeho název převzal jiný soubor: složka se načte znovu"
+
+#: src/files/file_ops.rs
+msgid "Rename failed ({count}): {first}"
+msgstr "Přejmenování selhalo ({count}): {first}"

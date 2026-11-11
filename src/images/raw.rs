@@ -183,6 +183,7 @@ mod tests {
             hidden: false,
         };
         let (_, listed) = crate::model::listing::list_folder(&dir, types);
+        let listed: Vec<_> = listed.into_iter().map(|f| f.0).collect();
         assert_eq!(
             listed,
             ["a.arq", "b.gpr", "c.raw"].map(std::ffi::OsString::from)

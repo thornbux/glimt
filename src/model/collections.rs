@@ -133,9 +133,9 @@ impl crate::App {
         let names: HashSet<OsString> = (moved.chain(hidden))
             .map(|&i| self.list.files()[i].clone())
             .collect();
-        let files: Vec<OsString> = order
+        let files = order
             .iter()
-            .map(|&i| self.list.files()[i].clone())
+            .map(|&i| (self.list.files()[i].clone(), self.list.identity(i)))
             .collect();
         self.replace_files(ctx, files, shown);
         self.reselect(ctx, &names);
