@@ -4897,6 +4897,39 @@ with open(sys.argv[2], 'wb') as f:
     rm -rf $d $whole
 done
 
+section "real photos (samples.txt) just copied in, turned with Save Orientation on: none called incomplete"
+# ALL-1. A turn checks the lengths that a JPEG gives of what follows its image (a gain map, a
+# second image, a video) while the file is less than a minute old. Copied just now, every real
+# photo must pass that check and be turned. Only NEW is run, as OLD has no such check.
+note "old: not run, OLD does not check what follows the image"
+as_version new
+d=/tmp/turn-real
+rm -rf $d; mkdir -p $d
+names="c2pa.jpg digikam-tags.jpg dji-drone.jpg iphone-gain-map.jpg lightroom-keywords.jpg ultrahdr-pixel.jpg"
+for name in $names; do
+    if [ -f /samples/$name ]; then cp /samples/$name $d/; else fail "$name not downloaded"; fi
+done
+convert -size 100x100 xc:red $d/z.jpg
+# Each photo's orientation, "-" when it has none.
+orientations() { for name in $names; do printf '%s ' "$(exiftool -s3 -n -f -Orientation $d/$name)"; done; }
+before=$(orientations)
+config save_orientation=true
+start $d/c2pa.jpg
+for name in $names; do
+    sleep 2; key bracketright; key space      # turned clockwise, then the next image
+done
+sleep 3
+quit
+after=$(orientations)
+turned=0
+for i in 1 2 3 4 5 6; do
+    [ "$(echo $before | cut -d' ' -f$i)" != "$(echo $after | cut -d' ' -f$i)" ] && turned=$((turned + 1))
+done
+refused=$(grep -c "Could not save the orientation" /tmp/glimt.err)
+expect "all six turned, none refused (orientations before: $before, after: $after)" \
+    "$turned $refused" "6 0"
+rm -rf $d
+
 section "Glimt killed (kill -9) during a Move and a Rename Many: every photo under a name, the stars follow"
 # EDGES-3: a Move tells the marks where the files went only in its last report.
 for v in new old; do

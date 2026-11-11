@@ -334,7 +334,7 @@ pub(crate) fn replace_with_sidecar(
     // The fingerprint finds a copier that wrote on after the read, but not one that paused
     // meanwhile. The file's own end shows that it is not all there yet.
     let bytes = crate::images::decode::read_limited(real).map_err(|e| e.to_string())?;
-    if let Some(why) = why_cut_short(&bytes) {
+    if let Some(why) = why_cut_short(&bytes, changed_lately(read.2)) {
         return Err(why);
     }
     drop(bytes);
@@ -342,11 +342,22 @@ pub(crate) fn replace_with_sidecar(
     replace_with_sidecar_locked(real, named, read, out, step)
 }
 
+/// Returns whether a file last changed at `modified` (seconds and nanoseconds since 1970, as a
+/// fingerprint holds it) was changed within the last minute, or less than a minute ahead of
+/// this computer's clock (a share's clock may run ahead). A file still being copied in was.
+fn changed_lately(modified: (i64, i64)) -> bool {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_secs() as i64);
+    (now - modified.0).abs() < 60
+}
+
 /// Returns why the JPEG, PNG or WebP `data` is not turned when it `looks_cut_short`, and `None`
 /// when it does not. A JPEG whose image data is not reached may be damaged before it, as well
-/// as still being copied, so it is not called the one.
-fn why_cut_short(data: &[u8]) -> Option<String> {
-    if !looks_cut_short(data) {
+/// as still being copied, so it is not called the one. `changed_lately` says whether the file
+/// was changed in the last minute.
+fn why_cut_short(data: &[u8], changed_lately: bool) -> Option<String> {
+    if !looks_cut_short(data, changed_lately) {
         return None;
     }
     if data.starts_with(&[0xff, 0xd8]) && exif::jpeg_scan_start(data).is_none() {
@@ -360,13 +371,18 @@ fn why_cut_short(data: &[u8]) -> Option<String> {
 /// follows that image (`jpeg_trailer_is_cut`), a PNG without its IEND chunk or with a chunk
 /// longer than the file, or a WebP shorter than its RIFF header says. A file that is still being
 /// copied in looks so.
-fn looks_cut_short(data: &[u8]) -> bool {
+///
+/// The lengths of what follows a JPEG's image are counted only when the file `changed_lately`.
+/// They are the file's own words, and an editor may leave them wrong. So an older file whose
+/// lengths do not add up is turned, and it keeps what follows its image byte for byte. Before,
+/// such a file was refused for good, as if it were still being copied.
+fn looks_cut_short(data: &[u8], changed_lately: bool) -> bool {
     if data.starts_with(&[0xff, 0xd8]) {
         // Inside the image data, a 0xff byte is always followed by 0 or a restart marker.
         let scan = crate::metadata::exif::jpeg_scan_start(data);
         let eoi =
             scan.and_then(|s| Some(s + data[s..].windows(2).position(|w| w == [0xff, 0xd9])?));
-        return eoi.is_none_or(|eoi| jpeg_trailer_is_cut(data, eoi + 2));
+        return eoi.is_none_or(|eoi| changed_lately && jpeg_trailer_is_cut(data, eoi + 2));
     }
     if data.starts_with(b"\x89PNG\r\n\x1a\n") {
         let mut i = 8;
@@ -394,9 +410,10 @@ fn looks_cut_short(data: &[u8]) -> bool {
 /// Returns whether what follows the main image of the JPEG `data`, which ends at `image_end`, is
 /// shorter than the file's own lengths say: the images that its MPF index names (a camera's
 /// second image, a gain map), the items of its XMP `Container:Directory`, or the video at the
-/// end that `GCamera:MicroVideoOffset` counts back to (a phone's motion photo). The first end
-/// marker is only the main image's end, so a copy that paused in the video passed before and
-/// was written back without the rest. Data that none of them names is no matter.
+/// end that `GCamera:MicroVideoOffset` counts back to (a phone's motion photo). An offset of 0
+/// means that the photo has no video. The first end marker is only the main image's end, so a
+/// copy that paused in the video passed before and was written back without the rest. Data
+/// that none of them names is no matter.
 fn jpeg_trailer_is_cut(data: &[u8], image_end: usize) -> bool {
     if image_end >= data.len() {
         return false;
@@ -417,7 +434,8 @@ fn jpeg_trailer_is_cut(data: &[u8], image_end: usize) -> bool {
     let items = xmp.split("<Container:Item").skip(2);
     let lengths = items.flat_map(|i| [xmp_number(i, "Item:Length"), xmp_number(i, "Item:Padding")]);
     let items_length: u64 = lengths.flatten().sum();
-    let video_is_cut = xmp_number(&xmp, "GCamera:MicroVideoOffset").is_some_and(|back| {
+    let offset = xmp_number(&xmp, "GCamera:MicroVideoOffset").filter(|&back| back != 0);
+    let video_is_cut = offset.is_some_and(|back| {
         let start = (data.len() as u64)
             .checked_sub(back)
             .filter(|&s| s >= image_end as u64);
@@ -1518,7 +1536,7 @@ mod tests {
             .unwrap();
         for bytes in crate::support::test_support::broken(&png) {
             let _ = super::png_with_xmp(&bytes, b"<x:xmpmeta/>");
-            let _ = super::looks_cut_short(&bytes);
+            let _ = super::looks_cut_short(&bytes, true);
         }
         let mut webp = Vec::new();
         image::RgbImage::new(4, 2)
@@ -1529,7 +1547,7 @@ mod tests {
             .unwrap();
         for bytes in crate::support::test_support::broken(&webp) {
             let _ = super::webp_with_chunk(&bytes, b"EXIF", b"Exif", 4, 2);
-            let _ = super::looks_cut_short(&bytes);
+            let _ = super::looks_cut_short(&bytes, true);
         }
         let mut jpeg = Vec::new();
         image::RgbImage::new(4, 2)
@@ -1539,7 +1557,7 @@ mod tests {
             )
             .unwrap();
         for bytes in crate::support::test_support::broken(&jpeg) {
-            let _ = super::looks_cut_short(&bytes);
+            let _ = super::looks_cut_short(&bytes, true);
         }
     }
 
@@ -2713,7 +2731,7 @@ mod tests {
             (&png, &png_bytes),
             (&webp, &webp_bytes),
         ] {
-            assert!(!super::looks_cut_short(bytes), "{}", file.display());
+            assert!(!super::looks_cut_short(bytes, true), "{}", file.display());
         }
         std::fs::write(&jpeg, &jpeg_bytes).unwrap();
         crate::metadata::exif::write_orientation(&jpeg, 1, false, true).unwrap();
@@ -2733,14 +2751,14 @@ mod tests {
             )
             .unwrap();
         // SOI and the whole JFIF segment, and nothing after.
-        let damaged = super::why_cut_short(&jpeg[..20]).unwrap();
+        let damaged = super::why_cut_short(&jpeg[..20], true).unwrap();
         assert_eq!(
             damaged,
             crate::support::lang::tr("the file looks incomplete or damaged")
         );
-        let copied = super::why_cut_short(&jpeg[..jpeg.len() - 2]).unwrap();
+        let copied = super::why_cut_short(&jpeg[..jpeg.len() - 2], true).unwrap();
         assert!(copied.contains("still being copied"), "{copied}");
-        assert_eq!(super::why_cut_short(&jpeg), None);
+        assert_eq!(super::why_cut_short(&jpeg, true), None);
     }
 
     /// A camera's MPF JPEG or a phone's motion photo whose copy paused after the main image is
@@ -2780,8 +2798,8 @@ mod tests {
             video.len()
         ));
         for whole in [&mpf_file, &micro_video, &container] {
-            assert!(!super::looks_cut_short(whole));
-            assert!(super::looks_cut_short(&whole[..whole.len() - 10]));
+            assert!(!super::looks_cut_short(whole, true));
+            assert!(super::looks_cut_short(&whole[..whole.len() - 10], true));
         }
         let dir = std::env::temp_dir().join(format!("glimt-turn-mpf-cut-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
@@ -2790,6 +2808,55 @@ mod tests {
         std::fs::write(&file, cut).unwrap();
         assert!(crate::metadata::exif::write_orientation(&file, 1, false, true).is_err());
         assert_eq!(std::fs::read(&file).unwrap(), cut);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A JPEG whose own lengths of what follows its image are wrong, as an editor may leave
+    /// them, is turned once it has not changed for a minute, and it keeps what follows its
+    /// image. A `GCamera:MicroVideoOffset` of 0, which means no video, is never counted. Before,
+    /// both were refused for good as if they were still being copied.
+    #[test]
+    fn a_jpeg_with_stale_trailer_lengths_is_turned_once_it_rests() {
+        use crate::images::shared_copy::jpeg_segment;
+        let mut main = Vec::new();
+        image::RgbImage::new(16, 8)
+            .write_to(
+                &mut std::io::Cursor::new(&mut main),
+                image::ImageFormat::Jpeg,
+            )
+            .unwrap();
+        let trailer = [&b"SEFH"[..], &[7; 100]].concat();
+        let with_offset = |offset: usize| {
+            let xmp = format!("<x GCamera:MicroVideoOffset=\"{offset}\"/>");
+            let body = [&b"http://ns.adobe.com/xap/1.0/\0"[..], xmp.as_bytes()].concat();
+            [&main[..2], &jpeg_segment(0xe1, &body), &main[2..], &trailer].concat()
+        };
+        assert!(!super::looks_cut_short(&with_offset(0), true));
+        // An offset left by an editor that dropped the video and added its own trailer.
+        let stale = with_offset(5000);
+        assert!(super::looks_cut_short(&stale, true));
+        assert!(!super::looks_cut_short(&stale, false));
+        let now = std::time::SystemTime::now();
+        let since_1970 = |t: std::time::SystemTime| {
+            t.duration_since(std::time::UNIX_EPOCH).unwrap().as_secs() as i64
+        };
+        assert!(super::changed_lately((since_1970(now), 0)));
+        let hour = std::time::Duration::from_secs(3600);
+        assert!(!super::changed_lately((since_1970(now - hour), 0)));
+        let dir = std::env::temp_dir().join(format!("glimt-turn-stale-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("a.jpg");
+        std::fs::write(&file, &stale).unwrap();
+        // Just written, it may still be coming in.
+        assert!(crate::metadata::exif::write_orientation(&file, 1, false, true).is_err());
+        std::fs::File::options()
+            .write(true)
+            .open(&file)
+            .unwrap()
+            .set_modified(now - hour)
+            .unwrap();
+        crate::metadata::exif::write_orientation(&file, 1, false, true).unwrap();
+        assert!(std::fs::read(&file).unwrap().ends_with(&trailer));
         std::fs::remove_dir_all(dir).unwrap();
     }
 
