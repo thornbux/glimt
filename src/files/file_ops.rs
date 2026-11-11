@@ -2943,7 +2943,7 @@ fn rename_files_planned_in(
             // The plan stays as it is, and the next start finds the step by the names, once the
             // share's cache has expired. Any other failure did nothing, and is undone at once.
             let may_be_done =
-                !stopped && done == k && crate::files::file_io::may_have_been_done(&e);
+                !stopped && done == k && crate::files::file_io::may_have_been_done(&e, a);
             // Otherwise the renames are undone so that no file is left under a hidden
             // temporary name, by the same steps the next start would take.
             let stuck = match may_be_done {

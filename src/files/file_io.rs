@@ -698,13 +698,25 @@ fn unlink_was_refused(e: &std::io::Error) -> bool {
 /// Then no other name may be removed on the belief that this one is as it was. Every other
 /// error is the file system's answer that it did nothing: a name too long, a full disk, a file
 /// that is gone, no right to it. So is an error of Glimt's own without an error number, except
-/// `unlink_linked`'s.
-pub(crate) fn may_have_been_done(e: &std::io::Error) -> bool {
+/// `unlink_linked`'s. A file that is gone (ENOENT) is the exception on a network or cloud mount,
+/// where `from`, the name the step took the file from, is: NFS and SMB send a step again when its
+/// answer is lost, and a rename done the first time answers ENOENT the second. A mount whose type
+/// cannot be read counts as such a mount.
+pub(crate) fn may_have_been_done(e: &std::io::Error, from: &Path) -> bool {
+    may_have_been_done_on(e, || file_system_type(from))
+}
+
+/// Returns `may_have_been_done` for the error `e` of a step on a mount whose type `kind` gives.
+/// `kind` is asked only for ENOENT, as it reads the mount table.
+fn may_have_been_done_on(e: &std::io::Error, kind: impl FnOnce() -> Option<String>) -> bool {
     use libc::{
         EAGAIN, ECOMM, ECONNABORTED, ECONNREFUSED, ECONNRESET, EHOSTDOWN, EHOSTUNREACH, EINTR, EIO,
-        ENETDOWN, ENETRESET, ENETUNREACH, ENOBUFS, ENOLINK, ENOMEM, ENOTCONN, EPROTO, EREMOTEIO,
-        ESTALE, ETIMEDOUT,
+        ENETDOWN, ENETRESET, ENETUNREACH, ENOBUFS, ENOENT, ENOLINK, ENOMEM, ENOTCONN, EPROTO,
+        EREMOTEIO, ESTALE, ETIMEDOUT,
     };
+    if e.raw_os_error() == Some(ENOENT) {
+        return kind().is_none_or(|kind| is_remote(&kind));
+    }
     e.get_ref()
         .is_some_and(|inner| inner.is::<MayBeUnderBothNames>())
         || matches!(
@@ -2168,6 +2180,25 @@ mod tests {
             assert_eq!(error.contains("check both"), keeps_both, "{error}");
         }
         std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A step that answers ENOENT on a network or cloud mount may have been done, as NFS and SMB
+    /// send a step again when its answer is lost, and a rename done the first time answers
+    /// ENOENT the second. Before, it counted as nothing done, so Rename Many left a file under
+    /// its hidden name and the trash by hand dropped its .trashinfo. On a local disk ENOENT
+    /// still says that nothing was done.
+    #[test]
+    fn enoent_on_a_network_mount_may_have_been_done() {
+        let enoent = std::io::Error::from_raw_os_error(libc::ENOENT);
+        let on =
+            |kind: Option<&str>| super::may_have_been_done_on(&enoent, || kind.map(Into::into));
+        assert!(on(Some("nfs4")) && on(Some("cifs")) && on(Some("fuse.sshfs")));
+        assert!(on(None));
+        assert!(!on(Some("ext4")) && !on(Some("vfat")));
+        let refused = std::io::Error::from_raw_os_error(libc::ENAMETOOLONG);
+        assert!(!super::may_have_been_done_on(&refused, || Some(
+            "nfs4".into()
+        )));
     }
 
     /// Where neither RENAME_NOREPLACE nor links can be made (rclone, s3fs, MTP), the rename after

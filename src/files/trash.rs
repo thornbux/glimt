@@ -235,7 +235,7 @@ fn put_back(
                 // its file stays out with it. Its .trashinfo is kept, as it may be in the trash
                 // too, and the error says to check both names.
                 let told = format!("{display}: {e}", display = side.from.display());
-                if crate::files::file_io::may_have_been_done(&e)
+                if crate::files::file_io::may_have_been_done(&e, &side.file)
                     && !crate::files::file_io::is_surely_gone(&side.from)
                 {
                     error.get_or_insert(told);
@@ -532,7 +532,7 @@ fn trash_by_hand(trash: &Path, files: &[(&Path, String)]) -> Vec<(PathBuf, std::
         if let Err(e) = rename_never_over(path, &files_folder.join(&taken)) {
             // A move that may have been done keeps its .trashinfo, without which no trash view
             // lists the file and Undo cannot find it.
-            if !crate::files::file_io::may_have_been_done(&e) {
+            if !crate::files::file_io::may_have_been_done(&e, path) {
                 remove(&trashinfo);
             }
             match e.kind() {
