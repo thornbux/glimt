@@ -530,6 +530,7 @@ fn read_at_start(config: Config, problems: Vec<String>) -> ReadAtStart {
     for problem in &desktop_file_problems {
         eprintln!("glimt: {problem}");
     }
+    // Parsed by `WindowState::parse`, which config's survives_broken_files feeds broken input.
     let window_state = (config.remember_window || config.remember_dir)
         .then(|| crate::images::decode::read_text(state_path()?).ok())
         .flatten();

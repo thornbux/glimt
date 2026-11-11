@@ -2247,6 +2247,14 @@ fn webp_with_metadata(
 mod tests {
     use std::collections::HashSet;
 
+    /// The sharing file, damaged in any way, is read without a panic.
+    #[test]
+    fn survives_broken_sharing_file() {
+        for bytes in crate::support::test_support::broken(b"gps\nmaker-notes\nArtist\n0x9003\n") {
+            super::LeftOut::parse(&String::from_utf8_lossy(&bytes));
+        }
+    }
+
     /// A tag left out while it had no name, stored by its number, stays left out after a later
     /// Glimt names it, and the next save writes its name. Before, the stored number no longer
     /// matched the tag, and every copy kept it without a word.

@@ -654,6 +654,18 @@ const DISK_CALLS: &[&str] = &[
     "UnixStream::connect(",
 ];
 
+/// The calls that read text from outside Glimt's code: a file read whole, a program's output,
+/// and a line from the socket. `outside_text_is_read_by_parsers_fed_broken_input` holds each
+/// file that makes one to a `survives_broken_*` test of its parser.
+const OUTSIDE_TEXT_READS: &[&str] = &[
+    "read_text(",
+    "read_limited(",
+    "read_unlinked(",
+    "output_of(",
+    "short_output_of(",
+    "read_until(",
+];
+
 /// The calls that hand work to another thread, whose text `DISK_CALLS` are not looked for in.
 const HANDED_TO_A_THREAD: &[&str] = &[
     "spawn(",
@@ -3254,6 +3266,96 @@ fn broken_inputs_are_fed_by_survives_broken_tests() {
         "test_support::broken fed outside a survives_broken_* test:\n{}",
         wrong.join("\n")
     );
+}
+
+/// What Glimt reads from outside its own code is read by a parser that a `survives_broken_*`
+/// test feeds broken input: a file read whole, a program's output and a line from the socket
+/// (`OUTSIDE_TEXT_READS`). So each file that reads such text has a `survives_broken_*` test of
+/// its own, or the read says which test feeds its parser elsewhere, by that test's name in a
+/// comment on it or just above it. A `.trashinfo` on a stick and a command on the socket were
+/// read with no such test.
+#[test]
+fn outside_text_is_read_by_parsers_fed_broken_input() {
+    let sources = rust_sources();
+    let fuzzing_tests: HashSet<String> = (sources.iter())
+        .flat_map(|(_, text)| code_lines(text))
+        .filter_map(|line| function_name(&line).map(str::to_owned))
+        .filter(|name| name.starts_with("survives_broken_"))
+        .collect();
+    let mut wrong = Vec::new();
+    for (file, text) in &sources {
+        let lines = reads_without_fuzzing_test(text, &fuzzing_tests);
+        wrong.extend(lines.iter().map(|line| format!("{file}:{line}")));
+    }
+    assert!(
+        wrong.is_empty(),
+        "outside text read with no survives_broken_* test of its parser (add one, or name the \
+         test that feeds the parser in a comment on the read):\n{}",
+        wrong.join("\n")
+    );
+}
+
+/// Returns the lines of `text` outside the tests that read outside text (`OUTSIDE_TEXT_READS`)
+/// when `text` has no `survives_broken_*` test, unless a comment on the read's statement or
+/// just above it names one of `fuzzing_tests`.
+fn reads_without_fuzzing_test(text: &str, fuzzing_tests: &HashSet<String>) -> Vec<usize> {
+    let (code, comments) = (code_lines(text), comment_lines(text));
+    let end = tests_start(&code);
+    let has_its_own = (code[end..].iter())
+        .any(|l| function_name(l).is_some_and(|n| n.starts_with("survives_broken_")));
+    if has_its_own {
+        return Vec::new();
+    }
+    let names_a_test = |comment: &str| {
+        (comment.match_indices("survives_broken_")).any(|(at, _)| {
+            let name: String = (comment[at..].chars())
+                .take_while(|&c| c.is_alphanumeric() || c == '_')
+                .collect();
+            fuzzing_tests.contains(&name)
+        })
+    };
+    let mut found = Vec::new();
+    for i in 0..end {
+        if !OUTSIDE_TEXT_READS
+            .iter()
+            .any(|r| mentions_call(&code[i], r))
+        {
+            continue;
+        }
+        // Up to the statement's first line, then up the comment lines just above it.
+        let mut first = i;
+        while first > 0
+            && !code[first - 1].trim().is_empty()
+            && !code[first - 1].ends_with([';', '{', '}'])
+        {
+            first -= 1;
+        }
+        while first > 0
+            && code[first - 1].trim().is_empty()
+            && !comments[first - 1].trim().is_empty()
+        {
+            first -= 1;
+        }
+        if !(first..=i).any(|j| names_a_test(&comments[j])) {
+            found.push(i + 1);
+        }
+    }
+    found
+}
+
+/// The check above finds a read in a file without a `survives_broken_*` test, also one whose
+/// comment names a test that is not there. It passes a read whose comment, on its statement
+/// or above it, names a test there, and every read of a file with a test of its own.
+#[test]
+fn finds_outside_text_read_without_its_fuzzing_test() {
+    let tests = HashSet::from(["survives_broken_files".to_owned()]);
+    let text = "fn a() {\n    let t = read_text(p);\n    // Fed by survives_broken_gone.\n    \
+        let u = read_limited(p);\n    // Fed by survives_broken_files.\n    let v = x\n        \
+        .and_then(|p| read_text(p));\n    let w = short_output_of(\"lpstat\"); // survives_broken_files\n}\n";
+    assert_eq!(reads_without_fuzzing_test(text, &tests), [2, 4]);
+    let with_its_own =
+        format!("{text}#[cfg(test)]\nmod tests {{\n    fn survives_broken_a() {{}}\n}}\n");
+    assert!(reads_without_fuzzing_test(&with_its_own, &tests).is_empty());
 }
 
 /// A comment fits the 100 columns rustfmt keeps code to, which rustfmt does not wrap: a longer

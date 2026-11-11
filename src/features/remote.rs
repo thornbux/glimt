@@ -2726,6 +2726,31 @@ mod tests {
     /// Before, every line could be as long as the longest select, some 400 MB, and ten clients
     /// sending without a line break held 4 GB. And a longer line ended without an answer, which
     /// the client read as done.
+    /// What a client sends on the socket, damaged in any way, is read as commands without a
+    /// panic, and each line read is taken by the window, done or not done, without one either.
+    /// Any program that can reach the socket may send it.
+    #[test]
+    fn survives_broken_commands() {
+        let seed = b"select /x/a.png\0/x/b.png\nnext\r\nrun Next\nslideshow on\n";
+        for bytes in crate::support::test_support::broken(seed) {
+            let mut reader = std::io::Cursor::new(bytes);
+            while let Some(Ok(_)) = super::read_command(&mut reader) {}
+        }
+        let dir =
+            std::env::temp_dir().join(format!("glimt-test-broken-commands-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let (mut app, ctx) = app_on(&dir);
+        // The window acts on each command it takes, so the weekly run's millions are spent on
+        // the socket's reader above, and the window takes the first 20,000 of each.
+        for seed in ["select a.png\0b.png", "run Next", "slideshow on"] {
+            for bytes in crate::support::test_support::broken(seed.as_bytes()).take(20_000) {
+                drop(app.remote_command(&ctx, &String::from_utf8_lossy(&bytes)));
+            }
+        }
+        drop(app);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
     #[test]
     fn a_command_line_is_cut_short_unless_it_is_a_select() {
         let long = "x".repeat(super::MOST_LINE as usize + 10);

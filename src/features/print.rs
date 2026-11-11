@@ -895,9 +895,15 @@ pub fn printers() -> (Vec<String>, Option<String>) {
     let run = |arg: &str| {
         crate::files::external::short_output_of("lpstat", &[arg], 1 << 16).unwrap_or_default()
     };
-    let names = run("-e").lines().map(str::to_owned).collect();
-    // The line reads "system default destination: name".
-    let default = run("-d").rsplit_once(": ").map(|d| d.1.trim().to_owned());
+    printers_from(&run("-e"), &run("-d"))
+}
+
+/// Reads the printers from `lpstat -e`'s output `names`, one to a line, and the default one
+/// from `lpstat -d`'s `default`, which reads "system default destination: name". Returns the
+/// printers, and the default, or `None` when CUPS has none.
+fn printers_from(names: &str, default: &str) -> (Vec<String>, Option<String>) {
+    let names = names.lines().map(str::to_owned).collect();
+    let default = default.rsplit_once(": ").map(|d| d.1.trim().to_owned());
     (names, default)
 }
 
@@ -1199,6 +1205,35 @@ fn print_texts(ui: &mut egui::Ui, c: &mut Config) {
 
 #[cfg(test)]
 mod tests {
+    /// What `lpstat` prints, damaged in any way, is read without a panic. A printer's name
+    /// comes from the CUPS server, which may be another computer's.
+    #[test]
+    fn survives_broken_lpstat() {
+        let (names, default) = (
+            b"Office\nHome_Laser\n",
+            b"system default destination: Office\n",
+        );
+        let whole = super::printers_from(
+            &String::from_utf8_lossy(names),
+            &String::from_utf8_lossy(default),
+        );
+        assert_eq!(
+            whole,
+            (
+                vec!["Office".into(), "Home_Laser".into()],
+                Some("Office".into())
+            )
+        );
+        for (names, default) in crate::support::test_support::broken(names)
+            .zip(crate::support::test_support::broken(default))
+        {
+            super::printers_from(
+                &String::from_utf8_lossy(&names),
+                &String::from_utf8_lossy(&default),
+            );
+        }
+    }
+
     /// A page's image that cannot be made a JPEG (wider than JPEG allows) is an error, not an
     /// empty image. Before, the encoder's error was dropped and the page printed blank.
     #[test]

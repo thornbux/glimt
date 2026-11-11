@@ -821,6 +821,7 @@ pub(crate) fn spawn_exif_reader(
 /// Returns the keyword tree as its file has it. It waits for the disk, so `main` calls it before
 /// the window opens.
 pub(crate) fn read_keyword_tree() -> Vec<String> {
+    // Parsed by `keyword_tree_of`, which xmp's survives_broken_keyword_tree feeds broken input.
     (keyword_tree_path().and_then(|p| crate::images::decode::read_limited(p).ok()))
         .map_or_else(Vec::new, |file| xmp::keyword_tree_of(&file))
 }

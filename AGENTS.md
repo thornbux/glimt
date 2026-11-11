@@ -470,7 +470,10 @@ method.
   (`source_rules::tests_use_temporary_names_of_their_own`).
 - **A parser of file contents** also gets a `survives_broken_*` test that feeds it
   `crate::support::test_support::broken(sample)`: 2,000 damaged forms of a good input in every
-  run, and five million every Sunday (`.github/workflows/parsers.yml`, `GLIMT_FUZZ`).
+  run, and five million every Sunday (`.github/workflows/parsers.yml`, `GLIMT_FUZZ`). Each
+  file that reads outside text (a file read whole, a program's output, a line from the socket)
+  has such a test of its own, or names the test that feeds its parser elsewhere in a comment
+  on the read (`source_rules::outside_text_is_read_by_parsers_fed_broken_input`).
 - **Touching the disk or starting a program** goes through one function each, and
   `clippy.toml` (`disallowed-methods`) refuses the raw calls, so `cargo clippy` fails on a
   bypass:

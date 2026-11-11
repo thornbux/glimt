@@ -1872,6 +1872,7 @@ pub(crate) fn read_recent(config: &Config) -> Vec<PathBuf> {
             crate::files::file_io::write_later(move || crate::files::file_io::remove_shared(&file));
             Vec::new()
         }
+        // Parsed by `parse_recent`, which config's survives_broken_files feeds broken input.
         Some(file) => crate::images::decode::read_limited(file)
             .map_or_else(|_| Vec::new(), |t| config::parse_recent(&t)),
         None => Vec::new(),
@@ -1881,6 +1882,7 @@ pub(crate) fn read_recent(config: &Config) -> Vec<PathBuf> {
 /// Returns the Sort Manager's folders as their file has them. It waits for the disk, so `main`
 /// calls it before the window opens.
 pub(crate) fn read_sort_folders() -> Vec<PathBuf> {
+    // Parsed by `sort_folders_from`, which config's survives_broken_files feeds broken input.
     (sort_folders_path().and_then(|p| crate::images::decode::read_limited(p).ok()))
         .map_or_else(Vec::new, |t| sort_folders_from(&t))
 }

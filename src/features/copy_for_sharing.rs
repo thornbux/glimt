@@ -212,6 +212,7 @@ impl crate::App {
         let pointer = Working::new(&self.busy);
         std::thread::spawn(move || {
             let _pointer = pointer;
+            // Parsed by `LeftOut::parse`, which survives_broken_sharing_file feeds broken input.
             let last = (sharing_path())
                 .and_then(|file| crate::images::decode::read_text(file).ok())
                 .map_or_else(LeftOut::default, |text| LeftOut::parse(&text));

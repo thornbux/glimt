@@ -1778,6 +1778,22 @@ pub(crate) fn take_saves_failed() -> Vec<String> {
 
 #[cfg(test)]
 mod tests {
+    /// The system's list of mounts and udev's file of a disk, damaged in any way, are read
+    /// without a panic. A mount point's name is the user's, or comes with a stick.
+    #[test]
+    fn survives_broken_mountinfo() {
+        let seed = b"36 35 98:0 / /media/a\\040b rw,noatime master:1 - fuseblk /dev/sdb1 rw\n\
+            22 1 0:21 / / rw - ext4 /dev/root rw\n";
+        for bytes in crate::support::test_support::broken(seed) {
+            let path = std::path::Path::new("/media/a b/x.jpg");
+            super::file_system_type_in(&bytes, path, |_| Some("exfat".into()));
+        }
+        for bytes in crate::support::test_support::broken(b"S:disk/by-uuid/1\nE:ID_FS_TYPE=exfat\n")
+        {
+            super::file_system_type_in_udev(&String::from_utf8_lossy(&bytes));
+        }
+    }
+
     /// A save that fails in one test is not told in another test's window. Before, a window
     /// took a save error of a test beside it as its notice, in place of the notice its own
     /// test waited for (`every_undo_leaves_a_file_put_in_its_place`).
