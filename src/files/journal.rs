@@ -843,16 +843,34 @@ pub fn leave_names(
         return Err(None);
     }
     // Each file is followed to the name the count says it has now, and a pair is given only
-    // where a file may be there (`is_followed_to`). Taken from the count alone, a repair that
+    // where the file may be there (`is_followed`). Taken from the count alone, a repair that
     // stopped half way gave a photo that went back to its old name the marks of a name where
-    // nothing was.
-    let followed = (files_of(moves, done, &[]).into_iter())
-        .filter(|(first, now, ..)| first != now && crate::files::file_io::is_followed_to(now))
+    // nothing was. The files' fingerprints of the plan tell a photo that went back.
+    let known = crate::images::decode::read_text(known_path(plan))
+        .map_or_else(|_| Vec::new(), |text| parse_known(&text, moves.len()));
+    let followed = (files_of(moves, done, &known).into_iter())
+        .filter(|&(first, now, _, known)| first != now && is_followed((first, now), known))
         .map(|(first, now, ..)| (first.to_path_buf(), now.to_path_buf()))
         .collect();
     remove_plan(plan, &one_name_per_folder(moves));
     drop(held);
     Ok(followed)
+}
+
+/// Returns whether the marks and collection entries of the file first named `first` follow it to
+/// `now`, the name the plan's count gives it, when the names are left as they are. They do where
+/// a file is at `now`. Where the look at `now` fails, they follow too (`is_followed_to`), unless
+/// the file is back at `first`: there with the size and time it had when the plan was made,
+/// `known`. A repair that stopped half way may have put it back, and a failed look at a name
+/// where nothing is would else give that name its marks.
+fn is_followed((first, now): (&Path, &Path), known: Option<FileFingerprint>) -> bool {
+    use crate::files::file_io::{KnownAs, is_followed_to, is_still_the_file};
+    if is_surely_there(now) {
+        return true;
+    }
+    let is_back_at_first =
+        known.is_some_and(|known| is_still_the_file(first, KnownAs::size_and_time(known)).is_ok());
+    !is_back_at_first && is_followed_to(now)
 }
 
 /// Each file of the renames `moves` of which `done` were done, as (its first name, its name
@@ -1738,6 +1756,45 @@ mod tests {
         assert_eq!(followed, Some(vec![(p("a.jpg"), p("b.jpg"))]));
         let told = crate::files::file_io::take_saves_failed();
         assert!(told.iter().any(|t| t.contains("b.jpg")), "{told:?}");
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// Leaving the names after a repair that stopped half way gives no marks to a name that
+    /// cannot be looked at when the photo is back at its old name, as the plan's fingerprint of
+    /// it shows. Before, the failed look at Trip_2.jpg gave it IMG_2.jpg's marks, though
+    /// nothing was there.
+    #[test]
+    fn leaving_the_names_keeps_the_marks_of_a_photo_back_at_its_old_name() {
+        use crate::files::file_io::LOOKS_FAIL;
+        use crate::support::threads::lock_even_if_poisoned;
+        let dir =
+            std::env::temp_dir().join(format!("glimt-test-plan-back-eio-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let (plans, p) = (dir.join("plans"), |n: &str| dir.join(n));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(p("IMG_1.jpg"), "1").unwrap();
+        std::fs::write(p("IMG_2.jpg"), "2").unwrap();
+        let moves = vec![
+            (p("IMG_1.jpg"), p("Trip_1.jpg")),
+            (p("IMG_2.jpg"), p("Trip_2.jpg")),
+        ];
+        let mut plan = super::start_journal(&plans, &moves).unwrap();
+        for (a, b) in &moves {
+            super::rename_step(a, b).unwrap();
+            plan.count_step_done();
+        }
+        plan.keep_on_disk();
+        // IMG_1.jpg's name is taken, so only IMG_2.jpg goes back.
+        std::fs::write(p("IMG_1.jpg"), "new").unwrap();
+        let (plan, moves, done) = super::cut_short_plans(&plans).remove(0);
+        assert_eq!(
+            super::repair_cut_short(&plan, &moves, done, true),
+            Some((1, 1))
+        );
+        lock_even_if_poisoned(&LOOKS_FAIL).push(p("Trip_2.jpg"));
+        let followed = super::leave_names(&plan, &moves, done).ok();
+        lock_even_if_poisoned(&LOOKS_FAIL).retain(|f| *f != p("Trip_2.jpg"));
+        assert_eq!(followed, Some(vec![(p("IMG_1.jpg"), p("Trip_1.jpg"))]));
         std::fs::remove_dir_all(dir).unwrap();
     }
 
