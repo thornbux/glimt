@@ -277,6 +277,28 @@ impl Drop for UnfinishedAnswer {
     }
 }
 
+/// A client's connection as `serve` reads it: each read waits only for the time left until
+/// `until`, the end of the client's time for its command. So a client that sends a byte now and
+/// then holds its thread no longer than that. Before, the time limit was for each read, and
+/// sixteen such clients held every thread for as long as they liked.
+struct ReadBefore {
+    stream: UnixStream,
+    until: std::time::Instant,
+}
+
+impl std::io::Read for ReadBefore {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        let left = self
+            .until
+            .saturating_duration_since(std::time::Instant::now());
+        if left.is_zero() {
+            return Err(std::io::ErrorKind::TimedOut.into());
+        }
+        self.stream.set_read_timeout(Some(left))?;
+        std::io::Read::read(&mut self.stream, buf)
+    }
+}
+
 /// A client's place among those served at once (`serve_clients`), given back when it is dropped.
 struct ClientPlace(mpsc::Sender<()>);
 
@@ -1744,13 +1766,21 @@ fn serve(
 ) {
     let mut place = Some(place);
     let mut waiting_place = None;
-    let _ = stream.set_read_timeout(Some(wait));
+    // A client that does not read its answer holds its thread no longer than this either.
+    let _ = stream.set_write_timeout(Some(wait));
     let mut out = stream.try_clone().ok();
     // A client may send as much as `select` may, and no more, so a client that sends without
     // end does not fill the memory.
     let most = MAX_SELECT as u64 * 4096 + 64;
-    let mut reader = std::io::BufReader::new(std::io::Read::take(stream, most));
-    while let Some(line) = read_command(&mut reader) {
+    let until = std::time::Instant::now() + wait;
+    let stream = std::io::Read::take(ReadBefore { stream, until }, most);
+    let mut reader = std::io::BufReader::new(stream);
+    loop {
+        // Each command has `wait` from when its reading starts to its end.
+        reader.get_mut().get_mut().until = std::time::Instant::now() + wait;
+        let Some(line) = read_command(&mut reader) else {
+            return;
+        };
         let line = match line {
             Ok(line) => command_now(line.trim_start()),
             // Told, as an end without an answer would read as done. The rest of what the client
@@ -1798,7 +1828,11 @@ fn serve(
             Ok(bytes) => {
                 // `info` sends each file's record as it is read, until it has sent them all.
                 // Each part is written at once, so the client's time limit holds for each part.
-                let rest = answer.iter().take_while(|_| comes_in_parts);
+                // A part that does not come in time ends the answer, and the client tells that
+                // records are missing. Before, a file on a share that stopped answering held
+                // the thread for good.
+                let next_part = || comes_in_parts.then(|| answer.recv_timeout(limit).ok());
+                let rest = std::iter::from_fn(|| next_part().flatten());
                 for bytes in std::iter::once(bytes).chain(rest) {
                     if out
                         .as_mut()
@@ -3332,6 +3366,66 @@ mod tests {
         assert_eq!(why.as_deref(), Some(super::TOO_MANY_WAITING));
         drop(waiting_reply);
         std::fs::remove_file(path).unwrap();
+    }
+
+    /// A client that sends its command a byte at a time, each byte within the time limit of one
+    /// read, is let go when the time for the whole command is up. Before, the limit was for each
+    /// read, and sixteen such clients held every thread, so every other --remote got no answer.
+    #[test]
+    fn a_client_that_sends_slowly_is_let_go_in_time() {
+        use std::io::Write;
+        let (mut client, server) = std::os::unix::net::UnixStream::pair().unwrap();
+        let (tx, _commands) = std::sync::mpsc::channel();
+        let (ended_tx, ended) = std::sync::mpsc::channel();
+        let wait = std::time::Duration::from_millis(300);
+        std::thread::spawn(move || {
+            let place = super::ClientPlace(std::sync::mpsc::channel().0);
+            let ctx = eframe::egui::Context::default();
+            super::serve(server, place, &tx, &ctx, wait, &super::WAITING_PLACES);
+            ended_tx.send(()).unwrap();
+        });
+        // A byte every 100 ms for two seconds, with no line break: no one read waits `wait`.
+        for byte in b"current".iter().cycle().take(20) {
+            let _ = client.write_all(&[*byte]);
+            std::thread::sleep(std::time::Duration::from_millis(100));
+        }
+        assert!(
+            ended.try_recv().is_ok(),
+            "the slow client still holds its thread"
+        );
+    }
+
+    /// An `info` whose next record does not come in time (a file on a share that stopped
+    /// answering) ends its answer, and its thread is let go. The client then tells that records
+    /// are missing. Before, the thread waited for the record for good.
+    #[test]
+    fn an_info_record_that_does_not_come_lets_its_thread_go() {
+        use std::io::{Read, Write};
+        let (mut client, server) = std::os::unix::net::UnixStream::pair().unwrap();
+        let (tx, commands) = std::sync::mpsc::channel();
+        let (ended_tx, ended) = std::sync::mpsc::channel();
+        let wait = std::time::Duration::from_millis(300);
+        std::thread::spawn(move || {
+            let place = super::ClientPlace(std::sync::mpsc::channel().0);
+            let ctx = eframe::egui::Context::default();
+            super::serve(server, place, &tx, &ctx, wait, &super::WAITING_PLACES);
+            ended_tx.send(()).unwrap();
+        });
+        writeln!(client, "info /a.png\0/b.png").unwrap();
+        client.shutdown(std::net::Shutdown::Write).unwrap();
+        let (command, reply) = commands.recv().unwrap();
+        // The second record never comes, while the window keeps the reply.
+        let reply = reply.unwrap();
+        reply.send(b"path\t/a.png\n\n".to_vec()).unwrap();
+        let five_seconds = std::time::Duration::from_secs(5);
+        assert!(
+            ended.recv_timeout(five_seconds).is_ok(),
+            "the thread waits for the record"
+        );
+        let mut got = Vec::new();
+        client.read_to_end(&mut got).unwrap();
+        assert_eq!(super::info_records_missing(&command, &got), 1);
+        drop(reply);
     }
 
     /// A query whose answer the window drops (too many waiting) is not closed at once, because
