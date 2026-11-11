@@ -819,8 +819,10 @@ impl crate::App {
             let mut changed: HashSet<PathBuf> = HashSet::new();
             // Each gio call (and each taking of the locks) handles many files, so thousands of
             // files do not become thousands of processes. The chunks are small enough that Stop
-            // and the count in the status bar keep up.
-            for chunk in paths.chunks(100) {
+            // and the count in the status bar keep up, and each holds only a few of the sidecar
+            // locks, which a gio call that hangs on a share would hold for good.
+            for chunk in xmp::chunks_by_sidecar_lock(&paths, 100) {
+                let chunk = &chunk[..];
                 if job.is_stopped() {
                     break;
                 }
@@ -7124,54 +7126,49 @@ mod tests {
             app.delete_targets(&ctx, false, vec![at]);
         });
         assert!(!d.join("c.png.xmp").exists());
-        // With many files, they are held a chunk (100) at a time, so a file held up by a
-        // sidecar write holds up only its own chunk, and those before it go meanwhile. Here
-        // they are deleted for good: a chunk of 100 files under other sidecar lock numbers, and
-        // then two more, of which the second is held. The first of the two waits too, because it
-        // is in the same chunk. (There is not one gio call and one taking of the locks per file.)
-        let lock_number = |n: &str| {
-            crate::metadata::xmp::sidecar_lock_number(&crate::metadata::xmp::sidecar(&d.join(n)))
+        // With many files, they are held a chunk at a time, so a file held up by a sidecar
+        // write holds up only its own chunk, and those before it go meanwhile. Here they are
+        // deleted for good. A chunk takes only a few of the sidecar locks, so a chunk that waits
+        // holds up few sidecar writes elsewhere. (There is not one gio call and one taking of
+        // the locks per file.)
+        let lock_number = |p: &PathBuf| {
+            crate::metadata::xmp::sidecar_lock_number(&crate::metadata::xmp::sidecar(p))
         };
         let names: Vec<String> = (0..400).map(|k| format!("d{k:03}.png")).collect();
-        let y = &names[0];
-        let first: Vec<&String> = names
-            .iter()
-            .filter(|n| lock_number(n) != lock_number(y))
-            .take(100)
-            .collect();
-        assert_eq!(first.len(), 100);
-        let z = (names.iter())
-            .find(|n| lock_number(n) != lock_number(y) && !first.contains(n))
-            .unwrap();
-        for n in first.iter().copied().chain([y, z]) {
+        for n in &names {
             std::fs::write(d.join(n), "").unwrap();
         }
-        for n in [first[0], y] {
-            std::fs::write(crate::metadata::xmp::sidecar(&d.join(n)), n).unwrap();
+        let paths: Vec<PathBuf> = names.iter().map(|n| d.join(n)).collect();
+        let chunks = crate::metadata::xmp::chunks_by_sidecar_lock(&paths, 100);
+        let held_up = chunks.last().unwrap().clone();
+        let y = held_up[0].clone();
+        let locks: std::collections::HashSet<u64> = held_up.iter().map(lock_number).collect();
+        assert!(locks.len() <= 4, "{} locks held by one chunk", locks.len());
+        let x = paths.iter().find(|p| !held_up.contains(p)).unwrap().clone();
+        for p in [&x, &y] {
+            std::fs::write(crate::metadata::xmp::sidecar(p), "keywords").unwrap();
         }
         app.start_listing(&ctx);
         assert!(run_background_until(&mut app, &ctx, |app| !app
             .folder
             .is_listing()));
-        let at =
-            |app: &crate::App, n: &str| (app.list.files().iter()).position(|f| f == n).unwrap();
-        let mut all: Vec<usize> = first.iter().map(|n| at(&app, n)).collect();
-        all.extend([at(&app, z), at(&app, y)]);
-        let (x, y, z) = (d.join(first[0]), d.join(y), d.join(z));
+        let all: Vec<usize> = (app.list.files().iter().enumerate())
+            .filter(|(_, f)| names.iter().any(|n| f.as_os_str() == n.as_str()))
+            .map(|(k, _)| k)
+            .collect();
+        assert_eq!(all.len(), 400);
         let lock = crate::metadata::xmp::lock_sidecar(&y);
         app.delete_targets(&ctx, false, all);
+        let others_gone = |_: &crate::App| paths.iter().all(|p| held_up.contains(p) || !p.exists());
         assert!(
-            run_background_until(&mut app, &ctx, |_| first
-                .iter()
-                .all(|n| !d.join(n).exists())),
-            "the first chunk waits not for the second"
+            run_background_until(&mut app, &ctx, others_gone),
+            "the chunks before wait for the one held up"
         );
-        assert!(y.exists() && crate::metadata::xmp::sidecar(&y).exists());
-        assert!(z.exists(), "the second chunk is one");
+        assert!(held_up.iter().all(|p| p.exists()));
+        assert!(crate::metadata::xmp::sidecar(&y).exists());
         drop(lock);
         assert!(run_background_until(&mut app, &ctx, |app| idle(app)
-            && !y.exists()
-            && !z.exists()));
+            && paths.iter().all(|p| !p.exists())));
         assert!(
             !crate::metadata::xmp::sidecar(&x).exists()
                 && !crate::metadata::xmp::sidecar(&y).exists()
