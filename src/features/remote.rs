@@ -1329,19 +1329,43 @@ pub fn socket_name(id: &str) -> String {
     format!("glimt-{id}.sock")
 }
 
-/// Send `command` to the socket at `path`, and print what it answers to standard output. A
-/// command that the window did not do has its reason printed on standard error instead. A
-/// window of 0.75 or older closes without an answer to a command, which reads as done.
+/// Send `command` to the socket at `path`, and print what it answers (`print_answer`).
 fn send_and_print_answer(path: &std::path::Path, command: &str) -> bool {
-    use std::io::Read;
-    let Ok(mut s) = UnixStream::connect(path) else {
-        return false;
-    };
-    if writeln!(s, "{command}").is_err() {
-        return false;
-    }
+    send_command(path, command).is_some_and(|stream| {
+        print_answer(path, stream, command);
+        true
+    })
+}
+
+/// Sends `command` to the socket at `path`. Returns the connection, which the answer comes on,
+/// or `None` when no Glimt takes the command there.
+fn send_command(path: &std::path::Path, command: &str) -> Option<UnixStream> {
+    let mut stream = UnixStream::connect(path).ok()?;
+    writeln!(stream, "{command}").ok()?;
     // Sending is done, so the window answers and then closes.
-    let _ = s.shutdown(std::net::Shutdown::Write);
+    let _ = stream.shutdown(std::net::Shutdown::Write);
+    Some(stream)
+}
+
+/// Sends `command` to each socket of `sockets`, and then prints what each answers, in the same
+/// order. So every window starts the command at once, and a command sent with `--wait` does
+/// not wait for one window's work before the next window gets it. Returns how many took it.
+fn send_to_each(sockets: impl IntoIterator<Item = PathBuf>, command: &str) -> usize {
+    let sent: Vec<_> = (sockets.into_iter())
+        .filter_map(|path| Some((send_command(&path, command)?, path)))
+        .collect();
+    let taken = sent.len();
+    for (stream, path) in sent {
+        print_answer(&path, stream, command);
+    }
+    taken
+}
+
+/// Prints what the window at `path` answers to `command` on `s` to standard output. A command
+/// that the window did not do has its reason printed on standard error instead. A window of
+/// 0.75 or older closes without an answer to a command, which reads as done.
+fn print_answer(path: &std::path::Path, mut s: UnixStream, command: &str) {
+    use std::io::Read;
     let waits = command.starts_with(WAIT_WORD);
     let limit = match waits {
         // The window's listener says "no answer" a second after `OUTCOME_WAIT`.
@@ -1375,7 +1399,6 @@ fn send_and_print_answer(path: &std::path::Path, command: &str) -> bool {
         eprintln!("glimt: not done: {why}");
         WAS_NOT_DONE.store(true, std::sync::atomic::Ordering::Relaxed);
     }
-    true
 }
 
 /// The sockets in `dir`, whether or not a Glimt answers on them. A command is sent to these,
@@ -1423,15 +1446,12 @@ pub fn send(command: &str) -> bool {
 /// connected to, so the windows of other names see no connection.
 pub fn send_to(dir: Option<PathBuf>, name: &str, command: &str) -> bool {
     let named = socket_files(dir).into_iter().filter(|p| is_named(p, name));
-    named.filter(|p| send_and_print_answer(p, command)).count() > 0
+    send_to_each(named, command) > 0
 }
 
 /// Send `command` to every running Glimt. Returns how many got it.
 pub fn send_all(command: &str) -> usize {
-    socket_files(runtime_dir())
-        .iter()
-        .filter(|p| send_and_print_answer(p, command))
-        .count()
+    send_to_each(socket_files(runtime_dir()), command)
 }
 
 /// `glimt --remote` and `--remote-all`. It sends `words` (the command and its arguments) to the
@@ -3170,6 +3190,49 @@ mod tests {
         let mut got = Vec::new();
         let read = client.read_to_end(&mut got);
         assert!(read.is_err() && got.is_empty(), "{read:?} {got:?}");
+    }
+
+    /// A command sent with `--wait` to two windows of one name, or with `--remote-all`, reaches
+    /// both before it waits for either one's work. Before, the second window got it only when
+    /// the first one's work had ended. Each window here answers once the other has the command
+    /// too, or after three seconds, and tells which it was.
+    #[test]
+    fn a_command_that_waits_reaches_every_window_before_it_waits() {
+        use std::io::{BufRead, Write};
+        let dir = std::env::temp_dir().join(format!("glimt-test-wait-all-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let window = |id: &str,
+                      has_it: std::sync::mpsc::Sender<()>,
+                      other_has_it: std::sync::mpsc::Receiver<()>| {
+            let socket = dir.join(super::socket_name(id));
+            let listener = std::os::unix::net::UnixListener::bind(socket).unwrap();
+            std::thread::spawn(move || {
+                let (stream, _) = listener.accept().unwrap();
+                let mut line = String::new();
+                std::io::BufReader::new(&stream)
+                    .read_line(&mut line)
+                    .unwrap();
+                let _ = has_it.send(());
+                let three_seconds = std::time::Duration::from_secs(3);
+                let other_had_it = other_has_it.recv_timeout(three_seconds).is_ok();
+                (&stream).write_all(super::OUTCOME_DONE.as_bytes()).unwrap();
+                (line, other_had_it)
+            })
+        };
+        let (left_has_it, left_had_it) = std::sync::mpsc::channel();
+        let (right_has_it, right_had_it) = std::sync::mpsc::channel();
+        let left = window("pair", left_has_it, right_had_it);
+        let right = window("pair.4242", right_has_it, left_had_it);
+        assert!(super::send_to(Some(dir.clone()), "pair", "wait next"));
+        for window in [left, right] {
+            let (line, other_had_it) = window.join().unwrap();
+            assert_eq!(line, "wait next\n");
+            assert!(
+                other_had_it,
+                "a window got the command only after the other's work"
+            );
+        }
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     /// A socket that does not answer is passed over but left in place. A Glimt between binding
