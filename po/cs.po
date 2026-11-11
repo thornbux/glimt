@@ -3097,3 +3097,11 @@ msgstr "{side} nešlo přesunout do koše, proto {file} zůstává, kde byl, se 
 #: src/files/trash.rs
 msgid "{e}, so {file} stays in the trash, with its sidecar"
 msgstr "{e}, proto {file} zůstává v koši, se svým doprovodným souborem"
+
+#: src/files/file_ops.rs
+msgid "{file} went back, but its sidecar {side} could not ({e}), so the sidecar is at {at}"
+msgstr "{file} se vrátil, ale jeho doprovodný soubor {side} ne ({e}), takže doprovodný soubor je v {at}"
+
+#: src/files/file_ops.rs
+msgid "{side} could not follow {file} ({e}), and {file} could not go back ({error}), so the file is at {to} and this sidecar at {side}"
+msgstr "{side} nemohl následovat {file} ({e}) a {file} se nemohl vrátit ({error}), takže soubor je v {to} a tento doprovodný soubor v {side}"

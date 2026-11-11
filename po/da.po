@@ -3075,3 +3075,11 @@ msgstr "{side} kunne ikke flyttes til papirkurven, så {file} bliver, hvor den v
 #: src/files/trash.rs
 msgid "{e}, so {file} stays in the trash, with its sidecar"
 msgstr "{e}, så {file} bliver i papirkurven, med sin sidefil"
+
+#: src/files/file_ops.rs
+msgid "{file} went back, but its sidecar {side} could not ({e}), so the sidecar is at {at}"
+msgstr "{file} blev flyttet tilbage, men sidefilen {side} kunne ikke ({e}), så sidefilen er i {at}"
+
+#: src/files/file_ops.rs
+msgid "{side} could not follow {file} ({e}), and {file} could not go back ({error}), so the file is at {to} and this sidecar at {side}"
+msgstr "{side} kunne ikke følge {file} ({e}), og {file} kunne ikke flyttes tilbage ({error}), så filen er i {to} og denne sidefil i {side}"

@@ -5195,8 +5195,12 @@ STUB
             marks=$(sort $XDG_STATE_HOME/glimt/marks)
             config confirm_trash=false
             start $d
-            # The disk full but for one block: the first .trashinfo fits, the next does not.
-            [ $fault = full ] && leave_free 4096 $disk
+            # The disk full but for four blocks, one for each .trashinfo. Glimt trashes the three
+            # photos first and then their sidecars, so all three photos fit and only a.jpg's
+            # sidecar does. A photo whose sidecar cannot follow is taken back out of the trash,
+            # so a.jpg goes with its sidecar and the others stay. With one block, no photo went
+            # with its sidecar, and nothing was left partway.
+            [ $fault = full ] && leave_free 16384 $disk
             key ctrl+a; key ctrl+d
             until_notice trash-$fault-$v 20; told=$?
             sleep 2
@@ -5396,6 +5400,10 @@ else
             if [ $op = move ]; then key ctrl+m; else key ctrl+c; fi
             until_notice split-$op-$v 20; told=$?
             sleep 2
+            # The control that Glimt put the photo at the target before its sidecar failed
+            # there, and so took the photo back: else the check passes on a Move that never
+            # reached the target.
+            reached=$(grep -c "$to/a.jpg.xmp: .*$d/a.jpg stays where it was, with its sidecar" /tmp/glimt.err)
             quit
             rm -f $full/.fill
             # Each folder: P for the photo whole there, S for its sidecar whole there.
@@ -5409,6 +5417,8 @@ else
                 && [ "$from$there" != "" ] && [ "${stars:-0}" -ge 1 ] && [ $hidden = 0 ] && echo together)
             if [ $v = new ]; then
                 expect "$op split by a full disk: the photo alone fits (the control)" "$control" split
+                expect "$op split by a full disk: Glimt put the photo there first (the control)" \
+                    "$([ "$reached" -ge 1 ] && echo yes)" yes
                 expect "$op split by a full disk: the photo with its sidecar and stars, told" \
                     "$together $([ $told = 0 ] && echo told)" "together told"
                 note "new, $op: source '$from', target '$there', stars $stars, hidden $hidden"
@@ -5444,6 +5454,10 @@ else
         key ctrl+m
         until_notice refused-$v 20; told=$?
         sleep 2
+        # The control that the photo was copied to the target and only its unlink at the
+        # source refused, which is told by the target's name: a Move refused before the copy
+        # names the source or another error.
+        reached=$(grep -c "$to/a.jpg: Permission denied" /tmp/glimt.err)
         at() { echo "$([ "$(md5sum <$1/a.jpg 2>/dev/null)" = "$photo" ] && echo P)$([ "$(md5sum <$1/a.jpg.xmp 2>/dev/null)" = "$side" ] && echo S)"; }
         from=$(at $d) there=$(at $to)
         stars=$(grep -c "^0	4	$d/a.jpg\$" $XDG_STATE_HOME/glimt/marks)
@@ -5454,6 +5468,8 @@ else
         chmod 755 $d
         if [ $v = new ]; then
             expect "the source's folder refuses a change (the control)" "$control" refused
+            expect "a Move whose unlink is refused: the photo reached the target first (the control)" \
+                "$([ "$reached" -ge 1 ] && echo yes)" yes
             expect "a Move whose unlink is refused: the photo and sidecar kept there, the stars on it, told" \
                 "$from $stars $([ $told = 0 ] && echo told)" "PS 1 told"
             expect "a Move whose unlink is refused: the target has the photo with its sidecar or neither" \
