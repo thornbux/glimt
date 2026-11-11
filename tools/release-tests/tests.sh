@@ -5056,7 +5056,7 @@ os.kill(pid, signal.SIGKILL)" $d $GPID
     start $d
     sleep 3
     menu "Finish the renaming"
-    until_ok "! ls -A $d | grep -q '^\.' && [ -z \"\$(ls -A $XDG_STATE_HOME/glimt/renames)\" ]" 60
+    until_ok "! ls -A $d | grep -q '^\.' && [ -z \"\$(find $XDG_STATE_HOME/glimt/renames -type f)\" ]" 60
     sleep 1
     quit
     # Named: files NNNNN.jpg; renamed: NNNNN.jpg holds photo 10001 - NNNNN; starred: its stars on it.
@@ -5078,7 +5078,8 @@ for line in open(marks):
 print(named, renamed, hidden, starred)
 PY
 )
-    plans=$(ls -A $XDG_STATE_HOME/glimt/renames 2>/dev/null | wc -l)
+    # The plans and their lists of files, not the folder that holds the lists.
+    plans=$(find $XDG_STATE_HOME/glimt/renames -type f 2>/dev/null | wc -l | tr -d ' ')
     rm -rf $d
     if [ $v = new ]; then
         expect "killed during Rename Many, with photos under hidden names" "$([ $cut -gt 0 ] && echo yes)" yes
@@ -5352,7 +5353,8 @@ for n in names:
 print(held, right, "renamed" if renamed else "not-renamed", len(names))
 PY
 )
-        plans=$(ls -A $XDG_STATE_HOME/glimt/renames 2>/dev/null | wc -l)
+        # The plans and their lists of files, not the folder that holds the lists.
+        plans=$(find $XDG_STATE_HOME/glimt/renames -type f 2>/dev/null | wc -l | tr -d ' ')
         failed=$(grep -c "without its plan\|Could not save" /tmp/glimt.err)
         if [ $v = new ]; then
             expect "Rename Many with a full state folder: every photo there, its own stars on it, no plan left" \
