@@ -5,6 +5,12 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- Copy for Sharing lists a JPEG's markers that a decoder does not need, such as JPG0, as tags
+  that Remove All leaves out, instead of copying them whatever they hold. An Adobe segment
+  keeps only its 12 bytes, so text after them is no longer carried.
+
 ## [0.81.1] - 2026-11-11
 
 0.81.0 was tagged but never published, because its release workflow stopped on the test that
