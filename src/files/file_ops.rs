@@ -5,8 +5,8 @@
 
 use crate::files::external;
 use crate::files::file_io::{
-    FileFingerprint, fingerprint, put_file, put_file_until_stopped, rename_never_over,
-    same_fingerprint,
+    FileFingerprint, fingerprint, is_surely_gone, put_file, put_file_until_stopped,
+    rename_never_over, same_fingerprint,
 };
 use crate::files::trash::{TrashMove, restore, trash_dirs};
 use crate::images::decode::catch_panic_as_error;
@@ -742,9 +742,9 @@ impl crate::App {
                     }
                 }
                 // Their sidecars go the same way, so that a new file with the same name does
-                // not get their keywords. A file is gone when its name is, so a link whose target
-                // went is not taken for gone (`exists` follows the link).
-                let is_gone = |p: &&PathBuf| std::fs::symlink_metadata(p).is_err();
+                // not get their keywords. A look that failed (a share that dropped for a moment)
+                // keeps the sidecar, as the photo may still be there.
+                let is_gone = |p: &&PathBuf| is_surely_gone(p);
                 let went: Vec<PathBuf> = chunk.iter().filter(is_gone).cloned().collect();
                 let side = xmp::sidecars_of(&went);
                 // A sidecar that stays is told, as the photo's own errors are, because the next
@@ -785,7 +785,7 @@ impl crate::App {
                 Vec::new()
             });
             let (sides_gone, sidecars_left): (Vec<PathBuf>, Vec<PathBuf>) =
-                (sides.into_iter()).partition(|s| std::fs::symlink_metadata(s).is_err());
+                (sides.into_iter()).partition(|s| is_surely_gone(s));
             let undo = (trash && !gone.is_empty()).then(|| {
                 Undo::Trash(TrashMove {
                     files: gone.clone(),
@@ -2290,7 +2290,7 @@ fn left_by_trash(
             .clone()
     };
     let left: Vec<PathBuf> = (paths.iter())
-        .filter(|p| std::fs::symlink_metadata(p).is_ok() && remote(p).is_some())
+        .filter(|p| !is_surely_gone(p) && remote(p).is_some())
         .cloned()
         .collect();
     Some((remote(left.first()?)?, left))
@@ -2413,8 +2413,8 @@ pub(crate) fn name_in_the_way(
 ) -> Option<PathBuf> {
     use std::os::unix::ffi::OsStrExt;
     // A name counts as taken also when it is a link that points nowhere, because nothing may be
-    // made in its place.
-    let there = |p: &PathBuf| std::fs::symlink_metadata(p).is_ok();
+    // made in its place, and when the look at it failed.
+    let there = |p: &PathBuf| !is_surely_gone(p);
     let sidecar_owner = (to.as_os_str().as_bytes().strip_suffix(b".xmp"))
         .map(|owner| PathBuf::from(std::ffi::OsStr::from_bytes(owner)));
     let adobe = xmp::adobe_sidecars_of(to, ours, names);
@@ -5775,6 +5775,32 @@ mod tests {
         app.delete_now(&ctx, false, vec![0]);
         let gone = |p: &std::path::Path| std::fs::symlink_metadata(p).is_err();
         assert!(run_background_until(&mut app, &ctx, |_| gone(&a) && gone(&side)));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A photo whose look fails after its delete (a share that dropped for a moment) is not taken
+    /// for gone, so its sidecar stays, as the photo may still be there. Before, every failed look
+    /// counted as gone, and the sidecar, with the photo's keywords and stars, was deleted for good.
+    #[test]
+    fn a_delete_keeps_the_sidecar_of_a_photo_it_could_not_look_at() {
+        use crate::files::file_io::LOOKS_FAIL;
+        use crate::support::threads::lock_even_if_poisoned;
+        let dir = std::env::temp_dir().join(format!("glimt-test-unseen-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let a = dir.join("a.png");
+        image::RgbImage::new(4, 4).save(&a).unwrap();
+        let side = crate::metadata::xmp::sidecar(&a);
+        std::fs::write(&side, "a's").unwrap();
+        let (mut app, ctx) = app_on(&dir);
+        assert!(run_background_until(&mut app, &ctx, |a| !a
+            .folder
+            .is_listing()));
+        lock_even_if_poisoned(&LOOKS_FAIL).push(a.clone());
+        app.delete_now(&ctx, false, vec![0]);
+        let done = run_background_until(&mut app, &ctx, |app| !app.working());
+        lock_even_if_poisoned(&LOOKS_FAIL).retain(|p| *p != a);
+        assert!(done);
+        assert_eq!(std::fs::read_to_string(&side).unwrap(), "a's");
         std::fs::remove_dir_all(dir).unwrap();
     }
 

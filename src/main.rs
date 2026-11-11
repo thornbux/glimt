@@ -15,8 +15,8 @@ use crate::cli::Start;
 use crate::features::check::ImageCheck;
 use crate::features::duplicates::FindDuplicates;
 use crate::features::print::PrintDialog;
-use crate::files::config::{Config, WindowState, parse_last_dir, state_path};
-use crate::files::file_io::write_atomic;
+use crate::files::config::{Config, LOCK_FILE, WindowState, parse_last_dir, state_path};
+use crate::files::file_io::{is_surely_gone, write_atomic};
 use crate::metadata::lightroom::Import;
 use crate::model::list::List;
 use crate::support::threads::{HAS_ONE_MALLOC_ARENA, Receiving, Working};
@@ -642,7 +642,7 @@ fn main() -> eframe::Result {
     }
     // A kiosk changes no settings either, because a visitor's changes would last until the
     // next boot.
-    if start.lock_settings || start.kiosk || Path::new(crate::files::config::LOCK_FILE).exists() {
+    if start.lock_settings || start.kiosk || !is_surely_gone(Path::new(LOCK_FILE)) {
         crate::files::config::lock();
     }
     let read = read_at_start(config, problems);

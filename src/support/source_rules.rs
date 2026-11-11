@@ -3621,6 +3621,56 @@ fn finds_a_name_removed_after_a_cached_look() {
     assert_eq!(removals_after_a_look(text), ["a"]);
 }
 
+/// A name counts as gone only when the system said that it is not there (NotFound).
+/// `Path::exists`, and a look whose every error is taken as an answer (`metadata(…).is_err()`
+/// or `.is_ok()`), take a share that dropped for a moment for a name that is gone. That way a
+/// sidecar was trashed while its photo stayed, and a rename went over a file that it could not
+/// look at. So a name is looked at only through `file_io::is_surely_gone` and
+/// `is_surely_there`, whose names say which way a failed look counts.
+#[test]
+fn gone_means_not_found() {
+    let mut wrong = Vec::new();
+    for (file, text) in rust_sources() {
+        let found = looks_that_guess(&text);
+        wrong.extend(found.into_iter().map(|line| format!("{file}:{line}")));
+    }
+    assert!(
+        wrong.is_empty(),
+        "a name looked at with exists() or metadata(…).is_err() or .is_ok(), which take any \
+         failed look for an answer; use file_io::is_surely_gone or is_surely_there:\n{}",
+        wrong.join("\n")
+    );
+}
+
+/// Returns the lines (from 1) of `text` outside the tests that ask whether a name is there in a
+/// way that takes every failed look for an answer. A call split over two lines is found too.
+fn looks_that_guess(text: &str) -> Vec<usize> {
+    let lines = code_lines(text);
+    let end = tests_start(&lines);
+    let guesses = |i: usize| {
+        let line = &lines[i];
+        let next = lines.get(i + 1).map(|l| l.trim_start()).unwrap_or_default();
+        let call = format!("{line}{}", if next.starts_with('.') { next } else { "" });
+        line.contains(".exists()")
+            || mentions(line, "Path::exists")
+            || (line.contains("metadata(")
+                && [".is_err()", ".is_ok()"].iter().any(|c| call.contains(c)))
+    };
+    (0..end).filter(|&i| guesses(i)).map(|i| i + 1).collect()
+}
+
+/// The check above finds `exists`, also as a function value, and a look at the metadata whose
+/// errors count as gone or as there, also when split over two lines. It leaves the helpers, a
+/// metadata read that passes its error on, and `try_exists`, whose `Ok(false)` is NotFound only.
+#[test]
+fn finds_a_look_that_guesses() {
+    let text = "fn a() {\n    if p.exists() {}\n    let gone = std::fs::symlink_metadata(p)\n        \
+        .is_err();\n    let there = q.symlink_metadata().is_ok();\n    \
+        files.filter(Path::exists);\n    let fine = is_surely_gone(p);\n    \
+        let m = std::fs::metadata(p)?;\n    p.try_exists()\n}\n";
+    assert_eq!(looks_that_guess(text), [2, 3, 5, 6]);
+}
+
 /// Returns the functions of `text` outside the tests that rename a file, also by a move through
 /// `put_file`, each with whether it syncs the folder, itself or through `write_beside`.
 // shortcut: a function counts as synced when it syncs anywhere, so a branch that renames

@@ -228,7 +228,7 @@ pub fn folder_to_open(glimt_home: &Path, kind: &str) -> PathBuf {
     let new = glimt_home.join(kind);
     let old_name = RENAMED_FOLDERS.iter().find(|r| r.1 == kind).map(|r| r.0);
     match old_name.map(|old| glimt_home.join(old)) {
-        Some(old) if old.is_dir() && !new.exists() => old,
+        Some(old) if old.is_dir() && crate::files::file_io::is_surely_gone(&new) => old,
         _ => new,
     }
 }

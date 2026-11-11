@@ -664,7 +664,7 @@ fn update(
 ) -> Result<(), String> {
     // When the image was moved, renamed or deleted while this waited, no sidecar of its old
     // name is made, and it does not count as done.
-    if std::fs::symlink_metadata(path).is_err() {
+    if !crate::files::file_io::is_surely_there(path) {
         return Err(
             crate::support::lang::tr("the image was moved, renamed or deleted meanwhile").into(),
         );
@@ -702,10 +702,11 @@ fn update(
 
 /// Returns the sidecar of `path` when there is one, as a name in the folder. A link counts, also
 /// one that points nowhere, so that it goes with its file rather than stay behind under the old
-/// name for the next file of that name. Whether it may be read or copied is for `is_link` to say.
+/// name for the next file of that name. So does a sidecar that could not be looked at, so that
+/// its move is tried and a failure told. Whether it may be read or copied is for `is_link` to say.
 pub(crate) fn sidecar_of(path: &Path) -> Option<PathBuf> {
     let side = sidecar(path);
-    std::fs::symlink_metadata(&side).is_ok().then_some(side)
+    (!crate::files::file_io::is_surely_gone(&side)).then_some(side)
 }
 
 /// Whether `path` is a camera RAW file that Lightroom, Camera Raw, Bridge and Capture One write
@@ -801,7 +802,7 @@ pub(crate) fn adobe_sidecars_of(
     // The folder was read once for the whole operation, so each sidecar is looked at again.
     (stem.sidecars.iter())
         .map(|n| dir.join(n))
-        .filter(|p| std::fs::symlink_metadata(p).is_ok())
+        .filter(|p| !crate::files::file_io::is_surely_gone(p))
         .collect()
 }
 

@@ -22,6 +22,12 @@ static OWN_FILES_WRITER: std::sync::OnceLock<std::sync::mpsc::Sender<QueuedWrite
 static USER_FOLDERS_WRITER: std::sync::OnceLock<std::sync::mpsc::Sender<QueuedWrite>> =
     std::sync::OnceLock::new();
 
+/// The names whose look fails in tests, as on a share that dropped for a moment (`look`). It is
+/// shared by every thread, as the work that looks runs in threads of its own, and each test puts
+/// only names in its own folder here.
+#[cfg(test)]
+pub(crate) static LOOKS_FAIL: std::sync::Mutex<Vec<PathBuf>> = std::sync::Mutex::new(Vec::new());
+
 /// The saves that replaced a file with other names (hard links) since the window last told of
 /// them, from any thread.
 #[cfg(not(test))]
@@ -179,6 +185,33 @@ impl std::fmt::Display for MayBeUnderBothNames {
 
 impl std::error::Error for MayBeUnderBothNames {}
 
+/// Returns whether nothing is at `path`: the system said that the name is not there (NotFound).
+/// Any other failed look, such as a share that dropped for a moment, an error of the disk or no
+/// permission, says nothing, so the name counts as there. A step that removes, renames over or
+/// counts a file as deleted is then not taken on a look that failed. A link counts by its own
+/// name, not by its target. This and `is_surely_there` are the one way Glimt asks whether a name
+/// is there (`source_rules::gone_means_not_found`).
+pub(crate) fn is_surely_gone(path: &Path) -> bool {
+    look(path).is_err_and(|e| e.kind() == std::io::ErrorKind::NotFound)
+}
+
+/// Returns whether something is surely at `path`: the look at its name answered. A failed look
+/// counts as not there, so this is for a step that needs the name to be there before it is
+/// taken, such as a sidecar written only beside its photo.
+pub(crate) fn is_surely_there(path: &Path) -> bool {
+    look(path).is_ok()
+}
+
+/// Looks at the name `path`, without following a link. In tests, a name in `LOOKS_FAIL` fails
+/// with EIO, as a share that dropped for a moment does.
+fn look(path: &Path) -> std::io::Result<std::fs::Metadata> {
+    #[cfg(test)]
+    if lock_even_if_poisoned(&LOOKS_FAIL).iter().any(|p| p == path) {
+        return Err(std::io::Error::from_raw_os_error(libc::EIO));
+    }
+    std::fs::symlink_metadata(path)
+}
+
 /// Rename `from` to `to`, never over a file or folder there, also one another window put there
 /// a moment ago: in one step where the file system can (RENAME_NOREPLACE); where it cannot (FAT,
 /// NTFS or exFAT through FUSE, some shares), a link, which never replaces a file, and then the
@@ -207,7 +240,8 @@ pub(crate) fn rename_never_over(from: &Path, to: &Path) -> std::io::Result<()> {
         Err(e) if e.kind() == Unsupported => match link() {
             Ok(()) => unlink_linked(from, to),
             Err(e) if matches!(e.kind(), AlreadyExists | CrossesDevices) => Err(e),
-            Err(_) if to.exists() => Err(AlreadyExists.into()),
+            // A name whose look failed counts as there, as does a link that points nowhere.
+            Err(_) if !is_surely_gone(to) => Err(AlreadyExists.into()),
             // shortcut: a file that another program puts at `to` between the look and the
             // rename is written over. rclone, s3fs and MTP offer no way to rename without that
             // race; do more if one of them gains RENAME_NOREPLACE or hard links.
@@ -563,7 +597,7 @@ pub(crate) fn put_file_until_stopped(
     use std::io::ErrorKind::{AlreadyExists, CrossesDevices};
     use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt};
     let copy = || -> std::io::Result<()> {
-        if to.exists() {
+        if !is_surely_gone(to) {
             return Err(AlreadyExists.into());
         }
         // Written under a hidden name and given its own when whole: a copy cut short (a full
@@ -663,7 +697,7 @@ pub fn edit_shared<T>(
 /// A file the windows share removed under its lock, as `edit_shared` changes one: another
 /// window's change cannot land after it and bring back what was cleared.
 pub fn remove_shared(path: &Path) {
-    if std::fs::symlink_metadata(path).is_err() {
+    if !is_surely_there(path) {
         return;
     }
     #[allow(clippy::disallowed_methods)] // as edit_shared
@@ -1463,6 +1497,37 @@ mod tests {
             );
             assert_eq!(error.contains("check both"), keeps_both, "{error}");
         }
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// Where neither RENAME_NOREPLACE nor links can be made (rclone, s3fs, MTP), the rename after
+    /// looking takes a name for free only when the look said NotFound. A link that points
+    /// nowhere, which `exists` took for no file, and a name whose look failed are not renamed
+    /// over.
+    #[test]
+    fn the_last_way_to_rename_goes_over_no_name_it_could_not_see() {
+        use super::{LOOKS_FAIL, RENAME_WAYS_MISSING};
+        let dir =
+            std::env::temp_dir().join(format!("glimt-test-look-first-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let (a, link, unseen) = (dir.join("a.jpg"), dir.join("link.jpg"), dir.join("c.jpg"));
+        std::fs::write(&a, "a").unwrap();
+        std::fs::write(&unseen, "c").unwrap();
+        std::os::unix::fs::symlink(dir.join("nowhere"), &link).unwrap();
+        crate::support::threads::lock_even_if_poisoned(&LOOKS_FAIL).push(unseen.clone());
+        RENAME_WAYS_MISSING.set(2);
+        let over_link = super::rename_never_over(&a, &link);
+        let over_unseen = super::rename_never_over(&a, &unseen);
+        RENAME_WAYS_MISSING.set(0);
+        crate::support::threads::lock_even_if_poisoned(&LOOKS_FAIL).retain(|p| *p != unseen);
+        let kind = |r: std::io::Result<()>| r.unwrap_err().kind();
+        let text = |p: &std::path::Path| std::fs::read_to_string(p).unwrap();
+        assert_eq!(kind(over_link), std::io::ErrorKind::AlreadyExists);
+        assert_eq!(kind(over_unseen), std::io::ErrorKind::AlreadyExists);
+        assert!(std::fs::symlink_metadata(&link).unwrap().is_symlink());
+        assert_eq!(text(&unseen), "c");
+        assert_eq!(text(&a), "a");
         std::fs::remove_dir_all(dir).unwrap();
     }
 

@@ -304,9 +304,10 @@ pub(crate) fn trash(paths: &[PathBuf]) -> Result<(), String> {
     let (true, Some(home)) = (!has_gio || in_flatpak(), home) else {
         return Err(e);
     };
-    // Each one left is tried, and the first that still fails is told as it failed.
+    // Each one left is tried, and the first that still fails is told as it failed. One that
+    // could not be looked at is tried too, so that its failure is told rather than taken for done.
     let left: Vec<&Path> = (paths.iter())
-        .filter(|p| std::fs::symlink_metadata(p).is_ok())
+        .filter(|p| !crate::files::file_io::is_surely_gone(p))
         .map(PathBuf::as_path)
         .collect();
     match trash_by_hand_anywhere(&left, &home).into_iter().next() {
@@ -456,7 +457,7 @@ fn trash_by_hand(trash: &Path, files: &[(&Path, String)]) -> Vec<(PathBuf, std::
         for n in 0..10_000 {
             let taken = name_in_trash(name, n);
             // A name taken in files/ is passed over too, so that the move below seldom fails.
-            if std::fs::symlink_metadata(files_folder.join(&taken)).is_ok() {
+            if !crate::files::file_io::is_surely_gone(&files_folder.join(&taken)) {
                 continue;
             }
             let mut trashinfo = taken.clone();

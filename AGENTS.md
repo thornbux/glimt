@@ -497,6 +497,10 @@ method.
     unlink surely removed nothing (an unknown error keeps both names), and a second name goes
     only after `save::same_file_by_opening`
     (`source_rules::no_name_is_removed_on_a_cached_look`);
+  - ask whether a name is there with `file_io::is_surely_gone` or `is_surely_there`, never
+    with `exists()` or `metadata(…).is_err()` or `.is_ok()`, which take a share that dropped
+    for a moment for a file that is gone. Only NotFound means gone
+    (`source_rules::gone_means_not_found`);
   - start one of Glimt's own programs with `external::command` or `stoppable_command` (inside
     a Flatpak's sandbox), and one of the user's with `host_command` or `stoppable_host_command`
     (on the host). Wait for it only with `run_limited`, `short_output_of`, `output_of` or a
