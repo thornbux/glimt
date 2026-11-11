@@ -984,6 +984,7 @@ mod tests {
             &ctx,
             crate::support::test_support::unlisted(vec![a.clone(), b.clone()]),
             vec![b.clone(), a.clone()],
+            crate::files::file_io::PickedFiles::new(vec![a.clone(), b.clone()]),
         );
         app.info_panel.metadata_edit.as_mut().unwrap().comment = "Red".into();
         let comment = |p: &std::path::Path| crate::metadata::xmp::read(p).comment;

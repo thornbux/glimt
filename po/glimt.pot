@@ -3088,3 +3088,7 @@ msgstr ""
 #: src/files/file_ops.rs
 msgid "Rename failed ({count}): {first}"
 msgstr ""
+
+#: src/files/file_ops.rs
+msgid "Rename failed ({count}): {first}"
+msgstr ""

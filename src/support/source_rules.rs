@@ -3600,7 +3600,7 @@ fn renames_that_later_steps_count_on_are_synced() {
         ("files/journal.rs", "rename_step"),       // a step, synced by `sync_folders` after
         ("files/trash.rs", "trash_by_hand"),       // a file into the trash on its own disk
         ("images/thumbs.rs", "write_thumbnail"),   // a thumbnail, made again when it is lost
-        ("metadata/xmp.rs", "follow_one"),         // a sidecar after its file
+        ("metadata/xmp.rs", "follow"),             // a sidecar after its file
         ("model/collections.rs", "rename"),        // a collection renamed
     ];
     let mut wrong = Vec::new();
@@ -3694,6 +3694,174 @@ fn finds_a_name_removed_after_a_cached_look() {
         fn b() {\n    if same_file_by_opening(x, y) {\n        std::fs::remove_file(x)\n    }\n}\n\
         fn c() {\n    same_file(x, y)\n}\n";
     assert_eq!(removals_after_a_look(text), ["a"]);
+}
+
+/// A delete, a move to the trash, a move, a rename or a replace of a user's file looks first
+/// whether the file is still the one the user picked or Glimt read. The function that makes the
+/// call checks it itself (`still_the_one_picked`, `is_still_the_file`, `same_fingerprint`,
+/// `replace_existing`, or `same_file_by_opening` for a second name of one file), and files
+/// picked before a wait (a question, a prompt, the file chooser) come as `file_io::PickedFiles`
+/// for it. Before, a delete, a trash or a rename confirmed in a dialog acted on whatever had the
+/// name when the dialog closed, which another window or a sync may have given to another photo.
+/// A sidecar is found at the act (`sidecars_moving_with`, `sidecars_of`), not picked before it.
+/// What is no user's file is out of the rule by what it is: Glimt's own files are removed through
+/// `file_io::remove_own`, or by a raw call whose `#[allow]` says "Glimt's own:"; a copy changes
+/// no file; and the calls of `file_io.rs` and `trash.rs` and the tests are the ways themselves.
+#[test]
+fn destructive_acts_check_the_file_is_still_the_one_picked() {
+    let sources = rust_sources();
+    let (ways, tests) = (ways_of_changing_files(&sources), test_only_files(&sources));
+    let mut wrong = Vec::new();
+    for (file, text) in &sources {
+        if ways.contains(file) || tests.contains(file) {
+            continue;
+        }
+        for (function, checks) in destructive_acts_in(text) {
+            if !checks {
+                wrong.push(format!("{file}: {function}"));
+            }
+        }
+    }
+    assert!(
+        wrong.is_empty(),
+        "a delete, trash, move, rename or replace that does not check the file is still the one \
+         picked (file_io::PickedFiles, is_still_the_file):\n{}",
+        wrong.join("\n")
+    );
+}
+
+/// Returns the files of `sources` that define the ways a user's file is trashed, moved or
+/// replaced (`trash`, `put_file`, `put_file_until_stopped`, `replace_name_with`), whose own calls
+/// are those ways and not acts of an operation.
+fn ways_of_changing_files(sources: &[(String, String)]) -> Vec<String> {
+    let defines = |text: &str| {
+        let lines = code_lines(text);
+        let names = [
+            "trash",
+            "put_file",
+            "put_file_until_stopped",
+            "replace_name_with",
+        ];
+        (lines.iter()).any(|l| function_name(l).is_some_and(|name| names.contains(&name)))
+    };
+    (sources.iter())
+        .filter(|(_, text)| defines(text))
+        .map(|(file, _)| file.clone())
+        .collect()
+}
+
+/// Returns the files of `sources` that are built only for the tests: a `mod` under
+/// `#[cfg(test)]` in the file of its folder.
+fn test_only_files(sources: &[(String, String)]) -> Vec<String> {
+    let mut found = Vec::new();
+    for (file, text) in sources {
+        let folder = file.strip_suffix(".rs").filter(|_| file != "main.rs");
+        let lines: Vec<&str> = text.lines().collect();
+        for pair in lines.windows(2) {
+            let module = (without_qualifiers(pair[1]).strip_prefix("mod "))
+                .and_then(|m| m.strip_suffix(';'));
+            if let Some(module) = module.filter(|_| pair[0].trim() == "#[cfg(test)]") {
+                found.push(match folder {
+                    Some(folder) => format!("{folder}/{module}.rs"),
+                    None => format!("{module}.rs"),
+                });
+            }
+        }
+    }
+    found
+}
+
+/// Returns the functions of `text` outside the tests that delete, trash, move, rename or replace
+/// a user's file, each with whether it checks that the file is still the one picked or read.
+// shortcut: a function counts as checked when it checks anywhere, so a branch that acts without
+// the check passes with the rest (rename_undoable checked only for an Undo before 0.81). The
+// PickedFiles type that every such act takes holds the branches; following each branch would
+// need a parser, worth it if this class is found again.
+fn destructive_acts_in(text: &str) -> Vec<(String, bool)> {
+    const ACTS: [&str; 6] = [
+        "remove_file(",
+        "remove_dir_all(",
+        "trash::trash(",
+        "put_file_until_stopped(",
+        "rename_files(",
+        "replace_name_with(",
+    ];
+    const CHECKS: [&str; 7] = [
+        "still_the_one_picked(",
+        "is_still_the_file(",
+        "same_fingerprint(",
+        "replace_existing(",
+        "same_file_by_opening(",
+        "sidecars_moving_with(",
+        "sidecars_of(",
+    ];
+    let (lines, comments) = (code_lines(text), comment_lines(text));
+    let end = tests_start(&lines);
+    // A raw removal whose `#[allow]`, on its line or the lines just above, says it is Glimt's own.
+    let is_own = |i: usize| (i.saturating_sub(3)..=i).any(|j| comments[j].contains("Glimt's own:"));
+    let is_copy = |line: &str| line.contains(", true)");
+    let mut found = Vec::new();
+    let mut function = String::new();
+    let (mut acts, mut checks) = (false, false);
+    for (i, line) in lines[..end]
+        .iter()
+        .map(String::as_str)
+        .chain(["fn end"])
+        .enumerate()
+    {
+        if let Some(name) = function_name(line) {
+            if acts {
+                found.push((function, checks));
+            }
+            function = name.to_owned();
+            (acts, checks) = (false, false);
+            continue;
+        }
+        let raw = ["remove_file(", "remove_dir_all("]
+            .iter()
+            .any(|r| line.contains(r));
+        acts |= ACTS.iter().any(|act| line.contains(act)) && !(raw && is_own(i));
+        acts |= line.contains("put_file(") && !is_copy(line);
+        checks |= CHECKS.iter().any(|check| line.contains(check));
+    }
+    found
+}
+
+/// The check above finds a delete, a trash and a move with no look at the file. It passes one
+/// that looks first, a removal of Glimt's own file, a copy, and a function that only looks.
+#[test]
+fn finds_a_destructive_act_without_its_check() {
+    let text = "fn a() {\n    std::fs::remove_file(x)\n}\n\
+        fn b() {\n    picked.still_the_one_picked(x)?;\n    trash::trash(&[x])\n}\n\
+        fn c() {\n    crate::files::trash::trash(&[x])\n}\n\
+        fn d() {\n    is_still_the_file(x, f)\n}\n\
+        fn e() {\n    #[allow(clippy::disallowed_methods)] // Glimt's own: a socket\n    \
+        std::fs::remove_file(x)\n}\n\
+        fn f() {\n    put_file(x, y, true)\n}\n\
+        fn g() {\n    put_file(x, y, false)\n}\n";
+    assert_eq!(
+        destructive_acts_in(text),
+        [
+            ("a".into(), false),
+            ("b".into(), true),
+            ("c".into(), false),
+            ("g".into(), false)
+        ]
+    );
+}
+
+/// The files built only for the tests are found by their `mod` lines, in a folder's file and in
+/// main.rs.
+#[test]
+fn finds_the_files_built_only_for_tests() {
+    let sources = [
+        (
+            "support.rs".into(),
+            "#[cfg(test)]\npub(crate) mod rules;\npub mod x;\n".into(),
+        ),
+        ("main.rs".into(), "#[cfg(test)]\nmod checks;\n".into()),
+    ];
+    assert_eq!(test_only_files(&sources), ["support/rules.rs", "checks.rs"]);
 }
 
 /// A name counts as gone only when the system said that it is not there (NotFound).

@@ -3078,3 +3078,7 @@ msgstr "en annen fil har tatt navnet: mappen leses på nytt"
 #: src/files/file_ops.rs
 msgid "Rename failed ({count}): {first}"
 msgstr "Endring av navn mislyktes ({count}): {first}"
+
+#: src/files/file_ops.rs
+msgid "Rename failed ({count}): {first}"
+msgstr "Navneendring mislyktes ({count}): {first}"

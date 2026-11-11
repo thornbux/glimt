@@ -3067,3 +3067,7 @@ msgstr "toinen tiedosto on ottanut sen nimen: kansio luetaan uudelleen"
 #: src/files/file_ops.rs
 msgid "Rename failed ({count}): {first}"
 msgstr "Nimeäminen uudelleen epäonnistui ({count}): {first}"
+
+#: src/files/file_ops.rs
+msgid "Rename failed ({count}): {first}"
+msgstr "Uudelleennimeäminen epäonnistui ({count}): {first}"
