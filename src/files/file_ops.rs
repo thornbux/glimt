@@ -2792,7 +2792,8 @@ fn rename_files_planned_in(
     let tmp = |f: &Path, k: usize| {
         // It has this Glimt's name, because Flatpak windows can share a process ID.
         f.with_file_name(format!(
-            ".glimt-rename-{}-{k}",
+            "{}{}-{k}",
+            journal::HIDDEN_NAME,
             crate::files::file_io::instance_tag()
         ))
     };
