@@ -3928,3 +3928,8 @@ msgstr "A janela de arquivos não respondeu com caminhos completos, então nada 
 #, fuzzy
 msgid "Could not lock {name}: {e}. A change that another Glimt window makes at the same moment may be lost."
 msgstr "Não foi possível bloquear {name}: {e}. Uma alteração feita no mesmo momento por outra janela do Glimt pode ser perdida."
+
+#: src/files/file_ops.rs
+#, fuzzy
+msgid "{folder} did not answer within a minute, so nothing was done"
+msgstr "{folder} não respondeu em um minuto, então nada foi feito"

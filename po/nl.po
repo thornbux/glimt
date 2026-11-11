@@ -3917,3 +3917,8 @@ msgstr "De bestandsdialoog antwoordde niet met volledige paden, dus er is niets 
 #, fuzzy
 msgid "Could not lock {name}: {e}. A change that another Glimt window makes at the same moment may be lost."
 msgstr "Kon {name} niet vergrendelen: {e}. Een wijziging die een ander Glimt-venster op hetzelfde moment maakt, kan verloren gaan."
+
+#: src/files/file_ops.rs
+#, fuzzy
+msgid "{folder} did not answer within a minute, so nothing was done"
+msgstr "{folder} antwoordde niet binnen een minuut, dus er is niets gedaan"

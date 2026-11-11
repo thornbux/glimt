@@ -3917,3 +3917,8 @@ msgstr "La finestra di selezione file non ha risposto con percorsi completi, qui
 #, fuzzy
 msgid "Could not lock {name}: {e}. A change that another Glimt window makes at the same moment may be lost."
 msgstr "Impossibile bloccare {name}: {e}. Una modifica fatta nello stesso momento da un'altra finestra di Glimt può andare persa."
+
+#: src/files/file_ops.rs
+#, fuzzy
+msgid "{folder} did not answer within a minute, so nothing was done"
+msgstr "{folder} non ha risposto entro un minuto, quindi non è stato fatto nulla"

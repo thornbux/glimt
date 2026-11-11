@@ -5632,6 +5632,72 @@ else
     done
 fi
 
+section "a Move to a share that stops answering: given up after a minute, the photo free again"
+# STALL-2. lossyfs holds every look at /stall-move-* while /tmp/lossy-stall names it. A Move
+# there waits for the folder's real path and file system, and holds its photo meanwhile. After
+# a minute the look is given up with a notice, and the photo can be moved elsewhere. 0.81 held
+# it until Glimt ended, and refused every other operation on it.
+faults=yes
+if ! grep -q " $lossy fuse" /proc/mounts; then
+    fail "no FUSE file system at $lossy: run.sh's containers need --privileged for /dev/fuse"
+else
+    for v in new old; do
+        as_version $v
+        d=/tmp/stall-move-$v back=/opt/lossy/stall-move-$v
+        rm -rf $d $back; mkdir -p $d/sub $back/to
+        blue_photo 400x300 $d/a.jpg
+        config
+        start $d/a.jpg
+        echo /stall-move-$v >/tmp/lossy-stall
+        answer $lossy/stall-move-$v/to; key ctrl+m
+        until_notice stall-move-$v 75; told=$?
+        answer $d/sub; key ctrl+m
+        until_file $d/sub/a.jpg 10; moved=$?
+        rm -f /tmp/lossy-stall
+        sleep 3
+        got="$([ $told = 0 ] && echo told) $([ $moved = 0 ] && echo moved) $(ls $back/to | wc -l)"
+        quit
+        if [ $v = new ]; then
+            expect "a Move to the stalled share given up and told; the photo moved elsewhere, none to the share" \
+                "$got" "told moved 0"
+        else note "old: $got"; fi
+        rm -rf $d $back
+    done
+fi
+
+section "a rename to a name with : on a share that stops answering: the window answers meanwhile"
+# STALL-3. A new name with one of : ? * " < > | \ needs a look at its folder's file system, as a
+# camera card refuses those. On a share that stopped answering that look waits, so it is made in
+# the background, and the window still answers. 0.81 made it in the window's thread, which hung
+# until the share answered.
+faults=yes
+if ! grep -q " $lossy fuse" /proc/mounts; then
+    fail "no FUSE file system at $lossy: run.sh's containers need --privileged for /dev/fuse"
+else
+    for v in new old; do
+        as_version $v
+        back=/opt/lossy/stall-rename-$v d=$lossy/stall-rename-$v
+        rm -rf $back; mkdir -p $back
+        convert -size 64x64 xc:red $back/a.png
+        config
+        start $d/a.png
+        echo /stall-rename-$v >/tmp/lossy-stall
+        key ctrl+a; key ctrl+r; sleep 1; key ctrl+a
+        xdotool type --delay 30 'b:#'; sleep 0.4
+        key Return; sleep 1
+        answered=$(timeout 5 $BIN --remote current 2>/dev/null | tr -d '\0')
+        rm -f /tmp/lossy-stall
+        until_file "$back/b:1.png" 15
+        got="${answered:+answered} $(ls $back | tr '\n' ' ')"
+        quit
+        if [ $v = new ]; then
+            expect "the window answers while the look waits; renamed once the share answers" \
+                "$got" "answered b:1.png "
+        else note "old: $got"; fi
+        rm -rf $back
+    done
+fi
+
 section "Copy for Sharing, Crop and Save As onto a full disk: no name written over, no part left, told"
 # FAULT-6. Each writes new files: on a disk that fills up, what fits is whole, what does not
 # leaves nothing, a file of the same name stays as it was, and the failure is told.

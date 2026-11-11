@@ -3939,3 +3939,8 @@ msgstr "Dialog pro výběr souboru neodpověděl úplnými cestami, a tak se nic
 #, fuzzy
 msgid "Could not lock {name}: {e}. A change that another Glimt window makes at the same moment may be lost."
 msgstr "Nelze zamknout {name}: {e}. Změna, kterou ve stejnou chvíli provede jiné okno Glimtu, se může ztratit."
+
+#: src/files/file_ops.rs
+#, fuzzy
+msgid "{folder} did not answer within a minute, so nothing was done"
+msgstr "{folder} neodpověděl do minuty, takže se nic neprovedlo"

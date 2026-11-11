@@ -3917,3 +3917,8 @@ msgstr "El diálogo de archivos no respondió con rutas completas, así que no s
 #, fuzzy
 msgid "Could not lock {name}: {e}. A change that another Glimt window makes at the same moment may be lost."
 msgstr "No se pudo bloquear {name}: {e}. Un cambio que otra ventana de Glimt haga en el mismo momento puede perderse."
+
+#: src/files/file_ops.rs
+#, fuzzy
+msgid "{folder} did not answer within a minute, so nothing was done"
+msgstr "{folder} no respondió en un minuto, así que no se hizo nada"

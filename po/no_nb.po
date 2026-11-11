@@ -3150,3 +3150,7 @@ msgstr "Fildialogen svarte ikke med fullstendige stier, så ingenting ble åpnet
 #: src/files/file_io.rs
 msgid "Could not lock {name}: {e}. A change that another Glimt window makes at the same moment may be lost."
 msgstr "Kunne ikke låse {name}: {e}. En endring som et annet Glimt-vindu gjør i samme øyeblikk, kan gå tapt."
+
+#: src/files/file_ops.rs
+msgid "{folder} did not answer within a minute, so nothing was done"
+msgstr "{folder} svarte ikke innen ett minutt, så ingenting ble gjort"

@@ -3928,3 +3928,8 @@ msgstr "Okno wyboru plików nie odpowiedziało pełnymi ścieżkami, więc nic n
 #, fuzzy
 msgid "Could not lock {name}: {e}. A change that another Glimt window makes at the same moment may be lost."
 msgstr "Nie udało się zablokować {name}: {e}. Zmiana wprowadzona w tej samej chwili przez inne okno Glimta może zostać utracona."
+
+#: src/files/file_ops.rs
+#, fuzzy
+msgid "{folder} did not answer within a minute, so nothing was done"
+msgstr "{folder} nie odpowiedział w ciągu minuty, więc nic nie zostało zrobione"

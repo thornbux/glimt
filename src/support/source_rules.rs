@@ -5346,18 +5346,6 @@ fn the_window_thread_never_waits_for_the_disk() {
     const WAITS_ON_PURPOSE: &[(&str, &str, &str, &str)] = &[
         (
             "files/file_ops.rs",
-            "rename_files_of",
-            "file_system_type_or_test",
-            "only a new name with one of : ? * \" < > | \\, once before its job starts",
-        ),
-        (
-            "files/file_ops.rs",
-            "rename_folder",
-            "file_system_type_or_test",
-            "only a new name with one of : ? * \" < > | \\, once before its thread starts",
-        ),
-        (
-            "files/file_ops.rs",
             "written_anew",
             "canonicalize(",
             "only files just written with a moved file's name; its shortcut comment",

@@ -3917,3 +3917,8 @@ msgstr "Skráarglugginn svaraði ekki með fullum slóðum, svo ekkert var opna�
 #, fuzzy
 msgid "Could not lock {name}: {e}. A change that another Glimt window makes at the same moment may be lost."
 msgstr "Gat ekki læst {name}: {e}. Breyting sem annar Glimt-gluggi gerir á sama augnabliki getur glatast."
+
+#: src/files/file_ops.rs
+#, fuzzy
+msgid "{folder} did not answer within a minute, so nothing was done"
+msgstr "{folder} svaraði ekki innan mínútu, svo ekkert var gert"

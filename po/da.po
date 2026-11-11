@@ -3917,3 +3917,8 @@ msgstr "Fildialogen svarede ikke med fulde stier, så intet blev åbnet"
 #, fuzzy
 msgid "Could not lock {name}: {e}. A change that another Glimt window makes at the same moment may be lost."
 msgstr "Kunne ikke låse {name}: {e}. En ændring, som et andet Glimt-vindue foretager i samme øjeblik, kan gå tabt."
+
+#: src/files/file_ops.rs
+#, fuzzy
+msgid "{folder} did not answer within a minute, so nothing was done"
+msgstr "{folder} svarede ikke inden for et minut, så intet blev gjort"

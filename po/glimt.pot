@@ -3160,3 +3160,7 @@ msgstr ""
 #: src/files/file_io.rs
 msgid "Could not lock {name}: {e}. A change that another Glimt window makes at the same moment may be lost."
 msgstr ""
+
+#: src/files/file_ops.rs
+msgid "{folder} did not answer within a minute, so nothing was done"
+msgstr ""
