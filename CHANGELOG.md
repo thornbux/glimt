@@ -5,6 +5,13 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- `glimt --wait --remote COMMAND` (and `--wait --remote-all`) waits until the work the command
+  started has ended, with the settings or other files it changed written, and exits with 3 and
+  the reason when a write failed meanwhile. Without `--wait`, a command is done when the window
+  takes it, as before, and a write that fails afterwards shows only in the window.
+
 ## [0.80.1] - 2026-11-11
 
 ### Fixed
