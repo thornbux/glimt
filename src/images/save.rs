@@ -479,7 +479,9 @@ fn replace_with_sidecar_locked(
         let lock = lock.get_or_init(|| crate::metadata::xmp::lock_sidecar(named));
         step(lock).map_err(std::io::Error::other)
     };
-    crate::files::file_io::replace_existing(real, out, read, before).map_err(|e| e.to_string())
+    crate::files::file_io::replace_existing(real, out, read, before).map_err(|e| e.to_string())?;
+    crate::files::journal::note_written_anew(named, read);
+    Ok(())
 }
 
 /// The copy of `path` that `how` asks for, encoded, and its format. It has its profile, and
@@ -674,6 +676,7 @@ pub(crate) fn save_copy_with_sidecar(
                     remove_side()
                 },
             )?;
+            crate::files::journal::note_written_anew(new, asked_about);
         }
         // A file of that name is not touched, nor its sidecar, because the copy is refused first.
         None => {

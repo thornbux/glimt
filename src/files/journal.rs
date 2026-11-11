@@ -346,13 +346,78 @@ fn known_text(moves: &[(PathBuf, PathBuf)]) -> String {
             None => crate::files::file_io::fingerprint(a),
         };
         made.insert(b, known);
-        text += &match known {
-            Some((Some((dev, ino)), size, (s, ns))) => format!("{dev} {ino} {size} {s} {ns}\n"),
-            Some((None, size, (s, ns))) => format!("- - {size} {s} {ns}\n"),
-            None => "-\n".to_owned(),
-        };
+        text += &known_line(known);
     }
     text
+}
+
+/// Returns the line of the list of a plan's files (`known_text`) for a step whose photo is
+/// `known`, with its line break.
+fn known_line(known: Option<FileFingerprint>) -> String {
+    match known {
+        Some((Some((dev, ino)), size, (s, ns))) => format!("{dev} {ino} {size} {s} {ns}\n"),
+        Some((None, size, (s, ns))) => format!("- - {size} {s} {ns}\n"),
+        None => "-\n".to_owned(),
+    }
+}
+
+/// Notes in the plans cut short that the photo at `path`, which Glimt has just written anew in
+/// its place (a turn saved, a copy saved over it), now has the fingerprint it has after the
+/// write, where their lists of files (`known_text`) knew it by `before`. The repair would else
+/// take Glimt's own edit for another program's, and refuse to rename the photo at every start.
+/// A step's photo is known by its size and time, and by its name before or after the step. A
+/// list that cannot be written is told.
+pub fn note_written_anew(path: &Path, before: FileFingerprint) {
+    if let Some(dir) = journal_dir() {
+        note_written_anew_in(&dir, path, before);
+    }
+}
+
+/// `note_written_anew` for the plans in the folder `dir`.
+fn note_written_anew_in(dir: &Path, path: &Path, before: FileFingerprint) {
+    use crate::images::decode::{read_limited, read_text};
+    let lists = std::fs::read_dir(dir.join(KNOWN_FOLDER));
+    let mut now = None;
+    for entry in lists.into_iter().flatten().flatten() {
+        if entry
+            .file_type()
+            .ok()
+            .filter(|kind| kind.is_file())
+            .is_none()
+        {
+            continue;
+        }
+        let plan = dir.join(entry.file_name());
+        let Some((moves, _)) = read_limited(&plan).ok().and_then(|bytes| parse(&bytes)) else {
+            continue;
+        };
+        let Ok(text) = read_text(entry.path()) else {
+            continue;
+        };
+        let mut known = parse_known(&text, moves.len());
+        let mut changed = false;
+        for (known, (a, b)) in known.iter_mut().zip(&moves) {
+            let was_it = known.is_some_and(|k| (k.1, k.2) == (before.1, before.2));
+            if !was_it || (a != path && b != path) {
+                continue;
+            }
+            now = now.or_else(|| crate::files::file_io::fingerprint(path));
+            if now.is_some() {
+                (*known, changed) = (now, true);
+            }
+        }
+        if !changed {
+            continue;
+        }
+        let text: String = known.into_iter().map(known_line).collect();
+        if let Err(e) = crate::files::file_io::replace_name(&entry.path(), text) {
+            crate::files::file_io::save_failed(crate::tf!(
+                "Could not save {name}: {e}",
+                name = entry.path().display(),
+                e
+            ));
+        }
+    }
 }
 
 /// Returns the fingerprint of the file each of a plan's `steps` moves, from `text`
@@ -1276,6 +1341,60 @@ mod tests {
             Some((1, 0))
         );
         assert_eq!(std::fs::read_to_string(p("a.jpg")).unwrap(), "a");
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A photo that Glimt itself turns and saves after "Later", and then saves a copy over (Save
+    /// As, Crop), still goes back. Its plan takes the photo's new size and time with each save,
+    /// so the repair does not take Glimt's own edit for another program's. Before, every start
+    /// refused the repair.
+    #[test]
+    fn a_photo_glimt_rewrote_after_later_still_goes_back() {
+        let dir =
+            std::env::temp_dir().join(format!("glimt-test-plan-turned-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let (plans, p) = (super::journal_dir().unwrap(), |n: &str| dir.join(n));
+        std::fs::create_dir_all(&dir).unwrap();
+        image::RgbImage::new(2, 3).save(p("a.png")).unwrap();
+        let moves = vec![(p("a.png"), p("b.png"))];
+        let mut plan = super::start_journal(&plans, &moves).unwrap();
+        super::rename_step(&moves[0].0, &moves[0].1).unwrap();
+        plan.count_step_done();
+        plan.keep_on_disk();
+        let png = |w, h| {
+            let mut bytes = std::io::Cursor::new(Vec::new());
+            let image = image::RgbImage::new(w, h);
+            image.write_to(&mut bytes, image::ImageFormat::Png).unwrap();
+            bytes.into_inner()
+        };
+        // After "Later", the photo at b.png is turned and saved, then a copy is saved over it.
+        let read = crate::files::file_io::fingerprint_before_reading(&p("b.png")).unwrap();
+        let turned = crate::images::save::Derived::Turned;
+        crate::images::save::replace_with_sidecar(
+            &p("b.png"),
+            &p("b.png"),
+            read,
+            png(3, 2),
+            turned,
+        )
+        .unwrap();
+        let asked = crate::files::file_io::fingerprint(&p("b.png"));
+        crate::images::save::save_copy_with_sidecar(
+            &p("x.png"),
+            &p("b.png"),
+            &png(4, 4),
+            asked,
+            true,
+        )
+        .unwrap();
+        let (plan, moves, done) = (super::cut_short_plans(&plans).into_iter())
+            .find(|(_, moves, _)| moves[0].0 == p("a.png"))
+            .expect("the plan is kept");
+        assert_eq!(
+            super::repair_cut_short(&plan, &moves, done, true),
+            Some((1, 0))
+        );
+        assert_eq!(image::image_dimensions(p("a.png")).unwrap(), (4, 4));
         std::fs::remove_dir_all(dir).unwrap();
     }
 

@@ -1337,9 +1337,13 @@ pub fn write_picked_name(
     write: impl FnOnce(&mut std::fs::File) -> std::io::Result<()>,
 ) -> std::io::Result<()> {
     match at_pick {
-        Some(picked) => replace_name_with(path, write, || {
-            is_still_the_file(path, KnownAs::fingerprint(picked))
-        }),
+        Some(picked) => {
+            replace_name_with(path, write, || {
+                is_still_the_file(path, KnownAs::fingerprint(picked))
+            })?;
+            crate::files::journal::note_written_anew(path, picked);
+            Ok(())
+        }
         None => write_beside(&tmp_path(path), path, write, |tmp| {
             rename_never_over(tmp, path)
         }),
