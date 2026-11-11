@@ -119,12 +119,14 @@ impl Marks {
 
     /// Every file with a mark or stars, and them.
     pub fn marked(&self) -> impl Iterator<Item = (&Path, (u8, u8))> {
-        self.by_path.iter().map(|(p, &v)| (p.as_path(), v))
+        (self.by_path.iter()).map(|(p, &(bits, stars))| (p.as_path(), (bits, stars.min(5))))
     }
 
-    /// (mark bits, stars) of `path`.
+    /// (mark bits, stars) of `path`. Stars above 5, which a later Glimt may write, are shown as
+    /// 5 and kept in the file as they are.
     pub fn get(&self, path: &Path) -> (u8, u8) {
-        self.by_path.get(path).copied().unwrap_or_default()
+        let (bits, stars) = self.by_path.get(path).copied().unwrap_or_default();
+        (bits, stars.min(5))
     }
 
     /// Toggle mark `n` (1–6) as Geeqie does: set on all of `paths`, or off if all have it.
@@ -517,15 +519,26 @@ fn save(edit: Edit) {
     // a mark set, or moved with its file, just before closing is not lost.
     crate::files::file_io::write_later(move || {
         let _writing = writing;
-        let edits = take_queued_edits();
-        // Only a change can add marks, so the other edits make no marks file where none is.
-        let adds = edits.iter().any(|edit| matches!(edit, Edit::Change(..)));
-        if let Some(file) =
-            marks_file().filter(|f| adds || !crate::files::file_io::is_surely_gone(f))
-        {
+        write_to(marks_file(), take_queued_edits());
+    });
+}
+
+/// Makes `edits` to the marks file `file`, in the writer's thread. Marks set where there is no
+/// marks file, as neither $HOME nor $XDG_STATE_HOME is set, are told as not saved.
+fn write_to(file: Option<PathBuf>, edits: Vec<Edit>) {
+    // Only a change can add marks, so the other edits make no marks file where none is.
+    let adds = edits.iter().any(|edit| matches!(edit, Edit::Change(..)));
+    match file {
+        Some(file) if adds || !crate::files::file_io::is_surely_gone(&file) => {
             write(&file, edits);
         }
-    });
+        None if adds => crate::files::file_io::save_failed(crate::tf!(
+            "Could not save {name}: {e}",
+            name = "marks",
+            e = crate::support::lang::tr("no data folder ($HOME is not set)")
+        )),
+        _ => {}
+    }
 }
 
 /// Adds `edit` to the edits that wait for the writer thread. Returns whether the writer must be
@@ -673,14 +686,16 @@ fn parse(text: &[u8]) -> HashMap<PathBuf, (u8, u8)> {
 
 /// Reads one line of the marks file. The mark bits are kept as they are, also those of marks a
 /// newer Glimt may add, so that this one writes them back; only marks 1 to 6 are shown and
-/// changed. Returns `None` for a line that is not of this form.
+/// changed. The stars are kept as they are too, also a value above 5 that a newer Glimt may
+/// write, and they are shown as 5 at most (`Marks::get`). Returns `None` for a line that is not
+/// of this form.
 fn parse_line(line: &[u8]) -> Option<(PathBuf, (u8, u8))> {
     let mut parts = line.splitn(3, |&b| b == b'\t');
     let number = |b: &[u8]| std::str::from_utf8(b).ok()?.parse::<u8>().ok();
     let (bits, stars) = (number(parts.next()?)?, number(parts.next()?)?);
     // Any bytes are a name on Unix: those `save` wrote, or the user's own.
     let path = <std::ffi::OsStr as std::os::unix::ffi::OsStrExt>::from_bytes(parts.next()?);
-    Some((PathBuf::from(path), (bits, stars.min(5))))
+    Some((PathBuf::from(path), (bits, stars)))
 }
 
 /// Returns the lines of the marks file `text` that `parse_line` cannot read but that have the
@@ -1295,6 +1310,56 @@ mod tests {
         std::fs::remove_dir_all(dir).unwrap();
     }
 
+    /// Stars above 5, which a later Glimt may write in the marks file's frozen
+    /// `bits\tstars\tpath` lines, are kept through a read and a write, and shown as 5. Before,
+    /// the first write of this Glimt made them 5 in the file.
+    #[test]
+    fn keeps_stars_above_five() {
+        let dir =
+            std::env::temp_dir().join(format!("glimt-test-marks-stars7-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("marks");
+        super::TEST_FILE.with(|f| *f.borrow_mut() = Some(file.clone()));
+        std::fs::write(&file, "0\t7\t/a.jpg\n2\t9\t/b.jpg\n").unwrap();
+        let (a, b) = (
+            std::path::PathBuf::from("/a.jpg"),
+            std::path::PathBuf::from("/b.jpg"),
+        );
+        let marks = super::read_marks();
+        assert_eq!(marks.get(&a), (0, 5));
+        assert!(marks.marked().all(|(_, (_, stars))| stars <= 5));
+        // A mark set on b.jpg keeps its stars; stars set elsewhere leave a.jpg's alone.
+        let mark = super::Edit::Change(
+            crate::support::test_support::unlisted(vec![b.clone()]),
+            super::Change::Mark(1, true),
+        );
+        let stars = super::Edit::Change(
+            crate::support::test_support::unlisted(["/c.jpg"]),
+            super::Change::Stars(2),
+        );
+        super::write(&file, vec![mark, stars]);
+        let text = std::fs::read_to_string(&file).unwrap();
+        for line in ["0\t7\t/a.jpg\n", "3\t9\t/b.jpg\n", "0\t2\t/c.jpg\n"] {
+            assert!(text.contains(line), "{line:?} not in {text:?}");
+        }
+        super::TEST_FILE.with(|f| *f.borrow_mut() = None);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A mark set where there is no marks file, as neither $HOME nor $XDG_STATE_HOME is set,
+    /// is told as not saved. Before, it was dropped without a word.
+    #[test]
+    fn marks_without_a_marks_file_are_told() {
+        crate::files::file_io::take_saves_failed();
+        let stars = super::Edit::Change(
+            crate::support::test_support::unlisted(["/c.jpg"]),
+            super::Change::Stars(2),
+        );
+        super::write_to(None, vec![stars]);
+        let told = crate::files::file_io::take_saves_failed();
+        assert!(told.iter().any(|e| e.contains("marks")), "{told:?}");
+    }
+
     /// A move of a file without marks leaves the marks file alone: it is not written again,
     /// so its stamp stays and the other windows do not read it again. Before, every move,
     /// rename and delete wrote the whole file.
@@ -1469,9 +1534,10 @@ mod tests {
         m.toggle(&crate::support::test_support::unlisted(&both), 2);
         assert_eq!(m.get(&a), (0, 0));
         assert!(!m.by_path.contains_key(&a));
+        // Stars above 5 are read as they are, for a write to keep (`keeps_stars_above_five`).
         assert_eq!(
             super::parse_line(b"5\t9\t/x y.jpg"),
-            Some((PathBuf::from("/x y.jpg"), (5, 5)))
+            Some((PathBuf::from("/x y.jpg"), (5, 9)))
         );
         assert_eq!(super::parse_line(b"junk"), None);
         // Another window's file: its marks stay when this one's changes are applied, also on

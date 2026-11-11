@@ -25,6 +25,10 @@ const COUNTED: &[u8] = b"counted";
 /// (`MoveLog::note`), because a Glimt older than 0.82 reads every file beside the logs as a log.
 pub(crate) const KNOWN_FOLDER: &str = "files";
 
+/// The lock file, in `KNOWN_FOLDER`, that every window holds while it changes a list there
+/// (`note_written_anew_in`). No plan has its name, as a plan's name starts with no dot.
+const LISTS_LOCK: &str = ".lock";
+
 /// The start of the hidden name that a swap gives a file between its two steps
 /// (`file_ops::rename_files`). No other file takes such a name, and the plan's own steps fill it.
 pub const HIDDEN_NAME: &str = ".glimt-rename-";
@@ -448,9 +452,17 @@ pub fn note_written_anew(path: &Path, before: FileFingerprint) {
 /// `note_written_anew` for the plans in the folder `dir`.
 fn note_written_anew_in(dir: &Path, path: &Path, before: FileFingerprint) {
     use crate::images::decode::{read_limited, read_text};
-    let lists = std::fs::read_dir(dir.join(KNOWN_FOLDER));
+    // Without the lists' folder there is no plan to note in, and no lock is made.
+    let Ok(lists) = std::fs::read_dir(dir.join(KNOWN_FOLDER)) else {
+        return;
+    };
+    // Each list is read, changed and written under one lock that every window takes for it, so
+    // two windows saving photos of one plan at once both keep their change. It is not the plan's
+    // own lock, which a running Rename Many holds for its whole run, while its sidecar locks
+    // wait for the save that called this.
+    let _held = crate::files::file_io::lock_or_tell(&dir.join(KNOWN_FOLDER).join(LISTS_LOCK));
     let mut now = None;
-    for entry in lists.into_iter().flatten().flatten() {
+    for entry in lists.flatten() {
         if entry
             .file_type()
             .ok()
@@ -1549,6 +1561,42 @@ mod tests {
             Some((1, 0))
         );
         assert_eq!(std::fs::read_to_string(p("a.jpg")).unwrap(), "a");
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A plan's list of files is changed under the lock that every window takes for it, so two
+    /// windows saving photos of one plan at once both keep their change. Before, the list was
+    /// read and written unlocked, and the second write could drop the first one's change.
+    #[test]
+    fn a_plans_list_is_changed_under_its_lock() {
+        let dir =
+            std::env::temp_dir().join(format!("glimt-test-plan-list-lock-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let (plans, p) = (dir.join("plans"), |n: &str| dir.join(n));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(p("a.jpg"), "a").unwrap();
+        let moves = vec![(p("a.jpg"), p("b.jpg"))];
+        let plan = super::start_journal(&plans, &moves).unwrap();
+        let list = super::known_path(&plan.path);
+        plan.keep_on_disk();
+        let before = crate::files::file_io::fingerprint(&p("a.jpg")).unwrap();
+        std::fs::write(p("a.jpg"), "written anew").unwrap();
+        let listed = std::fs::read_to_string(&list).unwrap();
+        // Another window holds the lock while it changes the list.
+        let lock = plans.join(super::KNOWN_FOLDER).join(super::LISTS_LOCK);
+        let held = crate::files::file_io::open_and_lock(&lock).unwrap();
+        let (plans_too, a) = (plans.clone(), p("a.jpg"));
+        let noting =
+            std::thread::spawn(move || super::note_written_anew_in(&plans_too, &a, before));
+        std::thread::sleep(std::time::Duration::from_millis(300));
+        let while_held = std::fs::read_to_string(&list).unwrap();
+        drop(held);
+        noting.join().unwrap();
+        assert_eq!(
+            while_held, listed,
+            "the list was changed under another window's lock"
+        );
+        assert_ne!(std::fs::read_to_string(&list).unwrap(), listed);
         std::fs::remove_dir_all(dir).unwrap();
     }
 
