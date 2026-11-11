@@ -189,6 +189,25 @@ fn request_token() -> String {
     )
 }
 
+/// Creates a file of no name for the PDF, so nothing is left behind: it is made at `at`,
+/// removed once open, and read by the portal through its descriptor. Only this user may open
+/// it, because the temporary folder is shared with the other users of the computer.
+fn create_unnamed(at: &std::path::Path) -> std::io::Result<std::fs::File> {
+    use std::os::unix::fs::OpenOptionsExt;
+    #[allow(clippy::disallowed_methods)] // a file of no name, which only the portal reads
+    let file = std::fs::File::options()
+        .read(true)
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .open(at)?;
+    #[allow(clippy::disallowed_methods)] // Glimt's own: the PDF's name, made just now
+    // Not told: the print goes on through the open file, and a name left stays in the
+    // temporary folder, which the system empties.
+    let _ = std::fs::remove_file(at);
+    Ok(file)
+}
+
 /// The PDF that `write` makes, printed through the print portal: its dialog first, with
 /// `copies` and `sides` (CUPS's two-sided-long-edge or -short-edge) filled in. The printer
 /// chosen, or `None` when the dialog was cancelled.
@@ -227,20 +246,8 @@ pub fn print(
     let ticket = (chosen.get("token"))
         .and_then(|t| u32::try_from(t).ok())
         .ok_or("no token from the print dialog")?;
-    // The PDF in a file of no name, so nothing is left behind: removed once open, and read by
-    // the portal through its descriptor.
     let at = std::env::temp_dir().join(format!("{}.pdf", request_token()));
-    #[allow(clippy::disallowed_methods)] // a file of no name, which only the portal reads
-    let mut file = std::fs::File::options()
-        .read(true)
-        .write(true)
-        .create_new(true)
-        .open(&at)
-        .map_err(|e| e.to_string())?;
-    #[allow(clippy::disallowed_methods)] // Glimt's own: the PDF's name, made just now
-    // Not told: the print goes on through the open file, and a name left stays in the
-    // temporary folder, which the system empties.
-    let _ = std::fs::remove_file(&at);
+    let mut file = create_unnamed(&at).map_err(|e| e.to_string())?;
     {
         let mut out = std::io::BufWriter::new(&mut file);
         write(&mut out).map_err(|e| e.to_string())?;
@@ -327,6 +334,19 @@ pub fn open_with(path: &std::path::Path) -> Result<bool, String> {
 
 #[cfg(test)]
 mod tests {
+    /// The PDF sent to the print portal is made for this user alone, and leaves no name.
+    /// Before, it was made readable by every user, in the temporary folder that all share.
+    #[test]
+    fn the_pdf_to_print_is_this_users_alone() {
+        use std::os::unix::fs::PermissionsExt;
+        let name = format!("glimt-test-print-{}.pdf", std::process::id());
+        let at = std::env::temp_dir().join(name);
+        let file = super::create_unnamed(&at).unwrap();
+        assert_eq!(file.metadata().unwrap().permissions().mode() & 0o777, 0o600);
+        let gone = std::fs::symlink_metadata(&at).unwrap_err();
+        assert_eq!(gone.kind(), std::io::ErrorKind::NotFound);
+    }
+
     /// A Response counts only when the portal itself sent it, not another program on the bus.
     #[test]
     fn only_the_portal_answers() {
