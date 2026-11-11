@@ -15,6 +15,11 @@ use std::path::{Path, PathBuf};
 /// as a failed write. Any thread sets it, through `save_failed`.
 static SAVE_ERROR: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
 
+/// Set when a write found another file under a name than the one the list showed there
+/// (`ListedFile::check`). The window then reads its folder again (`take_list_is_old`), so it
+/// shows the files as they are.
+static LIST_IS_OLD: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
 /// The thread that writes Glimt's own files (`write_later`), and the thread for the writes that
 /// reach the user's folders (`write_later_in_user_folders`).
 static OWN_FILES_WRITER: std::sync::OnceLock<std::sync::mpsc::Sender<QueuedWrite>> =
@@ -155,6 +160,59 @@ pub(crate) type FileFingerprint = (Option<(u64, u64)>, u64, (i64, i64));
 /// does not keep a file's inode (`has_lasting_inodes`). An unknown identity is never taken for
 /// another file's (`is_another_file`).
 pub(crate) type Identity = Option<std::num::NonZeroU64>;
+
+/// A file the user picked in the list: its path, and the identity the list knew it by then.
+/// Every write of such a file (its sidecar, its marks, a delete, a rename, a tool) takes one,
+/// and checks with `check` right before it changes the file that no other file has taken the
+/// name since. A path alone cannot be given, so a new write cannot leave the check out.
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct ListedFile {
+    path: PathBuf,
+    identity: Identity,
+}
+
+impl ListedFile {
+    /// The file at `path`, which the list knew by `identity` (`App::listed_file`).
+    pub(crate) fn new(path: PathBuf, identity: Identity) -> Self {
+        ListedFile { path, identity }
+    }
+
+    /// A file that was not picked in the list, so no identity tells it apart: a Lightroom
+    /// catalog's, an Undo's (which has fingerprints of its own), a test's.
+    pub(crate) fn not_from_the_list(path: PathBuf) -> Self {
+        ListedFile {
+            path,
+            identity: None,
+        }
+    }
+
+    pub(crate) fn path(&self) -> &Path {
+        &self.path
+    }
+
+    pub(crate) fn identity(&self) -> Identity {
+        self.identity
+    }
+
+    /// Refuses to change the file when another file has taken its name since the list showed
+    /// it: another window's Rename Many, or another program, swapped or shifted the names. What
+    /// the user meant for one photo (a keyword, stars, a delete) would else go to the other. The
+    /// window is then told to read its folder again (`take_list_is_old`). A file that is gone is
+    /// left to the operation, which tells that itself. It waits for the disk, so it is called
+    /// in the thread that makes the change, right before it.
+    /// shortcut: a file deleted and another made under its name may get the freed inode and
+    /// pass; the size and time of the listing would tell them apart, but cost a look at every
+    /// file.
+    pub(crate) fn check(&self) -> std::io::Result<()> {
+        if self.identity.is_none() || !is_another_file(identity_of(&self.path), self.identity) {
+            return Ok(());
+        }
+        LIST_IS_OLD.store(true, std::sync::atomic::Ordering::Relaxed);
+        Err(std::io::Error::other(crate::support::lang::tr(
+            "another file has taken its name: the folder is read again",
+        )))
+    }
+}
 
 /// A write queued for a `start_ordered_worker` thread.
 pub type QueuedWrite = Box<dyn FnOnce() + Send>;
@@ -970,6 +1028,25 @@ pub(crate) fn identity_of(path: &Path) -> Identity {
 pub(crate) fn identity_from_metadata(path: &Path, meta: &std::fs::Metadata) -> Identity {
     let id = crate::images::save::file_id_from_metadata(path, meta).ok()?;
     std::num::NonZeroU64::new(id.1)
+}
+
+/// Returns whether a write found that the list is old since this was last asked, and the folder
+/// must be read again.
+pub(crate) fn take_list_is_old() -> bool {
+    LIST_IS_OLD.swap(false, std::sync::atomic::Ordering::Relaxed)
+}
+
+/// Returns the paths of those of `files` that no other file has taken the name of since they
+/// were listed (`ListedFile::check`), and an error for each of the others, naming its file.
+pub(crate) fn still_listed(files: Vec<ListedFile>) -> (Vec<PathBuf>, Vec<String>) {
+    let (mut kept, mut refused) = (Vec::new(), Vec::new());
+    for file in files {
+        match file.check() {
+            Ok(()) => kept.push(file.path),
+            Err(e) => refused.push(format!("{}: {e}", file.path.display())),
+        }
+    }
+    (kept, refused)
 }
 
 /// Forgets the identities in `files`, names relative to `dir`, of the files on a file system

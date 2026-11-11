@@ -5,7 +5,7 @@
 
 use crate::files::external;
 use crate::files::file_io::{
-    FileFingerprint, fingerprint, put_file, put_file_until_stopped, rename_never_over,
+    FileFingerprint, ListedFile, fingerprint, put_file, put_file_until_stopped, rename_never_over,
     same_fingerprint,
 };
 use crate::files::trash::{TrashMove, restore, trash_dirs};
@@ -94,7 +94,7 @@ type SidecarWrite = Box<dyn Fn(usize, &Path) -> bool + Send>;
 /// is over, to the names its files have then.
 struct WaitingSidecarWrite {
     activity: &'static str,
-    paths: Vec<PathBuf>,
+    files: Vec<ListedFile>,
     write: SidecarWrite,
     report: SidecarReport,
     /// Closing waits for the write while it waits, as for one that was sent.
@@ -693,8 +693,10 @@ impl crate::App {
     }
 
     /// Deletes the files at `targets` in the background, to the trash or for good, as a job
-    /// with progress and Stop. The list follows when `receive_operation_report` hears back.
+    /// with progress and Stop. The list follows when `receive_operation_report` hears back. A
+    /// file whose name another file has taken since the list was read stays, and is told.
     pub(crate) fn delete_now(&mut self, ctx: &egui::Context, trash: bool, targets: Vec<usize>) {
+        let listed: Vec<ListedFile> = targets.iter().map(|&i| self.listed_file(i)).collect();
         let paths: Vec<PathBuf> = targets.iter().map(|&i| self.path(i)).collect();
         let Some(job) = self.start_job(tr("Deleting"), paths.len(), paths.clone()) else {
             return;
@@ -719,10 +721,13 @@ impl crate::App {
             // Each gio call (and each taking of the locks) handles many files, so thousands of
             // files do not become thousands of processes. The chunks are small enough that Stop
             // and the count in the status bar keep up.
-            for chunk in paths.chunks(100) {
+            for chunk in listed.chunks(100) {
                 if job.is_stopped() {
                     break;
                 }
+                let (chunk, refused) = crate::files::file_io::still_listed(chunk.to_vec());
+                errors.extend(refused);
+                let chunk = &chunk[..];
                 // A chunk's sidecars are held until they are gone too. Otherwise a keyword
                 // written meanwhile would make a sidecar under the name of a photo that is no
                 // longer there. They are held only for the chunk, so a sidecar write in another
@@ -746,24 +751,10 @@ impl crate::App {
                 // went is not taken for gone (`exists` follows the link).
                 let is_gone = |p: &&PathBuf| std::fs::symlink_metadata(p).is_err();
                 let went: Vec<PathBuf> = chunk.iter().filter(is_gone).cloned().collect();
-                let side = xmp::sidecars_of(&went);
-                // A sidecar that stays is told, as the photo's own errors are, because the next
-                // file of that name would show its keywords.
-                if trash && !side.is_empty() {
-                    if let Err(e) = crate::files::trash::trash(&side) {
-                        errors.push(e);
-                    }
-                } else {
-                    for s in &side {
-                        #[allow(clippy::disallowed_methods)] // the deleted file's sidecar
-                        if let Err(e) = std::fs::remove_file(s) {
-                            errors.push(format!("{display}: {e}", display = s.display()));
-                        }
-                    }
-                }
+                let side = delete_sidecars_of(&went, trash, &mut errors);
                 gone.extend(went);
                 sides.extend(side);
-                job.count_done(chunk.len());
+                job.count_done(chunk.len().max(1));
             }
             if let Some(first) = errors.first() {
                 tx.send_failed_write(tf!(
@@ -1298,6 +1289,7 @@ impl crate::App {
         let Some(targets) = self.targets() else {
             return;
         };
+        let listed: Vec<ListedFile> = targets.iter().map(|&i| self.listed_file(i)).collect();
         let from: Vec<PathBuf> = targets.iter().map(|&i| self.path(i)).collect();
         if !self.are_free_to_change(&from) {
             return;
@@ -1312,7 +1304,7 @@ impl crate::App {
             );
             return;
         }
-        self.rename_in_background(ctx, from, to);
+        self.rename_in_background(ctx, listed, to);
     }
 
     /// Renames `from` to `to`, one file or many, in the background, because thousands of files
@@ -1320,7 +1312,7 @@ impl crate::App {
     pub(crate) fn rename_in_background(
         &mut self,
         ctx: &egui::Context,
-        from: Vec<PathBuf>,
+        from: Vec<ListedFile>,
         to: Vec<PathBuf>,
     ) {
         self.rename_files_of(ctx, from, to, None);
@@ -1332,10 +1324,11 @@ impl crate::App {
     fn rename_files_of(
         &mut self,
         ctx: &egui::Context,
-        from: Vec<PathBuf>,
+        listed: Vec<ListedFile>,
         to: Vec<PathBuf>,
         fingerprints: Option<Vec<FileFingerprint>>,
     ) {
+        let from: Vec<PathBuf> = listed.iter().map(|f| f.path().to_path_buf()).collect();
         // A camera card refuses some characters. Saying so before the job starts names the
         // reason, where a rename that fails halfway would only give the system's error.
         if let Some(refused) = refused_on_fat(&to, file_system_type_or_test) {
@@ -1361,7 +1354,7 @@ impl crate::App {
         let pointer = Working::new(&self.busy);
         let undo_on_the_way = self.file_operations.undo_on_the_way();
         std::thread::spawn(move || {
-            let _ = tx.send(rename_undoable(from, to, fingerprints, &steps));
+            let _ = tx.send(rename_undoable(listed, to, fingerprints, &steps));
             drop((undo_on_the_way, steps, pointer));
             ctx.request_repaint();
         });
@@ -1384,18 +1377,19 @@ impl crate::App {
             names_known,
         } = answer;
         let failed = result.is_err();
-        // The files an Undo left alone are told by name, as an Undo of a move tells them.
+        // The files an Undo left alone, or a rename whose names other files have taken since the
+        // list was read, are told by name, as an Undo of a move tells them.
         let other = tr("another file has taken its place");
         let mut errors: Vec<String> = (left_alone.iter())
             .map(|&k| format!("{}: {other}", job.from[k].display()))
             .collect();
         let told = if !errors.is_empty() {
             errors.extend(result.err());
-            Some(tf!(
-                "Undo failed ({count}): {first}",
-                count = count(errors.len(), "error"),
-                first = errors[0]
-            ))
+            let (count, first) = (count(errors.len(), "error"), &errors[0]);
+            Some(match job.undoing {
+                true => tf!("Undo failed ({count}): {first}", count, first),
+                false => tf!("Rename failed ({count}): {first}", count, first),
+            })
         } else {
             result.err()
         };
@@ -1756,6 +1750,7 @@ impl crate::App {
                     now.push(to);
                     fingerprints.push(fingerprint);
                 }
+                let now = now.into_iter().map(ListedFile::not_from_the_list).collect();
                 self.rename_files_of(ctx, now, before, Some(fingerprints));
             }
             Undo::Move(pairs) => drop(self.run_in_background(ctx, undone, move || {
@@ -1927,6 +1922,10 @@ impl crate::App {
     /// over, and is then sent to the names its files have (`send_waiting_sidecar_writes`).
     /// Stop leaves a write of one file, which is an edit the user made (`stop_jobs`).
     ///
+    /// Each file is checked right before its write to be the one the list showed under its name
+    /// (`ListedFile::check`). One that another file has taken the name of is left alone, told,
+    /// and counted as failed.
+    ///
     /// Each file in `files` comes with what is written to it, and `write` is given both. So
     /// `write` never looks up its data by the path it is given: after a rename, that path may
     /// be another photo's old name, and the data found under it would be that photo's. Before,
@@ -1936,23 +1935,23 @@ impl crate::App {
         &mut self,
         ctx: &egui::Context,
         activity: &'static str,
-        files: Vec<(PathBuf, T)>,
+        files: Vec<(ListedFile, T)>,
         write: impl Fn(&Path, &T) -> bool + Send + 'static,
         report: impl FnOnce(usize, &Job) -> Option<String> + Send + 'static,
     ) {
-        use crate::files::file_io::QueuedWrite;
-        let (paths, data): (Vec<PathBuf>, Vec<T>) = files.into_iter().unzip();
+        let (files, data): (Vec<ListedFile>, Vec<T>) = files.into_iter().unzip();
         let write = move |k: usize, path: &Path| data.get(k).is_some_and(|d| write(path, d));
         if self.file_operations.renaming.is_some() {
             let waiting = WaitingSidecarWrite {
                 activity,
-                paths,
+                files,
                 write: Box::new(write),
                 report: Box::new(report),
                 _writing: Working::new(&crate::files::file_io::WRITING),
             };
             return self.file_operations.sidecar_writes_waiting.push(waiting);
         }
+        let paths: Vec<PathBuf> = files.iter().map(|f| f.path().to_path_buf()).collect();
         let Some(job) = self.start_job_of(activity, paths.len(), true, paths.clone()) else {
             return;
         };
@@ -1965,17 +1964,27 @@ impl crate::App {
         (self.search).read_exif_again(names.map(|n| n.as_os_str().to_owned()));
         let (tx, ctx) = (self.notice_sender.clone(), ctx.clone());
         let pointer = Working::new(&self.busy);
-        let work: QueuedWrite = Box::new(move || {
+        // When the send fails, the work is dropped, and the busy pointer goes with it.
+        write_in_sidecar_thread(sidecar_writer(), move || {
             // A file that makes the writing panic ends this job, not the count or the busy
             // pointer.
             let told = crate::support::threads::catch_panic(|| {
-                let mut failed = 0;
-                for (k, path) in paths.iter().enumerate() {
+                let (mut failed, mut refused) = (0, None);
+                for (k, file) in files.iter().enumerate() {
                     if job.is_stopped() {
                         break;
                     }
-                    failed += !write(k, path) as usize;
+                    match file.check() {
+                        Ok(()) => failed += !write(k, file.path()) as usize,
+                        Err(e) => {
+                            failed += 1;
+                            refused.get_or_insert(format!("{}: {e}", file.path().display()));
+                        }
+                    }
                     job.count_done(1);
+                }
+                if let Some(first) = refused {
+                    tx.send_failed_write(first);
                 }
                 (report(failed, &job), failed > 0)
             })
@@ -1992,8 +2001,6 @@ impl crate::App {
             drop(pointer);
             ctx.request_repaint();
         });
-        // When the send fails, the work is dropped, and the busy pointer goes with it.
-        let _ = sidecar_writer().send(work);
     }
 
     /// Sends the sidecar writes that waited for a rename to the names their files have now, in
@@ -2009,7 +2016,7 @@ impl crate::App {
     ) -> Option<String> {
         let waiting = std::mem::take(&mut self.file_operations.sidecar_writes_waiting);
         let Some(renamed) = renamed else {
-            let files: usize = waiting.iter().map(|w| w.paths.len()).sum();
+            let files: usize = waiting.iter().map(|w| w.files.len()).sum();
             return (files > 0).then(|| {
                 tf!(
                     "Rename Many stopped, so the metadata edited for {count} was not saved",
@@ -2018,10 +2025,14 @@ impl crate::App {
             });
         };
         let moved = moves_by_source(renamed);
-        // Each file keeps its place in the write, by which the write finds what it writes.
+        // Each file keeps its place in the write, by which the write finds what it writes, and
+        // its identity, which a rename keeps.
         for waiting in waiting {
-            let files = (waiting.paths.iter().enumerate())
-                .map(|(k, p)| (new_place(p, &moved).unwrap_or_else(|| p.clone()), k))
+            let files = (waiting.files.iter().enumerate())
+                .map(|(k, f)| {
+                    let path = new_place(f.path(), &moved).unwrap_or_else(|| f.path().into());
+                    (ListedFile::new(path, f.identity()), k)
+                })
                 .collect();
             let write = waiting.write;
             let write = move |path: &Path, &k: &usize| write(k, path);
@@ -2203,6 +2214,26 @@ impl crate::App {
             self.dialogs.ask_about(asked, Prompt::Rename, name);
         }
     }
+}
+
+/// Deletes the sidecars of the files `went`, which a delete took away, to the trash or for good
+/// as `trash` says, and returns them. A sidecar that stays is told in `errors`, as the photo's
+/// own errors are, because the next file of that name would show its keywords.
+fn delete_sidecars_of(went: &[PathBuf], trash: bool, errors: &mut Vec<String>) -> Vec<PathBuf> {
+    let side = xmp::sidecars_of(went);
+    if trash && !side.is_empty() {
+        if let Err(e) = crate::files::trash::trash(&side) {
+            errors.push(e);
+        }
+    } else {
+        for s in &side {
+            #[allow(clippy::disallowed_methods)] // the deleted file's sidecar
+            if let Err(e) = std::fs::remove_file(s) {
+                errors.push(format!("{display}: {e}", display = s.display()));
+            }
+        }
+    }
+    side
 }
 
 /// Returns `path` in double quotes, as Geeqie's Copy Path gives it, with a backslash before each
@@ -2433,23 +2464,24 @@ pub(crate) fn name_in_the_way(
 
 /// Renames `from` to `to` as `rename_files` does, for a rename's thread. When `fingerprints` are
 /// given (an Undo), each file at `from` that is no longer the one with its fingerprint is left out,
-/// so a file that another program put at the name since keeps it. Returns how it went, with the
-/// places left out and the Undo it leaves: of a rename that went through, or of an Undo that
-/// failed, what it still has to put back.
+/// so a file that another program put at the name since keeps it. So is each file whose name
+/// another file has taken since the list showed it (`ListedFile::check`). Returns how it went,
+/// with the places left out and the Undo it leaves: of a rename that went through, or of an Undo
+/// that failed, what it still has to put back.
 fn rename_undoable(
-    from: Vec<PathBuf>,
+    listed: Vec<ListedFile>,
     to: Vec<PathBuf>,
     fingerprints: Option<Vec<FileFingerprint>>,
     job: &Job,
 ) -> RenameOutcome {
-    let left_alone: Vec<usize> = match &fingerprints {
-        Some(fingerprints) => (0..from.len())
-            .filter(|&k| {
-                !fingerprint(&from[k]).is_some_and(|now| same_fingerprint(fingerprints[k], now))
-            })
-            .collect(),
-        None => Vec::new(),
+    let is_changed = |k: usize| match &fingerprints {
+        Some(fingerprints) => {
+            !fingerprint(listed[k].path()).is_some_and(|now| same_fingerprint(fingerprints[k], now))
+        }
+        None => listed[k].check().is_err(),
     };
+    let left_alone: Vec<usize> = (0..listed.len()).filter(|&k| is_changed(k)).collect();
+    let from: Vec<PathBuf> = listed.iter().map(|f| f.path().to_path_buf()).collect();
     let pairs: Vec<(PathBuf, PathBuf)> = (from.into_iter().zip(to).enumerate())
         .filter(|(k, _)| left_alone.binary_search(k).is_err())
         .map(|(_, pair)| pair)
@@ -2907,6 +2939,15 @@ fn sidecar_writer() -> &'static mpsc::Sender<crate::files::file_io::QueuedWrite>
     WRITER.get_or_init(crate::files::file_io::start_ordered_worker)
 }
 
+/// Sends `work` to `writer`, the thread of this window's sidecar writes (`sidecar_writer`), to
+/// be done after the writes sent before it. When the send fails, the work is dropped.
+fn write_in_sidecar_thread(
+    writer: &mpsc::Sender<crate::files::file_io::QueuedWrite>,
+    work: impl FnOnce() + Send + 'static,
+) {
+    let _ = writer.send(Box::new(work));
+}
+
 /// `(from, to)` pairs to look up by the old path.
 pub(crate) fn moves_by_source(pairs: &[(PathBuf, PathBuf)]) -> HashMap<&Path, &Path> {
     pairs
@@ -3243,6 +3284,53 @@ mod tests {
 
     /// A swap whose middle does not reach the disk (a USB stick pulled out during the sync) is
     /// undone and told, so that no plan says it was done while the names are those of the start.
+    /// Two windows on one folder. The first swaps two names, as its Rename Many does, and the
+    /// second still lists them as they were. Its keyword, rename and delete of the photo it
+    /// knew under a name are refused, so they do not land on the other photo. They did.
+    #[test]
+    fn a_window_leaves_alone_a_name_that_another_window_gave_another_photo() {
+        let dir =
+            std::env::temp_dir().join(format!("glimt-test-two-windows-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let (a, b, c) = (dir.join("a.png"), dir.join("b.png"), dir.join("c.png"));
+        image::RgbImage::new(4, 4).save(&a).unwrap();
+        image::RgbImage::new(6, 6).save(&b).unwrap();
+        let (mut first, first_ctx) = app_on(&dir);
+        let (mut second, ctx) = app_on(&dir);
+        // The second window would read the folder again on its own, a moment after the swap.
+        second.config.auto_refresh = false;
+        let from = vec![first.listed_file(0), first.listed_file(1)];
+        first.rename_in_background(&first_ctx, from, vec![b.clone(), a.clone()]);
+        assert!(run_background_until(&mut first, &first_ctx, |app| app
+            .file_operations
+            .renaming
+            .is_none()));
+        let size_of = |p: &std::path::Path| image::image_dimensions(p).unwrap();
+        assert_eq!(size_of(&a), (6, 6), "the names were not swapped");
+        let idle = |app: &crate::App| {
+            (app.file_operations.jobs.iter()).all(|job| std::sync::Arc::strong_count(job) == 1)
+        };
+        second.add_keywords(&ctx, vec!["meant for the first photo".into()]);
+        assert!(run_background_until(&mut second, &ctx, |app| !app
+            .file_operations
+            .is_writing_sidecars()));
+        assert!(
+            crate::metadata::xmp::read(&a).keywords.is_empty(),
+            "a keyword landed"
+        );
+        second.rename_in_background(&ctx, vec![second.listed_file(0)], vec![c.clone()]);
+        assert!(run_background_until(&mut second, &ctx, |app| app
+            .file_operations
+            .renaming
+            .is_none()));
+        assert!(!c.exists(), "the other photo was renamed");
+        second.delete_now(&ctx, false, vec![0]);
+        assert!(run_background_until(&mut second, &ctx, idle));
+        assert!(a.exists() && b.exists(), "the other photo was deleted");
+        drop(first);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
     #[test]
     fn a_swap_whose_middle_did_not_reach_the_disk_is_undone() {
         let dir = std::env::temp_dir().join(format!("glimt-test-swap-eio-{}", std::process::id()));
@@ -3602,7 +3690,11 @@ mod tests {
             (
                 "rename",
                 |app, ctx, d| {
-                    app.rename_in_background(ctx, vec![d.join("a.png")], vec![d.join("c.png")])
+                    app.rename_in_background(
+                        ctx,
+                        crate::support::test_support::unlisted(vec![d.join("a.png")]),
+                        vec![d.join("c.png")],
+                    )
                 },
                 |app, d| {
                     let to = d.join("c.png");
@@ -3681,7 +3773,11 @@ mod tests {
             (
                 "undo a rename",
                 |app, ctx, d| {
-                    app.rename_in_background(ctx, vec![d.join("a.png")], vec![d.join("c.png")]);
+                    app.rename_in_background(
+                        ctx,
+                        crate::support::test_support::unlisted(vec![d.join("a.png")]),
+                        vec![d.join("c.png")],
+                    );
                     // This waits only when the operation started. When it was held back, it
                     // says so, and there is nothing to wait for.
                     if app.notice.text().is_none() {
@@ -3707,7 +3803,7 @@ mod tests {
                     app.write_sidecars(
                         ctx,
                         "Saving keywords",
-                        vec![(d.join("a.png"), ())],
+                        crate::support::test_support::unlisted_with(vec![(d.join("a.png"), ())]),
                         |p, _| crate::metadata::xmp::add_tags(p, &["Tag".into()]).is_ok(),
                         |_, _| None,
                     );
@@ -3846,8 +3942,14 @@ mod tests {
             let (mut app, ctx) = app_on(&d);
             #[cfg(feature = "marks")]
             {
-                app.marks.rate(&[d.join("a.png")], 3);
-                app.marks.rate(&[d.join("b.png")], 2);
+                app.marks.rate(
+                    &crate::support::test_support::unlisted(&[d.join("a.png")]),
+                    3,
+                );
+                app.marks.rate(
+                    &crate::support::test_support::unlisted(&[d.join("b.png")]),
+                    2,
+                );
             }
             // While other work changes the same files, the operation is held back and nothing
             // moves.
@@ -3958,7 +4060,11 @@ mod tests {
         }
         fn rename_to_s(app: &mut crate::App, ctx: &Context, d: &Path, f: &str) {
             let to = d.join(f.replacen('r', "s", 1));
-            app.rename_in_background(ctx, vec![d.join(f)], vec![to]);
+            app.rename_in_background(
+                ctx,
+                crate::support::test_support::unlisted(vec![d.join(f)]),
+                vec![to],
+            );
         }
         fn delete(app: &mut crate::App, ctx: &Context, f: &str, trash: bool) {
             let at = (app.list.files().iter()).position(|n| *n == *f);
@@ -4073,7 +4179,11 @@ mod tests {
                 "rename the case",
                 &["r.cr2", "r.xmp"],
                 |app, ctx, d| {
-                    app.rename_in_background(ctx, vec![d.join("r.cr2")], vec![d.join("r.CR2")])
+                    app.rename_in_background(
+                        ctx,
+                        crate::support::test_support::unlisted(vec![d.join("r.cr2")]),
+                        vec![d.join("r.CR2")],
+                    )
                 },
                 &["r.CR2", "r.xmp"],
                 &[],
@@ -4113,7 +4223,11 @@ mod tests {
                 "undo a rename",
                 &["r.cr2", "r.nef", "r.xmp"],
                 |app, ctx, d| {
-                    app.rename_in_background(ctx, vec![d.join("r.cr2")], vec![d.join("s.cr2")]);
+                    app.rename_in_background(
+                        ctx,
+                        crate::support::test_support::unlisted(vec![d.join("r.cr2")]),
+                        vec![d.join("s.cr2")],
+                    );
                     undo(app, ctx);
                 },
                 &["r.cr2", "r.nef", "r.xmp"],
@@ -4125,7 +4239,11 @@ mod tests {
                 |app, ctx, d| {
                     let (from, to) = (["r.cr2", "r.nef"], ["s.cr2", "s.nef"]);
                     let (from, to) = (from.map(|f| d.join(f)), to.map(|t| d.join(t)));
-                    app.rename_in_background(ctx, from.to_vec(), to.to_vec());
+                    app.rename_in_background(
+                        ctx,
+                        crate::support::test_support::unlisted(from.to_vec()),
+                        to.to_vec(),
+                    );
                     undo(app, ctx);
                 },
                 &["r.cr2", "r.nef", "r.xmp"],
@@ -4273,7 +4391,10 @@ mod tests {
         let (a, b) = (dir.join("a.png"), dir.join("b.png"));
         let (mut app, ctx) = app_on(&dir);
         #[cfg(feature = "marks")]
-        app.marks.rate(&[a.clone(), b.clone()], 3);
+        app.marks.rate(
+            &crate::support::test_support::unlisted(&[a.clone(), b.clone()]),
+            3,
+        );
         let marked = if cfg!(feature = "marks") { 3 } else { 0 };
         let job = super::Job::new("Moving", 2, false, Vec::new());
         let mut log = super::journal::start_move_log(&logs).unwrap();
@@ -4798,7 +4919,11 @@ mod tests {
                     dir.join("sub/a.png")
                 }
                 _ => {
-                    app.rename_in_background(&ctx, vec![a.clone()], vec![dir.join("b.png")]);
+                    app.rename_in_background(
+                        &ctx,
+                        crate::support::test_support::unlisted(vec![a.clone()]),
+                        vec![dir.join("b.png")],
+                    );
                     dir.join("b.png")
                 }
             };
@@ -4899,7 +5024,11 @@ mod tests {
             && app.file_operations.undo.is_some()));
         // The rename waits for a.png's sidecar lock, so it is still running at the Ctrl+Z.
         let lock = crate::metadata::xmp::lock_sidecar(&a);
-        app.rename_in_background(&ctx, vec![a.clone()], vec![b.clone()]);
+        app.rename_in_background(
+            &ctx,
+            crate::support::test_support::unlisted(vec![a.clone()]),
+            vec![b.clone()],
+        );
         app.undo(&ctx);
         assert!(
             sub.join("c.png").exists() && !c.exists(),
@@ -4931,7 +5060,11 @@ mod tests {
         let (a, b) = (dir.join("a.png"), dir.join("b.png"));
         image::RgbImage::new(2, 2).save(&a).unwrap();
         let (mut app, ctx) = app_on(&dir);
-        app.rename_in_background(&ctx, vec![a.clone()], vec![b.clone()]);
+        app.rename_in_background(
+            &ctx,
+            crate::support::test_support::unlisted(vec![a.clone()]),
+            vec![b.clone()],
+        );
         assert!(run_background_until(&mut app, &ctx, |app| app
             .file_operations
             .undo
@@ -5473,14 +5606,18 @@ mod tests {
             std::fs::remove_file(crate::metadata::xmp::sidecar(p)).unwrap();
         }
         let (mut app, ctx) = app_on(&d);
-        app.rename_in_background(&ctx, vec![a.clone(), b.clone()], vec![b.clone(), a.clone()]);
+        app.rename_in_background(
+            &ctx,
+            crate::support::test_support::unlisted(vec![a.clone(), b.clone()]),
+            vec![b.clone(), a.clone()],
+        );
         assert!(app.file_operations.renaming.is_some());
         let (go, released) = std::sync::mpsc::channel::<()>();
         let other = vec![(d.join("sub"), ())];
         app.write_sidecars(
             &ctx,
             "Other",
-            other,
+            crate::support::test_support::unlisted_with(other),
             move |_, _| released.recv().is_err(),
             |_, _| None,
         );
@@ -5492,7 +5629,7 @@ mod tests {
         app.write_sidecars(
             &ctx,
             "Keywords",
-            keywords,
+            crate::support::test_support::unlisted_with(keywords),
             |p, tag| crate::metadata::xmp::add_tags(p, std::slice::from_ref(tag)).is_ok(),
             |_, _| None,
         );
@@ -5537,7 +5674,7 @@ mod tests {
         app.write_sidecars(
             &ctx,
             "Keywords",
-            asked,
+            crate::support::test_support::unlisted_with(asked),
             move |p, _| oslo(p).is_ok(),
             |_, _| None,
         );
@@ -5577,7 +5714,7 @@ mod tests {
         app.write_sidecars(
             &ctx,
             "Other",
-            long,
+            crate::support::test_support::unlisted_with(long),
             move |_, _| released.recv().is_err(),
             |_, _| None,
         );
@@ -5585,7 +5722,7 @@ mod tests {
         app.write_sidecars(
             &ctx,
             "Keywords",
-            vec![(a.clone(), ())],
+            crate::support::test_support::unlisted_with(vec![(a.clone(), ())]),
             move |p, _| oslo(p).is_ok(),
             |_, _| None,
         );
@@ -5624,7 +5761,11 @@ mod tests {
         assert!(d.join("sub/a.png").exists() && d.join("sub/a.png.xmp").exists());
         let c = d.join("c.png");
         waits(&mut app, &b, &|app| {
-            app.rename_in_background(&ctx, vec![b.clone()], vec![c.clone()])
+            app.rename_in_background(
+                &ctx,
+                crate::support::test_support::unlisted(vec![b.clone()]),
+                vec![c.clone()],
+            )
         });
         assert!(c.exists() && d.join("c.png.xmp").exists());
         assert!(run_background_until(&mut app, &ctx, |app| !app
@@ -5808,7 +5949,11 @@ mod tests {
         // to another photo.
         let (b, c) = (dir.join("b.png"), dir.join("c.png"));
         image::RgbImage::new(4, 4).save(&b).unwrap();
-        app.rename_in_background(&ctx, vec![b], vec![c]);
+        app.rename_in_background(
+            &ctx,
+            crate::support::test_support::unlisted(vec![b]),
+            vec![c],
+        );
         app.notice.clear();
         app.save_orientation(&ctx);
         assert!(
@@ -5867,7 +6012,7 @@ mod tests {
         app.write_sidecars(
             &ctx,
             "Saving keywords",
-            vec![(dir.join("a.png"), ())],
+            crate::support::test_support::unlisted_with(vec![(dir.join("a.png"), ())]),
             |_, _| true,
             |_, _| None,
         );
@@ -5911,7 +6056,10 @@ mod tests {
         // A file written over by another image is read again, and its stars are gone.
         let b = dir.join("b.png");
         #[cfg(feature = "marks")]
-        app.marks.rate(std::slice::from_ref(&b), 3);
+        app.marks.rate(
+            &crate::support::test_support::unlisted(std::slice::from_ref(&b)),
+            3,
+        );
         let over = super::OperationReport {
             overwritten: vec![b.clone()],
             ..Default::default()
@@ -5937,7 +6085,11 @@ mod tests {
         let idle = |app: &crate::App| {
             (app.file_operations.jobs.iter()).all(|j| std::sync::Arc::strong_count(j) == 1)
         };
-        app.rename_in_background(&ctx, vec![d.join("a.png")], vec![d.join("c.png")]);
+        app.rename_in_background(
+            &ctx,
+            crate::support::test_support::unlisted(vec![d.join("a.png")]),
+            vec![d.join("c.png")],
+        );
         assert!(run_background_until(&mut app, &ctx, |app| idle(app)
             && entries(&gqv).contains("c.png")
             && !entries(&gqv).contains("a.png")));
@@ -5986,7 +6138,11 @@ mod tests {
                 (app.file_operations.jobs.iter()).all(|j| std::sync::Arc::strong_count(j) == 1)
             };
             // The two swap names, so the entry of each takes the other's name.
-            app.rename_in_background(&ctx, vec![a.clone(), b.clone()], vec![b.clone(), a.clone()]);
+            app.rename_in_background(
+                &ctx,
+                crate::support::test_support::unlisted(vec![a.clone(), b.clone()]),
+                vec![b.clone(), a.clone()],
+            );
             assert!(run_background_until(&mut app, &ctx, |app| idle(app)
                 && sidecar_of_a().is_ok_and(|s| s != before)));
             crate::files::file_io::flush();

@@ -3,6 +3,7 @@
 //! own files. Only columns that have been the same for many Lightroom versions are read. Also
 //! File → Import Lightroom Catalog's dialog, what it will do (`Catalog::plan`) and the import.
 
+use crate::files::file_io::ListedFile;
 #[cfg(feature = "marks")]
 use crate::metadata::marks;
 use crate::model::listing::{Types, is_listed};
@@ -483,11 +484,11 @@ impl crate::App {
         #[cfg(feature = "marks")]
         {
             for n in 1..=5 {
-                let paths: Vec<PathBuf> = (stars.iter().filter(|s| s.1 == n))
-                    .map(|s| s.0.clone())
+                let files: Vec<ListedFile> = (stars.iter().filter(|s| s.1 == n))
+                    .map(|s| ListedFile::not_from_the_list(s.0.clone()))
                     .collect();
-                if !paths.is_empty() {
-                    self.marks.rate(&paths, n);
+                if !files.is_empty() {
+                    self.marks.rate(&files, n);
                 }
             }
             done.push(tf!(
@@ -515,10 +516,14 @@ impl crate::App {
         for (path, tags) in image_keywords {
             sidecars.entry(path).or_default().1 = tags;
         }
+        // The catalog names its photos by path alone, so there is no identity to check.
+        let sidecars = (sidecars.into_iter())
+            .map(|(path, data)| (ListedFile::not_from_the_list(path), data))
+            .collect();
         self.write_sidecars(
             ctx,
             tr("Importing"),
-            sidecars.into_iter().collect(),
+            sidecars,
             move |path, (n, tags)| {
                 // Not for photos gone since: no sidecar beside nothing.
                 if !path.is_file() {
@@ -864,7 +869,10 @@ mod tests {
         ];
         let (mut app, ctx) = crate::support::test_support::app_on(&dir);
         #[cfg(feature = "marks")]
-        app.marks.rate(std::slice::from_ref(&a), 2);
+        app.marks.rate(
+            &crate::support::test_support::unlisted(std::slice::from_ref(&a)),
+            2,
+        );
         let mut lr = super::import_dialog_for(super::parse(rows.join("\x1e").as_bytes()));
         lr.root_folders_now = vec![dir.display().to_string()];
         app.start_planning(&ctx, &mut lr);

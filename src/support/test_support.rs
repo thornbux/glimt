@@ -54,6 +54,24 @@ pub(crate) fn app_on(dir: &std::path::Path) -> (crate::App, eframe::egui::Contex
     (app, ctx)
 }
 
+/// `paths` as files a write takes, none of them picked in the list, so no identity is checked.
+pub(crate) fn unlisted<P: AsRef<std::path::Path>>(
+    paths: impl IntoIterator<Item = P>,
+) -> Vec<crate::files::file_io::ListedFile> {
+    (paths.into_iter())
+        .map(|p| crate::files::file_io::ListedFile::not_from_the_list(p.as_ref().into()))
+        .collect()
+}
+
+/// `files` with what is written to each, none of them picked in the list (`unlisted`).
+pub(crate) fn unlisted_with<T>(
+    files: Vec<(std::path::PathBuf, T)>,
+) -> Vec<(crate::files::file_io::ListedFile, T)> {
+    (files.into_iter())
+        .map(|(p, t)| (crate::files::file_io::ListedFile::not_from_the_list(p), t))
+        .collect()
+}
+
 /// A folder for the contract: a.png (red) and b.png (blue), each with a sidecar saying whose
 /// it is, a folder sub, and a collection naming both images.
 pub(crate) fn contract_folder(name: &str) -> std::path::PathBuf {

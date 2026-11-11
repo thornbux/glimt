@@ -3062,3 +3062,11 @@ msgstr "{file} não recebe nenhum arquivo: %f entre aspas não é o arquivo. Esc
 #: src/cli.rs
 msgid "Added formats and tools:"
 msgstr "Formatos adicionados e ferramentas:"
+
+#: src/files/file_io.rs
+msgid "another file has taken its name: the folder is read again"
+msgstr "outro arquivo tomou o seu nome: a pasta é lida de novo"
+
+#: src/files/file_ops.rs
+msgid "Rename failed ({count}): {first}"
+msgstr "Falha ao renomear ({count}): {first}"

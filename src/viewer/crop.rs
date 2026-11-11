@@ -348,7 +348,10 @@ mod tests {
             .list
             .loaded_images()
             .contains_key(&0)));
-        app.marks.rate(std::slice::from_ref(&a), 4);
+        app.marks.rate(
+            &crate::support::test_support::unlisted(std::slice::from_ref(&a)),
+            4,
+        );
         app.start_crop();
         if let Some(crop) = app.viewing.crop_mut() {
             crop.part = Some(egui::Rect::from_min_max(

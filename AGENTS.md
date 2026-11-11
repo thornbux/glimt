@@ -484,6 +484,10 @@ method.
       where these are used);
     - a file that several windows share with `file_io::edit_shared`, which locks, reads,
       changes and writes it as one step (clippy refuses `file_lock` elsewhere);
+  - change a file the user picked in the list (its sidecar, marks, a delete, a rename, a
+    tool) only through a `file_io::ListedFile` (`App::listed_file`), checked with
+    `ListedFile::check` right before the change, in the thread that makes it, so that a name
+    another window or program has given another file since the listing is left alone;
   - rename with `file_io::rename_never_over` (never over a file), and move or copy with
     `put_file` (never `std::fs::copy`). A rename that a later step counts on (an unlink,
     a plan removed) is first made lasting with `sync_folder_of`, which syncs its folder.

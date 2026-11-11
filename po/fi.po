@@ -3051,3 +3051,11 @@ msgstr "{file} ei saa tiedostoja: lainausmerkkien sisällä oleva %f ei ole tied
 #: src/cli.rs
 msgid "Added formats and tools:"
 msgstr "Lisätyt muodot ja työkalut:"
+
+#: src/files/file_io.rs
+msgid "another file has taken its name: the folder is read again"
+msgstr "toinen tiedosto on ottanut sen nimen: kansio luetaan uudelleen"
+
+#: src/files/file_ops.rs
+msgid "Rename failed ({count}): {first}"
+msgstr "Nimeäminen uudelleen epäonnistui ({count}): {first}"

@@ -3,7 +3,7 @@
 
 use crate::files::config::keyword_tree_path;
 use crate::files::external::open_url;
-use crate::files::file_io::{Identity, is_another_file};
+use crate::files::file_io::{Identity, ListedFile, is_another_file};
 use crate::images::colour::colour_source;
 #[cfg(feature = "marks")]
 use crate::metadata::marks;
@@ -525,16 +525,16 @@ impl crate::App {
             xmp::set_tag(&mut edit.saved.keywords, &mut edit.paths, &tag, on);
             edit.keywords = edit.saved.keywords_text();
         }
-        let paths: Vec<PathBuf> = targets.iter().map(|&i| self.path(i)).collect();
+        let files: Vec<_> = targets.iter().map(|&i| (self.listed_file(i), ())).collect();
         let activity = match on {
             true => tr("Setting keywords"),
             false => tr("Taking keywords off"),
         };
-        let (n, written) = (paths.len(), tag.clone());
+        let (n, written) = (files.len(), tag.clone());
         self.write_sidecars(
             ctx,
             activity,
-            paths.into_iter().map(|p| (p, ())).collect(),
+            files,
             move |path, _| xmp::tag_file(path, &written, on).is_ok(),
             move |failed, job| match () {
                 _ if failed > 0 => Some(tf!(
@@ -602,12 +602,13 @@ impl crate::App {
             (edit.alt_text, edit.extended_description) =
                 (alt_text.text.clone(), alt_text.extended_description.clone());
             edit.saved_alt_text = alt_text.clone();
-            let (path, tx) = (edit.path.clone(), self.notice_sender.clone());
+            let file = ListedFile::new(edit.path.clone(), edit.identity);
+            let tx = self.notice_sender.clone();
             // A sidecar job like the keywords': Move, Rename and Delete wait for it.
             self.write_sidecars(
                 ctx,
                 tr("Saving the alt text"),
-                vec![(path, ())],
+                vec![(file, ())],
                 move |p, _| match xmp::write_alt_text(p, &alt_text) {
                     Ok(()) => true,
                     Err(e) => {
@@ -646,13 +647,14 @@ impl crate::App {
         }
         edit.keywords = edit.saved.keywords_text();
         edit.comment = edit.saved.comment.clone();
-        let (path, tx) = (edit.path.clone(), self.notice_sender.clone());
+        let file = ListedFile::new(edit.path.clone(), edit.identity);
+        let tx = self.notice_sender.clone();
         // A sidecar job, so that a Move, Rename or Delete of the file waits until it has
         // landed, instead of leaving the new keywords behind under the old name.
         self.write_sidecars(
             ctx,
             tr("Saving keywords"),
-            vec![(path, ())],
+            vec![(file, ())],
             move |p, _| match xmp::write_changed(p, keywords.clone(), comment.clone()) {
                 Ok(_) => true,
                 Err(e) => {
@@ -703,13 +705,13 @@ impl crate::App {
             xmp::add_to(&mut edit.saved.keywords, &keywords);
             edit.keywords = edit.saved.keywords_text();
         }
-        let paths: Vec<PathBuf> = targets.iter().map(|&i| self.path(i)).collect();
-        let n = paths.len();
+        let files: Vec<_> = targets.iter().map(|&i| (self.listed_file(i), ())).collect();
+        let n = files.len();
         // Through the sidecar writer, with keywords ticked and stars: in the order asked.
         self.write_sidecars(
             ctx,
             tr("Adding keywords"),
-            paths.into_iter().map(|p| (p, ())).collect(),
+            files,
             move |path, _| xmp::add_keywords(path, &keywords).is_ok(),
             move |failed, job| match () {
                 _ if failed > 0 => Some(tf!(
@@ -978,7 +980,11 @@ mod tests {
         app.show_file(&ctx, 0);
         read_panel(&mut app, &ctx);
         assert_eq!(app.info_panel.metadata_edit.as_ref().unwrap().path, a);
-        app.rename_in_background(&ctx, vec![a.clone(), b.clone()], vec![b.clone(), a.clone()]);
+        app.rename_in_background(
+            &ctx,
+            crate::support::test_support::unlisted(vec![a.clone(), b.clone()]),
+            vec![b.clone(), a.clone()],
+        );
         app.info_panel.metadata_edit.as_mut().unwrap().comment = "Red".into();
         let comment = |p: &std::path::Path| crate::metadata::xmp::read(p).comment;
         assert!(run_background_until(&mut app, &ctx, |_| comment(&b) == "Red"));
@@ -1010,7 +1016,7 @@ mod tests {
         app.write_sidecars(
             &ctx,
             "Other",
-            other,
+            crate::support::test_support::unlisted_with(other),
             move |_, _| released.recv().is_err(),
             |_, _| None,
         );
@@ -1114,7 +1120,7 @@ mod tests {
         app.write_sidecars(
             &ctx,
             "Other",
-            b,
+            crate::support::test_support::unlisted_with(b),
             move |_, _| hold.recv().is_err(),
             |_, _| None,
         );

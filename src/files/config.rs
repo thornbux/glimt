@@ -1862,7 +1862,10 @@ mod tests {
         write_changed(&file, keywords, Some("Trip".into())).unwrap();
         let (mut app, ctx) = crate::support::test_support::app_on(&dir);
         #[cfg(feature = "marks")]
-        app.marks.toggle(std::slice::from_ref(&file), 1);
+        app.marks.toggle(
+            &crate::support::test_support::unlisted(std::slice::from_ref(&file)),
+            1,
+        );
         // Each field on a line of its own as "field:value"; a field left empty drops its line.
         let template: Vec<String> = pinned.iter().map(|f| format!("{f}:%{f}%")).collect();
         app.config.full_screen_info_template = template.join("\\n");

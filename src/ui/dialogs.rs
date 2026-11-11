@@ -829,7 +829,8 @@ impl crate::App {
             // As Rename Many: in its thread, never over a file or another file's sidecar
             // there; `renamed` puts the list right.
             Prompt::Rename => {
-                self.rename_in_background(ctx, vec![self.path(self.list.shown())], vec![target]);
+                let file = self.listed_file(self.list.shown());
+                self.rename_in_background(ctx, vec![file], vec![target]);
             }
         }
     }

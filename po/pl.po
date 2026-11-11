@@ -3062,3 +3062,11 @@ msgstr "{file} nie dostaje żadnych plików: %f w cudzysłowie nie jest plikiem.
 #: src/cli.rs
 msgid "Added formats and tools:"
 msgstr "Dodane formaty i narzędzia:"
+
+#: src/files/file_io.rs
+msgid "another file has taken its name: the folder is read again"
+msgstr "jego nazwę przejął inny plik: folder zostanie wczytany ponownie"
+
+#: src/files/file_ops.rs
+msgid "Rename failed ({count}): {first}"
+msgstr "Zmiana nazwy nie powiodła się ({count}): {first}"
