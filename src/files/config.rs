@@ -135,6 +135,11 @@ pub(crate) const MEMORY_LEVELS: [MemoryLevel; 3] = [
 /// How many Open Recent keeps.
 pub const MAX_RECENT: usize = 10;
 
+/// The largest window size or position, either way, kept in the window state, in points. X11
+/// has 16-bit coordinates, and a larger, infinite or NaN value in a planted or hand-edited state
+/// file would be handed to the window as it is.
+const MOST_WINDOW_COORDINATE: f32 = 32_767.0;
+
 /// The settings that take one of a few values. Since 1.0 they are written by name
 /// (fit_mode=width), and they are read by name or by the number used before (fit_mode=1). A
 /// list grows only at its end, so the numbers keep their meaning.
@@ -225,7 +230,10 @@ impl WindowState {
     pub fn parse(state: &str) -> Self {
         let pair = |key| {
             let (a, b) = state_value(state, key)?.split_once(',')?;
-            Some((a.parse::<f32>().ok()?, b.parse::<f32>().ok()?))
+            let (a, b) = (a.parse::<f32>().ok()?, b.parse::<f32>().ok()?);
+            // A NaN fails the comparison too.
+            let fits = |v: f32| v.abs() <= MOST_WINDOW_COORDINATE;
+            (fits(a) && fits(b)).then_some((a, b))
         };
         WindowState {
             size: pair("window_size")
@@ -1398,6 +1406,16 @@ mod tests {
         let text = format!("last_dir=/x\n{}", win.to_text());
         assert_eq!(super::WindowState::parse(&text), win);
         assert_eq!(super::WindowState::parse("window_size=5,5\n").size, None);
+        // A size or position that is infinite, NaN or past X11's coordinates is not kept.
+        for bad in ["inf,700", "1000,NaN", "100000,700", "-1e39,5"] {
+            let text = format!("window_size={bad}\nwindow_position={bad}\n");
+            assert_eq!(
+                super::WindowState::parse(&text),
+                super::WindowState::default()
+            );
+        }
+        let largest = super::WindowState::parse("window_size=32767,32767\n");
+        assert_eq!(largest.size, Some(eframe::egui::vec2(32767.0, 32767.0)));
         assert_eq!(
             Config::parse("background=#1a2B3c").background.0,
             [0x1a, 0x2b, 0x3c]
@@ -1521,10 +1539,14 @@ mod tests {
         for bytes in crate::support::test_support::broken(seed.as_bytes()) {
             super::Config::parse(&String::from_utf8_lossy(&bytes));
         }
-        for bytes in
-            crate::support::test_support::broken(b"maximized=true\nsize=1000x700.5\npos=10,-20\n")
-        {
-            super::WindowState::parse(&String::from_utf8_lossy(&bytes));
+        let window = b"maximized=true\nwindow_size=1000,700.5\nwindow_position=10,-20\n";
+        for bytes in crate::support::test_support::broken(window) {
+            let state = super::WindowState::parse(&String::from_utf8_lossy(&bytes));
+            let values = state.size.map(|s| [s.x, s.y]).into_iter().flatten();
+            let values = values.chain(state.position.map(|p| [p.x, p.y]).into_iter().flatten());
+            for value in values {
+                assert!(value.abs() <= super::MOST_WINDOW_COORDINATE, "{value}");
+            }
         }
         // --check-config reads the same file with its problems.
         for bytes in crate::support::test_support::broken(seed.as_bytes()) {
