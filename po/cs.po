@@ -3934,3 +3934,8 @@ msgstr "jiné okno je má otevřené"
 #, fuzzy
 msgid "The file dialog did not answer with full paths, so nothing was opened"
 msgstr "Dialog pro výběr souboru neodpověděl úplnými cestami, a tak se nic neotevřelo"
+
+#: src/metadata/xmp.rs
+#, fuzzy
+msgid "{sidecar} could not be moved ({e}), so it was copied to {copy} and is still at its old name too"
+msgstr "{sidecar} nešlo přesunout ({e}), proto byl zkopírován do {copy} a je stále i pod starým názvem"

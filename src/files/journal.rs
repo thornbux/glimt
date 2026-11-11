@@ -328,11 +328,17 @@ fn sidecars_follow_the_files_that_went(went: &[(PathBuf, PathBuf)]) {
     let mut names = xmp::AdobeNames::default();
     for (from, to) in went {
         let _lock = xmp::lock_sidecar(from);
-        // The file stays at `to`, so the sidecars that followed stay with it.
-        if let Err(not) = xmp::follow(from, to, false, &moving, &mut names) {
-            for (_, at, error) in not.failed {
-                crate::files::file_io::save_failed(format!("{}: {error}", at.display()));
-            }
+        // The file stays at `to`, so the sidecars that followed stay with it. One copied, as it
+        // could not be moved, is still at the old name too, and is told.
+        let (failed, left_behind) = match xmp::follow(from, to, false, &moving, &mut names) {
+            Ok(left_behind) => (Vec::new(), left_behind),
+            Err(not) => (not.failed, not.left_behind),
+        };
+        for (_, at, error) in failed {
+            crate::files::file_io::save_failed(format!("{}: {error}", at.display()));
+        }
+        for left in left_behind {
+            crate::files::file_io::save_failed(left.told());
         }
     }
 }

@@ -3146,3 +3146,7 @@ msgstr "et annet vindu har dem åpne"
 #: src/ui/dialogs.rs
 msgid "The file dialog did not answer with full paths, so nothing was opened"
 msgstr "Fildialogen svarte ikke med fullstendige stier, så ingenting ble åpnet"
+
+#: src/metadata/xmp.rs
+msgid "{sidecar} could not be moved ({e}), so it was copied to {copy} and is still at its old name too"
+msgstr "{sidecar} kunne ikke flyttes ({e}), så den ble kopiert til {copy} og ligger fortsatt under det gamle navnet også"

@@ -3912,3 +3912,8 @@ msgstr "een ander venster heeft ze open"
 #, fuzzy
 msgid "The file dialog did not answer with full paths, so nothing was opened"
 msgstr "De bestandsdialoog antwoordde niet met volledige paden, dus er is niets geopend"
+
+#: src/metadata/xmp.rs
+#, fuzzy
+msgid "{sidecar} could not be moved ({e}), so it was copied to {copy} and is still at its old name too"
+msgstr "{sidecar} kon niet worden verplaatst ({e}), dus het is gekopieerd naar {copy} en staat ook nog onder de oude naam"
