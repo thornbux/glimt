@@ -3075,3 +3075,11 @@ msgstr "{side} non è potuto andare nel cestino, quindi {file} resta dov'era, co
 #: src/files/trash.rs
 msgid "{e}, so {file} stays in the trash, with its sidecar"
 msgstr "{e}, quindi {file} resta nel cestino, con il suo file sidecar"
+
+#: src/files/file_ops.rs
+msgid "{file} went back, but its sidecar {side} could not ({e}), so the sidecar is at {at}"
+msgstr "{file} è tornato, ma il suo file sidecar {side} no ({e}), quindi il file sidecar è in {at}"
+
+#: src/files/file_ops.rs
+msgid "{side} could not follow {file} ({e}), and {file} could not go back ({error}), so the file is at {to} and this sidecar at {side}"
+msgstr "{side} non ha potuto seguire {file} ({e}), e {file} non ha potuto tornare ({error}), quindi il file è in {to} e questo file sidecar in {side}"

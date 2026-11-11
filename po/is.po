@@ -3075,3 +3075,11 @@ msgstr "{side} komst ekki í ruslið, svo {file} er kyrr þar sem hún var, með
 #: src/files/trash.rs
 msgid "{e}, so {file} stays in the trash, with its sidecar"
 msgstr "{e}, svo {file} er kyrr í ruslinu, með hliðarskránni sinni"
+
+#: src/files/file_ops.rs
+msgid "{file} went back, but its sidecar {side} could not ({e}), so the sidecar is at {at}"
+msgstr "{file} var færð til baka, en hliðarskráin {side} ekki ({e}), svo hliðarskráin er í {at}"
+
+#: src/files/file_ops.rs
+msgid "{side} could not follow {file} ({e}), and {file} could not go back ({error}), so the file is at {to} and this sidecar at {side}"
+msgstr "{side} gat ekki fylgt {file} ({e}), og {file} gat ekki farið til baka ({error}), svo skráin er í {to} og þessi hliðarskrá í {side}"

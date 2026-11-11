@@ -23,9 +23,10 @@ background threads sent (`poll_background`). It then turns a key or a menu click
 `Action`, runs it, and draws. Anything slow runs in a thread of its own: listing a folder,
 decoding, thumbnails, file jobs, writing Glimt's own files, and the remote socket. Each thread
 answers over an `mpsc` channel, held as a `Receiving<T>`, and calls `request_repaint`, so the
-next frame picks up the answer. The remote commands are taken in `App::logic` instead, which
-eframe runs before each frame and also while the window is minimized or hidden and draws no
-frame, so a script gets its answer at once. `App::logic` also guards a close of the window
+next frame picks up the answer. The answers (`receive_answers`) and the remote commands are
+also taken in `App::logic`, which eframe runs before each frame and also while the window is
+minimized or hidden and draws no frame, so a script gets its answer at once, also one that
+waits for the work its command started. `App::logic` also guards a close of the window
 (`guard_close`), so a minimized window waits for its file jobs before it closes.
 A SIGTERM or SIGHUP only counts itself in its handler and wakes a thread, which asks for a
 pass. `guard_close` then sees the new count and closes the window as Ctrl+Q does.
