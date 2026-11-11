@@ -3100,3 +3100,11 @@ msgstr ""
 #: src/files/trash.rs
 msgid "{e}, so {file} stays in the trash, with its sidecar"
 msgstr ""
+
+#: src/files/file_ops.rs
+msgid "{file} went back, but its sidecar {side} could not ({e}), so the sidecar is at {at}"
+msgstr ""
+
+#: src/files/file_ops.rs
+msgid "{side} could not follow {file} ({e}), and {file} could not go back ({error}), so the file is at {to} and this sidecar at {side}"
+msgstr ""

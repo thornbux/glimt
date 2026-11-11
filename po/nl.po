@@ -3075,3 +3075,11 @@ msgstr "{side} kon niet naar de prullenbak, dus {file} blijft waar het was, met 
 #: src/files/trash.rs
 msgid "{e}, so {file} stays in the trash, with its sidecar"
 msgstr "{e}, dus {file} blijft in de prullenbak, met zijn sidecar-bestand"
+
+#: src/files/file_ops.rs
+msgid "{file} went back, but its sidecar {side} could not ({e}), so the sidecar is at {at}"
+msgstr "{file} is teruggezet, maar zijn sidecar-bestand {side} niet ({e}), dus het sidecar-bestand staat in {at}"
+
+#: src/files/file_ops.rs
+msgid "{side} could not follow {file} ({e}), and {file} could not go back ({error}), so the file is at {to} and this sidecar at {side}"
+msgstr "{side} kon {file} niet volgen ({e}), en {file} kon niet terug ({error}), dus het bestand staat in {to} en dit sidecar-bestand in {side}"

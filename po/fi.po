@@ -3079,3 +3079,11 @@ msgstr "{side} ei voinut siirtyä roskakoriin, joten {file} jää paikalleen siv
 #: src/files/trash.rs
 msgid "{e}, so {file} stays in the trash, with its sidecar"
 msgstr "{e}, joten {file} jää roskakoriin sivutiedostonsa kanssa"
+
+#: src/files/file_ops.rs
+msgid "{file} went back, but its sidecar {side} could not ({e}), so the sidecar is at {at}"
+msgstr "{file} palautettiin, mutta sen sivutiedosto {side} ei ({e}), joten sivutiedosto on kohteessa {at}"
+
+#: src/files/file_ops.rs
+msgid "{side} could not follow {file} ({e}), and {file} could not go back ({error}), so the file is at {to} and this sidecar at {side}"
+msgstr "{side} ei voinut seurata tiedostoa {file} ({e}), eikä {file} voinut palata ({error}), joten tiedosto on kohteessa {to} ja tämä sivutiedosto kohteessa {side}"

@@ -3086,3 +3086,11 @@ msgstr "{side} nie mógł trafić do kosza, więc {file} zostaje tam, gdzie był
 #: src/files/trash.rs
 msgid "{e}, so {file} stays in the trash, with its sidecar"
 msgstr "{e}, więc {file} zostaje w koszu, ze swoim plikiem pobocznym"
+
+#: src/files/file_ops.rs
+msgid "{file} went back, but its sidecar {side} could not ({e}), so the sidecar is at {at}"
+msgstr "{file} wrócił, ale jego plik poboczny {side} nie ({e}), więc plik poboczny jest w {at}"
+
+#: src/files/file_ops.rs
+msgid "{side} could not follow {file} ({e}), and {file} could not go back ({error}), so the file is at {to} and this sidecar at {side}"
+msgstr "{side} nie mógł podążyć za {file} ({e}), a {file} nie mógł wrócić ({error}), więc plik jest w {to}, a ten plik poboczny w {side}"
