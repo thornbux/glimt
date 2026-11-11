@@ -15,30 +15,14 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, PoisonError, mpsc};
 
 impl crate::App {
-    /// What the background threads and the rest of the desktop sent since the last frame: decoded
-    /// images and thumbnails, the folder listing, saves, dropped files, mounts, notices and the
-    /// file dialog's answer. The remote commands are taken in `logic` (main.rs) instead.
+    /// What the frame does with the background work and the rest of the desktop: it takes the
+    /// answers (`receive_answers`), and then what needs a frame: dropped files, the focus, the
+    /// clipboard, the busy pointer, the sizes and listings to start, the slideshow's step and the
+    /// failed writes to show. The remote commands are taken in `logic` (main.rs) instead.
     pub(crate) fn poll_background(&mut self, ctx: &egui::Context) {
-        if let Some(note) = crate::files::file_io::take_other_names_note() {
-            self.notice.give(note);
-        }
-        self.receive_desktop(ctx);
-        self.receive_window_name(ctx);
-        #[cfg(feature = "marks")]
-        self.marks.receive();
-        self.folder.receive_sort_folders();
-        self.info_panel.receive_keyword_tree();
         self.decoding
             .set_max_side(ctx.input(|i| i.max_texture_side) as u32);
-        self.receive_decoded(ctx);
-        self.receive_thumbs(ctx);
-        self.receive_listing(ctx, std::time::Duration::ZERO);
-        self.receive_sizes();
-        self.receive_sizes_and_dates();
-        self.receive_saved_order(ctx);
-        self.receive_real_folders(ctx);
-        self.receive_exif_index(ctx);
-        self.receive_operation_report(ctx);
+        self.receive_answers(ctx);
         // A write found a name that another file has taken since the folder was read, and left
         // that file alone. The folder is read again, and the marks, which showed the change
         // before it was written.
@@ -49,17 +33,15 @@ impl crate::App {
         }
         self.sum_selection_size(ctx);
         self.sum_match_size(ctx);
-        self.receive_file_work(ctx);
         // --slideshow: once the folder is read, so random order shuffles all of it.
         if self.slideshow.starts_now(!self.folder.is_listing()) {
             self.start_slideshow(ctx);
         }
-        self.receive_focus(ctx);
+        self.follow_focus(ctx);
         if let Some((img, _pointer)) = self.file_operations.take_image() {
             ctx.copy_image(img);
         }
-        self.receive_dropped(ctx);
-        self.receive_mount(ctx);
+        self.open_dropped_file(ctx);
         if self.working() {
             ctx.set_cursor_icon(egui::CursorIcon::Progress);
         }
@@ -70,27 +52,48 @@ impl crate::App {
         if self.folder.wants_relist() && !self.folder.is_listing() {
             self.start_listing(ctx);
         }
-        self.receive_lightroom();
-        self.receive_renames(ctx);
         self.slideshow_tick(ctx);
         if let Some(all) = self.folder.take_together() {
             self.open_folders(ctx, all);
         }
-        self.receive_picked(ctx);
-        self.receive_saved_theme(ctx);
         // The failed writes go last, so that no other notice of this frame hides them.
         if let Some(failed) = self.window.take_failed_writes_to_show() {
             self.notice.give(failed);
         }
     }
 
-    /// Takes the answers that need no frame: the sizes summed and freed, and the EXIF index.
-    /// `logic` calls this, also while the window is minimized and runs no `ui`, so their busy
-    /// pointers go then too. Before, they stayed until the window was shown again. The image for
-    /// the clipboard waits for a frame, as egui takes the clipboard only during one.
-    pub(crate) fn receive_answers_without_a_frame(&mut self, ctx: &egui::Context) {
+    /// Takes every answer that background threads and the desktop sent: decoded images and
+    /// thumbnails, the place looked up, the folder listing, the mount, saves, reports, the
+    /// window's name and the file dialog's answer. `receive_remote` calls this first, and
+    /// `logic` calls that also while the window is minimized or hidden and runs no `ui`. So a
+    /// busy pointer that an answer holds goes then too, and a `--remote` command that waits
+    /// for the work (`--wait`, a select, `name`) is answered. Before, these were taken only in
+    /// `ui`, and such a command to a hidden window got no answer until it was shown again.
+    pub(crate) fn receive_answers(&mut self, ctx: &egui::Context) {
+        if let Some(note) = crate::files::file_io::take_other_names_note() {
+            self.notice.give(note);
+        }
+        self.receive_desktop(ctx);
+        self.receive_window_name(ctx);
+        #[cfg(feature = "marks")]
+        self.marks.receive();
+        self.folder.receive_sort_folders();
+        self.info_panel.receive_keyword_tree();
+        self.receive_decoded(ctx);
+        self.receive_thumbs(ctx);
+        self.receive_listing(ctx, std::time::Duration::ZERO);
         self.receive_sizes();
+        self.receive_sizes_and_dates();
+        self.receive_saved_order(ctx);
+        self.receive_real_folders(ctx);
         self.receive_exif_index(ctx);
+        self.receive_operation_report(ctx);
+        self.receive_file_work(ctx);
+        self.receive_mount(ctx);
+        self.receive_lightroom();
+        self.receive_renames(ctx);
+        self.receive_picked(ctx);
+        self.receive_saved_theme(ctx);
     }
 
     /// The desktop's look and screen profile, once read, and the colour profiles set.
@@ -149,7 +152,7 @@ impl crate::App {
 
     /// The window's focus: this Glimt becomes the one `--remote` talks to, and marks another
     /// window made meanwhile are read.
-    fn receive_focus(&mut self, ctx: &egui::Context) {
+    fn follow_focus(&mut self, ctx: &egui::Context) {
         let focus = ctx.input(|i| i.viewport().focused.unwrap_or(false));
         let gained = self.window.set_focused(focus);
         // The file that says so is Glimt's own, written in the writer's thread.
@@ -164,7 +167,7 @@ impl crate::App {
     }
 
     /// A file or folder dropped on the window opens there, as File → Open would.
-    fn receive_dropped(&mut self, ctx: &egui::Context) {
+    fn open_dropped_file(&mut self, ctx: &egui::Context) {
         let dropped = ctx.input(|i| {
             let mut paths = i.raw.dropped_files.iter().map(|f| f.path().to_path_buf());
             paths.find(|p| !p.as_os_str().is_empty())
@@ -295,21 +298,32 @@ pub(crate) fn spawn_thumbnailers(
 mod tests {
     use crate::support::test_support::{app_on, contract_folder};
 
-    /// A minimized window runs `logic` but no `ui`, and takes there the answers that need no
-    /// frame, such as the bytes a delete freed, so their busy pointer goes. Before, only `ui`
-    /// took them, and the pointer stayed until the window was shown again.
+    /// A minimized window runs `logic` but no `ui`, and takes there every answer of the
+    /// background work, such as the bytes a delete freed, so their busy pointer goes. Before,
+    /// only `ui` took most of them, and the pointer stayed until the window was shown again.
+    /// `poll_background` takes no answer of its own beside `receive_answers`, so a new one is
+    /// taken in `logic` too.
     #[test]
     fn answers_that_need_no_frame_are_taken_without_one() {
         let dir = contract_folder("answers-without-a-frame");
         let (mut app, ctx) = app_on(&dir);
         app.status_bar.freed_sender().send(1).unwrap();
         assert!(app.working_besides_image());
-        app.receive_answers_without_a_frame(&ctx);
+        app.receive_remote(&ctx);
         assert!(!app.working_besides_image());
-        let main = include_str!("../main.rs");
-        let logic = &main[main.find("fn logic(").unwrap()..];
-        let logic = &logic[..logic.find("\n    }\n").unwrap()];
-        assert!(logic.contains("self.receive_answers_without_a_frame(ctx);"));
+        let body_of = |text: &'static str, name: &str| {
+            let body = &text[text.find(&format!("fn {name}(")).unwrap()..];
+            body[..body.find("\n    }\n").unwrap()].to_owned()
+        };
+        let logic = body_of(include_str!("../main.rs"), "logic");
+        assert!(logic.contains("self.receive_remote(ctx);"));
+        let remote = body_of(include_str!("../features/remote.rs"), "receive_remote");
+        assert!(remote.contains("self.receive_answers(ctx);"));
+        let poll = body_of(include_str!("workers.rs"), "poll_background");
+        let taken: Vec<&str> = (poll.lines())
+            .filter(|l| l.contains(".receive") || l.contains("try_recv") || l.contains(".take()"))
+            .collect();
+        assert_eq!(taken, ["        self.receive_answers(ctx);"]);
         std::fs::remove_dir_all(dir).unwrap();
     }
 
