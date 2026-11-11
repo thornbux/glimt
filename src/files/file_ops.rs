@@ -72,6 +72,9 @@ pub(crate) struct RenameOutcome {
     /// Whether each file is under a name the rename knows: its new one, or its old one again.
     /// It is false when a failed rename could not put every old name back.
     names_known: bool,
+    /// Whether a Stop, also that of a second close, ended the rename with every old name back.
+    /// That is told as a stop, not as a failed write that would keep the window open.
+    stopped: bool,
 }
 
 /// Why `rename_files` failed, and whether every file it renamed has its old name back.
@@ -79,6 +82,8 @@ pub(crate) struct RenameOutcome {
 pub(crate) struct RenameFailed {
     text: String,
     names_put_back: bool,
+    /// Whether a Stop ended it, with every old name back.
+    stopped: bool,
 }
 
 impl From<String> for RenameFailed {
@@ -87,6 +92,7 @@ impl From<String> for RenameFailed {
         RenameFailed {
             text,
             names_put_back: true,
+            stopped: false,
         }
     }
 }
@@ -1401,6 +1407,7 @@ impl crate::App {
             left_alone,
             undo,
             names_known,
+            stopped,
         } = answer;
         let failed = result.is_err();
         // The files left alone are told by name, as an Undo of a move tells them.
@@ -1418,6 +1425,12 @@ impl crate::App {
                 true => tf!("Undo failed ({count}): {first}", count, first),
                 false => tf!("Rename failed ({count}): {first}", count, first),
             })
+        } else if stopped {
+            // A Stop that put every name back is no failure, and a second close then closes.
+            if let Err(text) = &result {
+                self.notice.give(text.clone());
+            }
+            None
         } else {
             result.err()
         };
@@ -2132,12 +2145,16 @@ impl crate::App {
                     })
                     .expect("the names never run out"),
             };
+            // A Stop, also that of a second close, is told as a stop and not as a failed write,
+            // which would keep the window open after the user asked it to close.
+            let stopped = std::sync::atomic::AtomicBool::new(false);
             let saved = if made.is_err() {
                 Err(tf!("Could not make {folder}", folder = folder.display()))
             } else {
                 decode::catch_panic_as_error(|| {
                     decode::each_frame(&path, only, rotate, |k, img| {
                         if job.is_stopped() {
+                            stopped.store(true, Ordering::Relaxed);
                             return Err(job.stopped_text());
                         }
                         let file = match only {
@@ -2175,6 +2192,7 @@ impl crate::App {
                     frames = count(n, "frame"),
                     folder = folder.display()
                 )),
+                (Err(e), _) if stopped.load(Ordering::Relaxed) => Told::Notice(e),
                 (Err(e), _) => Told::FailedWrite(tf!("Could not save the frames: {e}", e)),
             })
         });
@@ -2642,11 +2660,11 @@ fn rename_undoable(
         .map(|(_, pair)| pair)
         .collect();
     let (kept_from, kept_to) = pairs.iter().cloned().unzip();
-    let (result, names_known) = match pairs.is_empty() {
-        true => (Ok(()), true),
+    let (result, names_known, stopped) = match pairs.is_empty() {
+        true => (Ok(()), true, false),
         false => match rename_files(kept_from, kept_to, job) {
-            Ok(()) => (Ok(()), true),
-            Err(e) => (Err(e.text), e.names_put_back),
+            Ok(()) => (Ok(()), true, false),
+            Err(e) => (Err(e.text), e.names_put_back, e.stopped),
         },
     };
     // An Undo that failed put the names back, so what it still has to do is the rename it was
@@ -2664,6 +2682,7 @@ fn rename_undoable(
         left_alone,
         undo,
         names_known,
+        stopped,
     }
 }
 
@@ -2778,7 +2797,11 @@ fn rename_files_planned_in(
             if stuck > 0 {
                 return Err(names_left_for_the_next_start(plan, (&f, &t), &e));
             }
-            return Err(tf!("Could not rename {f} to {t}: {e}; nothing renamed", f, t, e).into());
+            return Err(RenameFailed {
+                text: tf!("Could not rename {f} to {t}: {e}; nothing renamed", f, t, e),
+                names_put_back: true,
+                stopped,
+            });
         }
         // A file is counted when it lands under its name. That is the later half of a swap's
         // steps, and the sidecars do not count.
@@ -2814,6 +2837,7 @@ fn names_left_for_the_next_start(
             e
         ),
         names_put_back: false,
+        stopped: false,
     }
 }
 
@@ -5117,6 +5141,40 @@ mod tests {
         std::fs::remove_dir_all(d).unwrap();
     }
 
+    /// A Stop, also that of a second close, during Export Frames or Rename Many is told as a
+    /// stop. Before, each was told as a failed write, which kept the window open after the user
+    /// had asked it to close and stop, and cost one more Ctrl+Q.
+    #[test]
+    fn a_stop_is_no_failed_write() {
+        let d = contract_folder("stop-told");
+        let gif = d.join("g.gif");
+        let mut enc = image::codecs::gif::GifEncoder::new(std::fs::File::create(&gif).unwrap());
+        for c in 0..40u8 {
+            let pixel = image::Rgba([c, c, c, 255]);
+            let frame = image::Frame::new(image::RgbaImage::from_pixel(64, 64, pixel));
+            enc.encode_frame(frame).unwrap();
+        }
+        drop(enc);
+        let (mut app, ctx) = app_on(&d);
+        let how = app.shown_copy();
+        app.export_frames(&ctx, gif, None, (d.clone(), None), how);
+        app.file_operations.stop_jobs();
+        assert!(run_background_until(&mut app, &ctx, |app| !app.working()));
+        assert_eq!(app.window.failed_writes_told(), 0);
+        assert!(app.notice.text().unwrap_or_default().contains("Stopped"));
+        // Rename Many, stopped before its first step, puts every name back.
+        let a = app.list.files().iter().position(|f| f == "a.png").unwrap();
+        let listed = app.listed_file(a);
+        let picked = crate::files::file_io::PickedFiles::listed(vec![listed.clone()]);
+        app.rename_in_background(&ctx, vec![listed], vec![d.join("c.png")], picked);
+        app.file_operations.stop_jobs();
+        assert!(run_background_until(&mut app, &ctx, |app| !app.working()));
+        assert_eq!(app.window.failed_writes_told(), 0);
+        assert!(app.notice.text().unwrap_or_default().contains("stopped"));
+        assert!(d.join("a.png").exists() && !d.join("c.png").exists());
+        std::fs::remove_dir_all(d).unwrap();
+    }
+
     /// Every operation that starts a job or background work is in the contract above, or says
     /// here why it is not. So a new one cannot leave out what follows its files unseen.
     #[test]
@@ -6270,6 +6328,7 @@ mod tests {
             left_alone: Vec::new(),
             undo: Vec::new(),
             names_known: false,
+            stopped: false,
         };
         app.finish_rename_many(&ctx, job, outcome);
         assert!(run_background_until(&mut app, &ctx, |app| !app
