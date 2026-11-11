@@ -619,6 +619,9 @@ const DISK_CALLS: &[&str] = &[
     "run_limited(",
     "output_of(",
     "short_output_of(",
+    // A program waited for under a `Watchdog`, which may take minutes (`lp`, `gio mount`).
+    "wait_with_output(",
+    ".wait()",
     "from_decoder(",
     "scaled(",
     "from_memory(",
@@ -5621,4 +5624,19 @@ fn finds_a_disk_call_in_the_window_thread() {
             ("a.rs", "default", ".is_symlink()", 77),
         ]
     );
+}
+
+/// `the_window_thread_never_waits_for_the_disk` also finds a wait for a program that a
+/// `Watchdog` limits, which takes minutes, through a function that reaches no other call it
+/// looks for. Before, only `run_limited`, `output_of` and `short_output_of` were found.
+#[test]
+fn finds_a_wait_for_a_program_in_the_window_thread() {
+    let a = "impl crate::App {\n    fn a(&self) {\n        send_to_printer(p);\n    }\n    \
+        fn b(&self) {\n        mount(p);\n    }\n}\nfn send_to_printer(p: &Path) {\n    \
+        child.wait_with_output();\n}\nfn mount(p: &Path) {\n    child.wait();\n}\n";
+    let found = disk_calls_in_window_thread(&[("a.rs".into(), a.into())], &[]);
+    let found: Vec<(&str, &str)> = (found.iter())
+        .map(|(_, f, c, ..)| (f.as_str(), c.as_str()))
+        .collect();
+    assert_eq!(found, [("a", "send_to_printer("), ("b", "mount(")]);
 }
