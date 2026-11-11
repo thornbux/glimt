@@ -788,6 +788,7 @@ msgstr[1] "bilder"
                     "JPEG comment",
                     "PNG chunk {}",
                     "WebP chunk {}",
+                    "JPEG marker 0x{marker:02x}",
                 ],
                 "tags' names, shown as files name tags",
             ),
