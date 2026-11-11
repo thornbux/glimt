@@ -743,18 +743,25 @@ pub fn names_left(
 
 /// Leaves the files of the plan `plan`, of the renames `moves` of which `done` were done, under
 /// the names they have now, and removes the plan. Nothing is renamed or deleted. Returns the
-/// renames done, `(old name, name now)`, which the marks and collections follow, or `None` when
-/// another window has the plan or has put it right already.
+/// renames done, `(old name, name now)`, which the marks and collections follow. Returns
+/// `Err(None)` when the plan is gone, as another window has put it right already, and
+/// `Err(Some(why))` when it could not be opened or another window has it open now. The plan
+/// then stays.
 pub fn leave_names(
     plan: &Path,
     moves: &[(PathBuf, PathBuf)],
     done: Option<usize>,
-) -> Option<Vec<(PathBuf, PathBuf)>> {
+) -> Result<Vec<(PathBuf, PathBuf)>, Option<std::io::Error>> {
     // Only one window at a time, and only while the plan is there, as `repair_cut_short`.
-    let _held = crate::images::decode::open_regular(plan)
-        .ok()
-        .filter(take_lock_if_free)
-        .filter(is_linked)?;
+    let held = crate::images::decode::open_regular(plan)
+        .map_err(|e| (e.kind() != std::io::ErrorKind::NotFound).then_some(e))?;
+    if !take_lock_if_free(&held) {
+        let why = crate::support::lang::tr("another window has them open");
+        return Err(Some(std::io::Error::other(why)));
+    }
+    if !is_linked(&held) {
+        return Err(None);
+    }
     // Each file is followed to the name the count says it has now, and a pair is given only
     // where a file may be there (`is_followed_to`). Taken from the count alone, a repair that
     // stopped half way gave a photo that went back to its old name the marks of a name where
@@ -764,7 +771,8 @@ pub fn leave_names(
         .map(|(first, now, ..)| (first.to_path_buf(), now.to_path_buf()))
         .collect();
     remove_plan(plan, &one_name_per_folder(moves));
-    Some(followed)
+    drop(held);
+    Ok(followed)
 }
 
 /// Each file of the renames `moves` of which `done` were done, as (its first name, its name
@@ -1609,7 +1617,7 @@ mod tests {
         let (plan, moves, done) = super::cut_short_plans(&plans).remove(0);
         lock_even_if_poisoned(&LOOKS_FAIL).push(p("b.jpg"));
         let _ = crate::files::file_io::take_saves_failed();
-        let followed = super::leave_names(&plan, &moves, done);
+        let followed = super::leave_names(&plan, &moves, done).ok();
         lock_even_if_poisoned(&LOOKS_FAIL).retain(|f| *f != p("b.jpg"));
         assert_eq!(followed, Some(vec![(p("a.jpg"), p("b.jpg"))]));
         let told = crate::files::file_io::take_saves_failed();

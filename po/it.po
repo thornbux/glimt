@@ -3119,3 +3119,11 @@ msgstr "{side} non ha potuto seguire {file} ({e}), e {file} non ha potuto tornar
 #: src/files/file_io.rs
 msgid "Could not look at {name}: {e}. Its marks and collection entries followed it there all the same, as the file was there before."
 msgstr "Impossibile controllare {name}: {e}. I suoi contrassegni e le voci nelle raccolte lo hanno seguito lì comunque, perché il file era lì prima."
+
+#: src/ui/dialogs.rs
+msgid "Could not leave the names as they are: {e}. Rename Many asks about them again at the next start."
+msgstr "Impossibile lasciare i nomi come sono: {e}. Rinomina multipla lo chiederà di nuovo al prossimo avvio."
+
+#: src/files/journal.rs
+msgid "another window has them open"
+msgstr "un'altra finestra li ha aperti"

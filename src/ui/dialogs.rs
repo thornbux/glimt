@@ -1341,15 +1341,28 @@ fn leave_names_as_they_are(
     plans: &[journal::CutShort],
     report_tx: &AnswerSender<OperationReport>,
 ) -> Option<Told> {
-    let left: Vec<_> = (plans.iter())
-        .filter_map(|(plan, moves, done)| journal::leave_names(plan, moves, *done))
-        .collect();
+    let (mut left, mut failed) = (Vec::new(), None);
+    for (plan, moves, done) in plans {
+        match journal::leave_names(plan, moves, *done) {
+            Ok(followed) => left.push(followed),
+            Err(None) => {}
+            Err(Some(e)) => failed = Some(e),
+        }
+    }
     let _ = report_tx.send(OperationReport {
         read_folder_again: true,
         moved: left.iter().flatten().cloned().collect(),
         is_moved_from_a_record: true,
         ..Default::default()
     });
+    // A plan that could not be opened or is open in another window stays, and is told.
+    if let Some(e) = failed {
+        return Some(Told::FailedWrite(tf!(
+            "Could not leave the names as they are: {e}. Rename Many asks about them again at \
+             the next start.",
+            e
+        )));
+    }
     // Another window had every plan, so nothing was left as it is here.
     if left.is_empty() {
         return Some(Told::Notice(
@@ -2158,6 +2171,35 @@ mod tests {
             panic!("{told:?}")
         };
         assert!(text.contains("Nothing was changed here"), "{text}");
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// Leaving the names of a plan that another window has open is told as a failure, and the
+    /// plan stays. Before, it said that another window had put the renames right already.
+    #[test]
+    fn leaving_names_of_a_plan_open_elsewhere_is_told_as_not_done() {
+        use crate::files::journal;
+        let dir =
+            std::env::temp_dir().join(format!("glimt-test-leave-held-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let plans = dir.join("plans");
+        std::fs::create_dir_all(&dir).unwrap();
+        let (app, _ctx) = crate::support::test_support::app_on(&dir);
+        std::fs::write(dir.join("a.jpg"), "a").unwrap();
+        let moves = vec![(dir.join("a.jpg"), dir.join("b.jpg"))];
+        journal::start_journal(&plans, &moves)
+            .unwrap()
+            .keep_on_disk();
+        let held = journal::cut_short_plans(&plans);
+        let other = std::fs::File::open(&held[0].0).unwrap();
+        other.lock().unwrap();
+        let told = super::leave_names_as_they_are(&held, &app.file_operations.report_sender());
+        drop(other);
+        let Some(super::Told::FailedWrite(text)) = told else {
+            panic!("{told:?}")
+        };
+        assert!(text.contains("another window has them open"), "{text}");
+        assert_eq!(journal::cut_short_plans(&plans).len(), 1);
         std::fs::remove_dir_all(dir).unwrap();
     }
 }

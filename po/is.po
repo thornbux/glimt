@@ -3119,3 +3119,11 @@ msgstr "{side} gat ekki fylgt {file} ({e}), og {file} gat ekki farið til baka (
 #: src/files/file_io.rs
 msgid "Could not look at {name}: {e}. Its marks and collection entries followed it there all the same, as the file was there before."
 msgstr "Gat ekki skoðað {name}: {e}. Merkingar og færslur í söfnum fylgdu skránni þangað samt, þar sem hún var þar áður."
+
+#: src/ui/dialogs.rs
+msgid "Could not leave the names as they are: {e}. Rename Many asks about them again at the next start."
+msgstr "Gat ekki látið heitin vera eins og þau eru: {e}. Endurnefna margar spyr um þau aftur við næstu ræsingu."
+
+#: src/files/journal.rs
+msgid "another window has them open"
+msgstr "annar gluggi er með þau opin"

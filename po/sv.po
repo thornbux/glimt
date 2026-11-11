@@ -3119,3 +3119,11 @@ msgstr "{side} kunde inte följa {file} ({e}), och {file} kunde inte flyttas til
 #: src/files/file_io.rs
 msgid "Could not look at {name}: {e}. Its marks and collection entries followed it there all the same, as the file was there before."
 msgstr "Kunde inte titta på {name}: {e}. Dess markeringar och samlingsposter följde den dit ändå, eftersom filen fanns där förut."
+
+#: src/ui/dialogs.rs
+msgid "Could not leave the names as they are: {e}. Rename Many asks about them again at the next start."
+msgstr "Kunde inte låta namnen vara som de är: {e}. Byt namn på flera frågar om dem igen vid nästa start."
+
+#: src/files/journal.rs
+msgid "another window has them open"
+msgstr "ett annat fönster har dem öppna"

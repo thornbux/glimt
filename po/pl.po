@@ -3130,3 +3130,11 @@ msgstr "{side} nie mógł podążyć za {file} ({e}), a {file} nie mógł wróci
 #: src/files/file_io.rs
 msgid "Could not look at {name}: {e}. Its marks and collection entries followed it there all the same, as the file was there before."
 msgstr "Nie udało się sprawdzić {name}: {e}. Jego oznaczenia i wpisy w kolekcjach i tak podążyły tam za nim, bo plik był tam wcześniej."
+
+#: src/ui/dialogs.rs
+msgid "Could not leave the names as they are: {e}. Rename Many asks about them again at the next start."
+msgstr "Nie udało się zostawić nazw bez zmian: {e}. Zmiana wielu nazw zapyta o nie ponownie przy następnym uruchomieniu."
+
+#: src/files/journal.rs
+msgid "another window has them open"
+msgstr "inne okno ma je otwarte"

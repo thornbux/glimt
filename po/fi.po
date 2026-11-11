@@ -3123,3 +3123,11 @@ msgstr "{side} ei voinut seurata tiedostoa {file} ({e}), eikä {file} voinut pal
 #: src/files/file_io.rs
 msgid "Could not look at {name}: {e}. Its marks and collection entries followed it there all the same, as the file was there before."
 msgstr "Kohdetta {name} ei voitu tarkistaa: {e}. Sen merkinnät ja kokoelmamerkinnät seurasivat sitä sinne silti, koska tiedosto oli siellä aiemmin."
+
+#: src/ui/dialogs.rs
+msgid "Could not leave the names as they are: {e}. Rename Many asks about them again at the next start."
+msgstr "Nimiä ei voitu jättää ennalleen: {e}. Monen uudelleennimeäminen kysyy niistä uudelleen seuraavalla käynnistyskerralla."
+
+#: src/files/journal.rs
+msgid "another window has them open"
+msgstr "toinen ikkuna pitää niitä auki"

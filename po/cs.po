@@ -3141,3 +3141,11 @@ msgstr "{side} nemohl následovat {file} ({e}) a {file} se nemohl vrátit ({erro
 #: src/files/file_io.rs
 msgid "Could not look at {name}: {e}. Its marks and collection entries followed it there all the same, as the file was there before."
 msgstr "{name} nelze zkontrolovat: {e}. Jeho značky a položky v kolekcích jej tam přesto následovaly, protože soubor tam předtím byl."
+
+#: src/ui/dialogs.rs
+msgid "Could not leave the names as they are: {e}. Rename Many asks about them again at the next start."
+msgstr "Jména nelze ponechat tak, jak jsou: {e}. Hromadné přejmenování se na ně zeptá znovu při příštím spuštění."
+
+#: src/files/journal.rs
+msgid "another window has them open"
+msgstr "jiné okno je má otevřené"
