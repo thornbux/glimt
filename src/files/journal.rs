@@ -702,6 +702,78 @@ pub fn repair_cut_short(
     Some((renamed + first, left))
 }
 
+/// Returns the list of the files of the plan `plan`, of the renames `moves` of which `done` were
+/// done, that are not under the names they were to get: their old names when `undo_them`, and
+/// otherwise their new ones. Each line names a file as it is now, a swap's hidden name
+/// included, then the name it was to get, and why the repair refused it where it did. It is
+/// what the user is given to save or copy before the names are left as they are
+/// (`leave_names`), to rename those files by hand. Returns an empty text when every file is
+/// under the name it was to get.
+pub fn names_left(
+    plan: &Path,
+    moves: &[(PathBuf, PathBuf)],
+    done: Option<usize>,
+    undo_them: bool,
+) -> String {
+    use crate::files::file_io::{KnownAs, is_still_the_file};
+    let known = crate::images::decode::read_text(known_path(plan))
+        .map_or_else(|_| Vec::new(), |text| parse_known(&text, moves.len()));
+    let done = done_by_names(moves, done.unwrap_or(0)).min(moves.len());
+    // Each file as (its first name, its name now, its last name, its fingerprint). A step that
+    // moves on a file an earlier step moved (a swap's second step) moves the same file.
+    let mut files: Vec<(&Path, &Path, &Path, Option<FileFingerprint>)> = Vec::new();
+    let mut file_at: HashMap<&Path, usize> = HashMap::new();
+    for (k, (a, b)) in moves.iter().enumerate() {
+        let (a, b) = (a.as_path(), b.as_path());
+        let n = file_at.remove(a).unwrap_or_else(|| {
+            files.push((a, a, a, known.get(k).copied().flatten()));
+            files.len() - 1
+        });
+        files[n].2 = b;
+        if k < done {
+            files[n].1 = b;
+        }
+        file_at.insert(b, n);
+    }
+    let mut text = String::new();
+    for (first, now, last, known) in files {
+        let meant = if undo_them { first } else { last };
+        if now == meant || is_surely_gone(now) {
+            continue;
+        }
+        text += &format!("{} → {}", now.display(), meant.display());
+        let hidden =
+            (now.file_name().unwrap_or_default().as_bytes()).starts_with(HIDDEN_NAME.as_bytes());
+        let refused = known
+            .filter(|_| !hidden)
+            .and_then(|known| is_still_the_file(now, KnownAs::size_and_time(known)).err());
+        if let Some(e) = refused {
+            text += &format!(": {e}");
+        }
+        text.push('\n');
+    }
+    text
+}
+
+/// Leaves the files of the plan `plan`, of the renames `moves` of which `done` were done, under
+/// the names they have now, and removes the plan. Nothing is renamed or deleted. Returns the
+/// renames done, `(old name, name now)`, which the marks and collections follow, or `None` when
+/// another window has the plan or has put it right already.
+pub fn leave_names(
+    plan: &Path,
+    moves: &[(PathBuf, PathBuf)],
+    done: Option<usize>,
+) -> Option<Vec<(PathBuf, PathBuf)>> {
+    // Only one window at a time, and only while the plan is there, as `repair_cut_short`.
+    let _held = crate::images::decode::open_regular(plan)
+        .ok()
+        .filter(take_lock_if_free)
+        .filter(is_linked)?;
+    let done = done_by_names(moves, done.unwrap_or(0)).min(moves.len());
+    remove_plan(plan, &one_name_per_folder(moves));
+    Some(pairs(&moves[..done]))
+}
+
 /// How many steps were done. It is `done`, or more where the names on disk show it, because a
 /// power cut may lose the last counts. The names each step leaves are followed from the start,
 /// and the first count from `done` on whose names are all as on disk is taken. Undone from the
@@ -1395,6 +1467,71 @@ mod tests {
             Some((1, 0))
         );
         assert_eq!(image::image_dimensions(p("a.png")).unwrap(), (4, 4));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A repair refused for good (another program changed a photo) has a way out: the list of
+    /// the files not under the names they were to get, a swap's hidden names among them, and
+    /// then the names left as they are, with the plan gone and nothing renamed or deleted. The
+    /// marks follow the renames that were done.
+    #[test]
+    fn a_refused_repair_can_leave_the_names_as_they_are() {
+        let dir =
+            std::env::temp_dir().join(format!("glimt-test-plan-leave-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let (plans, p) = (dir.join("plans"), |n: &str| dir.join(n));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(p("a.jpg"), "a").unwrap();
+        std::fs::write(p("b.jpg"), "b").unwrap();
+        std::fs::write(p("c.jpg"), "c").unwrap();
+        let hidden = |n: &str| p(&format!("{}x-{n}", super::HIDDEN_NAME));
+        // A swap of a.jpg and b.jpg, then c.jpg to d.jpg, cut short with a.jpg's photo under
+        // its hidden name and c.jpg's at d.jpg.
+        let moves = vec![
+            (p("a.jpg"), hidden("0")),
+            (p("b.jpg"), p("a.jpg")),
+            (hidden("0"), p("b.jpg")),
+            (p("c.jpg"), p("d.jpg")),
+        ];
+        let mut plan = super::start_journal(&plans, &moves).unwrap();
+        for k in [0, 1] {
+            super::rename_step(&moves[k].0, &moves[k].1).unwrap();
+            plan.count_step_done();
+        }
+        plan.keep_on_disk();
+        // Another program changes the photo now at a.jpg (b's), so the repair is refused.
+        std::fs::write(p("a.jpg"), "b, edited").unwrap();
+        let (plan, moves, done) = super::cut_short_plans(&plans).remove(0);
+        assert_eq!(
+            super::repair_cut_short(&plan, &moves, done, true),
+            Some((0, 1))
+        );
+        let list = super::names_left(&plan, &moves, done, true);
+        let line = |now: &str, meant: &str| {
+            (list.lines()).find(|l| l.starts_with(&format!("{now} → {meant}")))
+        };
+        let (a, b, c, d, h) = (p("a.jpg"), p("b.jpg"), p("c.jpg"), p("d.jpg"), hidden("0"));
+        let shown = |p: &std::path::PathBuf| p.display().to_string();
+        assert!(line(&shown(&h), &shown(&a)).is_some(), "{list}");
+        assert!(
+            line(&shown(&a), &shown(&b)).is_some_and(|l| l.contains(": ")),
+            "{list}"
+        );
+        assert!(line(&shown(&c), &shown(&c)).is_none(), "{list}");
+        assert!(!list.contains(&shown(&d)), "{list}");
+        let followed = super::leave_names(&plan, &moves, done).unwrap();
+        assert_eq!(
+            followed,
+            vec![(a.clone(), h.clone()), (b.clone(), a.clone())]
+        );
+        assert!(super::cut_short_plans(&plans).is_empty());
+        assert!(!super::known_path(&plan).exists());
+        let read = |p: &std::path::PathBuf| std::fs::read_to_string(p).unwrap();
+        assert_eq!(
+            (read(&h), read(&a), read(&c)),
+            ("a".into(), "b, edited".into(), "c".into())
+        );
+        assert!(!b.exists() && !d.exists());
         std::fs::remove_dir_all(dir).unwrap();
     }
 

@@ -3075,3 +3075,31 @@ msgstr "{side} kunne ikke flyttes til papirkurven, så {file} bliver, hvor den v
 #: src/files/trash.rs
 msgid "{e}, so {file} stays in the trash, with its sidecar"
 msgstr "{e}, så {file} bliver i papirkurven, med sin sidefil"
+
+#: src/ui/dialogs.rs
+msgid "The names could not all be put right. Save or copy the list of the files that are not under the names they were to get. Then the names can be left as they are, and those files renamed by hand."
+msgstr "Navnene kunne ikke alle sættes rigtigt. Gem eller kopiér listen over de filer, der ikke har de navne, de skulle have. Så kan navnene blive, som de er, og de filer omdøbes i hånden."
+
+#: src/ui/dialogs.rs
+msgid "Save the list…"
+msgstr "Gem listen …"
+
+#: src/ui/dialogs.rs
+msgid "Copy the list"
+msgstr "Kopiér listen"
+
+#: src/ui/dialogs.rs
+msgid "Leave the names as they are"
+msgstr "Lad navnene være, som de er"
+
+#: src/ui/dialogs.rs
+msgid "The list was copied"
+msgstr "Listen blev kopieret"
+
+#: src/ui/dialogs.rs
+msgid "The names were left as they are"
+msgstr "Navnene blev ladt være, som de er"
+
+#: src/ui/dialogs.rs
+msgid "Rename Many was cut short, and these files are not under the names it was to give them. Each line names a file as it is now, then the name it was to get."
+msgstr "Omdøb flere blev afbrudt, og disse filer har ikke de navne, de skulle have. Hver linje giver en fils navn nu og derefter det navn, den skulle have."

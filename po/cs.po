@@ -3097,3 +3097,31 @@ msgstr "{side} nešlo přesunout do koše, proto {file} zůstává, kde byl, se 
 #: src/files/trash.rs
 msgid "{e}, so {file} stays in the trash, with its sidecar"
 msgstr "{e}, proto {file} zůstává v koši, se svým doprovodným souborem"
+
+#: src/ui/dialogs.rs
+msgid "The names could not all be put right. Save or copy the list of the files that are not under the names they were to get. Then the names can be left as they are, and those files renamed by hand."
+msgstr "Jména se nepodařilo všechna opravit. Uložte nebo zkopírujte seznam souborů, které nemají jména, jež měly dostat. Pak lze jména ponechat, jak jsou, a tyto soubory přejmenovat ručně."
+
+#: src/ui/dialogs.rs
+msgid "Save the list…"
+msgstr "Uložit seznam…"
+
+#: src/ui/dialogs.rs
+msgid "Copy the list"
+msgstr "Kopírovat seznam"
+
+#: src/ui/dialogs.rs
+msgid "Leave the names as they are"
+msgstr "Ponechat jména, jak jsou"
+
+#: src/ui/dialogs.rs
+msgid "The list was copied"
+msgstr "Seznam byl zkopírován"
+
+#: src/ui/dialogs.rs
+msgid "The names were left as they are"
+msgstr "Jména byla ponechána, jak jsou"
+
+#: src/ui/dialogs.rs
+msgid "Rename Many was cut short, and these files are not under the names it was to give them. Each line names a file as it is now, then the name it was to get."
+msgstr "Hromadné přejmenování bylo přerušeno a tyto soubory nemají jména, která měly dostat. Každý řádek uvádí jméno souboru nyní a pak jméno, které měl dostat."

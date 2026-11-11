@@ -3075,3 +3075,31 @@ msgstr "{side} kon niet naar de prullenbak, dus {file} blijft waar het was, met 
 #: src/files/trash.rs
 msgid "{e}, so {file} stays in the trash, with its sidecar"
 msgstr "{e}, dus {file} blijft in de prullenbak, met zijn sidecar-bestand"
+
+#: src/ui/dialogs.rs
+msgid "The names could not all be put right. Save or copy the list of the files that are not under the names they were to get. Then the names can be left as they are, and those files renamed by hand."
+msgstr "De namen konden niet allemaal worden rechtgezet. Sla de lijst op van de bestanden die niet de namen hebben die ze moesten krijgen, of kopieer hem. Daarna kunnen de namen blijven zoals ze zijn, en kunnen die bestanden met de hand worden hernoemd."
+
+#: src/ui/dialogs.rs
+msgid "Save the list…"
+msgstr "Lijst opslaan…"
+
+#: src/ui/dialogs.rs
+msgid "Copy the list"
+msgstr "Lijst kopiëren"
+
+#: src/ui/dialogs.rs
+msgid "Leave the names as they are"
+msgstr "De namen laten zoals ze zijn"
+
+#: src/ui/dialogs.rs
+msgid "The list was copied"
+msgstr "De lijst is gekopieerd"
+
+#: src/ui/dialogs.rs
+msgid "The names were left as they are"
+msgstr "De namen zijn gelaten zoals ze zijn"
+
+#: src/ui/dialogs.rs
+msgid "Rename Many was cut short, and these files are not under the names it was to give them. Each line names a file as it is now, then the name it was to get."
+msgstr "Meerdere hernoemen werd afgebroken, en deze bestanden hebben niet de namen die ze moesten krijgen. Elke regel geeft de naam van een bestand nu, en dan de naam die het moest krijgen."

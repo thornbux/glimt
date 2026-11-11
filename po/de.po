@@ -3075,3 +3075,31 @@ msgstr "{side} konnte nicht in den Papierkorb, daher bleibt {file}, wo es war, m
 #: src/files/trash.rs
 msgid "{e}, so {file} stays in the trash, with its sidecar"
 msgstr "{e}, daher bleibt {file} im Papierkorb, mit seiner Begleitdatei"
+
+#: src/ui/dialogs.rs
+msgid "The names could not all be put right. Save or copy the list of the files that are not under the names they were to get. Then the names can be left as they are, and those files renamed by hand."
+msgstr "Die Namen konnten nicht alle richtiggestellt werden. Speichern oder kopieren Sie die Liste der Dateien, die nicht die Namen haben, die sie bekommen sollten. Dann können die Namen bleiben, wie sie sind, und diese Dateien von Hand umbenannt werden."
+
+#: src/ui/dialogs.rs
+msgid "Save the list…"
+msgstr "Liste speichern …"
+
+#: src/ui/dialogs.rs
+msgid "Copy the list"
+msgstr "Liste kopieren"
+
+#: src/ui/dialogs.rs
+msgid "Leave the names as they are"
+msgstr "Die Namen lassen, wie sie sind"
+
+#: src/ui/dialogs.rs
+msgid "The list was copied"
+msgstr "Die Liste wurde kopiert"
+
+#: src/ui/dialogs.rs
+msgid "The names were left as they are"
+msgstr "Die Namen wurden gelassen, wie sie sind"
+
+#: src/ui/dialogs.rs
+msgid "Rename Many was cut short, and these files are not under the names it was to give them. Each line names a file as it is now, then the name it was to get."
+msgstr "Mehrere umbenennen wurde abgebrochen, und diese Dateien haben nicht die Namen, die sie bekommen sollten. Jede Zeile nennt den Namen einer Datei jetzt und dann den Namen, den sie bekommen sollte."

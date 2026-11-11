@@ -29,7 +29,7 @@ use eframe::egui;
 use std::collections::{HashMap, HashSet};
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, mpsc};
 use std::time::Instant;
 
@@ -163,6 +163,10 @@ pub(crate) struct OperationReport {
     /// The log of a Move, removed once the marks and collections have followed `moved`. One
     /// found at the start comes with the files that went before Glimt was killed.
     pub(crate) move_log: Option<journal::MoveLog>,
+    /// The plans of Rename Many cut short that a repair could not put right, with the list of
+    /// their files not under the names they were to get (`journal::names_left`). They are asked
+    /// about again at once, with the way out of leaving the names as they are.
+    pub(crate) cut_short_left: Option<(Vec<journal::CutShort>, String)>,
 }
 
 /// A file moved or renamed, `(from, to, fingerprint)`, as Undo puts it back. The fingerprint is
@@ -311,6 +315,10 @@ pub(crate) struct FileOperations {
     /// its report. While one runs, `undo` is older than the operation the user did last.
     undo_on_the_way: Arc<()>,
     cut_short: Vec<journal::CutShort>,
+    /// The list of the files of `cut_short` not under the names they were to get, after a
+    /// repair of them was refused (`journal::names_left`), and whether the user has saved or
+    /// copied it. Only then are the names left as they are.
+    names_left: Option<(String, Arc<AtomicBool>)>,
     /// The renames found cut short at the start, by a crash or a power cut during Rename Many,
     /// so they can be put right. They are read in the background.
     cut_short_rx: Receiving<Vec<journal::CutShort>>,
@@ -368,6 +376,7 @@ impl FileOperations {
             undo: None,
             undo_on_the_way: Arc::new(()),
             cut_short: Vec::new(),
+            names_left: None,
             cut_short_rx: Receiving::of(cut_short_rx),
             untrashable: None,
             clipboard: None,
@@ -481,7 +490,48 @@ impl FileOperations {
 
     /// The renames cut short, taken to be put right, or (Later) left for the next start.
     pub(crate) fn take_cut_short(&mut self) -> Vec<journal::CutShort> {
+        self.names_left = None;
         std::mem::take(&mut self.cut_short)
+    }
+
+    /// Asks again about the renames cut short `plans`, whose repair was refused, with `list`,
+    /// the files not under the names they were to get (`journal::names_left`).
+    pub(crate) fn ask_again_about_cut_short(
+        &mut self,
+        plans: Vec<journal::CutShort>,
+        list: String,
+    ) {
+        self.cut_short.extend(plans);
+        self.names_left = Some((list, Arc::default()));
+    }
+
+    /// Returns the list of the files that a refused repair left not under the names they were to
+    /// get, and whether the user has kept it (saved or copied it), or `None` when no repair was
+    /// refused.
+    pub(crate) fn names_left(&self) -> Option<(&str, bool)> {
+        let (list, kept) = self.names_left.as_ref()?;
+        Some((list, kept.load(Ordering::Relaxed)))
+    }
+
+    /// Returns the flag that tells that the user has kept the list of `names_left`, which a
+    /// save raises once the file is written.
+    pub(crate) fn names_left_kept(&self) -> Option<Arc<AtomicBool>> {
+        Some(self.names_left.as_ref()?.1.clone())
+    }
+
+    /// Keeps the files `files` that the trash refused on a mount of type `kind`, to ask about
+    /// once the list counted `now` listings is read again. The question names the mount of
+    /// the first refusal, and a file refused twice is asked about once.
+    fn keep_untrashable(&mut self, kind: String, files: Vec<PathBuf>, now: u64) {
+        match &mut self.untrashable {
+            Some((_, held, since)) => {
+                held.extend(files);
+                held.sort_unstable();
+                held.dedup();
+                *since = now;
+            }
+            none => *none = Some((kind, files, now)),
+        }
     }
 
     /// Leaves out of `files` those still being deleted, so a refresh does not bring them back.
@@ -859,6 +909,7 @@ impl crate::App {
                 folder_made,
                 untrashable,
                 move_log,
+                cut_short_left,
             },
             _pointer,
         ) in self
@@ -869,17 +920,10 @@ impl crate::App {
         {
             if let Some((kind, files)) = untrashable {
                 let now = self.folder.whole_listings();
-                match &mut self.file_operations.untrashable {
-                    // The question names the mount of the first refusal. A file refused twice
-                    // is asked about once.
-                    Some((_, held, since)) => {
-                        held.extend(files);
-                        held.sort_unstable();
-                        held.dedup();
-                        *since = now;
-                    }
-                    none => *none = Some((kind, files, now)),
-                }
+                self.file_operations.keep_untrashable(kind, files, now);
+            }
+            if let Some((plans, list)) = cut_short_left {
+                self.file_operations.ask_again_about_cut_short(plans, list);
             }
             if let Some((old, new)) = folder_renamed {
                 self.folder_renamed(ctx, old, new);
@@ -5360,8 +5404,9 @@ mod tests {
                 "needs sqlite3; a release check imports a catalog",
             ),
             (
-                "cut_short_dialog",
-                "journal's tests put every cut-short plan right",
+                "work_on_cut_short",
+                "journal's tests put every cut-short plan right and leave its names; \
+                 a_refused_repair_is_asked_about_again_with_a_way_out",
             ),
             (
                 "queue_write",

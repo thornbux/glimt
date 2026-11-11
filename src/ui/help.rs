@@ -285,8 +285,11 @@ pub(crate) const MANUAL: &[(&str, &str)] = &[
          does.\n\n\
          Rename with several files selected asks for a pattern: * is the old name and # a number \
          (### gives 001); existing files are never overwritten. If a crash or a power cut stops it \
-         halfway, the next start offers to put the old names back or to finish. A new name that \
-         starts with a dot, of a file or a folder, is refused unless View → Show Hidden Files is \
+         halfway, the next start offers to put the old names back or to finish. When that is \
+         refused, because another program changed a photo since, the question offers a way out: \
+         save or copy the list of the files not under the names they were to get (a hidden \
+         .glimt-rename- name among them), then leave the names as they are and rename those \
+         files by hand. Nothing is renamed or deleted then. A new name that starts with a dot, of a file or a folder, is refused unless View → Show Hidden Files is \
          on, as the list would hide it.\n\n\
          File → Open Recent has the last ten folders and collections opened, in every window; \
          Clear Recent there empties it, and Preferences can keep none at all.\n\n\

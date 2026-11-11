@@ -3075,3 +3075,31 @@ msgstr "{side} non è potuto andare nel cestino, quindi {file} resta dov'era, co
 #: src/files/trash.rs
 msgid "{e}, so {file} stays in the trash, with its sidecar"
 msgstr "{e}, quindi {file} resta nel cestino, con il suo file sidecar"
+
+#: src/ui/dialogs.rs
+msgid "The names could not all be put right. Save or copy the list of the files that are not under the names they were to get. Then the names can be left as they are, and those files renamed by hand."
+msgstr "Non è stato possibile sistemare tutti i nomi. Salva o copia l'elenco dei file che non hanno i nomi che dovevano ricevere. Poi i nomi possono restare come sono, e quei file essere rinominati a mano."
+
+#: src/ui/dialogs.rs
+msgid "Save the list…"
+msgstr "Salva l'elenco…"
+
+#: src/ui/dialogs.rs
+msgid "Copy the list"
+msgstr "Copia l'elenco"
+
+#: src/ui/dialogs.rs
+msgid "Leave the names as they are"
+msgstr "Lascia i nomi come sono"
+
+#: src/ui/dialogs.rs
+msgid "The list was copied"
+msgstr "L'elenco è stato copiato"
+
+#: src/ui/dialogs.rs
+msgid "The names were left as they are"
+msgstr "I nomi sono stati lasciati come sono"
+
+#: src/ui/dialogs.rs
+msgid "Rename Many was cut short, and these files are not under the names it was to give them. Each line names a file as it is now, then the name it was to get."
+msgstr "Rinomina multipla è stata interrotta, e questi file non hanno i nomi che doveva dare loro. Ogni riga dà il nome attuale di un file, poi il nome che doveva ricevere."

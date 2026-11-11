@@ -3079,3 +3079,31 @@ msgstr "{side} ei voinut siirtyä roskakoriin, joten {file} jää paikalleen siv
 #: src/files/trash.rs
 msgid "{e}, so {file} stays in the trash, with its sidecar"
 msgstr "{e}, joten {file} jää roskakoriin sivutiedostonsa kanssa"
+
+#: src/ui/dialogs.rs
+msgid "The names could not all be put right. Save or copy the list of the files that are not under the names they were to get. Then the names can be left as they are, and those files renamed by hand."
+msgstr "Kaikkia nimiä ei voitu korjata. Tallenna tai kopioi luettelo tiedostoista, joilla ei ole nimeä, joka niiden piti saada. Sitten nimet voi jättää ennalleen ja nimetä ne tiedostot uudelleen käsin."
+
+#: src/ui/dialogs.rs
+msgid "Save the list…"
+msgstr "Tallenna luettelo…"
+
+#: src/ui/dialogs.rs
+msgid "Copy the list"
+msgstr "Kopioi luettelo"
+
+#: src/ui/dialogs.rs
+msgid "Leave the names as they are"
+msgstr "Jätä nimet ennalleen"
+
+#: src/ui/dialogs.rs
+msgid "The list was copied"
+msgstr "Luettelo kopioitiin"
+
+#: src/ui/dialogs.rs
+msgid "The names were left as they are"
+msgstr "Nimet jätettiin ennalleen"
+
+#: src/ui/dialogs.rs
+msgid "Rename Many was cut short, and these files are not under the names it was to give them. Each line names a file as it is now, then the name it was to get."
+msgstr "Monen uudelleennimeäminen keskeytyi, eikä näillä tiedostoilla ole nimiä, jotka sen piti antaa. Jokainen rivi kertoo tiedoston nykyisen nimen ja sitten nimen, joka sen piti saada."

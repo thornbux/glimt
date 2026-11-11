@@ -10,7 +10,7 @@ use crate::files::file_ops::{NOT_ON_FAT, OperationReport, fat_file_system_type};
 use crate::model::listing::pattern_name;
 use crate::support::format::count;
 use crate::support::lang::tr;
-use crate::support::threads::{Receiving, Took, Working, answer_channel};
+use crate::support::threads::{AnswerSender, Receiving, Told, Took, Working, answer_channel};
 use crate::{files::journal, images::save, model::collections, tf, ui::theme};
 use eframe::egui;
 use std::ffi::OsString;
@@ -64,6 +64,9 @@ pub(crate) enum Pick {
     ExportFrames(PathBuf, save::CopyAs),
     /// Copy for Sharing: the folder for the copies of these images, which keep the tags named.
     CopyForSharing(PickedFiles, std::collections::HashSet<String>),
+    /// Where to save this list of the files that a Rename Many cut short left not under the
+    /// names they were to get (`journal::names_left`).
+    SaveNamesLeft(String),
 }
 
 /// What a file dialog answers: the path picked, or `None` when it was cancelled. A name to save
@@ -127,6 +130,18 @@ impl Asked {
 
 /// Save as Theme's answer when the theme was saved: its name and its file.
 type SavedTheme = (String, PathBuf);
+
+/// What is done in the background with the renames of a Rename Many cut short
+/// (`work_on_cut_short`).
+enum CutShortWork {
+    /// The old names put back (true), or the renames finished.
+    PutRight(bool),
+    /// The names left as they are, and the plans removed.
+    LeaveNames,
+    /// The list of the files not under the names they were to get (`journal::names_left`)
+    /// saved as the file picked, which had the fingerprint at the pick.
+    SaveList(String, PathBuf, Option<FileFingerprint>),
+}
 
 /// The small dialogs: a name asked for, a delete or a folder's trashing confirmed, and the file
 /// chooser.
@@ -381,7 +396,7 @@ impl crate::App {
         let start = self.dialog_start(&purpose);
         let save = matches!(
             purpose,
-            Pick::SavePdf(_) | Pick::SaveFrame(..) | Pick::SaveAs(..)
+            Pick::SavePdf(_) | Pick::SaveFrame(..) | Pick::SaveAs(..) | Pick::SaveNamesLeft(_)
         );
         let several = matches!(purpose, Pick::Folders);
         let ctx = ctx.clone();
@@ -402,6 +417,7 @@ impl crate::App {
             Pick::SaveFrame(..) => tr("Save This Frame as PNG"),
             Pick::ExportFrames(..) => tr("Export Every Frame To"),
             Pick::SaveAs(..) => tr("Save As"),
+            Pick::SaveNamesLeft(_) => tr("Save the list…"),
         };
         let notices = self.notice_sender.clone();
         let make_start_first = matches!(purpose, Pick::Collection);
@@ -462,6 +478,7 @@ impl crate::App {
                 &format!("-frame-{}.png", k + 1),
             )),
             Pick::SaveAs(_, _, start) => start.clone(),
+            Pick::SaveNamesLeft(_) => self.folder.dir().join("rename-many-left.txt"),
             // Made first in the dialog's thread (`pick`): the file dialog cannot start in a
             // folder that is not there.
             Pick::Collection => (collections::collections_dir())
@@ -595,6 +612,9 @@ impl crate::App {
                 }
                 (Pick::CopyForSharing(picked, kept), Some(dir)) => {
                     self.copy_for_sharing(picked, dir, kept)
+                }
+                (Pick::SaveNamesLeft(list), Some(file)) => {
+                    self.work_on_cut_short(ctx, CutShortWork::SaveList(list, file, at_pick))
                 }
             }
         }
@@ -821,7 +841,7 @@ impl crate::App {
                 self.run_in_background(ctx, Vec::new(), move || {
                     if let Err(e) = std::fs::create_dir(&target) {
                         let told = format!("{display}: {e}", display = target.display());
-                        return Some(crate::support::threads::Told::FailedWrite(told));
+                        return Some(Told::FailedWrite(told));
                     }
                     let _ = report_tx.send(OperationReport {
                         folder_made: Some(target),
@@ -855,7 +875,9 @@ impl crate::App {
     }
 
     /// Renames cut short by a crash or a power cut: put the old names back, or finish them, in
-    /// the background; Later asks again at the next start.
+    /// the background; Later asks again at the next start. When a repair was refused (another
+    /// program changed a photo), it also offers to save or copy the list of the files not under
+    /// the names they were to get, and then to leave the names as they are.
     pub(crate) fn cut_short_dialog(&mut self, ctx: &egui::Context) {
         let cut_short = self.file_operations.cut_short();
         if cut_short.is_empty() {
@@ -866,7 +888,8 @@ impl crate::App {
             .find_map(|c| c.1.first())
             .and_then(|m| m.0.parent())
             .map_or(String::new(), |p| p.display().to_string());
-        let mut choice = None;
+        let is_list_kept = self.file_operations.names_left().map(|(_, kept)| kept);
+        let (mut choice, mut save, mut copy, mut leave) = (None, false, false, false);
         egui::Modal::new(egui::Id::unique("cut short")).show(ctx, |ui| {
             ui.strong(tr("Rename Many was cut short"));
             ui.label(tf!(
@@ -876,6 +899,21 @@ impl crate::App {
                 folder,
                 steps = count(files, "step")
             ));
+            if let Some(is_list_kept) = is_list_kept {
+                ui.label(tr(
+                    "The names could not all be put right. Save or copy the list of the files \
+                     that are not under the names they were to get. Then the names can be left \
+                     as they are, and those files renamed by hand.",
+                ));
+                ui.horizontal(|ui| {
+                    save = crate::ui::menus::button(ui, tr("Save the list…")).clicked();
+                    copy = crate::ui::menus::button(ui, tr("Copy the list")).clicked();
+                    ui.add_enabled_ui(is_list_kept, |ui| {
+                        let left = crate::ui::menus::button(ui, tr("Leave the names as they are"));
+                        leave = left.clicked();
+                    });
+                });
+            }
             ui.horizontal(|ui| {
                 if crate::ui::menus::button(ui, tr("Put the old names back")).clicked() {
                     choice = Some(true);
@@ -889,7 +927,33 @@ impl crate::App {
                 }
             });
         });
-        let Some(undo) = choice else { return };
+        let list = || {
+            self.file_operations
+                .names_left()
+                .map(|(list, _)| list.to_owned())
+        };
+        if let Some(list) = list().filter(|_| copy) {
+            ctx.copy_text(list);
+            if let Some(kept) = self.file_operations.names_left_kept() {
+                kept.store(true, std::sync::atomic::Ordering::Relaxed);
+            }
+            self.notice.give(tr("The list was copied").into());
+        }
+        if let Some(list) = list().filter(|_| save) {
+            self.pick(ctx, false, Pick::SaveNamesLeft(list));
+        }
+        if leave {
+            return self.work_on_cut_short(ctx, CutShortWork::LeaveNames);
+        }
+        if let Some(undo) = choice {
+            self.work_on_cut_short(ctx, CutShortWork::PutRight(undo));
+        }
+    }
+
+    /// Does `work` with the renames cut short in the background, with every name they touch
+    /// held back from other work. Nothing starts while other work holds one of those names, and
+    /// the plans are then asked about again.
+    fn work_on_cut_short(&mut self, ctx: &egui::Context, work: CutShortWork) {
         // Asked before the plans are taken: one held back is asked about again.
         let held_back_files: Vec<PathBuf> = (self.file_operations.cut_short().iter())
             .flat_map(|(_, moves, _)| moves.iter().flat_map(|(a, b)| [a.clone(), b.clone()]))
@@ -897,43 +961,20 @@ impl crate::App {
         if !self.are_free_to_change(&held_back_files) {
             return;
         }
-        let plans = self.file_operations.take_cut_short();
-        let report_tx = self.file_operations.report_sender();
-        self.run_in_background(ctx, held_back_files, move || {
-            let (mut renamed, mut left) = (0, 0);
-            let mut moved = Vec::new();
-            for (plan, moves, done) in &plans {
-                // Put right by another window: nothing done here, nothing to tell.
-                let Some((r, l)) = journal::repair_cut_short(plan, moves, *done, undo) else {
-                    continue;
-                };
-                (renamed, left) = (renamed + r, left + l);
-                // Finished: marks and collections follow the files, as after a Rename Many.
-                if !undo && l == 0 {
-                    moved.extend(journal::pairs(moves));
-                }
+        let plans = match work {
+            CutShortWork::SaveList(..) => Vec::new(),
+            _ => self.file_operations.take_cut_short(),
+        };
+        let (report_tx, kept) = (
+            self.file_operations.report_sender(),
+            self.file_operations.names_left_kept(),
+        );
+        self.run_in_background(ctx, held_back_files, move || match work {
+            CutShortWork::PutRight(undo) => put_cut_short_right(plans, undo, &report_tx),
+            CutShortWork::LeaveNames => leave_names_as_they_are(&plans, &report_tx),
+            CutShortWork::SaveList(list, file, at_pick) => {
+                save_names_left(&list, (&file, at_pick), kept)
             }
-            // One report when the steps are done, which also reads the folder again: read
-            // before, the list would show the names of the middle.
-            let _ = report_tx.send(OperationReport {
-                read_folder_again: true,
-                moved,
-                ..Default::default()
-            });
-            let files = count(renamed, "file");
-            let mut message = match undo {
-                true => tf!("{files} given their old names back", files),
-                false => tf!("{files} renamed", files),
-            };
-            if left > 0 {
-                let files = count(left, "file");
-                message += &tf!(
-                    "; {files} could not be, asked again at the next start",
-                    files
-                );
-                return Some(crate::support::threads::Told::FailedWrite(message));
-            }
-            Some(crate::support::threads::Told::Notice(message))
         });
     }
 
@@ -1226,6 +1267,105 @@ impl crate::App {
     }
 }
 
+/// Puts the old names of the renames cut short `plans` back (`undo`), or finishes them, and
+/// sends what follows the files to `report_tx`. The plans whose repair is refused are asked
+/// about again at once, with the list of their files not under the names they were to get.
+/// Returns what to tell.
+fn put_cut_short_right(
+    plans: Vec<journal::CutShort>,
+    undo: bool,
+    report_tx: &AnswerSender<OperationReport>,
+) -> Option<Told> {
+    let (mut renamed, mut left) = (0, 0);
+    let (mut moved, mut left_plans, mut names_left) = (Vec::new(), Vec::new(), String::new());
+    for (plan, moves, done) in plans {
+        // Put right by another window: nothing done here, nothing to tell.
+        let Some((r, l)) = journal::repair_cut_short(&plan, &moves, done, undo) else {
+            continue;
+        };
+        (renamed, left) = (renamed + r, left + l);
+        // Finished: marks and collections follow the files, as after a Rename Many.
+        if !undo && l == 0 {
+            moved.extend(journal::pairs(&moves));
+        }
+        if l > 0 {
+            names_left += &journal::names_left(&plan, &moves, done, undo);
+            left_plans.push((plan, moves, done));
+        }
+    }
+    let header = tr(
+        "Rename Many was cut short, and these files are not under the names it was to give \
+         them. Each line names a file as it is now, then the name it was to get.",
+    );
+    // One report when the steps are done, which also reads the folder again: read before, the
+    // list would show the names of the middle.
+    let _ = report_tx.send(OperationReport {
+        read_folder_again: true,
+        moved,
+        cut_short_left: (!left_plans.is_empty())
+            .then(|| (left_plans, format!("{header}\n{names_left}"))),
+        ..Default::default()
+    });
+    let files = count(renamed, "file");
+    let mut message = match undo {
+        true => tf!("{files} given their old names back", files),
+        false => tf!("{files} renamed", files),
+    };
+    if left > 0 {
+        let files = count(left, "file");
+        message += &tf!(
+            "; {files} could not be, asked again at the next start",
+            files
+        );
+        return Some(Told::FailedWrite(message));
+    }
+    Some(Told::Notice(message))
+}
+
+/// Leaves the files of the renames cut short `plans` under the names they have now, and
+/// removes the plans. Nothing is renamed or deleted. The marks and collections follow the
+/// renames that were done, through `report_tx`. Returns what to tell.
+fn leave_names_as_they_are(
+    plans: &[journal::CutShort],
+    report_tx: &AnswerSender<OperationReport>,
+) -> Option<Told> {
+    let moved = (plans.iter())
+        .filter_map(|(plan, moves, done)| journal::leave_names(plan, moves, *done))
+        .flatten()
+        .collect();
+    let _ = report_tx.send(OperationReport {
+        read_folder_again: true,
+        moved,
+        ..Default::default()
+    });
+    Some(Told::Notice(tr("The names were left as they are").into()))
+}
+
+/// Saves `list`, the files that a Rename Many cut short left not under the names they were to
+/// get, as `file`, which the user picked when the file there had the fingerprint `at_pick`.
+/// Once it is written, `kept` is raised, and the names may be left as they are. Returns what
+/// to tell.
+fn save_names_left(
+    list: &str,
+    (file, at_pick): (&Path, Option<FileFingerprint>),
+    kept: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
+) -> Option<Told> {
+    use std::io::Write;
+    let write = |f: &mut std::fs::File| f.write_all(list.as_bytes());
+    let name = file.display();
+    Some(
+        match crate::files::file_io::write_picked_name(file, at_pick, write) {
+            Ok(()) => {
+                if let Some(kept) = kept {
+                    kept.store(true, std::sync::atomic::Ordering::Relaxed);
+                }
+                Told::Notice(tf!("Saved {file}", file = name))
+            }
+            Err(e) => Told::FailedWrite(tf!("Could not save {name}: {e}", name, e)),
+        },
+    )
+}
+
 /// Gives the text field `field` of a dialog the keyboard focus while no widget has it, as the
 /// dialog opens. It is called only for a dialog that stays open: focus given in the frame it
 /// closes would stay on a field that is gone, and take the next key.
@@ -1328,6 +1468,58 @@ fn run_chooser(
 mod tests {
     use crate::support::test_support::app_on;
     use eframe::egui;
+
+    /// A repair of a Rename Many cut short that is refused (another program changed a photo)
+    /// is asked about again at once, with the list of the files not under the names they were
+    /// to get. The list can be saved, and then the names left as they are: the plan goes, and
+    /// nothing is renamed. Before, the dialog came back at every start with no way out.
+    #[test]
+    fn a_refused_repair_is_asked_about_again_with_a_way_out() {
+        use crate::files::journal;
+        use crate::support::test_support::run_background_until;
+        let dir = std::env::temp_dir().join(format!(
+            "glimt-test-cut-short-way-out-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        let (plans, p) = (dir.join("plans"), |n: &str| dir.join(n));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(p("a.txt"), "a").unwrap();
+        let moves = vec![(p("a.txt"), p("b.txt"))];
+        let mut plan = journal::start_journal(&plans, &moves).unwrap();
+        journal::rename_step(&moves[0].0, &moves[0].1).unwrap();
+        plan.count_step_done();
+        plan.keep_on_disk();
+        // Another program changes the photo after "Later".
+        std::fs::write(p("b.txt"), "a, edited").unwrap();
+        let (mut app, ctx) = app_on(&dir);
+        let found = journal::cut_short_plans(&plans);
+        app.file_operations
+            .ask_again_about_cut_short(found, String::new());
+        app.work_on_cut_short(&ctx, super::CutShortWork::PutRight(true));
+        assert!(run_background_until(&mut app, &ctx, |app| !app.working()));
+        let (list, is_kept) = app.file_operations.names_left().unwrap();
+        let line = format!("{} → {}", p("b.txt").display(), p("a.txt").display());
+        assert!(list.contains(&line), "{list}");
+        assert!(!is_kept);
+        assert_eq!(app.file_operations.cut_short().len(), 1);
+        let list = list.to_owned();
+        let save = super::CutShortWork::SaveList(list.clone(), p("left.txt"), None);
+        app.work_on_cut_short(&ctx, save);
+        assert!(run_background_until(&mut app, &ctx, |app| !app.working()));
+        assert_eq!(std::fs::read_to_string(p("left.txt")).unwrap(), list);
+        assert_eq!(
+            app.file_operations.names_left().map(|(_, kept)| kept),
+            Some(true)
+        );
+        app.work_on_cut_short(&ctx, super::CutShortWork::LeaveNames);
+        assert!(run_background_until(&mut app, &ctx, |app| !app.working()));
+        assert!(app.file_operations.cut_short().is_empty());
+        assert!(journal::cut_short_plans(&plans).is_empty());
+        assert_eq!(std::fs::read_to_string(p("b.txt")).unwrap(), "a, edited");
+        assert!(!p("a.txt").exists());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
 
     /// Move To opens the folder chooser before the files picked are looked at, so that a file
     /// that a share no longer answers about does not keep it from opening. Before, every file
