@@ -3052,6 +3052,14 @@ msgstr "; sivutiedostoja kirjoitetaan yhä"
 msgid "Could not remove {name}: {e}"
 msgstr "Tiedostoa {name} ei voitu poistaa: {e}"
 
+#: src/files/file_io.rs
+msgid "another file has taken its name: the folder is read again"
+msgstr "toinen tiedosto on ottanut sen nimen: kansio luetaan uudelleen"
+
+#: src/files/file_ops.rs
+msgid "Rename failed ({count}): {first}"
+msgstr "Nimeäminen uudelleen epäonnistui ({count}): {first}"
+
 #: src/files/file_ops.rs
 msgid "{side}: {e}, so {file} stays where it was, with its sidecar"
 msgstr "{side}: {e}, joten {file} jää paikalleen sivutiedostonsa kanssa"

@@ -4,6 +4,7 @@
 //! files renamed or moved outside Glimt lose them.
 
 use crate::files::config::fits_on_a_line;
+use crate::files::file_io::ListedFile;
 use crate::files::trash::ForgottenMarks;
 use crate::support::threads::lock_even_if_poisoned;
 use std::collections::HashMap;
@@ -133,13 +134,20 @@ impl Marks {
     /// The read back reads the file only when another window wrote it, because the write keeps
     /// the file's stamp as known only when no other window wrote in between. So a key pressed
     /// with 500,000 files marked does not cost a read of the whole file.
-    pub fn toggle(&mut self, paths: &[PathBuf], n: u8) {
-        self.change(paths, Change::Toggle(1 << (n - 1)));
+    pub fn toggle(&mut self, files: &[ListedFile], n: u8) {
+        self.change(files, Change::Toggle(1 << (n - 1)));
         self.read_file_again(false);
     }
 
-    pub fn rate(&mut self, paths: &[PathBuf], stars: u8) {
-        self.change(paths, Change::Stars(stars));
+    /// Gives `files` the stars `stars`.
+    pub fn rate(&mut self, files: &[ListedFile], stars: u8) {
+        self.change(files, Change::Stars(stars));
+    }
+
+    /// Reads the marks file again after this window's writes queued before, also when it is as
+    /// held: a write found a name that another file had taken, and left its mark out.
+    pub fn read_again(&mut self) {
+        self.read_file_again(true);
     }
 
     /// Takes away the marks of the files deleted, and of every file in the folders deleted, so a
@@ -163,7 +171,10 @@ impl Marks {
             by_value.entry(value).or_default().push(path);
         }
         for ((bits, stars), paths) in by_value {
-            self.change(&paths, Change::Set(bits, stars));
+            let files: Vec<ListedFile> = (paths.into_iter())
+                .map(ListedFile::not_from_the_list)
+                .collect();
+            self.change(&files, Change::Set(bits, stars));
         }
     }
 
@@ -189,8 +200,8 @@ impl Marks {
         self.edit(Edit::FollowFolder(from, to));
     }
 
-    fn change(&mut self, paths: &[PathBuf], change: Change) {
-        self.edit(Edit::Change(paths.to_vec(), change));
+    fn change(&mut self, files: &[ListedFile], change: Change) {
+        self.edit(Edit::Change(files.to_vec(), change));
     }
 
     /// Makes `edit` to this window's marks and sends it to the file, where it is made again to
@@ -198,7 +209,7 @@ impl Marks {
     fn edit(&mut self, edit: Edit) {
         self.edits_made += 1;
         for edit in refuse_names_with_line_breaks(edit, &self.by_path) {
-            apply_edit(&mut self.by_path, &edit);
+            apply_edit(&mut self.by_path, &edit, &[]);
             save(edit);
         }
     }
@@ -223,7 +234,8 @@ thread_local! {
 
 /// What a window did, applied to the file as it is then.
 enum Edit {
-    Change(Vec<PathBuf>, Change),
+    /// A change of the files picked, each checked to be the one listed before it is made.
+    Change(Vec<ListedFile>, Change),
     /// Files moved or copied (the flag) from each first path to the second.
     Follow(Vec<(PathBuf, PathBuf)>, bool),
     /// A folder renamed from the first path to the second, with every file in it.
@@ -271,7 +283,7 @@ fn read_marks_file(file: &Path) -> HashMap<PathBuf, (u8, u8)> {
         .into_iter()
         .flatten()
     {
-        apply_edit(&mut map, edit);
+        apply_edit(&mut map, edit, &[]);
     }
     map
 }
@@ -317,7 +329,7 @@ fn refuse_names_with_line_breaks(edit: Edit, map: &HashMap<PathBuf, (u8, u8)>) -
     let (edits, left_out) = match edit {
         Edit::Change(mut paths, change) => {
             let before = paths.len();
-            paths.retain(|p| fits_on_a_line(p));
+            paths.retain(|p| fits_on_a_line(p.path()));
             let left_out = before - paths.len();
             let edits = (!paths.is_empty()).then_some(Edit::Change(paths, change));
             (edits.into_iter().collect(), left_out)
@@ -351,15 +363,15 @@ fn refuse_names_with_line_breaks(edit: Edit, map: &HashMap<PathBuf, (u8, u8)>) -
 }
 
 /// Apply `change` to each path's marks and stars; a path with neither is removed.
-fn apply(map: &mut HashMap<PathBuf, (u8, u8)>, paths: &[PathBuf], change: Change) {
+fn apply(map: &mut HashMap<PathBuf, (u8, u8)>, paths: &[&Path], change: Change) {
     let change = match change {
         Change::Toggle(bit) => {
-            let all = (paths.iter()).all(|p| map.get(p).is_some_and(|(bits, _)| bits & bit != 0));
+            let all = (paths.iter()).all(|p| map.get(*p).is_some_and(|(bits, _)| bits & bit != 0));
             Change::Mark(bit, !all)
         }
         change => change,
     };
-    for path in paths {
+    for &path in paths {
         let (bits, stars) = map.get(path).copied().unwrap_or_default();
         let new = match change {
             Change::Mark(bit, true) => (bits | bit, stars),
@@ -371,7 +383,7 @@ fn apply(map: &mut HashMap<PathBuf, (u8, u8)>, paths: &[PathBuf], change: Change
         };
         match new {
             (0, 0) => drop(map.remove(path)),
-            v => drop(map.insert(path.clone(), v)),
+            v => drop(map.insert(path.to_path_buf(), v)),
         }
     }
 }
@@ -394,9 +406,17 @@ fn follow_pairs(map: &mut HashMap<PathBuf, (u8, u8)>, pairs: &[(PathBuf, PathBuf
     }
 }
 
-fn apply_edit(map: &mut HashMap<PathBuf, (u8, u8)>, edit: &Edit) {
+/// Makes `edit` to the marks `map`, leaving out the files in `taken`, whose names other files
+/// have taken since the list showed them.
+fn apply_edit(map: &mut HashMap<PathBuf, (u8, u8)>, edit: &Edit, taken: &[&ListedFile]) {
     match edit {
-        Edit::Change(paths, change) => apply(map, paths, *change),
+        Edit::Change(files, change) => {
+            let paths: Vec<&Path> = (files.iter())
+                .filter(|f| !taken.contains(f))
+                .map(ListedFile::path)
+                .collect();
+            apply(map, &paths, *change)
+        }
         Edit::Follow(pairs, is_copy) => follow_pairs(map, pairs, *is_copy),
         Edit::FollowFolder(from, to) => {
             let pairs = [(from.clone(), to.clone())];
@@ -419,17 +439,44 @@ fn apply_edit(map: &mut HashMap<PathBuf, (u8, u8)>, edit: &Edit) {
     }
 }
 
-/// Makes `edit` to the marks as the file holds them. A delete first adds the marks it takes
-/// away to its list for Undo, so that list holds what the file held, not what the window knew.
-fn apply_edit_to_file(map: &mut HashMap<PathBuf, (u8, u8)>, edit: &Edit) {
+/// Makes `edit` to the marks as the file holds them, leaving out the files in `taken`. A delete
+/// first adds the marks it takes away to its list for Undo, so that list holds what the file
+/// held, not what the window knew.
+fn apply_edit_to_file(map: &mut HashMap<PathBuf, (u8, u8)>, edit: &Edit, taken: &[&ListedFile]) {
     if let Edit::Forget(paths, Some(for_undo)) = edit {
         let gone: std::collections::HashSet<&Path> = paths.iter().map(PathBuf::as_path).collect();
-        let taken = (map.iter())
+        let forgotten = (map.iter())
             .filter(|(k, _)| k.ancestors().any(|a| gone.contains(a)))
             .map(|(k, &v)| (k.clone(), v));
-        lock_even_if_poisoned(for_undo).extend(taken);
+        lock_even_if_poisoned(for_undo).extend(forgotten);
     }
-    apply_edit(map, edit);
+    apply_edit(map, edit, taken);
+}
+
+/// Returns the files of the changes in `edits` whose names other files have taken since the
+/// list showed them (`ListedFile::check`), and tells the first. Their marks are left out of the
+/// file, and the window, which set them already, reads the file again (`read_again`). It waits
+/// for the disk, so it runs in the writer's thread, before the file's lock is taken.
+/// shortcut: the files are looked at in the thread of Glimt's own files, so a share that stopped
+/// answering holds the settings behind a mark set there; move the marks to the thread of the
+/// user's folders (keeping `read_file_again` in the same thread) if that is seen.
+fn names_taken(edits: &[Edit]) -> Vec<&ListedFile> {
+    let files = edits.iter().flat_map(|edit| match edit {
+        Edit::Change(files, _) => files.as_slice(),
+        _ => &[],
+    });
+    let mut first = None;
+    let taken: Vec<&ListedFile> = files
+        .filter(|f| {
+            f.check()
+                .map_err(|e| first.get_or_insert(format!("{}: {e}", f.path().display())))
+                .is_err()
+        })
+        .collect();
+    if let Some(first) = first {
+        crate::files::file_io::save_failed(first);
+    }
+    taken
 }
 
 fn to_text(map: &HashMap<PathBuf, (u8, u8)>) -> Vec<u8> {
@@ -492,9 +539,10 @@ fn take_queued_edits() -> Vec<Edit> {
 fn write(file: &Path, changes: Vec<Edit>) {
     let unwritten = lock_even_if_poisoned(&UNWRITTEN_EDITS).remove(file);
     let changes: Vec<Edit> = unwritten.into_iter().flatten().chain(changes).collect();
-    let before = file_stamp(file);
+    let stamp_before = file_stamp(file);
     // These changes on the file as another window may have left it; one that cannot be read
     // is not written over with these changes alone, as every other mark would be lost.
+    let taken = names_taken(&changes);
     let edit = |bytes: &[u8]| {
         // Under the file's lock: no other window wrote since this one read or wrote it. The file
         // is looked at before `KNOWN_STAMPS` is taken, as in `read_file_again`.
@@ -503,7 +551,7 @@ fn write(file: &Path, changes: Vec<Edit>) {
         let mut map = parse(bytes);
         let before = map.clone();
         for change in &changes {
-            apply_edit_to_file(&mut map, change);
+            apply_edit_to_file(&mut map, change, &taken);
         }
         // An edit that changes no mark, as a move of files without marks, leaves the file as
         // it is. So it is not written again, and the other windows do not read it again.
@@ -533,7 +581,7 @@ fn write(file: &Path, changes: Vec<Edit>) {
         ));
         // A file whose stamp changed was written after all (only its folder's sync failed), or
         // by another window, and the edits are not made twice.
-        if file_stamp(file) == before {
+        if file_stamp(file) == stamp_before {
             keep_unwritten(file, changes);
         }
     }
@@ -559,7 +607,7 @@ fn keep_unwritten(file: &Path, changes: Vec<Edit>) {
 #[cfg(test)]
 fn save(edit: Edit) {
     if TEST_FILE.with(|f| f.borrow().is_none()) {
-        TEST_FILE_IN_MEMORY.with(|m| apply_edit_to_file(&mut m.borrow_mut(), &edit));
+        TEST_FILE_IN_MEMORY.with(|m| apply_edit_to_file(&mut m.borrow_mut(), &edit, &[]));
     }
     SENT.with(|sent| sent.borrow_mut().push(edit));
 }
@@ -692,7 +740,10 @@ mod tests {
         // that read, as the writer's thread does them in that order.
         marks.refresh();
         crate::files::file_io::flush();
-        marks.rate(std::slice::from_ref(&a), 4);
+        marks.rate(
+            &crate::support::test_support::unlisted(std::slice::from_ref(&a)),
+            4,
+        );
         super::write(&file, super::SENT.with(|sent| sent.take()));
         marks.receive();
         assert_eq!(marks.get(&a), (0, 4), "the mark set meanwhile is lost");
@@ -758,9 +809,15 @@ mod tests {
             dir.join("new\nline"),
         );
         let mut marks = super::Marks::default();
-        marks.rate(&[a.clone(), b.clone()], 3);
+        marks.rate(
+            &crate::support::test_support::unlisted(&[a.clone(), b.clone()]),
+            3,
+        );
         crate::files::file_io::take_saves_failed();
-        marks.rate(&[odd.join("c.png")], 2);
+        marks.rate(
+            &crate::support::test_support::unlisted(&[odd.join("c.png")]),
+            2,
+        );
         marks.follow_files(vec![(a.clone(), odd.join("a.png"))], false);
         marks.follow_folder(dir.join("sub"), odd.clone());
         let lost = [
@@ -821,7 +878,10 @@ mod tests {
         // This window read the marks before the other one set mark 1 on a.png.
         let mut marks = super::read_marks();
         std::fs::write(&file, format!("1\t0\t{}\n", a.display())).unwrap();
-        marks.toggle(std::slice::from_ref(&a), 1);
+        marks.toggle(
+            &crate::support::test_support::unlisted(std::slice::from_ref(&a)),
+            1,
+        );
         super::write(&file, super::SENT.with(|sent| sent.take()));
         assert_eq!(
             super::read_marks().get(&a),
@@ -829,7 +889,10 @@ mod tests {
             "the mark was set again"
         );
         // With one of the files without it, the mark is set on both.
-        marks.toggle(&[a.clone(), b.clone()], 1);
+        marks.toggle(
+            &crate::support::test_support::unlisted(&[a.clone(), b.clone()]),
+            1,
+        );
         super::write(&file, super::SENT.with(|sent| sent.take()));
         let file_now = super::read_marks();
         assert_eq!((file_now.get(&a), file_now.get(&b)), ((1, 0), (1, 0)));
@@ -860,7 +923,10 @@ mod tests {
             .open(&file)
             .unwrap();
         f.set_modified(t).unwrap();
-        marks.toggle(std::slice::from_ref(&b), 1);
+        marks.toggle(
+            &crate::support::test_support::unlisted(std::slice::from_ref(&b)),
+            1,
+        );
         settled(&mut marks);
         assert_eq!(
             (marks.get(&a), marks.get(&b)),
@@ -914,14 +980,20 @@ mod tests {
         let (a, b, c) = (dir.join("a.png"), dir.join("b.png"), dir.join("c.png"));
         std::fs::write(&file, format!("1\t0\t{}\n", c.display())).unwrap();
         let mut marks = super::read_marks();
-        marks.rate(std::slice::from_ref(&a), 4);
+        marks.rate(
+            &crate::support::test_support::unlisted(std::slice::from_ref(&a)),
+            4,
+        );
         // Another window marked b.png while this window's stars of a.png were still queued.
         let mut text = std::fs::read(&file).unwrap();
         text.extend(format!("0\t2\t{}\n", b.display()).as_bytes());
         std::fs::write(&file, text).unwrap();
         super::TEST_WRITES_QUEUED.with(|q| q.set(true));
         // The user clears c.png's only mark, and then deletes the three files.
-        marks.toggle(std::slice::from_ref(&c), 1);
+        marks.toggle(
+            &crate::support::test_support::unlisted(std::slice::from_ref(&c)),
+            1,
+        );
         let for_undo = crate::files::trash::ForgottenMarks::default();
         marks.forget(&[a.clone(), b.clone(), c.clone()], Some(for_undo.clone()));
         super::TEST_WRITES_QUEUED.with(|q| q.set(false));
@@ -944,9 +1016,16 @@ mod tests {
         super::TEST_FILE.with(|f| *f.borrow_mut() = Some(file.clone()));
         let (a, b) = (dir.join("a.png"), dir.join("b.png"));
         let mut marks = super::read_marks();
-        let stars =
-            |p: &std::path::Path, n| super::Edit::Change(vec![p.into()], super::Change::Stars(n));
-        marks.rate(std::slice::from_ref(&a), 4);
+        let stars = |p: &std::path::Path, n| {
+            super::Edit::Change(
+                crate::support::test_support::unlisted([p]),
+                super::Change::Stars(n),
+            )
+        };
+        marks.rate(
+            &crate::support::test_support::unlisted(std::slice::from_ref(&a)),
+            4,
+        );
         super::write(&file, vec![stars(&a, 4)]);
         // The file's bytes gone but the file and its time kept: read again, it would have no
         // stars.
@@ -973,6 +1052,37 @@ mod tests {
         std::fs::remove_dir_all(dir).unwrap();
     }
 
+    /// Stars for a file whose name another file has taken since the list showed it are left
+    /// out of the marks file, and those of a file still listed are written. Another window's
+    /// Rename Many that swapped two names had the stars land on the other photo.
+    #[test]
+    fn stars_for_a_name_another_file_has_taken_are_not_written() {
+        let dir =
+            std::env::temp_dir().join(format!("glimt-test-marks-taken-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("marks");
+        super::TEST_FILE.with(|f| *f.borrow_mut() = Some(file.clone()));
+        let (a, b) = (dir.join("a.png"), dir.join("b.png"));
+        std::fs::write(&a, "a").unwrap();
+        std::fs::write(&b, "b").unwrap();
+        let listed = |p: &std::path::Path| {
+            let identity = crate::files::file_io::identity_of(p);
+            crate::files::file_io::ListedFile::new(p.to_path_buf(), identity)
+        };
+        let (listed_a, listed_b) = (listed(&a), listed(&b));
+        // Another file takes a.png's name, made before the old one goes, so it has another
+        // inode.
+        std::fs::write(dir.join("new"), "new").unwrap();
+        std::fs::rename(dir.join("new"), &a).unwrap();
+        let mut marks = super::read_marks();
+        marks.rate(&[listed_a, listed_b], 3);
+        super::write(&file, super::SENT.with(|sent| sent.take()));
+        let now = super::parse(&std::fs::read(&file).unwrap());
+        assert_eq!((now.get(&a), now.get(&b)), (None, Some(&(0, 3))));
+        super::TEST_FILE.with(|f| *f.borrow_mut() = None);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
     /// A mark whose write failed is not kept in the window as if it were in the file.
     #[test]
     fn a_mark_not_written_is_not_kept() {
@@ -984,8 +1094,14 @@ mod tests {
         super::TEST_FILE.with(|f| *f.borrow_mut() = Some(file.clone()));
         let a = dir.join("a.png");
         let mut marks = super::read_marks();
-        marks.rate(std::slice::from_ref(&a), 3);
-        let stars = super::Edit::Change(vec![a.clone()], super::Change::Stars(3));
+        marks.rate(
+            &crate::support::test_support::unlisted(std::slice::from_ref(&a)),
+            3,
+        );
+        let stars = super::Edit::Change(
+            crate::support::test_support::unlisted(vec![a.clone()]),
+            super::Change::Stars(3),
+        );
         super::write(&file, vec![stars]);
         refreshed(&mut marks);
         assert_eq!(marks.get(&a), (0, 0));
@@ -1018,7 +1134,7 @@ mod tests {
         super::write(
             &file,
             vec![super::Edit::Change(
-                vec![c.clone()],
+                crate::support::test_support::unlisted(vec![c.clone()]),
                 super::Change::Stars(5),
             )],
         );
@@ -1049,10 +1165,19 @@ mod tests {
         let a = std::path::PathBuf::from("/a.jpg");
         let mut marks = super::read_marks();
         assert_eq!(marks.get(&a), (192, 3));
-        marks.toggle(std::slice::from_ref(&a), 1);
+        marks.toggle(
+            &crate::support::test_support::unlisted(std::slice::from_ref(&a)),
+            1,
+        );
         assert_eq!(marks.get(&a), (193, 3));
-        let mark = super::Edit::Change(vec![a.clone()], super::Change::Mark(1, true));
-        let stars = super::Edit::Change(vec!["/c.jpg".into()], super::Change::Stars(2));
+        let mark = super::Edit::Change(
+            crate::support::test_support::unlisted(vec![a.clone()]),
+            super::Change::Mark(1, true),
+        );
+        let stars = super::Edit::Change(
+            crate::support::test_support::unlisted(["/c.jpg"]),
+            super::Change::Stars(2),
+        );
         super::write(&file, vec![mark, stars]);
         let text = std::fs::read_to_string(&file).unwrap();
         for line in [
@@ -1123,13 +1248,19 @@ mod tests {
         let mut m = super::Marks::default();
         let (a, b) = (PathBuf::from("/a.jpg"), PathBuf::from("/b.jpg"));
         let both = [a.clone(), b.clone()];
-        m.toggle(std::slice::from_ref(&a), 2);
+        m.toggle(
+            &crate::support::test_support::unlisted(std::slice::from_ref(&a)),
+            2,
+        );
         // Mark 2 on only one of them: the toggle sets it on both, the next clears both.
-        m.toggle(&both, 2);
+        m.toggle(&crate::support::test_support::unlisted(&both), 2);
         assert_eq!((m.get(&a), m.get(&b)), ((0b10, 0), (0b10, 0)));
-        m.rate(std::slice::from_ref(&b), 3);
+        m.rate(
+            &crate::support::test_support::unlisted(std::slice::from_ref(&b)),
+            3,
+        );
         assert_eq!(super::text(m.get(&b)), "★★★  2");
-        m.toggle(&both, 2);
+        m.toggle(&crate::support::test_support::unlisted(&both), 2);
         assert_eq!(m.get(&a), (0, 0));
         assert!(!m.by_path.contains_key(&a));
         assert_eq!(
@@ -1144,12 +1275,8 @@ mod tests {
             .split(|&b| b == b'\n')
             .filter_map(super::parse_line)
             .collect();
-        super::apply(
-            &mut map,
-            std::slice::from_ref(&a),
-            super::Change::Mark(4, true),
-        );
-        super::apply(&mut map, std::slice::from_ref(&b), super::Change::Stars(4));
+        super::apply(&mut map, &[a.as_path()], super::Change::Mark(4, true));
+        super::apply(&mut map, &[b.as_path()], super::Change::Stars(4));
         assert_eq!((map[&a], map[&b]), ((5, 0), (0, 4)));
         // A darktable sidecar keeps its fields; the rating is changed or added.
         let dt = r#"<rdf:Description rdf:about="" xmlns:xmp="http://ns.adobe.com/xap/1.0/" xmp:Rating="1" darktable:x="y">"#;
@@ -1204,8 +1331,11 @@ mod tests {
             std::env::temp_dir().join(format!("glimt-test-marks-none-{}", std::process::id()));
         super::TEST_FILE.with(|f| *f.borrow_mut() = Some(none.join("marks")));
         let mut m = super::read_marks();
-        m.rate(&[p("/a.jpg"), p("/b.jpg")], 4);
-        m.toggle(&[p("/a.jpg")], 1);
+        m.rate(
+            &crate::support::test_support::unlisted(&[p("/a.jpg"), p("/b.jpg")]),
+            4,
+        );
+        m.toggle(&crate::support::test_support::unlisted(&[p("/a.jpg")]), 1);
         m.follow_files(vec![(p("/a.jpg"), p("/to/a.jpg"))], false);
         assert_eq!(
             (m.get(&p("/a.jpg")), m.get(&p("/to/a.jpg"))),
@@ -1220,7 +1350,10 @@ mod tests {
         assert_eq!(m.get(&p("/b.jpg")), (0, 0));
         // A folder renamed: its files' marks go along; trashed: they go. The folders are only
         // names, as nothing on the disk is looked at to tell a folder.
-        m.rate(&[p("/trip/old/a.jpg")], 5);
+        m.rate(
+            &crate::support::test_support::unlisted(&[p("/trip/old/a.jpg")]),
+            5,
+        );
         m.follow_folder(p("/trip/old"), p("/trip/2024"));
         assert_eq!(m.get(&p("/trip/2024/a.jpg")), (0, 5));
         m.forget(&[p("/trip/2024")], None);
@@ -1229,8 +1362,8 @@ mod tests {
         m.follow_files(vec![(p("/c.jpg"), p("/b copy.jpg"))], false);
         assert_eq!(m.get(&p("/b copy.jpg")), (0, 0));
         // Rename Many swapping names, and shifting them: each keeps its own.
-        m.rate(&[p("/x.jpg")], 1);
-        m.rate(&[p("/y.jpg")], 2);
+        m.rate(&crate::support::test_support::unlisted(&[p("/x.jpg")]), 1);
+        m.rate(&crate::support::test_support::unlisted(&[p("/y.jpg")]), 2);
         m.follow_files(
             vec![(p("/x.jpg"), p("/y.jpg")), (p("/y.jpg"), p("/x.jpg"))],
             false,
@@ -1252,8 +1385,11 @@ mod tests {
         super::TEST_FILE.with(|f| *f.borrow_mut() = Some(none.join("marks")));
         let mut m = super::Marks::default();
         let a = std::path::PathBuf::from("/a.jpg");
-        m.toggle(std::slice::from_ref(&a), 2);
-        m.rate(&[a], 3);
+        m.toggle(
+            &crate::support::test_support::unlisted(std::slice::from_ref(&a)),
+            2,
+        );
+        m.rate(&crate::support::test_support::unlisted(&[a]), 3);
         for text in crate::support::test_support::broken(&super::to_text(&m.by_path)) {
             super::parse(&text);
         }
@@ -1342,7 +1478,12 @@ mod tests {
         let paths: Vec<std::path::PathBuf> =
             (0..100).map(|i| dir.join(format!("{i}.jpg"))).collect();
         let writes_asked = (paths.iter())
-            .map(|p| super::Edit::Change(vec![p.clone()], super::Change::Stars(3)))
+            .map(|p| {
+                super::Edit::Change(
+                    crate::support::test_support::unlisted(vec![p.clone()]),
+                    super::Change::Stars(3),
+                )
+            })
             .map(super::queue_for_writer)
             .filter(|&asked| asked)
             .count();

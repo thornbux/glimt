@@ -5,10 +5,11 @@ use crate::files::config::sort_folders_from;
 use crate::files::config::sort_folders_path;
 use crate::files::external::Mounted;
 use crate::files::external::{Login, gio_mount};
+use crate::files::file_io::{forget_passing_identities, is_another_file};
 use crate::model::list::{List, LoadedImage};
 use crate::model::listing::{
-    FoldersRead, Types, is_listed, list_folder, list_tree, merge_shuffled, shuffle, sort_files,
-    walk,
+    FoldersRead, ListedName, Types, is_listed, list_folder, list_tree, merge_shuffled, shuffle,
+    sort_files, walk,
 };
 use crate::support::lang::tr;
 use crate::support::threads::{Receiving, Took};
@@ -86,7 +87,7 @@ pub(crate) struct Folder {
     /// tree may take long.
     subdirs_rx: Receiving<Vec<PathBuf>>,
     /// The images of the tree found so far, as it is read, a folder of it at a time.
-    part_rx: Receiving<Vec<OsString>>,
+    part_rx: Receiving<Vec<ListedName>>,
     /// The next listing shows a tree's images as they are found (a folder opened).
     lists_tree_in_parts: bool,
     /// What the list shown was read and sorted as: the folder, the order, ascending, case and
@@ -462,7 +463,7 @@ impl Folder {
 /// What a listing thread sends when it has read the folder: its subfolders, its files, the
 /// folders it read with their modification times, and how long the reading took in that
 /// thread.
-type Listed = (Vec<PathBuf>, Vec<OsString>, FoldersRead, Duration);
+type Listed = (Vec<PathBuf>, Vec<ListedName>, FoldersRead, Duration);
 
 /// What a listing thread reads with, and where it sends the list and then the sizes.
 struct Listing {
@@ -488,14 +489,14 @@ struct Listing {
 impl Listing {
     /// Lists several folders, each folder (with its subfolders) after the other.
     fn folders(self, folders: &[PathBuf]) {
-        let rel = |dir: &Path, names: Vec<OsString>| -> Vec<OsString> {
+        let rel = |dir: &Path, names: Vec<ListedName>| -> Vec<ListedName> {
             let at = dir.strip_prefix("/").unwrap_or(dir).to_path_buf();
             (names.into_iter())
-                .map(|n| at.join(n).into_os_string())
+                .map(|(n, id)| (at.join(n).into_os_string(), id))
                 .collect()
         };
         let mut read = Vec::new();
-        let mut files: Vec<OsString> = (folders.iter())
+        let mut files: Vec<ListedName> = (folders.iter())
             .flat_map(|d| match self.recursive {
                 true => {
                     let (_, files, tree) = list_tree(d, self.types, &self.stop, |_| {}, |_| {});
@@ -510,13 +511,14 @@ impl Listing {
             .collect();
         // A folder inside another one given has its images listed once.
         let mut seen = HashSet::new();
-        files.retain(|f| seen.insert(f.clone()));
+        files.retain(|f| seen.insert(f.0.clone()));
         sort_files(&self.dir, &mut files, self.by, self.ascending, self.case);
         if self.shuffled {
             shuffle(&mut files);
         }
+        forget_passing_identities(&self.dir, &mut files);
         // The sizes come after, as for a folder, so the list shows first.
-        let paths: Vec<PathBuf> = files.iter().map(|f| self.dir.join(f)).collect();
+        let paths: Vec<PathBuf> = files.iter().map(|f| self.dir.join(&f.0)).collect();
         if self
             .tx
             .send((Vec::new(), files, read, self.started.elapsed()))
@@ -544,15 +546,23 @@ impl Listing {
         };
         // Each entry is listed by its real path, as a folder's files are, so that an entry named
         // through a link has its marks and stars and is found by `--remote select`.
-        let mut files: Vec<OsString> = (collections::by_real_path(&paths).into_iter())
+        let mut files: Vec<ListedName> = (collections::by_real_path(&paths).into_iter())
             .filter_map(|(p, _)| Some(p.strip_prefix(&self.dir).ok()?.as_os_str().to_owned()))
+            .map(|f| (f, None))
             .collect();
         // A list keeps only files, as `listing::kind` does in a folder. A folder or `/` named
         // in a downloaded list was kept, shown as broken, and Delete sent the whole folder to
         // the trash. Until this listing has come, `are_free_to_change` holds every file operation
-        // back.
-        let sizes = keep_files_with_size(&mut files, |f| {
-            let meta = self.dir.join(f).metadata().ok()?;
+        // back. Each file's identity is that of its own name, a link's and not its target's, as
+        // a folder entry gives it.
+        let sizes = keep_files_with_size(&mut files, |(f, identity)| {
+            let path = self.dir.join(f);
+            let own = std::fs::symlink_metadata(&path).ok()?;
+            *identity = crate::files::file_io::identity_from_metadata(&path, &own);
+            let meta = match own.is_symlink() {
+                true => path.metadata().ok()?,
+                false => own,
+            };
             meta.is_file().then_some(meta.len())
         });
         if sort {
@@ -567,6 +577,7 @@ impl Listing {
         if self.shuffled {
             shuffle(&mut files);
         }
+        forget_passing_identities(&self.dir, &mut files);
         if self
             .tx
             .send((Vec::new(), files, Vec::new(), self.started.elapsed()))
@@ -583,7 +594,7 @@ impl Listing {
         self,
         before: Option<Vec<OsString>>,
         parts: bool,
-        part_tx: mpsc::SyncSender<Vec<OsString>>,
+        part_tx: mpsc::SyncSender<Vec<ListedName>>,
         subdirs_tx: mpsc::Sender<Vec<PathBuf>>,
     ) {
         // The folder is read once, also with the folders below it. Its own subfolders show at
@@ -613,6 +624,7 @@ impl Listing {
                     let began = Instant::now();
                     let mut part = so_far.to_vec();
                     part.sort_unstable();
+                    forget_passing_identities(&self.dir, &mut part);
                     // When the channel is full, the part before is not taken yet, so this one is
                     // left out.
                     if part_tx.try_send(part).is_ok() {
@@ -641,6 +653,7 @@ impl Listing {
         if self.shuffled {
             shuffle(&mut files);
         }
+        forget_passing_identities(&self.dir, &mut files);
         // The receiver is gone if another folder was opened meanwhile; then we stop.
         if self
             .tx
@@ -656,7 +669,8 @@ impl Listing {
         if self.recursive {
             let sizes = walk(&self.dir, self.types).flat_map(|(rel, _, files, _)| {
                 let folder = self.dir.join(rel);
-                (files.into_iter()).filter_map(move |f| Some(folder.join(f).metadata().ok()?.len()))
+                (files.into_iter())
+                    .filter_map(move |f| Some(folder.join(f.0).metadata().ok()?.len()))
             });
             return send_sizes(sizes, self.size_tx, &self.ctx);
         }
@@ -911,7 +925,8 @@ impl crate::App {
         self.folder.recursive = self.config.show_subfolders;
         self.folder.dir = dir.clone();
         self.remember_recent(&dir);
-        self.replace_files(ctx, shown.iter().cloned().collect(), shown);
+        let files = shown.iter().map(|name| (name.clone(), None)).collect();
+        self.replace_files(ctx, files, shown);
         self.folder.lists_tree_in_parts = true;
         self.start_listing(ctx);
         self.start_watching(ctx);
@@ -1053,6 +1068,7 @@ impl crate::App {
         self.folder.collection = Some(file);
         self.folder.folders.clear();
         let first = files.first().cloned();
+        let files = files.into_iter().map(|f| (f, None)).collect();
         self.replace_files(ctx, files, first);
         self.list.set_unchecked_entries(true);
         self.start_listing(ctx);
@@ -1395,7 +1411,7 @@ impl crate::App {
     pub(crate) fn take_listed_files(
         &mut self,
         ctx: &egui::Context,
-        files: Vec<OsString>,
+        files: Vec<ListedName>,
         whole: bool,
     ) {
         // Files still being deleted in the background must not come back with a refresh.
@@ -1416,13 +1432,14 @@ impl crate::App {
         if fresh
             && self.slideshow.is_shuffled()
             && let Some(at) = (self.list.files().get(self.list.shown()))
-                .and_then(|shown| files.iter().position(|f| f == shown))
+                .and_then(|shown| files.iter().position(|f| f.0 == *shown))
         {
             files.swap(0, at);
         }
         // When nothing changed (most refreshes, after Glimt's own writes beside the files), the
-        // list, the selection and the search stay as they are.
-        if files == self.list.files() && !self.folder.sort_collection {
+        // list, the selection and the search stay as they are. A name that another file has
+        // taken since is a change, as what was read of the file it held is that file's.
+        if self.list.is_listed_as(&files) && !self.folder.sort_collection {
             // A file may have been saved over under its own name (an editor writes and
             // renames), so its size and date are read again, for the rows on screen only.
             self.list.forget_sizes_and_dates();
@@ -1509,14 +1526,15 @@ impl crate::App {
     }
 
     /// Replaces the file list and goes to `shown` (otherwise the first image). Textures are
-    /// kept for the files they were made from, at their new places. All other state based on
-    /// places is reset, and jobs in flight are rejected by path when they arrive. When the same
-    /// file is still shown (a refresh, or the list put in another order), it keeps its zoom,
-    /// turn and place.
+    /// kept for the files they were made from, at their new places, by name and identity. All
+    /// other state based on places is reset, and jobs in flight are rejected by path when they
+    /// arrive. When the same file is still shown (a refresh, or the list put in another order),
+    /// it keeps its zoom, turn and place. A name that another file has taken since (another
+    /// window's Rename Many swapped two names) keeps nothing of the file it held.
     pub(crate) fn replace_files(
         &mut self,
         ctx: &egui::Context,
-        files: Vec<OsString>,
+        files: Vec<ListedName>,
         shown: Option<OsString>,
     ) {
         // The list has a new order (shuffled, or a collection's), so only a listing in sort
@@ -1525,8 +1543,11 @@ impl crate::App {
         // The file counts as found when it is shown now and is in the new list too. It does not
         // when another program removed or renamed it, because its turn not saved would
         // otherwise go to the image shown in its place.
-        let found = (shown.as_ref()).and_then(|p| files.iter().position(|f| f == p));
-        let still = found.is_some() && self.list.files().get(self.list.shown()) == shown.as_ref();
+        let found = (shown.as_ref()).and_then(|p| files.iter().position(|f| f.0 == *p));
+        let still = found.is_some_and(|k| {
+            self.list.files().get(self.list.shown()) == shown.as_ref()
+                && !is_another_file(files[k].1, self.list.identity(self.list.shown()))
+        });
         // The shown file's decodes still being made are kept, so it is not decoded twice. Those
         // of a later page are not kept, because the file is shown again from its first page.
         let jobs: Vec<_> = ([false, true].into_iter())
@@ -1576,7 +1597,9 @@ impl crate::App {
             }
         }
         for (i, loaded) in kept {
-            if self.is_file(i, &loaded.path) {
+            if self.is_file(i, &loaded.path)
+                && !is_another_file(loaded.identity(), self.list.identity(i))
+            {
                 self.list.keep_loaded_image(i, loaded);
             }
         }
@@ -1768,11 +1791,11 @@ fn look_up(paths: &[PathBuf]) -> Found {
 /// called once for each file, because a collection of 500,000 entries on a share would
 /// otherwise take a second system call for each.
 fn keep_files_with_size(
-    files: &mut Vec<OsString>,
-    mut size: impl FnMut(&OsString) -> Option<u64>,
+    files: &mut Vec<ListedName>,
+    mut size: impl FnMut(&mut ListedName) -> Option<u64>,
 ) -> Vec<u64> {
     let mut sizes = Vec::new();
-    files.retain(|f| size(f).map(|n| sizes.push(n)).is_some());
+    files.retain_mut(|f| size(f).map(|n| sizes.push(n)).is_some());
     sizes
 }
 
@@ -2079,6 +2102,33 @@ mod tests {
         assert_eq!(super::folders_this_second(1, 1, 0).collect::<Vec<_>>(), [0]);
     }
 
+    /// Another program, or another window's Rename Many, that swaps two names leaves the same
+    /// names in the folder. The image decoded for a name is dropped when the folder is read
+    /// again, as the name holds the other photo now. It stayed, and the window showed the
+    /// photo that had left the name.
+    #[test]
+    fn a_name_another_file_has_taken_keeps_nothing_of_the_file_before() {
+        let dir =
+            std::env::temp_dir().join(format!("glimt-test-name-taken-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        image::RgbImage::new(4, 4).save(dir.join("a.png")).unwrap();
+        image::RgbImage::new(6, 6).save(dir.join("b.png")).unwrap();
+        let (mut app, ctx) = app_on(&dir);
+        let before = app.list.identity(0);
+        assert!(before.is_some(), "the listing gave no identity");
+        app.refill_preload();
+        let size = |a: &crate::App| a.list.loaded_images().get(&0).map(|s| s.original_size);
+        assert!(run_background_until(&mut app, &ctx, |a| size(a) == Some([4, 4])));
+        for (from, to) in [("a.png", "c.png"), ("b.png", "a.png"), ("c.png", "b.png")] {
+            std::fs::rename(dir.join(from), dir.join(to)).unwrap();
+        }
+        app.start_listing(&ctx);
+        assert!(run_background_until(&mut app, &ctx, |a| a.list.identity(0) != before));
+        assert_ne!(size(&app), Some([4, 4]), "a.png shows the photo it held");
+        assert!(run_background_until(&mut app, &ctx, |a| size(a) == Some([6, 6])));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
     /// A slideshow of one pane at a time goes on from the image it showed last after the list
     /// is read again or put in another order. It started from the top after every change.
     #[test]
@@ -2100,7 +2150,7 @@ mod tests {
         app.refill_preload();
         assert_eq!(app.list.panes(), [1]);
         app.list.set_last_slide(3);
-        let mut files = app.list.files().to_vec();
+        let mut files = app.list.listed_names();
         files.reverse();
         let shown = app.list.files().first().cloned();
         app.replace_files(&ctx, files, shown);
@@ -2129,7 +2179,7 @@ mod tests {
         app.update_search(&ctx);
         assert_eq!(app.list.selected(), &[1].into());
         let files = ["0.png", "a.png", "b.png", "c.png"]
-            .map(Into::into)
+            .map(|f| (f.into(), None))
             .to_vec();
         app.take_listed_files(&ctx, files, true);
         app.search.set_query("");
@@ -2195,8 +2245,8 @@ mod tests {
         image::RgbImage::new(4, 4)
             .save(dir.join("00a.png"))
             .unwrap();
-        let mut files = app.list.files().to_vec();
-        files.insert(0, "00a.png".into());
+        let mut files = app.list.listed_names();
+        files.insert(0, ("00a.png".into(), None));
         let shown = app.list.files().get(app.list.shown()).cloned();
         app.replace_files(&ctx, files, shown);
         assert_eq!((app.list.shown(), app.compared_image()), (5, Some(9)));
@@ -2577,13 +2627,16 @@ mod tests {
     /// their sizes, and those gone leave the list.
     #[test]
     fn a_collection_is_checked_with_one_call_per_entry() {
-        let mut files: Vec<std::ffi::OsString> = vec!["a.jpg".into(), "gone.jpg".into()];
+        let mut files = vec![("a.jpg".into(), None), ("gone.jpg".into(), None)];
         let mut calls = 0;
         let sizes = super::keep_files_with_size(&mut files, |f| {
             calls += 1;
-            (f != "gone.jpg").then_some(7)
+            (f.0 != "gone.jpg").then_some(7)
         });
-        assert_eq!((files, sizes, calls), (vec!["a.jpg".into()], vec![7], 2));
+        assert_eq!(
+            (files, sizes, calls),
+            (vec![("a.jpg".into(), None)], vec![7], 2)
+        );
     }
 
     /// A folder is looked up (whether it is one, and its real path) in the background, and

@@ -2,6 +2,8 @@
 //! default keys (SHORTCUTS), and the user's own keys from Preferences.
 
 use crate::features::duplicates::FindDuplicates;
+#[cfg(feature = "marks")]
+use crate::files::file_io::ListedFile;
 use crate::images::colour::FILTERS;
 use crate::images::decode::{catch_panic_as_error, color_image};
 #[cfg(feature = "marks")]
@@ -1498,23 +1500,26 @@ impl crate::App {
         let Some(targets) = self.targets() else {
             return;
         };
-        let mut paths: Vec<PathBuf> = targets.iter().map(|&i| self.path(i)).collect();
-        if let Some(left_out) = crate::files::config::keep_those_that_fit_on_a_line(&mut paths) {
+        let mut files: Vec<ListedFile> = targets.iter().map(|&i| self.listed_file(i)).collect();
+        let before = files.len();
+        files.retain(|f| crate::files::config::fits_on_a_line(f.path()));
+        if let Some(left_out) = crate::files::config::left_out_for_line_breaks(before - files.len())
+        {
             self.notice.give(left_out);
         }
-        if paths.is_empty() {
+        if files.is_empty() {
             return;
         }
         if kind == 'm' {
-            self.marks.toggle(&paths, n);
+            self.marks.toggle(&files, n);
         } else {
-            self.marks.rate(&paths, n);
+            self.marks.rate(&files, n);
             // In the background: a thousand photos on a network share would hold the window.
             if self.config.xmp_stars {
                 self.write_sidecars(
                     ctx,
                     tr("Writing stars"),
-                    paths.into_iter().map(|p| (p, ())).collect(),
+                    files.into_iter().map(|f| (f, ())).collect(),
                     move |path, _| marks::write_xmp(path, n).is_ok(),
                     |failed, job| match () {
                         _ if failed > 0 => Some(tf!(

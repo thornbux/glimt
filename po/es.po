@@ -3052,6 +3052,14 @@ msgstr "; los archivos complementarios aún se están escribiendo"
 msgid "Could not remove {name}: {e}"
 msgstr "No se pudo eliminar {name}: {e}"
 
+#: src/files/file_io.rs
+msgid "another file has taken its name: the folder is read again"
+msgstr "otro archivo ha tomado su nombre: la carpeta se vuelve a leer"
+
+#: src/files/file_ops.rs
+msgid "Rename failed ({count}): {first}"
+msgstr "Error al cambiar el nombre ({count}): {first}"
+
 #: src/files/file_ops.rs
 msgid "{side}: {e}, so {file} stays where it was, with its sidecar"
 msgstr "{side}: {e}, así que {file} se queda donde estaba, con su archivo complementario"

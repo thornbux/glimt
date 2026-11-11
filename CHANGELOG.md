@@ -24,6 +24,13 @@ and versions follow [Semantic Versioning](https://semver.org/).
 - Stars and marks that follow files moved or renamed are kept when the marks file cannot be
   written, and saved with the next write. Before, the window took back the file as it was, so
   the files showed the stars of the names they took.
+- A window no longer puts what was meant for one photo on another when another window's Rename
+  Many, or any other program, swapped or shifted names in its folder. When the folder is read
+  again, a name that another file has taken is shown, read into the info panel and given its
+  thumbnail anew. A keyword, a comment, alt text, stars, marks, a rename, a delete or a tool on
+  a file whose name another file has taken since is refused and told, and the folder is read
+  again. A turn is saved only into the picture that was decoded and shown. FAT, exFAT and other
+  file systems that do not keep a file's number are not told apart this way.
 - Delete for good keeps a photo's sidecar, with its keywords and stars, when the photo could not
   be looked at after the delete, as on a share that dropped for a moment. Before, the sidecar
   was deleted while the photo might still be there. A name counts as gone only when the system

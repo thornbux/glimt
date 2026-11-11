@@ -3063,6 +3063,14 @@ msgstr "; sidefilene blir framleis skrivne"
 msgid "Could not remove {name}: {e}"
 msgstr "Kunne ikkje fjerna {name}: {e}"
 
+#: src/files/file_io.rs
+msgid "another file has taken its name: the folder is read again"
+msgstr "ei anna fil har teke namnet: mappa blir lesen på nytt"
+
+#: src/files/file_ops.rs
+msgid "Rename failed ({count}): {first}"
+msgstr "Endring av namn feila ({count}): {first}"
+
 #: src/files/file_ops.rs
 msgid "{side}: {e}, so {file} stays where it was, with its sidecar"
 msgstr "{side}: {e}, så {file} blir der han var, med sidefila si"

@@ -180,8 +180,8 @@ impl crate::App {
         }
         // A copy, not taken: the textures and the shown image's zoom are kept by the names in
         // the list as it is.
-        let mut files = self.list.files().to_vec();
-        let shown = files[self.list.shown()].clone();
+        let mut files = self.list.listed_names();
+        let shown = files[self.list.shown()].0.clone();
         files.swap(0, self.list.shown());
         shuffle(&mut files[1..]);
         // New panes from the new order: kept, a slideshow one image at a time would still stand
@@ -206,14 +206,12 @@ impl crate::App {
         }
         let shown = self.list.files().get(self.list.shown()).cloned();
         let files: Vec<PathBuf> = (0..self.list.files().len()).map(|i| self.path(i)).collect();
-        let files: Vec<OsString> = (collections::in_saved_order(&saved, files).iter())
+        let identities: std::collections::HashMap<OsString, _> =
+            self.list.listed_names().into_iter().collect();
+        let files = (collections::in_saved_order(&saved, files).iter())
             .filter_map(|p| {
-                Some(
-                    p.strip_prefix(self.folder.dir())
-                        .ok()?
-                        .as_os_str()
-                        .to_owned(),
-                )
+                let name = p.strip_prefix(self.folder.dir()).ok()?.as_os_str();
+                Some((name.to_owned(), *identities.get(name)?))
             })
             .collect();
         self.replace_files(ctx, files, shown);

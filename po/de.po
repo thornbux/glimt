@@ -3052,6 +3052,14 @@ msgstr "; die Begleitdateien werden noch geschrieben"
 msgid "Could not remove {name}: {e}"
 msgstr "Konnte {name} nicht entfernen: {e}"
 
+#: src/files/file_io.rs
+msgid "another file has taken its name: the folder is read again"
+msgstr "eine andere Datei hat den Namen übernommen: der Ordner wird neu gelesen"
+
+#: src/files/file_ops.rs
+msgid "Rename failed ({count}): {first}"
+msgstr "Umbenennen fehlgeschlagen ({count}): {first}"
+
 #: src/files/file_ops.rs
 msgid "{side}: {e}, so {file} stays where it was, with its sidecar"
 msgstr "{side}: {e}, daher bleibt {file}, wo es war, mit seiner Begleitdatei"
