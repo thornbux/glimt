@@ -628,6 +628,14 @@ pub fn rename_step(a: &Path, b: &Path) -> std::io::Result<()> {
     crate::files::file_io::put_file(a, b, false)
 }
 
+/// Finishes a step from `a` to `b` that failed in a way that may have been done (a share that
+/// lost its answer), so that the file is at `b` alone. It may be at both names, one file under
+/// two, and then the name `a` goes (`rename_step`), or still only at `a`, and then it is moved.
+/// Returns whether nothing is left at `a`. A failed look tells nothing, so it returns false.
+pub fn finish_step(a: &Path, b: &Path) -> bool {
+    rename_step(a, b).is_ok() || is_surely_gone(a)
+}
+
 /// Undoes the first `done` steps of `moves`, last first. Returns (renamed, left). A name that is
 /// no longer there is nothing of ours to put back, and it is left out of both.
 pub fn undo(moves: &[(PathBuf, PathBuf)], done: usize) -> (usize, usize) {

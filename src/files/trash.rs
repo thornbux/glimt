@@ -211,8 +211,8 @@ fn sidecars_by_file<'a>(
 /// sidecars, and the next files still come back. So does a file one of whose sidecars cannot
 /// come back: it goes back into the trash with the sidecars that came, to be undone again,
 /// because the next file of its name would else pick up the sidecar left in the trash. A sidecar
-/// whose rename failed but may have been done counts as back, so that its file stays out with
-/// it. Returns the files put back, without the sidecars.
+/// whose rename failed but may have been done is settled by its two names
+/// (`sidecar_back_after_all`). Returns the files put back, without the sidecars.
 fn put_back(
     steps: Vec<(TrashEntry, bool, Vec<TrashEntry>)>,
     error: &mut Option<String>,
@@ -231,15 +231,20 @@ fn put_back(
         let mut out = vec![t];
         for side in sides {
             if let Err(e) = rename_never_over(&side.file, &side.from) {
-                // A sidecar whose rename may have been done is taken to be at its name, so that
-                // its file stays out with it. Its .trashinfo is kept, as it may be in the trash
-                // too, and the error says to check both names.
                 let told = format!("{display}: {e}", display = side.from.display());
-                if crate::files::file_io::may_have_been_done(&e, &side.file)
-                    && !crate::files::file_io::is_surely_gone(&side.from)
-                {
-                    error.get_or_insert(told);
-                    continue;
+                match sidecar_back_after_all(&side, &e) {
+                    Some(true) => {
+                        out.push(side);
+                        continue;
+                    }
+                    // A sidecar that may be at either name is taken to be at its own, so that
+                    // its file stays out with it. Its .trashinfo is kept, as it may be in the
+                    // trash too, and the error says to check both names.
+                    None => {
+                        error.get_or_insert(told);
+                        continue;
+                    }
+                    Some(false) => {}
                 }
                 let file = out[0].from.display().to_string();
                 while let Some(last) = out.last()
@@ -287,6 +292,23 @@ fn put_back(
         }
     }
     back
+}
+
+/// Settles where the sidecar `side` is after its rename out of the trash failed with `e`.
+/// Returns `Some(true)` when it is out at its own name alone, `Some(false)` when it is surely
+/// still in the trash, and `None` when it may be at either name. A rename that may have been
+/// done may have left it at both names, one file under two, which `journal::finish_step` puts
+/// right. Only names that are surely gone tell the rest: a failed look tells nothing, also not
+/// that the sidecar is out.
+fn sidecar_back_after_all(side: &TrashEntry, e: &std::io::Error) -> Option<bool> {
+    use crate::files::file_io::{is_surely_gone, may_have_been_done};
+    if !may_have_been_done(e, &side.file) {
+        return Some(false);
+    }
+    if crate::files::journal::finish_step(&side.file, &side.from) {
+        return Some(true);
+    }
+    is_surely_gone(&side.from).then_some(false)
 }
 
 /// Of each name in a trash folder, the one put there first, by `rank`.
@@ -1326,8 +1348,10 @@ mod tests {
     }
 
     /// A sidecar whose way back from the trash failed with an error that may hide a rename done
-    /// (an unlink whose answer was lost) counts as back, and its photo stays out with it. Before,
-    /// the photo went back into the trash while the sidecar was also at its name.
+    /// (an unlink whose answer was lost) is put at its own name alone, and its photo stays out
+    /// with it. Before 0.81, the photo went back into the trash while the sidecar was also at its
+    /// name, and after it, the sidecar stayed under both names, its name in the trash beside a
+    /// .trashinfo that the next file of its name would take back.
     #[test]
     fn a_file_stays_out_of_the_trash_when_its_sidecar_may_be_back() {
         use crate::files::file_io::{RENAME_WAYS_MISSING, UNLINK_FAILS};
@@ -1367,13 +1391,14 @@ mod tests {
         UNLINK_FAILS.set(None);
         RENAME_WAYS_MISSING.set(0);
         assert_eq!(back, [x.join("a.jpg")], "{error:?}");
-        assert!(error.is_some());
+        assert!(error.is_none(), "{error:?}");
         assert_eq!(std::fs::read_to_string(x.join("a.jpg")).unwrap(), "a.jpg");
         assert_eq!(
             std::fs::read_to_string(x.join("a.jpg.xmp")).unwrap(),
             "a.jpg.xmp"
         );
-        assert!(trash.join("info/a.jpg.xmp.trashinfo").exists());
+        assert!(!trash.join("files/a.jpg.xmp").exists());
+        assert!(!trash.join("info/a.jpg.xmp.trashinfo").exists());
         std::fs::remove_dir_all(dir).unwrap();
     }
 

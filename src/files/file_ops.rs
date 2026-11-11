@@ -3235,8 +3235,10 @@ fn move_back(pairs: Vec<Moved>) -> MovedBack {
 /// one cannot, the file goes back first, and the sidecars that followed are taken back only once
 /// it is there, each of them also after one that failed. When the file cannot go back, those
 /// sidecars stay with it at `to`. So the file always ends with every sidecar that could reach
-/// it. Returns, when a sidecar could not follow, whether the file is back at `from`, with the
-/// errors to tell, each saying where the file and that sidecar are.
+/// it. A sidecar whose move may have been done (a share that lost its answer) may be at both
+/// names or at the new one, so it is put where the file ends (`sidecar_where_the_file_is`).
+/// Returns, when a sidecar could not follow, whether the file is back at `from`, with the errors
+/// to tell, each saying where the file and that sidecar are.
 fn follow_or_go_back(
     (from, to): (&Path, &Path),
     is_copy: bool,
@@ -3271,7 +3273,11 @@ fn follow_or_go_back(
         }
         // The window shows the first error, so a sidecar apart from its file comes first, and
         // then the file is not said to be with its sidecar.
-        let is_whole = told.is_empty();
+        // Each sidecar is put beside the file, also after one that could not be.
+        let beside: Vec<bool> = (not.failed.iter())
+            .map(|(side, at, e)| is_copy || sidecar_where_the_file_is((side, at), e, true))
+            .collect();
+        let is_whole = told.is_empty() && !beside.contains(&false);
         told.extend(not.failed.iter().map(|(_, at, e)| {
             let side = at.display();
             match is_whole {
@@ -3288,6 +3294,7 @@ fn follow_or_go_back(
     };
     let to = to.display();
     let told = (not.failed.iter())
+        .filter(|(side, at, e)| is_copy || !sidecar_where_the_file_is((side, at), e, false))
         .map(|(side, _, e)| {
             let side = side.display();
             tf!(
@@ -3301,6 +3308,26 @@ fn follow_or_go_back(
         })
         .collect();
     Err((false, told))
+}
+
+/// Puts the sidecar whose move from `side` to `at` failed with `e` beside its file, at `side`
+/// when the file went back (`file_is_back`) and otherwise at `at`. A move that may have been done
+/// may have left it at both names, one file under two, or only at the new one, which
+/// `journal::finish_step` puts right. A move refused for sure left the sidecar at `side`, and it
+/// is not touched. Returns whether the sidecar is surely beside the file now.
+fn sidecar_where_the_file_is(
+    (side, at): (&Path, &Path),
+    e: &std::io::Error,
+    file_is_back: bool,
+) -> bool {
+    if !crate::files::file_io::may_have_been_done(e, side) {
+        return file_is_back;
+    }
+    let (away, beside) = match file_is_back {
+        true => (at, side),
+        false => (side, at),
+    };
+    journal::finish_step(away, beside)
 }
 
 /// Returns a file just moved or renamed from `from` to `to` with its fingerprint, for Undo. Returns
@@ -4084,6 +4111,56 @@ mod tests {
                     assert_eq!(told.len(), 1, "{told:?}");
                     assert!(told[0].contains("could not go back"), "{told:?}");
                 }
+            }
+        }
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A sidecar whose move may have been done (its old name's unlink lost its answer, so it is
+    /// under both names) is not tried again as a copy, and ends beside its file alone: at its
+    /// old name when the file went back, else at the new one. Before, the copy found the new
+    /// name taken, the file went back "with its sidecar", and the sidecar stayed at the new name
+    /// too, for the next file of that name.
+    #[test]
+    fn a_sidecar_that_may_have_moved_ends_beside_its_file() {
+        use crate::files::file_io::{RENAME_WAYS_MISSING, UNLINK_FAILS};
+        let dir =
+            std::env::temp_dir().join(format!("glimt-test-side-maybe-{}", std::process::id()));
+        let (from, to) = (dir.join("from"), dir.join("to"));
+        for can_go_back in [true, false] {
+            let _ = std::fs::remove_dir_all(&dir);
+            std::fs::create_dir_all(&from).unwrap();
+            std::fs::create_dir_all(&to).unwrap();
+            std::fs::write(to.join("a.jpg"), "photo").unwrap();
+            std::fs::write(from.join("a.jpg.xmp"), "own").unwrap();
+            if !can_go_back {
+                std::fs::write(from.join("a.jpg"), "another").unwrap();
+            }
+            let photo = from.join("a.jpg");
+            let moving = std::collections::HashSet::from([&photo]);
+            RENAME_WAYS_MISSING.set(1);
+            UNLINK_FAILS.set(Some((from.join("a.jpg.xmp"), libc::EIO)));
+            let result = super::follow_or_go_back(
+                (&photo, &to.join("a.jpg")),
+                false,
+                &moving,
+                &mut Default::default(),
+            );
+            UNLINK_FAILS.set(None);
+            RENAME_WAYS_MISSING.set(0);
+            let Err((is_back, told)) = result else {
+                panic!("the sidecar followed")
+            };
+            assert_eq!(is_back, can_go_back, "{told:?}");
+            let (beside, away) = match can_go_back {
+                true => (from.join("a.jpg.xmp"), to.join("a.jpg.xmp")),
+                false => (to.join("a.jpg.xmp"), from.join("a.jpg.xmp")),
+            };
+            assert_eq!(std::fs::read_to_string(&beside).unwrap(), "own");
+            assert!(!away.exists(), "{told:?}");
+            match can_go_back {
+                true => assert!(told[0].contains("with its sidecar"), "{told:?}"),
+                false => assert!(told.is_empty(), "{told:?}"),
             }
         }
         std::fs::remove_dir_all(dir).unwrap();
