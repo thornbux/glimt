@@ -87,7 +87,11 @@ and versions follow [Semantic Versioning](https://semver.org/).
   and one more is told at once that it was not done.
 - `--wait --remote-all`, and `--wait` to a name that several windows share, send the command to
   every window before waiting for any, so each starts its work at once instead of after the
-  work of the one before.
+  work of the one before. Every window's answer is read at once, so a long `info` or
+  `selection` from one window is not cut short while another window's answer is read.
+- An answer of `--remote current`, `selection` or `select` that ends inside a path, as when the
+  window closed meanwhile, is printed as far as it came and told as not done (exit 3). Before,
+  it was taken as the whole answer.
 - A window that crashes while `--wait` waits for its work is told as closed, not as a Glimt
   that does not know `--wait`.
 - A window that starts under heavy load no longer takes the socket left by a Glimt gone for a

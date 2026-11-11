@@ -1121,6 +1121,15 @@ fn info_records_missing(command: &str, answer: &[u8]) -> usize {
     asked.saturating_sub(records)
 }
 
+/// Whether the answer `answer` to `command` ends inside a path. The answers of `current`,
+/// `selection` and `select` are paths that each end in a NUL byte, so such an answer was cut
+/// short, as when the window closed meanwhile.
+fn is_cut_in_a_path(command: &str, answer: &[u8]) -> bool {
+    let has_paths = matches!(command.trim(), "current" | "selection");
+    let has_paths = has_paths || command.starts_with("select ");
+    has_paths && answer.last().is_some_and(|&byte| byte != 0)
+}
+
 /// Glimt's runtime folder, which only the user can reach. It holds the sockets and the sidecar
 /// locks.
 pub(crate) fn runtime_dir() -> Option<PathBuf> {
@@ -1363,7 +1372,7 @@ pub fn socket_name(id: &str) -> String {
 /// Send `command` to the socket at `path`, and print what it answers (`print_answer`).
 fn send_and_print_answer(path: &std::path::Path, command: &str) -> bool {
     send_command(path, command).is_some_and(|stream| {
-        print_answer(path, stream, command);
+        print_answer(path, read_answer(stream, command), command);
         true
     })
 }
@@ -1386,19 +1395,40 @@ fn send_to_each(sockets: impl IntoIterator<Item = PathBuf>, command: &str) -> us
         .filter_map(|path| Some((send_command(&path, command)?, path)))
         .collect();
     let taken = sent.len();
-    for (stream, path) in sent {
-        print_answer(&path, stream, command);
-    }
+    read_each_answer(sent, command, |path, answer| {
+        print_answer(&path, answer, command)
+    });
     taken
 }
 
-/// Prints what the window at `path` answers to `command` on `s` to standard output. A command
-/// that the window did not do has its reason printed on standard error instead. A window of
-/// 0.75 or older closes without an answer to a command, which reads as done.
-fn print_answer(path: &std::path::Path, mut s: UnixStream, command: &str) {
+/// Reads the answer to `command` on each connection of `sent`, all at once, each in a thread of
+/// its own, and gives each to `each` with its socket's path, in the order of `sent`. A window
+/// whose answer is not read stops when its socket is full, and the window's time limit for a
+/// write then cuts its answer short. So a long `info` or `selection` from one window would be
+/// cut while the client still read another window's answer.
+fn read_each_answer(
+    sent: Vec<(UnixStream, PathBuf)>,
+    command: &str,
+    mut each: impl FnMut(PathBuf, (Vec<u8>, std::io::Result<usize>)),
+) {
+    std::thread::scope(|scope| {
+        let reading: Vec<_> = (sent.into_iter())
+            .map(|(stream, path)| (scope.spawn(move || read_answer(stream, command)), path))
+            .collect();
+        for (answer, path) in reading {
+            // Reading an answer does not panic, and a panic there is passed on.
+            let answer = (answer.join()).unwrap_or_else(|e| std::panic::resume_unwind(e));
+            each(path, answer);
+        }
+    });
+}
+
+/// Reads the window's answer to `command` on `s` until the window closes the connection.
+/// Returns the bytes that came, with the error when the answer did not end within the time
+/// limit or the connection failed.
+fn read_answer(mut s: UnixStream, command: &str) -> (Vec<u8>, std::io::Result<usize>) {
     use std::io::Read;
-    let waits = command.starts_with(WAIT_WORD);
-    let limit = match waits {
+    let limit = match command.starts_with(WAIT_WORD) {
         // The window's listener says "no answer" a second after `OUTCOME_WAIT`.
         true => OUTCOME_WAIT + std::time::Duration::from_secs(2),
         false => WAIT,
@@ -1407,6 +1437,20 @@ fn print_answer(path: &std::path::Path, mut s: UnixStream, command: &str) {
     let mut answer = Vec::new();
     #[allow(clippy::disallowed_methods)] // a reply on Glimt's own private socket, with a time limit
     let read = s.read_to_end(&mut answer);
+    (answer, read)
+}
+
+/// Prints the answer `answer` that the window at `path` gave to `command` to standard output,
+/// and `read` tells how its reading ended. A command that the window did not do has its reason
+/// printed on standard error instead. A window of 0.75 or older closes without an answer to a
+/// command, which reads as done. An answer that was cut short, as when the window closed
+/// meanwhile, is printed as far as it came and told as not done.
+fn print_answer(
+    path: &std::path::Path,
+    (answer, read): (Vec<u8>, std::io::Result<usize>),
+    command: &str,
+) {
+    let waits = command.starts_with(WAIT_WORD);
     let timed_out = read.is_err();
     match read {
         Ok(_) => ANSWERED.store(true, std::sync::atomic::Ordering::Relaxed),
@@ -1422,8 +1466,14 @@ fn print_answer(path: &std::path::Path, mut s: UnixStream, command: &str) {
         None if waits && !timed_out => waited_outcome_reason(&answer, path),
         None => {
             let _ = std::io::stdout().write_all(&answer);
-            let closed = format!("the window closed before it told about {missing} of the files");
-            (missing > 0 && !timed_out).then_some(closed)
+            let closed = match missing {
+                0 => (is_cut_in_a_path(command, &answer))
+                    .then(|| "the window closed before its answer ended".to_owned()),
+                _ => Some(format!(
+                    "the window closed before it told about {missing} of the files"
+                )),
+            };
+            closed.filter(|_| !timed_out)
         }
     };
     if let Some(why) = why {
@@ -3483,6 +3533,68 @@ mod tests {
             );
         }
         std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A query sent to two windows, as `--remote-all selection` does, gets the whole answer of
+    /// the second window, larger than a socket holds, while the first takes longer than the
+    /// window's time limit for a write. Before, the client read the second answer only after
+    /// the first, so the second window's write timed out and its answer was cut short. The cut
+    /// comes after two time limits, as the first write gives back the part that went, so the
+    /// first window here answers after four, still before its own time limit of `wait` and a
+    /// second.
+    #[test]
+    fn a_long_answer_is_read_whole_while_another_window_answers() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-long-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let wait = std::time::Duration::from_millis(200);
+        let long_answer = b"/a/long/path/to/a/file.jpg\0".repeat(40_000);
+        let window = |id: &str, answer: Vec<u8>, after: std::time::Duration| {
+            let path = dir.join(super::socket_name(id));
+            let listener = std::os::unix::net::UnixListener::bind(&path).unwrap();
+            let (tx, commands) = std::sync::mpsc::channel();
+            let serve = move |stream, place| {
+                let ctx = eframe::egui::Context::default();
+                super::serve(stream, place, &tx, &ctx, wait, &super::WAITING_PLACES);
+            };
+            std::thread::spawn(move || super::serve_clients(listener, 1, serve));
+            std::thread::spawn(move || {
+                let (_, reply): (String, Option<super::Reply>) = commands.recv().unwrap();
+                std::thread::sleep(after);
+                reply.unwrap().send(answer).unwrap();
+            });
+            path
+        };
+        let slow = window("slow", b"/b.jpg\0".to_vec(), 4 * wait);
+        let fast = window("fast", long_answer.clone(), std::time::Duration::ZERO);
+        let sent =
+            [slow, fast].map(|path| (super::send_command(&path, "selection").unwrap(), path));
+        let mut answers = Vec::new();
+        super::read_each_answer(sent.into(), "selection", |_, (answer, read)| {
+            answers.push((answer, read.is_ok()));
+        });
+        assert_eq!(answers[0], (b"/b.jpg\0".to_vec(), true));
+        assert!(answers[1].1, "the second answer was not read in time");
+        assert_eq!(
+            answers[1].0.len(),
+            long_answer.len(),
+            "the second answer was cut short"
+        );
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// An answer of paths is cut short when it ends inside a path, without the NUL byte that
+    /// ends each, and not when it is empty or ends in one.
+    #[test]
+    fn an_answer_that_ends_inside_a_path_is_cut_short() {
+        assert!(super::is_cut_in_a_path("selection", b"/a.jpg\0/b.j"));
+        assert!(super::is_cut_in_a_path("current", b"/a.j"));
+        assert!(super::is_cut_in_a_path(
+            "select /a.jpg\0/b.jpg",
+            b"/a.jpg\0/b"
+        ));
+        assert!(!super::is_cut_in_a_path("selection", b"/a.jpg\0/b.jpg\0"));
+        assert!(!super::is_cut_in_a_path("selection", b""));
+        assert!(!super::is_cut_in_a_path("next", b"x"));
     }
 
     /// A socket that does not answer is passed over but left in place. A Glimt between binding
