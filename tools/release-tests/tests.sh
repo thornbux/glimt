@@ -5349,7 +5349,7 @@ for n in names:
     held += 1
     renamed += n != f"{i:02d}.jpg"
     right += stars.get(f"{d}/{n}") == i % 5 + 1
-print(held, right, "renamed" if renamed else "not renamed", len(names))
+print(held, right, "renamed" if renamed else "not-renamed", len(names))
 PY
 )
         plans=$(ls -A $XDG_STATE_HOME/glimt/renames 2>/dev/null | wc -l)
