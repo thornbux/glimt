@@ -3913,6 +3913,11 @@ msgstr "ett annat fönster har dem öppna"
 msgid "The file dialog did not answer with full paths, so nothing was opened"
 msgstr "Fildialogen svarade inte med fullständiga sökvägar, så ingenting öppnades"
 
+#: src/files/file_io.rs
+#, fuzzy
+msgid "Could not lock {name}: {e}. A change that another Glimt window makes at the same moment may be lost."
+msgstr "Kunde inte låsa {name}: {e}. En ändring som ett annat Glimt-fönster gör i samma ögonblick kan gå förlorad."
+
 #: src/metadata/xmp.rs
 #, fuzzy
 msgid "{sidecar} could not be moved ({e}), so it was copied to {copy} and is still at its old name too"

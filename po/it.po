@@ -3913,6 +3913,11 @@ msgstr "un'altra finestra li ha aperti"
 msgid "The file dialog did not answer with full paths, so nothing was opened"
 msgstr "La finestra di selezione file non ha risposto con percorsi completi, quindi non è stato aperto nulla"
 
+#: src/files/file_io.rs
+#, fuzzy
+msgid "Could not lock {name}: {e}. A change that another Glimt window makes at the same moment may be lost."
+msgstr "Impossibile bloccare {name}: {e}. Una modifica fatta nello stesso momento da un'altra finestra di Glimt può andare persa."
+
 #: src/metadata/xmp.rs
 #, fuzzy
 msgid "{sidecar} could not be moved ({e}), so it was copied to {copy} and is still at its old name too"

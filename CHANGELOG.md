@@ -7,6 +7,23 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- A shared file (settings, marks, keyword tree, recent list, collections, sidecars) whose lock
+  cannot be had, as on NFS without lockd, is still edited, and the window says once that a
+  change another window makes at the same moment may be lost. Before, it said nothing.
+- Marks and stars set where there is no marks file, as neither `$HOME` nor `$XDG_STATE_HOME` is
+  set, are told as not saved. Before, they were dropped without a word.
+- Stars above 5 in the marks file, which a later Glimt may write, are kept when this one
+  writes the file, and shown as 5. Before, they were written back as 5.
+- Two windows saving photos of one Rename Many plan cut short at the same moment both keep
+  their change to the plan's list of files. Before, one could be lost, and that photo's repair
+  was refused.
+- A window renamed with `--remote name` keeps its remote control when another window of that
+  name starts at the same moment. Before, the starting window could remove the renamed
+  window's new socket and take the name.
+- Two windows that reach one folder by two paths, through a link or a bind mount, wait for each
+  other's sidecar writes there. Before, both could read the old sidecar, and the last write
+  dropped the other's keywords or stars.
+
 - Copy for Sharing lists a JPEG's markers that a decoder does not need, such as JPG0, as tags
   that Remove All leaves out, instead of copying them whatever they hold. An Adobe segment
   keeps only its 12 bytes, so text after them is no longer carried.
@@ -29,9 +46,27 @@ and versions follow [Semantic Versioning](https://semver.org/).
   Before, it was taken out of the collection with a notice when another entry changed.
 - Check Images and the view read an animation with a large canvas no further than 2 GB of
   canvases. Before, a small crafted GIF of many tiny frames on a huge canvas took minutes.
+- Without gio, a file moved to the trash on another disk goes into the trash folder at that
+  disk's top that Glimt checked, and Undo reads that same folder, opened once without following
+  a link. Before, another user who can write at the disk's top, or who owns its `.Trash`, could
+  swap the folder for a link in the moment after the check, and get the file, or have Undo
+  bring back a file of theirs.
+- In the Flatpak, a file that the trash portal refused, in a folder that the sandbox shows by a
+  mount of that folder alone (such as /srv), is no longer put in a `.Trash-UID` there, where the
+  host's file managers never look. The window asks whether to delete it for good instead.
 - The HDF5 added format reads only what the file holds. Before, a downloaded file could show
   another file of the user's through external storage, a link to another file or a virtual
   dataset, and it was saved as a thumbnail.
+- `glimt --wait --remote` commands that wait for their work no longer keep other clients out:
+  sixteen of them made even a plain query say "no answer". A window waits for up to 64 at once,
+  and one more is told at once that it was not done.
+- `--wait --remote-all`, and `--wait` to a name that several windows share, send the command to
+  every window before waiting for any, so each starts its work at once instead of after the
+  work of the one before.
+- A window that crashes while `--wait` waits for its work is told as closed, not as a Glimt
+  that does not know `--wait`.
+- A window that starts under heavy load no longer takes the socket left by a Glimt gone for a
+  running one, which gave it its name with its process ID, or no remote control at all.
 - The keywords, comment, alt text, stars and orientation are read and written only as the
   photo's own XMP properties. Before, those of another document inside a property, such as a
   placed image in Photoshop's xmpMM:Pantry, were read as the photo's, and an edit, a turn or a

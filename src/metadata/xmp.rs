@@ -7,6 +7,7 @@
 
 use crate::files::config::fits_on_a_line;
 use crate::files::file_io::ListedFile;
+use crate::images::save::FileId;
 use crate::support::format::without_control_characters;
 use crate::support::threads::lock_even_if_poisoned;
 use std::path::{Path, PathBuf};
@@ -633,21 +634,23 @@ pub(crate) fn write_for<R>(file: &ListedFile, write: impl FnOnce() -> R) -> (R, 
 /// window's threads and by every other Glimt window. So keywords added in the background, stars
 /// saved and a comment edited in another window meanwhile each keep what the others wrote.
 ///
-/// It is one of 64 locks, chosen by the sidecar's path. Within this Glimt it is a mutex, and
-/// across windows a lock file in Glimt's runtime folder, not one beside the sidecar in the
-/// user's folder. The mutex is always taken, so two threads of this Glimt wait for each other
-/// also when the lock file cannot be made for one of them (a full runtime folder) and can for
-/// the other. There are 64 locks, so a sidecar on a share that stopped answering holds up only
-/// the sidecars of its own lock, not every write of the window. A move holds it too, so a write
-/// that waited finds the photo gone, not its old name free for a sidecar.
+/// It is one of 64 locks, chosen by the sidecar's folder and name (`sidecar_hash`). Within this
+/// Glimt it is a mutex, and across windows a lock file in Glimt's runtime folder, not one beside
+/// the sidecar in the user's folder. The mutex is always taken, so two threads of this Glimt
+/// wait for each other also when the lock file cannot be made for one of them (a full runtime
+/// folder) and can for the other. There are 64 locks, so a sidecar on a share that stopped
+/// answering holds up only the sidecars of its own lock, not every write of the window. A move
+/// holds it too, so a write that waited finds the photo gone, not its old name free for a
+/// sidecar.
 pub(crate) fn lock_sidecar(path: &Path) -> SidecarLock {
     lock_sidecar_in(lock_dir().as_deref(), path)
 }
 
 fn lock_sidecar_in(dir: Option<&Path>, path: &Path) -> SidecarLock {
     let side = sidecar(path);
-    let guard = lock_even_if_poisoned(lock_of(sidecar_lock_key(&side)));
-    (dir.and_then(|d| lock_file(d, &side)), guard)
+    let hash = sidecar_hash(&side, folder_id(&side).as_ref());
+    let guard = lock_even_if_poisoned(lock_of(sidecar_lock_key(hash)));
+    (dir.and_then(|d| lock_file(d, hash % 64)), guard)
 }
 
 /// `lock_sidecar` for many files at once, as Rename Many and a delete move a photo and then its
@@ -662,16 +665,22 @@ fn lock_sidecars_in<'a>(
     dir: Option<&Path>,
     paths: impl IntoIterator<Item = &'a PathBuf>,
 ) -> Vec<SidecarLock> {
-    let mut sides: Vec<(u64, PathBuf)> = (paths.into_iter())
-        .map(|p| sidecar(p))
-        .map(|s| (sidecar_lock_key(&s), s))
+    // Each folder is looked at once, so 500,000 photos of one folder cost one look.
+    let mut folders: std::collections::HashMap<PathBuf, Option<FileId>> = Default::default();
+    let mut hashes: Vec<u64> = (paths.into_iter())
+        .map(|p| {
+            let side = sidecar(p);
+            let folder = side.parent().unwrap_or(Path::new("")).to_path_buf();
+            let id = folders.entry(folder).or_insert_with(|| folder_id(&side));
+            sidecar_hash(&side, id.as_ref())
+        })
         .collect();
-    sides.sort_by_key(|s| s.0);
-    sides.dedup_by_key(|s| s.0);
-    (sides.iter())
-        .map(|(n, side)| {
-            let guard = lock_even_if_poisoned(lock_of(*n));
-            (dir.and_then(|d| lock_file(d, side)), guard)
+    hashes.sort_by_key(|&h| sidecar_lock_key(h));
+    hashes.dedup_by_key(|h| sidecar_lock_key(*h));
+    (hashes.iter())
+        .map(|&hash| {
+            let guard = lock_even_if_poisoned(lock_of(sidecar_lock_key(hash)));
+            (dir.and_then(|d| lock_file(d, hash % 64)), guard)
         })
         .collect()
 }
@@ -687,38 +696,64 @@ fn lock_dir() -> Option<PathBuf> {
     return crate::features::remote::runtime_dir().map(|d| d.join("sidecar-locks"));
 }
 
-fn lock_file(dir: &Path, side: &Path) -> Option<std::fs::File> {
+/// Takes the lock file `number` in `dir`, the number that `sidecar_lock_number` gives a sidecar.
+fn lock_file(dir: &Path, number: u64) -> Option<std::fs::File> {
     use std::os::unix::fs::DirBuilderExt;
     let _ = std::fs::DirBuilder::new()
         .recursive(true)
         .mode(0o700)
         .create(dir);
-    crate::files::file_io::open_and_lock(&dir.join(sidecar_lock_number(side).to_string())).ok()
+    crate::files::file_io::lock_or_tell(&dir.join(number.to_string()))
 }
 
-/// Which of the 64 lock files a sidecar has. It is FNV-1a of its path's bytes, the same in
-/// every Glimt, also one built with another Rust, whose own hasher may differ.
+/// Which of the 64 lock files a sidecar has (`sidecar_hash`), for the tests that pick sidecars
+/// of other locks.
+#[cfg(test)]
 pub(crate) fn sidecar_lock_number(side: &Path) -> u64 {
-    fnv(side) % 64
+    sidecar_hash(side, folder_id(side).as_ref()) % 64
 }
 
-/// Returns FNV-1a of the bytes of the path `side`.
-fn fnv(side: &Path) -> u64 {
+/// Returns who the folder of the sidecar `side` is (`save::file_id`), or `None` when it cannot
+/// be looked at.
+fn folder_id(side: &Path) -> Option<FileId> {
+    let folder = side.parent().filter(|f| !f.as_os_str().is_empty());
+    crate::images::save::file_id(folder.unwrap_or(Path::new(".")))
+}
+
+/// Returns FNV-1a of who the folder of the sidecar `side` is, `folder` (`folder_id`), and of
+/// the sidecar's name. So two windows that reach one folder by two paths (a link to it, a bind
+/// mount) take the same lock for its sidecars. It is the same in every Glimt, also one built
+/// with another Rust, whose own hasher may differ. A folder that could not be looked at is
+/// taken by the sidecar's path as written.
+fn sidecar_hash(side: &Path, folder: Option<&FileId>) -> u64 {
     use std::os::unix::ffi::OsStrExt;
-    (side.as_os_str().as_bytes().iter()).fold(0xcbf2_9ce4_8422_2325_u64, |h, &b| {
+    let name = side.file_name().unwrap_or_default().as_bytes();
+    let bytes = match folder {
+        Some(Ok((device, inode))) => {
+            [&device.to_le_bytes()[..], &inode.to_le_bytes(), name].concat()
+        }
+        Some(Err(real)) => [real.as_os_str().as_bytes(), b"/", name].concat(),
+        None => side.as_os_str().as_bytes().to_vec(),
+    };
+    fnv(&bytes)
+}
+
+/// Returns FNV-1a of `bytes`.
+fn fnv(bytes: &[u8]) -> u64 {
+    (bytes.iter()).fold(0xcbf2_9ce4_8422_2325_u64, |h, &b| {
         (h ^ b as u64).wrapping_mul(0x100_0000_01b3)
     })
 }
 
-/// Returns the number of the mutex that the sidecar `side` takes: `sidecar_lock_number`. In
-/// tests every sidecar has a mutex of its own, because the tests run side by side in one
-/// process. A test that held a lock on purpose for seconds held up another test's sidecar of
-/// the same number, and that test timed out.
-fn sidecar_lock_key(side: &Path) -> u64 {
+/// Returns the number of the mutex that the sidecar of the hash `hash` (`sidecar_hash`) takes,
+/// which is its lock file's number. In tests every sidecar has a mutex of its own, because the
+/// tests run side by side in one process. A test that held a lock on purpose for seconds held up
+/// another test's sidecar of the same number, and that test timed out.
+fn sidecar_lock_key(hash: u64) -> u64 {
     #[cfg(test)]
-    return fnv(side);
+    return hash;
     #[cfg(not(test))]
-    return sidecar_lock_number(side);
+    return hash % 64;
 }
 
 /// Returns the mutex of the lock number `key` (`sidecar_lock_key`).
@@ -2072,18 +2107,53 @@ mod tests {
     }
 
     /// The lock file of a sidecar is the same in every Glimt, by FNV-1a, as known for these
-    /// paths.
+    /// sidecars: by their folder's device and inode and their name, and by the path as written
+    /// when the folder could not be looked at.
     #[test]
     fn lock_slots_stay() {
         use std::path::Path;
+        let in_folder = super::sidecar_hash(Path::new("/x/a.xmp"), Some(&Ok((1, 2))));
+        assert_eq!(in_folder, 0xb566_284c_907b_9f86);
         assert_eq!(
-            super::sidecar_lock_number(Path::new("")),
-            0xcbf2_9ce4_8422_2325 % 64
+            super::sidecar_hash(Path::new(""), None),
+            0xcbf2_9ce4_8422_2325
         );
         assert_eq!(
-            super::sidecar_lock_number(Path::new("a")),
-            0xaf63_dc4c_8601_ec8c % 64
+            super::sidecar_hash(Path::new("a"), None),
+            0xaf63_dc4c_8601_ec8c
         );
+    }
+
+    /// Two windows that name one folder differently, through a link to it, take the same lock
+    /// for a sidecar in it, and so wait for each other. Before, the lock went by the path as
+    /// written, and both read the old sidecar, so the last write dropped the other's change.
+    #[test]
+    fn one_folder_named_two_ways_has_one_sidecar_lock() {
+        let dir =
+            std::env::temp_dir().join(format!("glimt-test-lock-alias-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let (photos, link) = (dir.join("photos"), dir.join("link"));
+        std::fs::create_dir_all(&photos).unwrap();
+        std::os::unix::fs::symlink(&photos, &link).unwrap();
+        let (real, through_link) = (photos.join("a.jpg"), link.join("a.jpg"));
+        assert_eq!(
+            super::sidecar_lock_number(&super::sidecar(&real)),
+            super::sidecar_lock_number(&super::sidecar(&through_link))
+        );
+        let lock = super::lock_sidecar(&real);
+        let (tx, rx) = std::sync::mpsc::channel();
+        let waiter = std::thread::spawn(move || {
+            let all = super::lock_sidecars([&through_link]);
+            tx.send(()).unwrap();
+            drop(all);
+        });
+        let waited = rx
+            .recv_timeout(std::time::Duration::from_millis(200))
+            .is_err();
+        drop(lock);
+        waiter.join().unwrap();
+        assert!(waited, "the lock through the link did not wait");
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     /// Within one Glimt, a holder whose lock file could not be made waits for one whose could,
@@ -2117,11 +2187,11 @@ mod tests {
     fn sidecar_lock_waits() {
         let dir = std::env::temp_dir().join(format!("glimt-test-locks-{}", std::process::id()));
         let side = std::path::PathBuf::from("/photos/a.xmp");
-        let first = super::lock_file(&dir, &side).unwrap();
+        let first = super::lock_file(&dir, super::sidecar_lock_number(&side)).unwrap();
         let (dir2, side2) = (dir.clone(), side.clone());
         let started = std::time::Instant::now();
         let other = std::thread::spawn(move || {
-            drop(super::lock_file(&dir2, &side2).unwrap());
+            drop(super::lock_file(&dir2, super::sidecar_lock_number(&side2)).unwrap());
             started.elapsed()
         });
         std::thread::sleep(std::time::Duration::from_millis(300));
@@ -2142,7 +2212,7 @@ mod tests {
         std::fs::write(&target, "keep").unwrap();
         let lock = dir.join(super::sidecar_lock_number(&side).to_string());
         std::os::unix::fs::symlink(&target, lock).unwrap();
-        assert!(super::lock_file(&dir, &side).is_none());
+        assert!(super::lock_file(&dir, super::sidecar_lock_number(&side)).is_none());
         assert_eq!(std::fs::read_to_string(&target).unwrap(), "keep");
         std::fs::remove_dir_all(dir).unwrap();
     }
