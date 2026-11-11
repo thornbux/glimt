@@ -52,12 +52,14 @@ for Linux in Rust/egui, inspired by Geeqie. Read this before changing anything.
 - **Little memory.** Decode to screen size; full resolution only when zoomed. Preloading has a
   fixed budget (N images on each side). Measure RssAnon before and after changes that touch
   decoding or caches.
-- **The limits a release is held to.** The release tests fail when, in a folder of 500,000
-  files, the first image takes more than 1.5 times the last release's time or RssAnon is more
-  than 1.5 times the last release's; when the median frame takes more than 10 ms of the window
-  thread's processor time with all 500,000 files selected; or when sorting 3,000 JPEGs by EXIF date takes
-  more than 1.5 times the last release's time (each with a small slack, `within` in `tests.sh`).
-  The maintainer sets these numbers, and an agent does not change them. The other timings and
+- **The limits a release is held to.** The rule is 1.5 times the last release: the release
+  tests fail when, in a folder of 500,000 files, the first image takes more than 1.5 times the
+  last release's time or RssAnon is more than 1.5 times the last release's, or when sorting
+  3,000 JPEGs by EXIF date takes more than 1.5 times the last release's time. Each is the best
+  of two runs of each version, with a slack of 100 ms or 20 MB (`within` in `tests.sh`;
+  docs/RELEASING.md says how). They also fail when the median frame takes more than 10 ms of
+  the window thread's processor time with all 500,000 files selected. The maintainer sets these
+  numbers, and an agent does not change them. The other timings and
   memory figures in the release tests (`note` lines) are only printed, to compare: they stop
   nothing.
 - **Simplest thing that works.** No dependency, abstraction, config option or file before it is
