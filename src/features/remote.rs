@@ -1524,14 +1524,7 @@ pub fn listen(
             return Err("No remote control: its folder there is not this user's own".into());
         }
     }
-    // A window whose --name is taken already shares it, on a socket of its own: the name and
-    // its process ID.
-    let mut id = socket_id();
-    let mut bound = bind_socket(&path);
-    if let (Err(None), Some(name)) = (&bound, given_name()) {
-        id = format!("{name}.{}", instance_id());
-        bound = socket(&id).map_or(Err(None), |p| bind_socket(&p));
-    }
+    let (id, bound) = bind_or_share(socket_id(), given_name(), socket);
     let listener = match bound {
         Ok(listener) => listener,
         Err(None) => {
@@ -1814,6 +1807,27 @@ fn bind_socket(path: &std::path::Path) -> Result<UnixListener, Option<std::io::E
     bind_where_removed(path, removed)
 }
 
+/// Binds this Glimt's socket as `id`, at the path `socket` gives for an ID. A window whose
+/// --name `name` is taken already shares it, on a socket of its own: the name and its process
+/// ID. So does one whose socket of that name cannot be made, as when a socket left there
+/// cannot be removed, and why is printed. Returns the ID and what `bind_socket` gave for it.
+fn bind_or_share(
+    id: String,
+    name: Option<String>,
+    socket: impl Fn(&str) -> Option<PathBuf>,
+) -> (String, Result<UnixListener, Option<std::io::Error>>) {
+    let bound = socket(&id).map_or(Err(None), |p| bind_socket(&p));
+    let (Err(why), Some(name)) = (&bound, name) else {
+        return (id, bound);
+    };
+    let shared = format!("{name}.{}", instance_id());
+    if let Some(e) = why {
+        eprintln!("Could not listen as {id}: {e}. Listening as {shared} instead.");
+    }
+    let bound = socket(&shared).map_or(Err(None), |p| bind_socket(&p));
+    (shared, bound)
+}
+
 /// Binds the socket at `path` after the socket left there was removed, as `removed` says.
 /// Returns the remove's own error when the left socket stays, because the bind would then fail
 /// as if a running Glimt had the name. Returns `Err(None)` when another window took the name
@@ -1862,18 +1876,24 @@ pub fn rename(name: Option<&str>) -> Result<(), String> {
 /// place under its new ID. Returns the ID taken, or the reason when none of them can be taken.
 fn move_socket(dir: &Path, old: &str, ids: &[String]) -> Result<String, String> {
     let from = dir.join(socket_name(old));
-    let mut why = "a Glimt of that name and process ID runs already";
+    let mut why = "a Glimt of that name and process ID runs already".to_owned();
     for id in ids {
         let to = dir.join(socket_name(id));
         if !socket_path_fits(&to) {
-            why = "the name is too long for the socket's path here";
+            why = "the name is too long for the socket's path here".into();
             continue;
         }
         if id != old {
             match link_socket(&from, &to) {
                 Ok(()) => {}
                 Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
-                Err(e) => return Err(e.to_string()),
+                // A socket left at the name that cannot be removed is told, and the next ID,
+                // the name and the process ID, is tried, as when a window has the name.
+                Err(e) => {
+                    eprintln!("Could not listen as {id}: {e}");
+                    why = e.to_string();
+                    continue;
+                }
             }
             #[allow(clippy::disallowed_methods)] // Glimt's own: its socket, linked anew
             // Not told: the window has its new name either way, and the old one reaches it
@@ -1886,7 +1906,7 @@ fn move_socket(dir: &Path, old: &str, ids: &[String]) -> Result<String, String> 
         }
         return Ok(id.clone());
     }
-    Err(why.into())
+    Err(why)
 }
 
 /// Links this Glimt's socket at `from` to `to` as well, never over a socket that a running
@@ -3077,21 +3097,33 @@ mod tests {
     }
 
     /// A left socket that cannot be removed is told with the remove's own error, both when the
-    /// window starts and when it is renamed. Before, the window was told that a Glimt of that
-    /// name runs already when none did, and a rename went on to the next name. A folder stands
-    /// in for such a socket, as no user, root neither, can remove it as a file.
+    /// window starts and when it is renamed, and the window then shares the name under its
+    /// process ID. Before, the window was told that a Glimt of that name runs already when none
+    /// did. Then, for a time, the window had no remote control at all, and a rename was
+    /// refused. A folder stands in for such a socket, as no user, root neither, can remove it
+    /// as a file.
     #[test]
-    fn a_left_socket_that_stays_is_told_with_its_own_error() {
+    fn a_left_socket_that_stays_is_told_and_the_name_is_shared() {
         let dir =
             std::env::temp_dir().join(format!("glimt-test-left-stays-{}", std::process::id()));
         let socket = |id: &str| dir.join(super::socket_name(id));
         std::fs::create_dir_all(socket("left")).unwrap();
         assert!(super::bind_socket(&socket("left")).is_err_and(|e| e.is_some()));
+        let shared = format!("left.{}", super::instance_id());
+        let (id, bound) =
+            super::bind_or_share("left".into(), Some("left".into()), |id| Some(socket(id)));
+        assert_eq!(id, shared);
+        assert!(bound.is_ok());
+        drop(bound);
+        std::fs::remove_file(socket(&shared)).unwrap();
         let _own = std::os::unix::net::UnixListener::bind(socket("old")).unwrap();
         let ids = ["left".to_owned(), "left.42".to_owned()];
-        let moved = super::move_socket(&dir, "old", &ids);
+        assert_eq!(super::move_socket(&dir, "old", &ids), Ok("left.42".into()));
+        assert!(std::os::unix::net::UnixStream::connect(socket("left.42")).is_ok());
+        // With no ID left to try, the remove's own error is the reason.
+        let ids = ["left".to_owned()];
+        let moved = super::move_socket(&dir, "left.42", &ids);
         assert!(moved.is_err_and(|why| !why.contains("runs already")));
-        assert!(std::os::unix::net::UnixStream::connect(socket("old")).is_ok());
         std::fs::remove_dir_all(dir).unwrap();
     }
 
