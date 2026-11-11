@@ -1505,24 +1505,13 @@ pub fn listen(
     };
     // Only the user may connect, even where $XDG_RUNTIME_DIR is not private as it should be.
     {
-        use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
+        use std::os::unix::fs::DirBuilderExt;
         let dir = path.parent().unwrap_or(&path);
         let _ = std::fs::DirBuilder::new()
             .recursive(true)
             .mode(0o700)
             .create(dir);
-        #[allow(clippy::disallowed_methods)] // the runtime folder of the sockets
-        let private = std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700));
-        if let Err(e) = private {
-            return Err(format!(
-                "No remote control: its folder there cannot be made private: {e}"
-            ));
-        }
-        // A folder made by another user meanwhile, between the look in `dir` and here, is not
-        // used.
-        if is_another_users_dir(dir) {
-            return Err("No remote control: its folder there is not this user's own".into());
-        }
+        make_own_folder_private(dir)?;
     }
     let (id, bound) = bind_or_share(socket_id(), given_name(), socket);
     let listener = match bound {
@@ -1771,6 +1760,36 @@ fn read_command(reader: &mut impl BufRead) -> Option<Result<String, &'static str
     let line = line.strip_suffix(b"\r").unwrap_or(line);
     // Told, as an end without an answer would read as done.
     Some(String::from_utf8(line.to_vec()).map_err(|_| "not UTF-8"))
+}
+
+/// Makes the folder `dir` of the sockets private to the user, when it is the user's own. The
+/// folder is opened without following a link, and checked and changed through what was opened,
+/// so another user who swaps the name for a link meanwhile (where $XDG_RUNTIME_DIR is a shared
+/// folder such as /tmp) changes nothing of the user's. Returns the reason when it is not done.
+fn make_own_folder_private(dir: &Path) -> Result<(), String> {
+    use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+    let not_own = || "No remote control: its folder there is not this user's own".to_owned();
+    let cannot = |e: std::io::Error| {
+        format!("No remote control: its folder there cannot be made private: {e}")
+    };
+    #[allow(clippy::disallowed_methods)] // the runtime folder of the sockets, never through a link
+    let opened = std::fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_NOFOLLOW | libc::O_DIRECTORY)
+        .open(dir);
+    let folder = match opened {
+        Ok(folder) => folder,
+        Err(_) if is_another_users_dir(dir) => return Err(not_own()),
+        Err(e) => return Err(cannot(e)),
+    };
+    let uid = std::fs::metadata("/proc/self").map(|m| m.uid());
+    let owner = folder.metadata().map_err(cannot)?.uid();
+    if uid.is_ok_and(|uid| uid != owner) {
+        return Err(not_own());
+    }
+    folder
+        .set_permissions(std::fs::Permissions::from_mode(0o700))
+        .map_err(cannot)
 }
 
 /// Whether `dir` is there and not the user's own folder.
@@ -2918,6 +2937,28 @@ mod tests {
     fn a_command_line_that_is_not_utf8_is_refused() {
         let mut reader = std::io::Cursor::new(b"open /tmp/\xff\nnext\n".to_vec());
         assert_eq!(super::read_command(&mut reader), Some(Err("not UTF-8")));
+    }
+
+    /// The folder of the sockets is made private only through what was opened, never through
+    /// a link. Before, its mode was set through the name first, which follows a link that
+    /// another user swapped in, and the folder was checked only after that.
+    #[test]
+    fn a_link_at_the_socket_folder_changes_nothing() {
+        use std::os::unix::fs::PermissionsExt;
+        let base =
+            std::env::temp_dir().join(format!("glimt-test-socket-folder-{}", std::process::id()));
+        let target = base.join("target");
+        std::fs::create_dir_all(&target).unwrap();
+        std::fs::set_permissions(&target, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let link = base.join("glimt");
+        std::os::unix::fs::symlink(&target, &link).unwrap();
+        assert!(super::make_own_folder_private(&link).is_err());
+        let mode = std::fs::metadata(&target).unwrap().permissions().mode();
+        assert_eq!(mode & 0o777, 0o755);
+        assert!(super::make_own_folder_private(&target).is_ok());
+        let mode = std::fs::metadata(&target).unwrap().permissions().mode();
+        assert_eq!(mode & 0o777, 0o700);
+        std::fs::remove_dir_all(base).unwrap();
     }
 
     /// A line too long, longer too than the socket's buffer, reaches the client over a real
