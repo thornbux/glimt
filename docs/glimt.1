@@ -97,6 +97,24 @@ away, run Glimt as the only program of a kiosk session, for example
 .B cage \-\- glimt \-\-kiosk \-\-slideshow
 .I ~/Pictures
 or as the program of a GNOME Kiosk session.
+.B \-\-remote
+stays the operator's control of a kiosk:
+.BR open ,
+.BR subfolders ,
+.BR random ,
+.BR slideshow ,
+.BR next ,
+.BR previous ,
+.BR first ,
+.BR last ,
+.BR title ,
+.BR name ,
+.B identify
+and the queries work as anywhere else, but
+.B fullscreen
+and a
+.B run
+of an action that the kiosk does not allow are refused.
 .TP
 .B \-\-lock\-settings
 For a shared or public computer: Preferences do not open, the sort manager's folders stay as
@@ -165,7 +183,9 @@ none answers within 10 seconds (for each file of
 .BR info ),
 and with 3 when the window did not do it: a
 .B run
-refused while a dialog asks the user or a text field has the focus, by a kiosk, or with no
+refused while a dialog asks the user or a text field has the focus, or by a kiosk (as is
+.BR fullscreen ),
+or with no
 image to act on, or a command that window does not know, as an older Glimt; the reason is printed on standard error. A Glimt older than
 0.76.0 answers nothing to a command, which counts as done.
 .TP
@@ -567,6 +587,10 @@ A Rename Many while it runs, so that one cut short by a crash is put right at th
 .I $XDG_STATE_HOME/glimt/moves
 A Move while it runs, so that the marks, stars and collection entries of the files moved before
 Glimt was killed follow them at the next start.
+Its folder
+.I files
+holds, for each log, the size and time of each file moved, so that they follow only a file
+that is still the one moved.
 .TP
 .I $XDG_DATA_HOME/glimt/formats
 Added formats: desktop files whose command turns a file of a format Glimt does not read itself

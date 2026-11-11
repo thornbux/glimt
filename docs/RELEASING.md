@@ -57,9 +57,17 @@ Each container has its own display, `/tmp` and `HOME`, and the timings run alone
 part may start at any section, so a section makes what it needs itself (a function in the head
 of `tests.sh` for files that several sections use).
 
-Each check prints PASS or FAIL. Timings and memory are printed for both versions, to compare,
-and the limits that fail a run are in AGENTS.md (*Goals that decide every change*). `QUICK=1`
-leaves out the large folder and the EXIF timings. Screenshots of the steps are in
+Each check prints PASS or FAIL. Timings and memory are printed for both versions, to compare.
+The rule for the timings and memory that fail a run is 1.5 times the last release (AGENTS.md,
+*Goals that decide every change*): the time to the first image and RssAnon in a folder of
+500,000 files, and the time to sort 3,000 JPEGs by EXIF date. Each version runs twice, in turn
+with the other, and the best of its two runs counts, because one run can be slow by chance.
+`within` in `tests.sh` then passes the new value when it is at most 1.5 times the old one plus
+a slack of 100 ms or 20 MB, because a few hundred milliseconds vary by more than half when
+something else runs on the machine. A version whose run gave no number fails the check. The
+median frame with all 500,000 files selected must also take at most 10 ms of the window
+thread's processor time. The other timings are only printed. `QUICK=1` leaves out the large
+folder and the EXIF timings. Screenshots of the steps are in
 `~/.cache/glimt-release-tests/out`. Among the checks:
 
 - **Saving turned:** a PNG, a lossless WebP and a lossy WebP with EXIF orientation 6, turned and

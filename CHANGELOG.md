@@ -7,6 +7,31 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- Copy for Sharing lists a JPEG's markers that a decoder does not need, such as JPG0, as tags
+  that Remove All leaves out, instead of copying them whatever they hold. An Adobe segment
+  keeps only its 12 bytes, so text after them is no longer carried.
+- After Glimt was killed during a Move, the next start lets the marks, stars and sidecar of a
+  file that went follow it only when its new name still holds that file. Before, a photo that
+  another program put there since, or a later photo of that name when the Move's log outlived
+  it, got them. Each log now has a list of the files it moves in `moves/files`, beside it,
+  which older versions leave alone; a log without one is read as before.
+- A `--remote` command line that is not UTF-8 is answered "not done: not UTF-8". Before, the
+  window closed the connection without an answer, which the client read as done.
+- The folder of the remote control sockets is made private through the folder itself, opened
+  without following a link. Before, where `$XDG_RUNTIME_DIR` is a shared folder such as /tmp,
+  another user could swap it for a link in the moment before it was checked.
+- Open Several Folders opens a folder whose name holds a line break as itself. Before, zenity's
+  answer was split at every line break, and other folders were opened. An answer that is not a
+  list of full paths opens nothing, and says so.
+- A window size or position in the window state that is infinite, not a number or larger than
+  32,767 is not used.
+- A collection entry written through a link to a folder whose name holds a line break is kept.
+  Before, it was taken out of the collection with a notice when another entry changed.
+- Check Images and the view read an animation with a large canvas no further than 2 GB of
+  canvases. Before, a small crafted GIF of many tiny frames on a huge canvas took minutes.
+- The HDF5 added format reads only what the file holds. Before, a downloaded file could show
+  another file of the user's through external storage, a link to another file or a virtual
+  dataset, and it was saved as a thumbnail.
 - `glimt --wait --remote` commands that wait for their work no longer keep other clients out:
   sixteen of them made even a plain query say "no answer". A window waits for up to 64 at once,
   and one more is told at once that it was not done.
