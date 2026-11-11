@@ -587,7 +587,7 @@ fn non_table_check() -> String {
 
 /// Read `file`; an error says why in words for the user.
 pub fn read(file: &Path) -> Result<Catalog, String> {
-    if file.with_extension("lrcat.lock").exists() {
+    if !crate::files::file_io::is_surely_gone(&file.with_extension("lrcat.lock")) {
         return Err(tr("Lightroom has the catalog open: close Lightroom first").into());
     }
     if !crate::files::external::has_program("sqlite3") {

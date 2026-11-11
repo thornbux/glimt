@@ -13,7 +13,7 @@ use crate::support::threads::lock_even_if_poisoned;
 use crate::ui::actions::{Action, KIOSK_ACTIONS};
 use crate::ui::menus::{checkbox, menu_item, scroll_menu, with_icon};
 use crate::viewer::crop::Crop;
-use crate::{app_id, malloc_trim, ui::theme};
+use crate::{app_id, ui::theme};
 use eframe::egui;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
@@ -2016,7 +2016,7 @@ pub(crate) fn spawn_decoders(
                 // and decoding leaves several image-sized buffers in each thread.
                 // SAFETY: malloc_trim has no preconditions beyond a working glibc malloc.
                 unsafe {
-                    malloc_trim(0)
+                    libc::malloc_trim(0)
                 };
                 ctx.request_repaint();
             }

@@ -754,22 +754,26 @@ impl crate::App {
 
     /// The answer to `glimt --remote current` or `selection`, the paths, each ending in a NUL
     /// byte. Nothing else is told, and nothing changes.
-    // shortcut: the paths of a selection made in the window's thread, some 50 ms for 500,000
+    // shortcut: the paths of a selection made in the window's thread, some 10 ms for 500,000
     // selected; in a thread of its own if scripts ask for large selections often.
     pub(crate) fn remote_query(&self, command: &str) -> Vec<u8> {
-        use std::os::unix::ffi::OsStringExt;
+        use std::os::unix::ffi::OsStrExt;
         let files = match command.trim() {
             "current" => vec![self.list.shown()],
             // When the search hides every selected file, the answer names none of them, and
             // not the shown image in their place.
             _ => self.targets_without_notice().unwrap_or_default(),
         };
-        (files.into_iter().filter(|&i| i < self.list.files().len()))
-            .flat_map(|i| {
-                let path = self.path(i).into_os_string().into_vec();
-                path.into_iter().chain([0])
-            })
-            .collect()
+        // One path is made again for each file, as `path` makes it, without a new one each time.
+        let (mut answer, mut path) = (Vec::new(), PathBuf::new());
+        for i in files.into_iter().filter(|&i| i < self.list.files().len()) {
+            path.as_mut_os_string().clear();
+            path.push(self.folder.dir());
+            path.push(&self.list.files()[i]);
+            answer.extend_from_slice(path.as_os_str().as_bytes());
+            answer.push(0);
+        }
+        answer
     }
 
     /// Answers `glimt --remote info [FILE…]` (the files after a NUL each) with an `info_record`
@@ -1789,9 +1793,7 @@ fn bind_socket(path: &std::path::Path) -> Result<UnixListener, Option<std::io::E
     }
     // From here only one at a time, because another Glimt of this name could take the left
     // socket over between our check and our remove, and lose its new one to us.
-    #[allow(clippy::disallowed_methods)] // an empty lock file in the private runtime folder
-    let lock = std::fs::File::create(path.with_extension("lock")).map_err(Some)?;
-    lock.lock().map_err(Some)?;
+    let _lock = crate::files::file_io::open_and_lock(&path.with_extension("lock")).map_err(Some)?;
     if answers(path) {
         return Err(None);
     }
@@ -1865,9 +1867,7 @@ fn link_socket(from: &std::path::Path, to: &std::path::Path) -> std::io::Result<
     let first = std::fs::hard_link(from, to);
     match first {
         Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
-            #[allow(clippy::disallowed_methods)] // an empty lock file in the private runtime folder
-            let lock = std::fs::File::create(to.with_extension("lock"))?;
-            lock.lock()?;
+            let _lock = crate::files::file_io::open_and_lock(&to.with_extension("lock"))?;
             if answers(to) {
                 return Err(e);
             }
@@ -1957,20 +1957,9 @@ fn wait_answered(mut answer: impl FnMut(), limit: std::time::Duration) {
 
 /// Whether a client waits to be accepted on the listening socket `fd` (-1 for none).
 fn has_waiting_client(fd: i32) -> bool {
-    #[repr(C)]
-    struct PollFd {
-        fd: i32,
-        events: i16,
-        revents: i16,
-    }
-    #[allow(unsafe_code)] // declarations only: each call is an unsafe block
-    unsafe extern "C" {
-        fn poll(fds: *mut PollFd, n: std::ffi::c_ulong, timeout: i32) -> i32;
-    }
-    const POLLIN: i16 = 1;
-    let mut p = PollFd {
+    let mut p = libc::pollfd {
         fd,
-        events: POLLIN,
+        events: libc::POLLIN,
         revents: 0,
     };
     if fd < 0 {
@@ -1978,8 +1967,8 @@ fn has_waiting_client(fd: i32) -> bool {
     }
     #[allow(unsafe_code)]
     // SAFETY: There is one pollfd and no wait, and a closed fd is only reported, not used.
-    let ready = unsafe { poll(&mut p, 1, 0) } == 1;
-    ready && p.revents & POLLIN != 0
+    let ready = unsafe { libc::poll(&mut p, 1, 0) } == 1;
+    ready && p.revents & libc::POLLIN != 0
 }
 
 /// Takes no new clients, by removing this Glimt's socket as it closes.
@@ -2890,6 +2879,23 @@ mod tests {
         std::fs::remove_file(path).unwrap();
     }
 
+    /// A link planted at the lock of a left socket is not followed, so the file it points to is
+    /// neither emptied nor locked, and the left socket is not replaced. Before, the lock was
+    /// opened with `File::create`, which emptied it.
+    #[test]
+    fn the_socket_lock_leaves_a_planted_link_alone() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-sock-link-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let (path, target) = (dir.join("glimt.sock"), dir.join("notes.txt"));
+        // A socket left by a Glimt gone, which answers no one.
+        drop(std::os::unix::net::UnixListener::bind(&path).unwrap());
+        std::fs::write(&target, "keep").unwrap();
+        std::os::unix::fs::symlink(&target, path.with_extension("lock")).unwrap();
+        assert!(super::bind_socket(&path).is_err_and(|e| e.is_some()));
+        assert_eq!(std::fs::read_to_string(&target).unwrap(), "keep");
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
     /// A socket that another window takes after a left one was removed and before this window
     /// binds its own, as by a rename to this name, counts as taken. The window then shares the
     /// name under its own ID. Before, it had no remote control. A folder stands in for the
@@ -2901,6 +2907,23 @@ mod tests {
         assert!(super::bind_socket(&path).is_err_and(|e| e.is_none()));
         std::fs::remove_file(path.with_extension("lock")).unwrap();
         std::fs::remove_dir(path).unwrap();
+    }
+
+    /// `--remote selection` answers each selected file's path as `App::path` makes it, also for
+    /// a name in a subfolder (a slideshow with subfolders) and a whole path (a collection), with
+    /// the path made in one buffer rather than anew for each file.
+    #[test]
+    fn the_selection_is_answered_with_each_path() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-sel-paths-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let (mut app, _ctx) = app_on(&dir);
+        let names = ["a.png", "sub/b.png", "/elsewhere/c.png"];
+        app.list.set_files(names.map(Into::into).to_vec());
+        app.list.select((0..3).collect());
+        let (a, b) = (dir.join("a.png"), dir.join("sub/b.png"));
+        let answer = format!("{}\0{}\0/elsewhere/c.png\0", a.display(), b.display());
+        assert_eq!(app.remote_query("selection"), answer.into_bytes());
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     /// `--remote select` of a file the search hides selects nothing and answers every path, so

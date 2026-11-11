@@ -15,8 +15,8 @@ use crate::cli::Start;
 use crate::features::check::ImageCheck;
 use crate::features::duplicates::FindDuplicates;
 use crate::features::print::PrintDialog;
-use crate::files::config::{Config, WindowState, parse_last_dir, state_path};
-use crate::files::file_io::write_atomic;
+use crate::files::config::{Config, LOCK_FILE, WindowState, parse_last_dir, state_path};
+use crate::files::file_io::{is_surely_gone, write_atomic};
 use crate::metadata::lightroom::Import;
 use crate::model::list::List;
 use crate::support::threads::{HAS_ONE_MALLOC_ARENA, Receiving, Working};
@@ -40,9 +40,6 @@ mod model;
 mod support;
 mod ui;
 mod viewer;
-
-/// glibc's M_ARENA_MAX.
-const M_ARENA_MAX: i32 = -8;
 
 /// Glimt's logo, 256 pixels square. It is the window's icon and appears on the About page.
 const LOGO: &[u8] = include_bytes!("../assets/glimt-256.png");
@@ -490,14 +487,6 @@ fn app_id() -> String {
     std::env::var("FLATPAK_ID").unwrap_or_else(|_| "glimt".into())
 }
 
-#[allow(unsafe_code)] // declarations only: each call is an unsafe block
-unsafe extern "C" {
-    /// Returns freed heap memory to the operating system (glibc).
-    fn malloc_trim(pad: usize) -> i32;
-    /// Sets a malloc parameter (glibc).
-    fn mallopt(param: i32, value: i32) -> i32;
-}
-
 /// The program that New Window starts. From an AppImage it is the AppImage, because the binary
 /// is in the AppImage's mount, which goes away when this window closes. Otherwise it is the
 /// binary. Every program started from an AppImage inherits its APPIMAGE variable, so the
@@ -577,7 +566,7 @@ fn main() -> eframe::Result {
         #[allow(unsafe_code)]
         // SAFETY: This is called before any other thread exists.
         unsafe {
-            mallopt(M_ARENA_MAX, 1)
+            libc::mallopt(libc::M_ARENA_MAX, 1)
         };
         HAS_ONE_MALLOC_ARENA.store(true, Ordering::Relaxed);
     }
@@ -632,7 +621,7 @@ fn main() -> eframe::Result {
     }
     // A kiosk changes no settings either, because a visitor's changes would last until the
     // next boot.
-    if start.lock_settings || start.kiosk || Path::new(crate::files::config::LOCK_FILE).exists() {
+    if start.lock_settings || start.kiosk || !is_surely_gone(Path::new(LOCK_FILE)) {
         crate::files::config::lock();
     }
     let read = read_at_start(config, problems);
