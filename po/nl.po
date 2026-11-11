@@ -2145,10 +2145,6 @@ msgstr "De map lezen"
 msgid "No answer from the print server in two minutes"
 msgstr "Geen antwoord van de afdrukserver binnen twee minuten"
 
-#: src/files/file_ops.rs
-msgid "Could not rename {f} to {t}: {e}; not all names could be put back, and no plan could be kept: the files under .glimt-rename-* names next to them are theirs"
-msgstr "Kon {f} niet hernoemen naar {t}: {e}; niet alle namen konden worden teruggezet en er kon geen plan worden bewaard: de bestanden met .glimt-rename-*-namen ernaast zijn van hen"
-
 #: src/ui/preferences.rs
 msgid "Look"
 msgstr "Uiterlijk"
@@ -3024,10 +3020,6 @@ msgstr "Een wijziging kon niet worden opgeslagen, omdat Glimt bij het schrijven 
 msgid "Glimt ended before every write was done: the last change of the settings, marks, a collection or a file may be lost"
 msgstr "Glimt sloot af voordat alles was geschreven: de laatste wijziging van de instellingen, markeringen, een verzameling of een bestand is mogelijk verloren"
 
-#: src/files/journal.rs
-msgid "Rename Many runs without its plan ({e}), so a crash halfway is not put right at the next start"
-msgstr "Meerdere hernoemen draait zonder zijn plan ({e}), dus een crash halverwege wordt bij de volgende start niet hersteld"
-
 #: src/model/folder.rs
 msgid "Still opening {name}… Open another folder to stop waiting."
 msgstr "{name} wordt nog geopend… Open een andere map om niet langer te wachten."
@@ -3063,3 +3055,7 @@ msgstr "Kon {name} niet verwijderen: {e}"
 #: src/files/file_ops.rs
 msgid "{side}: {e}, so {file} stays where it was, with its sidecar"
 msgstr "{side}: {e}, dus {file} blijft waar het was, met zijn sidecar-bestand"
+
+#: src/files/file_ops.rs
+msgid "Could not save the plan of the renames ({e}), so nothing was renamed"
+msgstr "Kon het plan van het hernoemen niet opslaan ({e}), dus er is niets hernoemd"

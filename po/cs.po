@@ -2323,10 +2323,6 @@ msgstr "Čtení složky"
 msgid "No answer from the print server in two minutes"
 msgstr "Tiskový server do dvou minut neodpověděl"
 
-#: src/files/file_ops.rs
-msgid "Could not rename {f} to {t}: {e}; not all names could be put back, and no plan could be kept: the files under .glimt-rename-* names next to them are theirs"
-msgstr "Nelze přejmenovat {f} na {t}: {e}; ne všechna jména šlo vrátit a plán nešlo uložit: soubory s názvy .glimt-rename-* vedle nich patří k nim"
-
 #: src/ui/preferences.rs
 msgid "Look"
 msgstr "Vzhled"
@@ -3046,10 +3042,6 @@ msgstr "Změnu nelze uložit, protože Glimt při jejím zápisu narazil na chyb
 msgid "Glimt ended before every write was done: the last change of the settings, marks, a collection or a file may be lost"
 msgstr "Glimt skončil dříve, než bylo vše zapsáno: poslední změna nastavení, značek, kolekce nebo souboru mohla být ztracena"
 
-#: src/files/journal.rs
-msgid "Rename Many runs without its plan ({e}), so a crash halfway is not put right at the next start"
-msgstr "Hromadné přejmenování běží bez svého plánu ({e}), takže pád v polovině se při dalším spuštění nenapraví"
-
 #: src/model/folder.rs
 msgid "Still opening {name}… Open another folder to stop waiting."
 msgstr "{name} se stále otevírá… Otevřete jinou složku, abyste přestali čekat."
@@ -3085,3 +3077,7 @@ msgstr "{name} nelze odstranit: {e}"
 #: src/files/file_ops.rs
 msgid "{side}: {e}, so {file} stays where it was, with its sidecar"
 msgstr "{side}: {e}, proto {file} zůstává, kde byl, se svým doprovodným souborem"
+
+#: src/files/file_ops.rs
+msgid "Could not save the plan of the renames ({e}), so nothing was renamed"
+msgstr "Plán přejmenování nelze uložit ({e}), proto nebylo nic přejmenováno"

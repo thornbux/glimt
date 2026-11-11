@@ -2513,6 +2513,17 @@ pub(crate) fn rename_files(
     to: Vec<PathBuf>,
     job: &Job,
 ) -> Result<(), RenameFailed> {
+    rename_files_planned_in(journal::journal_dir(), from, to, job)
+}
+
+/// Renames `from` to `to` as `rename_files` does, with the plan in the folder `plans`. Nothing
+/// is renamed when the plan cannot be written there.
+fn rename_files_planned_in(
+    plans: Option<PathBuf>,
+    from: Vec<PathBuf>,
+    to: Vec<PathBuf>,
+    job: &Job,
+) -> Result<(), RenameFailed> {
     // The sidecars are held as a sidecar write holds them, from before the look at which files
     // have one. Otherwise a keyword written meanwhile would land on an old name.
     let _locks = xmp::lock_sidecars(&from);
@@ -2558,8 +2569,17 @@ pub(crate) fn rename_files(
         moves.extend(from.iter().cloned().zip(to.iter().cloned()));
     }
     // The plan is on disk while the renames run, so a crash halfway is put right at the next
-    // start.
-    let mut plan = journal::journal_dir().and_then(|d| journal::start_journal(&d, &moves));
+    // start. Without it, nothing is renamed (`start_journal`).
+    let plan = match plans {
+        Some(dir) => journal::start_journal(&dir, &moves),
+        None => Err(std::io::ErrorKind::NotFound.into()),
+    };
+    let mut plan = plan.map_err(|e| {
+        tf!(
+            "Could not save the plan of the renames ({e}), so nothing was renamed",
+            e
+        )
+    })?;
     for (k, (a, b)) in moves.iter().enumerate() {
         // On Stop, the names done so far go back, by the same steps a failure takes.
         let stopped = job.is_stopped();
@@ -2570,12 +2590,9 @@ pub(crate) fn rename_files(
         // A step is counted in the plan once done. When the middle of a swap cannot be
         // counted, because its names did not reach the disk, it is undone with the rest.
         let is_middle_of_swap = swap && k + 1 == moves.len() / 2;
-        let step = step.map_err(|e| (e, k)).and_then(|()| {
-            let counted = plan
-                .as_mut()
-                .map(|plan| plan.count_rename_done(is_middle_of_swap));
-            counted.unwrap_or(Ok(())).map_err(|e| (e, k + 1))
-        });
+        let step = step
+            .map_err(|e| (e, k))
+            .and_then(|()| (plan.count_rename_done(is_middle_of_swap)).map_err(|e| (e, k + 1)));
         if let Err((e, done)) = step {
             // Named by the file and its new name, not a temporary one.
             let j = k % from.len();
@@ -2596,7 +2613,7 @@ pub(crate) fn rename_files(
             // When not all were put back (a share that stopped answering, say), the plan stays,
             // and the next start offers to put the files right.
             if stuck > 0 {
-                return Err(names_left_for_the_next_start(plan.take(), (&f, &t), &e));
+                return Err(names_left_for_the_next_start(plan, (&f, &t), &e));
             }
             return Err(tf!("Could not rename {f} to {t}: {e}; nothing renamed", f, t, e).into());
         }
@@ -2611,38 +2628,28 @@ pub(crate) fn rename_files(
             job.count_done(1);
         }
     }
-    journal::renames_done(plan, &moves);
+    // The plan goes once the renames' folders are on disk (`remove_plan`), before the marks and
+    // collections follow the new names.
+    drop(plan);
     Ok(())
 }
 
 /// Keeps the `plan` of a Rename Many whose names were not all put back after the rename of `f`
 /// to `t` failed with `e`, so that the next start offers the repair. Returns the failure to
-/// tell. Without a plan (no state folder, or a full disk), the error tells where the files
-/// are, under hidden names.
+/// tell.
 fn names_left_for_the_next_start(
-    plan: Option<journal::Journal>,
+    plan: journal::Journal,
     (f, t): (&str, &str),
     e: &std::io::Error,
 ) -> RenameFailed {
-    let text = match plan {
-        Some(plan) => {
-            plan.keep_on_disk();
-            tf!(
-                "Could not rename {f} to {t}: {e}; not all names could be put back, Glimt offers to put them right at the next start",
-                f,
-                t,
-                e
-            )
-        }
-        None => tf!(
-            "Could not rename {f} to {t}: {e}; not all names could be put back, and no plan could be kept: the files under .glimt-rename-* names next to them are theirs",
+    plan.keep_on_disk();
+    RenameFailed {
+        text: tf!(
+            "Could not rename {f} to {t}: {e}; not all names could be put back, Glimt offers to put them right at the next start",
             f,
             t,
             e
         ),
-    };
-    RenameFailed {
-        text,
         names_put_back: false,
     }
 }
@@ -3470,6 +3477,39 @@ mod tests {
             "own"
         );
         assert_eq!(std::fs::read_dir(&from).unwrap().count(), 0);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A rename whose plan cannot be written renames nothing and says so. Before, Rename Many
+    /// ran without its plan, and on a full state folder the marks file could not follow the
+    /// swapped names either, so most photos showed another photo's stars (issue #90).
+    #[test]
+    fn a_rename_without_its_plan_renames_nothing() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-no-plan-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let p = |n: &str| dir.join(n);
+        for n in ["a.jpg", "b.jpg", "a.jpg.xmp"] {
+            std::fs::write(p(n), n).unwrap();
+        }
+        // A file where the plans' folder should be, so that no plan can be made in it.
+        std::fs::write(p("plans"), "").unwrap();
+        let job = super::Job::new("Renaming", 2, false, Vec::new());
+        let refused = super::rename_files_planned_in(
+            Some(p("plans")),
+            vec![p("a.jpg"), p("b.jpg")],
+            vec![p("b.jpg"), p("a.jpg")],
+            &job,
+        );
+        let refused = refused.err().unwrap();
+        assert!(refused.names_put_back);
+        assert!(
+            refused.text.contains("nothing was renamed"),
+            "{}",
+            refused.text
+        );
+        for n in ["a.jpg", "b.jpg", "a.jpg.xmp"] {
+            assert_eq!(std::fs::read_to_string(p(n)).unwrap(), n);
+        }
         std::fs::remove_dir_all(dir).unwrap();
     }
 

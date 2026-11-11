@@ -2312,10 +2312,6 @@ msgstr "Lendo a pasta"
 msgid "No answer from the print server in two minutes"
 msgstr "Sem resposta do servidor de impressão em dois minutos"
 
-#: src/files/file_ops.rs
-msgid "Could not rename {f} to {t}: {e}; not all names could be put back, and no plan could be kept: the files under .glimt-rename-* names next to them are theirs"
-msgstr "Não foi possível renomear {f} para {t}: {e}; nem todos os nomes puderam ser restaurados, e nenhum plano pôde ser guardado: os arquivos com nomes .glimt-rename-* ao lado deles são deles"
-
 #: src/ui/preferences.rs
 msgid "Look"
 msgstr "Aparência"
@@ -3035,10 +3031,6 @@ msgstr "Não foi possível salvar uma alteração, porque o Glimt encontrou um e
 msgid "Glimt ended before every write was done: the last change of the settings, marks, a collection or a file may be lost"
 msgstr "O Glimt encerrou antes de gravar tudo: a última alteração das configurações, marcas, de uma coleção ou de um arquivo pode ter sido perdida"
 
-#: src/files/journal.rs
-msgid "Rename Many runs without its plan ({e}), so a crash halfway is not put right at the next start"
-msgstr "“Renomear vários” é executado sem seu plano ({e}), então uma falha no meio não será corrigida na próxima inicialização"
-
 #: src/model/folder.rs
 msgid "Still opening {name}… Open another folder to stop waiting."
 msgstr "Ainda abrindo {name}… Abra outra pasta para parar de esperar."
@@ -3074,3 +3066,7 @@ msgstr "Não foi possível remover {name}: {e}"
 #: src/files/file_ops.rs
 msgid "{side}: {e}, so {file} stays where it was, with its sidecar"
 msgstr "{side}: {e}, então {file} fica onde estava, com seu arquivo XMP associado"
+
+#: src/files/file_ops.rs
+msgid "Could not save the plan of the renames ({e}), so nothing was renamed"
+msgstr "Não foi possível salvar o plano da renomeação ({e}), então nada foi renomeado"

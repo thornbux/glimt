@@ -2145,10 +2145,6 @@ msgstr "Luetaan kansiota"
 msgid "No answer from the print server in two minutes"
 msgstr "Ei vastausta tulostuspalvelimelta kahteen minuuttiin"
 
-#: src/files/file_ops.rs
-msgid "Could not rename {f} to {t}: {e}; not all names could be put back, and no plan could be kept: the files under .glimt-rename-* names next to them are theirs"
-msgstr "Kohdetta {f} ei voitu nimetä nimelle {t}: {e}; kaikkia nimiä ei voitu palauttaa eikä suunnitelmaa voitu säilyttää: niiden vieressä olevat .glimt-rename-*-nimiset tiedostot ovat niiden"
-
 #: src/ui/preferences.rs
 msgid "Look"
 msgstr "Ulkoasu"
@@ -3024,10 +3020,6 @@ msgstr "Muutosta ei voitu tallentaa, koska Glimt kohtasi virheen sitä kirjoitta
 msgid "Glimt ended before every write was done: the last change of the settings, marks, a collection or a file may be lost"
 msgstr "Glimt päättyi ennen kuin kaikki oli kirjoitettu: asetusten, merkintöjen, kokoelman tai tiedoston viimeinen muutos on voinut kadota"
 
-#: src/files/journal.rs
-msgid "Rename Many runs without its plan ({e}), so a crash halfway is not put right at the next start"
-msgstr "Nimeä useita uudelleen toimii ilman suunnitelmaansa ({e}), joten puolivälissä tapahtuvaa kaatumista ei korjata seuraavalla käynnistyskerralla"
-
 #: src/model/folder.rs
 msgid "Still opening {name}… Open another folder to stop waiting."
 msgstr "{name} avautuu yhä… Avaa toinen kansio, niin odotus loppuu."
@@ -3063,3 +3055,7 @@ msgstr "Tiedostoa {name} ei voitu poistaa: {e}"
 #: src/files/file_ops.rs
 msgid "{side}: {e}, so {file} stays where it was, with its sidecar"
 msgstr "{side}: {e}, joten {file} jää paikalleen sivutiedostonsa kanssa"
+
+#: src/files/file_ops.rs
+msgid "Could not save the plan of the renames ({e}), so nothing was renamed"
+msgstr "Uudelleennimeämisen suunnitelmaa ei voitu tallentaa ({e}), joten mitään ei nimetty uudelleen"

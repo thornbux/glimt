@@ -2145,10 +2145,6 @@ msgstr "Les möppuna"
 msgid "No answer from the print server in two minutes"
 msgstr "Ekkert svar frá prentþjóninum í tvær mínútur"
 
-#: src/files/file_ops.rs
-msgid "Could not rename {f} to {t}: {e}; not all names could be put back, and no plan could be kept: the files under .glimt-rename-* names next to them are theirs"
-msgstr "Gat ekki endurnefnt {f} sem {t}: {e}; ekki var hægt að setja öll heiti aftur og engin áætlun var geymd: skrárnar með .glimt-rename-*-heitum við hliðina eru þeirra"
-
 #: src/ui/preferences.rs
 msgid "Look"
 msgstr "Útlit"
@@ -3024,10 +3020,6 @@ msgstr "Ekki tókst að vista breytingu, því Glimt lenti í villu við að skr
 msgid "Glimt ended before every write was done: the last change of the settings, marks, a collection or a file may be lost"
 msgstr "Glimt lokaðist áður en allt var skrifað: síðasta breyting á stillingum, merkjum, safni eða skrá gæti hafa tapast"
 
-#: src/files/journal.rs
-msgid "Rename Many runs without its plan ({e}), so a crash halfway is not put right at the next start"
-msgstr "Endurnefna margar keyrir án áætlunar sinnar ({e}), svo hrun í miðju verki er ekki lagað við næstu ræsingu"
-
 #: src/model/folder.rs
 msgid "Still opening {name}… Open another folder to stop waiting."
 msgstr "Enn að opna {name}… Opnaðu aðra möppu til að hætta að bíða."
@@ -3063,3 +3055,7 @@ msgstr "Gat ekki fjarlægt {name}: {e}"
 #: src/files/file_ops.rs
 msgid "{side}: {e}, so {file} stays where it was, with its sidecar"
 msgstr "{side}: {e}, svo {file} er kyrr þar sem hún var, með hliðarskránni sinni"
+
+#: src/files/file_ops.rs
+msgid "Could not save the plan of the renames ({e}), so nothing was renamed"
+msgstr "Gat ekki vistað áætlun endurnefningarinnar ({e}), svo ekkert var endurnefnt"

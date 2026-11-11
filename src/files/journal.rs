@@ -257,21 +257,10 @@ fn parse_move_log(bytes: &[u8]) -> Moves {
 }
 
 /// Writes `moves` down in `dir`, locked and on disk with its name, before the first of them is
-/// done. Returns `None` if that fails, and the renames then run without a plan. The user is told
-/// so, because a crash halfway is then not put right at the next start.
-pub fn start_journal(dir: &Path, moves: &[(PathBuf, PathBuf)]) -> Option<Journal> {
-    let started = write_plan(dir, moves);
-    if let Err(e) = &started {
-        crate::files::file_io::save_failed(crate::tf!(
-            "Rename Many runs without its plan ({e}), so a crash halfway is not put right at the next start",
-            e
-        ));
-    }
-    started.ok()
-}
-
-/// Writes the plan of `moves` in `dir` for `start_journal`, and returns it.
-fn write_plan(dir: &Path, moves: &[(PathBuf, PathBuf)]) -> std::io::Result<Journal> {
+/// done. Returns the plan, or the error when it cannot be written, and the renames are then not
+/// started: without the plan, a crash halfway would leave names that no start puts right, and
+/// the marks file, in the same folder, could not follow the new names either.
+pub fn start_journal(dir: &Path, moves: &[(PathBuf, PathBuf)]) -> std::io::Result<Journal> {
     std::fs::create_dir_all(dir)?;
     let path = dir.join(new_name());
     #[allow(clippy::disallowed_methods)] // a plan made new, in Glimt's own state folder
@@ -614,17 +603,6 @@ fn sync_folders(names: &[PathBuf]) -> Result<(), (&Path, std::io::Error)> {
         }
     }
     first_failed
-}
-
-/// Makes the renames of `moves` last on disk before the marks and collections follow them. The
-/// plan goes after the renames' folders are synced, and without a plan (no state folder, or a
-/// full disk) the folders are synced all the same. Otherwise a power cut could bring the old
-/// names back while the marks are on the new ones.
-pub fn renames_done(plan: Option<Journal>, moves: &[(PathBuf, PathBuf)]) {
-    match plan {
-        Some(plan) => drop(plan),
-        None => tell_when_not_synced(sync_folders(&one_name_per_folder(moves))),
-    }
 }
 
 /// Tells the user when `synced`, the answer of `sync_folders`, says that a folder did not get
@@ -1018,23 +996,6 @@ mod tests {
         }
     }
 
-    /// A Rename Many whose plan cannot be written is told so, as it then runs without the repair
-    /// at the next start. Before, the user was not told that this protection was gone.
-    #[test]
-    fn a_plan_that_cannot_be_written_is_told() {
-        use crate::files::file_io::take_saves_failed;
-        let dir = std::env::temp_dir().join(format!("glimt-test-no-plan-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
-        // A file where the plans' folder should be, so that no plan can be made in it.
-        let plans = dir.join("plans");
-        std::fs::write(&plans, "").unwrap();
-        take_saves_failed();
-        let moves = vec![(dir.join("a.jpg"), dir.join("b.jpg"))];
-        assert!(super::start_journal(&plans, &moves).is_none());
-        assert_eq!(take_saves_failed().len(), 1);
-        std::fs::remove_dir_all(dir).unwrap();
-    }
-
     /// The plan is on disk with its name before the first rename, and the folder of the renames
     /// is synced before the plan is removed, once however many files it renames. A plan kept on
     /// disk needs no such sync.
@@ -1054,12 +1015,6 @@ mod tests {
         assert_eq!(
             crate::files::file_io::FOLDERS_SYNCED.take(),
             [dir.join("photos"), plans.clone()]
-        );
-        // Without a plan, the renames' folders are synced all the same.
-        super::renames_done(None, &moves);
-        assert_eq!(
-            crate::files::file_io::FOLDERS_SYNCED.take(),
-            [dir.join("photos")]
         );
         let kept = super::start_journal(&plans, &moves).unwrap();
         crate::files::file_io::FOLDERS_SYNCED.take();
