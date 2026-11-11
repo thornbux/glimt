@@ -3082,6 +3082,10 @@ msgid "Rename failed ({count}): {first}"
 msgstr ""
 
 #: src/files/file_ops.rs
+msgid "Rename failed ({count}): {first}"
+msgstr ""
+
+#: src/files/file_ops.rs
 msgid "{side}: {e}, so {file} stays where it was, with its sidecar"
 msgstr ""
 

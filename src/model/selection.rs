@@ -508,7 +508,7 @@ mod tests {
         app.request_delete(&ctx, true);
         app.list.select([0, 2].into());
         assert_eq!(app.dialogs.asked_left_out(), Some(left_out.as_str()));
-        assert_eq!(app.asked_targets(), Some(vec![2]));
+        assert_eq!(app.asked_targets().map(|(found, _)| found), Some(vec![2]));
         assert_eq!(app.dialogs.asked_left_out(), None);
         app.list.select([2, 3].into());
         assert_eq!(app.targets(), Some(vec![2, 3]));

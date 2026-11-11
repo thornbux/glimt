@@ -1797,7 +1797,7 @@ fn bind_socket(path: &std::path::Path) -> Result<UnixListener, Option<std::io::E
     if answers(path) {
         return Err(None);
     }
-    #[allow(clippy::disallowed_methods)] // a socket left by a Glimt gone
+    #[allow(clippy::disallowed_methods)] // Glimt's own: a socket left by a Glimt gone
     let _ = std::fs::remove_file(path);
     // Another window can take the name between the remove and this bind, as a rename links its
     // socket there without this lock. Its socket then answers, so it counts as taken.
@@ -1847,7 +1847,7 @@ fn move_socket(dir: &Path, old: &str, ids: &[String]) -> Result<String, String> 
                 Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
                 Err(e) => return Err(e.to_string()),
             }
-            #[allow(clippy::disallowed_methods)] // this Glimt's own socket, linked anew
+            #[allow(clippy::disallowed_methods)] // Glimt's own: its socket, linked anew
             let _ = std::fs::remove_file(&from);
         }
         let focused = crate::images::decode::read_text(dir.join(FOCUSED_FILE)).ok();
@@ -1871,7 +1871,7 @@ fn link_socket(from: &std::path::Path, to: &std::path::Path) -> std::io::Result<
             if answers(to) {
                 return Err(e);
             }
-            #[allow(clippy::disallowed_methods)] // a socket left by a Glimt gone
+            #[allow(clippy::disallowed_methods)] // Glimt's own: a socket left by a Glimt gone
             let _ = std::fs::remove_file(to);
             #[allow(clippy::disallowed_methods)] // a link to Glimt's own socket, never over a file
             std::fs::hard_link(from, to)
@@ -1976,7 +1976,7 @@ pub fn close() {
     if LISTENING.load(std::sync::atomic::Ordering::Relaxed)
         && let Some(path) = socket(&own_socket_id())
     {
-        #[allow(clippy::disallowed_methods)] // this Glimt's own socket
+        #[allow(clippy::disallowed_methods)] // Glimt's own: its socket
         let _ = std::fs::remove_file(path);
     }
 }
@@ -2282,7 +2282,8 @@ mod tests {
         // Nor a script's action while a dialog asks the user: the Rename prompt stays.
         app.remote_command(&ctx, "run First").unwrap();
         assert_eq!(app.list.shown(), 0);
-        let asked = crate::ui::dialogs::Asked::new(0, vec!["a.png".into()], None);
+        let none = crate::files::file_io::PickedFiles::new(Vec::new());
+        let asked = crate::ui::dialogs::Asked::new(0, vec!["a.png".into()], None, none);
         let rename = crate::ui::dialogs::Prompt::Rename;
         app.dialogs.ask_about(asked, rename, "a.png".into());
         app.remote_command(&ctx, "run WindowTitle").unwrap_err();
@@ -2561,7 +2562,8 @@ mod tests {
             let why = super::not_done_reason(&answer(&mut app, command));
             assert!(why.is_some_and(|w| !w.is_empty()), "{command}");
         }
-        let asked = crate::ui::dialogs::Asked::new(0, vec!["a.png".into()], None);
+        let none = crate::files::file_io::PickedFiles::new(Vec::new());
+        let asked = crate::ui::dialogs::Asked::new(0, vec!["a.png".into()], None, none);
         app.dialogs
             .ask_about(asked, crate::ui::dialogs::Prompt::Rename, "a.png".into());
         let refused = answer(&mut app, "run First");

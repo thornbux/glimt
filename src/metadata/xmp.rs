@@ -867,9 +867,33 @@ pub fn follow(
     moving: &std::collections::HashSet<&PathBuf>,
     names: &mut AdobeNames,
 ) -> Result<(), NotFollowed> {
+    // Each sidecar is found here, at the move, not picked before it, so it is the photo's
+    // sidecar by what it is now. Each step returns whether the sidecar was copied, or `None`
+    // when nothing was put at its new name.
+    let follow_one = |side: &Path, to: &Path| -> std::io::Result<Option<bool>> {
+        // A link is no sidecar to copy. Moved, it goes as itself on the same disk, or it stays.
+        if is_link(side) {
+            return match is_copy {
+                true => Ok(None),
+                false => Ok(crate::files::file_io::rename_never_over(side, to)
+                    .ok()
+                    .map(|()| false)),
+            };
+        }
+        // The sidecar goes as the file went. It is on disk before the original goes, and never
+        // over a sidecar there, which belongs to another file or is a copy kept on purpose. A
+        // sidecar that cannot be moved (someone else's in a shared folder) is copied, so the
+        // keywords go with the photo.
+        match crate::files::file_io::put_file(side, to, is_copy) {
+            Err(_) if !is_copy => {
+                crate::files::file_io::put_file(side, to, true).map(|()| Some(true))
+            }
+            done => done.map(|()| Some(is_copy)),
+        }
+    };
     let mut followed = Vec::new();
     for (side, to) in sidecars_moving_with(from, to, moving, names) {
-        match follow_one(&side, &to, is_copy) {
+        match follow_one(&side, &to) {
             Ok(Some(was_copy)) => followed.push((side, to, was_copy)),
             Ok(None) => {}
             Err(error) => {
@@ -885,28 +909,6 @@ pub fn follow(
         }
     }
     Ok(())
-}
-
-/// Copies or moves the sidecar `side` to `to`. Returns whether it was copied, or `None` when
-/// nothing was put at `to`.
-fn follow_one(side: &Path, to: &Path, is_copy: bool) -> std::io::Result<Option<bool>> {
-    // A link is no sidecar to copy. Moved, it goes as itself on the same disk, or it stays.
-    if is_link(side) {
-        return match is_copy {
-            true => Ok(None),
-            false => Ok(crate::files::file_io::rename_never_over(side, to)
-                .ok()
-                .map(|()| false)),
-        };
-    }
-    // The sidecar goes as the file went. It is on disk before the original goes, and never
-    // over a sidecar there, which belongs to another file or is a copy kept on purpose. A
-    // sidecar that cannot be moved (someone else's in a shared folder) is copied, so the
-    // keywords go with the photo.
-    match crate::files::file_io::put_file(side, to, is_copy) {
-        Err(_) if !is_copy => crate::files::file_io::put_file(side, to, true).map(|()| Some(true)),
-        done => done.map(|()| Some(is_copy)),
-    }
 }
 
 fn parse(xmp: &str) -> KeywordsAndComment {
@@ -2822,7 +2824,7 @@ mod tests {
             std::fs::symlink_metadata(sidecar(&b)).is_err(),
             "copied through the link"
         );
-        crate::images::save::save_copy_with_sidecar(&a, &c, b"x", false, false).unwrap();
+        crate::images::save::save_copy_with_sidecar(&a, &c, b"x", None, false).unwrap();
         assert!(
             std::fs::symlink_metadata(sidecar(&c)).is_err(),
             "landed through the link"

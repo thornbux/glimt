@@ -201,7 +201,7 @@ fn remove_orphaned_thumbnails_in(cache: &Path) -> (usize, usize) {
     for entry in (std::fs::read_dir(cache.join("fail")).into_iter().flatten()).flatten() {
         let name = entry.file_name();
         // remove_dir_all removes a link there, never what it points to.
-        #[allow(clippy::disallowed_methods)] // an old Glimt's folder in the cache
+        #[allow(clippy::disallowed_methods)] // Glimt's own: an old Glimt's folder in the cache
         if name.as_encoded_bytes().starts_with(b"glimt-")
             && Some(name.as_os_str()) != own
             && std::fs::remove_dir_all(entry.path()).is_ok()
@@ -221,7 +221,7 @@ fn remove_orphaned_thumbnails_in(cache: &Path) -> (usize, usize) {
             };
             // Only a file that is surely not there counts as gone. A share that answers with an
             // error for a moment is no reason to delete the thumbnail.
-            #[allow(clippy::disallowed_methods)] // a thumbnail whose image is gone
+            #[allow(clippy::disallowed_methods)] // Glimt's own: a thumbnail whose image is gone
             if path.try_exists().is_ok_and(|exists| !exists)
                 && path.parent().is_some_and(Path::is_dir)
                 && std::fs::remove_file(entry.path()).is_ok()

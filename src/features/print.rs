@@ -211,10 +211,11 @@ pub(crate) struct PrintJob {
     copies: u32,
 }
 
-/// Where a print job goes.
+/// Where a print job goes: a printer, or a file with the fingerprint of the file at its name
+/// when it was picked, or `None` when nothing was there.
 pub(crate) enum PrintTo {
     Printer(String),
-    File(PathBuf),
+    File(PathBuf, Option<crate::files::file_io::FileFingerprint>),
 }
 
 impl PrintTo {
@@ -239,7 +240,7 @@ impl PrintTo {
             file.extension()
                 .is_some_and(|e| e.eq_ignore_ascii_case("pdf"))
         };
-        matches!(self, PrintTo::File(file) if !pdf(file) && listed(file))
+        matches!(self, PrintTo::File(file, _) if !pdf(file) && listed(file))
     }
 }
 
@@ -503,7 +504,7 @@ impl crate::App {
                 // The PDF is written beside the file first. The file chosen is replaced only by
                 // a whole PDF, after every image was read, because one of them may be the file
                 // chosen.
-                PrintTo::File(file) => {
+                PrintTo::File(file, at_pick) => {
                     // A link at the name is replaced, not the file it points to, because a
                     // downloaded folder may hold IMG_0001.pdf pointing at any file of the user's.
                     let write = |f: &mut std::fs::File| {
@@ -511,7 +512,7 @@ impl crate::App {
                         print::pdf(pages, &layout, total, &mut out)?;
                         out.flush()
                     };
-                    crate::files::file_io::replace_name_with(file, write, || Ok(()))
+                    crate::files::file_io::write_picked_name(file, *at_pick, write)
                         .map_err(|e| e.to_string())
                 }
             };
@@ -529,7 +530,7 @@ impl crate::App {
             };
             let done = done.map(|()| match &to {
                 PrintTo::Printer(printer) => tf!("{what} sent to {printer}", what, printer),
-                PrintTo::File(file) => {
+                PrintTo::File(file, _) => {
                     tf!("{what} saved in {file}", what, file = file.display())
                 }
             });
@@ -539,7 +540,7 @@ impl crate::App {
             Some(match (done, failed.get(), &to) {
                 (Ok(msg), 0, _) => Told::Notice(msg),
                 (Ok(msg), f, _) => Told::Notice(tf!("{msg}; {f} could not be read", msg, f)),
-                (Err(e), _, PrintTo::File(_)) => Told::FailedWrite(tf!("Printing failed: {e}", e)),
+                (Err(e), _, PrintTo::File(..)) => Told::FailedWrite(tf!("Printing failed: {e}", e)),
                 (Err(e), _, PrintTo::Printer(_)) => Told::Notice(tf!("Printing failed: {e}", e)),
             })
         });
@@ -1499,12 +1500,60 @@ mod tests {
             rotate: false,
             copies: 1,
         };
-        app.print(&ctx, job, super::PrintTo::File(link.clone()));
+        let at_pick = crate::files::file_io::fingerprint(&link);
+        app.print(&ctx, job, super::PrintTo::File(link.clone(), at_pick));
         let told = app.notices.recv_timeout(std::time::Duration::from_secs(5));
         assert!(told.is_ok());
         assert_eq!(std::fs::read_to_string(&secret).unwrap(), "keep");
         let pdf = std::fs::symlink_metadata(&link).unwrap();
         assert!(pdf.is_file());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// Print to File replaces only the file the chooser let it replace. A file put at a name
+    /// that was free at the pick, or put in the place of the file picked, while the pages were
+    /// made, stays as it is.
+    #[test]
+    fn prints_only_over_the_file_picked() {
+        let dir =
+            std::env::temp_dir().join(format!("glimt-test-print-picked-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let (png, pdf) = (dir.join("a.png"), dir.join("album.pdf"));
+        image::RgbImage::new(4, 4).save(&png).unwrap();
+        let (mut app, ctx) = crate::support::test_support::app_on(&dir);
+        let mut print_to = |at_pick| {
+            let job = super::PrintJob {
+                paths: vec![png.clone()],
+                layout: super::Layout::new(super::PAPERS[0].1, 1),
+                caption: None,
+                two_sided: false,
+                rotate: false,
+                copies: 1,
+            };
+            app.print(&ctx, job, super::PrintTo::File(pdf.clone(), at_pick));
+            let told = app.notices.recv_timeout(std::time::Duration::from_secs(5));
+            told.unwrap()
+        };
+        // Nothing was there at the pick, and another program wrote the name since.
+        std::fs::write(&pdf, "theirs").unwrap();
+        let told = print_to(None);
+        assert_eq!(std::fs::read_to_string(&pdf).unwrap(), "theirs", "{told:?}");
+        // Another file took the place of the one picked.
+        let at_pick = crate::files::file_io::fingerprint(&pdf);
+        std::fs::remove_file(&pdf).unwrap();
+        std::fs::write(&pdf, "another one").unwrap();
+        let told = print_to(at_pick);
+        assert_eq!(
+            std::fs::read_to_string(&pdf).unwrap(),
+            "another one",
+            "{told:?}"
+        );
+        // The file picked is replaced.
+        let told = print_to(crate::files::file_io::fingerprint(&pdf));
+        assert!(
+            std::fs::read(&pdf).unwrap().starts_with(b"%PDF"),
+            "{told:?}"
+        );
         std::fs::remove_dir_all(dir).unwrap();
     }
 
@@ -1525,7 +1574,7 @@ mod tests {
             rotate: false,
             copies: 1,
         };
-        app.print(&ctx, job, super::PrintTo::File(jpg.clone()));
+        app.print(&ctx, job, super::PrintTo::File(jpg.clone(), None));
         let told = app.notices.recv_timeout(std::time::Duration::from_secs(5));
         assert!(told.is_ok());
         assert_eq!(std::fs::read(&jpg).unwrap(), before);
@@ -1551,7 +1600,7 @@ mod tests {
             copies: 1,
         };
         let pdf = dir.join("no such folder").join("a.pdf");
-        app.print(&ctx, job, super::PrintTo::File(pdf));
+        app.print(&ctx, job, super::PrintTo::File(pdf, None));
         let told = app.notices.recv_timeout(std::time::Duration::from_secs(5));
         assert!(matches!(told, Ok(super::Told::FailedWrite(_))), "{told:?}");
         std::fs::remove_dir_all(dir).unwrap();
@@ -1577,7 +1626,7 @@ mod tests {
     /// another listed name is still refused.
     #[test]
     fn prints_over_a_listed_pdf() {
-        let to = |name: &str| super::PrintTo::File(std::path::PathBuf::from(name));
+        let to = |name: &str| super::PrintTo::File(std::path::PathBuf::from(name), None);
         assert!(!to("first.pdf").is_listed_by(|_| true));
         assert!(!to("FIRST.PDF").is_listed_by(|_| true));
         assert!(to("a.jpg").is_listed_by(|_| true));

@@ -3072,6 +3072,10 @@ msgid "Rename failed ({count}): {first}"
 msgstr "Endring av navn mislyktes ({count}): {first}"
 
 #: src/files/file_ops.rs
+msgid "Rename failed ({count}): {first}"
+msgstr "Navneendring mislyktes ({count}): {first}"
+
+#: src/files/file_ops.rs
 msgid "{side}: {e}, so {file} stays where it was, with its sidecar"
 msgstr "{side}: {e}, så {file} blir der den var, med sidefilen sin"
 

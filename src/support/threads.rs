@@ -107,12 +107,19 @@ impl<T> Receiving<T> {
 
     /// As `take`, waiting up to `timeout` for the answer.
     pub(crate) fn wait(&mut self, timeout: std::time::Duration) -> Took<T> {
+        let took = self.wait_next(timeout);
+        if matches!(took, Took::Answer(_)) {
+            self.0 = None;
+        }
+        took
+    }
+
+    /// As `next`, waiting up to `timeout` for the next message. Only a background thread waits
+    /// so, for the messages of another, never the window's thread.
+    pub(crate) fn wait_next(&mut self, timeout: std::time::Duration) -> Took<T> {
         match self.0.as_ref().map(|rx| rx.recv_timeout(timeout)) {
             None | Some(Err(mpsc::RecvTimeoutError::Timeout)) => Took::Nothing,
-            Some(Ok(answer)) => {
-                self.0 = None;
-                Took::Answer(answer)
-            }
+            Some(Ok(answer)) => Took::Answer(answer),
             Some(Err(mpsc::RecvTimeoutError::Disconnected)) => {
                 self.0 = None;
                 Took::Gone

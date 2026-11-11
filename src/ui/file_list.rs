@@ -1172,8 +1172,10 @@ impl crate::App {
                             if button.on_hover_text(dir.display().to_string()).clicked()
                                 && let Some(targets) = self.targets()
                             {
-                                let paths = targets.iter().map(|&i| self.path(i)).collect();
-                                self.transfer(paths, dir, !self.config.sort_move, None);
+                                let files = targets.iter().map(|&i| self.listed_file(i));
+                                let picked =
+                                    crate::files::file_io::PickedFiles::listed(files.collect());
+                                self.transfer(picked, dir, !self.config.sort_move);
                             }
                         });
                     }

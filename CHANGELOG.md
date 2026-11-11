@@ -59,6 +59,15 @@ and versions follow [Semantic Versioning](https://semver.org/).
   told. Before, a plan left behind was offered again at the next start, where putting its old
   names back would have undone the finished rename. A backup that holds a copy of a running
   Rename Many's plan is told as not whole.
+- A delete for good or a move to the trash confirmed in its dialog, also the question to delete
+  for good what a share's trash refused, leaves a file alone, and says so, when another photo
+  took its name while the dialog was open (another window, a sync program). Before, the other
+  photo was deleted in its place. Rename and Rename Many do the same for the files they asked
+  about, and so do a folder trashed or renamed from the folder tree.
+- Save As, Save This Frame and Print to File replace only the file the file chooser let them
+  replace. A file put at the name while the copy or the PDF was made, or at a name that was free
+  when it was picked, is left as it is, and the save says why. Save As and Copy for Sharing no
+  longer copy another photo that took the name of the one picked while their dialog was open.
 
 ## [0.80.1] - 2026-11-11
 

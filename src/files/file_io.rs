@@ -20,6 +20,20 @@ static SAVE_ERROR: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None
 /// shows the files as they are.
 static LIST_IS_OLD: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
+/// How long an act on files picked before a wait waits, once it starts, for each next
+/// fingerprint of the files picked (`PickedFiles`). A file that a share has not answered about by
+/// then counts as changed, and is left alone.
+#[cfg(not(test))]
+const FINGERPRINT_WAIT: std::time::Duration = std::time::Duration::from_secs(5);
+#[cfg(test)]
+const FINGERPRINT_WAIT: std::time::Duration = std::time::Duration::from_millis(200);
+
+/// In a test, a file picked whose fingerprint never comes, as on a share that stopped
+/// answering, until the test takes it away.
+#[cfg(test)]
+pub(crate) static FINGERPRINT_STALLS: std::sync::Mutex<Option<PathBuf>> =
+    std::sync::Mutex::new(None);
+
 /// The thread that writes Glimt's own files (`write_later`), and the thread for the writes that
 /// reach the user's folders (`write_later_in_user_folders`).
 static OWN_FILES_WRITER: std::sync::OnceLock<std::sync::mpsc::Sender<QueuedWrite>> =
@@ -210,13 +224,184 @@ impl ListedFile {
     /// pass; the size and time of the listing would tell them apart, but cost a look at every
     /// file.
     pub(crate) fn check(&self) -> std::io::Result<()> {
-        if self.identity.is_none() || !is_another_file(identity_of(&self.path), self.identity) {
-            return Ok(());
+        is_still_the_file(&self.path, KnownAs::listed(self.identity))
+    }
+}
+
+/// What a file was known by, for `is_still_the_file`: the inode its folder listed, and its
+/// fingerprint when it was picked before a wait or read for a save. Either may be unknown.
+#[derive(Clone, Copy)]
+pub(crate) struct KnownAs {
+    fingerprint: Option<FileFingerprint>,
+    listed: Identity,
+}
+
+impl KnownAs {
+    /// A file known by the fingerprint it had when it was read or picked.
+    pub(crate) fn fingerprint(fingerprint: FileFingerprint) -> KnownAs {
+        KnownAs {
+            fingerprint: Some(fingerprint),
+            listed: None,
         }
-        LIST_IS_OLD.store(true, std::sync::atomic::Ordering::Relaxed);
-        Err(std::io::Error::other(crate::support::lang::tr(
-            "another file has taken its name: the folder is read again",
-        )))
+    }
+
+    /// A file known only by the inode its folder listed.
+    pub(crate) fn listed(identity: Identity) -> KnownAs {
+        KnownAs {
+            fingerprint: None,
+            listed: identity,
+        }
+    }
+}
+
+/// Files the user picked before a wait: a confirmation, a prompt or the file chooser. Their
+/// fingerprints are taken in a thread of their own while the user waits, as 500,000 files on a
+/// share would hold the window. The act runs in a thread too, and it leaves alone each file that
+/// is no longer the one picked (`PickedFingerprints::still_the_one_picked`), because another
+/// program or window may have given its name to another photo meanwhile. A delete, trash, move
+/// or rename of files picked earlier takes this type, never bare paths, so none can act by name
+/// alone.
+pub(crate) struct PickedFiles {
+    paths: Vec<PathBuf>,
+    /// The inode that the folder listed for each file picked in the list, which a file
+    /// swapped before the question (and so before its fingerprint) is told by.
+    listed: std::collections::HashMap<PathBuf, Identity>,
+    fingerprints: crate::support::threads::Receiving<Option<FileFingerprint>>,
+    /// Whether the paths are folders, which are told apart by their device and inode alone. A
+    /// folder's size and time change with every file put into it.
+    are_folders: bool,
+}
+
+impl PickedFiles {
+    /// Starts taking the fingerprints of the files `paths`, picked now, none of them from the
+    /// list.
+    pub(crate) fn new(paths: Vec<PathBuf>) -> PickedFiles {
+        PickedFiles::taken_in_background(paths, false)
+    }
+
+    /// Starts taking the fingerprints of the files `files`, picked now in the list, which keep
+    /// the inodes the list knew them by.
+    pub(crate) fn listed(files: Vec<ListedFile>) -> PickedFiles {
+        let listed = (files.iter())
+            .map(|f| (f.path.clone(), f.identity))
+            .collect();
+        let paths = files.into_iter().map(|f| f.path).collect();
+        PickedFiles {
+            listed,
+            ..PickedFiles::taken_in_background(paths, false)
+        }
+    }
+
+    /// Starts taking the device and inode of the folder `dir`, picked now.
+    pub(crate) fn folder(dir: PathBuf) -> PickedFiles {
+        PickedFiles::taken_in_background(vec![dir], true)
+    }
+
+    /// The files of `recorded`, with the fingerprints Glimt noted after its own operation on
+    /// them. An Undo gives them, so that it leaves alone a file another program put at the name.
+    pub(crate) fn recorded(recorded: Vec<(PathBuf, FileFingerprint)>) -> PickedFiles {
+        let (tx, rx) = std::sync::mpsc::channel();
+        let paths = (recorded.into_iter())
+            .map(|(path, fingerprint)| {
+                let _ = tx.send(Some(fingerprint));
+                path
+            })
+            .collect();
+        PickedFiles {
+            paths,
+            listed: Default::default(),
+            fingerprints: crate::support::threads::Receiving::of(rx),
+            are_folders: false,
+        }
+    }
+
+    /// Starts taking the fingerprints of `paths`, folders when `are_folders`, in their order, in
+    /// a thread of its own. It shows no busy pointer, as the user does not wait for it while a
+    /// dialog is open, and a file on a share that stopped answering would keep it on for good.
+    fn taken_in_background(paths: Vec<PathBuf>, are_folders: bool) -> PickedFiles {
+        let (tx, rx) = std::sync::mpsc::channel();
+        let taken = paths.clone();
+        std::thread::spawn(move || {
+            for path in taken {
+                // Once nobody waits for them, the rest are not taken.
+                if tx.send(picked_fingerprint(&path, are_folders)).is_err() {
+                    break;
+                }
+            }
+        });
+        PickedFiles {
+            paths,
+            listed: Default::default(),
+            fingerprints: crate::support::threads::Receiving::of(rx),
+            are_folders,
+        }
+    }
+
+    /// The files picked.
+    pub(crate) fn paths(&self) -> &[PathBuf] {
+        &self.paths
+    }
+
+    /// Waits for the fingerprints, at most `FINGERPRINT_WAIT` for each next one, in the thread
+    /// that acts on the files, never the window's. Returns the files picked and their
+    /// fingerprints. A file whose fingerprint did not come in time has none, and counts as
+    /// changed.
+    pub(crate) fn wait_for_fingerprints(mut self) -> (Vec<PathBuf>, PickedFingerprints) {
+        use crate::support::threads::Took;
+        let mut taken = std::collections::HashMap::with_capacity(self.paths.len());
+        for path in &self.paths {
+            match self.fingerprints.wait_next(FINGERPRINT_WAIT) {
+                Took::Answer(Some(fingerprint)) => drop(taken.insert(path.clone(), fingerprint)),
+                Took::Answer(None) => {}
+                Took::Nothing | Took::Gone => break,
+            }
+        }
+        let fingerprints = PickedFingerprints {
+            taken,
+            listed: self.listed,
+            are_folders: self.are_folders,
+        };
+        (self.paths, fingerprints)
+    }
+
+    /// In a test, waits until the fingerprints are taken, so that a change made after it is one
+    /// made while the question was open.
+    #[cfg(test)]
+    pub(crate) fn wait_until_taken(&mut self) {
+        use crate::support::threads::Took;
+        let (tx, rx) = std::sync::mpsc::channel();
+        for _ in &self.paths {
+            if let Took::Answer(fingerprint) = self.fingerprints.wait_next(FINGERPRINT_WAIT * 25) {
+                let _ = tx.send(fingerprint);
+            }
+        }
+        self.fingerprints = crate::support::threads::Receiving::of(rx);
+    }
+}
+
+/// The fingerprints of files picked before a wait, as `PickedFiles::wait_for_fingerprints`
+/// took them.
+pub(crate) struct PickedFingerprints {
+    taken: std::collections::HashMap<PathBuf, FileFingerprint>,
+    listed: std::collections::HashMap<PathBuf, Identity>,
+    are_folders: bool,
+}
+
+impl PickedFingerprints {
+    /// Looks whether the file at `path` is still the one picked there. Returns the error to tell
+    /// when it is not: another file has its name, it was written since, it is gone, or its
+    /// fingerprint did not come in time.
+    pub(crate) fn still_the_one_picked(&self, path: &Path) -> std::io::Result<()> {
+        let picked = *self.taken.get(path).ok_or_else(changed_meanwhile)?;
+        // A folder is told by its inode alone, which it keeps while files come and go.
+        let known = match self.are_folders {
+            true => KnownAs::listed(picked.0.and_then(|id| std::num::NonZeroU64::new(id.1))),
+            false => KnownAs {
+                fingerprint: Some(picked),
+                listed: self.listed.get(path).copied().flatten(),
+            },
+        };
+        is_still_the_file(path, known)
     }
 }
 
@@ -1029,6 +1214,25 @@ pub fn replace_name_with(
     Ok(())
 }
 
+/// Writes the file named `path`, which the user picked in the file chooser, with the contents
+/// written by `write`, as `replace_name_with` does. `at_pick` is the fingerprint of the file that
+/// was at the name when it was picked. Only that file is replaced, and when nothing was there, a
+/// file put at the name since is never written over.
+pub fn write_picked_name(
+    path: &Path,
+    at_pick: Option<FileFingerprint>,
+    write: impl FnOnce(&mut std::fs::File) -> std::io::Result<()>,
+) -> std::io::Result<()> {
+    match at_pick {
+        Some(picked) => replace_name_with(path, write, || {
+            is_still_the_file(path, KnownAs::fingerprint(picked))
+        }),
+        None => write_beside(&tmp_path(path), path, write, |tmp| {
+            rename_never_over(tmp, path)
+        }),
+    }
+}
+
 /// Writes `bytes` to `path` beside it and renames it, through a link to the file it points to.
 /// Glimt's own files and a turned image are written so. A name the user chose for a new file,
 /// and a collection's file, go through `replace_name`, which never follows a link.
@@ -1042,14 +1246,10 @@ fn replace(
     let write = |f: &mut std::fs::File| f.write_all(bytes.as_ref());
     // Through a link (dotfiles kept in a repository), the file it points to: the link stays.
     let path = &std::fs::canonicalize(path).unwrap_or_else(|_| path.to_owned());
-    let there = || match existing.map(|read| (read, fingerprint(path))) {
-        None => Ok(()),
-        Some((read, Some(now))) if same_fingerprint(read, now) => Ok(()),
-        Some((_, Some(_))) => Err(changed_meanwhile()),
-        Some((_, None)) => Err(std::io::Error::new(
-            std::io::ErrorKind::NotFound,
-            crate::support::lang::tr("the file was moved, renamed or deleted meanwhile"),
-        )),
+    let there = || {
+        existing.map_or(Ok(()), |read| {
+            is_still_the_file(path, KnownAs::fingerprint(read))
+        })
     };
     // shortcut: `there` is looked at just before the rename, not in the same step; a file that
     // goes in those microseconds comes back. renameat2 with RENAME_EXCHANGE if that is ever seen.
@@ -1071,12 +1271,43 @@ fn replace(
 /// Returns the fingerprint of the file at `path`, taken before a save reads it, for
 /// `replace_existing`. Returns an error when nothing is there.
 pub(crate) fn fingerprint_before_reading(path: &Path) -> std::io::Result<FileFingerprint> {
-    fingerprint(path).ok_or_else(|| {
-        std::io::Error::new(
-            std::io::ErrorKind::NotFound,
-            crate::support::lang::tr("the file was moved, renamed or deleted meanwhile"),
-        )
-    })
+    fingerprint(path).ok_or_else(gone_meanwhile)
+}
+
+/// Looks whether the file at `path` is still the file `known`: the one rule by which Glimt
+/// tells, right before a change, that no other file has taken the name since the list showed
+/// it, the user picked it or Glimt read it. Another inode than the one its folder listed is
+/// refused, and an unknown one passes. With a fingerprint, the device, size and time must also
+/// be the same (`same_fingerprint`), and a file that is gone is refused; without one, a file
+/// that is gone is left to the operation to tell. Another file found has the window read its
+/// folder again (`take_list_is_old`). It waits for the disk, so it is called in the thread that
+/// makes the change. Returns the error to tell.
+pub(crate) fn is_still_the_file(path: &Path, known: KnownAs) -> std::io::Result<()> {
+    let another = if is_another_file(identity_of(path), known.listed) {
+        std::io::Error::other(crate::support::lang::tr(
+            "another file has taken its name: the folder is read again",
+        ))
+    } else {
+        match (
+            known.fingerprint,
+            known.fingerprint.map(|_| fingerprint(path)),
+        ) {
+            (Some(before), Some(Some(now))) if same_fingerprint(before, now) => return Ok(()),
+            (Some(_), Some(Some(_))) => changed_meanwhile(),
+            (Some(_), _) => return Err(gone_meanwhile()),
+            (None, _) => return Ok(()),
+        }
+    };
+    LIST_IS_OLD.store(true, std::sync::atomic::Ordering::Relaxed);
+    Err(another)
+}
+
+/// Returns the error for a file read or picked that is no longer there.
+fn gone_meanwhile() -> std::io::Error {
+    std::io::Error::new(
+        std::io::ErrorKind::NotFound,
+        crate::support::lang::tr("the file was moved, renamed or deleted meanwhile"),
+    )
 }
 
 /// Returns the error for a file that is no longer the one read or picked: another file has its
@@ -1190,6 +1421,26 @@ pub(crate) fn fingerprint(path: &Path) -> Option<FileFingerprint> {
     let m = std::fs::symlink_metadata(path).ok()?;
     let key = crate::images::save::file_id_from_metadata(path, &m).ok();
     Some((key, m.len(), (m.mtime(), m.mtime_nsec())))
+}
+
+/// Returns the fingerprint of the file at `path`, picked before a wait, or `None` when nothing is
+/// there. A folder (`is_folder`) has only its device and inode, as its size and time change with
+/// what is put into it. Where the file system gives every folder inode 0, a folder is not told
+/// apart from another at its path.
+fn picked_fingerprint(path: &Path, is_folder: bool) -> Option<FileFingerprint> {
+    #[cfg(test)]
+    loop {
+        let stalls = lock_even_if_poisoned(&FINGERPRINT_STALLS).as_deref() == Some(path);
+        if !stalls {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    let (id, size, time) = fingerprint(path)?;
+    Some(match is_folder {
+        true => (id, 0, (0, 0)),
+        false => (id, size, time),
+    })
 }
 
 /// Returns whether fingerprints `a` and `b` are of the same file, the one rule Glimt tells a file

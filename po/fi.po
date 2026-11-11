@@ -3061,6 +3061,10 @@ msgid "Rename failed ({count}): {first}"
 msgstr "Nimeäminen uudelleen epäonnistui ({count}): {first}"
 
 #: src/files/file_ops.rs
+msgid "Rename failed ({count}): {first}"
+msgstr "Uudelleennimeäminen epäonnistui ({count}): {first}"
+
+#: src/files/file_ops.rs
 msgid "{side}: {e}, so {file} stays where it was, with its sidecar"
 msgstr "{side}: {e}, joten {file} jää paikalleen sivutiedostonsa kanssa"
 
