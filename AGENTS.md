@@ -208,12 +208,16 @@ rule is "one and many", its rule in `plural_form` and in the table of
 `plural_form_follows_each_po_header`, which fails while a `.po`'s Plural-Forms header is not
 there or `plural_form` picks other forms than it says.
 
-The translations are written by the agent that adds the text, in all fourteen languages, and
-no native reader has read any of them yet. The tests check only that each text is there and
-keeps its placeholders, not that it reads well. The maintainer decides who reads which
-language, and how a text that a native reader has checked is told apart from one that is not;
-until then an agent does not invent a way to mark them. An agent changes another text's
-translation only when it is wrong, and says so in the commit message.
+The translations are written by the agent that adds the text, in all fourteen languages. Only
+Norwegian bokmål (`po/no_nb.po`) is read by a native reader, the maintainer. So a new or
+changed text is written in all fourteen languages as before, but its entry is marked
+`#, fuzzy` (on the line before its `msgid`) in every language except `no_nb.po`, until a native
+reader has read it. Glimt shows a fuzzy translation like any other (`lang::parse`), and
+`lang::tests::only_norwegian_bokmal_is_read_by_a_native_reader` fails on an entry of another
+language without the mark, and on one of `no_nb.po` with it. The tests check only that each text
+is there and keeps its placeholders, not that it reads well. The maintainer decides who reads
+which other language. An agent changes another text's translation only when it is wrong, and
+says so in the commit message.
 
 ## Code layout
 

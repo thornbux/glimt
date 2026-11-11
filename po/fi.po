@@ -9,3125 +9,3906 @@ msgstr ""
 "Plural-Forms: nplurals=2; plural=(n != 1);\n"
 
 #: src/ui/accessibility.rs
+#, fuzzy
 msgid "No images"
 msgstr "Ei kuvia"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "About Glimt"
 msgstr "Tietoja Glimtistä"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Auto Rotate Using EXIF"
 msgstr "Kierrä automaattisesti EXIFin mukaan"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Back"
 msgstr "Takaisin"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Back Up Glimt's Data…"
 msgstr "Varmuuskopioi Glimtin tiedot…"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Check Images…"
 msgstr "Tarkista kuvat…"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Close Window"
 msgstr "Sulje ikkuna"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Compare Side by Side"
 msgstr "Vertaa rinnakkain"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Copy Files to Clipboard"
 msgstr "Kopioi tiedostot leikepöydälle"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Copy Image to Clipboard"
 msgstr "Kopioi kuva leikepöydälle"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Copy Path (Unquoted)"
 msgstr "Kopioi polku (ilman lainausmerkkejä)"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Copy Path to Clipboard"
 msgstr "Kopioi polku leikepöydälle"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Copy…"
 msgstr "Kopioi…"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Delete Permanently…"
 msgstr "Poista pysyvästi…"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Delete…"
 msgstr "Poista…"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "EXIF Window"
 msgstr "EXIF-ikkuna"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Export Frames…"
 msgstr "Vie ruudut…"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Faster"
 msgstr "Nopeammin"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Fill the View"
 msgstr "Täytä näkymä"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Find Duplicates…"
 msgstr "Etsi kaksoiskappaleet…"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "First Image"
 msgstr "Ensimmäinen kuva"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Fit the Height"
 msgstr "Sovita korkeuteen"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Fit the Width"
 msgstr "Sovita leveyteen"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Flip"
 msgstr "Käännä pystysuunnassa"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Forward"
 msgstr "Eteenpäin"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Full Screen"
 msgstr "Koko näyttö"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Help Manual"
 msgstr "Käyttöopas"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Hide File List"
 msgstr "Piilota tiedostoluettelo"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Histogram: Off, RGB, Brightness"
 msgstr "Histogrammi: pois, RGB, kirkkaus"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Home"
 msgstr "Kotikansio"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Import Lightroom Catalog…"
 msgstr "Tuo Lightroom-luettelo…"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Include Subfolders"
 msgstr "Sisällytä alikansiot"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Invert Selection"
 msgstr "Käännä valinta"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Keyboard Map"
 msgstr "Näppäimistökartta"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Keyboard Shortcuts"
 msgstr "Pikanäppäimet"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Keywords and Comment"
 msgstr "Avainsanat ja kommentti"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Last Image"
 msgstr "Viimeinen kuva"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Logarithmic Histogram"
 msgstr "Logaritminen histogrammi"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Mark 1"
 msgstr "Merkki 1"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Mark 2"
 msgstr "Merkki 2"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Mark 3"
 msgstr "Merkki 3"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Mark 4"
 msgstr "Merkki 4"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Mark 5"
 msgstr "Merkki 5"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Mark 6"
 msgstr "Merkki 6"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Mirror"
 msgstr "Peilaa"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Move Collection to Trash"
 msgstr "Siirrä kokoelma roskakoriin"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Move Earlier in Collection"
 msgstr "Siirrä aiemmaksi kokoelmassa"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Move Later in Collection"
 msgstr "Siirrä myöhemmäksi kokoelmassa"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Move to End of Collection"
 msgstr "Siirrä kokoelman loppuun"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Move to Start of Collection"
 msgstr "Siirrä kokoelman alkuun"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Move…"
 msgstr "Siirrä…"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "New Collection…"
 msgstr "Uusi kokoelma…"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "New Folder…"
 msgstr "Uusi kansio…"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "New Window"
 msgstr "Uusi ikkuna"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Next Filter"
 msgstr "Seuraava suodatin"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Next Image"
 msgstr "Seuraava kuva"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Next Layout"
 msgstr "Seuraava asettelu"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Next Page"
 msgstr "Seuraava sivu"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "No Stars"
 msgstr "Ei tähtiä"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "One Image"
 msgstr "Yksi kuva"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Open Collection…"
 msgstr "Avaa kokoelma…"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Open File…"
 msgstr "Avaa tiedosto…"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Open Folder Recursive…"
 msgstr "Avaa kansio alikansioineen…"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Open Folder…"
 msgstr "Avaa kansio…"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Open Several Folders…"
 msgstr "Avaa useita kansioita…"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Open With Default App"
 msgstr "Avaa oletussovelluksella"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Pan View"
 msgstr "Yleiskatsaus"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Pane Above"
 msgstr "Ruutu yllä"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Pane Below"
 msgstr "Ruutu alla"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Pane to the Left"
 msgstr "Ruutu vasemmalla"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Pane to the Right"
 msgstr "Ruutu oikealla"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Pause Slideshow"
 msgstr "Keskeytä diaesitys"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Play Animations"
 msgstr "Toista animaatiot"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Play Video"
 msgstr "Toista video"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Preferences…"
 msgstr "Asetukset…"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Previous Image"
 msgstr "Edellinen kuva"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Previous Page"
 msgstr "Edellinen sivu"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Print…"
 msgstr "Tulosta…"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Projector"
 msgstr "Projektori"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Quit"
 msgstr "Lopeta"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Random Order"
 msgstr "Satunnainen järjestys"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Refresh"
 msgstr "Päivitä"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Remove from Collection"
 msgstr "Poista kokoelmasta"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Rename Collection…"
 msgstr "Nimeä kokoelma uudelleen…"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Rename…"
 msgstr "Nimeä uudelleen…"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Rotate 180°"
 msgstr "Kierrä 180°"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Rotate Clockwise"
 msgstr "Kierrä myötäpäivään"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Rotate Counterclockwise"
 msgstr "Kierrä vastapäivään"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Save Orientation to File"
 msgstr "Tallenna suunta tiedostoon"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Save This Frame…"
 msgstr "Tallenna tämä ruutu…"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Search File Names"
 msgstr "Hae tiedostonimistä"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Select All"
 msgstr "Valitse kaikki"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Select Mark 1"
 msgstr "Valitse merkki 1"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Select Mark 2"
 msgstr "Valitse merkki 2"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Select Mark 3"
 msgstr "Valitse merkki 3"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Select Mark 4"
 msgstr "Valitse merkki 4"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Select Mark 5"
 msgstr "Valitse merkki 5"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Select Mark 6"
 msgstr "Valitse merkki 6"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Select None"
 msgstr "Poista valinnat"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Show Info Panel"
 msgstr "Näytä tietopaneeli"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Show Folder Path"
 msgstr "Näytä kansion polku"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Show Folder Tree"
 msgstr "Näytä kansiopuu"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Show Hidden Files"
 msgstr "Näytä piilotiedostot"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Show Image Info in Full Screen"
 msgstr "Näytä kuvan tiedot koko näytössä"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Show Sort Manager"
 msgstr "Näytä lajittelija"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Show the Pointer on the Projector"
 msgstr "Näytä osoitin projektorissa"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Show Thumbnails"
 msgstr "Näytä pienoiskuvat"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Thumbnails in Image Area"
 msgstr "Pienoiskuvat kuva-alueella"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Show Toolbar"
 msgstr "Näytä työkalupalkki"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Slower"
 msgstr "Hitaammin"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Start/Stop Slideshow"
 msgstr "Aloita/lopeta diaesitys"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Stop Slideshow, Leave Full Screen"
 msgstr "Lopeta diaesitys, poistu koko näytöstä"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Two Above Each Other"
 msgstr "Kaksi päällekkäin"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Up"
 msgstr "Ylös"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "View Images as Icons"
 msgstr "Näytä kuvat kuvakkeina"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Zoom 1:1"
 msgstr "Zoomaus 1:1"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Zoom In"
 msgstr "Lähennä"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Zoom Out"
 msgstr "Loitonna"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Zoom to Fit"
 msgstr "Sovita ikkunaan"
 
 #: src/model/collections.rs
+#, fuzzy
 msgid "Not a valid collection name: \"{name}\""
 msgstr "Ei kelvollinen kokoelman nimi: ”{name}”"
 
 #: src/model/collections.rs
+#, fuzzy
 msgid "There is a collection called \"{name}\" already"
 msgstr "Kokoelma nimeltä ”{name}” on jo olemassa"
 
 #: src/features/duplicates.rs
+#, fuzzy
 msgid "Among the {count} in the list, compare by"
 msgstr "Luettelon {count} joukosta vertaa"
 
 #: src/features/duplicates.rs
+#, fuzzy
 msgid "Check all but the first of each group"
 msgstr "Valitse kaikki paitsi kunkin ryhmän ensimmäinen"
 
 #: src/features/duplicates.rs
+#, fuzzy
 msgid "Checksum (identical files)"
 msgstr "Tarkistussumma (identtiset tiedostot)"
 
 #: src/features/duplicates.rs
+#, fuzzy
 msgid "Comparing… {done} of {total}"
 msgstr "Verrataan… {done}/{total}"
 
 #: src/features/duplicates.rs
+#, fuzzy
 msgid "Find"
 msgstr "Etsi"
 
 #: src/features/duplicates.rs
+#, fuzzy
 msgid "Find Duplicates"
 msgstr "Etsi kaksoiskappaleet"
 
 #: src/features/duplicates.rs
+#, fuzzy
 msgid "Group {n} ({files})"
 msgstr "Ryhmä {n} ({files})"
 
 #: src/features/duplicates.rs
+#, fuzzy
 msgid "Include Subfolders in the View menu searches the folders below too."
 msgstr "Näytä-valikon Sisällytä alikansiot hakee myös alla olevista kansioista."
 
 #: src/features/duplicates.rs
+#, fuzzy
 msgid "Move {n} checked to trash…"
 msgstr "Siirrä {n} valittua roskakoriin…"
 
 #: src/features/duplicates.rs
+#, fuzzy
 msgid "These groups were found by {by}, so the checked files may be different images, not copies."
 msgstr "Nämä ryhmät löytyivät vertaamalla: ”{by}”, joten valitut tiedostot voivat olla eri kuvia, eivät kopioita."
 
 #: src/features/duplicates.rs
+#, fuzzy
 msgid "Move to Trash Anyway"
 msgstr "Siirrä silti roskakoriin"
 
 #: src/files/config.rs
+#, fuzzy
 msgid "{files} left out: a name with a line break cannot be kept"
 msgstr "{files} jätettiin pois: rivinvaihdon sisältävää nimeä ei voi tallentaa"
 
 #: src/features/duplicates.rs
+#, fuzzy
 msgid "Cancel"
 msgstr "Peruuta"
 
 #: src/features/duplicates.rs
+#, fuzzy
 msgid "Name"
 msgstr "Nimi"
 
 #: src/features/duplicates.rs
+#, fuzzy
 msgid "Similarity (90%)"
 msgstr "Samankaltaisuus (90 %)"
 
 #: src/features/duplicates.rs
+#, fuzzy
 msgid "Similarity (high, 95%)"
 msgstr "Samankaltaisuus (korkea, 95 %)"
 
 #: src/features/duplicates.rs
+#, fuzzy
 msgid "Similarity (low, 85%)"
 msgstr "Samankaltaisuus (matala, 85 %)"
 
 #: src/features/duplicates.rs
+#, fuzzy
 msgid "Size"
 msgstr "Koko"
 
 #: src/features/duplicates.rs
+#, fuzzy
 msgid "Stop"
 msgstr "Pysäytä"
 
 #: src/features/duplicates.rs
+#, fuzzy
 msgid "The checked files are no longer all in the list"
 msgstr "Valitut tiedostot eivät ole enää kaikki luettelossa"
 
 #: src/features/duplicates.rs
+#, fuzzy
 msgid "Uncheck all"
 msgstr "Poista kaikki valinnat"
 
 #: src/features/duplicates.rs
+#, fuzzy
 msgid "{groups}, {files}, among {images}"
 msgstr "{groups}, {files}, joukossa {images}"
 
 #: src/files/file_ops.rs
+#, fuzzy
 msgid "Backing up"
 msgstr "Varmuuskopioidaan"
 
 #: src/files/file_ops.rs
+#, fuzzy
 msgid "Copy"
 msgstr "Kopioi"
 
 #: src/files/file_ops.rs
+#, fuzzy
 msgid "Copying"
 msgstr "Kopioidaan"
 
 #: src/files/file_ops.rs
+#, fuzzy
 msgid "Could not make {folder}"
 msgstr "Kohdetta {folder} ei voitu luoda"
 
 #: src/files/file_ops.rs
+#, fuzzy
 msgid "Could not rename {f} to {t}: {e}; nothing renamed"
 msgstr "Kohdetta {f} ei voitu nimetä nimelle {t}: {e}; mitään ei nimetty uudelleen"
 
 #: src/files/file_ops.rs
+#, fuzzy
 msgid "Could not save the frames: {e}"
 msgstr "Ruutuja ei voitu tallentaa: {e}"
 
 #: src/files/file_ops.rs
+#, fuzzy
 msgid "Delete failed ({count}): {first}"
 msgstr "Poisto epäonnistui ({count}): {first}"
 
 #: src/files/file_ops.rs
+#, fuzzy
 msgid "Deleting"
 msgstr "Poistetaan"
 
 #: src/files/file_ops.rs
+#, fuzzy
 msgid "Renaming"
 msgstr "Nimetään uudelleen"
 
 #: src/files/file_ops.rs
+#, fuzzy
 msgid "Exporting"
 msgstr "Viedään"
 
 #: src/files/file_ops.rs
+#, fuzzy
 msgid "gio trash (from glib): {e}"
 msgstr "gio trash (glibistä): {e}"
 
 #: src/files/file_ops.rs
+#, fuzzy
 msgid "Move"
 msgstr "Siirrä"
 
 #: src/files/file_ops.rs
+#, fuzzy
 msgid "Moving"
 msgstr "Siirretään"
 
 #: src/files/file_ops.rs
+#, fuzzy
 msgid "Saved {file}"
 msgstr "Tallennettu {file}"
 
 #: src/files/file_ops.rs
+#, fuzzy
 msgid "Saved; it shows when Auto Rotate Using EXIF is on"
 msgstr "Tallennettu; näkyy, kun Kierrä automaattisesti EXIFin mukaan on päällä"
 
 #: src/files/file_ops.rs
+#, fuzzy
 msgid "Still saving a rotation: try again in a moment"
 msgstr "Kiertoa tallennetaan vielä: yritä hetken päästä uudelleen"
 
 #: src/files/file_ops.rs
+#, fuzzy
 msgid "The files asked about are no longer in the list: nothing was done"
 msgstr "Kysytyt tiedostot eivät ole enää luettelossa: mitään ei tehty"
 
 #: src/files/file_ops.rs
+#, fuzzy
 msgid "The pattern gives several files the same name; add # for a number"
 msgstr "Kaava antaa usealle tiedostolle saman nimen; lisää # numeroa varten"
 
 #: src/files/file_ops.rs
+#, fuzzy
 msgid "Writing the sidecars stopped at a file that broke it"
 msgstr "Sivutiedostojen kirjoitus pysähtyi tiedostoon, joka sai sen epäonnistumaan"
 
 #: src/files/file_ops.rs
+#, fuzzy
 msgid "{count} deleted"
 msgstr "{count} poistettu"
 
 #: src/files/file_ops.rs
+#, fuzzy
 msgid "{count} moved to the trash"
 msgstr "{count} siirretty roskakoriin"
 
 #: src/files/file_ops.rs
+#, fuzzy
 msgid "{frames} saved in {folder}"
 msgstr "{frames} tallennettu kansioon {folder}"
 
 #: src/files/file_ops.rs
+#, fuzzy
 msgid "{name} exists already; nothing renamed"
 msgstr "{name} on jo olemassa; mitään ei nimetty uudelleen"
 
 #: src/files/file_ops.rs
+#, fuzzy
 msgid "{verb} failed ({count}): {first}"
 msgstr "{verb} epäonnistui ({count}): {first}"
 
 #: src/metadata/lightroom.rs
+#, fuzzy
 msgid "Cancel (Esc)"
 msgstr "Peruuta (Esc)"
 
 #: src/metadata/lightroom.rs
+#, fuzzy
 msgid "Import"
 msgstr "Tuo"
 
 #: src/metadata/lightroom.rs
+#, fuzzy
 msgid "Import from Lightroom"
 msgstr "Tuo Lightroomista"
 
 #: src/metadata/lightroom.rs
+#, fuzzy
 msgid "Importing"
 msgstr "Tuodaan"
 
 #: src/metadata/lightroom.rs
+#, fuzzy
 msgid "Keep Glimt's stars"
 msgstr "Säilytä Glimtin tähdet"
 
 #: src/metadata/lightroom.rs
+#, fuzzy
 msgid "Lightroom has the catalog open: close Lightroom first"
 msgstr "Lightroomissa on luettelo auki: sulje ensin Lightroom"
 
 #: src/metadata/lightroom.rs
+#, fuzzy
 msgid "Lightroom's stars or keywords not written to the sidecars of {count}"
 msgstr "Lightroomin tähtiä tai avainsanoja ei kirjoitettu sivutiedostoihin: {count}"
 
 #: src/metadata/lightroom.rs
+#, fuzzy
 msgid "Next"
 msgstr "Seuraava"
 
 #: src/metadata/lightroom.rs
+#, fuzzy
 msgid "Not a Lightroom Classic catalog Glimt can read: {why}"
 msgstr "Ei Lightroom Classic -luettelo, jota Glimt osaa lukea: {why}"
 
 #: src/metadata/lightroom.rs
+#, fuzzy
 msgid "Reading a Lightroom catalog needs the sqlite3 program"
 msgstr "Lightroom-luettelon lukeminen vaatii sqlite3-ohjelman"
 
 #: src/metadata/lightroom.rs
+#, fuzzy
 msgid "Take Lightroom's stars"
 msgstr "Ota Lightroomin tähdet"
 
 #: src/metadata/lightroom.rs
+#, fuzzy
 msgid "the keywords of {count}"
 msgstr "avainsanat: {count}"
 
 #: src/metadata/lightroom.rs
+#, fuzzy
 msgid "the stars of {count}"
 msgstr "tähdet: {count}"
 
 #: src/metadata/lightroom.rs
+#, fuzzy
 msgid "There already, so they get only the images they lack: {names}."
 msgstr "Ovat jo olemassa, joten ne saavat vain puuttuvat kuvat: {names}."
 
 #: src/metadata/lightroom.rs
+#, fuzzy
 msgid "Not found and left out: {count}. Import again once their drive is mounted."
 msgstr "Ei löytynyt, jätetty pois: {count}. Tuo uudelleen, kun niiden asema on liitetty."
 
 #: src/metadata/lightroom.rs
+#, fuzzy
 msgid "Where the catalog's folders are now (empty: left out):"
 msgstr "Missä luettelon kansiot nyt ovat (tyhjä: jätetään pois):"
 
 #: src/metadata/lightroom.rs
+#, fuzzy
 msgid "{collections}, {keywords} and the stars of {images}."
 msgstr "{collections}, {keywords} ja tähdet: {images}."
 
 #: src/metadata/lightroom.rs
+#, fuzzy
 msgid "{count} have"
 msgstr "{count}:"
 
 #: src/metadata/lightroom.rs
+#, fuzzy
 msgid "{needs}, which is not installed"
 msgstr "{needs}, jota ei ole asennettu"
 
 #: src/metadata/lightroom.rs
+#, fuzzy
 msgid "{n} other stars in Glimt:"
 msgstr "{n} muuta tähteä Glimtissä:"
 
 #: src/main.rs
+#, fuzzy
 msgid ", and {n} more"
 msgstr ", ja {n} muuta"
 
 #: src/main.rs
+#, fuzzy
 msgid "; and {n} more (glimt --check-config)"
 msgstr "; ja {n} muuta (glimt --check-config)"
 
 #: src/main.rs
+#, fuzzy
 msgid "A file dialog is open already"
 msgstr "Tiedostoikkuna on jo auki"
 
 #: src/main.rs
+#, fuzzy
 msgid "A plain list is not renamed or trashed by Glimt"
 msgstr "Glimt ei nimeä uudelleen eikä heitä roskakoriin tavallista luetteloa"
 
 #: src/main.rs
+#, fuzzy
 msgid "Add"
 msgstr "Lisää"
 
 #: src/main.rs
+#, fuzzy
 msgid "Add the keywords to the {n} selected"
 msgstr "Lisää avainsanat {n} valittuun"
 
 #: src/main.rs
+#, fuzzy
 msgid "Add This Folder"
 msgstr "Lisää tämä kansio"
 
 #: src/main.rs
+#, fuzzy
 msgid "Add this image's keywords to the tree"
 msgstr "Lisää tämän kuvan avainsanat puuhun"
 
 #: src/main.rs
+#, fuzzy
 msgid "Add to Collection"
 msgstr "Lisää kokoelmaan"
 
 #: src/main.rs
+#, fuzzy
 msgid "Adding keywords"
 msgstr "Lisätään avainsanoja"
 
 #: src/main.rs
+#, fuzzy
 msgid "Add…"
 msgstr "Lisää…"
 
 #: src/main.rs
+#, fuzzy
 msgid "All Images Change Together"
 msgstr "Kaikki kuvat vaihtuvat yhdessä"
 
 #: src/main.rs
+#, fuzzy
 msgid "Alt text"
 msgstr "Vaihtoehtoinen teksti"
 
 #: src/main.rs
+#, fuzzy
 msgid "Ascending"
 msgstr "Nouseva"
 
 #: src/main.rs
+#, fuzzy
 msgid "Case"
 msgstr "Kirjainkoko"
 
 #: src/main.rs
+#, fuzzy
 msgid "Check"
 msgstr "Tarkista"
 
 #: src/main.rs
+#, fuzzy
 msgid "Check Images"
 msgstr "Tarkista kuvat"
 
 #: src/main.rs
+#, fuzzy
 msgid "Collections"
 msgstr "Kokoelmat"
 
 #: src/main.rs
+#, fuzzy
 msgid "Colour Management"
 msgstr "Värinhallinta"
 
 #: src/main.rs
+#, fuzzy
 msgid "Comment"
 msgstr "Kommentti"
 
 #: src/main.rs
+#, fuzzy
 msgid "Connect (Enter)"
 msgstr "Yhdistä (Enter)"
 
 #: src/main.rs
+#, fuzzy
 msgid "Connecting to {uri}…"
 msgstr "Yhdistetään kohteeseen {uri}…"
 
 #: src/main.rs
+#, fuzzy
 msgid "Could not copy the image: {e}"
 msgstr "Kuvaa ei voitu kopioida: {e}"
 
 #: src/main.rs
+#, fuzzy
 msgid "Could not copy to the clipboard: {e}"
 msgstr "Leikepöydälle ei voitu kopioida: {e}"
 
 #: src/main.rs
+#, fuzzy
 msgid "Could not open a new window: {e}"
 msgstr "Uutta ikkunaa ei voitu avata: {e}"
 
 #: src/main.rs
+#, fuzzy
 msgid "Could not read the keyword tree: {e}"
 msgstr "Avainsanapuuta ei voitu lukea: {e}"
 
 #: src/main.rs
+#, fuzzy
 msgid "Could not save the keyword tree: {e}"
 msgstr "Avainsanapuuta ei voitu tallentaa: {e}"
 
 #: src/main.rs
+#, fuzzy
 msgid "Could not read the sort manager's folders: {e}"
 msgstr "Lajittelijan kansioita ei voitu lukea: {e}"
 
 #: src/main.rs
+#, fuzzy
 msgid "Could not save the alt text: {e}"
 msgstr "Vaihtoehtoista tekstiä ei voitu tallentaa: {e}"
 
 #: src/main.rs
+#, fuzzy
 msgid "Could not save the collection: {e}"
 msgstr "Kokoelmaa ei voitu tallentaa: {e}"
 
 #: src/main.rs
+#, fuzzy
 msgid "Could not save the keywords: {e}"
 msgstr "Avainsanoja ei voitu tallentaa: {e}"
 
 #: src/main.rs
+#, fuzzy
 msgid "Could not save the orientation: {e}"
 msgstr "Suuntaa ei voitu tallentaa: {e}"
 
 #: src/main.rs
+#, fuzzy
 msgid "Could not save the sort manager's folders: no home folder"
 msgstr "Lajittelijan kansioita ei voitu tallentaa: ei kotikansiota"
 
 #: src/main.rs
+#, fuzzy
 msgid "Could not save the sort manager's folders: {e}"
 msgstr "Lajittelijan kansioita ei voitu tallentaa: {e}"
 
 #: src/main.rs
+#, fuzzy
 msgid "Could not save the theme: {e}"
 msgstr "Teemaa ei voitu tallentaa: {e}"
 
 #: src/main.rs
+#, fuzzy
 msgid "Could not trash {name} (gio is needed): {e}"
 msgstr "Kohdetta {name} ei voitu siirtää roskakoriin (tarvitaan gio): {e}"
 
 #: src/main.rs
+#, fuzzy
 msgid "Could not trash {name}: {err}"
 msgstr "Kohdetta {name} ei voitu siirtää roskakoriin: {err}"
 
 #: src/main.rs
+#, fuzzy
 msgid "Delete (Enter)"
 msgstr "Poista (Enter)"
 
 #: src/main.rs
+#, fuzzy
 msgid "Desktop files there, as Geeqie's, show in this menu after a restart"
 msgstr "Siellä olevat desktop-tiedostot, kuten Geeqien, näkyvät tässä valikossa uudelleenkäynnistyksen jälkeen"
 
 #: src/main.rs
+#, fuzzy
 msgid "Dimensions"
 msgstr "Mitat"
 
 #: src/main.rs
+#, fuzzy
 msgid "Domain:"
 msgstr "Toimialue:"
 
 #: src/main.rs
+#, fuzzy
 msgid "Each file keeps its own keywords and gets these too"
 msgstr "Jokainen tiedosto säilyttää omat avainsanansa ja saa myös nämä"
 
 #: src/main.rs
+#, fuzzy
 msgid "Edit"
 msgstr "Muokkaa"
 
 #: src/main.rs
+#, fuzzy
 msgid "Extended description"
 msgstr "Laajennettu kuvaus"
 
 #: src/main.rs
+#, fuzzy
 msgid "File"
 msgstr "Tiedosto"
 
 #: src/main.rs
+#, fuzzy
 msgid "Filter"
 msgstr "Suodatin"
 
 #: src/main.rs
+#, fuzzy
 msgid "Finish the renaming"
 msgstr "Viimeistele uudelleennimeäminen"
 
 #: src/main.rs
+#, fuzzy
 msgid "First: {name}"
 msgstr "Ensimmäinen: {name}"
 
 #: src/main.rs
+#, fuzzy
 msgid "Get More Themes…"
 msgstr "Hae lisää teemoja…"
 
 #: src/main.rs
+#, fuzzy
 msgid "Glimt ({n})"
 msgstr "Glimt ({n})"
 
 #: src/main.rs
+#, fuzzy
 msgid "Go"
 msgstr "Siirry"
 
 #: src/main.rs
+#, fuzzy
 msgid "Help"
 msgstr "Ohje"
 
 #: src/main.rs
+#, fuzzy
 msgid "Images"
 msgstr "Kuvat"
 
 #: src/main.rs
+#, fuzzy
 msgid "Keyword tree"
 msgstr "Avainsanapuu"
 
 #: src/main.rs
+#, fuzzy
 msgid "Keywords"
 msgstr "Avainsanat"
 
 #: src/main.rs
+#, fuzzy
 msgid "Keywords added to {count}"
 msgstr "Avainsanat lisätty: {count}"
 
 #: src/main.rs
+#, fuzzy
 msgid "Keywords could not be saved for {count}"
 msgstr "Avainsanoja ei voitu tallentaa: {count}"
 
 #: src/main.rs
+#, fuzzy
 msgid "Later"
 msgstr "Myöhemmin"
 
 #: src/main.rs
+#, fuzzy
 msgid "Layout"
 msgstr "Asettelu"
 
 #: src/main.rs
+#, fuzzy
 msgid "Log in to {uri}"
 msgstr "Kirjaudu kohteeseen {uri}"
 
 #: src/main.rs
+#, fuzzy
 msgid "Marks and Stars"
 msgstr "Merkit ja tähdet"
 
 #: src/main.rs
+#, fuzzy
 msgid "Move Folder to Trash…"
 msgstr "Siirrä kansio roskakoriin…"
 
 #: src/main.rs
+#, fuzzy
 msgid "Move in Collection"
 msgstr "Siirrä kokoelmassa"
 
 #: src/main.rs
+#, fuzzy
 msgid "Move the folder \"{name}\" and all in it to the trash?"
 msgstr "Siirretäänkö kansio ”{name}” ja kaikki sen sisältö roskakoriin?"
 
 #: src/main.rs
+#, fuzzy
 msgid "Move to Trash (Enter)"
 msgstr "Siirrä roskakoriin (Enter)"
 
 #: src/main.rs
+#, fuzzy
 msgid "Move {what} to the trash?"
 msgstr "Siirretäänkö {what} roskakoriin?"
 
 #: src/main.rs
+#, fuzzy
 msgid "Name of a new collection with {count}:"
 msgstr "Uuden kokoelman nimi, mukana {count}:"
 
 #: src/main.rs
+#, fuzzy
 msgid "New Folder makes a folder in the folder shown: open one"
 msgstr "Uusi kansio luo kansion näytettyyn kansioon: avaa jokin"
 
 #: src/main.rs
+#, fuzzy
 msgid "New names for {count} (* = old name, # = number, ### = 001):"
 msgstr "Uudet nimet: {count} (* = vanha nimi, # = numero, ### = 001):"
 
 #: src/main.rs
+#, fuzzy
 msgid "No applications found"
 msgstr "Sovelluksia ei löytynyt"
 
 #: src/main.rs
+#, fuzzy
 msgid "No collections yet"
 msgstr "Ei vielä kokoelmia"
 
 #: src/main.rs
+#, fuzzy
 msgid "No EXIF data"
 msgstr "Ei EXIF-tietoja"
 
 #: src/main.rs
+#, fuzzy
 msgid "No file dialog (install zenity or kdialog): {e}"
 msgstr "Ei tiedostoikkunaa (asenna zenity tai kdialog): {e}"
 
 #: src/main.rs
+#, fuzzy
 msgid "No images for a collection here"
 msgstr "Täällä ei ole kuvia kokoelmaan"
 
 #: src/main.rs
+#, fuzzy
 msgid "No images in folder"
 msgstr "Kansiossa ei ole kuvia"
 
 #: src/main.rs
+#, fuzzy
 msgid "No tools"
 msgstr "Ei työkaluja"
 
 #: src/main.rs
+#, fuzzy
 msgid "No such folder: {folder}"
 msgstr "Kansiota ei ole: {folder}"
 
 #: src/main.rs
+#, fuzzy
 msgid "Not a valid name: \"{text}\""
 msgstr "Ei kelvollinen nimi: ”{text}”"
 
 #: src/main.rs
+#, fuzzy
 msgid "OK (Enter)"
 msgstr "OK (Enter)"
 
 #: src/main.rs
+#, fuzzy
 msgid "One Image at a Time"
 msgstr "Yksi kuva kerrallaan"
 
 #: src/main.rs
+#, fuzzy
 msgid "Only the images of a collection can be moved"
 msgstr "Vain kokoelman kuvia voi siirtää"
 
 #: src/main.rs
+#, fuzzy
 msgid "Open the Tools Folder"
 msgstr "Avaa työkalukansio"
 
 #: src/main.rs
+#, fuzzy
 msgid "Open Themes Folder"
 msgstr "Avaa teemakansio"
 
 #: src/main.rs
+#, fuzzy
 msgid "Open With"
 msgstr "Avaa sovelluksella"
 
 #: src/main.rs
+#, fuzzy
 msgid "Orientation"
 msgstr "Suunta"
 
 #: src/main.rs
+#, fuzzy
 msgid "Password:"
 msgstr "Salasana:"
 
 #: src/main.rs
+#, fuzzy
 msgid "Permanently delete {what}?"
 msgstr "Poistetaanko {what} pysyvästi?"
 
 #: src/main.rs
+#, fuzzy
 msgid "Places|Norway|Oslo"
 msgstr "Paikat|Norja|Oslo"
 
 #: src/main.rs
+#, fuzzy
 msgid "Tools"
 msgstr "Työkalut"
 
 #: src/main.rs
+#, fuzzy
 msgid "Put the old names back"
 msgstr "Palauta vanhat nimet"
 
 #: src/main.rs
+#, fuzzy
 msgid "Random order is on: R turns it off to move images"
 msgstr "Satunnainen järjestys on päällä: R kytkee sen pois kuvien siirtämiseksi"
 
 #: src/main.rs
+#, fuzzy
 msgid "Reading folder…"
 msgstr "Luetaan kansiota…"
 
 #: src/main.rs
+#, fuzzy
 msgid "Remove"
 msgstr "Poista"
 
 #: src/main.rs
+#, fuzzy
 msgid "Remove from the tree"
 msgstr "Poista puusta"
 
 #: src/main.rs
+#, fuzzy
 msgid "Rename Folder…"
 msgstr "Nimeä kansio uudelleen…"
 
 #: src/main.rs
+#, fuzzy
 msgid "Rename Many is still renaming"
 msgstr "Monen uudelleennimeäminen on yhä käynnissä"
 
 #: src/main.rs
+#, fuzzy
 msgid "Rename Many was cut short"
 msgstr "Monen uudelleennimeäminen keskeytyi"
 
 #: src/main.rs
+#, fuzzy
 msgid "Save as Theme…"
 msgstr "Tallenna teemaksi…"
 
 #: src/main.rs
+#, fuzzy
 msgid "Select"
 msgstr "Valitse"
 
 #: src/main.rs
+#, fuzzy
 msgid "Select Them"
 msgstr "Valitse ne"
 
 #: src/main.rs
+#, fuzzy
 msgid "Separated by commas"
 msgstr "Pilkuilla erotettuina"
 
 #: src/main.rs
+#, fuzzy
 msgid "{tag} set on {count}"
 msgstr "{tag} lisätty: {count}"
 
 #: src/main.rs
+#, fuzzy
 msgid "Setting keywords"
 msgstr "Asetetaan avainsanoja"
 
 #: src/main.rs
+#, fuzzy
 msgid "Show File Names"
 msgstr "Näytä tiedostonimet"
 
 #: src/main.rs
+#, fuzzy
 msgid "Show on OpenStreetMap"
 msgstr "Näytä OpenStreetMapissa"
 
 #: src/main.rs
+#, fuzzy
 msgid "Show Together with These Images"
 msgstr "Näytä yhdessä näiden kuvien kanssa"
 
 #: src/main.rs
+#, fuzzy
 msgid "Slideshow in this layout:"
 msgstr "Diaesitys tässä asettelussa:"
 
 #: src/main.rs
+#, fuzzy
 msgid "Sort Manager"
 msgstr "Lajittelija"
 
 #: src/main.rs
+#, fuzzy
 msgid "Start Slideshow"
 msgstr "Aloita diaesitys"
 
 #: src/main.rs
+#, fuzzy
 msgid "Still saving the last rotation of this file"
 msgstr "Tämän tiedoston viimeisintä kiertoa tallennetaan vielä"
 
 #: src/main.rs
+#, fuzzy
 msgid "Stop Slideshow"
 msgstr "Lopeta diaesitys"
 
 #: src/files/file_ops.rs
+#, fuzzy
 msgid "Stopped: {done} of {total}"
 msgstr "Pysäytetty: {done}/{total}"
 
 #: src/main.rs
+#, fuzzy
 msgid "{tag} taken off {count}"
 msgstr "{tag} poistettu: {count}"
 
 #: src/main.rs
+#, fuzzy
 msgid "Taking keywords off"
 msgstr "Poistetaan avainsanoja"
 
 #: src/main.rs
+#, fuzzy
 msgid "Tell upper and lower case apart"
 msgstr "Erota isot ja pienet kirjaimet"
 
+#, fuzzy
 msgid "Search file names (3+ letters), re: pattern, or exif: camera, date …"
 msgstr "Hae tiedostonimiä (3+ kirjainta), re: kuvio tai exif: kamera, päivämäärä …"
 
+#, fuzzy
 msgid "Filter file names by pattern, or exif: camera, date …"
 msgstr "Suodata tiedostonimiä kuviolla tai exif: kamera, päivämäärä …"
 
 #: src/main.rs
+#, fuzzy
 msgid "Regular expression instead of fuzzy search"
 msgstr "Säännöllinen lauseke sumean haun sijaan"
 
 #: src/main.rs
+#, fuzzy
 msgid "The collection {file} is gone (renamed or removed in another window): not saved"
 msgstr "Kokoelma {file} on poissa (nimetty uudelleen tai poistettu toisessa ikkunassa): ei tallennettu"
 
 #: src/main.rs
+#, fuzzy
 msgid "The keyword could not be saved for {count}"
 msgstr "Avainsanaa ei voitu tallentaa: {count}"
 
 #: src/main.rs
+#, fuzzy
 msgid "The pane these details are of: the one under the pointer"
 msgstr "Ruutu, jota nämä tiedot koskevat: osoittimen alla oleva"
 
 #: src/main.rs
+#, fuzzy
 msgid "The settings are locked (--lock-settings)"
 msgstr "Asetukset on lukittu (--lock-settings)"
 
 #: src/main.rs
+#, fuzzy
 msgid "The stars could not be written to the XMP sidecar of {count}"
 msgstr "Tähtiä ei voitu kirjoittaa XMP-sivutiedostoon: {count}"
 
 #: src/main.rs
+#, fuzzy
 msgid "Theme"
 msgstr "Teema"
 
 #: src/main.rs
+#, fuzzy
 msgid "This cannot be undone."
 msgstr "Tätä ei voi kumota."
 
 #: src/main.rs
+#, fuzzy
 msgid "User:"
 msgstr "Käyttäjä:"
 
 #: src/main.rs
+#, fuzzy
 msgid "Video: Enter or click to play"
 msgstr "Video: Enter tai napsautus toistaa"
 
 #: src/main.rs
+#, fuzzy
 msgid "Videos"
 msgstr "Videot"
 
 #: src/main.rs
+#, fuzzy
 msgid "View"
 msgstr "Näytä"
 
 #: src/main.rs
+#, fuzzy
 msgid "What the picture shows, for someone who cannot see it"
 msgstr "Mitä kuva esittää, sille joka ei näe sitä"
 
 #: src/main.rs
+#, fuzzy
 msgid "Window"
 msgstr "Ikkuna"
 
 #: src/main.rs
+#, fuzzy
 msgid "Writing stars"
 msgstr "Kirjoitetaan tähtiä"
 
 #: src/main.rs
+#, fuzzy
 msgid "Zoom"
 msgstr "Zoomaus"
 
 #: src/main.rs
+#, fuzzy
 msgid "{doing} {done} of {total}…{more}"
 msgstr "{doing} {done}/{total}…{more}"
 
 #: src/main.rs
+#, fuzzy
 msgid "{n} added to the collection \"{name}\""
 msgstr "{n} lisätty kokoelmaan ”{name}”"
 
 #: src/main.rs
+#, fuzzy
 msgid "{n} broken:"
 msgstr "{n} rikki:"
 
 #: src/main.rs
+#, fuzzy
 msgid "{text} is a built-in theme: choose another name"
 msgstr "{text} on sisäänrakennettu teema: valitse toinen nimi"
 
 #: src/main.rs LAYOUTS
+#, fuzzy
 msgid "Four (2 × 2)"
 msgstr "Neljä (2 × 2)"
 
 #: src/main.rs LAYOUTS
+#, fuzzy
 msgid "Two Side by Side"
 msgstr "Kaksi rinnakkain"
 
 #: src/viewer/pan.rs
+#, fuzzy
 msgid "April"
 msgstr "huhtikuu"
 
 #: src/viewer/pan.rs
+#, fuzzy
 msgid "August"
 msgstr "elokuu"
 
 #: src/viewer/pan.rs
+#, fuzzy
 msgid "Calendar"
 msgstr "Kalenteri"
 
 #: src/viewer/pan.rs
+#, fuzzy
 msgid "December"
 msgstr "joulukuu"
 
 #: src/viewer/pan.rs
+#, fuzzy
 msgid "EXIF date"
 msgstr "EXIF-päiväys"
 
 #: src/viewer/pan.rs
+#, fuzzy
 msgid "February"
 msgstr "helmikuu"
 
 #: src/viewer/pan.rs
+#, fuzzy
 msgid "January"
 msgstr "tammikuu"
 
 #: src/viewer/pan.rs
+#, fuzzy
 msgid "July"
 msgstr "heinäkuu"
 
 #: src/viewer/pan.rs
+#, fuzzy
 msgid "June"
 msgstr "kesäkuu"
 
 #: src/viewer/pan.rs
+#, fuzzy
 msgid "March"
 msgstr "maaliskuu"
 
 #: src/viewer/pan.rs
+#, fuzzy
 msgid "May"
 msgstr "toukokuu"
 
 #: src/viewer/pan.rs
+#, fuzzy
 msgid "No date"
 msgstr "Ei päiväystä"
 
 #: src/viewer/pan.rs
+#, fuzzy
 msgid "November"
 msgstr "marraskuu"
 
 #: src/viewer/pan.rs
+#, fuzzy
 msgid "October"
 msgstr "lokakuu"
 
 #: src/viewer/pan.rs
+#, fuzzy
 msgid "September"
 msgstr "syyskuu"
 
 #: src/viewer/pan.rs
+#, fuzzy
 msgid "Timeline"
 msgstr "Aikajana"
 
 #: src/viewer/pan.rs
+#, fuzzy
 msgid "{images} on {days}"
 msgstr "{images}, {days}"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Also write stars to XMP sidecars (photo.jpg.xmp), for darktable and digiKam"
 msgstr "Kirjoita tähdet myös XMP-sivutiedostoihin (photo.jpg.xmp) darktablea ja digiKamia varten"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Auto rotate images using EXIF (Alt+X)"
 msgstr "Kierrä kuvat automaattisesti EXIFin mukaan (Alt+X)"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Automatic (system language)"
 msgstr "Automaattinen (järjestelmän kieli)"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Background behind the image"
 msgstr "Tausta kuvan takana"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Black"
 msgstr "Musta"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Brightness"
 msgstr "Kirkkaus"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Change"
 msgstr "Vaihda"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Choose…"
 msgstr "Valitse…"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Colour management"
 msgstr "Värinhallinta"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Confirm move file to Trash"
 msgstr "Vahvista tiedoston siirto roskakoriin"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Confirm permanent file delete"
 msgstr "Vahvista tiedoston pysyvä poisto"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "CPU use:"
 msgstr "Suorittimen käyttö:"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Custom"
 msgstr "Mukautettu"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Decoding threads and one malloc arena take effect after a restart."
 msgstr "Purkusäikeet ja yksi malloc-areena tulevat voimaan uudelleenkäynnistyksen jälkeen."
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Default"
 msgstr "Oletus"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "default application"
 msgstr "oletussovellus"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Details"
 msgstr "Tiedot"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Enable Delete key"
 msgstr "Ota Delete-näppäin käyttöön"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Enlarge small images to fit the window"
 msgstr "Suurenna pienet kuvat täyttämään ikkuna"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Fade to the next image:"
 msgstr "Häivytys seuraavaan kuvaan:"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "From colord, which GNOME and KDE set"
 msgstr "Colordista, jonka GNOME ja KDE asettavat"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Fuzzy, best matches first (like fzf)"
 msgstr "Sumea, parhaat osumat ensin (kuten fzf)"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "High Contrast when the desktop asks for high contrast"
 msgstr "Suuri kontrasti, kun työpöytä pyytää suurta kontrastia"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Histogram (K):"
 msgstr "Histogrammi (K):"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Image info template:"
 msgstr "Kuvatietojen malli:"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "images decoded at once"
 msgstr "kuvaa purettuna kerralla"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "images on each side"
 msgstr "kuvaa kummallakin puolella"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Images without a profile:"
 msgstr "Kuvat ilman profiilia:"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "In ~/.cache/thumbnails; kept for disks that are not plugged in"
 msgstr "Kansiossa ~/.cache/thumbnails; säilytetään levyille, jotka eivät ole kytkettyinä"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Include the images in subfolders"
 msgstr "Sisällytä alikansioiden kuvat"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Include the images in subfolders in the file list"
 msgstr "Sisällytä alikansioiden kuvat tiedostoluetteloon"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Keep the screen saver off in full screen"
 msgstr "Pidä näytönsäästäjä pois koko näytössä"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Keep zoom and position when changing image"
 msgstr "Säilytä zoomaus ja sijainti kuvaa vaihdettaessa"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Keyboard shortcuts"
 msgstr "Pikanäppäimet"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Language"
 msgstr "Kieli"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Large"
 msgstr "Suuri"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Larger still when the desktop's text is (GNOME's Large Text)"
 msgstr "Vielä suurempi, kun työpöydän teksti on (GNOMEn suuri teksti)"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Listen for glimt --remote commands (after restart)"
 msgstr "Kuuntele glimt --remote -komentoja (uudelleenkäynnistyksen jälkeen)"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Logarithmic (J)"
 msgstr "Logaritminen (J)"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "MB at most for an animation's frames"
 msgstr "Mt enintään animaation ruuduille"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "MB at most for an added format's program"
 msgstr "Mt enintään lisätyn muodon ohjelmalle"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "A program that reads an added format, such as Java for microscope files, gets at most this much memory. Raise it when such a program runs out of memory."
 msgstr "Lisättyä muotoa lukeva ohjelma, kuten Java mikroskooppitiedostoille, saa enintään näin paljon muistia. Kasvata arvoa, kun tällaiselta ohjelmalta loppuu muisti."
 
 #: src/images/added_formats.rs
+#, fuzzy
 msgid "{name} ran out of memory under its limit of {mb} MB (Preferences → Memory and CPU): {error}"
 msgstr "{name}: muisti loppui {mb} Mt:n rajalla (Asetukset → Muisti ja suoritin): {error}"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Medium"
 msgstr "Keskikokoinen"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Memory use:"
 msgstr "Muistin käyttö:"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Mouse wheel zooms (off: next/previous image, Ctrl+wheel zooms)"
 msgstr "Hiiren rulla zoomaa (pois: seuraava/edellinen kuva, Ctrl+rulla zoomaa)"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "None"
 msgstr "Ei mitään"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Not with CPU use Power saving"
 msgstr "Ei suorittimen käytöllä Virransäästö"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Off"
 msgstr "Pois"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "One malloc arena: much less memory, decoding up to ~8 % slower"
 msgstr "Yksi malloc-areena: paljon vähemmän muistia, purku jopa ~8 % hitaampaa"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Play animated GIF and WebP (A)"
 msgstr "Toista animoidut GIF- ja WebP-kuvat (A)"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Player (Enter):"
 msgstr "Soitin (Enter):"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Preferences"
 msgstr "Asetukset"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Preload next and previous images:"
 msgstr "Esilataa seuraavat ja edelliset kuvat:"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Press a key (Esc cancels)"
 msgstr "Paina näppäintä (Esc peruuttaa)"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Profile file…"
 msgstr "Profiilitiedosto…"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "quality when a lossy WebP is saved again"
 msgstr "laatu, kun häviöllinen WebP tallennetaan uudelleen"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Random order"
 msgstr "Satunnainen järjestys"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Refresh the folder when files change"
 msgstr "Päivitä kansio, kun tiedostot muuttuvat"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Regular expression, in list order (like Geeqie's file filter)"
 msgstr "Säännöllinen lauseke, luettelon järjestyksessä (kuten Geeqien tiedostosuodatin)"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Remember the window size and position"
 msgstr "Muista ikkunan koko ja sijainti"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Remove thumbnails of deleted files"
 msgstr "Poista poistettujen tiedostojen pienoiskuvat"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Removed {removed} of {seen} thumbnails"
 msgstr "Poistettiin {removed}/{seen} pienoiskuvaa"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Rendering intent:"
 msgstr "Renderöintitapa:"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Repeat: start again after the last image"
 msgstr "Toista: aloita alusta viimeisen kuvan jälkeen"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Reset"
 msgstr "Palauta"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Save new thumbnails to ~/.cache/thumbnails (shared with other programs)"
 msgstr "Tallenna uudet pienoiskuvat kansioon ~/.cache/thumbnails (jaettu muiden ohjelmien kanssa)"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Save rotation to the file when changing image (JPEG; PNG and WebP are saved again)"
 msgstr "Tallenna kierto tiedostoon kuvaa vaihdettaessa (JPEG; PNG ja WebP tallennetaan uudelleen)"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Screen profile:"
 msgstr "Näytön profiili:"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Search field above the file list:"
 msgstr "Hakukenttä tiedostoluettelon yllä:"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "seconds per image"
 msgstr "sekuntia kuvaa kohti"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Show file size and date in the file list"
 msgstr "Näytä tiedostokoko ja päiväys tiedostoluettelossa"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Show folders as a tree (Ctrl+T)"
 msgstr "Näytä kansiot puuna (Ctrl+T)"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Show image info in full screen (I)"
 msgstr "Näytä kuvan tiedot koko näytössä (I)"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Show marks and stars in the file list"
 msgstr "Näytä merkit ja tähdet tiedostoluettelossa"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Show the info panel (Ctrl+K; reads a little from each image shown)"
 msgstr "Näytä tietopaneeli (Ctrl+K; lukee vähän jokaisesta näytetystä kuvasta)"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Show the file list as icons (Ctrl+I)"
 msgstr "Näytä tiedostoluettelo kuvakkeina (Ctrl+I)"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Show the file name search"
 msgstr "Näytä tiedostonimihaku"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Show the folder path"
 msgstr "Näytä kansion polku"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Show the toolbar"
 msgstr "Näytä työkalupalkki"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Show thumbnails in the file list (T)"
 msgstr "Näytä pienoiskuvat tiedostoluettelossa (T)"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Show videos in the file list"
 msgstr "Näytä videot tiedostoluettelossa"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "size of the menus, lists and text"
 msgstr "valikoiden, luetteloiden ja tekstin koko"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Small"
 msgstr "Pieni"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Start in the last used folder"
 msgstr "Aloita viimeksi käytetystä kansiosta"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Thumbnail size:"
 msgstr "Pienoiskuvien koko:"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Toolbar icons:"
 msgstr "Työkalupalkin kuvakkeet:"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Up to ≈ {mb} MB, each image at most {w}×{h}"
 msgstr "Enintään ≈ {mb} Mt, kukin kuva enintään {w}×{h}"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Use no trash at all (Delete deletes permanently)"
 msgstr "Älä käytä roskakoria lainkaan (Delete poistaa pysyvästi)"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Use the desktop's screen profile"
 msgstr "Käytä työpöydän näyttöprofiilia"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Use the image's own profile"
 msgstr "Käytä kuvan omaa profiilia"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "{keys} was the key of {others} too: now of {label} only"
 msgstr "{keys} oli myös toiminnon {others} näppäin: nyt vain toiminnon {label}"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "Copies:"
 msgstr "Kopioita:"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "Images per page:"
 msgstr "Kuvia sivulla:"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "No image could be read: nothing printed"
 msgstr "Yhtään kuvaa ei voitu lukea: mitään ei tulostettu"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "Not saved over an image: choose a name ending in .pdf"
 msgstr "Ei tallennettu kuvan päälle: valitse nimi, jonka pääte on .pdf"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "No printers found"
 msgstr "Tulostimia ei löytynyt"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "Paper:"
 msgstr "Paperi:"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "PDF file"
 msgstr "PDF-tiedosto"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "Print (Enter)"
 msgstr "Tulosta (Enter)"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "Print {count}"
 msgstr "Tulosta {count}"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "Printer:"
 msgstr "Tulostin:"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "Printing failed: {e}"
 msgstr "Tulostus epäonnistui: {e}"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "Save PDF… (Enter)"
 msgstr "Tallenna PDF… (Enter)"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "{images} on {pages}"
 msgstr "{images}, {pages}"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "{msg}; {f} could not be read"
 msgstr "{msg}; {f} ei voitu lukea"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "{what} saved in {file}"
 msgstr "{what} tallennettu tiedostoon {file}"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "{what} sent to {printer}"
 msgstr "{what} lähetetty tulostimelle {printer}"
 
+#, fuzzy
 msgid "collection"
 msgid_plural "collections"
 msgstr[0] "kokoelma"
 msgstr[1] "kokoelmaa"
 
+#, fuzzy
 msgid "day"
 msgid_plural "days"
 msgstr[0] "päivä"
 msgstr[1] "päivää"
 
+#, fuzzy
 msgid "error"
 msgid_plural "errors"
 msgstr[0] "virhe"
 msgstr[1] "virhettä"
 
+#, fuzzy
 msgid "file"
 msgid_plural "files"
 msgstr[0] "tiedosto"
 msgstr[1] "tiedostoa"
 
+#, fuzzy
 msgid "frame"
 msgid_plural "frames"
 msgstr[0] "ruutu"
 msgstr[1] "ruutua"
 
+#, fuzzy
 msgid "group"
 msgid_plural "groups"
 msgstr[0] "ryhmä"
 msgstr[1] "ryhmää"
 
+#, fuzzy
 msgid "image"
 msgid_plural "images"
 msgstr[0] "kuva"
 msgstr[1] "kuvaa"
 
+#, fuzzy
 msgid "keyword"
 msgid_plural "keywords"
 msgstr[0] "avainsana"
 msgstr[1] "avainsanaa"
 
+#, fuzzy
 msgid "page"
 msgid_plural "pages"
 msgstr[0] "sivu"
 msgstr[1] "sivua"
 
+#, fuzzy
 msgid "star"
 msgid_plural "stars"
 msgstr[0] "tähti"
 msgstr[1] "tähteä"
 
+#, fuzzy
 msgid "step"
 msgid_plural "steps"
 msgstr[0] "vaihe"
 msgstr[1] "vaihetta"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "Orientation:"
 msgstr "Suunta:"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "Automatic"
 msgstr "Automaattinen"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "Portrait"
 msgstr "Pysty"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "Landscape"
 msgstr "Vaaka"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "Margin (mm):"
 msgstr "Marginaali (mm):"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "Image size (%):"
 msgstr "Kuvan koko (%):"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "Fill each box, cutting the image to it"
 msgstr "Täytä jokainen ruutu rajaamalla kuva siihen"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "Text under each image:"
 msgstr "Teksti jokaisen kuvan alla:"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "As the full screen info: %name%, %path%, %position%, %dimensions%, %File size%, %Taken%, %Camera%, %keywords%, %comment% …"
 msgstr "Kuten kuvatiedot koko näytössä: %name%, %path%, %position%, %dimensions%, %File size%, %Taken%, %Camera%, %keywords%, %comment% …"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "%page% is the page's number, %pages% how many there are"
 msgstr "%page% on sivun numero, %pages% sivujen määrä"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "Top of each page:"
 msgstr "Jokaisen sivun ylälaidassa:"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "Bottom of each page:"
 msgstr "Jokaisen sivun alalaidassa:"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "Both sides of the paper"
 msgstr "Paperin molemmat puolet"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "Print the image"
 msgstr "Tulosta kuva"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "{files} copied to {folder}"
 msgstr "{files} kopioitu kansioon {folder}"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "{files} moved to {folder}"
 msgstr "{files} siirretty kansioon {folder}"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "Could not move the folder to the trash: {e}"
 msgstr "Kansiota ei voitu siirtää roskakoriin: {e}"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "calculating…"
 msgstr "lasketaan…"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "Open Folder"
 msgstr "Avaa kansio"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "Open File"
 msgstr "Avaa tiedosto"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "Open Folders (Ctrl+click for several)"
 msgstr "Avaa kansiot (Ctrl+napsautus useampaan)"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "Open Folder with Its Subfolders"
 msgstr "Avaa kansio alikansioineen"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "Open Collection"
 msgstr "Avaa kokoelma"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "Copy to Folder"
 msgstr "Kopioi kansioon"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "Move to Folder"
 msgstr "Siirrä kansioon"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "Save as PDF"
 msgstr "Tallenna PDF:nä"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "Add to the Sort Manager"
 msgstr "Lisää lajittelijaan"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "Screen Profile"
 msgstr "Näytön profiili"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "Profile of Images Without One"
 msgstr "Profiili kuville, joilla ei ole omaa"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "Import Lightroom Catalog"
 msgstr "Tuo Lightroom-luettelo"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "Back Up Glimt's Data To"
 msgstr "Varmuuskopioi Glimtin tiedot kohteeseen"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "Save This Frame as PNG"
 msgstr "Tallenna tämä ruutu PNG:nä"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "Export Every Frame To"
 msgstr "Vie jokainen ruutu kohteeseen"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "Collection {name} moved to the trash"
 msgstr "Kokoelma {name} siirretty roskakoriin"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "Not a pattern: {e}"
 msgstr "Ei kaava: {e}"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "{text} exists already: choose another name"
 msgstr "{text} on jo olemassa: valitse toinen nimi"
 
 #: src/model/listing.rs
+#, fuzzy
 msgid "{text} starts with a dot and would be hidden: choose another name"
 msgstr "{text} alkaa pisteellä ja olisi piilotettu: valitse toinen nimi"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "Saved as {file}: edit it, then choose it again"
 msgstr "Tallennettu nimellä {file}: muokkaa sitä ja valitse se sitten uudelleen"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "{files} given their old names back"
 msgstr "{files} saivat vanhat nimensä takaisin"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "{files} renamed"
 msgstr "{files} nimetty uudelleen"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "; {files} could not be, asked about again"
 msgstr "; {files} ei voitu, kysytään uudelleen"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "{found} of {images} ({size})"
 msgstr "{found}/{images} ({size})"
 
 #: src/features/print.rs
+#, fuzzy
 msgid ", {m} selected ({size})"
 msgstr ", {m} valittu ({size})"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "{n} bytes"
 msgstr "{n} tavua"
 
 #: src/features/print.rs
+#, fuzzy
 msgid " page {n}/{pages}"
 msgstr " sivu {n}/{pages}"
 
 #: src/features/print.rs
+#, fuzzy
 msgid " frame {n}/{frames}"
 msgstr " ruutu {n}/{frames}"
 
 #: src/files/file_ops.rs
+#, fuzzy
 msgid "Could not rename {f} to {t}: {e}; not all names could be put back, Glimt offers to put them right at the next start"
 msgstr "Kohdetta {f} ei voitu nimetä nimelle {t}: {e}; kaikkia nimiä ei voitu palauttaa, Glimt tarjoutuu korjaamaan ne seuraavalla käynnistyskerralla"
 
 #: src/viewer/pan.rs
+#, fuzzy
 msgid "Mon"
 msgstr "ma"
 
 #: src/viewer/pan.rs
+#, fuzzy
 msgid "Tue"
 msgstr "ti"
 
 #: src/viewer/pan.rs
+#, fuzzy
 msgid "Wed"
 msgstr "ke"
 
 #: src/viewer/pan.rs
+#, fuzzy
 msgid "Thu"
 msgstr "to"
 
 #: src/viewer/pan.rs
+#, fuzzy
 msgid "Fri"
 msgstr "pe"
 
 #: src/viewer/pan.rs
+#, fuzzy
 msgid "Sat"
 msgstr "la"
 
 #: src/viewer/pan.rs
+#, fuzzy
 msgid "Sun"
 msgstr "su"
 
 #: src/files/file_ops.rs
+#, fuzzy
 msgid "Still writing keywords: try again in a moment"
 msgstr "Avainsanoja kirjoitetaan vielä: yritä hetken päästä uudelleen"
 
 #: src/files/file_ops.rs
+#, fuzzy
 msgid "Still working on these files: try again in a moment"
 msgstr "Näitä tiedostoja käsitellään vielä: yritä hetken päästä uudelleen"
 
 #: src/main.rs
+#, fuzzy
 msgid "{what} stopped unexpectedly"
 msgstr "{what} pysähtyi odottamatta"
 
 #: src/main.rs
+#, fuzzy
 msgid "Connecting"
 msgstr "Yhdistetään"
 
 #: src/main.rs
+#, fuzzy
 msgid "Reading the Lightroom catalog"
 msgstr "Luetaan Lightroom-luetteloa"
 
 #: src/main.rs
+#, fuzzy
 msgid "Looking for renames cut short"
 msgstr "Etsitään keskeytyneitä uudelleennimeämisiä"
 
 #: src/main.rs
+#, fuzzy
 msgid "The EXIF index"
 msgstr "EXIF-hakemisto"
 
 #: src/main.rs
+#, fuzzy
 msgid "The Pan view's days"
 msgstr "Yleiskatsauksen päivät"
 
 #: src/main.rs
+#, fuzzy
 msgid "Rename Many"
 msgstr "Nimeä useita uudelleen"
 
 #: src/files/external.rs
+#, fuzzy
 msgid "No answer from the server in a minute"
 msgstr "Ei vastausta palvelimelta minuuttiin"
 
 #: src/metadata/lightroom.rs
+#, fuzzy
 msgid "The catalog is too large to read"
 msgstr "Luettelo on liian suuri luettavaksi"
 
 #: src/files/file_ops.rs
+#, fuzzy
 msgid "stopped"
 msgstr "pysäytetty"
 
 #: src/main.rs
+#, fuzzy
 msgid "Saving keywords"
 msgstr "Tallennetaan avainsanoja"
 
 #: src/main.rs
+#, fuzzy
 msgid "Saving the alt text"
 msgstr "Tallennetaan vaihtoehtoista tekstiä"
 
 #: src/main.rs
+#, fuzzy
 msgid "Reading the folder"
 msgstr "Luetaan kansiota"
 
 #: src/features/print.rs
+#, fuzzy
 msgid "No answer from the print server in two minutes"
 msgstr "Ei vastausta tulostuspalvelimelta kahteen minuuttiin"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Look"
 msgstr "Ulkoasu"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Keyboard"
 msgstr "Näppäimistö"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Image"
 msgstr "Kuva"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Slideshow"
 msgstr "Diaesitys"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "File list"
 msgstr "Tiedostoluettelo"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Memory and CPU"
 msgstr "Muisti ja suoritin"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Video"
 msgstr "Video"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Start and system"
 msgstr "Käynnistys ja järjestelmä"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Previews need ffmpeg"
 msgstr "Esikatselut vaativat ffmpegin"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "S starts and stops, R random order, Ctrl+= faster, Ctrl+- slower"
 msgstr "S aloittaa ja lopettaa, R satunnainen järjestys, Ctrl+= nopeammin, Ctrl+- hitaammin"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Undo"
 msgstr "Kumoa"
 
 #: src/files/file_ops.rs
+#, fuzzy
 msgid "Nothing to undo"
 msgstr "Ei mitään kumottavaa"
 
 #: src/files/file_ops.rs
+#, fuzzy
 msgid "another file has taken its place"
 msgstr "toinen tiedosto on vienyt sen paikan"
 
 #: src/files/file_ops.rs
+#, fuzzy
 msgid "Undo failed ({count}): {first}"
 msgstr "Kumoaminen epäonnistui ({count}): {first}"
 
 #: src/files/file_ops.rs
+#, fuzzy
 msgid "Undo failed: {e}"
 msgstr "Kumoaminen epäonnistui: {e}"
 
 #: src/files/file_ops.rs
+#, fuzzy
 msgid "{count} back from the trash"
 msgstr "{count} palautettu roskakorista"
 
 #: src/files/file_ops.rs
+#, fuzzy
 msgid "{files} moved back"
 msgstr "{files} siirretty takaisin"
 
 #: src/files/file_ops.rs
+#, fuzzy
 msgid "{name} exists already"
 msgstr "{name} on jo olemassa"
 
 #: src/files/trash.rs
+#, fuzzy
 msgid "{name} is not in the trash"
 msgstr "{name} ei ole roskakorissa"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Set as Wallpaper"
 msgstr "Aseta taustakuvaksi"
 
 #: src/main.rs
+#, fuzzy
 msgid "Could not set the wallpaper: {e}"
 msgstr "Taustakuvaa ei voitu asettaa: {e}"
 
 #: src/main.rs
+#, fuzzy
 msgid "Clear Recent"
 msgstr "Tyhjennä luettelo"
 
 #: src/main.rs
+#, fuzzy
 msgid "Nothing opened yet"
 msgstr "Mitään ei ole vielä avattu"
 
 #: src/main.rs
+#, fuzzy
 msgid "Open Recent"
 msgstr "Avaa viimeaikainen"
 
 #: src/main.rs
+#, fuzzy
 msgid "{name} is gone"
 msgstr "{name} on poissa"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Keep a list of recent folders (File → Open Recent)"
 msgstr "Pidä luetteloa viimeaikaisista kansioista (Tiedosto → Avaa viimeaikainen)"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Checkerboard behind transparent images"
 msgstr "Shakkiruudukko läpinäkyvien kuvien takana"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Crop…"
 msgstr "Rajaa…"
 
 #: src/viewer/crop.rs
+#, fuzzy
 msgid "A video is not cropped"
 msgstr "Videota ei rajata"
 
 #: src/viewer/crop.rs
+#, fuzzy
 msgid "Drag over the image to choose the part to keep"
 msgstr "Vedä kuvan yli valitaksesi säilytettävän osan"
 
 #: src/viewer/crop.rs
+#, fuzzy
 msgid "Save Copy (Enter)"
 msgstr "Tallenna kopio (Enter)"
 
 #: src/viewer/crop.rs
+#, fuzzy
 msgid "Could not crop the image: {e}"
 msgstr "Kuvaa ei voitu rajata: {e}"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "quality of a cropped JPEG (Edit → Crop)"
 msgstr "rajatun JPEG-kuvan laatu (Muokkaa → Rajaa)"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Save As…"
 msgstr "Tallenna nimellä…"
 
 #: src/viewer/save_as.rs
+#, fuzzy
 msgid "A video is not saved as an image"
 msgstr "Videota ei tallenneta kuvana"
 
 #: src/viewer/save_as.rs
+#, fuzzy
 msgid "Format:"
 msgstr "Muoto:"
 
 #: src/viewer/save_as.rs
+#, fuzzy
 msgid "As the original ({format})"
 msgstr "Kuten alkuperäinen ({format})"
 
 #: src/viewer/save_as.rs
+#, fuzzy
 msgid "WebP, lossless"
 msgstr "WebP, häviötön"
 
 #: src/viewer/save_as.rs
+#, fuzzy
 msgid "WebP, lossy"
 msgstr "WebP, häviöllinen"
 
 #: src/viewer/save_as.rs
+#, fuzzy
 msgid "Size:"
 msgstr "Koko:"
 
 #: src/viewer/save_as.rs
+#, fuzzy
 msgid "Original ({w} × {h})"
 msgstr "Alkuperäinen ({w} × {h})"
 
 #: src/viewer/save_as.rs
+#, fuzzy
 msgid "Longest side"
 msgstr "Pisin sivu"
 
 #: src/viewer/save_as.rs
+#, fuzzy
 msgid "Percent"
 msgstr "Prosentti"
 
 #: src/viewer/save_as.rs
+#, fuzzy
 msgid "Saved {w} × {h}; never enlarged"
 msgstr "Tallennetaan kokoon {w} × {h}; ei koskaan suurenneta"
 
 #: src/viewer/save_as.rs
+#, fuzzy
 msgid "Quality:"
 msgstr "Laatu:"
 
 #: src/viewer/save_as.rs
+#, fuzzy
 msgid "Remove EXIF and GPS (camera, date, place), XMP and the sidecar"
 msgstr "Poista EXIF ja GPS (kamera, päiväys, paikka), XMP ja sivutiedosto"
 
 #: src/viewer/save_as.rs
+#, fuzzy
 msgid "Save…"
 msgstr "Tallenna…"
 
 #: src/viewer/save_as.rs
+#, fuzzy
 msgid "Could not save the image: {e}"
 msgstr "Kuvaa ei voitu tallentaa: {e}"
 
 #: src/main.rs
+#, fuzzy
 msgid "Save As"
 msgstr "Tallenna nimellä"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Custom window title (empty: \"image name - Glimt\"):"
 msgstr "Oma ikkunan otsikko (tyhjä: ”kuvan nimi - Glimt”):"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Fields: %name%, %path%, %folder%, %app% and %id%. A | starts a part, left out when its fields are empty."
 msgstr "Kentät: %name%, %path%, %folder%, %app% ja %id%. | aloittaa osan, joka jätetään pois, kun sen kentät ovat tyhjiä."
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Set Window Title…"
 msgstr "Aseta ikkunan otsikko…"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Show File Names Under Thumbnails"
 msgstr "Näytä tiedostonimet pienoiskuvien alla"
 
 #: src/main.rs
+#, fuzzy
 msgid "Title of this window (%name%, %path%, %folder%, %app%, %id%; empty: as in Preferences):"
 msgstr "Tämän ikkunan otsikko (%name%, %path%, %folder%, %app%, %id%; tyhjä: kuten asetuksissa):"
 
 #: src/metadata/xmp.rs
+#, fuzzy
 msgid "{name} is a link: not written through"
 msgstr "{name} on linkki: sen kautta ei kirjoiteta"
 
 #: src/metadata/lightroom.rs
+#, fuzzy
 msgid "Reading a Lightroom catalog needs sqlite3 3.37 or newer"
 msgstr "Lightroom-luettelon lukeminen vaatii sqlite3:n version 3.37 tai uudemman"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Copies of the pictures in your home folder: those of an encrypted volume or a stick stay readable there"
 msgstr "Kuvien kopioita kotikansiossasi: salatun aseman tai muistitikun kuvat ovat yhä luettavissa siellä"
 
 #: src/main.rs
+#, fuzzy
 msgid "Stop {name}"
 msgstr "Pysäytä {name}"
 
 #: src/files/file_ops.rs
+#, fuzzy
 msgid "The rotation was not saved: other work is still changing the file"
 msgstr "Kiertoa ei tallennettu: muu työ muuttaa tiedostoa yhä"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Hide the pointer in full screen when the mouse is still"
 msgstr "Piilota osoitin koko näytön tilassa, kun hiiri on paikallaan"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Search the settings"
 msgstr "Hae asetuksista"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "No setting has these words"
 msgstr "Mikään asetus ei sisällä näitä sanoja"
 
+#, fuzzy
 msgid "{program} runs outside the Flatpak, which needs: {how}"
 msgstr "{program} toimii Flatpakin ulkopuolella, mikä vaatii: {how}"
 
+#, fuzzy
 msgid "System print dialog"
 msgstr "Järjestelmän tulostusikkuna"
 
+#, fuzzy
 msgid "Printing cancelled"
 msgstr "Tulostus peruttu"
 
+#, fuzzy
 msgid "Choose Application…"
 msgstr "Valitse sovellus…"
 
 #: src/ui/accessibility.rs
+#, fuzzy
 msgid "{done} of {total}"
 msgstr "{done}/{total}"
 
 #: src/ui/accessibility.rs
+#, fuzzy
 msgid "not among the matches"
 msgstr "ei hakutuloksissa"
 
 #: src/ui/info_panel.rs
+#, fuzzy
 msgid "EXIF: {name}"
 msgstr "EXIF: {name}"
 
 #: src/metadata/exif.rs
+#, fuzzy
 msgid "Camera"
 msgstr "Kamera"
 
 #: src/metadata/exif.rs
+#, fuzzy
 msgid "Lens"
 msgstr "Objektiivi"
 
 #: src/metadata/exif.rs
+#, fuzzy
 msgid "Taken"
 msgstr "Otettu"
 
 #: src/metadata/exif.rs
+#, fuzzy
 msgid "Exposure"
 msgstr "Valotus"
 
 #: src/metadata/exif.rs
+#, fuzzy
 msgid "Aperture"
 msgstr "Aukko"
 
 #: src/metadata/exif.rs
+#, fuzzy
 msgid "Focal length"
 msgstr "Polttoväli"
 
 #: src/metadata/exif.rs
+#, fuzzy
 msgid "Exposure bias"
 msgstr "Valotuksen korjaus"
 
 #: src/metadata/exif.rs
+#, fuzzy
 msgid "Flash"
 msgstr "Salama"
 
 #: src/metadata/exif.rs
+#, fuzzy
 msgid "Fired"
 msgstr "Välähti"
 
 #: src/metadata/exif.rs
+#, fuzzy
 msgid "No"
 msgstr "Ei"
 
 #: src/ui/info_panel.rs
+#, fuzzy
 msgid "File size"
 msgstr "Tiedostokoko"
 
 #: src/ui/info_panel.rs
+#, fuzzy
 msgid "Colour profile"
 msgstr "Väriprofiili"
 
 #: src/images/colour.rs
+#, fuzzy
 msgid "{name}, in the file"
 msgstr "{name}, tiedostossa"
 
 #: src/images/colour.rs
+#, fuzzy
 msgid "Adobe RGB, from its EXIF"
 msgstr "Adobe RGB, EXIF-tiedoista"
 
 #: src/images/colour.rs
+#, fuzzy
 msgid "unnamed"
 msgstr "nimetön"
 
 #: src/images/colour.rs
+#, fuzzy
 msgid "{own}; {input} used instead"
 msgstr "{own}; sen sijaan käytetään {input}"
 
 #: src/images/colour.rs
+#, fuzzy
 msgid "none: taken as {input}"
 msgstr "ei profiilia: tulkitaan {input}"
 
 #: src/model/listing.rs
+#, fuzzy
 msgid "Sort by name"
 msgstr "Lajittele nimen mukaan"
 
 #: src/model/listing.rs
+#, fuzzy
 msgid "Sort by number"
 msgstr "Lajittele numeron mukaan"
 
 #: src/model/listing.rs
+#, fuzzy
 msgid "Sort by date"
 msgstr "Lajittele päiväyksen mukaan"
 
 #: src/model/listing.rs
+#, fuzzy
 msgid "Sort by file creation date"
 msgstr "Lajittele tiedoston luontipäivän mukaan"
 
 #: src/model/listing.rs
+#, fuzzy
 msgid "Sort by EXIF date original"
 msgstr "Lajittele EXIF-kuvauspäivän mukaan"
 
 #: src/model/listing.rs
+#, fuzzy
 msgid "Sort by EXIF date digitized"
 msgstr "Lajittele EXIF-digitointipäivän mukaan"
 
 #: src/model/listing.rs
+#, fuzzy
 msgid "Sort by size"
 msgstr "Lajittele koon mukaan"
 
 #: src/model/listing.rs
+#, fuzzy
 msgid "Sort by extension"
 msgstr "Lajittele tiedostopäätteen mukaan"
 
 #: src/ui/file_list.rs
+#, fuzzy
 msgid "All types"
 msgstr "Kaikki tyypit"
 
 #: src/ui/file_list.rs
+#, fuzzy
 msgid "No types"
 msgstr "Ei tyyppejä"
 
 #: src/ui/theme.rs
+#, fuzzy
 msgid "Desktop"
 msgstr "Työpöytä"
 
 #: src/ui/theme.rs
+#, fuzzy
 msgid "Light"
 msgstr "Vaalea"
 
 #: src/ui/theme.rs
+#, fuzzy
 msgid "Dark"
 msgstr "Tumma"
 
 #: src/ui/theme.rs
+#, fuzzy
 msgid "High Contrast"
 msgstr "Suuri kontrasti"
 
 #: src/ui/theme.rs
+#, fuzzy
 msgid "High Contrast Light"
 msgstr "Suuri kontrasti, vaalea"
 
 #: src/images/colour.rs
+#, fuzzy
 msgid "Greyscale"
 msgstr "Harmaasävy"
 
 #: src/images/colour.rs
+#, fuzzy
 msgid "Inverted"
 msgstr "Käänteinen"
 
 #: src/images/colour.rs
+#, fuzzy
 msgid "More Contrast"
 msgstr "Enemmän kontrastia"
 
 #: src/images/colour.rs
+#, fuzzy
 msgid "Perceptual"
 msgstr "Havainnollinen"
 
 #: src/images/colour.rs
+#, fuzzy
 msgid "Relative colorimetric"
 msgstr "Suhteellinen kolorimetrinen"
 
 #: src/images/colour.rs
+#, fuzzy
 msgid "Saturation"
 msgstr "Kylläisyys"
 
 #: src/images/colour.rs
+#, fuzzy
 msgid "Absolute colorimetric"
 msgstr "Absoluuttinen kolorimetrinen"
 
 #: src/files/config.rs
+#, fuzzy
 msgid "Power saving"
 msgstr "Virransäästö"
 
 #: src/files/config.rs
+#, fuzzy
 msgid "Balanced"
 msgstr "Tasapainoinen"
 
 #: src/files/config.rs
+#, fuzzy
 msgid "Full"
 msgstr "Täysi"
 
 #: src/files/config.rs
+#, fuzzy
 msgid "Fewer cores at once: thumbnails one at a time, searches and Find Duplicates on two cores. Slower in large folders, kinder to a laptop battery."
 msgstr "Vähemmän ytimiä kerralla: pienoiskuvat yksi kerrallaan, haut ja Etsi kaksoiskappaleet kahdella ytimellä. Hitaampi suurissa kansioissa, säästää kannettavan akkua."
 
 #: src/files/config.rs
+#, fuzzy
 msgid "Two thumbnails at once; searches and Find Duplicates on every core."
 msgstr "Kaksi pienoiskuvaa kerrallaan; haut ja Etsi kaksoiskappaleet kaikilla ytimillä."
 
 #: src/files/config.rs
+#, fuzzy
 msgid "Every core: thumbnails and searches as fast as the machine allows."
 msgstr "Kaikki ytimet: pienoiskuvat ja haut niin nopeasti kuin kone sallii."
 
 #: src/files/config.rs
+#, fuzzy
 msgid "Low"
 msgstr "Matala"
 
 #: src/files/config.rs
+#, fuzzy
 msgid "High"
 msgstr "Korkea"
 
 #: src/files/config.rs
+#, fuzzy
 msgid "Least memory: one image decoded at a time, one preloaded on each side. Slow storage (SMB, NFS, USB) makes browsing wait for each file."
 msgstr "Vähiten muistia: yksi kuva purettuna kerrallaan, yksi esiladattuna kummallakin puolella. Hidas tallennus (SMB, NFS, USB) saa selaamisen odottamaan jokaista tiedostoa."
 
 #: src/files/config.rs
+#, fuzzy
 msgid "The default: four images decoded at once, two preloaded on each side."
 msgstr "Oletus: neljä kuvaa purettuna kerralla, kaksi esiladattuna kummallakin puolella."
 
 #: src/files/config.rs
+#, fuzzy
 msgid "Fastest browsing: eight images decoded at once, five preloaded on each side; hides the wait of slow storage (SMB, NFS) best."
 msgstr "Nopein selaus: kahdeksan kuvaa purettuna kerralla, viisi esiladattuna kummallakin puolella; peittää hitaan tallennuksen (SMB, NFS) odotuksen parhaiten."
 
 #: src/files/config.rs
+#, fuzzy
 msgid "Short"
 msgstr "Lyhyt"
 
 #: src/files/config.rs
+#, fuzzy
 msgid "Long"
 msgstr "Pitkä"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "{name}, from the desktop"
 msgstr "{name}, työpöydältä"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "none, sRGB"
 msgstr "ei mitään, sRGB"
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "Fields: %name%, %path%, %position%, %dimensions%, %marks%, %keywords%, %comment%, and each label of the info panel, such as %Camera% or %ISO%. A | starts a part, left out when its fields are empty."
 msgstr "Kentät: %name%, %path%, %position%, %dimensions%, %marks%, %keywords%, %comment% sekä jokainen tietopaneelin nimike englanninkielisellä nimellään, kuten %Camera% tai %ISO%. | aloittaa osan, joka jätetään pois, kun sen kentät ovat tyhjiä."
 
 #: src/ui/preferences.rs
+#, fuzzy
 msgid "A command line, such as mpv --fs; a path with spaces goes in \"quotes\""
 msgstr "Komentorivi, kuten mpv --fs; välilyöntejä sisältävä polku kirjoitetaan \"lainausmerkkeihin\""
 
 #: src/ui/dialogs.rs
+#, fuzzy
 msgid "New folder name:"
 msgstr "Uuden kansion nimi:"
 
 #: src/ui/dialogs.rs
+#, fuzzy
 msgid "Name of the new theme:"
 msgstr "Uuden teeman nimi:"
 
 #: src/ui/dialogs.rs
+#, fuzzy
 msgid "New name of the collection:"
 msgstr "Kokoelman uusi nimi:"
 
 #: src/ui/dialogs.rs
+#, fuzzy
 msgid "New file name:"
 msgstr "Uusi tiedostonimi:"
 
 #: src/ui/dialogs.rs
+#, fuzzy
 msgid "A crash or a power cut stopped it in {folder}. Some files may have their new names, some their old ones, and some hidden temporary names ({steps} to put right)."
 msgstr "Kaatuminen tai sähkökatko pysäytti sen kansiossa {folder}. Joillakin tiedostoilla voi olla uudet nimet, joillakin vanhat ja joillakin piilotetut väliaikaiset nimet (korjattavana {steps})."
 
 #: src/ui/dialogs.rs
+#, fuzzy
 msgid "no home folder"
 msgstr "ei kotikansiota"
 
 #: src/ui/window.rs
+#, fuzzy
 msgid "Glimt closes when the file operations are done; close again to stop them"
 msgstr "Glimt sulkeutuu, kun tiedostotoiminnot ovat valmiit; sulje uudelleen pysäyttääksesi ne"
 
 #: src/ui/window.rs
+#, fuzzy
 msgid "Stopping after the files at hand; close once more to end at once"
 msgstr "Pysähtyy käsiteltävien tiedostojen jälkeen; sulje vielä kerran lopettaaksesi heti"
 
 #: src/features/check.rs
+#, fuzzy
 msgid "Opens each of the {count} in the list, as the viewer would, and lists those that cannot be: broken files, files cut off in copying, and files that are no image. They are marked in the list too."
 msgstr "Avaa jokaisen luettelon {count} kuten katselin, ja luettelee ne, joita ei voi avata: rikkinäiset tiedostot, kopioinnissa katkenneet tiedostot ja tiedostot, jotka eivät ole kuvia. Ne merkitään myös luetteloon."
 
 #: src/features/check.rs
+#, fuzzy
 msgid "None broken."
 msgstr "Ei rikkinäisiä."
 
 #: src/main.rs
+#, fuzzy
 msgid "Settings file: {first}{more}"
 msgstr "Asetustiedosto: {first}{more}"
 
 #: src/ui/accessibility.rs
+#, fuzzy
 msgid ", could not be shown: {e}"
 msgstr ", ei voitu näyttää: {e}"
 
 #: src/ui/accessibility.rs
+#, fuzzy
 msgid ", keywords: {keywords}"
 msgstr ", avainsanat: {keywords}"
 
 #: src/files/config.rs
+#, fuzzy
 msgid "Could not save {name}: {e}"
 msgstr "Tiedostoa {name} ei voitu tallentaa: {e}"
 
 #: src/files/backup.rs
+#, fuzzy
 msgid "{folder} is not a folder"
 msgstr "{folder} ei ole kansio"
 
 #: src/files/backup.rs
+#, fuzzy
 msgid "Nothing to back up: Glimt has no settings, marks or collections here"
 msgstr "Ei mitään varmuuskopioitavaa: Glimtillä ei ole täällä asetuksia, merkintöjä eikä kokoelmia"
 
 #: src/files/backup.rs
+#, fuzzy
 msgid "A backup cannot go inside {folder}, which it copies"
 msgstr "Varmuuskopio ei voi olla kansiossa {folder}, jonka se kopioi"
 
 #: src/files/backup.rs
+#, fuzzy
 msgid "Glimt's data backed up to {folder}: {files}"
 msgstr "Glimtin tiedot varmuuskopioitu kansioon {folder}: {files}"
 
 #: src/files/backup.rs
+#, fuzzy
 msgid "The backup to {folder} is not whole: {e}"
 msgstr "Varmuuskopio kansioon {folder} ei ole täydellinen: {e}"
 
 #: src/files/file_io.rs
+#, fuzzy
 msgid "the file was moved, renamed or deleted meanwhile"
 msgstr "tiedosto siirrettiin, nimettiin uudelleen tai poistettiin sillä välin"
 
 #: src/files/file_io.rs
+#, fuzzy
 msgid "the file was changed meanwhile"
 msgstr "tiedostoa muutettiin sillä välin"
 
+#, fuzzy
 msgid "the file looks incomplete, as if it is still being copied"
 msgstr "tiedosto näyttää keskeneräiseltä, ikään kuin sitä kopioitaisiin yhä"
 
+#, fuzzy
 msgid "the file looks incomplete or damaged"
 msgstr "tiedosto näyttää keskeneräiseltä tai vioittuneelta"
 
+#, fuzzy
 msgid "the file is read-only"
 msgstr "tiedosto on kirjoitussuojattu"
 
+#, fuzzy
 msgid "{name} has other names (hard links), which keep the old version"
 msgstr "Tiedostolla {name} on muita nimiä (kovia linkkejä), joissa vanha versio säilyy"
 
+#, fuzzy
 msgid "Other names (hard links) keep the old version: {files}"
 msgstr "Muut nimet (kovat linkit) säilyttävät vanhan version: {files}"
 
 #: src/files/external.rs
+#, fuzzy
 msgid "HEIC and AVIF need ffprobe (ffmpeg): {e}"
 msgstr "HEIC ja AVIF vaativat ffproben (ffmpeg): {e}"
 
 #: src/files/external.rs
+#, fuzzy
 msgid "video, HEIC and AVIF need ffmpeg: {e}"
 msgstr "video, HEIC ja AVIF vaativat ffmpegin: {e}"
 
 #: src/files/external.rs
+#, fuzzy
 msgid "Could not mount {uri}: not an address"
 msgstr "Kohdetta {uri} ei voitu liittää: ei osoite"
 
 #: src/files/external.rs
+#, fuzzy
 msgid "Could not run gio: {e}"
 msgstr "gioa ei voitu suorittaa: {e}"
 
 #: src/files/external.rs
+#, fuzzy
 msgid "Could not mount {uri}: wrong user name or password"
 msgstr "Kohdetta {uri} ei voitu liittää: väärä käyttäjätunnus tai salasana"
 
 #: src/files/external.rs
+#, fuzzy
 msgid "Could not mount {uri}: {err}{hint}"
 msgstr "Kohdetta {uri} ei voitu liittää: {err}{hint}"
 
 #: src/files/external.rs
+#, fuzzy
 msgid " (the name {host} is not found)"
 msgstr " (nimeä {host} ei löydy)"
 
 #: src/files/external.rs
+#, fuzzy
 msgid " (the name {host} is not found; try {host}.local or its IP address)"
 msgstr " (nimeä {host} ei löydy; kokeile {host}.local tai sen IP-osoitetta)"
 
 #: src/files/file_ops.rs
+#, fuzzy
 msgid "No such frame"
 msgstr "Tällaista ruutua ei ole"
 
 #: src/files/file_ops.rs
+#, fuzzy
 msgid "choose another name: the image itself is not changed"
 msgstr "valitse toinen nimi: itse kuvaa ei muuteta"
 
 #: src/metadata/lightroom.rs
+#, fuzzy
 msgid "Imported from Lightroom: {done}"
 msgstr "Tuotu Lightroomista: {done}"
 
 #: src/metadata/lightroom.rs
+#, fuzzy
 msgid "; not saved: {names}"
 msgstr "; ei tallennettu: {names}"
 
 #: src/metadata/lightroom.rs
+#, fuzzy
 msgid " (no data folder: $HOME is not set)"
 msgstr " (ei datakansiota: $HOME ei ole asetettu)"
 
 #: src/metadata/lightroom.rs
+#, fuzzy
 msgid "Collections are added to Glimt's, keywords to the keyword tree and stars to the marks. Smart collections are left out."
 msgstr "Kokoelmat lisätään Glimtin kokoelmiin, avainsanat avainsanapuuhun ja tähdet merkintöihin. Älykkäät kokoelmat jätetään pois."
 
 #: src/metadata/lightroom.rs
+#, fuzzy
 msgid "{names} and {n} more"
 msgstr "{names} ja {n} muuta"
 
 #: src/metadata/lightroom.rs
+#, fuzzy
 msgid "The keywords of each image, into its XMP sidecar ({count}); those it has stay"
 msgstr "Kunkin kuvan avainsanat sen XMP-sivutiedostoon ({count}); siinä jo olevat säilyvät"
 
 #: src/metadata/lightroom.rs
+#, fuzzy
 msgid "1 image has"
 msgstr "1 kuva:"
 
 #: src/model/collections.rs
+#, fuzzy
 msgid "no data folder ($HOME is not set)"
 msgstr "ei datakansiota ($HOME ei ole asetettu)"
 
 #: src/model/collections.rs
+#, fuzzy
 msgid "Could not rename the collection: {e}"
 msgstr "Kokoelmaa ei voitu nimetä uudelleen: {e}"
 
 #: src/viewer/view.rs
+#, fuzzy
 msgid "Could not open {name}:\n{e}"
 msgstr "Tiedostoa {name} ei voitu avata:\n{e}"
 
 #: src/images/save.rs
+#, fuzzy
 msgid "only JPEG, PNG and WebP can store the rotation"
 msgstr "vain JPEG, PNG ja WebP voivat tallentaa kierron"
 
 #: src/images/save.rs
+#, fuzzy
 msgid "animated images are not turned"
 msgstr "animoituja kuvia ei käännetä"
 
 #: src/images/save.rs
+#, fuzzy
 msgid "animated images are not saved as a copy"
 msgstr "animoituja kuvia ei tallenneta kopiona"
 
 #: src/images/save.rs
+#, fuzzy
 msgid "the part is outside the image"
 msgstr "rajaus on kuvan ulkopuolella"
 
 #: src/images/save.rs
+#, fuzzy
 msgid "a lossy WebP needs ffmpeg to be saved: {e}"
 msgstr "häviöllinen WebP vaatii tallentamiseen ffmpegin: {e}"
 
 #: src/metadata/exif.rs
+#, fuzzy
 msgid "only JPEG files can store the orientation"
 msgstr "vain JPEG-tiedostot voivat tallentaa suunnan"
 
 #: src/metadata/xmp.rs
+#, fuzzy
 msgid "the image was moved, renamed or deleted meanwhile"
 msgstr "kuva siirrettiin, nimettiin uudelleen tai poistettiin sillä välin"
 
 #: src/ui/dialogs.rs
+#, fuzzy
 msgid "Move the collection \"{name}\" to the trash? Its images stay where they are."
 msgstr "Siirretäänkö kokoelma ”{name}” roskakoriin? Sen kuvat jäävät paikoilleen."
 
 #: src/files/file_io.rs
+#, fuzzy
 msgid "the file system here ({kind}) does not allow this rename, as on some shares, cloud folders and phones ({e})"
 msgstr "tämä tiedostojärjestelmä ({kind}) ei salli tätä uudelleennimeämistä, kuten jotkin jaetut kansiot, pilvikansiot ja puhelimet ({e})"
 
 #: src/files/file_io.rs
+#, fuzzy
 msgid "{from} could not be removed after it was put at {to}, so the file may be under both names or only at {to}; check both before removing either ({e})"
 msgstr "kohdetta {from} ei voitu poistaa sen jälkeen, kun se oli viety kohteeseen {to}, joten tiedostolla voi olla molemmat nimet tai se voi olla vain kohteessa {to}; tarkista molemmat ennen kuin poistat kumpaakaan ({e})"
 
 #: src/files/file_ops.rs
+#, fuzzy
 msgid "\"{name}\": a {kind} file system, as on a camera card, allows none of : ? * \" < > | \\ in a name. Nothing was renamed."
 msgstr "”{name}”: {kind}-tiedostojärjestelmä, kuten kameran muistikortilla, ei salli nimessä mitään merkeistä : ? * \" < > | \\. Mitään ei nimetty uudelleen."
 
 #: src/files/file_ops.rs
+#, fuzzy
 msgid "The trash refused {count} ({kind}). Nothing was deleted, because another folder is open now."
 msgstr "Roskakori ei ottanut vastaan: {count} ({kind}). Mitään ei poistettu, koska nyt on auki toinen kansio."
 
 #: src/ui/dialogs.rs
+#, fuzzy
 msgid "The trash does not take files in this folder ({kind}), as on network and cloud folders."
 msgstr "Roskakori ei ota vastaan tiedostoja tässä kansiossa ({kind}), kuten verkko- ja pilvikansioissa."
 
 #: src/files/file_ops.rs
+#, fuzzy
 msgid "\"{name}\": a {kind} file system, as on a camera card, allows none of : ? * \" < > | \\ in a name. Nothing was copied."
 msgstr "”{name}”: {kind}-tiedostojärjestelmä, kuten kameran muistikortilla, ei salli nimessä mitään merkeistä : ? * \" < > | \\. Mitään ei kopioitu."
 
 #: src/files/file_ops.rs
+#, fuzzy
 msgid "\"{name}\": a {kind} file system, as on a camera card, allows none of : ? * \" < > | \\ in a name. Nothing was moved."
 msgstr "”{name}”: {kind}-tiedostojärjestelmä, kuten kameran muistikortilla, ei salli nimessä mitään merkeistä : ? * \" < > | \\. Mitään ei siirretty."
 
 #: src/ui/dialogs.rs
+#, fuzzy
 msgid "A {kind} file system, as on a camera card, allows none of : ? * \" < > | \\ in a name."
 msgstr "{kind}-tiedostojärjestelmä, kuten kameran muistikortilla, ei salli nimessä mitään merkeistä : ? * \" < > | \\."
 
 #: src/ui/menus.rs
+#, fuzzy
 msgid "Thumbnail Size"
 msgstr "Pienoiskuvien koko"
 
 #: src/model/selection.rs
+#, fuzzy
 msgid "The search hides files this would act on: clear it first"
 msgstr "Haku piilottaa tiedostoja, joihin tämä kohdistuisi: tyhjennä se ensin"
 
 #: src/ui/menus.rs
+#, fuzzy
 msgid "{name} takes none of these files"
 msgstr "{name} ei ota mitään näistä tiedostoista"
 
 #: src/ui/menus.rs
+#, fuzzy
 msgid "{name} leaves out {files} of a type it does not take"
 msgstr "{name} jättää pois {files}, joiden tyyppiä se ei ota"
 
 #: src/model/selection.rs
+#, fuzzy
 msgid "Not included, as the search hides them: {files}"
 msgstr "Ei mukana, koska haku piilottaa ne: {files}"
 
 #: src/ui/file_list.rs
+#, fuzzy
 msgid ", {h} selected but hidden by the search"
 msgstr ", {h} valittu mutta haun piilottama"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Copy for Sharing…"
 msgstr "Kopioi jakamista varten…"
 
 #: src/images/shared_copy.rs
+#, fuzzy
 msgid "Place"
 msgstr "Paikka"
 
 #: src/images/shared_copy.rs
+#, fuzzy
 msgid "Camera and lens"
 msgstr "Kamera ja objektiivi"
 
 #: src/images/shared_copy.rs
+#, fuzzy
 msgid "Date and time"
 msgstr "Päivämäärä ja aika"
 
 #: src/images/shared_copy.rs
+#, fuzzy
 msgid "Photographer and copyright"
 msgstr "Valokuvaaja ja tekijänoikeus"
 
 #: src/images/shared_copy.rs
+#, fuzzy
 msgid "Software"
 msgstr "Ohjelmisto"
 
 #: src/images/shared_copy.rs
+#, fuzzy
 msgid "Keywords, comment and alt text"
 msgstr "Avainsanat, kommentti ja vaihtoehtoinen teksti"
 
 #: src/images/shared_copy.rs
+#, fuzzy
 msgid "The preview inside the file"
 msgstr "Tiedoston sisäinen esikatselu"
 
 #: src/images/shared_copy.rs
+#, fuzzy
 msgid "More tags"
 msgstr "Lisää tunnisteita"
 
 #: src/features/copy_for_sharing.rs
+#, fuzzy
 msgid "Reading the tags… {done} of {total}"
 msgstr "Luetaan tunnisteita… {done} / {total}"
 
 #: src/features/copy_for_sharing.rs
+#, fuzzy
 msgid "Remove All"
 msgstr "Poista kaikki"
 
 #: src/features/copy_for_sharing.rs
+#, fuzzy
 msgid "Ticked tags are left out of the copies."
 msgstr "Valitut tunnisteet jätetään pois kopioista."
 
 #: src/features/copy_for_sharing.rs
+#, fuzzy
 msgid "A block that can hold tags of several groups, such as the extra images or the maker note, is left out when any tag of those groups is."
 msgstr "Lohko, jossa voi olla useiden ryhmien tunnisteita, kuten lisäkuvat tai valmistajan huomautus, jätetään pois, kun jokin näiden ryhmien tunniste jätetään pois."
 
 #: src/features/copy_for_sharing.rs
+#, fuzzy
 msgid "A tag that Glimt does not know is listed under More tags, and is left out when any group is ticked, unless it is unticked there."
 msgstr "Tunniste, jota Glimt ei tunne, näkyy kohdassa Lisää tunnisteita, ja se jätetään pois, kun jokin ryhmä on valittu, ellei sen valintaa poisteta siellä."
 
 #: src/features/copy_for_sharing.rs
+#, fuzzy
 msgid "Always kept: the orientation, so the image is not shown on its side, the colour profile, so its colours do not change, and an HDR photo's gain map, so an HDR screen still brightens it. An iPhone's gain map also keeps two brightness values of the maker note."
 msgstr "Säilytetään aina: suunta, jotta kuva ei näy kyljellään, väriprofiili, jotta sen värit eivät muutu, ja HDR-kuvan vahvistuskartta, jotta HDR-näyttö kirkastaa sitä yhä. iPhonen kartan kanssa säilytetään myös kaksi kirkkausarvoa valmistajan huomautuksesta."
 
 #: src/features/copy_for_sharing.rs
+#, fuzzy
 msgid "Hide"
 msgstr "Piilota"
 
 #: src/features/copy_for_sharing.rs
+#, fuzzy
 msgid "Show"
 msgstr "Näytä"
 
 #: src/features/copy_for_sharing.rs
+#, fuzzy
 msgid "; {files} not copied: only JPEG, PNG and WebP are"
 msgstr "; {files} jäi kopioimatta: vain JPEG, PNG ja WebP kopioidaan"
 
 #: src/features/copy_for_sharing.rs
+#, fuzzy
 msgid "; {files} not copied: the folder has files of those names"
 msgstr "; {files} jäi kopioimatta: kansiossa on jo samannimisiä tiedostoja"
 
 #: src/features/copy_for_sharing.rs
+#, fuzzy
 msgid "Reading the tags"
 msgstr "Luetaan tunnisteita"
 
 #: src/ui/dialogs.rs
+#, fuzzy
 msgid "Open {files}, each in its default application?"
 msgstr "Avataanko {files}, kukin oletussovelluksessaan?"
 
 #: src/ui/dialogs.rs
+#, fuzzy
 msgid "Open (Enter)"
 msgstr "Avaa (Enter)"
 
 #: src/ui/actions.rs
+#, fuzzy
 msgid "Set Window Name…"
 msgstr "Aseta ikkunan nimi…"
 
 #: src/ui/dialogs.rs
+#, fuzzy
 msgid "Name of this window, which glimt --name NAME --remote reaches it by (empty: its process ID):"
 msgstr "Tämän ikkunan nimi, jolla glimt --name NAME --remote tavoittaa sen (tyhjä: sen prosessitunnus):"
 
 #: src/ui/dialogs.rs
+#, fuzzy
 msgid "Could not name this window: {why}"
 msgstr "Ikkunalle ei voitu antaa nimeä: {why}"
 
 #: src/ui/dialogs.rs
+#, fuzzy
 msgid "Could not name this window: a name holds up to 64 letters, digits, - and _, and not only digits"
 msgstr "Ikkunalle ei voitu antaa nimeä: nimessä on enintään 64 kirjainta, numeroa, - ja _, eikä pelkkiä numeroita"
 
 #: src/files/file_io.rs
+#, fuzzy
 msgid "A change could not be saved, because Glimt met an error while writing it"
 msgstr "Muutosta ei voitu tallentaa, koska Glimt kohtasi virheen sitä kirjoittaessaan"
 
 #: src/files/file_io.rs
+#, fuzzy
 msgid "Glimt ended before every write was done: the last change of the settings, marks, a collection or a file may be lost"
 msgstr "Glimt päättyi ennen kuin kaikki oli kirjoitettu: asetusten, merkintöjen, kokoelman tai tiedoston viimeinen muutos on voinut kadota"
 
 #: src/model/folder.rs
+#, fuzzy
 msgid "Still opening {name}… Open another folder to stop waiting."
 msgstr "{name} avautuu yhä… Avaa toinen kansio, niin odotus loppuu."
 
 #: src/files/file_ops.rs
+#, fuzzy
 msgid "Rename Many stopped, so the metadata edited for {count} was not saved"
 msgstr "Nimeä useita uudelleen pysähtyi, joten muokattuja metatietoja ei tallennettu: {count}"
 
 #: src/ui/file_list.rs
+#, fuzzy
 msgid "( {w} x {h} ) {bytes}{position}{page}"
 msgstr "( {w} x {h} ) {bytes}{position}{page}"
 
 #: src/features/tools.rs
+#, fuzzy
 msgid "{file} is not loaded: %f inside quotes is not the file. Give %f as a word of its own, as in {example}"
 msgstr "{file} ei latautunut: lainausmerkkien sisällä oleva %f ei ole tiedosto. Kirjoita %f omaksi sanakseen, kuten {example}"
 
 #: src/features/tools.rs
+#, fuzzy
 msgid "{file} gets no files: %f inside quotes is not the file. Give %f as a word of its own, as in {example}"
 msgstr "{file} ei saa tiedostoja: lainausmerkkien sisällä oleva %f ei ole tiedosto. Kirjoita %f omaksi sanakseen, kuten {example}"
 
 #: src/cli.rs
+#, fuzzy
 msgid "Added formats and tools:"
 msgstr "Lisätyt muodot ja työkalut:"
 
 #: src/metadata/lightroom.rs
+#, fuzzy
 msgid "; the sidecars are still being written"
 msgstr "; sivutiedostoja kirjoitetaan yhä"
 
 #: src/files/file_io.rs
+#, fuzzy
 msgid "Could not remove {name}: {e}"
 msgstr "Tiedostoa {name} ei voitu poistaa: {e}"
 
 #: src/files/file_io.rs
+#, fuzzy
 msgid "another file has taken its name: the folder is read again"
 msgstr "toinen tiedosto on ottanut sen nimen: kansio luetaan uudelleen"
 
 #: src/files/file_ops.rs
+#, fuzzy
 msgid "Rename failed ({count}): {first}"
 msgstr "Nimeäminen uudelleen epäonnistui ({count}): {first}"
 
 #: src/files/file_ops.rs
+#, fuzzy
 msgid "Rename failed ({count}): {first}"
 msgstr "Uudelleennimeäminen epäonnistui ({count}): {first}"
 
 #: src/files/file_ops.rs
+#, fuzzy
 msgid "{side}: {e}, so {file} stays where it was, with its sidecar"
 msgstr "{side}: {e}, joten {file} jää paikalleen sivutiedostonsa kanssa"
 
 #: src/files/file_ops.rs
+#, fuzzy
 msgid "Could not save the plan of the renames ({e}), so nothing was renamed"
 msgstr "Uudelleennimeämisen suunnitelmaa ei voitu tallentaa ({e}), joten mitään ei nimetty uudelleen"
 
 #: src/files/file_ops.rs
+#, fuzzy
 msgid "{side} could not go to the trash, so {file} stays where it was, with its sidecar"
 msgstr "{side} ei voinut siirtyä roskakoriin, joten {file} jää paikalleen sivutiedostonsa kanssa"
 
 #: src/files/trash.rs
+#, fuzzy
 msgid "{e}, so {file} stays in the trash, with its sidecar"
 msgstr "{e}, joten {file} jää roskakoriin sivutiedostonsa kanssa"
 
 #: src/ui/dialogs.rs
+#, fuzzy
 msgid "The names could not all be put right. Save or copy the list of the files that are not under the names they were to get. Then the names can be left as they are, and those files renamed by hand."
 msgstr "Kaikkia nimiä ei voitu korjata. Tallenna tai kopioi luettelo tiedostoista, joilla ei ole nimeä, joka niiden piti saada. Sitten nimet voi jättää ennalleen ja nimetä ne tiedostot uudelleen käsin."
 
 #: src/ui/dialogs.rs
+#, fuzzy
 msgid "Save the list…"
 msgstr "Tallenna luettelo…"
 
 #: src/ui/dialogs.rs
+#, fuzzy
 msgid "Copy the list"
 msgstr "Kopioi luettelo"
 
 #: src/ui/dialogs.rs
+#, fuzzy
 msgid "Leave the names as they are"
 msgstr "Jätä nimet ennalleen"
 
 #: src/ui/dialogs.rs
+#, fuzzy
 msgid "The list was copied to the clipboard. Paste it into a file before the names are left as they are."
 msgstr "Luettelo kopioitiin leikepöydälle. Liitä se tiedostoon, ennen kuin nimet jätetään ennalleen."
 
 #: src/ui/dialogs.rs
+#, fuzzy
 msgid "The names were left as they are"
 msgstr "Nimet jätettiin ennalleen"
 
 #: src/ui/dialogs.rs
+#, fuzzy
 msgid "Another window has put these renames right already. Nothing was changed here."
 msgstr "Toinen ikkuna on jo korjannut nämä nimeämiset. Täällä ei muutettu mitään."
 
 #: src/ui/dialogs.rs
+#, fuzzy
 msgid "Rename Many was cut short, and these files are not under the names it was to give them. Each line names a file as it is now, then the name it was to get."
 msgstr "Monen uudelleennimeäminen keskeytyi, eikä näillä tiedostoilla ole nimiä, jotka sen piti antaa. Jokainen rivi kertoo tiedoston nykyisen nimen ja sitten nimen, joka sen piti saada."
 
 #: src/files/file_ops.rs
+#, fuzzy
 msgid "{file} went back, but its sidecar {side} could not ({e}), so the sidecar is at {at}"
 msgstr "{file} palautettiin, mutta sen sivutiedosto {side} ei ({e}), joten sivutiedosto on kohteessa {at}"
 
 #: src/files/file_ops.rs
+#, fuzzy
 msgid "{side} could not follow {file} ({e}), and {file} could not go back ({error}), so the file is at {to} and this sidecar at {side}"
 msgstr "{side} ei voinut seurata tiedostoa {file} ({e}), eikä {file} voinut palata ({error}), joten tiedosto on kohteessa {to} ja tämä sivutiedosto kohteessa {side}"
 
 #: src/files/file_io.rs
+#, fuzzy
 msgid "Could not look at {name}: {e}. Its marks and collection entries followed it there all the same, as the file was there before."
 msgstr "Kohdetta {name} ei voitu tarkistaa: {e}. Sen merkinnät ja kokoelmamerkinnät seurasivat sitä sinne silti, koska tiedosto oli siellä aiemmin."
 
 #: src/ui/dialogs.rs
+#, fuzzy
 msgid "Could not leave the names as they are: {e}. Rename Many asks about them again at the next start."
 msgstr "Nimiä ei voitu jättää ennalleen: {e}. Monen uudelleennimeäminen kysyy niistä uudelleen seuraavalla käynnistyskerralla."
 
 #: src/files/journal.rs
+#, fuzzy
 msgid "another window has them open"
 msgstr "toinen ikkuna pitää niitä auki"
