@@ -18,9 +18,9 @@ use std::path::{Path, PathBuf};
 /// The first part of a plan that counts the renames done.
 const COUNTED: &[u8] = b"counted";
 
-/// The folder, in the plans' folder, of the files that each plan's steps move: one line for each
-/// step, with the file's fingerprint when the plan was made. It is a folder of its own, because a
-/// Glimt older than 0.81 reads every file beside the plans as a plan.
+/// The folder, in the plans' folder, of the photos that each plan's steps move: one line for each
+/// step, with the photo's fingerprint when the plan was made (`known_text`). It is a folder of its
+/// own, because a Glimt older than 0.81 reads every file beside the plans as a plan.
 const KNOWN_FOLDER: &str = "files";
 
 /// The start of the hidden name that a swap gives a file between its two steps
@@ -330,15 +330,19 @@ fn known_path(plan: &Path) -> PathBuf {
     plan.with_file_name(KNOWN_FOLDER).join(name)
 }
 
-/// Returns the text that names the file each of `moves` moves, by its fingerprint now: one line
-/// for each step, "-" where no file is there. A step that moves on a file that an earlier step
-/// moved (the second step of a swap) names that file.
+/// Returns the text that names the photo each of `moves` moves, by its fingerprint now: one line
+/// for each step, "-" where no file is there and for a sidecar. A sidecar follows its photo by
+/// name and is not tied to its file, because Glimt itself writes it anew when a keyword is saved
+/// after "Later", and the repair would then be refused at every start. A step that moves on a
+/// file that an earlier step moved (the second step of a swap) names that file.
 fn known_text(moves: &[(PathBuf, PathBuf)]) -> String {
+    let is_sidecar = |p: &Path| p.extension().is_some_and(|e| e.eq_ignore_ascii_case("xmp"));
     let mut made: HashMap<&Path, Option<FileFingerprint>> = HashMap::new();
     let mut text = String::new();
     for (a, b) in moves {
         let known = match made.get(a.as_path()) {
             Some(known) => *known,
+            None if is_sidecar(a) => None,
             None => crate::files::file_io::fingerprint(a),
         };
         made.insert(b, known);
@@ -585,9 +589,10 @@ pub fn repair_cut_short(
         .filter(take_lock_if_free)
         .filter(is_linked)?;
     let done = done.map(|d| done_by_names(moves, d));
-    // A step whose name another file has taken since the plan was made (while the question
-    // waited for "Later") is not taken. Nothing is renamed then, so that a file and its sidecar
-    // are not split, and the plan is asked about again.
+    // A step whose photo's name another file has taken since the plan was made (while the
+    // question waited for "Later") is not taken. Nothing is renamed then, so that a photo and its
+    // sidecar are not split, and the plan is asked about again. A sidecar is not looked at, as it
+    // follows its photo by name (`known_text`).
     let known = crate::images::decode::read_text(known_path(plan))
         .map_or_else(|_| Vec::new(), |text| parse_known(&text, moves.len()));
     let taken = match (undo_them, done) {
@@ -1175,6 +1180,42 @@ mod tests {
         assert_eq!(read("a.jpg"), "a");
         assert!(super::cut_short_plans(&plans).is_empty());
         assert!(!super::known_path(&plan).exists());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A sidecar that Glimt itself rewrote after "Later" (a keyword saved) does not stop "Put
+    /// the old names back". A sidecar follows its photo by name, and only the photos are tied to
+    /// their files. Before, every start refused the repair.
+    #[test]
+    fn a_sidecar_rewritten_after_later_still_goes_back() {
+        let dir =
+            std::env::temp_dir().join(format!("glimt-test-plan-sidecar-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let (plans, p) = (dir.join("plans"), |n: &str| dir.join(n));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(p("a.jpg"), "a").unwrap();
+        std::fs::write(p("a.jpg.xmp"), "old").unwrap();
+        let moves = vec![(p("a.jpg"), p("b.jpg")), (p("a.jpg.xmp"), p("b.jpg.xmp"))];
+        let mut plan = super::start_journal(&plans, &moves).unwrap();
+        for (a, b) in &moves {
+            super::rename_step(a, b).unwrap();
+            plan.count_step_done();
+        }
+        plan.keep_on_disk();
+        // After "Later", a keyword is saved: the sidecar is written anew, as a new file.
+        std::fs::remove_file(p("b.jpg.xmp")).unwrap();
+        std::fs::write(p("b.jpg.xmp"), "new keyword").unwrap();
+        let (plan, moves, done) = super::cut_short_plans(&plans).remove(0);
+        assert_eq!(
+            super::repair_cut_short(&plan, &moves, done, true),
+            Some((2, 0))
+        );
+        let read = |n: &str| std::fs::read_to_string(p(n)).unwrap();
+        assert_eq!(
+            (read("a.jpg"), read("a.jpg.xmp")),
+            ("a".into(), "new keyword".into())
+        );
+        assert!(super::cut_short_plans(&plans).is_empty());
         std::fs::remove_dir_all(dir).unwrap();
     }
 
