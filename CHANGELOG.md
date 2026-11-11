@@ -17,7 +17,15 @@ and versions follow [Semantic Versioning](https://semver.org/).
 - A Move or Copy onto a disk with room for a photo but not for its sidecar puts the photo back,
   with what had followed, and says so. Before, the photo was left at the target without its
   keywords and the sidecar at the source, where a later file of that name would pick it up. The
-  Undo of a Move does the same.
+  Undo of a Move does the same, also for two RAW files of one name stem moved together.
+- Move to Trash takes a photo back out of the trash when its sidecar could not go there, and
+  says so, and Undo from the trash leaves a photo in the trash when its sidecar cannot come
+  back. Before, the photo went one way and its keywords the other.
+- A sidecar that a Move killed halfway left at its photo's old name follows the photo at the
+  next start, as its stars already did.
+- A backup fails, and names what it could not look at, rather than leave out a file or folder
+  on a share that did not answer for a moment. A tool's own program that could not be looked
+  at is run and its failure told, rather than another program of the same name.
 - Rename and Rename Many rename nothing when their plan cannot be saved (a full disk), and say
   so (#90). Before, Rename Many went on without it, and as the marks file in the same folder
   could not be saved either, most photos of names that swap showed another photo's stars.
