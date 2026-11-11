@@ -1473,6 +1473,11 @@ impl crate::App {
             return self.notice.give(held.into());
         }
         let jpeg = crate::model::listing::is_jpeg(&path);
+        // The turn is meant for the picture decoded and shown. A file that has taken its name
+        // since, or was written anew, is not turned with it.
+        let decoded = (self.list.loaded_images().values())
+            .find(|loaded| loaded.path == path)
+            .and_then(|loaded| loaded.read);
         let (rotate, quality) = (self.config.exif_rotate, self.config.webp_quality);
         let (saved, notices) = (
             self.file_operations.saved_tx.clone(),
@@ -1487,8 +1492,12 @@ impl crate::App {
             // When another program removed or renamed the file meanwhile, there is nothing to
             // save the turn into, and the user is told that it was not saved. It is looked at
             // here, not in the window's thread, because it waits for the disk.
+            let is_decoded = |now| decoded.is_none_or(|read| same_fingerprint(read, now));
             let result = catch_panic_as_error(|| match jpeg {
                 _ if !path.is_file() => Err(tf!("{name} is gone", name = path.display())),
+                _ if !fingerprint(&path).is_some_and(is_decoded) => {
+                    Err(crate::files::file_io::changed_meanwhile().to_string())
+                }
                 true => exif::write_orientation(&path, turns, mirrored, rotate),
                 false => save_rotated(&path, rotate, turns, mirrored, quality),
             });
@@ -3899,8 +3908,10 @@ mod tests {
             (
                 "save orientation",
                 |app, ctx, d| {
-                    // The fixture's image is square. A wide one shows the turn in its size.
+                    // The fixture's image is square. A wide one shows the turn in its size. The
+                    // window is told it changed, as a turn is saved into the picture decoded.
                     image::RgbImage::new(8, 4).save(d.join("a.png")).unwrap();
+                    app.files_changed(ctx, &[d.join("a.png")]);
                     app.viewing.set_turn((1, false), d.join("a.png"));
                     app.save_orientation(ctx);
                 },
@@ -4815,6 +4826,40 @@ mod tests {
         };
         assert!(run_background_until(&mut app, &ctx, not_saved));
         assert!(!a.exists());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A turn is saved into the picture that was decoded and shown. Another file put under its
+    /// name since (another window's Rename Many that swapped two names) is left as it is. The
+    /// turn meant for one photo was written into the other.
+    #[test]
+    fn a_turn_is_not_saved_into_another_file_under_the_name() {
+        let dir =
+            std::env::temp_dir().join(format!("glimt-test-turn-other-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let (a, other) = (dir.join("a.png"), dir.join("other.png"));
+        image::RgbImage::new(4, 2).save(&a).unwrap();
+        let (mut app, ctx) = app_on(&dir);
+        app.refill_preload();
+        assert!(run_background_until(&mut app, &ctx, |app| app
+            .list
+            .loaded_images()
+            .contains_key(&0)));
+        // Another photo takes the name, outside the folder so no listing sees it first.
+        image::RgbImage::new(8, 2).save(&other).unwrap();
+        std::fs::rename(&other, &a).unwrap();
+        app.viewing.set_turn((1, false), a.clone());
+        app.notice.clear();
+        app.save_orientation(&ctx);
+        let not_saved = |app: &crate::App| {
+            (app.notice.text()).is_some_and(|t| t.starts_with("Could not save the orientation"))
+        };
+        assert!(run_background_until(&mut app, &ctx, not_saved));
+        assert_eq!(
+            image::image_dimensions(&a).unwrap(),
+            (8, 2),
+            "the other photo was turned"
+        );
         std::fs::remove_dir_all(dir).unwrap();
     }
 
