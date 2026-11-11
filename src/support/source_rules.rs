@@ -4423,9 +4423,10 @@ fn finds_a_lint_turned_off_widely() {
     assert_eq!(lints_turned_off_widely(text), [1, 3, 6, 10]);
 }
 
-/// Every `#[allow(…)]` outside the tests says why it is there, in a comment on its own line, on
-/// the next, or in a plain comment just before it. A reader then knows what the exception is
-/// for, and when it may go.
+/// Every `#[allow(…)]` or `#[expect(…)]` outside the tests says why it is there, in a comment on
+/// its own line or in a comment alone on the next line. A reader then knows what the exception
+/// is for, and when it may go. A comment before the attribute, or one after the code on the
+/// next line, is about other code as often as not, so neither counts.
 #[test]
 fn every_allow_gives_its_reason() {
     let mut wrong = Vec::new();
@@ -4440,35 +4441,39 @@ fn every_allow_gives_its_reason() {
     );
 }
 
-/// Returns the lines of `text` outside the tests with an attribute that allows a lint and no
-/// comment that gives its reason: one on that line or the next, or a plain comment (not a doc
-/// comment) on the line before.
+/// Returns the lines of `text` outside the tests with an attribute that allows or expects a
+/// lint and no comment that gives its reason: one on that line, or a plain comment (not a doc
+/// comment) alone on the next.
 fn allows_without_reason(text: &str) -> Vec<usize> {
     let (code, comments) = (code_lines(text), comment_lines(text));
     let comment = |j: usize| comments.get(j).map_or("", |c| c.trim());
     let is_plain = |c: &str| !c.is_empty() && !c.starts_with("///") && !c.starts_with("//!");
+    let is_reason_alone =
+        |j: usize| code.get(j).is_some_and(|c| c.trim().is_empty()) && is_plain(comment(j));
     (0..tests_start(&code))
         .filter(|&i| {
             let line = code[i].trim_start();
             line.starts_with('#')
-                && line.contains("allow(")
+                && (line.contains("allow(") || line.contains("expect("))
                 && comment(i).is_empty()
-                && comment(i + 1).is_empty()
-                && !(i > 0 && is_plain(comment(i - 1)))
+                && !is_reason_alone(i + 1)
         })
         .map(|i| i + 1)
         .collect()
 }
 
-/// The check above finds an allow with no reason, also behind `cfg_attr` and under a doc
-/// comment, and passes one with its reason on its line, on the next or in a comment before.
+/// The check above finds an allow or expect with no reason, also behind `cfg_attr`, under a doc
+/// comment, under a comment before it and over code with a comment after it. It passes one with
+/// its reason on its line or alone on the next.
 #[test]
 fn finds_an_allow_without_its_reason() {
     let text = "#[allow(dead_code)]\nfn a() {}\n/// Does b.\n\
         #[cfg_attr(test, allow(unused))]\nfn b() {}\n#[allow(unused)] // a reason\nfn c() {}\n\
-        #[allow(unused)]\n// a reason\nfn d() {}\n// a reason\n#[allow(unused)]\nfn e() {}\n\
-        #[cfg(test)]\nmod tests {\n    #[allow(unused)]\n    fn f() {}\n}\n";
-    assert_eq!(allows_without_reason(text), [1, 4]);
+        #[allow(unused)]\n// a reason\nfn d() {}\n// a comment about e\n#[allow(unused)]\n\
+        fn e() {}\n#[expect(unused)]\nfn f() {}\n#[allow(unused)]\nfn g() {} // about g\n\
+        #[expect(unused)] // a reason\nfn h() {}\n\
+        #[cfg(test)]\nmod tests {\n    #[allow(unused)]\n    fn t() {}\n}\n";
+    assert_eq!(allows_without_reason(text), [1, 4, 12, 14, 16]);
 }
 
 /// Returns the lines of the statements of `text` outside the tests that drop the result of one

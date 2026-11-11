@@ -30,8 +30,8 @@ macro_rules! config {
         impl Config {
             /// Sets `key` to `value`. Returns `None` for a key that is no setting, and false for
             /// a value that cannot be read, which keeps the value from before.
-            // String's parse cannot fail, so its `if let` is irrefutable.
             #[allow(irrefutable_let_patterns)]
+            // String's parse cannot fail, so its `if let` is irrefutable.
             pub fn set(&mut self, key: &str, value: &str) -> Option<bool> {
                 let value = by_number(key, value);
                 let value = value.as_str();

@@ -4,12 +4,12 @@
 //! is decoded only when the user zooms in further than that size covers. Only a small window
 //! of images around the current one is kept in memory.
 
+#![cfg_attr(test, allow(clippy::disallowed_methods))]
 // Tests make and read their files directly. The rules in clippy.toml are for Glimt's own code,
 // which `cargo clippy --release` checks without the tests.
-#![cfg_attr(test, allow(clippy::disallowed_methods))]
+#![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
 // A test stops at the first unwrap or expect that fails, which is what a test should do. This
 // covers the modules built only with the tests too (source_rules, test_support).
-#![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
 
 use crate::cli::Start;
 use crate::features::check::ImageCheck;
