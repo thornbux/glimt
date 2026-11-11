@@ -26,6 +26,11 @@ const ENTER_IGNORED_FOR: f64 = 0.5;
 /// user has none of their own.
 const SYSTEM_PROFILES: &str = "/usr/share/color/icc";
 
+/// What zenity puts between the folders picked in Open Several Folders. A folder's name may hold
+/// a line break, but a full path as zenity prints it never holds "//", so this cannot be part of
+/// a path, and a name with a line break is not split.
+const FOLDERS_SEPARATOR: &[u8] = b"\n//\n";
+
 /// In a test, the folder that the file chooser answers with, or `None` for Cancel. A test never
 /// opens a real chooser.
 #[cfg(test)]
@@ -579,15 +584,14 @@ impl crate::App {
                     self.config.save();
                     self.visit(ctx, path);
                 }
-                // One per line, from zenity's --multiple.
                 (Pick::Folders, Some(paths)) => {
-                    use std::os::unix::ffi::OsStringExt;
-                    let bytes = paths.into_os_string().into_encoded_bytes();
-                    let all = (bytes.split(|&b| b == b'\n'))
-                        .filter(|p| !p.is_empty())
-                        .map(|p| PathBuf::from(OsString::from_vec(p.to_vec())))
-                        .collect();
-                    self.open_folders(ctx, all);
+                    match picked_folders(&paths.into_os_string().into_encoded_bytes()) {
+                        Some(all) => self.open_folders(ctx, all),
+                        None => self.notice.give(tr(
+                            "The file dialog did not answer with full paths, so nothing was opened",
+                        )
+                        .into()),
+                    }
                 }
                 (Pick::CopyTo(picked), Some(dest)) => self.transfer(picked, dest, true),
                 (Pick::MoveTo(picked), Some(dest)) => self.transfer(picked, dest, false),
@@ -1441,6 +1445,7 @@ fn run_chooser(
     (save, folder, several): (bool, bool, bool),
 ) -> std::io::Result<std::process::Output> {
     use crate::files::external;
+    use std::os::unix::ffi::OsStringExt;
     let zenity = || {
         let mut cmd = external::command("zenity");
         cmd.arg("--file-selection").arg("--title").arg(title);
@@ -1452,11 +1457,14 @@ fn run_chooser(
             cmd.arg("--directory");
         }
         if several {
-            cmd.arg("--multiple").arg("--separator=\n");
+            cmd.arg("--multiple")
+                .arg("--separator")
+                .arg(OsString::from_vec(FOLDERS_SEPARATOR.to_vec()));
         }
         cmd.output()
     };
-    // KDE desktops often have kdialog but not zenity.
+    // KDE desktops often have kdialog but not zenity. Its folder dialog picks one folder only,
+    // also for Open Several Folders.
     let kdialog = || {
         let mode = if save {
             "--getsavefilename"
@@ -1477,6 +1485,31 @@ fn run_chooser(
         (false, true) => kdialog(),
         (false, false) => Err(std::io::ErrorKind::NotFound.into()),
     }
+}
+
+/// Returns the folders that zenity's `answer` names, split at `FOLDERS_SEPARATOR`. Returns
+/// `None` when a part is not a full path, as the answer is then not what was asked for, and
+/// opening its parts could open other folders than those picked.
+fn picked_folders(answer: &[u8]) -> Option<Vec<PathBuf>> {
+    use std::os::unix::ffi::OsStringExt;
+    if answer.is_empty() {
+        return Some(Vec::new());
+    }
+    let mut parts = Vec::new();
+    let mut rest = answer;
+    while let Some(at) =
+        (rest.windows(FOLDERS_SEPARATOR.len())).position(|w| w == FOLDERS_SEPARATOR)
+    {
+        parts.push(&rest[..at]);
+        rest = &rest[at + FOLDERS_SEPARATOR.len()..];
+    }
+    parts.push(rest);
+    (parts.iter().all(|part| part.starts_with(b"/"))).then(|| {
+        parts
+            .iter()
+            .map(|part| PathBuf::from(OsString::from_vec(part.to_vec())))
+            .collect()
+    })
 }
 
 /// Answers as the file chooser would, with the folder of `CHOOSER_PICKS`, or as Cancel.
@@ -1500,6 +1533,41 @@ fn run_chooser(
 mod tests {
     use crate::support::test_support::app_on;
     use eframe::egui;
+
+    /// The folders picked in Open Several Folders are split only where zenity put them apart,
+    /// so a folder whose name holds a line break opens as itself. Before, the answer was split
+    /// at every line break, and a folder named "trip" and a line break and "etc" opened the
+    /// folder "trip" beside it and "etc" in the current folder.
+    #[test]
+    fn a_line_break_in_a_picked_folder_does_not_split_it() {
+        use std::path::PathBuf;
+        let picked = |answer: &[u8]| super::picked_folders(answer);
+        assert_eq!(
+            picked(b"/x/trip\netc\n//\n/y"),
+            Some(vec![PathBuf::from("/x/trip\netc"), PathBuf::from("/y")])
+        );
+        // A name that ends with a line break, and one inside a folder whose name does.
+        assert_eq!(
+            picked(b"/x/a\n\n//\n/x/a\n/b"),
+            Some(vec![PathBuf::from("/x/a\n"), PathBuf::from("/x/a\n/b")])
+        );
+        assert_eq!(picked(b"/"), Some(vec![PathBuf::from("/")]));
+        assert_eq!(picked(b""), Some(Vec::new()));
+        // An answer whose parts are not full paths is refused whole.
+        assert_eq!(picked(b"/x\n//\netc"), None);
+        assert_eq!(picked(b"etc"), None);
+    }
+
+    /// What the file chooser answers, damaged in any way, is split without a panic, and each
+    /// folder taken from it is a full path.
+    #[test]
+    fn survives_broken_folder_answers() {
+        for bytes in crate::support::test_support::broken(b"/x/trip\netc\n//\n/y\n//\n/") {
+            for folder in super::picked_folders(&bytes).unwrap_or_default() {
+                assert!(folder.is_absolute());
+            }
+        }
+    }
 
     /// A repair of a Rename Many cut short that is refused (another program changed a photo)
     /// is asked about again at once, with the list of the files not under the names they were

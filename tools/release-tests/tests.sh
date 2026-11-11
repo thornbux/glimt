@@ -2259,6 +2259,35 @@ PY
     else note "old: $(red science-nifti-old 760 120) $(red science-hdf5-old 760 620) $(colour science-slide-old 760 412)"; fi
 done
 
+section "the HDF5 format reads only what the file holds, not the files it names"
+d=/tmp/hdf5-elsewhere
+mkdir -p $d
+head -c 1000000 /dev/urandom >$d/secret
+# Each larger than the file's own dataset, so the old example showed the first it found: the
+# secret's bytes through external storage, a dataset of another file through a link, and the
+# secret again through a virtual dataset.
+python3 - "$d" <<'PY'
+import sys, numpy, h5py
+d = sys.argv[1]
+with h5py.File(f"{d}/other.h5", "w") as f:
+    f.create_dataset("big", data=numpy.zeros((900, 900), numpy.uint8))
+with h5py.File(f"{d}/a.h5", "w") as f:
+    f.create_dataset("a_external", shape=(1000, 1000), dtype=numpy.uint8,
+                     external=[(f"{d}/secret", 0, 1000000)])
+    f["b_link"] = h5py.ExternalLink(f"{d}/other.h5", "/big")
+    layout = h5py.VirtualLayout(shape=(800, 800), dtype=numpy.uint8)
+    layout[:, :] = h5py.VirtualSource(f"{d}/other.h5", "big", shape=(900, 900))[:800, :800]
+    f.create_virtual_dataset("c_virtual", layout)
+    f["d_soft"] = h5py.SoftLink("/a_external")
+    f.create_dataset("own", data=numpy.ones((30, 40), numpy.uint8))
+PY
+for v in new old; do
+    got=$(python3 /t/$v/examples/formats/glimt-hdf5 $d/a.h5 2>&1 | head -c 12 | head -1)
+    if [ $v = new ]; then expect "the file's own dataset, 40 by 30" "$got" "P5 40 30 255"
+    else note "old: $got"; fi
+done
+rm -rf $d
+
 section "a NIfTI series in FSL's orientation (LAS, 4D): its first volume, the front at the top"
 d=/tmp/nifti-series
 mkdir -p $d $(formats_dir)

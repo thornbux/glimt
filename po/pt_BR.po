@@ -3918,3 +3918,7 @@ msgstr "Não foi possível deixar os nomes como estão: {e}. “Renomear vários
 #, fuzzy
 msgid "another window has them open"
 msgstr "outra janela está com eles abertos"
+
+#: src/ui/dialogs.rs
+msgid "The file dialog did not answer with full paths, so nothing was opened"
+msgstr "A janela de arquivos não respondeu com caminhos completos, então nada foi aberto"

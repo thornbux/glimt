@@ -42,10 +42,18 @@ def pgm(pixels):
 
 
 def pictures(group):
-    """The datasets of numbers with two or more dimensions, depth first."""
+    """The datasets of numbers with two or more dimensions, depth first. Only what the file holds
+    itself is read: a link to another file or to another place in this one (which may loop), a
+    dataset whose values are kept in other files (external storage) and a virtual dataset made
+    of other files' are passed over, because a downloaded file could name any file of the
+    user's, or a pipe that never answers."""
     for name in group:
+        if not isinstance(group.get(name, getlink=True), h5py.HardLink):
+            continue
         item = group[name]
         if isinstance(item, h5py.Dataset):
+            if item.external or item.is_virtual:
+                continue
             if item.ndim >= 2 and item.dtype.kind in "iuf" and min(item.shape[-2:]) > 1:
                 yield item
         elif isinstance(item, h5py.Group):
