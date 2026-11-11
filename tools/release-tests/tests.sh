@@ -5086,7 +5086,13 @@ time.sleep(12)" &
         wait $locker
         sleep 3
         open=$(kill -0 $GPID 2>/dev/null && echo open || echo closed)
-        until_notice close-failed-$v-$kind 3; told=$?
+        # The close notice is still on screen, so the failure is found by its own text.
+        told=1
+        for i in $(seq 6); do
+            grep -q "The keyword could not be saved" /tmp/glimt.err && { told=0; break; }
+            sleep 0.5
+        done
+        shot close-failed-$v-$kind
         quit
         chmod 755 $d
         after=$(ls -A $d | tr '\n' ' ')$(cat $d/a.jpg.xmp 2>/dev/null)
