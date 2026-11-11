@@ -363,6 +363,30 @@ impl PickedFiles {
         }
     }
 
+    /// The files `files`, picked now in the list, with the fingerprints `seen` that a search
+    /// took when it found them (Find Duplicates). A file changed since, or one the search has
+    /// no fingerprint of, is left alone, as it may no longer be what the search found.
+    pub(crate) fn listed_as_seen(
+        files: Vec<ListedFile>,
+        seen: &std::collections::HashMap<PathBuf, FileFingerprint>,
+    ) -> PickedFiles {
+        let (tx, rx) = std::sync::mpsc::channel();
+        for file in &files {
+            let _ = tx.send(seen.get(&file.path).copied());
+        }
+        let listed = (files.iter())
+            .map(|f| (f.path.clone(), f.identity))
+            .collect();
+        let list_is_old = files.first().map(|f| f.list_is_old.clone());
+        PickedFiles {
+            paths: files.into_iter().map(|f| f.path).collect(),
+            listed,
+            list_is_old: list_is_old.unwrap_or_default(),
+            fingerprints: crate::support::threads::Receiving::of(rx),
+            are_folders: false,
+        }
+    }
+
     /// Starts taking the device and inode of the folder `dir`, picked now.
     pub(crate) fn folder(dir: PathBuf) -> PickedFiles {
         PickedFiles::taken_in_background(vec![dir], true)
