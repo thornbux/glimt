@@ -3923,9 +3923,21 @@ fn destructive_acts_in(text: &str) -> Vec<(String, bool)> {
     const SIDECAR_FINDERS: [&str; 2] = ["sidecars_moving_with(", "sidecars_of("];
     let (lines, comments) = (code_lines(text), comment_lines(text));
     let end = tests_start(&lines);
-    // A raw removal or rename whose `#[allow]` or comment, on its line or the lines just above,
-    // says it is Glimt's own.
-    let is_own = |i: usize| (i.saturating_sub(3)..=i).any(|j| comments[j].contains("Glimt's own:"));
+    // A raw removal or rename whose `#[allow]` or comment says it is Glimt's own, on a line of
+    // its own statement or on the comment and attribute lines just above it. The statement
+    // starts after the line above that ends with `;`, `{`, `}` or `,`, or after a blank line.
+    let is_own = |i: usize| {
+        let mut start = i;
+        while let Some(above) = start.checked_sub(1) {
+            let code = lines[above].trim();
+            let blank = code.is_empty() && comments[above].trim().is_empty();
+            if blank || code.ends_with([';', '{', '}', ',']) {
+                break;
+            }
+            start = above;
+        }
+        (start..=i).any(|j| comments[j].contains("Glimt's own:"))
+    };
     let is_copy = |line: &str| line.contains(", true)");
     let mut found = Vec::new();
     let mut function = String::new();
@@ -3953,17 +3965,25 @@ fn destructive_acts_in(text: &str) -> Vec<(String, bool)> {
         let act = (ACTS.iter().any(|act| line.contains(act)) && !(raw && is_own(i)))
             || (line.contains("put_file(") && !is_copy(line));
         acts |= act;
-        acts_on_files |= act && !line.contains("side");
+        acts_on_files |= act && !names_a_sidecar(line);
         checks |= CHECKS.iter().any(|check| line.contains(check));
         finds_sidecars |= SIDECAR_FINDERS.iter().any(|finder| line.contains(finder));
     }
     found
 }
 
+/// Returns whether `line` names a sidecar: a word that starts with `side` (`side`, `sides`,
+/// `sidecars`), not one that only holds it (`beside`, `inside`).
+fn names_a_sidecar(line: &str) -> bool {
+    (line.match_indices("side")).any(|(at, _)| !line[..at].ends_with(is_word_char))
+}
+
 /// The check above finds a delete, a trash, a move, a rename and a file put back with no look
-/// at the file, also beside a look for its sidecars. It passes one that looks first, a removal
-/// or rename of Glimt's own file, a copy, a function that only looks, an act on the sidecars
-/// it finds, and a function that is one of the acts itself.
+/// at the file, also beside a look for its sidecars, and an act on files whose name only holds
+/// `side`. It passes one that looks first, a removal or rename of Glimt's own file (also one
+/// whose statement takes several lines), a copy, a function that only looks, an act on the
+/// sidecars it finds, and a function that is one of the acts itself. A rename just below a
+/// removal of Glimt's own file is not excused by that removal's reason.
 #[test]
 fn finds_a_destructive_act_without_its_check() {
     let text = "fn a() {\n    std::fs::remove_file(x)\n}\n\
@@ -3981,6 +4001,12 @@ fn finds_a_destructive_act_without_its_check() {
         fn k() {\n    journal::rename_step(x, y)\n}\n\
         fn l() {\n    file_io::put_file_back(x, y, false)\n}\n\
         fn m() {\n    // Glimt's own: a plan made just now\n    rename_never_over(tmp, plan)\n}\n\
+        fn n() {\n    let files_beside = xmp::sidecars_of(&[x]);\n    \
+        trash::trash(&files_beside)\n}\n\
+        fn o() {\n    // Glimt's own: a plan\n    let _ = std::fs::remove_file(plan);\n    \
+        rename_never_over(x, y)\n}\n\
+        fn p() {\n    #[allow(clippy::disallowed_methods)] // Glimt's own: an old folder\n    \
+        if a\n        && std::fs::remove_dir_all(x).is_ok()\n    {\n    }\n}\n\
         fn rename_files_planned_in() {\n    journal::rename_step(x, y)\n}\n";
     assert_eq!(
         destructive_acts_in(text),
@@ -3994,6 +4020,8 @@ fn finds_a_destructive_act_without_its_check() {
             ("j".into(), false),
             ("k".into(), false),
             ("l".into(), false),
+            ("n".into(), false),
+            ("o".into(), false),
         ]
     );
 }
@@ -4002,7 +4030,8 @@ fn finds_a_destructive_act_without_its_check() {
 /// it: a Lightroom catalog names its photos by path, and an Undo holds fingerprints of its own
 /// or puts back the marks of files it put back.
 /// Anywhere else, a `ListedFile` made so would let a sidecar write go to whatever file has the
-/// name by then, as if it were the file the user picked.
+/// name by then, as if it were the file the user picked. A `ListedFile::new` given no identity
+/// (`None`, or a default) makes the same, so it is found anywhere outside the tests.
 #[test]
 fn a_path_alone_is_given_only_where_no_list_knows_the_file() {
     const HOMES: &[(&str, &[(&str, &str)])] = &[(
@@ -4014,12 +4043,69 @@ fn a_path_alone_is_given_only_where_no_list_knows_the_file() {
             ("support/test_support.rs", ""),
         ],
     )];
-    let wrong = outside_their_homes(HOMES);
+    let mut wrong = outside_their_homes(HOMES);
+    let sources = rust_sources();
+    let tests = test_only_files(&sources);
+    for (file, text) in sources.iter().filter(|(file, _)| !tests.contains(file)) {
+        let found = listed_files_made_without_identity(text);
+        wrong.extend(found.into_iter().map(|line| format!("{file}:{line}")));
+    }
     assert!(
         wrong.is_empty(),
         "a ListedFile made from a path alone (take it from the list, App::listed_file):\n{}",
         wrong.join("\n")
     );
+}
+
+/// Returns the lines of `text` outside the tests, counted from 1, where a `ListedFile::new` is
+/// given no identity as its second argument: `None`, or a default.
+fn listed_files_made_without_identity(text: &str) -> Vec<usize> {
+    let lines = code_lines(text);
+    let end = tests_start(&lines);
+    let mut found = Vec::new();
+    for (i, line) in lines[..end].iter().enumerate() {
+        let Some(at) = line.find("ListedFile::new(") else {
+            continue;
+        };
+        // The call's arguments, on this line and the lines after it, split at the commas
+        // outside any brackets.
+        let (mut depth, mut arguments, mut argument) = (0, Vec::new(), String::new());
+        let call = line[at + "ListedFile::new".len()..].chars();
+        for c in call.chain(lines[i + 1..end].iter().flat_map(|l| l.chars())) {
+            match c {
+                '(' | '[' | '{' => depth += 1,
+                ')' | ']' | '}' => depth -= 1,
+                _ => {}
+            }
+            if depth == 0 || (depth == 1 && c == ',') {
+                arguments.push(std::mem::take(&mut argument));
+                if depth == 0 {
+                    break;
+                }
+            } else if depth > 1 || c != '(' {
+                argument.push(c);
+            }
+        }
+        let identity = arguments.get(1).map_or("", |a| a.trim());
+        if identity == "None" || identity.ends_with("::None") || identity.ends_with("default()") {
+            found.push(i + 1);
+        }
+    }
+    found
+}
+
+/// The check above finds a `ListedFile::new` given `None` or a default for its identity, also
+/// when the call takes several lines, but not one given the list's identity, nor one in the
+/// tests.
+#[test]
+fn finds_a_listed_file_made_without_identity() {
+    let text = "fn a() {\n    ListedFile::new(p, None, &Default::default())\n}\n\
+        fn b() {\n    file_io::ListedFile::new(\n        p.to_path_buf(),\n        \
+        Default::default(),\n        old,\n    )\n}\n\
+        fn c() {\n    ListedFile::new(self.path(i), self.list.identity(i), old)\n}\n\
+        fn d() {\n    ListedFile::new(p, Identity::default(), old)\n}\n\
+        #[cfg(test)]\nmod tests {\n    fn e() {\n        ListedFile::new(p, None, old)\n    }\n}\n";
+    assert_eq!(listed_files_made_without_identity(text), [2, 5, 15]);
 }
 
 /// The files built only for the tests are found by their `mod` lines, in a folder's file and in
