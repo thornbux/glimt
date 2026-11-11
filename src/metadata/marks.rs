@@ -1067,7 +1067,7 @@ mod tests {
         std::fs::write(&b, "b").unwrap();
         let listed = |p: &std::path::Path| {
             let identity = crate::files::file_io::identity_of(p);
-            crate::files::file_io::ListedFile::new(p.to_path_buf(), identity)
+            crate::files::file_io::ListedFile::new(p.to_path_buf(), identity, &Default::default())
         };
         let (listed_a, listed_b) = (listed(&a), listed(&b));
         // Another file takes a.png's name, made before the old one goes, so it has another

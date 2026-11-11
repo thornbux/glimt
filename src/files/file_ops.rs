@@ -1650,6 +1650,11 @@ impl crate::App {
             // Another folder put at its path while the dialog was open keeps its name.
             let (_, picked) = picked.wait_for_fingerprints();
             if let Err(e) = picked.still_the_one_picked(&old) {
+                // The tree and the list show the folder as it was, so they are read again.
+                let _ = report_tx.send(OperationReport {
+                    read_folder_again: true,
+                    ..Default::default()
+                });
                 return Some(Told::FailedWrite(format!("{}: {e}", old.display())));
             }
             // Never over an empty folder of that name, also one made since the look.
@@ -2075,7 +2080,7 @@ impl crate::App {
             let files = (waiting.files.iter().enumerate())
                 .map(|(k, f)| {
                     let path = new_place(f.path(), &moved).unwrap_or_else(|| f.path().into());
-                    (ListedFile::new(path, f.identity()), k)
+                    (ListedFile::new(path, f.identity(), f.list_is_old()), k)
                 })
                 .collect();
             let write = waiting.write;
@@ -3548,9 +3553,16 @@ mod tests {
         image::RgbImage::new(4, 4).save(&a).unwrap();
         image::RgbImage::new(6, 6).save(&b).unwrap();
         let (mut first, first_ctx) = app_on(&dir);
-        let (mut second, ctx) = app_on(&dir);
-        // The second window would read the folder again on its own, a moment after the swap.
-        second.config.auto_refresh = false;
+        // A window of its own for each act, because the refusal of one has its window read the
+        // folder again, and the next act would then be on the new list.
+        let stale = || {
+            let (mut window, ctx) = app_on(&dir);
+            // It would read the folder again on its own, a moment after the swap.
+            window.config.auto_refresh = false;
+            (window, ctx)
+        };
+        let ((mut keyword, keyword_ctx), (mut rename, rename_ctx)) = (stale(), stale());
+        let (mut delete, delete_ctx) = stale();
         let from = vec![first.listed_file(0), first.listed_file(1)];
         let picked = crate::files::file_io::PickedFiles::listed(from.clone());
         first.rename_in_background(&first_ctx, from, vec![b.clone(), a.clone()], picked);
@@ -3563,24 +3575,24 @@ mod tests {
         let idle = |app: &crate::App| {
             (app.file_operations.jobs.iter()).all(|job| std::sync::Arc::strong_count(job) == 1)
         };
-        second.add_keywords(&ctx, vec!["meant for the first photo".into()]);
-        assert!(run_background_until(&mut second, &ctx, |app| !app
+        keyword.add_keywords(&keyword_ctx, vec!["meant for the first photo".into()]);
+        assert!(run_background_until(&mut keyword, &keyword_ctx, |app| !app
             .file_operations
             .is_writing_sidecars()));
         assert!(
             crate::metadata::xmp::read(&a).keywords.is_empty(),
             "a keyword landed"
         );
-        let from = vec![second.listed_file(0)];
+        let from = vec![rename.listed_file(0)];
         let picked = crate::files::file_io::PickedFiles::listed(from.clone());
-        second.rename_in_background(&ctx, from, vec![c.clone()], picked);
-        assert!(run_background_until(&mut second, &ctx, |app| app
+        rename.rename_in_background(&rename_ctx, from, vec![c.clone()], picked);
+        assert!(run_background_until(&mut rename, &rename_ctx, |app| app
             .file_operations
             .renaming
             .is_none()));
         assert!(!c.exists(), "the other photo was renamed");
-        second.delete_targets(&ctx, false, vec![0]);
-        assert!(run_background_until(&mut second, &ctx, idle));
+        delete.delete_targets(&delete_ctx, false, vec![0]);
+        assert!(run_background_until(&mut delete, &delete_ctx, idle));
         assert!(a.exists() && b.exists(), "the other photo was deleted");
         drop(first);
         std::fs::remove_dir_all(&dir).unwrap();
@@ -7149,6 +7161,9 @@ mod tests {
             let dir = contract_folder(&format!("folder-swapped-{trash}"));
             let sub = dir.join("sub");
             let (mut app, ctx) = app_on(&dir);
+            // The folder is read again for the refusal, not for the change that the watcher saw.
+            app.config.auto_refresh = false;
+            let before = app.folder.whole_listings();
             match trash {
                 true => app.dialogs.ask_trash_folder(&sub),
                 false => app.dialogs.ask_rename_folder(&sub),
@@ -7167,6 +7182,11 @@ mod tests {
             assert!(!dir.join("renamed").exists());
             let told = app.notice.text().unwrap_or_default().to_owned();
             assert!(told.contains("another file has taken its name"), "{told}");
+            let listed = |app: &crate::App| app.folder.whole_listings() > before;
+            assert!(
+                run_background_until(&mut app, &ctx, listed),
+                "not read again"
+            );
             std::fs::remove_dir_all(dir).unwrap();
         }
     }

@@ -53,7 +53,11 @@ impl crate::App {
 
     /// Image `i` as a file a write can check is still the one listed (`ListedFile::check`).
     pub(crate) fn listed_file(&self, i: usize) -> crate::files::file_io::ListedFile {
-        crate::files::file_io::ListedFile::new(self.path(i), self.list.identity(i))
+        crate::files::file_io::ListedFile::new(
+            self.path(i),
+            self.list.identity(i),
+            self.folder.list_is_old(),
+        )
     }
 
     /// Is `path` image number `i` in the list? (Without building the path.)

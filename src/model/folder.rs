@@ -5,7 +5,7 @@ use crate::files::config::sort_folders_from;
 use crate::files::config::sort_folders_path;
 use crate::files::external::Mounted;
 use crate::files::external::{Login, gio_mount};
-use crate::files::file_io::{forget_passing_identities, is_another_file};
+use crate::files::file_io::{ListIsOld, forget_passing_identities, is_another_file};
 use crate::model::list::{List, LoadedImage};
 use crate::model::listing::{
     FoldersRead, ListedName, Types, is_listed, list_folder, list_tree, merge_shuffled, shuffle,
@@ -133,6 +133,9 @@ pub(crate) struct Folder {
     /// The sort manager's folders as their file has them once this window's last change is
     /// written, with what other windows wrote there meanwhile.
     sort_folders_written: Receiving<Vec<PathBuf>>,
+    /// Raised by a write that found another file at a name this window's list showed
+    /// (`ListedFile::check`). Each file the window picks carries it.
+    list_is_old: ListIsOld,
 }
 
 impl Folder {
@@ -182,7 +185,19 @@ impl Folder {
             sort_folders,
             saved_collections: Default::default(),
             sort_folders_written: Receiving::none(),
+            list_is_old: ListIsOld::default(),
         }
+    }
+
+    /// The flag of this window's list, for the files it picks (`ListedFile::new`).
+    pub(crate) fn list_is_old(&self) -> &ListIsOld {
+        &self.list_is_old
+    }
+
+    /// Returns whether a write found, since this was last asked, that another file has taken
+    /// a name this window's list showed, so that the folder must be read again.
+    pub(crate) fn take_list_is_old(&self) -> bool {
+        self.list_is_old.take()
     }
 
     /// The saved collections that the File menu lists, read in the background.
@@ -2055,6 +2070,35 @@ mod tests {
             .is_listing()));
         assert_eq!(app.folder.whole_listings(), before + 1);
         std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A write refused because another file has taken a name makes only the window whose list
+    /// showed the name read its folder again. Before, the flag was the whole process's, so one
+    /// test's refusal had another test's window list during its rest.
+    #[test]
+    fn a_name_taken_in_one_window_has_only_that_window_read_its_folder() {
+        let base = std::env::temp_dir().join(format!("glimt-test-list-old-{}", std::process::id()));
+        let (one, other) = (base.join("one"), base.join("other"));
+        for dir in [&one, &other] {
+            std::fs::create_dir_all(dir).unwrap();
+            image::RgbImage::new(2, 2).save(dir.join("a.png")).unwrap();
+        }
+        let (mut first, ctx) = app_on(&one);
+        let (mut second, other_ctx) = app_on(&other);
+        let listed = first.listed_file(0);
+        // Another file takes a.png's name, made before the old one goes, so it has another
+        // inode.
+        std::fs::write(one.join("new"), "new").unwrap();
+        std::fs::rename(one.join("new"), one.join("a.png")).unwrap();
+        assert!(listed.check().is_err());
+        second.poll_background(&other_ctx);
+        assert!(
+            !second.folder.is_listing(),
+            "the other window read its folder"
+        );
+        first.poll_background(&ctx);
+        assert!(first.folder.is_listing());
+        std::fs::remove_dir_all(base).unwrap();
     }
 
     /// A window that is not drawn (minimized, or on another workspace) takes the list late.
