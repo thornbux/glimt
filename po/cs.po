@@ -3073,3 +3073,7 @@ msgstr "{file} nedostane žádné soubory: %f v uvozovkách není soubor. Zadejt
 #: src/cli.rs
 msgid "Added formats and tools:"
 msgstr "Přidané formáty a nástroje:"
+
+#: src/files/file_ops.rs
+msgid "Rename failed ({count}): {first}"
+msgstr "Přejmenování selhalo ({count}): {first}"

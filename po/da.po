@@ -3051,3 +3051,7 @@ msgstr "{file} får ingen filer: %f inde i anførselstegn er ikke filen. Skriv %
 #: src/cli.rs
 msgid "Added formats and tools:"
 msgstr "Tilføjede formater og værktøjer:"
+
+#: src/files/file_ops.rs
+msgid "Rename failed ({count}): {first}"
+msgstr "Omdøbning mislykkedes ({count}): {first}"

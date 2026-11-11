@@ -2782,7 +2782,7 @@ mod tests {
             std::fs::symlink_metadata(sidecar(&b)).is_err(),
             "copied through the link"
         );
-        crate::images::save::save_copy_with_sidecar(&a, &c, b"x", false, false).unwrap();
+        crate::images::save::save_copy_with_sidecar(&a, &c, b"x", None, false).unwrap();
         assert!(
             std::fs::symlink_metadata(sidecar(&c)).is_err(),
             "landed through the link"

@@ -923,7 +923,12 @@ mod tests {
         app.show_file(&ctx, 0);
         read_panel(&mut app, &ctx);
         assert_eq!(app.info_panel.metadata_edit.as_ref().unwrap().path, a);
-        app.rename_in_background(&ctx, vec![a.clone(), b.clone()], vec![b.clone(), a.clone()]);
+        app.rename_in_background(
+            &ctx,
+            vec![a.clone(), b.clone()],
+            vec![b.clone(), a.clone()],
+            crate::files::file_io::PickedFiles::new(vec![a.clone(), b.clone()]),
+        );
         app.info_panel.metadata_edit.as_mut().unwrap().comment = "Red".into();
         let comment = |p: &std::path::Path| crate::metadata::xmp::read(p).comment;
         assert!(run_background_until(&mut app, &ctx, |_| comment(&b) == "Red"));

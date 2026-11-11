@@ -3,6 +3,7 @@
 
 #[cfg(feature = "video")]
 use crate::files::external::is_video;
+use crate::files::file_io::{FileFingerprint, PickedFiles};
 use crate::files::file_ops::OperationReport;
 use crate::images::decode;
 use crate::images::save;
@@ -58,6 +59,8 @@ impl SaveAsChoices {
 /// The dialog open, for the image `path` as shown (`copy_as`), `original_size` pixels large.
 pub struct SaveAs {
     path: PathBuf,
+    /// The image shown, with its fingerprint taken while the dialog and the chooser are open.
+    picked: PickedFiles,
     copy_as: CopyAs,
     original_size: [usize; 2],
     choice: SaveAsChoices,
@@ -101,6 +104,7 @@ impl crate::App {
         });
         let copy_as = self.shown_copy();
         self.save_as = Some(SaveAs {
+            picked: PickedFiles::new(vec![path.clone()]),
             path,
             copy_as,
             original_size,
@@ -196,49 +200,57 @@ impl crate::App {
                 name = save::stem_with_suffix(path, &format!("-copy.{}", format.ext()));
             }
             let start = path.with_file_name(name);
-            self.pick(ctx, false, Pick::SaveAs(dialog.path, copy_as, start));
+            self.pick(ctx, false, Pick::SaveAs(dialog.picked, copy_as, start));
         } else if !modal.should_close() {
             self.save_as = Some(dialog);
         }
     }
 
-    /// Save As's file chosen: the copy saved there in the background, the folder read again.
+    /// Save As's file chosen, `to`, with the fingerprint of the file there when it was picked:
+    /// the copy of the image `picked` saved there in the background, the folder read again. An
+    /// image that is no longer the one picked is not saved, nor is a file at `to` that is no
+    /// longer the one the chooser let it replace written over.
     pub(crate) fn save_as_to(
         &mut self,
         ctx: &egui::Context,
-        path: PathBuf,
+        picked: PickedFiles,
         copy_as: CopyAs,
-        to: PathBuf,
+        (to, at_pick): (PathBuf, Option<FileFingerprint>),
     ) {
         let report_tx = self.file_operations.report_sender();
+        let Some(path) = picked.paths().first().cloned() else {
+            return;
+        };
         self.run_in_background(ctx, vec![path.clone(), to.clone()], move || {
-            Some(
-                match decode::catch_panic_as_error(|| save::save_as(&path, &copy_as, &to)) {
-                    Ok(new) => {
-                        // Saved over a file the dialog let it replace, maybe one in the list. The
-                        // copy gets the marks and stars of the original, as it got its sidecar,
-                        // unless it was stripped.
-                        let _ = report_tx.send(OperationReport {
-                            read_folder_again: true,
-                            overwritten: vec![new.clone()],
-                            moved: (!copy_as.strip)
-                                .then(|| (path.clone(), new.clone()))
-                                .into_iter()
-                                .collect(),
-                            is_copy: true,
-                            ..Default::default()
-                        });
-                        crate::support::threads::Told::Notice(tf!(
-                            "Saved {file}",
-                            file = new.display()
-                        ))
-                    }
-                    Err(e) => crate::support::threads::Told::FailedWrite(tf!(
-                        "Could not save the image: {e}",
-                        e
-                    )),
-                },
-            )
+            let (_, picked) = picked.wait_for_fingerprints();
+            let saved = picked
+                .still_the_one_picked(&path)
+                .map_err(|e| format!("{}: {e}", path.display()))
+                .and_then(|()| {
+                    decode::catch_panic_as_error(|| save::save_as(&path, &copy_as, &to, at_pick))
+                });
+            Some(match saved {
+                Ok(new) => {
+                    // Saved over a file the dialog let it replace, maybe one in the list. The
+                    // copy gets the marks and stars of the original, as it got its sidecar,
+                    // unless it was stripped.
+                    let _ = report_tx.send(OperationReport {
+                        read_folder_again: true,
+                        overwritten: vec![new.clone()],
+                        moved: (!copy_as.strip)
+                            .then(|| (path.clone(), new.clone()))
+                            .into_iter()
+                            .collect(),
+                        is_copy: true,
+                        ..Default::default()
+                    });
+                    crate::support::threads::Told::Notice(tf!("Saved {file}", file = new.display()))
+                }
+                Err(e) => crate::support::threads::Told::FailedWrite(tf!(
+                    "Could not save the image: {e}",
+                    e
+                )),
+            })
         });
     }
 }
@@ -320,5 +332,30 @@ fn format_name(f: Format) -> &'static str {
         Format::Png => "PNG",
         Format::WebP => tr("WebP, lossless"),
         Format::WebPLossy => tr("WebP, lossy"),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    /// Save As does not save a copy of a photo that took the name of the image shown while its
+    /// dialog and the chooser were open, and tells why.
+    #[test]
+    fn saves_only_the_image_picked() {
+        use crate::support::test_support::{app_on, contract_folder, run_background_until};
+        let dir = contract_folder("save-as-swapped");
+        let a = dir.join("a.png");
+        let picked = (a.clone(), crate::files::file_io::fingerprint(&a).unwrap());
+        let picked = crate::files::file_io::PickedFiles::recorded(vec![picked]);
+        std::fs::remove_file(&a).unwrap();
+        image::RgbImage::new(3, 3).save(&a).unwrap();
+        let (mut app, ctx) = app_on(&dir);
+        let (how, to) = (app.shown_copy(), dir.join("copy.png"));
+        app.save_as_to(&ctx, picked, how, (to.clone(), None));
+        assert!(run_background_until(&mut app, &ctx, |app| !app.working()
+            && app.notice.text().is_some()));
+        assert!(!to.exists());
+        let told = app.notice.text().unwrap_or_default().to_owned();
+        assert!(told.contains("changed"), "{told}");
+        std::fs::remove_dir_all(dir).unwrap();
     }
 }

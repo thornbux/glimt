@@ -3051,3 +3051,7 @@ msgstr "{file} bekommt keine Dateien: %f in Anführungszeichen ist nicht die Dat
 #: src/cli.rs
 msgid "Added formats and tools:"
 msgstr "Hinzugefügte Formate und Werkzeuge:"
+
+#: src/files/file_ops.rs
+msgid "Rename failed ({count}): {first}"
+msgstr "Umbenennen fehlgeschlagen ({count}): {first}"

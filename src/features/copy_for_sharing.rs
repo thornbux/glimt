@@ -4,7 +4,7 @@
 //! changed, and a name already in the folder is never written over.
 
 use crate::files::config::sharing_path;
-use crate::files::file_io::{create_file, edit_shared, save_failed, write_later};
+use crate::files::file_io::{PickedFiles, create_file, edit_shared, save_failed, write_later};
 use crate::files::file_ops::OperationReport;
 use crate::images::shared_copy::{Group, LeftOut, copy, tags_of};
 use crate::support::format::count;
@@ -20,9 +20,10 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-/// The Copy for Sharing dialog while it is open, for the images `paths`.
+/// The Copy for Sharing dialog while it is open, for the images `picked`, whose fingerprints are
+/// taken while it is open.
 pub(crate) struct SharingDialog {
-    paths: Vec<PathBuf>,
+    picked: PickedFiles,
     left_out: LeftOut,
     /// The tags found in the images, sorted, once every image has been read. Copy… waits for
     /// them, because the copies keep only tags the dialog showed.
@@ -52,7 +53,10 @@ impl SharingDialog {
     /// Draws the dialog's choices and buttons. Returns whether Copy… was pressed.
     fn draw(&mut self, ui: &mut egui::Ui) -> bool {
         let Some(found) = self.found.clone() else {
-            let (done, total) = (self.read_count.load(Ordering::Relaxed), self.paths.len());
+            let (done, total) = (
+                self.read_count.load(Ordering::Relaxed),
+                self.picked.paths().len(),
+            );
             ui.label(tf!("Reading the tags… {done} of {total}", done, total));
             ui.horizontal(|ui| {
                 let _ = button_enabled(ui, false, tr("Copy…"));
@@ -226,7 +230,7 @@ impl crate::App {
             ctx.request_repaint();
         });
         self.dialogs.show_sharing(SharingDialog {
-            paths,
+            picked: PickedFiles::new(paths),
             left_out: LeftOut::default(),
             found: None,
             reading: Receiving::of(rx),
@@ -247,43 +251,46 @@ impl crate::App {
         let mut go = false;
         let modal = egui::Modal::new(egui::Id::unique("copy for sharing")).show(ctx, |ui| {
             ui.strong(Action::CopyForSharing.label());
-            ui.label(count(dialog.paths.len(), "image"));
+            ui.label(count(dialog.picked.paths().len(), "image"));
             go = dialog.draw(ui);
         });
         if go {
             let found = dialog.found.unwrap_or_default();
             let kept = dialog.left_out.kept(&found);
             save_choice(dialog.left_out.text());
-            self.pick(ctx, true, Pick::CopyForSharing(dialog.paths, kept));
+            self.pick(ctx, true, Pick::CopyForSharing(dialog.picked, kept));
         } else if !modal.should_close() {
             self.dialogs.show_sharing(dialog);
         }
     }
 
-    /// Copies `paths` into `folder` in the background, each keeping the tags `kept` and what
-    /// every copy keeps (`shared_copy::copy`), as a job with progress and Stop. The originals
-    /// are held back while it runs, as a copy holds them (`transfer`): a Rename Many meanwhile
-    /// could hand one photo another photo's sidecar.
+    /// Copies the images `picked` into `folder` in the background, each keeping the tags `kept`
+    /// and what every copy keeps (`shared_copy::copy`), as a job with progress and Stop. The
+    /// originals are held back while it runs, as a copy holds them (`transfer`): a Rename Many
+    /// meanwhile could hand one photo another photo's sidecar. An image that is no longer the
+    /// one picked is not copied, and is told.
     pub(crate) fn copy_for_sharing(
         &mut self,
-        paths: Vec<PathBuf>,
+        picked: PickedFiles,
         folder: PathBuf,
         kept: HashSet<String>,
     ) {
         // The folder by its real path, looked up in the background as for a copy (`transfer`).
-        self.with_real_folder(folder, paths.clone(), move |app, ctx, folder, _| {
-            app.copy_for_sharing_into_real_folder(ctx, paths, folder, kept)
+        let paths = picked.paths().to_vec();
+        self.with_real_folder(folder, paths, move |app, ctx, folder, _| {
+            app.copy_for_sharing_into_real_folder(ctx, picked, folder, kept)
         });
     }
 
-    /// Copies `paths` into `folder`, by its real path, as `copy_for_sharing` says.
+    /// Copies the images `picked` into `folder`, by its real path, as `copy_for_sharing` says.
     fn copy_for_sharing_into_real_folder(
         &mut self,
         ctx: &egui::Context,
-        paths: Vec<PathBuf>,
+        picked: PickedFiles,
         folder: PathBuf,
         kept: HashSet<String>,
     ) {
+        let paths = picked.paths().to_vec();
         let Some(job) = self.start_job(tr("Copying"), paths.len(), paths.clone()) else {
             return;
         };
@@ -298,11 +305,16 @@ impl crate::App {
         let (ctx, pointer) = (ctx.clone(), Working::new(&self.busy));
         std::thread::spawn(move || {
             let mut outcome = SharingOutcome::default();
+            let (paths, picked) = picked.wait_for_fingerprints();
             for path in &paths {
                 if job.is_stopped() {
                     break;
                 }
-                outcome.copy_into(path, &folder, &kept);
+                // Another window or program may have given the name to another photo meanwhile.
+                match picked.still_the_one_picked(path) {
+                    Ok(()) => outcome.copy_into(path, &folder, &kept),
+                    Err(e) => outcome.errors.push(format!("{}: {e}", path.display())),
+                }
                 job.count_done(1);
             }
             let stopped = job.is_stopped().then(|| job.stopped_text());
@@ -334,6 +346,27 @@ fn save_choice(text: String) {
 
 #[cfg(test)]
 mod tests {
+    /// An image whose name another photo took while the dialog and the chooser were open is
+    /// not copied in its place, and the notice tells why.
+    #[test]
+    fn copies_only_the_images_picked() {
+        use crate::support::test_support::{app_on, contract_folder, run_background_until};
+        let dir = contract_folder("sharing-swapped");
+        let a = dir.join("a.png");
+        let picked = (a.clone(), crate::files::file_io::fingerprint(&a).unwrap());
+        let picked = crate::files::file_io::PickedFiles::recorded(vec![picked]);
+        std::fs::remove_file(&a).unwrap();
+        image::RgbImage::new(3, 3).save(&a).unwrap();
+        let (mut app, ctx) = app_on(&dir);
+        app.copy_for_sharing(picked, dir.join("sub"), Default::default());
+        assert!(run_background_until(&mut app, &ctx, |app| !app.working()
+            && app.notice.text().is_some()));
+        assert!(!dir.join("sub/a.png").exists());
+        let told = app.notice.text().unwrap_or_default().to_owned();
+        assert!(told.contains("changed"), "{told}");
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
     /// The notice at the end tells how many were copied where, and why the others were not.
     #[test]
     fn the_notice_says_what_was_not_copied() {

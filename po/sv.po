@@ -3051,3 +3051,7 @@ msgstr "{file} får inga filer: %f inom citattecken är inte filen. Skriv %f som
 #: src/cli.rs
 msgid "Added formats and tools:"
 msgstr "Tillagda format och verktyg:"
+
+#: src/files/file_ops.rs
+msgid "Rename failed ({count}): {first}"
+msgstr "Namnbyte misslyckades ({count}): {first}"

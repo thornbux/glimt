@@ -5,7 +5,7 @@ use crate::features::copy_for_sharing::SharingDialog;
 use crate::features::print::{PrintJob, PrintTo};
 use crate::files::config::xdg_dir;
 use crate::files::external::Login;
-use crate::files::file_io::{FileFingerprint, fingerprint};
+use crate::files::file_io::{FileFingerprint, PickedFiles, fingerprint};
 use crate::files::file_ops::{NOT_ON_FAT, OperationReport, fat_file_system_type};
 use crate::model::listing::pattern_name;
 use crate::support::format::count;
@@ -16,7 +16,6 @@ use eframe::egui;
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc;
-use std::time::Duration;
 
 /// How long the question to delete for good what the trash refused is on screen before Enter
 /// answers it. It opens by itself, when the folder has been read again, so an Enter pressed for
@@ -26,18 +25,6 @@ const ENTER_IGNORED_FOR: f64 = 0.5;
 /// The system's folder of colour profiles, where the file dialog for a profile starts when the
 /// user has none of their own.
 const SYSTEM_PROFILES: &str = "/usr/share/color/icc";
-
-/// How long Move To and Copy To wait, once the folder is picked, for each next fingerprint of
-/// the files picked. A file that a share has not answered about by then counts as changed.
-#[cfg(not(test))]
-const FINGERPRINT_WAIT: Duration = Duration::from_secs(5);
-#[cfg(test)]
-const FINGERPRINT_WAIT: Duration = Duration::from_millis(200);
-
-/// In a test, a file picked whose fingerprint never comes, as on a share that stopped
-/// answering, until the test takes it away.
-#[cfg(test)]
-static FINGERPRINT_STALLS: std::sync::Mutex<Option<PathBuf>> = std::sync::Mutex::new(None);
 
 /// In a test, the folder that the file chooser answers with, or `None` for Cancel. A test never
 /// opens a real chooser.
@@ -53,8 +40,8 @@ pub(crate) enum Pick {
     Recursive,
     /// Open a collection: the dialog starts in the collections folder.
     Collection,
-    CopyTo(Vec<PathBuf>),
-    MoveTo(Vec<PathBuf>),
+    CopyTo(PickedFiles),
+    MoveTo(PickedFiles),
     /// Where to save the PDF of these images.
     SavePdf(PrintJob),
     /// A folder for the sort manager.
@@ -71,17 +58,18 @@ pub(crate) enum Pick {
     /// showed it (.2).
     SaveFrame(PathBuf, usize, save::CopyAs),
     /// Save As: where to save the copy .1 of the file .0, starting at the name .2.
-    SaveAs(PathBuf, save::CopyAs, PathBuf),
+    SaveAs(PickedFiles, save::CopyAs, PathBuf),
     /// The folder for every frame (or page) of the file .0, as PNG files turned as the view
     /// showed it (.1).
     ExportFrames(PathBuf, save::CopyAs),
     /// Copy for Sharing: the folder for the copies of these images, which keep the tags named.
-    CopyForSharing(Vec<PathBuf>, std::collections::HashSet<String>),
+    CopyForSharing(PickedFiles, std::collections::HashSet<String>),
 }
 
-/// What a file dialog answers: the path picked, or `None` when it was cancelled, and the
-/// fingerprints that the files of a Move To or Copy To had when they were picked.
-type PickedPath = (Option<PathBuf>, Vec<Option<FileFingerprint>>);
+/// What a file dialog answers: the path picked, or `None` when it was cancelled. A name to save
+/// at comes with the fingerprint of the file there when it was picked, or `None` when nothing
+/// was there, so that the save replaces only the file the user let it replace.
+type PickedPath = (Option<PathBuf>, Option<FileFingerprint>);
 
 /// What the one-line text dialog is asking for.
 #[derive(Clone, Copy)]
@@ -109,25 +97,30 @@ pub(crate) enum Prompt {
 /// The files a dialog asks about, by their names in the list, where the list was, and how many
 /// selected files the search hid and the question leaves out. `App::ask_about_targets` makes it,
 /// and a dialog about files opens only with one. So no such dialog opens without the files its
-/// answer acts on.
+/// answer acts on. The files' fingerprints are taken while it is open (`picked`), so that the
+/// answer leaves alone a file that another has replaced meanwhile.
 pub(crate) struct Asked {
     opened_folder_hash: u64,
     names: Vec<OsString>,
     left_out: Option<String>,
+    picked: PickedFiles,
 }
 
 impl Asked {
     /// The files `names` asked about while the list showed what `opened_folder_hash` stands
     /// for, with `left_out`, the text that tells of the selected files the question leaves out.
+    /// `picked` are the same files by their paths.
     pub(crate) fn new(
         opened_folder_hash: u64,
         names: Vec<OsString>,
         left_out: Option<String>,
+        picked: PickedFiles,
     ) -> Asked {
         Asked {
             opened_folder_hash,
             names,
             left_out,
+            picked,
         }
     }
 }
@@ -158,6 +151,9 @@ pub(crate) struct Dialogs {
     /// in, or the collection file to rename. A script that opens another folder or collection
     /// while the dialog is open does not change it.
     folder_target: Option<PathBuf>,
+    /// The folder to rename or to trash, with its device and inode taken while the dialog is
+    /// open, so that the answer leaves alone another folder put at its path meanwhile.
+    picked_folder: Option<PickedFiles>,
     is_confirming_folder_trash: bool,
     /// The collection file whose move to the trash is being confirmed. It is kept from when
     /// Move Collection to Trash asked, so the answer acts on that collection.
@@ -280,9 +276,10 @@ impl Dialogs {
         self.asked.as_ref().map_or(&[], |asked| &asked.names)
     }
 
-    /// The files asked about, taken for the answer to act on.
-    pub(crate) fn take_asked(&mut self) -> (u64, Vec<OsString>) {
-        (self.asked.take()).map_or_else(Default::default, |a| (a.opened_folder_hash, a.names))
+    /// The files asked about, taken for the answer to act on: where the list was, their names
+    /// and the files picked. Returns `None` when no dialog asked about files.
+    pub(crate) fn take_asked(&mut self) -> Option<(u64, Vec<OsString>, PickedFiles)> {
+        (self.asked.take()).map(|a| (a.opened_folder_hash, a.names, a.picked))
     }
 
     /// Asks for a new name for the folder `dir`.
@@ -290,6 +287,7 @@ impl Dialogs {
         let name = dir.file_name().unwrap_or_default().to_string_lossy();
         self.ask(Prompt::RenameFolder, name.into_owned());
         self.folder_target = Some(dir.to_path_buf());
+        self.picked_folder = Some(PickedFiles::folder(dir.to_path_buf()));
     }
 
     /// Asks for the name of a new folder in the folder `dir`.
@@ -313,6 +311,7 @@ impl Dialogs {
     /// Asks whether to move the folder `dir` to the trash.
     pub(crate) fn ask_trash_folder(&mut self, dir: &Path) {
         self.folder_target = Some(dir.to_path_buf());
+        self.picked_folder = Some(PickedFiles::folder(dir.to_path_buf()));
         self.is_confirming_folder_trash = true;
     }
 
@@ -321,9 +320,17 @@ impl Dialogs {
         self.folder_target.take()
     }
 
+    /// The folder that the answer to rename or trash it acts on, taken with its device and inode
+    /// at the question. Returns `None` when no such question was asked.
+    pub(crate) fn take_picked_folder(&mut self) -> Option<PickedFiles> {
+        self.folder_target = None;
+        self.picked_folder.take()
+    }
+
     /// The folder an answer acts on, without a dialog, for a test of the answer alone.
     #[cfg(test)]
     pub(crate) fn act_on_folder(&mut self, dir: PathBuf) {
+        self.picked_folder = Some(PickedFiles::folder(dir.clone()));
         self.folder_target = Some(dir);
     }
 }
@@ -388,15 +395,6 @@ impl crate::App {
         let notices = self.notice_sender.clone();
         let make_start_first = matches!(purpose, Pick::Collection);
         let is_profile = matches!(purpose, Pick::ScreenProfile | Pick::InputProfile);
-        let picked_files = match &purpose {
-            Pick::CopyTo(paths) | Pick::MoveTo(paths) => paths.clone(),
-            _ => Vec::new(),
-        };
-        // The fingerprints are taken while the chooser is open. Taken before it, 500,000 files
-        // on a share kept it from opening for minutes, and one file that the share no longer
-        // answered about kept it from opening at all.
-        let picked_count = picked_files.len();
-        let fingerprints = fingerprints_in_background(picked_files);
         std::thread::spawn(move || {
             if make_start_first {
                 drop(std::fs::create_dir_all(&start));
@@ -418,15 +416,14 @@ impl crate::App {
                     Some(PathBuf::from(std::ffi::OsString::from_vec(o.stdout)))
                 }
             };
-            // A file whose fingerprint did not come in time counts as changed, so that a file
-            // whose name another one took meanwhile is not moved or copied in its place.
-            // The busy pointer is on while the user waits for them, once the folder is picked.
-            let at_pick = match picked {
-                Some(_) => {
+            // What is at a name to save at, which the chooser asked to replace. The save
+            // replaces only that file, or, when nothing was there, never a file that came since.
+            let at_pick = match &picked {
+                Some(path) if save => {
                     let _pointer = Working::new(&busy);
-                    fingerprints_taken(fingerprints, picked_count, FINGERPRINT_WAIT)
+                    fingerprint(path)
                 }
-                None => Vec::new(),
+                _ => None,
             };
             let _ = tx.send((picked, at_pick));
             ctx.request_repaint();
@@ -560,13 +557,11 @@ impl crate::App {
                         .collect();
                     self.open_folders(ctx, all);
                 }
-                (Pick::CopyTo(paths), Some(dest)) => {
-                    self.transfer(paths, dest, true, Some(at_pick))
+                (Pick::CopyTo(picked), Some(dest)) => self.transfer(picked, dest, true),
+                (Pick::MoveTo(picked), Some(dest)) => self.transfer(picked, dest, false),
+                (Pick::SavePdf(job), Some(file)) => {
+                    self.print(ctx, job, PrintTo::File(file, at_pick))
                 }
-                (Pick::MoveTo(paths), Some(dest)) => {
-                    self.transfer(paths, dest, false, Some(at_pick))
-                }
-                (Pick::SavePdf(job), Some(file)) => self.print(ctx, job, PrintTo::File(file)),
                 (Pick::SortFolder, Some(dir)) => self.add_sort_folder(dir),
                 (Pick::ScreenProfile, Some(file)) => {
                     self.set_screen_profile(ctx, file.to_string_lossy().into_owned())
@@ -577,14 +572,16 @@ impl crate::App {
                 (Pick::Lightroom, Some(file)) => self.read_lightroom(ctx, file),
                 (Pick::BackUp, Some(dir)) => self.back_up(ctx, dir),
                 (Pick::SaveFrame(path, k, how), Some(file)) => {
-                    self.export_frames(ctx, path, Some(k), file, how)
+                    self.export_frames(ctx, path, Some(k), (file, at_pick), how)
                 }
                 (Pick::ExportFrames(path, how), Some(dir)) => {
-                    self.export_frames(ctx, path, None, dir, how)
+                    self.export_frames(ctx, path, None, (dir, None), how)
                 }
-                (Pick::SaveAs(path, how, _), Some(to)) => self.save_as_to(ctx, path, how, to),
-                (Pick::CopyForSharing(paths, kept), Some(dir)) => {
-                    self.copy_for_sharing(paths, dir, kept)
+                (Pick::SaveAs(picked, how, _), Some(to)) => {
+                    self.save_as_to(ctx, picked, how, (to, at_pick))
+                }
+                (Pick::CopyForSharing(picked, kept), Some(dir)) => {
+                    self.copy_for_sharing(picked, dir, kept)
                 }
             }
         }
@@ -751,7 +748,7 @@ impl crate::App {
         }
         if let Prompt::NewCollection = prompt {
             // The images it asked about, wherever a refresh put them, not the selection now.
-            let Some(found) = self.asked_targets() else {
+            let Some((found, _)) = self.asked_targets() else {
                 return;
             };
             if !self.select_for_action(ctx, found.into_iter().collect()) {
@@ -773,8 +770,10 @@ impl crate::App {
         if let Prompt::RenameFolder = prompt {
             return self.rename_folder(ctx, text);
         }
+        // The files asked about, with their fingerprints taken while the dialog was open.
+        let mut picked = None;
         if matches!(prompt, Prompt::Rename | Prompt::RenameMany) {
-            let Some(found) = self.asked_targets() else {
+            let Some((found, asked)) = self.asked_targets() else {
                 return;
             };
             match prompt {
@@ -782,6 +781,7 @@ impl crate::App {
                 _ if !self.select_for_action(ctx, found.into_iter().collect()) => return,
                 _ => {}
             }
+            picked = Some(asked);
         }
         if matches!(prompt, Prompt::Rename)
             && !self.list.files().is_empty()
@@ -819,7 +819,11 @@ impl crate::App {
             }
             Prompt::Rename if self.list.files().is_empty() => {}
             Prompt::Rename if target == self.path(self.list.shown()) => {}
-            Prompt::RenameMany => self.rename_many(ctx, text),
+            Prompt::RenameMany => {
+                if let Some(picked) = picked {
+                    self.rename_many(ctx, text, picked);
+                }
+            }
             Prompt::NewCollection
             | Prompt::RenameCollection
             | Prompt::SaveTheme
@@ -829,7 +833,10 @@ impl crate::App {
             // As Rename Many: in its thread, never over a file or another file's sidecar
             // there; `renamed` puts the list right.
             Prompt::Rename => {
-                self.rename_in_background(ctx, vec![self.path(self.list.shown())], vec![target]);
+                if let Some(picked) = picked {
+                    let from = vec![self.path(self.list.shown())];
+                    self.rename_in_background(ctx, from, vec![target], picked);
+                }
             }
         }
     }
@@ -1010,8 +1017,8 @@ impl crate::App {
             }
             if delete {
                 self.dialogs.confirm_delete = None;
-                if let Some(targets) = self.asked_targets() {
-                    self.delete_now(ctx, trash, targets);
+                if let Some((targets, picked)) = self.asked_targets() {
+                    self.delete_now(ctx, trash, targets, picked);
                 }
             } else if modal.should_close() {
                 self.dialogs.confirm_delete = None;
@@ -1237,56 +1244,6 @@ fn fat_warning(name: &std::ffi::OsStr, fat: Option<&str>) -> Option<String> {
     ))
 }
 
-/// Takes the fingerprints of `paths`, in their order, in a thread of its own. Returns the channel
-/// they come through. It shows no busy pointer while the chooser is open, as the user does not
-/// wait for it then, and a file on a share that stopped answering would keep it on for good.
-fn fingerprints_in_background(paths: Vec<PathBuf>) -> mpsc::Receiver<Option<FileFingerprint>> {
-    let (tx, rx) = mpsc::channel();
-    std::thread::spawn(move || {
-        for path in paths {
-            // Once nobody waits for them, the rest are not taken.
-            if tx.send(picked_fingerprint(&path)).is_err() {
-                break;
-            }
-        }
-    });
-    rx
-}
-
-/// Returns the fingerprint of the file at `path`, picked for Move To or Copy To, or `None` when
-/// nothing is there.
-fn picked_fingerprint(path: &Path) -> Option<FileFingerprint> {
-    #[cfg(test)]
-    loop {
-        let stalls = crate::support::threads::lock_even_if_poisoned(&FINGERPRINT_STALLS).as_deref()
-            == Some(path);
-        if !stalls {
-            break;
-        }
-        std::thread::sleep(Duration::from_millis(10));
-    }
-    fingerprint(path)
-}
-
-/// Collects the `count` fingerprints that `fingerprints_in_background` sends, waiting at most
-/// `wait` for each next one. Returns them in order, with `None` for each that did not come in
-/// time, which a move or copy then refuses as changed.
-fn fingerprints_taken(
-    fingerprints: mpsc::Receiver<Option<FileFingerprint>>,
-    count: usize,
-    wait: Duration,
-) -> Vec<Option<FileFingerprint>> {
-    let mut taken = Vec::with_capacity(count);
-    while taken.len() < count {
-        match fingerprints.recv_timeout(wait) {
-            Ok(fingerprint) => taken.push(fingerprint),
-            Err(_) => break,
-        }
-    }
-    taken.resize(count, None);
-    taken
-}
-
 /// Runs zenity's file chooser, or kdialog's where zenity is missing, titled `title` and
 /// starting at `start`, to save a file, pick a folder or pick several, and waits for it.
 #[cfg(not(test))]
@@ -1364,7 +1321,8 @@ mod tests {
     /// told, and a file looked at in time goes.
     #[test]
     fn the_chooser_opens_while_a_picked_file_cannot_be_looked_at() {
-        use super::{CHOOSER_PICKS, FINGERPRINT_STALLS, Pick};
+        use super::{CHOOSER_PICKS, Pick};
+        use crate::files::file_io::{FINGERPRINT_STALLS, PickedFiles};
         use crate::support::test_support::run_background_until;
         use crate::support::threads::lock_even_if_poisoned;
         let dir =
@@ -1378,16 +1336,18 @@ mod tests {
         let (mut app, ctx) = app_on(&dir);
         *lock_even_if_poisoned(&CHOOSER_PICKS) = Some(dir.join("sub"));
         *lock_even_if_poisoned(&FINGERPRINT_STALLS) = Some(a.clone());
-        app.pick(&ctx, true, Pick::MoveTo(vec![a.clone(), b.clone()]));
+        let picked = PickedFiles::new(vec![a.clone(), b.clone()]);
+        app.pick(&ctx, true, Pick::MoveTo(picked));
         let answered =
             run_background_until(&mut app, &ctx, |app| app.dialogs.file_dialog.is_none());
-        *lock_even_if_poisoned(&FINGERPRINT_STALLS) = None;
         assert!(answered, "the chooser's answer never came");
-        assert!(run_background_until(&mut app, &ctx, |app| !app.working()));
+        let done = run_background_until(&mut app, &ctx, |app| !app.working());
+        *lock_even_if_poisoned(&FINGERPRINT_STALLS) = None;
+        assert!(done);
         assert!(a.exists() && b.exists());
         let told = app.notice.text().unwrap_or_default().to_owned();
         assert!(told.contains("changed"), "{told}");
-        app.pick(&ctx, true, Pick::MoveTo(vec![b.clone()]));
+        app.pick(&ctx, true, Pick::MoveTo(PickedFiles::new(vec![b.clone()])));
         assert!(run_background_until(&mut app, &ctx, |app| {
             app.dialogs.file_dialog.is_none() && !app.working() && !b.exists()
         }));
@@ -1536,7 +1496,8 @@ mod tests {
         let (mut app, ctx) = app_on(&dir);
         // Only whether the dialog answers is tested here: what it then deletes is
         // file_ops.rs's `asks_to_delete_for_good_what_the_trash_refused_on_a_network_mount`.
-        let asked = super::Asked::new(0, vec!["a.png".into()], None);
+        let none = crate::files::file_io::PickedFiles::new(Vec::new());
+        let asked = super::Asked::new(0, vec!["a.png".into()], None, none);
         app.dialogs
             .confirm_delete_instead(asked, "fuse.rclone".into());
         // Each key is (pressed, repeat). egui takes a press of a key that is down as a repeat.
@@ -1824,7 +1785,7 @@ mod tests {
         app.request_delete(&ctx, true);
         app.list.select([1, 2].into());
         assert_eq!(app.delete_dialog_subject(), "\"a.png\"");
-        assert_eq!(app.asked_targets(), Some(vec![0]));
+        assert_eq!(app.asked_targets().map(|(found, _)| found), Some(vec![0]));
         std::fs::remove_dir_all(&dir).unwrap();
     }
 

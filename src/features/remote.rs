@@ -2134,7 +2134,8 @@ mod tests {
         // Nor a script's action while a dialog asks the user: the Rename prompt stays.
         app.remote_command(&ctx, "run First").unwrap();
         assert_eq!(app.list.shown(), 0);
-        let asked = crate::ui::dialogs::Asked::new(0, vec!["a.png".into()], None);
+        let none = crate::files::file_io::PickedFiles::new(Vec::new());
+        let asked = crate::ui::dialogs::Asked::new(0, vec!["a.png".into()], None, none);
         let rename = crate::ui::dialogs::Prompt::Rename;
         app.dialogs.ask_about(asked, rename, "a.png".into());
         app.remote_command(&ctx, "run WindowTitle").unwrap_err();
@@ -2412,7 +2413,8 @@ mod tests {
             let why = super::not_done_reason(&answer(&mut app, command));
             assert!(why.is_some_and(|w| !w.is_empty()), "{command}");
         }
-        let asked = crate::ui::dialogs::Asked::new(0, vec!["a.png".into()], None);
+        let none = crate::files::file_io::PickedFiles::new(Vec::new());
+        let asked = crate::ui::dialogs::Asked::new(0, vec!["a.png".into()], None, none);
         app.dialogs
             .ask_about(asked, crate::ui::dialogs::Prompt::Rename, "a.png".into());
         let refused = answer(&mut app, "run First");

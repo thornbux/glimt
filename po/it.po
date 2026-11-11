@@ -3051,3 +3051,7 @@ msgstr "{file} non riceve alcun file: %f tra virgolette non è il file. Scrivi %
 #: src/cli.rs
 msgid "Added formats and tools:"
 msgstr "Formati aggiunti e strumenti:"
+
+#: src/files/file_ops.rs
+msgid "Rename failed ({count}): {first}"
+msgstr "Rinomina non riuscita ({count}): {first}"

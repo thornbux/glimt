@@ -3072,3 +3072,7 @@ msgstr ""
 #: src/cli.rs
 msgid "Added formats and tools:"
 msgstr ""
+
+#: src/files/file_ops.rs
+msgid "Rename failed ({count}): {first}"
+msgstr ""

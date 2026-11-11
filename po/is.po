@@ -3051,3 +3051,7 @@ msgstr "{file} fær engar skrár: %f innan gæsalappa er ekki skráin. Skrifaðu
 #: src/cli.rs
 msgid "Added formats and tools:"
 msgstr "Viðbætt snið og verkfæri:"
+
+#: src/files/file_ops.rs
+msgid "Rename failed ({count}): {first}"
+msgstr "Endurnefning mistókst ({count}): {first}"
