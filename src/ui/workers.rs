@@ -320,11 +320,55 @@ mod tests {
         let remote = body_of(include_str!("../features/remote.rs"), "receive_remote");
         assert!(remote.contains("self.receive_answers(ctx);"));
         let poll = body_of(include_str!("workers.rs"), "poll_background");
-        let taken: Vec<&str> = (poll.lines())
-            .filter(|l| l.contains(".receive") || l.contains("try_recv") || l.contains(".take()"))
-            .collect();
-        assert_eq!(taken, ["        self.receive_answers(ctx);"]);
+        assert_eq!(
+            answers_taken_in(&poll),
+            ["        self.receive_answers(ctx);"]
+        );
         std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// The check above finds an answer taken in each way a `Receiving` gives one, and through a
+    /// `take_` method of a part, but not the takes that need the frame.
+    #[test]
+    fn finds_every_spelling_of_an_answer_taken() {
+        let body = "self.a.receive(x);\nlet b = self.b.latest();\nself.c.wait(t);\n\
+            while let Some(d) = self.d.next() {}\nlet e = self.e.take_answer();\n\
+            if let Some(i) = self.f.take_image() {}\nif self.g.take_list_is_old() {}\n";
+        assert_eq!(
+            answers_taken_in(body),
+            [
+                "self.a.receive(x);",
+                "let b = self.b.latest();",
+                "self.c.wait(t);",
+                "while let Some(d) = self.d.next() {}",
+                "let e = self.e.take_answer();",
+            ]
+        );
+    }
+
+    /// Returns the lines of `body` that take an answer of background work. The takes that need
+    /// the frame are left out: the clipboard's image, a listing started for a list gone old,
+    /// the folders opened together, and the failed writes shown last.
+    fn answers_taken_in(body: &str) -> Vec<&str> {
+        const TAKES: [&str; 7] = [
+            ".receive",
+            "try_recv",
+            ".take()",
+            ".latest()",
+            ".wait(",
+            ".next()",
+            ".take_",
+        ];
+        const THE_FRAMES_OWN: [&str; 4] = [
+            ".take_image()",
+            ".take_list_is_old()",
+            ".take_together()",
+            ".take_failed_writes_to_show()",
+        ];
+        (body.lines())
+            .filter(|l| TAKES.iter().any(|take| l.contains(take)))
+            .filter(|l| !THE_FRAMES_OWN.iter().any(|own| l.contains(own)))
+            .collect()
     }
 
     /// A failed write stays on screen when another notice comes in the same frame. Before, the
