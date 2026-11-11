@@ -9,7 +9,7 @@ use crate::model::list::LoadedImage;
 use crate::support::format::fill_template;
 use crate::support::lang::tr;
 use crate::support::test_hooks::noted;
-use crate::support::threads::lock_even_if_poisoned;
+use crate::support::threads::{STUCK_AFTER, lock_even_if_poisoned};
 use crate::ui::actions::{Action, KIOSK_ACTIONS};
 use crate::ui::menus::{checkbox, menu_item, scroll_menu, with_icon};
 use crate::viewer::crop::Crop;
@@ -1944,8 +1944,9 @@ pub(crate) fn layout_grid(layout: &str) -> [usize; 2] {
         .map_or([1, 1], |l| l.2)
 }
 
-/// Starts the decode workers, `workers` threads that take jobs and send back what they decoded.
-/// They skip images the list has moved past (`kept_images`).
+/// Starts the decode workers, `workers` threads that take jobs and send back what they decoded,
+/// in a pool that replaces a worker stuck on a share that stopped answering. They skip images
+/// the list has moved past (`kept_images`).
 pub(crate) fn spawn_decoders(
     ctx: &egui::Context,
     workers: usize,
@@ -1955,83 +1956,77 @@ pub(crate) fn spawn_decoders(
 ) -> (mpsc::Sender<DecodeJob>, mpsc::Receiver<Decoded>) {
     let (jobs, job_rx) = mpsc::channel::<DecodeJob>();
     let (done_tx, done) = mpsc::channel();
-    let job_rx = Arc::new(Mutex::new(job_rx));
-    for _ in 0..workers {
-        let (kept_images, full_resolution_count, auto_rotate, job_rx, done_tx, ctx) = (
-            kept_images.clone(),
-            full_resolution_count.clone(),
-            auto_rotate.clone(),
-            job_rx.clone(),
-            done_tx.clone(),
-            ctx.clone(),
-        );
-        // No busy pointer: a decode worker, which lasts as long as the window. The
-        // shown image's decode shows the pointer through `working`.
-        std::thread::spawn(move || {
-            loop {
-                let Ok(DecodeJob {
-                    index,
-                    full_resolution,
-                    path,
-                    page,
-                    request_number,
-                    max_box,
-                }) = lock_even_if_poisoned(&job_rx).recv()
-                else {
-                    return;
-                };
-                // This cancels work, skipping images the user has already moved past.
-                let (wanted, is_shown) = {
-                    let w = lock_even_if_poisoned(&kept_images);
-                    let n = full_resolution_count.load(Ordering::Relaxed);
-                    let wanted = w.contains(&index)
-                        && (!full_resolution || w.iter().take(n).any(|&i| i == index));
-                    (wanted, w.first() == Some(&index))
-                };
-                // The shown image takes its bytes of the decodes' budget before the thumbnails
-                // and the images read ahead.
-                crate::images::decode::let_this_thread_go_first(is_shown);
-                if !wanted {
-                    let _ = done_tx.send(Decoded {
-                        rotated: false,
-                        path,
-                        page,
-                        request_number,
-                        result: None,
-                        read: None,
-                    });
-                    continue;
-                }
-                let rotated = auto_rotate.load(Ordering::Relaxed);
-                let read = crate::files::file_io::fingerprint(&path);
-                // The histogram here too, so the UI thread never walks the pixels.
-                let result = Some(
-                    catch_panic_as_error(|| decode(&path, max_box, rotated, page)).map(
-                        |(frames, orig, pages)| {
-                            let hist = histogram(&frames[0].0);
-                            (frames, orig, hist, pages)
-                        },
-                    ),
-                );
+    let (kept_images, full_resolution_count, auto_rotate, ctx) = (
+        kept_images.clone(),
+        full_resolution_count.clone(),
+        auto_rotate.clone(),
+        ctx.clone(),
+    );
+    crate::support::threads::spawn_worker_pool(
+        workers,
+        STUCK_AFTER,
+        job_rx,
+        |_| {},
+        move |job: DecodeJob| {
+            let DecodeJob {
+                index,
+                full_resolution,
+                path,
+                page,
+                request_number,
+                max_box,
+            } = job;
+            // This cancels work, skipping images the user has already moved past.
+            let (wanted, is_shown) = {
+                let w = lock_even_if_poisoned(&kept_images);
+                let n = full_resolution_count.load(Ordering::Relaxed);
+                let wanted = w.contains(&index)
+                    && (!full_resolution || w.iter().take(n).any(|&i| i == index));
+                (wanted, w.first() == Some(&index))
+            };
+            // The shown image takes its bytes of the decodes' budget before the thumbnails
+            // and the images read ahead.
+            crate::images::decode::let_this_thread_go_first(is_shown);
+            if !wanted {
                 let _ = done_tx.send(Decoded {
-                    rotated,
+                    rotated: false,
                     path,
                     page,
                     request_number,
-                    result,
-                    read,
+                    result: None,
+                    read: None,
                 });
-                #[allow(unsafe_code)]
-                // glibc does not return freed memory from the threads' malloc arenas on its own,
-                // and decoding leaves several image-sized buffers in each thread.
-                // SAFETY: malloc_trim has no preconditions beyond a working glibc malloc.
-                unsafe {
-                    libc::malloc_trim(0)
-                };
-                ctx.request_repaint();
+                return;
             }
-        });
-    }
+            let rotated = auto_rotate.load(Ordering::Relaxed);
+            let read = crate::files::file_io::fingerprint(&path);
+            // The histogram here too, so the UI thread never walks the pixels.
+            let result = Some(
+                catch_panic_as_error(|| decode(&path, max_box, rotated, page)).map(
+                    |(frames, orig, pages)| {
+                        let hist = histogram(&frames[0].0);
+                        (frames, orig, hist, pages)
+                    },
+                ),
+            );
+            let _ = done_tx.send(Decoded {
+                rotated,
+                path,
+                page,
+                request_number,
+                result,
+                read,
+            });
+            #[allow(unsafe_code)]
+            // glibc does not return freed memory from the threads' malloc arenas on its own,
+            // and decoding leaves several image-sized buffers in each thread.
+            // SAFETY: malloc_trim has no preconditions beyond a working glibc malloc.
+            unsafe {
+                libc::malloc_trim(0)
+            };
+            ctx.request_repaint();
+        },
+    );
     (jobs, done)
 }
 

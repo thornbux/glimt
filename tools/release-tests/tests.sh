@@ -85,7 +85,9 @@ if [ "$(id -u)" = 0 ]; then
     # that name from a cache for 30 seconds, as a share whose reply was lost does (NFS, SMB,
     # sshfs). Its read of a file named bad-* fails past the first 256 KiB while /tmp/lossy-eio
     # is there. It writes each EIO it gives to /tmp/lossyfs.log, so that a check knows that the
-    # fault did happen. All three need --privileged, which run.sh gives the parts with these
+    # fault did happen. A look at a path, an open, a read or a statfs that starts with a line of
+    # /tmp/lossy-stall (such as /stall-view) waits while that line is there, as on a share that
+    # stopped answering. All three need --privileged, which run.sh gives the parts with these
     # checks; without it those checks fail.
     if grep -q '^faults=[y]es' "${SCRIPT:-/t/tests.sh}"; then
         mkdir -p /mnt/full /mnt/disk /mnt/lossy /opt/lossy && chown tester: /opt/lossy
@@ -116,11 +118,25 @@ class Lossy(Operations):
     def r(self, path):
         return self.root + path
 
+    def stall(self, path):
+        # Waits while a line of /tmp/lossy-stall starts the path. fusepy serves each call in a
+        # thread of its own, so the other paths still answer.
+        while True:
+            try:
+                with open("/tmp/lossy-stall") as f:
+                    stalled = [line.strip() for line in f if line.strip()]
+            except OSError:
+                return
+            if not any(path.startswith(line) for line in stalled):
+                return
+            time.sleep(0.2)
+
     def owned(self, path):
         uid, gid, _ = fuse_get_context()
         os.lchown(self.r(path), uid, gid)
 
     def getattr(self, path, fh=None):
+        self.stall(path)
         ghost = self.ghosts.get(path)
         if ghost and ghost[1] > time.time():
             return ghost[0]
@@ -156,9 +172,11 @@ class Lossy(Operations):
         self.owned(path)
 
     def open(self, path, flags):
+        self.stall(path)
         return os.open(self.r(path), flags)
 
     def read(self, path, size, offset, fh):
+        self.stall(path)
         # A read of bad-* past its first 256 KiB fails while /tmp/lossy-eio is there, as on a
         # disk with a bad sector, so that a check can show the image first and then fail a copy.
         if (offset + size > 262144 and os.path.basename(path).startswith("bad-")
@@ -186,6 +204,7 @@ class Lossy(Operations):
         return [".", ".."] + os.listdir(self.r(path))
 
     def readlink(self, path):
+        self.stall(path)
         return os.readlink(self.r(path))
 
     def rmdir(self, path):
@@ -201,6 +220,7 @@ class Lossy(Operations):
         os.utime(self.r(path), times, follow_symlinks=False)
 
     def statfs(self, path):
+        self.stall(path)
         st = os.statvfs(self.r(path))
         return {k: getattr(st, k) for k in STATFS}
 
@@ -5561,6 +5581,54 @@ else
             else note "old, $op: $got (EIO answered $eio times)"; fi
             rm -rf $back $to
         done
+    done
+fi
+
+section "a share that stops answering: the image after it is decoded, the info panel shows its own EXIF"
+# STALL-1. lossyfs holds every look at and read of /stall-view-* while /tmp/lossy-stall names
+# it. Links to images there hold the decode worker, the thumbnail worker and the info panel's
+# reader in turn. Each is given up after ten seconds and another worker takes its place, so a
+# local image shown after them is decoded and its own EXIF read. 0.81 waited for good, and its
+# panel showed the EXIF of the image before the stalled ones under every later name.
+faults=yes
+if ! grep -q " $lossy fuse" /proc/mounts; then
+    fail "no FUSE file system at $lossy: run.sh's containers need --privileged for /dev/fuse"
+else
+    for v in new old; do
+        as_version $v
+        d=/tmp/stall-view-$v back=/opt/lossy/stall-view-$v
+        rm -rf $d $back; mkdir -p $d $back
+        convert -size 1600x1200 xc:blue $d/a.jpg
+        convert -size 1600x1200 xc:red $d/z.jpg
+        exiftool -q -q -overwrite_original -GPSLatitude=59.9 -GPSLatitudeRef=N \
+            -GPSLongitude=10.75 -GPSLongitudeRef=E $d/a.jpg
+        exiftool -q -q -overwrite_original -GPSLatitude=40.5 -GPSLatitudeRef=N \
+            -GPSLongitude=20.25 -GPSLongitudeRef=E $d/z.jpg
+        for k in 1 2 3 4 5 6 7 8; do
+            convert -size 400x300 xc:lime $back/c$k.png
+            ln -s $lossy/stall-view-$v/c$k.png $d/c$k.png
+        done
+        config decode_threads=1 preload=1 info_panel=true
+        start $d/a.jpg
+        gps() { remote info $1 | sed -n 's/^exif.gps\t//p'; }
+        gps_a=$(gps $d/a.jpg) gps_z=$(gps $d/z.jpg)
+        until_ok "[ -n \"\$(where '$gps_a')\" ]"; control=$?
+        echo /stall-view-$v >/tmp/lossy-stall
+        remote select $d/c4.png >/dev/null; sleep 2
+        remote select $d/z.jpg >/dev/null
+        until_ok "[ -n \"\$(where '$gps_z')\" ]" 30; own=$?
+        sleep 1; shot stall-view-$v
+        got="$([ $own = 0 ] && echo "z's EXIF") $(colour stall-view-$v 500 400)"
+        got="$got ${gps_a:+$(where "$gps_a")}"
+        rm -f /tmp/lossy-stall
+        quit
+        if [ $v = new ]; then
+            expect "the control: GPS values read, a's shown in the panel" \
+                "$control $([ -n "$gps_a" ] && [ -n "$gps_z" ] && echo both)" "0 both"
+            expect "after images that stall: z decoded, its own EXIF shown, none of a's" \
+                "$got" "z's EXIF red "
+        else note "old: $got"; fi
+        rm -rf $d $back
     done
 fi
 

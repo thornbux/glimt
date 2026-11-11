@@ -15,6 +15,16 @@ pub(crate) static CPU_CHANGED: (Mutex<()>, std::sync::Condvar) =
 /// Glimt runs with one malloc arena (`one_malloc_arena`): set at startup.
 pub(crate) static HAS_ONE_MALLOC_ARENA: AtomicBool = AtomicBool::new(false);
 
+/// How long a worker of a pool may take over one job before the pool gives it up and starts
+/// another worker in its place (`spawn_worker_pool`). A read from a share that stopped
+/// answering waits for ever, and a large image on a slow share is read within this.
+pub(crate) const STUCK_AFTER: std::time::Duration = std::time::Duration::from_secs(10);
+
+/// The most workers of one pool that are given up and still stuck at the same time.
+/// shortcut: past this, a stuck worker is not replaced and the pool waits as it did before 0.82;
+/// raise it when a share that stalls for good meets more files at once than this.
+const MOST_STUCK: usize = 32;
+
 /// In a test, the files at which work panics where it calls `panic_in_a_test_at`, as a file
 /// that breaks a parser would. Each test names files of its own, so the tests that run beside
 /// it never meet them.
@@ -176,6 +186,23 @@ impl<T> AnswerSender<T> {
     }
 }
 
+/// When the worker in each place of a pool started the job it does, `None` while it waits for a
+/// job. A worker given up leaves its place to a new worker with a new `JobStart`, and ends once
+/// its job returns, when it finds that its place is no longer its own.
+type JobStart = Arc<Mutex<Option<std::time::Instant>>>;
+
+/// What the workers of a pool share (`spawn_worker_pool`).
+struct WorkerPool<J> {
+    jobs: Mutex<mpsc::Receiver<J>>,
+    /// The `JobStart` of the worker that has each place now.
+    places: Mutex<Vec<JobStart>>,
+    /// How many workers are given up and still stuck in their job.
+    stuck: AtomicUsize,
+    /// Waits until the place, by its number, may take a job.
+    wait_for_turn: Box<dyn Fn(usize) + Send + Sync>,
+    work: Box<dyn Fn(J) + Send + Sync>,
+}
+
 /// What a background thread tells the window through a `NoticeSender`.
 #[derive(Debug, PartialEq)]
 pub(crate) enum Told {
@@ -230,6 +257,84 @@ pub(crate) fn answer_channel<T>(
     let (tx, rx) = mpsc::channel();
     let busy = busy.clone();
     (AnswerSender { tx, busy }, rx)
+}
+
+/// Starts `places` workers that take the jobs of `jobs` and do each with `work`, until the
+/// sending half is gone. A worker waits with `wait_for_turn`, given the number of its place,
+/// before it takes each job. A worker whose job takes longer than `stuck_after` (a read from a
+/// share that stopped answering) is given up: another worker takes its place and the jobs after
+/// it, and the stuck one ends when its job returns. Before, a few files on such a share held
+/// every worker for good, and no other image or thumbnail was decoded until a restart.
+pub(crate) fn spawn_worker_pool<J: Send + 'static>(
+    places: usize,
+    stuck_after: std::time::Duration,
+    jobs: mpsc::Receiver<J>,
+    wait_for_turn: impl Fn(usize) + Send + Sync + 'static,
+    work: impl Fn(J) + Send + Sync + 'static,
+) {
+    let starts: Vec<JobStart> = (0..places).map(|_| JobStart::default()).collect();
+    let pool = Arc::new(WorkerPool {
+        jobs: Mutex::new(jobs),
+        places: Mutex::new(starts.clone()),
+        stuck: AtomicUsize::new(0),
+        wait_for_turn: Box::new(wait_for_turn),
+        work: Box::new(work),
+    });
+    for (place, start) in starts.into_iter().enumerate() {
+        start_worker(&pool, place, start);
+    }
+    let pool = Arc::downgrade(&pool);
+    // No busy pointer: the watch over a pool's workers, which only starts workers. It ends
+    // with the pool, once its workers have ended.
+    std::thread::spawn(move || {
+        loop {
+            std::thread::sleep(stuck_after / 4);
+            let Some(pool) = pool.upgrade() else {
+                return;
+            };
+            replace_stuck_workers(&pool, stuck_after);
+        }
+    });
+}
+
+/// Gives up each worker of `pool` whose job has taken longer than `stuck_after`, and starts a
+/// new worker in its place, while fewer than `MOST_STUCK` are stuck.
+fn replace_stuck_workers<J: Send + 'static>(
+    pool: &Arc<WorkerPool<J>>,
+    stuck_after: std::time::Duration,
+) {
+    let mut places = lock_even_if_poisoned(&pool.places);
+    for (place, start) in places.iter_mut().enumerate() {
+        let is_stuck = (lock_even_if_poisoned(start).as_ref())
+            .is_some_and(|started| started.elapsed() >= stuck_after);
+        if is_stuck && pool.stuck.load(Ordering::Relaxed) < MOST_STUCK {
+            pool.stuck.fetch_add(1, Ordering::Relaxed);
+            *start = JobStart::default();
+            start_worker(pool, place, start.clone());
+        }
+    }
+}
+
+/// Starts the worker of `pool` in place `place`, which notes when it starts each job in `start`.
+fn start_worker<J: Send + 'static>(pool: &Arc<WorkerPool<J>>, place: usize, start: JobStart) {
+    let pool = pool.clone();
+    // No busy pointer: a worker of a pool, which lasts as long as the window. Each answer is
+    // shown when it comes.
+    std::thread::spawn(move || {
+        loop {
+            (pool.wait_for_turn)(place);
+            let Ok(job) = lock_even_if_poisoned(&pool.jobs).recv() else {
+                return;
+            };
+            *lock_even_if_poisoned(&start) = Some(std::time::Instant::now());
+            (pool.work)(job);
+            *lock_even_if_poisoned(&start) = None;
+            if !Arc::ptr_eq(&lock_even_if_poisoned(&pool.places)[place], &start) {
+                pool.stuck.fetch_sub(1, Ordering::Relaxed);
+                return;
+            }
+        }
+    });
 }
 
 pub(crate) fn set_cpu_use(level: usize) {
@@ -449,6 +554,37 @@ mod tests {
         assert!(matches!(rx.latest(), Took::Answer(3)));
         assert!(matches!(rx.latest(), Took::Gone) && rx.is_none());
         assert!(matches!(rx.latest(), Took::Nothing));
+    }
+
+    /// A worker stuck in a job (a read from a share that stopped answering) is given up, and
+    /// the jobs after it are done by another worker in its place. The stuck one ends when its
+    /// job returns, and its answer still comes. Before, the one worker held the pool for good.
+    #[test]
+    fn a_stuck_worker_is_replaced() {
+        use std::time::Duration;
+        let (jobs, rx) = std::sync::mpsc::channel::<u8>();
+        let (done_tx, done) = std::sync::mpsc::channel();
+        let (release, held) = std::sync::mpsc::channel::<()>();
+        let held = std::sync::Mutex::new(held);
+        let work = move |job| {
+            if job == 0 {
+                let _ = super::lock_even_if_poisoned(&held).recv();
+            }
+            done_tx.send(job).unwrap();
+        };
+        super::spawn_worker_pool(1, Duration::from_millis(200), rx, |_| {}, work);
+        jobs.send(0).unwrap();
+        jobs.send(1).unwrap();
+        jobs.send(2).unwrap();
+        let five_seconds = Duration::from_secs(5);
+        assert_eq!(
+            done.recv_timeout(five_seconds),
+            Ok(1),
+            "a job waited behind a stuck one"
+        );
+        assert_eq!(done.recv_timeout(five_seconds), Ok(2));
+        release.send(()).unwrap();
+        assert_eq!(done.recv_timeout(five_seconds), Ok(0));
     }
 
     /// CPU use: thumbnails and background threads for each level.
