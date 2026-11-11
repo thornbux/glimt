@@ -5,6 +5,18 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+0.81.0 was tagged but never published, because its release workflow stopped on the test that
+the first line below fixes.
+
+### Fixed
+
+- The renames cut short that a new window looks for at the start are added to those already
+  asked about, instead of taking their place. A put-right refused before that look-up answered
+  could lose its question, which a test found on a slow build machine. The tests no longer
+  look at the user's own renames cut short.
+- The release workflow tries the system packages of the AppImage's smoke test again after a
+  pause, so a short failure of the package mirror's name no longer stops a release.
+
 ## [0.81.0] - 2026-11-11
 
 ### Added
