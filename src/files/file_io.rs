@@ -439,8 +439,9 @@ impl std::error::Error for MayBeUnderBothNames {}
 /// Any other failed look, such as a share that dropped for a moment, an error of the disk or no
 /// permission, says nothing, so the name counts as there. A step that removes, renames over or
 /// counts a file as deleted is then not taken on a look that failed. A link counts by its own
-/// name, not by its target. This, `is_surely_there`, `is_surely_file` and `is_surely_dir` are the
-/// one way Glimt asks whether a name is there (`source_rules::gone_means_not_found`).
+/// name, not by its target. This, `is_surely_there`, `is_surely_file`, `is_surely_dir` and
+/// `is_link` are the one way Glimt asks whether a name is there, and what it is
+/// (`source_rules::gone_means_not_found`).
 pub(crate) fn is_surely_gone(path: &Path) -> bool {
     look(path, false).is_err_and(|e| e.kind() == std::io::ErrorKind::NotFound)
 }
@@ -465,6 +466,18 @@ pub(crate) fn is_surely_file(path: &Path) -> bool {
 /// one opened or read. A step that would leave a folder out uses `is_surely_gone` instead.
 pub(crate) fn is_surely_dir(path: &Path) -> bool {
     look(path, true).is_ok_and(|meta| meta.is_dir())
+}
+
+/// Returns whether `path` is a link, by the look at its own name. A name that is surely not
+/// there is no link. Any other failed look says nothing either way, and its error is returned,
+/// so that the caller does not take the step it would take for a file that is no link, such as
+/// a sidecar read or copied through a link to another file of the user's.
+pub(crate) fn is_link(path: &Path) -> std::io::Result<bool> {
+    match look(path, false) {
+        Ok(meta) => Ok(meta.file_type().is_symlink()),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(false),
+        Err(e) => Err(e),
+    }
 }
 
 /// Looks at the name `path`, through a link when `follow`. In tests, a name in `LOOKS_FAIL`

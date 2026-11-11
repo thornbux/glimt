@@ -276,8 +276,9 @@ fn walk_by(
             let full = dir.join(&rel);
             // A followed link's folder is named by its real path in the tree, so every file has
             // one name, the one `--remote select`'s client gives and marks and stars are kept
-            // by. Named through the link, the file was another name than its own.
-            if std::fs::symlink_metadata(&full).is_ok_and(|m| m.is_symlink()) {
+            // by. Named through the link, the file was another name than its own. A folder that
+            // could not be looked at may be a link, so its real path is worked out too.
+            if crate::files::file_io::is_link(&full).unwrap_or(true) {
                 match inside(canonical(&full), &real) {
                     Some(real_rel) => rel = real_rel,
                     None => continue,
@@ -385,8 +386,14 @@ pub fn real_path(path: &Path) -> PathBuf {
 /// a pipe or a link to /dev/zero named a.jpg would block or fill memory when read.
 pub fn kind(entry: &std::fs::DirEntry) -> (bool, bool) {
     match entry.file_type() {
+        // A link that cannot be followed is neither, so it is not read as an image or folder.
         Ok(kind) if kind.is_symlink() => {
-            std::fs::metadata(entry.path()).map_or((false, false), |m| (m.is_file(), m.is_dir()))
+            let path = entry.path();
+            let is_file = crate::files::file_io::is_surely_file(&path);
+            (
+                is_file,
+                !is_file && crate::files::file_io::is_surely_dir(&path),
+            )
         }
         Ok(kind) => (kind.is_file(), kind.is_dir()),
         Err(_) => (false, false),

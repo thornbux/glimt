@@ -1728,13 +1728,13 @@ fn look_up(paths: &[PathBuf]) -> Found {
     for p in paths.iter().filter(|_| paths.len() > 1) {
         // A path that is not there is left out. Taken for a file, it stood for its parent
         // folder, whose images the user never asked for.
-        let Ok(meta) = std::fs::metadata(p) else {
+        let Some(is_dir) = is_dir_if_there(p) else {
             continue;
         };
         first_there.get_or_insert(p);
         // Each folder by its real path, as one folder opened alone, so the list names a file as
         // it does then: marks and stars are kept by that name. A file stands for its folder.
-        let dir = match meta.is_dir() {
+        let dir = match is_dir {
             true => listing::real_dir(p),
             false => {
                 let real = listing::real_path(p);
@@ -1765,8 +1765,8 @@ fn look_up(paths: &[PathBuf]) -> Found {
         });
         return Found::Collection { file, entries };
     }
-    let (is_there, is_dir) =
-        std::fs::metadata(&path).map_or((false, false), |m| (true, m.is_dir()));
+    let is_dir = is_dir_if_there(&path);
+    let (is_there, is_dir) = (is_dir.is_some(), is_dir.unwrap_or(false));
     let (dir, file) = match is_dir {
         true => (path, None),
         false => (
@@ -1784,6 +1784,18 @@ fn look_up(paths: &[PathBuf]) -> Found {
         file_type: file.as_deref().map_or(Types::NONE, Types::of),
         file,
         is_there,
+    }
+}
+
+/// Returns whether `path` is a folder, through a link, and `None` when it is surely not there.
+/// A path that could not be looked at (a share that dropped for a moment) counts as a folder
+/// that is there. Opened, its failure to be read is told. Counted as gone, it was taken out of
+/// Open Recent, and taken for a file, its parent folder was opened in its place.
+fn is_dir_if_there(path: &Path) -> Option<bool> {
+    match std::fs::metadata(path) {
+        Ok(meta) => Some(meta.is_dir()),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
+        Err(_) => Some(true),
     }
 }
 
@@ -1967,6 +1979,34 @@ mod tests {
         assert!(
             matches!(found, super::Found::Folder { dir, is_there: true, .. } if dir == real(&x))
         );
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A path that could not be looked at (here one below a link that loops) is no path that is
+    /// gone: it stays in Open Recent and opens as a folder, whose failure to be read is told.
+    /// Before, it counted as gone, and Open Recent forgot it.
+    #[test]
+    fn a_path_that_cannot_be_looked_at_is_not_gone() {
+        let dir =
+            std::env::temp_dir().join(format!("glimt-test-unseen-path-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::os::unix::fs::symlink(dir.join("loop"), dir.join("loop")).unwrap();
+        let unseen = dir.join("loop").join("photos");
+        let found = super::look_up(std::slice::from_ref(&unseen));
+        assert!(matches!(
+            found,
+            super::Found::Folder {
+                is_there: true,
+                file: None,
+                ..
+            }
+        ));
+        // Among the several paths of a file manager, it is kept too.
+        let other = dir.join("other");
+        std::fs::create_dir_all(&other).unwrap();
+        let found = super::look_up(&[unseen, other]);
+        assert!(matches!(found, super::Found::Folders(f) if f.len() == 2));
         std::fs::remove_dir_all(dir).unwrap();
     }
 

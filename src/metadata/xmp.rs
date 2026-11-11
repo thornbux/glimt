@@ -679,8 +679,10 @@ fn update(
     }
     let side = sidecar(path);
     // A link is not written through, because a downloaded folder may point IMG.jpg.xmp at
-    // another file of the user's, which a keyword added here would then change.
-    if is_link(&side) {
+    // another file of the user's, which a keyword added here would then change. A sidecar
+    // that cannot be looked at is not written either, as it may be such a link.
+    let named = |e: std::io::Error| format!("{}: {e}", side.display());
+    if crate::files::file_io::is_link(&side).map_err(named)? {
         return Err(crate::tf!(
             "{name} is a link: not written through",
             name = side.display()
@@ -846,12 +848,6 @@ pub(crate) fn sidecars_of(paths: &[PathBuf]) -> Vec<PathBuf> {
     sides.into_iter().collect()
 }
 
-/// Whether `path` is a link. A sidecar that is one is never read or written through, because a
-/// downloaded folder may point it at any file of the user's (a private key).
-pub(crate) fn is_link(path: &Path) -> bool {
-    std::fs::symlink_metadata(path).is_ok_and(|m| m.file_type().is_symlink())
-}
-
 /// Copies or moves the sidecars of `from` (`sidecars_moving_with`) with the file that went to
 /// `to`, all or none. When one cannot follow, those that followed are taken back, so the file's
 /// keywords are never split between two places. Returns the first sidecar that could not follow,
@@ -872,7 +868,9 @@ pub fn follow(
     // when nothing was put at its new name.
     let follow_one = |side: &Path, to: &Path| -> std::io::Result<Option<bool>> {
         // A link is no sidecar to copy. Moved, it goes as itself on the same disk, or it stays.
-        if is_link(side) {
+        // One that cannot be looked at may be a link, so it is not copied, and its failure is
+        // told as the sidecar's.
+        if crate::files::file_io::is_link(side)? {
             return match is_copy {
                 true => Ok(None),
                 false => Ok(crate::files::file_io::rename_never_over(side, to)
@@ -2838,7 +2836,8 @@ mod tests {
             &mut Default::default(),
         )
         .unwrap();
-        assert!(is_link(&sidecar(&dir.join("d.png"))), "moved as itself");
+        let moved = crate::files::file_io::is_link(&sidecar(&dir.join("d.png")));
+        assert!(moved.unwrap(), "moved as itself");
         assert_eq!(std::fs::read_to_string(&secret).unwrap(), "PRIVATE KEY");
         std::fs::remove_dir_all(&dir).unwrap();
     }
@@ -3193,5 +3192,26 @@ mod tests {
         let (written, tree) = super::keyword_tree_file_changed(b"", added, None);
         assert_eq!(tree, ["Animals"]);
         assert_eq!(written, b"Animals\n");
+    }
+
+    /// A sidecar whose look fails (a share that dropped for a moment) is not written, because it
+    /// may be a link to another file of the user's. Before, a failed look counted as no link, and
+    /// the keywords went into whatever was there.
+    #[test]
+    fn a_sidecar_that_cannot_be_looked_at_is_not_written() {
+        use crate::files::file_io::LOOKS_FAIL;
+        let dir =
+            std::env::temp_dir().join(format!("glimt-test-unseen-side-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let photo = dir.join("a.jpg");
+        std::fs::write(&photo, "a").unwrap();
+        let side = super::sidecar(&photo);
+        crate::support::threads::lock_even_if_poisoned(&LOOKS_FAIL).push(side.clone());
+        let written = super::add_tags(&photo, &["Oslo".into()]);
+        crate::support::threads::lock_even_if_poisoned(&LOOKS_FAIL).retain(|p| *p != side);
+        assert!(written.is_err());
+        assert!(!side.exists());
+        std::fs::remove_dir_all(dir).unwrap();
     }
 }
