@@ -380,7 +380,7 @@ pub fn new_file(name: &str) -> Result<PathBuf, String> {
     let file = collections_dir()
         .ok_or(tr("no data folder ($HOME is not set)"))?
         .join(format!("{name}.gqv"));
-    match file.exists() {
+    match !crate::files::file_io::is_surely_gone(&file) {
         true => Err(tf!("There is a collection called \"{name}\" already", name)),
         false => Ok(file),
     }

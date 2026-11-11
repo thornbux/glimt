@@ -3,21 +3,6 @@
 
 use crate::support::lang::{self, tr};
 
-#[repr(C)]
-struct Tm {
-    sec: i32,
-    min: i32,
-    hour: i32,
-    mday: i32,
-    mon: i32,
-    year: i32,
-    wday: i32,
-    yday: i32,
-    isdst: i32,
-    gmtoff: i64,
-    zone: *const std::ffi::c_char,
-}
-
 /// A piece of a text with `%` codes, as `pieces` reads it.
 #[derive(Debug, PartialEq)]
 pub(crate) enum Piece<'a> {
@@ -167,31 +152,31 @@ pub(crate) fn fill_template(template: &str, value: impl Fn(&str) -> String) -> S
     lines.collect::<Vec<_>>().join("\n")
 }
 
-#[allow(unsafe_code)] // declarations only: each call is an unsafe block
-unsafe extern "C" {
-    fn localtime_r(time: *const i64, tm: *mut Tm) -> *mut Tm;
-}
-
 /// Seconds since 1970 as local "2026-10-11 00:34:12". Undo compares this form, with a T for
 /// the space, with the trash's DeletionDate: keep it so.
 pub(crate) fn local_time(secs: i64) -> String {
+    // A time that the system's time_t cannot hold (after 2038 with a 32-bit one) has no date.
+    let Some(time) = libc::time_t::try_from(secs).ok() else {
+        return String::new();
+    };
     #[allow(unsafe_code)]
-    // SAFETY: Tm matches glibc's struct tm on 64-bit Linux, and both pointers are valid.
+    // SAFETY: libc's tm is the system's struct tm, all of whose fields may be zero, and both
+    // pointers are valid for the call.
     let tm = unsafe {
-        let mut tm: Tm = std::mem::zeroed();
-        if localtime_r(&secs, &mut tm).is_null() {
+        let mut tm: libc::tm = std::mem::zeroed();
+        if libc::localtime_r(&time, &mut tm).is_null() {
             return String::new();
         }
         tm
     };
     format!(
         "{}-{:02}-{:02} {:02}:{:02}:{:02}",
-        tm.year + 1900,
-        tm.mon + 1,
-        tm.mday,
-        tm.hour,
-        tm.min,
-        tm.sec
+        tm.tm_year + 1900,
+        tm.tm_mon + 1,
+        tm.tm_mday,
+        tm.tm_hour,
+        tm.tm_min,
+        tm.tm_sec
     )
 }
 

@@ -134,7 +134,10 @@ command is answered with nothing when it was done, and with `not done: <reason>`
 not: a `run` refused while a dialog is open or a field has the focus, an action that
 `App::why_refused` refuses (a kiosk's, say), or a command or choice the window does not know.
 The client then exits with `NOT_DONE` (3). A window from a version before these answers closes
-the connection without one, which the client takes as done.
+the connection without one, which the client takes as done. "Done" means that the command was
+taken; with `--wait` the client sends it after the word `wait`, and the window answers only when
+its work has ended, `done` or `not done: <reason>` when a write failed meanwhile
+(`answer_awaited_outcomes`).
 
 No test pins the following, so they are kept by hand:
 
@@ -484,6 +487,9 @@ method.
       where these are used);
     - a file that several windows share with `file_io::edit_shared`, which locks, reads,
       changes and writes it as one step (clippy refuses `file_lock` elsewhere);
+  - open a lock file and wait for its lock with `file_io::open_and_lock`, which never
+    truncates it, follows a link or waits on a pipe planted in its place
+    (`source_rules::lock_files_are_opened_in_one_place`);
   - rename with `file_io::rename_never_over` (never over a file), and move or copy with
     `put_file` (never `std::fs::copy`). A rename that a later step counts on (an unlink,
     a plan removed) is first made lasting with `sync_folder_of`, which syncs its folder.
@@ -497,6 +503,10 @@ method.
     unlink surely removed nothing (an unknown error keeps both names), and a second name goes
     only after `save::same_file_by_opening`
     (`source_rules::no_name_is_removed_on_a_cached_look`);
+  - ask whether a name is there with `file_io::is_surely_gone` or `is_surely_there`, never
+    with `exists()` or `metadata(…).is_err()` or `.is_ok()`, which take a share that dropped
+    for a moment for a file that is gone. Only NotFound means gone
+    (`source_rules::gone_means_not_found`);
   - start one of Glimt's own programs with `external::command` or `stoppable_command` (inside
     a Flatpak's sandbox), and one of the user's with `host_command` or `stoppable_host_command`
     (on the host). Wait for it only with `run_limited`, `short_output_of`, `output_of` or a
@@ -551,7 +561,9 @@ whole module. The tests may unwrap (main.rs allows it for them).
   (`source_rules::writing_threads_tell_what_they_did`).
 - **Every `unsafe` block has `#[allow(unsafe_code)]`** on that one statement or function, and a
   `// SAFETY:` comment that says why the call is sound. New `unsafe` needs a reason that no safe
-  API covers, in the standard library or in a crate already in `Cargo.toml`.
+  API covers, in the standard library or in a crate already in `Cargo.toml`. A function of the
+  C library is called through `libc`, never declared by hand in an `extern "C"` block, whose
+  types are a guess (`source_rules::foreign_functions_come_from_libc`).
 
 ## Dependencies
 

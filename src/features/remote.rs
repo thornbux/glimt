@@ -120,6 +120,21 @@ pub const NOT_DONE: i32 = 3;
 /// answer of a command is empty, and that of a query is paths, which start with "/".
 const NOT_DONE_ANSWER: &str = "not done: ";
 
+/// The word before a command that `--wait` sends. The window then answers only when the work
+/// that the command started has ended (`answer_awaited_outcomes`). A window older than `--wait`
+/// does not know the line, and does nothing: one of 0.76 or newer answers that it does not
+/// know the command, and one of 0.75 or older answers nothing.
+const WAIT_WORD: &str = "wait ";
+
+/// The answer to a command sent with `--wait` that was done, with no write failing while its
+/// work ran. It is not empty, because an empty answer is that of a window of 0.75 or older,
+/// which did nothing.
+const OUTCOME_DONE: &str = "done\n";
+
+/// How long a command sent with `--wait` may take, with the work it started, before the client
+/// is told "no answer". A folder of 500,000 files on a slow share is read within it.
+const OUTCOME_WAIT: std::time::Duration = std::time::Duration::from_secs(60);
+
 /// Why a name cannot be a window's, as `--remote name` prints it.
 const NOT_A_NAME: &str = "a name holds up to 64 letters, digits, - and _, not only digits";
 
@@ -245,6 +260,25 @@ impl Drop for UnfinishedAnswer {
     }
 }
 
+/// A command sent with `--wait`, whose answer waits until the work it started has ended: the
+/// folder it opens is read, the answers of its threads are taken, and its writes are done.
+struct AwaitedOutcome {
+    /// The answer of the command itself, as without `--wait`.
+    command_answer: mpsc::Receiver<Vec<u8>>,
+    /// Whether the command answered that it was done, so that only its work is waited for.
+    was_done: bool,
+    /// Whether the command closes the window. Its outcome is told as the window closes, after
+    /// the last writes, or when a write fails and keeps the window open.
+    closes_the_window: bool,
+    /// Where the outcome goes, to the client.
+    reply: Reply,
+    /// How many failed writes the window had told when the command came. A write that fails
+    /// after that, while the work runs, makes the command not done.
+    failed_writes_before: u64,
+    /// When the client has stopped waiting, and the outcome is dropped.
+    until: std::time::Instant,
+}
+
 /// Commands from --remote, the selects that wait until the list is read, and how long the
 /// window's ID shows.
 pub(crate) struct Listener {
@@ -265,6 +299,8 @@ pub(crate) struct Listener {
     /// is renamed for them.
     name_sender: AnswerSender<NameAnswer>,
     name_answers: Receiving<(NameAnswer, Working)>,
+    /// The commands sent with `--wait` that were taken, until their outcome is answered.
+    awaiting_outcome: Vec<AwaitedOutcome>,
 }
 
 impl Listener {
@@ -321,6 +357,7 @@ impl Listener {
             listens_without_name,
             name_sender,
             name_answers: Receiving::of(name_answers),
+            awaiting_outcome: Vec::new(),
         }
     }
 
@@ -361,6 +398,7 @@ impl crate::App {
             self.handle_remote(ctx, &command, reply);
         }
         while let Ok((command, reply)) = self.remote.rx.try_recv() {
+            let (command, reply) = self.await_outcome(ctx, command, reply);
             // An `open` replaces a look-up that has not answered, as a click in the folder tree
             // does, so that a script can leave a share that stopped answering. The commands that
             // waited for the old place were sent for a place that will not open, so they are
@@ -385,6 +423,95 @@ impl crate::App {
             }
             // When more than that are waiting, the answer is dropped, and the client is told
             // "no answer" (serve), so the script tries again.
+        }
+        self.answer_awaited_outcomes(ctx, false);
+    }
+
+    /// Takes `command` as it is done: a command sent with `--wait` loses its word, and its
+    /// answer goes to `awaiting_outcome`, which answers the client once the command's work has
+    /// ended. A query, and a command sent without `--wait`, are returned as they came.
+    fn await_outcome(
+        &mut self,
+        ctx: &egui::Context,
+        command: String,
+        reply: Option<Reply>,
+    ) -> (String, Option<Reply>) {
+        let (Some(waited), Some(reply)) = (command.strip_prefix(WAIT_WORD), reply.clone()) else {
+            return (command, reply);
+        };
+        if is_query(waited) {
+            return (waited.to_owned(), Some(reply));
+        }
+        // A failed write told before the command came is taken first, so that it does not
+        // count as the command's.
+        self.take_saves(ctx);
+        let (command_reply, command_answer) = mpsc::channel();
+        self.remote.awaiting_outcome.push(AwaitedOutcome {
+            command_answer,
+            was_done: false,
+            closes_the_window: closes_the_window(waited),
+            reply,
+            failed_writes_before: self.window.failed_writes_told(),
+            until: std::time::Instant::now() + OUTCOME_WAIT,
+        });
+        (waited.to_owned(), Some(command_reply))
+    }
+
+    /// Answers each command sent with `--wait` whose work has ended: with the reason when the
+    /// command was not done or a write failed while its work ran, and with `OUTCOME_DONE`
+    /// otherwise. The work has ended when no place is opened, no folder read, no thread works
+    /// for the window and no file is written, and the window has taken the failed writes. A
+    /// command that closes the window waits for `closing`, which `on_exit` gives after its last
+    /// writes.
+    pub(crate) fn answer_awaited_outcomes(&mut self, ctx: &egui::Context, closing: bool) {
+        if self.remote.awaiting_outcome.is_empty() {
+            return;
+        }
+        // Whether files are written is read before the failures are taken, as `guard_close`
+        // does: a write tells its failure before it stops counting as writing.
+        let is_writing = self.is_writing();
+        let at_rest = !is_writing && !self.folder.is_opening() && !self.working_besides_image();
+        self.take_saves(ctx);
+        let failed_writes = self.window.failed_writes_told();
+        let last_failure = self.window.last_failed_write().to_owned();
+        let now = std::time::Instant::now();
+        self.remote.awaiting_outcome.retain_mut(|awaited| {
+            if !awaited.was_done {
+                match awaited.command_answer.try_recv() {
+                    Ok(answer) if answer.is_empty() => awaited.was_done = true,
+                    // Not done, as without `--wait`.
+                    Ok(answer) => {
+                        let _ = awaited.reply.send(answer);
+                        return false;
+                    }
+                    Err(mpsc::TryRecvError::Empty) if closing => {
+                        let _ = awaited.reply.send(not_done_answer("this Glimt is closing"));
+                        return false;
+                    }
+                    Err(mpsc::TryRecvError::Empty) => return now < awaited.until,
+                    // Dropped, so the client is told "no answer" (serve).
+                    Err(mpsc::TryRecvError::Disconnected) => return false,
+                }
+            }
+            let failed = failed_writes != awaited.failed_writes_before;
+            let ended = match closing {
+                true => true,
+                false => at_rest && (!awaited.closes_the_window || failed),
+            };
+            if !ended {
+                return now < awaited.until;
+            }
+            let outcome = match (failed, closing && is_writing) {
+                (true, _) => not_done_answer(&last_failure),
+                (false, true) => not_done_answer("this Glimt closed before its writes were done"),
+                (false, false) => OUTCOME_DONE.as_bytes().to_vec(),
+            };
+            let _ = awaited.reply.send(outcome);
+            false
+        });
+        // A write ends in its own thread, which asks for no frame, so the window looks again.
+        if !self.remote.awaiting_outcome.is_empty() {
+            ctx.request_repaint_after(std::time::Duration::from_millis(100));
         }
     }
 
@@ -627,22 +754,26 @@ impl crate::App {
 
     /// The answer to `glimt --remote current` or `selection`, the paths, each ending in a NUL
     /// byte. Nothing else is told, and nothing changes.
-    // shortcut: the paths of a selection made in the window's thread, some 50 ms for 500,000
+    // shortcut: the paths of a selection made in the window's thread, some 10 ms for 500,000
     // selected; in a thread of its own if scripts ask for large selections often.
     pub(crate) fn remote_query(&self, command: &str) -> Vec<u8> {
-        use std::os::unix::ffi::OsStringExt;
+        use std::os::unix::ffi::OsStrExt;
         let files = match command.trim() {
             "current" => vec![self.list.shown()],
             // When the search hides every selected file, the answer names none of them, and
             // not the shown image in their place.
             _ => self.targets_without_notice().unwrap_or_default(),
         };
-        (files.into_iter().filter(|&i| i < self.list.files().len()))
-            .flat_map(|i| {
-                let path = self.path(i).into_os_string().into_vec();
-                path.into_iter().chain([0])
-            })
-            .collect()
+        // One path is made again for each file, as `path` makes it, without a new one each time.
+        let (mut answer, mut path) = (Vec::new(), PathBuf::new());
+        for i in files.into_iter().filter(|&i| i < self.list.files().len()) {
+            path.as_mut_os_string().clear();
+            path.push(self.folder.dir());
+            path.push(&self.list.files()[i]);
+            answer.extend_from_slice(path.as_os_str().as_bytes());
+            answer.push(0);
+        }
+        answer
     }
 
     /// Answers `glimt --remote info [FILE…]` (the files after a NUL each) with an `info_record`
@@ -745,6 +876,13 @@ fn not_done_reason(answer: &[u8]) -> Option<String> {
     Some(String::from_utf8_lossy(why).trim_end().to_owned())
 }
 
+/// Returns why a command sent with `--wait` was not done, from a window's `answer` that is no
+/// `NOT_DONE_ANSWER`. Returns `None` for `OUTCOME_DONE`. Any other answer, empty above all, is
+/// that of a window older than `--wait`, which did nothing.
+fn waited_outcome_reason(answer: &[u8]) -> Option<String> {
+    (answer != OUTCOME_DONE.as_bytes()).then(|| "this Glimt does not know --wait".to_owned())
+}
+
 /// Whether `command` is a query, which answers with what it asks for. None of them changes a
 /// file. `select` only selects, and what is done with the selection is the user's to do in the
 /// window.
@@ -753,6 +891,13 @@ fn is_query(command: &str) -> bool {
         || is_info(command)
         || command.starts_with("select ")
         || command.starts_with("where ")
+}
+
+/// Whether `command` closes the window: `quit`, or `run` of Quit or CloseWindow.
+fn closes_the_window(command: &str) -> bool {
+    let run = command.trim().strip_prefix("run ").map(str::trim);
+    let action = run.and_then(Action::for_script);
+    command.trim() == "quit" || matches!(action, Some(Action::Quit | Action::CloseWindow))
 }
 
 /// Whether `command` is `info`, alone or with files.
@@ -1135,7 +1280,13 @@ fn send_and_print_answer(path: &std::path::Path, command: &str) -> bool {
     }
     // Sending is done, so the window answers and then closes.
     let _ = s.shutdown(std::net::Shutdown::Write);
-    let _ = s.set_read_timeout(Some(WAIT));
+    let waits = command.starts_with(WAIT_WORD);
+    let limit = match waits {
+        // The window's listener says "no answer" a second after `OUTCOME_WAIT`.
+        true => OUTCOME_WAIT + std::time::Duration::from_secs(2),
+        false => WAIT,
+    };
+    let _ = s.set_read_timeout(Some(limit));
     let mut answer = Vec::new();
     #[allow(clippy::disallowed_methods)] // a reply on Glimt's own private socket, with a time limit
     let read = s.read_to_end(&mut answer);
@@ -1151,6 +1302,7 @@ fn send_and_print_answer(path: &std::path::Path, command: &str) -> bool {
     let missing = info_records_missing(command, &answer);
     let why = match not_done_reason(&answer) {
         Some(why) => Some(why),
+        None if waits && !timed_out => waited_outcome_reason(&answer),
         None => {
             let _ = std::io::stdout().write_all(&answer);
             let closed = format!("the window closed before it told about {missing} of the files");
@@ -1221,16 +1373,18 @@ pub fn send_all(command: &str) -> usize {
 }
 
 /// `glimt --remote` and `--remote-all`. It sends `words` (the command and its arguments) to the
-/// Glimt used last, to the one of `name`, or to every one, and `paths` are `select`'s files,
-/// whole. Returns `None` once the command is done and its answer printed, or the path to open
-/// when `open` finds no Glimt running. It exits with `NOT_SENT` for a command that cannot be
-/// sent, and with what `exit_code` chooses from the windows' answers.
+/// Glimt used last, to the one of `start`'s --name, or to every one, and `paths` are `select`'s
+/// files, whole. With `start`'s --wait, a command that is no query is answered only when the
+/// work it started has ended. Returns `None` once the command is done and its answer printed,
+/// or the path to open when `open` finds no Glimt running. It exits with `NOT_SENT` for a
+/// command that cannot be sent, and with what `exit_code` chooses from the windows' answers.
 pub fn client(
     words: &[String],
     paths: &[std::ffi::OsString],
-    name: Option<&str>,
+    start: &crate::cli::Start,
     to_all: bool,
 ) -> Option<PathBuf> {
+    let (name, wait) = (start.name.as_deref(), start.wait);
     // The command is checked by its word now, and sent with the word as given, so an older
     // Glimt still takes an old word.
     let now = words_now(words);
@@ -1293,10 +1447,14 @@ pub fn client(
         eprintln!("glimt: cannot send a line break in a command or file name");
         std::process::exit(NOT_SENT);
     }
+    let line = match wait && !is_query(&command) {
+        true => format!("{WAIT_WORD}{command}"),
+        false => command.clone(),
+    };
     let sent = match (name, to_all) {
-        (_, true) => send_all(&command) > 0,
-        (Some(name), false) => send_to(runtime_dir(), name, &command),
-        (None, false) => send(&command),
+        (_, true) => send_all(&line) > 0,
+        (Some(name), false) => send_to(runtime_dir(), name, &line),
+        (None, false) => send(&line),
     };
     let answered = ANSWERED.load(std::sync::atomic::Ordering::Relaxed);
     if let Some(code) = exit_code(answered, timed_out(), was_not_done()) {
@@ -1525,6 +1683,11 @@ fn serve(
         // closing.
         let answering = UnfinishedAnswer::new();
         let comes_in_parts = is_info(&line);
+        // A command sent with `--wait` is answered when its work has ended, so it has longer.
+        let limit = match line.starts_with(WAIT_WORD) {
+            true => OUTCOME_WAIT,
+            false => wait,
+        } + std::time::Duration::from_secs(1);
         if tx.send((line, Some(reply))).is_err() {
             return;
         }
@@ -1532,7 +1695,7 @@ fn serve(
         // The client gives up after `wait`, so a command that waits longer for a look-up that
         // does not answer lets its thread and its place among `MOST_CLIENTS` go. The command
         // may still be done later, and its answer then goes nowhere.
-        match answer.recv_timeout(wait + std::time::Duration::from_secs(1)) {
+        match answer.recv_timeout(limit) {
             Ok(bytes) => {
                 // `info` sends each file's record as it is read, until it has sent them all.
                 // Each part is written at once, so the client's time limit holds for each part.
@@ -1557,7 +1720,7 @@ fn serve(
             // open, its time limit says "no answer".
             Err(mpsc::RecvTimeoutError::Disconnected) => {
                 drop(answering);
-                return std::thread::sleep(wait + std::time::Duration::from_secs(1));
+                return std::thread::sleep(limit);
             }
         }
         drop(answering);
@@ -1630,9 +1793,7 @@ fn bind_socket(path: &std::path::Path) -> Result<UnixListener, Option<std::io::E
     }
     // From here only one at a time, because another Glimt of this name could take the left
     // socket over between our check and our remove, and lose its new one to us.
-    #[allow(clippy::disallowed_methods)] // an empty lock file in the private runtime folder
-    let lock = std::fs::File::create(path.with_extension("lock")).map_err(Some)?;
-    lock.lock().map_err(Some)?;
+    let _lock = crate::files::file_io::open_and_lock(&path.with_extension("lock")).map_err(Some)?;
     if answers(path) {
         return Err(None);
     }
@@ -1706,9 +1867,7 @@ fn link_socket(from: &std::path::Path, to: &std::path::Path) -> std::io::Result<
     let first = std::fs::hard_link(from, to);
     match first {
         Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
-            #[allow(clippy::disallowed_methods)] // an empty lock file in the private runtime folder
-            let lock = std::fs::File::create(to.with_extension("lock"))?;
-            lock.lock()?;
+            let _lock = crate::files::file_io::open_and_lock(&to.with_extension("lock"))?;
             if answers(to) {
                 return Err(e);
             }
@@ -1798,20 +1957,9 @@ fn wait_answered(mut answer: impl FnMut(), limit: std::time::Duration) {
 
 /// Whether a client waits to be accepted on the listening socket `fd` (-1 for none).
 fn has_waiting_client(fd: i32) -> bool {
-    #[repr(C)]
-    struct PollFd {
-        fd: i32,
-        events: i16,
-        revents: i16,
-    }
-    #[allow(unsafe_code)] // declarations only: each call is an unsafe block
-    unsafe extern "C" {
-        fn poll(fds: *mut PollFd, n: std::ffi::c_ulong, timeout: i32) -> i32;
-    }
-    const POLLIN: i16 = 1;
-    let mut p = PollFd {
+    let mut p = libc::pollfd {
         fd,
-        events: POLLIN,
+        events: libc::POLLIN,
         revents: 0,
     };
     if fd < 0 {
@@ -1819,8 +1967,8 @@ fn has_waiting_client(fd: i32) -> bool {
     }
     #[allow(unsafe_code)]
     // SAFETY: There is one pollfd and no wait, and a closed fd is only reported, not used.
-    let ready = unsafe { poll(&mut p, 1, 0) } == 1;
-    ready && p.revents & POLLIN != 0
+    let ready = unsafe { libc::poll(&mut p, 1, 0) } == 1;
+    ready && p.revents & libc::POLLIN != 0
 }
 
 /// Takes no new clients, by removing this Glimt's socket as it closes.
@@ -2306,6 +2454,7 @@ mod tests {
             listens_without_name: false,
             name_sender: super::answer_channel(&app.busy).0,
             name_answers: Default::default(),
+            awaiting_outcome: Vec::new(),
         };
         for _ in 0..500 {
             app.receive_remote(&ctx);
@@ -2437,6 +2586,137 @@ mod tests {
         client.read_to_end(&mut got).unwrap();
         assert!(super::not_done_reason(&got).is_some(), "{got:?}");
         std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A command sent with `--wait` is answered when the work it started has ended, and not
+    /// done when a write failed meanwhile. A command the window did not do is answered at once,
+    /// as without `--wait`, and a query as without it. A command that closes the window is
+    /// answered as it closes, after its last writes, or at once when a write failed. Before,
+    /// "done" came when the command was taken, and a script never learnt of a failed write.
+    #[test]
+    fn a_command_sent_with_wait_tells_the_outcome_of_its_work() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-wait-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let (mut app, ctx) = app_on(&dir);
+        app.list
+            .set_files(["a.png", "b.png", "c.png"].map(Into::into).to_vec());
+        let send = |app: &mut crate::App, command: &str| {
+            let (reply, answer) = std::sync::mpsc::channel();
+            app.remote
+                .tx
+                .send((command.to_owned(), Some(reply)))
+                .unwrap();
+            answer
+        };
+        // Other tests write Glimt's own files beside this one, so the window may wait for them.
+        let outcome = |app: &mut crate::App, answer: &std::sync::mpsc::Receiver<Vec<u8>>| {
+            let start = std::time::Instant::now();
+            while start.elapsed() < std::time::Duration::from_secs(20) {
+                app.receive_remote(&ctx);
+                app.receive_answers_without_a_frame(&ctx);
+                if let Ok(got) = answer.try_recv() {
+                    return Some(got);
+                }
+                std::thread::sleep(std::time::Duration::from_millis(10));
+            }
+            None
+        };
+        // Done, with nothing left to wait for.
+        let answer = send(&mut app, "wait next");
+        assert_eq!(
+            outcome(&mut app, &answer).unwrap(),
+            super::OUTCOME_DONE.as_bytes()
+        );
+        assert_eq!(app.list.shown(), 1);
+        // Work in the background holds the answer, and a write that fails meanwhile is told.
+        let work = crate::support::threads::Working::new(&app.busy);
+        let answer = send(&mut app, "wait next");
+        app.receive_remote(&ctx);
+        assert_eq!(app.list.shown(), 2);
+        assert!(answer.try_recv().is_err());
+        app.tell_failed_write("Could not save the settings".into());
+        drop(work);
+        let got = outcome(&mut app, &answer).unwrap();
+        let why = super::not_done_reason(&got);
+        assert_eq!(why.as_deref(), Some("Could not save the settings"));
+        // Not done by the window, at once and with its reason.
+        let answer = send(&mut app, "wait nxet");
+        let why = super::not_done_reason(&outcome(&mut app, &answer).unwrap());
+        assert!(why.is_some_and(|w| w.contains("nxet")));
+        // A query is answered as without --wait.
+        let answer = send(&mut app, "wait current");
+        let got = outcome(&mut app, &answer).unwrap();
+        assert!(got.ends_with(b"c.png\0"), "{got:?}");
+        // A quit waits for the close, and a write that failed keeps the window open.
+        let answer = send(&mut app, "wait quit");
+        for _ in 0..10 {
+            app.receive_remote(&ctx);
+        }
+        assert!(answer.try_recv().is_err());
+        // As `on_exit` does it, after the writes, which here are other tests'.
+        let start = std::time::Instant::now();
+        while app.is_writing() && start.elapsed() < std::time::Duration::from_secs(20) {
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        app.answer_awaited_outcomes(&ctx, true);
+        assert_eq!(answer.try_recv().unwrap(), super::OUTCOME_DONE.as_bytes());
+        let answer = send(&mut app, "wait run Quit");
+        app.receive_remote(&ctx);
+        app.tell_failed_write("Could not save the state".into());
+        let why = super::not_done_reason(&outcome(&mut app, &answer).unwrap());
+        assert_eq!(why.as_deref(), Some("Could not save the state"));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A write in a thread of its own (`threads::told_work`) that breaks while a `--wait`
+    /// command waits makes that command not done: the failure is in the window before the work
+    /// stops counting as writing.
+    #[test]
+    fn wait_sees_a_failure_told_by_a_writing_thread() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-wait-told-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let (mut app, ctx) = app_on(&dir);
+        app.list
+            .set_files(["a.png", "b.png"].map(Into::into).to_vec());
+        // The work runs when the command comes, so the command waits for it.
+        assert!(app.run_in_background(&ctx, Vec::new(), || {
+            std::thread::sleep(std::time::Duration::from_millis(200));
+            panic!("a broken file")
+        }));
+        let (reply, answer) = std::sync::mpsc::channel();
+        app.remote
+            .tx
+            .send(("wait next".to_owned(), Some(reply)))
+            .unwrap();
+        let start = std::time::Instant::now();
+        let got = loop {
+            app.receive_remote(&ctx);
+            if let Ok(got) = answer.try_recv() {
+                break got;
+            }
+            assert!(start.elapsed() < std::time::Duration::from_secs(20));
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        };
+        let why = super::not_done_reason(&got);
+        assert!(
+            why.is_some_and(|w| w.contains("could not be saved")),
+            "{got:?}"
+        );
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// The client reads `OUTCOME_DONE` as done, and any other answer to a command sent with
+    /// `--wait` as that of a window older than `--wait`. A window of 0.75 or older answers
+    /// nothing, which without `--wait` counts as done.
+    #[test]
+    fn an_answer_without_the_outcome_is_not_done() {
+        assert_eq!(
+            super::waited_outcome_reason(super::OUTCOME_DONE.as_bytes()),
+            None
+        );
+        assert!(super::waited_outcome_reason(b"").is_some());
+        assert!(super::closes_the_window("quit") && super::closes_the_window("run CloseWindow"));
+        assert!(!super::closes_the_window("run Next"));
     }
 
     /// A command line other than a select is read up to `MOST_LINE` bytes, and a longer one ends
@@ -2636,6 +2916,23 @@ mod tests {
         std::fs::remove_file(path).unwrap();
     }
 
+    /// A link planted at the lock of a left socket is not followed, so the file it points to is
+    /// neither emptied nor locked, and the left socket is not replaced. Before, the lock was
+    /// opened with `File::create`, which emptied it.
+    #[test]
+    fn the_socket_lock_leaves_a_planted_link_alone() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-sock-link-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let (path, target) = (dir.join("glimt.sock"), dir.join("notes.txt"));
+        // A socket left by a Glimt gone, which answers no one.
+        drop(std::os::unix::net::UnixListener::bind(&path).unwrap());
+        std::fs::write(&target, "keep").unwrap();
+        std::os::unix::fs::symlink(&target, path.with_extension("lock")).unwrap();
+        assert!(super::bind_socket(&path).is_err_and(|e| e.is_some()));
+        assert_eq!(std::fs::read_to_string(&target).unwrap(), "keep");
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
     /// A socket that another window takes after a left one was removed and before this window
     /// binds its own, as by a rename to this name, counts as taken. The window then shares the
     /// name under its own ID. Before, it had no remote control. A folder stands in for the
@@ -2647,6 +2944,23 @@ mod tests {
         assert!(super::bind_socket(&path).is_err_and(|e| e.is_none()));
         std::fs::remove_file(path.with_extension("lock")).unwrap();
         std::fs::remove_dir(path).unwrap();
+    }
+
+    /// `--remote selection` answers each selected file's path as `App::path` makes it, also for
+    /// a name in a subfolder (a slideshow with subfolders) and a whole path (a collection), with
+    /// the path made in one buffer rather than anew for each file.
+    #[test]
+    fn the_selection_is_answered_with_each_path() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-sel-paths-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let (mut app, _ctx) = app_on(&dir);
+        let names = ["a.png", "sub/b.png", "/elsewhere/c.png"];
+        app.list.set_files(names.map(Into::into).to_vec());
+        app.list.select((0..3).collect());
+        let (a, b) = (dir.join("a.png"), dir.join("sub/b.png"));
+        let answer = format!("{}\0{}\0/elsewhere/c.png\0", a.display(), b.display());
+        assert_eq!(app.remote_query("selection"), answer.into_bytes());
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     /// `--remote select` of a file the search hides selects nothing and answers every path, so

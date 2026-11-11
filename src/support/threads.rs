@@ -215,12 +215,6 @@ impl NoticeSender {
     }
 }
 
-#[repr(C)]
-pub(crate) struct Timespec {
-    sec: i64,
-    nsec: i64,
-}
-
 /// Returns a channel whose answers carry a busy pointer counted in `busy` (`AnswerSender`), and
 /// the half the window reads. The window drops the pointer after it has handled the answer.
 pub(crate) fn answer_channel<T>(
@@ -301,22 +295,17 @@ pub(crate) fn in_parts<T: Sync, R: Send>(
     })
 }
 
-#[allow(unsafe_code)] // declarations only: each call is an unsafe block
-unsafe extern "C" {
-    pub(crate) fn clock_gettime(clock: i32, time: *mut Timespec) -> i32;
-}
-
 /// The processor time this thread has used, in microseconds: a frame's own work, which other
 /// threads busy at the same moment (summing the sizes of 500,000 files) do not add to.
 pub(crate) fn thread_cpu_us() -> u64 {
-    const CLOCK_THREAD_CPUTIME_ID: i32 = 3;
-    let mut t = Timespec { sec: 0, nsec: 0 };
     #[allow(unsafe_code)]
-    // SAFETY: `t` is a valid timespec for the call to fill.
-    unsafe {
-        clock_gettime(CLOCK_THREAD_CPUTIME_ID, &mut t)
+    // SAFETY: A timespec may be all zero, and `t` is valid for the call to fill.
+    let t = unsafe {
+        let mut t: libc::timespec = std::mem::zeroed();
+        libc::clock_gettime(libc::CLOCK_THREAD_CPUTIME_ID, &mut t);
+        t
     };
-    t.sec as u64 * 1_000_000 + t.nsec as u64 / 1000
+    t.tv_sec as u64 * 1_000_000 + t.tv_nsec as u64 / 1000
 }
 
 /// Returns `work` made ready for the thread that runs it: inside `catch_panic`, with what it

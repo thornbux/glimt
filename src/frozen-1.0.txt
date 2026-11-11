@@ -518,3 +518,4 @@ script ParentFolder
 script HomeFolder
 setting added_format_memory_mb
 file $XDG_STATE_HOME/glimt/moves
+option --wait

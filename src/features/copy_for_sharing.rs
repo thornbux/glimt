@@ -145,7 +145,8 @@ impl SharingOutcome {
     /// the folder has is never written over, also when the folder is the image's own.
     fn copy_into(&mut self, path: &Path, folder: &Path, kept: &HashSet<String>) {
         let target = folder.join(path.file_name().unwrap_or_default());
-        if target.symlink_metadata().is_ok() {
+        // A name whose look failed counts as taken too.
+        if !crate::files::file_io::is_surely_gone(&target) {
             self.names_taken += 1;
             return;
         }

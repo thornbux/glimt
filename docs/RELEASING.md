@@ -84,9 +84,15 @@ leaves out the large folder and the EXIF timings. Screenshots of the steps are i
   but answers its unlink with an error while its cache still finds the name, under a Move and a
   Rename; a JPEG still being written when it is turned with Save Orientation on; `kill -9`
   during a Move and a Rename Many, then a new start; a read-only folder or sidecar under a
-  keyword save that Ctrl+Q waits for. No photo, sidecar or star lost or put on another file,
-  and the failure told. The full disk and the share need `--privileged`, which `run.sh` gives
-  the parts with those checks (`faults=yes`).
+  keyword save that Ctrl+Q waits for; the trash failing partway (its disk full, a small ext2,
+  as gio refuses a tmpfs, and gio failing on some files), then Undo; the marks file, a
+  collection and Rename Many's plan on a full disk; a photo and its sidecar split by a full
+  disk under a Move and a Copy; a Move to another disk whose unlink of the source is refused;
+  a read that fails (EIO, from the share) under a Copy, a Move, Copy for Sharing and Save As;
+  Copy for Sharing, Crop and Save As onto a full disk; `kill -9` during a turn's save, a
+  sidecar write and a Lightroom import. No photo, sidecar or star lost or put on another file,
+  and the failure told. Each makes sure that its fault did happen. The full disks and the share
+  need `--privileged`, which `run.sh` gives the parts with those checks (`faults=yes`).
 - **Large folder** (500,000 hard links) and **sorting 3,000 JPEGs by EXIF date:** "first image"
   time and RssAnon of both versions.
 
