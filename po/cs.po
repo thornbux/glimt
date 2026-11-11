@@ -3125,3 +3125,11 @@ msgstr "Jména byla ponechána, jak jsou"
 #: src/ui/dialogs.rs
 msgid "Rename Many was cut short, and these files are not under the names it was to give them. Each line names a file as it is now, then the name it was to get."
 msgstr "Hromadné přejmenování bylo přerušeno a tyto soubory nemají jména, která měly dostat. Každý řádek uvádí jméno souboru nyní a pak jméno, které měl dostat."
+
+#: src/files/file_ops.rs
+msgid "{file} went back, but its sidecar {side} could not ({e}), so the sidecar is at {at}"
+msgstr "{file} se vrátil, ale jeho doprovodný soubor {side} ne ({e}), takže doprovodný soubor je v {at}"
+
+#: src/files/file_ops.rs
+msgid "{side} could not follow {file} ({e}), and {file} could not go back ({error}), so the file is at {to} and this sidecar at {side}"
+msgstr "{side} nemohl následovat {file} ({e}) a {file} se nemohl vrátit ({error}), takže soubor je v {to} a tento doprovodný soubor v {side}"

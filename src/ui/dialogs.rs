@@ -312,11 +312,12 @@ impl Dialogs {
         self.folder_target = Some(dir.to_path_buf());
     }
 
-    /// Asks for a new name for the collection `file`.
+    /// Asks for a new name for the collection `file`, which is taken with its fingerprint.
     pub(crate) fn ask_rename_collection(&mut self, file: &Path) {
         let name = file.file_stem().unwrap_or_default().to_string_lossy();
         self.ask(Prompt::RenameCollection, name.into_owned());
         self.folder_target = Some(file.to_path_buf());
+        self.picked_folder = Some(PickedFiles::new(vec![file.to_path_buf()]));
     }
 
     /// Asks whether to move the collection `file` to the trash.
@@ -337,7 +338,8 @@ impl Dialogs {
     }
 
     /// The folder that the answer to rename or trash it acts on, taken with its device and inode
-    /// at the question. Returns `None` when no such question was asked.
+    /// at the question, or the collection that Rename Collection asked about, with its
+    /// fingerprint. Returns `None` when no such question was asked.
     pub(crate) fn take_picked_folder(&mut self) -> Option<PickedFiles> {
         self.folder_target = None;
         self.picked_folder.take()
@@ -714,16 +716,21 @@ impl crate::App {
     /// Renames the collection Rename Collection asked about to `text`. It is done in the writer
     /// thread for the user's folders, after this window's edits of the collection, because the
     /// rename waits for the collection's lock, and a share that stopped answering would hold
-    /// the window. `collection_renamed` makes the window follow it.
+    /// the window. A collection that another file has taken the name of since the question
+    /// keeps its name. `collection_renamed` makes the window follow it.
     fn rename_collection(&mut self, ctx: &egui::Context, text: &str) {
-        let Some(old) = self.dialogs.take_folder() else {
+        let Some(picked) = self.dialogs.take_picked_folder() else {
+            return;
+        };
+        let Some(old) = picked.paths().first().cloned() else {
             return;
         };
         let report_tx = self.file_operations.report_sender();
         let (text, ctx) = (text.to_owned(), ctx.clone());
         let pointer = crate::support::threads::Working::new(&self.busy);
         crate::files::file_io::write_later_in_user_folders(move || {
-            match collections::rename(&old, &text) {
+            let (_, picked) = picked.wait_for_fingerprints();
+            match collections::rename(&old, &text, &picked) {
                 Ok(new) => drop(report_tx.send(OperationReport {
                     collection_renamed: Some((old, new)),
                     ..Default::default()

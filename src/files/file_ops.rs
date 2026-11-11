@@ -101,8 +101,8 @@ impl From<String> for RenameFailed {
 type SidecarReport = Box<dyn FnOnce(usize, &Job) -> Option<String> + Send>;
 
 /// Writes the sidecar of the file at a place in a sidecar write's list, given by that place and
-/// the file's name now (`write_sidecars`).
-type SidecarWrite = Box<dyn Fn(usize, &Path) -> bool + Send>;
+/// the file's name now (`write_sidecars`). Returns the text of its failure.
+type SidecarWrite = Box<dyn Fn(usize, &Path) -> Result<(), String> + Send>;
 
 /// A sidecar write asked for while a rename runs (`write_sidecars`). It is sent once the rename
 /// is over, to the names its files have then.
@@ -2018,7 +2018,9 @@ impl crate::App {
     /// Writes the sidecars of `paths` in the background. This window's keywords, stars and
     /// Lightroom import all go through one thread (`sidecar_writer`), so changes to one file
     /// land in the order they were made and never cross. The status bar counts them, and
-    /// `report` words the end from how many failed. The thread is its own rather than
+    /// `report` words the end from how many failed. A failure that `report` gives no words
+    /// is told by the text that `write` returned for it, the first of them, so `write` itself
+    /// tells nothing. The thread is its own rather than
     /// `file_io::write_later`'s, so settings saved meanwhile do not wait behind 3,000 sidecars.
     ///
     /// Every sidecar write of the user's metadata goes through here, and this is the one rule
@@ -2044,11 +2046,14 @@ impl crate::App {
         ctx: &egui::Context,
         activity: &'static str,
         files: Vec<(ListedFile, T)>,
-        write: impl Fn(&Path, &T) -> bool + Send + 'static,
+        write: impl Fn(&Path, &T) -> Result<(), String> + Send + 'static,
         report: impl FnOnce(usize, &Job) -> Option<String> + Send + 'static,
     ) {
         let (files, data): (Vec<ListedFile>, Vec<T>) = files.into_iter().unzip();
-        let write = move |k: usize, path: &Path| data.get(k).is_some_and(|d| write(path, d));
+        let write = move |k: usize, path: &Path| {
+            let d = data.get(k).ok_or_else(broke_here)?;
+            write(path, d)
+        };
         if self.file_operations.renaming.is_some() {
             let waiting = WaitingSidecarWrite {
                 activity,
@@ -2073,35 +2078,54 @@ impl crate::App {
         // The job goes after its failure is told, so that a close that waited for it takes the
         // failure first.
         let held = (job.clone(), Working::new(&self.busy));
-        // When the send fails, the work is dropped, and the busy pointer goes with it.
-        write_in_sidecar_thread(
-            sidecar_writer(),
-            told_work(self.notice_sender.clone(), ctx, held, move || {
-                let (mut failed, mut refused) = (0, None);
-                for (k, file) in files.iter().enumerate() {
-                    if job.is_stopped() {
-                        break;
+        self.write_in_sidecar_thread(ctx, held, move || {
+            let (mut failed, mut refused, mut first_failure) = (0, None, None);
+            for (k, file) in files.iter().enumerate() {
+                if job.is_stopped() {
+                    break;
+                }
+                // A file that another file has taken the name of since the list was read is
+                // left alone: `write_for` has it checked under the sidecar's lock, and the first
+                // refusal is told. A file that makes the writing panic counts as one that
+                // failed, and the files after it are still written.
+                let written = catch_panic(|| xmp::write_for(file, || write(k, file.path())));
+                match written.unwrap_or_else(|| (Err(broke_here()), None)) {
+                    (_, Some(refusal)) => {
+                        failed += 1;
+                        refused.get_or_insert(refusal);
                     }
-                    // A file that another file has taken the name of since the list was read is
-                    // left alone: `write_for` has it checked under the sidecar's lock, and the
-                    // first refusal is told. A file that makes the writing panic counts as one
-                    // that failed, and the files after it are still written.
-                    let written = catch_panic(|| xmp::write_for(file, || write(k, file.path())));
-                    let (written, refusal) = written.unwrap_or((false, None));
-                    failed += !written as usize;
-                    refused = refused.or(refusal);
-                    job.count_done(1);
+                    (Err(e), None) => {
+                        failed += 1;
+                        first_failure.get_or_insert(e);
+                    }
+                    (Ok(()), None) => {}
                 }
-                if let Some(first) = refused {
-                    crate::files::file_io::save_failed(first);
-                }
-                let told = report(failed, &job);
-                told.map(|text| match failed > 0 {
-                    true => Told::FailedWrite(text),
-                    false => Told::Notice(text),
-                })
-            }),
-        );
+                job.count_done(1);
+            }
+            if let Some(first) = refused {
+                crate::files::file_io::save_failed(first);
+            }
+            let told = report(failed, &job).or(first_failure);
+            told.map(|text| match failed > 0 {
+                true => Told::FailedWrite(text),
+                false => Told::Notice(text),
+            })
+        });
+    }
+
+    /// Sends `work` to the thread of this window's sidecar writes (`sidecar_writer`), to be done
+    /// after the writes sent before it. The work runs through `told_work`, which tells what it
+    /// returns and a panic in it, and keeps what it `held` until it has told. So no work reaches
+    /// that thread that could end with nothing told. When the send fails, the work is dropped,
+    /// and what it held goes with it.
+    fn write_in_sidecar_thread(
+        &self,
+        ctx: &egui::Context,
+        held: impl Send + 'static,
+        work: impl FnOnce() -> Option<Told> + Send + 'static,
+    ) {
+        let work = told_work(self.notice_sender.clone(), ctx, held, work);
+        let _ = sidecar_writer().send(Box::new(work));
     }
 
     /// Sends the sidecar writes that waited for a rename to the names their files have now, in
@@ -2447,6 +2471,9 @@ fn delete_chunk(
     // held only for the chunk, so a sidecar write in another window waits for one chunk rather
     // than the whole job.
     let _locks = xmp::lock_sidecars(chunk);
+    if !trash {
+        return delete_for_good(chunk, picked, errors);
+    }
     let since = std::time::SystemTime::now();
     // Only the files that are still the ones picked go, each looked at just before. Another
     // program or window may have given the name to another photo while the question was open.
@@ -2459,10 +2486,6 @@ fn delete_chunk(
                 left_alone.push(p.clone());
             }
         }
-    }
-    if !trash {
-        let (went, side) = delete_for_good(&kept, errors);
-        return (went, side, left_alone);
     }
     if !kept.is_empty()
         && let Err(e) = crate::files::trash::trash(&kept)
@@ -2500,7 +2523,9 @@ fn delete_chunk(
     (went, side, left_alone)
 }
 
-/// Deletes each of `kept` for good, with its sidecars. Each sidecar is first put aside under a
+/// Deletes each of `chunk` that is still the one `picked` for good, with its sidecars, as
+/// `delete_chunk` does with its sidecars held. A file that another program or window has given
+/// its name to since the question is left alone. Each sidecar is first put aside under a
 /// hidden name, and the photo is deleted only when all of them could be. A photo whose sidecar
 /// cannot be put aside stays, with its sidecars back, and so does one whose delete did not go
 /// through or could not be looked at after it. A sidecar put aside that then cannot be deleted
@@ -2508,14 +2533,23 @@ fn delete_chunk(
 /// first, the photo left a sidecar that could not go at the old name, where the next file of
 /// that name would show its keywords. Adobe's sidecar of two RAW files of one name stem goes
 /// only with the last of them that goes, so it never stays behind without one. Returns the
-/// files gone and the sidecars gone.
-fn delete_for_good(kept: &[PathBuf], errors: &mut Vec<String>) -> (Vec<PathBuf>, Vec<PathBuf>) {
+/// files gone, the sidecars gone and the files left alone.
+fn delete_for_good(
+    chunk: &[PathBuf],
+    picked: &PickedFingerprints,
+    errors: &mut Vec<String>,
+) -> (Vec<PathBuf>, Vec<PathBuf>, Vec<PathBuf>) {
     let mut names = xmp::AdobeNames::default();
     // The files gone so far and the one being deleted, which leave its stem's sidecar to it.
     let mut leaving: HashSet<&PathBuf> = HashSet::new();
-    let (mut went, mut sides) = (Vec::new(), Vec::new());
+    let (mut went, mut sides, mut left_alone) = (Vec::new(), Vec::new(), Vec::new());
     let mut failed = |at: &Path, e: std::io::Error| errors.push(format!("{}: {e}", at.display()));
-    for p in kept {
+    for p in chunk {
+        if let Err(e) = picked.still_the_one_picked(p) {
+            failed(p, e);
+            left_alone.push(p.clone());
+            continue;
+        }
         leaving.insert(p);
         let mut aside = Vec::new();
         let mut all_aside = Ok(());
@@ -2561,7 +2595,7 @@ fn delete_for_good(kept: &[PathBuf], errors: &mut Vec<String>) -> (Vec<PathBuf>,
             }
         }
     }
-    (went, sides)
+    (went, sides, left_alone)
 }
 
 /// Takes each file of `sidecars_of_file` whose sidecars did not all go to the trash back out of
@@ -3032,16 +3066,14 @@ fn put_files(
                 }
                 moving.remove(path);
             } else if another_to_come {
-                followed_later.push((path, target.clone()));
+                followed_later.push((path, target.clone(), fingerprint(&target)));
                 put.push((path.clone(), target.clone()));
-            } else if let Err(not) =
-                xmp::follow(path, &target, is_copy, &moving, &mut sidecar_names)
+            } else if let Err((back, told)) =
+                follow_or_go_back((path, &target, None), is_copy, &moving, &mut sidecar_names)
             {
                 // The file and its sidecars go together or not at all, so a later file of the
                 // old name never picks up a sidecar left behind.
-                let back = not.taken_back
-                    && crate::files::file_io::put_file_back(path, &target, is_copy).is_ok();
-                errors.push(sidecar_not_followed(&not, path, back));
+                errors.extend(told);
                 match back {
                     true => drop(moving.remove(path)),
                     false => put.push((path.clone(), target.clone())),
@@ -3112,18 +3144,19 @@ fn is_another_of_its_stem_to_come(
 /// follow goes back to it, as in `put_files`, and then counts as staying, so that the stem's
 /// sidecar stays beside it too. Returns the errors to tell, and the files that went back.
 fn follow_once_the_stem_is_known(
-    moved: Vec<(&PathBuf, PathBuf)>,
+    moved: Vec<(&PathBuf, PathBuf, Option<FileFingerprint>)>,
     went: &HashSet<&PathBuf>,
     sidecar_names: &mut xmp::AdobeNames,
 ) -> (Vec<String>, HashSet<PathBuf>) {
     let (mut errors, mut taken_back) = (Vec::new(), HashSet::new());
     let mut went = went.clone();
-    for (from, to) in moved {
+    for (from, to, at_put) in moved {
         let _lock = xmp::lock_sidecar(from);
-        if let Err(not) = xmp::follow(from, &to, false, &went, sidecar_names) {
-            let back =
-                not.taken_back && crate::files::file_io::put_file_back(from, &to, false).is_ok();
-            errors.push(sidecar_not_followed(&not, from, back));
+        // Only the file put there goes back, not another that a program put at its name while
+        // the other files of the job went.
+        let put = (from.as_path(), to.as_path(), at_put);
+        if let Err((back, told)) = follow_or_go_back(put, false, &went, sidecar_names) {
+            errors.extend(told);
             if back {
                 went.remove(from);
                 taken_back.insert(from.clone());
@@ -3148,7 +3181,9 @@ fn move_back(pairs: Vec<Moved>) -> MovedBack {
     let mut moving: HashSet<&PathBuf> = moving_back.iter().collect();
     let mut stems_to_come = raw_files_by_stem(moving_back.iter());
     let mut followed_later = Vec::new();
+    let mut at_move_of = HashMap::new();
     for (from, to, at_move) in pairs {
+        at_move_of.insert(to.clone(), at_move);
         let another_to_come = is_another_of_its_stem_to_come(&to, &mut stems_to_come);
         let _lock = xmp::lock_sidecar(&to);
         // Another program may have put another file at `to` since the move.
@@ -3164,25 +3199,28 @@ fn move_back(pairs: Vec<Moved>) -> MovedBack {
         };
         match result {
             Ok(()) if another_to_come => {
-                followed_later.push((to.clone(), from.clone()));
+                followed_later.push((to.clone(), from.clone(), fingerprint(&from)));
                 back.push((to, from));
             }
-            Ok(()) => match xmp::follow(&to, &from, false, &moving, &mut sidecar_names) {
-                Ok(()) => back.push((to, from)),
-                // The file goes back to its sidecars, and the Undo stays to be tried again.
-                Err(not) => {
-                    let stays = not.taken_back
-                        && crate::files::file_io::put_file_back(&to, &from, false).is_ok();
-                    errors.push(sidecar_not_followed(&not, &to, stays));
-                    match stays.then(|| fingerprint(&to)).flatten() {
-                        Some(now) => {
-                            moving.remove(&to);
-                            left.push((from, to, now));
-                        }
-                        None => back.push((to, from)),
+            Ok(()) => {
+                match follow_or_go_back((&to, &from, None), false, &moving, &mut sidecar_names) {
+                    Ok(()) => back.push((to, from)),
+                    // The file went back to its sidecars at `to`, and the Undo stays to be tried
+                    // again. A look at it that failed is no answer that it is gone, so the Undo
+                    // keeps the fingerprint of the move, which a file moved back and forth keeps.
+                    Err((true, told)) => {
+                        errors.extend(told);
+                        moving.remove(&to);
+                        let now = fingerprint(&to).unwrap_or(at_move);
+                        left.push((from, to, now));
+                    }
+                    // The file is at `from` with the sidecars that followed it.
+                    Err((false, told)) => {
+                        errors.extend(told);
+                        back.push((to, from));
                     }
                 }
-            },
+            }
             Err((at, e)) => {
                 errors.push(format!("{}: {e}", at.display()));
                 moving.remove(&to);
@@ -3193,7 +3231,7 @@ fn move_back(pairs: Vec<Moved>) -> MovedBack {
     let went: HashSet<&PathBuf> = back.iter().map(|(now, _)| now).collect();
     let later = followed_later
         .iter()
-        .map(|(now, before)| (now, before.clone()));
+        .map(|(now, before, at_put)| (now, before.clone(), *at_put));
     let (later, taken_back) =
         follow_once_the_stem_is_known(later.collect(), &went, &mut sidecar_names);
     errors.extend(later);
@@ -3201,8 +3239,10 @@ fn move_back(pairs: Vec<Moved>) -> MovedBack {
     let (stayed, went_back): (Vec<_>, Vec<_>) =
         (back.into_iter()).partition(|(now, _)| taken_back.contains(now));
     back = went_back;
+    // A failed look keeps the Undo with the fingerprint of the move, as above.
     for (now, before) in stayed {
-        if let Some(at_now) = fingerprint(&now) {
+        let at_now = fingerprint(&now).or_else(|| at_move_of.get(&now).copied());
+        if let Some(at_now) = at_now {
             left.push((before, now, at_now));
         }
     }
@@ -3220,19 +3260,78 @@ fn move_back(pairs: Vec<Moved>) -> MovedBack {
     (back, left, errors)
 }
 
-/// Words the failure of a sidecar that could not follow `file`, `not`. When the file was put
-/// back with its sidecars (`is_back`), it says that the file stays where it was.
-fn sidecar_not_followed(not: &xmp::NotFollowed, file: &Path, is_back: bool) -> String {
-    let (side, e) = (not.at.display(), &not.error);
-    match is_back {
-        true => tf!(
-            "{side}: {e}, so {file} stays where it was, with its sidecar",
-            side,
-            e,
-            file = file.display()
-        ),
-        false => format!("{side}: {e}"),
-    }
+/// Lets the sidecars of the file just put from `from` at `to` follow it (`xmp::follow`). When
+/// one cannot, the file goes back first, and the sidecars that followed are taken back only once
+/// it is there, each of them also after one that failed. When the file cannot go back, those
+/// sidecars stay with it at `to`. So the file always ends with every sidecar that could reach
+/// it. Returns, when a sidecar could not follow, whether the file is back at `from`, with the
+/// errors to tell, each saying where the file and that sidecar are. `at_put` is the file's
+/// fingerprint at `to` when it was put there, for a file whose sidecars follow later: it goes
+/// back only while it is still that file. `None` is for a file put there just now.
+fn follow_or_go_back(
+    (from, to, at_put): (&Path, &Path, Option<FileFingerprint>),
+    is_copy: bool,
+    moving: &HashSet<&PathBuf>,
+    names: &mut xmp::AdobeNames,
+) -> Result<(), (bool, Vec<String>)> {
+    let Err(not) = xmp::follow(from, to, is_copy, moving, names) else {
+        return Ok(());
+    };
+    let file = from.display();
+    let is_still_put =
+        at_put.is_none_or(|then| fingerprint(to).is_some_and(|now| same_fingerprint(then, now)));
+    let put_back = match is_still_put {
+        true => crate::files::file_io::put_file_back(from, to, is_copy),
+        false => Err(std::io::Error::other(tr(
+            "another file has taken its place",
+        ))),
+    };
+    let Err(error) = put_back else {
+        let mut told = Vec::new();
+        for (side, at, was_copy) in not.followed.into_iter().rev() {
+            if let Err(e) = crate::files::file_io::put_file_back(&side, &at, was_copy) {
+                let (side, at) = (side.display(), at.display());
+                told.push(tf!(
+                    "{file} went back, but its sidecar {side} could not ({e}), so the sidecar is at {at}",
+                    file,
+                    side,
+                    e,
+                    at
+                ));
+            }
+        }
+        // The window shows the first error, so a sidecar apart from its file comes first, and
+        // then the file is not said to be with its sidecar.
+        let is_whole = told.is_empty();
+        told.extend(not.failed.iter().map(|(_, at, e)| {
+            let side = at.display();
+            match is_whole {
+                true => tf!(
+                    "{side}: {e}, so {file} stays where it was, with its sidecar",
+                    side,
+                    e,
+                    file
+                ),
+                false => format!("{side}: {e}"),
+            }
+        }));
+        return Err((true, told));
+    };
+    let to = to.display();
+    let told = (not.failed.iter())
+        .map(|(side, _, e)| {
+            let side = side.display();
+            tf!(
+                "{side} could not follow {file} ({e}), and {file} could not go back ({error}), so the file is at {to} and this sidecar at {side}",
+                side,
+                file,
+                e,
+                error,
+                to
+            )
+        })
+        .collect();
+    Err((false, told))
 }
 
 /// Returns a file just moved or renamed from `from` to `to` with its fingerprint, for Undo. Returns
@@ -3291,15 +3390,6 @@ fn sidecar_writer() -> &'static mpsc::Sender<crate::files::file_io::QueuedWrite>
     static WRITER: std::sync::OnceLock<mpsc::Sender<crate::files::file_io::QueuedWrite>> =
         std::sync::OnceLock::new();
     WRITER.get_or_init(crate::files::file_io::start_ordered_worker)
-}
-
-/// Sends `work` to `writer`, the thread of this window's sidecar writes (`sidecar_writer`), to
-/// be done after the writes sent before it. When the send fails, the work is dropped.
-fn write_in_sidecar_thread(
-    writer: &mpsc::Sender<crate::files::file_io::QueuedWrite>,
-    work: impl FnOnce() + Send + 'static,
-) {
-    let _ = writer.send(Box::new(work));
 }
 
 /// `(from, to)` pairs to look up by the old path.
@@ -3942,6 +4032,113 @@ mod tests {
         std::fs::remove_dir_all(dir).unwrap();
     }
 
+    /// A file whose sidecar cannot follow goes back first, and the sidecars that followed go
+    /// back only once it is there, every one of them. When it cannot go back, it keeps every
+    /// sidecar that reached it, and the error says where it and the sidecar left behind are.
+    /// Before, the sidecars were taken back first, stopping at the first that could not go,
+    /// and a file that then could not go back stayed at the target without them.
+    #[test]
+    fn a_file_ends_with_every_sidecar_that_could_reach_it() {
+        use crate::files::file_io::{RENAME_WAYS_MISSING, UNLINK_FAILS};
+        let dir = std::env::temp_dir().join(format!("glimt-test-way-back-{}", std::process::id()));
+        let (from, to) = (dir.join("from"), dir.join("to"));
+        let read = |p: &std::path::Path| std::fs::read_to_string(p).unwrap();
+        for can_go_back in [false, true] {
+            let _ = std::fs::remove_dir_all(&dir);
+            std::fs::create_dir_all(&from).unwrap();
+            std::fs::create_dir_all(&to).unwrap();
+            // The file is at the target already. Its own sidecar cannot follow, as a sidecar
+            // of that name is there, and Adobe's, which comes second, can.
+            std::fs::write(to.join("a.cr2"), "raw").unwrap();
+            std::fs::write(from.join("a.cr2.xmp"), "own").unwrap();
+            std::fs::write(to.join("a.cr2.xmp"), "there").unwrap();
+            std::fs::write(from.join("a.xmp"), "adobe").unwrap();
+            if !can_go_back {
+                // Another file has taken the old name.
+                std::fs::write(from.join("a.cr2"), "another").unwrap();
+            }
+            let photo = from.join("a.cr2");
+            let moving = std::collections::HashSet::from([&photo]);
+            // Adobe's sidecar, once it followed, cannot be taken back.
+            RENAME_WAYS_MISSING.set(1);
+            UNLINK_FAILS.set(Some((to.join("a.xmp"), libc::EPERM)));
+            let result = super::follow_or_go_back(
+                (&photo, &to.join("a.cr2"), None),
+                false,
+                &moving,
+                &mut Default::default(),
+            );
+            UNLINK_FAILS.set(None);
+            RENAME_WAYS_MISSING.set(0);
+            let Err((is_back, told)) = result else {
+                panic!("every sidecar followed")
+            };
+            assert_eq!(is_back, can_go_back, "{told:?}");
+            assert_eq!(read(&to.join("a.xmp")), "adobe", "{told:?}");
+            assert!(!from.join("a.xmp").exists());
+            assert_eq!(read(&from.join("a.cr2.xmp")), "own");
+            match can_go_back {
+                true => {
+                    assert_eq!(read(&from.join("a.cr2")), "raw");
+                    assert!(told[0].contains("went back, but its sidecar"), "{told:?}");
+                    assert!(!told[1].contains("with its sidecar"), "{told:?}");
+                }
+                false => {
+                    assert_eq!(read(&to.join("a.cr2")), "raw");
+                    assert_eq!(told.len(), 1, "{told:?}");
+                    assert!(told[0].contains("could not go back"), "{told:?}");
+                }
+            }
+        }
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// An Undo of a Move whose file went back to its sidecars keeps the Undo when the look at
+    /// the file then fails, and does not count the file as moved back. Before, the file was
+    /// counted at its old name, where its marks would have followed it, or its Undo was lost.
+    #[test]
+    fn a_failed_look_keeps_the_undo_of_a_move() {
+        use crate::files::file_io::{LOOK_FAILS, RENAME_WAYS_MISSING, UNLINK_FAILS};
+        let dir = std::env::temp_dir().join(format!("glimt-test-undo-look-{}", std::process::id()));
+        let (from, to) = (dir.join("from"), dir.join("to"));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&from).unwrap();
+        std::fs::create_dir_all(&to).unwrap();
+        std::fs::write(to.join("a.cr2"), "cr2").unwrap();
+        std::fs::write(to.join("a.nef"), "nef").unwrap();
+        // a.cr2's own sidecar is a socket, which can be neither moved (its old name cannot be
+        // unlinked) nor copied.
+        let _socket = std::os::unix::net::UnixListener::bind(to.join("a.cr2.xmp")).unwrap();
+        let moved = |n: &str| {
+            let now = crate::files::file_io::fingerprint(&to.join(n)).unwrap();
+            (from.join(n), to.join(n), now)
+        };
+        // a.cr2 alone, and then with another RAW file of its stem, whose sidecars wait.
+        for pairs in [vec![moved("a.cr2")], vec![moved("a.cr2"), moved("a.nef")]] {
+            RENAME_WAYS_MISSING.set(1);
+            UNLINK_FAILS.set(Some((to.join("a.cr2.xmp"), libc::EPERM)));
+            // The look before the move back answers, and the one after it does not.
+            LOOK_FAILS.set(Some((to.join("a.cr2"), 1)));
+            let at_move = pairs[0].2;
+            let (back, left, errors) = super::move_back(pairs);
+            LOOK_FAILS.set(None);
+            UNLINK_FAILS.set(None);
+            RENAME_WAYS_MISSING.set(0);
+            assert!(
+                back.iter().all(|(now, _)| *now != to.join("a.cr2")),
+                "{errors:?}"
+            );
+            assert_eq!(left.len(), 1, "{errors:?}");
+            assert_eq!((&left[0].1, left[0].2), (&to.join("a.cr2"), at_move));
+            assert_eq!(std::fs::read_to_string(to.join("a.cr2")).unwrap(), "cr2");
+            // The second round starts again from the target.
+            if from.join("a.nef").exists() {
+                std::fs::rename(from.join("a.nef"), to.join("a.nef")).unwrap();
+            }
+        }
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
     /// A Move to Trash whose sidecar cannot go to the trash takes the photo back out of it, and
     /// says so. Before, the photo stayed in the trash and the sidecar at its old name, where the
     /// next file of that name would pick up its keywords.
@@ -4404,7 +4601,7 @@ mod tests {
                         ctx,
                         "Saving keywords",
                         crate::support::test_support::unlisted_with(vec![(d.join("a.png"), ())]),
-                        |p, _| crate::metadata::xmp::add_tags(p, &["Tag".into()]).is_ok(),
+                        |p, _| crate::metadata::xmp::add_tags(p, &["Tag".into()]),
                         |_, _| None,
                     );
                 },
@@ -6434,7 +6631,7 @@ mod tests {
             &ctx,
             "Other",
             crate::support::test_support::unlisted_with(other),
-            move |_, _| released.recv().is_err(),
+            move |_, _| released.recv().map_or(Ok(()), |()| Err(String::new())),
             |_, _| None,
         );
         // Each photo gets a keyword of its own, as Lightroom's import gives them.
@@ -6446,7 +6643,7 @@ mod tests {
             &ctx,
             "Keywords",
             crate::support::test_support::unlisted_with(keywords),
-            |p, tag| crate::metadata::xmp::add_tags(p, std::slice::from_ref(tag)).is_ok(),
+            |p, tag| crate::metadata::xmp::add_tags(p, std::slice::from_ref(tag)),
             |_, _| None,
         );
         assert!(run_background_until(&mut app, &ctx, |app| app
@@ -6513,7 +6710,7 @@ mod tests {
             &ctx,
             "Keywords",
             vec![(listed, ())],
-            |p, _| crate::metadata::xmp::add_tags(p, &["Oslo".into()]).is_ok(),
+            |p, _| crate::metadata::xmp::add_tags(p, &["Oslo".into()]),
             |_, _| None,
         );
         other.join().unwrap();
@@ -6578,7 +6775,7 @@ mod tests {
             &ctx,
             "Keywords",
             crate::support::test_support::unlisted_with(asked),
-            move |p, _| oslo(p).is_ok(),
+            move |p, _| oslo(p),
             |_, _| None,
         );
         let job = app.file_operations.renaming.take().unwrap();
@@ -6619,7 +6816,7 @@ mod tests {
             &ctx,
             "Other",
             crate::support::test_support::unlisted_with(long),
-            move |_, _| released.recv().is_err(),
+            move |_, _| released.recv().map_or(Ok(()), |()| Err(String::new())),
             |_, _| None,
         );
         let oslo = |p: &std::path::Path| crate::metadata::xmp::add_tags(p, &["Oslo".into()]);
@@ -6627,7 +6824,7 @@ mod tests {
             &ctx,
             "Keywords",
             crate::support::test_support::unlisted_with(vec![(a.clone(), ())]),
-            move |p, _| oslo(p).is_ok(),
+            move |p, _| oslo(p),
             |_, _| None,
         );
         app.file_operations.stop_jobs();
@@ -6982,7 +7179,7 @@ mod tests {
             &ctx,
             "Saving keywords",
             crate::support::test_support::unlisted_with(vec![(dir.join("a.png"), ())]),
-            |_, _| true,
+            |_, _| Ok(()),
             |_, _| None,
         );
         assert!(app.search.reads_exif_again("a.png"));
@@ -7353,7 +7550,7 @@ mod tests {
         let write = move |path: &std::path::Path, _: &()| {
             assert!(!path.ends_with("a.png"), "a broken sidecar");
             lock_even_if_poisoned(&noted).push(path.to_path_buf());
-            true
+            Ok(())
         };
         let report =
             |failed: usize, _: &super::Job| (failed > 0).then(|| format!("{failed} failed"));
@@ -7366,6 +7563,29 @@ mod tests {
         );
         assert_eq!(told_to(&app), Some(Told::FailedWrite("1 failed".into())));
         assert_eq!(*lock_even_if_poisoned(&written), [b]);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A sidecar write that fails, in a job whose report has no words for it (the info
+    /// panel's), is told as a failed write by its own text. Before, each such write told its
+    /// failure itself through a notice sender of its own, which nothing held it to.
+    #[test]
+    fn a_sidecar_write_that_fails_is_told_by_its_own_text() {
+        let dir = folder_with("sidecar-fails", &["a.png"]);
+        let (mut app, ctx) = app_on(&dir);
+        app.write_sidecars(
+            &ctx,
+            "Writing",
+            crate::support::test_support::unlisted_with(vec![(dir.join("a.png"), ())]),
+            |_, _| Err("Could not save the keywords: full".into()),
+            |_, _| None,
+        );
+        assert_eq!(
+            told_to(&app),
+            Some(Told::FailedWrite(
+                "Could not save the keywords: full".into()
+            ))
+        );
         std::fs::remove_dir_all(dir).unwrap();
     }
 

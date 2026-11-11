@@ -84,6 +84,10 @@ thread_local! {
     // name stays, as a share does that lost its answer.
     pub(crate) static UNLINK_FAILS: std::cell::RefCell<Option<(PathBuf, i32)>> =
         const { std::cell::RefCell::new(None) };
+    // Makes `fingerprint` on this thread fail at this name once it has been looked at this many
+    // times, as a share does that stopped answering for a moment.
+    pub(crate) static LOOK_FAILS: std::cell::RefCell<Option<(PathBuf, usize)>> =
+        const { std::cell::RefCell::new(None) };
     // The errors that `save_failed` told for this thread's test. They do not go to the window's
     // own slot in tests, where another test's window would take them as its notice. Each list is
     // leaked, so that the writer thread can tell a test's errors to that test's list.
@@ -638,8 +642,11 @@ fn unlink_linked(from: &Path, to: &Path) -> std::io::Result<()> {
     }
     if unlink_was_refused(&e) {
         #[allow(clippy::disallowed_methods)] // the new name, taken back
-        let _ = std::fs::remove_file(to);
-        return Err(e);
+        let taken_back = std::fs::remove_file(to);
+        // A new name that stays is told below, as the file is then under both names.
+        if taken_back.is_ok() {
+            return Err(e);
+        }
     }
     let (from, to) = (from.display(), to.display());
     let text = crate::tf!(
@@ -996,6 +1003,8 @@ pub(crate) fn put_file_until_stopped(
             })
             .and_then(|_| rename_never_over(&part, to));
         #[allow(clippy::disallowed_methods)] // the copy's hidden part
+        // Not told: a copy that failed is told by its own error, and a copy that took its name
+        // has no part left to remove.
         let _ = std::fs::remove_file(&part);
         copied
     };
@@ -1549,6 +1558,17 @@ pub(crate) fn fingerprint(path: &Path) -> Option<FileFingerprint> {
 /// when nothing is there.
 fn fingerprint_or_error(path: &Path) -> std::io::Result<FileFingerprint> {
     use std::os::unix::fs::MetadataExt;
+    #[cfg(test)]
+    if LOOK_FAILS.with_borrow_mut(|fails| match fails {
+        Some((name, looks_left)) if name == path => {
+            let fails = *looks_left == 0;
+            *looks_left = looks_left.saturating_sub(1);
+            fails
+        }
+        _ => false,
+    }) {
+        return Err(std::io::Error::from_raw_os_error(libc::EIO));
+    }
     let m = look(path, false)?;
     let key = crate::images::save::file_id_from_metadata(path, &m).ok();
     Ok((key, m.len(), (m.mtime(), m.mtime_nsec())))
@@ -1663,6 +1683,8 @@ pub fn write_beside_without_folder_sync(
         .and_then(|_| give_name(tmp));
     if result.is_err() {
         #[allow(clippy::disallowed_methods)] // the temporary file, not finished
+        // Not told: the write's own failure is returned, and a hidden name left takes no file's
+        // place.
         let _ = std::fs::remove_file(tmp);
     }
     result

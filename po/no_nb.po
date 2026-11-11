@@ -3118,3 +3118,11 @@ msgstr "Navnene ble latt være som de er"
 #: src/ui/dialogs.rs
 msgid "Rename Many was cut short, and these files are not under the names it was to give them. Each line names a file as it is now, then the name it was to get."
 msgstr "Gi mange nye navn ble avbrutt, og disse filene har ikke navnene de skulle få. Hver linje gir en fils navn nå, og så navnet den skulle få."
+
+#: src/files/file_ops.rs
+msgid "{file} went back, but its sidecar {side} could not ({e}), so the sidecar is at {at}"
+msgstr "{file} ble flyttet tilbake, men sidefilen {side} kunne ikke ({e}), så sidefilen er i {at}"
+
+#: src/files/file_ops.rs
+msgid "{side} could not follow {file} ({e}), and {file} could not go back ({error}), so the file is at {to} and this sidecar at {side}"
+msgstr "{side} kunne ikke følge {file} ({e}), og {file} kunne ikke flyttes tilbake ({error}), så filen er i {to} og denne sidefilen i {side}"

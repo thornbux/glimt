@@ -373,22 +373,15 @@ impl Listener {
 impl crate::App {
     // ---- Remote control ----
 
-    /// Receives `glimt --remote` commands and queries. While the place that an `open` named is
+    /// Takes the background work's answers (`receive_answers`), and then the `glimt --remote`
+    /// commands and queries. While the place that an `open` named is
     /// looked up or mounted, every command but `quit` waits, and a `select` waits too while the
     /// folder is read or a dialog asks about the selection.
     pub(crate) fn receive_remote(&mut self, ctx: &egui::Context) {
-        // `open` only starts a look-up, and the window shows the old list until its answer is
-        // taken. It is taken here first, because a hidden window runs no `ui`, which takes it
-        // too.
-        self.receive_looked_up(ctx, std::time::Duration::ZERO);
-        // An `open` of a network location mounts it first, and its answer is taken here for
-        // the same reason.
-        self.receive_mount(ctx);
-        // A hidden window runs no `ui`, which takes the listing, so a waiting select takes it
-        // here. Otherwise the select would wait until the window is shown again.
-        if !self.remote.waiting_commands.is_empty() {
-            self.receive_listing(ctx, std::time::Duration::ZERO);
-        }
+        // The answers are taken here first, because a hidden window runs no `ui`, which takes
+        // them too. A waiting command and a `--wait` answer wait for them: the place looked up,
+        // the mount, the listing, a report, the window's name.
+        self.receive_answers(ctx);
         // The waiting ones are done in the order they came, until one (an `open`) makes them
         // wait again. Each gets its own answer, from the list as it was when it was sent.
         while let Some((command, reply)) = self.remote.waiting_commands.first()
@@ -462,7 +455,8 @@ impl crate::App {
     /// otherwise. The work has ended when no place is opened, no folder read, no thread works
     /// for the window and no file is written, and the window has taken the failed writes. A
     /// command that closes the window waits for `closing`, which `on_exit` gives after its last
-    /// writes.
+    /// writes. Another command is not done when the window closes while a place is still opened
+    /// or a folder read, because the folder that an `open` named was then never shown.
     pub(crate) fn answer_awaited_outcomes(&mut self, ctx: &egui::Context, closing: bool) {
         if self.remote.awaiting_outcome.is_empty() {
             return;
@@ -471,6 +465,7 @@ impl crate::App {
         // does: a write tells its failure before it stops counting as writing.
         let is_writing = self.is_writing();
         let at_rest = !is_writing && !self.folder.is_opening() && !self.working_besides_image();
+        let folder_unread = self.folder.is_opening() || self.folder.is_listing();
         self.take_saves(ctx);
         let failed_writes = self.window.failed_writes_told();
         let last_failure = self.window.last_failed_write().to_owned();
@@ -501,10 +496,16 @@ impl crate::App {
             if !ended {
                 return now < awaited.until;
             }
-            let outcome = match (failed, closing && is_writing) {
-                (true, _) => not_done_answer(&last_failure),
-                (false, true) => not_done_answer("this Glimt closed before its writes were done"),
-                (false, false) => OUTCOME_DONE.as_bytes().to_vec(),
+            let unread = closing && folder_unread && !awaited.closes_the_window;
+            let outcome = match (failed, closing && is_writing, unread) {
+                (true, ..) => not_done_answer(&last_failure),
+                (false, true, _) => {
+                    not_done_answer("this Glimt closed before its writes were done")
+                }
+                (false, false, true) => {
+                    not_done_answer("this Glimt closed before the folder was read")
+                }
+                (false, false, false) => OUTCOME_DONE.as_bytes().to_vec(),
             };
             let _ = awaited.reply.send(outcome);
             false
@@ -1511,7 +1512,12 @@ pub fn listen(
             .mode(0o700)
             .create(dir);
         #[allow(clippy::disallowed_methods)] // the runtime folder of the sockets
-        let _ = std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700));
+        let private = std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700));
+        if let Err(e) = private {
+            return Err(format!(
+                "No remote control: its folder there cannot be made private: {e}"
+            ));
+        }
         // A folder made by another user meanwhile, between the look in `dir` and here, is not
         // used.
         if is_another_users_dir(dir) {
@@ -1804,6 +1810,7 @@ fn bind_socket(path: &std::path::Path) -> Result<UnixListener, Option<std::io::E
         return Err(None);
     }
     #[allow(clippy::disallowed_methods)] // Glimt's own: a socket left by a Glimt gone
+    // Not told: a socket that stays makes the bind below fail, and that failure is returned.
     let _ = std::fs::remove_file(path);
     // Another window can take the name between the remove and this bind, as a rename links its
     // socket there without this lock. Its socket then answers, so it counts as taken.
@@ -1854,6 +1861,8 @@ fn move_socket(dir: &Path, old: &str, ids: &[String]) -> Result<String, String> 
                 Err(e) => return Err(e.to_string()),
             }
             #[allow(clippy::disallowed_methods)] // Glimt's own: its socket, linked anew
+            // Not told: the window has its new name either way, and the old one reaches it
+            // too until it closes.
             let _ = std::fs::remove_file(&from);
         }
         let focused = crate::images::decode::read_text(dir.join(FOCUSED_FILE)).ok();
@@ -1878,6 +1887,7 @@ fn link_socket(from: &std::path::Path, to: &std::path::Path) -> std::io::Result<
                 return Err(e);
             }
             #[allow(clippy::disallowed_methods)] // Glimt's own: a socket left by a Glimt gone
+            // Not told: the link just below then fails, and its error is returned.
             let _ = std::fs::remove_file(to);
             #[allow(clippy::disallowed_methods)] // a link to Glimt's own socket, never over a file
             std::fs::hard_link(from, to)
@@ -1984,6 +1994,8 @@ pub fn close() {
         && let Some(path) = socket(&own_socket_id())
     {
         #[allow(clippy::disallowed_methods)] // Glimt's own: its socket
+        // Not told: the window is closing, and the next Glimt of this name replaces a socket
+        // that nobody answers on (`bind_socket`).
         let _ = std::fs::remove_file(path);
     }
 }
@@ -2622,7 +2634,6 @@ mod tests {
             let start = std::time::Instant::now();
             while start.elapsed() < std::time::Duration::from_secs(20) {
                 app.receive_remote(&ctx);
-                app.receive_answers_without_a_frame(&ctx);
                 if let Ok(got) = answer.try_recv() {
                     return Some(got);
                 }
@@ -2674,6 +2685,72 @@ mod tests {
         app.tell_failed_write("Could not save the state".into());
         let why = super::not_done_reason(&outcome(&mut app, &answer).unwrap());
         assert_eq!(why.as_deref(), Some("Could not save the state"));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A hidden window runs `logic`, which calls `receive_remote`, but no `ui`. An `open` sent
+    /// with `--wait` is still answered once its folder is read, and `name` once the name is
+    /// taken. Before, the listing and the name's answer were taken only in `ui`, so the client
+    /// of a minimized window waited until its time ran out and was told "no answer".
+    #[test]
+    fn a_hidden_window_answers_what_waits_for_its_work() {
+        let dir =
+            std::env::temp_dir().join(format!("glimt-test-hidden-wait-{}", std::process::id()));
+        let other = dir.join("other");
+        std::fs::create_dir_all(&other).unwrap();
+        image::RgbImage::new(4, 4)
+            .save(other.join("b.png"))
+            .unwrap();
+        let (mut app, ctx) = app_on(&dir);
+        let (reply, answer) = std::sync::mpsc::channel();
+        let open = format!("wait open {}", other.display());
+        app.remote.tx.send((open, Some(reply))).unwrap();
+        let start = std::time::Instant::now();
+        let got = loop {
+            app.receive_remote(&ctx);
+            if let Ok(got) = answer.try_recv() {
+                break got;
+            }
+            assert!(
+                start.elapsed() < std::time::Duration::from_secs(20),
+                "no answer"
+            );
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        };
+        assert_eq!(got, super::OUTCOME_DONE.as_bytes());
+        assert_eq!(app.list.files(), [std::ffi::OsString::from("b.png")]);
+        let (reply, answer) = std::sync::mpsc::channel();
+        let asked_by = super::NameAskedBy::Remote(Some(reply));
+        let taken = Ok(());
+        let sent = app
+            .remote
+            .name_sender
+            .send(super::NameAnswer { asked_by, taken });
+        assert!(sent.is_ok());
+        app.receive_remote(&ctx);
+        assert_eq!(answer.try_recv().unwrap(), Vec::<u8>::new());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A window that closes for another reason while an `open` sent with `--wait` is still
+    /// reading its folder answers that it was not done. Before, it answered "done" for a
+    /// folder that was never shown.
+    #[test]
+    fn a_close_before_the_folder_is_read_is_not_done() {
+        let dir =
+            std::env::temp_dir().join(format!("glimt-test-close-open-{}", std::process::id()));
+        let other = dir.join("other");
+        std::fs::create_dir_all(&other).unwrap();
+        let (mut app, ctx) = app_on(&dir);
+        let (reply, answer) = std::sync::mpsc::channel();
+        let open = format!("wait open {}", other.display());
+        app.remote.tx.send((open, Some(reply))).unwrap();
+        app.receive_remote(&ctx);
+        // As on a share that stopped answering, the place is never found.
+        let _held = app.folder.hold_look_up();
+        app.answer_awaited_outcomes(&ctx, true);
+        let why = super::not_done_reason(&answer.try_recv().unwrap());
+        assert!(why.is_some_and(|w| w.contains("folder was read")));
         std::fs::remove_dir_all(dir).unwrap();
     }
 

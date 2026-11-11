@@ -4,12 +4,12 @@
 //! is decoded only when the user zooms in further than that size covers. Only a small window
 //! of images around the current one is kept in memory.
 
+#![cfg_attr(test, allow(clippy::disallowed_methods))]
 // Tests make and read their files directly. The rules in clippy.toml are for Glimt's own code,
 // which `cargo clippy --release` checks without the tests.
-#![cfg_attr(test, allow(clippy::disallowed_methods))]
+#![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
 // A test stops at the first unwrap or expect that fails, which is what a test should do. This
 // covers the modules built only with the tests too (source_rules, test_support).
-#![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
 
 use crate::cli::Start;
 use crate::features::check::ImageCheck;
@@ -458,17 +458,17 @@ impl eframe::App for App {
         );
     }
 
-    /// Guards a close of the window, takes the `--remote` commands and the answers that need no
-    /// frame. eframe calls this before each `ui`, and also while the window is minimized or
-    /// hidden, when it calls no `ui`. So a script gets its answer at once, a close meets the
-    /// guard also while no `ui` runs, and the busy pointer of an answer taken here goes then.
+    /// Guards a close of the window, and takes the background work's answers and the
+    /// `--remote` commands (`receive_remote`). eframe calls this before each `ui`, and also
+    /// while the window is minimized or hidden, when it calls no `ui`. So a script gets its
+    /// answer at once, a close meets the guard also while no `ui` runs, and the busy pointer of
+    /// an answer taken here goes then.
     fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         // A `where` from the release tests is answered from the frame drawn last.
         #[cfg(feature = "test-hooks")]
         crate::support::test_hooks::begin_frame();
         self.guard_close(ctx);
         self.receive_remote(ctx);
-        self.receive_answers_without_a_frame(ctx);
     }
 
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {

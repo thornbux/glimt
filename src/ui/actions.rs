@@ -1520,7 +1520,7 @@ impl crate::App {
                     ctx,
                     tr("Writing stars"),
                     files.into_iter().map(|f| (f, ())).collect(),
-                    move |path, _| marks::write_xmp(path, n).is_ok(),
+                    move |path, _| marks::write_xmp(path, n),
                     |failed, job| match () {
                         _ if failed > 0 => Some(tf!(
                             "The stars could not be written to the XMP sidecar of {count}",

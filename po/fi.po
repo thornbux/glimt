@@ -3107,3 +3107,11 @@ msgstr "Nimet jätettiin ennalleen"
 #: src/ui/dialogs.rs
 msgid "Rename Many was cut short, and these files are not under the names it was to give them. Each line names a file as it is now, then the name it was to get."
 msgstr "Monen uudelleennimeäminen keskeytyi, eikä näillä tiedostoilla ole nimiä, jotka sen piti antaa. Jokainen rivi kertoo tiedoston nykyisen nimen ja sitten nimen, joka sen piti saada."
+
+#: src/files/file_ops.rs
+msgid "{file} went back, but its sidecar {side} could not ({e}), so the sidecar is at {at}"
+msgstr "{file} palautettiin, mutta sen sivutiedosto {side} ei ({e}), joten sivutiedosto on kohteessa {at}"
+
+#: src/files/file_ops.rs
+msgid "{side} could not follow {file} ({e}), and {file} could not go back ({error}), so the file is at {to} and this sidecar at {side}"
+msgstr "{side} ei voinut seurata tiedostoa {file} ({e}), eikä {file} voinut palata ({error}), joten tiedosto on kohteessa {to} ja tämä sivutiedosto kohteessa {side}"

@@ -18,11 +18,11 @@
 
     <rect x="20" y="85" width="450" height="120" rx="6" fill="#fef3e2" stroke="#d08a1a" stroke-width="1.5"/>
     <text x="34" y="106" font-size="14" font-weight="700" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace">poll_background(ctx)</text>
-    <text x="34" y="124" font-size="12" fill="#57606a">takes what the threads sent since the last frame (ui/workers.rs)</text>
+    <text x="34" y="124" font-size="12" fill="#57606a">receive_answers: what the threads sent, also in logic (ui/workers.rs)</text>
     <g font-size="12" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace">
       <text x="34" y="144">receive_decoded · receive_thumbs</text>
       <text x="34" y="160">receive_listing · receive_operation_report</text>
-      <text x="34" y="176">receive_file_work · receive_focus</text>
+      <text x="34" y="176">receive_file_work · receive_mount</text>
       <text x="34" y="192">notices · receive_lightroom · …</text>
     </g>
 

@@ -14,6 +14,10 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- `glimt --remote name` to a window that is minimized or on another workspace is answered at
+  once. Before, it waited until its time ran out and said "no answer", although the window took
+  the name. Such a window also reads a folder opened with `--remote open`, and takes a file
+  job's report, while it is not shown, so its busy pointer goes and a `--wait` is answered.
 - A print whose page image could not be made fails and says so. Before, that page printed
   blank without a word.
 - Open Themes Folder and Open the Tools Folder say so when the folder cannot be made. Before,
@@ -23,10 +27,15 @@ and versions follow [Semantic Versioning](https://semver.org/).
 - A Move or Copy onto a disk with room for a photo but not for its sidecar puts the photo back,
   with what had followed, and says so. Before, the photo was left at the target without its
   keywords and the sidecar at the source, where a later file of that name would pick it up. The
-  Undo of a Move does the same, also for two RAW files of one name stem moved together.
+  Undo of a Move does the same, also for two RAW files of one name stem moved together. A photo
+  that cannot go back either keeps every sidecar that reached it, and the message says where
+  the photo and the sidecar left apart are. An Undo whose photo went back to its sidecars stays
+  to be tried again also when a share did not answer the look at the photo.
 - Move to Trash takes a photo back out of the trash when its sidecar could not go there, and
   says so, and Undo from the trash leaves a photo in the trash when its sidecar cannot come
-  back. Before, the photo went one way and its keywords the other.
+  back. Before, the photo went one way and its keywords the other. A sidecar whose way back
+  may have gone through, on a share that lost its answer, keeps its photo out of the trash
+  with it.
 - A sidecar that a Move killed halfway left at its photo's old name follows the photo at the
   next start, as its stars already did.
 - Delete for good keeps a photo whose sidecar cannot be deleted, with it, and says so. Before,
@@ -102,6 +111,16 @@ and versions follow [Semantic Versioning](https://semver.org/).
   replace. A file put at the name while the copy or the PDF was made, or at a name that was free
   when it was picked, is left as it is, and the save says why. Save As and Copy for Sharing no
   longer copy another photo that took the name of the one picked while their dialog was open.
+- Rename Collection leaves alone a file that another program put at the collection's name while
+  its dialog was open, and says so. Before, that file was renamed.
+- A RAW photo moved back to its sidecar, because Adobe's sidecar of its name stem could not
+  follow, goes back only while it is still the photo that was moved. Before, a file another
+  program put at the new name meanwhile was moved instead.
+- Remote control is not started in a runtime folder that cannot be made private to the user,
+  and the reason is printed. Before, it listened there.
+- A move to another disk whose source could not be removed, and whose copy then could not be
+  taken back, says that the file may be under both names. Before, it said only that the source
+  could not be removed.
 
 ## [0.80.1] - 2026-11-11
 

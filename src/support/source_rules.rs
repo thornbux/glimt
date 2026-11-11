@@ -619,6 +619,9 @@ const DISK_CALLS: &[&str] = &[
     "run_limited(",
     "output_of(",
     "short_output_of(",
+    // A program waited for under a `Watchdog`, which may take minutes (`lp`, `gio mount`).
+    "wait_with_output(",
+    ".wait()",
     "from_decoder(",
     "scaled(",
     "from_memory(",
@@ -677,12 +680,14 @@ const HANDED_TO_A_THREAD: &[&str] = &[
     "write_in_sidecar_thread(",
 ];
 
-/// What starts work that writes, which closing waits for: a job, work in the background, an
-/// operation that will leave an Undo, or the count of writing itself.
+/// What starts work that writes, which closing waits for: a job, work in the background, a
+/// sidecar write of the user's keywords, alt text and stars, an operation that will leave an
+/// Undo, or the count of writing itself.
 const WRITING_WORK: &[&str] = &[
     "start_job(",
     "start_job_of(",
     "run_in_background(",
+    "write_sidecars(",
     "undo_on_the_way(",
     "WRITING",
 ];
@@ -2320,9 +2325,11 @@ fn finds_a_writing_thread_that_tells_nothing() {
         std::thread::spawn(told_work(app.notice_sender.clone(), c, w, work));\n    }\n    \
         fn c(app: &App) {\n        std::thread::spawn(move || read());\n    }\n    \
         fn d(app: &App) {\n        let n = app.notice_sender.clone();\n        \
-        app.run_in_background(ctx, Vec::new(), move || drop(n.send(e)));\n    }\n}\n";
+        app.run_in_background(ctx, Vec::new(), move || drop(n.send(e)));\n    }\n    \
+        fn e(app: &App) {\n        let tx = app.notice_sender.clone();\n        \
+        app.write_sidecars(ctx, a, f, move |p, _| drop(tx.send(e)), r);\n    }\n}\n";
     assert_eq!(untold_writing_threads("x.rs", text), ["x.rs: a"]);
-    assert_eq!(notices_beside_writers("x.rs", text), ["x.rs: d"]);
+    assert_eq!(notices_beside_writers("x.rs", text), ["x.rs: d", "x.rs: e"]);
 }
 
 /// Returns the functions in `text`, the source of `file`, that start writing work
@@ -2887,7 +2894,7 @@ fn sidecars_are_written_through_write_sidecars() {
         ("ui/info_panel.rs", "set_keyword_on_files"),
         ("ui/info_panel.rs", "add_keywords"),
         ("ui/actions.rs", "apply_mark"),
-        ("metadata/lightroom.rs", "import_lightroom"),
+        ("metadata/lightroom.rs", "write_imported"),
     ];
     const HOMES: &[(&str, &[(&str, &str)])] = &[
         ("write_changed(", IN_WRITE_SIDECARS),
@@ -2899,7 +2906,7 @@ fn sidecars_are_written_through_write_sidecars() {
         ("update_sidecar(", &[("metadata/marks.rs", "write_xmp")]),
         (
             "sidecar_writer(",
-            &[("files/file_ops.rs", "write_sidecars")],
+            &[("files/file_ops.rs", "write_in_sidecar_thread")],
         ),
     ];
     let wrong = outside_their_homes(HOMES);
@@ -3814,10 +3821,14 @@ fn finds_a_name_removed_after_a_cached_look() {
 /// picked before a wait (a question, a prompt, the file chooser) come as `file_io::PickedFiles`
 /// for it. Before, a delete, a trash or a rename confirmed in a dialog acted on whatever had the
 /// name when the dialog closed, which another window or a sync may have given to another photo.
-/// A sidecar is found at the act (`sidecars_moving_with`, `sidecars_of`), not picked before it.
+/// A sidecar is found at the act (`sidecars_moving_with`, `sidecars_of`), not picked before it,
+/// so an act on a sidecar (on a line that names one, `side`) needs no check of its own in a
+/// function that finds them. A finder there excuses no act on the photo itself.
 /// What is no user's file is out of the rule by what it is: Glimt's own files are removed through
-/// `file_io::remove_own`, or by a raw call whose `#[allow]` says "Glimt's own:"; a copy changes
-/// no file; and the calls of `file_io.rs` and `trash.rs` and the tests are the ways themselves.
+/// `file_io::remove_own`, or by a raw removal or rename whose `#[allow]` or comment says
+/// "Glimt's own:"; a copy changes no file. The ways themselves are out of it too: the files that
+/// define them (`file_io.rs`, `trash.rs`, `journal.rs`), a function that is one of the acts
+/// (`rename_files`), whose callers check, and the tests.
 #[test]
 fn destructive_acts_check_the_file_is_still_the_one_picked() {
     let sources = rust_sources();
@@ -3841,9 +3852,9 @@ fn destructive_acts_check_the_file_is_still_the_one_picked() {
     );
 }
 
-/// Returns the files of `sources` that define the ways a user's file is trashed, moved or
-/// replaced (`trash`, `put_file`, `put_file_until_stopped`, `replace_name_with`), whose own calls
-/// are those ways and not acts of an operation.
+/// Returns the files of `sources` that define the ways a user's file is trashed, moved,
+/// renamed or replaced (`trash`, `put_file`, `put_file_until_stopped`, `replace_name_with`,
+/// Rename Many's `rename_step`), whose own calls are those ways and not acts of an operation.
 fn ways_of_changing_files(sources: &[(String, String)]) -> Vec<String> {
     let defines = |text: &str| {
         let lines = code_lines(text);
@@ -3852,6 +3863,7 @@ fn ways_of_changing_files(sources: &[(String, String)]) -> Vec<String> {
             "put_file",
             "put_file_until_stopped",
             "replace_name_with",
+            "rename_step",
         ];
         (lines.iter()).any(|l| function_name(l).is_some_and(|name| names.contains(&name)))
     };
@@ -3889,31 +3901,37 @@ fn test_only_files(sources: &[(String, String)]) -> Vec<String> {
 // PickedFiles type that every such act takes holds the branches; following each branch would
 // need a parser, worth it if this class is found again.
 fn destructive_acts_in(text: &str) -> Vec<(String, bool)> {
-    const ACTS: [&str; 6] = [
+    const ACTS: [&str; 10] = [
         "remove_file(",
         "remove_dir_all(",
         "trash::trash(",
         "put_file_until_stopped(",
         "rename_files(",
+        "rename_files_planned_in(",
         "replace_name_with(",
+        "rename_never_over(",
+        "rename_step(",
+        "put_file_back(",
     ];
-    const CHECKS: [&str; 7] = [
+    const CHECKS: [&str; 5] = [
         "still_the_one_picked(",
         "is_still_the_file(",
         "same_fingerprint(",
         "replace_existing(",
         "same_file_by_opening(",
-        "sidecars_moving_with(",
-        "sidecars_of(",
     ];
+    const SIDECAR_FINDERS: [&str; 2] = ["sidecars_moving_with(", "sidecars_of("];
     let (lines, comments) = (code_lines(text), comment_lines(text));
     let end = tests_start(&lines);
-    // A raw removal whose `#[allow]`, on its line or the lines just above, says it is Glimt's own.
+    // A raw removal or rename whose `#[allow]` or comment, on its line or the lines just above,
+    // says it is Glimt's own.
     let is_own = |i: usize| (i.saturating_sub(3)..=i).any(|j| comments[j].contains("Glimt's own:"));
     let is_copy = |line: &str| line.contains(", true)");
     let mut found = Vec::new();
     let mut function = String::new();
-    let (mut acts, mut checks) = (false, false);
+    // Whether the function acts, acts on more than sidecars, checks, and finds sidecars.
+    let (mut acts, mut acts_on_files, mut checks, mut finds_sidecars) =
+        (false, false, false, false);
     for (i, line) in lines[..end]
         .iter()
         .map(String::as_str)
@@ -3921,25 +3939,31 @@ fn destructive_acts_in(text: &str) -> Vec<(String, bool)> {
         .enumerate()
     {
         if let Some(name) = function_name(line) {
-            if acts {
-                found.push((function, checks));
+            let is_a_way = ACTS.contains(&format!("{function}(").as_str());
+            if acts && !is_a_way {
+                found.push((function, checks || (finds_sidecars && !acts_on_files)));
             }
             function = name.to_owned();
-            (acts, checks) = (false, false);
+            (acts, acts_on_files, checks, finds_sidecars) = (false, false, false, false);
             continue;
         }
-        let raw = ["remove_file(", "remove_dir_all("]
+        let raw = ["remove_file(", "remove_dir_all(", "rename_never_over("]
             .iter()
             .any(|r| line.contains(r));
-        acts |= ACTS.iter().any(|act| line.contains(act)) && !(raw && is_own(i));
-        acts |= line.contains("put_file(") && !is_copy(line);
+        let act = (ACTS.iter().any(|act| line.contains(act)) && !(raw && is_own(i)))
+            || (line.contains("put_file(") && !is_copy(line));
+        acts |= act;
+        acts_on_files |= act && !line.contains("side");
         checks |= CHECKS.iter().any(|check| line.contains(check));
+        finds_sidecars |= SIDECAR_FINDERS.iter().any(|finder| line.contains(finder));
     }
     found
 }
 
-/// The check above finds a delete, a trash and a move with no look at the file. It passes one
-/// that looks first, a removal of Glimt's own file, a copy, and a function that only looks.
+/// The check above finds a delete, a trash, a move, a rename and a file put back with no look
+/// at the file, also beside a look for its sidecars. It passes one that looks first, a removal
+/// or rename of Glimt's own file, a copy, a function that only looks, an act on the sidecars
+/// it finds, and a function that is one of the acts itself.
 #[test]
 fn finds_a_destructive_act_without_its_check() {
     let text = "fn a() {\n    std::fs::remove_file(x)\n}\n\
@@ -3949,15 +3973,52 @@ fn finds_a_destructive_act_without_its_check() {
         fn e() {\n    #[allow(clippy::disallowed_methods)] // Glimt's own: a socket\n    \
         std::fs::remove_file(x)\n}\n\
         fn f() {\n    put_file(x, y, true)\n}\n\
-        fn g() {\n    put_file(x, y, false)\n}\n";
+        fn g() {\n    put_file(x, y, false)\n}\n\
+        fn h() {\n    let sides = xmp::sidecars_of(&[x]);\n    trash::trash(&[x])\n}\n\
+        fn i() {\n    for (side, to) in xmp::sidecars_moving_with(x, y) {\n        \
+        rename_never_over(&side, &to)?;\n    }\n}\n\
+        fn j() {\n    file_io::rename_never_over(x, y)\n}\n\
+        fn k() {\n    journal::rename_step(x, y)\n}\n\
+        fn l() {\n    file_io::put_file_back(x, y, false)\n}\n\
+        fn m() {\n    // Glimt's own: a plan made just now\n    rename_never_over(tmp, plan)\n}\n\
+        fn rename_files_planned_in() {\n    journal::rename_step(x, y)\n}\n";
     assert_eq!(
         destructive_acts_in(text),
         [
             ("a".into(), false),
             ("b".into(), true),
             ("c".into(), false),
-            ("g".into(), false)
+            ("g".into(), false),
+            ("h".into(), false),
+            ("i".into(), true),
+            ("j".into(), false),
+            ("k".into(), false),
+            ("l".into(), false),
         ]
+    );
+}
+
+/// A file is given as a path alone, with no identity from the list, only where no list knows
+/// it: a Lightroom catalog names its photos by path, and an Undo holds fingerprints of its own
+/// or puts back the marks of files it put back.
+/// Anywhere else, a `ListedFile` made so would let a sidecar write go to whatever file has the
+/// name by then, as if it were the file the user picked.
+#[test]
+fn a_path_alone_is_given_only_where_no_list_knows_the_file() {
+    const HOMES: &[(&str, &[(&str, &str)])] = &[(
+        "not_from_the_list(",
+        &[
+            ("metadata/lightroom.rs", "import_lightroom"),
+            ("files/file_ops.rs", "undo"),
+            ("metadata/marks.rs", "restore"),
+            ("support/test_support.rs", ""),
+        ],
+    )];
+    let wrong = outside_their_homes(HOMES);
+    assert!(
+        wrong.is_empty(),
+        "a ListedFile made from a path alone (take it from the list, App::listed_file):\n{}",
+        wrong.join("\n")
     );
 }
 
@@ -4365,9 +4426,10 @@ fn finds_a_lint_turned_off_widely() {
     assert_eq!(lints_turned_off_widely(text), [1, 3, 6, 10]);
 }
 
-/// Every `#[allow(…)]` outside the tests says why it is there, in a comment on its own line, on
-/// the next, or in a plain comment just before it. A reader then knows what the exception is
-/// for, and when it may go.
+/// Every `#[allow(…)]` or `#[expect(…)]` outside the tests says why it is there, in a comment on
+/// its own line or in a comment alone on the next line. A reader then knows what the exception
+/// is for, and when it may go. A comment before the attribute, or one after the code on the
+/// next line, is about other code as often as not, so neither counts.
 #[test]
 fn every_allow_gives_its_reason() {
     let mut wrong = Vec::new();
@@ -4382,35 +4444,39 @@ fn every_allow_gives_its_reason() {
     );
 }
 
-/// Returns the lines of `text` outside the tests with an attribute that allows a lint and no
-/// comment that gives its reason: one on that line or the next, or a plain comment (not a doc
-/// comment) on the line before.
+/// Returns the lines of `text` outside the tests with an attribute that allows or expects a
+/// lint and no comment that gives its reason: one on that line, or a plain comment (not a doc
+/// comment) alone on the next.
 fn allows_without_reason(text: &str) -> Vec<usize> {
     let (code, comments) = (code_lines(text), comment_lines(text));
     let comment = |j: usize| comments.get(j).map_or("", |c| c.trim());
     let is_plain = |c: &str| !c.is_empty() && !c.starts_with("///") && !c.starts_with("//!");
+    let is_reason_alone =
+        |j: usize| code.get(j).is_some_and(|c| c.trim().is_empty()) && is_plain(comment(j));
     (0..tests_start(&code))
         .filter(|&i| {
             let line = code[i].trim_start();
             line.starts_with('#')
-                && line.contains("allow(")
+                && (line.contains("allow(") || line.contains("expect("))
                 && comment(i).is_empty()
-                && comment(i + 1).is_empty()
-                && !(i > 0 && is_plain(comment(i - 1)))
+                && !is_reason_alone(i + 1)
         })
         .map(|i| i + 1)
         .collect()
 }
 
-/// The check above finds an allow with no reason, also behind `cfg_attr` and under a doc
-/// comment, and passes one with its reason on its line, on the next or in a comment before.
+/// The check above finds an allow or expect with no reason, also behind `cfg_attr`, under a doc
+/// comment, under a comment before it and over code with a comment after it. It passes one with
+/// its reason on its line or alone on the next.
 #[test]
 fn finds_an_allow_without_its_reason() {
     let text = "#[allow(dead_code)]\nfn a() {}\n/// Does b.\n\
         #[cfg_attr(test, allow(unused))]\nfn b() {}\n#[allow(unused)] // a reason\nfn c() {}\n\
-        #[allow(unused)]\n// a reason\nfn d() {}\n// a reason\n#[allow(unused)]\nfn e() {}\n\
-        #[cfg(test)]\nmod tests {\n    #[allow(unused)]\n    fn f() {}\n}\n";
-    assert_eq!(allows_without_reason(text), [1, 4]);
+        #[allow(unused)]\n// a reason\nfn d() {}\n// a comment about e\n#[allow(unused)]\n\
+        fn e() {}\n#[expect(unused)]\nfn f() {}\n#[allow(unused)]\nfn g() {} // about g\n\
+        #[expect(unused)] // a reason\nfn h() {}\n\
+        #[cfg(test)]\nmod tests {\n    #[allow(unused)]\n    fn t() {}\n}\n";
+    assert_eq!(allows_without_reason(text), [1, 4, 12, 14, 16]);
 }
 
 /// Returns the lines of the statements of `text` outside the tests that drop the result of one
@@ -4473,7 +4539,7 @@ fn dropped_writes_in(text: &str) -> Vec<usize> {
                 statement.push(c);
                 continue;
             }
-            let words = statement.trim();
+            let words = without_attributes(statement.trim());
             if let Some(line) = needs_else.take()
                 && !words.starts_with("else")
             {
@@ -4528,6 +4594,28 @@ fn dropped_writes_in(text: &str) -> Vec<usize> {
         }
     }
     found
+}
+
+/// Returns `statement` without the attributes in front of it (`#[allow(…)]`, `#[cfg(…)]`), so
+/// that a statement under one is read as the statement it is.
+fn without_attributes(statement: &str) -> &str {
+    let mut rest = statement;
+    while let Some(inside) = rest.strip_prefix("#[") {
+        let mut depth = 1;
+        let end = inside.find(|c| {
+            depth += match c {
+                '[' => 1,
+                ']' => -1,
+                _ => 0,
+            };
+            depth == 0
+        });
+        let Some(end) = end else {
+            return rest;
+        };
+        rest = inside[end + 1..].trim_start();
+    }
+    rest
 }
 
 /// Returns whether `statement` binds a name that starts with `_` (`let _name = …`) that `text`
@@ -4588,8 +4676,9 @@ fn write_results_are_not_dropped() {
     );
 }
 
-/// The check above finds a dropped write in each of its forms, also over several lines and in a
-/// match arm, and leaves a write that is handled alone, and a bound name that is used.
+/// The check above finds a dropped write in each of its forms, also over several lines, in a
+/// match arm and under an attribute, and leaves a write that is handled alone, and a bound name
+/// that is used.
 #[test]
 fn finds_a_dropped_write() {
     let text = "fn a() {\n    let _ = replace_file(p, b);\n    _ = create_file(p, b);\n    \
@@ -4619,8 +4708,12 @@ fn finds_a_dropped_write() {
         drop(std::fs::create_dir_all(d));\n    \
         let _ = std::fs::remove_dir_all(d); // Not told: a folder of its own\n    \
         std::fs::remove_file(p)?;\n    \
-        let _ = JpegEncoder::new(&mut jpeg).encode_image(&flat);\n}\n";
-    assert_eq!(dropped_writes_in(raw), [2, 3, 4, 9]);
+        let _ = JpegEncoder::new(&mut jpeg).encode_image(&flat);\n    \
+        #[allow(clippy::disallowed_methods)] // a reason for the allow\n    \
+        let _ = std::fs::remove_file(plan);\n    #[cfg(unix)]\n    \
+        let _ = replace_file(p, b);\n    #[allow(clippy::disallowed_methods)]\n    \
+        // Not told: a folder of its own\n    let _ = std::fs::remove_dir_all(d);\n}\n";
+    assert_eq!(dropped_writes_in(raw), [2, 3, 4, 9, 10, 12]);
 }
 
 /// A background thread's answer is held in a `threads::Receiving`, never in a bare
@@ -5621,4 +5714,19 @@ fn finds_a_disk_call_in_the_window_thread() {
             ("a.rs", "default", ".is_symlink()", 77),
         ]
     );
+}
+
+/// `the_window_thread_never_waits_for_the_disk` also finds a wait for a program that a
+/// `Watchdog` limits, which takes minutes, through a function that reaches no other call it
+/// looks for. Before, only `run_limited`, `output_of` and `short_output_of` were found.
+#[test]
+fn finds_a_wait_for_a_program_in_the_window_thread() {
+    let a = "impl crate::App {\n    fn a(&self) {\n        send_to_printer(p);\n    }\n    \
+        fn b(&self) {\n        mount(p);\n    }\n}\nfn send_to_printer(p: &Path) {\n    \
+        child.wait_with_output();\n}\nfn mount(p: &Path) {\n    child.wait();\n}\n";
+    let found = disk_calls_in_window_thread(&[("a.rs".into(), a.into())], &[]);
+    let found: Vec<(&str, &str)> = (found.iter())
+        .map(|(_, f, c, ..)| (f.as_str(), c.as_str()))
+        .collect();
+    assert_eq!(found, [("a", "send_to_printer("), ("b", "mount(")]);
 }

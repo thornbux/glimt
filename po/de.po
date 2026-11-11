@@ -3103,3 +3103,11 @@ msgstr "Die Namen wurden gelassen, wie sie sind"
 #: src/ui/dialogs.rs
 msgid "Rename Many was cut short, and these files are not under the names it was to give them. Each line names a file as it is now, then the name it was to get."
 msgstr "Mehrere umbenennen wurde abgebrochen, und diese Dateien haben nicht die Namen, die sie bekommen sollten. Jede Zeile nennt den Namen einer Datei jetzt und dann den Namen, den sie bekommen sollte."
+
+#: src/files/file_ops.rs
+msgid "{file} went back, but its sidecar {side} could not ({e}), so the sidecar is at {at}"
+msgstr "{file} wurde zurückgebracht, seine Begleitdatei {side} aber nicht ({e}), daher liegt die Begleitdatei in {at}"
+
+#: src/files/file_ops.rs
+msgid "{side} could not follow {file} ({e}), and {file} could not go back ({error}), so the file is at {to} and this sidecar at {side}"
+msgstr "{side} konnte {file} nicht folgen ({e}), und {file} konnte nicht zurück ({error}), daher liegt die Datei in {to} und diese Begleitdatei in {side}"

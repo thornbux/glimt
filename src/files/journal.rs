@@ -259,8 +259,11 @@ fn sidecars_follow_the_files_that_went(went: &[(PathBuf, PathBuf)]) {
     let mut names = xmp::AdobeNames::default();
     for (from, to) in went {
         let _lock = xmp::lock_sidecar(from);
+        // The file stays at `to`, so the sidecars that followed stay with it.
         if let Err(not) = xmp::follow(from, to, false, &moving, &mut names) {
-            crate::files::file_io::save_failed(format!("{}: {}", not.at.display(), not.error));
+            for (_, at, error) in not.failed {
+                crate::files::file_io::save_failed(format!("{}: {error}", at.display()));
+            }
         }
     }
 }

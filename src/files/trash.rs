@@ -210,8 +210,9 @@ fn sidecars_by_file<'a>(
 /// tells the first failure in `error`. A file that cannot come back stays in the trash with its
 /// sidecars, and the next files still come back. So does a file one of whose sidecars cannot
 /// come back: it goes back into the trash with the sidecars that came, to be undone again,
-/// because the next file of its name would else pick up the sidecar left in the trash. Returns
-/// the files put back, without the sidecars.
+/// because the next file of its name would else pick up the sidecar left in the trash. A sidecar
+/// whose rename failed but may have been done counts as back, so that its file stays out with
+/// it. Returns the files put back, without the sidecars.
 fn put_back(
     steps: Vec<(TrashEntry, bool, Vec<TrashEntry>)>,
     error: &mut Option<String>,
@@ -229,7 +230,17 @@ fn put_back(
         // The file first, and then each sidecar that came back with it.
         let mut out = vec![t];
         for side in sides {
-            if let Err(e) = rename(&side) {
+            if let Err(e) = rename_never_over(&side.file, &side.from) {
+                // A sidecar whose rename may have been done is taken to be at its name, so that
+                // its file stays out with it. Its .trashinfo is kept, as it may be in the trash
+                // too, and the error says to check both names.
+                let told = format!("{display}: {e}", display = side.from.display());
+                if crate::files::file_io::may_have_been_done(&e)
+                    && !crate::files::file_io::is_surely_gone(&side.from)
+                {
+                    error.get_or_insert(told);
+                    continue;
+                }
                 let file = out[0].from.display().to_string();
                 while let Some(last) = out.last()
                     && rename_never_over(&last.from, &last.file).is_ok()
@@ -239,10 +250,10 @@ fn put_back(
                 error.get_or_insert(match out.is_empty() {
                     true => tf!(
                         "{e}, so {file} stays in the trash, with its sidecar",
-                        e,
+                        e = told,
                         file
                     ),
-                    false => e,
+                    false => told,
                 });
                 break;
             }
@@ -270,6 +281,8 @@ fn put_back(
         });
         if is_on_disk {
             #[allow(clippy::disallowed_methods)] // the .trashinfo of a file put back
+            // Not told: the file is back, and a .trashinfo left lists nothing, as its file is
+            // no longer in the trash.
             let _ = std::fs::remove_file(&t.info);
         }
     }
@@ -501,6 +514,7 @@ fn trash_by_hand(trash: &Path, files: &[(&Path, String)]) -> Vec<(PathBuf, std::
     }
     let remove = |trashinfo: &Path| {
         #[allow(clippy::disallowed_methods)] // a .trashinfo made just now, of a file not moved
+        // Not told: the file's own failure is told, and a .trashinfo left lists no file.
         let _ = std::fs::remove_file(trashinfo);
     };
     if let Err(e) = crate::files::file_io::sync_folder(&info) {
@@ -1308,6 +1322,58 @@ mod tests {
         assert!(error.unwrap().contains("stays in the trash"));
         assert_eq!(std::fs::read_dir(&x).unwrap().count(), 0);
         assert!(trash.join("files/a.jpg").exists() && trash.join("info/a.jpg.trashinfo").exists());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A sidecar whose way back from the trash failed with an error that may hide a rename done
+    /// (an unlink whose answer was lost) counts as back, and its photo stays out with it. Before,
+    /// the photo went back into the trash while the sidecar was also at its name.
+    #[test]
+    fn a_file_stays_out_of_the_trash_when_its_sidecar_may_be_back() {
+        use crate::files::file_io::{RENAME_WAYS_MISSING, UNLINK_FAILS};
+        let dir =
+            std::env::temp_dir().join(format!("glimt-test-back-maybe-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let (trash, x) = (dir.join("trash"), dir.join("x"));
+        for d in [trash.join("files"), trash.join("info"), x.clone()] {
+            std::fs::create_dir_all(d).unwrap();
+        }
+        let now = std::time::SystemTime::now();
+        let secs = now.duration_since(std::time::UNIX_EPOCH).unwrap().as_secs() as i64;
+        let date = crate::support::format::local_time(secs).replacen(' ', "T", 1);
+        for kept in ["a.jpg", "a.jpg.xmp"] {
+            crate::files::file_io::create_file(&trash.join("files").join(kept), kept).unwrap();
+            let text = format!(
+                "[Trash Info]\nPath={}\nDeletionDate={date}\n",
+                x.join(kept).display()
+            );
+            let info = trash.join("info").join(format!("{kept}.trashinfo"));
+            crate::files::file_io::create_file(&info, text).unwrap();
+        }
+        let trash_move = super::TrashMove {
+            files: vec![x.join("a.jpg")],
+            sidecars: vec![x.join("a.jpg.xmp")],
+            sidecars_left: Vec::new(),
+            since: now - std::time::Duration::from_secs(1),
+            marks: Default::default(),
+            collection: None,
+        };
+        let dirs = |_: &std::path::Path| vec![(trash.clone(), std::path::PathBuf::from("/"))];
+        // The sidecar is linked at its name, and the unlink of its name in the trash fails
+        // with an error that says nothing of what was done.
+        RENAME_WAYS_MISSING.set(1);
+        UNLINK_FAILS.set(Some((trash.join("files/a.jpg.xmp"), libc::EIO)));
+        let (back, error) = super::restore(&trash_move, dirs);
+        UNLINK_FAILS.set(None);
+        RENAME_WAYS_MISSING.set(0);
+        assert_eq!(back, [x.join("a.jpg")], "{error:?}");
+        assert!(error.is_some());
+        assert_eq!(std::fs::read_to_string(x.join("a.jpg")).unwrap(), "a.jpg");
+        assert_eq!(
+            std::fs::read_to_string(x.join("a.jpg.xmp")).unwrap(),
+            "a.jpg.xmp"
+        );
+        assert!(trash.join("info/a.jpg.xmp.trashinfo").exists());
         std::fs::remove_dir_all(dir).unwrap();
     }
 

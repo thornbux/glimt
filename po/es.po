@@ -3103,3 +3103,11 @@ msgstr "Los nombres se dejaron como están"
 #: src/ui/dialogs.rs
 msgid "Rename Many was cut short, and these files are not under the names it was to give them. Each line names a file as it is now, then the name it was to get."
 msgstr "Renombrar varios se interrumpió, y estos archivos no tienen los nombres que debía darles. Cada línea da el nombre actual de un archivo y luego el nombre que debía recibir."
+
+#: src/files/file_ops.rs
+msgid "{file} went back, but its sidecar {side} could not ({e}), so the sidecar is at {at}"
+msgstr "{file} volvió, pero su archivo complementario {side} no pudo ({e}), así que el archivo complementario está en {at}"
+
+#: src/files/file_ops.rs
+msgid "{side} could not follow {file} ({e}), and {file} could not go back ({error}), so the file is at {to} and this sidecar at {side}"
+msgstr "{side} no pudo seguir a {file} ({e}), y {file} no pudo volver ({error}), así que el archivo está en {to} y este archivo complementario en {side}"

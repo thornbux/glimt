@@ -3103,3 +3103,11 @@ msgstr "Les noms ont été laissés tels quels"
 #: src/ui/dialogs.rs
 msgid "Rename Many was cut short, and these files are not under the names it was to give them. Each line names a file as it is now, then the name it was to get."
 msgstr "Renommer plusieurs a été interrompu, et ces fichiers n'ont pas les noms qu'il devait leur donner. Chaque ligne donne le nom actuel d'un fichier, puis le nom qu'il devait recevoir."
+
+#: src/files/file_ops.rs
+msgid "{file} went back, but its sidecar {side} could not ({e}), so the sidecar is at {at}"
+msgstr "{file} est revenu, mais pas son fichier annexe {side} ({e}), donc le fichier annexe est dans {at}"
+
+#: src/files/file_ops.rs
+msgid "{side} could not follow {file} ({e}), and {file} could not go back ({error}), so the file is at {to} and this sidecar at {side}"
+msgstr "{side} n'a pas pu suivre {file} ({e}), et {file} n'a pas pu revenir ({error}), donc le fichier est dans {to} et ce fichier annexe dans {side}"

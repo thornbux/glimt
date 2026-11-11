@@ -3114,3 +3114,11 @@ msgstr "Os nomes foram deixados como estão"
 #: src/ui/dialogs.rs
 msgid "Rename Many was cut short, and these files are not under the names it was to give them. Each line names a file as it is now, then the name it was to get."
 msgstr "“Renomear vários” foi interrompido, e estes arquivos não têm os nomes que deveriam receber. Cada linha dá o nome atual de um arquivo e depois o nome que ele deveria receber."
+
+#: src/files/file_ops.rs
+msgid "{file} went back, but its sidecar {side} could not ({e}), so the sidecar is at {at}"
+msgstr "{file} voltou, mas seu arquivo XMP associado {side} não ({e}), então o arquivo XMP associado está em {at}"
+
+#: src/files/file_ops.rs
+msgid "{side} could not follow {file} ({e}), and {file} could not go back ({error}), so the file is at {to} and this sidecar at {side}"
+msgstr "{side} não pôde acompanhar {file} ({e}), e {file} não pôde voltar ({error}), então o arquivo está em {to} e este arquivo XMP associado em {side}"

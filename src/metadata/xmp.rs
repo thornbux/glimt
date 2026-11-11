@@ -255,15 +255,15 @@ struct StemNames {
     sidecars: Vec<std::ffi::OsString>,
 }
 
-/// A sidecar that could not follow its file (`follow`).
+/// The sidecars of a file that could not all follow it (`follow`).
 #[derive(Debug)]
 pub struct NotFollowed {
-    /// The sidecar's new name, where it could not be put.
-    pub at: PathBuf,
-    pub error: std::io::Error,
-    /// Whether every sidecar that had followed was taken back, so that the file can go back
-    /// to them. When one could not be taken back, the file stays with it.
-    pub taken_back: bool,
+    /// Each sidecar that could not follow, by its name where it stays and by its new name, where
+    /// it could not be put, with the error.
+    pub failed: Vec<(PathBuf, PathBuf, std::io::Error)>,
+    /// Each sidecar that followed, `(from, to, was_copy)`. The caller takes these back only
+    /// once the file itself is back, so that they never part from it.
+    pub followed: Vec<(PathBuf, PathBuf, bool)>,
 }
 
 fn parse_alt_text(xmp: &str) -> AltText {
@@ -878,9 +878,9 @@ pub(crate) fn sidecars_of(paths: &[PathBuf]) -> Vec<PathBuf> {
 }
 
 /// Copies or moves the sidecars of `from` (`sidecars_moving_with`) with the file that went to
-/// `to`, all or none. When one cannot follow, those that followed are taken back, so the file's
-/// keywords are never split between two places. Returns the first sidecar that could not follow,
-/// by its new name, with the error and whether every sidecar is back where it was.
+/// `to`. Every sidecar is tried, also after one that could not follow. Returns, when one could
+/// not, those that failed and those that followed: the caller then moves the file back first and
+/// takes these back only once it is there, so that the file and its sidecars end in one place.
 /// `names` holds the folders that the operation has read already. `moving` are all the files
 /// that a move takes, so that two RAW files of one name stem moved together take Adobe's
 /// sidecar with the first of them, whatever their order. A copy passes none, because both
@@ -918,24 +918,18 @@ pub fn follow(
             done => done.map(|()| Some(is_copy)),
         }
     };
-    let mut followed = Vec::new();
+    let (mut followed, mut failed) = (Vec::new(), Vec::new());
     for (side, to) in sidecars_moving_with(from, to, moving, names) {
         match follow_one(&side, &to) {
             Ok(Some(was_copy)) => followed.push((side, to, was_copy)),
             Ok(None) => {}
-            Err(error) => {
-                let taken_back = (followed.into_iter().rev()).all(|(side, to, was_copy)| {
-                    crate::files::file_io::put_file_back(&side, &to, was_copy).is_ok()
-                });
-                return Err(NotFollowed {
-                    at: to,
-                    error,
-                    taken_back,
-                });
-            }
+            Err(error) => failed.push((side, to, error)),
         }
     }
-    Ok(())
+    match failed.is_empty() {
+        true => Ok(()),
+        false => Err(NotFollowed { failed, followed }),
+    }
 }
 
 fn parse(xmp: &str) -> KeywordsAndComment {

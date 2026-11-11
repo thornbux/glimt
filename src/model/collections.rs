@@ -399,13 +399,21 @@ pub fn new_file(name: &str) -> Result<PathBuf, String> {
     }
 }
 
-/// Give the collection in `file` the name `name`, in the same folder. Returns the new file.
-pub fn rename(file: &Path, name: &str) -> Result<PathBuf, String> {
+/// Give the collection in `file` the name `name`, in the same folder, when it is still the one
+/// `picked`. Returns the new file.
+pub fn rename(
+    file: &Path,
+    name: &str,
+    picked: &crate::files::file_io::PickedFingerprints,
+) -> Result<PathBuf, String> {
     let name = valid_collection_name(name)?;
     // Under the collection's lock, as every edit of it: another window's edit lands before or
     // after the rename, never in between, where it would make the old name again.
     #[allow(clippy::disallowed_methods)] // a collection's own lock, as edit
     let _held = crate::files::file_io::file_lock(file);
+    // Another program may have put another file at the name while the question was open.
+    (picked.still_the_one_picked(file))
+        .map_err(|e| tf!("Could not rename the collection: {e}", e))?;
     let new = file.with_file_name(format!("{name}.gqv"));
     // Never over one of that name, also one another window makes between the look and the
     // rename.
@@ -802,6 +810,26 @@ mod tests {
         std::fs::remove_dir_all(dir).unwrap();
     }
 
+    /// Rename Collection leaves alone a collection that another file has taken the name of
+    /// while the question was open. Before, the other file was renamed.
+    #[test]
+    fn rename_collection_leaves_another_file_at_the_name_alone() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-gqv-taken-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let trip = dir.join("trip.gqv");
+        std::fs::write(&trip, "#GQview collection\n#end\n").unwrap();
+        let (mut app, ctx) = crate::support::test_support::app_on(&dir);
+        crate::support::test_support::open_now(&mut app, &ctx, trip.clone());
+        app.run(&ctx, crate::ui::actions::Action::RenameCollection);
+        app.dialogs.wait_until_folder_taken();
+        std::fs::remove_file(&trip).unwrap();
+        std::fs::write(&trip, "#GQview collection\n\"/other.png\"\n#end\n").unwrap();
+        app.act_on_prompt_answer(&ctx, crate::ui::dialogs::Prompt::RenameCollection, "summer");
+        crate::files::file_io::wait_for_queued_writes();
+        assert!(trip.is_file() && !dir.join("summer.gqv").exists());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
     /// Rename Collection renames in the background, so a collection's lock that waits never
     /// holds the window, and the window then shows the collection under its new name.
     #[test]
@@ -1076,6 +1104,12 @@ mod tests {
         }
     }
 
+    /// Returns the fingerprint of the collection `file`, as Rename Collection takes it.
+    fn picked(file: &std::path::Path) -> crate::files::file_io::PickedFingerprints {
+        let picked = crate::files::file_io::PickedFiles::new(vec![file.to_path_buf()]);
+        picked.wait_for_fingerprints().1
+    }
+
     /// A rename waits for an edit under way in another window, so the edit lands in the file
     /// before the rename, not in a new file of the old name.
     #[test]
@@ -1088,7 +1122,7 @@ mod tests {
         let held = crate::files::file_io::file_lock(&file).unwrap();
         let renaming = {
             let file = file.clone();
-            std::thread::spawn(move || super::rename(&file, "trip 2024"))
+            std::thread::spawn(move || super::rename(&file, "trip 2024", &picked(&file)))
         };
         std::thread::sleep(std::time::Duration::from_millis(150));
         assert!(file.exists(), "renamed while the edit held the lock");
@@ -1106,10 +1140,10 @@ mod tests {
         let (a, b) = (dir.join("a.gqv"), dir.join("b.gqv"));
         std::fs::write(&a, "a").unwrap();
         std::fs::write(&b, "b").unwrap();
-        assert!(super::rename(&a, "b").is_err());
-        assert!(super::rename(&a, "x/y").is_err());
+        assert!(super::rename(&a, "b", &picked(&a)).is_err());
+        assert!(super::rename(&a, "x/y", &picked(&a)).is_err());
         assert_eq!(
-            super::rename(&a, " Travel ").unwrap(),
+            super::rename(&a, " Travel ", &picked(&a)).unwrap(),
             dir.join("Travel.gqv")
         );
         assert_eq!(
