@@ -39,8 +39,9 @@ for Linux in Rust/egui, inspired by Geeqie. Read this before changing anything.
   Glimt's own files are no exception, because a home folder can be on such a share too: they
   are read before the window opens (`main`) or in a thread.
   `source_rules::the_window_thread_never_waits_for_the_disk` finds such a call in the functions
-  of `App` and of its parts, also through every function of the crate that reaches one,
-  however deep, and lists the few that stay with their reasons.
+  of `App` and of its parts, and a wait for a program or a decode too, also through every
+  function of the crate that reaches one, however deep, and lists the few that stay with their
+  reasons.
 - **As fast with 500,000 files in a folder as with 10.** No O(n) work per frame, no system call
   per file in the list (use `DirEntry::file_type`), draw lists with `show_rows`, compare file
   names as bytes. Test large folders with hard links to one image, for example

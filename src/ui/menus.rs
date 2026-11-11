@@ -689,8 +689,10 @@ impl crate::App {
                 false => ext,
             };
             // apps_for runs gio twice: in the background, so the menu never stalls.
-            let ask = move || apps_for(&path);
-            let Some(apps) = self.open_with.apps_for_type(&key, ask, ui.ctx()) else {
+            let asked = self
+                .open_with
+                .apps_for_type(&key, move || apps_for(&path), ui.ctx());
+            let Some(apps) = asked else {
                 ui.label("…");
                 return;
             };

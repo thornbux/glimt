@@ -612,8 +612,16 @@ const REFUSED_CALLS: &[&str] = &[
 /// makes through libc. Each is found anywhere in a line, also as a method (`path.read_dir()`).
 /// Glimt's own functions that make one of them, such as `read_limited` or the writers of
 /// file_io, are not listed: `the_window_thread_never_waits_for_the_disk` follows every call to
-/// the functions it reaches.
+/// the functions it reaches. Listed too are the other waits the window must not make: for a
+/// program (`run_limited`, `output_of`, `short_output_of`), and for a decode (the three ways
+/// into one, `from_decoder`, `scaled` and `from_memory`), which take as long without the disk.
 const DISK_CALLS: &[&str] = &[
+    "run_limited(",
+    "output_of(",
+    "short_output_of(",
+    "from_decoder(",
+    "scaled(",
+    "from_memory(",
     "fs::metadata(",
     ".metadata()",
     "symlink_metadata(",
@@ -649,6 +657,7 @@ const DISK_CALLS: &[&str] = &[
 /// The calls that hand work to another thread, whose text `DISK_CALLS` are not looked for in.
 const HANDED_TO_A_THREAD: &[&str] = &[
     "spawn(",
+    "apps_for_type(",
     "write_later(",
     "write_later_in_user_folders(",
     "run_in_background(",

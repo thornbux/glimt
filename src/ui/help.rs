@@ -1192,6 +1192,10 @@ const CREDITS: &[(&str, &str, &str)] = &[
     ),
 ];
 
+/// The logo's pixels, decoded once in a thread of their own, as every decode is. `None` inside
+/// when the logo could not be decoded.
+static LOGO_PIXELS: std::sync::OnceLock<Option<egui::ColorImage>> = std::sync::OnceLock::new();
+
 /// A row of the keyboard map: (label, key, width in key units); `None` keys are drawn but
 /// never used.
 type Row = &'static [(&'static str, Option<Key>, f32)];
@@ -1462,20 +1466,35 @@ fn about(ui: &mut egui::Ui) {
     });
 }
 
-/// Glimt's logo as a texture: made the first time About is shown, then kept in egui's memory.
+/// Glimt's logo as a texture: made once its pixels are decoded, which starts the first time
+/// About is shown, then kept in egui's memory. Returns `None` until then.
 fn logo(ctx: &egui::Context) -> Option<egui::TextureHandle> {
+    static DECODE_STARTED: std::sync::Once = std::sync::Once::new();
     let id = egui::Id::unique("glimt-logo");
     if let Some(logo) = ctx.data(|d| d.get_temp::<egui::TextureHandle>(id)) {
         return Some(logo);
     }
-    let img = crate::images::decode::decode_glimts_own_image(crate::LOGO)
-        .ok()?
-        .into_rgba8();
-    let size = [img.width() as usize, img.height() as usize];
-    let pixels = egui::ColorImage::from_rgba_unmultiplied(size, img.as_raw());
-    let logo = ctx.load_texture("glimt-logo", pixels, egui::TextureOptions::LINEAR);
+    let Some(pixels) = LOGO_PIXELS.get() else {
+        let ctx = ctx.clone();
+        // No busy pointer: the logo is drawn when it comes, and nothing waits for it.
+        DECODE_STARTED.call_once(|| drop(std::thread::spawn(move || decode_logo(&ctx))));
+        return None;
+    };
+    let logo = ctx.load_texture("glimt-logo", pixels.clone()?, egui::TextureOptions::LINEAR);
     ctx.data_mut(|d| d.insert_temp(id, logo.clone()));
     Some(logo)
+}
+
+/// Decodes the logo into `LOGO_PIXELS`, and asks `ctx` for a frame to draw it in.
+fn decode_logo(ctx: &egui::Context) {
+    let decoded = crate::images::decode::decode_glimts_own_image(crate::LOGO);
+    let pixels = decoded.ok().map(|img| {
+        let img = img.into_rgba8();
+        let size = [img.width() as usize, img.height() as usize];
+        egui::ColorImage::from_rgba_unmultiplied(size, img.as_raw())
+    });
+    LOGO_PIXELS.get_or_init(|| pixels);
+    ctx.request_repaint();
 }
 
 #[cfg(test)]
