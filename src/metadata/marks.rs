@@ -454,14 +454,15 @@ fn apply_edit_to_file(map: &mut HashMap<PathBuf, (u8, u8)>, edit: &Edit, taken: 
 }
 
 /// Returns the files of the changes in `edits` whose names other files have taken since the
-/// list showed them (`ListedFile::check`), and tells the first. Their marks are left out of the
-/// file, and the window, which set them already, reads the file again (`read_again`). It waits
-/// for the disk, so it runs in the writer's thread, before the file's lock is taken.
+/// list showed them (`ListedFile::check`), and the error of the first, to tell. Their marks are
+/// left out of the file, and the window, which set them already, reads the file again
+/// (`read_again`). It waits for the disk, so it runs in the writer's thread, under the file's
+/// lock.
 /// shortcut: the files of a file system that keeps its inodes (NFS among them) are looked at in
 /// the thread of Glimt's own files, so an NFS share that stopped answering holds the settings
 /// behind a mark set there; move the marks to the thread of the user's folders (keeping
 /// `read_file_again` in the same thread) if that is seen.
-fn names_taken(edits: &[Edit]) -> Vec<&ListedFile> {
+fn names_taken(edits: &[Edit]) -> (Vec<&ListedFile>, Option<String>) {
     let files = edits.iter().flat_map(|edit| match edit {
         Edit::Change(files, _) => files.as_slice(),
         _ => &[],
@@ -474,10 +475,7 @@ fn names_taken(edits: &[Edit]) -> Vec<&ListedFile> {
                 .is_err()
         })
         .collect();
-    if let Some(first) = first {
-        crate::files::file_io::save_failed(first);
-    }
-    taken
+    (taken, first)
 }
 
 fn to_text(map: &HashMap<PathBuf, (u8, u8)>) -> Vec<u8> {
@@ -543,8 +541,11 @@ fn write(file: &Path, changes: Vec<Edit>) {
     let stamp_before = file_stamp(file);
     // These changes on the file as another window may have left it; one that cannot be read
     // is not written over with these changes alone, as every other mark would be lost.
-    let taken = names_taken(&changes);
     let edit = |bytes: &[u8]| {
+        // The files are checked under the file's lock, which another window's Rename Many
+        // takes to make the marks follow its swap. Checked before it, stars waited for that
+        // swap and then went on the other photo.
+        let (taken, refused) = names_taken(&changes);
         // Under the file's lock: no other window wrote since this one read or wrote it. The file
         // is looked at before `KNOWN_STAMPS` is taken, as in `read_file_again`.
         let stamp = file_stamp(file);
@@ -557,13 +558,20 @@ fn write(file: &Path, changes: Vec<Edit>) {
         // An edit that changes no mark, as a move of files without marks, leaves the file as
         // it is. So it is not written again, and the other windows do not read it again.
         if map == before {
-            return (bytes.to_vec(), ours);
+            return (bytes.to_vec(), (ours, refused));
         }
         let mut text = to_text(&map);
         text.extend(unread_lines(bytes));
-        (text, ours)
+        (text, (ours, refused))
     };
     let result = crate::files::file_io::edit_shared(file, edit);
+    // The first file refused is told once the lock is let go.
+    let result = result.map(|(ours, refused)| {
+        if let Some(refused) = refused {
+            crate::files::file_io::save_failed(refused);
+        }
+        ours
+    });
     // Ours alone, the window's marks are the file now; else it is read again.
     // shortcut: the file is looked at just after the lock is let go; a window that wrote in that
     // moment goes unseen until the file changes again.
@@ -1080,6 +1088,49 @@ mod tests {
         super::write(&file, super::SENT.with(|sent| sent.take()));
         let now = super::parse(&std::fs::read(&file).unwrap());
         assert_eq!((now.get(&a), now.get(&b)), (None, Some(&(0, 3))));
+        super::TEST_FILE.with(|f| *f.borrow_mut() = None);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// Stars for a photo whose name another window's Rename Many gives to another photo, while
+    /// the stars wait for the marks file's lock, go on neither photo. That window holds the lock
+    /// to make the marks follow its swap. Before, the check was made before the lock, passed,
+    /// and the stars went on the other photo.
+    #[test]
+    fn stars_waiting_for_another_windows_swap_are_checked_after_it() {
+        let dir =
+            std::env::temp_dir().join(format!("glimt-test-marks-swap-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("marks");
+        super::TEST_FILE.with(|f| *f.borrow_mut() = Some(file.clone()));
+        let (a, b) = (dir.join("a.png"), dir.join("b.png"));
+        std::fs::write(&a, "a").unwrap();
+        std::fs::write(&b, "b").unwrap();
+        let identity = crate::files::file_io::identity_of(&a);
+        let listed =
+            crate::files::file_io::ListedFile::new(a.clone(), identity, &Default::default());
+        let (held, lock_held) = std::sync::mpsc::channel();
+        let other = std::thread::spawn({
+            let (file, a, b) = (file.clone(), a.clone(), b.clone());
+            move || {
+                crate::files::file_io::edit_shared(&file, |old| {
+                    held.send(()).unwrap();
+                    std::thread::sleep(std::time::Duration::from_millis(300));
+                    std::fs::rename(&a, a.with_extension("between")).unwrap();
+                    std::fs::rename(&b, &a).unwrap();
+                    std::fs::rename(a.with_extension("between"), &b).unwrap();
+                    (old.to_vec(), ())
+                })
+                .unwrap();
+            }
+        });
+        lock_held.recv().unwrap();
+        super::read_marks().rate(&[listed], 3);
+        super::write(&file, super::SENT.with(|sent| sent.take()));
+        other.join().unwrap();
+        let now = super::parse(&std::fs::read(&file).unwrap_or_default());
+        assert_eq!((now.get(&a), now.get(&b)), (None, None));
         super::TEST_FILE.with(|f| *f.borrow_mut() = None);
         std::fs::remove_dir_all(dir).unwrap();
     }

@@ -1986,9 +1986,9 @@ impl crate::App {
     /// over, and is then sent to the names its files have (`send_waiting_sidecar_writes`).
     /// Stop leaves a write of one file, which is an edit the user made (`stop_jobs`).
     ///
-    /// Each file is checked right before its write to be the one the list showed under its name
-    /// (`ListedFile::check`). One that another file has taken the name of is left alone, told,
-    /// and counted as failed.
+    /// Each file is checked right before its write, under its sidecar's lock, to be the one the
+    /// list showed under its name (`xmp::write_for`). One that another file has taken the name
+    /// of is left alone, told, and counted as failed.
     ///
     /// Each file in `files` comes with what is written to it, and `write` is given both. So
     /// `write` never looks up its data by the path it is given: after a rename, that path may
@@ -2039,18 +2039,13 @@ impl crate::App {
                         break;
                     }
                     // A file that another file has taken the name of since the list was read is
-                    // left alone. A file that makes the writing panic counts as one that failed,
-                    // and the files after it are still written.
-                    match file.check() {
-                        Ok(()) => {
-                            let written = catch_panic(|| write(k, file.path()));
-                            failed += !written.unwrap_or(false) as usize;
-                        }
-                        Err(e) => {
-                            failed += 1;
-                            refused.get_or_insert(format!("{}: {e}", file.path().display()));
-                        }
-                    }
+                    // left alone: `write_for` has it checked under the sidecar's lock, and the
+                    // first refusal is told. A file that makes the writing panic counts as one
+                    // that failed, and the files after it are still written.
+                    let written = catch_panic(|| xmp::write_for(file, || write(k, file.path())));
+                    let (written, refusal) = written.unwrap_or((false, None));
+                    failed += !written as usize;
+                    refused = refused.or(refusal);
                     job.count_done(1);
                 }
                 if let Some(first) = refused {
@@ -2712,6 +2707,10 @@ fn rename_undoable(
     job: &Job,
 ) -> RenameOutcome {
     let from: Vec<PathBuf> = listed.iter().map(|f| f.path().to_path_buf()).collect();
+    // The sidecars are locked before the files are checked. Another window's Rename Many holds
+    // them while it swaps names, so a check before the lock passed and then renamed the other
+    // photo once the swap was done.
+    let locks = xmp::lock_sidecars(&from);
     let left_alone: Vec<usize> = (0..from.len())
         .filter(|&k| picked.still_the_one_picked(&from[k]).is_err())
         .collect();
@@ -2722,7 +2721,7 @@ fn rename_undoable(
     let (kept_from, kept_to) = pairs.iter().cloned().unzip();
     let (result, names_known, stopped) = match pairs.is_empty() {
         true => (Ok(()), true, false),
-        false => match rename_files(kept_from, kept_to, job) {
+        false => match rename_files(kept_from, kept_to, job, locks) {
             Ok(()) => (Ok(()), true, false),
             Err(e) => (Err(e.text), e.names_put_back, e.stopped),
         },
@@ -2749,26 +2748,28 @@ fn rename_undoable(
 /// Renames `from` to `to` with their sidecars, all or none. It is refused when a new name is
 /// another file's. When names swap, it goes through temporary names. The plan is on disk while
 /// it runs, and a failure is undone. It never replaces a file, also not one that another
-/// program makes meanwhile.
+/// program makes meanwhile. `locks` are the locks of the sidecars of `from`
+/// (`xmp::lock_sidecars`), which the caller took before it checked the files.
 pub(crate) fn rename_files(
     from: Vec<PathBuf>,
     to: Vec<PathBuf>,
     job: &Job,
+    locks: Vec<xmp::SidecarLock>,
 ) -> Result<(), RenameFailed> {
-    rename_files_planned_in(journal::journal_dir(), from, to, job)
+    rename_files_planned_in(journal::journal_dir(), from, to, job, locks)
 }
 
 /// Renames `from` to `to` as `rename_files` does, with the plan in the folder `plans`. Nothing
-/// is renamed when the plan cannot be written there.
+/// is renamed when the plan cannot be written there. The sidecars are held as a sidecar write
+/// holds them (`_locks`), from before the look at which files have one. Otherwise a keyword
+/// written meanwhile would land on an old name.
 fn rename_files_planned_in(
     plans: Option<PathBuf>,
     from: Vec<PathBuf>,
     to: Vec<PathBuf>,
     job: &Job,
+    _locks: Vec<xmp::SidecarLock>,
 ) -> Result<(), RenameFailed> {
-    // The sidecars are held as a sidecar write holds them, from before the look at which files
-    // have one. Otherwise a keyword written meanwhile would land on an old name.
-    let _locks = xmp::lock_sidecars(&from);
     // Sidecars go with their files, through the same steps.
     let (mut from, mut to) = (from, to);
     let mut sidecar_names = xmp::AdobeNames::default();
@@ -3282,6 +3283,17 @@ pub(crate) fn new_place(path: &Path, moved: &HashMap<&Path, &Path>) -> Option<Pa
 mod tests {
     use crate::support::test_support::{app_on, contract_folder, run_background_until};
     use crate::support::threads::{Told, lock_even_if_poisoned};
+    use std::path::PathBuf;
+
+    /// `rename_files` with the sidecars' locks taken first, as `rename_undoable` takes them.
+    fn rename_files(
+        from: Vec<PathBuf>,
+        to: Vec<PathBuf>,
+        job: &super::Job,
+    ) -> Result<(), super::RenameFailed> {
+        let locks = crate::metadata::xmp::lock_sidecars(&from);
+        super::rename_files(from, to, job, locks)
+    }
 
     /// A copy looks up its folder's real path in the background and starts its job when the
     /// answer comes. Before, the window's thread waited for the disk there, which a share that
@@ -3688,7 +3700,7 @@ mod tests {
         let job = super::Job::new("Renaming", 2, false, Vec::new());
         // The renames' folder fails to sync, and the state folder with the plan does not.
         crate::files::file_io::FOLDER_SYNC_FAILS_IN.set(Some(dir.clone()));
-        let swapped = super::rename_files(
+        let swapped = rename_files(
             vec![p("a.jpg"), p("b.jpg")],
             vec![p("b.jpg"), p("a.jpg")],
             &job,
@@ -3718,7 +3730,7 @@ mod tests {
         // The second step, b.jpg to its hidden name, is linked and its unlink answers EIO.
         crate::files::file_io::RENAME_WAYS_MISSING.set(1);
         crate::files::file_io::UNLINK_FAILS.set(Some((p("b.jpg"), libc::EIO)));
-        let swapped = super::rename_files(
+        let swapped = rename_files(
             vec![p("a.jpg"), p("b.jpg")],
             vec![p("b.jpg"), p("a.jpg")],
             &job,
@@ -3759,7 +3771,7 @@ mod tests {
         let long = format!("{}.jpg", "x".repeat(300));
         let job = super::Job::new("Renaming", 2, false, Vec::new());
         // The last step, b.jpg's hidden name to the long name, fails with ENAMETOOLONG.
-        let swapped = super::rename_files(
+        let swapped = rename_files(
             vec![p("a.jpg"), p("b.jpg")],
             vec![p("b.jpg"), p(&long)],
             &job,
@@ -3935,6 +3947,7 @@ mod tests {
             vec![p("a.jpg"), p("b.jpg")],
             vec![p("b.jpg"), p("a.jpg")],
             &job,
+            crate::metadata::xmp::lock_sidecars(&[p("a.jpg"), p("b.jpg")]),
         );
         let refused = refused.err().unwrap();
         assert!(refused.names_put_back);
@@ -3961,7 +3974,7 @@ mod tests {
             std::fs::write(p(n), t).unwrap();
         }
         let job = super::Job::new("Renaming", 2, false, Vec::new());
-        super::rename_files(
+        rename_files(
             vec![p("a.jpg"), p("b.jpg")],
             vec![p("b.jpg"), p("a.jpg")],
             &job,
@@ -3973,16 +3986,16 @@ mod tests {
             ("b".into(), "a".into(), "a's".into())
         );
         std::fs::write(p("c.jpg.xmp"), "c's").unwrap();
-        assert!(super::rename_files(vec![p("b.jpg")], vec![p("c.jpg")], &job).is_err());
+        assert!(rename_files(vec![p("b.jpg")], vec![p("c.jpg")], &job).is_err());
         // This also holds for a file without a sidecar of its own, because it would show c's
         // keywords.
         std::fs::write(p("d.jpg"), "d").unwrap();
-        assert!(super::rename_files(vec![p("d.jpg")], vec![p("c.jpg")], &job).is_err());
+        assert!(rename_files(vec![p("d.jpg")], vec![p("c.jpg")], &job).is_err());
         // A sidecar that is a link pointing nowhere goes with its file too, not left behind for
         // the next file of the old name.
         crate::files::file_io::create_file(&p("f.jpg"), "f").unwrap();
         std::os::unix::fs::symlink(p("nowhere"), p("f.jpg.xmp")).unwrap();
-        super::rename_files(vec![p("f.jpg")], vec![p("g.jpg")], &job).unwrap();
+        rename_files(vec![p("f.jpg")], vec![p("g.jpg")], &job).unwrap();
         assert!(std::fs::symlink_metadata(p("f.jpg.xmp")).is_err());
         assert!(crate::files::file_io::is_link(&p("g.jpg.xmp")).unwrap());
         // A new name that is the file itself, as G.JPG is g.jpg on a camera card, is not taken,
@@ -3997,19 +4010,19 @@ mod tests {
         assert!(super::ours_but_case(&[p("g.jpg")], [p("G.JPG")].into_iter(), card).is_ok());
         // On a disk that keeps case, the folder lists both, so G.JPG is a name of its own: the
         // rename is refused, and both names stay.
-        assert!(super::rename_files(vec![p("g.jpg")], vec![p("G.JPG")], &job).is_err());
+        assert!(rename_files(vec![p("g.jpg")], vec![p("G.JPG")], &job).is_err());
         assert!(read("g.jpg") == "f" && read("G.JPG") == "f");
         std::fs::remove_file(p("G.JPG")).unwrap();
         // A hard link under another name is a name of its own: renaming onto it is refused,
         // and both names stay.
         std::fs::hard_link(p("g.jpg"), p("h.jpg")).unwrap();
-        assert!(super::rename_files(vec![p("g.jpg")], vec![p("h.jpg")], &job).is_err());
+        assert!(rename_files(vec![p("g.jpg")], vec![p("h.jpg")], &job).is_err());
         assert!(p("g.jpg").exists() && p("h.jpg").exists());
         std::fs::remove_file(p("h.jpg")).unwrap();
         // Stopped before the first step, nothing is renamed, and the error says it stopped.
         job.stop_requested
             .store(true, std::sync::atomic::Ordering::Relaxed);
-        let stopped = super::rename_files(vec![p("d.jpg")], vec![p("e.jpg")], &job);
+        let stopped = rename_files(vec![p("d.jpg")], vec![p("e.jpg")], &job);
         assert!(stopped.unwrap_err().text.contains("stopped") && p("d.jpg").exists());
         assert!(p("d.jpg").exists() && !p("c.jpg").exists());
         // The one rule, by name. The file in the way comes first, then the other file's
@@ -4042,7 +4055,7 @@ mod tests {
             ),
             Some(p("d.jpg"))
         );
-        let refused = super::rename_files(vec![p("b.jpg")], vec![p("d.jpg.xmp")], &job);
+        let refused = rename_files(vec![p("b.jpg")], vec![p("d.jpg.xmp")], &job);
         assert!(refused.unwrap_err().text.contains("d.jpg exists already"));
         assert_eq!(
             (read("b.jpg"), read("c.jpg.xmp")),
@@ -6408,6 +6421,93 @@ mod tests {
             "a keyword is on the other photo"
         );
         std::fs::remove_dir_all(d).unwrap();
+    }
+
+    /// Swaps the files `a` and `b` in another thread, as another window's Rename Many does:
+    /// it holds the locks of their sidecars from before the swap until after it. Returns the
+    /// thread once the locks are held, so that what the test starts next waits for them.
+    fn swap_in_another_window(
+        a: &std::path::Path,
+        b: &std::path::Path,
+    ) -> std::thread::JoinHandle<()> {
+        let (a, b) = (a.to_path_buf(), b.to_path_buf());
+        let (held, locks_held) = std::sync::mpsc::channel();
+        let other = std::thread::spawn(move || {
+            let locks = crate::metadata::xmp::lock_sidecars(&[a.clone(), b.clone()]);
+            held.send(()).unwrap();
+            // Long enough for a check made before the lock to be made before the swap.
+            std::thread::sleep(std::time::Duration::from_millis(300));
+            let between = a.with_extension("between");
+            std::fs::rename(&a, &between).unwrap();
+            std::fs::rename(&b, &a).unwrap();
+            std::fs::rename(&between, &b).unwrap();
+            drop(locks);
+        });
+        locks_held.recv().unwrap();
+        other
+    }
+
+    /// A keyword for a photo whose name another window's Rename Many gives to another photo
+    /// while the keyword waits for the sidecar's lock goes on neither photo. Before, the check
+    /// was made before the lock, passed, and the keyword went on the other photo.
+    #[test]
+    fn a_keyword_waiting_for_another_windows_swap_is_checked_after_it() {
+        let dir =
+            std::env::temp_dir().join(format!("glimt-test-swap-keyword-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let (a, b) = (dir.join("a.png"), dir.join("b.png"));
+        image::RgbImage::new(2, 2).save(&a).unwrap();
+        image::RgbImage::new(3, 3).save(&b).unwrap();
+        let (mut app, ctx) = app_on(&dir);
+        let identity = crate::files::file_io::identity_of(&a);
+        let listed =
+            crate::files::file_io::ListedFile::new(a.clone(), identity, &Default::default());
+        let other = swap_in_another_window(&a, &b);
+        app.write_sidecars(
+            &ctx,
+            "Keywords",
+            vec![(listed, ())],
+            |p, _| crate::metadata::xmp::add_tags(p, &["Oslo".into()]).is_ok(),
+            |_, _| None,
+        );
+        other.join().unwrap();
+        assert!(run_background_until(&mut app, &ctx, |app| !app
+            .file_operations
+            .is_writing_sidecars()));
+        let keywords = |p: &std::path::Path| crate::metadata::xmp::read(p).keywords;
+        assert!(keywords(&a).is_empty(), "the keyword is on the other photo");
+        assert!(keywords(&b).is_empty());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A rename of a photo whose name another window's Rename Many gives to another photo while
+    /// the rename waits for the sidecars' locks leaves the other photo alone. Before, the check
+    /// was made before the lock, passed, and the other photo was renamed.
+    #[test]
+    fn a_rename_waiting_for_another_windows_swap_is_checked_after_it() {
+        let dir =
+            std::env::temp_dir().join(format!("glimt-test-swap-rename-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let (a, b, c) = (dir.join("a.png"), dir.join("b.png"), dir.join("c.png"));
+        image::RgbImage::new(2, 2).save(&a).unwrap();
+        image::RgbImage::new(3, 3).save(&b).unwrap();
+        let (mut app, ctx) = app_on(&dir);
+        let picked = crate::files::file_io::PickedFiles::new(vec![a.clone()]);
+        let identity = crate::files::file_io::identity_of(&a);
+        let listed =
+            crate::files::file_io::ListedFile::new(a.clone(), identity, &Default::default());
+        let other = swap_in_another_window(&a, &b);
+        app.rename_in_background(&ctx, vec![listed], vec![c.clone()], picked);
+        other.join().unwrap();
+        assert!(run_background_until(&mut app, &ctx, |app| app
+            .file_operations
+            .renaming
+            .is_none()));
+        assert!(!c.exists(), "the other photo was renamed");
+        assert_eq!(image::image_dimensions(&a).unwrap(), (3, 3));
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     /// A sidecar write that waited for a Rename Many that failed, and could not put every old

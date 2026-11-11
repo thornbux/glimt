@@ -6,6 +6,7 @@
 //! when their files move.
 
 use crate::files::config::fits_on_a_line;
+use crate::files::file_io::ListedFile;
 use crate::support::format::without_control_characters;
 use crate::support::threads::lock_even_if_poisoned;
 use std::path::{Path, PathBuf};
@@ -78,6 +79,13 @@ const KNOWN_NAMESPACES: [(&str, &str); 31] = [
 /// The 64 locks within this Glimt, by `sidecar_lock_number`.
 #[cfg(not(test))]
 static SIDECAR_LOCKS: [std::sync::Mutex<()>; 64] = [const { std::sync::Mutex::new(()) }; 64];
+
+thread_local! {
+    /// The file the sidecar write of this thread is for (`write_for`), which `update` checks
+    /// under the sidecar's lock, and the refusal of that check.
+    static WRITING_FOR: std::cell::RefCell<Option<(ListedFile, Option<String>)>> =
+        const { std::cell::RefCell::new(None) };
+}
 
 #[derive(Clone, Default, PartialEq, Debug)]
 pub struct KeywordsAndComment {
@@ -533,6 +541,18 @@ fn write_keywords(
     })
 }
 
+/// Runs `write`, a sidecar write of `file`, which has `file` checked to be the file the list
+/// showed (`ListedFile::check`) under the sidecar's lock, right before its sidecar is written
+/// (`update`). Another window's Rename Many holds that lock while it swaps names, so a check
+/// before the lock passed, waited for the swap, and wrote on the other photo's sidecar.
+/// Returns what `write` returns, and the error of the check when it refused the write.
+pub(crate) fn write_for<R>(file: &ListedFile, write: impl FnOnce() -> R) -> (R, Option<String>) {
+    WRITING_FOR.set(Some((file.clone(), None)));
+    let written = write();
+    let refused = WRITING_FOR.take().and_then(|(_, refused)| refused);
+    (written, refused)
+}
+
 /// Holds the lock of the sidecar of `path` while it is read and written again, by this
 /// window's threads and by every other Glimt window. So keywords added in the background, stars
 /// saved and a comment edited in another window meanwhile each keep what the others wrote.
@@ -676,6 +696,15 @@ fn update(
         return Err(
             crate::support::lang::tr("the image was moved, renamed or deleted meanwhile").into(),
         );
+    }
+    // The file the write is for is still the one the list showed, looked at under the lock.
+    let refused = WRITING_FOR.with_borrow_mut(|writing| {
+        let (file, refused) = writing.as_mut().filter(|(file, _)| file.path() == path)?;
+        let e = format!("{}: {}", path.display(), file.check().err()?);
+        Some(refused.insert(e).clone())
+    });
+    if let Some(e) = refused {
+        return Err(e);
     }
     let side = sidecar(path);
     // A link is not written through, because a downloaded folder may point IMG.jpg.xmp at
