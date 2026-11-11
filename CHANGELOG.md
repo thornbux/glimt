@@ -10,6 +10,11 @@ and versions follow [Semantic Versioning](https://semver.org/).
 - Copy for Sharing lists a JPEG's markers that a decoder does not need, such as JPG0, as tags
   that Remove All leaves out, instead of copying them whatever they hold. An Adobe segment
   keeps only its 12 bytes, so text after them is no longer carried.
+- After Glimt was killed during a Move, the next start lets the marks, stars and sidecar of a
+  file that went follow it only when its new name still holds that file. Before, a photo that
+  another program put there since, or a later photo of that name when the Move's log outlived
+  it, got them. Each log now has a list of the files it moves in `moves/files`, beside it,
+  which older versions leave alone; a log without one is read as before.
 
 ## [0.81.1] - 2026-11-11
 

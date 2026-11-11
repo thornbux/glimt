@@ -564,6 +564,10 @@ A Rename Many while it runs, so that one cut short by a crash is put right at th
 .I $XDG_STATE_HOME/glimt/moves
 A Move while it runs, so that the marks, stars and collection entries of the files moved before
 Glimt was killed follow them at the next start.
+Its folder
+.I files
+holds, for each log, the size and time of each file moved, so that they follow only a file
+that is still the one moved.
 .TP
 .I $XDG_DATA_HOME/glimt/formats
 Added formats: desktop files whose command turns a file of a format Glimt does not read itself

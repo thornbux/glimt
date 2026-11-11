@@ -5295,11 +5295,25 @@ mod tests {
         // b.png was written down, and the kill came before it went.
         log.note(&b, &to.join("b.png"));
         drop(log);
-        let send_found = |app: &crate::App| {
+        // A copy of the log and its list of files, to find again as a log that outlived its Move.
+        let kept = dir.join("kept");
+        std::fs::create_dir_all(kept.join("files")).unwrap();
+        let logs_files = || {
+            let names = std::fs::read_dir(&logs).unwrap().flatten();
+            let names = names.filter(|e| e.path().is_file()).map(|e| e.file_name());
+            names.collect::<Vec<_>>()
+        };
+        for name in logs_files() {
+            for folder in ["", "files"] {
+                let (at, copy) = (logs.join(folder).join(&name), kept.join(folder).join(&name));
+                std::fs::copy(at, copy).unwrap();
+            }
+        }
+        let send_found = |app: &crate::App, expected: &[(PathBuf, PathBuf)]| {
             let found = super::journal::moves_cut_short(&logs);
             let count = found.len();
             for (log, went) in found {
-                assert_eq!(went, vec![(a.clone(), to.join("a.png"))]);
+                assert_eq!(went, expected);
                 // Another window that starts meanwhile leaves the log alone.
                 assert!(super::journal::moves_cut_short(&logs).is_empty());
                 let report = super::OperationReport {
@@ -5311,19 +5325,52 @@ mod tests {
             }
             count
         };
-        let no_log_left = |_: &crate::App| std::fs::read_dir(&logs).unwrap().count() == 0;
-        assert_eq!(send_found(&app), 1);
+        let no_log_left = |_: &crate::App| {
+            logs_files().is_empty() && std::fs::read_dir(logs.join("files")).unwrap().count() == 0
+        };
+        let went = [(a.clone(), to.join("a.png"))];
+        assert_eq!(send_found(&app, &went), 1);
         assert!(run_background_until(&mut app, &ctx, no_log_left));
         assert_eq!(stars(&app, &to.join("a.png")), marked);
         assert_eq!(stars(&app, &a), 0);
         assert_eq!(stars(&app, &b), marked);
+        let found_again = || {
+            for entry in std::fs::read_dir(&kept).unwrap().flatten() {
+                if entry.path().is_file() {
+                    let name = entry.file_name();
+                    std::fs::copy(entry.path(), logs.join(&name)).unwrap();
+                    let list = kept.join("files").join(&name);
+                    std::fs::copy(list, logs.join("files").join(&name)).unwrap();
+                }
+            }
+        };
         // Found again, as after a kill just before the log went, the stars stay on a.png.
-        let mut again = super::journal::start_move_log(&logs).unwrap();
-        again.note(&a, &to.join("a.png"));
-        drop(again);
-        assert_eq!(send_found(&app), 1);
+        found_again();
+        assert_eq!(send_found(&app, &went), 1);
         assert!(run_background_until(&mut app, &ctx, no_log_left));
         assert_eq!(stars(&app, &to.join("a.png")), marked);
+        // A later photo took a.png's new name, and another one rated at its old name went
+        // outside Glimt. The log found again leaves their stars alone. Before, the stars of the
+        // old name went to the later photo.
+        std::fs::remove_file(to.join("a.png")).unwrap();
+        std::fs::write(to.join("a.png"), b"a later photo").unwrap();
+        #[cfg(feature = "marks")]
+        app.marks.rate(
+            &crate::support::test_support::unlisted(&[to.join("a.png")]),
+            0,
+        );
+        #[cfg(feature = "marks")]
+        app.marks.rate(
+            &crate::support::test_support::unlisted(std::slice::from_ref(&a)),
+            5,
+        );
+        found_again();
+        assert_eq!(send_found(&app, &[]), 1);
+        assert!(run_background_until(&mut app, &ctx, no_log_left));
+        assert_eq!(stars(&app, &to.join("a.png")), 0);
+        assert_eq!(stars(&app, &a), if cfg!(feature = "marks") { 5 } else { 0 });
+        let told = crate::files::file_io::take_saves_failed();
+        assert!(told.iter().any(|t| t.contains("a.png")), "{told:?}");
         std::fs::remove_dir_all(dir).unwrap();
     }
 
@@ -5351,7 +5398,9 @@ mod tests {
         }
         let followed = |_: &crate::App| {
             std::fs::read_to_string(&gqv).unwrap().contains("sub/a.png")
-                && std::fs::read_dir(&logs).unwrap().count() == 0
+                && std::fs::read_dir(&logs)
+                    .unwrap()
+                    .all(|e| e.unwrap().path().is_dir())
         };
         assert!(run_background_until(&mut app, &ctx, followed));
         std::fs::remove_dir_all(dir).unwrap();

@@ -20,8 +20,10 @@ const COUNTED: &[u8] = b"counted";
 
 /// The folder, in the plans' folder, of the photos that each plan's steps move: one line for each
 /// step, with the photo's fingerprint when the plan was made (`known_text`). It is a folder of its
-/// own, because a Glimt older than 0.81 reads every file beside the plans as a plan.
-const KNOWN_FOLDER: &str = "files";
+/// own, because a Glimt older than 0.81 reads every file beside the plans as a plan. The folder
+/// of the Moves' logs has one of the same name, for the files each log's pairs moved
+/// (`MoveLog::note`), because a Glimt older than 0.82 reads every file beside the logs as a log.
+pub(crate) const KNOWN_FOLDER: &str = "files";
 
 /// The start of the hidden name that a swap gives a file between its two steps
 /// (`file_ops::rename_files`). No other file takes such a name, and the plan's own steps fill it.
@@ -118,6 +120,9 @@ impl Drop for Journal {
 pub struct MoveLog {
     path: PathBuf,
     file: File,
+    /// The list of the files the log's pairs move, one line for each pair (`known_line`), at
+    /// `known_path(path)`. A log found at the start has none open, as it takes no more pairs.
+    known: Option<File>,
     /// Whether the log was found at the start, left by a Glimt that was killed.
     is_found_at_start: bool,
     /// The first write of the log that failed, on a full disk say. The log takes no more lines
@@ -126,20 +131,25 @@ pub struct MoveLog {
 }
 
 impl MoveLog {
-    /// Writes down that the file `from` goes to `to`, before it goes. It is not synced, because
-    /// a kill of Glimt does not need that. A write that fails is kept for `take_failure`, and the
-    /// file goes all the same: a Move is how a full disk is cleared, and without the line a kill
-    /// only leaves the file's marks behind, as before there was a log.
+    /// Writes down that the file `from` goes to `to`, before it goes, with the file's
+    /// fingerprint in the log's list of files. It is not synced, because a kill of Glimt does
+    /// not need that. A write that fails is kept for `take_failure`, and the file goes all the
+    /// same: a Move is how a full disk is cleared, and without the line a kill only leaves the
+    /// file's marks behind, as before there was a log.
     pub fn note(&mut self, from: &Path, to: &Path) {
-        if self.failure.is_some() {
+        let Some(known) = self.known.as_mut().filter(|_| self.failure.is_none()) else {
             return;
-        }
+        };
         let mut bytes = Vec::new();
         for p in [from, to] {
             bytes.extend(p.as_os_str().as_bytes());
             bytes.push(0);
         }
-        self.failure = self.file.write_all(&bytes).err();
+        // The fingerprint goes first, so that every pair in the log has its line in the list.
+        let line = known_line(crate::files::file_io::fingerprint(from));
+        self.failure = (known.write_all(line.as_bytes()))
+            .and_then(|_| self.file.write_all(&bytes))
+            .err();
     }
 
     /// Returns the first write of the log that failed, and `None` when every one worked.
@@ -154,6 +164,7 @@ impl MoveLog {
         MoveLog {
             path: path.to_path_buf(),
             file: File::open(path).unwrap(),
+            known: Some(File::open(path).unwrap()),
             is_found_at_start: false,
             failure: None,
         }
@@ -172,8 +183,10 @@ impl MoveLog {
         crate::files::file_io::write_later_in_user_folders(move || {
             // A log left behind makes the marks follow again at every start, so a failure is
             // told.
+            // The list goes after the log, as a log without its list is taken by its names.
             crate::files::file_io::write_later(move || {
-                crate::files::file_io::remove_own_or_tell(&self.path)
+                crate::files::file_io::remove_own_or_tell(&self.path);
+                crate::files::file_io::remove_own_or_tell(&known_path(&self.path));
             });
         });
     }
@@ -190,19 +203,24 @@ pub fn move_log_dir() -> Option<PathBuf> {
         .map(|d| d.join("moves"))
 }
 
-/// Makes a new log of a Move in `dir`, locked.
+/// Makes a new log of a Move in `dir`, locked, with its list of the files it moves.
 pub fn start_move_log(dir: &Path) -> std::io::Result<MoveLog> {
-    std::fs::create_dir_all(dir)?;
+    std::fs::create_dir_all(dir.join(KNOWN_FOLDER))?;
     let path = dir.join(new_name());
     #[allow(clippy::disallowed_methods)] // a log made new, in Glimt's own state folder
-    let file = std::fs::OpenOptions::new()
-        .append(true)
-        .create_new(true)
-        .open(&path)?;
+    let open_new = |path: &Path| {
+        std::fs::OpenOptions::new()
+            .append(true)
+            .create_new(true)
+            .open(path)
+    };
+    let file = open_new(&path)?;
     file.try_lock().map_err(std::io::Error::from)?;
+    let known = Some(open_new(&known_path(&path))?);
     Ok(MoveLog {
         path,
         file,
+        known,
         is_found_at_start: false,
         failure: None,
     })
@@ -210,8 +228,9 @@ pub fn start_move_log(dir: &Path) -> std::io::Result<MoveLog> {
 
 /// The logs in `dir` of Moves that Glimt was killed during, which are those no running window
 /// holds locked. Each comes with the files that went, `(from, to)`: those whose old name is
-/// surely not there any more and whose new one is. A file that had not gone yet is still at its
-/// old name. A sidecar that the kill left at a file's old name is moved to the file here
+/// surely not there any more and whose new one is and holds the file that went
+/// (`is_the_file_that_went`). A file that had not gone yet is still at its old name. A sidecar
+/// that the kill left at a file's old name is moved to the file here
 /// (`sidecars_follow_the_files_that_went`). Each log is held locked until it is removed.
 pub fn moves_cut_short(dir: &Path) -> Vec<(MoveLog, Moves)> {
     let entries = std::fs::read_dir(dir).into_iter().flatten().flatten();
@@ -233,20 +252,70 @@ pub fn moves_cut_short(dir: &Path) -> Vec<(MoveLog, Moves)> {
             if bytes.is_empty() {
                 return None;
             }
+            let known = read_move_known(&known_path(&e.path()));
             // A pair cut off by the kill has names that are not there, and is left out so.
-            let went: Moves = (parse_move_log(&bytes).into_iter())
-                .filter(|(from, to)| is_surely_gone(from) && is_surely_there(to))
+            let went: Moves = (parse_move_log(&bytes).into_iter().enumerate())
+                .filter(|(_, (from, to))| is_surely_gone(from) && is_surely_there(to))
+                .filter(|(step, (_, to))| is_the_file_that_went(to, known.as_deref(), *step))
+                .map(|(_, pair)| pair)
                 .collect();
             sidecars_follow_the_files_that_went(&went);
             let log = MoveLog {
                 path: e.path(),
                 file,
+                known: None,
                 is_found_at_start: true,
                 failure: None,
             };
             Some((log, went))
         })
         .collect()
+}
+
+/// Returns the fingerprint of the file each pair of a Move's log moved, from the log's list of
+/// files at `path` (`MoveLog::note`). Returns `None` when the log has no list, as a log of a
+/// Glimt before 0.82 has none, and an empty list when the list cannot be read, so that no pair
+/// is taken on trust.
+fn read_move_known(path: &Path) -> Option<Vec<Option<FileFingerprint>>> {
+    match crate::images::decode::read_text(path) {
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
+        Err(_) => Some(Vec::new()),
+        Ok(text) => Some(parse_move_known(&text)),
+    }
+}
+
+/// Returns the fingerprint of the file each pair of a Move's log moved, from `text`: one line
+/// for each pair (`known_line`), and `None` for a line that names none or is damaged.
+fn parse_move_known(text: &str) -> Vec<Option<FileFingerprint>> {
+    text.lines().map(parse_known_line).collect()
+}
+
+/// Returns whether the file at `to` is the file that the pair `step` of a Move's log moved
+/// there, by the log's list of files, `known`. Another program may have put another photo
+/// there since, and a log that outlived its Move (its removal failed) is found again at the
+/// next start, so the marks and the sidecar of the file that went would else go to a later
+/// photo of that name. A file is told by its size and time, which a move to another disk keeps
+/// (`put_file`). A log without a list, of a Glimt before 0.82, is taken by its names. A pair
+/// left alone is told.
+/// shortcut: a move to a card whose file system keeps coarser times (FAT) changes the time, so
+/// its pair is left alone after a kill; compare the times to the second if that matters.
+fn is_the_file_that_went(
+    to: &Path,
+    known: Option<&[Option<FileFingerprint>]>,
+    step: usize,
+) -> bool {
+    use crate::files::file_io::{KnownAs, changed_meanwhile, is_still_the_file};
+    let Some(known) = known else {
+        return true;
+    };
+    let is_it = match known.get(step).copied().flatten() {
+        Some(fingerprint) => is_still_the_file(to, KnownAs::size_and_time(fingerprint)),
+        None => Err(changed_meanwhile()),
+    };
+    if let Err(e) = &is_it {
+        crate::files::file_io::save_failed(format!("{}: {e}", to.display()));
+    }
+    is_it.is_ok()
 }
 
 /// Moves each sidecar that a Move killed between a photo and its sidecars left at the photo's
@@ -427,22 +496,25 @@ fn note_written_anew_in(dir: &Path, path: &Path, before: FileFingerprint) {
 /// (`known_text`). Returns an empty list when the text does not have one line for each step:
 /// a plan of a Glimt before 0.81, or a damaged one, whose steps are then taken by their names.
 fn parse_known(text: &str, steps: usize) -> Vec<Option<FileFingerprint>> {
-    let line = |line: &str| -> Option<FileFingerprint> {
-        let parts: Vec<&str> = line.split(' ').collect();
-        let [dev, ino, size, s, ns] = parts[..] else {
-            return None;
-        };
-        let id = match (dev, ino) {
-            ("-", "-") => None,
-            _ => Some((dev.parse().ok()?, ino.parse().ok()?)),
-        };
-        Some((id, size.parse().ok()?, (s.parse().ok()?, ns.parse().ok()?)))
-    };
-    let known: Vec<Option<FileFingerprint>> = text.lines().map(line).collect();
+    let known: Vec<Option<FileFingerprint>> = text.lines().map(parse_known_line).collect();
     match known.len() == steps {
         true => known,
         false => Vec::new(),
     }
+}
+
+/// Returns the fingerprint that a line of a list of files (`known_line`) names, and `None` for
+/// "-" and for a damaged line.
+fn parse_known_line(line: &str) -> Option<FileFingerprint> {
+    let parts: Vec<&str> = line.split(' ').collect();
+    let [dev, ino, size, s, ns] = parts[..] else {
+        return None;
+    };
+    let id = match (dev, ino) {
+        ("-", "-") => None,
+        _ => Some((dev.parse().ok()?, ino.parse().ok()?)),
+    };
+    Some((id, size.parse().ok()?, (s.parse().ok()?, ns.parse().ok()?)))
 }
 
 /// Returns the first name of `steps` (from, the step's file) that holds another file than the
@@ -964,6 +1036,42 @@ mod tests {
         assert_eq!(read(to.join("b.jpg.xmp")), "another's");
         assert_eq!(read(from.join("b.jpg.xmp")), "b.jpg.xmp");
         drop(found);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A Move's log found at the start gives only the pairs whose new name still holds the file
+    /// that went, and tells the others. Before, a photo that another program put at a new name
+    /// since got the marks and the sidecar of the file that went. A log of a Glimt before 0.82,
+    /// which has no list of files, is taken by its names.
+    #[test]
+    fn a_killed_move_follows_only_the_files_that_went() {
+        let dir =
+            std::env::temp_dir().join(format!("glimt-test-killed-who-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let (from, to, logs) = (dir.join("from"), dir.join("to"), dir.join("logs"));
+        std::fs::create_dir_all(&from).unwrap();
+        std::fs::create_dir_all(&to).unwrap();
+        for n in ["a.jpg", "b.jpg", "b.jpg.xmp"] {
+            std::fs::write(from.join(n), n).unwrap();
+        }
+        let mut log = super::start_move_log(&logs).unwrap();
+        for n in ["a.jpg", "b.jpg"] {
+            log.note(&from.join(n), &to.join(n));
+            std::fs::rename(from.join(n), to.join(n)).unwrap();
+        }
+        drop(log);
+        // Another program put another photo at b.jpg's new name since.
+        std::fs::write(to.join("b.jpg"), "another photo").unwrap();
+        crate::files::file_io::take_saves_failed();
+        let found = super::moves_cut_short(&logs);
+        let a = (from.join("a.jpg"), to.join("a.jpg"));
+        assert_eq!(found[0].1, vec![a]);
+        // The sidecar left at b.jpg's old name stays, and the pair left alone is told.
+        assert!(from.join("b.jpg.xmp").exists() && !to.join("b.jpg.xmp").exists());
+        assert_eq!(crate::files::file_io::take_saves_failed().len(), 1);
+        drop(found);
+        std::fs::remove_dir_all(logs.join(super::KNOWN_FOLDER)).unwrap();
+        assert_eq!(super::moves_cut_short(&logs)[0].1.len(), 2);
         std::fs::remove_dir_all(dir).unwrap();
     }
 
@@ -1635,6 +1743,20 @@ mod tests {
         for bytes in crate::support::test_support::broken(seed.as_bytes()) {
             let known = super::parse_known(&String::from_utf8_lossy(&bytes), 3);
             assert!(known.is_empty() || known.len() == 3);
+        }
+    }
+
+    /// Damaged lists of the files of a Move's log are read without a panic, and give no more
+    /// fingerprints than lines.
+    #[test]
+    fn survives_broken_lists_of_a_move_logs_files() {
+        let seed = "1 2 3 4 5\n- - 3 4 5\n-\n";
+        let known = super::parse_move_known(seed);
+        assert_eq!(known.len(), 3);
+        assert!(known[0].is_some() && known[1].is_some() && known[2].is_none());
+        for bytes in crate::support::test_support::broken(seed.as_bytes()) {
+            let text = String::from_utf8_lossy(&bytes);
+            assert!(super::parse_move_known(&text).len() <= text.lines().count());
         }
     }
 

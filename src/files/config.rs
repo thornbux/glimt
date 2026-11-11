@@ -1946,6 +1946,10 @@ mod tests {
             shown(super::sharing_path()),
             shown(crate::files::journal::journal_dir()),
             shown(crate::files::journal::move_log_dir()),
+            shown(
+                crate::files::journal::move_log_dir()
+                    .map(|d| d.join(crate::files::journal::KNOWN_FOLDER)),
+            ),
             shown(crate::model::collections::collections_dir()),
         ];
         #[cfg(feature = "marks")]

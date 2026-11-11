@@ -520,3 +520,4 @@ setting added_format_memory_mb
 file $XDG_STATE_HOME/glimt/moves
 option --wait
 sharing_tag JPEG marker 0xf0
+file $XDG_STATE_HOME/glimt/moves/files
