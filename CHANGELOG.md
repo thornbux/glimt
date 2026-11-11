@@ -32,6 +32,13 @@ and versions follow [Semantic Versioning](https://semver.org/).
 - The HDF5 added format reads only what the file holds. Before, a downloaded file could show
   another file of the user's through external storage, a link to another file or a virtual
   dataset, and it was saved as a thumbnail.
+- The keywords, comment, alt text, stars and orientation are read and written only as the
+  photo's own XMP properties. Before, those of another document inside a property, such as a
+  placed image in Photoshop's xmpMM:Pantry, were read as the photo's, and an edit, a turn or a
+  copy took them out or changed them.
+- A Move that cannot move a sidecar, such as someone else's in a shared folder, and copies it
+  instead says that the sidecar is still at the old name, where a later file of that name would
+  take it. Before, it said nothing.
 
 ## [0.81.1] - 2026-11-11
 
