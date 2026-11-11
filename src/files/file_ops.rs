@@ -41,6 +41,13 @@ pub(crate) const NOT_ON_FAT: [char; 8] = [':', '?', '*', '"', '<', '>', '|', '\\
 #[cfg(test)]
 static TEST_MOUNTS: std::sync::Mutex<Vec<(PathBuf, String)>> = std::sync::Mutex::new(Vec::new());
 
+// How many real paths `written_anew` looked up on this thread, so that a test can see that it
+// looks up only those that may be the files written.
+#[cfg(test)]
+thread_local! {
+    static REAL_PATHS_LOOKED_UP: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
 /// A Rename Many running in the background. It holds the list as it was (`List::version`),
 /// the files renamed with their new names, and which of them was shown.
 pub(crate) struct RenameJob {
@@ -1537,26 +1544,32 @@ impl crate::App {
     pub(crate) fn written_anew(&mut self, paths: &[PathBuf]) {
         if let Some(Undo::Move(pairs) | Undo::Rename(pairs)) = &mut self.file_operations.undo {
             let written: HashSet<&PathBuf> = paths.iter().collect();
+            let real_path = |p: &PathBuf| {
+                #[cfg(test)]
+                REAL_PATHS_LOOKED_UP.set(REAL_PATHS_LOOKED_UP.get() + 1);
+                p.canonicalize().ok()
+            };
             // A folder opened through a link spells the same file otherwise, so a pair of the
-            // same file name is compared by its real path too. Only the paths whose name a
-            // moved file has are looked up, so a tool's report of 200,000 files after a move
-            // of one costs no look at the disk for the others.
-            let moved: HashSet<std::ffi::OsString> = (pairs.iter())
+            // same file name is compared by its real path too. Only the paths whose name both a
+            // moved file and a file just written have are looked up. A tool's report of 200,000
+            // files after a move of one, or one file written after a move of 500,000, so costs
+            // no look at the disk for the others.
+            let moved: HashSet<&std::ffi::OsStr> = (pairs.iter())
                 .filter(|(_, to, _)| !written.contains(to))
-                .filter_map(|(_, to, _)| to.file_name().map(|n| n.to_owned()))
+                .filter_map(|(_, to, _)| to.file_name())
                 .collect();
             // shortcut: the real paths are looked up in the window's thread, but only of the
-            // files just written that have a moved file's name, which the write reached a moment
-            // ago; look them up with the write if a share is seen to hold the window here.
-            let real: HashSet<PathBuf> = (paths.iter())
-                .filter(|p| p.file_name().is_some_and(|n| moved.contains(n)))
-                .filter_map(|p| p.canonicalize().ok())
-                .collect();
+            // files just written and the moved files that share a name with one, which the write
+            // reached a moment ago; look them up with the write if a share is seen to hold the
+            // window here.
+            let (names, real): (HashSet<&std::ffi::OsStr>, HashSet<PathBuf>) = (paths.iter())
+                .filter_map(|p| Some((p.file_name().filter(|n| moved.contains(n))?, p)))
+                .filter_map(|(name, p)| Some((name, real_path(p)?)))
+                .unzip();
             let same = |to: &PathBuf| {
                 written.contains(to)
-                    || (!real.is_empty()
-                        && to.file_name().is_some_and(|n| moved.contains(n))
-                        && to.canonicalize().is_ok_and(|t| real.contains(&t)))
+                    || (to.file_name().is_some_and(|n| names.contains(n))
+                        && real_path(to).is_some_and(|t| real.contains(&t)))
             };
             // The file takes its new fingerprint, so a file put there later is still told apart.
             // One that is gone has nothing left to put back.
@@ -5775,6 +5788,39 @@ mod tests {
         app.delete_now(&ctx, false, vec![0]);
         let gone = |p: &std::path::Path| std::fs::symlink_metadata(p).is_err();
         assert!(run_background_until(&mut app, &ctx, |_| gone(&a) && gone(&side)));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A file written after a big move looks up the real paths only of the moved files that
+    /// share its name, in the window's thread. Before, one written file with a moved file's name
+    /// looked up the real path of every moved file, 500,000 of them after a move of a big folder.
+    /// The moved file it is, reached through a link, still takes its new fingerprint.
+    #[test]
+    fn a_file_written_after_a_big_move_looks_up_only_its_namesakes() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-namesakes-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("moved")).unwrap();
+        std::fs::write(dir.join("moved/1.png"), "turned").unwrap();
+        std::os::unix::fs::symlink(dir.join("moved"), dir.join("link")).unwrap();
+        let (mut app, _ctx) = app_on(&dir);
+        let none = (None, 0, (0, 0));
+        let pairs = (0..10_000).map(|n| {
+            let name = format!("{n}.png");
+            (
+                dir.join("old").join(&name),
+                dir.join("moved").join(&name),
+                none,
+            )
+        });
+        app.file_operations.undo = Some(super::Undo::Move(pairs.collect()));
+        super::REAL_PATHS_LOOKED_UP.set(0);
+        app.written_anew(&[dir.join("link/1.png")]);
+        assert_eq!(super::REAL_PATHS_LOOKED_UP.get(), 2);
+        let Some(super::Undo::Move(pairs)) = &app.file_operations.undo else {
+            panic!("the Undo is gone");
+        };
+        assert_eq!(pairs.len(), 10_000);
+        assert!(pairs[1].2 != none && pairs[2].2 == none);
         std::fs::remove_dir_all(dir).unwrap();
     }
 
