@@ -616,8 +616,11 @@ fn unlink_linked(from: &Path, to: &Path) -> std::io::Result<()> {
     }
     if unlink_was_refused(&e) {
         #[allow(clippy::disallowed_methods)] // the new name, taken back
-        let _ = std::fs::remove_file(to);
-        return Err(e);
+        let taken_back = std::fs::remove_file(to);
+        // A new name that stays is told below, as the file is then under both names.
+        if taken_back.is_ok() {
+            return Err(e);
+        }
     }
     let (from, to) = (from.display(), to.display());
     let text = crate::tf!(
@@ -974,6 +977,8 @@ pub(crate) fn put_file_until_stopped(
             })
             .and_then(|_| rename_never_over(&part, to));
         #[allow(clippy::disallowed_methods)] // the copy's hidden part
+        // Not told: a copy that failed is told by its own error, and a copy that took its name
+        // has no part left to remove.
         let _ = std::fs::remove_file(&part);
         copied
     };
@@ -1619,6 +1624,8 @@ pub fn write_beside_without_folder_sync(
         .and_then(|_| give_name(tmp));
     if result.is_err() {
         #[allow(clippy::disallowed_methods)] // the temporary file, not finished
+        // Not told: the write's own failure is returned, and a hidden name left takes no file's
+        // place.
         let _ = std::fs::remove_file(tmp);
     }
     result

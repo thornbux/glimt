@@ -4473,7 +4473,7 @@ fn dropped_writes_in(text: &str) -> Vec<usize> {
                 statement.push(c);
                 continue;
             }
-            let words = statement.trim();
+            let words = without_attributes(statement.trim());
             if let Some(line) = needs_else.take()
                 && !words.starts_with("else")
             {
@@ -4528,6 +4528,28 @@ fn dropped_writes_in(text: &str) -> Vec<usize> {
         }
     }
     found
+}
+
+/// Returns `statement` without the attributes in front of it (`#[allow(…)]`, `#[cfg(…)]`), so
+/// that a statement under one is read as the statement it is.
+fn without_attributes(statement: &str) -> &str {
+    let mut rest = statement;
+    while let Some(inside) = rest.strip_prefix("#[") {
+        let mut depth = 1;
+        let end = inside.find(|c| {
+            depth += match c {
+                '[' => 1,
+                ']' => -1,
+                _ => 0,
+            };
+            depth == 0
+        });
+        let Some(end) = end else {
+            return rest;
+        };
+        rest = inside[end + 1..].trim_start();
+    }
+    rest
 }
 
 /// Returns whether `statement` binds a name that starts with `_` (`let _name = …`) that `text`
@@ -4588,8 +4610,9 @@ fn write_results_are_not_dropped() {
     );
 }
 
-/// The check above finds a dropped write in each of its forms, also over several lines and in a
-/// match arm, and leaves a write that is handled alone, and a bound name that is used.
+/// The check above finds a dropped write in each of its forms, also over several lines, in a
+/// match arm and under an attribute, and leaves a write that is handled alone, and a bound name
+/// that is used.
 #[test]
 fn finds_a_dropped_write() {
     let text = "fn a() {\n    let _ = replace_file(p, b);\n    _ = create_file(p, b);\n    \
@@ -4619,8 +4642,12 @@ fn finds_a_dropped_write() {
         drop(std::fs::create_dir_all(d));\n    \
         let _ = std::fs::remove_dir_all(d); // Not told: a folder of its own\n    \
         std::fs::remove_file(p)?;\n    \
-        let _ = JpegEncoder::new(&mut jpeg).encode_image(&flat);\n}\n";
-    assert_eq!(dropped_writes_in(raw), [2, 3, 4, 9]);
+        let _ = JpegEncoder::new(&mut jpeg).encode_image(&flat);\n    \
+        #[allow(clippy::disallowed_methods)] // a reason for the allow\n    \
+        let _ = std::fs::remove_file(plan);\n    #[cfg(unix)]\n    \
+        let _ = replace_file(p, b);\n    #[allow(clippy::disallowed_methods)]\n    \
+        // Not told: a folder of its own\n    let _ = std::fs::remove_dir_all(d);\n}\n";
+    assert_eq!(dropped_writes_in(raw), [2, 3, 4, 9, 10, 12]);
 }
 
 /// A background thread's answer is held in a `threads::Receiving`, never in a bare

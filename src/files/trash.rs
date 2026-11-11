@@ -270,6 +270,8 @@ fn put_back(
         });
         if is_on_disk {
             #[allow(clippy::disallowed_methods)] // the .trashinfo of a file put back
+            // Not told: the file is back, and a .trashinfo left lists nothing, as its file is
+            // no longer in the trash.
             let _ = std::fs::remove_file(&t.info);
         }
     }
@@ -501,6 +503,7 @@ fn trash_by_hand(trash: &Path, files: &[(&Path, String)]) -> Vec<(PathBuf, std::
     }
     let remove = |trashinfo: &Path| {
         #[allow(clippy::disallowed_methods)] // a .trashinfo made just now, of a file not moved
+        // Not told: the file's own failure is told, and a .trashinfo left lists no file.
         let _ = std::fs::remove_file(trashinfo);
     };
     if let Err(e) = crate::files::file_io::sync_folder(&info) {

@@ -1511,7 +1511,12 @@ pub fn listen(
             .mode(0o700)
             .create(dir);
         #[allow(clippy::disallowed_methods)] // the runtime folder of the sockets
-        let _ = std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700));
+        let private = std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700));
+        if let Err(e) = private {
+            return Err(format!(
+                "No remote control: its folder there cannot be made private: {e}"
+            ));
+        }
         // A folder made by another user meanwhile, between the look in `dir` and here, is not
         // used.
         if is_another_users_dir(dir) {
@@ -1804,6 +1809,7 @@ fn bind_socket(path: &std::path::Path) -> Result<UnixListener, Option<std::io::E
         return Err(None);
     }
     #[allow(clippy::disallowed_methods)] // Glimt's own: a socket left by a Glimt gone
+    // Not told: a socket that stays makes the bind below fail, and that failure is returned.
     let _ = std::fs::remove_file(path);
     // Another window can take the name between the remove and this bind, as a rename links its
     // socket there without this lock. Its socket then answers, so it counts as taken.
@@ -1854,6 +1860,8 @@ fn move_socket(dir: &Path, old: &str, ids: &[String]) -> Result<String, String> 
                 Err(e) => return Err(e.to_string()),
             }
             #[allow(clippy::disallowed_methods)] // Glimt's own: its socket, linked anew
+            // Not told: the window has its new name either way, and the old one reaches it
+            // too until it closes.
             let _ = std::fs::remove_file(&from);
         }
         let focused = crate::images::decode::read_text(dir.join(FOCUSED_FILE)).ok();
@@ -1878,6 +1886,7 @@ fn link_socket(from: &std::path::Path, to: &std::path::Path) -> std::io::Result<
                 return Err(e);
             }
             #[allow(clippy::disallowed_methods)] // Glimt's own: a socket left by a Glimt gone
+            // Not told: the link just below then fails, and its error is returned.
             let _ = std::fs::remove_file(to);
             #[allow(clippy::disallowed_methods)] // a link to Glimt's own socket, never over a file
             std::fs::hard_link(from, to)
@@ -1984,6 +1993,8 @@ pub fn close() {
         && let Some(path) = socket(&own_socket_id())
     {
         #[allow(clippy::disallowed_methods)] // Glimt's own: its socket
+        // Not told: the window is closing, and the next Glimt of this name replaces a socket
+        // that nobody answers on (`bind_socket`).
         let _ = std::fs::remove_file(path);
     }
 }

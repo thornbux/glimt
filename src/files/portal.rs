@@ -238,6 +238,8 @@ pub fn print(
         .open(&at)
         .map_err(|e| e.to_string())?;
     #[allow(clippy::disallowed_methods)] // Glimt's own: the PDF's name, made just now
+    // Not told: the print goes on through the open file, and a name left stays in the
+    // temporary folder, which the system empties.
     let _ = std::fs::remove_file(&at);
     {
         let mut out = std::io::BufWriter::new(&mut file);
